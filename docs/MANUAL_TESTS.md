@@ -97,3 +97,26 @@ shared runners are too noisy for latency numbers.
 (kill-on-close Job object).
 
 **Last run:** not yet run.
+
+---
+
+## M1 · P-VST3 — out-of-process scanning (`prototypes/vst3-scan`)
+
+### MT-VST3-1 · Scan every installed plugin
+`target/release/vst3-scan scan --jobs 4 --timeout 30 --json prototypes/vst3-scan/out/scan-full.json`
+
+**Expected:** every module is either enumerated or classified (failed,
+timed out, crashed) and the scanner finishes. Every module with
+`moduleinfo.json` matches its factory. Record results in
+`docs/PLUGIN_COMPATIBILITY.md`.
+
+**Last run (2026-10-05):** pass. 39 of 40 enumerated, Opus failed in its own
+`DllMain`, 4 of 4 `moduleinfo.json` files match.
+
+### MT-VST3-2 · Isolation self-test (automated in CI on Windows)
+`cargo build --release -p vst3-scan -p vst3-test-module && target/release/vst3-scan selftest`
+
+**Expected:** PASS for crash contained, hang contained, and missing factory
+reported.
+
+**Last run (2026-10-05):** pass.

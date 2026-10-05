@@ -44,6 +44,14 @@ jobs:
         run: cargo test --workspace --all-targets --locked
       - name: Doc tests
         run: cargo test --workspace --doc --locked
+      # Scanner isolation: crashing, hanging and broken VST3 modules must be
+      # contained and classified (P-VST3).
+      - name: VST3 scanner isolation self-test
+        if: runner.os == 'Windows'
+        run: |
+          cargo build --release --locked -p vst3-scan -p vst3-test-module
+          target/release/vst3-scan selftest
+        shell: bash
 
   deny:
     name: licenses and advisories

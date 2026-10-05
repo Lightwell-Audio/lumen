@@ -324,8 +324,38 @@ Not covered yet: real plugins in the host (P-VST3 covers scanning only),
 editor windows across processes, the POSIX transport (futex / Mach
 semaphores), and parameter and event traffic beyond the audio buffers.
 
-### Evidence — P-VST3
-Pending.
+### Evidence — P-VST3 (`prototypes/vst3-scan`, `prototypes/vst3-test-module`), 2026-10-05
+All pass criteria met.
+- **The `vst3` crate 0.3 builds with no SDK, no libclang and no C++**
+  (pre-generated bindings) on the GNU target. Its `ComPtr`, `cast` and
+  generated `*Trait` methods were enough to enumerate every real factory.
+- **Real plugins: 39 of 40 installed modules enumerated** in sandboxed child
+  processes (`LoadLibraryEx` → `InitDll` → `GetPluginFactory` → class info
+  → `ExitDll`): 10.4 s wall time with 4 parallel processes (20.5 s of
+  per-module time). Kontakt 8, Omnisphere, FM8, u-he, 21 iZotope Ozone 12
+  modules, Neural DSP, Toontrack, Melodyne, Spitfire and IK all succeeded.
+  EastWest Opus failed in its own `DllMain` (`ERROR_DLL_INIT_FAILED`) after
+  8.9 s. It was cleanly classified, and the scanner was unaffected. See
+  `docs/PLUGIN_COMPATIBILITY.md`.
+- **`moduleinfo.json` fast path:** present in 4 of 40 modules (one in the
+  non-standard `Contents/` location). For all 4 it matches the factory exactly
+  (class names and class ids), so it can replace loading the binary when
+  present. Its practical value today is limited by low adoption.
+- **Isolation self-test** (deliberately misbehaving test module, now in CI on
+  Windows): a crash in `GetPluginFactory` was contained and classified
+  (`0xC0000005`, 74 ms); a hang was killed at the timeout; a missing factory
+  was reported.
+
+Findings that shape M6:
+1. Scanning cost is dominated by plugin `InitDll` and `DllMain` work
+   (Kontakt 1.9 s, Opus 8.9 s), so the scanner must be parallel,
+   cached and non-blocking, exactly as specified.
+2. Most real plugins (35 of 40 here) still ship the legacy single-file
+   layout. Discovery must keep supporting it.
+3. Sub-category strings are messy (`Fx|Fx|Guitar`). The browser should
+   normalise and de-duplicate them.
+
+Not covered: instantiation, processing, state, presets, editors (M6).
 
 ---
 

@@ -29,8 +29,8 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 1 | Repository, workspace, CI, license policy, RT allocation guard, benchmark harness, plan and ADRs | ✅ | `8d8f0a2` |
 | 2 | P-ENGINE: real-time core prototype. All criteria met: 0 heap operations, bit-identical across block sizes, 64 tracks × 128 frames = 0.85% of budget | ✅ | `5084725` |
 | 3 | P-ASIO: native ASIO probe. 7 drivers queried safely; 30 s Focusrite streams with 0 discontinuities and 0 heap operations; 64-frame ASIO4ALL stable | ✅ | `7a85a6f` |
-| 4 | P-ISO: isolation transport. 1 host p99 19.5 µs, 8 hosts p99 35.5 µs at 128 frames; crash and hang detected and replaced in about 11–13 ms with audio uninterrupted | ✅ | (this commit) |
-| 5 | P-VST3: out-of-process scanning of real plugins | 🔲 | |
+| 4 | P-ISO: isolation transport. 1 host p99 19.5 µs, 8 hosts p99 35.5 µs at 128 frames; crash and hang detected and replaced in about 11–13 ms with audio uninterrupted | ✅ | `0fbaf7d` |
+| 5 | P-VST3: out-of-process scanning. 39 of 40 real modules enumerated in 10.4 s; moduleinfo matches 4 of 4; crash, hang and no-factory test modules contained (CI self-test) | ✅ | (this commit) |
 | 6 | P-FORMAT: project format and time base | 🔲 | |
 | 7 | P-UI: dense-view rendering stress test | 🔲 | |
 | 8 | Evidence in ADRs, architecture doc, milestone report | 🔲 | |
@@ -61,7 +61,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Automated tests: core logic, editing, serialization and migration, audio (golden renders) | M | 🟡 | all | Harness in place |
 | Benchmarks with regression gates in CI | M | 🟡 | 1–2 | divan harness; gates in M2 (ADR-0011) |
 | CI on Windows, macOS, Linux | M | 🟡 | 1 | Workflow written; no remote yet, so never run |
-| Test plugin simulating good and bad behaviour; real-plugin compatibility matrix | M | 🔲 | 1, 6 | P-VST3 starts the matrix |
+| Test plugin simulating good and bad behaviour; real-plugin compatibility matrix | M | 🟡 | 1, 6 | Misbehaving test module (scan stage) + `docs/PLUGIN_COMPATIBILITY.md` (scan stage only) |
 | Real-time correctness enforced by tests | M | 🟡 | 1–2 | `lumen-rt` allocation guard (ADR-0010) |
 | High-DPI, 100–200% scaling, light and dark themes, keyboard-navigable, accessible names, colour-blind-safe | M | 🔲 | 3, 10 | P-UI checks AccessKit |
 | No telemetry by default; opt-in only | M | ✅ | — | Nothing collects data. Re-verify each milestone. |

@@ -1,0 +1,18 @@
+[package]
+name = "vst3-test-module"
+description = "Deliberately misbehaving VST3 module for scanner isolation tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+name = "vst3_test_module"
+crate-type = ["cdylib"]
+
+[target.'cfg(windows)'.dependencies.windows-sys]
+workspace = true
+features = ["Win32_Foundation", "Win32_System_LibraryLoader"]
+
+[lints]
+workspace = true
