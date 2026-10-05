@@ -112,18 +112,73 @@ focus and accessibility.
 | **Web UI** (Tauri / WebView2) | Best text, accessibility and polish tooling | Two languages; marshalling cost for dense data and meters; WebView memory and startup; plugin windows still native |
 | **Custom toolkit** (winit + wgpu + Vello + Parley + AccessKit) | Full control | Very high cost; reinvents focus, text input, IME and accessibility |
 
-### Decision (proposed)
-**egui/eframe with the wgpu backend**, under a strict application structure:
-- A framework-independent core (document model, commands, undo) so the UI
-  layer stays replaceable.
-- Lumen's own design system (tokens, widgets, icons) painted on egui's
+### Decision (proposed, refined by P-UI)
+**egui/eframe with the wgpu backend, with hybrid rendering**, under a strict
+application structure:
+- egui provides windows, panels, widgets, text, input, focus and
+  accessibility.
+- **Dense content (clip bodies, waveforms, notes, automation curves) is drawn
+  by Lumen's own wgpu pipelines** inside egui paint callbacks. Geometry lives
+  on the GPU and is updated on edit, not per frame; a frame only uploads the
+  view transform. Plain egui painting remains fine at moderate density, with
+  viewport culling and level-of-detail tiers (merged spans, plain rectangles,
+  then full detail with labels).
+- A framework-independent core (document model, commands, undo) keeps the UI
+  layer replaceable.
+- Lumen's own design system (tokens, widgets, icons) is painted on egui's
   primitives. egui's default look is not used.
-- Dense views use viewport culling, level-of-detail aggregation and caching.
-  The escape hatch, if measurements require it, is a custom wgpu renderer
-  inside an egui paint callback.
 
-### Evidence
-Pending P-UI.
+Why not another framework: the measured bottleneck is CPU tessellation of tens
+of thousands of vector shapes per frame. Every framework that tessellates on
+the CPU (iced's canvas, Slint, egui alike) hits it at this density, and GPU
+instancing is the general fix. egui's own cost was small (Lumen's UI code at
+most 2.7 ms per frame), and its paint callbacks made the fix straightforward.
+
+### Evidence — P-UI (`prototypes/ui-stress`), 2026-10-05
+Setup: eframe/egui 0.36.2 on wgpu, which chose Vulkan on an RTX 4070 (driver
+610.88). Window 3400×1300 px, presentation uncapped for measurement, 400
+frames per scenario (40 warm-up). Synthetic session: 200 tracks × 100 clips
+(20,000), waveforms on audio tracks from a peak pyramid, 100,000 notes. Track
+headers are real egui widgets; clips and notes are painted. "CPU" is eframe's
+per-frame CPU time: Lumen's UI code plus egui tessellation plus wgpu
+rendering, excluding vsync waits.
+
+| Scenario | Scale | CPU p50 | p95 | p99 | max | 120 fps (≤ 8.3 ms) | 60 fps (≤ 16.7 ms) |
+|---|---|---|---|---|---|---|---|
+| Arrangement, 48 px rows, pan + scroll (180 clips, 4,236 waveform columns) | 100% | 3.9 | 4.6 | 4.8 | 5.1 | ✅ | ✅ |
+| Arrangement, fit all, 20 px rows (4,100 clips) | 100% | 11.0 | 11.9 | 12.2 | 12.8 | ❌ | ✅ |
+| Arrangement, zoom sweep 2–400 px/beat | 100% | 3.8 | 8.6 | 9.1 | 9.6 | ❌ (tail) | ✅ |
+| Piano roll, 120 px/beat, pan | 100% | 5.2 | 5.8 | 6.1 | 6.5 | ✅ | ✅ |
+| Piano roll, all 100k notes, **egui shapes** (53,838 merged spans) | 100% | 18.3 | 19.8 | 20.0 | 20.9 | ❌ | ❌ |
+| Piano roll, all 100k notes, **GPU instanced** | 100% | 4.8 | 5.4 | 5.7 | 6.0 | ✅ | ✅ |
+| Arrangement, 48 px rows, pan + scroll | 200% | 0.9 | 1.3 | 1.5 | 1.6 | ✅ | ✅ |
+| Arrangement, fit all, 20 px rows | 200% | 4.7 | 5.3 | 5.5 | 8.7 | ✅ | ✅ |
+| Piano roll, all 100k notes, egui shapes | 200% | 10.2 | 11.0 | 11.4 | 12.1 | ❌ | ✅ |
+| Piano roll, all 100k notes, GPU instanced | 200% | 4.3 | 4.9 | 5.1 | 5.5 | ✅ | ✅ |
+
+The GPU-instanced scenarios also draw a dense static arrangement in the same
+frame, which accounts for most of their remaining time. Notes themselves cost
+the CPU almost nothing.
+
+Other criteria:
+- **Idle CPU:** 0.00% of a core over 10 s with the window open and untouched
+  (0.31% in a first run). ✅
+- **Start-up**, process creation to first frame: 545 ms warm; 1,007 ms on the
+  first run after building (cold caches). ✅ warm, borderline cold. Real
+  start-up adds project loading in the background.
+- **Accessibility** (inspected from outside through Windows UI Automation,
+  the API screen readers use): ✅ 58 elements with roles and names. Transport
+  buttons are "Play", "Stop", "Record", "Loop". Track toggles are
+  keyboard-focusable checkboxes with descriptive names ("Mute Track 1") via a
+  name override. Findings for M3: the tempo field is an unnamed spinner (the
+  label must be associated with `labelled_by`); only on-screen rows are
+  exposed; painted content (clips, notes) needs explicit accessibility nodes
+  and keyboard navigation.
+
+Not covered: text crispness at 100% (needs a human look), IME, multiple
+windows, plugin-window parenting, the light theme, and a mid-range machine.
+This machine is high-end, so the 120 fps margins above must be re-measured on
+mid-range hardware in M3.
 
 ---
 

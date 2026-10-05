@@ -1,0 +1,18 @@
+[package]
+name = "ui-stress"
+description = "P-UI prototype: dense arrangement and piano-roll rendering in egui/eframe (wgpu)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bytemuck = { version = "1", features = ["derive"] }
+eframe.workspace = true
+
+[target.'cfg(windows)'.dependencies.windows-sys]
+workspace = true
+features = ["Win32_Foundation", "Win32_System_SystemInformation", "Win32_System_Threading"]
+
+[lints]
+workspace = true

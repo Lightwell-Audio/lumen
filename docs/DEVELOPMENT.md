@@ -32,13 +32,18 @@ fix is MSYS2's `binutils` plus its runtime DLLs, from
 | `mingw-w64-x86_64-gettext-runtime-1.0-1-any.pkg.tar.zst` | `BE68D7F260633284` |
 | `mingw-w64-x86_64-libiconv-1.19-1-any.pkg.tar.zst` | `21E334D0911F25DE` |
 | `mingw-w64-x86_64-libwinpthread-14.0.0.r98.g19f5121a2-1-any.pkg.tar.zst` | `565A7AC155098633` |
+| `mingw-w64-x86_64-crt-git-13.0.0.r91.gfc0b67305-1-any.pkg.tar.zst` (Windows import libraries such as `libshlwapi.a` and `libopengl32.a`, needed by the UI stack) | `C613A34E44ABF31C` |
 
 Extract them all into `%LOCALAPPDATA%\lumen-devtools` with Windows' built-in
 `tar -xf <file>`. Then put the tools on `PATH` before building:
 
 ```bash
 export PATH="$HOME/.cargo/bin:$(cygpath -u "$LOCALAPPDATA")/lumen-devtools/mingw64/bin:$PATH"
+export LIBRARY_PATH="$(cygpath -w "$LOCALAPPDATA")\lumen-devtools\mingw64\lib"
 ```
+
+`LIBRARY_PATH` is read by the GCC linker driver, so changing it does not
+force a rebuild.
 
 To undo: delete `%LOCALAPPDATA%\lumen-devtools`. Rust itself is removed with
 `rustup self uninstall`.

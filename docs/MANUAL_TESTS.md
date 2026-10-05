@@ -120,3 +120,35 @@ timed out, crashed) and the scanner finishes. Every module with
 reported.
 
 **Last run (2026-10-05):** pass.
+
+---
+
+## M1 · P-UI — dense-view rendering (`prototypes/ui-stress`)
+
+### MT-UI-1 · Frame cost, idle CPU, start-up
+`target/release/ui-stress --bench` (opens a 3400×1300 window for about a
+minute; do not touch it, especially during the final 10 s idle phase).
+
+**Expected:** a table of CPU frame times for 10 scenarios, start-up times and
+idle CPU. Compare with ADR-0002. Normal editing views and the GPU-instanced
+overview p99 ≤ 8.3 ms; idle < 0.5%; first frame < 1 s warm.
+
+**Last run (2026-10-05):** as recorded in ADR-0002.
+
+### MT-UI-2 · Accessibility tree (needs a human for the screen-reader part)
+1. `target/release/ui-stress --close-after 60`
+2. Inspect with Accessibility Insights for Windows, or start Narrator
+   (Ctrl+Win+Enter) and Tab through the transport and track headers.
+
+**Expected:** buttons are announced as "Play", "Stop", "Record", "Loop";
+track toggles as "Mute Track N" / "Solo Track N" check boxes with their
+state.
+
+**Last run (2026-10-05):** tree verified programmatically through UI
+Automation (58 named elements). Not yet heard through Narrator.
+
+### MT-UI-3 · Visual quality at 100%, 150%, 200% (needs a human)
+1. Run `target/release/ui-stress` at each Windows display scale.
+2. Judge text crispness, line sharpness and waveform appearance.
+
+**Last run:** not yet run.
