@@ -30,8 +30,8 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 2 | P-ENGINE: real-time core prototype. All criteria met: 0 heap operations, bit-identical across block sizes, 64 tracks × 128 frames = 0.85% of budget | ✅ | `5084725` |
 | 3 | P-ASIO: native ASIO probe. 7 drivers queried safely; 30 s Focusrite streams with 0 discontinuities and 0 heap operations; 64-frame ASIO4ALL stable | ✅ | `7a85a6f` |
 | 4 | P-ISO: isolation transport. 1 host p99 19.5 µs, 8 hosts p99 35.5 µs at 128 frames; crash and hang detected and replaced in about 11–13 ms with audio uninterrupted | ✅ | `0fbaf7d` |
-| 5 | P-VST3: out-of-process scanning. 39 of 40 real modules enumerated in 10.4 s; moduleinfo matches 4 of 4; crash, hang and no-factory test modules contained (CI self-test) | ✅ | (this commit) |
-| 6 | P-FORMAT: project format and time base | 🔲 | |
+| 5 | P-VST3: out-of-process scanning. 39 of 40 real modules enumerated in 10.4 s; moduleinfo matches 4 of 4; crash, hang and no-factory test modules contained (CI self-test) | ✅ | `7e8f47c` |
+| 6 | P-FORMAT: project format and time base (`crates/lumen-project`, `lumen_core::time`). 29 new tests; quality-bar project saves in 83 ms and loads in 87 ms | ✅ | (this commit) |
 | 7 | P-UI: dense-view rendering stress test | 🔲 | |
 | 8 | Evidence in ADRs, architecture doc, milestone report | 🔲 | |
 
@@ -49,12 +49,12 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | No dropouts or clicks during editing, scrolling, scanning, loading, opening plugin windows | M | 🔲 | 2, 10 | |
 | 64-track project under 50% of the 128-sample / 48 kHz budget | M | 🔲 | 2, 10 | P-ENGINE measures engine overhead |
 | No buffering beyond the driver | M | 🔲 | 2 | ADR-0003 |
-| Sample-accurate playback, MIDI, automation, loops, editing | M | 🔲 | 2–7 | ADR-0009 time base |
+| Sample-accurate playback, MIDI, automation, loops, editing | M | 🔲 | 2–7 | Time base done (`lumen_core::time`, ADR-0009): every sample addressable at 999 BPM / 192 kHz |
 | Offline render equals real-time and is repeatable | M | 🔲 | 2, 9 | P-ENGINE block-size invariance |
 | UI 60 fps minimum, 120 fps target at 200 tracks / 20,000 clips / 100,000 notes | M | 🔲 | 3, 10 | P-UI |
 | Near-zero idle CPU | M | 🔲 | 3, 10 | P-UI |
 | Cold start under 2 s; scanning and loading never block the UI | M | 🔲 | 3, 6, 10 | |
-| Autosave, crash recovery, atomic saves, backups | M | 🔲 | 3, 9 | P-FORMAT (atomic save) |
+| Autosave, crash recovery, atomic saves, backups | M | 🟡 | 3, 9 | Atomic save and rolling backups done and tested (`lumen-project`); autosave and recovery in M3/M9 |
 | Crashing plugins isolated, flagged, recoverable; scanning never crashes the app | M | 🔲 | 6, 10 | P-ISO, P-VST3 |
 | Device removal, rate and buffer changes, sleep and resume handled | M | 🔲 | 2, 10 | |
 | Safe mode without plugins | M | 🔲 | 6 | |
@@ -201,7 +201,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
 | New, open, save, save as, copy, template, revert, recent, unsaved indicator | M | 🔲 | 3, 9 |
-| Human-friendly, versioned format that opens old projects forever; relative paths | M | 🔲 | 1, 3 |
+| Human-friendly, versioned format that opens old projects forever; relative paths | M | 🟡 | 1, 3 |
 | Autosave, recovery, rolling backups, collect and save, relink, media pool with purge | M | 🔲 | 3, 9 |
 | Export: project, loop or selection; master or stems; WAV 16/24/32f, FLAC; SRC; dither; normalize; tails; offline or real-time; progress and cancel; loudness report | M | 🔲 | 9 |
 | MP3 and AAC export | L | 🔲 | — |

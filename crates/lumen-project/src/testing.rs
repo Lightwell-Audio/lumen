@@ -1,0 +1,179 @@
+//! Synthetic projects and temporary folders for tests and benchmarks.
+//! Not a stable API.
+
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
+
+use lumen_core::time::{PPQ, TempoPoint, Ticks};
+
+use crate::model::{
+    Clip, ClipContent, Color, Device, Id, Media, Note, PluginRef, Project, TimeSignature, Track,
+    TrackKind,
+};
+
+/// A temporary folder removed on drop.
+pub struct TempDir(PathBuf);
+
+impl TempDir {
+    pub fn new(label: &str) -> Self {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "lumen-test-{label}-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&path).expect("create temp dir");
+        Self(path)
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+
+    fn below(&mut self, n: u64) -> u64 {
+        self.next() % n.max(1)
+    }
+}
+
+/// A small but varied project; different seeds give different content.
+pub fn small_project(seed: u64) -> Project {
+    synthetic(seed, 6, 4, 8, 64)
+}
+
+/// Track 0 is a group containing tracks 1–4; odd tracks are MIDI, even
+/// tracks audio. Every other track gets one plugin with `state_bytes` of state.
+pub fn synthetic(
+    seed: u64,
+    tracks: usize,
+    clips_per_track: usize,
+    notes_per_clip: usize,
+    state_bytes: usize,
+) -> Project {
+    let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
+    let mut next_id = 0_u64;
+    let mut id = || {
+        next_id += 1;
+        Id(next_id)
+    };
+    const PALETTE: [u32; 6] = [0xC0504D, 0x4F81BD, 0x9BBB59, 0x8064A2, 0xF79646, 0x4BACC6];
+    let group = id();
+    let mut media = Vec::new();
+    let mut all_tracks = Vec::with_capacity(tracks);
+    for index in 0..tracks {
+        let kind = match index {
+            0 => TrackKind::Group,
+            i if i % 2 == 1 => TrackKind::Midi,
+            _ => TrackKind::Audio,
+        };
+        let track_id = if index == 0 { group } else { id() };
+        let source = (kind == TrackKind::Audio).then(|| {
+            let media_id = id();
+            media.push(Media {
+                id: media_id,
+                path: format!("Samples/Take {index}.wav"),
+                original_path: None,
+                frames: 480_000,
+                channels: 2,
+                sample_rate: 48_000,
+                size_bytes: 1_920_044,
+            });
+            media_id
+        });
+        let devices = if kind != TrackKind::Group {
+            vec![Device {
+                id: id(),
+                plugin: PluginRef::Vst3 {
+                    class_id: format!("{:032X}", rng.next()),
+                    name: "Synthetic".into(),
+                    vendor: "Lumen Tests".into(),
+                },
+                bypass: rng.below(4) == 0,
+                state: (0..state_bytes).map(|_| rng.next() as u8).collect(),
+            }]
+        } else {
+            Vec::new()
+        };
+        let clips = if kind == TrackKind::Group {
+            Vec::new()
+        } else {
+            (0..clips_per_track)
+                .map(|k| Clip {
+                    id: id(),
+                    name: format!("Clip {k}"),
+                    start: Ticks::quarters(4 * k as i64) + Ticks(rng.below(PPQ as u64) as i64),
+                    length: Ticks::quarters(2),
+                    muted: rng.below(10) == 0,
+                    content: match source {
+                        Some(media) => ClipContent::Audio {
+                            media,
+                            offset: rng.below(48_000) as i64,
+                            gain_db: -(rng.below(240) as f32) / 10.0,
+                        },
+                        None => ClipContent::Midi {
+                            notes: (0..notes_per_clip)
+                                .map(|_| {
+                                    Note(
+                                        Ticks(rng.below(2 * PPQ as u64) as i64),
+                                        Ticks(PPQ / 4),
+                                        36 + rng.below(48) as u8,
+                                        1 + rng.below(127) as u8,
+                                    )
+                                })
+                                .collect(),
+                        },
+                    },
+                })
+                .collect()
+        };
+        all_tracks.push(Track {
+            id: track_id,
+            name: format!("Track {index}"),
+            kind,
+            color: Color(PALETTE[index % PALETTE.len()]),
+            parent: (1..=4).contains(&index).then_some(group),
+            gain_db: -(rng.below(120) as f32) / 10.0,
+            pan: (rng.below(201) as f32 - 100.0) / 100.0,
+            mute: rng.below(8) == 0,
+            solo: false,
+            devices,
+            clips,
+        });
+    }
+    Project {
+        name: format!("Synthetic {seed}"),
+        sample_rate: 48_000,
+        tempo: vec![
+            TempoPoint {
+                at: Ticks::ZERO,
+                bpm: 120.0,
+            },
+            TempoPoint {
+                at: Ticks::quarters(64),
+                bpm: 128.0,
+            },
+        ],
+        time_signature: TimeSignature {
+            numerator: 4,
+            denominator: 4,
+        },
+        tracks: all_tracks,
+        media,
+    }
+}

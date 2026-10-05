@@ -221,8 +221,50 @@ backups, and hold plugin state (opaque binary, sometimes megabytes).
 - Plugin state is stored inline as base64. Compression and sidecar files will
   be revisited if size becomes a problem.
 
-### Evidence
-Pending P-FORMAT.
+### Evidence — P-FORMAT (`crates/lumen-project`), 2026-10-05
+All pass criteria met. 22 tests, all passing:
+- **Golden fixture** `tests/fixtures/v1/golden.lumen` (groups, audio and MIDI
+  clips, notes, VST3 and built-in devices with state, media, tempo change)
+  loads into an exact expected model. The fixture is frozen; future versions
+  must keep loading it through migrations.
+- **Round trips are exact** for 25 varied synthetic projects, in memory and
+  through disk.
+- **Damaged input never panics:** every truncation of a file is rejected
+  (each prefix tested), and 5,000 random byte corruptions never panic (more
+  than 4,000 are rejected; the rest are harmless value changes).
+- **Newer files are refused** with "saved by a newer version of Lumen
+  (format 999; this version reads up to format 1)". Non-project JSON is
+  identified as such.
+- **Inconsistent projects are rejected precisely** on load (note out of range,
+  group cycle, missing media) **and are never written**: saving validates
+  first. A NaN gain, which JSON would silently turn into `null`, is refused,
+  and the old file stays byte-identical.
+- **Crash safety:** a simulated failure after the temp file is written but
+  before the commit leaves the old file intact and no temp file behind.
+  Leftovers of a crashed save are ignored by load and cleaned by the next
+  save. Backups rotate (`Backups/<name> 2026-10-05T183012.345Z.lumen`, keep N).
+- **Relative media paths:** a project folder moved elsewhere still finds its
+  `Samples/`. Missing media reports where it looked, ready for relinking.
+- **Migration mechanism:** a synthetic three-version history is applied in
+  order, stamps the version, reports which step failed, and refuses unknown
+  versions. Production has no migrations yet: version 1 is the first.
+
+**Scale** (release build, this machine, divan median over 10 runs) at quality-bar
+size: 200 tracks, 19,900 clips, 100,000 notes, 199 plugin states of 4 KiB:
+
+| Operation | Time |
+|---|---|
+| Serialize to readable JSON | 70 ms |
+| Parse + migrate + validate | 87 ms |
+| Atomic save to disk, including fsync | 83 ms |
+| File size | 12.0 MB |
+
+Notes on the format: each note is one line (`[start, length, pitch,
+velocity]`), and ids are 16 hex digits so JavaScript-based tools can't
+corrupt them. Unknown fields are ignored on load; every persisted change
+bumps the version anyway. The size is dominated by indentation and clip
+objects. Compression, or a smaller indent, can come later without changing
+the data model.
 
 ---
 
@@ -501,20 +543,38 @@ up to 192 kHz.
    not exact: tuplets like 1/3 are inexact and arithmetic is not associative.
 2. Integer ticks at a conventional resolution (480 or 960 PPQ). Exact for the
    grid, but coarser than one sample at fast tempos and high rates.
-3. **Integer ticks at a highly composite resolution: 705,600 PPQ**
-   (2⁶·3²·5²·7²) in `i64`.
+3. **Integer ticks at a highly composite resolution: 1,411,200 PPQ**
+   (2⁷·3²·5²·7²) in `i64`.
 
 ### Decision (proposed)
-Option 3. One quarter note is 705,600 ticks, so every grid value down to 1/64
-notes, with triplets, quintuplets, septuplets and dotted variants, is an exact
-integer. At 999 BPM and 192 kHz one sample is about 61 ticks, so tick
-positions resolve below one sample. `i64` covers about 1.3·10¹³ beats.
-Conversion to samples goes through the tempo map with a single, documented
-rounding rule, so a boundary shared by two clips always maps to the same
-sample. Unwarped audio keeps its start in ticks and its length in samples.
+Option 3, implemented in `lumen_core::time`. One quarter note is 1,411,200
+ticks, so these grid values are exact integers: straight notes down to 1/512,
+and dotted, triplet, quintuplet, septuplet and nonuplet values down to 1/256.
+At 999 BPM and 192 kHz one sample is about 122 ticks, so tick positions
+resolve well below one sample. `i64` covers about 6.5·10¹² quarter notes.
+Conversion to samples goes through the tempo map with one documented
+rounding rule (nearest sample, ties away from zero), so a boundary shared by
+two clips always maps to the same sample. Unwarped audio keeps its start in
+ticks and its length in samples.
 
-### Evidence
-Pending P-FORMAT time-base tests.
+**Revision during P-FORMAT:** the first proposal was 705,600 PPQ (2⁶·…). The
+grid test showed that dotted 1/256 is not an integer there (16,537.5 ticks).
+Doubling the resolution fixed that at no cost. Nothing had been persisted, so
+no migration was needed.
+
+### Evidence — P-FORMAT time base, 2026-10-05
+9 unit tests in `lumen-core`, all passing:
+- every grid value listed above is exact; 1/1024 is documented as out of range;
+- 120 BPM at 48 kHz: a quarter note is exactly 24,000 samples and an eighth
+  triplet exactly 8,000;
+- multi-segment tempo maps accumulate correctly, and seconds → ticks inverts
+  exactly;
+- **every sample is addressable at 999 BPM / 192 kHz**: for samples spread over
+  2 million, tick → sample → tick returns the same sample;
+- 10,000 random positions across a three-segment map round-trip
+  ticks → seconds → ticks exactly;
+- sample positions never go backwards; invalid maps (empty, not starting at
+  0, unordered, BPM outside 20–999) are rejected.
 
 ---
 
