@@ -76,7 +76,13 @@ Option 2.
   be designed (M6, risk R12).
 
 ### Evidence
-Pending P-ISO and P-ENGINE.
+- P-ENGINE (ADR-0003): an allocation-free, block-size-invariant core costs
+  under 1% of the budget for 64 tracks.
+- P-ISO (ADR-0005): the per-block cost of separate-process hosts is about
+  9 µs for one host and about 35 µs p99 for 8 in parallel at 128 frames.
+  Crashes and hangs are survived without stalling the audio loop.
+- P-ASIO (ADR-0006): the driver callback can run the engine directly. Driver
+  probing in a child process protects the main process.
 
 ---
 
@@ -265,8 +271,61 @@ The MIT licence covers the SDK code, not the "VST" trademark or logo. Using
 the VST name or logo must follow Steinberg's trademark rules (to be confirmed
 before release).
 
-### Evidence
-Pending P-VST3 and P-ISO.
+### Evidence — P-ISO (`prototypes/isolation-ipc`), 2026-10-05
+All pass criteria met. Setup: a parent "audio thread" paced in real time by a
+high-resolution waitable timer, with MMCSS "Pro Audio" on both sides. Child
+host processes apply a gain to stereo blocks in shared memory (double-buffered
+by request parity). Signalling uses named auto-reset events. Deadlines are
+half the period, enforced with a second high-resolution timer. Every block's
+output is verified bit-exactly. The audio loop runs inside `rt_section`.
+20 s per scenario.
+
+| Scenario (128 frames @ 48 kHz unless noted) | Round trip p50 | p99 | p99.9 | max | Misses / mismatches / overruns |
+|---|---|---|---|---|---|
+| 1 host, events | 8.7 µs | 19.5 µs | 29.0 µs | 41.1 µs | 0 / 0 / 0 |
+| 1 host, both sides spinning (lower bound) | 2.3 µs | 7.0 µs | 23.0 µs | 82.4 µs | 0 / 0 / 0 |
+| 4 hosts, events | 16.3 µs | 30.3 µs | 61.3 µs | 144.3 µs | 0 / 0 / 0 |
+| 8 hosts, events | 18.5 µs | 35.5 µs | 56.2 µs | 121.7 µs | 0 / 0 / 0 |
+| 16 hosts, events | 27.1 µs | 53.3 µs | 93.3 µs | 253.8 µs | 0 / 0 / 0 |
+| 8 hosts, events, 64 frames (1.33 ms period) | 18.6 µs | 34.4 µs | 62.3 µs | 143.0 µs | 0 / 0 / 0 |
+
+Fault injection into host 0 of 2 at block 1,000:
+
+| Fault | Detected | Classified | Replacement spawned | Back in service | Healthy host |
+|---|---|---|---|---|---|
+| Access violation (real crash, not a panic) | same block | exit code 0xC0000005 | 6.6 ms | 4 blocks (10.7 ms) | 0 misses, 0 mismatches |
+| Hang (sleeps forever) | after 3 consecutive misses (5.3 ms) | still running, killed | 3.8 ms | 5 blocks (13.3 ms) | 0 misses, 0 mismatches |
+
+The audio loop made 0 heap operations in every scenario and never overran its
+period. Failed hosts are handed to a supervisor thread through a lock-free
+queue, and killed, freed and respawned there.
+
+Findings that shape M6:
+1. **The transport is cheap enough to make separate-process the default.**
+   Event signalling costs about 9 µs for one host and about 35 µs p99 for
+   8 hosts in parallel, about 1.3% of a 128-frame period. Spinning saves
+   about 6 µs but burns a core per host. Rejected as a default; possibly an
+   option for one "low-latency" sandbox.
+2. **Timer slop:** in the fault cases the wait overshot the 1.33 ms deadline
+   by up to 0.32 ms (max 1.66 ms) because of timer wake-up latency. Production
+   must arm the deadline with a margin, or spin for the last stretch, so the
+   remaining budget is real.
+3. **Hosts must suppress Windows Error Reporting UI**
+   (`SetErrorMode(SEM_NOGPFAULTERRORBOX)`), or a crash parks the process
+   behind a dialog and turns into a hang. They should write their own crash
+   report instead.
+4. A **kill-on-close Job object** guarantees no orphaned plugin hosts if
+   Lumen dies.
+5. Fan-out cost grows with the number of host processes (sequential
+   signal/wait). Grouping (per plugin type or vendor) keeps the count modest;
+   M6 measures this with real plugins.
+
+Not covered yet: real plugins in the host (P-VST3 covers scanning only),
+editor windows across processes, the POSIX transport (futex / Mach
+semaphores), and parameter and event traffic beyond the audio buffers.
+
+### Evidence — P-VST3
+Pending.
 
 ---
 

@@ -71,3 +71,29 @@ designed in M2.)
 crash and no hang.
 
 **Last run:** not yet run.
+
+---
+
+## M1 · P-ISO — plugin isolation transport (`prototypes/isolation-ipc`)
+
+### MT-ISO-1 · Transport latency, fan-out, crash and hang survival
+`target/release/isolation-ipc all --seconds 20`
+
+**Expected:** every scenario reports 0 deadline misses, 0 output mismatches,
+0 loop overruns and 0 real-time heap operations, except for the deliberately
+faulted host. The crash scenario reports exit code 0xC0000005 and a
+replacement. The hang scenario reports "hung (still running; killed)" and a
+replacement. The healthy host shows 0 misses in both.
+
+**Last run (2026-10-05):** pass. Numbers in ADR-0005. Automated in the sense
+that no human input is needed, but it needs a quiet machine. Not in CI:
+shared runners are too noisy for latency numbers.
+
+### MT-ISO-2 · No orphaned hosts (needs a human)
+1. Run `target/release/isolation-ipc bench --hosts 8 --seconds 60`.
+2. Kill the parent from Task Manager after a few seconds.
+
+**Expected:** all 8 `isolation-ipc.exe child` processes disappear at once
+(kill-on-close Job object).
+
+**Last run:** not yet run.

@@ -14,10 +14,13 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+// Const-initialised and without a destructor, so accessing these from inside
+// the allocator never allocates.
 thread_local! {
-    // Const-initialised and without a destructor, so accessing these from
-    // inside the allocator never allocates.
+    // False positive in clippy 1.99: the initializers are already `const`.
+    #[allow(clippy::missing_const_for_thread_local)]
     static RT_DEPTH: Cell<u32> = const { Cell::new(0) };
+    #[allow(clippy::missing_const_for_thread_local)]
     static THREAD_VIOLATIONS: Cell<u64> = const { Cell::new(0) };
 }
 
