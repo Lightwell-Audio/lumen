@@ -7,6 +7,12 @@ all-features = false
 [advisories]
 version = 2
 yanked = "deny"
+ignore = [
+    # Unmaintained (not a vulnerability). Reached only through winit's Linux
+    # Wayland window decorations (sctk-adwaita -> ab_glyph). Revisit when
+    # winit or sctk-adwaita drops it.
+    { id = "RUSTSEC-2026-0192", reason = "transitive via winit Wayland decorations; no maintained alternative upstream yet" },
+]
 
 [licenses]
 version = 2
@@ -26,6 +32,14 @@ allow = [
     "Unicode-3.0",
 ]
 confidence-threshold = 0.9
+# The allow list is policy, not an inventory; unused entries are fine.
+unused-allowed-license = "allow"
+
+# egui's bundled default fonts, used only by prototypes. Lumen's own fonts
+# are chosen with the design system in M3 (ADR-0013).
+[[licenses.exceptions]]
+crate = "epaint_default_fonts"
+allow = ["OFL-1.1", "Ubuntu-font-1.0"]
 
 [licenses.private]
 # Workspace crates are unpublished and have no license field until ADR-0012 is decided.

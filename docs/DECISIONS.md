@@ -12,15 +12,15 @@ irreversible or external) · *Superseded*.
 
 | ADR | Title | Status | Approval needed |
 |---|---|---|---|
-| [0001](#adr-0001--system-architecture) | System architecture: processes, threads, data flow | Proposed | Yes, at end of M1 |
-| [0002](#adr-0002--ui-framework) | UI framework | Proposed (pending P-UI) | Yes |
-| [0003](#adr-0003--real-time-audio-engine) | Real-time audio engine | Proposed (pending P-ENGINE) | Yes |
-| [0004](#adr-0004--project-file-format) | Project file format | Proposed (pending P-FORMAT) | Yes |
-| [0005](#adr-0005--vst3-hosting-and-plugin-isolation) | VST3 hosting and plugin isolation | Proposed (pending P-VST3, P-ISO) | Yes |
-| [0006](#adr-0006--audio-device-backends-and-asio) | Audio device backends and ASIO | Proposed; **ASIO licensing needs human decision** | Yes |
+| [0001](#adr-0001--system-architecture) | System architecture: processes, threads, data flow | Proposed; evidence recorded | **Yes** |
+| [0002](#adr-0002--ui-framework) | UI framework: egui/eframe + wgpu, hybrid rendering | Proposed; evidence recorded (P-UI) | **Yes** |
+| [0003](#adr-0003--real-time-audio-engine) | Real-time audio engine | Proposed; evidence recorded (P-ENGINE) | **Yes** |
+| [0004](#adr-0004--project-file-format) | Project file format | Proposed; evidence recorded (P-FORMAT) | **Yes** |
+| [0005](#adr-0005--vst3-hosting-and-plugin-isolation) | VST3 hosting and plugin isolation | Proposed; evidence recorded (P-VST3, P-ISO) | **Yes** |
+| [0006](#adr-0006--audio-device-backends-and-asio) | Audio device backends and ASIO | Proposed; evidence recorded (P-ASIO); **ASIO licensing needs human decision** | **Yes** |
 | [0007](#adr-0007--toolchain-and-build-targets) | Toolchain and build targets | Accepted (local workaround pending VS Build Tools) | Install is your call |
 | [0008](#adr-0008--product-name-defined-once) | Product name defined once | Accepted | No |
-| [0009](#adr-0009--time-base) | Time base: integer ticks | Proposed (pending P-FORMAT) | Yes |
+| [0009](#adr-0009--time-base) | Time base: integer ticks at 1,411,200 PPQ | Proposed (revised during P-FORMAT); evidence recorded | **Yes** |
 | [0010](#adr-0010--real-time-safety-is-enforced-by-tests) | Real-time safety enforced by tests | Accepted | No |
 | [0011](#adr-0011--benchmarks-and-performance-gates) | Benchmarks and performance gates | Accepted | No |
 | [0012](#adr-0012--lumens-own-license) | Lumen's own license | **Needs human decision** | Yes |
@@ -695,6 +695,16 @@ Unicode), enforced in CI by `cargo-deny` (`deny.toml`). Weak copyleft (for
 example MPL-2.0), font licences (OFL) and anything GPL need a recorded
 decision before they are allowed. A third-party licence listing ships with
 the installer (M10).
+
+Recorded exceptions (2026-10-05; `cargo-deny check` passes all four checks
+locally with cargo-deny 0.20.2):
+- **`epaint_default_fonts`** (egui's bundled fonts: OFL-1.1, Ubuntu Font
+  Licence), allowed for that crate only. Used by the prototypes. Lumen's own
+  fonts are chosen with the design system in M3. OFL is the standard licence
+  for embeddable fonts and requires shipping its text.
+- **RUSTSEC-2026-0192** (`ttf-parser` unmaintained; informational, not a
+  vulnerability), ignored. It is reached only through winit's Linux Wayland
+  decorations (`sctk-adwaita` → `ab_glyph`). Revisit when upstream moves.
 
 ---
 

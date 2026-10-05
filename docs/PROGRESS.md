@@ -3,7 +3,8 @@
 ## Status
 
 **Current milestone:** 1 — Foundations & Architecture
-**Overall status:** In progress (see [milestones/M1.md](milestones/M1.md))
+**Overall status:** Prototyping complete; **paused for decisions** (see the
+interim report below and [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
 
@@ -32,8 +33,10 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 4 | P-ISO: isolation transport. 1 host p99 19.5 µs, 8 hosts p99 35.5 µs at 128 frames; crash and hang detected and replaced in about 11–13 ms with audio uninterrupted | ✅ | `0fbaf7d` |
 | 5 | P-VST3: out-of-process scanning. 39 of 40 real modules enumerated in 10.4 s; moduleinfo matches 4 of 4; crash, hang and no-factory test modules contained (CI self-test) | ✅ | `7e8f47c` |
 | 6 | P-FORMAT: project format and time base (`crates/lumen-project`, `lumen_core::time`). 29 new tests; quality-bar project saves in 83 ms and loads in 87 ms | ✅ | `57d8901` |
-| 7 | P-UI: dense-view rendering. Normal views p99 ≤ 6.1 ms; plain egui fails the 100k-note overview (20 ms); GPU-instanced escape hatch brings it to 5.7 ms; idle 0.00%; first frame 545 ms warm; UI Automation tree verified | ✅ | (this commit) |
-| 8 | Evidence in ADRs, architecture doc, milestone report | 🔲 | |
+| 7 | P-UI: dense-view rendering. Normal views p99 ≤ 6.1 ms; plain egui fails the 100k-note overview (20 ms); GPU-instanced escape hatch brings it to 5.7 ms; idle 0.00%; first frame 545 ms warm; UI Automation tree verified | ✅ | `0c6a15b` |
+| 8 | Evidence in ADRs, architecture draft, cargo-deny verified locally, interim report | ✅ | (final M1 prototyping commit) |
+| 9 | P-HOST: real VST3 (u-he TyrellN6) processing audio inside an isolated host process, with state save and restore | 🔲 proposed | |
+| 10 | `lumen` application shell on the approved UI stack (launches, empty arrangement) | 🔲 proposed | |
 
 ---
 
@@ -285,5 +288,72 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 ## Milestone reports
 
-### Milestone 1
-**Status:** In progress. The report is written when the milestone ends.
+### Milestone 1 — interim report (2026-10-05)
+**Status:** Prototyping complete, paused for decisions. Not closed: two exit
+criteria are only partly met (table below).
+
+**Shipped:** 8 commits on `main`.
+- Cargo workspace (Rust 1.99.0, edition 2024); CI workflow (Windows MSVC,
+  macOS, Linux: rustfmt, clippy with warnings denied, tests, benchmark smoke
+  runs, cargo-deny, VST3 scanner self-test); permissive-only licence policy.
+- Production seeds: `lumen-core` (product name, time base), `lumen-rt`
+  (real-time allocation guard), `lumen-project` (versioned, crash-safe
+  project format).
+- Prototypes: `engine-core`, `asio-probe`, `isolation-ipc`, `vst3-scan` with
+  `vst3-test-module`, `ui-stress`.
+- Docs: M1 plan and risk register, 14 ADRs with evidence, this tracker,
+  manual tests, plugin compatibility matrix (scan stage), architecture
+  draft, developer setup.
+
+**Automated tests (all pass locally, GNU toolchain):** 47 tests: `lumen-core` 9,
+`lumen-rt` 8, `lumen-project` 22, `engine-core` 5, `vst3-scan` 3. Every
+benchmark also runs once under `cargo test --all-targets`. The VST3 isolation
+self-test passes (3 checks). `cargo-deny check` passes advisories, bans,
+licences and sources. clippy (`-D warnings`) and rustfmt are clean.
+
+**Verified on this machine with real hardware and plugins:** sandboxed query
+of 7 ASIO drivers; ASIO streaming on a Focusrite interface (128 frames,
+2 × 30 s) and on ASIO4ALL (64 frames); the isolation matrix with crash and
+hang injection; scanning of 40 real VST3 modules; the UI benchmark; the
+accessibility tree through UI Automation.
+
+**Not verified:** CI has never run (no remote configured); no local MSVC
+build; nothing on macOS or Linux; tests that need a person (MT-ASIO-4/5/6,
+MT-ISO-2, MT-UI-2 with Narrator, MT-UI-3 visual quality); mid-range hardware.
+
+**Key measurements** (Ryzen 7 7700X, RTX 4070; details in the ADRs):
+
+| What | Result | Bar |
+|---|---|---|
+| Engine, 64 tracks × 128 frames (hot benchmark) | 22.7 µs = 0.85% of budget | < 50% (whole project) |
+| Same load inside the real Focusrite ASIO callback | p50 34 µs, p99 61 µs, max 301 µs (11.3%) | < 50% |
+| ASIO streaming, 30 s | 0 discontinuities, 0 real-time heap operations | no dropouts |
+| Plugin host round trip, 1 / 8 / 16 hosts (128 frames) | p99 19.5 / 35.5 / 53.3 µs | p99 ≤ 50 µs (1), ≤ 150 µs (8) |
+| Crash / hang in a plugin host | detected same block / in 5.3 ms; back in service 10.7 / 13.3 ms; audio uninterrupted | survive without stalling |
+| VST3 scan, 40 real modules | 39 enumerated, 1 cleanly classified failure, 10.4 s wall time | never crash or block |
+| Project save / load, quality-bar size | 83 ms / 87 ms (12 MB) | < 300 ms |
+| UI, normal editing views (p99 CPU per frame) | ≤ 6.1 ms | ≤ 8.3 ms (120 fps) |
+| UI, 100k-note overview: egui shapes / GPU instanced | 20.0 ms / 5.7 ms | ≤ 8.3 ms |
+| UI idle CPU; first frame | 0.00%; 545 ms warm (1,007 ms cold) | ≈ 0; < 2 s usable |
+
+**Exit criteria (ROADMAP):**
+
+| Criterion | Status |
+|---|---|
+| A minimal application launches | ⚠️ Only the UI prototype launches. The `lumen` shell (slice 10) waits for approval of ADR-0002. |
+| UI approach validated | ✅ P-UI, with the GPU escape hatch proven; awaiting approval |
+| Audio architecture proven with a prototype | ✅ Engine core plus native ASIO on real hardware. Other backends are M2. |
+| Project format saves and loads a minimal project | ✅ |
+| VST3 and isolation approach demonstrated | ⚠️ Scanning real plugins out of process ✅ and the isolation transport with crash/hang survival ✅, but no real plugin has yet processed audio inside an isolated host (slice 9). |
+
+**Deferred, proposed to finish M1 after approval:** slice 9 (P-HOST), slice
+10 (application shell), the first CI run, and a local MSVC build.
+
+**Risks:**
+- Plugin editor windows across processes (R12) are untested.
+- The POSIX isolation transport and the macOS/Linux audio backends are
+  unproven.
+- 120 fps margins were measured on a high-end machine.
+- egui ships breaking releases about every two months.
+- ASIO licensing is undecided.
+- Local GNU and CI MSVC builds differ.

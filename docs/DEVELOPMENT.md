@@ -48,6 +48,16 @@ force a rebuild.
 To undo: delete `%LOCALAPPDATA%\lumen-devtools`. Rust itself is removed with
 `rustup self uninstall`.
 
+## Build output size
+
+A full debug plus release build of the workspace takes about 4.6 GB, mostly
+the UI prototype's GPU stack. If the drive holding the repository is short of
+space, put the build output elsewhere:
+
+```bash
+export CARGO_TARGET_DIR="$(cygpath -w "$LOCALAPPDATA")\lumen-target"
+```
+
 ## Everyday commands
 
 ```bash
