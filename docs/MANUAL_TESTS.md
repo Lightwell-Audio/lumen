@@ -3,7 +3,8 @@
 Tests that need real hardware, third-party software or a human. Each entry
 lists steps, the expected result and its last recorded run.
 
-Build the prototypes first: `cargo build --release --workspace` (see
+Prototype binaries are in `%USERPROFILE%umen-bin` (see the AppData warning in
+`docs/DEVELOPMENT.md`). To rebuild: `cargo build --release --workspace` (see
 `docs/DEVELOPMENT.md` for the toolchain).
 
 ---

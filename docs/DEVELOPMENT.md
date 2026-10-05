@@ -48,6 +48,17 @@ force a rebuild.
 To undo: delete `%LOCALAPPDATA%\lumen-devtools`. Rust itself is removed with
 `rustup self uninstall`.
 
+## Warning: `AppData` redirection when building from the Claude desktop app
+
+The Claude desktop app on Windows is a packaged (MSIX) app. Anything its
+processes write under `%LOCALAPPDATA%` is redirected to
+`%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\`, and other
+programs, including your own terminal, cannot see it at the normal path.
+During M1, `lumen-devtools` and `lumen-target` ended up in that redirected
+location. Use folders outside `AppData` (for example `%USERPROFILE%\...`)
+for anything that both the agent and you need to use. Prototype binaries for
+manual testing are in `%USERPROFILE%\lumen-bin`.
+
 ## Build output size
 
 A full debug plus release build of the workspace takes about 4.6 GB, mostly
