@@ -309,8 +309,54 @@ The choices for shipping:
 The M1 prototype (`prototypes/asio-probe`) uses clean-room definitions, is not
 distributed, and does not pre-empt this decision.
 
-### Evidence
-Pending P-ASIO.
+### Evidence — P-ASIO (`prototypes/asio-probe`), 2026-10-05
+All automated pass criteria met. The native host is about 1,500 lines of
+Rust over COM, CLI included, with no SDK, no C++ and no bindgen.
+
+**Sandboxed query of all 7 registered drivers** (each in a child process with
+a 15 s timeout): the parent was never at risk.
+
+| Driver | Result | Init | Details |
+|---|---|---|---|
+| Focusrite USB ASIO | OK | 1.7 ms | 4 in ("Input 1", "Input 2", "Loopback 1", "Loopback 2") / 2 out; Int32LSB; buffer fixed at 128 (granularity 16); 48 kHz only; clock "USB" |
+| ASIO4ALL v2 | OK | 2.3 ms | 2 in / 2 out; Int32LSB; buffer 64–2048 (preferred 512, granularity 8); 44.1–192 kHz |
+| Ableton Move / Ableton Push | Unavailable | — | "No device is connected to the PC." |
+| Focusrite Thunderbolt ASIO | Unavailable | — | "Cannot open Focusrite Thunderbolt ASIO. (Error code: 0x54f)" |
+| Alpha ASIO driver | Unavailable | — | "Failed to open ASIO input device" |
+| FlexASIO | Unavailable | — | configured PortAudio device not found |
+
+**Streaming** (2 in / 2 out, silent output, callback inside `rt_section`):
+
+| Run | Callbacks | Discontinuities | Heap ops | Callback time p50 / p99 / max | Worst share of period |
+|---|---|---|---|---|---|
+| Focusrite, 128 @ 48 kHz, 30 s | 11,253 / 11,250 expected | 0 | 0 | 0.5 / 1.0 / 6.5 µs | 0.24% |
+| Focusrite, same, with 64-track engine | 11,250 / 11,250 | 0 | 0 | 34.2 / 61.0 / 300.8 µs | 11.3% |
+| ASIO4ALL, 64 @ 44.1 kHz, 15 s, with 64-track engine | 10,316 / ~10,335 (start-up) | 0 | 0 | 11.3 / 20.4 / 55.8 µs | 3.8% |
+
+Findings that shape the M2 design:
+1. **Callbacks are not evenly spaced.** The Focusrite USB driver aligns them to
+   1 ms USB frames: median interval 3.0 ms against a 2.667 ms period, with
+   every 9th callback arriving immediately after the previous one (minimum
+   1.9 µs). The engine must not assume even spacing. Budgets are judged per
+   callback against the period, with headroom for back-to-back pairs.
+2. **In-callback cost exceeds the hot-cache benchmark** (34 µs versus 23 µs
+   median for the same 64-track load), from cold caches between callbacks.
+   Budget estimates should use in-situ measurements.
+3. **Reported latency includes driver safety buffers:** Focusrite reports
+   6.27 ms in and 8.27 ms out (14.5 ms round trip) at 128 frames. The device
+   selector must show the driver's numbers, not buffer ÷ rate.
+4. Both callback paths work: `bufferSwitchTimeInfo` (Focusrite) and plain
+   `bufferSwitch` with `getSamplePosition` (ASIO4ALL).
+5. ASIO's callbacks carry no context pointer, so the active stream must live
+   in a process-wide slot. This confirms the design: one ASIO driver per
+   process.
+6. Some drivers return odd values (the Focusrite "version" is a large
+   negative number) or truncate error text. The UI should treat driver
+   strings and numbers defensively.
+
+Not yet verified: reset requests from a driver panel (MT-ASIO-4), hardware
+removal (MT-ASIO-5), busy driver (MT-ASIO-6). These need a person at the
+machine.
 
 ---
 
