@@ -1,0 +1,21 @@
+[package]
+name = "engine-core"
+description = "P-ENGINE prototype: allocation-free, block-size-invariant real-time core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+rtrb.workspace = true
+
+[dev-dependencies]
+lumen-rt.workspace = true
+divan.workspace = true
+
+[[bench]]
+name = "process"
+harness = false
+
+[lints]
+workspace = true

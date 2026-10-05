@@ -26,8 +26,8 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 
 | # | Slice | Status | Commit |
 |---|---|---|---|
-| 1 | Repository, workspace, CI, license policy, RT allocation guard, benchmark harness, plan and ADRs | ✅ | (this commit) |
-| 2 | P-ENGINE: real-time core prototype | 🔲 | |
+| 1 | Repository, workspace, CI, license policy, RT allocation guard, benchmark harness, plan and ADRs | ✅ | `8d8f0a2` |
+| 2 | P-ENGINE: real-time core prototype. All criteria met: 0 heap operations, bit-identical across block sizes, 64 tracks × 128 frames = 0.85% of budget | ✅ | (this commit) |
 | 3 | P-ASIO: native ASIO probe | 🔲 | |
 | 4 | P-ISO: isolation transport, crash and hang survival | 🔲 | |
 | 5 | P-VST3: out-of-process scanning of real plugins | 🔲 | |

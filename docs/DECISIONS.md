@@ -155,8 +155,30 @@ Option 2, with room for option 3 later:
   during rendering, and sets denormal flushing identically on real-time and
   offline threads. Offline render uses the same code path.
 
-### Evidence
-Pending P-ENGINE.
+### Evidence — P-ENGINE (`prototypes/engine-core`), 2026-10-05
+All pass criteria met.
+- **No heap traffic:** 2,000 blocks of 64 tracks, including 20 graph swaps, a
+  seek and 200 live commands, made 0 heap operations on the audio side
+  (`lumen-rt` guard). Retired graphs are freed on the handle side.
+- **Block-size invariance:** 3 s of 16 tracks with automation points falling
+  mid-block rendered bit-identically at block sizes 1, 3, 64, 128, 333, 512,
+  4096 and 10,000 (larger blocks are chunked at 4,096).
+- **State-preserving swaps:** swapping in an unchanged graph every 37 blocks is
+  bit-identical to never swapping.
+- **Cost** (release build, Ryzen 7 7700X, single thread, divan median):
+
+  | Tracks × frames | Median | Slowest | Share of budget (48 kHz) |
+  |---|---|---|---|
+  | 64 × 64 | 9.1 µs | 19.6 µs | 0.68% of 1.33 ms |
+  | 64 × 128 | 22.7 µs | 38.7 µs | 0.85% of 2.67 ms |
+  | 256 × 128 | 72.5 µs | 146.6 µs | 2.7% of 2.67 ms |
+
+  Each track reads a source buffer and runs a biquad, gain smoothing and
+  constant-power pan. This is the engine's own overhead; real projects add
+  plugins and disk streaming on top.
+
+Not covered: worker-pool parallelism, denormal flushing, disk streaming,
+transport and loops. Those land in M2.
 
 ---
 
