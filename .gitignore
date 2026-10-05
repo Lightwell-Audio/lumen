@@ -1,0 +1,13 @@
+/target
+**/*.rs.bk
+*.pdb
+
+# Editors / OS
+/.vscode/
+/.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local prototype output that is not committed as evidence
+/prototypes/**/out/

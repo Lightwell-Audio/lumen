@@ -1,0 +1,7 @@
+# Pinned so local builds and CI use the same compiler. Bump deliberately.
+# The target triple is intentionally not pinned: Windows CI and release builds
+# use x86_64-pc-windows-msvc (see ADR-0007).
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

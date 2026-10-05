@@ -1,0 +1,17 @@
+[package]
+name = "lumen-rt"
+description = "Real-time safety tooling: allocation guard for audio-thread code"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dev-dependencies]
+divan.workspace = true
+
+[[bench]]
+name = "guard_overhead"
+harness = false
+
+[lints]
+workspace = true
