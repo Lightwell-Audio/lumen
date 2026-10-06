@@ -4,7 +4,7 @@
 use lumen_core::meter::Meter;
 use lumen_core::time::{TempoMap, TempoPoint, Ticks};
 use lumen_engine::{
-    Command, Engine, EngineHandle, Output, Region, RenderContext, Source, Timeline, engine,
+    Command, Engine, EngineHandle, Jump, Output, Region, RenderContext, Source, Timeline, engine,
 };
 
 const RATE: u32 = 48_000;
@@ -13,7 +13,7 @@ const RATE: u32 = 48_000;
 #[derive(Default)]
 struct Probe {
     played: Vec<i64>,
-    locates: Vec<i64>,
+    locates: Vec<(i64, Jump)>,
 }
 
 impl Source for Probe {
@@ -24,8 +24,8 @@ impl Source for Probe {
         out.channel(0).fill(1.0);
     }
 
-    fn locate(&mut self, _: &Timeline, _: u32, sample: i64) {
-        self.locates.push(sample);
+    fn locate(&mut self, _: &Timeline, _: u32, sample: i64, jump: Jump) {
+        self.locates.push((sample, jump));
     }
 }
 
@@ -183,7 +183,10 @@ fn locate_while_playing_lands_on_the_exact_sample() {
     let played = &engine.source().played;
     assert_eq!(played[511], 511);
     assert_eq!(played[512], 96_000 + 8_000);
-    assert_eq!(engine.source().locates.last(), Some(&104_000));
+    assert_eq!(
+        engine.source().locates.last(),
+        Some(&(104_000, Jump::Locate))
+    );
 }
 
 #[test]

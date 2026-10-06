@@ -1,0 +1,225 @@
+//! Golden renders of audio clips: every output sample is compared with the
+//! value it must have, at several block sizes (M2 slice 6).
+
+use std::sync::Arc;
+
+use lumen_core::meter::Meter;
+use lumen_core::time::Ticks;
+use lumen_engine::{
+    Clip, ClipAudio, ClipPlayer, ClipsHandle, Command, Engine, EngineHandle, Region, Timeline,
+    clip_player, engine,
+};
+
+const RATE: u32 = 48_000;
+/// 2 ms at 48 kHz: the edge and jump fade.
+const FADE: i64 = 96;
+
+/// Audio whose every sample is distinct: left `(i + 1) / 1e7`, right negated.
+fn ramp(frames: usize, rate: u32) -> Arc<ClipAudio> {
+    let left: Vec<f32> = (0..frames).map(|i| (i + 1) as f32 / 1e7).collect();
+    let right = left.iter().map(|v| -v).collect();
+    Arc::new(ClipAudio {
+        sample_rate: rate,
+        channels: vec![left, right],
+    })
+}
+
+fn bars(n: i64) -> Ticks {
+    Ticks::quarters(4 * n)
+}
+
+fn setup(clips: Vec<Clip>) -> (EngineHandle, ClipsHandle, Engine<ClipPlayer>) {
+    let (mut clips_handle, player) = clip_player();
+    clips_handle.set(clips).unwrap();
+    let (handle, engine) = engine(Timeline::default(), player, RATE);
+    (handle, clips_handle, engine)
+}
+
+/// Renders `frames` in blocks of `block`; returns (left, right) per frame.
+fn run(engine: &mut Engine<ClipPlayer>, frames: usize, block: usize) -> Vec<(f32, f32)> {
+    let mut data = vec![0.0; 2 * block];
+    let mut out = Vec::with_capacity(frames);
+    let mut done = 0;
+    while done < frames {
+        let n = block.min(frames - done);
+        engine.process(RATE, &mut data[..2 * n], 2, n);
+        out.extend((0..n).map(|i| (data[i], data[n + i])));
+        done += n;
+    }
+    out
+}
+
+/// What a clip contributes at `pos` frames into it, with its edge fades.
+fn expected(audio: &ClipAudio, offset: i64, length: i64, pos: i64) -> (f32, f32) {
+    let edge = FADE.min(length / 2).max(1);
+    let gain = ((pos + 1).min(edge).min(length - pos) as f32 / edge as f32).min(1.0);
+    let i = (offset + pos) as usize;
+    (audio.channels[0][i] * gain, audio.channels[1][i] * gain)
+}
+
+#[test]
+fn a_clip_plays_on_its_exact_samples_at_every_block_size() {
+    let audio = ramp(20_000, RATE);
+    let (offset, length) = (100, 10_000);
+    let clip = Clip {
+        start: bars(1), // sample 96,000 at 120 BPM
+        offset,
+        length,
+        gain: 1.0,
+        audio: Arc::clone(&audio),
+    };
+    let mut reference = None;
+    for block in [1, 64, 128, 333, 4_096] {
+        let (mut handle, _clips, mut engine) = setup(vec![clip.clone()]);
+        handle.send(Command::Play).unwrap();
+        let out = run(&mut engine, 110_000, block);
+        for (t, &got) in out.iter().enumerate() {
+            let pos = t as i64 - 96_000;
+            let want = if (0..length).contains(&pos) {
+                expected(&audio, offset, length, pos)
+            } else {
+                (0.0, 0.0)
+            };
+            assert_eq!(got, want, "block {block}, sample {t}");
+        }
+        match &reference {
+            None => reference = Some(out),
+            Some(r) => assert!(r == &out, "block {block} differs"),
+        }
+    }
+}
+
+#[test]
+fn the_loop_wrap_is_seamless_and_jumps_fade_in() {
+    let audio = ramp(400_000, RATE);
+    let clip = Clip {
+        start: Ticks::ZERO,
+        offset: 0,
+        length: 400_000,
+        gain: 1.0,
+        audio: Arc::clone(&audio),
+    };
+    let (mut handle, _clips, mut engine) = setup(vec![clip]);
+    handle
+        .send(Command::SetLoop(Region::new(bars(1), bars(2), true)))
+        .unwrap();
+    handle.send(Command::Locate(bars(1))).unwrap();
+    handle.send(Command::Play).unwrap();
+    let out = run(&mut engine, 200_000, 128);
+    let left = |frame: usize| out[frame].0;
+    let source = |sample: usize| audio.channels[0][sample];
+
+    // Starting playback fades in over 2 ms...
+    assert!(left(0) < source(96_000) / 10.0, "no fade-in at play");
+    assert_eq!(left(FADE as usize), source(96_000 + FADE as usize));
+    // ...but the wrap from bar 3 back to bar 2 does not: 96,000 frames in,
+    // playback is at sample 96,000 again, at full level.
+    assert_eq!(left(95_999), source(191_999));
+    assert_eq!(left(96_000), source(96_000));
+    assert_eq!(left(96_001), source(96_001));
+}
+
+#[test]
+fn a_locate_lands_on_the_exact_sample_and_fades_in() {
+    let audio = ramp(400_000, RATE);
+    let clip = Clip {
+        start: Ticks::ZERO,
+        offset: 0,
+        length: 400_000,
+        gain: 0.5,
+        audio: Arc::clone(&audio),
+    };
+    let (mut handle, _clips, mut engine) = setup(vec![clip]);
+    handle.send(Command::Play).unwrap();
+    run(&mut engine, 1_024, 128);
+    handle.send(Command::Locate(bars(2))).unwrap();
+    let out = run(&mut engine, 1_024, 128);
+    let full = |i: usize| audio.channels[0][192_000 + i] * 0.5;
+    // Rising over 2 ms from the exact sample, then exact.
+    assert!(out[0].0 > 0.0 && out[0].0 < full(0));
+    assert!(out.windows(2).take(95).all(|w| w[1].0 > w[0].0));
+    assert_eq!(out[FADE as usize].0, full(FADE as usize));
+    assert_eq!(out[500].1, -full(500));
+}
+
+#[test]
+fn mono_plays_on_both_sides_and_gain_applies() {
+    let mono = Arc::new(ClipAudio {
+        sample_rate: RATE,
+        channels: vec![vec![0.5; 10_000]],
+    });
+    let clip = Clip {
+        start: Ticks::ZERO,
+        offset: 0,
+        length: 10_000,
+        gain: 0.5,
+        audio: mono,
+    };
+    let (mut handle, _clips, mut engine) = setup(vec![clip]);
+    handle.send(Command::Play).unwrap();
+    let out = run(&mut engine, 2_000, 256);
+    assert_eq!(out[1_000], (0.25, 0.25));
+}
+
+#[test]
+fn clips_at_another_sample_rate_stay_silent() {
+    let clip = Clip {
+        start: Ticks::ZERO,
+        offset: 0,
+        length: 10_000,
+        gain: 1.0,
+        audio: ramp(10_000, 44_100),
+    };
+    let (mut handle, _clips, mut engine) = setup(vec![clip]);
+    handle.send(Command::Play).unwrap();
+    let out = run(&mut engine, 5_000, 256);
+    assert!(out.iter().all(|&s| s == (0.0, 0.0)));
+}
+
+#[test]
+fn clips_follow_tempo_changes() {
+    let audio = ramp(20_000, RATE);
+    let clip = Clip {
+        start: bars(1),
+        offset: 0,
+        length: 1_000,
+        gain: 1.0,
+        audio: Arc::clone(&audio),
+    };
+    let (mut handle, _clips, mut engine) = setup(vec![clip]);
+    handle
+        .set_timeline(Timeline::constant(60.0, Meter::FOUR_FOUR))
+        .unwrap();
+    handle.send(Command::Play).unwrap();
+    // At 60 BPM bar 2 starts at 192,000 samples, not 96,000.
+    let out = run(&mut engine, 193_000, 1_000);
+    assert_eq!(out[96_500], (0.0, 0.0));
+    assert_eq!(out[192_500], expected(&audio, 0, 1_000, 500));
+}
+
+#[test]
+fn a_new_clip_list_replaces_the_old_and_the_old_is_handed_back() {
+    let audio = ramp(10_000, RATE);
+    let clip = |start| Clip {
+        start,
+        offset: 0,
+        length: 1_000,
+        gain: 1.0,
+        audio: Arc::clone(&audio),
+    };
+    let (mut handle, mut clips, mut engine) = setup(vec![clip(Ticks::ZERO)]);
+    handle.send(Command::Play).unwrap();
+    run(&mut engine, 256, 256);
+    clips.set(vec![clip(Ticks::quarters(1))]).unwrap();
+    run(&mut engine, 256, 256);
+    assert_eq!(
+        clips.collect_garbage(),
+        2,
+        "the empty initial list and the first list"
+    );
+    // 512 frames have played. The new clip starts at sample 24,000 (one
+    // quarter at 120 BPM), which is frame 23,488 of this run.
+    let out = run(&mut engine, 24_000, 512);
+    assert_eq!(out[23_487], (0.0, 0.0));
+    assert_eq!(out[23_488 + 500], expected(&audio, 0, 1_000, 500));
+}

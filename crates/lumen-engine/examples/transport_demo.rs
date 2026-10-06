@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use lumen_audio::{AudioSystem, Backend, Block, DeviceId, StreamConfig, Timing};
 use lumen_core::meter::Meter;
 use lumen_core::time::{TempoMap, Ticks};
-use lumen_engine::{Command, Output, Region, RenderContext, Source, Timeline, engine};
+use lumen_engine::{Command, Jump, Output, Region, RenderContext, Source, Timeline, engine};
 
 /// Short sine bursts on every beat.
 #[derive(Default)]
@@ -80,7 +80,7 @@ impl Source for Click {
         self.write(out, written, out.frames(), rate);
     }
 
-    fn locate(&mut self, _: &Timeline, _: u32, _: i64) {
+    fn locate(&mut self, _: &Timeline, _: u32, _: i64, _: Jump) {
         self.remaining = 0;
     }
 }

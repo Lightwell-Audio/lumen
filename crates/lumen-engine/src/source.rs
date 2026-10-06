@@ -57,6 +57,21 @@ pub struct RenderContext<'a> {
     pub start: i64,
 }
 
+/// Why playback jumped, so sources can choose whether to fade in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Jump {
+    /// Playback started.
+    Play,
+    /// The user moved the playhead while playing.
+    Locate,
+    /// Playback wrapped from the loop end to the loop start. Loops must
+    /// stay seamless, so sources should not fade here.
+    LoopWrap,
+    /// The tempo map or the sample rate changed, so the same musical
+    /// position now falls on a different sample.
+    Reposition,
+}
+
 /// Timeline audio, rendered on the audio thread. Every method must be
 /// real-time safe: no allocation, locks or blocking (ADR-0010).
 pub trait Source: Send {
@@ -64,9 +79,9 @@ pub trait Source: Send {
     /// `cx.start` to `out`. Called only while playing.
     fn render(&mut self, cx: &RenderContext<'_>, out: &mut Output<'_>);
 
-    /// Playback starts or jumps to `sample` (play, locate, loop wrap, tempo
-    /// or rate change). Streaming sources reposition here.
-    fn locate(&mut self, _timeline: &Timeline, _sample_rate: u32, _sample: i64) {}
+    /// Playback starts or jumps to `sample`, for the reason given. Sources
+    /// reposition here (and fade in, except on a loop wrap).
+    fn locate(&mut self, _timeline: &Timeline, _sample_rate: u32, _sample: i64, _jump: Jump) {}
 }
 
 /// Silence.

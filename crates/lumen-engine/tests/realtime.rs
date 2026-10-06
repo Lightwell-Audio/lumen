@@ -5,7 +5,7 @@
 
 use lumen_core::meter::Meter;
 use lumen_core::time::Ticks;
-use lumen_engine::{Command, Output, Region, RenderContext, Source, Timeline, engine};
+use lumen_engine::{Command, Jump, Output, Region, RenderContext, Source, Timeline, engine};
 use lumen_rt::{count_rt_violations, guard_is_active};
 
 lumen_rt::install_guarded_allocator!();
@@ -30,7 +30,7 @@ impl Source for Tone {
         }
     }
 
-    fn locate(&mut self, _: &Timeline, _: u32, _: i64) {
+    fn locate(&mut self, _: &Timeline, _: u32, _: i64, _: Jump) {
         self.phase = 0.0;
     }
 }
@@ -70,6 +70,55 @@ fn process_never_touches_the_heap() {
         let ((), heap) = count_rt_violations(|| engine.process(rate, &mut data, 2, 128));
         assert_eq!(heap, 0, "heap operation in process() at block {block}");
         let _ = handle.transport();
+        handle.collect_garbage();
+    }
+}
+
+#[test]
+fn clips_never_touch_the_heap_while_lists_swap() {
+    use std::sync::Arc;
+
+    use lumen_engine::{Clip, ClipAudio, clip_player};
+
+    assert!(guard_is_active(), "guarded allocator not installed");
+    let audio = Arc::new(ClipAudio {
+        sample_rate: 48_000,
+        channels: vec![vec![0.1; 96_000], vec![0.1; 96_000]],
+    });
+    let clips = |offset: i64| -> Vec<Clip> {
+        (0..64)
+            .map(|i| Clip {
+                start: Ticks((i * 7_919 + offset) % (lumen_core::time::PPQ * 8)),
+                offset: 0,
+                length: 96_000,
+                gain: 0.5,
+                audio: Arc::clone(&audio),
+            })
+            .collect()
+    };
+    let (mut clips_handle, player) = clip_player();
+    let (mut handle, mut engine) = engine(Timeline::default(), player, 48_000);
+    clips_handle.set(clips(0)).unwrap();
+    handle.send(Command::Play).unwrap();
+    handle
+        .send(Command::SetLoop(Region::new(
+            Ticks::ZERO,
+            Ticks::quarters(8),
+            true,
+        )))
+        .unwrap();
+    let mut data = vec![0.0; 2 * 128];
+    for block in 0..3_000_i64 {
+        if block % 300 == 150 {
+            // Built and sent from the UI side, outside the real-time section.
+            let _ = clips_handle.set(clips(block));
+        }
+        if block % 700 == 350 {
+            handle.send(Command::Locate(Ticks::quarters(3))).unwrap();
+        }
+        let ((), heap) = count_rt_violations(|| engine.process(48_000, &mut data, 2, 128));
+        assert_eq!(heap, 0, "heap operation in process() at block {block}");
+        clips_handle.collect_garbage();
         handle.collect_garbage();
     }
 }

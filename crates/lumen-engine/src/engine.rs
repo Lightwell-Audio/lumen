@@ -22,7 +22,7 @@ use lumen_core::time::Ticks;
 use lumen_rt::DenormalGuard;
 
 use crate::snapshot::{Shared, TransportSnapshot};
-use crate::source::{Output, RenderContext, Source};
+use crate::source::{Jump, Output, RenderContext, Source};
 use crate::timeline::Timeline;
 
 const COMMAND_CAPACITY: usize = 256;
@@ -218,7 +218,7 @@ impl<S: Source> Engine<S> {
                 && self.position == end
             {
                 self.position = start;
-                self.locate_source();
+                self.locate_source(Jump::LoopWrap);
             }
         }
     }
@@ -234,7 +234,7 @@ impl<S: Source> Engine<S> {
                     if !self.playing {
                         self.playing = true;
                         self.play_marker = self.ticks_now();
-                        self.locate_source();
+                        self.locate_source(Jump::Play);
                     }
                 }
                 Command::Pause => self.playing = false,
@@ -250,7 +250,7 @@ impl<S: Source> Engine<S> {
                     self.play_marker = at;
                     self.position = self.sample_at(at);
                     if self.playing {
-                        self.locate_source();
+                        self.locate_source(Jump::Locate);
                     }
                 }
                 Command::SetLoop(region) => {
@@ -294,7 +294,7 @@ impl<S: Source> Engine<S> {
         self.position = self.sample_at(at);
         self.refresh_regions();
         if self.playing {
-            self.locate_source();
+            self.locate_source(Jump::Reposition);
         }
     }
 
@@ -310,9 +310,9 @@ impl<S: Source> Engine<S> {
             .filter(|(start, end)| end > start)
     }
 
-    fn locate_source(&mut self) {
+    fn locate_source(&mut self, jump: Jump) {
         self.source
-            .locate(&self.timeline, self.sample_rate, self.position);
+            .locate(&self.timeline, self.sample_rate, self.position, jump);
     }
 
     fn sample_at(&self, t: Ticks) -> i64 {

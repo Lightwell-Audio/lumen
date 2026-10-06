@@ -13,6 +13,11 @@ rtrb.workspace = true
 
 [dev-dependencies]
 lumen-audio.workspace = true
+divan.workspace = true
+
+[[bench]]
+name = "clips"
+harness = false
 
 [lints]
 workspace = true
