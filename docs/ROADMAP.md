@@ -423,6 +423,35 @@ The mandatory `[M]` requirements are complete or explicitly approved for deferra
 
 ---
 
+## Stretch goals (unscheduled)
+
+**Goal:** Worthwhile work that is not on the path to 1.0. Items are pulled
+into a numbered milestone only with the owner's approval.
+
+### VST3 scanning and hosting on macOS and Linux
+Added by the owner on 2026-10-06. The M1 scanner and host prototypes are
+Windows-only, so the CI isolation self-test runs on Windows alone.
+
+- Module loading: macOS bundles (`CFBundle`, `bundleEntry`/`bundleExit`);
+  Linux shared objects (`dlopen`, `ModuleEntry`/`ModuleExit`)
+- Discovery: `Contents/MacOS/` and `Contents/<arch>-linux/`; the standard
+  search paths (`/Library/Audio/Plug-Ins/VST3`, `~/Library/Audio/Plug-Ins/VST3`,
+  `~/.vst3`, `/usr/lib/vst3`, `/usr/local/lib/vst3`)
+- Misbehaving test module as a macOS bundle and a Linux `.so`; crashes
+  classified by signal (SIGSEGV, SIGBUS) instead of Windows exit codes
+- Isolation transport on POSIX: `shm_open` shared memory; futex (Linux) or
+  Mach semaphores / `os_sync_wait_on_address` (macOS) for signalling; process
+  groups instead of Job objects
+- macOS specifics: universal binaries (arm64 + x86_64), code signing,
+  notarization and Gatekeeper quarantine of plugin bundles
+- The scanner isolation self-test enabled in CI on all three platforms
+
+### Exit criteria
+The same scan, isolate and crash-recovery checks that pass on Windows pass on
+macOS and Linux, in CI and on real hardware.
+
+---
+
 # Development Rule
 
 Inside every milestone, work in small vertical slices.

@@ -22,6 +22,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | |
 | 9 | Recording, Media, Export & Production Workflow | 🔲 | |
 | 10 | Hardening, Performance & Release | 🔲 | |
+| S | Stretch goals (unscheduled; pulled into a milestone only with owner approval) | 🔲 | VST3 scanning and hosting on macOS and Linux |
 
 ## Milestone 1 slices
 
@@ -186,6 +187,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Spectrum analyzer, tuner | S | 🔲 | 8 |
 | Device browser: categories, vendors, search, favourites, recents, drag, double-click | M | 🔲 | 6 |
 | CLAP hosting; racks with macros | L | 🔲 | — |
+| VST3 scanning and hosting on macOS and Linux, with the isolation self-test in CI on all platforms (owner, 2026-10-06) | L | 🔲 | Stretch |
 
 ## §6.9 Audio and MIDI devices
 

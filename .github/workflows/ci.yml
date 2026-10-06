@@ -47,7 +47,8 @@ jobs:
       - name: Doc tests
         run: cargo test --workspace --doc --locked
       # Scanner isolation: crashing, hanging and broken VST3 modules must be
-      # contained and classified (P-VST3).
+      # contained and classified (P-VST3). Windows-only until the macOS and
+      # Linux port (ROADMAP.md, Stretch goals).
       - name: VST3 scanner isolation self-test
         if: runner.os == 'Windows'
         run: |
