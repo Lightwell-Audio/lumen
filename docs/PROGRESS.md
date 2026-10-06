@@ -196,11 +196,11 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Driver types: ASIO and WASAPI shared (Windows), CoreAudio, PipeWire/JACK/ALSA | M | 🔲 | 2 |
 | WASAPI exclusive | S | 🔲 | 2 |
 | Device, rate, buffer selection with input/output/round-trip latency display | M | 🔲 | 2 |
-| Device loss and return: keep the session, show the lost state, reconnect automatically (found by MT-ASIO-5) | M | 🔲 | 2 |
+| Device loss and return: keep the session, show the lost state, reconnect automatically (found by MT-ASIO-5) | M | 🟡 Detection and auto-reconnect done, tested with the fake backend and on hardware (MT-AUDIO-1); the lost-state UI arrives in slice 8 | 2 |
 | Channel selection with friendly names; mono and stereo configurations | M | 🔲 | 2 |
 | Test tone, CPU load, dropout counter, Audio On/Off | M | 🔲 | 2 |
-| ASIO control panel; driver resets and rate/buffer changes without losing the session; busy/missing messages | M | 🔲 | 2 |
-| Runtime changes never crash; restore a working configuration; persisted settings | M | 🔲 | 2 |
+| ASIO control panel; driver resets and rate/buffer changes without losing the session; busy/missing messages | M | 🟡 Driver resets done (MT-AUDIO-2); busy and missing errors are typed (MT-AUDIO-3); control panel and messages arrive in slice 8 | 2 |
+| Runtime changes never crash; restore a working configuration; persisted settings | M | 🟡 Fallback to the last working configuration is done and tested; persisted settings arrive in slice 8 | 2 |
 | MIDI devices: enable toggles, hot-plug, per-track MIDI From/To, virtual ports | M | 🔲 | 5 |
 
 ## §6.10 Projects, media and export

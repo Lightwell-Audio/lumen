@@ -245,8 +245,8 @@ fix on hardware.
 **Run 2 (2026-10-06):** pass. One `Lost` at 12.4 s (watchdog), one
 `Restored` at 35.8 s, no false restore in between. About 400 callbacks ran
 during the one-second probation, then audio continued cleanly to the end
-(0 overloads, peak load 0.7%). Time from replug to `Restored` is not yet
-confirmed.
+(0 overloads, peak load 0.7%). `Restored` came about 2 s after the
+replug (up to 1 s waiting for the next retry, plus the 1 s confirmation).
 
 ### MT-AUDIO-2 · Driver reset from the control panel (needs a human)
 1. `asio_tone "Focusrite USB ASIO" --seconds 60 --tone`
@@ -255,7 +255,10 @@ confirmed.
 **Expected:** `event: Reset(StreamInfo { buffer_frames: <new size>, ... })`,
 and the tone continues.
 
-**Last run:** not yet run (the same path passed in the M1 prototype, MT-ASIO-4).
+**Last run (2026-10-06):** pass. Buffer changed from 128 to 256 at 11.6 s →
+`Reset(StreamInfo { buffer_frames: 256, input_latency: 550,
+output_latency: 638, .. })`. The callback rate halved from about 344 to
+about 172 per second, the tone continued, and there were 0 overloads.
 
 ### MT-AUDIO-3 · Error paths (automatable)
 - `asio_tone "Focusrite Thunderbolt ASIO" --seconds 2` →
