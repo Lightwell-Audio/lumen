@@ -55,6 +55,9 @@ pub struct RenderContext<'a> {
     /// Timeline sample of the first frame. The part never crosses a loop
     /// wrap or a locate: those split the block.
     pub start: i64,
+    /// This is the 2 ms rendered ahead of a jump, to crossfade from (the
+    /// engine fades it out). Meters and recorders should ignore it.
+    pub tail: bool,
 }
 
 /// Why playback jumped, so sources can choose whether to fade in.
@@ -80,7 +83,7 @@ pub trait Source: Send {
     fn render(&mut self, cx: &RenderContext<'_>, out: &mut Output<'_>);
 
     /// Playback starts or jumps to `sample`, for the reason given. Sources
-    /// reposition here (and fade in, except on a loop wrap).
+    /// reposition here. The engine already crossfades every jump.
     fn locate(&mut self, _timeline: &Timeline, _sample_rate: u32, _sample: i64, _jump: Jump) {}
 }
 

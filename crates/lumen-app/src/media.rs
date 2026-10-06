@@ -13,13 +13,34 @@ use eframe::egui;
 use lumen_engine::ClipAudio;
 use lumen_media::MediaError;
 
-/// File extensions Lumen imports (AAC/M4A deferred, owner decision).
-pub const EXTENSIONS: [&str; 7] = ["wav", "wave", "aif", "aiff", "flac", "mp3", "ogg"];
+/// What the user sees about a file: from its name and size at once, the
+/// rest when it has been decoded.
+#[derive(Debug, Clone, Default)]
+pub struct FileInfo {
+    /// "WAV", "FLAC", ...
+    pub format: String,
+    pub size_bytes: u64,
+    /// The file's own rate, before conversion.
+    pub sample_rate: Option<u32>,
+    pub channels: Option<usize>,
+    pub seconds: Option<f64>,
+}
+
+/// The format name shown for `path`, or `None` if Lumen cannot import it.
+pub fn format_name(path: &Path) -> Option<&'static str> {
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+    Some(match extension.as_str() {
+        "wav" | "wave" => "WAV",
+        "aif" | "aiff" => "AIFF",
+        "flac" => "FLAC",
+        "mp3" => "MP3",
+        "ogg" => "Ogg Vorbis",
+        _ => return None,
+    })
+}
 
 pub fn is_audio_file(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+    format_name(path).is_some()
 }
 
 #[derive(Debug, Clone)]
@@ -34,6 +55,7 @@ pub struct Item {
     pub path: PathBuf,
     pub name: String,
     pub state: State,
+    pub info: FileInfo,
     job: Option<Job>,
 }
 
@@ -47,6 +69,8 @@ struct Job {
 struct Done {
     id: u64,
     rate: u32,
+    /// The file's own rate, channels and length.
+    source: Option<(u32, usize, f64)>,
     result: Result<lumen_media::Audio, MediaError>,
 }
 
@@ -86,11 +110,17 @@ impl Library {
             || path.display().to_string(),
             |s| s.to_string_lossy().into_owned(),
         );
+        let info = FileInfo {
+            format: format_name(&path).unwrap_or("?").to_owned(),
+            size_bytes: std::fs::metadata(&path).map_or(0, |m| m.len()),
+            ..FileInfo::default()
+        };
         self.items.push(Item {
             id,
             path,
             name,
             state: State::Loading,
+            info,
             job: None,
         });
         self.start_job(id, rate, ctx);
@@ -117,7 +147,7 @@ impl Library {
             .name("lumen-media-load".into())
             .spawn(move || {
                 let mut shown = 0.0;
-                let result = lumen_media::load(&path, rate, &cancel, &mut |p| {
+                let mut report = |p: f32| {
                     progress.store(p.to_bits(), Ordering::Relaxed);
                     // Repaint for every 2% so the bar moves without
                     // flooding the UI.
@@ -125,8 +155,24 @@ impl Library {
                         shown = p;
                         ctx.request_repaint();
                     }
+                };
+                // Decode and convert separately, to keep the file's own details.
+                let decoded = lumen_media::decode(&path, &cancel, &mut |p| report(p * 0.8));
+                let source = decoded
+                    .as_ref()
+                    .ok()
+                    .map(|a| (a.sample_rate, a.channels(), a.seconds()));
+                let result = decoded.and_then(|audio| {
+                    let converted = lumen_media::resample(&audio, rate, &cancel);
+                    report(1.0);
+                    converted
                 });
-                let _ = done.send(Done { id, rate, result });
+                let _ = done.send(Done {
+                    id,
+                    rate,
+                    source,
+                    result,
+                });
                 ctx.request_repaint();
             })
             .expect("spawn media loader");
@@ -146,6 +192,11 @@ impl Library {
                 continue;
             }
             item.job = None;
+            if let Some((rate, channels, seconds)) = done.source {
+                item.info.sample_rate = Some(rate);
+                item.info.channels = Some(channels);
+                item.info.seconds = Some(seconds);
+            }
             match done.result {
                 Ok(audio) => {
                     crate::trace::log(|| {
@@ -233,6 +284,9 @@ mod tests {
         assert!(!is_audio_file(Path::new("song.m4a")), "AAC deferred");
         assert!(!is_audio_file(Path::new("notes.txt")));
         assert!(!is_audio_file(Path::new("noextension")));
+        assert_eq!(format_name(Path::new("a.AIF")), Some("AIFF"));
+        assert_eq!(format_name(Path::new("a.ogg")), Some("Ogg Vorbis"));
+        assert_eq!(format_name(Path::new("a.m4a")), None);
     }
 
     fn wav(path: &Path, rate: u32, frames: usize) {
@@ -277,6 +331,12 @@ mod tests {
         };
         assert_eq!(audio.sample_rate, 48_000);
         assert!(library.memory() > 0);
+        let info = &library.get(id).unwrap().info;
+        assert_eq!(info.format, "WAV");
+        assert_eq!(info.sample_rate, Some(44_100), "the file's own rate");
+        assert_eq!(info.channels, Some(2));
+        assert!((info.seconds.unwrap() - 1.0).abs() < 1e-6);
+        assert_eq!(info.size_bytes, 44 + 44_100 * 4);
 
         // The device switches to 44.1 kHz: the file is converted again.
         library.update(44_100, &ctx);

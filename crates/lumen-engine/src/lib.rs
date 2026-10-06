@@ -12,6 +12,7 @@
 //! checks it again in Linux CI.
 
 mod clips;
+mod declick;
 mod engine;
 mod snapshot;
 mod source;

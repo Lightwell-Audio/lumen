@@ -18,6 +18,11 @@ struct Probe {
 
 impl Source for Probe {
     fn render(&mut self, cx: &RenderContext<'_>, out: &mut Output<'_>) {
+        // The 2 ms rendered ahead of a jump is only crossfaded out; it is not
+        // playback, so it is not recorded.
+        if cx.tail {
+            return;
+        }
         for i in 0..out.frames() {
             self.played.push(cx.start + i as i64);
         }
@@ -69,9 +74,14 @@ fn silence_while_stopped_and_audio_while_playing() {
         data.iter().all(|&s| s == 0.0),
         "stopped output must be zeroed"
     );
+    // Playback fades in over 2 ms (96 frames at 48 kHz), then plays at
+    // full level.
+    let mut data = vec![7.0; 2 * 128];
     handle.send(Command::Play).unwrap();
-    engine.process(RATE, &mut data, 2, 64);
-    assert!(data[..64].iter().all(|&s| s == 1.0));
+    engine.process(RATE, &mut data, 2, 128);
+    assert!(data[0] > 0.0 && data[0] < 0.02);
+    assert!(data[..96].windows(2).all(|w| w[1] > w[0]));
+    assert!(data[95..128].iter().all(|&s| s == 1.0));
 }
 
 #[test]

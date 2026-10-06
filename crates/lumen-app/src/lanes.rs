@@ -9,7 +9,7 @@ use eframe::egui::{self, Color32, Painter, Pos2, Rect, RichText, Stroke, pos2, v
 use lumen_core::time::Ticks;
 use lumen_engine::{Clip, ClipsHandle, Timeline};
 
-use crate::media::{self, Library, State};
+use crate::media::{self, Item, Library, State};
 use crate::theme;
 
 pub const LANE_HEIGHT: f32 = 56.0;
@@ -109,6 +109,46 @@ impl Lanes {
         Rect::from_min_size(pos2(canvas.left(), top), vec2(canvas.width(), LANE_HEIGHT))
     }
 
+    /// Where lane `index`'s clip is drawn, with its file.
+    fn clip(
+        &self,
+        index: usize,
+        canvas: Rect,
+        timeline: &Timeline,
+        x_of: &impl Fn(f32) -> f32,
+    ) -> Option<(Rect, &Item)> {
+        let lane = self.lanes.get(index)?;
+        let item = self.library.get(lane.media)?;
+        let row = Self::lane_rect(canvas, index);
+        let x0 = x_of(lane.start.as_quarters() as f32);
+        let x1 = match &item.state {
+            State::Ready(audio) => {
+                let start = timeline.tempo.seconds_at(lane.start);
+                let seconds = audio.frames() as f64 / f64::from(audio.sample_rate);
+                let end = timeline.tempo.ticks_at_seconds(start + seconds);
+                x_of(end.as_quarters() as f32)
+            }
+            _ => x0 + 160.0,
+        };
+        let rect =
+            Rect::from_x_y_ranges(x0..=x1.max(x0 + 2.0), row.shrink2(vec2(0.0, 2.0)).y_range());
+        Some((rect, item))
+    }
+
+    /// The file whose clip is under `pointer`.
+    pub fn file_at(
+        &self,
+        pointer: Pos2,
+        canvas: Rect,
+        timeline: &Timeline,
+        x_of: impl Fn(f32) -> f32,
+    ) -> Option<&Item> {
+        (0..self.lanes.len())
+            .filter_map(|i| self.clip(i, canvas, timeline, &x_of))
+            .find(|(rect, _)| rect.contains(pointer))
+            .map(|(_, item)| item)
+    }
+
     /// Draws the lanes and their clips. `x_of` maps quarter notes to x.
     pub fn paint(
         &self,
@@ -123,21 +163,9 @@ impl Lanes {
                 break;
             }
             painter.rect_filled(row, 0.0, Color32::from_rgba_premultiplied(0, 0, 0, 40));
-            let Some(item) = self.library.get(lane.media) else {
+            let Some((clip, item)) = self.clip(index, canvas, timeline, &x_of) else {
                 continue;
             };
-            let x0 = x_of(lane.start.as_quarters() as f32);
-            let x1 = match &item.state {
-                State::Ready(audio) => {
-                    let start = timeline.tempo.seconds_at(lane.start);
-                    let seconds = audio.frames() as f64 / f64::from(audio.sample_rate);
-                    let end = timeline.tempo.ticks_at_seconds(start + seconds);
-                    x_of(end.as_quarters() as f32)
-                }
-                _ => x0 + 160.0,
-            };
-            let clip =
-                Rect::from_x_y_ranges(x0..=x1.max(x0 + 2.0), row.shrink2(vec2(0.0, 2.0)).y_range());
             let visible = clip.intersect(row);
             if visible.width() <= 0.0 {
                 continue;
@@ -244,4 +272,43 @@ impl Lanes {
                 });
             });
     }
+}
+
+/// The hover card for a clip's file.
+pub fn file_card(ui: &mut egui::Ui, item: &Item) {
+    ui.label(RichText::new(&item.name).strong());
+    let info = &item.info;
+    let mut facts = vec![info.format.clone()];
+    if let Some(rate) = info.sample_rate {
+        facts.push(format!("{:.1} kHz", f64::from(rate) / 1000.0));
+    }
+    if let Some(channels) = info.channels {
+        facts.push(match channels {
+            1 => "mono".into(),
+            2 => "stereo".into(),
+            n => format!("{n} channels"),
+        });
+    }
+    if let Some(seconds) = info.seconds {
+        facts.push(crate::position::format_time(seconds));
+    }
+    facts.push(format!("{:.1} MB", info.size_bytes as f64 / 1_048_576.0));
+    ui.label(facts.join(" · "));
+    match &item.state {
+        State::Ready(audio) if Some(audio.sample_rate) != info.sample_rate => {
+            ui.label(format!(
+                "Playing at {:.1} kHz (converted)",
+                f64::from(audio.sample_rate) / 1000.0
+            ));
+        }
+        State::Failed(why) => {
+            ui.label(RichText::new(why).color(theme::WARNING));
+        }
+        _ => {}
+    }
+    ui.label(
+        RichText::new(item.path.display().to_string())
+            .small()
+            .weak(),
+    );
 }

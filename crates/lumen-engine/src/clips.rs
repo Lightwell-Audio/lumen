@@ -4,9 +4,7 @@
 //!
 //! A clip starts at a musical position and plays its audio at the audio's
 //! own speed (no warping yet). Clips fade in and out over 2 ms at their
-//! edges, and playback fades in over 2 ms after play, locate and tempo or
-//! rate jumps, so nothing clicks. Loop wraps do not fade, so loops stay
-//! seamless.
+//! edges; the engine crossfades every transport jump.
 //!
 //! The clip list is replaced whole: the UI builds a new one and sends it
 //! through a lock-free queue, and the old one goes back to be freed on the
@@ -19,7 +17,7 @@ use lumen_core::time::Ticks;
 use crate::source::{Jump, Output, RenderContext, Source};
 use crate::timeline::Timeline;
 
-/// Clip edge and jump fades: 2 ms.
+/// Clip edge fades: 2 ms.
 const FADE_PER_SECOND: u32 = 500;
 const QUEUE: usize = 4;
 
@@ -96,8 +94,6 @@ pub struct ClipPlayer {
     /// A replaced list that did not fit in the retired queue yet.
     stash: Option<Box<ClipSet>>,
     current: Box<ClipSet>,
-    /// Frames left in the fade-in after a jump.
-    fade_left: u32,
 }
 
 /// Creates the clip pair, starting with no clips. Allocates, so call it off
@@ -115,7 +111,6 @@ pub fn clip_player() -> (ClipsHandle, ClipPlayer) {
             retired: retired_tx,
             stash: None,
             current: Box::new(ClipSet::new(Vec::new())),
-            fade_left: 0,
         },
     )
 }
@@ -157,8 +152,6 @@ impl Source for ClipPlayer {
         let frames = out.frames() as i64;
         let (from, to) = (cx.start, cx.start + frames);
         let edge = i64::from(fade_length(rate));
-        let fade = fade_length(rate) as f32;
-        let fade_left = self.fade_left as i64;
         let outputs = out.channels().min(2);
         for clip in &self.current.clips {
             if clip.audio.sample_rate != rate || clip.length <= 0 {
@@ -183,28 +176,15 @@ impl Source for ClipPlayer {
                     else {
                         continue;
                     };
-                    let k = t - from;
-                    // Rises from 1/fade on the first frame after a jump to
-                    // full level on frame `fade`.
-                    let jump = if k < fade_left {
-                        ((fade - fade_left as f32 + k as f32 + 1.0) / fade).min(1.0)
-                    } else {
-                        1.0
-                    };
-                    target[k as usize] +=
-                        sample * clip.gain * edge_gain(pos, clip.length, edge) * jump;
+                    target[(t - from) as usize] +=
+                        sample * clip.gain * edge_gain(pos, clip.length, edge);
                 }
             }
         }
-        self.fade_left = self.fade_left.saturating_sub(frames as u32);
     }
 
-    fn locate(&mut self, _: &Timeline, rate: u32, _sample: i64, jump: Jump) {
+    fn locate(&mut self, _: &Timeline, _: u32, _: i64, _: Jump) {
         self.take_new();
-        self.fade_left = match jump {
-            Jump::LoopWrap => 0,
-            Jump::Play | Jump::Locate | Jump::Reposition => fade_length(rate),
-        };
     }
 }
 

@@ -470,6 +470,20 @@ files at 44.1 kHz and 48 kHz, in more than one format (WAV, FLAC, MP3, Ogg).
 
 **Expected:** every step as described.
 
-**Last run:** not yet run. Automated: `--open-audio` with a 5 s WAV loads
+**Run 1 (2026-10-06, owner):** playback good. Findings:
+- **Bug, fixed:** a small pop on loop wraps and when stopping. Jumps faded in
+  but never faded the old audio out. The engine now crossfades every jump
+  (ADR-0019; golden tests cover the crossfade and the stop fade-out).
+- **Added at the owner's request:** while dragging, the arrangement lists
+  each file with ✓ (format) or ✕ (not supported) before the drop. Hovering a
+  clip shows its format, original rate, channels, length, size and path.
+- **Planned elsewhere:** dropping onto a specific track (M3, now a
+  PROGRESS row); scrubbing with the mouse (M3, the owner's Ableton-style
+  scrubbing request).
+
+**Run 2:** not yet run. Check the pop is gone, and try the drag indicator
+and the hover card.
+
+Automated: `--open-audio` with a 5 s WAV loads
 in 38 ms and redraws at 2.5 bars; the rate change to 44.1 kHz converts again
 automatically.

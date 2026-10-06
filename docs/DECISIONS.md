@@ -1097,9 +1097,17 @@ audio in memory for M2, disk streaming in M9; AAC/M4A deferred.
   - Start samples are recomputed every block (a binary search per clip).
     Caching them by timeline address was rejected: a freed timeline's
     address can be reused.
-  - 2 ms fades at clip edges. A 2 ms fade-in after play, locate and
-    tempo/rate jumps (`Source::locate` now gets a `Jump` reason), but not
-    on loop wraps, so loops stay seamless.
+  - 2 ms fades at clip edges.
+  - **Every transport jump is click-free, in the engine, for every
+    source** (revised after MT-MEDIA-1 run 1, where the owner heard a pop
+    on loop wraps and stops). Locates and loop wraps get a 2 ms linear
+    crossfade: the engine renders the 2 ms that would have followed the old
+    position (flagged `tail` in `RenderContext`) and fades it out while the
+    new audio fades in. Play fades in, and stop and pause fade out. Loops
+    still wrap on their exact sample. The first design faded in only after
+    jumps and skipped loop wraps to keep loops seamless, which left a hard
+    cut whenever the audio at the loop end did not line up with the loop
+    start.
   - Clip lists are swapped whole through lock-free queues, and old lists are
     freed on the UI side.
 - **The simple timeline:** each imported file gets its own lane with one

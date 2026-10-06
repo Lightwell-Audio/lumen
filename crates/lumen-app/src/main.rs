@@ -144,6 +144,15 @@ impl App {
         let x_of = |quarters: f32| canvas.left() + (quarters - self.left_beat) * self.px_per_beat;
         self.lanes
             .paint(&painter, canvas, &self.transport.timeline, x_of);
+        // A hover card with the file's details.
+        let hover = ui.interact(canvas, ui.id().with("clips"), Sense::hover());
+        if let Some(pointer) = hover.hover_pos()
+            && let Some(item) = self
+                .lanes
+                .file_at(pointer, canvas, &self.transport.timeline, x_of)
+        {
+            hover.on_hover_ui_at_pointer(|ui| lanes::file_card(ui, item));
+        }
 
         // Dropped files land under the pointer (snapped) when the system
         // reports it, otherwise at the playhead.
@@ -246,20 +255,59 @@ impl App {
             ));
         }
 
-        let hovering_files = ui.input(|i| !i.raw.hovered_files.is_empty());
-        if hovering_files {
+        // While files are dragged over the window, say which will be added.
+        let hovered: Vec<PathBuf> = ui.input(|i| {
+            i.raw
+                .hovered_files
+                .iter()
+                .filter_map(|f| f.path.clone())
+                .collect()
+        });
+        if !hovered.is_empty() {
+            let supported = hovered.iter().filter(|p| media::is_audio_file(p)).count();
+            let color = if supported > 0 {
+                theme::ACCENT
+            } else {
+                theme::WARNING
+            };
             painter.rect_stroke(
                 canvas.shrink(2.0),
                 4.0,
-                Stroke::new(2.0, theme::ACCENT),
+                Stroke::new(2.0, color),
                 egui::StrokeKind::Inside,
             );
+            let mut lines: Vec<String> = hovered
+                .iter()
+                .take(8)
+                .map(|p| {
+                    let name = p
+                        .file_name()
+                        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                    match media::format_name(p) {
+                        Some(format) => format!("✓  {name}  ({format})"),
+                        None => format!("✕  {name}  (not an audio file Lumen reads)"),
+                    }
+                })
+                .collect();
+            if hovered.len() > 8 {
+                lines.push(format!("…and {} more", hovered.len() - 8));
+            }
+            let headline = match (supported, hovered.len()) {
+                (0, _) => "Nothing here can be added".to_owned(),
+                (n, total) if n == total => {
+                    format!(
+                        "Drop to add {n} audio file{}",
+                        if n == 1 { "" } else { "s" }
+                    )
+                }
+                (n, total) => format!("Drop to add {n} of {total} files"),
+            };
             painter.text(
                 canvas.center(),
                 egui::Align2::CENTER_CENTER,
-                "Drop to add audio",
-                egui::FontId::proportional(16.0),
-                theme::ACCENT,
+                format!("{headline}\n\n{}", lines.join("\n")),
+                egui::FontId::proportional(15.0),
+                color,
             );
         } else if self.lanes.is_empty() {
             painter.text(

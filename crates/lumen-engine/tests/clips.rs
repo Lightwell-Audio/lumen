@@ -90,7 +90,7 @@ fn a_clip_plays_on_its_exact_samples_at_every_block_size() {
 }
 
 #[test]
-fn the_loop_wrap_is_seamless_and_jumps_fade_in() {
+fn the_loop_wrap_crossfades_and_stays_on_the_exact_sample() {
     let audio = ramp(400_000, RATE);
     let clip = Clip {
         start: Ticks::ZERO,
@@ -112,11 +112,51 @@ fn the_loop_wrap_is_seamless_and_jumps_fade_in() {
     // Starting playback fades in over 2 ms...
     assert!(left(0) < source(96_000) / 10.0, "no fade-in at play");
     assert_eq!(left(FADE as usize), source(96_000 + FADE as usize));
-    // ...but the wrap from bar 3 back to bar 2 does not: 96,000 frames in,
-    // playback is at sample 96,000 again, at full level.
+    // At the wrap from bar 3 back to bar 2 (96,000 frames in), the loop start
+    // fades in over 2 ms while what would have followed bar 3 fades out:
+    // a crossfade, so a loop that does not line up does not click.
     assert_eq!(left(95_999), source(191_999));
-    assert_eq!(left(96_000), source(96_000));
-    assert_eq!(left(96_001), source(96_001));
+    for k in 0..FADE as usize {
+        let fade_in = (k + 1) as f32 / FADE as f32;
+        let want = source(96_000 + k) * fade_in + source(192_000 + k) * (1.0 - fade_in);
+        assert!((left(96_000 + k) - want).abs() < 1e-9, "wrap frame {k}");
+    }
+    // After the crossfade the loop plays its exact samples again.
+    assert_eq!(left(96_000 + FADE as usize), source(96_000 + FADE as usize));
+    assert_eq!(left(150_000), source(150_000));
+}
+
+#[test]
+fn stopping_fades_out_instead_of_cutting() {
+    let audio = ramp(400_000, RATE);
+    let clip = Clip {
+        start: Ticks::ZERO,
+        offset: 0,
+        length: 400_000,
+        gain: 1.0,
+        audio: Arc::clone(&audio),
+    };
+    let (mut handle, _clips, mut engine) = setup(vec![clip]);
+    handle.send(Command::Play).unwrap();
+    run(&mut engine, 10_000, 128);
+    for stop in [Command::Stop, Command::Pause] {
+        handle.send(Command::Play).unwrap();
+        run(&mut engine, 1_000, 128);
+        let at = handle.transport().sample as usize;
+        handle.send(stop).unwrap();
+        let out = run(&mut engine, 256, 128);
+        // The audio that was playing ramps down to silence over 2 ms...
+        for k in 0..FADE as usize {
+            let want = audio.channels[0][at + k] * (1.0 - (k + 1) as f32 / FADE as f32);
+            assert!((out[k].0 - want).abs() < 1e-9, "{stop:?} frame {k}");
+        }
+        // ...then silence, and the transport is where it should be.
+        assert!(
+            out[FADE as usize..].iter().all(|&s| s == (0.0, 0.0)),
+            "{stop:?}"
+        );
+        assert!(!handle.transport().playing);
+    }
 }
 
 #[test]

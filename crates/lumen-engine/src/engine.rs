@@ -15,12 +15,16 @@
 //! - **Loop:** while the loop is on and playback reaches its end, it wraps to
 //!   its start on the exact sample. Playback that starts after the loop end
 //!   plays on.
+//!
+//! Every jump is click-free (`declick`): a 2 ms crossfade on locates and
+//! loop wraps, a fade-in on play and a fade-out on stop and pause.
 
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
 use lumen_rt::DenormalGuard;
 
+use crate::declick::{Declick, MAX_FADE, fade_frames};
 use crate::snapshot::{Shared, TransportSnapshot};
 use crate::source::{Jump, Output, RenderContext, Source};
 use crate::timeline::Timeline;
@@ -123,6 +127,7 @@ pub struct Engine<S> {
     /// Active loop as `[start, end)` samples at the current rate and tempo.
     loop_samples: Option<(i64, i64)>,
     punch_samples: Option<(i64, i64)>,
+    declick: Declick,
 }
 
 /// Creates the engine pair. Allocates, so call it off the audio thread.
@@ -152,6 +157,7 @@ pub fn engine<S: Source>(
         punch: Region::default(),
         loop_samples: None,
         punch_samples: None,
+        declick: Declick::default(),
     };
     engine.publish();
     let handle = EngineHandle {
@@ -189,9 +195,12 @@ impl<S: Source> Engine<S> {
             self.sample_rate = sample_rate;
             self.reposition(at);
         }
-        self.apply_commands();
+        self.apply_commands(channels);
         if self.playing {
             self.render(data, channels, frames);
+        } else if self.declick.active() {
+            // A stop or pause just happened: its tail fades out over silence.
+            self.declick.apply(data, frames, channels, 0, frames);
         }
         self.publish();
     }
@@ -209,21 +218,47 @@ impl<S: Source> Engine<S> {
                 timeline: &self.timeline,
                 sample_rate: self.sample_rate,
                 start: self.position,
+                tail: false,
             };
             let mut out = Output::new(data, frames, offset, n, channels);
             self.source.render(&cx, &mut out);
+            self.declick.apply(data, frames, channels, offset, n);
             self.position += n as i64;
             offset += n;
             if let Some((start, end)) = self.loop_samples
                 && self.position == end
             {
+                // Crossfade what would follow the loop end into the loop start.
+                self.capture_tail(channels);
                 self.position = start;
                 self.locate_source(Jump::LoopWrap);
+                self.declick.fade_in(fade_frames(self.sample_rate));
             }
         }
     }
 
-    fn apply_commands(&mut self) {
+    /// Renders what would follow the current position into the declick
+    /// tail, faded out, ahead of a jump. Only while playing.
+    fn capture_tail(&mut self, channels: usize) {
+        if !self.playing {
+            return;
+        }
+        let frames = fade_frames(self.sample_rate);
+        let Some(buffer) = self.declick.tail_buffer(channels) else {
+            return;
+        };
+        let cx = RenderContext {
+            timeline: &self.timeline,
+            sample_rate: self.sample_rate,
+            start: self.position,
+            tail: true,
+        };
+        let mut out = Output::new(buffer, MAX_FADE, 0, frames, channels);
+        self.source.render(&cx, &mut out);
+        self.declick.tail_rendered(channels, frames);
+    }
+
+    fn apply_commands(&mut self, channels: usize) {
         // Bounded, so a flood of commands cannot exhaust the block's budget.
         for _ in 0..COMMAND_CAPACITY {
             let Ok(command) = self.commands.pop() else {
@@ -235,11 +270,16 @@ impl<S: Source> Engine<S> {
                         self.playing = true;
                         self.play_marker = self.ticks_now();
                         self.locate_source(Jump::Play);
+                        self.declick.fade_in(fade_frames(self.sample_rate));
                     }
                 }
-                Command::Pause => self.playing = false,
+                Command::Pause => {
+                    self.capture_tail(channels);
+                    self.playing = false;
+                }
                 Command::Stop => {
                     if self.playing {
+                        self.capture_tail(channels);
                         self.playing = false;
                     } else {
                         self.play_marker = Ticks::ZERO;
@@ -247,10 +287,12 @@ impl<S: Source> Engine<S> {
                     self.position = self.sample_at(self.play_marker);
                 }
                 Command::Locate(at) => {
+                    self.capture_tail(channels);
                     self.play_marker = at;
                     self.position = self.sample_at(at);
                     if self.playing {
                         self.locate_source(Jump::Locate);
+                        self.declick.fade_in(fade_frames(self.sample_rate));
                     }
                 }
                 Command::SetLoop(region) => {
@@ -295,6 +337,7 @@ impl<S: Source> Engine<S> {
         self.refresh_regions();
         if self.playing {
             self.locate_source(Jump::Reposition);
+            self.declick.fade_in(fade_frames(self.sample_rate));
         }
     }
 
