@@ -70,10 +70,11 @@ uses the whole run's duration.
 reports the reset or error messages the driver sends. (Recovery UX is
 designed in M2.)
 
-**Last run (2026-10-05, run by the owner):** provisional pass. No crash; the
-run finished; 3,750 callbacks (10 s) before the cable was pulled. The pasted
-output was incomplete (a reset message was printed but the summary said
-0 resets), so this should be confirmed from full output.
+**Last run (2026-10-05, run by the owner):** pass (no crash). Unplugging
+made the driver send `kAsioResetRequest`; recreating buffers then failed with
+`ASE_NotPresent (-1000)` and the probe exited with a clear message. **M2
+requirement:** treat this as "device lost": keep the session, show the
+recovery state, and retry when the device returns, rather than stopping.
 
 ### MT-ASIO-6 · Driver busy in another application (needs a human)
 1. Open another ASIO application (for example Ableton Live) on the Focusrite
@@ -83,7 +84,10 @@ output was incomplete (a reset message was printed but the summary said
 **Expected:** a clear error or shared operation, depending on the driver. No
 crash and no hang.
 
-**Last run:** not yet run.
+**Last run (2026-10-05, run by the owner):** pass. Streamed normally alongside
+Ableton Live (3,750 callbacks in 10 s, 0 discontinuities, 0 heap operations):
+the Focusrite USB driver allows multiple clients. Busy-driver error handling
+is still untested; it needs a single-client driver.
 
 ---
 
@@ -164,4 +168,5 @@ Automation (58 named elements), twice. **Still needs a human:** listening throug
 1. Run `target/release/ui-stress` at each Windows display scale.
 2. Judge text crispness, line sharpness and waveform appearance.
 
-**Last run:** not yet run.
+**Last run (2026-10-05, run by the owner):** pass at 100%, 150% and 200%.
+Text was not blurry; it looked fine.

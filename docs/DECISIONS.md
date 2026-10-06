@@ -551,9 +551,15 @@ Findings that shape the M2 design:
    negative number) or truncate error text. The UI should treat driver
    strings and numbers defensively.
 
-Not yet verified: reset requests from a driver panel (MT-ASIO-4), hardware
-removal (MT-ASIO-5), busy driver (MT-ASIO-6). These need a person at the
-machine.
+Verified by the owner later the same day:
+- **Reset requests** from the driver panel are handled: buffer 128 → 256 →
+  128 within one stream gave three clean segments with 0 discontinuities.
+  Each reset costs about 0.65 s of silence.
+- **Hardware removal** is survived without a crash. Recreating buffers then
+  fails with `ASE_NotPresent`, so M2 must keep the session and retry when the
+  device comes back.
+- The Focusrite driver is **multi-client** (it streamed alongside Ableton),
+  so busy-driver error handling remains untested.
 
 ---
 
