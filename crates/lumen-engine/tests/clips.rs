@@ -146,9 +146,9 @@ fn stopping_fades_out_instead_of_cutting() {
         handle.send(stop).unwrap();
         let out = run(&mut engine, 256, 128);
         // The audio that was playing ramps down to silence over 2 ms...
-        for k in 0..FADE as usize {
+        for (k, &(left, _)) in out.iter().enumerate().take(FADE as usize) {
             let want = audio.channels[0][at + k] * (1.0 - (k + 1) as f32 / FADE as f32);
-            assert!((out[k].0 - want).abs() < 1e-9, "{stop:?} frame {k}");
+            assert!((left - want).abs() < 1e-9, "{stop:?} frame {k}");
         }
         // ...then silence, and the transport is where it should be.
         assert!(
