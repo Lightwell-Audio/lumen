@@ -94,6 +94,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 |---|---|---|---|
 | Import by drag and drop with sample-rate handling and optional copy into project | M | 🔲 | 3 |
 | Glitch-free playback, seamless loops, instant seeking | M | 🔲 | 2 |
+| Disk streaming of clip audio with read-ahead, so large sessions need not fit in RAM; in-memory playback becomes a per-clip RAM option (owner decision 2026-10-06: memory in M2, streaming in M9) | M | 🔲 | 9 |
 | Crisp, fast waveforms at every zoom | M | 🔲 | 3 |
 | Recording: multi-arm, monitoring, multichannel, crash-safe capture, latency compensation and offset, punch, count-in, input meters | M | 🔲 | 9 |
 | Loop recording into takes; capture MIDI | S | 🔲 | 9 |
