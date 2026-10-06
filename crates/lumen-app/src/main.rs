@@ -48,8 +48,9 @@ struct App {
     /// Where `--screenshot` saves, once the frames have rendered.
     screenshot: Option<PathBuf>,
     started: Instant,
-    /// `--autoplay-ms`: press Play this long after start (latency tests).
+    /// `--autoplay-ms`: toggle play and stop this often (latency tests).
     autoplay: Option<Duration>,
+    autoplay_count: u32,
     /// The transport as last traced, to log only changes.
     traced: Option<(bool, i64)>,
 }
@@ -233,13 +234,16 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.transport.update();
         self.transport.shortcuts(&ctx);
-        if let Some(after) = self.autoplay {
-            if self.started.elapsed() >= after {
-                self.autoplay = None;
-                trace::log(|| "autoplay: Play".into());
+        if let Some(every) = self.autoplay {
+            // Toggle play and stop every `every`, as Space would.
+            let elapsed = self.started.elapsed();
+            let due = every * self.autoplay_count;
+            if elapsed >= due {
+                self.autoplay_count += 1;
+                trace::log(|| format!("autoplay: toggle {}", self.autoplay_count));
                 self.transport.play_stop();
             } else {
-                ctx.request_repaint_after(after - self.started.elapsed());
+                ctx.request_repaint_after(due - elapsed);
             }
         }
         if trace::enabled() {
@@ -432,6 +436,7 @@ fn main() -> eframe::Result {
                 autoplay: arg_value("--autoplay-ms")
                     .and_then(|ms| ms.parse().ok())
                     .map(Duration::from_millis),
+                autoplay_count: 1,
                 traced: None,
             }))
         }),

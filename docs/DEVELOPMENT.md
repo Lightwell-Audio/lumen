@@ -90,15 +90,16 @@ headers, so CI is the Linux check.
 ## Measuring UI latency
 
 Set `LUMEN_TRACE=1` to log timestamped frames, mouse and key input, and
-transport commands to stderr. `--autoplay-ms N` presses Play N ms after
-start, for timing the engine and redraw path without a mouse:
+transport commands to stderr. `--autoplay-ms N` toggles play and stop
+every N ms, as Space would, for timing the engine and redraw path without a
+mouse:
 
 ```bash
 LUMEN_TRACE=1 lumen --autoplay-ms 3000
 ```
 
-On this machine (2026-10-06), Play reaches the screen 17 ms after the
-command.
+On this machine (2026-10-06), every play and stop reaches the screen 14–19
+ms after the command (28 toggles each on WASAPI and on ASIO).
 
 ## Everyday commands
 
