@@ -10,6 +10,9 @@ publish.workspace = true
 lumen-render.workspace = true
 pollster.workspace = true
 winit.workspace = true
+parley.workspace = true
+accesskit.workspace = true
+accesskit_winit.workspace = true
 
 [target.'cfg(windows)'.dependencies.windows-sys]
 workspace = true

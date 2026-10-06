@@ -186,7 +186,14 @@ fn pipeline(
 
 impl Renderer {
     /// Creates pipelines for a host whose render target has `format`.
-    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Result<Self, String> {
+    ///
+    /// `pipeline_cache` (Vulkan only) lets Vello reuse compiled shaders from a
+    /// previous run, which cuts start-up time.
+    pub fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        pipeline_cache: Option<wgpu::PipelineCache>,
+    ) -> Result<Self, String> {
         let rect_bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("lumen layer view"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -244,8 +251,11 @@ impl Renderer {
             format,
         );
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
-        let vello = vello::Renderer::new(device, vello::RendererOptions::default())
-            .map_err(|e| format!("vello: {e}"))?;
+        let options = vello::RendererOptions {
+            pipeline_cache,
+            ..Default::default()
+        };
+        let vello = vello::Renderer::new(device, options).map_err(|e| format!("vello: {e}"))?;
         Ok(Self {
             rect_pipeline,
             rect_bind_layout,

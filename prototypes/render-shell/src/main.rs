@@ -6,7 +6,9 @@
 //! render-shell            interactive window (static scene)
 //! ```
 
+mod a11y;
 mod process;
+mod text;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -27,6 +29,8 @@ const IDLE_SECONDS: u64 = 10;
 struct Scenario {
     name: &'static str,
     overlay: bool,
+    /// Parley clip labels drawn through Vello (text spike).
+    labels: bool,
     drive: fn(f32, [f32; 2], [f32; 2]) -> (View, View),
 }
 
@@ -78,26 +82,36 @@ fn zoom_sweep(t: f32, arr: [f32; 2], piano: [f32; 2]) -> (View, View) {
     )
 }
 
-const SCENARIOS: [Scenario; 4] = [
+const SCENARIOS: [Scenario; 5] = [
     Scenario {
         name: "worst case: fit-all clips + all 100k notes + vector overlay",
         overlay: true,
+        labels: false,
         drive: fit_all,
     },
     Scenario {
         name: "fit-all clips + all 100k notes, no overlay",
         overlay: false,
+        labels: false,
         drive: fit_all,
     },
     Scenario {
         name: "editing views (48 px rows, 120 px/beat) + overlay",
         overlay: true,
+        labels: false,
         drive: editing,
     },
     Scenario {
         name: "zoom sweep 2-400 px/beat + all notes + overlay",
         overlay: true,
+        labels: false,
         drive: zoom_sweep,
+    },
+    Scenario {
+        name: "editing views + overlay + Parley clip labels",
+        overlay: true,
+        labels: true,
+        drive: editing,
     },
 ];
 
@@ -112,6 +126,8 @@ struct Gfx {
     notes: LayerId,
     scene: lumen_render::vello::Scene,
     adapter: String,
+    labels: text::Labels,
+    accessibility: accesskit_winit::Adapter,
 }
 
 enum Phase {
@@ -139,12 +155,22 @@ impl App {
     fn init(&mut self, event_loop: &ActiveEventLoop) -> Result<(), String> {
         let attributes = Window::default_attributes()
             .with_title("Lumen render shell")
-            .with_inner_size(PhysicalSize::new(3_400, 1_300));
+            .with_inner_size(PhysicalSize::new(3_400, 1_300))
+            .with_visible(false);
         let window = Arc::new(
             event_loop
                 .create_window(attributes)
                 .map_err(|e| e.to_string())?,
         );
+        // AccessKit must be attached before the window is shown.
+        let accessibility = accesskit_winit::Adapter::with_direct_handlers(
+            event_loop,
+            &window,
+            a11y::Activation,
+            a11y::Actions,
+            a11y::Deactivation,
+        );
+        window.set_visible(true);
         let instance = wgpu::Instance::default();
         let surface = instance
             .create_surface(window.clone())
@@ -156,9 +182,11 @@ impl App {
         }))
         .map_err(|e| e.to_string())?;
         let info = adapter.get_info();
-        let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
-                .map_err(|e| e.to_string())?;
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            required_features: adapter.features() & wgpu::Features::PIPELINE_CACHE,
+            ..Default::default()
+        }))
+        .map_err(|e| e.to_string())?;
         let size = window.inner_size();
         let mut config = surface
             .get_default_config(&adapter, size.width.max(1), size.height.max(1))
@@ -172,7 +200,40 @@ impl App {
             config.present_mode = wgpu::PresentMode::AutoNoVsync;
         }
         surface.configure(&device, &config);
-        let mut renderer = Renderer::new(&device, config.format)?;
+        // Vello's shaders compile at start-up; a pipeline cache (Vulkan) reuses them.
+        let cache_path = std::env::temp_dir().join("lumen-vello-pipeline.cache");
+        let cache_data = std::fs::read(&cache_path).ok();
+        let cache_state = match (
+            &cache_data,
+            device.features().contains(wgpu::Features::PIPELINE_CACHE),
+        ) {
+            (_, false) => "unsupported",
+            (Some(_), true) => "warm",
+            (None, true) => "cold",
+        };
+        let cache = device
+            .features()
+            .contains(wgpu::Features::PIPELINE_CACHE)
+            .then(|| {
+                // SAFETY: the data was written by this program for this adapter;
+                // `fallback` makes the driver ignore it if it does not match.
+                unsafe {
+                    device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
+                        label: Some("lumen vello"),
+                        data: cache_data.as_deref(),
+                        fallback: true,
+                    })
+                }
+            });
+        let init_started = Instant::now();
+        let mut renderer = Renderer::new(&device, config.format, cache.clone())?;
+        println!(
+            "renderer init: {:.0} ms (pipeline cache: {cache_state})",
+            init_started.elapsed().as_secs_f64() * 1e3
+        );
+        if let Some(bytes) = cache.and_then(|c| c.get_data()) {
+            let _ = std::fs::write(&cache_path, bytes);
+        }
         let clips = renderer.add_layer(&device, &demo::clip_instances());
         let notes = renderer.add_layer(&device, &demo::note_instances());
         self.gfx = Some(Gfx {
@@ -186,6 +247,8 @@ impl App {
             notes,
             scene: lumen_render::vello::Scene::new(),
             adapter: format!("{} ({:?})", info.name, info.backend),
+            labels: text::Labels::new(),
+            accessibility,
         });
         Ok(())
     }
@@ -226,11 +289,14 @@ impl App {
                 f64::from(t),
             );
         }
+        if scenario.labels {
+            gfx.labels.draw(&mut gfx.scene, arr_area, arr_view);
+        }
         let layers = [
             (gfx.clips, arr_area, arr_view),
             (gfx.notes, piano_area, piano_view),
         ];
-        let vector = scenario.overlay.then_some(&gfx.scene);
+        let vector = (scenario.overlay || scenario.labels).then_some(&gfx.scene);
         if let Err(e) = gfx.renderer.prepare(
             &gfx.device,
             &gfx.queue,
@@ -343,6 +409,9 @@ impl ApplicationHandler for App {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        if let Some(gfx) = self.gfx.as_mut() {
+            gfx.accessibility.process_event(&gfx.window, &event);
+        }
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {

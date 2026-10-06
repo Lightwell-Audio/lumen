@@ -16,7 +16,7 @@ struct Resources {
 }
 
 pub fn install(state: &egui_wgpu::RenderState) -> Result<(), String> {
-    let mut renderer = Renderer::new(&state.device, state.target_format)?;
+    let mut renderer = Renderer::new(&state.device, state.target_format, None)?;
     let clips = renderer.add_layer(&state.device, &demo::clip_instances());
     let notes = renderer.add_layer(&state.device, &demo::note_instances());
     state
@@ -58,10 +58,10 @@ impl egui_wgpu::CallbackTrait for Callback {
         let Some(lock) = resources.get_mut::<std::sync::Mutex<Resources>>() else {
             return Vec::new();
         };
-        let Ok(mut guard) = lock.lock() else {
+        // Exclusive access here, so no locking is needed.
+        let Ok(r) = lock.get_mut() else {
             return Vec::new();
         };
-        let r = &mut *guard;
         let [w, h] = self.size_px;
         r.scene.reset();
         if let Some(t) = self.overlay_t {
