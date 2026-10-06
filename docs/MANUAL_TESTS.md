@@ -326,5 +326,12 @@ continuing (or `Lost` then `Restored`), with no crash. (2) After waking,
 either the stream was never interrupted or there is a `Lost` followed by
 `Restored`; audio resumes and nothing hangs.
 
-**Last run:** not yet run. Not needed to close slice 2; required before
-M2 ends (the hot-unplug row in PROGRESS.md).
+**Part 1, run 1 (2026-10-06):** pass for a format change. The Focusrite
+offers only 44.1 kHz in Windows (its driver sets the rate), so the switch
+was 16-bit ↔ 24-bit. Each change gave one `Reset` (at 15.0 s and 25.7 s),
+back to 98–102 callbacks/s within a second; about 0.4 s of audio was lost
+during each reopen. No `Lost`, no crash. A **rate** change has not been
+tested yet; the HDMI output (44.1 or 48 kHz) can show it.
+
+**Part 2 (sleep/resume):** not yet run. Required before M2 ends (the
+hot-unplug row in PROGRESS.md).
