@@ -42,6 +42,7 @@ irreversible or external) · *Superseded*.
 | Hosting (ADR-0014) | Private GitHub repository; owner creates it, then push and first CI run. |
 | Remaining M1 work | Approved: P-RENDER (replaces Slint), P-HOST, then the app shell after the host decision. |
 | Device-loss recovery | Deferred to M2 (found by MT-ASIO-5). |
+| Audio decoder (M2) | symphonia (MPL-2.0), used unmodified with its licence notice shipped; a recorded exception to the permissive-only policy (ADR-0013). |
 | VST3 scanning and hosting on macOS and Linux | Stretch goal, unscheduled (owner, 2026-10-06). Windows is first-class; the CI isolation self-test stays Windows-only until then. |
 
 ---

@@ -1904,6 +1904,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumen-audio"
+version = "0.0.1"
+dependencies = [
+ "lumen-rt",
+]
+
+[[package]]
 name = "lumen-core"
 version = "0.0.1"
 dependencies = [

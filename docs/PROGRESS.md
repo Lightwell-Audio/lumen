@@ -2,9 +2,9 @@
 
 ## Status
 
-**Current milestone:** 1 — Foundations & Architecture
-**Overall status:** **All M1 slices and exit criteria complete** (2026-10-06); awaiting approval to close M1 and start M2 (see the
-interim report below and [milestones/M1.md](milestones/M1.md))
+**Current milestone:** 2 — Audio Engine, Devices & Transport (plan:
+[milestones/M2.md](milestones/M2.md))
+**Previous:** M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
 
@@ -12,8 +12,8 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 
 | # | Milestone | Status | Notes |
 |---|---|---|---|
-| 1 | Foundations & Architecture | 🟡 In progress | Plan and risk register in `docs/milestones/M1.md` |
-| 2 | Audio Engine, Devices & Transport | 🔲 | |
+| 1 | Foundations & Architecture | ✅ Complete | Plan and risk register in `docs/milestones/M1.md` |
+| 2 | Audio Engine, Devices & Transport | 🟡 In progress | Plan: `docs/milestones/M2.md` |
 | 3 | Arrangement & Project System | 🔲 | |
 | 4 | Mixer, Routing & Groups | 🔲 | |
 | 5 | MIDI & Piano Roll | 🔲 | |

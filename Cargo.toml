@@ -31,6 +31,7 @@ parley = "0.11"
 accesskit = "0.24"
 accesskit_winit = "0.32"
 lumen-render = { path = "crates/lumen-render" }
+lumen-audio = { path = "crates/lumen-audio" }
 lumen-project = { path = "crates/lumen-project" }
 
 [workspace.lints.rust]
