@@ -24,5 +24,8 @@ pub const ICON_DISABLED: Color32 = Color32::from_rgb(0x5A, 0x5F, 0x6A);
 pub const BUTTON_HOVER: Color32 = Color32::from_rgb(0x2E, 0x32, 0x3A);
 pub const BUTTON_ACTIVE: Color32 = Color32::from_rgb(0x24, 0x3A, 0x55);
 
+/// Where a click on the ruler will move the playhead: the accent, faint.
+pub const GHOST: Color32 = Color32::from_rgba_premultiplied(0x28, 0x52, 0x80, 0x80);
+
 /// The loop range on the ruler: the accent, translucent.
 pub const LOOP_RANGE: Color32 = Color32::from_rgba_premultiplied(0x18, 0x31, 0x4D, 0x4D);

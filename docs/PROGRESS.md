@@ -225,7 +225,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Loop region, punch in/out, auto-punch | M | 🟡 Sample-accurate loop wrap and punch-region reporting in the engine (slice 3). Recording through punch in M9 |
 | Markers with names and navigation | M | 🔲 |
 | Multiple time formats; editable position field | M | 🔲 |
-| Edit cursor separate from playhead; scrubbing. **Owner request (2026-10-06), raised from S to M, Ableton-style:** click in the scrub strip to set the playback position; drag to scrub audibly; drag in the beat ruler vertically to zoom and horizontally to scroll. Locate-on-click in M2; scrub strip, audible scrubbing and ruler zoom in M3. | M | 🔲 |
+| Edit cursor separate from playhead; scrubbing. **Owner request (2026-10-06), raised from S to M, Ableton-style:** click in the scrub strip to set the playback position; drag to scrub audibly; drag in the beat ruler vertically to zoom and horizontally to scroll. Locate-on-click in M2; scrub strip, audible scrubbing and ruler zoom in M3. | M | 🟡 Click-to-locate on the ruler done (M2 slice 5): zoom-adaptive snapping, Alt to place freely, ghost line preview. Scrub strip, audible scrubbing and ruler drag-zoom in M3 |
 | MIDI clock / MTC out | S | 🔲 |
 | Clock / MTC in, Ableton Link | L | 🔲 |
 | Tracks: add, delete, duplicate, rename, recolour, reorder, multi-select | M | 🔲 |

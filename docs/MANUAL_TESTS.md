@@ -419,3 +419,23 @@ was gone in the owner's run.
 Automated: screenshots at 100%, 150% and 200%
 (`--screenshot`) checked on 2026-10-06; the first round found the panel
 toggles pushed off-screen at 200% and the status text unreadable. Both fixed.
+
+### MT-APP-3 · Click-to-locate on the ruler (needs a human)
+Close Lumen, rebuild (`cargo build --release -p lumen-app`), then start it
+as in MT-APP-2.
+1. Move the pointer along the ruler (the strip with bar numbers): a faint
+   blue line follows it, jumping between grid lines; the pointer is a hand.
+2. Click: the playhead moves to that line and the position display shows
+   it. While stopped, Space then plays from there.
+3. Press Space to play, then click elsewhere on the ruler: playback jumps
+   there immediately and continues.
+4. Hold **Alt** while moving and clicking: the line follows the pointer
+   freely, without snapping.
+5. Ctrl+wheel to zoom in: the snap gets finer (beats, eighths, sixteenths…);
+   zoom out and it snaps to whole bars.
+6. Set 7/8: snapping follows the new bars and beats.
+7. Scrolling and Ctrl+wheel zoom still work with the pointer over the ruler.
+
+**Expected:** every step as described.
+
+**Last run:** not yet run.

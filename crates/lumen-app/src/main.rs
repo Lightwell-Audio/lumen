@@ -18,6 +18,7 @@ mod audio;
 mod canvas;
 mod icons;
 mod position;
+mod ruler;
 mod theme;
 mod trace;
 mod transport;
@@ -101,7 +102,9 @@ impl App {
         let ruler = egui::Rect::from_min_size(full.min, vec2(full.width(), RULER_HEIGHT));
         let canvas = egui::Rect::from_min_max(pos2(full.left(), ruler.bottom()), full.max);
 
-        if response.hovered() {
+        // `contains_pointer`, not `hovered`: the ruler's own click area sits on
+        // top, and scrolling and zooming must work over it too.
+        if response.contains_pointer() {
             // egui turns Ctrl+wheel (and trackpad pinch) into a zoom factor
             // and reports no scroll for it, so zoom must read `zoom_delta`.
             let (delta, zoom, pointer) =
@@ -165,6 +168,39 @@ impl App {
                 );
             }
             bar += step;
+        }
+
+        // Click-to-locate: the ruler moves the playhead to the nearest line of
+        // the zoom-adaptive grid (Alt bypasses snapping). A ghost line shows
+        // where a click will land.
+        let ruler_response = ui
+            .interact(ruler, ui.id().with("ruler"), Sense::click())
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .on_hover_text("Click to move the playhead. Hold Alt to place it freely");
+        ruler_response.widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Other,
+                true,
+                "Ruler: click to move the playhead",
+            )
+        });
+        if let Some(pointer) = ruler_response.hover_pos() {
+            let free = ui.input(|i| i.modifiers.alt);
+            let raw = ruler::ticks_at_x(pointer.x, canvas.left(), self.left_beat, self.px_per_beat);
+            let target = if free {
+                raw
+            } else {
+                ruler::snap(&self.transport.timeline.meter, raw, self.px_per_beat)
+            };
+            let gx = x_of(target.as_quarters() as f32);
+            painter.line_segment(
+                [pos2(gx, ruler.top()), pos2(gx, full.bottom())],
+                Stroke::new(1.0, theme::GHOST),
+            );
+            if ruler_response.clicked() {
+                trace::log(|| format!("ruler: locate {target:?} (snapped: {})", !free));
+                self.transport.locate(target);
+            }
         }
 
         // Playhead.
