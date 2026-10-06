@@ -3,7 +3,7 @@
 ## Status
 
 **Current milestone:** 1 — Foundations & Architecture
-**Overall status:** Decisions made 2026-10-05 (see `docs/DECISIONS.md`); slices 9–11 approved (see the
+**Overall status:** **All M1 slices and exit criteria complete** (2026-10-06); awaiting approval to close M1 and start M2 (see the
 interim report below and [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
@@ -37,7 +37,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 8 | Evidence in ADRs, architecture draft, cargo-deny verified locally, interim report | ✅ | (final M1 prototyping commit) |
 | 9 | P-RENDER: `lumen-render` (instanced GPU layers + Vello) measured in a bare winit host and inside egui. Worst case p99 0.84 ms bare / 2.22 ms in egui (egui shapes: 20 ms). Text (Parley) and accessibility (AccessKit) spikes work. egui host with the pipeline cache: first frame 411 ms warm, idle 0.00%. **Owner chose the egui host.** | ✅ | `af2e4bd`, this commit |
 | 10 | P-HOST: TyrellN6 hosted in-process and in an isolated host process. 66 µs/block round trip incl. processing; real crash detected next block, restarted with last known state in 33 ms, audio resumes; state round trip identical | ✅ | `bd57b9b`, this commit |
-| 11 | `lumen` application shell on the chosen UI stack (after the UI decision) | 🔲 approved | |
+| 11 | `lumen` application shell (`crates/lumen-app`): spec layout on egui; arrangement grid drawn by `lumen-render`; GPU pipeline cache in Lumen's cache folder; first frame 394 ms warm / 1,110 ms cold; 21 accessible elements, disabled controls announced as disabled | ✅ | this commit |
 
 ---
 
@@ -342,7 +342,7 @@ MT-ISO-2, MT-UI-2 with Narrator, MT-UI-3 visual quality); mid-range hardware.
 
 | Criterion | Status |
 |---|---|
-| A minimal application launches | ⚠️ Only the UI prototype launches. The `lumen` shell (slice 10) waits for approval of ADR-0002. |
+| A minimal application launches | ✅ `lumen` shell launches (slice 11, 2026-10-06) |
 | UI approach validated | ✅ P-UI, with the GPU escape hatch proven; awaiting approval |
 | Audio architecture proven with a prototype | ✅ Engine core plus native ASIO on real hardware. Other backends are M2. |
 | Project format saves and loads a minimal project | ✅ |

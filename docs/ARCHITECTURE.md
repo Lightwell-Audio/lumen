@@ -28,7 +28,7 @@ record; nothing here is accepted until the M1 decisions are approved.
 
 | Concern | Design | Decision | Evidence |
 |---|---|---|---|
-| UI | egui for chrome, widgets, text and accessibility; GPU pipelines for dense content | ADR-0002 | P-UI |
+| UI | egui host for chrome, widgets, text and accessibility; `lumen-render` (wgpu + Vello) for dense content | ADR-0002 | P-UI, P-RENDER |
 | Real-time engine | Allocation-free, block-size-invariant core; graphs built and freed off the audio thread | ADR-0003 | P-ENGINE |
 | Audio devices | Lumen's own backend layer; native ASIO over COM; driver probing in a child process | ADR-0006 | P-ASIO |
 | Plugins | `vst3` crate bindings; sandboxed host processes; out-of-process scanning | ADR-0005 | P-ISO, P-VST3 |
@@ -43,11 +43,15 @@ record; nothing here is accepted until the M1 decisions are approved.
 | `crates/lumen-core` | Product identity (name defined once), time base | Production seed |
 | `crates/lumen-rt` | Real-time safety tooling (`GuardedAllocator`, `rt_section`) | Production seed |
 | `crates/lumen-project` | Document model, `.lumen` format, migrations, atomic save | Production seed |
+| `crates/lumen-render` | Toolkit-independent renderer: GPU-resident instanced layers + Vello vector graphics; GPU pipeline cache | Production seed |
+| `crates/lumen-app` | The `lumen` application: egui host, spec layout, canvases via `lumen-render` | Production seed (shell only) |
 | `prototypes/engine-core` | Real-time core prototype | Rewrite into `lumen-engine` in M2 |
 | `prototypes/asio-probe` | Native ASIO host prototype | Becomes the ASIO backend in M2 (after ADR-0006 licensing) |
 | `prototypes/isolation-ipc` | Plugin-host transport prototype | Becomes `lumen-plugin-host` transport in M6 |
 | `prototypes/vst3-scan`, `vst3-test-module` | Scanner and misbehaving test module | Scanner seeds M6; test module grows into the test plugin |
-| `prototypes/ui-stress` | Dense-view rendering prototype | Techniques move into the M3 arrangement |
+| `prototypes/ui-stress` | Dense-view rendering prototype, plus `lumen-render` hosted in egui | Techniques move into the M3 arrangement |
+| `prototypes/render-shell` | `lumen-render` in a bare winit window; Parley and AccessKit spike | Reference for the host comparison |
+| `prototypes/plugin-host` | Real VST3 hosting, in-process and isolated, with crash recovery | Seeds M6 |
 
 ## Rules every crate follows
 - Audio-thread code never allocates, locks, blocks or panics. Tests prove the

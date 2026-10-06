@@ -3,7 +3,7 @@
 Tests that need real hardware, third-party software or a human. Each entry
 lists steps, the expected result and its last recorded run.
 
-Prototype binaries are in `%USERPROFILE%\lumen-bin` (see the AppData warning in
+Binaries are in `%USERPROFILE%\lumen-targetelease` (older copies in `%USERPROFILE%\lumen-bin`) (see the AppData warning in
 `docs/DEVELOPMENT.md`). To rebuild: `cargo build --release --workspace` (see
 `docs/DEVELOPMENT.md` for the toolchain).
 
@@ -194,3 +194,22 @@ afterwards. Listen to `prototypes/plugin-host/out/isolated-with-crash.wav`
 for the gap.
 
 **Last run (2026-10-06):** pass (restart 33 ms, 15 silent blocks, 0 overruns, 0 leftover processes).
+
+---
+
+## M1 · Application shell (`crates/lumen-app`)
+
+### MT-APP-1 · The shell launches and shows the specified layout
+1. `lumen --smoke-test` (renders 30 frames, prints start-up time, exits 0).
+2. `lumen`, then look at it: transport bar on top, browser on the left,
+   arrangement grid with ruler in the centre, detail panel at the bottom.
+   Ctrl+wheel zooms the grid around the pointer; the wheel scrolls; Shift+Tab
+   hides and shows the detail panel; the Browser and Detail buttons toggle
+   their panels.
+
+**Expected:** exit code 0; first frame under 1 s with a warm cache;
+disabled controls show "Arrives in Milestone N" on hover.
+
+**Last run (2026-10-06):** pass. 394 ms warm / 1,110 ms cold. Screenshot
+checked; UI Automation shows 21 elements, disabled controls as disabled.
+Interactive checks of zoom, scroll and Shift+Tab not yet done by a human.
