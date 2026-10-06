@@ -3,7 +3,11 @@
 //! (M2 slice 8), the device is the system default output, or the one named
 //! with `--audio`.
 
-use lumen_audio::{AudioSystem, Backend, Block, DeviceEvent, DeviceId, StreamConfig, Timing};
+use std::sync::Arc;
+
+use lumen_audio::{
+    AudioSystem, Backend, Block, DeviceEvent, DeviceId, Status as Meters, StreamConfig, Timing,
+};
 use lumen_engine::{ClipsHandle, EngineHandle, Timeline, clip_player, engine};
 
 /// Which device to open.
@@ -118,6 +122,8 @@ pub struct Audio {
     pub clips: ClipsHandle,
     pub status: Status,
     device: String,
+    /// What "Audio on" opens again.
+    config: Option<StreamConfig>,
 }
 
 impl Audio {
@@ -133,15 +139,17 @@ impl Audio {
         match resolve(choice) {
             Ok((make, device, name)) => {
                 let system = AudioSystem::spawn(make, Box::new(callback), Timing::default());
-                system.configure(StreamConfig {
+                let config = StreamConfig {
                     device,
                     sample_rate: None,
                     buffer_frames: None,
                     input_channels: Vec::new(),
                     output_channels: vec![0, 1],
-                });
+                };
+                system.configure(config.clone());
                 Self {
                     system: Some(system),
+                    config: Some(config),
                     engine: engine_handle,
                     clips,
                     status: Status::Starting,
@@ -154,7 +162,36 @@ impl Audio {
                 clips,
                 status: Status::Off(message),
                 device: String::new(),
+                config: None,
             },
+        }
+    }
+
+    /// CPU load, overloads and dropouts, when a device was found.
+    pub fn meters(&self) -> Option<&Arc<Meters>> {
+        self.system.as_ref().map(AudioSystem::status)
+    }
+
+    /// Whether the user can turn audio on or off (a device was found).
+    pub fn can_switch(&self) -> bool {
+        self.config.is_some()
+    }
+
+    pub fn is_on(&self) -> bool {
+        !matches!(self.status, Status::Off(_))
+    }
+
+    /// The Audio On/Off switch: closes the device, or opens it again.
+    pub fn set_on(&mut self, on: bool) {
+        let (Some(system), Some(config)) = (&self.system, &self.config) else {
+            return;
+        };
+        if on {
+            system.configure(config.clone());
+            self.status = Status::Starting;
+        } else {
+            system.stop();
+            self.status = Status::Off("Audio is off".into());
         }
     }
 

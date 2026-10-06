@@ -201,7 +201,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Device, rate, buffer selection with input/output/round-trip latency display | M | 🔲 | 2 |
 | Device loss and return: keep the session, show the lost state, reconnect automatically (found by MT-ASIO-5) | M | 🟡 Detection and auto-reconnect done, tested with the fake backend and on hardware (MT-AUDIO-1); the lost-state UI arrives in slice 8 | 2 |
 | Channel selection with friendly names; mono and stereo configurations | M | 🔲 | 2 |
-| Test tone, CPU load, dropout counter, Audio On/Off | M | 🔲 | 2 |
+| Test tone, CPU load, dropout counter, Audio On/Off | M | 🟡 All four done in the app's audio panel (M2 slice 7, ADR-0020); the full device selector page in slice 8 | 2 |
 | ASIO control panel; driver resets and rate/buffer changes without losing the session; busy/missing messages | M | 🟡 Driver resets done (MT-AUDIO-2); busy and missing errors are typed (MT-AUDIO-3); control panel and messages arrive in slice 8 | 2 |
 | Runtime changes never crash; restore a working configuration; persisted settings | M | 🟡 Fallback to the last working configuration is done and tested; persisted settings arrive in slice 8 | 2 |
 | MIDI devices: enable toggles, hot-plug, per-track MIDI From/To, virtual ports | M | 🔲 | 5 |
@@ -224,7 +224,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 |---|---|---|
 | Transport: play, stop, record, loop, return to start, go to start/end, previous/next marker. **Owner request:** transport controls use vector icons, not text (M2). | M | 🟡 Engine transport done (slice 3, ADR-0017). Transport bar with vector icons, Space / Shift+Space / Home, go to start, stop, play/pause and loop in the app (slice 4, ADR-0018). Record in M9; markers and go to end in M3 |
 | Tempo 20–999 BPM and time signature with change maps; tap tempo | M | 🟡 Tempo and time-signature maps with changes (`lumen-core`), swapped into the engine live (slice 3). Tap tempo and the UI later |
-| Metronome: accent, volume, sound, count-in, pre-roll, record-only, output routing | M | 🔲 |
+| Metronome: accent, volume, sound, count-in, pre-roll, record-only, output routing | M | 🟡 On/off, accented downbeat, volume and two synthesized sounds, sample-accurate (M2 slice 7, ADR-0020). Count-in, pre-roll and record-only with recording (M9); output routing with the mixer (M4); settings saved with preferences (M9) |
 | Loop region, punch in/out, auto-punch | M | 🟡 Sample-accurate loop wrap and punch-region reporting in the engine (slice 3). Recording through punch in M9 |
 | Markers with names and navigation | M | 🔲 |
 | Multiple time formats; editable position field | M | 🔲 |
@@ -282,7 +282,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Resizable, collapsible panels with remembered layout; full screen; high-DPI; light and dark | M | 🔲 |
 | Keyboard-only core flows; accessible control names. Open conflict: Shift+Tab is the spec's detail-panel shortcut and also the standard backward-focus key (ADR-0015). | M | 🔲 |
 | Detachable mixer and editor windows; hover help; welcome screen | S | 🔲 |
-| CPU, disk and dropout indicators; Audio On/Off; panic | M | 🔲 |
+| CPU, disk and dropout indicators; Audio On/Off; panic | M | 🟡 CPU (peak per second), dropouts, Audio On/Off and panic done (M2 slice 7). Disk indicator with disk streaming (M9); MIDI all-notes-off joins panic in M5 |
 | Crash report file; logging with "reveal logs" | M | 🔲 |
 | Device hot-unplug, sleep/resume, rate-change handling | M | 🟡 Unplug and replug recover on ASIO and WASAPI (MT-AUDIO-1, -4); driver resets on ASIO (MT-AUDIO-2). Sleep/resume and Windows format and rate changes recover too (MT-AUDIO-6). UI for these states arrives in slice 8 |
 | Single instance; file association; open by double-click or drop | M | 🔲 |

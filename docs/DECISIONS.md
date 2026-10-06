@@ -30,6 +30,7 @@ irreversible or external) · *Superseded*.
 | [0017](#adr-0017--engine-transport-and-timeline) | Engine transport and timeline: Ableton-style stop, positions in ticks, live tempo and rate changes | Accepted 2026-10-06 | No |
 | [0018](#adr-0018--transport-bar-icons-and-app-audio) | Transport bar: vector icons on egui's painter; the app opens the system default output until the device selector | Accepted 2026-10-06 | No |
 | [0019](#adr-0019--audio-files-and-clip-playback) | Audio files: symphonia + rubato into memory; clip player with edge and jump fades; one lane per file until M3 | Accepted 2026-10-06 (owner: memory now, streaming in M9) | No |
+| [0020](#adr-0020--metronome-test-tone-and-audio-health) | Metronome and test tone in the engine; dropouts from driver positions and delivery against real time | Accepted 2026-10-06 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -1126,3 +1127,53 @@ audio in memory for M2, disk streaming in M9; AAC/M4A deferred.
 | Cost | 64 stereo clips at 128 frames: 25 µs median (0.9% of the 2.67 ms budget) |
 | Licences | cargo-deny: advisories, bans, licences and sources ok, with MPL-2.0 exceptions for the 10 symphonia crates (THIRD_PARTY_NOTICES.md) |
 | App | `--open-audio` of a 5 s file: ready in 38 ms; converted again to 44.1 kHz in 6 ms when the Focusrite started |
+
+---
+
+## ADR-0020 — Metronome, test tone and audio health
+
+**Status:** Accepted · **Date:** 2026-10-06 (M2 slice 7)
+
+### Decision
+- **Metronome** (`lumen-engine`): synthesized clicks (Beep, Wood), so there
+  are no samples or licences to manage.
+  - Each click starts on the exact sample of its beat, with the downbeat
+    accented: higher, and louder (1.0 against 0.6).
+  - It follows the tempo and time-signature maps.
+  - It is mixed after the jump crossfade, so a click on a loop start keeps
+    its attack.
+  - A ringing click carries on through wraps, locates and stops; only new
+    beats start clicks.
+  - Count-in, pre-roll and record-only belong to recording (M9). Count-in
+    applies to recording in Ableton too.
+- **Test tone:** 1 kHz at −20 dBFS on every output, whether playing or not,
+  with 5 ms ramps.
+- **Panic:** stops at once and silences playback, the metronome, the test
+  tone and any fade in progress. MIDI all-notes-off joins it in M5.
+- **Dropouts** (`lumen-audio` supervisor), counted two ways:
+  1. **Skipped buffers:** where the driver reports a sample position
+     (ASIO), a jump past the expected position counts the skipped buffers.
+  2. **Starvation:** every second, audio delivered is compared with real
+     time. A shortfall beyond 3% counts as dropouts, in buffers. The first
+     window after any (re)open is ignored. This is what catches a driver
+     that runs but starves the device (MT-AUDIO-4), which the CPU meter
+     cannot see.
+- **CPU** shows the peak load over the last second. Overloads count buffers
+  that took longer to process than they last.
+- **UI:**
+  - The metronome button on the transport (right-click for volume and
+    sound).
+  - "CPU n%" and, when non-zero, a dropout warning on the bar.
+  - Clicking the status dot opens the **audio panel**: device, Audio On/Off,
+    test tone, CPU, overloads, dropouts (with reset), clip memory, and
+    panic. Slice 8 grows this into the device selector.
+
+### Evidence (2026-10-06)
+- 8 metronome, tone and panic tests: exact onsets at block sizes 1–4096;
+  accents, including in 7/8; volume; mid-bar loop wraps; ringing through
+  stop; tone pitch and level.
+- Zero heap operations with clips, metronome and tone running.
+- 3 dropout tests with the fake backend: a starving driver counts, a healthy
+  one counts zero, and skipped positions count exactly.
+- On hardware: 0 dropouts on the NVIDIA HDMI output in WASAPI shared and
+  exclusive.

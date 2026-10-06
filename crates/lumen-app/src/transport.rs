@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use eframe::egui::{self, Key, Modifiers, RichText, Ui};
 use lumen_core::meter::{Meter, MeterMap};
 use lumen_core::time::{TempoMap, Ticks};
-use lumen_engine::{Command, Region, Timeline, TransportSnapshot};
+use lumen_engine::{ClickSound, Command, MetronomeSettings, Region, Timeline, TransportSnapshot};
 use lumen_project::model::{Project, TimeSignature};
 
 use crate::audio::{Audio, Choice, Status};
@@ -32,8 +32,13 @@ pub struct Transport {
     /// Keep drawing every frame until then, so the result of a command shows
     /// at once rather than at the next idle repaint.
     settle_until: Option<Instant>,
-    /// Bytes of clip audio in memory, shown in the status tooltip.
+    /// Bytes of clip audio in memory, shown in the audio panel.
     pub clip_memory: usize,
+    pub metronome: MetronomeSettings,
+    test_tone: bool,
+    /// CPU load shown: the peak over the last second, refreshed once a second.
+    cpu_peak: f32,
+    cpu_taken: Option<Instant>,
 }
 
 fn timeline_of(project: &Project) -> Timeline {
@@ -61,6 +66,10 @@ impl Transport {
             editing: None,
             error: None,
             settle_until: None,
+            metronome: MetronomeSettings::default(),
+            test_tone: false,
+            cpu_peak: 0.0,
+            cpu_taken: None,
             clip_memory: 0,
         }
     }
@@ -229,15 +238,38 @@ impl Transport {
         {
             self.toggle_loop();
         }
-        icons::button(
+        let metronome = icons::button(
             ui,
             Icon::Metronome,
             "Metronome",
-            None,
-            false,
-            false,
-            "The metronome arrives in the next slices of Milestone 2",
+            Some("right-click for volume and sound"),
+            self.metronome.enabled,
+            true,
+            "",
         );
+        if metronome.clicked() {
+            self.metronome.enabled = !self.metronome.enabled;
+            self.send(Command::SetMetronome(self.metronome));
+        }
+        metronome.context_menu(|ui| {
+            let mut changed = false;
+            ui.label("Metronome volume");
+            let mut percent = (self.metronome.volume * 100.0).round();
+            changed |= ui
+                .add(egui::Slider::new(&mut percent, 0.0..=100.0).suffix("%"))
+                .changed();
+            self.metronome.volume = percent / 100.0;
+            ui.separator();
+            ui.label("Sound");
+            for sound in ClickSound::ALL {
+                changed |= ui
+                    .radio_value(&mut self.metronome.sound, sound, sound.name())
+                    .changed();
+            }
+            if changed {
+                self.send(Command::SetMetronome(self.metronome));
+            }
+        });
         ui.separator();
 
         // Tempo.
@@ -360,7 +392,131 @@ impl Transport {
         }
     }
 
-    fn status(&self, ui: &mut Ui) {
+    /// CPU load (the peak over the last second) and, if any, dropouts.
+    fn health(&mut self, ui: &mut Ui) {
+        let Some(meters) = self.audio.meters().cloned() else {
+            return;
+        };
+        if self
+            .cpu_taken
+            .is_none_or(|t| t.elapsed() >= Duration::from_secs(1))
+        {
+            self.cpu_peak = meters.take_peak_load();
+            self.cpu_taken = Some(Instant::now());
+        }
+        let cpu = (self.cpu_peak * 100.0).round();
+        let color = if self.cpu_peak > 0.7 {
+            theme::WARNING
+        } else {
+            theme::RULER_TEXT
+        };
+        ui.label(
+            RichText::new(format!("CPU {cpu:.0}%"))
+                .small()
+                .monospace()
+                .color(color),
+        )
+        .on_hover_text(
+            "Audio processing time as a share of the time each buffer allows, \
+                 at its peak over the last second. Above 100% the audio drops out",
+        );
+        let dropouts = meters.dropouts();
+        if dropouts > 0 {
+            ui.label(
+                RichText::new(format!("⚠ {dropouts}"))
+                    .small()
+                    .color(theme::WARNING),
+            )
+            .on_hover_text(format!(
+                "{dropouts} dropouts: audio that never reached the device. Open the audio \
+                 panel (click the status dot) to see more or reset the count"
+            ));
+        }
+    }
+
+    /// The audio panel: device, Audio On/Off, test tone, meters, panic.
+    fn audio_panel(&mut self, ui: &mut Ui) {
+        ui.set_min_width(280.0);
+        match &self.audio.status {
+            Status::Running { device, detail } => {
+                ui.label(RichText::new(device).strong());
+                ui.label(RichText::new(detail).small());
+            }
+            Status::Starting => {
+                ui.label("Starting audio…");
+            }
+            Status::Lost(why) => {
+                ui.label(RichText::new("Device lost: reconnecting…").color(theme::WARNING));
+                ui.label(RichText::new(why).small());
+            }
+            Status::Off(why) => {
+                ui.label(RichText::new("Audio is off").color(theme::WARNING));
+                ui.label(RichText::new(why).small());
+            }
+        }
+        ui.separator();
+        let mut on = self.audio.is_on();
+        if ui
+            .add_enabled(
+                self.audio.can_switch(),
+                egui::Checkbox::new(&mut on, "Audio on"),
+            )
+            .on_hover_text("Turn audio processing on or off. Off releases the device")
+            .changed()
+        {
+            self.audio.set_on(on);
+        }
+        if ui
+            .checkbox(&mut self.test_tone, "Test tone (1 kHz, −20 dBFS)")
+            .on_hover_text("A steady tone on every output, to check the audio path")
+            .changed()
+        {
+            self.send(Command::TestTone(self.test_tone));
+        }
+        ui.separator();
+        if let Some(meters) = self.audio.meters().cloned() {
+            egui::Grid::new("audio meters")
+                .num_columns(2)
+                .show(ui, |ui| {
+                    ui.label("CPU now");
+                    ui.label(format!("{:.1}%", meters.load() * 100.0));
+                    ui.end_row();
+                    ui.label("CPU peak (1 s)");
+                    ui.label(format!("{:.1}%", self.cpu_peak * 100.0));
+                    ui.end_row();
+                    ui.label("Overloads")
+                        .on_hover_text("Buffers that took longer to process than they last");
+                    ui.label(meters.overloads().to_string());
+                    ui.end_row();
+                    ui.label("Dropouts").on_hover_text(
+                        "Audio that never reached the device: buffers the driver skipped, or \
+                     audio delivered slower than real time",
+                    );
+                    ui.label(meters.dropouts().to_string());
+                    ui.end_row();
+                    ui.label("Clip audio in memory");
+                    ui.label(format!("{:.0} MB", self.clip_memory as f64 / 1_048_576.0));
+                    ui.end_row();
+                });
+            if ui.button("Reset counts").clicked() {
+                meters.reset_counters();
+            }
+        }
+        ui.separator();
+        if ui
+            .button(RichText::new("Panic: stop and silence everything").color(theme::RECORD))
+            .on_hover_text(
+                "Stops playback and silences the metronome, test tone and any sound at once",
+            )
+            .clicked()
+        {
+            self.send(Command::Panic);
+            self.test_tone = false;
+        }
+    }
+
+    fn status(&mut self, ui: &mut Ui) {
+        self.health(ui);
         let (text, color, tip) = match &self.audio.status {
             Status::Starting => (
                 "Starting audio…".to_owned(),
@@ -397,13 +553,26 @@ impl Transport {
         } else {
             format!("{text}\n\n{tip}\n\n{memory}")
         };
-        let (rect, response) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+        let tip = format!("{tip}\n\nClick for the audio panel");
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::click());
         ui.painter().circle_filled(rect.center(), 4.0, dot);
+        if response.hovered() {
+            ui.painter()
+                .circle_stroke(rect.center(), 6.0, egui::Stroke::new(1.0, theme::ICON));
+        }
         response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Label, true, format!("Audio: {text}"))
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Audio: {text}"))
         });
-        response.on_hover_text(tip.as_str());
-        ui.add(egui::Label::new(RichText::new(text).small().color(color)).truncate())
-            .on_hover_text(tip);
+        let label = ui
+            .add(
+                egui::Label::new(RichText::new(text).small().color(color))
+                    .truncate()
+                    .sense(egui::Sense::click()),
+            )
+            .on_hover_text(tip.as_str());
+        let response = response.on_hover_text(tip).union(label);
+        egui::Popup::menu(&response)
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+            .show(|ui| self.audio_panel(ui));
     }
 }

@@ -488,3 +488,25 @@ dropout check (step 9) was not reported separately.
 Automated: `--open-audio` with a 5 s WAV loads
 in 38 ms and redraws at 2.5 bars; the rate change to 44.1 kHz converts again
 automatically.
+
+### MT-APP-4 · Metronome, test tone, meters, Audio On/Off, panic (needs a human)
+Run `cargo run --release -p lumen-app -- --audio asio:"Focusrite USB ASIO"`.
+1. Click the **metronome** icon, then press Space: steady clicks, higher and
+   louder on each downbeat. Right-click the icon: change the volume and
+   switch to Wood. Set 7/8: the accent comes every 7 clicks. Loop bars 1–4:
+   the clicks stay on the beat through the wrap.
+2. The bar shows **CPU n%**; it should stay low.
+3. Click the **status dot** (or the device text): the audio panel opens.
+   - Tick **Test tone**: a steady 1 kHz tone, even when stopped. Untick it.
+   - Untick **Audio on**: the dot turns amber and audio stops. Tick it again:
+     audio comes back.
+   - Check the CPU, overloads and dropouts readouts; **Reset counts** zeroes
+     them.
+   - With the metronome and test tone on and playing, click **Panic**:
+     everything goes silent at once and the transport stops.
+4. Set the Focusrite to 64 samples and play a long file with the metronome
+   for a minute: the dropout count should stay at 0 (no ⚠ on the bar).
+
+**Expected:** every step as described.
+
+**Last run:** not yet run.
