@@ -330,8 +330,13 @@ either the stream was never interrupted or there is a `Lost` followed by
 offers only 44.1 kHz in Windows (its driver sets the rate), so the switch
 was 16-bit ↔ 24-bit. Each change gave one `Reset` (at 15.0 s and 25.7 s),
 back to 98–102 callbacks/s within a second; about 0.4 s of audio was lost
-during each reopen. No `Lost`, no crash. A **rate** change has not been
-tested yet; the HDMI output (44.1 or 48 kHz) can show it.
+during each reopen. No `Lost`, no crash.
+
+**Part 1, run 2 (2026-10-06, rate change on the NVIDIA HDMI output):**
+pass. 48 → 44.1 kHz at 9.0 s gave `Reset(StreamInfo { sample_rate: 44100,
+buffer_frames: 448, .. })` (Windows' 44.1 kHz period is 448 frames), then
+about 98 callbacks/s as expected. Back to 48 kHz at 19.6 s gave `Reset` at
+480 frames and 100/s. Only one or two callbacks were missed at each switch.
 
 **Part 2 (sleep/resume):** not yet run. Required before M2 ends (the
 hot-unplug row in PROGRESS.md).
