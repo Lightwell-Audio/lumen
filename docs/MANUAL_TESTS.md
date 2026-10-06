@@ -405,6 +405,17 @@ Build: `cargo build --release -p lumen-app`. In PowerShell:
 
 **Expected:** every step as described, with no stutter in the playhead.
 
-**Last run:** not yet run. Automated: screenshots at 100%, 150% and 200%
+**Last run (2026-10-06, Focusrite USB ASIO):** pass, all steps. Run 1
+reported 1–2 s from clicking Play to the playhead moving. Two causes:
+- A real bug: after a click, the frame still saw the engine stopped (it
+  applies commands at its next block), so the app waited for its 1 s idle
+  repaint. Fixed: commands keep the UI redrawing until they take effect.
+- The build tested had not picked up that fix: `cargo build` cannot replace
+  `lumen.exe` while the app is open, and the failure is easy to miss.
+Tracing (`LUMEN_TRACE`, `--autoplay-ms`) then measured 14–19 ms from command
+to screen over 28 play/stop cycles each on WASAPI and ASIO, and the delay
+was gone in the owner's run.
+
+Automated: screenshots at 100%, 150% and 200%
 (`--screenshot`) checked on 2026-10-06; the first round found the panel
 toggles pushed off-screen at 200% and the status text unreadable. Both fixed.

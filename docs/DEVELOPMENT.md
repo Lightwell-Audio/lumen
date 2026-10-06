@@ -87,6 +87,13 @@ This checks types and lints only; nothing is linked or run. Linux can't be
 checked this way because ALSA's build script needs the Linux system
 headers, so CI is the Linux check.
 
+## Close Lumen before rebuilding it
+
+`cargo build` cannot replace `lumen.exe` while the app is running. It
+prints `failed to remove file …\lumen.exe` and leaves the old build in
+place, which is easy to miss. During MT-APP-2 that made a fixed bug look
+unfixed. Close the app first, and check the build ends with `Finished`.
+
 ## Measuring UI latency
 
 Set `LUMEN_TRACE=1` to log timestamped frames, mouse and key input, and
