@@ -197,6 +197,48 @@ mid-range hardware in M3.
 
 ---
 
+### Evidence — P-RENDER (`crates/lumen-render`, `prototypes/render-shell`, egui host in `prototypes/ui-stress`), 2026-10-06
+`lumen-render` keeps clips and notes on the GPU as instanced rectangles
+(uploaded once, updated on edit) and composites Vello vector graphics. The
+same scene (20,000 clips, 100,000 notes, Vello overlay of 8 × 2,000-point
+curves, 64 knobs, 64 meters) was measured in two hosts. MSVC release build,
+RTX 4070 / Vulkan, 3400×1300, uncapped presentation, CPU time per frame in ms.
+
+| Scenario | Bare winit, p99 | Inside egui, p99 | Earlier: egui shapes | Earlier: egui + GPU notes |
+|---|---|---|---|---|
+| Worst case: all clips + all notes + overlay | **0.84** | **2.22** | 20.0 (notes only) | 5.7 (notes only) |
+| Same, at 200% | — | 1.59 | 11.4 | 5.1 |
+| Editing views + overlay | 0.78 | 1.45 | 4.8–6.1 | — |
+| Editing views + overlay + Parley labels on every visible clip | 1.39 | — | — | — |
+| Rectangles only (120k), no overlay | 0.26 | — | — | — |
+
+| Other measures | Bare winit | Inside egui |
+|---|---|---|
+| First frame on screen | 854 ms cold, **438 ms** with the Vulkan pipeline cache warm | 1,007 ms (cache not yet wired into egui's device) |
+| Idle CPU, 10 s | 0.00–0.47% | 1.25% interactive, 4.53% after the benchmark: **open issue** |
+| Accessibility | AccessKit tree, built by hand (≈60 lines), fully visible to UI Automation (20 named buttons and checkboxes) | egui's AccessKit integration (58 elements) |
+| Text | Parley + Vello (≈100 lines, cached layouts): +0.6 ms for all visible labels | egui text |
+
+Conclusions:
+1. **The renderer removes the bottleneck in either host.** The worst case is
+   2.2 ms inside egui and 0.8 ms bare, against the 8.3 ms budget for 120 fps
+   (and about 25× faster than egui shapes). The canvas cost no longer
+   depends on the toolkit.
+2. **egui adds about 0.7–1.4 ms per frame** for its widgets and panels: real,
+   but small.
+3. **A custom shell is feasible but its cost is elsewhere.** Text and an
+   accessibility tree were cheap to prototype; what was not prototyped (focus
+   and keyboard navigation, text input and IME, layout, widget library,
+   generating and updating the accessibility tree from live widgets) is the
+   bulk of a toolkit.
+4. Open items for either host: wire the pipeline cache into egui's device;
+   explain the egui host's idle CPU; Linux and macOS behaviour of Parley and
+   Vello is untested beyond CI compilation.
+
+**Host decision: pending the owner.**
+
+---
+
 ## ADR-0003 — Real-time audio engine
 
 **Status:** Proposed (pending P-ENGINE) · **Date:** 2026-10-05
@@ -587,7 +629,8 @@ Verified by the owner later the same day:
 - **Production Windows target: `x86_64-pc-windows-msvc`.** Reasons: PDB
   debugging and crash dumps, the same ABI ecosystem as plugins and drivers,
   and GitHub's Windows runners use it by default.
-- **Local development on this machine for now: `x86_64-pc-windows-gnu`.** No
+- **Update 2026-10-06:** Visual Studio 2022 Build Tools installed; rustup's default host is now `x86_64-pc-windows-msvc`. The workspace builds, lints clean and passes all tests with MSVC locally. The GNU workaround below is retired.
+- **Previously, local development on this machine: `x86_64-pc-windows-gnu`.** No
   MSVC was installed, and installing Visual Studio Build Tools needs admin
   rights and acceptance of Microsoft's licence, which is the owner's call. The
   self-contained MinGW in rustup lacks the GNU assembler that `dlltool` needs

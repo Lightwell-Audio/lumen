@@ -5,7 +5,9 @@
 The compiler version is pinned in `rust-toolchain.toml`; rustup installs it
 automatically on first build. Install rustup from <https://rustup.rs>.
 
-### Windows — recommended (production target, MSVC)
+### Windows — recommended (production target, MSVC; in use on the dev machine since 2026-10-06)
+
+Build output on the dev machine goes to `%USERPROFILE%\lumen-target` (set `CARGO_TARGET_DIR`), outside `AppData` and off the nearly full D: drive.
 
 1. Install **Visual Studio 2022 Build Tools** with the *Desktop development
    with C++* workload (needs admin rights and acceptance of Microsoft's
