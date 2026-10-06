@@ -13,7 +13,7 @@ jobs:
     name: rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install
       - run: cargo fmt --all -- --check
@@ -26,14 +26,15 @@ jobs:
         # windows-latest builds the production target, x86_64-pc-windows-msvc.
         os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Linux system libraries
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev \
-            libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libasound2-dev
+            libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libasound2-dev \n            libfontconfig1-dev
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
@@ -57,5 +58,5 @@ jobs:
     name: licenses and advisories
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: EmbarkStudios/cargo-deny-action@v2
