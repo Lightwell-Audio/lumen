@@ -79,6 +79,7 @@ impl Transport {
     }
 
     fn send(&mut self, command: Command) {
+        crate::trace::log(|| format!("send {command:?}"));
         self.settle();
         // A full queue means the engine is not running; the UI shows why.
         let _ = self.audio.engine.send(command);

@@ -19,6 +19,7 @@ mod canvas;
 mod icons;
 mod position;
 mod theme;
+mod trace;
 mod transport;
 
 use std::path::PathBuf;
@@ -47,6 +48,10 @@ struct App {
     /// Where `--screenshot` saves, once the frames have rendered.
     screenshot: Option<PathBuf>,
     started: Instant,
+    /// `--autoplay-ms`: press Play this long after start (latency tests).
+    autoplay: Option<Duration>,
+    /// The transport as last traced, to log only changes.
+    traced: Option<(bool, i64)>,
 }
 
 fn empty_project() -> Project {
@@ -196,6 +201,17 @@ impl eframe::App for App {
     /// Shift+Tab toggles the detail panel (spec §5). It is taken here, before
     /// egui sees it, so it does not also move keyboard focus backwards.
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        for event in &raw_input.events {
+            if let egui::Event::PointerButton { pressed, .. } = event {
+                trace::log(|| format!("input: mouse {}", if *pressed { "down" } else { "up" }));
+            }
+            if let egui::Event::Key {
+                key, pressed: true, ..
+            } = event
+            {
+                trace::log(|| format!("input: key {key:?}"));
+            }
+        }
         raw_input.events.retain(|event| {
             let toggle = matches!(
                 event,
@@ -217,6 +233,23 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.transport.update();
         self.transport.shortcuts(&ctx);
+        if let Some(after) = self.autoplay {
+            if self.started.elapsed() >= after {
+                self.autoplay = None;
+                trace::log(|| "autoplay: Play".into());
+                self.transport.play_stop();
+            } else {
+                ctx.request_repaint_after(after - self.started.elapsed());
+            }
+        }
+        if trace::enabled() {
+            let state = self.transport.state();
+            let now = (state.playing, state.sample);
+            if self.traced != Some(now) {
+                trace::log(|| format!("frame: playing {} sample {}", now.0, now.1));
+                self.traced = Some(now);
+            }
+        }
         let panels_before = (self.show_browser, self.show_detail);
         if std::mem::take(&mut self.toggle_detail_requested) {
             self.show_detail = !self.show_detail;
@@ -396,6 +429,10 @@ fn main() -> eframe::Result {
                 smoke_test_frames: smoke_test.then_some(SMOKE_FRAMES),
                 screenshot,
                 started,
+                autoplay: arg_value("--autoplay-ms")
+                    .and_then(|ms| ms.parse().ok())
+                    .map(Duration::from_millis),
+                traced: None,
             }))
         }),
     )
