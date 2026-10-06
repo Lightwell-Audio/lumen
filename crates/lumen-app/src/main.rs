@@ -51,8 +51,8 @@ struct App {
     /// `--autoplay-ms`: toggle play and stop this often (latency tests).
     autoplay: Option<Duration>,
     autoplay_count: u32,
-    /// The transport as last traced, to log only changes.
-    traced: Option<(bool, i64)>,
+    /// Playing or not, as last traced, to log only changes.
+    traced: Option<bool>,
 }
 
 fn empty_project() -> Project {
@@ -203,8 +203,15 @@ impl eframe::App for App {
     /// egui sees it, so it does not also move keyboard focus backwards.
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         for event in &raw_input.events {
-            if let egui::Event::PointerButton { pressed, .. } = event {
-                trace::log(|| format!("input: mouse {}", if *pressed { "down" } else { "up" }));
+            if let egui::Event::PointerButton { pos, pressed, .. } = event {
+                trace::log(|| {
+                    format!(
+                        "input: mouse {} at ({:.0}, {:.0})",
+                        if *pressed { "down" } else { "up" },
+                        pos.x,
+                        pos.y
+                    )
+                });
             }
             if let egui::Event::Key {
                 key, pressed: true, ..
@@ -248,10 +255,15 @@ impl eframe::App for App {
         }
         if trace::enabled() {
             let state = self.transport.state();
-            let now = (state.playing, state.sample);
-            if self.traced != Some(now) {
-                trace::log(|| format!("frame: playing {} sample {}", now.0, now.1));
-                self.traced = Some(now);
+            if self.traced != Some(state.playing) {
+                trace::log(|| {
+                    format!(
+                        "frame: shows {} at sample {}",
+                        if state.playing { "PLAYING" } else { "STOPPED" },
+                        state.sample
+                    )
+                });
+                self.traced = Some(state.playing);
             }
         }
         let panels_before = (self.show_browser, self.show_detail);

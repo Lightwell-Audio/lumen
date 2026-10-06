@@ -176,6 +176,19 @@ pub fn button(
             painter.add(shape);
         }
     }
+    if crate::trace::enabled() {
+        let released_here = ui.input(|i| i.pointer.primary_released()) && response.hovered();
+        if response.clicked() || response.double_clicked() || released_here {
+            crate::trace::log(|| {
+                format!(
+                    "button {label:?}: clicked {} double {} dragged {} enabled {enabled}",
+                    response.clicked(),
+                    response.double_clicked(),
+                    response.dragged() || response.drag_stopped(),
+                )
+            });
+        }
+    }
     let tip = match shortcut {
         Some(keys) => format!("{label} ({keys})"),
         None => label.to_owned(),
