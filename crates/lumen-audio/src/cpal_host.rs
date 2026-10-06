@@ -58,6 +58,15 @@ impl CpalBackend {
             host: cpal::default_host(),
         }
     }
+
+    /// The system's default output device.
+    pub fn default_output() -> Option<DeviceId> {
+        let device = cpal::default_host().default_output_device()?;
+        Some(DeviceId {
+            kind: kind(),
+            id: device.id().ok()?.to_string(),
+        })
+    }
 }
 
 impl Default for CpalBackend {

@@ -1,28 +1,42 @@
-//! The Lumen application. At the end of M1 this is the shell only: the
-//! single-window layout from the specification (transport bar, browser,
-//! arrangement, detail panel) on egui, with the arrangement canvas drawn by
-//! `lumen-render`. Features arrive milestone by milestone; controls that do
-//! not work yet are shown disabled and say when they arrive.
+//! The Lumen application: the single-window layout from the specification
+//! (transport bar, browser, arrangement, detail panel) on egui, with the
+//! arrangement canvas drawn by `lumen-render` and audio from `lumen-engine`.
+//! Features arrive milestone by milestone; controls that do not work yet are
+//! shown disabled and say when they arrive.
 //!
 //! ```text
-//! lumen                     run the application
-//! lumen --smoke-test        render a few frames, report start-up time, exit
+//! lumen                          run the application
+//! lumen --audio asio:"Focusrite USB ASIO"
+//!                                use this device (driver: asio, wasapi,
+//!                                exclusive; cpal on macOS and Linux)
+//! lumen --scale 1.5              UI scale
+//! lumen --smoke-test             render a few frames, report start-up time, exit
+//! lumen --screenshot out.png     render, save a screenshot, exit
 //! ```
 
+mod audio;
 mod canvas;
+mod icons;
+mod position;
+mod theme;
+mod transport;
 
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use eframe::egui::{self, Color32, RichText, Sense, pos2, vec2};
+use eframe::egui::{self, RichText, Sense, Stroke, pos2, vec2};
 use lumen_core::product::{PRODUCT_NAME, display_name};
 use lumen_core::time::{TempoPoint, Ticks};
 use lumen_project::model::{Project, TimeSignature};
+
+use transport::Transport;
 
 const RULER_HEIGHT: f32 = 22.0;
 
 struct App {
     project: Project,
+    transport: Transport,
     show_browser: bool,
     show_detail: bool,
     /// Set by the raw-input hook when Shift+Tab is pressed.
@@ -30,6 +44,8 @@ struct App {
     left_beat: f32,
     px_per_beat: f32,
     smoke_test_frames: Option<u32>,
+    /// Where `--screenshot` saves, once the frames have rendered.
+    screenshot: Option<PathBuf>,
     started: Instant,
 }
 
@@ -56,26 +72,19 @@ fn arrives(milestone: &str) -> String {
 
 impl App {
     fn transport(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(PRODUCT_NAME).strong());
+        // The panel toggles are laid out first, from the right, so they keep
+        // their place at any width or scale; the transport takes the rest and
+        // the status text shortens to fit.
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.toggle_value(&mut self.show_detail, "Detail")
+                .on_hover_text("Show or hide the detail panel (Shift+Tab)");
+            ui.toggle_value(&mut self.show_browser, "Browser")
+                .on_hover_text("Show or hide the browser");
             ui.separator();
-            for label in ["Play", "Stop", "Record", "Loop", "Metronome"] {
-                ui.add_enabled(false, egui::Button::new(label))
-                    .on_disabled_hover_text(arrives("Milestone 2"));
-            }
-            ui.separator();
-            let bpm = self.project.tempo.first().map_or(120.0, |t| t.bpm);
-            let sig = self.project.time_signature;
-            ui.label(format!("{bpm:.1} BPM"));
-            ui.label(format!("{}/{}", sig.numerator, sig.denominator));
-            ui.label(RichText::new("1.1.1").monospace());
-            ui.separator();
-            ui.label(format!("{} — {}", self.project.name, display_name()));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.toggle_value(&mut self.show_detail, "Detail")
-                    .on_hover_text("Show or hide the detail panel (Shift+Tab)");
-                ui.toggle_value(&mut self.show_browser, "Browser")
-                    .on_hover_text("Show or hide the browser");
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.label(RichText::new(PRODUCT_NAME).strong());
+                ui.separator();
+                self.transport.ui(ui, &mut self.project);
             });
         });
     }
@@ -103,25 +112,41 @@ impl App {
         }
 
         let painter = ui.painter_at(full);
-        painter.rect_filled(full, 0.0, Color32::from_rgb(0x1B, 0x1D, 0x22));
+        painter.rect_filled(full, 0.0, theme::CANVAS);
+        let meter = self.transport.timeline.meter.meter_at(Ticks::ZERO);
         painter.add(canvas::grid_shape(
             canvas,
             ui.ctx().pixels_per_point(),
             self.left_beat,
             self.px_per_beat,
+            canvas::GridMeter {
+                bar: meter.bar().as_quarters() as f32,
+                beat: meter.beat().as_quarters() as f32,
+            },
         ));
+        let x_of = |quarters: f32| canvas.left() + (quarters - self.left_beat) * self.px_per_beat;
 
-        // Ruler: bar numbers, thinned so labels never collide.
-        painter.rect_filled(ruler, 0.0, Color32::from_rgb(0x23, 0x26, 0x2D));
+        // Ruler: loop range, then bar numbers thinned so labels never collide.
+        painter.rect_filled(ruler, 0.0, theme::RULER);
+        let looped = self.transport.loop_region;
+        if looped.enabled {
+            let span = egui::Rect::from_x_y_ranges(
+                x_of(looped.start.as_quarters() as f32)..=x_of(looped.end.as_quarters() as f32),
+                ruler.y_range(),
+            );
+            painter.rect_filled(span.intersect(ruler), 0.0, theme::LOOP_RANGE);
+        }
+        let bar_quarters = meter.bar().as_quarters() as f32;
         let mut step = 1;
-        while step as f32 * 4.0 * self.px_per_beat < 40.0 {
+        while step as f32 * bar_quarters * self.px_per_beat < 40.0 {
             step *= 2;
         }
-        let first_bar = (self.left_beat / 4.0).floor() as usize;
-        let mut bar = first_bar - first_bar % step;
+        let first_bar = (self.left_beat / bar_quarters).floor() as i64;
+        let mut bar = first_bar - first_bar.rem_euclid(step);
         loop {
-            let x = canvas.left() + (bar as f32 * 4.0 - self.left_beat) * self.px_per_beat;
-            if x > full.right() || bar >= canvas::GRID_BARS {
+            let start = self.transport.timeline.meter.bar_start(bar);
+            let x = x_of(start.as_quarters() as f32);
+            if x > full.right() || bar >= canvas::GRID_BARS as i64 {
                 break;
             }
             if x >= full.left() {
@@ -130,10 +155,29 @@ impl App {
                     egui::Align2::LEFT_CENTER,
                     (bar + 1).to_string(),
                     egui::FontId::monospace(11.0),
-                    Color32::from_rgb(0x9A, 0xA0, 0xAC),
+                    theme::RULER_TEXT,
                 );
             }
             bar += step;
+        }
+
+        // Playhead.
+        let state = self.transport.state();
+        let x = x_of(state.ticks.as_quarters() as f32);
+        if (full.left()..=full.right()).contains(&x) {
+            painter.line_segment(
+                [pos2(x, ruler.top()), pos2(x, full.bottom())],
+                Stroke::new(1.0, theme::ACCENT),
+            );
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    pos2(x - 5.0, ruler.top()),
+                    pos2(x + 5.0, ruler.top()),
+                    pos2(x, ruler.top() + 7.0),
+                ],
+                theme::ACCENT,
+                Stroke::NONE,
+            ));
         }
 
         if self.project.tracks.is_empty() {
@@ -142,7 +186,7 @@ impl App {
                 egui::Align2::CENTER_CENTER,
                 "Empty project\nTracks, clips and editing arrive in Milestone 3",
                 egui::FontId::proportional(14.0),
-                Color32::from_rgb(0x6E, 0x74, 0x80),
+                theme::HINT_TEXT,
             );
         }
     }
@@ -171,6 +215,15 @@ impl eframe::App for App {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.transport.update();
+        self.transport.shortcuts(&ctx);
+        // A smooth playhead while playing; otherwise wake once a second for
+        // device events, so idle CPU stays near zero.
+        if self.transport.state().playing {
+            ctx.request_repaint();
+        } else {
+            ctx.request_repaint_after(Duration::from_secs(1));
+        }
         let panels_before = (self.show_browser, self.show_detail);
         if std::mem::take(&mut self.toggle_detail_requested) {
             self.show_detail = !self.show_detail;
@@ -226,9 +279,27 @@ impl eframe::App for App {
         }
         egui::CentralPanel::default().show(ui, |ui| self.arrangement(ui));
 
+        if let Some(path) = &self.screenshot {
+            let image = ctx.input(|i| {
+                i.events.iter().find_map(|e| match e {
+                    egui::Event::Screenshot { image, .. } => Some(Arc::clone(image)),
+                    _ => None,
+                })
+            });
+            if let Some(image) = image {
+                match save_png(path, &image) {
+                    Ok(()) => println!("screenshot saved to {}", path.display()),
+                    Err(e) => eprintln!("screenshot: {e}"),
+                }
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
         if let Some(frames) = self.smoke_test_frames.as_mut() {
-            *frames -= 1;
-            if *frames == 0 {
+            *frames = frames.saturating_sub(1);
+            if *frames == 0 && self.screenshot.is_some() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
+                self.smoke_test_frames = None;
+            } else if *frames == 0 {
                 println!(
                     "smoke test: {} frames rendered; first frame within {:.0} ms of start",
                     SMOKE_FRAMES,
@@ -246,9 +317,46 @@ impl eframe::App for App {
 const SMOKE_FRAMES: u32 = 30;
 static FIRST_FRAME_MS: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
 
+fn save_png(path: &std::path::Path, image: &egui::ColorImage) -> Result<(), String> {
+    let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
+    let [w, h] = image.size;
+    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), w as u32, h as u32);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let bytes: Vec<u8> = image
+        .pixels
+        .iter()
+        .flat_map(|c| c.to_srgba_unmultiplied())
+        .collect();
+    encoder
+        .write_header()
+        .and_then(|mut writer| writer.write_image_data(&bytes))
+        .map_err(|e| e.to_string())
+}
+
+/// The value after `flag`, if given.
+fn arg_value(flag: &str) -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+    args.iter()
+        .position(|a| a == flag)
+        .and_then(|i| args.get(i + 1).cloned())
+}
+
 fn main() -> eframe::Result {
     let started = Instant::now();
-    let smoke_test = std::env::args().any(|a| a == "--smoke-test");
+    let screenshot = arg_value("--screenshot").map(PathBuf::from);
+    let smoke_test = screenshot.is_some() || std::env::args().any(|a| a == "--smoke-test");
+    let scale: f32 = arg_value("--scale")
+        .and_then(|s| s.parse().ok())
+        .filter(|s| (0.5..=3.0).contains(s))
+        .unwrap_or(1.0);
+    let choice = match arg_value("--audio") {
+        Some(arg) => audio::Choice::parse(&arg).unwrap_or_else(|e| {
+            eprintln!("{e}; using the default output");
+            audio::Choice::Default
+        }),
+        None => audio::Choice::Default,
+    };
     let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(display_name())
@@ -273,14 +381,18 @@ fn main() -> eframe::Result {
             if let Some(state) = cc.wgpu_render_state.as_ref() {
                 canvas::install(state).map_err(|e| format!("renderer: {e}"))?;
             }
+            cc.egui_ctx.set_zoom_factor(scale);
+            let project = empty_project();
             Ok(Box::new(App {
-                project: empty_project(),
+                transport: Transport::new(&project, &choice),
+                project,
                 show_browser: true,
                 show_detail: true,
                 toggle_detail_requested: false,
                 left_beat: 0.0,
                 px_per_beat: 24.0,
                 smoke_test_frames: smoke_test.then_some(SMOKE_FRAMES),
+                screenshot,
                 started,
             }))
         }),

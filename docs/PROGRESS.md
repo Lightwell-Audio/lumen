@@ -219,7 +219,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 | Item | Tier | Status |
 |---|---|---|
-| Transport: play, stop, record, loop, return to start, go to start/end, previous/next marker. **Owner request:** transport controls use vector icons, not text (M2). | M | 🟡 Engine transport done: play, pause, stop (to the play marker, then the start), locate, loop (slice 3, ADR-0017). Controls and icons in slice 4; record in M9; markers in M3 |
+| Transport: play, stop, record, loop, return to start, go to start/end, previous/next marker. **Owner request:** transport controls use vector icons, not text (M2). | M | 🟡 Engine transport done (slice 3, ADR-0017). Transport bar with vector icons, Space / Shift+Space / Home, go to start, stop, play/pause and loop in the app (slice 4, ADR-0018). Record in M9; markers and go to end in M3 |
 | Tempo 20–999 BPM and time signature with change maps; tap tempo | M | 🟡 Tempo and time-signature maps with changes (`lumen-core`), swapped into the engine live (slice 3). Tap tempo and the UI later |
 | Metronome: accent, volume, sound, count-in, pre-roll, record-only, output routing | M | 🔲 |
 | Loop region, punch in/out, auto-punch | M | 🟡 Sample-accurate loop wrap and punch-region reporting in the engine (slice 3). Recording through punch in M9 |

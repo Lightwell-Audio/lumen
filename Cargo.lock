@@ -1970,9 +1970,12 @@ name = "lumen-app"
 version = "0.0.1"
 dependencies = [
  "eframe",
+ "lumen-audio",
  "lumen-core",
+ "lumen-engine",
  "lumen-project",
  "lumen-render",
+ "png",
 ]
 
 [[package]]

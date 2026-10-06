@@ -123,6 +123,26 @@ impl WasapiBackend {
         Self { exclusive }
     }
 
+    /// The output Windows uses by default (Sound settings), in shared mode.
+    /// Runs on its own short-lived thread, so it works from any thread
+    /// whatever its COM apartment.
+    pub fn default_output() -> Option<DeviceId> {
+        std::thread::spawn(|| {
+            let _ = wasapi::initialize_mta();
+            let device = DeviceEnumerator::new()
+                .ok()?
+                .get_default_device(&Direction::Render)
+                .ok()?;
+            Some(DeviceId {
+                kind: DriverKind::WasapiShared,
+                id: device.get_id().ok()?,
+            })
+        })
+        .join()
+        .ok()
+        .flatten()
+    }
+
     fn kind(&self) -> DriverKind {
         if self.exclusive {
             DriverKind::WasapiExclusive
@@ -690,6 +710,16 @@ mod tests {
         assert!(keeps_real_time(0.25, 0.25));
         assert!(!keeps_real_time(0.35, 0.25));
         assert!(!keeps_real_time(0.0, 0.0));
+    }
+
+    #[test]
+    fn the_default_output_is_one_of_the_listed_devices() {
+        // CI runners may have no audio device at all; then there is no default.
+        let Some(default) = WasapiBackend::default_output() else {
+            return;
+        };
+        let listed = WasapiBackend::new(false).devices();
+        assert!(listed.iter().any(|d| d.id == default), "{default:?}");
     }
 
     /// Runs wherever Windows audio exists; CI runners may have no devices,

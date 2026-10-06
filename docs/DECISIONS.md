@@ -28,6 +28,7 @@ irreversible or external) · *Superseded*.
 | [0015](#adr-0015--shifttab-conflict) | Shift+Tab: detail panel versus backward focus | **Open** (decide with the shortcut system, M3) | Yes |
 | [0016](#adr-0016--wasapi-coreaudio-and-linux-backends) | WASAPI through the `wasapi` crate; CoreAudio and ALSA through cpal | Accepted 2026-10-06 | No |
 | [0017](#adr-0017--engine-transport-and-timeline) | Engine transport and timeline: Ableton-style stop, positions in ticks, live tempo and rate changes | Accepted 2026-10-06 | No |
+| [0018](#adr-0018--transport-bar-icons-and-app-audio) | Transport bar: vector icons on egui's painter; the app opens the system default output until the device selector | Accepted 2026-10-06 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -1025,3 +1026,47 @@ and beat; loop and punch follow), a seqlock torn-read test, and 5,000 blocks
 of mixed commands, timeline swaps and a rate change with zero heap
 operations. `transport_demo` on WASAPI: tempo 120 → 90 kept bar 3.1
 (sample 192,000 → 256,000); 7/8 bars land at the right samples.
+
+---
+
+## ADR-0018 — Transport bar icons and app audio
+
+**Status:** Accepted · **Date:** 2026-10-06 (M2 slice 4)
+
+### Context
+The owner asked for real icons on the transport instead of text. The M2 plan
+said "Vello paths". The app also needs audio now, before the device selector
+(slice 8) exists.
+
+### Decision
+- **Icons** are geometry on a 16-unit grid (`lumen-app/src/icons.rs`),
+  scaled to their box and drawn with egui's painter (anti-aliased paths).
+  They are vectors, sharp at every scale (checked at 100%, 150% and 200%).
+  Drawing them through Vello would need a GPU paint callback per button for
+  no visible gain at 16–24 px; Vello stays for dense canvases (ADR-0002).
+  The same geometry can move to Vello later if the design system wants it.
+- **Colour tokens** live in `theme.rs`: one accent (a blue chosen to stay
+  distinct for common colour-vision deficiencies), with red for Record as the
+  only semantic exception. The full design system and the light theme
+  arrive in M3.
+- **Audio in the app** opens the system's default output, through WASAPI
+  shared mode on Windows. Shared mode is the safe default: it never takes a
+  device away from other applications or loads ASIO drivers at start-up.
+  `--audio <driver>:<name>` (for example `asio:"Focusrite USB ASIO"`)
+  picks another device until the device selector and its saved settings
+  arrive (slice 8).
+- **Transport bar:** go to start, stop, play/pause (one button that shows
+  what a click does), record (disabled until M9), loop, metronome (disabled
+  until slice 7), tempo, time signature, an editable position (click and type
+  bars.beats.sixteenths or m:ss) and an audio status dot with text.
+  Shortcuts: Space play/stop, Shift+Space pause/continue, Home go to start,
+  ignored while typing in a field.
+- **Layout:** the panel toggles are laid out first, from the right, so they
+  survive any width or scale; the status text shortens to fit.
+- **Repaint:** continuous while playing; once a second when idle, to pick up
+  device events, which keeps idle CPU near zero.
+
+### Consequences
+- Tempo and time-signature edits are not undoable yet; undo arrives with the
+  command system in M3.
+- The loop range is fixed to bars 1–4 until the ruler can set it (M3).

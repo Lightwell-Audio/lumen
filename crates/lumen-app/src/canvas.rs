@@ -16,6 +16,22 @@ pub const GRID_BARS: usize = 512;
 struct Resources {
     renderer: Renderer,
     grid: LayerId,
+    /// The meter the grid layer was built for.
+    grid_meter: GridMeter,
+}
+
+/// Bar and beat lengths, in quarter notes, for drawing the grid.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GridMeter {
+    pub bar: f32,
+    pub beat: f32,
+}
+
+impl GridMeter {
+    const FOUR_FOUR: GridMeter = GridMeter {
+        bar: 4.0,
+        beat: 1.0,
+    };
 }
 
 /// Where compiled GPU pipelines are cached between launches.
@@ -26,13 +42,14 @@ fn pipeline_cache_path() -> Option<PathBuf> {
     Some(dir.join("gpu-pipelines.bin"))
 }
 
-/// Bar lines (strong) and beat lines (faint) for a 4/4 grid; one row that
+/// Bar lines (strong) and beat lines (faint), in quarter notes; one row that
 /// spans the canvas height.
-fn grid_instances() -> Vec<RectInstance> {
-    (0..GRID_BARS * 4)
+fn grid_instances(meter: GridMeter) -> Vec<RectInstance> {
+    let beats_per_bar = (meter.bar / meter.beat).round().max(1.0) as usize;
+    (0..GRID_BARS * beats_per_bar)
         .map(|beat| {
-            let bar = beat % 4 == 0;
-            let x = beat as f32;
+            let bar = beat % beats_per_bar == 0;
+            let x = beat as f32 * meter.beat;
             RectInstance {
                 start: x,
                 end: x,
@@ -57,18 +74,24 @@ pub fn install(state: &egui_wgpu::RenderState) -> Result<(), String> {
     if let Some(p) = &path {
         lumen_render::save_pipeline_cache(cache.as_ref(), p);
     }
-    let grid = renderer.add_layer(&state.device, &grid_instances());
+    let grid_meter = GridMeter::FOUR_FOUR;
+    let grid = renderer.add_layer(&state.device, &grid_instances(grid_meter));
     state
         .renderer
         .write()
         .callback_resources
-        .insert(Mutex::new(Resources { renderer, grid }));
+        .insert(Mutex::new(Resources {
+            renderer,
+            grid,
+            grid_meter,
+        }));
     Ok(())
 }
 
 struct GridCallback {
     view: View,
     size_px: [u32; 2],
+    meter: GridMeter,
 }
 
 impl egui_wgpu::CallbackTrait for GridCallback {
@@ -83,6 +106,11 @@ impl egui_wgpu::CallbackTrait for GridCallback {
         let Some(Ok(r)) = resources.get_mut::<Mutex<Resources>>().map(Mutex::get_mut) else {
             return Vec::new();
         };
+        if r.grid_meter != self.meter {
+            r.renderer
+                .update_layer(device, queue, r.grid, &grid_instances(self.meter));
+            r.grid_meter = self.meter;
+        }
         let [w, h] = self.size_px;
         let area = Area {
             x: 0.0,
@@ -123,14 +151,16 @@ impl egui_wgpu::CallbackTrait for GridCallback {
 }
 
 /// Paint shape for the arrangement grid in `rect`, scrolled to `left_beat`
-/// at `px_per_beat` (both in egui points).
+/// at `px_per_beat` (both in egui points; beats are quarter notes).
 pub fn grid_shape(
     rect: Rect,
     pixels_per_point: f32,
     left_beat: f32,
     px_per_beat: f32,
+    meter: GridMeter,
 ) -> egui::Shape {
     let callback = GridCallback {
+        meter,
         view: View {
             left: left_beat,
             px_per_unit: px_per_beat * pixels_per_point,

@@ -378,3 +378,33 @@ seven steps. The position display matched the expected samples (bar 4 from
 264,600, bar 5 from 352,800) and advanced at 44,065 samples/s over 7.75 s.
 Tip found during the run: a loop only catches playback that is before its
 end, so `g 2` before `l 2 3` if playback is already past bar 3.
+
+### MT-APP-2 · Transport bar (needs a human)
+Build: `cargo build --release -p lumen-app`. In PowerShell:
+`& "$env:USERPROFILE\lumen-target\release\lumen.exe" --audio asio:"Focusrite USB ASIO"`
+(or with no `--audio` for the Windows default output).
+1. The status dot is blue and the text names the device, rate, buffer and
+   latency. Hover it for the full text.
+2. Press **Space**: the playhead moves along the ruler and the position
+   counts up (bars.beats.sixteenths, then m:ss.mmm). Space again stops and
+   returns to where playback started; Space then Home returns to 1.1.1.
+3. **Shift+Space** pauses and continues in place.
+4. Click **Loop** (the circular arrow): it turns blue, bars 1–4 are shaded on
+   the ruler, and playback wraps from bar 5 back to bar 1.
+5. Drag the tempo, or click it and type 90: the position keeps counting at
+   the new speed without jumping. Set the time signature to 7/8: the ruler
+   and grid re-bar.
+6. Click the position, type `9` and press Enter: the playhead jumps to bar
+   9. Type `2.5` (4/4): a warning sign explains that beats are 1–4.
+7. Hover each icon: tooltips name it and its shortcut; Record and Metronome
+   say when they arrive.
+8. Tab through the transport: each control shows a blue focus ring; Enter
+   activates a focused button.
+9. Run with `--scale 2`: icons stay sharp; the Browser and Detail toggles
+   stay visible.
+
+**Expected:** every step as described, with no stutter in the playhead.
+
+**Last run:** not yet run. Automated: screenshots at 100%, 150% and 200%
+(`--screenshot`) checked on 2026-10-06; the first round found the panel
+toggles pushed off-screen at 200% and the status text unreadable. Both fixed.

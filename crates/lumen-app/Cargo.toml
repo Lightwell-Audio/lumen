@@ -1,6 +1,6 @@
 [package]
 name = "lumen-app"
-description = "The Lumen desktop application (M1: shell only)"
+description = "The Lumen desktop application"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,9 +12,12 @@ path = "src/main.rs"
 
 [dependencies]
 eframe.workspace = true
+lumen-audio.workspace = true
 lumen-core.workspace = true
+lumen-engine.workspace = true
 lumen-project.workspace = true
 lumen-render.workspace = true
+png.workspace = true
 
 [lints]
 workspace = true
