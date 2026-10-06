@@ -21,9 +21,15 @@ fn main() {
     use lumen_audio::{AudioSystem, Block, State, StreamConfig, Timing};
 
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let value = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1));
+    let value = |name: &str| {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+    };
     let Some(target) = args.first() else {
-        eprintln!("usage: asio_tone list | asio_tone <driver name> [--seconds S] [--tone] [--buffer N]");
+        eprintln!(
+            "usage: asio_tone list | asio_tone <driver name> [--seconds S] [--tone] [--buffer N]"
+        );
         std::process::exit(2);
     };
     let drivers = AsioBackend::registered();
@@ -33,11 +39,16 @@ fn main() {
         }
         return;
     }
-    let Some((device, name)) = drivers.into_iter().find(|(_, n)| n.eq_ignore_ascii_case(target)) else {
+    let Some((device, name)) = drivers
+        .into_iter()
+        .find(|(_, n)| n.eq_ignore_ascii_case(target))
+    else {
         eprintln!("no ASIO driver named {target:?}; try `list`");
         std::process::exit(1);
     };
-    let seconds: u64 = value("--seconds").and_then(|s| s.parse().ok()).unwrap_or(30);
+    let seconds: u64 = value("--seconds")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30);
     let tone = args.iter().any(|a| a == "--tone");
 
     let mut phase = 0.0_f32;
@@ -68,12 +79,18 @@ fn main() {
         input_channels: vec![0, 1],
         output_channels: vec![0, 1],
     });
-    println!("{name}: running for {seconds} s{}", if tone { " with a tone" } else { " (silent)" });
+    println!(
+        "{name}: running for {seconds} s{}",
+        if tone { " with a tone" } else { " (silent)" }
+    );
     let deadline = Instant::now() + Duration::from_secs(seconds);
     let mut next_report = Instant::now() + Duration::from_secs(1);
     while Instant::now() < deadline {
         while let Some(event) = audio.try_event() {
-            println!("[{:>5.1} s] event: {event:?}", seconds as f64 - (deadline - Instant::now()).as_secs_f64());
+            println!(
+                "[{:>5.1} s] event: {event:?}",
+                seconds as f64 - (deadline - Instant::now()).as_secs_f64()
+            );
         }
         if Instant::now() >= next_report {
             let status = audio.status();
