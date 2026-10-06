@@ -338,5 +338,10 @@ buffer_frames: 448, .. })` (Windows' 44.1 kHz period is 448 frames), then
 about 98 callbacks/s as expected. Back to 48 kHz at 19.6 s gave `Reset` at
 480 frames and 100/s. Only one or two callbacks were missed at each switch.
 
-**Part 2 (sleep/resume):** not yet run. Required before M2 ends (the
-hot-unplug row in PROGRESS.md).
+**Part 2, run 1 (2026-10-06, ASIO, 44.1 kHz / 256):** pass. The PC slept at
+about 25 s; callbacks stopped. After waking, `Lost(DeviceNotPresent("the
+driver stopped delivering audio"))` came from the watchdog, then `Restored`
+2.4 s later, and the tone resumed at 170–175 callbacks/s (172 expected) to
+the end. No crash, no hang. The twenty `0/s` report lines before `Lost`
+are probably the report loop catching up at wake; to confirm with the
+user: how long after waking the tone returned.

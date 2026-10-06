@@ -281,7 +281,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Detachable mixer and editor windows; hover help; welcome screen | S | 🔲 |
 | CPU, disk and dropout indicators; Audio On/Off; panic | M | 🔲 |
 | Crash report file; logging with "reveal logs" | M | 🔲 |
-| Device hot-unplug, sleep/resume, rate-change handling | M | 🟡 Unplug and replug recover on ASIO and WASAPI (MT-AUDIO-1, -4); driver resets on ASIO (MT-AUDIO-2). Not yet tested: sleep/resume, Windows shared-mode format changes (MT-AUDIO-6) |
+| Device hot-unplug, sleep/resume, rate-change handling | M | 🟡 Unplug and replug recover on ASIO and WASAPI (MT-AUDIO-1, -4); driver resets on ASIO (MT-AUDIO-2). Sleep/resume and Windows format and rate changes recover too (MT-AUDIO-6). UI for these states arrives in slice 8 |
 | Single instance; file association; open by double-click or drop | M | 🔲 |
 | Opt-in telemetry only | M | ✅ |
 | Update checker; licensing/activation | L | 🔲 |
