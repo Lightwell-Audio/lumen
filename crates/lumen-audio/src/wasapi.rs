@@ -7,14 +7,21 @@
 //! `Unsupported` error that names the fix. Exclusive mode opens the device at
 //! the requested rate and buffer size.
 //!
+//! Exclusive mode starts event-driven (one block of latency) and checks the
+//! device clock while playing silence. Some USB drivers signal events far too
+//! slowly in exclusive mode (a Focusrite ran at 60% of real time, MT-AUDIO-4);
+//! those devices are reopened in polling mode, which keeps at most two blocks
+//! queued.
+//!
 //! Device loss shows up either as an error from the audio client (reported
 //! as a reset request; the reopen then fails and the supervisor reports
-//! `Lost`) or as events that stop arriving (reported as a stall).
+//! `Lost`) or as a device that stops consuming audio (reported as a stall).
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, SyncSender};
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use wasapi::{
     AudioClient, AudioRenderClient, Device, DeviceEnumerator, DeviceState, Direction, Handle,
@@ -255,10 +262,18 @@ fn render_thread(
 ) -> Option<Box<dyn AudioCallback>> {
     let _ = wasapi::initialize_mta();
     let _priority = Mmcss::join();
-    let mut render = match Render::open(config, exclusive).and_then(|mut r| {
+    let opened = Render::open(config, exclusive, Timing::Events).and_then(|mut r| {
         r.start()?;
-        Ok(r)
-    }) {
+        if !exclusive || r.keeps_time() {
+            return Ok(r);
+        }
+        let _ = r.client.stop_stream();
+        drop(r);
+        let mut polled = Render::open(config, true, Timing::Polling)?;
+        polled.start()?;
+        Ok(polled)
+    });
+    let mut render = match opened {
         Ok(render) => render,
         Err(error) => {
             let _ = ready.send(Err((error, callback)));
@@ -271,10 +286,25 @@ fn render_thread(
     Some(callback)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Timing {
+    /// Wait for the device's buffer event.
+    Events,
+    /// Poll the buffer level (exclusive mode on drivers whose events are
+    /// unreliable).
+    Polling,
+}
+
+/// How long exclusive mode plays silence to check the device clock.
+const CALIBRATION: Duration = Duration::from_millis(250);
+
 struct Render {
     client: AudioClient,
     render: AudioRenderClient,
-    event: Handle,
+    /// `None` in polling mode.
+    event: Option<Handle>,
+    /// Most frames to keep queued on the device.
+    fill_limit: usize,
     name: String,
     format: SampleFormat,
     device_channels: usize,
@@ -290,7 +320,7 @@ struct Render {
 }
 
 impl Render {
-    fn open(config: &StreamConfig, exclusive: bool) -> Result<Self, AudioError> {
+    fn open(config: &StreamConfig, exclusive: bool, timing: Timing) -> Result<Self, AudioError> {
         let id = &config.device.id;
         let enumerator =
             DeviceEnumerator::new().map_err(|e| AudioError::Driver(format!("WASAPI: {e}")))?;
@@ -318,6 +348,15 @@ impl Render {
         }
         let (default_period, min_period) = client.get_device_period().map_err(fail)?;
 
+        let exclusive_mode = |period_hns: i64| match timing {
+            Timing::Events => StreamMode::EventsExclusive { period_hns },
+            Timing::Polling => StreamMode::PollingExclusive {
+                buffer_duration_hns: 2 * period_hns,
+                period_hns,
+            },
+        };
+        // The period Windows actually uses, in 100-ns units.
+        let mut period_hns = default_period;
         let (rate, format, block_align) = if exclusive {
             let rate = config.sample_rate.unwrap_or_else(|| {
                 device
@@ -327,22 +366,19 @@ impl Render {
             });
             let (wave, format) = exclusive_format(&client, rate, device_channels)
                 .ok_or_else(|| AudioError::Unsupported(format!("{rate} Hz on {name}")))?;
-            let period = match config.buffer_frames {
-                Some(frames) => {
-                    let wanted = calculate_period_100ns(i64::from(frames), i64::from(rate));
-                    if wanted < min_period {
-                        return Err(AudioError::Unsupported(format!(
-                            "buffer size {frames} (the minimum is {})",
-                            hns_to_frames(min_period, rate)
-                        )));
-                    }
-                    client
-                        .calculate_aligned_period_near(wanted, Some(128), &wave)
-                        .map_err(fail)?
+            if let Some(frames) = config.buffer_frames {
+                let wanted = calculate_period_100ns(i64::from(frames), i64::from(rate));
+                if wanted < min_period {
+                    return Err(AudioError::Unsupported(format!(
+                        "buffer size {frames} (the minimum is {})",
+                        hns_to_frames(min_period, rate)
+                    )));
                 }
-                None => default_period,
-            };
-            let mode = StreamMode::EventsExclusive { period_hns: period };
+                period_hns = client
+                    .calculate_aligned_period_near(wanted, Some(128), &wave)
+                    .map_err(fail)?;
+            }
+            let mode = exclusive_mode(period_hns);
             if let Err(e) = client.initialize_client(&wave, &Direction::Render, &mode) {
                 if hresult(&e) != Some(BUFFER_SIZE_NOT_ALIGNED) {
                     return Err(fail(e));
@@ -351,10 +387,9 @@ impl Render {
                 // aligned to, on a fresh client.
                 let frames = client.get_buffer_size().map_err(fail)?;
                 client = device.get_iaudioclient().map_err(fail)?;
-                let period = calculate_period_100ns(i64::from(frames), i64::from(rate));
-                let mode = StreamMode::EventsExclusive { period_hns: period };
+                period_hns = calculate_period_100ns(i64::from(frames), i64::from(rate));
                 client
-                    .initialize_client(&wave, &Direction::Render, &mode)
+                    .initialize_client(&wave, &Direction::Render, &exclusive_mode(period_hns))
                     .map_err(fail)?;
             }
             (rate, format, wave.get_blockalign() as usize)
@@ -390,19 +425,32 @@ impl Render {
             (rate, SampleFormat::F32, wave.get_blockalign() as usize)
         };
 
-        let event = client.set_get_eventhandle().map_err(fail)?;
+        let polling = exclusive && timing == Timing::Polling;
+        let event = if polling {
+            None
+        } else {
+            Some(client.set_get_eventhandle().map_err(fail)?)
+        };
         let render = client.get_audiorenderclient().map_err(fail)?;
         let buffer = client.get_buffer_size().map_err(fail)? as usize;
-        let period = if exclusive {
+        let period = if exclusive && !polling {
             buffer
         } else {
-            (hns_to_frames(default_period, rate) as usize).min(buffer)
+            (hns_to_frames(period_hns, rate) as usize).min(buffer)
+        };
+        // Polling-mode buffers are much larger than asked for (8 periods on
+        // a Focusrite); queue only two blocks to keep latency low.
+        let fill_limit = if polling {
+            (2 * period).min(buffer)
+        } else {
+            buffer
         };
         let outputs = config.output_channels.len();
         Ok(Self {
             client,
             render,
             event,
+            fill_limit,
             name,
             format,
             device_channels,
@@ -413,7 +461,7 @@ impl Render {
                 sample_rate: rate,
                 buffer_frames: period as u32,
                 input_latency: 0,
-                output_latency: buffer as u32,
+                output_latency: fill_limit as u32,
                 input_channels: 0,
                 output_channels: outputs,
             },
@@ -425,20 +473,70 @@ impl Render {
 
     /// Pre-fills the device buffer with silence and starts the stream.
     fn start(&mut self) -> Result<(), AudioError> {
-        let fail = |e: WasapiError| map_error(&e, &self.name);
-        let frames = self.client.get_available_space_in_frames().map_err(fail)? as usize;
-        let silence = &self.bytes[..frames * self.block_align];
-        self.render
-            .write_to_device(frames, silence, None)
-            .map_err(fail)?;
+        let name = self.name.clone();
+        let fail = |e: WasapiError| map_error(&e, &name);
+        let frames = (self.client.get_available_space_in_frames().map_err(fail)? as usize)
+            .min(self.fill_limit);
+        self.write_silence(frames).map_err(fail)?;
         self.client.start_stream().map_err(fail)
+    }
+
+    fn write_silence(&mut self, frames: usize) -> Result<(), WasapiError> {
+        let silence = &mut self.bytes[..frames * self.block_align];
+        silence.fill(0);
+        self.render.write_to_device(frames, silence, None)
+    }
+
+    /// Plays silence for [`CALIBRATION`] and checks that the device clock
+    /// keeps real time (within 10%). Event-driven streams only.
+    fn keeps_time(&mut self) -> bool {
+        let Some(event) = self.event.as_ref() else {
+            return true;
+        };
+        let Ok(clock) = self.client.get_audioclock() else {
+            return true;
+        };
+        let Ok(frequency) = clock.get_frequency() else {
+            return true;
+        };
+        let timeout = (2 * CALIBRATION.as_millis()) as u32;
+        if event.wait_for_event(timeout).is_err() {
+            return false;
+        }
+        let Ok((first, _)) = clock.get_position() else {
+            return true;
+        };
+        let started = Instant::now();
+        while started.elapsed() < CALIBRATION {
+            if self.write_silence(self.period).is_err() {
+                return true; // a real failure; the run loop reports it
+            }
+            let Some(event) = self.event.as_ref() else {
+                return true;
+            };
+            if event.wait_for_event(timeout).is_err() {
+                return false;
+            }
+        }
+        let Ok((last, _)) = clock.get_position() else {
+            return true;
+        };
+        let device_seconds = last.saturating_sub(first) as f64 / frequency as f64;
+        let ratio = device_seconds / started.elapsed().as_secs_f64();
+        (0.9..1.1).contains(&ratio)
     }
 
     fn run(&mut self, callback: &mut dyn AudioCallback, flags: &Flags) {
         let period_ms = self.period as u64 * 1000 / u64::from(self.info.sample_rate.max(1));
         let timeout = (period_ms * 50).max(500) as u32;
+        if self.event.is_none() {
+            return self.poll(callback, flags, Duration::from_millis(u64::from(timeout)));
+        }
         while !flags.stop.load(Ordering::Acquire) {
-            if self.event.wait_for_event(timeout).is_err() {
+            let Some(event) = self.event.as_ref() else {
+                return;
+            };
+            if event.wait_for_event(timeout).is_err() {
                 flags.stalled.store(true, Ordering::Release);
                 return;
             }
@@ -453,6 +551,38 @@ impl Render {
                 }
                 available -= self.period as u32;
             }
+        }
+    }
+
+    /// Polling loop: keeps between one and two blocks queued, waking four
+    /// times per block. A device whose queue stops draining for `stall` is
+    /// reported as stalled.
+    fn poll(&mut self, callback: &mut dyn AudioCallback, flags: &Flags, stall: Duration) {
+        let block = self.period as f64 / f64::from(self.info.sample_rate.max(1));
+        let tick = Duration::from_secs_f64((block / 4.0).max(0.0005));
+        let mut last_padding = None;
+        let mut last_progress = Instant::now();
+        while !flags.stop.load(Ordering::Acquire) {
+            std::thread::sleep(tick);
+            let Ok(padding) = self.client.get_current_padding() else {
+                flags.reset.store(true, Ordering::Release);
+                return;
+            };
+            let mut queued = padding as usize;
+            if last_padding != Some(padding) {
+                last_progress = Instant::now();
+            } else if last_progress.elapsed() > stall {
+                flags.stalled.store(true, Ordering::Release);
+                return;
+            }
+            while queued + self.period <= self.fill_limit {
+                if self.render_block(callback).is_err() {
+                    flags.reset.store(true, Ordering::Release);
+                    return;
+                }
+                queued += self.period;
+            }
+            last_padding = Some(queued as u32);
         }
     }
 

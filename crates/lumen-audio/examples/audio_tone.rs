@@ -13,7 +13,9 @@
 
 use std::time::{Duration, Instant};
 
-use lumen_audio::{AudioSystem, Backend, Block, DeviceId, State, StreamConfig, Timing};
+use lumen_audio::{
+    AudioSystem, Backend, Block, DeviceEvent, DeviceId, State, StreamConfig, Timing,
+};
 
 type MakeBackend = fn() -> Box<dyn Backend>;
 
@@ -135,25 +137,40 @@ fn main() {
     let started = Instant::now();
     let deadline = started + Duration::from_secs(seconds);
     let mut next_report = started + Duration::from_secs(1);
+    // Callbacks per second the stream should deliver, from its StreamInfo.
+    let mut expected = None;
+    let mut last_count = 0;
     while Instant::now() < deadline {
         while let Some(event) = audio.try_event() {
             println!(
                 "[{:>5.1} s] event: {event:?}",
                 started.elapsed().as_secs_f64()
             );
+            if let DeviceEvent::Started(info)
+            | DeviceEvent::Reset(info)
+            | DeviceEvent::Restored(info) = &event
+            {
+                expected = (info.buffer_frames > 0)
+                    .then(|| f64::from(info.sample_rate) / f64::from(info.buffer_frames));
+            }
         }
         if Instant::now() >= next_report {
             let status = audio.status();
+            let count = status.callbacks();
             if status.state() == State::Running {
+                let rate = match expected {
+                    Some(e) => format!("{}/s, expected {e:.0}", count - last_count),
+                    None => format!("{}/s", count - last_count),
+                };
                 println!(
-                    "          running: {} callbacks, peak load {:.2}%, overloads {}",
-                    status.callbacks(),
+                    "          running: {count} callbacks ({rate}), peak load {:.2}%, overloads {}",
                     status.take_peak_load() * 100.0,
                     status.overloads()
                 );
             } else {
                 println!("          state: {:?}", status.state());
             }
+            last_count = count;
             next_report += Duration::from_secs(1);
         }
         std::thread::sleep(Duration::from_millis(20));

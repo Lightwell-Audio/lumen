@@ -289,10 +289,15 @@ endpoint, plus Lumen's retry and confirmation). Two findings:
 - The unplug was reported as `Driver("… 0x80070003")` rather than
   `DeviceNotPresent`. Fixed: the file-not-found and path-not-found errors
   now map to `DeviceNotPresent`.
-- **Open:** exclusive mode delivered only about 65 callbacks per second
-  instead of 100, which means starved output. This matches the known
-  stutter of event-driven exclusive mode on some USB drivers. Under
-  investigation.
+- Exclusive mode delivered only about 65 callbacks per second instead of
+  100. A probe showed the Focusrite's device clock running at 60% of real
+  time in event-driven exclusive mode, while polling kept exact time.
+  Fixed: exclusive mode now checks the device clock at start and falls
+  back to polling (ADR-0016). It now runs at 101 callbacks/s.
+
+**Run 2** (exclusive, with the tone, listening for clean audio after the
+fix): not yet run. `audio_tone` now prints callbacks per second next to
+the expected rate.
 
 ### MT-AUDIO-5 · WASAPI shared and exclusive streams (automatable)
 - `audio_tone list --driver wasapi` and `list --driver exclusive`: every

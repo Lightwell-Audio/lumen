@@ -906,6 +906,11 @@ codebase but are not tested on hardware yet.
     names the fix.
   - Exclusive mode opens at the requested rate and buffer size, with the
     first accepted format from f32, i32, 24-in-32, packed 24 and i16.
+  - Exclusive mode starts event-driven, then checks the device clock for
+    250 ms of silence. If the clock is more than 10% off real time, the
+    device is reopened in polling mode with at most two blocks queued.
+    (MT-AUDIO-4: the Focusrite USB driver signalled exclusive-mode events
+    every 18 ms for a 10 ms buffer, so its clock ran at 60% of real time.)
 - **macOS and Linux:** `lumen-audio::cpal_host` on cpal's default host
   (CoreAudio, ALSA). The callback lives in a slot the audio thread takes with
   `try_lock`, which never blocks.
@@ -933,3 +938,6 @@ codebase but are not tested on hardware yet.
 | Exclusive, 44.1 kHz default | Aligned to 448 frames by the driver; ran cleanly |
 | Shared, wrong rate | `ConfigFailed(Unsupported("44100 Hz: Windows runs … at 48000 Hz in shared mode …"))` |
 | Licences | All 42 third-party crates on Windows, macOS and Linux are permissive |
+| Focusrite USB, exclusive, events (before the fix) | Device clock 26,623 frames/s at 44.1 kHz (60%); about 61 callbacks/s instead of 100 at every buffer size |
+| Focusrite USB, exclusive, after the fix | Calibration switches it to polling: 441 frames → 101/s, 256 → 174/s (100 and 172 expected); open takes about 1.1 s |
+| NVIDIA HDMI, exclusive 144, after the fix | Calibration keeps events: 331/s (333 expected) |
