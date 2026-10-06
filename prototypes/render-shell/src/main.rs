@@ -202,38 +202,14 @@ impl App {
         surface.configure(&device, &config);
         // Vello's shaders compile at start-up; a pipeline cache (Vulkan) reuses them.
         let cache_path = std::env::temp_dir().join("lumen-vello-pipeline.cache");
-        let cache_data = std::fs::read(&cache_path).ok();
-        let cache_state = match (
-            &cache_data,
-            device.features().contains(wgpu::Features::PIPELINE_CACHE),
-        ) {
-            (_, false) => "unsupported",
-            (Some(_), true) => "warm",
-            (None, true) => "cold",
-        };
-        let cache = device
-            .features()
-            .contains(wgpu::Features::PIPELINE_CACHE)
-            .then(|| {
-                // SAFETY: the data was written by this program for this adapter;
-                // `fallback` makes the driver ignore it if it does not match.
-                unsafe {
-                    device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
-                        label: Some("lumen vello"),
-                        data: cache_data.as_deref(),
-                        fallback: true,
-                    })
-                }
-            });
+        let (cache, cache_state) = lumen_render::open_pipeline_cache(&device, &cache_path);
         let init_started = Instant::now();
         let mut renderer = Renderer::new(&device, config.format, cache.clone())?;
         println!(
-            "renderer init: {:.0} ms (pipeline cache: {cache_state})",
+            "renderer init: {:.0} ms (pipeline cache: {cache_state:?})",
             init_started.elapsed().as_secs_f64() * 1e3
         );
-        if let Some(bytes) = cache.and_then(|c| c.get_data()) {
-            let _ = std::fs::write(&cache_path, bytes);
-        }
+        lumen_render::save_pipeline_cache(cache.as_ref(), &cache_path);
         let clips = renderer.add_layer(&device, &demo::clip_instances());
         let notes = renderer.add_layer(&device, &demo::note_instances());
         self.gfx = Some(Gfx {

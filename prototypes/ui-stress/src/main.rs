@@ -683,6 +683,16 @@ fn main() -> eframe::Result {
             .with_inner_size([3_400.0, 1_300.0]),
         ..Default::default()
     };
+    // Ask egui's device for the pipeline cache feature, keeping its defaults.
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup {
+        let base = setup.device_descriptor.clone();
+        setup.device_descriptor = std::sync::Arc::new(move |adapter| {
+            let mut descriptor = base(adapter);
+            descriptor.required_features |=
+                adapter.features() & eframe::wgpu::Features::PIPELINE_CACHE;
+            descriptor
+        });
+    }
     if matches!(mode, Mode::Bench { .. }) {
         // Uncapped presentation, so frame intervals show cost rather than refresh rate.
         options.wgpu_options.surface.present_mode = eframe::wgpu::PresentMode::AutoNoVsync;

@@ -427,6 +427,48 @@ impl Renderer {
     }
 }
 
+/// Whether a pipeline cache was available and already populated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CacheState {
+    Unsupported,
+    Cold,
+    Warm,
+}
+
+/// Opens the shader pipeline cache stored at `path` (Vulkan only; the device
+/// must have been created with [`wgpu::Features::PIPELINE_CACHE`]).
+pub fn open_pipeline_cache(
+    device: &wgpu::Device,
+    path: &std::path::Path,
+) -> (Option<wgpu::PipelineCache>, CacheState) {
+    if !device.features().contains(wgpu::Features::PIPELINE_CACHE) {
+        return (None, CacheState::Unsupported);
+    }
+    let data = std::fs::read(path).ok();
+    let state = if data.is_some() {
+        CacheState::Warm
+    } else {
+        CacheState::Cold
+    };
+    // SAFETY: the data was written by `save_pipeline_cache`; with `fallback`
+    // the driver ignores data that does not match this adapter or driver.
+    let cache = unsafe {
+        device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
+            label: Some("lumen pipeline cache"),
+            data: data.as_deref(),
+            fallback: true,
+        })
+    };
+    (Some(cache), state)
+}
+
+/// Writes the cache back so the next start-up can reuse compiled shaders.
+pub fn save_pipeline_cache(cache: Option<&wgpu::PipelineCache>, path: &std::path::Path) {
+    if let Some(bytes) = cache.and_then(wgpu::PipelineCache::get_data) {
+        let _ = std::fs::write(path, bytes);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

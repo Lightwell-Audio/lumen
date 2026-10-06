@@ -13,7 +13,7 @@ irreversible or external) · *Superseded*.
 | ADR | Title | Status | Approval needed |
 |---|---|---|---|
 | [0001](#adr-0001--system-architecture) | System architecture: processes, threads, data flow | **Accepted** 2026-10-05 | — |
-| [0002](#adr-0002--ui-framework) | UI: Lumen-owned renderer (`lumen-render`: wgpu + Vello); host toolkit to be chosen | **Renderer direction accepted** 2026-10-06; host (egui or custom winit) pending P-RENDER | **Yes, the host, after P-RENDER** |
+| [0002](#adr-0002--ui-framework) | UI: egui host + Lumen-owned renderer (`lumen-render`: wgpu + Vello) | **Accepted** 2026-10-06 | — |
 | [0003](#adr-0003--real-time-audio-engine) | Real-time audio engine | **Accepted** 2026-10-05 | — |
 | [0004](#adr-0004--project-file-format) | Project file format | **Accepted** 2026-10-05 | — |
 | [0005](#adr-0005--vst3-hosting-and-plugin-isolation) | VST3 hosting and plugin isolation | **Accepted** 2026-10-05 (M6 must fix wake-up latency) | — |
@@ -235,7 +235,20 @@ Conclusions:
    explain the egui host's idle CPU; Linux and macOS behaviour of Parley and
    Vello is untested beyond CI compilation.
 
-**Host decision: pending the owner.**
+**Follow-up, same day:** the Vulkan pipeline cache was wired into egui's
+device (through egui-wgpu's `device_descriptor` hook, adding
+`PIPELINE_CACHE`). egui host first frame: **542 ms cold, 411 ms warm** (was
+1,007 ms). Idle CPU: 0.16% and 0.00% over 10 s; the earlier 1.25–4.53% did
+not reproduce, most likely Vello compiling shaders in the background. Frame
+times unchanged (worst case p99 2.4–2.5 ms).
+
+**Decision (owner, 2026-10-06): egui is the host**, conditional on the
+shader-cache fix, which is now met. egui provides windows, panels, widgets,
+text input, focus and accessibility. Every dense canvas is drawn by
+`lumen-render` (wgpu instanced layers + Vello) through egui paint callbacks.
+Because the renderer is toolkit-independent, a later move to a custom shell
+would only replace the chrome. Production must store the pipeline cache in
+Lumen's cache folder, not the temp folder.
 
 ---
 
