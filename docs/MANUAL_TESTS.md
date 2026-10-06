@@ -421,8 +421,13 @@ Automated: screenshots at 100%, 150% and 200%
 toggles pushed off-screen at 200% and the status text unreadable. Both fixed.
 
 ### MT-APP-3 · Click-to-locate on the ruler (needs a human)
-Close Lumen, rebuild (`cargo build --release -p lumen-app`), then start it
-as in MT-APP-2.
+Close Lumen, then build and start it in one step (a failed build then
+stops instead of starting an old one):
+`cargo run --release -p lumen-app -- --audio asio:"Focusrite USB ASIO"`.
+Run 1 (2026-10-06) tested a stale build: `cargo build` could not replace
+the running `lumen.exe`, so the old app without slice 5 started. Not a
+result.
+
 1. Move the pointer along the ruler (the strip with bar numbers): a faint
    blue line follows it, jumping between grid lines; the pointer is a hand.
 2. Click: the playhead moves to that line and the position display shows

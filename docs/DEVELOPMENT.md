@@ -92,7 +92,13 @@ headers, so CI is the Linux check.
 `cargo build` cannot replace `lumen.exe` while the app is running. It
 prints `failed to remove file …\lumen.exe` and leaves the old build in
 place, which is easy to miss. During MT-APP-2 that made a fixed bug look
-unfixed. Close the app first, and check the build ends with `Finished`.
+unfixed, and again in MT-APP-3. Close the app first. Better, build and
+start in one step with `cargo run`, which stops on a failed build instead of
+starting the old one:
+
+```bash
+cargo run --release -p lumen-app -- --audio asio:"Focusrite USB ASIO"
+```
 
 ## Measuring UI latency
 
