@@ -3,7 +3,7 @@
 ## Status
 
 **Current milestone:** 1 — Foundations & Architecture
-**Overall status:** Prototyping complete; **paused for decisions** (see the
+**Overall status:** Decisions made 2026-10-05 (see `docs/DECISIONS.md`); slices 9–11 approved (see the
 interim report below and [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
@@ -35,8 +35,9 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 6 | P-FORMAT: project format and time base (`crates/lumen-project`, `lumen_core::time`). 29 new tests; quality-bar project saves in 83 ms and loads in 87 ms | ✅ | `57d8901` |
 | 7 | P-UI: dense-view rendering. Normal views p99 ≤ 6.1 ms; plain egui fails the 100k-note overview (20 ms); GPU-instanced escape hatch brings it to 5.7 ms; idle 0.00%; first frame 545 ms warm; UI Automation tree verified | ✅ | `0c6a15b` |
 | 8 | Evidence in ADRs, architecture draft, cargo-deny verified locally, interim report | ✅ | (final M1 prototyping commit) |
-| 9 | P-HOST: real VST3 (u-he TyrellN6) processing audio inside an isolated host process, with state save and restore | 🔲 proposed | |
-| 10 | `lumen` application shell on the approved UI stack (launches, empty arrangement) | 🔲 proposed | |
+| 9 | P-UI-SLINT: the same stress test in Slint, compared side by side with egui (owner request) | 🔲 approved | |
+| 10 | P-HOST: real VST3 (u-he TyrellN6) processing audio inside an isolated host process, with state save and restore | 🔲 approved | |
+| 11 | `lumen` application shell on the chosen UI stack (after the UI decision) | 🔲 approved | |
 
 ---
 
@@ -193,6 +194,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Driver types: ASIO and WASAPI shared (Windows), CoreAudio, PipeWire/JACK/ALSA | M | 🔲 | 2 |
 | WASAPI exclusive | S | 🔲 | 2 |
 | Device, rate, buffer selection with input/output/round-trip latency display | M | 🔲 | 2 |
+| Device loss and return: keep the session, show the lost state, reconnect automatically (found by MT-ASIO-5) | M | 🔲 | 2 |
 | Channel selection with friendly names; mono and stereo configurations | M | 🔲 | 2 |
 | Test tone, CPU load, dropout counter, Audio On/Off | M | 🔲 | 2 |
 | ASIO control panel; driver resets and rate/buffer changes without losing the session; busy/missing messages | M | 🔲 | 2 |

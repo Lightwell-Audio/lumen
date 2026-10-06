@@ -12,20 +12,35 @@ irreversible or external) · *Superseded*.
 
 | ADR | Title | Status | Approval needed |
 |---|---|---|---|
-| [0001](#adr-0001--system-architecture) | System architecture: processes, threads, data flow | Proposed; evidence recorded | **Yes** |
-| [0002](#adr-0002--ui-framework) | UI framework: egui/eframe + wgpu, hybrid rendering | Proposed; evidence recorded (P-UI) | **Yes** |
-| [0003](#adr-0003--real-time-audio-engine) | Real-time audio engine | Proposed; evidence recorded (P-ENGINE) | **Yes** |
-| [0004](#adr-0004--project-file-format) | Project file format | Proposed; evidence recorded (P-FORMAT) | **Yes** |
-| [0005](#adr-0005--vst3-hosting-and-plugin-isolation) | VST3 hosting and plugin isolation | Proposed; evidence recorded (P-VST3, P-ISO) | **Yes** |
-| [0006](#adr-0006--audio-device-backends-and-asio) | Audio device backends and ASIO | Proposed; evidence recorded (P-ASIO); **ASIO licensing needs human decision** | **Yes** |
-| [0007](#adr-0007--toolchain-and-build-targets) | Toolchain and build targets | Accepted (local workaround pending VS Build Tools) | Install is your call |
+| [0001](#adr-0001--system-architecture) | System architecture: processes, threads, data flow | **Accepted** 2026-10-05 | — |
+| [0002](#adr-0002--ui-framework) | UI framework: egui/eframe + wgpu, hybrid rendering | Proposed; **owner asked for a Slint comparison first** (M1 slice 9) | **Yes, after the comparison** |
+| [0003](#adr-0003--real-time-audio-engine) | Real-time audio engine | **Accepted** 2026-10-05 | — |
+| [0004](#adr-0004--project-file-format) | Project file format | **Accepted** 2026-10-05 | — |
+| [0005](#adr-0005--vst3-hosting-and-plugin-isolation) | VST3 hosting and plugin isolation | **Accepted** 2026-10-05 (M6 must fix wake-up latency) | — |
+| [0006](#adr-0006--audio-device-backends-and-asio) | Audio device backends and ASIO | **Accepted** 2026-10-05: sign Steinberg's ASIO SDK agreement (**owner action, before distribution**) | — |
+| [0007](#adr-0007--toolchain-and-build-targets) | Toolchain and build targets | Accepted; **owner installing VS 2022 Build Tools**, then local builds switch to MSVC | — |
 | [0008](#adr-0008--product-name-defined-once) | Product name defined once | Accepted | No |
-| [0009](#adr-0009--time-base) | Time base: integer ticks at 1,411,200 PPQ | Proposed (revised during P-FORMAT); evidence recorded | **Yes** |
+| [0009](#adr-0009--time-base) | Time base: integer ticks at 1,411,200 PPQ | **Accepted** 2026-10-05 | — |
 | [0010](#adr-0010--real-time-safety-is-enforced-by-tests) | Real-time safety enforced by tests | Accepted | No |
 | [0011](#adr-0011--benchmarks-and-performance-gates) | Benchmarks and performance gates | Accepted | No |
-| [0012](#adr-0012--lumens-own-license) | Lumen's own license | **Needs human decision** | Yes |
+| [0012](#adr-0012--lumens-own-license) | Lumen's own license | **Accepted** 2026-10-05: closed source (proprietary) | — |
 | [0013](#adr-0013--dependency-license-policy) | Dependency license policy | Accepted | No |
-| [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted (assumption: GitHub) | No |
+| [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
+
+---
+
+## Decisions made by the owner, 2026-10-05
+
+| Question | Decision |
+|---|---|
+| Lumen's licence (ADR-0012) | Closed source (proprietary). Can be relicensed later by the owner. |
+| ASIO licensing (ADR-0006) | Sign Steinberg's free proprietary ASIO SDK agreement. Owner action; required before any distribution. |
+| UI (ADR-0002) | Not yet: prototype Slint with the same benchmark and compare. Slint would need its royalty-free (attribution) or commercial licence for closed source. |
+| Engine, plugins, project format (ADR-0001, 0003, 0004, 0005, 0009) | Approved as recommended. |
+| Toolchain (ADR-0007) | Owner installs VS 2022 Build Tools; then switch local builds to MSVC. |
+| Hosting (ADR-0014) | Private GitHub repository; owner creates it, then push and first CI run. |
+| Remaining M1 work | Approved: Slint prototype, P-HOST, then the app shell after the UI decision. |
+| Device-loss recovery | Deferred to M2 (found by MT-ASIO-5). |
 
 ---
 
