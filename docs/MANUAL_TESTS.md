@@ -53,7 +53,14 @@ Re-run (second session): pass. 11,252 callbacks, 0 discontinuities, 0 heap opera
 buffers` and reports a second segment at the new buffer size. No crash and no
 hang.
 
-**Last run:** not yet run. Needs a person at the machine.
+**Last run (2026-10-05, run by the owner):** pass. Buffer changed
+128 → 256 → 128 during one 60 s stream. Two `kAsioResetRequest`s were
+handled, giving three segments (5,348 / 970 / 14,709 callbacks), all with 0
+discontinuities. Worst callback 1.6% of the period; 0 real-time heap
+operations; reported latencies updated (14.5 → 25.9 → 14.5 ms round trip).
+Each reset cost about 0.65 s of silence (58.7 s of audio in 60 s), which
+M2 should track. Cosmetic bug: the per-segment "expected callbacks" figure
+uses the whole run's duration.
 
 ### MT-ASIO-5 · Hardware removed while streaming (needs a human)
 1. Start a 60 s stream on the Focusrite.
@@ -63,7 +70,10 @@ hang.
 reports the reset or error messages the driver sends. (Recovery UX is
 designed in M2.)
 
-**Last run:** not yet run.
+**Last run (2026-10-05, run by the owner):** provisional pass. No crash; the
+run finished; 3,750 callbacks (10 s) before the cable was pulled. The pasted
+output was incomplete (a reset message was printed but the summary said
+0 resets), so this should be confirmed from full output.
 
 ### MT-ASIO-6 · Driver busy in another application (needs a human)
 1. Open another ASIO application (for example Ableton Live) on the Focusrite
@@ -138,7 +148,7 @@ overview p99 ≤ 8.3 ms; idle < 0.5%; first frame < 1 s warm.
 
 **Last run (2026-10-05, twice):** normal views and the GPU path pass (p99 ≤ 6.1 ms; second run ≤ 4.4 ms). The plain-egui 100k-note overview fails (20.0 / 15.2 ms). Idle 0.00% / 0.47%, which is borderline against the 0.5% bar. First frame 545 / 490 ms.
 
-### MT-UI-2 · Accessibility tree (needs a human for the screen-reader part)
+### MT-UI-2 · Accessibility tree (screen-reader part ⏸️ deferred by the owner)
 1. `target/release/ui-stress --close-after 60`
 2. Inspect with Accessibility Insights for Windows, or start Narrator
    (Ctrl+Win+Enter) and Tab through the transport and track headers.
