@@ -25,6 +25,8 @@ struct App {
     project: Project,
     show_browser: bool,
     show_detail: bool,
+    /// Set by the raw-input hook when Shift+Tab is pressed.
+    toggle_detail_requested: bool,
     left_beat: f32,
     px_per_beat: f32,
     smoke_test_frames: Option<u32>,
@@ -85,12 +87,14 @@ impl App {
         let canvas = egui::Rect::from_min_max(pos2(full.left(), ruler.bottom()), full.max);
 
         if response.hovered() {
-            let (delta, modifiers, pointer) =
-                ui.input(|i| (i.smooth_scroll_delta, i.modifiers, i.pointer.hover_pos()));
-            if modifiers.command && delta.y != 0.0 {
+            // egui turns Ctrl+wheel (and trackpad pinch) into a zoom factor
+            // and reports no scroll for it, so zoom must read `zoom_delta`.
+            let (delta, zoom, pointer) =
+                ui.input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.pointer.hover_pos()));
+            if zoom != 1.0 {
                 let anchor = pointer.map_or(canvas.center().x, |p| p.x) - canvas.left();
                 let beat = self.left_beat + anchor / self.px_per_beat;
-                self.px_per_beat = (self.px_per_beat * (delta.y * 0.003).exp()).clamp(2.0, 400.0);
+                self.px_per_beat = (self.px_per_beat * zoom).clamp(2.0, 400.0);
                 self.left_beat = beat - anchor / self.px_per_beat;
             } else {
                 self.left_beat -= (delta.x + delta.y) / self.px_per_beat;
@@ -145,13 +149,47 @@ impl App {
 }
 
 impl eframe::App for App {
+    /// Shift+Tab toggles the detail panel (spec §5). It is taken here, before
+    /// egui sees it, so it does not also move keyboard focus backwards.
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        raw_input.events.retain(|event| {
+            let toggle = matches!(
+                event,
+                egui::Event::Key { key: egui::Key::Tab, pressed: true, modifiers, .. }
+                    if modifiers.shift && !modifiers.ctrl && !modifiers.alt
+            );
+            if toggle {
+                self.toggle_detail_requested = true;
+            }
+            // Drop the release too, so egui never sees half of the shortcut.
+            !matches!(
+                event,
+                egui::Event::Key { key: egui::Key::Tab, modifiers, .. } if modifiers.shift && !modifiers.ctrl && !modifiers.alt
+            )
+        });
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        if ctx.input(|i| i.modifiers.shift && i.key_pressed(egui::Key::Tab)) {
+        let panels_before = (self.show_browser, self.show_detail);
+        if std::mem::take(&mut self.toggle_detail_requested) {
             self.show_detail = !self.show_detail;
         }
 
         egui::Panel::top("transport").show(ui, |ui| self.transport(ui));
+
+        // A focused control must not vanish with its panel: AccessKit
+        // rejects focus on a node that no longer exists. Release focus
+        // whenever a panel is hidden, whatever hid it.
+        let hid_a_panel =
+            (panels_before.0 && !self.show_browser) || (panels_before.1 && !self.show_detail);
+        if hid_a_panel {
+            ctx.memory_mut(|memory| {
+                if let Some(id) = memory.focused() {
+                    memory.surrender_focus(id);
+                }
+            });
+        }
         if self.show_browser {
             egui::Panel::left("browser")
                 .resizable(true)
@@ -239,6 +277,7 @@ fn main() -> eframe::Result {
                 project: empty_project(),
                 show_browser: true,
                 show_detail: true,
+                toggle_detail_requested: false,
                 left_beat: 0.0,
                 px_per_beat: 24.0,
                 smoke_test_frames: smoke_test.then_some(SMOKE_FRAMES),

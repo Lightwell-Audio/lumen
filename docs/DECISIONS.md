@@ -25,6 +25,7 @@ irreversible or external) · *Superseded*.
 | [0011](#adr-0011--benchmarks-and-performance-gates) | Benchmarks and performance gates | Accepted | No |
 | [0012](#adr-0012--lumens-own-license) | Lumen's own license | **Accepted** 2026-10-05: closed source (proprietary) | — |
 | [0013](#adr-0013--dependency-license-policy) | Dependency license policy | Accepted | No |
+| [0015](#adr-0015--shifttab-conflict) | Shift+Tab: detail panel versus backward focus | **Open** (decide with the shortcut system, M3) | Yes |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -844,3 +845,31 @@ locally with cargo-deny 0.20.2):
   run (2026-10-06) passed every job, including the MSVC build and the VST3
   self-test. Follow-up: bump `actions/checkout` off Node 20 (deprecation
   warning).
+
+---
+
+## ADR-0015 — Shift+Tab conflict
+
+**Status:** Open · **Date:** 2026-10-06
+
+### Context
+The spec (§5) assigns Shift+Tab to "toggle detail panel", as in Ableton.
+Shift+Tab is also the standard way to move keyboard focus backwards, and the
+spec requires keyboard-only core workflows. In the M1 shell, egui handled
+both at once: focus moved into the detail panel as the panel was hidden, and
+AccessKit panicked on the vanished focus target. That crash was fixed on
+2026-10-06: Lumen now takes Shift+Tab before egui sees it, and releases focus
+whenever a panel is hidden.
+
+### Options
+1. Keep Shift+Tab for the detail panel (Ableton users expect it) and give
+   backward focus another key, such as Ctrl+Shift+Tab or F6 / Shift+F6
+   between panes.
+2. Keep standard Shift+Tab focus navigation and move the detail-panel toggle
+   elsewhere in the default keymap.
+3. Make it context-dependent: Shift+Tab moves focus while a text field or
+   dialog has focus, and toggles the panel otherwise.
+
+### Recommendation
+Option 3, with F6 / Shift+F6 always cycling between panes. To be decided
+with the remappable shortcut system and its conflict detection (M3).

@@ -372,16 +372,21 @@ impl App {
         if !response.hovered() {
             return;
         }
-        let (delta, modifiers, pointer) =
-            ui.input(|i| (i.smooth_scroll_delta, i.modifiers, i.pointer.hover_pos()));
-        if delta == egui::Vec2::ZERO {
-            return;
-        }
-        if modifiers.command {
+        // Ctrl+wheel arrives as egui's zoom factor, not as scroll.
+        let (delta, zoom, modifiers, pointer) = ui.input(|i| {
+            (
+                i.smooth_scroll_delta,
+                i.zoom_delta(),
+                i.modifiers,
+                i.pointer.hover_pos(),
+            )
+        });
+        if zoom != 1.0 {
             let anchor_x = pointer.map_or(response.rect.center().x, |p| p.x) - response.rect.left();
             let anchor_beat = view.left_beat + anchor_x / view.px_per_beat;
-            view.px_per_beat = (view.px_per_beat * (delta.y * 0.003).exp()).clamp(0.05, 2_000.0);
+            view.px_per_beat = (view.px_per_beat * zoom).clamp(0.05, 2_000.0);
             view.left_beat = anchor_beat - anchor_x / view.px_per_beat;
+        } else if delta == egui::Vec2::ZERO {
         } else if modifiers.shift {
             view.left_beat -= (delta.x + delta.y) / view.px_per_beat;
         } else {

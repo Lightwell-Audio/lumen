@@ -76,7 +76,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 |---|---|---|---|
 | Rulers: bars/beats, minutes:seconds, samples, timecode | M | 🔲 | 3 |
 | Adaptive or fixed grid (triplet, dotted, off) with snap-bypass modifier | M | 🔲 | 3 |
-| Anchored zoom, zoom to selection, fit all, fit loop, pan, edge auto-scroll, follow modes | M | 🔲 | 3 |
+| Anchored zoom, zoom to selection, fit all, fit loop, pan, edge auto-scroll, follow modes. (Ctrl+wheel zoom works in the M1 shell since the 2026-10-06 fix: egui delivers it as a zoom factor, not as scroll.) | M | 🔲 | 3 |
 | Track types: audio, MIDI/instrument, group, return, master | M | 🔲 | 3–4 |
 | Per-track name, colour, height, arm, monitor, solo, mute, polarity, I/O routing, inline fader and meter | M | 🔲 | 3–4 |
 | Group tracks: create, drag in, nest, fold, sum, own devices/sends/fader/automation, one-step ungroup, sensible solo/mute/arm | M | 🔲 | 4 |
@@ -217,13 +217,13 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 | Item | Tier | Status |
 |---|---|---|
-| Transport: play, stop, record, loop, return to start, go to start/end, previous/next marker | M | 🔲 |
+| Transport: play, stop, record, loop, return to start, go to start/end, previous/next marker. **Owner request:** transport controls use vector icons, not text (M2). | M | 🔲 |
 | Tempo 20–999 BPM and time signature with change maps; tap tempo | M | 🔲 |
 | Metronome: accent, volume, sound, count-in, pre-roll, record-only, output routing | M | 🔲 |
 | Loop region, punch in/out, auto-punch | M | 🔲 |
 | Markers with names and navigation | M | 🔲 |
 | Multiple time formats; editable position field | M | 🔲 |
-| Edit cursor separate from playhead; scrubbing | S | 🔲 |
+| Edit cursor separate from playhead; scrubbing. **Owner request (2026-10-06), raised from S to M, Ableton-style:** click in the scrub strip to set the playback position; drag to scrub audibly; drag in the beat ruler vertically to zoom and horizontally to scroll. Locate-on-click in M2; scrub strip, audible scrubbing and ruler zoom in M3. | M | 🔲 |
 | MIDI clock / MTC out | S | 🔲 |
 | Clock / MTC in, Ableton Link | L | 🔲 |
 | Tracks: add, delete, duplicate, rename, recolour, reorder, multi-select | M | 🔲 |
@@ -271,10 +271,11 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | First-run wizard (audio device, plugin paths) | M | 🔲 |
 | Preferences import/export; localization-ready text | S | 🔲 |
 | Command palette; tooltips with shortcuts; context menus everywhere | M | 🔲 |
+| Design system with a crisp vector icon set (spec §5): transport icons (play, pause, stop, record, loop, metronome) in M2, full set with the design system in M3 | M | 🔲 |
 | Reset to default, type-in, fine adjust, wheel adjust, parameter right-click menus | M | 🔲 |
 | Drag and drop for files, devices, clips, tracks; status-bar hints | M | 🔲 |
 | Resizable, collapsible panels with remembered layout; full screen; high-DPI; light and dark | M | 🔲 |
-| Keyboard-only core flows; accessible control names | M | 🔲 |
+| Keyboard-only core flows; accessible control names. Open conflict: Shift+Tab is the spec's detail-panel shortcut and also the standard backward-focus key (ADR-0015). | M | 🔲 |
 | Detachable mixer and editor windows; hover help; welcome screen | S | 🔲 |
 | CPU, disk and dropout indicators; Audio On/Off; panic | M | 🔲 |
 | Crash report file; logging with "reveal logs" | M | 🔲 |
