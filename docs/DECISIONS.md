@@ -750,4 +750,7 @@ locally with cargo-deny 0.20.2):
 - `Cargo.lock` is committed; this is an application.
 - GitHub Actions on Windows (MSVC), macOS and Linux: rustfmt, clippy with
   warnings denied, tests including benchmark smoke runs, and cargo-deny.
-  **No remote is configured yet, so CI has not run.**
+  Hosted on a private GitHub repository (`andrewl913/lumen`). The first CI
+  run (2026-10-06) passed every job, including the MSVC build and the VST3
+  self-test. Follow-up: bump `actions/checkout` off Node 20 (deprecation
+  warning).

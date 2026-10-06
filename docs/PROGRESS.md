@@ -64,7 +64,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Safe mode without plugins | M | 🔲 | 6 | |
 | Automated tests: core logic, editing, serialization and migration, audio (golden renders) | M | 🟡 | all | Harness in place |
 | Benchmarks with regression gates in CI | M | 🟡 | 1–2 | divan harness; gates in M2 (ADR-0011) |
-| CI on Windows, macOS, Linux | M | 🟡 | 1 | Workflow written; no remote yet, so never run |
+| CI on Windows, macOS, Linux | M | ✅ | 1 | First run green on 2026-10-06 (run 37396217369): Windows MSVC, macOS, Linux, rustfmt, cargo-deny, VST3 self-test |
 | Test plugin simulating good and bad behaviour; real-plugin compatibility matrix | M | 🟡 | 1, 6 | Misbehaving test module (scan stage) + `docs/PLUGIN_COMPATIBILITY.md` (scan stage only) |
 | Real-time correctness enforced by tests | M | 🟡 | 1–2 | `lumen-rt` allocation guard (ADR-0010) |
 | High-DPI, 100–200% scaling, light and dark themes, keyboard-navigable, accessible names, colour-blind-safe | M | 🔲 | 3, 10 | P-UI checks AccessKit |
@@ -319,8 +319,8 @@ of 7 ASIO drivers; ASIO streaming on a Focusrite interface (128 frames,
 hang injection; scanning of 40 real VST3 modules; the UI benchmark; the
 accessibility tree through UI Automation.
 
-**Not verified:** CI has never run (no remote configured); no local MSVC
-build; nothing on macOS or Linux; tests that need a person (MT-ASIO-4/5/6,
+**Not verified:** ~~CI, MSVC, macOS and Linux~~ (all green in the first CI run on
+2026-10-06; no local MSVC build yet); tests that need a person (MT-ASIO-4/5/6,
 MT-ISO-2, MT-UI-2 with Narrator, MT-UI-3 visual quality); mid-range hardware.
 
 **Key measurements** (Ryzen 7 7700X, RTX 4070; details in the ADRs):
