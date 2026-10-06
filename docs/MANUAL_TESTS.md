@@ -213,3 +213,39 @@ disabled controls show "Arrives in Milestone N" on hover.
 **Last run (2026-10-06):** pass. 394 ms warm / 1,110 ms cold. Screenshot
 checked; UI Automation shows 21 elements, disabled controls as disabled.
 Interactive checks of zoom, scroll and Shift+Tab not yet done by a human.
+
+---
+
+## M2 · Audio device layer (`crates/lumen-audio`)
+
+Build once: `cargo build --release -p lumen-audio --example asio_tone`
+(binary: `%USERPROFILE%\lumen-target\release\examples\asio_tone.exe`).
+
+### MT-AUDIO-1 · Device loss and recovery (needs a human)
+1. `asio_tone "Focusrite USB ASIO" --seconds 60 --tone`
+2. After about 10 s, unplug the Focusrite's USB cable. Wait about 10 s.
+3. Plug it back in. Let the run finish.
+
+**Expected:** `event: Lost(...)` shortly after unplugging; the state reports
+`Lost` while unplugged; `event: Restored(...)` within a few seconds of
+plugging back in; the tone resumes; no crash and no hang.
+
+**Last run:** not yet run.
+
+### MT-AUDIO-2 · Driver reset from the control panel (needs a human)
+1. `asio_tone "Focusrite USB ASIO" --seconds 60 --tone`
+2. Change the buffer size in Focusrite Control while it runs.
+
+**Expected:** `event: Reset(StreamInfo { buffer_frames: <new size>, ... })`,
+and the tone continues.
+
+**Last run:** not yet run (the same path passed in the M1 prototype, MT-ASIO-4).
+
+### MT-AUDIO-3 · Error paths (automatable)
+- `asio_tone "Focusrite Thunderbolt ASIO" --seconds 2` →
+  `ConfigFailed { DeviceNotPresent("Cannot open ... 0x54f"), reverted: false }`
+- `asio_tone "Focusrite USB ASIO" --seconds 2 --buffer 100` →
+  `ConfigFailed { Unsupported("buffer size 100"), reverted: false }`
+
+**Last run (2026-10-06):** pass, both. The normal run also passed: Started
+at 44.1 kHz / 128 frames, about 344 callbacks per second, clean Stopped.

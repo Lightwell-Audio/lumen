@@ -6,6 +6,8 @@
 //!   driver resets, configuration changes and device loss.
 //! - [`fake`]: a scriptable backend for tests.
 
+#[cfg(windows)]
+pub mod asio;
 pub mod backend;
 pub mod fake;
 pub mod supervisor;

@@ -1908,6 +1908,7 @@ name = "lumen-audio"
 version = "0.0.1"
 dependencies = [
  "lumen-rt",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
