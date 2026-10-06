@@ -14,12 +14,14 @@
 mod clips;
 mod declick;
 mod engine;
+mod metronome;
 mod snapshot;
 mod source;
 mod timeline;
 
 pub use clips::{Clip, ClipAudio, ClipPlayer, ClipsHandle, clip_player};
 pub use engine::{Command, Engine, EngineHandle, Region, engine};
+pub use metronome::{ClickSound, MetronomeSettings};
 pub use snapshot::TransportSnapshot;
 pub use source::{Jump, Output, RenderContext, Source};
 pub use timeline::Timeline;

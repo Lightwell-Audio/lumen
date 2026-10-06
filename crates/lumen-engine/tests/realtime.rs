@@ -75,7 +75,7 @@ fn process_never_touches_the_heap() {
 }
 
 #[test]
-fn clips_never_touch_the_heap_while_lists_swap() {
+fn clips_metronome_and_tone_never_touch_the_heap() {
     use std::sync::Arc;
 
     use lumen_engine::{Clip, ClipAudio, clip_player};
@@ -100,6 +100,15 @@ fn clips_never_touch_the_heap_while_lists_swap() {
     let (mut handle, mut engine) = engine(Timeline::default(), player, 48_000);
     clips_handle.set(clips(0)).unwrap();
     handle.send(Command::Play).unwrap();
+    // The metronome and the test tone run on the audio thread too.
+    handle
+        .send(Command::SetMetronome(lumen_engine::MetronomeSettings {
+            enabled: true,
+            volume: 0.5,
+            sound: lumen_engine::ClickSound::Wood,
+        }))
+        .unwrap();
+    handle.send(Command::TestTone(true)).unwrap();
     handle
         .send(Command::SetLoop(Region::new(
             Ticks::ZERO,

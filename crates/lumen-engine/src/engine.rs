@@ -25,6 +25,7 @@ use lumen_core::time::Ticks;
 use lumen_rt::DenormalGuard;
 
 use crate::declick::{Declick, MAX_FADE, fade_frames};
+use crate::metronome::{Metronome, MetronomeSettings, TestTone};
 use crate::snapshot::{Shared, TransportSnapshot};
 use crate::source::{Jump, Output, RenderContext, Source};
 use crate::timeline::Timeline;
@@ -56,7 +57,7 @@ impl Region {
 
 /// Live transport commands. Each takes effect at the start of the next
 /// block.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Command {
     Play,
     Pause,
@@ -64,6 +65,13 @@ pub enum Command {
     Locate(Ticks),
     SetLoop(Region),
     SetPunch(Region),
+    SetMetronome(MetronomeSettings),
+    /// 1 kHz at −20 dBFS on every output, playing or not.
+    TestTone(bool),
+    /// Stop at once and silence everything: playback, the metronome, the
+    /// test tone and any fade in progress. (MIDI all-notes-off joins it in
+    /// M5.)
+    Panic,
 }
 
 /// UI side: sends commands and timelines, reads the transport, frees
@@ -128,6 +136,8 @@ pub struct Engine<S> {
     loop_samples: Option<(i64, i64)>,
     punch_samples: Option<(i64, i64)>,
     declick: Declick,
+    metronome: Metronome,
+    test_tone: TestTone,
 }
 
 /// Creates the engine pair. Allocates, so call it off the audio thread.
@@ -158,6 +168,8 @@ pub fn engine<S: Source>(
         loop_samples: None,
         punch_samples: None,
         declick: Declick::default(),
+        metronome: Metronome::default(),
+        test_tone: TestTone::default(),
     };
     engine.publish();
     let handle = EngineHandle {
@@ -196,12 +208,18 @@ impl<S: Source> Engine<S> {
             self.reposition(at);
         }
         self.apply_commands(channels);
+        let rate = self.sample_rate;
         if self.playing {
             self.render(data, channels, frames);
-        } else if self.declick.active() {
-            // A stop or pause just happened: its tail fades out over silence.
-            self.declick.apply(data, frames, channels, 0, frames);
+        } else {
+            if self.declick.active() {
+                // A stop or pause just happened: its tail fades out over silence.
+                self.declick.apply(data, frames, channels, 0, frames);
+            }
+            self.metronome
+                .ring_out(data, frames, channels, frames, rate);
         }
+        self.test_tone.render(data, frames, channels, frames, rate);
         self.publish();
     }
 
@@ -223,6 +241,17 @@ impl<S: Source> Engine<S> {
             let mut out = Output::new(data, frames, offset, n, channels);
             self.source.render(&cx, &mut out);
             self.declick.apply(data, frames, channels, offset, n);
+            // After the crossfade, so a click on a loop start keeps its attack.
+            self.metronome.render(
+                &self.timeline,
+                self.sample_rate,
+                self.position,
+                data,
+                frames,
+                channels,
+                offset,
+                n,
+            );
             self.position += n as i64;
             offset += n;
             if let Some((start, end)) = self.loop_samples
@@ -302,6 +331,14 @@ impl<S: Source> Engine<S> {
                 Command::SetPunch(region) => {
                     self.punch = region;
                     self.refresh_regions();
+                }
+                Command::SetMetronome(settings) => self.metronome.settings = settings,
+                Command::TestTone(on) => self.test_tone.on = on,
+                Command::Panic => {
+                    self.playing = false;
+                    self.declick.clear();
+                    self.metronome.silence();
+                    self.test_tone.silence();
                 }
             }
         }

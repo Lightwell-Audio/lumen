@@ -76,6 +76,13 @@ impl Declick {
         self.fade_len = frames.max(1);
     }
 
+    /// Drops any fade in progress (panic).
+    pub fn clear(&mut self) {
+        self.tail_len = 0;
+        self.tail_done = 0;
+        self.fade_in_left = 0;
+    }
+
     /// Whether there is anything left to apply.
     pub fn active(&self) -> bool {
         self.fade_in_left > 0 || self.tail_done < self.tail_len

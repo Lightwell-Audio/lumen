@@ -1,0 +1,250 @@
+//! The metronome and the test tone (M2 slice 7). Both are synthesized, so
+//! there are no sample files or licences to manage.
+//!
+//! Clicks start on the exact sample of each beat, with the downbeat
+//! accented (higher and louder). A click that is still ringing carries on
+//! across loop wraps, locates and stops: only new beats start clicks, so the
+//! metronome never cuts itself off.
+//!
+//! Count-in and "only while recording" arrive with recording (M9); output
+//! routing arrives with the mixer (M4).
+
+use std::f32::consts::TAU;
+
+use lumen_core::time::Ticks;
+
+use crate::timeline::Timeline;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ClickSound {
+    /// A short sine blip (1 kHz, 1.5 kHz on the downbeat).
+    #[default]
+    Beep,
+    /// A woody tick: two fast-decaying partials and a breath of noise.
+    Wood,
+}
+
+impl ClickSound {
+    pub const ALL: [ClickSound; 2] = [ClickSound::Beep, ClickSound::Wood];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            ClickSound::Beep => "Beep",
+            ClickSound::Wood => "Wood",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MetronomeSettings {
+    pub enabled: bool,
+    /// Linear gain, 0.0–1.0.
+    pub volume: f32,
+    pub sound: ClickSound,
+}
+
+impl Default for MetronomeSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            volume: 0.5,
+            sound: ClickSound::Beep,
+        }
+    }
+}
+
+/// One click in progress.
+#[derive(Debug, Clone, Copy, Default)]
+struct Voice {
+    /// Frames played so far.
+    age: u32,
+    /// Frames the click lasts.
+    length: u32,
+    accent: bool,
+    sound: ClickSound,
+    gain: f32,
+    noise: u32,
+}
+
+impl Voice {
+    fn active(&self) -> bool {
+        self.age < self.length
+    }
+
+    fn next(&mut self, rate: f32) -> f32 {
+        let t = self.age as f32 / rate;
+        self.age += 1;
+        let value = match self.sound {
+            ClickSound::Beep => {
+                let hz = if self.accent { 1_500.0 } else { 1_000.0 };
+                let attack = (t / 0.001).min(1.0);
+                (TAU * hz * t).sin() * attack * (-t / 0.012).exp()
+            }
+            ClickSound::Wood => {
+                let (a, b) = if self.accent {
+                    (2_400.0, 3_600.0)
+                } else {
+                    (1_800.0, 2_700.0)
+                };
+                self.noise ^= self.noise << 13;
+                self.noise ^= self.noise >> 17;
+                self.noise ^= self.noise << 5;
+                let noise = (self.noise as f32 / u32::MAX as f32) * 2.0 - 1.0;
+                (TAU * a * t).sin() * (-t / 0.008).exp() * 0.7
+                    + (TAU * b * t).sin() * (-t / 0.004).exp() * 0.4
+                    + noise * (-t / 0.0015).exp() * 0.3
+            }
+        };
+        value * self.gain
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct Metronome {
+    pub settings: MetronomeSettings,
+    voice: Voice,
+}
+
+/// Downbeats are at full level; other beats a little quieter.
+const ACCENT_GAIN: f32 = 1.0;
+const BEAT_GAIN: f32 = 0.6;
+
+impl Metronome {
+    fn start(&mut self, accent: bool, rate: u32) {
+        self.voice = Voice {
+            age: 0,
+            length: rate / 20, // 50 ms; the envelope is silent long before
+            accent,
+            sound: self.settings.sound,
+            gain: self.settings.volume * if accent { ACCENT_GAIN } else { BEAT_GAIN },
+            noise: 0x9E37_79B9,
+        };
+    }
+
+    /// Adds the ringing click to `count` frames from `offset` of channel-major
+    /// `data`.
+    fn ring(
+        &mut self,
+        data: &mut [f32],
+        stride: usize,
+        channels: usize,
+        offset: usize,
+        count: usize,
+        rate: f32,
+    ) {
+        for frame in offset..offset + count {
+            if !self.voice.active() {
+                return;
+            }
+            let value = self.voice.next(rate);
+            for channel in 0..channels.min(2) {
+                data[channel * stride + frame] += value;
+            }
+        }
+    }
+
+    /// Clicks for the timeline samples `start .. start + count`, written to
+    /// frames `offset ..` of `data`. Only new beats start clicks; a ringing
+    /// one carries on.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render(
+        &mut self,
+        timeline: &Timeline,
+        rate: u32,
+        start: i64,
+        data: &mut [f32],
+        stride: usize,
+        channels: usize,
+        offset: usize,
+        count: usize,
+    ) {
+        let rate_f = rate as f32;
+        if !self.settings.enabled {
+            self.ring(data, stride, channels, offset, count, rate_f);
+            return;
+        }
+        let end = start + count as i64;
+        let mut done = 0;
+        // Start a quarter early so a beat that rounds onto `start` is kept.
+        let mut beat = timeline
+            .meter
+            .next_beat(timeline.ticks_at(start, rate) - Ticks::quarters(1));
+        loop {
+            let at = timeline.sample_at(beat, rate);
+            if at >= end {
+                break;
+            }
+            if at >= start {
+                let k = (at - start) as usize;
+                self.ring(data, stride, channels, offset + done, k - done, rate_f);
+                done = k;
+                self.start(timeline.meter.bbt_at(beat).beat == 0, rate);
+            }
+            beat = timeline.meter.next_beat(beat + Ticks(1));
+        }
+        self.ring(data, stride, channels, offset + done, count - done, rate_f);
+    }
+
+    /// Lets a ringing click finish while stopped.
+    pub fn ring_out(
+        &mut self,
+        data: &mut [f32],
+        stride: usize,
+        channels: usize,
+        frames: usize,
+        rate: u32,
+    ) {
+        self.ring(data, stride, channels, 0, frames, rate as f32);
+    }
+
+    pub fn silence(&mut self) {
+        self.voice = Voice::default();
+    }
+}
+
+/// The test tone: 1 kHz at −20 dBFS on every output, playing or not, with
+/// 5 ms ramps on and off.
+#[derive(Debug, Default)]
+pub(crate) struct TestTone {
+    pub on: bool,
+    phase: f32,
+    gain: f32,
+}
+
+/// −20 dBFS.
+const TONE_LEVEL: f32 = 0.1;
+
+impl TestTone {
+    pub fn render(
+        &mut self,
+        data: &mut [f32],
+        stride: usize,
+        channels: usize,
+        frames: usize,
+        rate: u32,
+    ) {
+        let target = if self.on { 1.0 } else { 0.0 };
+        if target == 0.0 && self.gain == 0.0 {
+            return;
+        }
+        let step = 1_000.0 / rate as f32;
+        let ramp = 1.0 / (rate as f32 * 0.005);
+        for frame in 0..frames {
+            self.gain = if target > self.gain {
+                (self.gain + ramp).min(1.0)
+            } else {
+                (self.gain - ramp).max(0.0)
+            };
+            let value = (TAU * self.phase).sin() * TONE_LEVEL * self.gain;
+            self.phase = (self.phase + step).fract();
+            for channel in 0..channels {
+                data[channel * stride + frame] += value;
+            }
+        }
+    }
+
+    pub fn silence(&mut self) {
+        self.on = false;
+        self.gain = 0.0;
+    }
+}
