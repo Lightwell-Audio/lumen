@@ -13,6 +13,7 @@ fn fast() -> Timing {
     Timing {
         retry_interval: Duration::from_millis(20),
         poll_interval: Duration::from_millis(2),
+        restore_confirm: Duration::from_millis(30),
     }
 }
 
@@ -116,6 +117,39 @@ fn an_unplugged_device_is_reported_lost_and_restored_when_it_returns() {
     ));
     assert_eq!(audio.status().state(), State::Running);
     wait_for_blocks(&blocks, frozen + 5);
+}
+
+/// MT-AUDIO-1 on a Focusrite interface: the driver accepted a reopen while
+/// the hardware was still gone, then failed at once. That must not show up
+/// as a Restored/Lost flip-flop.
+#[test]
+fn a_reopen_that_fails_at_once_is_not_reported_restored() {
+    let control = FakeControl::new();
+    let (audio, _) = system(&control);
+    audio.configure(config(None));
+    assert!(matches!(
+        audio.wait_event(WAIT),
+        Some(DeviceEvent::Started(_))
+    ));
+    control.set(|d| d.present = false);
+    assert!(matches!(audio.wait_event(WAIT), Some(DeviceEvent::Lost(_))));
+
+    control.set(|d| d.phantom = true);
+    let opens = control.opens();
+    let started = Instant::now();
+    while control.opens() < opens + 3 {
+        assert!(started.elapsed() < WAIT, "retries stopped");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(audio.try_event(), None, "phantom reopens must stay quiet");
+    assert_eq!(audio.status().state(), State::Lost);
+
+    control.set(|d| d.present = true);
+    assert!(matches!(
+        audio.wait_event(WAIT),
+        Some(DeviceEvent::Restored(_))
+    ));
+    assert_eq!(audio.status().state(), State::Running);
 }
 
 #[test]

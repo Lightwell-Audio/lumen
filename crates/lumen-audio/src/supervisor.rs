@@ -4,8 +4,11 @@
 //!
 //! States: `Stopped` → `Running` ⇄ `Lost`. A reset request closes and reopens
 //! the same configuration; if the device is gone, the supervisor reports
-//! `Lost` and retries until it returns. A configuration change that fails
-//! falls back to the last working configuration (spec §6.9).
+//! `Lost` and retries until it returns. A reopened device only counts as
+//! restored once callbacks have flowed for [`Timing::restore_confirm`]:
+//! some drivers accept an open while their hardware is disappearing, then
+//! fail moments later. A configuration change that fails falls back to the
+//! last working configuration (spec §6.9).
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering};
@@ -116,6 +119,9 @@ pub struct Timing {
     pub retry_interval: Duration,
     /// How often the control thread polls the stream and pumps messages.
     pub poll_interval: Duration,
+    /// How long a reopened lost device must deliver audio before it is
+    /// reported `Restored`.
+    pub restore_confirm: Duration,
 }
 
 impl Default for Timing {
@@ -123,6 +129,7 @@ impl Default for Timing {
         Self {
             retry_interval: Duration::from_secs(1),
             poll_interval: Duration::from_millis(10),
+            restore_confirm: Duration::from_secs(1),
         }
     }
 }
@@ -161,6 +168,7 @@ impl AudioSystem {
                     stream: None,
                     config: None,
                     lost_since: None,
+                    confirming: None,
                     next_retry: Instant::now(),
                     events: event_tx,
                     status: thread_status,
@@ -219,10 +227,18 @@ struct Supervisor<B: Backend> {
     /// The last configuration that worked (or is wanted, while lost).
     config: Option<StreamConfig>,
     lost_since: Option<Instant>,
+    /// A lost device that reopened and is on probation.
+    confirming: Option<Confirming>,
     next_retry: Instant,
     events: Sender<DeviceEvent>,
     status: Arc<Status>,
     timing: Timing,
+}
+
+struct Confirming {
+    info: StreamInfo,
+    callbacks_at_open: u64,
+    until: Instant,
 }
 
 impl<B: Backend> Supervisor<B> {
@@ -256,7 +272,6 @@ impl<B: Backend> Supervisor<B> {
             Ok(stream) => {
                 let info = stream.info();
                 self.stream = Some(stream);
-                self.status.set_state(State::Running);
                 Ok(info)
             }
             Err(failed) => {
@@ -267,6 +282,7 @@ impl<B: Backend> Supervisor<B> {
     }
 
     fn close(&mut self) {
+        self.confirming = None;
         if let Some(stream) = self.stream.take() {
             self.callback = Some(stream.close());
         }
@@ -283,6 +299,7 @@ impl<B: Backend> Supervisor<B> {
         match self.try_open(&wanted) {
             Ok(info) => {
                 self.config = Some(wanted);
+                self.status.set_state(State::Running);
                 self.emit(DeviceEvent::Started(info));
             }
             Err(error) => {
@@ -290,7 +307,9 @@ impl<B: Backend> Supervisor<B> {
                     Some(previous) => self.try_open(previous).is_ok(),
                     None => false,
                 };
-                if !reverted {
+                if reverted {
+                    self.status.set_state(State::Running);
+                } else {
                     self.status.set_state(State::Stopped);
                     self.config = previous;
                 }
@@ -316,12 +335,26 @@ impl<B: Backend> Supervisor<B> {
         self.emit(DeviceEvent::Lost(error));
     }
 
+    /// A reopened lost device failed its probation: back to quiet retries.
+    fn retry_later(&mut self) {
+        self.close();
+        self.next_retry = Instant::now() + self.timing.retry_interval;
+    }
+
     fn watch(&mut self) {
         let Some(config) = self.config.clone() else {
             return;
         };
         if let Some(stream) = self.stream.as_mut() {
-            match stream.poll() {
+            let event = stream.poll();
+            if self.confirming.is_some() {
+                match event {
+                    None => self.confirm_restore(),
+                    Some(_) => self.retry_later(),
+                }
+                return;
+            }
+            match event {
                 None => {}
                 Some(StreamEvent::ResetRequested) => {
                     self.close();
@@ -340,11 +373,33 @@ impl<B: Backend> Supervisor<B> {
         } else if self.lost_since.is_some() && Instant::now() >= self.next_retry {
             match self.try_open(&config) {
                 Ok(info) => {
-                    self.lost_since = None;
-                    self.emit(DeviceEvent::Restored(info));
+                    self.confirming = Some(Confirming {
+                        info,
+                        callbacks_at_open: self.status.callbacks(),
+                        until: Instant::now() + self.timing.restore_confirm,
+                    });
                 }
                 Err(_) => self.next_retry = Instant::now() + self.timing.retry_interval,
             }
         }
+    }
+
+    /// Ends probation once its window has passed: restored if audio flowed.
+    fn confirm_restore(&mut self) {
+        let Some(confirming) = &self.confirming else {
+            return;
+        };
+        if Instant::now() < confirming.until {
+            return;
+        }
+        if self.status.callbacks() == confirming.callbacks_at_open {
+            self.retry_later();
+            return;
+        }
+        let info = confirming.info.clone();
+        self.confirming = None;
+        self.lost_since = None;
+        self.status.set_state(State::Running);
+        self.emit(DeviceEvent::Restored(info));
     }
 }

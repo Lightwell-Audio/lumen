@@ -15,6 +15,9 @@ pub struct FakeDevice {
     pub present: bool,
     pub reset_pending: bool,
     pub stalled: bool,
+    /// Opens succeed even while unplugged (the stream then fails at once),
+    /// as some drivers do while their hardware is disappearing.
+    pub phantom: bool,
     pub opens: u32,
     pub buffer_sizes: BufferSizes,
 }
@@ -29,6 +32,7 @@ impl FakeControl {
             present: true,
             reset_pending: false,
             stalled: false,
+            phantom: false,
             opens: 0,
             buffer_sizes: BufferSizes {
                 min: 32,
@@ -88,7 +92,7 @@ impl Backend for FakeBackend {
             .unwrap_or(device.buffer_sizes.preferred);
         let error = if config.device != fake_device_id() {
             Some(AudioError::DeviceNotFound(config.device.id.clone()))
-        } else if !device.present {
+        } else if !device.present && !device.phantom {
             Some(AudioError::DeviceNotPresent("fake device unplugged".into()))
         } else if !device.buffer_sizes.allows(frames) {
             Some(AudioError::Unsupported(format!("buffer size {frames}")))

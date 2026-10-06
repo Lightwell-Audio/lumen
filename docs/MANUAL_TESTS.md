@@ -228,9 +228,21 @@ Build once: `cargo build --release -p lumen-audio --example asio_tone`
 
 **Expected:** `event: Lost(...)` shortly after unplugging; the state reports
 `Lost` while unplugged; `event: Restored(...)` within a few seconds of
-plugging back in; the tone resumes; no crash and no hang.
+plugging back in; the tone resumes; no crash and no hang. Exactly one
+`Lost` and one `Restored` per unplug.
 
-**Last run:** not yet run.
+**Run 1 (2026-10-06):** pass on the essentials, with one bug. The driver
+never asked for a reset; the watchdog reported `Lost` 0.7 s after the
+unplug. `Restored` came 1 s after the replug and the tone resumed; there
+were 0 overloads and the peak load was 0.8%. Bug: while the cable was
+still out, the driver accepted a reopen. That produced a false `Restored`
+at 13.2 s and a second `Lost` (0x54f) at 13.7 s. Fixed the same day: a
+reopened device now counts as restored only after callbacks have flowed
+for one second, and failed probation stays quiet. Covered by the test
+`a_reopen_that_fails_at_once_is_not_reported_restored`. Run 2 confirms the
+fix on hardware.
+
+**Run 2:** not yet run.
 
 ### MT-AUDIO-2 · Driver reset from the control panel (needs a human)
 1. `asio_tone "Focusrite USB ASIO" --seconds 60 --tone`
