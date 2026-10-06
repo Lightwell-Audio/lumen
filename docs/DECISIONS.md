@@ -13,7 +13,7 @@ irreversible or external) · *Superseded*.
 | ADR | Title | Status | Approval needed |
 |---|---|---|---|
 | [0001](#adr-0001--system-architecture) | System architecture: processes, threads, data flow | **Accepted** 2026-10-05 | — |
-| [0002](#adr-0002--ui-framework) | UI framework: egui/eframe + wgpu, hybrid rendering | Proposed; **owner asked for a Slint comparison first** (M1 slice 9) | **Yes, after the comparison** |
+| [0002](#adr-0002--ui-framework) | UI: Lumen-owned renderer (`lumen-render`: wgpu + Vello); host toolkit to be chosen | **Renderer direction accepted** 2026-10-06; host (egui or custom winit) pending P-RENDER | **Yes, the host, after P-RENDER** |
 | [0003](#adr-0003--real-time-audio-engine) | Real-time audio engine | **Accepted** 2026-10-05 | — |
 | [0004](#adr-0004--project-file-format) | Project file format | **Accepted** 2026-10-05 | — |
 | [0005](#adr-0005--vst3-hosting-and-plugin-isolation) | VST3 hosting and plugin isolation | **Accepted** 2026-10-05 (M6 must fix wake-up latency) | — |
@@ -35,11 +35,11 @@ irreversible or external) · *Superseded*.
 |---|---|
 | Lumen's licence (ADR-0012) | Closed source (proprietary). Can be relicensed later by the owner. |
 | ASIO licensing (ADR-0006) | Sign Steinberg's free proprietary ASIO SDK agreement. Owner action; required before any distribution. |
-| UI (ADR-0002) | Not yet: prototype Slint with the same benchmark and compare. Slint would need its royalty-free (attribution) or commercial licence for closed source. |
+| UI (ADR-0002) | Lumen owns its rendering: a toolkit-independent `lumen-render` (wgpu instanced pipelines for dense content, Vello for vector graphics). The host (egui or a custom winit shell) is chosen after P-RENDER measures both. **Slint dropped** (2026-10-06): it tessellates shapes much as egui does, is harder to combine with custom GPU drawing, and needs a licence notice. Lyon rejected: CPU tessellation is the measured bottleneck. |
 | Engine, plugins, project format (ADR-0001, 0003, 0004, 0005, 0009) | Approved as recommended. |
 | Toolchain (ADR-0007) | Owner installs VS 2022 Build Tools; then switch local builds to MSVC. |
 | Hosting (ADR-0014) | Private GitHub repository; owner creates it, then push and first CI run. |
-| Remaining M1 work | Approved: Slint prototype, P-HOST, then the app shell after the UI decision. |
+| Remaining M1 work | Approved: P-RENDER (replaces Slint), P-HOST, then the app shell after the host decision. |
 | Device-loss recovery | Deferred to M2 (found by MT-ASIO-5). |
 
 ---

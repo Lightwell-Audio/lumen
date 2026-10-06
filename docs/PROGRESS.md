@@ -35,7 +35,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 6 | P-FORMAT: project format and time base (`crates/lumen-project`, `lumen_core::time`). 29 new tests; quality-bar project saves in 83 ms and loads in 87 ms | ✅ | `57d8901` |
 | 7 | P-UI: dense-view rendering. Normal views p99 ≤ 6.1 ms; plain egui fails the 100k-note overview (20 ms); GPU-instanced escape hatch brings it to 5.7 ms; idle 0.00%; first frame 545 ms warm; UI Automation tree verified | ✅ | `0c6a15b` |
 | 8 | Evidence in ADRs, architecture draft, cargo-deny verified locally, interim report | ✅ | (final M1 prototyping commit) |
-| 9 | P-UI-SLINT: the same stress test in Slint, compared side by side with egui (owner request) | 🔲 approved | |
+| 9 | P-RENDER: `lumen-render`, Lumen's toolkit-independent renderer (wgpu instanced pipelines for dense content plus Vello for vector graphics), measured hosted in egui and in a bare winit window, plus a Parley text / AccessKit spike to cost a custom toolkit (replaces the Slint comparison) | 🔲 approved | |
 | 10 | P-HOST: real VST3 (u-he TyrellN6) processing audio inside an isolated host process, with state save and restore | 🔲 approved | |
 | 11 | `lumen` application shell on the chosen UI stack (after the UI decision) | 🔲 approved | |
 
