@@ -5,6 +5,8 @@
 //! Shortcuts (Ableton-compatible): Space play/stop · Shift+Space pause or
 //! continue · Home go to start. They are ignored while typing in a field.
 
+use std::time::{Duration, Instant};
+
 use eframe::egui::{self, Key, Modifiers, RichText, Ui};
 use lumen_core::meter::{Meter, MeterMap};
 use lumen_core::time::{TempoMap, Ticks};
@@ -27,6 +29,9 @@ pub struct Transport {
     /// Text while the position field is being edited.
     editing: Option<String>,
     error: Option<String>,
+    /// Keep drawing every frame until then, so the result of a command shows
+    /// at once rather than at the next idle repaint.
+    settle_until: Option<Instant>,
 }
 
 fn timeline_of(project: &Project) -> Timeline {
@@ -53,6 +58,7 @@ impl Transport {
             loop_region,
             editing: None,
             error: None,
+            settle_until: None,
         }
     }
 
@@ -60,7 +66,20 @@ impl Transport {
         self.audio.engine.transport()
     }
 
+    /// Whether the UI should redraw every frame: while playing, and briefly
+    /// after a command until the engine has applied it.
+    pub fn animating(&self) -> bool {
+        self.state().playing || self.settle_until.is_some_and(|t| Instant::now() < t)
+    }
+
+    fn settle(&mut self) {
+        // The engine applies commands at its next block (a few ms); the
+        // margin covers large buffers.
+        self.settle_until = Some(Instant::now() + Duration::from_millis(300));
+    }
+
     fn send(&mut self, command: Command) {
+        self.settle();
         // A full queue means the engine is not running; the UI shows why.
         let _ = self.audio.engine.send(command);
     }
@@ -96,6 +115,7 @@ impl Transport {
     fn timeline_changed(&mut self, project: &Project) {
         self.timeline = timeline_of(project);
         self.timeline_pending = true;
+        self.settle();
     }
 
     /// Per-frame work: device events and pending timeline swaps. Returns

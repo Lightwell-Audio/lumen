@@ -217,13 +217,6 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.transport.update();
         self.transport.shortcuts(&ctx);
-        // A smooth playhead while playing; otherwise wake once a second for
-        // device events, so idle CPU stays near zero.
-        if self.transport.state().playing {
-            ctx.request_repaint();
-        } else {
-            ctx.request_repaint_after(Duration::from_secs(1));
-        }
         let panels_before = (self.show_browser, self.show_detail);
         if std::mem::take(&mut self.toggle_detail_requested) {
             self.show_detail = !self.show_detail;
@@ -278,6 +271,15 @@ impl eframe::App for App {
                 });
         }
         egui::CentralPanel::default().show(ui, |ui| self.arrangement(ui));
+
+        // Scheduled after drawing, because buttons are clicked while drawing.
+        // Every frame while playing or settling after a command; otherwise
+        // once a second for device events, so idle CPU stays near zero.
+        if self.transport.animating() {
+            ctx.request_repaint();
+        } else {
+            ctx.request_repaint_after(Duration::from_secs(1));
+        }
 
         if let Some(path) = &self.screenshot {
             let image = ctx.input(|i| {
