@@ -193,8 +193,8 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
-| Driver types: ASIO and WASAPI shared (Windows), CoreAudio, PipeWire/JACK/ALSA | M | 🔲 | 2 |
-| WASAPI exclusive | S | 🔲 | 2 |
+| Driver types: ASIO and WASAPI shared (Windows), CoreAudio, PipeWire/JACK/ALSA | M | 🟡 Output works on ASIO, WASAPI shared (hardware-tested) and cpal (CoreAudio/ALSA, compiled but not hardware-tested). Missing: WASAPI and cpal input (slice 8), JACK/PipeWire (ADR-0016) | 2 |
+| WASAPI exclusive | S | 🟡 Output tested on hardware at 3 ms (MT-AUDIO-5); input in slice 8 | 2 |
 | Device, rate, buffer selection with input/output/round-trip latency display | M | 🔲 | 2 |
 | Device loss and return: keep the session, show the lost state, reconnect automatically (found by MT-ASIO-5) | M | 🟡 Detection and auto-reconnect done, tested with the fake backend and on hardware (MT-AUDIO-1); the lost-state UI arrives in slice 8 | 2 |
 | Channel selection with friendly names; mono and stereo configurations | M | 🔲 | 2 |

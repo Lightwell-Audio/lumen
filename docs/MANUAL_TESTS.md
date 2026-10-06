@@ -218,11 +218,15 @@ Interactive checks of zoom, scroll and Shift+Tab not yet done by a human.
 
 ## M2 · Audio device layer (`crates/lumen-audio`)
 
-Build once: `cargo build --release -p lumen-audio --example asio_tone`
-(binary: `%USERPROFILE%\lumen-target\release\examples\asio_tone.exe`).
+Build once: `cargo build --release -p lumen-audio --example audio_tone`
+(binary: `%USERPROFILE%\lumen-target\release\examples\audio_tone.exe`). In
+PowerShell, run it as
+`& "$env:USERPROFILE\lumen-target\release\examples\audio_tone.exe" <args>`.
+`--driver` picks `asio` (the default), `wasapi` or `exclusive`. (Before
+slice 2 the example was called `asio_tone` and spoke only ASIO.)
 
 ### MT-AUDIO-1 · Device loss and recovery (needs a human)
-1. `asio_tone "Focusrite USB ASIO" --seconds 60 --tone`
+1. `audio_tone "Focusrite USB ASIO" --seconds 60 --tone`
 2. After about 10 s, unplug the Focusrite's USB cable. Wait about 10 s.
 3. Plug it back in. Let the run finish.
 
@@ -249,7 +253,7 @@ during the one-second probation, then audio continued cleanly to the end
 replug (up to 1 s waiting for the next retry, plus the 1 s confirmation).
 
 ### MT-AUDIO-2 · Driver reset from the control panel (needs a human)
-1. `asio_tone "Focusrite USB ASIO" --seconds 60 --tone`
+1. `audio_tone "Focusrite USB ASIO" --seconds 60 --tone`
 2. Change the buffer size in Focusrite Control while it runs.
 
 **Expected:** `event: Reset(StreamInfo { buffer_frames: <new size>, ... })`,
@@ -261,10 +265,33 @@ output_latency: 638, .. })`. The callback rate halved from about 344 to
 about 172 per second, the tone continued, and there were 0 overloads.
 
 ### MT-AUDIO-3 · Error paths (automatable)
-- `asio_tone "Focusrite Thunderbolt ASIO" --seconds 2` →
+- `audio_tone "Focusrite Thunderbolt ASIO" --seconds 2` →
   `ConfigFailed { DeviceNotPresent("Cannot open ... 0x54f"), reverted: false }`
-- `asio_tone "Focusrite USB ASIO" --seconds 2 --buffer 100` →
+- `audio_tone "Focusrite USB ASIO" --seconds 2 --buffer 100` →
   `ConfigFailed { Unsupported("buffer size 100"), reverted: false }`
 
 **Last run (2026-10-06):** pass, both. The normal run also passed: Started
 at 44.1 kHz / 128 frames, about 344 callbacks per second, clean Stopped.
+
+### MT-AUDIO-4 · WASAPI device loss and recovery (needs a human)
+1. `audio_tone "Focusrite USB" --driver wasapi --seconds 60 --tone`
+2. Unplug the Focusrite's USB cable at about 10 s. Plug it back in at about
+   20 s.
+3. Repeat with `--driver exclusive`.
+
+**Expected:** one `Lost` after the unplug and one `Restored` about 2 s after
+the replug, the tone resuming in both modes, no crash and no hang.
+
+**Last run:** not yet run.
+
+### MT-AUDIO-5 · WASAPI shared and exclusive streams (automatable)
+- `audio_tone list --driver wasapi` and `list --driver exclusive`: every
+  output endpoint is listed with its channels, rates and buffer sizes.
+- `audio_tone G34WQC --driver wasapi --seconds 3`: Started at 48 kHz /
+  480 frames, about 100 callbacks/s.
+- `audio_tone G34WQC --driver exclusive --seconds 3 --buffer 144`: Started
+  at 48 kHz / 144 frames, about 333 callbacks/s.
+- `audio_tone G34WQC --driver wasapi --rate 44100`: `ConfigFailed(Unsupported)`
+  with a message that names the Windows rate and the fix.
+
+**Last run (2026-10-06):** pass, all four (ADR-0016 has the numbers).

@@ -26,6 +26,7 @@ irreversible or external) · *Superseded*.
 | [0012](#adr-0012--lumens-own-license) | Lumen's own license | **Accepted** 2026-10-05: closed source (proprietary) | — |
 | [0013](#adr-0013--dependency-license-policy) | Dependency license policy | Accepted | No |
 | [0015](#adr-0015--shifttab-conflict) | Shift+Tab: detail panel versus backward focus | **Open** (decide with the shortcut system, M3) | Yes |
+| [0016](#adr-0016--wasapi-coreaudio-and-linux-backends) | WASAPI through the `wasapi` crate; CoreAudio and ALSA through cpal | Accepted 2026-10-06 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -596,7 +597,7 @@ fallback.
 Lumen's own backend layer. On Windows, a native ASIO host in Rust. Driver
 enumeration and opening run first in a sandboxed child process, because some
 drivers block on dialogs or crash when hardware is missing. The WASAPI,
-CoreAudio and Linux implementations are chosen in M2.
+CoreAudio and Linux implementations are chosen in M2 (ADR-0016).
 
 ### ASIO licensing — needs human decision
 Steinberg's ASIO SDK is dual-licensed: a **proprietary licence** (free, but an
@@ -875,3 +876,60 @@ whenever a panel is hidden.
 ### Recommendation
 Option 3, with F6 / Shift+F6 always cycling between panes. To be decided
 with the remappable shortcut system and its conflict detection (M3).
+
+---
+
+## ADR-0016 — WASAPI, CoreAudio and Linux backends
+
+**Status:** Accepted · **Date:** 2026-10-06 (M2 slice 2)
+
+### Context
+ADR-0006 left the non-ASIO backends to M2. Windows is first-class, so WASAPI
+must be solid: shared mode for everyday use, exclusive mode (a should-have)
+for low latency without an ASIO driver. macOS and Linux follow from the same
+codebase but are not tested on hardware yet.
+
+### Options considered
+| Option | Notes |
+|---|---|
+| Raw COM over `windows-sys` (like the ASIO host) | Full control, including IAudioClient3 low-latency shared mode. About 1,000 lines of unsafe COM plumbing for what crates already do well. |
+| **`wasapi` crate 0.25** (MIT, HEnquist; used by CamillaDSP) | Safe wrappers for endpoints, shared and exclusive, event-driven timing, format negotiation with driver quirks, alignment helpers. Does not expose IAudioClient3. Pulls in the `windows` crate (MIT/Apache). |
+| cpal for WASAPI | No exclusive mode, no control over the period, and it hides the device's format. |
+| **cpal 0.18** for macOS and Linux | Apache-2.0. CoreAudio and ALSA hosts (JACK and PipeWire behind features). Good enough to start; the API gaps from ADR-0006 (channel names, latency) matter less there for now. |
+| Native CoreAudio and ALSA backends | More control, much more code; premature before macOS and Linux are tested on hardware. |
+
+### Decision
+- **Windows:** `lumen-audio::wasapi` on the `wasapi` crate. Each stream gets a
+  render thread with the "Pro Audio" MMCSS class and fixed-size blocks.
+  - Shared mode runs at Windows' rate and period (10 ms). Lumen never
+    resamples silently: asking for another rate fails with a message that
+    names the fix.
+  - Exclusive mode opens at the requested rate and buffer size, with the
+    first accepted format from f32, i32, 24-in-32, packed 24 and i16.
+- **macOS and Linux:** `lumen-audio::cpal_host` on cpal's default host
+  (CoreAudio, ALSA). The callback lives in a slot the audio thread takes with
+  `try_lock`, which never blocks.
+- Both backends report device loss to the supervisor the same way ASIO does:
+  a reset request (the reopen then fails, giving `Lost`) or a stall.
+
+### Consequences
+- **Follow-ups:**
+  - **Input** for WASAPI and cpal arrives with the device selector (M2
+    slice 8). Until then these backends reject input channels with a clear
+    message.
+  - **IAudioClient3** low-latency shared mode (about 3 ms instead of 10 ms on
+    supporting drivers) is a candidate for M12 tuning, through the `windows`
+    crate the `wasapi` crate already depends on.
+  - **JACK and PipeWire** are revisited when Linux is tested on hardware.
+- macOS is type-checked locally (`--target aarch64-apple-darwin`); Linux is
+  checked in CI. Neither has run against real devices.
+
+### Evidence (2026-10-06, this machine)
+| Check | Result |
+|---|---|
+| Enumeration, both modes | Focusrite USB, NVIDIA HDMI and DualSense endpoints listed with correct rates; shared period 441/480 frames, exclusive minimum 132–144 frames |
+| Shared, 48 kHz | 480-frame blocks, 99 callbacks/s (100 expected), 0 overloads |
+| Exclusive, 48 kHz / 144 | 144-frame blocks (3 ms), about 335 callbacks/s (333 expected) |
+| Exclusive, 44.1 kHz default | Aligned to 448 frames by the driver; ran cleanly |
+| Shared, wrong rate | `ConfigFailed(Unsupported("44100 Hz: Windows runs … at 48000 Hz in shared mode …"))` |
+| Licences | All 42 third-party crates on Windows, macOS and Linux are permissive |

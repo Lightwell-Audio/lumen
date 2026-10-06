@@ -44,6 +44,25 @@ pub trait Backend {
     fn pump(&mut self) {}
 }
 
+/// Lets the driver model be chosen at run time.
+impl<B: Backend + ?Sized> Backend for Box<B> {
+    fn devices(&mut self) -> Vec<DeviceInfo> {
+        (**self).devices()
+    }
+
+    fn open(
+        &mut self,
+        config: &StreamConfig,
+        callback: Box<dyn AudioCallback>,
+    ) -> Result<Box<dyn Stream>, OpenError> {
+        (**self).open(config, callback)
+    }
+
+    fn pump(&mut self) {
+        (**self).pump();
+    }
+}
+
 pub trait Stream {
     fn info(&self) -> StreamInfo;
 
