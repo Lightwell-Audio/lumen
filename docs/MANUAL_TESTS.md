@@ -373,4 +373,8 @@ signature · `q` quit.
 **Expected:** every step as described, with clicks evenly spaced and no
 crackles.
 
-**Last run:** not yet run.
+**Last run (2026-10-06, Focusrite USB ASIO, 44.1 kHz / 256):** pass, all
+seven steps. The position display matched the expected samples (bar 4 from
+264,600, bar 5 from 352,800) and advanced at 44,065 samples/s over 7.75 s.
+Tip found during the run: a loop only catches playback that is before its
+end, so `g 2` before `l 2 3` if playback is already past bar 3.
