@@ -77,26 +77,14 @@ jobs:
           key: rtsan
       - name: Real-time tests under RTSan
         run: cargo test --locked -p lumen-engine -p engine-core --test realtime
-      # Shows whether RTSan was enabled at build time, whether its runtime was
-      # downloaded and linked, and what it logs at start-up.
-      - name: RTSan diagnostics
-        run: |
-          cargo test --locked -p lumen-rt --test rtsan_canary --no-run
-          for dir in target/debug/build/rtsan-standalone-*/; do
-            echo "== $dir"
-            cat "$dir/output" 2>/dev/null || echo "(no build script output)"
-            ls -la "$dir/out" 2>/dev/null || true
-          done
-          bin=$(find target/debug/deps -maxdepth 1 -type f -executable -name 'rtsan_canary-*' | head -1)
-          echo "== symbols in $bin"
-          nm "$bin" | grep -E '__rtsan_(realtime_enter|ensure_initialized)|(__interceptor_)?(nanosleep|malloc|calloc)$' || echo "(none found)"
-          echo "== runtime log"
-          RTSAN_OPTIONS=verbosity=2 "$bin" --ignored --exact a_blocking_call_inside_a_real_time_section_is_caught 2>&1 | tail -40 || true
-      # Each canary sleeps or allocates inside a real-time section. Each must
-      # abort on its own, or the sanitizer is not actually running.
+      # Each canary opens a file, waits on a held lock or allocates inside a
+      # real-time section. Each must abort with an RTSan report on its own, or
+      # the sanitizer is not actually running. (Canaries chosen by probing the
+      # runtime: it misses std::thread::sleep and uncontended locks.)
       - name: Canaries (each must fail)
         run: |
-          for canary in a_blocking_call_inside_a_real_time_section_is_caught \
+          for canary in blocking_file_io_inside_a_real_time_section_is_caught \
+                        waiting_on_a_held_lock_inside_a_real_time_section_is_caught \
                         an_allocation_inside_a_real_time_section_is_caught; do
             if out=$(cargo test --locked -p lumen-rt --test rtsan_canary -- --ignored --exact "$canary" 2>&1); then
               echo "$out"
