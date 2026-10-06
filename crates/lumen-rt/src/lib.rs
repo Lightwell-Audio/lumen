@@ -98,6 +98,7 @@ pub fn rt_section<R>(f: impl FnOnce() -> R) -> R {
         }
     }
     RT_DEPTH.with(|depth| depth.set(depth.get() + 1));
+    rtsan_standalone::ensure_initialized();
     rtsan_standalone::realtime_enter();
     let _exit = Exit;
     f()

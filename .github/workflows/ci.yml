@@ -77,14 +77,24 @@ jobs:
           key: rtsan
       - name: Real-time tests under RTSan
         run: cargo test --locked -p lumen-engine -p engine-core --test realtime
-      # The canary takes a lock in a real-time section: it must abort, or the
-      # sanitizer is not actually running.
-      - name: Canary (must fail)
+      # Each canary sleeps or allocates inside a real-time section. Each must
+      # abort on its own, or the sanitizer is not actually running.
+      - name: Canaries (each must fail)
         run: |
-          if cargo test --locked -p lumen-rt --test rtsan_canary -- --ignored; then
-            echo "RTSan did not catch the lock: the sanitizer is not active"
-            exit 1
-          fi
+          for canary in a_blocking_call_inside_a_real_time_section_is_caught \
+                        an_allocation_inside_a_real_time_section_is_caught; do
+            if out=$(cargo test --locked -p lumen-rt --test rtsan_canary -- --ignored --exact "$canary" 2>&1); then
+              echo "$out"
+              echo "RTSan did not catch $canary: the sanitizer is not active"
+              exit 1
+            fi
+            if ! grep -q "ERROR: RealtimeSanitizer" <<< "$out"; then
+              echo "$out"
+              echo "$canary failed, but not because of RTSan"
+              exit 1
+            fi
+            echo "OK: RTSan caught $canary"
+          done
 
   deny:
     name: licenses and advisories

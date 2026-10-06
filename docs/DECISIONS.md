@@ -778,8 +778,12 @@ no migration was needed.
   and blocking system calls. `rt_section` marks an RTSan real-time context,
   so every guarded test is also a sanitizer test. The calls compile to
   nothing unless `RTSAN_ENABLE` is set at build time. The CI `rtsan` job
-  (Linux) sets it, runs the real-time tests, and runs a canary that locks a
-  mutex in a section and must abort, which proves the sanitizer is live.
+  (Linux) sets it, runs the real-time tests, and runs two canaries (a
+  sleep and an allocation inside a section). Each must abort with an RTSan
+  report, which proves the sanitizer is live. An uncontended
+  `std::sync::Mutex` cannot serve as a canary: on Linux it is one atomic
+  operation with no system call, so RTSan catches a lock only when it
+  actually blocks (found by the first CI run).
   With `RTSAN_ENABLE`, the crate's build script downloads a prebuilt
   runtime from the project's GitHub releases. That happens in that CI job
   only, never in normal or release builds. (Added M2 slice 3.)
