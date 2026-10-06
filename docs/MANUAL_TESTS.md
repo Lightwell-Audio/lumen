@@ -442,4 +442,4 @@ in `%USERPROFILE%\lumen-target`, which predated slice 5. Both now use
 
 **Expected:** every step as described.
 
-**Last run:** not yet run.
+**Last run (2026-10-06, run 2, started with `cargo run`):** pass, all steps.
