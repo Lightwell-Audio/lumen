@@ -295,9 +295,11 @@ endpoint, plus Lumen's retry and confirmation). Two findings:
   Fixed: exclusive mode now checks the device clock at start and falls
   back to polling (ADR-0016). It now runs at 101 callbacks/s.
 
-**Run 2** (exclusive, with the tone, listening for clean audio after the
-fix): not yet run. `audio_tone` now prints callbacks per second next to
-the expected rate.
+**Run 2 (2026-10-06, exclusive with the tone, after the fix):** pass.
+Started at 1.1 s (calibration chose polling), 99–102 callbacks/s against
+100 expected, clean tone. The unplug was reported as
+`Lost(DeviceNotPresent(..))` at 13.6 s, `Restored` at 27.9 s, then
+99–102/s again until the end. 0 overloads, peak load 0.4%.
 
 ### MT-AUDIO-5 · WASAPI shared and exclusive streams (automatable)
 - `audio_tone list --driver wasapi` and `list --driver exclusive`: every
