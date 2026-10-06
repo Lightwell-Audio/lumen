@@ -3,7 +3,7 @@
 Tests that need real hardware, third-party software or a human. Each entry
 lists steps, the expected result and its last recorded run.
 
-Binaries are in `%USERPROFILE%\lumen-targetelease` (older copies in `%USERPROFILE%\lumen-bin`) (see the AppData warning in
+Binaries are in `%USERPROFILE%\lumen-target\release` (older copies in `%USERPROFILE%\lumen-bin`) (see the AppData warning in
 `docs/DEVELOPMENT.md`). To rebuild: `cargo build --release --workspace` (see
 `docs/DEVELOPMENT.md` for the toolchain).
 
