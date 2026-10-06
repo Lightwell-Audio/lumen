@@ -10,6 +10,7 @@
 
 mod data;
 mod gpu;
+mod lumen_host;
 mod paint;
 mod process;
 
@@ -31,6 +32,8 @@ struct Scenario {
     scale: f32,
     /// Draw notes with the custom wgpu pipeline instead of egui shapes.
     gpu_notes: bool,
+    /// Draw both canvases (and a vector overlay) with `lumen-render`.
+    lumen: bool,
     drive: fn(&mut App, f32),
 }
 
@@ -44,11 +47,32 @@ const fn scenario(
         name,
         scale,
         gpu_notes,
+        lumen: false,
         drive,
     }
 }
 
-const SCENARIOS: [Scenario; 10] = [
+const fn lumen(name: &'static str, scale: f32, drive: fn(&mut App, f32)) -> Scenario {
+    Scenario {
+        name,
+        scale,
+        gpu_notes: false,
+        lumen: true,
+        drive,
+    }
+}
+
+fn drive_worst(app: &mut App, t: f32) {
+    drive_arrangement_fit(app, t);
+    drive_piano_all(app, t);
+}
+
+fn drive_editing(app: &mut App, t: f32) {
+    drive_arrangement_pan(app, t);
+    drive_piano_pan(app, t);
+}
+
+const SCENARIOS: [Scenario; 13] = [
     scenario(
         "arrangement, 48 px rows, pan + scroll",
         1.0,
@@ -103,6 +127,17 @@ const SCENARIOS: [Scenario; 10] = [
         2.0,
         true,
         drive_piano_all,
+    ),
+    lumen(
+        "lumen-render: fit-all clips + 100k notes + overlay",
+        1.0,
+        drive_worst,
+    ),
+    lumen("lumen-render: editing views + overlay", 1.0, drive_editing),
+    lumen(
+        "lumen-render: fit-all clips + 100k notes + overlay",
+        2.0,
+        drive_worst,
     ),
 ];
 
@@ -442,11 +477,27 @@ impl eframe::App for App {
                 self.piano_size = rect.size();
                 let content_height = 128.0 * self.piano.row_h;
                 Self::handle_wheel(ui, &response, &mut self.piano, content_height);
-                let gpu_notes = matches!(&self.mode, Mode::Bench { scenario, .. } if SCENARIOS[*scenario].gpu_notes);
-                let notes: &[Note] = if gpu_notes { &[] } else { &self.notes };
+                let current = match &self.mode {
+                    Mode::Bench { scenario, .. } => Some(SCENARIOS[*scenario]),
+                    _ => None,
+                };
+                let gpu_notes = current.is_some_and(|s| s.gpu_notes);
+                let lumen = current.is_some_and(|s| s.lumen);
+                let notes: &[Note] = if gpu_notes || lumen { &[] } else { &self.notes };
                 piano_stats = paint::piano_roll(ui.painter(), rect, notes, &self.piano);
                 if gpu_notes {
                     ui.painter_at(rect).add(gpu::notes_shape(rect, &self.piano));
+                }
+                if lumen {
+                    let shape = lumen_host::shape(
+                        rect,
+                        ui.ctx().pixels_per_point(),
+                        1,
+                        lumen_host::Layer::Notes,
+                        &self.piano,
+                        None,
+                    );
+                    ui.painter_at(rect).add(shape);
                 }
             });
         let mut arrangement_stats = DrawStats::default();
@@ -458,13 +509,31 @@ impl eframe::App for App {
             let response = ui.allocate_rect(canvas, Sense::hover());
             let content_height = TRACKS as f32 * self.arrangement.row_h;
             Self::handle_wheel(ui, &response, &mut self.arrangement, content_height);
+            let lumen =
+                matches!(&self.mode, Mode::Bench { scenario, .. } if SCENARIOS[*scenario].lumen);
+            let tracks: &[Track] = if lumen { &[] } else { &self.tracks };
             arrangement_stats = paint::arrangement(
                 &ui.painter_at(canvas),
                 canvas,
-                &self.tracks,
+                tracks,
                 &self.peaks,
                 &self.arrangement,
             );
+            if lumen {
+                let t = match &self.mode {
+                    Mode::Bench { frame, .. } => *frame as f64 / FRAMES_PER_SCENARIO as f64,
+                    _ => 0.0,
+                };
+                let shape = lumen_host::shape(
+                    canvas,
+                    ui.ctx().pixels_per_point(),
+                    0,
+                    lumen_host::Layer::Clips,
+                    &self.arrangement,
+                    Some(t),
+                );
+                ui.painter_at(canvas).add(shape);
+            }
             ui.scope_builder(egui::UiBuilder::new().max_rect(headers), |ui| {
                 ui.set_clip_rect(headers);
                 self.track_headers(ui, headers);
@@ -625,6 +694,9 @@ fn main() -> eframe::Result {
             let app = App::new(mode);
             if let Some(state) = cc.wgpu_render_state.as_ref() {
                 gpu::install(state, &app.notes);
+                if let Err(e) = lumen_host::install(state) {
+                    eprintln!("lumen-render unavailable: {e}");
+                }
             }
             Ok(Box::new(app))
         }),
