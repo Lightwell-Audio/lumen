@@ -170,3 +170,27 @@ Automation (58 named elements), twice. **Still needs a human:** listening throug
 
 **Last run (2026-10-05, run by the owner):** pass at 100%, 150% and 200%.
 Text was not blurry; it looked fine.
+
+---
+
+## M1 · P-HOST — real plugin in an isolated host (`prototypes/plugin-host`)
+
+### MT-HOST-1 · Host a real instrument and round-trip its state
+`plugin-host render "C:\Program Files\Common Files\VST3\TyrellN6(x64).vst3"`
+
+**Expected:** audible render (peak above −60 dBFS), all samples finite,
+state round trip "IDENTICAL". The audio is written to
+`prototypes/plugin-host/out/render-1.wav`.
+
+**Last run (2026-10-06):** pass (peak −13.4 dBFS, 37 µs per block, 2,783-byte state identical).
+
+### MT-HOST-2 · Survive a plugin crash and restore it
+`plugin-host isolate "C:\Program Files\Common Files\VST3\TyrellN6(x64).vst3"`
+
+**Expected:** crash detected with exit code `0xC0000005`; host restarted
+with the last known state ("re-saves identical: true"); audio at the same
+level after recovery; 0 loop overruns; no `plugin-host` processes left
+afterwards. Listen to `prototypes/plugin-host/out/isolated-with-crash.wav`
+for the gap.
+
+**Last run (2026-10-06):** pass (restart 33 ms, 15 silent blocks, 0 overruns, 0 leftover processes).

@@ -535,6 +535,40 @@ Findings that shape M6:
 
 Not covered: instantiation, processing, state, presets, editors (M6).
 
+### Evidence — P-HOST (`prototypes/plugin-host`), 2026-10-06
+A real third-party instrument hosted end to end, first in-process and then
+isolated. Built on the `vst3` crate with Lumen's own host-side COM objects
+(host application, event list, parameter changes, memory stream).
+u-he TyrellN6, 48 kHz, 128-sample blocks, MSVC release build.
+
+**In-process (step 1):** loads and activates in 21–370 ms (cold disk cache
+first). Middle C renders at peak −13.4 dBFS / RMS −21.9 dBFS, all samples
+finite. `process()` takes 37 µs median per block (1.4% of budget). State is
+2,783 bytes; a fresh instance restored from it re-saves an identical state
+and renders at identical levels.
+
+**Isolated (step 2):** the plugin runs in a `plugin-host child` process
+driven over the P-ISO shared-memory transport, paced in real time with a
+1.33 ms deadline per block.
+
+| Measure | Result |
+|---|---|
+| Host process up, plugin loaded and active | 30 ms |
+| Round trip per block, including the plugin's processing | p50 66 µs, p99 115 µs, max 418 µs |
+| State snapshot ("last known state") | 2,783 bytes in 0.52 ms |
+| Injected crash (access violation in the host process) | detected the next block, exit code `0xC0000005` |
+| Supervisor restart with restored state (off the audio loop) | 33 ms; restored state re-saves identical |
+| Audio | −13.4 dBFS before the crash and after recovery; 15 silent blocks (40 ms) in between; 0 loop overruns |
+| Orphaned processes afterwards | 0 (kill-on-close Job object) |
+
+This closes the M1 exit criterion "VST3/isolation approach demonstrated".
+Simplifications to fix in M6: the snapshot takes one block slot (production
+uses a separate non-real-time channel); the supervisor channel allocates
+(P-ISO already proved an allocation-free one); notes held at the crash are
+re-sent by the test rather than tracked; no controller, editor or
+parameters yet; the transport code is duplicated from P-ISO and must become
+one shared crate.
+
 ---
 
 ## ADR-0006 — Audio device backends and ASIO

@@ -32,7 +32,7 @@ processes, 30 s timeout, 10.4 s wall time.
 | Toneforge Ben Bruce | Joey Sturgis Tones | Fx | bundle | ✅ matches factory | ✅ | 140 ms | — | — | — | — |
 | EZbass | Toontrack | Instrument\|Bass | file | — | ✅ | 569 ms | — | — | — | — |
 | Toontrack Audio Sender | Toontrack | Fx\|Tools | file | — | ✅ | 44 ms | — | — | — | — |
-| TyrellN6 | u-he | Instrument | file | — | ✅ | 419 ms | — | — | — | — |
+| TyrellN6 | u-he | Instrument | file | — | ✅ | 419 ms | ✅ in-process and isolated | ✅ 37 µs/block | ✅ round trip identical, incl. restore after a host crash | — |
 | Ozone 12 (main + 20 modules) | iZotope | Fx (EQ, Dynamics, Mastering, Spatial, Distortion) | file | — | ✅ all 21 | 84–145 ms each | — | — | — | — |
 
 ## Open items

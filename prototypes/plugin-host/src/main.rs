@@ -3,10 +3,15 @@
 //!
 //! ```text
 //! plugin-host render <module.vst3> [--class NAME]   step 1: in this process
+//! plugin-host isolate <module.vst3>                  step 2: in a host process, with a crash
 //! ```
 
 #[cfg(windows)]
 mod com;
+#[cfg(windows)]
+mod ipc;
+#[cfg(windows)]
+mod isolated;
 #[cfg(windows)]
 mod vst;
 
@@ -32,8 +37,18 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        (Some("isolate"), Some(module)) => {
+            if let Err(e) = isolated::run(module) {
+                eprintln!("FAILED: {e}");
+                std::process::exit(1);
+            }
+        }
+        (Some("child"), Some(base)) => {
+            let module = args.get(2).cloned().unwrap_or_default();
+            isolated::child_main(base, &module);
+        }
         _ => {
-            eprintln!("usage: plugin-host render <module.vst3> [--class NAME]");
+            eprintln!("usage: plugin-host render|isolate <module.vst3> [--class NAME]");
             std::process::exit(2);
         }
     }
@@ -89,7 +104,7 @@ fn level(audio: &[f32]) -> (f32, f32, bool) {
 }
 
 #[cfg(windows)]
-fn write_wav(path: &std::path::Path, audio: &[f32]) -> std::io::Result<()> {
+pub(crate) fn write_wav(path: &std::path::Path, audio: &[f32]) -> std::io::Result<()> {
     let data_len = (audio.len() * 4) as u32;
     let mut bytes = Vec::with_capacity(44 + data_len as usize);
     bytes.extend_from_slice(b"RIFF");

@@ -36,7 +36,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 7 | P-UI: dense-view rendering. Normal views p99 ≤ 6.1 ms; plain egui fails the 100k-note overview (20 ms); GPU-instanced escape hatch brings it to 5.7 ms; idle 0.00%; first frame 545 ms warm; UI Automation tree verified | ✅ | `0c6a15b` |
 | 8 | Evidence in ADRs, architecture draft, cargo-deny verified locally, interim report | ✅ | (final M1 prototyping commit) |
 | 9 | P-RENDER: `lumen-render` (instanced GPU layers + Vello) measured in a bare winit host and inside egui. Worst case p99 0.84 ms bare / 2.22 ms in egui (egui shapes: 20 ms). Text (Parley) and accessibility (AccessKit) spikes work. egui host with the pipeline cache: first frame 411 ms warm, idle 0.00%. **Owner chose the egui host.** | ✅ | `af2e4bd`, this commit |
-| 10 | P-HOST: real VST3 (u-he TyrellN6) processing audio inside an isolated host process, with state save and restore | 🔲 approved | |
+| 10 | P-HOST: TyrellN6 hosted in-process and in an isolated host process. 66 µs/block round trip incl. processing; real crash detected next block, restarted with last known state in 33 ms, audio resumes; state round trip identical | ✅ | `bd57b9b`, this commit |
 | 11 | `lumen` application shell on the chosen UI stack (after the UI decision) | 🔲 approved | |
 
 ---
@@ -346,7 +346,7 @@ MT-ISO-2, MT-UI-2 with Narrator, MT-UI-3 visual quality); mid-range hardware.
 | UI approach validated | ✅ P-UI, with the GPU escape hatch proven; awaiting approval |
 | Audio architecture proven with a prototype | ✅ Engine core plus native ASIO on real hardware. Other backends are M2. |
 | Project format saves and loads a minimal project | ✅ |
-| VST3 and isolation approach demonstrated | ⚠️ Scanning real plugins out of process ✅ and the isolation transport with crash/hang survival ✅, but no real plugin has yet processed audio inside an isolated host (slice 9). |
+| VST3 and isolation approach demonstrated | ✅ Real plugin (TyrellN6) processes audio in an isolated host process, survives a crash and is restored from its last known state (P-HOST, 2026-10-06) |
 
 **Deferred, proposed to finish M1 after approval:** slice 9 (P-HOST), slice
 10 (application shell), the first CI run, and a local MSVC build.
