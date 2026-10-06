@@ -343,5 +343,5 @@ about 25 s; callbacks stopped. After waking, `Lost(DeviceNotPresent("the
 driver stopped delivering audio"))` came from the watchdog, then `Restored`
 2.4 s later, and the tone resumed at 170–175 callbacks/s (172 expected) to
 the end. No crash, no hang. The twenty `0/s` report lines before `Lost`
-are probably the report loop catching up at wake; to confirm with the
-user: how long after waking the tone returned.
+are the report loop catching up at wake: the user confirmed the tone came
+back promptly after waking.
