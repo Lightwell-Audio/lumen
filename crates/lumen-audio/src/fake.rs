@@ -18,6 +18,12 @@ pub struct FakeDevice {
     /// Opens succeed even while unplugged (the stream then fails at once),
     /// as some drivers do while their hardware is disappearing.
     pub phantom: bool,
+    /// Deliver a block only every Nth poll (1 = always): a starving
+    /// driver.
+    pub deliver_every: u32,
+    /// Driver sample positions jump ahead by this many frames once (a
+    /// skipped buffer), then reset to 0.
+    pub skip_frames: u64,
     pub opens: u32,
     pub buffer_sizes: BufferSizes,
 }
@@ -33,6 +39,8 @@ impl FakeControl {
             reset_pending: false,
             stalled: false,
             phantom: false,
+            deliver_every: 1,
+            skip_frames: 0,
             opens: 0,
             buffer_sizes: BufferSizes {
                 min: 32,
@@ -119,6 +127,7 @@ impl Backend for FakeBackend {
             inputs: vec![0.0; inputs * frames as usize],
             outputs: vec![0.0; outputs * frames as usize],
             position: 0,
+            polls: 0,
         }))
     }
 }
@@ -130,6 +139,7 @@ struct FakeStream {
     inputs: Vec<f32>,
     outputs: Vec<f32>,
     position: u64,
+    polls: u32,
 }
 
 impl Stream for FakeStream {
@@ -138,11 +148,23 @@ impl Stream for FakeStream {
     }
 
     fn poll(&mut self) -> Option<StreamEvent> {
-        let (present, reset, stalled) = {
+        let (present, reset, stalled, every, skip) = {
             let mut device = self.control.0.lock().expect("fake device lock");
             let reset = std::mem::take(&mut device.reset_pending);
-            (device.present, reset, device.stalled)
+            let skip = std::mem::take(&mut device.skip_frames);
+            (
+                device.present,
+                reset,
+                device.stalled,
+                device.deliver_every.max(1),
+                skip,
+            )
         };
+        self.position += skip;
+        self.polls += 1;
+        if !self.polls.is_multiple_of(every) {
+            return None;
+        }
         if stalled {
             return Some(StreamEvent::Stalled);
         }

@@ -48,6 +48,11 @@ pub struct Status {
     peak_load: AtomicU32,
     /// Blocks whose processing took longer than their duration.
     overloads: AtomicU64,
+    /// Frames processed, for the starvation check.
+    frames: AtomicU64,
+    /// Audio that never reached the device: missed buffers, or delivery
+    /// slower than real time.
+    dropouts: AtomicU64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,15 +84,29 @@ impl Status {
     pub fn overloads(&self) -> u64 {
         self.overloads.load(Ordering::Relaxed)
     }
+    /// Dropouts since start (or the last reset): buffers the driver skipped,
+    /// plus audio delivered slower than real time, in buffers.
+    pub fn dropouts(&self) -> u64 {
+        self.dropouts.load(Ordering::Relaxed)
+    }
+    /// Zeroes the dropout and overload counters (the user's "reset").
+    pub fn reset_counters(&self) {
+        self.dropouts.store(0, Ordering::Relaxed);
+        self.overloads.store(0, Ordering::Relaxed);
+    }
     fn set_state(&self, state: State) {
         self.state.store(state as u8, Ordering::Relaxed);
     }
 }
 
-/// Wraps the user's callback to measure its load. Real-time safe.
+/// Wraps the user's callback to measure its load and spot skipped buffers.
+/// Real-time safe.
 struct Metered {
     inner: Box<dyn AudioCallback>,
     status: Arc<Status>,
+    /// Where the driver's sample position should be next block, when it
+    /// reports one (ASIO).
+    expected_position: Option<u64>,
 }
 
 impl AudioCallback for Metered {
@@ -102,7 +121,21 @@ impl AudioCallback for Metered {
         if load > 1000 {
             self.status.overloads.fetch_add(1, Ordering::Relaxed);
         }
+        // A driver position past where it should be means it skipped
+        // buffers. A position behind it means the stream restarted: resync.
+        if let Some(position) = block.position {
+            if let Some(expected) = self.expected_position
+                && position > expected
+            {
+                let skipped = (position - expected).div_ceil(block.frames.max(1) as u64);
+                self.status.dropouts.fetch_add(skipped, Ordering::Relaxed);
+            }
+            self.expected_position = Some(position + block.frames as u64);
+        }
         self.status.callbacks.fetch_add(1, Ordering::Relaxed);
+        self.status
+            .frames
+            .fetch_add(block.frames as u64, Ordering::Relaxed);
     }
 }
 
@@ -122,6 +155,9 @@ pub struct Timing {
     /// How long a reopened lost device must deliver audio before it is
     /// reported `Restored`.
     pub restore_confirm: Duration,
+    /// How often delivery is checked against real time (`None` turns the
+    /// check off). The first window after any (re)open is ignored.
+    pub starvation_window: Option<Duration>,
 }
 
 impl Default for Timing {
@@ -130,6 +166,7 @@ impl Default for Timing {
             retry_interval: Duration::from_secs(1),
             poll_interval: Duration::from_millis(10),
             restore_confirm: Duration::from_secs(1),
+            starvation_window: Some(Duration::from_secs(1)),
         }
     }
 }
@@ -156,6 +193,7 @@ impl AudioSystem {
         let metered: Box<dyn AudioCallback> = Box::new(Metered {
             inner: callback,
             status: Arc::clone(&status),
+            expected_position: None,
         });
         let thread_status = Arc::clone(&status);
         let thread = std::thread::Builder::new()
@@ -169,6 +207,8 @@ impl AudioSystem {
                     config: None,
                     lost_since: None,
                     confirming: None,
+                    running: None,
+                    window: None,
                     next_retry: Instant::now(),
                     events: event_tx,
                     status: thread_status,
@@ -229,6 +269,11 @@ struct Supervisor<B: Backend> {
     lost_since: Option<Instant>,
     /// A lost device that reopened and is on probation.
     confirming: Option<Confirming>,
+    /// The running stream's rate and block size, for the starvation check.
+    running: Option<StreamInfo>,
+    /// The current starvation window: when it began, frames by then, and
+    /// whether it is the warm-up window after an open (ignored).
+    window: Option<(Instant, u64, bool)>,
     next_retry: Instant,
     events: Sender<DeviceEvent>,
     status: Arc<Status>,
@@ -272,6 +317,8 @@ impl<B: Backend> Supervisor<B> {
             Ok(stream) => {
                 let info = stream.info();
                 self.stream = Some(stream);
+                self.running = Some(info.clone());
+                self.window = None;
                 Ok(info)
             }
             Err(failed) => {
@@ -283,6 +330,8 @@ impl<B: Backend> Supervisor<B> {
 
     fn close(&mut self) {
         self.confirming = None;
+        self.running = None;
+        self.window = None;
         if let Some(stream) = self.stream.take() {
             self.callback = Some(stream.close());
         }
@@ -335,6 +384,36 @@ impl<B: Backend> Supervisor<B> {
         self.emit(DeviceEvent::Lost(error));
     }
 
+    /// Compares audio delivered with real time over each window; a
+    /// shortfall beyond 3% counts as dropouts, in buffers. Catches drivers
+    /// that run but starve the device (MT-AUDIO-4).
+    fn check_starvation(&mut self) {
+        let (Some(window), Some(info)) = (self.timing.starvation_window, &self.running) else {
+            return;
+        };
+        let frames = self.status.frames.load(Ordering::Relaxed);
+        let now = Instant::now();
+        let Some((started, at_start, warm_up)) = self.window else {
+            self.window = Some((now, frames, true));
+            return;
+        };
+        let elapsed = now.duration_since(started);
+        if elapsed < window {
+            return;
+        }
+        if !warm_up {
+            let expected = elapsed.as_secs_f64() * f64::from(info.sample_rate);
+            let delivered = (frames - at_start) as f64;
+            let block = f64::from(info.buffer_frames.max(1));
+            let missing = expected * 0.97 - delivered;
+            if missing > 2.0 * block {
+                let lost = ((expected - delivered) / block).ceil() as u64;
+                self.status.dropouts.fetch_add(lost, Ordering::Relaxed);
+            }
+        }
+        self.window = Some((now, frames, false));
+    }
+
     /// A reopened lost device failed its probation: back to quiet retries.
     fn retry_later(&mut self) {
         self.close();
@@ -347,6 +426,9 @@ impl<B: Backend> Supervisor<B> {
         };
         if let Some(stream) = self.stream.as_mut() {
             let event = stream.poll();
+            if event.is_none() && self.confirming.is_none() {
+                self.check_starvation();
+            }
             if self.confirming.is_some() {
                 match event {
                     None => self.confirm_restore(),

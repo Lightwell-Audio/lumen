@@ -163,9 +163,10 @@ fn main() {
                     None => format!("{}/s", count - last_count),
                 };
                 println!(
-                    "          running: {count} callbacks ({rate}), peak load {:.2}%, overloads {}",
+                    "          running: {count} callbacks ({rate}), peak load {:.2}%, overloads {}, dropouts {}",
                     status.take_peak_load() * 100.0,
-                    status.overloads()
+                    status.overloads(),
+                    status.dropouts()
                 );
             } else {
                 println!("          state: {:?}", status.state());

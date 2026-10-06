@@ -14,6 +14,7 @@ fn fast() -> Timing {
         retry_interval: Duration::from_millis(20),
         poll_interval: Duration::from_millis(2),
         restore_confirm: Duration::from_millis(30),
+        starvation_window: None,
     }
 }
 
@@ -242,4 +243,80 @@ fn load_is_measured() {
         "a trivial callback should use well under the budget: {load}"
     );
     assert_eq!(audio.status().overloads(), 0);
+}
+
+/// The starvation check over 200 ms windows.
+fn watching() -> Timing {
+    Timing {
+        starvation_window: Some(Duration::from_millis(200)),
+        ..fast()
+    }
+}
+
+fn spawn(control: &FakeControl, timing: Timing) -> AudioSystem {
+    let backend_control = control.clone();
+    AudioSystem::spawn(
+        move || FakeBackend(backend_control),
+        Box::new(|_: &mut Block<'_>| {}),
+        timing,
+    )
+}
+
+fn wait_for_dropouts(audio: &AudioSystem, at_least: u64) {
+    let started = Instant::now();
+    while audio.status().dropouts() < at_least {
+        assert!(
+            started.elapsed() < WAIT,
+            "dropouts stayed at {}",
+            audio.status().dropouts()
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn a_driver_delivering_slower_than_real_time_counts_dropouts() {
+    // 64 frames every 4th poll of 2 ms: about 8,000 frames a second at 48 kHz.
+    let control = FakeControl::new();
+    control.set(|d| d.deliver_every = 4);
+    let audio = spawn(&control, watching());
+    audio.configure(config(Some(64)));
+    assert!(matches!(
+        audio.wait_event(WAIT),
+        Some(DeviceEvent::Started(_))
+    ));
+    wait_for_dropouts(&audio, 1);
+}
+
+#[test]
+fn a_healthy_driver_counts_no_dropouts() {
+    // 1,024 frames every poll: far faster than real time.
+    let control = FakeControl::new();
+    let audio = spawn(&control, watching());
+    audio.configure(config(Some(1_024)));
+    assert!(matches!(
+        audio.wait_event(WAIT),
+        Some(DeviceEvent::Started(_))
+    ));
+    std::thread::sleep(Duration::from_millis(700));
+    assert_eq!(audio.status().dropouts(), 0);
+}
+
+#[test]
+fn skipped_driver_buffers_count_as_dropouts_and_reset_clears_them() {
+    let control = FakeControl::new();
+    let audio = spawn(&control, fast());
+    audio.configure(config(Some(256)));
+    assert!(matches!(
+        audio.wait_event(WAIT),
+        Some(DeviceEvent::Started(_))
+    ));
+    std::thread::sleep(Duration::from_millis(30));
+    // The driver position jumps two buffers ahead: two buffers were skipped.
+    control.set(|d| d.skip_frames = 512);
+    wait_for_dropouts(&audio, 2);
+    std::thread::sleep(Duration::from_millis(30));
+    assert_eq!(audio.status().dropouts(), 2);
+    audio.status().reset_counters();
+    assert_eq!(audio.status().dropouts(), 0);
 }
