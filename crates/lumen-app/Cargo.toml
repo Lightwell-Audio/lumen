@@ -15,6 +15,7 @@ eframe.workspace = true
 lumen-audio.workspace = true
 lumen-core.workspace = true
 lumen-engine.workspace = true
+lumen-media.workspace = true
 lumen-project.workspace = true
 lumen-render.workspace = true
 png.workspace = true

@@ -32,6 +32,8 @@ pub struct Transport {
     /// Keep drawing every frame until then, so the result of a command shows
     /// at once rather than at the next idle repaint.
     settle_until: Option<Instant>,
+    /// Bytes of clip audio in memory, shown in the status tooltip.
+    pub clip_memory: usize,
 }
 
 fn timeline_of(project: &Project) -> Timeline {
@@ -59,6 +61,7 @@ impl Transport {
             editing: None,
             error: None,
             settle_until: None,
+            clip_memory: 0,
         }
     }
 
@@ -385,10 +388,14 @@ impl Transport {
             Status::Starting => theme::HINT_TEXT,
             Status::Lost(_) | Status::Off(_) => theme::WARNING,
         };
+        let memory = format!(
+            "Clip audio in memory: {:.0} MB",
+            self.clip_memory as f64 / 1_048_576.0
+        );
         let tip = if tip.is_empty() {
-            text.clone()
+            format!("{text}\n\n{memory}")
         } else {
-            format!("{text}\n\n{tip}")
+            format!("{text}\n\n{tip}\n\n{memory}")
         };
         let (rect, response) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
         ui.painter().circle_filled(rect.center(), 4.0, dot);

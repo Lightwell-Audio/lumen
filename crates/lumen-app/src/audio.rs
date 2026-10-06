@@ -4,7 +4,7 @@
 //! with `--audio`.
 
 use lumen_audio::{AudioSystem, Backend, Block, DeviceEvent, DeviceId, StreamConfig, Timing};
-use lumen_engine::{EngineHandle, Timeline, engine};
+use lumen_engine::{ClipsHandle, EngineHandle, Timeline, clip_player, engine};
 
 /// Which device to open.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,6 +114,8 @@ pub struct Audio {
     /// `None` when no device could be found; the engine then stays idle.
     system: Option<AudioSystem>,
     pub engine: EngineHandle,
+    /// Replaces the clips the engine plays.
+    pub clips: ClipsHandle,
     pub status: Status,
     device: String,
 }
@@ -122,7 +124,8 @@ impl Audio {
     /// Starts the engine on the chosen device. Never fails: problems show up
     /// in [`Status`].
     pub fn start(choice: &Choice, timeline: Timeline) -> Self {
-        let (engine_handle, mut engine) = engine(timeline, (), 48_000);
+        let (clips, player) = clip_player();
+        let (engine_handle, mut engine) = engine(timeline, player, 48_000);
         let callback = move |block: &mut Block<'_>| {
             let (rate, channels, frames) = (block.sample_rate, block.output_channels, block.frames);
             engine.process(rate, block.outputs, channels, frames);
@@ -140,6 +143,7 @@ impl Audio {
                 Self {
                     system: Some(system),
                     engine: engine_handle,
+                    clips,
                     status: Status::Starting,
                     device: name,
                 }
@@ -147,6 +151,7 @@ impl Audio {
             Err(message) => Self {
                 system: None,
                 engine: engine_handle,
+                clips,
                 status: Status::Off(message),
                 device: String::new(),
             },
@@ -180,6 +185,7 @@ impl Audio {
             changed = true;
         }
         self.engine.collect_garbage();
+        self.clips.collect_garbage();
         changed
     }
 }

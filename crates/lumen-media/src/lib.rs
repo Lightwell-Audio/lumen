@@ -60,6 +60,11 @@ impl Audio {
         self.frames() as f64 / f64::from(self.sample_rate.max(1))
     }
 
+    /// The samples, channel after channel, without copying.
+    pub fn into_channels(self) -> Vec<Vec<f32>> {
+        self.channels
+    }
+
     /// Bytes of sample memory held.
     pub fn memory(&self) -> usize {
         self.channels() * self.frames() * std::mem::size_of::<f32>()

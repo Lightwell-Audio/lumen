@@ -9,6 +9,8 @@
 //! lumen --audio asio:"Focusrite USB ASIO"
 //!                                use this device (driver: asio, wasapi,
 //!                                exclusive; cpal on macOS and Linux)
+//! lumen --open-audio drums.wav   add an audio file at bar 1 (or drag files
+//!                                from Explorer onto the arrangement)
 //! lumen --scale 1.5              UI scale
 //! lumen --smoke-test             render a few frames, report start-up time, exit
 //! lumen --screenshot out.png     render, save a screenshot, exit
@@ -17,6 +19,8 @@
 mod audio;
 mod canvas;
 mod icons;
+mod lanes;
+mod media;
 mod position;
 mod ruler;
 mod theme;
@@ -39,6 +43,10 @@ const RULER_HEIGHT: f32 = 22.0;
 struct App {
     project: Project,
     transport: Transport,
+    /// Audio clips on the simple timeline (M2 slice 6).
+    lanes: lanes::Lanes,
+    /// Where dropped files go: under the pointer, snapped, or the playhead.
+    drop_target: Ticks,
     show_browser: bool,
     show_detail: bool,
     /// Set by the raw-input hook when Shift+Tab is pressed.
@@ -134,6 +142,22 @@ impl App {
             },
         ));
         let x_of = |quarters: f32| canvas.left() + (quarters - self.left_beat) * self.px_per_beat;
+        self.lanes
+            .paint(&painter, canvas, &self.transport.timeline, x_of);
+
+        // Dropped files land under the pointer (snapped) when the system
+        // reports it, otherwise at the playhead.
+        let pointer = ui
+            .input(|i| i.pointer.hover_pos())
+            .filter(|p| canvas.contains(*p));
+        self.drop_target = match pointer {
+            Some(p) => ruler::snap(
+                &self.transport.timeline.meter,
+                ruler::ticks_at_x(p.x, canvas.left(), self.left_beat, self.px_per_beat),
+                self.px_per_beat,
+            ),
+            None => self.transport.state().ticks,
+        };
 
         // Ruler: loop range, then bar numbers thinned so labels never collide.
         painter.rect_filled(ruler, 0.0, theme::RULER);
@@ -222,15 +246,32 @@ impl App {
             ));
         }
 
-        if self.project.tracks.is_empty() {
+        let hovering_files = ui.input(|i| !i.raw.hovered_files.is_empty());
+        if hovering_files {
+            painter.rect_stroke(
+                canvas.shrink(2.0),
+                4.0,
+                Stroke::new(2.0, theme::ACCENT),
+                egui::StrokeKind::Inside,
+            );
             painter.text(
                 canvas.center(),
                 egui::Align2::CENTER_CENTER,
-                "Empty project\nTracks, clips and editing arrive in Milestone 3",
+                "Drop to add audio",
+                egui::FontId::proportional(16.0),
+                theme::ACCENT,
+            );
+        } else if self.lanes.is_empty() {
+            painter.text(
+                canvas.center(),
+                egui::Align2::CENTER_CENTER,
+                "Drop audio files here\nWAV, AIFF, FLAC, MP3 or Ogg Vorbis",
                 egui::FontId::proportional(14.0),
                 theme::HINT_TEXT,
             );
         }
+        self.lanes
+            .panel(ui.ctx(), pos2(full.left() + 8.0, full.bottom() - 8.0));
     }
 }
 
@@ -277,6 +318,22 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.transport.update();
         self.transport.shortcuts(&ctx);
+        let rate = self.transport.state().sample_rate;
+        let dropped: Vec<PathBuf> = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .map(|f| f.path().to_path_buf())
+                .filter(|p| !p.as_os_str().is_empty())
+                .collect()
+        });
+        if !dropped.is_empty() {
+            trace::log(|| format!("drop: {} file(s) at {:?}", dropped.len(), self.drop_target));
+            self.lanes.add_files(dropped, self.drop_target, rate, &ctx);
+        }
+        self.lanes
+            .update(rate, &ctx, &mut self.transport.audio.clips);
+        self.transport.clip_memory = self.lanes.library.memory();
         if let Some(every) = self.autoplay {
             // Toggle play and stop every `every`, as Space would.
             let elapsed = self.started.elapsed();
@@ -470,8 +527,20 @@ fn main() -> eframe::Result {
             }
             cc.egui_ctx.set_zoom_factor(scale);
             let project = empty_project();
+            let transport = Transport::new(&project, &choice);
+            let mut lanes = lanes::Lanes::default();
+            if let Some(path) = arg_value("--open-audio") {
+                lanes.add_files(
+                    vec![PathBuf::from(path)],
+                    Ticks::ZERO,
+                    transport.state().sample_rate,
+                    &cc.egui_ctx,
+                );
+            }
             Ok(Box::new(App {
-                transport: Transport::new(&project, &choice),
+                transport,
+                lanes,
+                drop_target: Ticks::ZERO,
                 project,
                 show_browser: true,
                 show_detail: true,

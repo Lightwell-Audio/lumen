@@ -443,3 +443,33 @@ in `%USERPROFILE%\lumen-target`, which predated slice 5. Both now use
 **Expected:** every step as described.
 
 **Last run (2026-10-06, run 2, started with `cargo run`):** pass, all steps.
+
+---
+
+## M2 · Audio files (`crates/lumen-media`, clips in the app)
+
+### MT-MEDIA-1 · Playing audio files (needs a human)
+Run `cargo run --release -p lumen-app -- --audio asio:"Focusrite USB ASIO"`.
+Use your own files: ideally a long song (5+ minutes), a short drum loop, and
+files at 44.1 kHz and 48 kHz, in more than one format (WAV, FLAC, MP3, Ogg).
+1. Drag one file from Explorer onto the arrangement. It appears on a lane
+   with a loading bar, then as a coloured block with its name.
+2. Press Space: it plays cleanly, with no clicks, crackles or dropouts, all
+   the way through a long file.
+3. Click the ruler mid-clip while playing: playback jumps there without a
+   click.
+4. Turn Loop on and drag a drum loop so it starts at bar 1: the loop of bars
+   1–4 should sound seamless.
+5. Drop several files at once: each gets its own lane and they play together.
+6. Drop a non-audio file (a .txt): a note in the bottom-left says it was not
+   added.
+7. Drop a large file and press Cancel while it loads: it disappears.
+8. Hover the status dot: the tooltip shows how much clip audio is in memory.
+9. Repeat 2 at 64 and 128 samples in Focusrite Control, listening for
+   dropouts.
+
+**Expected:** every step as described.
+
+**Last run:** not yet run. Automated: `--open-audio` with a 5 s WAV loads
+in 38 ms and redraws at 2.5 bars; the rate change to 44.1 kHz converts again
+automatically.

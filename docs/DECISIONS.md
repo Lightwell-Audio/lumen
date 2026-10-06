@@ -29,6 +29,7 @@ irreversible or external) · *Superseded*.
 | [0016](#adr-0016--wasapi-coreaudio-and-linux-backends) | WASAPI through the `wasapi` crate; CoreAudio and ALSA through cpal | Accepted 2026-10-06 | No |
 | [0017](#adr-0017--engine-transport-and-timeline) | Engine transport and timeline: Ableton-style stop, positions in ticks, live tempo and rate changes | Accepted 2026-10-06 | No |
 | [0018](#adr-0018--transport-bar-icons-and-app-audio) | Transport bar: vector icons on egui's painter; the app opens the system default output until the device selector | Accepted 2026-10-06 | No |
+| [0019](#adr-0019--audio-files-and-clip-playback) | Audio files: symphonia + rubato into memory; clip player with edge and jump fades; one lane per file until M3 | Accepted 2026-10-06 (owner: memory now, streaming in M9) | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -1072,3 +1073,48 @@ said "Vello paths". The app also needs audio now, before the device selector
 - Tempo and time-signature edits are not undoable yet; undo arrives with the
   command system in M3.
 - The loop range is fixed to bars 1–4 until the ruler can set it (M3).
+
+---
+
+## ADR-0019 — Audio files and clip playback
+
+**Status:** Accepted · **Date:** 2026-10-06 (M2 slice 6). Owner decisions:
+audio in memory for M2, disk streaming in M9; AAC/M4A deferred.
+
+### Decision
+- **`lumen-media`:** symphonia decodes WAV, AIFF, FLAC, MP3 and Ogg Vorbis to
+  `f32`. rubato's FFT resampler converts to the device rate (rubato's own
+  recommendation for fixed-ratio file conversion). Loads run on background
+  threads with progress and cancel.
+- **In memory:** converted audio is shared (`Arc`) by the clips that use
+  it. The audio thread only reads memory. Disk streaming arrives in M9
+  (ROADMAP.md, PROGRESS.md); this path becomes the per-clip RAM option.
+- **Rate changes:** when the device rate changes, files are converted again
+  in the background. Clips whose audio is not at the device rate stay
+  silent rather than play at the wrong speed.
+- **Clip player** (`lumen-engine`, a `Source`):
+  - Clips start at a musical position and play unwarped.
+  - Start samples are recomputed every block (a binary search per clip).
+    Caching them by timeline address was rejected: a freed timeline's
+    address can be reused.
+  - 2 ms fades at clip edges. A 2 ms fade-in after play, locate and
+    tempo/rate jumps (`Source::locate` now gets a `Jump` reason), but not
+    on loop wraps, so loops stay seamless.
+  - Clip lists are swapped whole through lock-free queues, and old lists are
+    freed on the UI side.
+- **The simple timeline:** each imported file gets its own lane with one
+  clip at the drop position, snapped. The pointer position is unknown while
+  Windows drags files (winit 0.30 reports no position), so a drop may land at
+  the playhead. Lanes become project tracks with headers, editing, undo and
+  save/load in M3.
+
+### Evidence (2026-10-06)
+| Check | Result |
+|---|---|
+| Decoding | WAV 16/24/float and AIFF decode to their exact samples (self-written files) |
+| Conversion | 44.1↔48 and 96→48 kHz keep length (±2 frames), pitch (440 Hz) and level |
+| Golden renders | clips exact on every sample at block sizes 1–4096; seamless loop wraps; fades as specified |
+| Real-time safety | zero heap operations over 3,000 blocks with 64 clips, list swaps and locates |
+| Cost | 64 stereo clips at 128 frames: 25 µs median (0.9% of the 2.67 ms budget) |
+| Licences | cargo-deny: advisories, bans, licences and sources ok, with MPL-2.0 exceptions for the 10 symphonia crates (THIRD_PARTY_NOTICES.md) |
+| App | `--open-audio` of a 5 s file: ready in 38 ms; converted again to 44.1 kHz in 6 ms when the Focusrite started |
