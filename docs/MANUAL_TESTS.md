@@ -242,7 +242,11 @@ for one second, and failed probation stays quiet. Covered by the test
 `a_reopen_that_fails_at_once_is_not_reported_restored`. Run 2 confirms the
 fix on hardware.
 
-**Run 2:** not yet run.
+**Run 2 (2026-10-06):** pass. One `Lost` at 12.4 s (watchdog), one
+`Restored` at 35.8 s, no false restore in between. About 400 callbacks ran
+during the one-second probation, then audio continued cleanly to the end
+(0 overloads, peak load 0.7%). Time from replug to `Restored` is not yet
+confirmed.
 
 ### MT-AUDIO-2 · Driver reset from the control panel (needs a human)
 1. `asio_tone "Focusrite USB ASIO" --seconds 60 --tone`
