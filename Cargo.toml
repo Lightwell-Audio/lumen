@@ -26,6 +26,7 @@ eframe = "0.36"
 vello = "0.11"
 wgpu = "30"
 winit = "0.30"
+pollster = "0.4"
 lumen-render = { path = "crates/lumen-render" }
 lumen-project = { path = "crates/lumen-project" }
 

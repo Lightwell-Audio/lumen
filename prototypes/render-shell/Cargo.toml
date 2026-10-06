@@ -1,0 +1,19 @@
+[package]
+name = "render-shell"
+description = "P-RENDER: lumen-render hosted in a bare winit window, no UI toolkit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+lumen-render.workspace = true
+pollster.workspace = true
+winit.workspace = true
+
+[target.'cfg(windows)'.dependencies.windows-sys]
+workspace = true
+features = ["Win32_Foundation", "Win32_System_SystemInformation", "Win32_System_Threading"]
+
+[lints]
+workspace = true
