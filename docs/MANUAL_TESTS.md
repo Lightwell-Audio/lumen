@@ -280,9 +280,19 @@ at 44.1 kHz / 128 frames, about 344 callbacks per second, clean Stopped.
 3. Repeat with `--driver exclusive`.
 
 **Expected:** one `Lost` after the unplug and one `Restored` about 2 s after
-the replug, the tone resuming in both modes, no crash and no hang.
+the replug, the tone resuming in both modes, no crash and no hang. In
+exclusive mode at 441 frames and 44.1 kHz, about 100 callbacks per second.
 
-**Last run:** not yet run.
+**Run 1 (2026-10-06):** recovery passes in both modes: one `Lost` and one
+`Restored`, about 4 s after the replug (Windows re-registering the USB
+endpoint, plus Lumen's retry and confirmation). Two findings:
+- The unplug was reported as `Driver("… 0x80070003")` rather than
+  `DeviceNotPresent`. Fixed: the file-not-found and path-not-found errors
+  now map to `DeviceNotPresent`.
+- **Open:** exclusive mode delivered only about 65 callbacks per second
+  instead of 100, which means starved output. This matches the known
+  stutter of event-driven exclusive mode on some USB drivers. Under
+  investigation.
 
 ### MT-AUDIO-5 · WASAPI shared and exclusive streams (automatable)
 - `audio_tone list --driver wasapi` and `list --driver exclusive`: every

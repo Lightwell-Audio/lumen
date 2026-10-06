@@ -41,6 +41,10 @@ const BUFFER_SIZE_ERROR: u32 = 0x8889_0016;
 const BUFFER_SIZE_NOT_ALIGNED: u32 = 0x8889_0019;
 const INVALID_DEVICE_PERIOD: u32 = 0x8889_0020;
 const NOT_FOUND: u32 = 0x8007_0490;
+// ERROR_FILE_NOT_FOUND and ERROR_PATH_NOT_FOUND: seen when a USB device is
+// unplugged mid-stream (MT-AUDIO-4).
+const FILE_NOT_FOUND: u32 = 0x8007_0002;
+const PATH_NOT_FOUND: u32 = 0x8007_0003;
 
 /// Rates offered in exclusive mode when the device accepts them.
 const RATES: [u32; 6] = [44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
@@ -68,7 +72,9 @@ fn hresult(error: &WasapiError) -> Option<u32> {
 fn map_error(error: &WasapiError, name: &str) -> AudioError {
     match hresult(error) {
         Some(DEVICE_IN_USE | EXCLUSIVE_MODE_NOT_ALLOWED) => AudioError::DeviceBusy(name.into()),
-        Some(DEVICE_INVALIDATED | NOT_FOUND) => AudioError::DeviceNotPresent(name.into()),
+        Some(DEVICE_INVALIDATED | NOT_FOUND | FILE_NOT_FOUND | PATH_NOT_FOUND) => {
+            AudioError::DeviceNotPresent(name.into())
+        }
         Some(UNSUPPORTED_FORMAT | BUFFER_SIZE_ERROR | INVALID_DEVICE_PERIOD) => {
             AudioError::Unsupported(format!("{name}: {error}"))
         }
