@@ -7,7 +7,7 @@ automatically on first build. Install rustup from <https://rustup.rs>.
 
 ### Windows — recommended (production target, MSVC; in use on the dev machine since 2026-10-06)
 
-Build output on the dev machine goes to `%USERPROFILE%\lumen-target` (set `CARGO_TARGET_DIR`), outside `AppData` and off the nearly full D: drive.
+Build output goes to the repository's own `target` folder (Cargo's default). Leave `CARGO_TARGET_DIR` unset, so everyone who builds on the machine (people and agents) shares one build. From 2026-10-05 to 2026-10-06 the agent built into `%USERPROFILE%\lumen-target` while the owner's shell built into `target`. Instructions started one copy while builds updated the other, which looked like features not working (MT-APP-3). That old folder can be deleted.
 
 1. Install **Visual Studio 2022 Build Tools** with the *Desktop development
    with C++* workload (needs admin rights and acceptance of Microsoft's
@@ -64,14 +64,14 @@ manual testing are in `%USERPROFILE%\lumen-bin`.
 ## Build output size
 
 A full debug plus release build of the workspace takes about 4.6 GB, mostly
-the UI prototype's GPU stack. If the drive holding the repository is short of
-space, put the build output elsewhere:
+the UI prototype's GPU stack. Only if the drive holding the repository is
+short of space, move the build output, and then set the variable the same
+way for every shell and agent on the machine (never `%LOCALAPPDATA%`; see
+the `AppData` warning above):
 
 ```bash
 export CARGO_TARGET_DIR="$(cygpath -w "$USERPROFILE")\lumen-target"
 ```
-
-(Not `%LOCALAPPDATA%`: see the `AppData` warning above.)
 
 ## Checking macOS code from Windows
 

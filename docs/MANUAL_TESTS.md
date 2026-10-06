@@ -3,9 +3,11 @@
 Tests that need real hardware, third-party software or a human. Each entry
 lists steps, the expected result and its last recorded run.
 
-Binaries are in `%USERPROFILE%\lumen-target\release` (older copies in `%USERPROFILE%\lumen-bin`) (see the AppData warning in
-`docs/DEVELOPMENT.md`). To rebuild: `cargo build --release --workspace` (see
-`docs/DEVELOPMENT.md` for the toolchain).
+Run every tool with `cargo run --release` from the repository folder
+(`D:\Projects\lumen`). It builds first and stops if the build fails, so it
+always runs the current code. Starting an `.exe` by path can run a stale
+copy (MT-APP-3; see `docs/DEVELOPMENT.md`). Older M1 binaries remain in
+`%USERPROFILE%\lumen-bin`.
 
 ---
 
@@ -218,10 +220,9 @@ Interactive checks of zoom, scroll and Shift+Tab not yet done by a human.
 
 ## M2 · Audio device layer (`crates/lumen-audio`)
 
-Build once: `cargo build --release -p lumen-audio --example audio_tone`
-(binary: `%USERPROFILE%\lumen-target\release\examples\audio_tone.exe`). In
-PowerShell, run it as
-`& "$env:USERPROFILE\lumen-target\release\examples\audio_tone.exe" <args>`.
+Run: `cargo run --release -p lumen-audio --example audio_tone -- <args>`
+(for example `-- "Focusrite USB ASIO" --seconds 60 --tone`). The runs below
+show `audio_tone <args>` for short.
 `--driver` picks `asio` (the default), `wasapi` or `exclusive`. (Before
 slice 2 the example was called `asio_tone` and spoke only ASIO.)
 
@@ -350,9 +351,7 @@ back promptly after waking.
 
 ## M2 · Engine and transport (`crates/lumen-engine`)
 
-Build once: `cargo build --release -p lumen-engine --example transport_demo`.
-In PowerShell:
-`& "$env:USERPROFILE\lumen-target\release\examples\transport_demo.exe" "Focusrite USB ASIO"`.
+Run: `cargo run --release -p lumen-engine --example transport_demo -- "Focusrite USB ASIO"`.
 Type a command and press Enter: `p` play · `a` pause · `s` stop · `g 5` go to
 bar 5 · `l 2 4` loop bars 2–3 · `l` loop off · `t 140` tempo · `m 7/8` time
 signature · `q` quit.
@@ -380,8 +379,7 @@ Tip found during the run: a loop only catches playback that is before its
 end, so `g 2` before `l 2 3` if playback is already past bar 3.
 
 ### MT-APP-2 · Transport bar (needs a human)
-Build: `cargo build --release -p lumen-app`. In PowerShell:
-`& "$env:USERPROFILE\lumen-target\release\lumen.exe" --audio asio:"Focusrite USB ASIO"`
+Run: `cargo run --release -p lumen-app -- --audio asio:"Focusrite USB ASIO"`
 (or with no `--audio` for the Windows default output).
 1. The status dot is blue and the text names the device, rate, buffer and
    latency. Hover it for the full text.
@@ -424,9 +422,10 @@ toggles pushed off-screen at 200% and the status text unreadable. Both fixed.
 Close Lumen, then build and start it in one step (a failed build then
 stops instead of starting an old one):
 `cargo run --release -p lumen-app -- --audio asio:"Focusrite USB ASIO"`.
-Run 1 (2026-10-06) tested a stale build: `cargo build` could not replace
-the running `lumen.exe`, so the old app without slice 5 started. Not a
-result.
+Run 1 (2026-10-06) tested a stale build, not a result. The owner's
+`cargo build` wrote to `target\`, but the command started the agent's copy
+in `%USERPROFILE%\lumen-target`, which predated slice 5. Both now use
+`target\`, started with `cargo run`.
 
 1. Move the pointer along the ruler (the strip with bar numbers): a faint
    blue line follows it, jumping between grid lines; the pointer is a hand.
