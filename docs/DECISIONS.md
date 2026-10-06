@@ -417,6 +417,17 @@ Findings that shape M6:
    signal/wait). Grouping (per plugin type or vendor) keeps the count modest;
    M6 measures this with real plugins.
 
+**Re-run, same day, second session (machine idle, Balanced power plan):**
+functional results identical (0 misses, mismatches and overruns; crash and
+hang survived). **Tail latency was much worse and reproduced 3 times:**
+1-host p99 232–242 µs (against 19.5 µs earlier), 8-host p99 44–253 µs.
+Spinning stayed fast (p99 9.8 µs), so the cost is waking a sleeping thread.
+That is likely CPU power states or scheduling, but not yet diagnosed. The
+transport still fits easily within a 2.67 ms period, but the p99 ≤ 50 µs
+criterion is **not robustly met with pure event signalling**. M6 must
+evaluate spin-then-wait signalling and how MMCSS and power states interact,
+and measure on more than one machine state.
+
 Not covered yet: real plugins in the host (P-VST3 covers scanning only),
 editor windows across processes, the POSIX transport (futex / Mach
 semaphores), and parameter and event traffic beyond the audio buffers.

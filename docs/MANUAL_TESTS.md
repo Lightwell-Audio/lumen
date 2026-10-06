@@ -24,6 +24,7 @@ TIMED OUT or CRASHED and the probe continues.
 and ASIO4ALL queried. Ableton Move and Push, Alpha, Focusrite Thunderbolt
 and FlexASIO (misconfigured device) returned clean errors. No timeouts or
 crashes.
+Re-run 2026-10-05 (second session): pass.
 
 ### MT-ASIO-2 · Stable streaming at the interface's buffer size
 1. `target/release/asio-probe stream "Focusrite USB ASIO" --seconds 30`
@@ -34,6 +35,7 @@ discontinuities; 0 real-time heap operations; worst callback well under the
 period. Output is silent.
 
 **Last run (2026-10-05):** pass. Results in ADR-0006.
+Re-run (second session): pass. 11,252 callbacks, 0 discontinuities, 0 heap operations, worst callback 0.14%. The Focusrite now reports buffer 16–1024 and 44.1–192 kHz; the first session saw a fixed 128 at 48 kHz only, probably because another client held the device.
 
 ### MT-ASIO-3 · Small buffer
 `target/release/asio-probe stream "ASIO4ALL v2" --seconds 15 --buffer 64 --engine-tracks 64`
@@ -86,18 +88,18 @@ faulted host. The crash scenario reports exit code 0xC0000005 and a
 replacement. The hang scenario reports "hung (still running; killed)" and a
 replacement. The healthy host shows 0 misses in both.
 
-**Last run (2026-10-05):** pass. Numbers in ADR-0005. Automated in the sense
+**Last run (2026-10-05):** functional pass (second session too). **Latency regressed in the second session:** 1-host p99 about 235 µs, reproduced 3 times, against 19.5 µs earlier. See ADR-0005. Automated in the sense
 that no human input is needed, but it needs a quiet machine. Not in CI:
 shared runners are too noisy for latency numbers.
 
-### MT-ISO-2 · No orphaned hosts (needs a human)
+### MT-ISO-2 · No orphaned hosts (automatable)
 1. Run `target/release/isolation-ipc bench --hosts 8 --seconds 60`.
 2. Kill the parent from Task Manager after a few seconds.
 
 **Expected:** all 8 `isolation-ipc.exe child` processes disappear at once
 (kill-on-close Job object).
 
-**Last run:** not yet run.
+**Last run (2026-10-05):** pass, automated with `Stop-Process` on the parent: 9 processes before, 0 after.
 
 ---
 
@@ -111,7 +113,7 @@ timed out, crashed) and the scanner finishes. Every module with
 `moduleinfo.json` matches its factory. Record results in
 `docs/PLUGIN_COMPATIBILITY.md`.
 
-**Last run (2026-10-05):** pass. 39 of 40 enumerated, Opus failed in its own
+**Last run (2026-10-05, twice):** pass. 39 of 40 enumerated, Opus failed in its own
 `DllMain`, 4 of 4 `moduleinfo.json` files match.
 
 ### MT-VST3-2 · Isolation self-test (automated in CI on Windows)
@@ -134,7 +136,7 @@ minute; do not touch it, especially during the final 10 s idle phase).
 idle CPU. Compare with ADR-0002. Normal editing views and the GPU-instanced
 overview p99 ≤ 8.3 ms; idle < 0.5%; first frame < 1 s warm.
 
-**Last run (2026-10-05):** as recorded in ADR-0002.
+**Last run (2026-10-05, twice):** normal views and the GPU path pass (p99 ≤ 6.1 ms; second run ≤ 4.4 ms). The plain-egui 100k-note overview fails (20.0 / 15.2 ms). Idle 0.00% / 0.47%, which is borderline against the 0.5% bar. First frame 545 / 490 ms.
 
 ### MT-UI-2 · Accessibility tree (needs a human for the screen-reader part)
 1. `target/release/ui-stress --close-after 60`
@@ -146,7 +148,7 @@ track toggles as "Mute Track N" / "Solo Track N" check boxes with their
 state.
 
 **Last run (2026-10-05):** tree verified programmatically through UI
-Automation (58 named elements). Not yet heard through Narrator.
+Automation (58 named elements), twice. **Still needs a human:** listening through Narrator.
 
 ### MT-UI-3 · Visual quality at 100%, 150%, 200% (needs a human)
 1. Run `target/release/ui-stress` at each Windows display scale.
