@@ -481,8 +481,9 @@ files at 44.1 kHz and 48 kHz, in more than one format (WAV, FLAC, MP3, Ogg).
   PROGRESS row); scrubbing with the mouse (M3, the owner's Ableton-style
   scrubbing request).
 
-**Run 2:** not yet run. Check the pop is gone, and try the drag indicator
-and the hover card.
+**Run 2 (2026-10-06, owner):** pass. No pop on loop wraps, stops or
+locates; the drag indicator and the hover card work. The 64-sample
+dropout check (step 9) was not reported separately.
 
 Automated: `--open-audio` with a 5 s WAV loads
 in 38 ms and redraws at 2.5 bars; the rate change to 44.1 kHz converts again

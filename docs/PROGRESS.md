@@ -95,7 +95,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Import by drag and drop with sample-rate handling and optional copy into project | M | 🟡 Drag and drop from Explorer and automatic rate conversion done (M2 slice 6, ADR-0019), with a supported-file indicator while dragging. Copy into the project with save/load in M3 | 3 |
 | Drop files onto a specific track; dropping between tracks or below them creates a track (owner request, MT-MEDIA-1, 2026-10-06) | M | 🔲 | 3 |
 | Clip hover card with file details (format, rate, channels, length, size, path) | S | 🟡 Basic card done in M2 slice 6 (owner request, MT-MEDIA-1); full clip properties panel in M3 | 3 |
-| Glitch-free playback, seamless loops, instant seeking | M | 🟡 Clips play sample-exactly from memory with seamless loops and instant locate (slice 6, golden renders); by-ear check MT-MEDIA-1 pending | 2 |
+| Glitch-free playback, seamless loops, instant seeking | M | 🟡 Clips play sample-exactly from memory, with click-free crossfaded loops and locates (slice 6; golden renders; MT-MEDIA-1 passes by ear). Large sessions need disk streaming (M9) | 2 |
 | Disk streaming of clip audio with read-ahead, so large sessions need not fit in RAM; in-memory playback becomes a per-clip RAM option (owner decision 2026-10-06: memory in M2, streaming in M9) | M | 🔲 | 9 |
 | Crisp, fast waveforms at every zoom | M | 🔲 | 3 |
 | Recording: multi-arm, monitoring, multichannel, crash-safe capture, latency compensation and offset, punch, count-in, input meters | M | 🔲 | 9 |
