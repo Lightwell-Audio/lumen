@@ -54,7 +54,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | No dropouts or clicks during editing, scrolling, scanning, loading, opening plugin windows | M | 🔲 | 2, 10 | |
 | 64-track project under 50% of the 128-sample / 48 kHz budget | M | 🔲 | 2, 10 | P-ENGINE measures engine overhead |
 | No buffering beyond the driver | M | 🔲 | 2 | ADR-0003 |
-| Sample-accurate playback, MIDI, automation, loops, editing | M | 🔲 | 2–7 | Time base done (`lumen_core::time`, ADR-0009): every sample addressable at 999 BPM / 192 kHz |
+| Sample-accurate playback, MIDI, automation, loops, editing | M | 🟡 | 2–7 | Time base done (`lumen_core::time`, ADR-0009): every sample addressable at 999 BPM / 192 kHz. Transport and loops sample-accurate for every block size (`lumen-engine`, slice 3). MIDI, automation, editing later |
 | Offline render equals real-time and is repeatable | M | 🔲 | 2, 9 | P-ENGINE block-size invariance |
 | UI 60 fps minimum, 120 fps target at 200 tracks / 20,000 clips / 100,000 notes | M | 🔲 | 3, 10 | P-UI |
 | Near-zero idle CPU | M | 🔲 | 3, 10 | P-UI |
@@ -84,7 +84,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Linked editing across selected tracks | S | 🔲 | 4 |
 | Clips: move, copy-drag, trim, slip, fades, gain handle, loop-extend, rename, recolour, mute, lock | M | 🔲 | 3 |
 | Selection: clip, marquee, time range with cut/copy/duplicate/delete/split/consolidate | M | 🔲 | 3, 7 |
-| Loop and punch regions, markers and locators, tempo and time-signature lanes | M | 🔲 | 2–3 |
+| Loop and punch regions, markers and locators, tempo and time-signature lanes | M | 🟡 Engine side of loop and punch done (slice 3); markers, locators and the lanes in M3 | 2–3 |
 | Track height presets, collapse, hide, reorder by drag, multi-select | M | 🔲 | 3 |
 | Track templates, delay offset, lock, overview strip | S | 🔲 | 3, 9 |
 
@@ -143,7 +143,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Trim mode | L | 🔲 | — |
 | Override state with one-click re-enable | M | 🔲 | 7 |
 | Smooth, sample-accurate automation for built-ins and plugins | M | 🔲 | 7 |
-| Tempo and time-signature changes recalculate the timeline | M | 🔲 | 7 |
+| Tempo and time-signature changes recalculate the timeline | M | 🟡 The engine keeps the bar and beat across tempo and meter changes, and loop and punch follow (slice 3); clips and automation follow when they exist | 7 |
 
 ## §6.6 Editing actions
 
@@ -219,10 +219,10 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 | Item | Tier | Status |
 |---|---|---|
-| Transport: play, stop, record, loop, return to start, go to start/end, previous/next marker. **Owner request:** transport controls use vector icons, not text (M2). | M | 🔲 |
-| Tempo 20–999 BPM and time signature with change maps; tap tempo | M | 🔲 |
+| Transport: play, stop, record, loop, return to start, go to start/end, previous/next marker. **Owner request:** transport controls use vector icons, not text (M2). | M | 🟡 Engine transport done: play, pause, stop (to the play marker, then the start), locate, loop (slice 3, ADR-0017). Controls and icons in slice 4; record in M9; markers in M3 |
+| Tempo 20–999 BPM and time signature with change maps; tap tempo | M | 🟡 Tempo and time-signature maps with changes (`lumen-core`), swapped into the engine live (slice 3). Tap tempo and the UI later |
 | Metronome: accent, volume, sound, count-in, pre-roll, record-only, output routing | M | 🔲 |
-| Loop region, punch in/out, auto-punch | M | 🔲 |
+| Loop region, punch in/out, auto-punch | M | 🟡 Sample-accurate loop wrap and punch-region reporting in the engine (slice 3). Recording through punch in M9 |
 | Markers with names and navigation | M | 🔲 |
 | Multiple time formats; editable position field | M | 🔲 |
 | Edit cursor separate from playhead; scrubbing. **Owner request (2026-10-06), raised from S to M, Ableton-style:** click in the scrub strip to set the playback position; drag to scrub audibly; drag in the beat ruler vertically to zoom and horizontally to scroll. Locate-on-click in M2; scrub strip, audible scrubbing and ruler zoom in M3. | M | 🔲 |

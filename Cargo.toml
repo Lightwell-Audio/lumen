@@ -24,6 +24,7 @@ vst3 = "0.3"
 base64 = "0.22"
 wasapi = "0.25"
 cpal = "0.18"
+rtsan-standalone = "0.3"
 eframe = "0.36"
 vello = "0.11"
 wgpu = "30"
@@ -35,6 +36,7 @@ accesskit_winit = "0.32"
 lumen-render = { path = "crates/lumen-render" }
 lumen-audio = { path = "crates/lumen-audio" }
 lumen-project = { path = "crates/lumen-project" }
+lumen-engine = { path = "crates/lumen-engine" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

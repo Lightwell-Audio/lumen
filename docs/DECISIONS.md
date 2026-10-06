@@ -27,6 +27,7 @@ irreversible or external) · *Superseded*.
 | [0013](#adr-0013--dependency-license-policy) | Dependency license policy | Accepted | No |
 | [0015](#adr-0015--shifttab-conflict) | Shift+Tab: detail panel versus backward focus | **Open** (decide with the shortcut system, M3) | Yes |
 | [0016](#adr-0016--wasapi-coreaudio-and-linux-backends) | WASAPI through the `wasapi` crate; CoreAudio and ALSA through cpal | Accepted 2026-10-06 | No |
+| [0017](#adr-0017--engine-transport-and-timeline) | Engine transport and timeline: Ableton-style stop, positions in ticks, live tempo and rate changes | Accepted 2026-10-06 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -314,6 +315,11 @@ All pass criteria met.
 
 Not covered: worker-pool parallelism, denormal flushing, disk streaming,
 transport and loops. Those land in M2.
+
+**M2 slice 3 (2026-10-06):** `lumen-engine` takes over from the prototype
+with the transport, loops, timeline swaps and denormal flushing (ADR-0017,
+ADR-0010). Disk streaming arrives in slice 6; the worker pool when the
+graph has parallel work (M4).
 
 ---
 
@@ -768,8 +774,18 @@ no migration was needed.
   allocator, and `rt_section`. Test binaries install the guard, run real-time
   code inside sections, and assert zero heap operations. A missing guard fails
   loudly (`guard_is_active`).
-- Planned: RealtimeSanitizer (`rtsan-standalone`, Apache-2.0) on Linux and
-  macOS CI to also catch locks and blocking system calls (M2).
+- RealtimeSanitizer (`rtsan-standalone` 0.3, Apache-2.0) also catches locks
+  and blocking system calls. `rt_section` marks an RTSan real-time context,
+  so every guarded test is also a sanitizer test. The calls compile to
+  nothing unless `RTSAN_ENABLE` is set at build time. The CI `rtsan` job
+  (Linux) sets it, runs the real-time tests, and runs a canary that locks a
+  mutex in a section and must abort, which proves the sanitizer is live.
+  With `RTSAN_ENABLE`, the crate's build script downloads a prebuilt
+  runtime from the project's GitHub releases. That happens in that CI job
+  only, never in normal or release builds. (Added M2 slice 3.)
+- `DenormalGuard` sets flush-to-zero (MXCSR FTZ and DAZ on x86-64, FPCR FZ on
+  AArch64) for the length of each engine block and restores the previous
+  setting after. (Added M2 slice 3.)
 - Code on the audio thread must not panic. Panics there are bugs, and
   unwinding never crosses an FFI boundary.
 
@@ -941,3 +957,63 @@ codebase but are not tested on hardware yet.
 | Focusrite USB, exclusive, events (before the fix) | Device clock 26,623 frames/s at 44.1 kHz (60%); about 61 callbacks/s instead of 100 at every buffer size |
 | Focusrite USB, exclusive, after the fix | Calibration switches it to polling: 441 frames → 101/s, 256 → 174/s (100 and 172 expected); open takes about 1.1 s |
 | NVIDIA HDMI, exclusive 144, after the fix | Calibration keeps events: 331/s (333 expected) |
+
+---
+
+## ADR-0017 — Engine transport and timeline
+
+**Status:** Accepted · **Date:** 2026-10-06 (M2 slice 3)
+
+### Context
+The transport must be sample-accurate, survive tempo and time-signature
+changes and device rate changes (MT-AUDIO-6 showed Windows can switch rate
+under a running stream), and behave the way producers coming from Ableton
+expect. The spec's Ableton-compatible shortcut set implies Ableton's
+transport semantics.
+
+### Decision
+- **State:** the engine keeps the play position in samples (what the device
+  consumes) and every marker (play marker, loop, punch) in ticks (what the
+  music means). Sample positions of the markers are cached and recomputed
+  when the tempo map or sample rate changes.
+- **Tempo, time-signature and rate changes** carry the position through ticks
+  (`ticks_at_sample` on the old mapping, `sample_at` on the new one), so the
+  bar and beat stay put. Because the position lives on whole samples, a
+  change can move it by up to half a sample.
+- **Semantics (as in Ableton Live):** Play starts from the current position
+  and makes it the play marker. Stop returns to the play marker; Stop while
+  stopped returns to the start. Pause stops in place (Ableton's
+  Shift+Space continue). Locate moves the position and the play marker.
+- **Loop:** while the loop is enabled and playback is before its end,
+  playback wraps from the end sample to the start sample exactly, splitting
+  the block. Playback that starts after the loop end plays on. Disabled or
+  empty regions do nothing.
+- **Punch:** the engine reports whether playback is inside an enabled punch
+  region; recording through it arrives in M9.
+- **Timeline:** `Timeline` holds the tempo map and a new `MeterMap`
+  (`lumen-core`). Time-signature changes must sit on bar lines. A timeline
+  is immutable on the audio thread: the UI builds a new one and swaps it in
+  through a lock-free queue, and the old one is freed on the UI side (the
+  P-ENGINE pattern).
+- **Commands** take effect at the start of the next block. The UI reads the
+  transport through a seqlock snapshot that never makes the audio thread
+  wait.
+- **Sources** (`Source` trait) render parts of a block that never cross a
+  loop wrap or locate, and get a `locate` call on every discontinuity so
+  streaming sources (slice 6) can reposition.
+
+### Consequences
+- The project file still has a single time signature; meter changes in
+  projects arrive with the time-signature lane (M3).
+- Commands at block boundaries are not sample-accurate in live use (at most
+  one block late, about 3 ms at 128 frames). Offline renders apply them at
+  fixed block boundaries, so renders stay repeatable.
+
+### Evidence (2026-10-06)
+`crates/lumen-engine`: 13 transport tests (loop wraps on the exact sample at
+block sizes 1, 3, 64, 128, 333, 4096 and 10,000; odd tempo at 44.1 kHz with no
+gaps or repeats; stop, pause and locate; tempo and rate changes keep the bar
+and beat; loop and punch follow), a seqlock torn-read test, and 5,000 blocks
+of mixed commands, timeline swaps and a rate change with zero heap
+operations. `transport_demo` on WASAPI: tempo 120 → 90 kept bar 3.1
+(sample 192,000 → 256,000); 7/8 bars land at the right samples.

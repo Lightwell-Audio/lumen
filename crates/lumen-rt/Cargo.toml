@@ -6,6 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[dependencies]
+rtsan-standalone.workspace = true
+
 [dev-dependencies]
 divan.workspace = true
 

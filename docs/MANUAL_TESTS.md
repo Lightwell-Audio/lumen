@@ -345,3 +345,32 @@ driver stopped delivering audio"))` came from the watchdog, then `Restored`
 the end. No crash, no hang. The twenty `0/s` report lines before `Lost`
 are the report loop catching up at wake: the user confirmed the tone came
 back promptly after waking.
+
+---
+
+## M2 · Engine and transport (`crates/lumen-engine`)
+
+Build once: `cargo build --release -p lumen-engine --example transport_demo`.
+In PowerShell:
+`& "$env:USERPROFILE\lumen-target\release\examples\transport_demo.exe" "Focusrite USB ASIO"`.
+Type a command and press Enter: `p` play · `a` pause · `s` stop · `g 5` go to
+bar 5 · `l 2 4` loop bars 2–3 · `l` loop off · `t 140` tempo · `m 7/8` time
+signature · `q` quit.
+
+### MT-ENGINE-1 · Transport by ear (needs a human)
+1. `p`: a steady click, higher on each downbeat; the bar display counts up.
+2. `l 2 3` while playing: once bar 3 arrives, playback jumps back to bar 2
+   with no gap, double click or stumble; the downbeat lands right on the wrap.
+3. `t 90`, then `t 160`, while looping: the tempo changes at once; the bar
+   number doesn't jump.
+4. `m 3/4`, then `m 7/8`: the accent pattern follows (every 3rd, then every
+   7th click is high).
+5. `a` (pause), then `p`: playback continues where it paused.
+6. `s`: playback stops and the display returns to where it last started.
+   `s` again returns it to 1.1.
+7. `g 9` while playing: playback jumps to bar 9 on a downbeat.
+
+**Expected:** every step as described, with clicks evenly spaced and no
+crackles.
+
+**Last run:** not yet run.
