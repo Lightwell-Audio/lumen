@@ -312,3 +312,19 @@ Started at 1.1 s (calibration chose polling), 99–102 callbacks/s against
   with a message that names the Windows rate and the fix.
 
 **Last run (2026-10-06):** pass, all four (ADR-0016 has the numbers).
+
+### MT-AUDIO-6 · Sleep/resume and Windows format changes (needs a human)
+1. `audio_tone "Focusrite USB" --driver wasapi --seconds 120 --tone`. While
+   it runs, open Windows Sound settings → the Focusrite output → Properties
+   → Advanced, and change the default format (for example 44100 Hz to
+   48000 Hz).
+2. `audio_tone "Focusrite USB ASIO" --seconds 300 --tone`. While it runs,
+   put the PC to sleep, wake it, and let the run finish.
+
+**Expected:** (1) a `Reset` event with the new `sample_rate` and the tone
+continuing (or `Lost` then `Restored`), with no crash. (2) After waking,
+either the stream was never interrupted or there is a `Lost` followed by
+`Restored`; audio resumes and nothing hangs.
+
+**Last run:** not yet run. Not needed to close slice 2; required before
+M2 ends (the hot-unplug row in PROGRESS.md).

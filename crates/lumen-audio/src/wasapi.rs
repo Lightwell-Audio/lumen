@@ -298,6 +298,12 @@ enum Timing {
 /// How long exclusive mode plays silence to check the device clock.
 const CALIBRATION: Duration = Duration::from_millis(250);
 
+/// Whether a device clock that advanced `device_seconds` during
+/// `wall_seconds` of real time is keeping time (within 10%).
+fn keeps_real_time(device_seconds: f64, wall_seconds: f64) -> bool {
+    wall_seconds > 0.0 && (0.9..1.1).contains(&(device_seconds / wall_seconds))
+}
+
 struct Render {
     client: AudioClient,
     render: AudioRenderClient,
@@ -522,8 +528,7 @@ impl Render {
             return true;
         };
         let device_seconds = last.saturating_sub(first) as f64 / frequency as f64;
-        let ratio = device_seconds / started.elapsed().as_secs_f64();
-        (0.9..1.1).contains(&ratio)
+        keeps_real_time(device_seconds, started.elapsed().as_secs_f64())
     }
 
     fn run(&mut self, callback: &mut dyn AudioCallback, flags: &Flags) {
@@ -674,6 +679,17 @@ mod tests {
         assert_eq!(hns_to_frames(100_000, 48_000), 480);
         assert_eq!(hns_to_frames(100_000, 44_100), 441);
         assert_eq!(hns_to_frames(30_000, 48_000), 144);
+    }
+
+    #[test]
+    fn the_clock_check_catches_a_slow_driver() {
+        // MT-AUDIO-4: the Focusrite's exclusive-mode events ran its clock at
+        // 26,623 of 44,100 frames per second.
+        assert!(!keeps_real_time(26_623.0 / 44_100.0, 1.0));
+        assert!(keeps_real_time(44_070.0 / 44_100.0, 1.0));
+        assert!(keeps_real_time(0.25, 0.25));
+        assert!(!keeps_real_time(0.35, 0.25));
+        assert!(!keeps_real_time(0.0, 0.0));
     }
 
     /// Runs wherever Windows audio exists; CI runners may have no devices,

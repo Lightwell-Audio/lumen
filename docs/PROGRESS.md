@@ -194,7 +194,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
 | Driver types: ASIO and WASAPI shared (Windows), CoreAudio, PipeWire/JACK/ALSA | M | 🟡 Output works on ASIO, WASAPI shared (hardware-tested) and cpal (CoreAudio/ALSA, compiled but not hardware-tested). Missing: WASAPI and cpal input (slice 8), JACK/PipeWire (ADR-0016) | 2 |
-| WASAPI exclusive | S | 🟡 Output tested on hardware at 3 ms (MT-AUDIO-5); input in slice 8 | 2 |
+| WASAPI exclusive | S | 🟡 Output tested on hardware: 3 ms on HDMI with events; the Focusrite switches to polling automatically (MT-AUDIO-4, -5). Input in slice 8 | 2 |
 | Device, rate, buffer selection with input/output/round-trip latency display | M | 🔲 | 2 |
 | Device loss and return: keep the session, show the lost state, reconnect automatically (found by MT-ASIO-5) | M | 🟡 Detection and auto-reconnect done, tested with the fake backend and on hardware (MT-AUDIO-1); the lost-state UI arrives in slice 8 | 2 |
 | Channel selection with friendly names; mono and stereo configurations | M | 🔲 | 2 |
@@ -281,7 +281,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Detachable mixer and editor windows; hover help; welcome screen | S | 🔲 |
 | CPU, disk and dropout indicators; Audio On/Off; panic | M | 🔲 |
 | Crash report file; logging with "reveal logs" | M | 🔲 |
-| Device hot-unplug, sleep/resume, rate-change handling | M | 🔲 |
+| Device hot-unplug, sleep/resume, rate-change handling | M | 🟡 Unplug and replug recover on ASIO and WASAPI (MT-AUDIO-1, -4); driver resets on ASIO (MT-AUDIO-2). Not yet tested: sleep/resume, Windows shared-mode format changes (MT-AUDIO-6) |
 | Single instance; file association; open by double-click or drop | M | 🔲 |
 | Opt-in telemetry only | M | ✅ |
 | Update checker; licensing/activation | L | 🔲 |

@@ -68,8 +68,24 @@ the UI prototype's GPU stack. If the drive holding the repository is short of
 space, put the build output elsewhere:
 
 ```bash
-export CARGO_TARGET_DIR="$(cygpath -w "$LOCALAPPDATA")\lumen-target"
+export CARGO_TARGET_DIR="$(cygpath -w "$USERPROFILE")\lumen-target"
 ```
+
+(Not `%LOCALAPPDATA%`: see the `AppData` warning above.)
+
+## Checking macOS code from Windows
+
+Platform-specific code (the cpal audio backend, for example) can be
+type-checked for macOS without a Mac:
+
+```bash
+rustup target add aarch64-apple-darwin
+cargo clippy -p lumen-audio --all-targets --target aarch64-apple-darwin -- -D warnings
+```
+
+This checks types and lints only; nothing is linked or run. Linux can't be
+checked this way because ALSA's build script needs the Linux system
+headers, so CI is the Linux check.
 
 ## Everyday commands
 
