@@ -139,8 +139,9 @@ impl Lanes {
         }
         if !rejected.is_empty() {
             self.notice = Some(format!(
-                "Not added: {}. Lumen imports WAV, AIFF, FLAC, MP3 and Ogg Vorbis files",
-                rejected.join(", ")
+                "Not added: {}. {} imports WAV, AIFF, FLAC, MP3 and Ogg Vorbis files",
+                rejected.join(", "),
+                lumen_core::product::PRODUCT_NAME
             ));
         }
     }

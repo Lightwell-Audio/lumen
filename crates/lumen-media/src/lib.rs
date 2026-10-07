@@ -91,7 +91,7 @@ impl std::fmt::Display for MediaError {
             MediaError::Io(m) => write!(f, "Could not read the file: {m}"),
             MediaError::Unsupported(m) => write!(
                 f,
-                "Not an audio format Lumen reads ({m}). Use WAV, AIFF, FLAC, MP3 or Ogg Vorbis"
+                "Not a supported audio format ({m}). Use WAV, AIFF, FLAC, MP3 or Ogg Vorbis"
             ),
             MediaError::Decode(m) => write!(f, "The file is damaged: {m}"),
             MediaError::Empty => write!(f, "The file contains no audio"),

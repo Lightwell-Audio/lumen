@@ -620,7 +620,7 @@ impl Arrangement {
                         &label[..1],
                         fonts::medium(theme::size::CAPTION),
                         if on {
-                            on_text(on_fill)
+                            theme::text_on(on_fill)
                         } else {
                             palette.text_secondary
                         },
@@ -1213,17 +1213,6 @@ fn draw_clip(
                     theme::CLIP_TEXT.gamma_multiply(alpha)
                 },
             );
-    }
-}
-
-/// Text on a lit button: near-black on light fills, white on dark ones.
-fn on_text(fill: Color32) -> Color32 {
-    let luma =
-        0.2126 * f32::from(fill.r()) + 0.7152 * f32::from(fill.g()) + 0.0722 * f32::from(fill.b());
-    if luma > 140.0 {
-        Color32::from_rgb(0x0B, 0x0D, 0x10)
-    } else {
-        Color32::WHITE
     }
 }
 

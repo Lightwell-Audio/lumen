@@ -15,8 +15,6 @@ pub struct RegisteredDriver {
     /// Registry key name; what users see in driver lists.
     pub key_name: String,
     pub clsid: String,
-    #[allow(dead_code)] // shown by the device selector (M2 slice 8)
-    pub description: Option<String>,
 }
 
 /// Lists registered drivers in registry order. Read-only; never loads a driver.
@@ -53,12 +51,7 @@ pub fn installed_drivers() -> Vec<RegisteredDriver> {
         let Some(clsid) = read_string(root, &key_name, "CLSID") else {
             continue;
         };
-        let description = read_string(root, &key_name, "Description");
-        drivers.push(RegisteredDriver {
-            key_name,
-            clsid,
-            description,
-        });
+        drivers.push(RegisteredDriver { key_name, clsid });
     }
     // SAFETY: `root` was opened above and is closed exactly once.
     unsafe { RegCloseKey(root) };

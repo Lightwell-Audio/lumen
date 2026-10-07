@@ -15,7 +15,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 use windows_sys::core::GUID;
 
-use super::ffi::{self, AsioChannelInfo, AsioClockSource, AsioError, IAsio};
+use super::ffi::{self, AsioChannelInfo, AsioError, IAsio};
 use super::wide;
 
 /// COM single-threaded apartment for the current thread, as drivers expect.
@@ -45,7 +45,7 @@ pub struct HiddenWindow(pub HWND);
 impl HiddenWindow {
     pub fn create() -> Result<Self, String> {
         let class = wide("STATIC");
-        let title = wide("Lumen ASIO probe");
+        let title = wide("ASIO driver host");
         // SAFETY: system "STATIC" class needs no registration; the window is never shown.
         let hwnd = unsafe {
             CreateWindowExW(
@@ -150,18 +150,6 @@ impl Driver {
         }
     }
 
-    #[allow(dead_code)] // for the device selector (M2 slice 8)
-    pub fn name(&self) -> String {
-        let mut buf = [0 as c_char; 128]; // ABI says 32; extra room guards against overruns
-        call!(self, get_driver_name, buf.as_mut_ptr());
-        ffi::c_string(&buf)
-    }
-
-    #[allow(dead_code)] // for the device selector (M2 slice 8)
-    pub fn version(&self) -> i32 {
-        call!(self, get_driver_version)
-    }
-
     pub fn error_message(&self) -> String {
         let mut buf = [0 as c_char; 256]; // ABI says 124
         call!(self, get_error_message, buf.as_mut_ptr());
@@ -223,35 +211,6 @@ impl Driver {
         };
         check(call!(self, get_channel_info, &mut info))?;
         Ok(info)
-    }
-
-    #[allow(dead_code)] // for the device selector (M2 slice 8)
-    pub fn clock_sources(&self) -> Result<Vec<(String, bool)>, AsioError> {
-        let empty = AsioClockSource {
-            index: 0,
-            associated_channel: 0,
-            associated_group: 0,
-            is_current_source: 0,
-            name: [0; 32],
-        };
-        let mut sources = [empty; 32];
-        let mut count = sources.len() as i32;
-        check(call!(
-            self,
-            get_clock_sources,
-            sources.as_mut_ptr(),
-            &mut count
-        ))?;
-        let count = count.clamp(0, sources.len() as i32) as usize;
-        Ok(sources[..count]
-            .iter()
-            .map(|s| {
-                (
-                    ffi::c_string(&s.name),
-                    s.is_current_source == ffi::ASIO_TRUE,
-                )
-            })
-            .collect())
     }
 
     pub fn start(&self) -> Result<(), AsioError> {

@@ -17,6 +17,8 @@ use eframe::egui::{self, Id};
 pub const FAST: f32 = 0.10;
 /// Popovers, windows, notices, panels.
 pub const BASE: f32 = 0.18;
+/// How long a short note (undo, save, open) stays before fading.
+pub const NOTE: std::time::Duration = std::time::Duration::from_millis(1400);
 /// Things moving to a new place (the playhead after a locate).
 pub const GLIDE: f32 = 0.22;
 

@@ -237,7 +237,7 @@ impl App {
                 self.dialog = Some(spawn_dialog(ctx, move || {
                     let mut dialog = rfd::FileDialog::new()
                         .set_title("Save project")
-                        .add_filter("Lumen project", &[files::EXTENSION])
+                        .add_filter(format!("{PRODUCT_NAME} project"), &[files::EXTENSION])
                         .set_file_name(name);
                     if let Some(dir) = start {
                         dialog = dialog.set_directory(dir);
@@ -298,7 +298,7 @@ impl App {
                 self.dialog = Some(spawn_dialog(ctx, move || {
                     let mut dialog = rfd::FileDialog::new()
                         .set_title("Open project")
-                        .add_filter("Lumen project", &[files::EXTENSION]);
+                        .add_filter(format!("{PRODUCT_NAME} project"), &[files::EXTENSION]);
                     if let Some(dir) = start {
                         dialog = dialog.set_directory(dir);
                     }
@@ -771,7 +771,7 @@ impl App {
         let Some((text, since)) = &self.toast else {
             return;
         };
-        const SHOWN: Duration = Duration::from_millis(1400);
+        const SHOWN: Duration = motion::NOTE;
         let visible = since.elapsed() < SHOWN;
         let fade = motion::fade(ctx, egui::Id::new("toast"), visible);
         if !visible && fade == 0.0 {
@@ -1063,7 +1063,7 @@ impl App {
                     pos2(x + 4.0, ruler.center().y),
                     egui::Align2::LEFT_CENTER,
                     (bar + 1).to_string(),
-                    egui::FontId::monospace(11.0),
+                    egui::FontId::monospace(theme::size::CAPTION),
                     theme::p().text_secondary,
                 );
             }
@@ -1183,7 +1183,7 @@ impl App {
                         .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
                     match media::format_name(p) {
                         Some(format) => format!("✓  {name}  ({format})"),
-                        None => format!("✕  {name}  (not an audio file Lumen reads)"),
+                        None => format!("✕  {name}  (not an audio file {PRODUCT_NAME} reads)"),
                     }
                 })
                 .collect();
@@ -1204,7 +1204,7 @@ impl App {
                 canvas.center(),
                 egui::Align2::CENTER_CENTER,
                 format!("{headline}\n\n{}", lines.join("\n")),
-                egui::FontId::proportional(15.0),
+                egui::FontId::proportional(theme::size::TITLE),
                 color,
             );
         } else if self.lanes.is_empty(self.document.project()) {
@@ -1212,7 +1212,7 @@ impl App {
                 canvas.center(),
                 egui::Align2::CENTER_CENTER,
                 "Drop audio files here\nWAV, AIFF, FLAC, MP3 or Ogg Vorbis",
-                egui::FontId::proportional(14.0),
+                egui::FontId::proportional(theme::size::BODY),
                 theme::p().text_hint,
             );
         }

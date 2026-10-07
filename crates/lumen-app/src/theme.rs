@@ -120,6 +120,21 @@ pub const CLIP_COLORS: [Color32; 12] = [
     Color32::from_rgb(0x56, 0x86, 0xA0),
     Color32::from_rgb(0x88, 0x76, 0x60),
 ];
+/// Text on a filled control (a lit button): near-black on light fills,
+/// white on dark ones, whatever the theme.
+pub fn text_on(fill: Color32) -> Color32 {
+    let luma =
+        0.2126 * f32::from(fill.r()) + 0.7152 * f32::from(fill.g()) + 0.0722 * f32::from(fill.b());
+    if luma > 140.0 {
+        TEXT_ON_LIGHT
+    } else {
+        Color32::WHITE
+    }
+}
+
+/// Text on light fills: the dark theme's `app` colour, a little deeper.
+pub const TEXT_ON_LIGHT: Color32 = Color32::from_rgb(0x0B, 0x0D, 0x10);
+
 /// Text on clips.
 pub const CLIP_TEXT: Color32 = Color32::WHITE;
 

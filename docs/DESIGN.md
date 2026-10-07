@@ -88,6 +88,13 @@ Windows** are in the app menu (click **Lumen** at the left of the transport bar)
 | `grid_bar` | `#343842` | `#D9DCE1` | Bar lines |
 | `grid_beat` | `#262930` | `#ECEEF1` | Beat lines |
 | `start_marker` | `#C8CCD4` | `#6B717C` | Where Play starts |
+| `lane` | `#1B1D22` | `#F6F7F8` | Arrangement lanes behind clips |
+| `header` | `#1E2126` | `#ECEEF1` | Track header column |
+| `clip_body` | `#262A31` | `#FFFFFF` | Clip body (the title bar and waveform carry the track colour) |
+| `shadow` | black at 38% | black at 14% | The one shadow, under windows and popovers |
+
+Text on a filled control (a lit button) is chosen by the fill's brightness:
+near-black (`#0B0D10`) on light fills, white on dark ones (`theme::text_on`).
 
 - **Accent contrast:** the light accent is darker, keeping text and icons at
   4.5:1 or better on `app`. Warning is darker on light for the same reason.
