@@ -522,8 +522,9 @@ Run `cargo run --release -p lumen-app -- --audio asio:"Focusrite USB ASIO"`.
 **Run 2:** not yet run.
 
 ### MT-APP-5 · Start marker and playhead (needs a human)
-1. Click the ruler at bar 3: a hollow arrow (the start marker) and the solid
-   playhead both move there.
+1. Click the ruler at bar 3: the grey arrow (the start marker, bottom of the
+   ruler) and the blue
+   playhead (top of the ruler, with a line) both move there.
 2. Space to play, Space to stop: the playhead stays where it stopped, and
    the arrow stays at bar 3.
 3. Space again: playback starts from bar 3 (the arrow).

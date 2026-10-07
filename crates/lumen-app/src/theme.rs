@@ -24,6 +24,10 @@ pub const ICON_DISABLED: Color32 = Color32::from_rgb(0x5A, 0x5F, 0x6A);
 pub const BUTTON_HOVER: Color32 = Color32::from_rgb(0x2E, 0x32, 0x3A);
 pub const BUTTON_ACTIVE: Color32 = Color32::from_rgb(0x24, 0x3A, 0x55);
 
+/// The start marker (where Play starts): neutral, so it never reads as the
+/// blue playhead.
+pub const START_MARKER: Color32 = Color32::from_rgb(0xC8, 0xCC, 0xD4);
+
 /// Where a click on the ruler will move the playhead: the accent, faint.
 pub const GHOST: Color32 = Color32::from_rgba_premultiplied(0x28, 0x52, 0x80, 0x80);
 

@@ -994,9 +994,10 @@ transport semantics.
   bar and beat stay put. Because the position lives on whole samples, a
   change can move it by up to half a sample.
 - **Semantics (as in Ableton Live; revised 2026-10-06 at the owner's
-  request, MT-APP-4):** two positions, both drawn. The **start marker**
-  (hollow arrow on the ruler) is where Play starts. The **playhead** (solid)
-  is where playback is.
+  request, MT-APP-4):** two positions, both drawn. The **start marker** is
+  a neutral grey arrow at the ruler's bottom edge, on the ruler only, and is
+  where Play starts. The **playhead** is the blue arrow at the top edge with
+  a line down the arrangement, and is where playback is.
   - Play (Space) starts from the start marker.
   - Continue (Shift+Space) starts from the playhead.
   - Stop and Pause leave the playhead where playback stopped.
