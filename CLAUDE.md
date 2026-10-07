@@ -390,7 +390,7 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-07, after M3 slice 3.
+**Last updated:** 2026-10-07, during M3 slice 4 (part 4a built).
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
@@ -398,13 +398,18 @@ it first in a new session, and update it at the end of every slice.
   - performance gates;
   - design system, motion and typefaces;
   - project model, undo, save/open, autosave and recovery.
-- **Next: M3 slice 4, tracks and the arrangement view at scale.** The plan
-  is in `docs/milestones/M3.md`, which also lists the follow-ups carried
-  forward.
+- **M3 slice 4 (tracks and the arrangement at scale) is in progress.**
+  - Groundwork (format v3) and part 4a are built: track headers in the
+    owner-chosen design, folding and resizing, selection, interim volume
+    and pan (ADR-0025).
+  - MT-APP-9 awaits the owner.
+  - Next: 4b (GPU clip bodies and a 200-track stress benchmark), 4c
+    (waveforms), 4d (zoom, follow playhead, drag to reorder).
+  - The plan and the follow-ups are in `docs/milestones/M3.md`.
 - Where to look:
   - `docs/PROGRESS.md`: every requirement's status, slice tables and the
     milestone reports;
-  - `docs/DECISIONS.md`: ADR-0001 to ADR-0024, plus the table of owner
+  - `docs/DECISIONS.md`: ADR-0001 to ADR-0025, plus the table of owner
     decisions;
   - `docs/MANUAL_TESTS.md`: hardware tests with every run's results;
   - `docs/ARCHITECTURE.md`: crates and threads;
