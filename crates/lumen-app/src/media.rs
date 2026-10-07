@@ -24,6 +24,8 @@ pub struct FileInfo {
     pub sample_rate: Option<u32>,
     pub channels: Option<usize>,
     pub seconds: Option<f64>,
+    /// Length in the file's own frames.
+    pub frames: Option<u64>,
 }
 
 /// The format name shown for `path`, or `None` if Lumen cannot import it.
@@ -69,14 +71,13 @@ struct Job {
 struct Done {
     id: u64,
     rate: u32,
-    /// The file's own rate, channels and length.
-    source: Option<(u32, usize, f64)>,
+    /// The file's own rate, channels and length (frames, seconds).
+    source: Option<(u32, usize, u64, f64)>,
     result: Result<lumen_media::Audio, MediaError>,
 }
 
 pub struct Library {
     items: Vec<Item>,
-    next_id: u64,
     done_tx: Sender<Done>,
     done_rx: Receiver<Done>,
 }
@@ -86,7 +87,6 @@ impl Default for Library {
         let (done_tx, done_rx) = mpsc::channel();
         Self {
             items: Vec::new(),
-            next_id: 1,
             done_tx,
             done_rx,
         }
@@ -102,10 +102,11 @@ impl Library {
         self.items.iter().find(|i| i.id == id)
     }
 
-    /// Starts loading `path` at `rate`; returns its id at once.
-    pub fn import(&mut self, path: PathBuf, rate: u32, ctx: &egui::Context) -> u64 {
-        let id = self.next_id;
-        self.next_id += 1;
+    /// Starts loading `path` at `rate` as `id` (the project's media id).
+    pub fn import_as(&mut self, id: u64, path: PathBuf, rate: u32, ctx: &egui::Context) {
+        if self.get(id).is_some() {
+            return;
+        }
         let name = path.file_stem().map_or_else(
             || path.display().to_string(),
             |s| s.to_string_lossy().into_owned(),
@@ -124,7 +125,6 @@ impl Library {
             job: None,
         });
         self.start_job(id, rate, ctx);
-        id
     }
 
     fn start_job(&mut self, id: u64, rate: u32, ctx: &egui::Context) {
@@ -161,7 +161,7 @@ impl Library {
                 let source = decoded
                     .as_ref()
                     .ok()
-                    .map(|a| (a.sample_rate, a.channels(), a.seconds()));
+                    .map(|a| (a.sample_rate, a.channels(), a.frames() as u64, a.seconds()));
                 let result = decoded.and_then(|audio| {
                     let converted = lumen_media::resample(&audio, rate, &cancel);
                     report(1.0);
@@ -192,9 +192,10 @@ impl Library {
                 continue;
             }
             item.job = None;
-            if let Some((rate, channels, seconds)) = done.source {
+            if let Some((rate, channels, frames, seconds)) = done.source {
                 item.info.sample_rate = Some(rate);
                 item.info.channels = Some(channels);
+                item.info.frames = Some(frames);
                 item.info.seconds = Some(seconds);
             }
             match done.result {
@@ -324,7 +325,8 @@ mod tests {
         wav(&path, 44_100, 44_100);
         let ctx = egui::Context::default();
         let mut library = Library::default();
-        let id = library.import(path.clone(), 48_000, &ctx);
+        let id = 1;
+        library.import_as(id, path.clone(), 48_000, &ctx);
         settle(&mut library, 48_000, &ctx);
         let State::Ready(audio) = &library.get(id).unwrap().state else {
             panic!("not ready: {:?}", library.get(id).unwrap().state);
@@ -355,7 +357,8 @@ mod tests {
         std::fs::write(&path, b"not audio").unwrap();
         let ctx = egui::Context::default();
         let mut library = Library::default();
-        let id = library.import(path.clone(), 48_000, &ctx);
+        let id = 1;
+        library.import_as(id, path.clone(), 48_000, &ctx);
         settle(&mut library, 48_000, &ctx);
         assert!(matches!(library.get(id).unwrap().state, State::Failed(_)));
         library.dismiss(id);

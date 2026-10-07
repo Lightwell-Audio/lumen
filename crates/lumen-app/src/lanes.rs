@@ -1,57 +1,82 @@
-//! Audio clips in the arrangement, the simple timeline of M2 slice 6: one
-//! lane per imported file, each holding one clip at a musical position.
-//! Tracks with headers, editing, undo and save/load arrive in M3, where these
-//! lanes become project tracks.
+//! The project's tracks on the simple timeline, one lane each (M3 slice 3;
+//! track headers and the arrangement at scale arrive in slice 4).
+//!
+//! Dropped files load in the background as placeholders that are not part
+//! of the project. A file joins the project, as one undo step, once it has
+//! loaded and its exact length is known; a failed or cancelled load never
+//! touches it. The engine's clip list is derived from the project after
+//! every change, undo and redo.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, RichText, Stroke, pos2, vec2};
 use lumen_core::time::Ticks;
-use lumen_engine::{Clip, ClipsHandle, Timeline};
+use lumen_engine::{Clip, ClipsHandle};
+use lumen_project::model::{ClipContent, Id, Project};
 
+use crate::document::{Document, Imported};
 use crate::media::{self, Item, Library, State};
 use crate::theme;
 
 pub const LANE_HEIGHT: f32 = 56.0;
 const LANE_GAP: f32 = 4.0;
 
-pub struct Lane {
-    pub media: u64,
-    pub start: Ticks,
-    color: Color32,
-    /// When it was added (egui input time), for its fade-in.
-    added: f64,
-}
-
 #[derive(Default)]
 pub struct Lanes {
-    pub lanes: Vec<Lane>,
     pub library: Library,
+    /// Files loading for import: library id and where they were dropped.
+    pending: Vec<(u64, Ticks)>,
+    /// The project state the engine's clip list was built from.
+    built: Option<u64>,
     /// The engine's clip list needs rebuilding.
     dirty: bool,
     /// A message about files that could not be added.
     notice: Option<String>,
+    /// When each clip was first drawn (egui time), for its fade-in.
+    seen: HashMap<u64, f64>,
+}
+
+/// One clip as drawn.
+struct Drawn<'a> {
+    rect: Rect,
+    item: Option<&'a Item>,
+    name: String,
+    color: Color32,
+    /// Identity for the fade-in: the media id for audio, so a loading
+    /// placeholder that becomes its clip does not fade in twice.
+    key: u64,
+}
+
+fn color_of(c: lumen_project::model::Color) -> Color32 {
+    Color32::from_rgb((c.0 >> 16) as u8, (c.0 >> 8) as u8, c.0 as u8)
+}
+
+fn db_to_gain(db: f32) -> f32 {
+    10f32.powf(db / 20.0)
 }
 
 impl Lanes {
-    pub fn is_empty(&self) -> bool {
-        self.lanes.is_empty()
+    pub fn is_empty(&self, project: &Project) -> bool {
+        project.tracks.is_empty() && self.pending.is_empty()
     }
 
-    /// Adds each audio file on a new lane at `at`; anything else is
+    /// Starts loading each audio file, to be added at `at`; anything else is
     /// reported, not added.
-    pub fn add_files(&mut self, paths: Vec<PathBuf>, at: Ticks, rate: u32, ctx: &egui::Context) {
+    pub fn add_files(
+        &mut self,
+        paths: Vec<PathBuf>,
+        at: Ticks,
+        rate: u32,
+        ctx: &egui::Context,
+        doc: &mut Document,
+    ) {
         let mut rejected = Vec::new();
         for path in paths {
             if media::is_audio_file(&path) {
-                let id = self.library.import(path, rate, ctx);
-                let color = theme::CLIP_COLORS[self.lanes.len() % theme::CLIP_COLORS.len()];
-                self.lanes.push(Lane {
-                    media: id,
-                    start: at,
-                    color,
-                    added: ctx.input(|i| i.time),
-                });
+                let id = doc.fresh_id().0;
+                self.library.import_as(id, path, rate, ctx);
+                self.pending.push((id, at));
             } else {
                 rejected.push(
                     path.file_name()
@@ -65,36 +90,106 @@ impl Lanes {
                 rejected.join(", ")
             ));
         }
-        self.dirty = true;
     }
 
-    /// Applies finished loads and keeps the engine's clips in step. Call
-    /// every frame.
-    pub fn update(&mut self, rate: u32, ctx: &egui::Context, clips: &mut ClipsHandle) {
+    /// Applies finished loads (adding them to the project), loads media the
+    /// project needs, and keeps the engine's clips in step. Call every
+    /// frame.
+    pub fn update(
+        &mut self,
+        rate: u32,
+        ctx: &egui::Context,
+        doc: &mut Document,
+        clips: &mut ClipsHandle,
+    ) {
         self.dirty |= self.library.update(rate, ctx);
-        // Lanes whose file was cancelled or dismissed go too.
+
+        // Loads that finished become tracks, in drop order, as one step.
+        let mut imported = Vec::new();
         let library = &self.library;
-        let before = self.lanes.len();
-        self.lanes.retain(|l| library.get(l.media).is_some());
-        self.dirty |= self.lanes.len() != before;
-        if self.dirty {
-            let list: Vec<Clip> = self
-                .lanes
-                .iter()
-                .filter_map(|lane| match &self.library.get(lane.media)?.state {
-                    State::Ready(audio) => Some(Clip {
-                        start: lane.start,
-                        offset: 0,
-                        length: audio.frames() as i64,
-                        gain: 1.0,
-                        audio: audio.clone(),
-                    }),
-                    _ => None,
-                })
-                .collect();
-            // A full queue means the engine has not caught up; retry next frame.
-            self.dirty = clips.set(list).is_err();
+        self.pending.retain(|&(id, at)| match library.get(id) {
+            Some(item) => match (&item.state, item.info.frames, item.info.sample_rate) {
+                (State::Ready(_), Some(frames), Some(sample_rate)) => {
+                    imported.push(Imported {
+                        media: Id(id),
+                        path: item.path.clone(),
+                        name: item.name.clone(),
+                        sample_rate,
+                        channels: item.info.channels.unwrap_or(2) as u16,
+                        frames,
+                        size_bytes: item.info.size_bytes,
+                        at,
+                    });
+                    false
+                }
+                (State::Failed(_), ..) => false,
+                _ => true,
+            },
+            // Cancelled.
+            None => false,
+        });
+        doc.import(imported);
+
+        // Media the project refers to but that is not loaded (an opened
+        // project, slice 3c).
+        for media in &doc.project().media {
+            if self.library.get(media.id.0).is_none()
+                && let Some(path) = doc.media_files.get(&media.id)
+            {
+                self.library.import_as(media.id.0, path.clone(), rate, ctx);
+            }
         }
+
+        if self.dirty || self.built != Some(doc.state()) {
+            // A full queue means the engine has not caught up; retry next frame.
+            let list = self.engine_clips(doc.project(), rate);
+            self.dirty = clips.set(list).is_err();
+            self.built = Some(doc.state());
+        }
+    }
+
+    /// What the engine plays: every unmuted audio clip whose file is loaded,
+    /// for the shorter of the clip and the file.
+    fn engine_clips(&self, project: &Project, rate: u32) -> Vec<Clip> {
+        let tempo = lumen_core::time::TempoMap::new(project.tempo.clone()).ok();
+        let mut list = Vec::new();
+        for track in project.tracks.iter().filter(|t| !t.mute) {
+            for clip in track.clips.iter().filter(|c| !c.muted) {
+                let ClipContent::Audio {
+                    media,
+                    offset,
+                    gain_db,
+                } = &clip.content
+                else {
+                    continue;
+                };
+                let Some(item) = self.library.get(media.0) else {
+                    continue;
+                };
+                let State::Ready(audio) = &item.state else {
+                    continue;
+                };
+                // The offset is in the file's frames; the audio is at the
+                // device rate.
+                let native = item.info.sample_rate.unwrap_or(audio.sample_rate).max(1);
+                let offset =
+                    (*offset as f64 * f64::from(audio.sample_rate) / f64::from(native)) as i64;
+                let region = tempo.as_ref().map_or(i64::MAX, |t| {
+                    t.sample_at(clip.start + clip.length, rate) - t.sample_at(clip.start, rate)
+                });
+                let length = (audio.frames() as i64 - offset).min(region);
+                if length > 0 {
+                    list.push(Clip {
+                        start: clip.start,
+                        offset,
+                        length,
+                        gain: db_to_gain(*gain_db),
+                        audio: audio.clone(),
+                    });
+                }
+            }
+        }
+        list
     }
 
     fn lane_rect(canvas: Rect, index: usize) -> Rect {
@@ -102,104 +197,145 @@ impl Lanes {
         Rect::from_min_size(pos2(canvas.left(), top), vec2(canvas.width(), LANE_HEIGHT))
     }
 
-    /// Where lane `index`'s clip is drawn, with its file.
-    fn clip(
-        &self,
-        index: usize,
+    /// Every clip with its lane and where it is drawn: the project's tracks
+    /// first, then the files still loading.
+    fn drawn<'a>(
+        &'a self,
+        project: &Project,
         canvas: Rect,
-        timeline: &Timeline,
         x_of: &impl Fn(f32) -> f32,
-    ) -> Option<(Rect, &Item)> {
-        let lane = self.lanes.get(index)?;
-        let item = self.library.get(lane.media)?;
-        let row = Self::lane_rect(canvas, index);
-        let x0 = x_of(lane.start.as_quarters() as f32);
-        let x1 = match &item.state {
-            State::Ready(audio) => {
-                let start = timeline.tempo.seconds_at(lane.start);
-                let seconds = audio.frames() as f64 / f64::from(audio.sample_rate);
-                let end = timeline.tempo.ticks_at_seconds(start + seconds);
-                x_of(end.as_quarters() as f32)
+    ) -> Vec<(usize, Drawn<'a>)> {
+        let mut out = Vec::new();
+        for (row, track) in project.tracks.iter().enumerate() {
+            let lane = Self::lane_rect(canvas, row).shrink2(vec2(0.0, 2.0));
+            for clip in &track.clips {
+                let (item, key) = match &clip.content {
+                    ClipContent::Audio { media, .. } => (self.library.get(media.0), media.0),
+                    ClipContent::Midi { .. } => (None, clip.id.0),
+                };
+                let x0 = x_of(clip.start.as_quarters() as f32);
+                let x1 = x_of((clip.start + clip.length).as_quarters() as f32);
+                out.push((
+                    row,
+                    Drawn {
+                        rect: Rect::from_x_y_ranges(x0..=x1.max(x0 + 2.0), lane.y_range()),
+                        item,
+                        name: clip.name.clone(),
+                        color: color_of(track.color),
+                        key,
+                    },
+                ));
             }
-            _ => x0 + 160.0,
-        };
-        let rect =
-            Rect::from_x_y_ranges(x0..=x1.max(x0 + 2.0), row.shrink2(vec2(0.0, 2.0)).y_range());
-        Some((rect, item))
+        }
+        for (i, &(id, at)) in self.pending.iter().enumerate() {
+            let row = project.tracks.len() + i;
+            let lane = Self::lane_rect(canvas, row).shrink2(vec2(0.0, 2.0));
+            let x0 = x_of(at.as_quarters() as f32);
+            let item = self.library.get(id);
+            out.push((
+                row,
+                Drawn {
+                    rect: Rect::from_x_y_ranges(x0..=x0 + 160.0, lane.y_range()),
+                    name: item.map_or_else(String::new, |i| i.name.clone()),
+                    item,
+                    color: theme::CLIP_COLORS[row % theme::CLIP_COLORS.len()],
+                    key: id,
+                },
+            ));
+        }
+        out
     }
 
-    /// The file whose clip is under `pointer`.
+    /// The file of the clip under `pointer`.
     pub fn file_at(
         &self,
+        project: &Project,
         pointer: Pos2,
         canvas: Rect,
-        timeline: &Timeline,
         x_of: impl Fn(f32) -> f32,
     ) -> Option<&Item> {
-        (0..self.lanes.len())
-            .filter_map(|i| self.clip(i, canvas, timeline, &x_of))
-            .find(|(rect, _)| rect.contains(pointer))
-            .map(|(_, item)| item)
+        self.drawn(project, canvas, &x_of)
+            .into_iter()
+            .find(|(_, d)| d.rect.contains(pointer))
+            .and_then(|(_, d)| d.item)
     }
 
     /// Draws the lanes and their clips. `x_of` maps quarter notes to x.
     pub fn paint(
-        &self,
+        &mut self,
         painter: &Painter,
         canvas: Rect,
-        timeline: &Timeline,
+        project: &Project,
         x_of: impl Fn(f32) -> f32,
     ) {
-        for (index, lane) in self.lanes.iter().enumerate() {
-            let row = Self::lane_rect(canvas, index);
-            if row.top() > canvas.bottom() {
+        let rows = project.tracks.len() + self.pending.len();
+        for row in 0..rows {
+            let lane = Self::lane_rect(canvas, row);
+            if lane.top() > canvas.bottom() {
                 break;
             }
-            painter.rect_filled(row, 0.0, theme::p().lane);
-            let Some((clip, item)) = self.clip(index, canvas, timeline, &x_of) else {
-                continue;
-            };
-            let visible = clip.intersect(row);
-            if visible.width() <= 0.0 {
+            painter.rect_filled(lane, 0.0, theme::p().lane);
+        }
+        let ctx = painter.ctx();
+        let now = ctx.input(|i| i.time);
+        let mut seen = std::mem::take(&mut self.seen);
+        let drawn = self.drawn(project, canvas, &x_of);
+        for (_, d) in &drawn {
+            seen.entry(d.key).or_insert(now);
+        }
+        for (row, drawn) in drawn {
+            // A new clip fades in (motion: BASE).
+            let shown = crate::motion::appear(ctx, seen[&drawn.key]);
+            let lane = Self::lane_rect(canvas, row);
+            let visible = drawn.rect.intersect(lane);
+            if lane.top() > canvas.bottom() || visible.width() <= 0.0 {
                 continue;
             }
-            let (fill, label) = match &item.state {
-                State::Ready(_) => (lane.color, item.name.clone()),
-                State::Loading => {
-                    let p = self.library.progress(item.id).unwrap_or(0.0);
+            let missing = theme::p().record.gamma_multiply(0.4);
+            let (fill, label) = match drawn.item.map(|i| &i.state) {
+                Some(State::Ready(_)) => (drawn.color, drawn.name.clone()),
+                Some(State::Loading) => {
+                    let p = drawn
+                        .item
+                        .and_then(|i| self.library.progress(i.id))
+                        .unwrap_or(0.0);
                     (
-                        lane.color.gamma_multiply(0.45),
-                        format!("{} · loading {:.0}%", item.name, p * 100.0),
+                        drawn.color.gamma_multiply(0.45),
+                        format!("{} · loading {:.0}%", drawn.name, p * 100.0),
                     )
                 }
-                State::Failed(_) => (
-                    theme::p().record.gamma_multiply(0.4),
-                    format!("{} · could not load", item.name),
-                ),
+                Some(State::Failed(_)) => (missing, format!("{} · could not load", drawn.name)),
+                // The project refers to a file that is not available.
+                None => (missing, format!("{} · file missing", drawn.name)),
             };
-            // A new clip fades in (motion: BASE).
-            let ctx = painter.ctx();
-            let shown = crate::motion::appear(ctx, lane.added);
             let fill = fill.gamma_multiply(shown);
             let radius = theme::radius::SMALL;
-            painter.rect_filled(clip, radius, fill);
-            if let (State::Loading, Some(p)) = (&item.state, self.library.progress(item.id)) {
+            painter.rect_filled(drawn.rect, radius, fill);
+            if let Some(item) = drawn.item
+                && let (State::Loading, Some(p)) = (&item.state, self.library.progress(item.id))
+            {
                 // The progress fill glides between updates rather than jumping.
                 let p = ctx.animate_value_with_time(
                     egui::Id::new(("load progress", item.id)),
                     p,
                     crate::motion::time(crate::motion::BASE),
                 );
-                let done = Rect::from_min_size(clip.min, vec2(clip.width() * p, clip.height()));
-                painter.rect_filled(done, radius, lane.color.gamma_multiply(0.8 * shown));
+                let done = Rect::from_min_size(
+                    drawn.rect.min,
+                    vec2(drawn.rect.width() * p, drawn.rect.height()),
+                );
+                painter.rect_filled(done, radius, drawn.color.gamma_multiply(0.8 * shown));
             }
             painter.rect_stroke(
-                clip,
+                drawn.rect,
                 radius,
                 Stroke::new(1.0, fill.gamma_multiply(1.4)),
                 egui::StrokeKind::Inside,
             );
-            let text_at = Pos2::new(visible.left().max(clip.left()) + 6.0, clip.top() + 4.0);
+            let text_at = Pos2::new(
+                visible.left().max(drawn.rect.left()) + 6.0,
+                drawn.rect.top() + 4.0,
+            );
             painter.with_clip_rect(visible).text(
                 text_at,
                 egui::Align2::LEFT_TOP,
@@ -208,6 +344,7 @@ impl Lanes {
                 theme::CLIP_TEXT.gamma_multiply(shown),
             );
         }
+        self.seen = seen;
     }
 
     /// The panel for loads in progress (with Cancel), failures (with

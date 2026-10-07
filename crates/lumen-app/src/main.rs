@@ -21,6 +21,7 @@
 mod audio;
 mod audio_settings;
 mod canvas;
+mod document;
 mod fonts;
 mod icons;
 mod lanes;
@@ -49,7 +50,14 @@ use transport::Transport;
 const RULER_HEIGHT: f32 = 22.0;
 
 struct App {
-    project: Project,
+    /// The open project with its undo history (M3 slice 3).
+    document: document::Document,
+    /// The document state the transport's timeline was built from.
+    synced: Option<u64>,
+    /// The undo history window is open.
+    show_history: bool,
+    /// The note shown after undo or redo, and since when.
+    toast: Option<(String, Instant)>,
     transport: Transport,
     /// Audio clips on the simple timeline (M2 slice 6).
     lanes: lanes::Lanes,
@@ -88,7 +96,7 @@ struct App {
     banner: Option<(String, bool)>,
 }
 
-fn empty_project() -> Project {
+pub(crate) fn empty_project() -> Project {
     Project {
         name: "Untitled".into(),
         sample_rate: 48_000,
@@ -128,9 +136,156 @@ impl App {
                 ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
                 self.app_menu(ui);
                 ui.separator();
-                self.transport.ui(ui, &mut self.project);
+                self.transport.ui(ui, &mut self.document);
             });
         });
+    }
+
+    /// Undo (or redo) one step, with a brief note of what changed.
+    fn undo(&mut self, redo: bool) {
+        let done = if redo {
+            self.document.redo().map(|l| format!("Redo: {l}"))
+        } else {
+            self.document.undo().map(|l| format!("Undo: {l}"))
+        };
+        if let Some(text) = done {
+            trace::log(|| text.clone());
+            self.toast = Some((text, Instant::now()));
+        }
+    }
+
+    /// Undo and redo from the keyboard: Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y.
+    /// Not while typing in a field, which has its own text undo.
+    fn undo_shortcuts(&mut self, ctx: &egui::Context) {
+        if ctx.egui_wants_keyboard_input() {
+            return;
+        }
+        use egui::{Key, KeyboardShortcut, Modifiers};
+        let redo = ctx.input_mut(|i| {
+            i.consume_shortcut(&KeyboardShortcut::new(
+                Modifiers::COMMAND | Modifiers::SHIFT,
+                Key::Z,
+            )) || i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Y))
+        });
+        let undo = ctx
+            .input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Z)));
+        if redo {
+            self.undo(true);
+        } else if undo {
+            self.undo(false);
+        }
+    }
+
+    /// Keeps the app in step with the document: gestures end when the
+    /// pointer is released, and the transport follows tempo and meter
+    /// changes from edits, undo and redo.
+    fn sync_document(&mut self, ctx: &egui::Context) {
+        if !ctx.input(|i| i.pointer.any_down()) {
+            self.document.seal();
+        }
+        if self.synced != Some(self.document.state()) {
+            self.transport.timeline_changed(self.document.project());
+            self.synced = Some(self.document.state());
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.document.title()));
+        }
+    }
+
+    /// The undo history: every step, the current one highlighted; click a
+    /// step to go back (or forward) to it.
+    fn history_window(&mut self, ctx: &egui::Context) {
+        if !self.show_history {
+            return;
+        }
+        let mut open = true;
+        let mut jump = None;
+        egui::Window::new("History")
+            .title_bar(false)
+            .collapsible(false)
+            .resizable(false)
+            .default_pos(pos2(ctx.content_rect().right() - 280.0, 72.0))
+            .min_width(240.0)
+            .max_width(240.0)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("History").font(fonts::display(theme::size::TITLE)));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if icons::close_button(ui).clicked() {
+                            open = false;
+                        }
+                    });
+                });
+                ui.add_space(theme::space::XS);
+                let (done, undone) = self.document.history().steps();
+                egui::ScrollArea::vertical()
+                    .max_height(360.0)
+                    .show(ui, |ui| {
+                        let row = |ui: &mut egui::Ui, text: &str, current: bool, future: bool| {
+                            let text = if future {
+                                RichText::new(text).color(theme::p().text_hint)
+                            } else {
+                                RichText::new(text)
+                            };
+                            ui.add_sized(
+                                [ui.available_width(), 22.0],
+                                egui::Button::selectable(current, text),
+                            )
+                            .clicked()
+                        };
+                        if row(ui, "Opened", done.is_empty(), false) {
+                            jump = Some(0);
+                        }
+                        for (i, label) in done.iter().enumerate() {
+                            if row(ui, label, i + 1 == done.len(), false) {
+                                jump = Some(i + 1);
+                            }
+                        }
+                        for (i, label) in undone.iter().enumerate() {
+                            if row(ui, label, false, true) {
+                                jump = Some(done.len() + i + 1);
+                            }
+                        }
+                    });
+                if done.is_empty() && undone.is_empty() {
+                    ui.label(
+                        RichText::new("Edits appear here. Click one to go back to it.")
+                            .small()
+                            .weak(),
+                    );
+                }
+            });
+        if let Some(step) = jump {
+            self.document.jump_to(step);
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            open = false;
+        }
+        self.show_history = open;
+    }
+
+    /// A short note after undo or redo, fading out after a moment.
+    fn toast(&mut self, ctx: &egui::Context, at: egui::Pos2) {
+        let Some((text, since)) = &self.toast else {
+            return;
+        };
+        const SHOWN: Duration = Duration::from_millis(1400);
+        let visible = since.elapsed() < SHOWN;
+        let fade = motion::fade(ctx, egui::Id::new("toast"), visible);
+        if !visible && fade == 0.0 {
+            self.toast = None;
+            return;
+        }
+        if visible {
+            ctx.request_repaint_after(SHOWN.saturating_sub(since.elapsed()));
+        }
+        let text = text.clone();
+        egui::Area::new(egui::Id::new("toast area"))
+            .pivot(egui::Align2::CENTER_BOTTOM)
+            .fixed_pos(at + vec2(0.0, (1.0 - fade) * 6.0))
+            .interactable(false)
+            .show(ctx, |ui| {
+                ui.multiply_opacity(fade);
+                egui::Frame::popup(ui.style()).show(ui, |ui| ui.label(text));
+            });
     }
 
     /// The product name opens the app menu: appearance (theme, motion, UI
@@ -140,6 +295,33 @@ impl App {
         let menu = ui.menu_button(
             RichText::new(PRODUCT_NAME).font(fonts::display(theme::size::WORDMARK)),
             |ui| {
+                let undo = self.document.history().undo_label().map(str::to_owned);
+                let redo = self.document.history().redo_label().map(str::to_owned);
+                let undo_text = undo.map_or("Undo".to_owned(), |l| format!("Undo {l}"));
+                let redo_text = redo.map_or("Redo".to_owned(), |l| format!("Redo {l}"));
+                if ui
+                    .add_enabled(
+                        self.document.history().can_undo(),
+                        egui::Button::new(undo_text).shortcut_text("Ctrl+Z"),
+                    )
+                    .clicked()
+                {
+                    self.undo(false);
+                }
+                if ui
+                    .add_enabled(
+                        self.document.history().can_redo(),
+                        egui::Button::new(redo_text).shortcut_text("Ctrl+Shift+Z"),
+                    )
+                    .clicked()
+                {
+                    self.undo(true);
+                }
+                if ui.button("History…").clicked() {
+                    self.show_history = true;
+                    ui.close();
+                }
+                ui.separator();
                 ui.label(RichText::new("Theme").small().weak());
                 let mut chosen = theme::Appearance::from_key(&self.settings.appearance.theme);
                 for option in theme::Appearance::ALL {
@@ -227,13 +409,13 @@ impl App {
         ));
         let x_of = |quarters: f32| canvas.left() + (quarters - self.left_beat) * self.px_per_beat;
         self.lanes
-            .paint(&painter, canvas, &self.transport.timeline, x_of);
+            .paint(&painter, canvas, self.document.project(), x_of);
         // A hover card with the file's details.
         let hover = ui.interact(canvas, ui.id().with("clips"), Sense::hover());
         if let Some(pointer) = hover.hover_pos()
             && let Some(item) = self
                 .lanes
-                .file_at(pointer, canvas, &self.transport.timeline, x_of)
+                .file_at(self.document.project(), pointer, canvas, x_of)
         {
             hover.on_hover_ui_at_pointer(|ui| lanes::file_card(ui, item));
         }
@@ -428,7 +610,7 @@ impl App {
                 egui::FontId::proportional(15.0),
                 color,
             );
-        } else if self.lanes.is_empty() {
+        } else if self.lanes.is_empty(self.document.project()) {
             painter.text(
                 canvas.center(),
                 egui::Align2::CENTER_CENTER,
@@ -439,6 +621,7 @@ impl App {
         }
         self.lanes
             .panel(ui.ctx(), pos2(full.left() + 8.0, full.bottom() - 8.0));
+        self.toast(ui.ctx(), pos2(full.center().x, full.bottom() - 16.0));
     }
 }
 
@@ -580,6 +763,7 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.transport.update();
         self.transport.shortcuts(&ctx);
+        self.undo_shortcuts(&ctx);
         let rate = self.transport.state().sample_rate;
         let dropped: Vec<PathBuf> = ctx.input(|i| {
             i.raw
@@ -591,10 +775,16 @@ impl eframe::App for App {
         });
         if !dropped.is_empty() {
             trace::log(|| format!("drop: {} file(s) at {:?}", dropped.len(), self.drop_target));
-            self.lanes.add_files(dropped, self.drop_target, rate, &ctx);
+            self.lanes
+                .add_files(dropped, self.drop_target, rate, &ctx, &mut self.document);
         }
-        self.lanes
-            .update(rate, &ctx, &mut self.transport.audio.clips);
+        self.lanes.update(
+            rate,
+            &ctx,
+            &mut self.document,
+            &mut self.transport.audio.clips,
+        );
+        self.sync_document(&ctx);
         self.transport.clip_memory = self.lanes.library.memory();
         self.save_settings_when_settled(&ctx);
         if let Some(every) = self.autoplay {
@@ -633,6 +823,7 @@ impl eframe::App for App {
         egui::Panel::top("transport").show(ui, |ui| self.transport(ui));
         self.device_banner(ui);
         self.transport.windows(&ctx);
+        self.history_window(&ctx);
 
         // A focused control must not vanish with its panel: AccessKit
         // rejects focus on a node that no longer exists. Release focus
@@ -811,8 +1002,8 @@ fn main() -> eframe::Result {
             if let Some(state) = cc.wgpu_render_state.as_ref() {
                 canvas::install(state).map_err(|e| format!("renderer: {e}"))?;
             }
-            let project = empty_project();
-            let mut transport = Transport::new(&project, &choice);
+            let mut document = document::Document::new(empty_project());
+            let mut transport = Transport::new(document.project(), &choice);
             transport.restore_metronome((&saved.metronome).into());
             transport.settings_window.open = std::env::args().any(|a| a == "--audio-settings");
             if let Some(warning) = settings_warning {
@@ -828,6 +1019,7 @@ fn main() -> eframe::Result {
                     Ticks::ZERO,
                     transport.state().sample_rate,
                     &cc.egui_ctx,
+                    &mut document,
                 );
             }
             let saved_appearance = saved.appearance.clone();
@@ -838,7 +1030,10 @@ fn main() -> eframe::Result {
                 settings: saved,
                 settings_path,
                 settings_changed: None,
-                project,
+                document,
+                synced: None,
+                show_history: false,
+                toast: None,
                 show_browser: true,
                 show_detail: true,
                 browser_size: 220.0,

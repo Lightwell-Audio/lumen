@@ -133,8 +133,9 @@ impl Transport {
         self.send(Command::SetLoop(self.loop_region));
     }
 
-    /// Rebuilds the timeline from the project and sends it to the engine.
-    fn timeline_changed(&mut self, project: &Project) {
+    /// Rebuilds the timeline from the project and sends it to the engine
+    /// (after an edit, undo or redo that may have changed tempo or meter).
+    pub fn timeline_changed(&mut self, project: &Project) {
         self.timeline = timeline_of(project);
         self.timeline_pending = true;
         self.settle();
@@ -176,7 +177,8 @@ impl Transport {
         }
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, project: &mut Project) {
+    pub fn ui(&mut self, ui: &mut Ui, doc: &mut crate::document::Document) {
+        let project = doc.project();
         let state = self.state();
         let running = matches!(self.audio.status, Status::Running { .. });
         let no_audio = "No audio device is running";
@@ -304,12 +306,15 @@ impl Transport {
             )
             .on_hover_text("Tempo: drag, or click and type (20–999 BPM)");
         tempo.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::DragValue, true, "Tempo"));
-        if tempo.changed()
-            && let Some(first) = project.tempo.first_mut()
-        {
-            first.bpm = bpm;
-            self.timeline_changed(project);
+        if tempo.changed() {
+            // A drag is one undo step (merged until the pointer is released).
+            doc.apply("Change tempo", Some("tempo"), |p| {
+                if let Some(first) = p.tempo.first_mut() {
+                    first.bpm = bpm;
+                }
+            });
         }
+        let project = doc.project();
 
         // Time signature.
         let mut numerator = u32::from(project.time_signature.numerator);
@@ -344,11 +349,12 @@ impl Transport {
                 project.time_signature.denominator.into(),
             )
         {
-            project.time_signature = TimeSignature {
-                numerator: numerator as u8,
-                denominator: denominator as u8,
-            };
-            self.timeline_changed(project);
+            doc.apply("Change time signature", Some("meter"), |p| {
+                p.time_signature = TimeSignature {
+                    numerator: numerator as u8,
+                    denominator: denominator as u8,
+                };
+            });
         }
         ui.separator();
 
