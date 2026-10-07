@@ -339,9 +339,18 @@ Implement:
 - Recording latency compensation
 - Manual recording offset
 - MIDI recording polish
-- Autosave
-- Crash recovery
-- Rolling backups
+- Autosave, crash recovery and rolling backups: done early, in M3 slice 3
+- **App icon and project file icon** (owner request, 2026-10-07):
+  - Lumen's icon, and an icon for `.lumen` files in Explorer and file
+    dialogs, drawn from the design system;
+  - candidates shown to the owner as rendered specimens before one is
+    built;
+  - the `.lumen` file type registered per user (no administrator rights)
+    so projects show their icon and open by double-click; the installer
+    registers it system-wide in M10.
+  - Project folders keep the standard folder icon. Custom folder icons
+    need hidden `desktop.ini` files that sync tools and other machines
+    handle poorly; the project file inside carries the identity instead.
 - Collect and save
 - Media pool
 - Missing-media relinking

@@ -287,7 +287,8 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | CPU, disk and dropout indicators; Audio On/Off; panic | M | 🟡 CPU (peak per second), dropouts, Audio On/Off and panic done (M2 slice 7). Disk indicator with disk streaming (M9); MIDI all-notes-off joins panic in M5 |
 | Crash report file; logging with "reveal logs" | M | 🔲 |
 | Device hot-unplug, sleep/resume, rate-change handling | M | 🟡 Unplug and replug recover on ASIO and WASAPI (MT-AUDIO-1, -4); driver resets on ASIO (MT-AUDIO-2). Sleep/resume and Windows format and rate changes recover too (MT-AUDIO-6). Banners for these states (slice 8). macOS and Linux untested on hardware |
-| Single instance; file association; open by double-click or drop | M | 🔲 |
+| Single instance; file association; open by double-click or drop | M | 🟡 `lumen <file>.lumen` opens a project (M3 slice 3c). File association with a project file icon in M9 (per user), system-wide by the installer in M10 |
+| App icon and `.lumen` file icon (owner request, 2026-10-07) | S | 🔲 M9, shown as specimens first |
 | Opt-in telemetry only | M | ✅ |
 | Update checker; licensing/activation | L | 🔲 |
 | Windows installer and portable build; third-party licence listing; VST and ASIO notices; SDK compliance | M | 🔲 |

@@ -29,6 +29,7 @@ mod icons;
 mod lanes;
 mod media;
 mod motion;
+mod owner;
 mod panels;
 mod position;
 mod probe;
@@ -72,6 +73,8 @@ struct App {
     file_notice: Option<String>,
     /// Closing for real, after the unsaved-changes prompt.
     quitting: bool,
+    /// The main window, to own file dialogs.
+    owner: Option<owner::Owner>,
     /// Autosave of unsaved changes (slice 3d). An `Option` only so it can
     /// be taken out while the app builds the save request.
     autosave: Option<autosave::Autosave>,
@@ -223,6 +226,7 @@ impl App {
                     .as_deref()
                     .and_then(|p| p.parent()?.parent().map(PathBuf::from))
                     .or_else(documents_folder);
+                let owner = self.owner;
                 self.dialog = Some(spawn_dialog(ctx, move || {
                     let mut dialog = rfd::FileDialog::new()
                         .set_title("Save project")
@@ -230,6 +234,9 @@ impl App {
                         .set_file_name(name);
                     if let Some(dir) = start {
                         dialog = dialog.set_directory(dir);
+                    }
+                    if let Some(owner) = &owner {
+                        dialog = dialog.set_parent(owner);
                     }
                     FileDialog::SaveAs(dialog.save_file())
                 }));
@@ -280,12 +287,16 @@ impl App {
                     .as_deref()
                     .and_then(|p| p.parent()?.parent().map(PathBuf::from))
                     .or_else(documents_folder);
+                let owner = self.owner;
                 self.dialog = Some(spawn_dialog(ctx, move || {
                     let mut dialog = rfd::FileDialog::new()
                         .set_title("Open project")
                         .add_filter("Lumen project", &[files::EXTENSION]);
                     if let Some(dir) = start {
                         dialog = dialog.set_directory(dir);
+                    }
+                    if let Some(owner) = &owner {
+                        dialog = dialog.set_parent(owner);
                     }
                     FileDialog::Open(dialog.pick_file())
                 }));
@@ -743,7 +754,10 @@ impl App {
         self.show_history = open;
     }
 
-    /// A short note after undo or redo, fading out after a moment.
+    /// A short note after undo, redo, save or open, fading out after a
+    /// moment. One line in the arrangement's top-right corner, under the
+    /// ruler, clear of where clips usually are; long names are shortened
+    /// with "…". `at` is that corner.
     fn toast(&mut self, ctx: &egui::Context, at: egui::Pos2) {
         let Some((text, since)) = &self.toast else {
             return;
@@ -758,14 +772,26 @@ impl App {
         if visible {
             ctx.request_repaint_after(SHOWN.saturating_sub(since.elapsed()));
         }
+        const MAX_WIDTH: f32 = 340.0;
         let text = text.clone();
+        let font = egui::FontId::proportional(theme::size::BODY);
+        let natural = ctx
+            .fonts_mut(|f| f.layout_no_wrap(text.clone(), font.clone(), theme::p().text))
+            .size()
+            .x;
         egui::Area::new(egui::Id::new("toast area"))
-            .pivot(egui::Align2::CENTER_BOTTOM)
-            .fixed_pos(at + vec2(0.0, (1.0 - fade) * 6.0))
+            .pivot(egui::Align2::RIGHT_TOP)
+            // Drops in from just above, and lifts away as it fades.
+            .fixed_pos(at - vec2(0.0, (1.0 - fade) * 6.0))
             .interactable(false)
             .show(ctx, |ui| {
                 ui.multiply_opacity(fade);
-                egui::Frame::popup(ui.style()).show(ui, |ui| ui.label(text));
+                egui::Frame::popup(ui.style())
+                    .inner_margin(egui::Margin::symmetric(10, 5))
+                    .show(ui, |ui| {
+                        ui.set_width(natural.min(MAX_WIDTH));
+                        ui.add(egui::Label::new(RichText::new(text).font(font)).truncate());
+                    });
             });
     }
 
@@ -1150,7 +1176,7 @@ impl App {
         }
         self.lanes
             .panel(ui.ctx(), pos2(full.left() + 8.0, full.bottom() - 8.0));
-        self.toast(ui.ctx(), pos2(full.center().x, full.bottom() - 16.0));
+        self.toast(ui.ctx(), pos2(full.right() - 12.0, canvas.top() + 10.0));
     }
 }
 
@@ -1296,7 +1322,10 @@ impl eframe::App for App {
         });
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        if self.owner.is_none() {
+            self.owner = owner::Owner::of(frame);
+        }
         let ctx = ui.ctx().clone();
         self.transport.update();
         self.transport.shortcuts(&ctx);
@@ -1612,6 +1641,7 @@ fn main() -> eframe::Result {
                 after_save: None,
                 file_notice: None,
                 quitting: false,
+                owner: None,
                 autosave: None,
                 leftover: None,
                 recovering: None,

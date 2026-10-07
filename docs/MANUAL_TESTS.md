@@ -677,5 +677,15 @@ and 7 without a person (see DEVELOPMENT.md). Both passed on 2026-10-07:
 a project saved, its source audio deleted and the project reopened plays
 from its own copies, and a killed process was recovered.
 
-**Last run:** not yet run.
+**Run 1 (2026-10-07, owner):** three findings, all addressed:
+- The undo note wrapped into a narrow column in the middle of the
+  timeline. It is now one line in the arrangement's top-right corner under
+  the ruler, shortened with "…" when long.
+- Explorer shows a generic icon for `.lumen` files. The file association
+  and a project file icon are scheduled for M9 (ROADMAP).
+- A minimized or hidden Open dialog could get lost, and Open did not bring
+  it back. Dialogs are now owned by Lumen's window: they stay above it,
+  minimize and restore with it, and come forward when Lumen is clicked.
+
+**Last run:** run 1 with findings (above); run 2 pending.
 
