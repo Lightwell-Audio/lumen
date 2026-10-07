@@ -519,7 +519,8 @@ Run `cargo run --release -p lumen-app -- --audio asio:"Focusrite USB ASIO"`.
   marker and the playhead, with Play from the marker, Shift+Space
   continuing, and Stop leaving the playhead in place (ADR-0017 revised).
 
-**Run 2:** not yet run.
+**Run 2 (2026-10-06, owner):** pass: test tone, Audio On/Off and Panic.
+The 64-sample dropout check (step 4) was not reported separately.
 
 ### MT-APP-5 · Start marker and playhead (needs a human)
 1. Click the ruler at bar 3: the grey arrow (the start marker, bottom of the
@@ -534,4 +535,5 @@ Run `cargo run --release -p lumen-app -- --audio asio:"Focusrite USB ASIO"`.
 
 **Expected:** every step as described, matching Ableton's arrangement view.
 
-**Last run:** not yet run.
+**Last run (2026-10-06, owner):** pass, after restyling the start marker at
+the owner's request (grey, ruler only, bottom edge).
