@@ -19,7 +19,8 @@ fn playing(clips: usize) -> Engine<ClipPlayer> {
     handle
         .set(
             (0..clips)
-                .map(|_| Clip {
+                .map(|i| Clip {
+                    id: i as u64,
                     start: Ticks::ZERO,
                     offset: 0,
                     length: 480_000,

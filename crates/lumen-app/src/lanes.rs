@@ -48,8 +48,9 @@ pub fn engine_clips(
     let tempo = lumen_core::time::TempoMap::new(project.tempo.clone()).ok();
     let audible = crate::document::audible(project);
     let mut list = Vec::new();
-    for track in project.tracks.iter().filter(|t| audible(t)) {
-        for clip in track.clips.iter().filter(|c| !c.muted) {
+    for track in &project.tracks {
+        let heard = audible(track);
+        for clip in &track.clips {
             let ClipContent::Audio {
                 media,
                 offset,
@@ -71,12 +72,19 @@ pub fn engine_clips(
             let length = (samples.frames() as i64 - offset).min(region);
             if length > 0 {
                 list.push(Clip {
+                    id: clip.id.0,
                     start: clip.start,
                     offset,
                     length,
                     // Track volume and pan (M3 slice 4); the mixer takes
                     // over in M4.
-                    gain: db_to_gain(*gain_db) * db_to_gain(track.gain_db),
+                    // Muted and unheard clips stay at gain 0, so they fade
+                    // out and back in rather than clicking.
+                    gain: if heard && !clip.muted {
+                        db_to_gain(*gain_db) * db_to_gain(track.gain_db)
+                    } else {
+                        0.0
+                    },
                     pan: track.pan,
                     audio: samples,
                 });
@@ -377,15 +385,19 @@ mod tests {
     fn mute_solo_and_missing_audio_decide_what_plays() {
         let (mut doc, audio) = setup(3);
         let ids: Vec<Id> = doc.project().tracks.iter().map(|t| t.id).collect();
-        assert_eq!(played(&doc, &audio, 48_000).len(), 3);
+        // Every clip is sent; the ones that cannot be heard at gain 0, so
+        // the engine fades them rather than cutting them off.
+        let heard = |doc: &Document| {
+            played(doc, &audio, 48_000)
+                .iter()
+                .map(|c| c.gain > 0.0)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(heard(&doc), [true, true, true]);
         doc.set_mute(&ids[..1], true);
-        assert_eq!(played(&doc, &audio, 48_000).len(), 2);
+        assert_eq!(heard(&doc), [false, true, true]);
         doc.set_solo(&ids[2..], true, true);
-        assert_eq!(
-            played(&doc, &audio, 48_000).len(),
-            1,
-            "only the soloed track"
-        );
+        assert_eq!(heard(&doc), [false, false, true], "only the soloed track");
         // Audio not loaded (or missing): nothing to play for it.
         let none = engine_clips(doc.project(), 48_000, |_| None);
         assert!(none.is_empty());
@@ -409,12 +421,15 @@ mod tests {
     }
 
     #[test]
-    fn midi_and_muted_clips_are_not_sent_as_audio() {
+    fn midi_is_not_sent_as_audio_and_muted_clips_are_silent() {
         let (mut doc, audio) = setup(1);
         doc.add_track(TrackKind::Midi, None);
         doc.apply("Mute clip", None, |p| {
             Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]).muted = true;
         });
-        assert!(played(&doc, &audio, 48_000).is_empty());
+        let clips = played(&doc, &audio, 48_000);
+        assert_eq!(clips.len(), 1, "the audio clip only");
+        assert_eq!(clips[0].gain, 0.0);
+        assert_eq!(clips[0].id, doc.project().tracks[0].clips[0].id.0);
     }
 }

@@ -1486,17 +1486,24 @@ Ableton-style folding and vertical resizing.
   - pan is a balance law in the clip player (unity at the centre, the far
     side fading out), added as `Clip::pan`.
   - The mixer in M4 replaces both with per-track processing, pan laws,
-    smoothing and meters. Until then:
-    - a fast drag can step the gain audibly (zipper noise), because the
-      clip list is swapped without ramping;
-    - muting or soloing a playing track can click, because its clips leave
-      the list at once instead of fading out.
-  - Fixed 2026-10-07 (owner: arming popped and panning crackled): every
-    document change resent the timeline, and every resend cut the audio
-    and faded it back in. Now the app sends a timeline only when tempo or
-    meter change, and the engine leaves the audio untouched when a new
-    timeline does not move the playhead. A tempo change that does move it
-    crossfades, like every other jump.
+    smoothing and meters.
+  - Clicks fixed 2026-10-07 (owner: arming popped; volume and pan drags
+    crackled; the first play after opening popped):
+    - Every document change resent the timeline, and every resend cut the
+      audio and faded it back in. Now the app sends a timeline only when
+      tempo or meter change; the engine leaves the audio untouched when a
+      new timeline does not move the playhead, and crossfades when it does.
+    - Clip levels glide. Clips carry their project id; the player carries
+      each clip's level into the next list (a merge over id-sorted lists,
+      real-time safe) and moves it at full scale per 20 ms. Muted and
+      unheard clips stay in the list at gain 0, so mute and solo fade. A
+      clip first heard partway through (its audio finished loading during
+      playback) fades in; one heard from its first sample keeps its attack.
+    - Cost: `engine_clips_64` +1.95% instructions (about 200 per clip per
+      block), an intended change; the baseline was updated.
+    - Still abrupt: deleting a clip or track that is playing (rare; it
+      leaves the list at once). The M4 mixer moves gain, pan and mute to
+      tracks, with smoothing there.
 - **Mute, solo and arm are undo steps** (arm included, for consistency).
   Solo is exclusive on a plain click and added with Ctrl+click.
   Buttons act on the whole selection when the clicked track is part of it.

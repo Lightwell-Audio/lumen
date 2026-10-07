@@ -62,6 +62,7 @@ fn a_clip_plays_on_its_exact_samples_at_every_block_size() {
     let audio = ramp(20_000, RATE);
     let (offset, length) = (100, 10_000);
     let clip = Clip {
+        id: 1,
         start: bars(1), // sample 96,000 at 120 BPM
         offset,
         length,
@@ -94,6 +95,7 @@ fn a_clip_plays_on_its_exact_samples_at_every_block_size() {
 fn the_loop_wrap_crossfades_and_stays_on_the_exact_sample() {
     let audio = ramp(400_000, RATE);
     let clip = Clip {
+        id: 1,
         start: Ticks::ZERO,
         offset: 0,
         length: 400_000,
@@ -132,6 +134,7 @@ fn the_loop_wrap_crossfades_and_stays_on_the_exact_sample() {
 fn stopping_fades_out_instead_of_cutting() {
     let audio = ramp(400_000, RATE);
     let clip = Clip {
+        id: 1,
         start: Ticks::ZERO,
         offset: 0,
         length: 400_000,
@@ -166,6 +169,7 @@ fn stopping_fades_out_instead_of_cutting() {
 fn a_locate_lands_on_the_exact_sample_and_fades_in() {
     let audio = ramp(400_000, RATE);
     let clip = Clip {
+        id: 1,
         start: Ticks::ZERO,
         offset: 0,
         length: 400_000,
@@ -193,6 +197,7 @@ fn mono_plays_on_both_sides_and_gain_applies() {
         channels: vec![vec![0.5; 10_000]],
     });
     let clip = Clip {
+        id: 1,
         start: Ticks::ZERO,
         offset: 0,
         length: 10_000,
@@ -209,6 +214,7 @@ fn mono_plays_on_both_sides_and_gain_applies() {
 #[test]
 fn clips_at_another_sample_rate_stay_silent() {
     let clip = Clip {
+        id: 1,
         start: Ticks::ZERO,
         offset: 0,
         length: 10_000,
@@ -226,6 +232,7 @@ fn clips_at_another_sample_rate_stay_silent() {
 fn clips_follow_tempo_changes() {
     let audio = ramp(20_000, RATE);
     let clip = Clip {
+        id: 1,
         start: bars(1),
         offset: 0,
         length: 1_000,
@@ -248,6 +255,7 @@ fn clips_follow_tempo_changes() {
 fn a_new_clip_list_replaces_the_old_and_the_old_is_handed_back() {
     let audio = ramp(10_000, RATE);
     let clip = |start| Clip {
+        id: 1,
         start,
         offset: 0,
         length: 1_000,
@@ -279,6 +287,7 @@ fn resending_the_same_timeline_while_playing_changes_nothing() {
     // dragging pan crackled, from a fade-in on every resend).
     let audio = ramp(20_000, RATE);
     let clip = Clip {
+        id: 1,
         start: Ticks::ZERO,
         offset: 0,
         length: 20_000,
@@ -306,6 +315,7 @@ fn a_tempo_change_while_playing_crossfades() {
     // the audio jumps; like every jump, it crossfades rather than cutting.
     let audio = ramp(40_000, RATE);
     let clip = Clip {
+        id: 1,
         start: Ticks::ZERO,
         offset: 0,
         length: 40_000,
@@ -328,4 +338,93 @@ fn a_tempo_change_while_playing_crossfades() {
     assert!(steepest < 2e-5, "steepest step {steepest}");
     // After the fade it plays from the new position: frame 20,000 of the file.
     assert_eq!(out[10_200], expected(&audio, 0, 40_000, 20_200));
+}
+
+/// Steady audio, so any step in the output is a change of level.
+fn steady(frames: usize) -> Arc<ClipAudio> {
+    Arc::new(ClipAudio {
+        sample_rate: RATE,
+        channels: vec![vec![0.5; frames], vec![0.5; frames]],
+    })
+}
+
+fn steady_clip(audio: &Arc<ClipAudio>, gain: f32, pan: f32) -> Clip {
+    Clip {
+        id: 7,
+        start: Ticks::ZERO,
+        offset: 0,
+        length: audio.frames() as i64,
+        gain,
+        pan,
+        audio: Arc::clone(audio),
+    }
+}
+
+/// The largest change from one frame to the next, on either side.
+fn steepest(out: &[(f32, f32)]) -> f32 {
+    out.windows(2)
+        .map(|w| (w[1].0 - w[0].0).abs().max((w[1].1 - w[0].1).abs()))
+        .fold(0.0, f32::max)
+}
+
+/// Full scale in 20 ms, on audio at 0.5.
+const MAX_STEP: f32 = 0.5 * 50.0 / RATE as f32 + 1e-6;
+
+#[test]
+fn volume_pan_and_mute_changes_glide_instead_of_stepping() {
+    // Owner: dragging volume or pan crackled during playback, and muting
+    // clicked: each new clip list changed the level at once.
+    let audio = steady(48_000);
+    let (mut handle, mut clips, mut engine) = setup(vec![steady_clip(&audio, 1.0, 0.0)]);
+    handle.send(Command::Play).unwrap();
+    let mut out = run(&mut engine, 1_000, 128);
+    // A drag: a new level every 16 ms (one screen frame).
+    // The app frees replaced lists every frame; so does this test.
+    let mut send = |gain, pan| {
+        clips.collect_garbage();
+        clips.set(vec![steady_clip(&audio, gain, pan)]).unwrap();
+    };
+    for (gain, pan) in [(0.8, 0.0), (0.6, -0.3), (0.6, -0.9), (1.0, 0.5)] {
+        send(gain, pan);
+        out.extend(run(&mut engine, 768, 128));
+    }
+    // Mute (gain 0), then unmute.
+    send(0.0, 0.0);
+    out.extend(run(&mut engine, 2_000, 128));
+    assert_eq!(out.last(), Some(&(0.0, 0.0)), "muted reaches silence");
+    send(1.0, 0.0);
+    out.extend(run(&mut engine, 2_000, 128));
+    assert_eq!(out.last(), Some(&(0.5, 0.5)), "unmuted reaches full level");
+    assert!(
+        steepest(&out[200..]) <= MAX_STEP,
+        "steepest {}",
+        steepest(&out[200..])
+    );
+}
+
+#[test]
+fn a_clip_that_appears_partway_fades_in() {
+    // Owner: the first play after opening a project popped. A clip whose
+    // audio finishes loading during playback joins partway through.
+    let audio = steady(48_000);
+    let (mut handle, mut clips, mut engine) = setup(Vec::new());
+    handle.send(Command::Play).unwrap();
+    let mut out = run(&mut engine, 5_000, 128);
+    clips.set(vec![steady_clip(&audio, 1.0, 0.0)]).unwrap();
+    out.extend(run(&mut engine, 2_000, 128));
+    assert!(steepest(&out) <= MAX_STEP, "steepest {}", steepest(&out));
+    assert_eq!(out.last(), Some(&(0.5, 0.5)));
+}
+
+#[test]
+fn a_clip_heard_from_its_start_keeps_its_attack() {
+    // A new clip that starts on its own first sample is not slowed by the
+    // glide: only its 2 ms edge fade applies.
+    let audio = steady(48_000);
+    let mut late = steady_clip(&audio, 1.0, 0.0);
+    late.start = Ticks::quarters(1); // sample 24,000
+    let (mut handle, _clips, mut engine) = setup(vec![late]);
+    handle.send(Command::Play).unwrap();
+    let out = run(&mut engine, 24_200, 128);
+    assert_eq!(out[24_000 + FADE as usize], (0.5, 0.5));
 }

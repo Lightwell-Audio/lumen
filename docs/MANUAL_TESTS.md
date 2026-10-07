@@ -728,7 +728,7 @@ Run `cargo run --release -p lumen-app`.
      to blue toward the edge;
    - double-click either to reset;
    - click one and type a value (−6, or L 30), then press Enter;
-   - fast drags may step audibly until the M4 mixer smooths them.
+   - drags glide smoothly, without crackle (levels glide since run 2).
 7. **Move, duplicate, delete:**
    - Alt+↑ and Alt+↓ move the selected tracks;
    - Ctrl+D duplicates them, with their clips;
@@ -782,9 +782,12 @@ Check in run 3:
   a different point in the file.)
 - Select a track: its M, S and sliders stay clearly visible, in both
   themes.
-- While audio plays, arm and disarm tracks, and drag pan slowly: no pop,
-  no crackle. (A very fast drag can still step faintly, and muting can
-  click, until the M4 mixer smooths them.)
+- While audio plays: arm and disarm tracks, drag volume and pan, fast and
+  slow, and mute, unmute and solo. No pop, no crackle, no click: mute and
+  solo fade over a few milliseconds.
+- Start Lumen, open a project with audio, and press Play at once (while
+  its audio may still be loading): no pop. If it still pops, note whether
+  the audio panel's dropout count went up.
 
 **Last run:** run 2 with findings (above); run 3 pending.
 
