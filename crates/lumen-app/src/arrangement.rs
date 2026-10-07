@@ -485,11 +485,14 @@ impl Arrangement {
                 },
             );
 
-            let mut x = rect.right() - 8.0 - BUTTON;
+            // The arm button's breathing ring reaches up to 5 pt beyond the
+            // button, so it gets more room than M and S (owner: they
+            // overlapped).
+            let mut x = rect.right() - 10.0 - BUTTON;
             let arm_rect = Rect::from_min_size(pos2(x, mid - BUTTON / 2.0), vec2(BUTTON, BUTTON));
-            x -= BUTTON + 4.0;
+            x -= BUTTON + 10.0;
             let solo_rect = Rect::from_min_size(pos2(x, mid - BUTTON / 2.0), vec2(BUTTON, BUTTON));
-            x -= BUTTON + 4.0;
+            x -= BUTTON + 6.0;
             let mute_rect = Rect::from_min_size(pos2(x, mid - BUTTON / 2.0), vec2(BUTTON, BUTTON));
 
             // The track type, then the name, with room after the arrow.
