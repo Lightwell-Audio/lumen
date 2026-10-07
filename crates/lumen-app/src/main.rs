@@ -25,6 +25,7 @@ mod icons;
 mod lanes;
 mod media;
 mod motion;
+mod panels;
 mod position;
 mod probe;
 mod ruler;
@@ -60,6 +61,9 @@ struct App {
     settings_changed: Option<Instant>,
     show_browser: bool,
     show_detail: bool,
+    /// Full panel sizes, for sliding (kept while the panels are open).
+    browser_size: f32,
+    detail_size: f32,
     /// Set by the raw-input hook when Shift+Tab is pressed.
     toggle_detail_requested: bool,
     left_beat: f32,
@@ -636,42 +640,45 @@ impl eframe::App for App {
                 }
             });
         }
-        // Panels slide open and closed (motion: BASE, through egui's
-        // animation time).
-        {
-            egui::Panel::left("browser")
-                .resizable(true)
-                .default_size(220.0)
-                .show_collapsible(ui, &mut self.show_browser, |ui| {
-                    ui.label(RichText::new("Browser").size(theme::size::HEADING));
-                    ui.add_space(8.0);
-                    ui.label(RichText::new("Devices, samples, projects and your places").weak());
-                    ui.label(RichText::new(arrives("Milestones 3 and 6")).weak().small());
+        // Panels slide open and closed (motion: GLIDE, panels.rs).
+        panels::sliding(
+            ui,
+            "browser",
+            panels::Side::Left,
+            self.show_browser,
+            &mut self.browser_size,
+            |ui| {
+                ui.label(RichText::new("Browser").size(theme::size::HEADING));
+                ui.add_space(8.0);
+                ui.label(RichText::new("Devices, samples, projects and your places").weak());
+                ui.label(RichText::new(arrives("Milestones 3 and 6")).weak().small());
+            },
+        );
+        panels::sliding(
+            ui,
+            "detail",
+            panels::Side::Bottom,
+            self.show_detail,
+            &mut self.detail_size,
+            |ui| {
+                ui.horizontal(|ui| {
+                    for (tab, milestone) in [
+                        ("Devices", "Milestone 6"),
+                        ("Clip", "Milestone 5"),
+                        ("Mixer", "Milestone 4"),
+                    ] {
+                        ui.add_enabled(false, egui::Button::new(tab))
+                            .on_disabled_hover_text(arrives(milestone));
+                    }
                 });
-        }
-        {
-            egui::Panel::bottom("detail")
-                .resizable(true)
-                .default_size(220.0)
-                .show_collapsible(ui, &mut self.show_detail, |ui| {
-                    ui.horizontal(|ui| {
-                        for (tab, milestone) in [
-                            ("Devices", "Milestone 6"),
-                            ("Clip", "Milestone 5"),
-                            ("Mixer", "Milestone 4"),
-                        ] {
-                            ui.add_enabled(false, egui::Button::new(tab))
-                                .on_disabled_hover_text(arrives(milestone));
-                        }
-                    });
-                    ui.label(
-                        RichText::new(
-                            "Select a track or clip to see its devices, editor or mixer strip.",
-                        )
-                        .weak(),
-                    );
-                });
-        }
+                ui.label(
+                    RichText::new(
+                        "Select a track or clip to see its devices, editor or mixer strip.",
+                    )
+                    .weak(),
+                );
+            },
+        );
         egui::CentralPanel::default().show(ui, |ui| self.arrangement(ui));
 
         // Scheduled after drawing, because buttons are clicked while drawing.
@@ -828,6 +835,8 @@ fn main() -> eframe::Result {
                 project,
                 show_browser: true,
                 show_detail: true,
+                browser_size: 220.0,
+                detail_size: 220.0,
                 toggle_detail_requested: false,
                 left_beat: 0.0,
                 px_per_beat: 24.0,

@@ -50,7 +50,8 @@ restrained and purposeful.
 
 - **Minimum window:** 960 × 540 pt, where the whole transport bar fits.
   Window sizes are in points, so the minimum holds at any UI scale.
-- Panels **slide** open and closed (motion: `BASE`) and keep their size
+- Panels **slide** open and closed (motion: `GLIDE`), their contents moving
+  at full size rather than re-wrapping, and keep their size
   between sessions (from M3 slice 3).
 - Windows (audio settings, later preferences) open at the **top centre** of
   the app, have a **fixed width**, and wrap long text instead of growing.
@@ -138,8 +139,8 @@ not travel.
 | Token | Duration | Curve | Use |
 |---|---|---|---|
 | `FAST` | 100 ms | ease-out | Hover and press feedback |
-| `BASE` | 180 ms | ease-out (enter), ease-in (exit) | Popovers, windows, notices, panels |
-| `GLIDE` | 220 ms | critically damped spring | Things that move to a new place: the playhead and start marker after a locate, clips settling after a drag (slice 6) |
+| `BASE` | 180 ms | ease-out (enter), ease-in (exit) | Popovers, windows, notices |
+| `GLIDE` | 220 ms | critically damped spring | Panels opening and closing (both directions decelerate), and things that move to a new place: the playhead and start marker after a locate, clips settling after a drag (slice 6) |
 
 - **Ease-out** (cubic) starts fast and settles gently, so the response
   feels immediate. **Ease-in** is used only for exits.
