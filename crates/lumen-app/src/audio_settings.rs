@@ -231,36 +231,11 @@ impl Window {
             return actions;
         }
         self.catalog.poll();
-        let mut open = self.open;
         let top_centre = egui::pos2(ctx.content_rect().center().x, 72.0);
-        // Our own title row (design system §5): one flat surface, the title
-        // and a close button; Esc closes too.
-        egui::Window::new("Audio settings")
-            .title_bar(false)
-            .pivot(egui::Align2::CENTER_TOP)
-            .default_pos(top_centre)
-            .collapsible(false)
-            .resizable(false)
-            .min_width(WINDOW_WIDTH)
-            .max_width(WINDOW_WIDTH)
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new("Audio settings")
-                            .font(crate::fonts::display(theme::size::TITLE)),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if crate::icons::close_button(ui).clicked() {
-                            open = false;
-                        }
-                    });
-                });
-                ui.add_space(theme::space::XS);
-                self.contents(ui, audio, test_tone, &mut actions);
-            });
-        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            open = false;
-        }
+        let close = crate::widgets::Dialog::new("audio settings", "Audio settings", WINDOW_WIDTH)
+            .at(top_centre, egui::Align2::CENTER_TOP)
+            .show(ctx, |ui| self.contents(ui, audio, test_tone, &mut actions));
+        let open = !close;
         self.open = open;
         actions
     }

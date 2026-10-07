@@ -756,5 +756,32 @@ Run `cargo run --release -p lumen-app`.
 - The resize handle needed a cue: it glows.
 - Heights should come in fixed steps: 22 pt steps.
 
-**Last run:** run 1 with findings (above); run 2 pending.
+**Run 2 (2026-10-07, owner):** findings, all addressed:
+- The close buttons sat in different places in the History and Audio
+  settings windows: every window is now one shared `Dialog`, with the ✕ at
+  its right edge.
+- The arm button looked misaligned and its ring off-centre: M, S and arm
+  are snapped to whole pixels together and evenly spaced.
+- Typing a tempo while playing silenced the audio until the field lost
+  focus: each keystroke applied (clamped: "1" on the way to "125" was
+  20 BPM). Typed tempo and beats per bar now apply on Enter or leaving the
+  field; dragging stays live.
+- M, S and the sliders lost contrast on a selected (blue) header: they
+  step up on selected rows (DESIGN §3).
+- Also: the pan slider's centre line ran through the "C"; it is now short
+  ticks at the edges.
+
+Check in run 3:
+- Open History and Audio settings: the ✕ sits at the same place in both.
+- Zoom in on M, S and arm, at 100% and 150%: same top and bottom, even
+  gaps, the ring centred on the dot.
+- Play audio, click the tempo, type 125: playback carries on unchanged
+  while you type; on Enter the tempo changes once, and History gains one
+  "Change tempo" step. (Audio clips do not follow tempo until warping in
+  M8, so after the change the audio continues from the same bar, which is
+  a different point in the file.)
+- Select a track: its M, S and sliders stay clearly visible, in both
+  themes.
+
+**Last run:** run 2 with findings (above); run 3 pending.
 

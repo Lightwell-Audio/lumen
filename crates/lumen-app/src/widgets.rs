@@ -1,14 +1,107 @@
 //! Design-system controls shared across the app (audit M2): the value
 //! slider (drag, Shift for fine, double-click to reset, click and type,
-//! arrow keys), the fold arrow, gradients and the accent glow line. The
-//! track headers use them now; the mixer (M4) and devices reuse them.
+//! arrow keys), floating dialogs, the fold arrow, gradients and the accent
+//! glow line. The track headers use them now; the mixer (M4) and devices
+//! reuse them.
 
 use eframe::egui::{
     self, Align2, Color32, FontId, Id as EguiId, Key, Painter, Pos2, Rect, Sense, Stroke, Ui, pos2,
     vec2,
 };
 
-use crate::{motion, theme};
+use crate::{fonts, icons, motion, theme};
+
+/// A floating window in the design system (DESIGN §5): no system title
+/// bar; our own title row with the title in the display face and, when it
+/// can be closed, the close button at the right edge; a fixed width that
+/// content wraps inside, so it never widens; Esc closes it. Every dialog
+/// uses this, so they look and behave alike (owner, after slice 4a: the
+/// close buttons sat in different places).
+pub struct Dialog<'a> {
+    id: &'a str,
+    title: &'a str,
+    width: f32,
+    pos: Pos2,
+    pivot: Align2,
+    closable: bool,
+}
+
+impl<'a> Dialog<'a> {
+    /// `id` stays the same while the title may change ("Save changes to
+    /// Drums?").
+    pub fn new(id: &'a str, title: &'a str, width: f32) -> Self {
+        Self {
+            id,
+            title,
+            width,
+            pos: pos2(0.0, 0.0),
+            pivot: Align2::LEFT_TOP,
+            closable: true,
+        }
+    }
+
+    /// Where it first opens: `pivot` of the dialog at `pos`.
+    pub fn at(mut self, pos: Pos2, pivot: Align2) -> Self {
+        self.pos = pos;
+        self.pivot = pivot;
+        self
+    }
+
+    /// Without a close button or Esc: the dialog asks a question and its
+    /// buttons answer it.
+    pub fn question(mut self) -> Self {
+        self.closable = false;
+        self
+    }
+
+    /// Shows the dialog; true when the user asked to close it.
+    pub fn show(self, ctx: &egui::Context, contents: impl FnOnce(&mut Ui)) -> bool {
+        let mut close = false;
+        egui::Window::new(self.title)
+            .id(EguiId::new(("dialog", self.id)))
+            .title_bar(false)
+            .collapsible(false)
+            .resizable(false)
+            .pivot(self.pivot)
+            .default_pos(self.pos)
+            .show(ctx, |ui| {
+                ui.set_width(self.width);
+                ui.horizontal(|ui| {
+                    let reserve = if self.closable {
+                        icons::CLOSE_SIZE + ui.spacing().item_spacing.x
+                    } else {
+                        0.0
+                    };
+                    ui.allocate_ui_with_layout(
+                        vec2(ui.available_width() - reserve, 0.0),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| {
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(self.title)
+                                        .font(fonts::display(theme::size::TITLE)),
+                                )
+                                .wrap(),
+                            );
+                        },
+                    );
+                    if self.closable {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if icons::close_button(ui).clicked() {
+                                close = true;
+                            }
+                        });
+                    }
+                });
+                ui.add_space(theme::space::XS);
+                contents(ui);
+            });
+        if self.closable && ctx.input(|i| i.key_pressed(Key::Escape)) {
+            close = true;
+        }
+        close
+    }
+}
 
 /// "−3.0 dB", "−∞ dB".
 pub fn db_text(db: f32) -> String {
@@ -86,6 +179,7 @@ pub fn value_slider(
     value: f32,
     kind: SliderKind,
     name: &str,
+    look: theme::Controls,
 ) -> f32 {
     let palette = *theme::p();
     let (lo, hi) = kind.range();
@@ -183,11 +277,7 @@ pub fn value_slider(
         response.hovered() || response.dragged(),
     );
     let radius = theme::radius::SMALL;
-    p.rect_filled(
-        rect,
-        radius,
-        palette.control.lerp_to_gamma(palette.control_hover, hover),
-    );
+    p.rect_filled(rect, radius, look.fill.lerp_to_gamma(look.hover, hover));
     let x_at = |v: f32| rect.left() + (v - lo) / (hi - lo) * rect.width();
     match kind {
         SliderKind::Volume => {
@@ -195,7 +285,7 @@ pub fn value_slider(
             p.rect_filled(
                 Rect::from_min_max(rect.min, pos2(x, rect.bottom())),
                 radius,
-                palette.control_press,
+                look.press,
             );
             p.vline(
                 x,
@@ -208,19 +298,20 @@ pub fn value_slider(
             let x = x_at(out);
             // Grey at the centre, the accent at the edges (owner request).
             let strength = out.abs().powf(1.2);
-            let fill = palette
-                .control_press
-                .lerp_to_gamma(palette.accent, strength);
+            let fill = look.press.lerp_to_gamma(palette.accent, strength);
             p.rect_filled(
                 Rect::from_x_y_ranges(center.min(x)..=center.max(x), rect.y_range()),
                 0.0,
                 fill,
             );
-            p.vline(
-                center,
-                rect.shrink2(vec2(0.0, 4.0)).y_range(),
-                Stroke::new(1.0, palette.text_hint),
-            );
+            // The centre mark: short ticks at the edges, clear of the value
+            // text (a full line ran through the "C").
+            for y in [
+                rect.top()..=rect.top() + 3.0,
+                rect.bottom() - 3.0..=rect.bottom(),
+            ] {
+                p.vline(center, y, Stroke::new(1.0, palette.text_hint));
+            }
         }
     }
     p.text(

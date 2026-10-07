@@ -43,6 +43,12 @@ pub struct Palette {
     pub lane: Color32,
     /// Track header column (M3 slice 4).
     pub header: Color32,
+    /// A selected row (a track header), tinted toward the accent.
+    pub selected_row: Color32,
+    /// Controls on a selected row: the plain control grey has the same
+    /// brightness as the selection tint and would vanish, so they step up
+    /// (owner, after slice 4a). See [`controls`].
+    pub selected_control: Color32,
     /// Clip body: dark, so the track-coloured title bar and waveform carry
     /// the colour (owner's choice, slice 4).
     pub clip_body: Color32,
@@ -72,6 +78,8 @@ pub const DARK: Palette = Palette {
     start_marker: Color32::from_rgb(0xC8, 0xCC, 0xD4),
     lane: Color32::from_rgb(0x1B, 0x1D, 0x22),
     header: Color32::from_rgb(0x1E, 0x21, 0x26),
+    selected_row: Color32::from_rgb(0x22, 0x34, 0x49),
+    selected_control: Color32::from_rgb(0x43, 0x4D, 0x5E),
     clip_body: Color32::from_rgb(0x26, 0x2A, 0x31),
     shadow: Color32::from_black_alpha(96),
 };
@@ -99,6 +107,8 @@ pub const LIGHT: Palette = Palette {
     start_marker: Color32::from_rgb(0x6B, 0x71, 0x7C),
     lane: Color32::from_rgb(0xF6, 0xF7, 0xF8),
     header: Color32::from_rgb(0xEC, 0xEE, 0xF1),
+    selected_row: Color32::from_rgb(0xDB, 0xE7, 0xF8),
+    selected_control: Color32::from_rgb(0xFF, 0xFF, 0xFF),
     clip_body: Color32::from_rgb(0xFF, 0xFF, 0xFF),
     shadow: Color32::from_black_alpha(36),
 };
@@ -120,6 +130,40 @@ pub const CLIP_COLORS: [Color32; 12] = [
     Color32::from_rgb(0x56, 0x86, 0xA0),
     Color32::from_rgb(0x88, 0x76, 0x60),
 ];
+/// The colours of a control, for the surface under it: plain on most
+/// surfaces, stepped up on a selected row so it keeps its edge.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Controls {
+    pub fill: Color32,
+    pub hover: Color32,
+    /// Pressed, and the filled part of a slider.
+    pub press: Color32,
+    /// Letters on an unlit control.
+    pub text: Color32,
+}
+
+/// Control colours for a surface that is `selected` or not.
+pub fn controls(selected: bool) -> Controls {
+    let c = p();
+    if selected {
+        // One step lighter on dark, one step toward white on light.
+        let step = |from: Color32| from.lerp_to_gamma(c.text, 0.08);
+        Controls {
+            fill: c.selected_control,
+            hover: step(c.selected_control),
+            press: step(step(c.selected_control)),
+            text: c.text,
+        }
+    } else {
+        Controls {
+            fill: c.control,
+            hover: c.control_hover,
+            press: c.control_press,
+            text: c.text_secondary,
+        }
+    }
+}
+
 /// Text on a filled control (a lit button): near-black on light fills,
 /// white on dark ones, whatever the theme.
 pub fn text_on(fill: Color32) -> Color32 {
@@ -363,6 +407,24 @@ mod tests {
                 assert!(contrast(c.warning, bg) >= 3.0, "{name} warning");
             }
             assert!(contrast(c.text, c.control) >= 4.5, "{name} button text");
+        }
+    }
+
+    #[test]
+    fn controls_keep_their_edge_on_a_selected_row() {
+        for (name, c) in [("dark", DARK), ("light", LIGHT)] {
+            // At least as distinct as a control on an unselected header
+            // (owner: they vanished on the blue selection).
+            let plain = contrast(c.control, c.header);
+            assert!(
+                contrast(c.selected_control, c.selected_row) >= plain,
+                "{name} control on selection"
+            );
+            assert!(
+                contrast(c.text, c.selected_control) >= 4.5,
+                "{name} letters"
+            );
+            assert!(contrast(c.text, c.selected_row) >= 7.0, "{name} names");
         }
     }
 

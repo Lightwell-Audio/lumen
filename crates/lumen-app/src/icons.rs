@@ -209,10 +209,13 @@ pub fn button(
     }
 }
 
+/// The close button's size.
+pub const CLOSE_SIZE: f32 = 22.0;
+
 /// A window's close button: an X with the same hover fade as the
 /// transport buttons.
 pub fn close_button(ui: &mut Ui) -> Response {
-    let (rect, response) = ui.allocate_exact_size(Vec2::splat(22.0), egui::Sense::click());
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(CLOSE_SIZE), egui::Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Close"));
     if ui.is_rect_visible(rect) {
         let c = theme::p();

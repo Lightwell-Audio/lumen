@@ -11,7 +11,8 @@ use lumen_core::product::PRODUCT_NAME;
 use lumen_core::time::Ticks;
 use lumen_project::model::Project;
 
-use crate::{App, arrangement, document, empty_project, files, fonts, lanes, theme, trace};
+use crate::widgets::Dialog;
+use crate::{App, arrangement, document, empty_project, files, lanes, theme, trace};
 
 /// What happens after unsaved changes are saved or discarded.
 #[derive(Debug, Clone, PartialEq)]
@@ -307,20 +308,14 @@ impl App {
             Next::Open(_) => "opening another project",
             Next::Quit => "closing",
         };
-        egui::Window::new("Unsaved changes")
-            .title_bar(false)
-            .collapsible(false)
-            .resizable(false)
-            .pivot(egui::Align2::CENTER_TOP)
-            .default_pos(pos2(ctx.content_rect().center().x, 120.0))
-            .min_width(380.0)
-            .max_width(380.0)
+        let title = format!("Save changes to {}?", self.document.name());
+        Dialog::new("unsaved changes", &title, 380.0)
+            .at(
+                pos2(ctx.content_rect().center().x, 120.0),
+                egui::Align2::CENTER_TOP,
+            )
+            .question()
             .show(ctx, |ui| {
-                ui.label(
-                    RichText::new(format!("Save changes to {}?", self.document.name()))
-                        .font(fonts::display(theme::size::TITLE)),
-                );
-                ui.add_space(theme::space::XS);
                 ui.label(
                     RichText::new(format!(
                         "There are unsaved changes. Save them before {action}?"

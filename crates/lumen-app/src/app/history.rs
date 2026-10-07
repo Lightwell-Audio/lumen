@@ -4,9 +4,10 @@
 
 use std::time::{Duration, Instant};
 
-use eframe::egui::{self, RichText, pos2, vec2};
+use eframe::egui::{self, Align2, RichText, pos2, vec2};
 
-use crate::{App, fonts, icons, motion, theme, trace};
+use crate::widgets::Dialog;
+use crate::{App, motion, theme, trace};
 
 impl App {
     /// Undo (or redo) one step, with a brief note of what changed.
@@ -64,25 +65,13 @@ impl App {
         if !self.show_history {
             return;
         }
-        let mut open = true;
         let mut jump = None;
-        egui::Window::new("History")
-            .title_bar(false)
-            .collapsible(false)
-            .resizable(false)
-            .default_pos(pos2(ctx.content_rect().right() - 280.0, 72.0))
-            .min_width(240.0)
-            .max_width(240.0)
+        let close = Dialog::new("history", "History", 240.0)
+            .at(
+                pos2(ctx.content_rect().right() - 280.0, 72.0),
+                Align2::LEFT_TOP,
+            )
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("History").font(fonts::display(theme::size::TITLE)));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if icons::close_button(ui).clicked() {
-                            open = false;
-                        }
-                    });
-                });
-                ui.add_space(theme::space::XS);
                 let (done, undone) = self.document.history().steps();
                 egui::ScrollArea::vertical()
                     .max_height(360.0)
@@ -124,10 +113,9 @@ impl App {
         if let Some(step) = jump {
             self.document.jump_to(step);
         }
-        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            open = false;
+        if close {
+            self.show_history = false;
         }
-        self.show_history = open;
     }
 
     /// A short note after undo, redo, save or open, fading out after a

@@ -306,6 +306,10 @@ impl Transport {
             .add(
                 egui::DragValue::new(&mut bpm)
                     .range(20.0..=999.0)
+                    // Typed values apply on Enter or leaving the field: live,
+                    // "1" on the way to "125" played at 20 BPM and sent the
+                    // playhead past the audio (owner, after slice 4a).
+                    .update_while_editing(false)
                     .speed(0.1)
                     .fixed_decimals(2)
                     .suffix(" BPM"),
@@ -328,6 +332,7 @@ impl Transport {
         let num = ui
             .add(
                 egui::DragValue::new(&mut numerator)
+                    .update_while_editing(false)
                     .range(1..=99)
                     .speed(0.1),
             )

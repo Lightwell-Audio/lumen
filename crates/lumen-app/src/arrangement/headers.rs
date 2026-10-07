@@ -6,6 +6,7 @@ use eframe::egui::{
     self, Align2, Color32, CursorIcon, FontId, Id as EguiId, Key, Rect, Sense, Stroke, Ui, pos2,
     vec2,
 };
+use eframe::emath::GuiRounding as _;
 use lumen_project::model::{Id, TrackKind};
 
 use super::{
@@ -181,10 +182,11 @@ impl Arrangement {
                 self.track_menu(ui, doc, track.id);
             });
             let fill = if selected {
-                palette.header.lerp_to_gamma(palette.accent_muted, 0.75)
+                palette.selected_row
             } else {
                 palette.header
             };
+            let look = theme::controls(selected);
             painter.rect_filled(rect, 0.0, fill);
             // The rail: the track colour, or red with a glow into the
             // header while armed.
@@ -242,15 +244,19 @@ impl Arrangement {
                 },
             );
 
-            // The arm button's breathing ring reaches up to 5 pt beyond the
-            // button, so it gets more room than M and S (owner: they
-            // overlapped).
-            let mut x = rect.right() - 10.0 - BUTTON;
-            let arm_rect = Rect::from_min_size(pos2(x, mid - BUTTON / 2.0), vec2(BUTTON, BUTTON));
-            x -= BUTTON + 10.0;
-            let solo_rect = Rect::from_min_size(pos2(x, mid - BUTTON / 2.0), vec2(BUTTON, BUTTON));
-            x -= BUTTON + 6.0;
-            let mute_rect = Rect::from_min_size(pos2(x, mid - BUTTON / 2.0), vec2(BUTTON, BUTTON));
+            // M, S and arm sit evenly spaced, snapped to whole pixels
+            // together: egui snaps rectangles but not circles, so an
+            // unsnapped arm button sat up to half a pixel off M and S, and
+            // its ring off its dot (owner, after slice 4a). The armed glow
+            // reaches `ARM_GLOW` beyond the button, inside the gap.
+            let ppp = ui.ctx().pixels_per_point();
+            let button = |x: f32| {
+                Rect::from_min_size(pos2(x, mid - BUTTON / 2.0), vec2(BUTTON, BUTTON))
+                    .round_to_pixels(ppp)
+            };
+            let arm_rect = button(rect.right() - 10.0 - BUTTON);
+            let solo_rect = button(arm_rect.left() - BUTTON_GAP - BUTTON);
+            let mute_rect = button(solo_rect.left() - BUTTON_GAP - BUTTON);
 
             // The track type, then the name, with room after the arrow.
             draw_type_icon(
@@ -298,7 +304,7 @@ impl Arrangement {
                     let fill = if on {
                         on_fill
                     } else {
-                        palette.control.lerp_to_gamma(palette.control_hover, hover)
+                        look.fill.lerp_to_gamma(look.hover, hover)
                     };
                     let p = ui.painter();
                     p.rect_filled(r, theme::radius::SMALL, fill);
@@ -310,7 +316,7 @@ impl Arrangement {
                         if on {
                             theme::text_on(on_fill)
                         } else {
-                            palette.text_secondary
+                            look.text
                         },
                     );
                     response.clicked()
@@ -328,13 +334,13 @@ impl Arrangement {
             if toggle(ui, solo_rect, "solo", "Solo", track.solo, palette.accent) {
                 doc.set_solo(&self.targets(track.id), !track.solo, !modifiers.command);
             }
-            if arm_button(ui, arm_rect, id, &track.name, track.armed) {
+            if arm_button(ui, arm_rect, id, &track.name, track.armed, look) {
                 doc.set_armed(&self.targets(track.id), !track.armed);
             }
 
             // Unfolded: volume and pan on a second row.
             if row.height >= FOLDED + 22.0 {
-                self.mixer_row(ui, doc, &track, rect, id);
+                self.mixer_row(ui, doc, &track, rect, id, look);
             }
 
             // Bottom edge: drag to resize.
@@ -495,6 +501,7 @@ impl Arrangement {
         track: &lumen_project::model::Track,
         rect: Rect,
         id: EguiId,
+        look: theme::Controls,
     ) {
         // One row of sliders that show their value inside (owner request):
         // volume fills from the left; pan fills from the centre and grows
@@ -517,6 +524,7 @@ impl Arrangement {
             track.gain_db,
             SliderKind::Volume,
             &format!("Volume {}", track.name),
+            look,
         );
         if db != track.gain_db {
             doc.set_volume(track.id, db);
@@ -528,6 +536,7 @@ impl Arrangement {
             track.pan,
             SliderKind::Pan,
             &format!("Pan {}", track.name),
+            look,
         );
         if pan != track.pan {
             doc.set_pan(track.id, pan);
@@ -642,7 +651,14 @@ impl Arrangement {
 }
 
 /// The record-arm button: round, with a red dot that lights when armed.
-fn arm_button(ui: &mut Ui, rect: Rect, id: EguiId, name: &str, armed: bool) -> bool {
+fn arm_button(
+    ui: &mut Ui,
+    rect: Rect,
+    id: EguiId,
+    name: &str,
+    armed: bool,
+    look: theme::Controls,
+) -> bool {
     let palette = theme::p();
     let response = ui
         .interact(rect, id.with("arm"), Sense::click())
@@ -673,7 +689,7 @@ fn arm_button(ui: &mut Ui, rect: Rect, id: EguiId, name: &str, armed: bool) -> b
                 .request_repaint_after(std::time::Duration::from_millis(33));
             0.5 - 0.5 * (t * std::f32::consts::TAU / ARM_BREATH).cos()
         };
-        for (spread, alpha) in [(5.0, 0.10), (3.5, 0.18)] {
+        for (spread, alpha) in [(ARM_GLOW, 0.10), (ARM_GLOW * 0.7, 0.18)] {
             p.circle_filled(
                 center,
                 radius + spread * (0.6 + 0.4 * breath),
@@ -688,11 +704,7 @@ fn arm_button(ui: &mut Ui, rect: Rect, id: EguiId, name: &str, armed: bool) -> b
         p.circle_filled(center, radius, palette.record.gamma_multiply(0.25));
         p.circle_filled(center, 4.5, palette.record);
     } else {
-        p.circle_filled(
-            center,
-            radius,
-            palette.control.lerp_to_gamma(palette.control_hover, hover),
-        );
+        p.circle_filled(center, radius, look.fill.lerp_to_gamma(look.hover, hover));
         p.circle_filled(
             center,
             4.5,
@@ -704,6 +716,13 @@ fn arm_button(ui: &mut Ui, rect: Rect, id: EguiId, name: &str, armed: bool) -> b
 
 /// Seconds per breath of the armed ring.
 const ARM_BREATH: f32 = 2.4;
+
+/// How far the armed glow reaches beyond the button, at its widest.
+const ARM_GLOW: f32 = 4.0;
+
+/// The space between M, S and the arm button; wider than the glow, so it
+/// never touches S.
+const BUTTON_GAP: f32 = 8.0;
 
 /// What a screen reader says for a track header: "Track Kick, Audio
 /// track, muted, armed for recording".

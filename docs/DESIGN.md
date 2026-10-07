@@ -57,6 +57,9 @@ restrained and purposeful.
   the app, have a **fixed width**, and wrap long text instead of growing.
   They draw their own title row (title on the left, ✕ on the right; Esc
   closes) on one flat surface, rather than egui's tinted title bar.
+  **Every window is a `widgets::Dialog`**, so the ✕ sits at the same place
+  in all of them; a question (the unsaved-changes prompt) has no ✕ and is
+  answered by its buttons.
 - Popovers (the audio panel, menus) open under the control that opened them,
   with a small gap.
 
@@ -90,11 +93,21 @@ Windows** are in the app menu (click **Lumen** at the left of the transport bar)
 | `start_marker` | `#C8CCD4` | `#6B717C` | Where Play starts |
 | `lane` | `#1B1D22` | `#F6F7F8` | Arrangement lanes behind clips |
 | `header` | `#1E2126` | `#ECEEF1` | Track header column |
+| `selected_row` | `#223449` | `#DBE7F8` | A selected track header |
+| `selected_control` | `#434D5E` | `#FFFFFF` | Controls on a selected row |
 | `clip_body` | `#262A31` | `#FFFFFF` | Clip body (the title bar and waveform carry the track colour) |
 | `shadow` | black at 38% | black at 14% | The one shadow, under windows and popovers |
 
 Text on a filled control (a lit button) is chosen by the fill's brightness:
 near-black (`#0B0D10`) on light fills, white on dark ones (`theme::text_on`).
+
+**Controls take their colours from the surface under them**
+(`theme::controls(selected)`). On most surfaces that is `control`,
+`control_hover`, `control_press` and `text_secondary` letters. On a selected
+row the plain grey matches the selection tint's brightness and vanishes, so
+controls step up to `selected_control` with `text` letters. A test keeps
+them at least as distinct from the selection as plain controls are from an
+unselected header.
 
 - **Accent contrast:** the light accent is darker, keeping text and icons at
   4.5:1 or better on `app`. Warning is darker on light for the same reason.
@@ -210,19 +223,24 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
   - **M**, **S** and a round record-arm button, always visible.
   - Lit states: **S** uses the accent and **M** the light neutral. Text on
     a lit button is white or near-black by the fill's brightness.
-  - A selected header takes a tint of `accent_muted`.
+  - M, S and arm are evenly spaced (8 pt) and snapped to whole pixels
+    together, so the round button lines up with the square ones at every
+    scale.
+  - A selected header is `selected_row`, and its controls step up (§3).
 - **Unfolded header:** one row of sliders that show their value inside, with
   no separate labels:
   - **volume** fills from the left, with a thin handle line and the value
     in dB;
   - **pan** fills from the centre; its fill moves from neutral grey to the
-    accent as the pan nears an edge (strength = |pan|^1.2);
+    accent as the pan nears an edge (strength = |pan|^1.2). The centre is
+    marked by short ticks at the edges, clear of the value;
   - both: drag (Shift for fine), double-click to reset, click then type a
     value (Enter applies, Esc cancels), arrow keys when focused.
 - **Record arm ("glow and breathe")**, the owner's choice:
   - the rail turns red and glows into the header;
   - the button is a red dot with a ring around it. The ring breathes
-    slowly (2.4 s) while armed. Every circle shares one centre;
+    slowly (2.4 s) while armed, its glow reaching at most 4 pt, inside the
+    gap to S. Every circle shares one centre;
   - the lane gets a red wash, strongest at the left, with thin red edges.
 - **Folding and resizing** (as in Ableton):
   - heights come in **22 pt steps**, so anything later drawn by track
@@ -284,6 +302,10 @@ Each flow lists its steps, its keyboard path and its feedback. Flows marked
 4. Empty and error states are designed: what happened, and what to do.
 5. Long text wraps or truncates with "…". Nothing grows a window or
    overlaps a neighbour.
+5a. Windows are `widgets::Dialog`; controls on a selected surface use
+   `theme::controls(true)`. Circles are snapped to pixels along with the
+   rectangles beside them.
+5b. Typed values apply on Enter or leaving the field, never per keystroke.
 6. Motion follows §6. With Reduce motion on, it still works and simply does
    not travel.
 7. Every control has an accessible name.
