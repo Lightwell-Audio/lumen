@@ -845,5 +845,12 @@ static on the metronome during the run; fixed (ADR-0020 update).
 
 **Expected:** every step as described.
 
-**Last run:** pending.
+**Run 1 (2026-10-07, owner):** one finding, fixed: the waveform shimmered
+while scrolling the timeline (fine when still). Each pixel showed frames
+from the unsnapped scroll position while the clip moved by whole pixels;
+columns are now anchored to the clip's pixel edge (ADR-0027). Check in run
+2: scroll slowly and quickly with Shift+wheel, and scroll tracks: the
+waveform moves steadily, without shimmer.
+
+**Last run:** run 1 with a finding (fixed); run 2 pending.
 

@@ -35,9 +35,13 @@ struct Out {
 fn vs_main(@builtin(vertex_index) v: u32, w: Wave) -> Out {
     var out: Out;
     let slot = textureLoad(rows, vec2<i32>(i32(w.row % 256u), i32(w.row / 256u)), 0);
-    let y0 = l.origin.y + slot.x - l.top + l.wave_top;
-    let y1 = l.origin.y + slot.x - l.top + slot.y - l.wave_bottom;
-    let x0 = round(l.origin.x + (w.start - l.left) * l.ppu) + l.side;
+    // Everything on whole pixels, as the clip box is: while scrolling, the
+    // waveform moves by whole pixels with its clip instead of shimmering
+    // as the pixel grid slides across its buckets.
+    let y0 = round(l.origin.y + slot.x - l.top + l.wave_top);
+    let y1 = round(l.origin.y + slot.x - l.top + slot.y - l.wave_bottom);
+    let edge = round(l.origin.x + (w.start - l.left) * l.ppu);
+    let x0 = edge + l.side;
     let x1 = round(l.origin.x + (w.end - l.left) * l.ppu) - l.side;
     if (y1 - y0 < 2.0 || x1 <= x0 || slot.z <= 0.0) {
         out.pos = vec4<f32>(-2.0, -2.0, 0.0, 1.0);
@@ -50,7 +54,7 @@ fn vs_main(@builtin(vertex_index) v: u32, w: Wave) -> Out {
     out.area = vec4<f32>(x0, y0, x1, y1);
     let c = unpack4x8unorm(w.color);
     out.color = vec4<f32>(c.rgb, c.a * slot.z);
-    out.wave = vec4<f32>(w.start, w.first_frame, w.frames_per_beat, 0.0);
+    out.wave = vec4<f32>(w.start, w.first_frame, w.frames_per_beat, edge);
     out.slot = w.slot;
     out.channels = w.channels;
     return out;
@@ -70,10 +74,12 @@ fn cover(py: f32, top: f32, bottom: f32) -> f32 {
 
 @fragment
 fn fs_main(i: Out) -> @location(0) vec4<f32> {
-    // The frames under this pixel's width.
+    // The frames under this pixel: columns are counted from the clip's
+    // pixel edge, so column k always shows the same frames at this zoom,
+    // wherever the view has scrolled to.
     let frames = i.wave.z / l.ppu;
-    let x = i.px.x - l.origin.x;
-    let frame0 = i.wave.y + (l.left + (x - 0.5) / l.ppu - i.wave.x) * i.wave.z;
+    let column = floor(i.px.x - i.wave.w);
+    let frame0 = i.wave.y + column * frames;
     // The finest level whose buckets are no wider than the pixel.
     let level = clamp(i32(floor(log2(max(frames / BASE, 1.0)) * 0.5)), 0, LEVELS - 1);
     let entry = textureLoad(table, vec2<i32>(level, i32(i.slot)), 0);

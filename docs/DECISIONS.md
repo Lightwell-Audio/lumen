@@ -1677,6 +1677,14 @@ memory. Clips are already on the GPU with a per-frame row table
     the waveform is exact at every zoom, with no CPU work per frame.
   - Stereo is left over right when the clip is at least 40 pt tall,
     otherwise one combined waveform.
+  - **Pixel-anchored** (fixed after MT-APP-11 run 1: the waveform
+    shimmered while scrolling). Columns are counted from the clip's
+    pixel-snapped left edge, and the wave area's top and bottom are
+    snapped too, so column *k* always shows the same frames at a given
+    zoom. Scrolling then moves the waveform by whole pixels with its clip,
+    as in Ableton. Measured: a third of a pixel of scroll changed 3.5% of
+    the waveform's pixels before (8% at two thirds); after, the image is
+    the same shifted by one pixel (21 of 138,000 pixels differ).
   - Colour: the track colour, brightened on the dark theme's dark clip
     body (`theme::wave`).
 - **Tests:** peaks (bucket extents, rounding, levels, mono and extra

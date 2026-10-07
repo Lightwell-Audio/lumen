@@ -437,6 +437,8 @@ fixed, 4c built).
   - `docs/DECISIONS.md`: ADR-0001 to ADR-0027, plus the table of owner
     decisions;
   - `docs/MANUAL_TESTS.md`: hardware tests with every run's results;
+  - `docs/KNOWN_ISSUES.md`: problems found and not fixed yet, and where
+    each is addressed;
   - `docs/ARCHITECTURE.md`: crates and threads;
   - `docs/DESIGN.md`: the design system;
   - `docs/DEVELOPMENT.md`: setup, test flags, WSL mirror, performance gate.
