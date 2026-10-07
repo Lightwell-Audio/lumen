@@ -591,4 +591,7 @@ settings…**.
 notice widened the window. The window now has a fixed width, notices wrap
 and have a Dismiss button, and the driver's own error text shows on hover.
 
-**Last run:** run 2, pass (notice-width fix awaiting the owner's look).
+**Run 3 (2026-10-06, owner):** pass. The window keeps its width while a
+failing device is tried (every warning now wraps).
+
+**Last run:** run 3, pass.

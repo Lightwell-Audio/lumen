@@ -2,8 +2,9 @@
 
 ## Status
 
-**Current milestone:** 2 — Audio Engine, Devices & Transport (plan:
-[milestones/M2.md](milestones/M2.md))
+**Current milestone:** 2 — Audio Engine, Devices & Transport, complete and
+awaiting approval (report below). Proposed next: 3 — Arrangement & Project
+System ([milestones/M3.md](milestones/M3.md)).
 **Previous:** M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
@@ -13,8 +14,8 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | # | Milestone | Status | Notes |
 |---|---|---|---|
 | 1 | Foundations & Architecture | ✅ Complete | Plan and risk register in `docs/milestones/M1.md` |
-| 2 | Audio Engine, Devices & Transport | 🟡 In progress | Plan: `docs/milestones/M2.md` |
-| 3 | Arrangement & Project System | 🔲 | |
+| 2 | Audio Engine, Devices & Transport | ✅ Complete 2026-10-06, awaiting approval | Plan: `docs/milestones/M2.md` |
+| 3 | Arrangement & Project System | 🔲 Plan proposed | `docs/milestones/M3.md` |
 | 4 | Mixer, Routing & Groups | 🔲 | |
 | 5 | MIDI & Piano Roll | 🔲 | |
 | 6 | VST3 Hosting & Device System | 🔲 | |
@@ -64,7 +65,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Device removal, rate and buffer changes, sleep and resume handled | M | 🔲 | 2, 10 | |
 | Safe mode without plugins | M | 🔲 | 6 | |
 | Automated tests: core logic, editing, serialization and migration, audio (golden renders) | M | 🟡 | all | Harness in place |
-| Benchmarks with regression gates in CI | M | 🟡 | 1–2 | divan harness; gates in M2 (ADR-0011) |
+| Benchmarks with regression gates in CI | M | 🟡 | 1–3 | divan harness; benchmarks run once in CI as smoke tests. Gates were planned for M2 and not built: proposed as M3 slice 1 (ADR-0011) |
 | CI on Windows, macOS, Linux | M | ✅ | 1 | First run green on 2026-10-06 (run 37396217369): Windows MSVC, macOS, Linux, rustfmt, cargo-deny, VST3 self-test |
 | Test plugin simulating good and bad behaviour; real-plugin compatibility matrix | M | 🟡 | 1, 6 | Misbehaving test module (scan stage) + `docs/PLUGIN_COMPATIBILITY.md` (scan stage only) |
 | Real-time correctness enforced by tests | M | 🟡 | 1–2 | `lumen-rt` allocation guard (ADR-0010) |
@@ -198,13 +199,13 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 |---|---|---|---|
 | Driver types: ASIO and WASAPI shared (Windows), CoreAudio, PipeWire/JACK/ALSA | M | 🟡 Output works on ASIO, WASAPI shared (hardware-tested) and cpal (CoreAudio/ALSA, compiled but not hardware-tested). Missing: WASAPI and cpal input (slice 8), JACK/PipeWire (ADR-0016) | 2 |
 | WASAPI exclusive | S | 🟡 Output tested on hardware: 3 ms on HDMI with events; the Focusrite switches to polling automatically (MT-AUDIO-4, -5). Input in slice 8 | 2 |
-| Device, rate, buffer selection with input/output/round-trip latency display | M | 🟡 Audio settings window (M2 slice 8, ADR-0021): driver, device, rate, buffer and live latencies. ASIO buffer sizes are set in the driver's control panel, as in Ableton; WASAPI shared follows Windows. MT-APP-6 pending | 2 |
-| Device loss and return: keep the session, show the lost state, reconnect automatically (found by MT-ASIO-5) | M | 🟡 Detection and auto-reconnect done, tested with the fake backend and on hardware (MT-AUDIO-1); the lost-state UI arrives in slice 8 | 2 |
+| Device, rate, buffer selection with input/output/round-trip latency display | M | ✅ Audio settings window (M2 slice 8, ADR-0021): driver, device, rate, buffer and live latencies. ASIO buffer sizes are set in the driver's control panel, as in Ableton; WASAPI shared follows Windows. MT-APP-6 passes | 2 |
+| Device loss and return: keep the session, show the lost state, reconnect automatically (found by MT-ASIO-5) | M | ✅ Detection and auto-reconnect, tested with the fake backend and on hardware (MT-AUDIO-1, -4); lost, busy and failed banners with a way forward (slice 8) | 2 |
 | Channel selection with friendly names; mono and stereo configurations | M | 🟡 Output pairs and ASIO input pairs by name (mono for an odd last channel), one pair at a time; more routing with the mixer (M4) | 2 |
 | Audio input on WASAPI, CoreAudio and Linux, with drift compensation between separate devices (owner decision 2026-10-06: deferred from M2 slice 8; ASIO input works in M2) | M | 🔲 | 9 |
-| Test tone, CPU load, dropout counter, Audio On/Off | M | 🟡 All four done in the app's audio panel (M2 slice 7, ADR-0020); the full device selector page in slice 8 | 2 |
-| ASIO control panel; driver resets and rate/buffer changes without losing the session; busy/missing messages | M | 🟡 Control panel button; resets (MT-AUDIO-2); busy, lost and failed banners with Try again / Audio settings; missing saved device falls back with a notice. MT-APP-6 pending | 2 |
-| Runtime changes never crash; restore a working configuration; persisted settings | M | 🟡 Driver and device switches at run time move the engine to a fresh control thread; refused changes revert with the reason; settings saved atomically once a setup works. MT-APP-6 pending | 2 |
+| Test tone, CPU load, dropout counter, Audio On/Off | M | ✅ All four in the audio panel (M2 slice 7, ADR-0020); test tone also in the audio settings window (slice 8) | 2 |
+| ASIO control panel; driver resets and rate/buffer changes without losing the session; busy/missing messages | M | ✅ Control panel button; resets (MT-AUDIO-2); busy, lost and failed banners with Try again / Audio settings; missing saved device falls back with a notice; a device that fails to start returns to the previous one. MT-APP-6 passes | 2 |
+| Runtime changes never crash; restore a working configuration; persisted settings | M | ✅ Driver and device switches at run time move the engine to a fresh control thread; refused changes revert with the reason; settings saved atomically once a setup works. MT-APP-6 passes | 2 |
 | MIDI devices: enable toggles, hot-plug, per-track MIDI From/To, virtual ports | M | 🔲 | 5 |
 
 ## §6.10 Projects, media and export
@@ -286,7 +287,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Detachable mixer and editor windows; hover help; welcome screen | S | 🔲 |
 | CPU, disk and dropout indicators; Audio On/Off; panic | M | 🟡 CPU (peak per second), dropouts, Audio On/Off and panic done (M2 slice 7). Disk indicator with disk streaming (M9); MIDI all-notes-off joins panic in M5 |
 | Crash report file; logging with "reveal logs" | M | 🔲 |
-| Device hot-unplug, sleep/resume, rate-change handling | M | 🟡 Unplug and replug recover on ASIO and WASAPI (MT-AUDIO-1, -4); driver resets on ASIO (MT-AUDIO-2). Sleep/resume and Windows format and rate changes recover too (MT-AUDIO-6). UI for these states arrives in slice 8 |
+| Device hot-unplug, sleep/resume, rate-change handling | M | 🟡 Unplug and replug recover on ASIO and WASAPI (MT-AUDIO-1, -4); driver resets on ASIO (MT-AUDIO-2). Sleep/resume and Windows format and rate changes recover too (MT-AUDIO-6). Banners for these states (slice 8). macOS and Linux untested on hardware |
 | Single instance; file association; open by double-click or drop | M | 🔲 |
 | Opt-in telemetry only | M | ✅ |
 | Update checker; licensing/activation | L | 🔲 |
@@ -297,6 +298,107 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 ---
 
 ## Milestone reports
+
+### Milestone 2 — report (2026-10-06)
+**Status:** Complete, awaiting owner approval. All 8 slices are done, and
+every M2 manual test passes on the owner's hardware. One planned item was not
+built: the benchmark regression gates (below).
+
+**Shipped:** about 56 commits on `main`.
+- `lumen-audio`: a device layer with a supervisor that recovers from device
+  loss. A restored device is confirmed before it is reported. Backends:
+  native ASIO, WASAPI shared and exclusive (with a device-clock check and a
+  polling fallback), and cpal for macOS and Linux. Run-time driver switching
+  hands the engine to a new control thread.
+- `lumen-engine`: a sample-accurate transport (play from the start marker,
+  stop, pause, locate, loop, punch region) with live tempo and meter maps,
+  2 ms declick crossfades, the clip player, metronome, test tone and panic.
+- `lumen-media`: decoding (WAV, AIFF, FLAC, MP3, Ogg Vorbis) and sample-rate
+  conversion, off the audio thread.
+- `lumen-app`:
+  - transport bar with vector icons;
+  - click-to-locate ruler with start marker and playhead;
+  - drag-and-drop audio files;
+  - audio panel (CPU, dropouts, Audio On/Off, panic);
+  - audio settings window;
+  - device banners;
+  - saved settings;
+  - ASIO driver checks in a helper process.
+- RealtimeSanitizer in Linux CI with live canaries (allocation, file open,
+  held lock).
+- Docs: ADR-0016 to ADR-0021, manual tests MT-AUDIO-1 to -6, MT-ENGINE-1,
+  MT-APP-2 to -6 and MT-MEDIA-1, and third-party notices (symphonia is
+  MPL-2.0).
+
+**Automated tests:** 148 in the workspace, all passing. By crate:
+`lumen-engine` 37, `lumen-audio` 24, `lumen-app` 24, `lumen-project` 22,
+`lumen-core` 14, `lumen-rt` 9, `lumen-media` 6, and the M1 prototypes. They
+include golden renders at block sizes 1–4096, zero heap operations over
+thousands of mixed-command blocks, and fake-backend tests for loss, restore,
+starvation and dropouts. clippy (`-D warnings`), rustfmt and cargo-deny are
+clean.
+
+**Verified on hardware** (Focusrite USB, NVIDIA HDMI; owner and agent):
+- unplug and replug on ASIO and WASAPI;
+- driver resets from the ASIO control panel;
+- sleep and resume;
+- Windows format and rate changes;
+- transport, loop and stop by ear (no pops);
+- file playback;
+- metronome, test tone, Audio On/Off and panic;
+- audio settings, including a driver with no hardware attached.
+
+**Not verified:**
+- macOS and Linux audio on real hardware (CI compiles and unit-tests it;
+  stretch milestone);
+- WASAPI and cpal input (deferred to M9, owner decision);
+- a mid-range machine;
+- long-session soak testing (M10).
+
+**Key measurements** (Ryzen 7 7700X; details in the ADRs and manual tests):
+
+| What | Result | Bar |
+|---|---|---|
+| 64 stereo clips at 128 frames / 48 kHz | 25 µs median = 0.9% of the 2.67 ms budget | < 50% |
+| App idle CPU (owner, MT-APP-4) | 0.0–0.2% | near zero |
+| Output latency, Focusrite ASIO 128 / 48 kHz | 8.3 ms (397 samples, as the driver reports) | no added buffering |
+| Round trip, Focusrite ASIO 256 / 48 kHz | 25.9 ms | — |
+| WASAPI exclusive, NVIDIA HDMI | 144 frames (3 ms), 331 callbacks/s of 333 | — |
+| Recovery after replug | ASIO about 2 s; WASAPI exclusive about 4 s | automatic |
+| ASIO rate change, Focusrite | about 1.3 s, of which Lumen about 20 ms (the rest is the driver re-locking its clock) | never crash; progress shown |
+| ASIO driver check in a helper | 115–206 ms per driver | never block or crash |
+| Dropouts on NVIDIA HDMI, shared and exclusive | 0 | 0 |
+| Audio file ready after drop (5 s file) | 38 ms | backgrounded |
+
+**Exit criteria (ROADMAP):**
+
+| Criterion | Status |
+|---|---|
+| Lumen opens an audio device | ✅ ASIO and WASAPI, chosen in the app and remembered |
+| Plays audio at low latency | ✅ 128 frames on ASIO; 3 ms WASAPI exclusive |
+| Stops safely | ✅ declicked stop, pause and locate; panic |
+| Recovers from device changes | ✅ unplug, reset, sleep, rate changes, failed switches |
+| Stable transport behaviour | ✅ sample-accurate at every block size (tests) and by ear |
+
+**Not done or deferred:**
+- **Benchmark regression gates** (ADR-0011 planned them for M2): not built.
+  CI runs every benchmark once as a smoke test only. Proposed as M3 slice 1.
+- Deferred with owner approval:
+  - disk streaming, WASAPI and cpal input, count-in and record-only → M9;
+  - metronome output routing → M4;
+  - motion system and the retrofit of the M2 UI → M3;
+  - AAC/M4A → pending a licensing check.
+
+**Risks:**
+- A 64-track project has not yet run on mid-range hardware. M2 measured the
+  engine, not a full project.
+- Clip audio is held in memory until M9; large sessions will need streaming.
+- The ASIO SDK agreement (owner action) and Lumen's own licence (ADR-0012)
+  are still open; both gate distribution.
+- egui upgrades break every couple of months; the M3 arrangement grows the
+  UI surface they can break.
+- Other ASIO drivers may behave differently from the Focusrite's; only the
+  Focusrite, ASIO4ALL and FlexASIO have been exercised.
 
 ### Milestone 1 — interim report (2026-10-05)
 **Status:** Prototyping complete, paused for decisions. Not closed: two exit
