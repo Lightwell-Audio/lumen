@@ -30,15 +30,24 @@ use crate::media::{Item, State};
 use crate::{fonts, motion, theme};
 
 /// Width of the header column.
-pub const HEADER_WIDTH: f32 = 184.0;
-/// A folded track.
-pub const FOLDED: f32 = 44.0;
-/// An unfolded track, until resized.
-pub const UNFOLDED: f32 = 96.0;
-/// Heights a track can be dragged to.
-const MAX_HEIGHT: f32 = 320.0;
+pub const HEADER_WIDTH: f32 = 204.0;
+/// Track heights come in steps of this (owner request): elements drawn by
+/// height later (automation lanes, meters) can rely on whole steps.
+pub const STEP: f32 = 22.0;
+/// A folded track: two steps.
+pub const FOLDED: f32 = 2.0 * STEP;
+/// An unfolded track, and the smallest one: room for the volume and pan
+/// row. Four steps.
+pub const UNFOLDED: f32 = 4.0 * STEP;
+/// The tallest a track can be dragged: fourteen steps.
+const MAX_HEIGHT: f32 = 14.0 * STEP;
 /// Dragging an unfolded track below this folds it.
-const FOLD_BELOW: f32 = FOLDED + 16.0;
+const FOLD_BELOW: f32 = UNFOLDED;
+
+/// `height` rounded to whole steps.
+fn snap_height(height: f32) -> f32 {
+    (height / STEP).round() * STEP
+}
 /// The clip title bar.
 const TITLE: f32 = 15.0;
 const BUTTON: f32 = 19.0;
@@ -77,6 +86,9 @@ pub struct Arrangement {
     renaming: Option<(Id, String)>,
     /// The track being resized and its height when the drag began.
     resizing: Option<(Id, f32)>,
+    /// The track whose bottom edge glows (hovered or dragged), and how
+    /// strongly, so the lane can continue the glow.
+    hot_edge: Option<(Id, f32)>,
 }
 
 fn color_of(c: Color) -> Color32 {
@@ -292,19 +304,77 @@ impl Arrangement {
                 self.selected.clear();
             }
             empty.context_menu(|ui| self.add_menu(ui, doc, None));
-            if doc.project().tracks.is_empty() && lanes.pending().is_empty() {
-                painter.text(
-                    pos2(column.center().x, column.top() + 24.0),
-                    Align2::CENTER_TOP,
-                    "Double-click or press Ctrl+T\nto add a track",
-                    FontId::proportional(theme::size::CAPTION),
-                    palette.text_hint,
+
+            // "+ Add track ▾": a menu of every track type with its shortcut,
+            // and a hint that double-clicking here adds an audio track
+            // (owner's choice, option B).
+            let button = Rect::from_min_size(
+                below.min + vec2(8.0, 8.0),
+                vec2(column.width() - 16.0, 26.0),
+            );
+            if button.bottom() < column.bottom() {
+                let response = ui
+                    .interact(button, ui.id().with("add track"), Sense::click())
+                    .on_hover_text("Add an audio, MIDI, group or return track");
+                response.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Add track")
+                });
+                let hover =
+                    motion::hover(&ctx, ui.id().with("add track hover"), response.hovered());
+                let open =
+                    egui::Popup::is_id_open(&ctx, egui::Popup::default_response_id(&response));
+                painter.rect_filled(
+                    button,
+                    theme::radius::MEDIUM,
+                    palette.control.lerp_to_gamma(palette.control_hover, hover),
                 );
+                if open || hover > 0.0 {
+                    painter.rect_stroke(
+                        button,
+                        theme::radius::MEDIUM,
+                        Stroke::new(
+                            1.0,
+                            palette
+                                .accent
+                                .gamma_multiply(if open { 1.0 } else { hover }),
+                        ),
+                        egui::StrokeKind::Inside,
+                    );
+                }
+                painter.text(
+                    pos2(button.left() + 10.0, button.center().y),
+                    Align2::LEFT_CENTER,
+                    "+ Add track",
+                    FontId::proportional(theme::size::BODY),
+                    palette.text,
+                );
+                draw_arrow(
+                    &painter,
+                    pos2(button.right() - 12.0, button.center().y),
+                    1.0,
+                    palette.text_secondary,
+                );
+                egui::Popup::menu(&response)
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                    .show(|ui| {
+                        ui.set_min_width(button.width());
+                        self.add_menu(ui, doc, self.selected.last().copied());
+                    });
+                if button.bottom() + 22.0 < column.bottom() {
+                    painter.text(
+                        pos2(button.left() + 2.0, button.bottom() + 8.0),
+                        Align2::LEFT_TOP,
+                        "Or double-click empty space",
+                        FontId::proportional(theme::size::CAPTION),
+                        palette.text_hint,
+                    );
+                }
             }
         }
 
         let modifiers = ui.input(|i| i.modifiers);
         let audible = audible(doc.project());
+        let mut hot_edge = None;
         for row in rows {
             let rect = Rect::from_min_size(
                 pos2(column.left(), column.top() + row.y - self.top),
@@ -359,11 +429,20 @@ impl Arrangement {
                 palette.header
             };
             painter.rect_filled(rect, 0.0, fill);
-            painter.rect_filled(
-                Rect::from_min_size(rect.min, vec2(4.0, rect.height())),
-                0.0,
-                color_of(track.color),
-            );
+            // The rail: the track colour, or red with a glow into the
+            // header while armed.
+            let rail = Rect::from_min_size(rect.min, vec2(4.0, rect.height()));
+            if track.armed {
+                gradient(
+                    &painter,
+                    Rect::from_min_size(rect.min, vec2(28.0, rect.height())),
+                    palette.record.gamma_multiply(0.30),
+                    Color32::TRANSPARENT,
+                );
+                painter.rect_filled(rail, 0.0, palette.record);
+            } else {
+                painter.rect_filled(rail, 0.0, color_of(track.color));
+            }
 
             // Top row: fold arrow, name, M S ●.
             let mid = rect.top() + FOLDED / 2.0;
@@ -413,8 +492,24 @@ impl Arrangement {
             x -= BUTTON + 4.0;
             let mute_rect = Rect::from_min_size(pos2(x, mid - BUTTON / 2.0), vec2(BUTTON, BUTTON));
 
+            // The track type, then the name, with room after the arrow.
+            draw_type_icon(
+                &painter,
+                pos2(rect.left() + 34.0, mid),
+                track.kind,
+                if heard {
+                    palette.text_secondary
+                } else {
+                    palette.text_hint
+                },
+            );
+            let kind_hover =
+                Rect::from_center_size(pos2(rect.left() + 34.0, mid), vec2(16.0, 16.0));
+            let _ = ui
+                .interact(kind_hover, id.with("kind"), Sense::hover())
+                .on_hover_text(kind_name(track.kind));
             let name_rect = Rect::from_min_max(
-                pos2(rect.left() + 26.0, mid - 10.0),
+                pos2(rect.left() + 48.0, mid - 10.0),
                 pos2(mute_rect.left() - 6.0, mid + 10.0),
             );
             self.name(ui, &painter, doc, &track, name_rect, heard, id);
@@ -495,7 +590,7 @@ impl Arrangement {
                 && rid == track.id
             {
                 let total = resize.total_drag_delta().map_or(0.0, |d| d.y);
-                let wanted = (start + total).clamp(FOLDED, MAX_HEIGHT);
+                let wanted = snap_height((start + total).clamp(FOLDED, MAX_HEIGHT));
                 if wanted < FOLD_BELOW {
                     self.expanded.remove(&track.id);
                 } else {
@@ -513,7 +608,15 @@ impl Arrangement {
                 rect.bottom() - 0.5,
                 Stroke::new(1.0, palette.border),
             );
+            // The handle glows while hovered or dragged (owner request).
+            let hot = resize.hovered() || self.resizing.is_some_and(|(r, _)| r == track.id);
+            let glow = motion::hover(&ctx, id.with("edge glow"), hot);
+            if glow > 0.0 {
+                hot_edge = Some((track.id, glow));
+                draw_edge_glow(&painter, column.x_range(), rect.bottom(), glow);
+            }
         }
+        self.hot_edge = hot_edge;
         painter.vline(
             column.right() - 0.5,
             column.y_range(),
@@ -623,48 +726,28 @@ impl Arrangement {
         rect: Rect,
         id: EguiId,
     ) {
-        let palette = theme::p();
-        let y = rect.top() + FOLDED + 8.0;
-        let left = rect.left() + 26.0;
-        let label = |x: f32, text: &str| {
-            ui.painter().text(
-                pos2(x, y),
-                Align2::LEFT_CENTER,
-                text,
-                FontId::proportional(theme::size::CAPTION),
-                palette.text_secondary,
-            );
-        };
-        label(left, "Vol");
-        label(left + 90.0, "Pan");
-        let mut db = track.gain_db;
-        let volume = ui
-            .put(
-                Rect::from_min_size(pos2(left + 22.0, y - 9.0), vec2(62.0, 18.0)),
-                egui::DragValue::new(&mut db)
-                    .range(-60.0..=6.0)
-                    .speed(0.1)
-                    .custom_formatter(|v, _| db_text(v as f32))
-                    .custom_parser(|s| {
-                        s.trim()
-                            .trim_end_matches("dB")
-                            .trim()
-                            .replace('\u{2212}', "-")
-                            .parse()
-                            .ok()
-                    }),
-            )
-            .on_hover_text("Track volume: drag, or click and type. Double-click for 0 dB");
-        volume.widget_info(|| {
-            egui::WidgetInfo::labeled(
-                egui::WidgetType::DragValue,
-                true,
-                format!("Volume {}", track.name),
-            )
-        });
-        if volume.double_clicked() {
-            db = 0.0;
-        }
+        // One row of sliders that show their value inside (owner request):
+        // volume fills from the left; pan fills from the centre and grows
+        // more saturated the harder it pans.
+        let center_y = rect.top() + FOLDED + STEP / 2.0;
+        let left = rect.left() + 30.0;
+        let right = rect.right() - 8.0;
+        let pan_rect = Rect::from_min_max(
+            pos2(right - 54.0, center_y - 10.0),
+            pos2(right, center_y + 10.0),
+        );
+        let volume_rect = Rect::from_min_max(
+            pos2(left, center_y - 10.0),
+            pos2(pan_rect.left() - 6.0, center_y + 10.0),
+        );
+        let db = value_slider(
+            ui,
+            volume_rect,
+            id.with("volume"),
+            track.gain_db,
+            SliderKind::Volume,
+            &format!("Volume {}", track.name),
+        );
         if db != track.gain_db {
             doc.apply(
                 "Change volume",
@@ -676,39 +759,14 @@ impl Arrangement {
                 },
             );
         }
-        let mut pan = track.pan;
-        let pan_response = ui
-            .put(
-                Rect::from_min_size(pos2(left + 114.0, y - 9.0), vec2(36.0, 18.0)),
-                egui::DragValue::new(&mut pan)
-                    .range(-1.0..=1.0)
-                    .speed(0.01)
-                    .custom_formatter(|v, _| pan_text(v as f32))
-                    .custom_parser(|s| {
-                        let s = s.trim().to_ascii_uppercase();
-                        if s == "C" {
-                            return Some(0.0);
-                        }
-                        let (side, n) = s.split_at(1);
-                        let n: f64 = n.trim().parse().ok()?;
-                        match side {
-                            "L" => Some(-n / 100.0),
-                            "R" => Some(n / 100.0),
-                            _ => s.parse::<f64>().ok().map(|v| v / 100.0),
-                        }
-                    }),
-            )
-            .on_hover_text("Pan: drag, or type L 30 or R 30. Double-click to centre");
-        pan_response.widget_info(|| {
-            egui::WidgetInfo::labeled(
-                egui::WidgetType::DragValue,
-                true,
-                format!("Pan {}", track.name),
-            )
-        });
-        if pan_response.double_clicked() {
-            pan = 0.0;
-        }
+        let pan = value_slider(
+            ui,
+            pan_rect,
+            id.with("pan"),
+            track.pan,
+            SliderKind::Pan,
+            &format!("Pan {}", track.name),
+        );
         if pan != track.pan {
             doc.apply("Change pan", Some(&format!("pan {:x}", track.id.0)), |p| {
                 if let Some(t) = p.tracks.iter_mut().find(|t| t.id == track.id) {
@@ -716,7 +774,6 @@ impl Arrangement {
                 }
             });
         }
-        let _ = id;
     }
 
     /// Right-click menu on a track.
@@ -850,7 +907,22 @@ impl Arrangement {
                 RowKind::Track(index) => {
                     let track = &project.tracks[index];
                     if track.armed {
-                        painter.rect_filled(lane, 0.0, palette.record.gamma_multiply(0.07));
+                        // A red wash, strongest at the left, with thin
+                        // red edges (owner's choice: "glow and breathe").
+                        let fade = Rect::from_min_size(
+                            lane.min,
+                            vec2((lane.width() * 0.18).min(220.0), lane.height()),
+                        );
+                        painter.rect_filled(lane, 0.0, palette.record.gamma_multiply(0.05));
+                        gradient(
+                            painter,
+                            fade,
+                            palette.record.gamma_multiply(0.12),
+                            Color32::TRANSPARENT,
+                        );
+                        let edge = Stroke::new(1.0, palette.record.gamma_multiply(0.45));
+                        painter.hline(canvas.x_range(), lane.top() + 0.5, edge);
+                        painter.hline(canvas.x_range(), lane.bottom() - 1.5, edge);
                     } else if track.solo {
                         painter.rect_filled(lane, 0.0, palette.accent.gamma_multiply(0.06));
                     }
@@ -914,6 +986,12 @@ impl Arrangement {
                 lane.bottom() - 0.5,
                 Stroke::new(1.0, palette.border.gamma_multiply(0.6)),
             );
+            // The resize glow continues across the lane.
+            if let (RowKind::Track(index), Some((hot, t))) = (row.kind, self.hot_edge)
+                && project.tracks[index].id == hot
+            {
+                draw_edge_glow(painter, canvas.x_range(), lane.bottom(), t);
+            }
         }
     }
 
@@ -968,7 +1046,7 @@ impl Arrangement {
             heights: view
                 .track_heights
                 .iter()
-                .map(|(id, h)| (*id, h.clamp(FOLD_BELOW, MAX_HEIGHT)))
+                .map(|(id, h)| (*id, snap_height(h.clamp(FOLD_BELOW, MAX_HEIGHT))))
                 .collect(),
             expanded: view.expanded.clone(),
             ..Self::default()
@@ -1101,20 +1179,331 @@ fn arm_button(ui: &mut Ui, rect: Rect, id: EguiId, name: &str, armed: bool) -> b
     });
     let hover = motion::hover(ui.ctx(), id.with("arm hover"), response.hovered());
     let p = ui.painter();
+    // Every circle shares this exact centre (owner: the ring must sit
+    // centred on the dot).
     let center = rect.center();
-    let back = if armed {
-        palette.record.gamma_multiply(0.25)
+    let radius = rect.width() / 2.0;
+    if armed {
+        // The one deliberate loop in Lumen (owner's choice): while armed, a
+        // ring breathes slowly around the button. Reduce motion holds it
+        // still; frames are requested only while a track is armed.
+        let breath = if motion::reduced() {
+            0.5
+        } else {
+            let t = ui.input(|i| i.time) as f32;
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(33));
+            0.5 - 0.5 * (t * std::f32::consts::TAU / ARM_BREATH).cos()
+        };
+        for (spread, alpha) in [(5.0, 0.10), (3.5, 0.18)] {
+            p.circle_filled(
+                center,
+                radius + spread * (0.6 + 0.4 * breath),
+                palette.record.gamma_multiply(alpha * (0.6 + 0.4 * breath)),
+            );
+        }
+        p.circle_stroke(
+            center,
+            radius + 1.0 + breath,
+            Stroke::new(1.5, palette.record.gamma_multiply(0.45 + 0.3 * breath)),
+        );
+        p.circle_filled(center, radius, palette.record.gamma_multiply(0.25));
+        p.circle_filled(center, 4.5, palette.record);
     } else {
-        palette.control.lerp_to_gamma(palette.control_hover, hover)
-    };
-    p.circle_filled(center, rect.width() / 2.0, back);
-    let dot = if armed {
-        palette.record
-    } else {
-        palette.record.gamma_multiply(0.45 + 0.25 * hover)
-    };
-    p.circle_filled(center, 4.5, dot);
+        p.circle_filled(
+            center,
+            radius,
+            palette.control.lerp_to_gamma(palette.control_hover, hover),
+        );
+        p.circle_filled(
+            center,
+            4.5,
+            palette.record.gamma_multiply(0.45 + 0.25 * hover),
+        );
+    }
     response.clicked()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SliderKind {
+    /// −60 to +6 dB, filled from the left; resets to 0 dB.
+    Volume,
+    /// −1 (left) to +1 (right), filled from the centre; resets to centre.
+    Pan,
+}
+
+impl SliderKind {
+    fn range(self) -> (f32, f32) {
+        match self {
+            SliderKind::Volume => (-60.0, 6.0),
+            SliderKind::Pan => (-1.0, 1.0),
+        }
+    }
+
+    fn text(self, value: f32) -> String {
+        match self {
+            SliderKind::Volume => db_text(value),
+            SliderKind::Pan => pan_text(value),
+        }
+    }
+
+    /// Reads typed text: "-6", "−6 dB"; "C", "L 30", "R30", "-30".
+    fn parse(self, text: &str) -> Option<f32> {
+        let text = text.trim().replace('\u{2212}', "-").to_ascii_uppercase();
+        match self {
+            SliderKind::Volume => text.trim_end_matches("DB").trim().parse().ok(),
+            SliderKind::Pan => {
+                if text == "C" {
+                    return Some(0.0);
+                }
+                let number = |s: &str| s.trim().parse::<f32>().ok().map(|n| n / 100.0);
+                if let Some(rest) = text.strip_prefix('L') {
+                    number(rest).map(|n| -n)
+                } else if let Some(rest) = text.strip_prefix('R') {
+                    number(rest)
+                } else {
+                    number(&text)
+                }
+            }
+        }
+    }
+}
+
+/// A slider with its value inside it. Drag (Shift for fine steps),
+/// double-click to reset, click then type a value (Enter applies, Esc
+/// cancels), or use the arrow keys when it has focus. Returns the value.
+fn value_slider(
+    ui: &mut Ui,
+    rect: Rect,
+    id: EguiId,
+    value: f32,
+    kind: SliderKind,
+    name: &str,
+) -> f32 {
+    let palette = *theme::p();
+    let (lo, hi) = kind.range();
+    let typing_id = id.with("typing");
+    let typing: Option<String> = ui.data(|d| d.get_temp(typing_id));
+    if let Some(mut text) = typing {
+        // Typing a value.
+        let edit = ui.put(
+            rect,
+            egui::TextEdit::singleline(&mut text)
+                .id(id.with("edit"))
+                .font(FontId::proportional(theme::size::CAPTION))
+                .horizontal_align(egui::Align::Center)
+                .margin(vec2(2.0, 2.0)),
+        );
+        if !edit.has_focus() && !edit.lost_focus() {
+            edit.request_focus();
+        }
+        let cancel = ui.input(|i| i.key_pressed(Key::Escape));
+        if cancel || edit.lost_focus() {
+            ui.data_mut(|d| d.remove::<String>(typing_id));
+            if !cancel && let Some(v) = kind.parse(&text) {
+                return v.clamp(lo, hi);
+            }
+        } else {
+            ui.data_mut(|d| d.insert_temp(typing_id, text));
+        }
+        return value;
+    }
+
+    let response = ui
+        .interact(rect, id, Sense::click_and_drag())
+        .on_hover_text(match kind {
+            SliderKind::Volume => {
+                "Volume: drag (Shift for fine), double-click for 0 dB, or click and type"
+            }
+            SliderKind::Pan => {
+                "Pan: drag (Shift for fine), double-click to centre, or click and type L 30 or R 30"
+            }
+        });
+    response.widget_info(|| {
+        egui::WidgetInfo::slider(
+            true,
+            f64::from(value),
+            format!("{name}: {}", kind.text(value)),
+        )
+    });
+    let mut out = value;
+    let fine = ui.input(|i| i.modifiers.shift);
+    if response.dragged() {
+        let dx = response.drag_delta().x;
+        out += dx / rect.width() * (hi - lo) * if fine { 0.1 } else { 1.0 };
+    }
+    if response.clicked() {
+        response.request_focus();
+    }
+    if response.double_clicked() {
+        out = 0.0;
+    }
+    if response.has_focus() {
+        let (left, right, typed) = ui.input(|i| {
+            let typed = i.events.iter().find_map(|e| match e {
+                egui::Event::Text(t)
+                    if t.chars()
+                        .all(|c| c.is_ascii_digit() || "-.,lLrRcC".contains(c)) =>
+                {
+                    Some(t.clone())
+                }
+                _ => None,
+            });
+            (
+                i.key_pressed(Key::ArrowLeft) || i.key_pressed(Key::ArrowDown),
+                i.key_pressed(Key::ArrowRight) || i.key_pressed(Key::ArrowUp),
+                typed,
+            )
+        });
+        let step = (hi - lo) / if fine { 660.0 } else { 66.0 };
+        if left {
+            out -= step;
+        }
+        if right {
+            out += step;
+        }
+        if let Some(text) = typed {
+            ui.data_mut(|d| d.insert_temp(typing_id, text));
+        }
+    }
+    let out = out.clamp(lo, hi);
+
+    // Drawing.
+    let p = ui.painter();
+    let hover = motion::hover(
+        ui.ctx(),
+        id.with("hover"),
+        response.hovered() || response.dragged(),
+    );
+    let radius = theme::radius::SMALL;
+    p.rect_filled(
+        rect,
+        radius,
+        palette.control.lerp_to_gamma(palette.control_hover, hover),
+    );
+    let x_at = |v: f32| rect.left() + (v - lo) / (hi - lo) * rect.width();
+    match kind {
+        SliderKind::Volume => {
+            let x = x_at(out);
+            p.rect_filled(
+                Rect::from_min_max(rect.min, pos2(x, rect.bottom())),
+                radius,
+                palette.control_press,
+            );
+            p.vline(
+                x,
+                rect.shrink2(vec2(0.0, 3.0)).y_range(),
+                Stroke::new(2.0, palette.start_marker),
+            );
+        }
+        SliderKind::Pan => {
+            let center = rect.center().x;
+            let x = x_at(out);
+            // Grey at the centre, the accent at the edges (owner request).
+            let strength = out.abs().powf(1.2);
+            let fill = palette
+                .control_press
+                .lerp_to_gamma(palette.accent, strength);
+            p.rect_filled(
+                Rect::from_x_y_ranges(center.min(x)..=center.max(x), rect.y_range()),
+                0.0,
+                fill,
+            );
+            p.vline(
+                center,
+                rect.shrink2(vec2(0.0, 4.0)).y_range(),
+                Stroke::new(1.0, palette.text_hint),
+            );
+        }
+    }
+    p.text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        kind.text(out),
+        FontId::proportional(theme::size::CAPTION),
+        palette.text,
+    );
+    if response.has_focus() {
+        p.rect_stroke(
+            rect,
+            radius,
+            Stroke::new(1.5, palette.accent),
+            egui::StrokeKind::Inside,
+        );
+    }
+    out
+}
+
+/// The glowing accent line on a track's resize handle (`t` fades it).
+fn draw_edge_glow(painter: &Painter, x: egui::Rangef, y: f32, t: f32) {
+    let accent = theme::p().accent;
+    for (width, alpha) in [(6.0, 0.12), (3.0, 0.25)] {
+        painter.hline(x, y, Stroke::new(width, accent.gamma_multiply(alpha * t)));
+    }
+    painter.hline(x, y, Stroke::new(1.5, accent.gamma_multiply(t)));
+}
+
+/// Seconds per breath of the armed ring.
+const ARM_BREATH: f32 = 2.4;
+
+/// A horizontal gradient from `left` to `right` across `rect`.
+fn gradient(painter: &Painter, rect: Rect, left: Color32, right: Color32) {
+    let mut mesh = egui::Mesh::default();
+    let i = mesh.vertices.len() as u32;
+    for (pos, color) in [
+        (rect.left_top(), left),
+        (rect.right_top(), right),
+        (rect.right_bottom(), right),
+        (rect.left_bottom(), left),
+    ] {
+        mesh.colored_vertex(pos, color);
+    }
+    mesh.add_triangle(i, i + 1, i + 2);
+    mesh.add_triangle(i, i + 2, i + 3);
+    painter.add(egui::Shape::mesh(mesh));
+}
+
+/// The track type, for the header icon's tooltip.
+fn kind_name(kind: TrackKind) -> &'static str {
+    match kind {
+        TrackKind::Audio => "Audio track",
+        TrackKind::Midi => "MIDI track",
+        TrackKind::Group => "Group track",
+        TrackKind::Return => "Return track",
+        TrackKind::Master => "Master track",
+    }
+}
+
+/// A 14 pt icon for the track type: a waveform for audio, keys for MIDI,
+/// stacked bars for a group, a return arrow for a return.
+fn draw_type_icon(painter: &Painter, center: Pos2, kind: TrackKind, color: Color32) {
+    let stroke = Stroke::new(1.4, color);
+    let at = |x: f32, y: f32| center + vec2(x, y);
+    match kind {
+        TrackKind::Audio => {
+            for (x, h) in [(-5.0, 1.0), (-2.5, 3.5), (0.0, 6.0), (2.5, 2.5), (5.0, 1.0)] {
+                painter.line_segment([at(x, -h), at(x, h)], stroke);
+            }
+        }
+        TrackKind::Midi => {
+            let r = Rect::from_center_size(center, vec2(12.0, 12.0));
+            painter.rect_stroke(r, 2.0, stroke, egui::StrokeKind::Inside);
+            for x in [-2.0, 2.0] {
+                painter.line_segment([at(x, -6.0), at(x, 1.5)], stroke);
+            }
+        }
+        TrackKind::Group | TrackKind::Master => {
+            for y in [-4.0, 0.0, 4.0] {
+                painter.line_segment([at(-6.0, y), at(6.0, y)], stroke);
+            }
+        }
+        TrackKind::Return => {
+            painter.line_segment([at(5.0, -5.0), at(5.0, 1.0)], stroke);
+            painter.line_segment([at(5.0, 1.0), at(-5.0, 1.0)], stroke);
+            painter.line_segment([at(-5.0, 1.0), at(-2.0, -2.0)], stroke);
+            painter.line_segment([at(-5.0, 1.0), at(-2.0, 4.0)], stroke);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1130,6 +1519,34 @@ mod tests {
         assert_eq!(pan_text(0.0), "C");
         assert_eq!(pan_text(-0.3), "L 30");
         assert_eq!(pan_text(1.0), "R 100");
+    }
+
+    #[test]
+    fn typed_values_are_understood() {
+        let v = SliderKind::Volume;
+        assert_eq!(v.parse("-6"), Some(-6.0));
+        assert_eq!(v.parse("\u{2212}4.5 dB"), Some(-4.5));
+        assert_eq!(v.parse("loud"), None);
+        let p = SliderKind::Pan;
+        assert_eq!(p.parse("c"), Some(0.0));
+        assert_eq!(p.parse("L 30"), Some(-0.3));
+        assert_eq!(p.parse("r100"), Some(1.0));
+        assert_eq!(p.parse("-50"), Some(-0.5));
+    }
+
+    #[test]
+    fn heights_come_in_whole_steps() {
+        assert_eq!(snap_height(95.0), 4.0 * STEP);
+        assert_eq!(snap_height(100.0), 5.0 * STEP);
+        assert_eq!(FOLDED, 2.0 * STEP);
+        assert_eq!(UNFOLDED, 4.0 * STEP);
+        // An opened project with an odd height (an older build) snaps.
+        let mut view = lumen_project::model::ViewState::default();
+        view.track_heights.insert(Id(1), 150.0);
+        view.track_heights.insert(Id(2), 20.0);
+        let a = Arrangement::restore(&view);
+        assert_eq!(a.heights[&Id(1)], 7.0 * STEP);
+        assert_eq!(a.heights[&Id(2)], UNFOLDED, "never below the unfolded size");
     }
 
     #[test]
@@ -1179,7 +1596,7 @@ mod tests {
             ..Arrangement::default()
         };
         a.expanded.insert(Id(3));
-        a.heights.insert(Id(3), 150.0);
+        a.heights.insert(Id(3), 7.0 * STEP);
         let mut view = lumen_project::model::ViewState::default();
         a.save_into(&mut view);
         let b = Arrangement::restore(&view);

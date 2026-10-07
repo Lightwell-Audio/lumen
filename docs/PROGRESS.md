@@ -98,7 +98,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Adaptive or fixed grid (triplet, dotted, off) with snap-bypass modifier | M | 🔲 | 3 |
 | Anchored zoom, zoom to selection, fit all, fit loop, pan, edge auto-scroll, follow modes. (Ctrl+wheel zoom works in the M1 shell since the 2026-10-06 fix: egui delivers it as a zoom factor, not as scroll.) | M | 🔲 | 3 |
 | Track types: audio, MIDI/instrument, group, return, master | M | 🟡 All five exist in the project model; audio tracks are created by importing (M3 slice 3). Track headers and adding each type in M3 slice 4; group summing, returns and master in M4 | 3–4 |
-| Per-track name, colour, height, arm, monitor, solo, mute, polarity, I/O routing, inline fader and meter | M | 🟡 Name, colour, height (drag to resize, fold and unfold), arm, solo and mute in the track header; interim volume and pan in unfolded headers (M3 slice 4a, ADR-0025). Monitor, polarity, routing, real fader and meter with the mixer (M4) | 3–4 |
+| Per-track name, colour, height, arm, monitor, solo, mute, polarity, I/O routing, inline fader and meter | M | 🟡 Name, type icon, colour, height (drag to resize in 22 pt steps, fold and unfold), arm (glows and breathes), solo and mute in the track header; interim volume and pan sliders in unfolded headers (M3 slice 4a, ADR-0025). Monitor, polarity, routing, real fader and meter with the mixer (M4) | 3–4 |
 | Group tracks: create, drag in, nest, fold, sum, own devices/sends/fader/automation, one-step ungroup, sensible solo/mute/arm | M | 🔲 | 4 |
 | Linked editing across selected tracks | S | 🔲 | 4 |
 | Clips: move, copy-drag, trim, slip, fades, gain handle, loop-extend, rename, recolour, mute, lock | M | 🔲 | 3 |
@@ -251,7 +251,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Edit cursor separate from playhead; scrubbing. **Owner request (2026-10-06), raised from S to M, Ableton-style:** click in the scrub strip to set the playback position; drag to scrub audibly; drag in the beat ruler vertically to zoom and horizontally to scroll. Locate-on-click in M2; scrub strip, audible scrubbing and ruler zoom in M3. | M | 🟡 Click-to-locate on the ruler done (M2 slice 5): zoom-adaptive snapping, Alt to place freely, ghost line preview. Scrub strip, audible scrubbing and ruler drag-zoom in M3 |
 | MIDI clock / MTC out | S | 🔲 |
 | Clock / MTC in, Ableton Link | L | 🔲 |
-| Tracks: add, delete, duplicate, rename, recolour, reorder, multi-select | M | 🟡 All of these from the track menu and keys (Ctrl+T, Ctrl+Shift+T, Ctrl+D, Delete, F2, Alt+arrows), each one undo step (M3 slice 4a). Drag to reorder in slice 4d |
+| Tracks: add, delete, duplicate, rename, recolour, reorder, multi-select | M | 🟡 All of these from the track menu, the "+ Add track" menu button and keys (Ctrl+T, Ctrl+Shift+T, Ctrl+D, Delete, F2, Alt+arrows), each one undo step (M3 slice 4a). Drag to reorder in slice 4d |
 | Track types with routing, arm, monitor, polarity | M | 🔲 |
 | Freeze, unfreeze, flatten | M | 🔲 |
 | Track delay, lock, icons, templates | S | 🔲 |

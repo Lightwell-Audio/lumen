@@ -694,10 +694,12 @@ note and the owned file dialogs.
 
 ### MT-APP-9 · Tracks (needs a human)
 Run `cargo run --release -p lumen-app`.
-1. **Add:** press Ctrl+T twice and Ctrl+Shift+T once; double-click the
-   empty space below the tracks. Tracks "Audio 1", "Audio 2", "MIDI 1" and
-   "Audio 3" appear, each with a colour rail. Right-click a header or the
-   empty space: the menu offers audio, MIDI, group and return tracks.
+1. **Add:** press Ctrl+T twice and Ctrl+Shift+T once; then use
+   "+ Add track ▾" below the tracks (it lists every type with its
+   shortcut); then double-click the empty space, as its hint says.
+   - Each track has a colour rail and a type icon (waveform for audio, keys
+     for MIDI).
+   - Right-click a header or the empty space: the same menu.
 2. **Rename and recolour:** double-click a name (or press F2), type,
    press Enter. Esc cancels. Right-click → Colour → pick one: the rail and
    the clips change colour.
@@ -709,17 +711,24 @@ Run `cargo run --release -p lumen-app`.
    - **S** plays only that track; the other tracks' clips dim and the
      soloed lane gets a faint blue wash;
    - Ctrl+click **S** on a second track adds it to the solo;
-   - the round **●** lights red, and the lane gets a faint red wash;
+   - the round **●** lights red: the rail glows red into the header, a
+     ring breathes slowly around the dot (centred on it), and the lane
+     gets a red gradient with thin red edges;
    - with several tracks selected, a button acts on all of them.
 5. **Fold and resize:**
    - click a track's arrow: it unfolds smoothly, showing Vol and Pan;
      click again to fold it;
-   - drag a track's bottom edge: it resizes; dragging a folded track
+   - hover a track's bottom edge: it glows;
+   - drag it: the track resizes in fixed steps; dragging a folded track
      taller unfolds it, and dragging an unfolded one small folds it.
-6. **Volume and pan:** on an unfolded track playing audio, drag Vol down
-   and Pan to L 100: it gets quieter and moves left. Double-click either
-   to reset. (Fast drags may step audibly until the M4 mixer smooths
-   them.)
+6. **Volume and pan:** on an unfolded track playing audio:
+   - drag the volume slider down: it gets quieter, and the value shows
+     inside the slider;
+   - drag pan to L 100: the sound moves left, and the fill turns from grey
+     to blue toward the edge;
+   - double-click either to reset;
+   - click one and type a value (−6, or L 30), then press Enter;
+   - fast drags may step audibly until the M4 mixer smooths them.
 7. **Move, duplicate, delete:**
    - Alt+↑ and Alt+↓ move the selected tracks;
    - Ctrl+D duplicates them, with their clips;
@@ -733,5 +742,19 @@ Run `cargo run --release -p lumen-app`.
 
 **Expected:** every step as described, smooth and without lag.
 
-**Last run:** not yet run.
+**Run 1 (2026-10-07, owner):** findings, all addressed:
+- MIDI tracks had no visual cue: type icons added.
+- The unfolded controls were poorly organised: sliders with the values
+  inside.
+- Pan should be an Ableton-style slider with the label inside, and its
+  saturation should grow toward the edges: done.
+- Arm needed more presence: "glow and breathe", with a centred ring.
+- The double-click to add a track gave no hint, and offered no way to add
+  MIDI: a "+ Add track ▾" menu button with a hint.
+- More room was needed between the arrow and the name: added, and the
+  header widened.
+- The resize handle needed a cue: it glows.
+- Heights should come in fixed steps: 22 pt steps.
+
+**Last run:** run 1 with findings (above); run 2 pending.
 

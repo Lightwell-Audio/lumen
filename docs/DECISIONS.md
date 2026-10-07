@@ -62,6 +62,7 @@ irreversible or external) · *Superseded*.
 | Metronome extras (2026-10-06) | Count-in, pre-roll and record-only with recording (M9); output routing with the mixer (M4). |
 | M2 close and M3 plan (2026-10-07) | M2 approved; M3 approved as proposed, unsplit, with the M2 performance gates as its slice 1. |
 | Typefaces (M3 slice 2, 2026-10-07) | Inter for the interface and Unbounded for titles, chosen from rendered specimens. The owner wants personality, not generic choices; visual options are shown as specimens before anything is built (ADR-0023). |
+| Track design (M3 slice 4, 2026-10-07) | Option A headers with option B's dark clips; type icons; Ableton-style folding and resizing in 22 pt steps; sliders with values inside, with pan saturating toward the edges; record arm that glows and breathes; a "+ Add track ▾" menu button with a double-click hint (DESIGN §7a, ADR-0025). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
 
 ---
@@ -1496,6 +1497,31 @@ Ableton-style folding and vertical resizing.
   - all of these are also in the right-click menu.
 - **Scrolling:** the mouse wheel scrolls tracks vertically; Shift+wheel or
   a sideways swipe scrolls the timeline; Ctrl+wheel zooms.
+
+### Refinements after MT-APP-9 run 1 (owner, 2026-10-07)
+- **Type icons:** a type icon in every header (MIDI tracks had no cue
+  besides their name), and more room after the fold arrow. The header
+  widened from 184 to 204 pt so names still fit.
+- **Unfolded header:** volume and pan became sliders with the value
+  inside, instead of labelled number fields. Pan fills from the centre and
+  saturates toward the accent as it nears an edge (owner request).
+  Typing, double-click reset, Shift for fine and arrow keys all remain.
+- **Record arm, "glow and breathe"** (chosen from two rendered options):
+  - a red rail that glows into the header;
+  - a red lane gradient with thin edges;
+  - a ring that breathes every 2.4 s, concentric with the dot.
+  - It is the one deliberate loop in the motion system, documented in
+    DESIGN §6; it requests frames only while a track is armed, and Reduce
+    motion holds it still.
+- **Height steps:** heights snap to 22 pt steps (folded 2, unfolded 4 to
+  14), so future height-dependent elements can rely on whole steps. Saved
+  heights snap when a project opens.
+- **Resize handle:** the edge glows with the accent across the header and
+  the lane while hovered or dragged.
+- **Adding tracks:** a "+ Add track ▾" menu button (chosen over split
+  buttons) lists every type with its shortcut, with the hint "Or
+  double-click empty space" beneath it. Double-click and the right-click
+  menu remain.
 
 ### Consequences
 - `lanes.rs` no longer draws: it loads audio and builds the engine's clip

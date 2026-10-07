@@ -400,9 +400,13 @@ it first in a new session, and update it at the end of every slice.
   - project model, undo, save/open, autosave and recovery.
 - **M3 slice 4 (tracks and the arrangement at scale) is in progress.**
   - Groundwork (format v3) and part 4a are built: track headers in the
-    owner-chosen design, folding and resizing, selection, interim volume
-    and pan (ADR-0025).
-  - MT-APP-9 awaits the owner.
+    owner-chosen design, refined after MT-APP-9 run 1 (DESIGN §7a,
+    ADR-0025):
+    - type icons, sliders with values inside;
+    - a record arm that glows and breathes;
+    - 22 pt height steps, a glowing resize handle;
+    - a "+ Add track ▾" menu button.
+  - MT-APP-9 run 2 awaits the owner.
   - Next: 4b (GPU clip bodies and a 200-track stress benchmark), 4c
     (waveforms), 4d (zoom, follow playhead, drag to reorder).
   - The plan and the follow-ups are in `docs/milestones/M3.md`.

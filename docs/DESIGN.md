@@ -161,6 +161,10 @@ not travel.
   - the playhead and start marker moving after a locate while stopped;
   - clips appearing after an import (fade);
   - the progress fill of a loading clip.
+- **The one deliberate loop:** a record-armed track's ring breathes (2.4 s)
+  so an armed track is never missed (owner's choice, M3 slice 4). It
+  requests frames only while a track is armed, and Reduce motion holds it
+  still.
 - **What never animates:**
   - the playhead while playing (it follows the audio exactly);
   - zoom and scroll driven by the wheel or trackpad, which already follow
@@ -184,34 +188,57 @@ not travel.
 
 Keyboard focus shows as a 2 pt `accent` ring on every focusable control.
 
-## 7a. Tracks and clips (M3 slice 4, owner's choice)
+## 7a. Tracks and clips (M3 slice 4, owner's choices)
 
 Chosen from rendered options on 2026-10-07: option A's headers with option
-B's clips.
+B's clips. The owner refined the design after MT-APP-9 run 1.
 
-- **Header** (184 pt wide):
+- **Header** (204 pt wide):
   - a 4 pt colour rail;
-  - a fold arrow;
-  - the name, shortened with "…" and renamed by double-click;
+  - the fold arrow;
+  - a **track-type icon** (waveform for audio, keys for MIDI, stacked bars
+    for a group, a return arrow for a return; its tooltip names the type);
+  - the name, with room after the arrow, shortened with "…" and renamed by
+    double-click or F2;
   - **M**, **S** and a round record-arm button, always visible.
-  - Lit states: **S** uses the accent, **M** the light neutral, and arm is
-    a red dot on a red-tinted circle. Text on a lit button is white or
-    near-black by the fill's brightness.
+  - Lit states: **S** uses the accent and **M** the light neutral. Text on
+    a lit button is white or near-black by the fill's brightness.
   - A selected header takes a tint of `accent_muted`.
-- **Folded and unfolded** (as in Ableton):
-  - folded is a 44 pt row;
-  - unfolded is 96 pt until resized, with a second header row for volume
-    and pan; automation lanes join it in M7;
-  - drag the bottom edge to resize. A folded track dragged taller unfolds;
-    an unfolded track dragged below 60 pt folds;
+- **Unfolded header:** one row of sliders that show their value inside, with
+  no separate labels:
+  - **volume** fills from the left, with a thin handle line and the value
+    in dB;
+  - **pan** fills from the centre; its fill moves from neutral grey to the
+    accent as the pan nears an edge (strength = |pan|^1.2);
+  - both: drag (Shift for fine), double-click to reset, click then type a
+    value (Enter applies, Esc cancels), arrow keys when focused.
+- **Record arm ("glow and breathe")**, the owner's choice:
+  - the rail turns red and glows into the header;
+  - the button is a red dot with a ring around it. The ring breathes
+    slowly (2.4 s) while armed. Every circle shares one centre;
+  - the lane gets a red wash, strongest at the left, with thin red edges.
+- **Folding and resizing** (as in Ableton):
+  - heights come in **22 pt steps**, so anything later drawn by track
+    height (automation lanes, meters) lines up;
+  - folded is 2 steps (44 pt); unfolded starts at 4 steps (88 pt) and
+    goes up to 14;
+  - drag the bottom edge to resize. The handle glows with the accent
+    (header and lane) while hovered or dragged. A folded track dragged
+    taller unfolds; an unfolded one dragged below 4 steps folds;
   - heights glide (`GLIDE`) and are saved with the project.
+- **Adding tracks:**
+  - a **"+ Add track ▾"** button below the last track opens a menu of
+    every type with its shortcut (audio Ctrl+T, MIDI Ctrl+Shift+T, group,
+    return);
+  - the hint underneath says "Or double-click empty space", which adds an
+    audio track;
+  - the right-click menu offers the same.
 - **Clip:**
   - `clip_body` (dark in the dark theme), a 1 pt border of the track
     colour at 60%;
   - a 15 pt title bar in the track colour, with the name in `caption`;
   - the waveform drawn bright in the track colour (slice 4c).
 - **Hints:**
-  - an armed track's lane gets a 7% `record` wash;
   - a soloed track's lane gets a 6% `accent` wash;
   - clips on tracks that cannot be heard (muted, or not soloed while
     another track is) are drawn at 42%, with their names in
