@@ -123,6 +123,24 @@ cargo fmt --all
 cargo bench -p lumen-rt                  # real benchmark run (release profile)
 ```
 
+## Performance gate (ADR-0022)
+
+CI fails when a scenario in `crates/lumen-perf` executes more than 2% more
+instructions than `perf/baseline.json`. To run it before pushing, or to
+update the baseline after an intended change, use the WSL mirror (Linux and
+Valgrind):
+
+```powershell
+$env:WSL_UTF8 = "1"; wsl.exe -d Ubuntu -u root -- bash "/mnt/c/Users/Claire Li/lumen-wsl/perf.sh"
+$env:WSL_UTF8 = "1"; wsl.exe -d Ubuntu -u root -- bash "/mnt/c/Users/Claire Li/lumen-wsl/perf.sh" --update
+```
+
+The script runs the latest local commit. After `--update`, copy
+`/root/lumen/perf/baseline.json` into the repository and commit it with the
+reason. A new scenario is a `measured_<name>` function in
+`crates/lumen-perf/src/lib.rs`, marked `#[unsafe(no_mangle)]` and
+`#[inline(never)]`, plus an entry in `SCENARIOS`.
+
 ## Repository layout
 
 | Path | Contents |

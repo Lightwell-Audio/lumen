@@ -99,6 +99,35 @@ jobs:
             echo "OK: RTSan caught $canary"
           done
 
+  # Performance gate (ADR-0022): instruction counts under Callgrind, compared
+  # with perf/baseline.json. The pinned container keeps glibc and the counts
+  # identical to the baseline machine (WSL Ubuntu 26.04) when GitHub updates
+  # its runner images.
+  perf:
+    name: performance gate
+    runs-on: ubuntu-latest
+    container: ubuntu:26.04
+    timeout-minutes: 30
+    steps:
+      - name: Install build tools and Valgrind
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends             ca-certificates curl git build-essential pkg-config valgrind
+      - uses: actions/checkout@v5
+      - name: Install rustup
+        run: |
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: perf
+      - name: Build scenarios
+        run: cargo build --release --locked -p lumen-perf
+      - name: Compare instruction counts with the baseline
+        run: target/release/perf-gate
+
   deny:
     name: licenses and advisories
     runs-on: ubuntu-latest

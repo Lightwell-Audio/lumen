@@ -41,6 +41,7 @@ lumen-audio = { path = "crates/lumen-audio" }
 lumen-project = { path = "crates/lumen-project" }
 lumen-engine = { path = "crates/lumen-engine" }
 lumen-media = { path = "crates/lumen-media" }
+lumen-perf = { path = "crates/lumen-perf" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

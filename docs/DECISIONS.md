@@ -32,6 +32,7 @@ irreversible or external) · *Superseded*.
 | [0019](#adr-0019--audio-files-and-clip-playback) | Audio files: symphonia + rubato into memory; clip player with edge and jump fades; one lane per file until M3 | Accepted 2026-10-06 (owner: memory now, streaming in M9) | No |
 | [0020](#adr-0020--metronome-test-tone-and-audio-health) | Metronome and test tone in the engine; dropouts from driver positions and delivery against real time | Accepted 2026-10-06 | No |
 | [0021](#adr-0021--device-selector) | Device selector: saved settings, ASIO probing in a helper process, run-time driver switching by handing the engine to a new thread | Accepted 2026-10-06 | No |
+| [0022](#adr-0022--performance-gates-by-instruction-count) | Performance gates: instruction counts under Callgrind in a pinned Linux container, compared with a committed baseline | Accepted 2026-10-07 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -1255,3 +1256,66 @@ WASAPI and macOS/Linux input deferred to M9.
   buffers). The driver's `set_sample_rate` takes about 900 ms and its first
   start afterwards about 390 ms, while the interface re-locks its clock.
   Other hosts face the same cost; Lumen shows progress instead.
+
+---
+
+## ADR-0022 — Performance gates by instruction count
+
+**Status:** Accepted · **Date:** 2026-10-07 (M3 slice 1). Implements the
+gates ADR-0011 planned for M2.
+
+### Context
+CI runs every divan benchmark once, but nothing fails when code gets slower.
+Wall-clock times on shared runners vary by tens of percent, too much to
+gate on.
+
+### Options
+1. Wall-clock benchmarks with a wide tolerance: flaky, and they miss
+   regressions under the tolerance.
+2. A benchmarking crate built on Callgrind (gungraun, formerly
+   iai-callgrind): needs a runner binary whose version must match the
+   crate, plus a harness of its own.
+3. **Our own small harness on Callgrind** (chosen): scenario functions
+   named `measured_<name>`, counted with `--toggle-collect`, so setup is
+   excluded.
+
+### Decision
+- `crates/lumen-perf`:
+  - `perf-scenario <name>` runs one deterministic scenario (fixed seeds and
+    sizes, no I/O or threads in the measured part);
+  - `perf-gate` runs them all under Valgrind and compares the counts with
+    `perf/baseline.json`;
+  - it fails above **+2%** and suggests updating the baseline when a count
+    drops below −2%;
+  - it prints a table, also written to the GitHub job summary, and the
+    counts as JSON.
+- First scenarios:
+  - engine render with 64 clips;
+  - transport with loop wraps, locates and the metronome;
+  - tempo-map conversions;
+  - quality-bar project serialize;
+  - project parse.
+  Each later milestone adds its hot paths (the arrangement model in M3,
+  mixer in M4, MIDI in M5).
+- CI runs the gate in a **pinned `ubuntu:26.04` container**. Counts depend
+  on glibc, and the container matches the WSL mirror where the baseline is
+  made, so a GitHub runner image update cannot move them.
+- **Updating the baseline:** when a change is intended, or the toolchain or
+  container changes, run `perf-gate --update` on Linux (`perf.sh --update`
+  in WSL) and commit `perf/baseline.json` with the reason. Every CI run also
+  prints the counts as JSON.
+
+### Consequences
+- Instruction counts measure work, not time. Cache misses, SIMD width and
+  thread contention do not show. The wall-clock divan benchmarks and the
+  quality-bar measurements remain for those.
+- Linux only (Valgrind). That is enough for platform-independent code;
+  platform code is measured on hardware.
+
+### Evidence (2026-10-07, WSL Ubuntu 26.04, Valgrind 3.26)
+- Three runs: the engine and tempo scenarios gave identical counts. The
+  project scenarios varied by at most 0.002% (hash-table seeds).
+- Injected regression: 4 redundant operations per sample in the clip
+  player's edge fade gave **+7.24%** on `engine_clips_64`, and the gate
+  exited with code 1.
+- The whole gate takes about 14 s under Valgrind.

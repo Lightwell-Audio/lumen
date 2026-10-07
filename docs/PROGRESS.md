@@ -64,7 +64,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Device removal, rate and buffer changes, sleep and resume handled | M | 🔲 | 2, 10 | |
 | Safe mode without plugins | M | 🔲 | 6 | |
 | Automated tests: core logic, editing, serialization and migration, audio (golden renders) | M | 🟡 | all | Harness in place |
-| Benchmarks with regression gates in CI | M | 🟡 | 1–3 | divan harness; benchmarks run once in CI as smoke tests. Gates were planned for M2 and not built: proposed as M3 slice 1 (ADR-0011) |
+| Benchmarks with regression gates in CI | M | ✅ | 1–3 | divan wall-clock benchmarks (smoke-run in CI), plus instruction-count gates under Callgrind that fail CI above +2% (M3 slice 1, ADR-0022). Each milestone adds its hot paths |
 | CI on Windows, macOS, Linux | M | ✅ | 1 | First run green on 2026-10-06 (run 37396217369): Windows MSVC, macOS, Linux, rustfmt, cargo-deny, VST3 self-test |
 | Test plugin simulating good and bad behaviour; real-plugin compatibility matrix | M | 🟡 | 1, 6 | Misbehaving test module (scan stage) + `docs/PLUGIN_COMPATIBILITY.md` (scan stage only) |
 | Real-time correctness enforced by tests | M | 🟡 | 1–2 | `lumen-rt` allocation guard (ADR-0010) |
