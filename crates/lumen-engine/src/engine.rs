@@ -5,13 +5,14 @@
 //! samples. When the tempo map or the device's sample rate changes, the
 //! position is carried over through ticks, so the bar and beat stay put.
 //!
-//! Transport semantics (ADR-0017), as in Ableton Live:
-//! - **Play** starts from the current position, which becomes the play marker.
-//! - **Stop** while playing returns to the play marker; Stop while stopped
-//!   returns to the start of the song.
-//! - **Pause** stops where playback is.
-//! - **Locate** moves the position and the play marker; while playing,
-//!   playback continues from there.
+//! Transport semantics (ADR-0017), as in Ableton Live. There are two
+//! positions: the **play marker** (where playback starts) and the
+//! **playhead** (where playback is).
+//! - **Play** starts from the play marker.
+//! - **Continue** starts from the playhead (Ableton's Shift+Space).
+//! - **Stop** and **Pause** stop where playback is: the playhead stays there.
+//!   Stop while already stopped returns both to the start of the song.
+//! - **Locate** moves both; while playing, playback continues from there.
 //! - **Loop:** while the loop is on and playback reaches its end, it wraps to
 //!   its start on the exact sample. Playback that starts after the loop end
 //!   plays on.
@@ -59,8 +60,13 @@ impl Region {
 /// block.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Command {
+    /// Play from the play marker.
     Play,
+    /// Play from the playhead, where playback last stopped.
+    Continue,
+    /// Stop where playback is.
     Pause,
+    /// Stop where playback is; when already stopped, return to the start.
     Stop,
     Locate(Ticks),
     SetLoop(Region),
@@ -294,10 +300,12 @@ impl<S: Source> Engine<S> {
                 break;
             };
             match command {
-                Command::Play => {
+                Command::Play | Command::Continue => {
                     if !self.playing {
+                        if command == Command::Play {
+                            self.position = self.sample_at(self.play_marker);
+                        }
                         self.playing = true;
-                        self.play_marker = self.ticks_now();
                         self.locate_source(Jump::Play);
                         self.declick.fade_in(fade_frames(self.sample_rate));
                     }
@@ -312,8 +320,8 @@ impl<S: Source> Engine<S> {
                         self.playing = false;
                     } else {
                         self.play_marker = Ticks::ZERO;
+                        self.position = 0;
                     }
-                    self.position = self.sample_at(self.play_marker);
                 }
                 Command::Locate(at) => {
                     self.capture_tail(channels);
@@ -408,6 +416,7 @@ impl<S: Source> Engine<S> {
             playing: self.playing,
             sample: self.position,
             ticks: self.ticks_now(),
+            marker: self.play_marker,
             sample_rate: self.sample_rate,
             punching: self.playing
                 && self

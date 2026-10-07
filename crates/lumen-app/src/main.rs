@@ -236,8 +236,27 @@ impl App {
             }
         }
 
-        // Playhead.
+        // The start marker: where Play starts. A hollow arrow on the ruler and
+        // a faint line, so it reads as a marker next to the solid playhead.
         let state = self.transport.state();
+        let mx = x_of(state.marker.as_quarters() as f32);
+        if (full.left()..=full.right()).contains(&mx) {
+            painter.line_segment(
+                [pos2(mx, ruler.bottom()), pos2(mx, full.bottom())],
+                Stroke::new(1.0, theme::GHOST),
+            );
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    pos2(mx - 5.0, ruler.top() + 1.0),
+                    pos2(mx + 5.0, ruler.top() + 1.0),
+                    pos2(mx, ruler.top() + 8.0),
+                ],
+                egui::Color32::TRANSPARENT,
+                Stroke::new(1.5, theme::ACCENT),
+            ));
+        }
+
+        // Playhead.
         let x = x_of(state.ticks.as_quarters() as f32);
         if (full.left()..=full.right()).contains(&x) {
             painter.line_segment(

@@ -106,11 +106,12 @@ impl Transport {
         self.send(command);
     }
 
+    /// Shift+Space: stop where playback is, or continue from the playhead.
     pub fn pause_continue(&mut self) {
         let command = if self.state().playing {
             Command::Pause
         } else {
-            Command::Play
+            Command::Continue
         };
         self.send(command);
     }
@@ -189,7 +190,7 @@ impl Transport {
             ui,
             Icon::Stop,
             "Stop",
-            Some("Space"),
+            Some("Space. Stop twice to return to the start"),
             false,
             running,
             no_audio,
@@ -198,23 +199,34 @@ impl Transport {
         {
             self.send(Command::Stop);
         }
-        let (icon, label) = if state.playing {
-            (Icon::Pause, "Pause")
+        // Play starts from the start marker, as Space does; while playing the
+        // button stops in place. Shift+Space continues from the playhead.
+        let (icon, label, keys) = if state.playing {
+            (Icon::Pause, "Stop here", "Space")
         } else {
-            (Icon::Play, "Play")
+            (
+                Icon::Play,
+                "Play from the start marker",
+                "Space; Shift+Space continues from the playhead",
+            )
         };
         if icons::button(
             ui,
             icon,
             label,
-            Some("Space"),
+            Some(keys),
             state.playing,
             running,
             no_audio,
         )
         .clicked()
         {
-            self.pause_continue();
+            let command = if state.playing {
+                Command::Pause
+            } else {
+                Command::Play
+            };
+            self.send(command);
         }
         icons::button(
             ui,
@@ -498,7 +510,16 @@ impl Transport {
                     ui.label(format!("{:.0} MB", self.clip_memory as f64 / 1_048_576.0));
                     ui.end_row();
                 });
-            if ui.button("Reset counts").clicked() {
+            // CPU is a live reading; only the counts can be reset.
+            let counted = meters.overloads() + meters.dropouts() > 0;
+            if ui
+                .add_enabled(
+                    counted,
+                    egui::Button::new("Reset overload and dropout counts"),
+                )
+                .on_disabled_hover_text("Nothing to reset: both counts are zero")
+                .clicked()
+            {
                 meters.reset_counters();
             }
         }

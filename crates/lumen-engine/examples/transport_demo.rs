@@ -6,7 +6,7 @@
 //! cargo run --release -p lumen-engine --example transport_demo -- "Focusrite USB ASIO" [--driver D]
 //! ```
 //! Type a command and press Enter:
-//! `p` play · `a` pause · `s` stop · `g 5` go to bar 5 · `l 2 4` loop bars 2–3
+//! `p` play from the start marker · `c` continue from the playhead · `a` pause · `s` stop · `g 5` go to bar 5 · `l 2 4` loop bars 2–3
 //! · `l` loop off · `t 140` tempo · `m 7/8` time signature · `q` quit.
 //! Drivers as in `audio_tone`: `asio` (Windows default), `wasapi`,
 //! `exclusive`, `cpal` (macOS and Linux default).
@@ -166,7 +166,9 @@ fn main() {
             }
         }
     });
-    println!("p play · a pause · s stop · g <bar> · l <from> <to> · l · t <bpm> · m <n>/<d> · q");
+    println!(
+        "p play · c continue · a pause · s stop · g <bar> · l <from> <to> · l · t <bpm> · m <n>/<d> · q"
+    );
 
     let mut last_shown = String::new();
     let mut next_show = Instant::now();
@@ -180,6 +182,7 @@ fn main() {
             let command = match words.as_slice() {
                 ["q"] => break,
                 ["p"] => Some(Command::Play),
+                ["c"] => Some(Command::Continue),
                 ["a"] => Some(Command::Pause),
                 ["s"] => Some(Command::Stop),
                 ["g", _] => number(1).map(|b| Command::Locate(bar(meter, b as i64))),

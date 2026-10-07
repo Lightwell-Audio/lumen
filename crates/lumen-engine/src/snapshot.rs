@@ -13,6 +13,8 @@ pub struct TransportSnapshot {
     /// Timeline sample of the next frame to play.
     pub sample: i64,
     pub ticks: Ticks,
+    /// The play marker: where Play starts from.
+    pub marker: Ticks,
     pub sample_rate: u32,
     /// Playing inside an enabled punch region.
     pub punching: bool,
@@ -25,6 +27,7 @@ pub(crate) struct Shared {
     playing: AtomicBool,
     sample: AtomicI64,
     ticks: AtomicI64,
+    marker: AtomicI64,
     sample_rate: AtomicU32,
     punching: AtomicBool,
 }
@@ -38,6 +41,7 @@ impl Shared {
         self.playing.store(s.playing, Ordering::Relaxed);
         self.sample.store(s.sample, Ordering::Relaxed);
         self.ticks.store(s.ticks.0, Ordering::Relaxed);
+        self.marker.store(s.marker.0, Ordering::Relaxed);
         self.sample_rate.store(s.sample_rate, Ordering::Relaxed);
         self.punching.store(s.punching, Ordering::Relaxed);
         self.sequence.store(sequence + 2, Ordering::Release);
@@ -55,6 +59,7 @@ impl Shared {
                 playing: self.playing.load(Ordering::Relaxed),
                 sample: self.sample.load(Ordering::Relaxed),
                 ticks: Ticks(self.ticks.load(Ordering::Relaxed)),
+                marker: Ticks(self.marker.load(Ordering::Relaxed)),
                 sample_rate: self.sample_rate.load(Ordering::Relaxed),
                 punching: self.punching.load(Ordering::Relaxed),
             };
@@ -78,6 +83,7 @@ mod tests {
             playing: k % 2 == 0,
             sample: k,
             ticks: Ticks(k * 3),
+            marker: Ticks(k * 5),
             sample_rate: k as u32,
             punching: k % 2 == 0,
         };
@@ -94,6 +100,7 @@ mod tests {
         while !writer.is_finished() || reads < 1_000 {
             let s = shared.read();
             assert_eq!(s.ticks.0, s.sample * 3, "{s:?}");
+            assert_eq!(s.marker.0, s.sample * 5, "{s:?}");
             assert_eq!(i64::from(s.sample_rate), s.sample, "{s:?}");
             assert_eq!(s.playing, s.sample % 2 == 0, "{s:?}");
             assert_eq!(s.punching, s.playing, "{s:?}");

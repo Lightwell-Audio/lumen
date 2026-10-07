@@ -149,26 +149,37 @@ fn playback_that_starts_after_the_loop_plays_on() {
 }
 
 #[test]
-fn stop_returns_to_the_play_marker_then_to_the_start() {
+fn stop_leaves_the_playhead_and_play_starts_from_the_marker() {
     let (mut handle, mut engine) = setup(Timeline::default());
     handle.send(Command::Locate(bars(2))).unwrap();
     handle.send(Command::Play).unwrap();
     run(&mut engine, 10_000, 128, RATE);
     assert_eq!(handle.transport().sample, 192_000 + 10_000);
 
+    // Stop: the playhead stays where playback stopped; the marker stays put.
     handle.send(Command::Stop).unwrap();
     run(&mut engine, 128, 128, RATE);
     let t = handle.transport();
     assert!(!t.playing);
-    assert_eq!((t.sample, t.ticks), (192_000, bars(2)));
+    assert_eq!(t.sample, 202_000);
+    assert_eq!(t.marker, bars(2));
 
+    // Play starts from the marker again.
+    handle.send(Command::Play).unwrap();
+    run(&mut engine, 128, 128, RATE);
+    assert_eq!(handle.transport().sample, 192_000 + 128);
     handle.send(Command::Stop).unwrap();
     run(&mut engine, 128, 128, RATE);
-    assert_eq!(handle.transport().sample, 0);
+
+    // Stop while stopped returns both to the start.
+    handle.send(Command::Stop).unwrap();
+    run(&mut engine, 128, 128, RATE);
+    let t = handle.transport();
+    assert_eq!((t.sample, t.marker), (0, Ticks::ZERO));
 }
 
 #[test]
-fn pause_keeps_the_position_and_play_continues_from_it() {
+fn pause_keeps_the_position_and_continue_plays_from_it() {
     let (mut handle, mut engine) = setup(Timeline::default());
     handle.send(Command::Play).unwrap();
     run(&mut engine, 1_000, 100, RATE);
@@ -176,7 +187,7 @@ fn pause_keeps_the_position_and_play_continues_from_it() {
     run(&mut engine, 500, 100, RATE);
     assert_eq!(handle.transport().sample, 1_000);
     assert!(!handle.transport().playing);
-    handle.send(Command::Play).unwrap();
+    handle.send(Command::Continue).unwrap();
     run(&mut engine, 100, 100, RATE);
     let expected: Vec<i64> = (0..1_100).collect();
     assert_eq!(engine.source().played, expected);

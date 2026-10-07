@@ -357,6 +357,8 @@ bar 5 · `l 2 4` loop bars 2–3 · `l` loop off · `t 140` tempo · `m 7/8` tim
 signature · `q` quit.
 
 ### MT-ENGINE-1 · Transport by ear (needs a human)
+(Since 2026-10-06, `p` plays from the start marker and `c` continues from
+the playhead; `s` leaves the playhead where it stopped.)
 1. `p`: a steady click, higher on each downbeat; the bar display counts up.
 2. `l 2 3` while playing: once bar 3 arrives, playback jumps back to bar 2
    with no gap, double click or stumble; the downbeat lands right on the wrap.
@@ -508,5 +510,27 @@ Run `cargo run --release -p lumen-app -- --audio asio:"Focusrite USB ASIO"`.
    for a minute: the dropout count should stay at 0 (no ⚠ on the bar).
 
 **Expected:** every step as described.
+
+**Run 1 (2026-10-06, owner):** the metronome sounds good. Findings:
+- "Reset counts" seemed to do nothing. It resets overloads and dropouts,
+  which were already 0; CPU is a live reading, not a count. The button is
+  now "Reset overload and dropout counts" and is disabled while both are 0.
+- The owner asked for Ableton's two playheads. This was built: the start
+  marker and the playhead, with Play from the marker, Shift+Space
+  continuing, and Stop leaving the playhead in place (ADR-0017 revised).
+
+**Run 2:** not yet run.
+
+### MT-APP-5 · Start marker and playhead (needs a human)
+1. Click the ruler at bar 3: a hollow arrow (the start marker) and the solid
+   playhead both move there.
+2. Space to play, Space to stop: the playhead stays where it stopped, and
+   the arrow stays at bar 3.
+3. Space again: playback starts from bar 3 (the arrow).
+4. Stop, then Shift+Space: playback continues from where the playhead
+   stopped.
+5. Stop twice: both return to 1.1.1.
+
+**Expected:** every step as described, matching Ableton's arrangement view.
 
 **Last run:** not yet run.

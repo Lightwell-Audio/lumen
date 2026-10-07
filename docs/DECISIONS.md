@@ -993,10 +993,18 @@ transport semantics.
   (`ticks_at_sample` on the old mapping, `sample_at` on the new one), so the
   bar and beat stay put. Because the position lives on whole samples, a
   change can move it by up to half a sample.
-- **Semantics (as in Ableton Live):** Play starts from the current position
-  and makes it the play marker. Stop returns to the play marker; Stop while
-  stopped returns to the start. Pause stops in place (Ableton's
-  Shift+Space continue). Locate moves the position and the play marker.
+- **Semantics (as in Ableton Live; revised 2026-10-06 at the owner's
+  request, MT-APP-4):** two positions, both drawn. The **start marker**
+  (hollow arrow on the ruler) is where Play starts. The **playhead** (solid)
+  is where playback is.
+  - Play (Space) starts from the start marker.
+  - Continue (Shift+Space) starts from the playhead.
+  - Stop and Pause leave the playhead where playback stopped.
+  - Stop while stopped returns both to the start.
+  - Locate (ruler click) moves both.
+
+  The first version moved the playhead back to the marker on Stop and
+  started Play from the playhead.
 - **Loop:** while the loop is enabled and playback is before its end,
   playback wraps from the end sample to the start sample exactly, splitting
   the block. Playback that starts after the loop end plays on. Disabled or
