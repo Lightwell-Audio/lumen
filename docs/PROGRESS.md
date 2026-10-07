@@ -201,6 +201,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Device, rate, buffer selection with input/output/round-trip latency display | M | 🔲 | 2 |
 | Device loss and return: keep the session, show the lost state, reconnect automatically (found by MT-ASIO-5) | M | 🟡 Detection and auto-reconnect done, tested with the fake backend and on hardware (MT-AUDIO-1); the lost-state UI arrives in slice 8 | 2 |
 | Channel selection with friendly names; mono and stereo configurations | M | 🔲 | 2 |
+| Audio input on WASAPI, CoreAudio and Linux, with drift compensation between separate devices (owner decision 2026-10-06: deferred from M2 slice 8; ASIO input works in M2) | M | 🔲 | 9 |
 | Test tone, CPU load, dropout counter, Audio On/Off | M | 🟡 All four done in the app's audio panel (M2 slice 7, ADR-0020); the full device selector page in slice 8 | 2 |
 | ASIO control panel; driver resets and rate/buffer changes without losing the session; busy/missing messages | M | 🟡 Driver resets done (MT-AUDIO-2); busy and missing errors are typed (MT-AUDIO-3); control panel and messages arrive in slice 8 | 2 |
 | Runtime changes never crash; restore a working configuration; persisted settings | M | 🟡 Fallback to the last working configuration is done and tested; persisted settings arrive in slice 8 | 2 |

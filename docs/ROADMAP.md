@@ -320,6 +320,7 @@ Implement:
 
 - Crash-safe audio recording
 - **Disk streaming for clip playback** (owner decision, 2026-10-06): a read-ahead thread feeds the audio thread from disk, prefetching around loops and locates, so large sessions do not have to fit in RAM. Compressed files are decoded once into an uncompressed cache. M2 keeps clip audio in memory; that path becomes the per-clip RAM option. Built together with the recording writer, which needs the same disk machinery.
+- **Audio input for WASAPI, CoreAudio and Linux** (owner decision, 2026-10-06): a capture stream behind the existing device interface. On WASAPI, input and output are usually separate devices with their own clocks, so a drift corrector (rubato's `Slip`) keeps them in step. Tested end to end with recording, monitoring and input meters. ASIO input works since M2.
 - Multi-track recording
 - Monitoring
 - Input meters
