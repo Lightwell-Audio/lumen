@@ -123,6 +123,23 @@ cargo fmt --all
 cargo bench -p lumen-rt                  # real benchmark run (release profile)
 ```
 
+## Test flags for files and recovery (M3 slice 3)
+
+| Flag | What it does |
+|---|---|
+| `lumen <file>.lumen` | Opens a project |
+| `--save-as <path>` | Saves once imports have loaded (as Save As would), then closes |
+| `--autosave-dir <dir>` | Keeps autosaves in `<dir>` instead of the app data folder |
+| `--autosave-after-ms <n>` | Autosaves after `n` ms instead of a minute |
+| `--recover-latest` | Recovers the newest leftover autosave at start, as the banner's Recover button would |
+
+Example: import, save into a project folder, then reopen it.
+
+```powershell
+cargo run -p lumen-app -- --open-audio "C:\Windows\Media\Windows Notify System Generic.wav" --save-as "$env:TEMP\Song.lumen"
+cargo run -p lumen-app -- "$env:TEMP\Song\Song.lumen"
+```
+
 ## Performance gate (ADR-0022)
 
 CI fails when a scenario in `crates/lumen-perf` executes more than 2% more

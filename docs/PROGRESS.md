@@ -59,7 +59,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | UI 60 fps minimum, 120 fps target at 200 tracks / 20,000 clips / 100,000 notes | M | 🔲 | 3, 10 | P-UI |
 | Near-zero idle CPU | M | 🔲 | 3, 10 | P-UI |
 | Cold start under 2 s; scanning and loading never block the UI | M | 🔲 | 3, 6, 10 | |
-| Autosave, crash recovery, atomic saves, backups | M | 🟡 | 3, 9 | Atomic save and rolling backups done and tested (`lumen-project`); autosave and recovery in M3/M9 |
+| Autosave, crash recovery, atomic saves, backups | M | ✅ | 3 | Atomic save and rolling backups (`lumen-project`). Autosave a minute after unsaved changes, to the local app data folder; a recovery banner after a crash; tested by killing the process (M3 slice 3d) |
 | Crashing plugins isolated, flagged, recoverable; scanning never crashes the app | M | 🔲 | 6, 10 | P-ISO, P-VST3 |
 | Device removal, rate and buffer changes, sleep and resume handled | M | 🔲 | 2, 10 | |
 | Safe mode without plugins | M | 🔲 | 6 | |
@@ -92,7 +92,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
-| Import by drag and drop with sample-rate handling and optional copy into project | M | 🟡 Drag and drop from Explorer and automatic rate conversion done (M2 slice 6, ADR-0019), with a supported-file indicator while dragging. Copy into the project with save/load in M3 | 3 |
+| Import by drag and drop with sample-rate handling and optional copy into project | M | 🟡 Drag and drop from Explorer and automatic rate conversion done (M2 slice 6, ADR-0019), with a supported-file indicator while dragging. Imported audio is copied into `Samples/Imported` on save (setting, on by default; M3 slice 3c) | 3 |
 | Drop files onto a specific track; dropping between tracks or below them creates a track (owner request, MT-MEDIA-1, 2026-10-06) | M | 🔲 | 3 |
 | Clip hover card with file details (format, rate, channels, length, size, path) | S | 🟡 Basic card done in M2 slice 6 (owner request, MT-MEDIA-1); full clip properties panel in M3 | 3 |
 | Glitch-free playback, seamless loops, instant seeking | M | 🟡 Clips play sample-exactly from memory, with click-free crossfaded loops and locates (slice 6; golden renders; MT-MEDIA-1 passes by ear). Large sessions need disk streaming (M9) | 2 |
@@ -160,7 +160,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Select all / none / invert / in track / to start / to end | M | 🔲 | 3 |
 | Slice audio to MIDI or drum map | S | 🔲 | 8 |
 | Group and ungroup clips | L | 🔲 | — |
-| Guarantees: split+join is identity; consolidating unprocessed audio is identical; undo restores exactly | M | 🔲 | 7 |
+| Guarantees: split+join is identity; consolidating unprocessed audio is identical; undo restores exactly | M | 🟡 | 3, 7 | Undo restores exactly by construction (shared snapshots, ADR-0024) and is property-tested; split, join and consolidate in M7 |
 
 ## §6.7 Mixer, routing and grouping
 
@@ -211,9 +211,9 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
-| New, open, save, save as, copy, template, revert, recent, unsaved indicator | M | 🔲 | 3, 9 |
-| Human-friendly, versioned format that opens old projects forever; relative paths | M | 🟡 | 1, 3 |
-| Autosave, recovery, rolling backups, collect and save, relink, media pool with purge | M | 🔲 | 3, 9 |
+| New, open, save, save as, copy, template, revert, recent, unsaved indicator | M | 🟡 | 3, 9 | New, open, save, save as, open recent, unsaved dot in the title, Save / Don't save / Cancel before closing (M3 slice 3c). Save a copy, templates and revert in M9 |
+| Human-friendly, versioned format that opens old projects forever; relative paths | M | ✅ | 1, 3 | Format v2 with a migration from v1 and golden fixtures for both; media paths relative to the project folder (M3 slice 3) |
+| Autosave, recovery, rolling backups, collect and save, relink, media pool with purge | M | 🟡 | 3, 9 | Autosave, recovery and rolling backups done (M3 slice 3); missing media is reported on open. Collect and save, relink and the media pool in M9 |
 | Export: project, loop or selection; master or stems; WAV 16/24/32f, FLAC; SRC; dither; normalize; tails; offline or real-time; progress and cancel; loudness report | M | 🔲 | 9 |
 | MP3 and AAC export | L | 🔲 | — |
 | Project settings | M | 🔲 | 9 |
@@ -242,7 +242,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Snap and grid; zoom; clip name/colour/mute/lock; clip properties | M | 🔲 |
 | Warp, transient and tempo detection, pitch shift | S | 🔲 |
 | Take lanes and comping | S | 🔲 |
-| Unlimited undo/redo with visible history | M | 🔲 |
+| Unlimited undo/redo with visible history | M | 🟡 Undo and redo for imports, tempo and time signature (Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y), a History window, and a note after each undo (M3 slice 3, ADR-0024). Every later edit joins it as it is built |
 | Audio recording with monitoring, multitrack, input meters | M | 🔲 |
 | Latency compensation with manual offset; crash-safe capture | M | 🔲 |
 | MIDI recording: overdub/replace, count-in, punch | M | 🔲 |

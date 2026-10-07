@@ -20,6 +20,7 @@
 
 mod audio;
 mod audio_settings;
+mod autosave;
 mod canvas;
 mod document;
 mod files;
@@ -71,6 +72,13 @@ struct App {
     file_notice: Option<String>,
     /// Closing for real, after the unsaved-changes prompt.
     quitting: bool,
+    /// Autosave of unsaved changes (slice 3d). An `Option` only so it can
+    /// be taken out while the app builds the save request.
+    autosave: Option<autosave::Autosave>,
+    /// An autosave left by a crash, offered for recovery.
+    leftover: Option<autosave::Leftover>,
+    /// The leftover being recovered (its open is in progress).
+    recovering: Option<autosave::Leftover>,
     transport: Transport,
     /// Audio clips on the simple timeline (M2 slice 6).
     lanes: lanes::Lanes,
@@ -236,6 +244,7 @@ impl App {
             path,
             media_files: self.document.media_files.clone(),
             copy_imported: self.settings.projects.copy_imported,
+            keep_backups: lumen_project::SaveOptions::default().keep_backups,
             state: self.document.state(),
         }));
     }
@@ -357,11 +366,24 @@ impl App {
                             opened.missing[0]
                         )),
                     };
-                    self.replace_document(document::Document::opened(
-                        opened.project,
-                        opened.path,
-                        opened.media_files,
-                    ));
+                    let recovered = self.recovering.is_some();
+                    match self.recovering.take() {
+                        Some(leftover) => {
+                            if let Some(autosave) = &mut self.autosave {
+                                autosave.adopt(&leftover);
+                            }
+                            self.replace_document(document::Document::recovered(
+                                opened.project,
+                                leftover.note.project.map(PathBuf::from),
+                                opened.media_files,
+                            ));
+                        }
+                        None => self.replace_document(document::Document::opened(
+                            opened.project,
+                            opened.path,
+                            opened.media_files,
+                        )),
+                    }
                     self.left_beat = view.left_beat.max(0.0);
                     self.px_per_beat = view.px_per_beat.clamp(2.0, 400.0);
                     self.show_browser = view.browser_open;
@@ -373,9 +395,15 @@ impl App {
                         looped.loop_end.max(looped.loop_start + Ticks(1)),
                         looped.loop_enabled,
                     ));
-                    self.toast = Some((format!("Opened {}", self.document.name()), Instant::now()));
+                    let what = if recovered {
+                        "Recovered unsaved changes to"
+                    } else {
+                        "Opened"
+                    };
+                    self.toast = Some((format!("{what} {}", self.document.name()), Instant::now()));
                 }
                 Err(e) => {
+                    self.recovering = None;
                     self.file_notice = Some(format!("Could not open the project. {e}"));
                 }
             }
@@ -388,6 +416,89 @@ impl App {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.prompt = Some(Next::Quit);
         }
+    }
+
+    /// Writes an autosave a minute after unsaved changes, and removes it
+    /// once they are saved.
+    fn autosave(&mut self, ctx: &egui::Context) {
+        let Some(mut autosave) = self.autosave.take() else {
+            return;
+        };
+        let now = Instant::now();
+        autosave.tick(
+            self.document.is_dirty(),
+            self.document.state(),
+            now,
+            |file| files::SaveRequest {
+                project: self.stamped(),
+                path: file,
+                media_files: self.document.media_files.clone(),
+                copy_imported: false,
+                keep_backups: 0,
+                state: self.document.state(),
+            },
+            || autosave::Note {
+                project: self
+                    .document
+                    .path
+                    .as_deref()
+                    .map(|p| p.to_string_lossy().into_owned()),
+                name: self.document.name(),
+                written: autosave::now_seconds(),
+            },
+        );
+        if let Some(due) = autosave.due_in(now) {
+            ctx.request_repaint_after(due);
+        }
+        self.autosave = Some(autosave);
+    }
+
+    /// After a crash: offer the autosave that was left behind.
+    fn recovery_banner(&mut self, ui: &mut egui::Ui) {
+        let Some(leftover) = self.leftover.clone() else {
+            return;
+        };
+        let mut choice = None;
+        egui::Panel::top("recovery banner").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("\u{26A0}").color(theme::p().warning));
+                ui.label(format!(
+                    "{PRODUCT_NAME} did not close normally. Unsaved changes to {} from {} can be recovered.",
+                    leftover.note.name,
+                    autosave::ago(leftover.note.written)
+                ));
+                if ui.button("Recover").clicked() {
+                    choice = Some(true);
+                }
+                if ui
+                    .button("Discard")
+                    .on_hover_text("Delete the autosaved copy")
+                    .clicked()
+                {
+                    choice = Some(false);
+                }
+            });
+        });
+        match choice {
+            Some(true) if self.opening.is_none() => {
+                trace::log(|| format!("autosave: recovering {}", leftover.file.display()));
+                self.opening = Some(files::open(leftover.file.clone()));
+                self.recovering = Some(leftover);
+                self.leftover = None;
+            }
+            Some(false) => {
+                autosave::discard(&leftover);
+                self.leftover = self.next_leftover();
+            }
+            _ => {}
+        }
+    }
+
+    /// The newest autosave left by another session, if any.
+    fn next_leftover(&self) -> Option<autosave::Leftover> {
+        let dir = autosave_dir()?;
+        let own = self.autosave.as_ref().map(|a| a.session().to_owned());
+        autosave::leftovers(&dir, own.as_deref()).into_iter().next()
     }
 
     /// File shortcuts: Ctrl+N, Ctrl+O, Ctrl+S and Ctrl+Shift+S.
@@ -1139,6 +1250,14 @@ impl App {
 }
 
 impl eframe::App for App {
+    /// A normal close: nothing is left to recover (the user saved, or chose
+    /// not to).
+    fn on_exit(&mut self) {
+        if let Some(autosave) = &mut self.autosave {
+            autosave.clear();
+        }
+    }
+
     /// Shift+Tab toggles the detail panel (spec §5). It is taken here, before
     /// egui sees it, so it does not also move keyboard focus backwards.
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
@@ -1184,6 +1303,7 @@ impl eframe::App for App {
         self.undo_shortcuts(&ctx);
         self.file_shortcuts(&ctx);
         self.poll_files(&ctx);
+        self.autosave(&ctx);
         let rate = self.transport.state().sample_rate;
         let dropped: Vec<PathBuf> = ctx.input(|i| {
             i.raw
@@ -1219,6 +1339,8 @@ impl eframe::App for App {
                     self.document.path.as_deref().unwrap_or(&path).display()
                 );
                 self.save_as = None;
+                // A deliberate close by a test mode: no unsaved-changes prompt.
+                self.quitting = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
         }
@@ -1258,6 +1380,7 @@ impl eframe::App for App {
         egui::Panel::top("transport").show(ui, |ui| self.transport(ui));
         self.device_banner(ui);
         self.file_banner(ui);
+        self.recovery_banner(ui);
         self.transport.windows(&ctx);
         self.history_window(&ctx);
         self.prompt_window(&ctx);
@@ -1336,6 +1459,8 @@ impl eframe::App for App {
                     Ok(()) => println!("screenshot saved to {}", path.display()),
                     Err(e) => eprintln!("screenshot: {e}"),
                 }
+                // A deliberate close by a test mode: no unsaved-changes prompt.
+                self.quitting = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
         }
@@ -1350,6 +1475,8 @@ impl eframe::App for App {
                     SMOKE_FRAMES,
                     FIRST_FRAME_MS.get().copied().unwrap_or(f64::NAN)
                 );
+                // A deliberate close by a test mode: no unsaved-changes prompt.
+                self.quitting = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             } else {
                 ctx.request_repaint();
@@ -1380,6 +1507,13 @@ fn save_png(path: &std::path::Path, image: &egui::ColorImage) -> Result<(), Stri
 }
 
 /// The value after `flag`, if given.
+/// Where autosaves go: `--autosave-dir` (tests), or the app data folder.
+fn autosave_dir() -> Option<PathBuf> {
+    arg_value("--autosave-dir")
+        .map(PathBuf::from)
+        .or_else(autosave::default_dir)
+}
+
 fn arg_value(flag: &str) -> Option<String> {
     let args: Vec<String> = std::env::args().collect();
     args.iter()
@@ -1478,6 +1612,9 @@ fn main() -> eframe::Result {
                 after_save: None,
                 file_notice: None,
                 quitting: false,
+                autosave: None,
+                leftover: None,
+                recovering: None,
                 show_browser: true,
                 show_detail: true,
                 browser_size: 220.0,
@@ -1511,6 +1648,19 @@ fn main() -> eframe::Result {
             }
             fonts::install(&cc.egui_ctx);
             app.apply_appearance(&cc.egui_ctx);
+            let mut autosave = autosave::Autosave::new(autosave_dir());
+            if let Some(ms) = arg_value("--autosave-after-ms").and_then(|v| v.parse().ok()) {
+                autosave = autosave.with_delay(Duration::from_millis(ms));
+            }
+            app.autosave = Some(autosave);
+            app.leftover = app.next_leftover();
+            // `--recover-latest` (tests): press Recover at once.
+            if std::env::args().any(|a| a == "--recover-latest")
+                && let Some(leftover) = app.leftover.take()
+            {
+                app.opening = Some(files::open(leftover.file.clone()));
+                app.recovering = Some(leftover);
+            }
             // `lumen <file>.lumen` (and opening a project from Explorer).
             if let Some(path) = std::env::args()
                 .skip(1)

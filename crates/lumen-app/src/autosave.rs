@@ -1,0 +1,381 @@
+//! Autosave and crash recovery (M3 slice 3d).
+//!
+//! While a project has unsaved changes, a copy is written a minute after the
+//! first change (and every minute while changes continue) to the local app
+//! data folder, never over the project's own file. Each running Lumen has
+//! its own session: `<session>.lumen` with a `<session>.json` note saying
+//! which project it belongs to. Saving, starting over or closing normally
+//! deletes the session's files, so anything left at start-up was left by a
+//! crash, and Lumen offers to recover it.
+
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::Receiver;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use lumen_core::product::PRODUCT_NAME;
+use serde::{Deserialize, Serialize};
+
+use crate::files;
+
+/// How long after the first unsaved change the copy is written.
+pub const DELAY: Duration = Duration::from_secs(60);
+
+/// The folder for autosaves: `%LOCALAPPDATA%\Lumen\Autosave` on Windows,
+/// `~/Library/Application Support/Lumen/Autosave` on macOS,
+/// `$XDG_STATE_HOME/lumen/autosave` (or `~/.local/state/...`) on Linux.
+pub fn default_dir() -> Option<PathBuf> {
+    let dir = if cfg!(windows) {
+        PathBuf::from(std::env::var_os("LOCALAPPDATA")?)
+            .join(PRODUCT_NAME)
+            .join("Autosave")
+    } else if cfg!(target_os = "macos") {
+        PathBuf::from(std::env::var_os("HOME")?)
+            .join("Library/Application Support")
+            .join(PRODUCT_NAME)
+            .join("Autosave")
+    } else {
+        std::env::var_os("XDG_STATE_HOME")
+            .map(PathBuf::from)
+            .or_else(|| Some(PathBuf::from(std::env::var_os("HOME")?).join(".local/state")))?
+            .join(PRODUCT_NAME.to_lowercase())
+            .join("autosave")
+    };
+    Some(dir)
+}
+
+/// The note next to an autosave.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Note {
+    /// The project's own file, if it had been saved.
+    pub project: Option<String>,
+    /// Its name, for the recovery message.
+    pub name: String,
+    /// When the autosave was written (seconds since 1970).
+    pub written: u64,
+}
+
+/// An autosave left by a session that did not close normally.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Leftover {
+    pub session: String,
+    pub file: PathBuf,
+    pub note: Note,
+}
+
+/// One running session's autosave.
+pub struct Autosave {
+    dir: Option<PathBuf>,
+    session: String,
+    /// When the oldest change not yet autosaved was made.
+    pending_since: Option<Instant>,
+    /// The document state last written.
+    written: Option<u64>,
+    writing: Option<Receiver<Result<files::Saved, String>>>,
+    delay: Duration,
+}
+
+impl Autosave {
+    pub fn new(dir: Option<PathBuf>) -> Self {
+        let started = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        Self {
+            dir,
+            session: format!("{}-{}", started.as_millis(), std::process::id()),
+            pending_since: None,
+            written: None,
+            writing: None,
+            delay: DELAY,
+        }
+    }
+
+    /// A shorter delay (tests).
+    pub fn with_delay(mut self, delay: Duration) -> Self {
+        self.delay = delay;
+        self
+    }
+
+    pub fn session(&self) -> &str {
+        &self.session
+    }
+
+    fn file(&self) -> Option<PathBuf> {
+        Some(
+            self.dir
+                .as_ref()?
+                .join(format!("{}.{}", self.session, files::EXTENSION)),
+        )
+    }
+
+    fn note_file(&self) -> Option<PathBuf> {
+        Some(self.dir.as_ref()?.join(format!("{}.json", self.session)))
+    }
+
+    /// Takes over a recovered session, so its files are replaced by this
+    /// session's next autosave (and deleted with it), not left behind.
+    pub fn adopt(&mut self, leftover: &Leftover) {
+        self.session = leftover.session.clone();
+        self.written = None;
+    }
+
+    /// Call every frame. `dirty` and `state` describe the document; `save`
+    /// builds the request when an autosave is due.
+    pub fn tick(
+        &mut self,
+        dirty: bool,
+        state: u64,
+        now: Instant,
+        save: impl FnOnce(PathBuf) -> files::SaveRequest,
+        note: impl FnOnce() -> Note,
+    ) {
+        if let Some(rx) = &self.writing
+            && let Ok(result) = rx.try_recv()
+        {
+            self.writing = None;
+            match result {
+                Ok(saved) => self.written = Some(saved.state),
+                Err(e) => crate::trace::log(|| format!("autosave failed: {e}")),
+            }
+        }
+        if !dirty {
+            // Saved (or back to the saved state): nothing to recover.
+            self.pending_since = None;
+            if self.written.is_some() {
+                self.clear();
+            }
+            return;
+        }
+        if self.written == Some(state) {
+            self.pending_since = None;
+            return;
+        }
+        let since = *self.pending_since.get_or_insert(now);
+        if now.duration_since(since) < self.delay || self.writing.is_some() {
+            return;
+        }
+        let (Some(file), Some(note_file)) = (self.file(), self.note_file()) else {
+            return;
+        };
+        self.pending_since = None;
+        let note = note();
+        let _ = std::fs::create_dir_all(note_file.parent().unwrap_or(Path::new(".")));
+        if let Ok(text) = serde_json::to_string_pretty(&note) {
+            let _ = std::fs::write(&note_file, text);
+        }
+        self.writing = Some(files::save(save(file)));
+    }
+
+    /// Deletes this session's autosave (after saving, or closing normally).
+    pub fn clear(&mut self) {
+        for file in [self.file(), self.note_file()].into_iter().flatten() {
+            let _ = std::fs::remove_file(file);
+        }
+        self.written = None;
+        self.pending_since = None;
+    }
+
+    /// When the next autosave is due, to wake up for it.
+    pub fn due_in(&self, now: Instant) -> Option<Duration> {
+        self.pending_since
+            .map(|since| self.delay.saturating_sub(now.duration_since(since)))
+    }
+}
+
+/// Autosaves left by sessions that did not close normally, newest first.
+pub fn leftovers(dir: &Path, own_session: Option<&str>) -> Vec<Leftover> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut found: Vec<Leftover> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if path.extension()? != "json" {
+                return None;
+            }
+            let session = path.file_stem()?.to_string_lossy().into_owned();
+            if Some(session.as_str()) == own_session {
+                return None;
+            }
+            let file = path.with_extension(files::EXTENSION);
+            if !file.is_file() {
+                return None;
+            }
+            let note = serde_json::from_str(&std::fs::read_to_string(&path).ok()?).ok()?;
+            Some(Leftover {
+                session,
+                file,
+                note,
+            })
+        })
+        .collect();
+    found.sort_by_key(|l| std::cmp::Reverse(l.note.written));
+    found
+}
+
+/// Deletes a leftover autosave the user chose not to recover.
+pub fn discard(leftover: &Leftover) {
+    let _ = std::fs::remove_file(&leftover.file);
+    let _ = std::fs::remove_file(leftover.file.with_extension("json"));
+}
+
+pub fn now_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+/// "3 minutes ago", for the recovery message.
+pub fn ago(written: u64) -> String {
+    let seconds = now_seconds().saturating_sub(written);
+    match seconds {
+        0..=59 => "less than a minute ago".into(),
+        60..=119 => "a minute ago".into(),
+        120..=3599 => format!("{} minutes ago", seconds / 60),
+        3600..=7199 => "an hour ago".into(),
+        7200..=86_399 => format!("{} hours ago", seconds / 3600),
+        _ => format!("{} days ago", seconds / 86_400),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::document::{Document, Imported};
+    use lumen_core::time::Ticks;
+    use lumen_project::testing::TempDir;
+
+    fn request(doc: &Document, file: PathBuf) -> files::SaveRequest {
+        files::SaveRequest {
+            project: doc.project().clone(),
+            path: file,
+            media_files: doc.media_files.clone(),
+            copy_imported: false,
+            keep_backups: 0,
+            state: doc.state(),
+        }
+    }
+
+    fn edited_document() -> Document {
+        let mut doc = Document::new(crate::empty_project());
+        let media = doc.fresh_id();
+        doc.import(vec![Imported {
+            media,
+            path: PathBuf::from("C:/audio/kick.wav"),
+            name: "kick".into(),
+            sample_rate: 48_000,
+            channels: 2,
+            frames: 48_000,
+            size_bytes: 192_044,
+            at: Ticks::ZERO,
+        }]);
+        doc
+    }
+
+    fn wait_for_write(autosave: &mut Autosave, doc: &Document, now: Instant) {
+        for _ in 0..500 {
+            autosave.tick(
+                true,
+                doc.state(),
+                now,
+                |f| request(doc, f),
+                || unreachable!(),
+            );
+            if autosave.written == Some(doc.state()) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        panic!("the autosave was never written");
+    }
+
+    #[test]
+    fn a_crashed_session_leaves_a_recoverable_copy() {
+        let tmp = TempDir::new("autosave-crash");
+        let doc = edited_document();
+        let mut autosave = Autosave::new(Some(tmp.path().to_path_buf()));
+        let start = Instant::now();
+        let note = || Note {
+            project: None,
+            name: "Untitled".into(),
+            written: now_seconds(),
+        };
+        // Not before the delay.
+        autosave.tick(true, doc.state(), start, |f| request(&doc, f), note);
+        assert!(leftovers(tmp.path(), None).is_empty());
+        // After it: written in the background.
+        autosave.tick(true, doc.state(), start + DELAY, |f| request(&doc, f), note);
+        wait_for_write(&mut autosave, &doc, start + DELAY);
+
+        // "Crash": the session ends without clearing. A new session finds it.
+        drop(autosave);
+        let found = leftovers(tmp.path(), Some("another-session"));
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].note.name, "Untitled");
+        let recovered = files::open_now(&found[0].file).unwrap();
+        assert_eq!(recovered.project.tracks, doc.project().tracks);
+        // Media paths stay absolute: the files are not in the autosave folder.
+        assert_eq!(recovered.project.media, doc.project().media);
+        discard(&found[0]);
+        assert!(leftovers(tmp.path(), None).is_empty());
+    }
+
+    #[test]
+    fn saving_or_a_normal_close_leaves_nothing() {
+        let tmp = TempDir::new("autosave-clean");
+        let doc = edited_document();
+        let mut autosave = Autosave::new(Some(tmp.path().to_path_buf()));
+        let start = Instant::now();
+        let note = || Note {
+            project: None,
+            name: "Untitled".into(),
+            written: now_seconds(),
+        };
+        autosave.tick(true, doc.state(), start, |f| request(&doc, f), note);
+        autosave.tick(true, doc.state(), start + DELAY, |f| request(&doc, f), note);
+        wait_for_write(&mut autosave, &doc, start + DELAY);
+        assert_eq!(leftovers(tmp.path(), None).len(), 1);
+        // The project was saved: the document is clean, the copy goes.
+        autosave.tick(
+            false,
+            doc.state(),
+            start + DELAY,
+            |_| unreachable!(),
+            || unreachable!(),
+        );
+        assert!(leftovers(tmp.path(), None).is_empty());
+        // And a session never leaves its own autosave to itself.
+        autosave.clear();
+        assert!(leftovers(tmp.path(), None).is_empty());
+    }
+
+    #[test]
+    fn the_newest_leftover_comes_first() {
+        let tmp = TempDir::new("autosave-order");
+        for (session, written) in [("a", 100), ("b", 300), ("c", 200)] {
+            std::fs::write(tmp.path().join(format!("{session}.lumen")), "{}").unwrap();
+            let note = Note {
+                project: Some(format!("C:/p/{session}.lumen")),
+                name: session.into(),
+                written,
+            };
+            std::fs::write(
+                tmp.path().join(format!("{session}.json")),
+                serde_json::to_string(&note).unwrap(),
+            )
+            .unwrap();
+        }
+        let found = leftovers(tmp.path(), Some("c"));
+        let names: Vec<&str> = found.iter().map(|l| l.note.name.as_str()).collect();
+        assert_eq!(names, ["b", "a"]);
+    }
+
+    #[test]
+    fn ages_read_naturally() {
+        let now = now_seconds();
+        assert_eq!(ago(now), "less than a minute ago");
+        assert_eq!(ago(now - 90), "a minute ago");
+        assert_eq!(ago(now - 600), "10 minutes ago");
+        assert_eq!(ago(now - 3 * 3600), "3 hours ago");
+    }
+}

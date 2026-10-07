@@ -629,3 +629,43 @@ calm: responsive at the start, soft at the end, never sluggish, bouncy or
 delayed. Say what feels off (too slow, too fast, too much, too little).
 
 **Last run:** not yet run.
+
+### MT-APP-8 · Undo, saving, opening and crash recovery (needs a human)
+Run `cargo run --release -p lumen-app`.
+1. **Undo:** drop two audio files on the arrangement (one at a time). Drag
+   the tempo field, then change the time signature. Press Ctrl+Z four
+   times: each press undoes one step (the whole tempo drag is one step), a
+   short note says what was undone, and the tracks disappear in reverse
+   order. Ctrl+Shift+Z (or Ctrl+Y) brings them back.
+2. **History:** open **Lumen** (top left) → **History…**. Every step is
+   listed. Click the first import: the project goes back to that point;
+   click the last step to return.
+3. **Unsaved dot:** the window title reads "Untitled • — Lumen" while
+   there are unsaved changes.
+4. **Save:** press Ctrl+S. A dialog asks where to save; type a name such
+   as "Test Song" in your Documents folder. Lumen creates a folder
+   "Test Song" holding "Test Song.lumen" and `Samples/Imported` with
+   copies of the two files. The title loses its dot, and a note says what
+   was saved.
+5. **Reopen:** scroll and zoom the arrangement, close the Browser panel,
+   and turn the loop on. Save again (Ctrl+S, no dialog this time). Close
+   Lumen and start it again, then **Lumen** → **Open recent** → Test
+   Song. The tracks, tempo, scroll, zoom, panels and loop are as you left
+   them, and the clips play.
+6. **Unsaved changes prompt:** change the tempo, then close the window. A
+   prompt asks to save: Cancel keeps Lumen open; Don't save closes it.
+7. **Crash recovery:** start Lumen, drop a file, wait more than a minute,
+   then end Lumen from Task Manager (End task). Start Lumen again: a
+   banner offers to recover the unsaved changes. Recover brings the track
+   back with the title showing unsaved changes; Discard deletes the copy.
+
+**Expected:** every step as described. Nothing waits on the disk: the
+interface keeps moving while dialogs are open and while saving.
+
+**Automated part:** `--save-as` and `--recover-latest` drive steps 4, 5
+and 7 without a person (see DEVELOPMENT.md). Both passed on 2026-10-07:
+a project saved, its source audio deleted and the project reopened plays
+from its own copies, and a killed process was recovered.
+
+**Last run:** not yet run.
+

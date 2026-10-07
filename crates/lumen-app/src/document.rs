@@ -105,6 +105,21 @@ impl Document {
         self.saved = state;
     }
 
+    /// A document recovered from an autosave: it belongs to `path` (if the
+    /// project had been saved) and has unsaved changes.
+    pub fn recovered(
+        project: Project,
+        path: Option<PathBuf>,
+        media_files: HashMap<Id, PathBuf>,
+    ) -> Self {
+        let mut doc = Self::new(project);
+        doc.path = path;
+        doc.media_files = media_files;
+        // No history state is ever this: the recovered changes are unsaved.
+        doc.saved = u64::MAX;
+        doc
+    }
+
     /// A document for a project read from `path`.
     pub fn opened(project: Project, path: PathBuf, media_files: HashMap<Id, PathBuf>) -> Self {
         let mut doc = Self::new(project);

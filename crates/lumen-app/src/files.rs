@@ -55,6 +55,8 @@ pub struct SaveRequest {
     pub media_files: HashMap<Id, PathBuf>,
     /// Copy audio from outside the project folder into `Samples/Imported`.
     pub copy_imported: bool,
+    /// Earlier versions kept in `Backups` (none for autosaves).
+    pub keep_backups: usize,
     /// The document state being saved (edits during the save stay unsaved).
     pub state: u64,
 }
@@ -89,6 +91,7 @@ pub fn save_now(request: SaveRequest) -> Result<Saved, String> {
         path,
         media_files,
         copy_imported,
+        keep_backups,
         state,
     } = request;
     let dir = path
@@ -123,7 +126,8 @@ pub fn save_now(request: SaveRequest) -> Result<Saved, String> {
         media.path = media_path_for(&dir, &location);
     }
     let file = dir.join(path.file_name().ok_or("the project has no file name")?);
-    lumen_project::save(&project, &file, &SaveOptions::default()).map_err(|e| e.to_string())?;
+    lumen_project::save(&project, &file, &SaveOptions { keep_backups })
+        .map_err(|e| e.to_string())?;
     Ok(Saved {
         path: file,
         moved,
@@ -271,6 +275,7 @@ mod tests {
             path,
             media_files: doc.media_files.clone(),
             copy_imported,
+            keep_backups: SaveOptions::default().keep_backups,
             state: doc.state(),
         }
     }
