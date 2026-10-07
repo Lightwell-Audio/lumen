@@ -106,6 +106,12 @@ impl Transport {
         self.send(command);
     }
 
+    /// Applies saved metronome settings.
+    pub fn restore_metronome(&mut self, settings: MetronomeSettings) {
+        self.metronome = settings;
+        self.send(Command::SetMetronome(settings));
+    }
+
     /// Shift+Space: stop where playback is, or continue from the playhead.
     pub fn pause_continue(&mut self) {
         let command = if self.state().playing {
@@ -465,6 +471,9 @@ impl Transport {
                 ui.label(RichText::new("Audio is off").color(theme::WARNING));
                 ui.label(RichText::new(why).small());
             }
+        }
+        if let Some(notice) = &self.audio.notice {
+            ui.label(RichText::new(notice).color(theme::WARNING));
         }
         ui.separator();
         let mut on = self.audio.is_on();

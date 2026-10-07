@@ -19,6 +19,8 @@ lumen-media.workspace = true
 lumen-project.workspace = true
 lumen-render.workspace = true
 png.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

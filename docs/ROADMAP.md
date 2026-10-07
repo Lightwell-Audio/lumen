@@ -107,6 +107,18 @@ Implement:
 - Undo/redo
 - Command palette
 - Core keyboard shortcuts
+- **Motion system** (owner request, 2026-10-06: fluid, Apple-like feel),
+  part of the design system:
+  - motion tokens (a few durations and spring-like easing curves);
+  - rules for what animates (panels opening and closing, hover and press
+    states, popovers, the playhead easing on jumps, clips settling after a
+    drag, zoom and scroll easing);
+  - a "reduce motion" setting.
+
+  Hard rules: animation never delays input, and nothing redraws when nothing
+  moves (near-zero idle CPU). **Retrofit the M2 UI with it:** the transport
+  bar, the audio panel and settings window, clip lanes, the start marker and
+  playhead.
 
 Implement project saving/loading alongside the arrangement rather than postponing it.
 
@@ -408,6 +420,8 @@ Complete:
 - Tooltips
 - Empty/error states
 - Layout persistence
+- **Motion polish pass** (owner request): tune durations and easing across
+  the whole app once every view exists; check reduce-motion everywhere
 
 ### Release
 

@@ -278,6 +278,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Preferences import/export; localization-ready text | S | 🔲 |
 | Command palette; tooltips with shortcuts; context menus everywhere | M | 🔲 |
 | Design system with a crisp vector icon set (spec §5): transport icons (play, pause, stop, record, loop, metronome) in M2, full set with the design system in M3 | M | 🔲 |
+| Motion system: tokens, easing, what animates, reduce-motion; never delays input, no idle redraws; M2 widgets retrofitted (owner request 2026-10-06: fluid, Apple-like feel). Built in M3 with the design system; final polish pass in M10 | M | 🔲 |
 | Reset to default, type-in, fine adjust, wheel adjust, parameter right-click menus | M | 🔲 |
 | Drag and drop for files, devices, clips, tracks; status-bar hints | M | 🔲 |
 | Resizable, collapsible panels with remembered layout; full screen; high-DPI; light and dark | M | 🔲 |

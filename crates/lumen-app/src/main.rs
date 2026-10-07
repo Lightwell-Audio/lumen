@@ -23,6 +23,7 @@ mod lanes;
 mod media;
 mod position;
 mod ruler;
+mod settings;
 mod theme;
 mod trace;
 mod transport;
@@ -47,6 +48,11 @@ struct App {
     lanes: lanes::Lanes,
     /// Where dropped files go: under the pointer, snapped, or the playhead.
     drop_target: Ticks,
+    settings: settings::Settings,
+    settings_path: Option<PathBuf>,
+    /// Settings changed at this time and are not saved yet (saved once
+    /// changes stop for half a second, so dragging a slider is one write).
+    settings_changed: Option<Instant>,
     show_browser: bool,
     show_detail: bool,
     /// Set by the raw-input hook when Shift+Tab is pressed.
@@ -339,6 +345,31 @@ impl App {
     }
 }
 
+impl App {
+    /// Notes settings changes and writes them once they settle.
+    fn save_settings_when_settled(&mut self, ctx: &egui::Context) {
+        let metronome = settings::Metronome::from(self.transport.metronome);
+        if metronome != self.settings.metronome {
+            self.settings.metronome = metronome;
+            self.settings_changed = Some(Instant::now());
+        }
+        let Some(changed) = self.settings_changed else {
+            return;
+        };
+        let settle = Duration::from_millis(500);
+        if changed.elapsed() < settle {
+            ctx.request_repaint_after(settle - changed.elapsed());
+            return;
+        }
+        self.settings_changed = None;
+        if let Some(path) = &self.settings_path
+            && let Err(e) = settings::save(path, &self.settings)
+        {
+            self.transport.audio.notice = Some(format!("Could not save settings: {e}"));
+        }
+    }
+}
+
 impl eframe::App for App {
     /// Shift+Tab toggles the detail panel (spec §5). It is taken here, before
     /// egui sees it, so it does not also move keyboard focus backwards.
@@ -398,6 +429,7 @@ impl eframe::App for App {
         self.lanes
             .update(rate, &ctx, &mut self.transport.audio.clips);
         self.transport.clip_memory = self.lanes.library.memory();
+        self.save_settings_when_settled(&ctx);
         if let Some(every) = self.autoplay {
             // Toggle play and stop every `every`, as Space would.
             let elapsed = self.started.elapsed();
@@ -558,12 +590,22 @@ fn main() -> eframe::Result {
         .and_then(|s| s.parse().ok())
         .filter(|s| (0.5..=3.0).contains(s))
         .unwrap_or(1.0);
+    let settings_path = settings::default_path();
+    let (saved, settings_warning) = settings_path
+        .as_deref()
+        .map(settings::load)
+        .unwrap_or_default();
+    // `--audio` is a one-off choice; otherwise the saved device, otherwise
+    // the system default.
     let choice = match arg_value("--audio") {
         Some(arg) => audio::Choice::parse(&arg).unwrap_or_else(|e| {
             eprintln!("{e}; using the default output");
             audio::Choice::Default
         }),
-        None => audio::Choice::Default,
+        None => saved
+            .audio
+            .clone()
+            .map_or(audio::Choice::Default, audio::Choice::Saved),
     };
     let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -591,7 +633,14 @@ fn main() -> eframe::Result {
             }
             cc.egui_ctx.set_zoom_factor(scale);
             let project = empty_project();
-            let transport = Transport::new(&project, &choice);
+            let mut transport = Transport::new(&project, &choice);
+            transport.restore_metronome((&saved.metronome).into());
+            if let Some(warning) = settings_warning {
+                transport.audio.notice = Some(match transport.audio.notice.take() {
+                    Some(notice) => format!("{warning}\n{notice}"),
+                    None => warning,
+                });
+            }
             let mut lanes = lanes::Lanes::default();
             if let Some(path) = arg_value("--open-audio") {
                 lanes.add_files(
@@ -605,6 +654,9 @@ fn main() -> eframe::Result {
                 transport,
                 lanes,
                 drop_target: Ticks::ZERO,
+                settings: saved,
+                settings_path,
+                settings_changed: None,
                 project,
                 show_browser: true,
                 show_detail: true,
