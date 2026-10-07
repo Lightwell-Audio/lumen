@@ -75,12 +75,14 @@ export CARGO_TARGET_DIR="$(cygpath -w "$USERPROFILE")\lumen-target"
 
 ## Checking macOS code from Windows
 
-Platform-specific code (the cpal audio backend, for example) can be
-type-checked for macOS without a Mac:
+**macOS CI is paused** (owner, 2026-10-07), so run this before pushing any
+code that is compiled differently on macOS. Platform-specific code (the
+cpal audio backend, for example) can be type-checked for macOS without a
+Mac:
 
 ```bash
 rustup target add aarch64-apple-darwin
-cargo clippy -p lumen-audio --all-targets --target aarch64-apple-darwin -- -D warnings
+cargo clippy --workspace --all-targets --target aarch64-apple-darwin -- -D warnings
 ```
 
 This checks types and lints only; nothing is linked or run. Linux can't be

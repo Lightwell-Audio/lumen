@@ -390,7 +390,8 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-07, during M3 slice 4 (part 4a built).
+**Last updated:** 2026-10-07, during M3 slice 4 (part 4a built, audit
+fixed, MT-APP-9 run 2 polish done).
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
@@ -410,10 +411,20 @@ it first in a new session, and update it at the end of every slice.
     found 3 high, 4 medium and 4 low issues; all are fixed and pushed
     (`eea085a`). `main.rs` and `arrangement.rs` are now split into modules
     (see ARCHITECTURE.md), so 4b–4d land in clean files.
-  - MT-APP-9 run 2 awaits the owner.
+  - MT-APP-9 run 2 (owner) found four polish issues, all fixed (`a28ee60`):
+    - one shared `widgets::Dialog` for every window;
+    - pixel-snapped M, S and arm buttons;
+    - typed tempo applies on Enter;
+    - controls step up on selected rows.
+  - Run 3 awaits the owner.
   - Next: 4b (GPU clip bodies and a 200-track stress benchmark), 4c
     (waveforms), 4d (zoom, follow playhead, drag to reorder).
   - The plan and the follow-ups are in `docs/milestones/M3.md`.
+- **Skills** (`.claude/skills/`), to load before working:
+  - `lumen-architecture` before writing or changing code;
+  - `lumen-design` before any UI work;
+  - `lumen-review` for the full repository review **at the end of every
+    milestone** (owner decision), before the milestone report.
 - Where to look:
   - `docs/PROGRESS.md`: every requirement's status, slice tables and the
     milestone reports;
@@ -430,6 +441,9 @@ it first in a new session, and update it at the end of every slice.
   `cargo run --release -p lumen-app` from the repository root, never an
   `.exe` path.
 - Checks CI on GitHub themselves: push, don't watch or poll it.
+- **macOS CI is paused** (2026-10-07; Actions minutes ran out). CI runs
+  Windows and Linux. Check macOS code with the cross-target clippy in
+  DEVELOPMENT.md before pushing.
 - Judges visuals by eye, and wants personality rather than generic
   choices. Show visual options (typefaces, icons, colours) as rendered
   specimens before downloading assets or building. Ask before downloading
@@ -446,8 +460,8 @@ it first in a new session, and update it at the end of every slice.
 - **Before every commit:** `cargo fmt`, workspace clippy with
   `-D warnings`, and tests.
 - **Before pushing platform-specific code:** run the WSL Linux mirror
-  (`clippy.sh`, and `perf.sh` when engine or project code changes). See
-  DEVELOPMENT.md.
+  (`clippy.sh`, and `perf.sh` when engine or project code changes) and the
+  macOS cross-target clippy. See DEVELOPMENT.md.
 - **Performance gate:** fails CI at +2% instructions. An intended change
   updates `perf/baseline.json` from WSL (`perf.sh --update`), with the
   reason recorded.

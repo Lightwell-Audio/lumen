@@ -24,7 +24,10 @@ jobs:
       fail-fast: false
       matrix:
         # windows-latest builds the production target, x86_64-pc-windows-msvc.
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        # macOS is paused (owner, 2026-10-07: GitHub Actions minutes ran
+        # out; macOS runners cost ten times as much). Until it is back,
+        # check macOS code with the cross-target clippy in DEVELOPMENT.md.
+        os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     steps:

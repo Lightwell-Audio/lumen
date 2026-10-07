@@ -1,6 +1,6 @@
 # Lumen — Architecture
 
-**As built:** M3 slice 3 (2026-10-07). The decision records in
+**As built:** M3 slice 4a (2026-10-07). The decision records in
 `docs/DECISIONS.md` hold the reasoning and the evidence. This page shows
 how the parts fit.
 
@@ -34,7 +34,7 @@ how the parts fit.
 | Design system | Semantic colour tokens (dark and light), type, spacing and motion, in `theme.rs`, `motion.rs` and `fonts.rs`; spec in `docs/DESIGN.md` | ADR-0023 |
 | Real-time engine | Allocation-free, block-size-invariant; transport, tempo and meter maps, declick crossfades, clip player, metronome | ADR-0003, 0017, 0019, 0020 |
 | Audio devices | Lumen's own backend layer: native ASIO over COM, WASAPI shared and exclusive, cpal for macOS and Linux; a supervisor that recovers from loss, resets and sleep | ADR-0006, 0016, 0021 |
-| Projects | Folder with versioned JSON (format v2), migrations over untyped JSON, atomic saves, rolling backups, relative media paths | ADR-0004 |
+| Projects | Folder with versioned JSON (format v3), migrations over untyped JSON, atomic saves, rolling backups, relative media paths | ADR-0004 |
 | Undo | Shared snapshots: tracks and clips in `Arc`, every step a cheap copy | ADR-0024 |
 | Time | Integer ticks at 1,411,200 PPQ, with one rounding rule to samples | ADR-0009 |
 | Plugins (M6) | `vst3` crate bindings, sandboxed host processes, out-of-process scanning | ADR-0005 |
