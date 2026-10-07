@@ -294,15 +294,17 @@ impl AudioSystem {
         let _ = self.commands.send(Command::Configure(config));
     }
 
-    /// Opens the running driver's own settings window (ASIO). Waits for the
-    /// driver to open it, at most a few seconds.
-    pub fn open_control_panel(&self) -> Result<(), String> {
+    /// Asks the running driver to open its own settings window (ASIO). Does
+    /// not wait: drivers can take seconds (Focusrite starts its Control
+    /// app). The result arrives on the returned channel.
+    pub fn request_control_panel(&self) -> Receiver<Result<(), String>> {
         let (tx, rx) = mpsc::channel();
-        self.commands
-            .send(Command::ControlPanel(tx))
-            .map_err(|_| "the audio thread has stopped".to_owned())?;
-        rx.recv_timeout(Duration::from_secs(5))
-            .map_err(|_| "the driver did not respond".to_owned())?
+        if let Err(mpsc::SendError(Command::ControlPanel(tx))) =
+            self.commands.send(Command::ControlPanel(tx))
+        {
+            let _ = tx.send(Err("the audio thread has stopped".into()));
+        }
+        rx
     }
 
     /// Audio off (the "Audio On/Off" switch).

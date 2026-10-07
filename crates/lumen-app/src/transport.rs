@@ -465,10 +465,7 @@ impl Transport {
                     self.audio.apply(settings);
                     self.settle();
                 }
-                Action::ControlPanel => {
-                    let result = self.audio.open_control_panel();
-                    self.settings_window.control_panel_result(result);
-                }
+                Action::ControlPanel => self.audio.open_control_panel(),
                 Action::TestTone(on) => {
                     self.test_tone = on;
                     self.send(Command::TestTone(on));
@@ -517,6 +514,8 @@ impl Transport {
             .clicked()
         {
             self.settings_window.open = true;
+            // Close this panel, so the window is not hidden behind it.
+            ui.close();
         }
         if ui
             .checkbox(&mut self.test_tone, "Test tone (1 kHz, −20 dBFS)")

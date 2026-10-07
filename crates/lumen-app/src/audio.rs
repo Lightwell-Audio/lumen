@@ -4,6 +4,7 @@
 //! audio settings window changes it while Lumen runs (M2 slice 8).
 
 use std::sync::Arc;
+use std::sync::mpsc::Receiver;
 
 use lumen_audio::{
     AudioCallback, AudioError, AudioSystem, Backend, Block, DeviceEvent, DeviceId,
@@ -250,6 +251,21 @@ pub struct Audio {
     /// Something the user should know about the device (shown in the audio
     /// panel), such as a saved device that was missing.
     pub notice: Option<String>,
+    /// The setup in use before `apply`, to return to if the new one fails.
+    previous: Option<Previous>,
+    /// A control-panel request the driver has not answered yet.
+    control_panel: Option<Receiver<Result<(), String>>>,
+    /// Why the control panel did not open, if it did not.
+    pub control_panel_error: Option<String>,
+}
+
+/// A setup to return to.
+struct Previous {
+    driver: String,
+    device: String,
+    config: StreamConfig,
+    info: Option<StreamInfo>,
+    status: Status,
 }
 
 impl Audio {
@@ -276,6 +292,9 @@ impl Audio {
             pending: None,
             confirmed: None,
             notice: None,
+            previous: None,
+            control_panel: None,
+            control_panel_error: None,
         };
         match resolve(choice) {
             Ok(found) => {
@@ -322,6 +341,13 @@ impl Audio {
         match found {
             Some(found) => {
                 self.notice = None;
+                self.previous = self.config.clone().map(|config| Previous {
+                    driver: self.driver.clone(),
+                    device: self.device.clone(),
+                    config,
+                    info: self.info.clone(),
+                    status: self.status.clone(),
+                });
                 self.pending = Some(settings);
                 self.open(found);
             }
@@ -350,12 +376,76 @@ impl Audio {
         self.system.as_ref().map(AudioSystem::status)
     }
 
-    /// Opens the running ASIO driver's own settings window.
-    pub fn open_control_panel(&self) -> Result<(), String> {
-        self.system
-            .as_ref()
-            .ok_or("audio is not running")?
-            .open_control_panel()
+    /// Asks the running ASIO driver to open its own settings window. The
+    /// answer comes back through `poll`.
+    pub fn open_control_panel(&mut self) {
+        self.control_panel_error = None;
+        match &self.system {
+            Some(system) => self.control_panel = Some(system.request_control_panel()),
+            None => self.control_panel_error = Some("audio is not running".into()),
+        }
+    }
+
+    /// The control panel was asked for and the driver has not answered.
+    pub fn control_panel_opening(&self) -> bool {
+        self.control_panel.is_some()
+    }
+
+    /// What is being changed right now, while the device restarts: shown so
+    /// a slow change (an interface re-locking its clock) reads as progress.
+    pub fn changing(&self) -> Option<String> {
+        if !matches!(self.status, Status::Starting) {
+            return None;
+        }
+        let pending = self.pending.as_ref()?;
+        let previous = self.previous.as_ref();
+        let was = |f: fn(&StreamConfig) -> Option<u32>| previous.and_then(|p| f(&p.config));
+        if previous.is_some_and(|p| p.config.device.id == pending.device_id)
+            && pending.sample_rate.is_some()
+            && pending.sample_rate
+                != was(|c| c.sample_rate)
+                    .or(previous.and_then(|p| p.info.as_ref().map(|i| i.sample_rate)))
+        {
+            let rate = f64::from(pending.sample_rate.unwrap_or_default()) / 1000.0;
+            return Some(format!(
+                "Changing to {rate:.1} kHz… the interface is re-locking its clock"
+            ));
+        }
+        Some(format!("Starting {}…", pending.device_name))
+    }
+
+    /// Goes back to the setup used before a change that failed.
+    fn restore_previous(&mut self, failed: &AudioError) {
+        let Some(previous) = self.previous.take() else {
+            return;
+        };
+        let tried = std::mem::replace(&mut self.device, previous.device.clone());
+        self.notice = Some(format!(
+            "{tried} could not start ({failed}). Still using {}",
+            previous.device
+        ));
+        if previous.driver == self.driver {
+            // The supervisor already reopened it.
+            self.config = Some(previous.config);
+            self.info = previous.info;
+            self.status = previous.status;
+        } else if let Some(make) = backend(&previous.driver) {
+            // A failed driver switch: switch back.
+            let resolved = Resolved {
+                driver: previous.driver.clone(),
+                make,
+                id: previous.config.device.clone(),
+                name: previous.device.clone(),
+                sample_rate: previous.config.sample_rate,
+                buffer_frames: previous.config.buffer_frames,
+                input_channels: previous.config.input_channels.clone(),
+                output_channels: previous.config.output_channels.clone(),
+                notice: None,
+            };
+            let notice = self.notice.take();
+            self.open(resolved);
+            self.notice = notice;
+        }
     }
 
     /// Whether the user can turn audio on or off (a device was found).
@@ -393,8 +483,10 @@ impl Audio {
         let Some(system) = &self.system else {
             return false;
         };
+        // Taken first: handling a failure may reopen the previous setup.
+        let events: Vec<DeviceEvent> = std::iter::from_fn(|| system.try_event()).collect();
         let mut changed = false;
-        while let Some(event) = system.try_event() {
+        for event in events {
             match event {
                 DeviceEvent::Started(info)
                 | DeviceEvent::Reset(info)
@@ -410,6 +502,7 @@ impl Audio {
                     };
                     self.info = Some(info);
                     self.last_error = None;
+                    self.previous = None;
                     if let Some(settings) = self.pending.take() {
                         self.confirmed = Some(settings);
                     }
@@ -420,10 +513,10 @@ impl Audio {
                 }
                 DeviceEvent::ConfigFailed { error, reverted } => {
                     self.pending = None;
-                    if reverted {
-                        // The previous setup is running again: keep its
-                        // status, and say why the change did not happen.
-                        self.notice = Some(format!("{error}. The previous setup is still in use"));
+                    let can_restore = self.previous.is_some();
+                    if reverted || can_restore {
+                        // Back to the setup that worked, saying why.
+                        self.restore_previous(&error);
                     } else {
                         self.status = Status::Off(error.to_string());
                     }
@@ -431,6 +524,13 @@ impl Audio {
                 }
                 DeviceEvent::Stopped => self.status = Status::Off("Audio is off".into()),
             }
+            changed = true;
+        }
+        if let Some(rx) = &self.control_panel
+            && let Ok(result) = rx.try_recv()
+        {
+            self.control_panel = None;
+            self.control_panel_error = result.err();
             changed = true;
         }
         self.engine.collect_garbage();

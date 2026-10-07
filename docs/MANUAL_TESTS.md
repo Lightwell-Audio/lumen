@@ -542,25 +542,49 @@ the owner's request (grey, ruler only, bottom edge).
 Run `cargo run --release -p lumen-app` (no `--audio`: the saved or default
 device is used). Open the audio panel (click the status dot), then **Audio
 settings…**.
-1. The window lists the driver, device, rate, buffer, outputs and latency of
-   what is running.
+1. The window opens in front of everything, with the audio panel closed.
+   It lists the driver, device, rate, buffer, outputs and latency of what
+   is running, in four sections with labels in one aligned column.
 2. Switch **Driver** to ASIO and pick **Focusrite USB ASIO**: audio moves to
    it (the status dot goes blue again), and the window shows its inputs and
    outputs by name.
-3. Click **Control panel…**: Focusrite Control opens. Change the buffer size
-   there: the window and status follow (a reset).
-4. Change **Sample rate** to 44.1 kHz and back.
+3. Click **Control panel…**: the button shows "opening…" while Focusrite
+   Control starts, and Lumen stays responsive meanwhile. Change the buffer
+   size there: the window and status follow (a reset). No error text stays
+   behind.
+4. Change **Sample rate** to 44.1 kHz and back. Each change takes about
+   1–2 s (the interface re-locking its clock); the window says so while it
+   happens.
 5. Pick an input pair (Input 1/2): the latency line now shows input, output
    and round trip.
 6. Switch back to Windows audio (shared) and its Focusrite device, then to
    ASIO again: playback keeps working each time; a playing file and the
    metronome survive the switch.
 7. Close Lumen and start it again: the last working device comes back.
-8. Pick **Focusrite Thunderbolt ASIO** (no hardware): a clear message, and
-   Lumen keeps running.
+8. Pick **Focusrite Thunderbolt ASIO** (no hardware): the window says it
+   could not start and that Lumen is still using the previous device; the
+   status shows that device running (no endless spinner), and audio keeps
+   playing.
 9. With Lumen on ASIO, unplug the Focusrite: a banner says it was
    disconnected; plug it back in: the banner goes away.
 
 **Expected:** every step as described, without a crash or a stuck UI.
 
-**Last run:** not yet run.
+**Run 1 (2026-10-06, Focusrite USB): 6 findings, all fixed:**
+- The window opened behind the audio panel's dropdown. The panel now
+  closes when the window opens.
+- Opening the control panel froze Lumen for seconds, and "the driver did
+  not respond" stayed visible after it did respond. It now opens in the
+  background with an "opening…" state, and the error clears on success.
+- Rate changes took 1–2 s. Measured with `examples/rate_switch.rs`, this
+  is hardware: about 900 ms in the driver's rate change and about 390 ms
+  in its next start; Lumen's own part is about 20 ms. The window now shows
+  progress.
+- The layout was untidy, the latency readout unclear, and channel spacing
+  uneven. The window is now four sections (Device, Format, Channels,
+  Latency) with one aligned label column, plus a latency table in ms and
+  samples.
+- Thunderbolt ASIO showed its error, but "Starting" spun forever. A failed
+  switch now returns to the previous device and says so.
+
+**Last run:** run 1 with findings (above); run 2 pending.

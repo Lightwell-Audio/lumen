@@ -1234,6 +1234,14 @@ WASAPI and macOS/Linux input deferred to M9.
 - **Problems are banners with a way forward:** lost ("reconnects when it
   is back"), busy ("in use by another application", Try again), and failed
   to start (Try again). Each has an Audio settings button.
+- **A failed switch keeps the previous setup** (MT-APP-6 run 1). The
+  window says "{device} could not start (…). Still using {previous}", and
+  the status returns to the previous device. A failed driver switch hands
+  the engine back to the previous driver, so nothing spins forever.
+- **Slow driver operations never block the UI.** The control panel opens
+  on the audio thread and reports back on a channel; the Focusrite panel
+  launches Focusrite Control, which takes seconds. A rate change shows
+  "Changing to … kHz… the interface is re-locking its clock".
 
 ### Evidence (2026-10-06)
 - 5 settings tests, 1 probe round-trip test, 1 driver-switch test.
@@ -1242,3 +1250,8 @@ WASAPI and macOS/Linux input deferred to M9.
   (no hardware) reports "Cannot open … 0x54f". FlexASIO reports its missing
   Realtek device.
 - Screenshots of the window on WASAPI shared and on ASIO.
+- Rate change on the Focusrite USB (`examples/rate_switch.rs`): about
+  1.3 s in total. Lumen's own part is about 20 ms (stop, dispose, load,
+  buffers). The driver's `set_sample_rate` takes about 900 ms and its first
+  start afterwards about 390 ms, while the interface re-locks its clock.
+  Other hosts face the same cost; Lumen shows progress instead.
