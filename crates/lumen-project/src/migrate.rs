@@ -18,7 +18,7 @@ pub type Migration = fn(Value) -> Result<Value, String>;
 pub const FIRST_VERSION: u64 = 1;
 
 /// `MIGRATIONS[i]` upgrades version `FIRST_VERSION + i` to the next one.
-pub const MIGRATIONS: &[Migration] = &[v1_to_v2];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
 /// state (`view`). Version 1 files get the defaults written out.
@@ -36,6 +36,29 @@ fn v1_to_v2(mut document: Value) -> Result<Value, String> {
         "view".into(),
         defaults(serde_json::to_value(crate::model::ViewState::default()))?,
     );
+    Ok(document)
+}
+
+/// Version 3 (M3 slice 4) adds record arm per track, and the arrangement's
+/// vertical scroll and track heights to the view. The defaults are written
+/// out.
+fn v2_to_v3(mut document: Value) -> Result<Value, String> {
+    let project = document
+        .get_mut("project")
+        .and_then(Value::as_object_mut)
+        .ok_or("missing project")?;
+    if let Some(tracks) = project.get_mut("tracks").and_then(Value::as_array_mut) {
+        for track in tracks {
+            if let Some(track) = track.as_object_mut() {
+                track.entry("armed").or_insert(Value::Bool(false));
+            }
+        }
+    }
+    if let Some(view) = project.get_mut("view").and_then(Value::as_object_mut) {
+        view.entry("top").or_insert(Value::from(0.0));
+        view.entry("track_heights")
+            .or_insert(Value::Object(serde_json::Map::new()));
+    }
     Ok(document)
 }
 
@@ -125,10 +148,30 @@ mod tests {
     #[test]
     fn v1_to_v2_writes_the_default_transport_and_view() {
         let v1 = json!({ "format": "lumen-project", "version": 1, "project": { "name": "x" } });
-        let v2 = upgrade(v1, 1, FIRST_VERSION, MIGRATIONS).unwrap();
+        let v2 = upgrade(v1, 1, FIRST_VERSION, &MIGRATIONS[..1]).unwrap();
         assert_eq!(v2["version"], 2);
         assert_eq!(v2["project"]["transport"]["loop_enabled"], false);
         assert_eq!(v2["project"]["view"]["px_per_beat"], 24.0);
         assert_eq!(v2["project"]["name"], "x");
+    }
+
+    #[test]
+    fn v2_to_v3_writes_arm_and_track_heights() {
+        let v2 = json!({
+            "format": "lumen-project",
+            "version": 2,
+            "project": { "tracks": [{ "id": "1" }], "view": { "left_beat": 3.0 } }
+        });
+        let v3 = upgrade(v2, 2, FIRST_VERSION, MIGRATIONS).unwrap();
+        assert_eq!(v3["version"], 3);
+        assert_eq!(v3["project"]["tracks"][0]["armed"], false);
+        assert_eq!(v3["project"]["view"]["top"], 0.0);
+        assert_eq!(v3["project"]["view"]["left_beat"], 3.0);
+        assert!(
+            v3["project"]["view"]["track_heights"]
+                .as_object()
+                .unwrap()
+                .is_empty()
+        );
     }
 }

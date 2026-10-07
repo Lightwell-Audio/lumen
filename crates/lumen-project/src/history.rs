@@ -190,6 +190,7 @@ fn unchanged(a: &Project, b: &Project) -> bool {
                     && x.pan.to_bits() == y.pan.to_bits()
                     && x.mute == y.mute
                     && x.solo == y.solo
+                    && x.armed == y.armed
                     && x.devices == y.devices
                     && x.clips.len() == y.clips.len()
                     && x.clips
@@ -223,6 +224,7 @@ mod tests {
                     pan: 0.0,
                     mute: false,
                     solo: false,
+                    armed: false,
                     devices: vec![],
                     clips: vec![],
                 }));

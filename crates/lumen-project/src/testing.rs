@@ -161,6 +161,7 @@ pub fn synthetic(
             pan: (rng.below(201) as f32 - 100.0) / 100.0,
             mute: rng.below(8) == 0,
             solo: false,
+            armed: false,
             devices,
             clips,
         }));

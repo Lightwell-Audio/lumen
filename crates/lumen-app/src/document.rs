@@ -162,6 +162,170 @@ impl Document {
     pub fn jump_to(&mut self, done: usize) {
         self.history.jump_to(done);
     }
+}
+
+/// Track operations (M3 slice 4a). The track headers that call them are
+/// built once the owner has chosen their design.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "track headers arrive in slice 4a, after the design is chosen"
+    )
+)]
+impl Document {
+    /// Adds an empty track of `kind` after `after` (or at the end), named
+    /// "Audio 3", "MIDI 1" and so on. Returns its id.
+    pub fn add_track(&mut self, kind: TrackKind, after: Option<Id>) -> Id {
+        let id = self.fresh_id();
+        let (word, label) = match kind {
+            TrackKind::Audio => ("Audio", "Add audio track"),
+            TrackKind::Midi => ("MIDI", "Add MIDI track"),
+            TrackKind::Group => ("Group", "Add group track"),
+            TrackKind::Return => ("Return", "Add return track"),
+            TrackKind::Master => ("Master", "Add master track"),
+        };
+        self.history.apply(label, None, |project| {
+            let number = project.tracks.iter().filter(|t| t.kind == kind).count() + 1;
+            let index = after
+                .and_then(|a| project.tracks.iter().position(|t| t.id == a))
+                .map_or(project.tracks.len(), |i| i + 1);
+            let color = track_color(project.tracks.len());
+            project.tracks.insert(
+                index,
+                Arc::new(Track {
+                    id,
+                    name: format!("{word} {number}"),
+                    kind,
+                    color,
+                    parent: None,
+                    gain_db: 0.0,
+                    pan: 0.0,
+                    mute: false,
+                    solo: false,
+                    armed: false,
+                    devices: vec![],
+                    clips: vec![],
+                }),
+            );
+        });
+        id
+    }
+
+    /// Deletes tracks. Their clips go with them; their media stays in the
+    /// project (the media pool, M9). Tracks inside a deleted group move to
+    /// the top level.
+    pub fn delete_tracks(&mut self, ids: &[Id]) {
+        let label = plural(ids.len(), "Delete track", "Delete {} tracks");
+        self.history.apply(&label, None, |project| {
+            project.tracks.retain(|t| !ids.contains(&t.id));
+            for track in &mut project.tracks {
+                if track.parent.is_some_and(|p| ids.contains(&p)) {
+                    Arc::make_mut(track).parent = None;
+                }
+            }
+        });
+    }
+
+    /// Duplicates tracks with their clips (new ids), each placed right
+    /// after its original. Returns the new tracks' ids.
+    pub fn duplicate_tracks(&mut self, ids: &[Id]) -> Vec<Id> {
+        let mut copies = Vec::new();
+        for &id in ids {
+            let Some(track) = self.project().tracks.iter().find(|t| t.id == id) else {
+                continue;
+            };
+            let mut copy = (**track).clone();
+            copy.id = self.fresh_id();
+            for clip in &mut copy.clips {
+                let mut c = (**clip).clone();
+                c.id = self.fresh_id();
+                *clip = Arc::new(c);
+            }
+            copies.push((id, copy));
+        }
+        let new_ids: Vec<Id> = copies.iter().map(|(_, c)| c.id).collect();
+        let label = plural(copies.len(), "Duplicate track", "Duplicate {} tracks");
+        self.history.apply(&label, None, |project| {
+            for (original, copy) in copies {
+                if let Some(i) = project.tracks.iter().position(|t| t.id == original) {
+                    project.tracks.insert(i + 1, Arc::new(copy));
+                }
+            }
+        });
+        new_ids
+    }
+
+    /// Renames a track (empty names are ignored).
+    pub fn rename_track(&mut self, id: Id, name: &str) {
+        let name = name.trim();
+        if name.is_empty() {
+            return;
+        }
+        self.edit_tracks("Rename track", &[id], |t| t.name = name.to_owned());
+    }
+
+    pub fn recolor_tracks(&mut self, ids: &[Id], color: Color) {
+        self.edit_tracks("Change track colour", ids, |t| t.color = color);
+    }
+
+    pub fn set_mute(&mut self, ids: &[Id], mute: bool) {
+        let label = if mute { "Mute" } else { "Unmute" };
+        self.edit_tracks(label, ids, |t| t.mute = mute);
+    }
+
+    /// Solos `ids`. `exclusive` unsolos every other track first (a plain
+    /// click on Solo; Ctrl+click adds to the soloed set).
+    pub fn set_solo(&mut self, ids: &[Id], solo: bool, exclusive: bool) {
+        let label = if solo { "Solo" } else { "Unsolo" };
+        self.history.apply(label, None, |project| {
+            for track in &mut project.tracks {
+                let wanted = if ids.contains(&track.id) {
+                    solo
+                } else if exclusive {
+                    false
+                } else {
+                    track.solo
+                };
+                if track.solo != wanted {
+                    Arc::make_mut(track).solo = wanted;
+                }
+            }
+        });
+    }
+
+    pub fn set_armed(&mut self, ids: &[Id], armed: bool) {
+        let label = if armed { "Arm for recording" } else { "Disarm" };
+        self.edit_tracks(label, ids, |t| t.armed = armed);
+    }
+
+    /// Moves `ids` (kept in their current order) so the first lands at
+    /// `index` among the remaining tracks.
+    pub fn move_tracks(&mut self, ids: &[Id], index: usize) {
+        let label = plural(ids.len(), "Move track", "Move {} tracks");
+        self.history.apply(&label, None, |project| {
+            let (moving, mut rest): (Vec<_>, Vec<_>) =
+                project.tracks.drain(..).partition(|t| ids.contains(&t.id));
+            let at = index.min(rest.len());
+            rest.splice(at..at, moving);
+            project.tracks = rest;
+        });
+    }
+
+    /// Changes the given tracks, as one step named `label`.
+    fn edit_tracks(&mut self, label: &str, ids: &[Id], change: impl Fn(&mut Track)) {
+        self.history.apply(label, None, |project| {
+            for track in &mut project.tracks {
+                if ids.contains(&track.id) {
+                    let mut edited = (**track).clone();
+                    change(&mut edited);
+                    if edited != **track {
+                        *track = Arc::new(edited);
+                    }
+                }
+            }
+        });
+    }
 
     /// Adds loaded files as new audio tracks, each with one clip, as one
     /// undo step.
@@ -204,6 +368,7 @@ impl Document {
                     pan: 0.0,
                     mute: false,
                     solo: false,
+                    armed: false,
                     devices: vec![],
                     clips: vec![Arc::new(Clip {
                         id: clip,
@@ -221,6 +386,26 @@ impl Document {
             }
         });
     }
+}
+
+/// "Delete track" or "Delete 3 tracks".
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "used by the track operations, slice 4a")
+)]
+fn plural(n: usize, one: &str, many: &str) -> String {
+    if n == 1 {
+        one.to_owned()
+    } else {
+        many.replace("{}", &n.to_string())
+    }
+}
+
+/// Which tracks are heard: not muted, and, while any track is soloed, only
+/// the soloed ones (groups and returns join this with the mixer, M4).
+pub fn audible(project: &Project) -> impl Fn(&Track) -> bool {
+    let any_solo = project.tracks.iter().any(|t| t.solo);
+    move |t: &Track| !t.mute && (!any_solo || t.solo)
 }
 
 fn tempo_map(project: &Project) -> Option<lumen_core::time::TempoMap> {
@@ -293,6 +478,95 @@ mod tests {
         assert!(!doc.is_dirty());
         doc.undo();
         assert!(doc.is_dirty(), "undoing past a save is a change");
+    }
+
+    #[test]
+    fn track_operations_are_single_undo_steps() {
+        let mut doc = Document::new(crate::empty_project());
+        let a = doc.add_track(TrackKind::Audio, None);
+        let m = doc.add_track(TrackKind::Midi, None);
+        let a2 = doc.add_track(TrackKind::Audio, Some(a));
+        let names: Vec<&str> = doc
+            .project()
+            .tracks
+            .iter()
+            .map(|t| t.name.as_str())
+            .collect();
+        assert_eq!(names, ["Audio 1", "Audio 2", "MIDI 1"]);
+        assert_eq!(doc.project().tracks[1].id, a2);
+
+        doc.rename_track(m, "  Keys  ");
+        assert_eq!(doc.project().tracks[2].name, "Keys");
+        doc.rename_track(m, "   ");
+        assert_eq!(
+            doc.history().undo_label(),
+            Some("Rename track"),
+            "blank names change nothing"
+        );
+
+        doc.move_tracks(&[m], 0);
+        assert_eq!(doc.project().tracks[0].id, m);
+        let copies = doc.duplicate_tracks(&[m]);
+        assert_eq!(doc.project().tracks[1].id, copies[0]);
+        assert_eq!(doc.project().tracks[1].name, "Keys");
+
+        doc.recolor_tracks(&[m], Color(0x123456));
+        doc.set_armed(&[m, a], true);
+        assert_eq!(doc.history().undo_label(), Some("Arm for recording"));
+        assert!(doc.project().tracks[0].armed && doc.project().tracks[0].color == Color(0x123456));
+        doc.undo();
+        assert!(!doc.project().tracks[0].armed, "arming undoes in one step");
+
+        doc.delete_tracks(&[a, a2]);
+        assert_eq!(doc.project().tracks.len(), 2);
+        assert_eq!(doc.history().undo_label(), Some("Delete 2 tracks"));
+        doc.undo();
+        assert_eq!(doc.project().tracks.len(), 4);
+        assert_eq!(lumen_project::validate(doc.project()), Ok(()));
+    }
+
+    #[test]
+    fn solo_and_mute_decide_what_is_heard() {
+        let mut doc = Document::new(crate::empty_project());
+        let ids: Vec<Id> = (0..3)
+            .map(|_| doc.add_track(TrackKind::Audio, None))
+            .collect();
+        let heard = |doc: &Document| -> Vec<bool> {
+            let audible = audible(doc.project());
+            doc.project().tracks.iter().map(|t| audible(t)).collect()
+        };
+        assert_eq!(heard(&doc), [true, true, true]);
+        doc.set_mute(&ids[..1], true);
+        assert_eq!(heard(&doc), [false, true, true]);
+        doc.set_solo(&ids[1..2], true, true);
+        assert_eq!(heard(&doc), [false, true, false]);
+        // Ctrl+click adds a solo; a plain click makes it exclusive.
+        doc.set_solo(&ids[2..], true, false);
+        assert_eq!(heard(&doc), [false, true, true]);
+        doc.set_solo(&ids[..1], true, true);
+        assert_eq!(
+            heard(&doc),
+            [false, false, false],
+            "a muted solo stays muted"
+        );
+        doc.undo();
+        doc.undo();
+        doc.undo();
+        assert_eq!(heard(&doc), [false, true, true]);
+    }
+
+    #[test]
+    fn deleting_a_group_frees_its_children() {
+        let mut doc = Document::new(crate::empty_project());
+        let group = doc.add_track(TrackKind::Group, None);
+        let child = doc.add_track(TrackKind::Audio, None);
+        doc.apply("Group", None, |p| {
+            Arc::make_mut(&mut p.tracks[1]).parent = Some(group);
+        });
+        doc.delete_tracks(&[group]);
+        assert_eq!(doc.project().tracks[0].id, child);
+        assert_eq!(doc.project().tracks[0].parent, None);
+        assert_eq!(lumen_project::validate(doc.project()), Ok(()));
     }
 
     #[test]

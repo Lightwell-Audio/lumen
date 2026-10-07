@@ -157,8 +157,9 @@ impl Lanes {
     /// for the shorter of the clip and the file.
     fn engine_clips(&self, project: &Project, rate: u32) -> Vec<Clip> {
         let tempo = lumen_core::time::TempoMap::new(project.tempo.clone()).ok();
+        let audible = crate::document::audible(project);
         let mut list = Vec::new();
-        for track in project.tracks.iter().filter(|t| !t.mute) {
+        for track in project.tracks.iter().filter(|t| audible(t)) {
             for clip in track.clips.iter().filter(|c| !c.muted) {
                 let ClipContent::Audio {
                     media,

@@ -207,6 +207,9 @@ impl App {
             detail_open: self.show_detail,
             browser_size: self.browser_size,
             detail_size: self.detail_size,
+            // Vertical scroll and track heights: kept as opened until the
+            // arrangement view has them (M3 slice 4a).
+            ..project.view.clone()
         };
         project
     }
@@ -365,7 +368,7 @@ impl App {
             self.opening = None;
             match result {
                 Ok(opened) => {
-                    let view = opened.project.view;
+                    let view = opened.project.view.clone();
                     let looped = opened.project.transport;
                     files::remember(&mut self.settings.projects.recent, &opened.path);
                     self.settings_changed = Some(Instant::now());

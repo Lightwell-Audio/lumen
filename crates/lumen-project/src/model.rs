@@ -9,6 +9,7 @@
 //! everything an edit did not touch (ADR-0024). Edit through
 //! [`Arc::make_mut`]; serde writes the `Arc`s transparently.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use lumen_core::time::{TempoPoint, Ticks};
@@ -92,8 +93,9 @@ impl Default for TransportState {
     }
 }
 
-/// Scroll, zoom and panels, restored on open.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// Scroll, zoom, panels and track heights, restored on open (not undo
+/// steps: resizing a track is not an edit).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ViewState {
     /// First visible quarter note.
@@ -104,6 +106,10 @@ pub struct ViewState {
     pub detail_open: bool,
     pub browser_size: f32,
     pub detail_size: f32,
+    /// Vertical scroll of the arrangement, in points (format v3).
+    pub top: f32,
+    /// Track heights in points, for tracks not at the default (format v3).
+    pub track_heights: BTreeMap<Id, f32>,
 }
 
 impl Default for ViewState {
@@ -115,6 +121,8 @@ impl Default for ViewState {
             detail_open: true,
             browser_size: 220.0,
             detail_size: 220.0,
+            top: 0.0,
+            track_heights: BTreeMap::new(),
         }
     }
 }
@@ -150,6 +158,9 @@ pub struct Track {
     pub mute: bool,
     #[serde(default)]
     pub solo: bool,
+    /// Record-armed (format v3; recording itself arrives in M9).
+    #[serde(default)]
+    pub armed: bool,
     #[serde(default)]
     pub devices: Vec<Device>,
     #[serde(default)]

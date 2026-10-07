@@ -32,6 +32,7 @@ fn golden_v1_expected() -> Project {
         pan: 0.0,
         mute: false,
         solo: false,
+        armed: false,
         devices: vec![],
         clips: vec![],
     };
@@ -145,15 +146,41 @@ fn golden_v2_expected() -> Project {
             detail_open: true,
             browser_size: 240.0,
             detail_size: 180.0,
+            ..ViewState::default()
         },
         ..golden_v1_expected()
     }
 }
 
+/// The model the v3 golden file must always load as: v2 plus an armed
+/// track, a vertical scroll and a resized track.
+fn golden_v3_expected() -> Project {
+    let mut project = Project {
+        name: "Golden v3".into(),
+        ..golden_v2_expected()
+    };
+    Arc::make_mut(&mut project.tracks[1]).armed = true;
+    project.view.top = 48.0;
+    project.view.track_heights.insert(Id(2), 96.0);
+    project
+}
+
+#[test]
+fn golden_v3_file_loads_forever() {
+    let path = fixture("v3/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        // Written once, when version 3 was introduced; never rewritten.
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v3_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v3 golden file must load");
+    assert_eq!(project, golden_v3_expected());
+}
+
 #[test]
 fn golden_v2_file_loads_forever() {
     let path = fixture("v2/golden.lumen");
-    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() {
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
         // Written once, when version 2 was introduced; never rewritten.
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, to_bytes(&golden_v2_expected()).unwrap()).unwrap();
