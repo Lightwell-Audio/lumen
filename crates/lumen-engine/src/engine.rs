@@ -207,7 +207,7 @@ impl<S: Source> Engine<S> {
         let _denormals = DenormalGuard::new();
         data[..channels * frames].fill(0.0);
         self.retry_stash();
-        self.swap_timeline();
+        self.swap_timeline(channels);
         if sample_rate != self.sample_rate && sample_rate > 0 {
             let at = self.ticks_now();
             self.sample_rate = sample_rate;
@@ -354,7 +354,7 @@ impl<S: Source> Engine<S> {
         }
     }
 
-    fn swap_timeline(&mut self) {
+    fn swap_timeline(&mut self, channels: usize) {
         // One swap per block, and only when the old timeline has a home.
         if self.stash.is_some() {
             return;
@@ -363,6 +363,11 @@ impl<S: Source> Engine<S> {
             return;
         };
         let at = self.ticks_now();
+        // If the playhead moves (a tempo change before it), crossfade from
+        // what the old timeline would have played, as every jump does.
+        if incoming.sample_at(at, self.sample_rate) != self.position {
+            self.capture_tail(channels);
+        }
         let old = std::mem::replace(&mut self.timeline, incoming);
         if let Err(rtrb::PushError::Full(old)) = self.retired.push(old) {
             self.stash = Some(old);
@@ -379,10 +384,14 @@ impl<S: Source> Engine<S> {
     }
 
     /// After a tempo or rate change: same musical position, new samples.
+    /// When that is the same sample (an unchanged timeline, or a tempo
+    /// change after the playhead), the audio carries on untouched.
     fn reposition(&mut self, at: Ticks) {
-        self.position = self.sample_at(at);
+        let position = self.sample_at(at);
+        let moved = position != self.position;
+        self.position = position;
         self.refresh_regions();
-        if self.playing {
+        if self.playing && moved {
             self.locate_source(Jump::Reposition);
             self.declick.fade_in(fade_frames(self.sample_rate));
         }

@@ -141,8 +141,14 @@ impl Transport {
 
     /// Rebuilds the timeline from the project and sends it to the engine
     /// (after an edit, undo or redo that may have changed tempo or meter).
+    /// Most edits (arming, volume, pan, renaming) leave tempo and meter as
+    /// they were; those send nothing.
     pub fn timeline_changed(&mut self, project: &Project) {
-        self.timeline = timeline_of(project);
+        let timeline = timeline_of(project);
+        if timeline == self.timeline {
+            return;
+        }
+        self.timeline = timeline;
         self.timeline_pending = true;
         self.settle();
     }

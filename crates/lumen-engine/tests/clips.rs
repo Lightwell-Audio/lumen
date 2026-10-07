@@ -271,3 +271,61 @@ fn a_new_clip_list_replaces_the_old_and_the_old_is_handed_back() {
     assert_eq!(out[23_487], (0.0, 0.0));
     assert_eq!(out[23_488 + 500], expected(&audio, 0, 1_000, 500));
 }
+
+#[test]
+fn resending_the_same_timeline_while_playing_changes_nothing() {
+    // The app resends the timeline after edits; one that does not move the
+    // playhead must not touch the audio (owner: arming a track popped, and
+    // dragging pan crackled, from a fade-in on every resend).
+    let audio = ramp(20_000, RATE);
+    let clip = Clip {
+        start: Ticks::ZERO,
+        offset: 0,
+        length: 20_000,
+        gain: 1.0,
+        pan: 0.0,
+        audio: Arc::clone(&audio),
+    };
+    let (mut handle, _clips, mut engine) = setup(vec![clip.clone()]);
+    handle.send(Command::Play).unwrap();
+    let reference = run(&mut engine, 12_000, 128);
+
+    let (mut handle, _clips, mut engine) = setup(vec![clip]);
+    handle.send(Command::Play).unwrap();
+    let mut out = run(&mut engine, 4_000, 128);
+    for _ in 0..8 {
+        handle.set_timeline(Timeline::default()).unwrap();
+        out.extend(run(&mut engine, 1_000, 128));
+    }
+    assert_eq!(out, reference);
+}
+
+#[test]
+fn a_tempo_change_while_playing_crossfades() {
+    // Halving the tempo keeps the bar and doubles the sample position, so
+    // the audio jumps; like every jump, it crossfades rather than cutting.
+    let audio = ramp(40_000, RATE);
+    let clip = Clip {
+        start: Ticks::ZERO,
+        offset: 0,
+        length: 40_000,
+        gain: 1.0,
+        pan: 0.0,
+        audio: Arc::clone(&audio),
+    };
+    let (mut handle, _clips, mut engine) = setup(vec![clip]);
+    handle.send(Command::Play).unwrap();
+    let mut out = run(&mut engine, 10_000, 100);
+    handle
+        .set_timeline(Timeline::constant(60.0, Meter::FOUR_FOUR))
+        .unwrap();
+    out.extend(run(&mut engine, 1_000, 100));
+    // The ramp rises 1e-7 a frame; a cut to silence would step by 1e-3.
+    let steepest = out[9_900..10_400]
+        .windows(2)
+        .map(|w| (w[1].0 - w[0].0).abs())
+        .fold(0.0, f32::max);
+    assert!(steepest < 2e-5, "steepest step {steepest}");
+    // After the fade it plays from the new position: frame 20,000 of the file.
+    assert_eq!(out[10_200], expected(&audio, 0, 40_000, 20_200));
+}

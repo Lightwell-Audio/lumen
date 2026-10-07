@@ -187,7 +187,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
-| Channel strip: input gain, polarity, devices, pre/post sends, fader, pan law, mute, solo, cue, output | M | 🔲 | 4 |
+| Channel strip: input gain, polarity, devices, pre/post sends, fader, pan law, mute, solo, cue, output | M | 🔲 | 4 | Must smooth gain and pan, and fade mute and solo: the interim M3 header controls step audibly on fast drags and can click on mute or solo (ADR-0025) |
 | Returns, groups, master, sidechain from any track, hardware output routing | M | 🔲 | 4 |
 | Solo keeps soloed paths audible; exclusive-solo option | M | 🔲 | 4 |
 | Automatic plugin delay compensation with indicator | M | 🔲 | 4, 6 |

@@ -782,6 +782,9 @@ Check in run 3:
   a different point in the file.)
 - Select a track: its M, S and sliders stay clearly visible, in both
   themes.
+- While audio plays, arm and disarm tracks, and drag pan slowly: no pop,
+  no crackle. (A very fast drag can still step faintly, and muting can
+  click, until the M4 mixer smooths them.)
 
 **Last run:** run 2 with findings (above); run 3 pending.
 

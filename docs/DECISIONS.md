@@ -1486,9 +1486,17 @@ Ableton-style folding and vertical resizing.
   - pan is a balance law in the clip player (unity at the centre, the far
     side fading out), added as `Clip::pan`.
   - The mixer in M4 replaces both with per-track processing, pan laws,
-    smoothing and meters. Until then a fast drag can step the gain
-    audibly (zipper noise), because the clip list is swapped without
-    ramping.
+    smoothing and meters. Until then:
+    - a fast drag can step the gain audibly (zipper noise), because the
+      clip list is swapped without ramping;
+    - muting or soloing a playing track can click, because its clips leave
+      the list at once instead of fading out.
+  - Fixed 2026-10-07 (owner: arming popped and panning crackled): every
+    document change resent the timeline, and every resend cut the audio
+    and faded it back in. Now the app sends a timeline only when tempo or
+    meter change, and the engine leaves the audio untouched when a new
+    timeline does not move the playhead. A tempo change that does move it
+    crossfades, like every other jump.
 - **Mute, solo and arm are undo steps** (arm included, for consistency).
   Solo is exclusive on a plain click and added with Ctrl+click.
   Buttons act on the whole selection when the clicked track is part of it.
