@@ -133,7 +133,9 @@ pub mod size {
     pub const CAPTION: f32 = 11.0;
     pub const BODY: f32 = 13.0;
     pub const TITLE: f32 = 15.0;
-    pub const HEADING: f32 = 18.0;
+    pub const HEADING: f32 = 16.0;
+    /// The "Lumen" wordmark in the transport bar (Unbounded is wide).
+    pub const WORDMARK: f32 = 14.0;
 }
 
 /// Which theme the user asked for.
@@ -220,7 +222,7 @@ fn build_style(style: &mut egui::Style, c: &Palette, light: bool, animation_time
         // Window titles use the heading style.
         (
             TextStyle::Heading,
-            FontId::new(size::TITLE, FontFamily::Proportional),
+            FontId::new(size::TITLE, FontFamily::Name("display".into())),
         ),
         (
             TextStyle::Monospace,

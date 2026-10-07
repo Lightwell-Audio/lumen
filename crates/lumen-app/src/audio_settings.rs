@@ -152,7 +152,7 @@ const WINDOW_WIDTH: f32 = 440.0;
 /// A section heading with even spacing above and below.
 fn section(ui: &mut Ui, title: &str) {
     ui.add_space(theme::space::S + 2.0);
-    ui.label(RichText::new(title).strong());
+    ui.label(RichText::new(title).font(crate::fonts::medium(theme::size::BODY)));
     ui.add_space(4.0);
 }
 
@@ -245,7 +245,10 @@ impl Window {
             .max_width(WINDOW_WIDTH)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Audio settings").size(theme::size::TITLE));
+                    ui.label(
+                        RichText::new("Audio settings")
+                            .font(crate::fonts::display(theme::size::TITLE)),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if crate::icons::close_button(ui).clicked() {
                             open = false;

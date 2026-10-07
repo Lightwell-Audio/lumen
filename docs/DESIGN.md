@@ -102,20 +102,27 @@ Windows** are in the app menu (click **Lumen** at the left of the transport bar)
 
 ## 4. Type
 
-The UI font is egui's bundled proportional font (Ubuntu, Ubuntu Font
-Licence) with Hack for numbers that must not jitter. A typeface change is a
-separate decision, with its own licence check.
+Two faces, chosen by the owner from side-by-side specimens (2026-10-07):
 
-| Style | Size (pt) | Use |
-|---|---|---|
-| `caption` | 11 | Hints, secondary facts, sample counts |
-| `body` | 13 | Labels, values, menu items, buttons |
-| `title` | 15 | Window titles |
-| `heading` | 18 | Panel titles (Browser) |
-| `mono` | 13 | Position, tempo, CPU: anything that changes while you read it |
+- **Inter** for the interface: neutral and very legible at small sizes.
+  Regular (400) for text, medium (560) for section headings.
+- **Unbounded** for personality: the "Lumen" wordmark, window titles and
+  panel titles, at weight 560. It is wide, so it is set a step smaller than a
+  narrow face would be, and only on short titles, never on body text.
+- **Hack** (egui's bundled monospace) for numbers that must not jitter.
 
-Weight: regular everywhere, with **strong** only for section headings and
-the product name. Sentence case for every label ("Audio settings", not
+egui's bundled fonts stay behind Inter as fallbacks for symbols (⚠, ⟳).
+Licences: SIL Open Font License, see `THIRD_PARTY_NOTICES.md`.
+
+| Style | Face | Size (pt) | Use |
+|---|---|---|---|
+| `caption` | Inter | 11 | Hints, secondary facts, sample counts |
+| `body` | Inter | 13 | Labels, values, menu items, buttons |
+| section heading | Inter medium | 13 | "Device", "Format" in windows |
+| `wordmark` | Unbounded | 14 | "Lumen" in the transport bar |
+| `title` | Unbounded | 15 | Window titles |
+| `heading` | Unbounded | 16 | Panel titles (Browser) |
+| `mono` | Hack | 13 | Position, tempo, CPU: anything that changes while you read it | Sentence case for every label ("Audio settings", not
 "Audio Settings").
 
 ## 5. Spacing and shape

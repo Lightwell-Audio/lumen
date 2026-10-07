@@ -21,6 +21,20 @@ This file records the components whose licences need specific action.
 - **Recorded:** owner decision 2026-10-06 (`docs/DECISIONS.md`), with a
   `cargo-deny` exception in `deny.toml`.
 
+## Typefaces: Inter and Unbounded
+
+- **Files:** `crates/lumen-app/assets/fonts/Inter.ttf` (Inter, by Rasmus
+  Andersson) and `Unbounded.ttf` (Unbounded, by the Unbounded Project
+  Authors), variable fonts embedded in the application.
+- **Licence:** SIL Open Font License 1.1. The full texts are next to the
+  files (`Inter-OFL.txt`, `Unbounded-OFL.txt`).
+- **Source:** the Google Fonts repository,
+  <https://github.com/google/fonts> (`ofl/inter`, `ofl/unbounded`).
+- **How Lumen complies:** the fonts are bundled unmodified. The OFL allows
+  bundling with any software, including proprietary software, as long as
+  the licence text ships with them and the fonts are not sold on their own.
+  The installer (M10) must include both licence texts.
+
 ## Pending owner actions
 
 - **ASIO:** shipping requires the signed Steinberg ASIO SDK licence agreement

@@ -1355,8 +1355,21 @@ handful of dark-only constants and egui's default style.
   interface size (100–200%) and Reduce motion. These are saved with the
   settings; `--appearance` and `--scale` are one-off overrides that are not
   saved.
-- **Typeface:** egui's bundled font stays (Ubuntu Font Licence) until a
-  separate typeface decision, which needs its own licence check.
+- **Typefaces** (owner's choice from rendered specimens, 2026-10-07):
+  - **Inter** for the interface, and **Unbounded** as the companion face
+    with personality (wordmark, window and panel titles);
+  - both are variable fonts, registered once per weight through egui's
+    `wght` variation coordinates; egui's bundled fonts remain as symbol
+    fallbacks and the monospace (Hack);
+  - licence: SIL OFL 1.1, bundled unmodified, with the licence texts
+    (`THIRD_PARTY_NOTICES.md`);
+  - candidates the owner rejected:
+    - Space Grotesk, Sora and Bricolage Grotesque (too generic);
+    - Syne (its G);
+    - Instrument Serif, Fraunces, Chakra Petch, Martian Mono, Michroma,
+      Krona One, Red Hat Display, Rubik, Archivo Expanded, Big Shoulders,
+      Oxanium and Gabarito (shown, not chosen).
+  - cost: about 1.6 MB of font data in the binary.
 
 ### Consequences
 - Every new screen is built on the tokens. A colour written inline is a

@@ -21,6 +21,7 @@
 mod audio;
 mod audio_settings;
 mod canvas;
+mod fonts;
 mod icons;
 mod lanes;
 mod media;
@@ -134,29 +135,32 @@ impl App {
     /// scale) and audio settings. Preferences proper arrive in M9.
     fn app_menu(&mut self, ui: &mut egui::Ui) {
         let before = self.settings.appearance.clone();
-        let menu = ui.menu_button(RichText::new(PRODUCT_NAME).strong(), |ui| {
-            ui.label(RichText::new("Theme").small().weak());
-            let mut chosen = theme::Appearance::from_key(&self.settings.appearance.theme);
-            for option in theme::Appearance::ALL {
-                ui.radio_value(&mut chosen, option, option.name());
-            }
-            self.settings.appearance.theme = chosen.key().to_owned();
-            ui.separator();
-            ui.label(RichText::new("Interface size").small().weak());
-            let mut scale = self.settings.appearance.scale();
-            for option in settings::UI_SCALES {
-                ui.radio_value(&mut scale, option, format!("{:.0}%", option * 100.0));
-            }
-            self.settings.appearance.ui_scale = scale;
-            ui.separator();
-            ui.checkbox(&mut self.settings.appearance.reduce_motion, "Reduce motion")
-                .on_hover_text("Things change in place instead of sliding or fading");
-            ui.separator();
-            if ui.button("Audio settings…").clicked() {
-                self.transport.settings_window.open = true;
-                ui.close();
-            }
-        });
+        let menu = ui.menu_button(
+            RichText::new(PRODUCT_NAME).font(fonts::display(theme::size::WORDMARK)),
+            |ui| {
+                ui.label(RichText::new("Theme").small().weak());
+                let mut chosen = theme::Appearance::from_key(&self.settings.appearance.theme);
+                for option in theme::Appearance::ALL {
+                    ui.radio_value(&mut chosen, option, option.name());
+                }
+                self.settings.appearance.theme = chosen.key().to_owned();
+                ui.separator();
+                ui.label(RichText::new("Interface size").small().weak());
+                let mut scale = self.settings.appearance.scale();
+                for option in settings::UI_SCALES {
+                    ui.radio_value(&mut scale, option, format!("{:.0}%", option * 100.0));
+                }
+                self.settings.appearance.ui_scale = scale;
+                ui.separator();
+                ui.checkbox(&mut self.settings.appearance.reduce_motion, "Reduce motion")
+                    .on_hover_text("Things change in place instead of sliding or fading");
+                ui.separator();
+                if ui.button("Audio settings…").clicked() {
+                    self.transport.settings_window.open = true;
+                    ui.close();
+                }
+            },
+        );
         menu.response
             .on_hover_text("Appearance, interface size and audio settings");
         if self.settings.appearance != before {
@@ -648,7 +652,7 @@ impl eframe::App for App {
             self.show_browser,
             &mut self.browser_size,
             |ui| {
-                ui.label(RichText::new("Browser").size(theme::size::HEADING));
+                ui.label(RichText::new("Browser").font(fonts::display(theme::size::HEADING)));
                 ui.add_space(8.0);
                 ui.label(RichText::new("Devices, samples, projects and your places").weak());
                 ui.label(RichText::new(arrives("Milestones 3 and 6")).weak().small());
@@ -863,6 +867,7 @@ fn main() -> eframe::Result {
                 app.settings.appearance.theme = theme::Appearance::from_key(&theme).key().into();
                 app.appearance_override = true;
             }
+            fonts::install(&cc.egui_ctx);
             app.apply_appearance(&cc.egui_ctx);
             Ok(Box::new(app))
         }),
