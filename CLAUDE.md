@@ -454,6 +454,6 @@ it first in a new session, and update it at the end of every slice.
 - Owner actions:
   - sign Steinberg's ASIO SDK agreement before any distribution;
   - the Narrator accessibility check was deferred.
-- On 2026-10-07, GitHub rejected pushes with "Internal Server Error"
-  (server side; status page green, reads working). If `git status` shows
-  `main` ahead of `origin/main`, push again.
+- If a push is rejected with "Internal Server Error", it is GitHub's side
+  (seen on 2026-10-07 for about an hour). Retry later; the commits are safe
+  locally.
