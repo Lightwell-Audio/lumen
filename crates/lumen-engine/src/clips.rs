@@ -44,6 +44,9 @@ pub struct Clip {
     pub length: i64,
     /// Linear gain.
     pub gain: f32,
+    /// Stereo balance, -1 (left) to +1 (right); 0 leaves both sides at
+    /// unity. The track pan of M3; pan laws arrive with the mixer (M4).
+    pub pan: f32,
     /// Plays only while the device runs at `audio.sample_rate`; otherwise
     /// the clip is silent until the app converts it again.
     pub audio: Arc<ClipAudio>,
@@ -119,6 +122,20 @@ fn fade_length(rate: u32) -> u32 {
     (rate / FADE_PER_SECOND).max(1)
 }
 
+/// Balance gain for `output` of `outputs`: unity at the centre, the far
+/// side fading to silence as the pan moves away from it.
+fn balance(pan: f32, output: usize, outputs: usize) -> f32 {
+    if outputs < 2 {
+        return 1.0;
+    }
+    let pan = pan.clamp(-1.0, 1.0);
+    if output == 0 {
+        (1.0 - pan).min(1.0)
+    } else {
+        (1.0 + pan).min(1.0)
+    }
+}
+
 /// The edge fade for frame `pos` of a clip `length` frames long.
 fn edge_gain(pos: i64, length: i64, edge: i64) -> f32 {
     let edge = edge.min(length / 2).max(1);
@@ -165,6 +182,7 @@ impl Source for ClipPlayer {
             }
             let sources = clip.audio.channels.len();
             for output in 0..outputs {
+                let gain = clip.gain * balance(clip.pan, output, outputs);
                 // Mono plays on both sides; extra channels are ignored.
                 let samples = &clip.audio.channels[output.min(sources - 1)];
                 let target = out.channel(output);
@@ -177,7 +195,7 @@ impl Source for ClipPlayer {
                         continue;
                     };
                     target[(t - from) as usize] +=
-                        sample * clip.gain * edge_gain(pos, clip.length, edge);
+                        sample * gain * edge_gain(pos, clip.length, edge);
                 }
             }
         }
@@ -201,5 +219,13 @@ mod tests {
         // Short clips use half their length.
         assert_eq!(edge_gain(1, 4, 10), 1.0);
         assert_eq!(edge_gain(0, 4, 10), 0.5);
+    }
+
+    #[test]
+    fn balance_is_unity_at_the_centre_and_silences_the_far_side() {
+        assert_eq!((balance(0.0, 0, 2), balance(0.0, 1, 2)), (1.0, 1.0));
+        assert_eq!((balance(-1.0, 0, 2), balance(-1.0, 1, 2)), (1.0, 0.0));
+        assert_eq!((balance(0.5, 0, 2), balance(0.5, 1, 2)), (0.5, 1.0));
+        assert_eq!(balance(1.0, 0, 1), 1.0, "mono output ignores the pan");
     }
 }

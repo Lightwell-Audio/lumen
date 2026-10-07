@@ -35,6 +35,7 @@ irreversible or external) · *Superseded*.
 | [0022](#adr-0022--performance-gates-by-instruction-count) | Performance gates: instruction counts under Callgrind in a pinned Linux container, compared with a committed baseline | Accepted 2026-10-07 | No |
 | [0023](#adr-0023--design-system-and-motion) | Design system and motion: semantic tokens with dark and light palettes, egui style built from them, our own window title rows, motion tokens with Reduce motion | Accepted 2026-10-07 | No |
 | [0024](#adr-0024--undo-by-shared-snapshots) | Undo by shared snapshots: every step is a cheap copy of the project that shares untouched tracks and clips | Accepted 2026-10-07 | No |
+| [0025](#adr-0025--tracks-folding-and-interim-volume-and-pan) | Tracks: owner-chosen header and clip design, Ableton-style folding and resizing, interim volume and pan until the mixer | Accepted 2026-10-07 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -1450,3 +1451,63 @@ edit too: MIDI, automation and plugin state.
   parsing the quality-bar project rose by 3.2% in instructions
   (`project_parse`, ADR-0022 gate). The baseline was updated for this
   intended change; saving was unaffected (+0.01%).
+
+---
+
+## ADR-0025 — Tracks, folding and interim volume and pan
+
+**Status:** Accepted · **Date:** 2026-10-07 (M3 slice 4a).
+
+### Context
+Slice 4 brings real tracks. The owner chose the look from rendered options
+(option A's headers with option B's clips, a round record button, and
+hints for armed and soloed tracks). During the slice they also asked for
+Ableton-style folding and vertical resizing.
+
+### Decision
+- **Design:** `docs/DESIGN.md` §7a, drawn by `arrangement.rs` with the
+  theme tokens (new: `header`, `clip_body`).
+- **Folding:**
+  - a folded track is a compact row;
+  - an unfolded track is taller, with volume and pan in its header (M7
+    adds its automation lanes);
+  - dragging the bottom edge resizes, folding or unfolding at a threshold;
+  - fold state, heights and the vertical scroll are saved in the
+    project's view (format v3).
+  - v3 was extended with `expanded` the day it was introduced, before any
+    v3 file existed outside the test fixture, which was regenerated once
+    for it.
+- **Interim volume and pan:** the controls in unfolded headers really
+  work, rather than being shown for show:
+  - volume multiplies into the clip gain;
+  - pan is a balance law in the clip player (unity at the centre, the far
+    side fading out), added as `Clip::pan`.
+  - The mixer in M4 replaces both with per-track processing, pan laws,
+    smoothing and meters. Until then a fast drag can step the gain
+    audibly (zipper noise), because the clip list is swapped without
+    ramping.
+- **Mute, solo and arm are undo steps** (arm included, for consistency).
+  Solo is exclusive on a plain click and added with Ctrl+click.
+  Buttons act on the whole selection when the clicked track is part of it.
+- **Keyboard:**
+  - Ctrl+T adds an audio track and Ctrl+Shift+T a MIDI track;
+  - Ctrl+D duplicates; Delete removes; F2 renames;
+  - Alt+Up and Alt+Down move the selected tracks;
+  - all of these are also in the right-click menu.
+- **Scrolling:** the mouse wheel scrolls tracks vertically; Shift+wheel or
+  a sideways swipe scrolls the timeline; Ctrl+wheel zooms.
+
+### Consequences
+- `lanes.rs` no longer draws: it loads audio and builds the engine's clip
+  list. `arrangement.rs` owns the view.
+- Group folding (hiding child tracks) arrives with group tracks in M4.
+
+### Evidence (2026-10-07)
+- Tests:
+  - track operations, solo and mute audibility, folding heights, view
+    state round trip, selection (click, Ctrl, Shift), keyboard moves;
+  - the balance law in the engine; the golden renders unchanged;
+  - v3 migration and fixture.
+- Screenshots of a five-track project (muted, soloed, armed and unfolded
+  tracks): dark at 100%, light at 100% and 150%.
+

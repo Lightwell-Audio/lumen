@@ -1,5 +1,6 @@
-//! The project's tracks on the simple timeline, one lane each (M3 slice 3;
-//! track headers and the arrangement at scale arrive in slice 4).
+//! Audio for the project's clips (M3 slices 3–4): files loading for import,
+//! and the engine's clip list derived from the project. Drawing is in
+//! `arrangement.rs`.
 //!
 //! Dropped files load in the background as placeholders that are not part
 //! of the project. A file joins the project, as one undo step, once it has
@@ -10,7 +11,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use eframe::egui::{self, Color32, Painter, Pos2, Rect, RichText, Stroke, pos2, vec2};
+use eframe::egui::{self, Pos2, RichText};
 use lumen_core::time::Ticks;
 use lumen_engine::{Clip, ClipsHandle};
 use lumen_project::model::{ClipContent, Id, Project};
@@ -18,9 +19,6 @@ use lumen_project::model::{ClipContent, Id, Project};
 use crate::document::{Document, Imported};
 use crate::media::{self, Item, Library, State};
 use crate::theme;
-
-pub const LANE_HEIGHT: f32 = 56.0;
-const LANE_GAP: f32 = 4.0;
 
 #[derive(Default)]
 pub struct Lanes {
@@ -37,21 +35,6 @@ pub struct Lanes {
     seen: HashMap<u64, f64>,
 }
 
-/// One clip as drawn.
-struct Drawn<'a> {
-    rect: Rect,
-    item: Option<&'a Item>,
-    name: String,
-    color: Color32,
-    /// Identity for the fade-in: the media id for audio, so a loading
-    /// placeholder that becomes its clip does not fade in twice.
-    key: u64,
-}
-
-fn color_of(c: lumen_project::model::Color) -> Color32 {
-    Color32::from_rgb((c.0 >> 16) as u8, (c.0 >> 8) as u8, c.0 as u8)
-}
-
 fn db_to_gain(db: f32) -> f32 {
     10f32.powf(db / 20.0)
 }
@@ -60,6 +43,20 @@ impl Lanes {
     /// Files are still loading for import.
     pub fn is_loading(&self) -> bool {
         !self.pending.is_empty()
+    }
+
+    /// Files loading for import: library id and where they were dropped.
+    pub fn pending(&self) -> &[(u64, Ticks)] {
+        &self.pending
+    }
+
+    /// How far a clip has faded in (motion: BASE), by a stable key (the
+    /// media id for audio, so a loading placeholder that becomes its clip
+    /// does not fade in twice).
+    pub fn shown(&mut self, key: u64, ctx: &egui::Context) -> f32 {
+        let now = ctx.input(|i| i.time);
+        let since = *self.seen.entry(key).or_insert(now);
+        crate::motion::appear(ctx, since)
     }
 
     pub fn is_empty(&self, project: &Project) -> bool {
@@ -189,168 +186,16 @@ impl Lanes {
                         start: clip.start,
                         offset,
                         length,
-                        gain: db_to_gain(*gain_db),
+                        // Track volume and pan (M3 slice 4); the mixer
+                        // takes over in M4.
+                        gain: db_to_gain(*gain_db) * db_to_gain(track.gain_db),
+                        pan: track.pan,
                         audio: audio.clone(),
                     });
                 }
             }
         }
         list
-    }
-
-    fn lane_rect(canvas: Rect, index: usize) -> Rect {
-        let top = canvas.top() + LANE_GAP + index as f32 * (LANE_HEIGHT + LANE_GAP);
-        Rect::from_min_size(pos2(canvas.left(), top), vec2(canvas.width(), LANE_HEIGHT))
-    }
-
-    /// Every clip with its lane and where it is drawn: the project's tracks
-    /// first, then the files still loading.
-    fn drawn<'a>(
-        &'a self,
-        project: &Project,
-        canvas: Rect,
-        x_of: &impl Fn(f32) -> f32,
-    ) -> Vec<(usize, Drawn<'a>)> {
-        let mut out = Vec::new();
-        for (row, track) in project.tracks.iter().enumerate() {
-            let lane = Self::lane_rect(canvas, row).shrink2(vec2(0.0, 2.0));
-            for clip in &track.clips {
-                let (item, key) = match &clip.content {
-                    ClipContent::Audio { media, .. } => (self.library.get(media.0), media.0),
-                    ClipContent::Midi { .. } => (None, clip.id.0),
-                };
-                let x0 = x_of(clip.start.as_quarters() as f32);
-                let x1 = x_of((clip.start + clip.length).as_quarters() as f32);
-                out.push((
-                    row,
-                    Drawn {
-                        rect: Rect::from_x_y_ranges(x0..=x1.max(x0 + 2.0), lane.y_range()),
-                        item,
-                        name: clip.name.clone(),
-                        color: color_of(track.color),
-                        key,
-                    },
-                ));
-            }
-        }
-        for (i, &(id, at)) in self.pending.iter().enumerate() {
-            let row = project.tracks.len() + i;
-            let lane = Self::lane_rect(canvas, row).shrink2(vec2(0.0, 2.0));
-            let x0 = x_of(at.as_quarters() as f32);
-            let item = self.library.get(id);
-            out.push((
-                row,
-                Drawn {
-                    rect: Rect::from_x_y_ranges(x0..=x0 + 160.0, lane.y_range()),
-                    name: item.map_or_else(String::new, |i| i.name.clone()),
-                    item,
-                    color: theme::CLIP_COLORS[row % theme::CLIP_COLORS.len()],
-                    key: id,
-                },
-            ));
-        }
-        out
-    }
-
-    /// The file of the clip under `pointer`.
-    pub fn file_at(
-        &self,
-        project: &Project,
-        pointer: Pos2,
-        canvas: Rect,
-        x_of: impl Fn(f32) -> f32,
-    ) -> Option<&Item> {
-        self.drawn(project, canvas, &x_of)
-            .into_iter()
-            .find(|(_, d)| d.rect.contains(pointer))
-            .and_then(|(_, d)| d.item)
-    }
-
-    /// Draws the lanes and their clips. `x_of` maps quarter notes to x.
-    pub fn paint(
-        &mut self,
-        painter: &Painter,
-        canvas: Rect,
-        project: &Project,
-        x_of: impl Fn(f32) -> f32,
-    ) {
-        let rows = project.tracks.len() + self.pending.len();
-        for row in 0..rows {
-            let lane = Self::lane_rect(canvas, row);
-            if lane.top() > canvas.bottom() {
-                break;
-            }
-            painter.rect_filled(lane, 0.0, theme::p().lane);
-        }
-        let ctx = painter.ctx();
-        let now = ctx.input(|i| i.time);
-        let mut seen = std::mem::take(&mut self.seen);
-        let drawn = self.drawn(project, canvas, &x_of);
-        for (_, d) in &drawn {
-            seen.entry(d.key).or_insert(now);
-        }
-        for (row, drawn) in drawn {
-            // A new clip fades in (motion: BASE).
-            let shown = crate::motion::appear(ctx, seen[&drawn.key]);
-            let lane = Self::lane_rect(canvas, row);
-            let visible = drawn.rect.intersect(lane);
-            if lane.top() > canvas.bottom() || visible.width() <= 0.0 {
-                continue;
-            }
-            let missing = theme::p().record.gamma_multiply(0.4);
-            let (fill, label) = match drawn.item.map(|i| &i.state) {
-                Some(State::Ready(_)) => (drawn.color, drawn.name.clone()),
-                Some(State::Loading) => {
-                    let p = drawn
-                        .item
-                        .and_then(|i| self.library.progress(i.id))
-                        .unwrap_or(0.0);
-                    (
-                        drawn.color.gamma_multiply(0.45),
-                        format!("{} · loading {:.0}%", drawn.name, p * 100.0),
-                    )
-                }
-                Some(State::Failed(_)) => (missing, format!("{} · could not load", drawn.name)),
-                // The project refers to a file that is not available.
-                None => (missing, format!("{} · file missing", drawn.name)),
-            };
-            let fill = fill.gamma_multiply(shown);
-            let radius = theme::radius::SMALL;
-            painter.rect_filled(drawn.rect, radius, fill);
-            if let Some(item) = drawn.item
-                && let (State::Loading, Some(p)) = (&item.state, self.library.progress(item.id))
-            {
-                // The progress fill glides between updates rather than jumping.
-                let p = ctx.animate_value_with_time(
-                    egui::Id::new(("load progress", item.id)),
-                    p,
-                    crate::motion::time(crate::motion::BASE),
-                );
-                let done = Rect::from_min_size(
-                    drawn.rect.min,
-                    vec2(drawn.rect.width() * p, drawn.rect.height()),
-                );
-                painter.rect_filled(done, radius, drawn.color.gamma_multiply(0.8 * shown));
-            }
-            painter.rect_stroke(
-                drawn.rect,
-                radius,
-                Stroke::new(1.0, fill.gamma_multiply(1.4)),
-                egui::StrokeKind::Inside,
-            );
-            let text_at = Pos2::new(
-                visible.left().max(drawn.rect.left()) + 6.0,
-                drawn.rect.top() + 4.0,
-            );
-            painter.with_clip_rect(visible).text(
-                text_at,
-                egui::Align2::LEFT_TOP,
-                label,
-                egui::FontId::proportional(theme::size::BODY - 1.0),
-                theme::CLIP_TEXT.gamma_multiply(shown),
-            );
-        }
-        self.seen = seen;
     }
 
     /// The panel for loads in progress (with Cancel), failures (with

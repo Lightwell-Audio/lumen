@@ -93,6 +93,7 @@ fn playing_clips(clips: usize) -> Engine<ClipPlayer> {
                     offset: 0,
                     length: 480_000,
                     gain: 0.5,
+                    pan: 0.0,
                     audio: Arc::clone(&audio),
                 })
                 .collect(),

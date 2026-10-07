@@ -692,3 +692,46 @@ note and the owned file dialogs.
 
 **Last run:** run 2, pass.
 
+### MT-APP-9 · Tracks (needs a human)
+Run `cargo run --release -p lumen-app`.
+1. **Add:** press Ctrl+T twice and Ctrl+Shift+T once; double-click the
+   empty space below the tracks. Tracks "Audio 1", "Audio 2", "MIDI 1" and
+   "Audio 3" appear, each with a colour rail. Right-click a header or the
+   empty space: the menu offers audio, MIDI, group and return tracks.
+2. **Rename and recolour:** double-click a name (or press F2), type,
+   press Enter. Esc cancels. Right-click → Colour → pick one: the rail and
+   the clips change colour.
+3. **Select:** click headers; Ctrl+click adds or removes a track;
+   Shift+click selects a range. Selected headers are tinted.
+4. **Mute, solo, arm:**
+   - drop an audio file, then play it;
+   - **M** silences the track and dims its clips;
+   - **S** plays only that track; the other tracks' clips dim and the
+     soloed lane gets a faint blue wash;
+   - Ctrl+click **S** on a second track adds it to the solo;
+   - the round **●** lights red, and the lane gets a faint red wash;
+   - with several tracks selected, a button acts on all of them.
+5. **Fold and resize:**
+   - click a track's arrow: it unfolds smoothly, showing Vol and Pan;
+     click again to fold it;
+   - drag a track's bottom edge: it resizes; dragging a folded track
+     taller unfolds it, and dragging an unfolded one small folds it.
+6. **Volume and pan:** on an unfolded track playing audio, drag Vol down
+   and Pan to L 100: it gets quieter and moves left. Double-click either
+   to reset. (Fast drags may step audibly until the M4 mixer smooths
+   them.)
+7. **Move, duplicate, delete:**
+   - Alt+↑ and Alt+↓ move the selected tracks;
+   - Ctrl+D duplicates them, with their clips;
+   - Delete removes them;
+   - Ctrl+Z undoes each of these as one step.
+8. **Scroll:** with more tracks than fit, the mouse wheel scrolls them;
+   Shift+wheel scrolls the timeline; Ctrl+wheel zooms.
+9. **Saved:** save, close and reopen. Folding, heights, the scroll
+   position, mute, solo and arm are as you left them.
+10. Try steps 1–5 in the light theme and at 150%.
+
+**Expected:** every step as described, smooth and without lag.
+
+**Last run:** not yet run.
+

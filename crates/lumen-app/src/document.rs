@@ -164,15 +164,7 @@ impl Document {
     }
 }
 
-/// Track operations (M3 slice 4a). The track headers that call them are
-/// built once the owner has chosen their design.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "track headers arrive in slice 4a, after the design is chosen"
-    )
-)]
+/// Track operations (M3 slice 4a), called from the track headers.
 impl Document {
     /// Adds an empty track of `kind` after `after` (or at the end), named
     /// "Audio 3", "MIDI 1" and so on. Returns its id.
@@ -389,10 +381,6 @@ impl Document {
 }
 
 /// "Delete track" or "Delete 3 tracks".
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "used by the track operations, slice 4a")
-)]
 fn plural(n: usize, one: &str, many: &str) -> String {
     if n == 1 {
         one.to_owned()
@@ -403,7 +391,7 @@ fn plural(n: usize, one: &str, many: &str) -> String {
 
 /// Which tracks are heard: not muted, and, while any track is soloed, only
 /// the soloed ones (groups and returns join this with the mixer, M4).
-pub fn audible(project: &Project) -> impl Fn(&Track) -> bool {
+pub fn audible(project: &Project) -> impl Fn(&Track) -> bool + use<> {
     let any_solo = project.tracks.iter().any(|t| t.solo);
     move |t: &Track| !t.mute && (!any_solo || t.solo)
 }

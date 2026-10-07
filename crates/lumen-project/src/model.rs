@@ -9,7 +9,7 @@
 //! everything an edit did not touch (ADR-0024). Edit through
 //! [`Arc::make_mut`]; serde writes the `Arc`s transparently.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use lumen_core::time::{TempoPoint, Ticks};
@@ -108,8 +108,10 @@ pub struct ViewState {
     pub detail_size: f32,
     /// Vertical scroll of the arrangement, in points (format v3).
     pub top: f32,
-    /// Track heights in points, for tracks not at the default (format v3).
+    /// Unfolded heights of tracks resized from the default (format v3).
     pub track_heights: BTreeMap<Id, f32>,
+    /// Tracks shown unfolded, with their detailed header (format v3).
+    pub expanded: BTreeSet<Id>,
 }
 
 impl Default for ViewState {
@@ -123,6 +125,7 @@ impl Default for ViewState {
             detail_size: 220.0,
             top: 0.0,
             track_heights: BTreeMap::new(),
+            expanded: BTreeSet::new(),
         }
     }
 }

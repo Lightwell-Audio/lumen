@@ -40,7 +40,7 @@ fn v1_to_v2(mut document: Value) -> Result<Value, String> {
 }
 
 /// Version 3 (M3 slice 4) adds record arm per track, and the arrangement's
-/// vertical scroll and track heights to the view. The defaults are written
+/// vertical scroll, track heights and unfolded tracks to the view. The defaults are written
 /// out.
 fn v2_to_v3(mut document: Value) -> Result<Value, String> {
     let project = document
@@ -58,6 +58,7 @@ fn v2_to_v3(mut document: Value) -> Result<Value, String> {
         view.entry("top").or_insert(Value::from(0.0));
         view.entry("track_heights")
             .or_insert(Value::Object(serde_json::Map::new()));
+        view.entry("expanded").or_insert(Value::Array(Vec::new()));
     }
     Ok(document)
 }
@@ -173,5 +174,6 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+        assert_eq!(v3["project"]["view"]["expanded"], serde_json::json!([]));
     }
 }

@@ -41,6 +41,11 @@ pub struct Palette {
     pub start_marker: Color32,
     /// Lane background behind clips.
     pub lane: Color32,
+    /// Track header column (M3 slice 4).
+    pub header: Color32,
+    /// Clip body: dark, so the track-coloured title bar and waveform carry
+    /// the colour (owner's choice, slice 4).
+    pub clip_body: Color32,
     pub shadow: Color32,
 }
 
@@ -65,7 +70,9 @@ pub const DARK: Palette = Palette {
     grid_bar: Color32::from_rgb(0x34, 0x38, 0x42),
     grid_beat: Color32::from_rgb(0x26, 0x29, 0x30),
     start_marker: Color32::from_rgb(0xC8, 0xCC, 0xD4),
-    lane: Color32::from_rgb(0x18, 0x1A, 0x1E),
+    lane: Color32::from_rgb(0x1B, 0x1D, 0x22),
+    header: Color32::from_rgb(0x1E, 0x21, 0x26),
+    clip_body: Color32::from_rgb(0x26, 0x2A, 0x31),
     shadow: Color32::from_black_alpha(96),
 };
 
@@ -90,7 +97,9 @@ pub const LIGHT: Palette = Palette {
     grid_bar: Color32::from_rgb(0xD9, 0xDC, 0xE1),
     grid_beat: Color32::from_rgb(0xEC, 0xEE, 0xF1),
     start_marker: Color32::from_rgb(0x6B, 0x71, 0x7C),
-    lane: Color32::from_rgb(0xF2, 0xF3, 0xF5),
+    lane: Color32::from_rgb(0xF6, 0xF7, 0xF8),
+    header: Color32::from_rgb(0xEC, 0xEE, 0xF1),
+    clip_body: Color32::from_rgb(0xFF, 0xFF, 0xFF),
     shadow: Color32::from_black_alpha(36),
 };
 

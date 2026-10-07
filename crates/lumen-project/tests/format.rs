@@ -162,6 +162,7 @@ fn golden_v3_expected() -> Project {
     Arc::make_mut(&mut project.tracks[1]).armed = true;
     project.view.top = 48.0;
     project.view.track_heights.insert(Id(2), 96.0);
+    project.view.expanded.insert(Id(2));
     project
 }
 

@@ -66,6 +66,7 @@ fn a_clip_plays_on_its_exact_samples_at_every_block_size() {
         offset,
         length,
         gain: 1.0,
+        pan: 0.0,
         audio: Arc::clone(&audio),
     };
     let mut reference = None;
@@ -97,6 +98,7 @@ fn the_loop_wrap_crossfades_and_stays_on_the_exact_sample() {
         offset: 0,
         length: 400_000,
         gain: 1.0,
+        pan: 0.0,
         audio: Arc::clone(&audio),
     };
     let (mut handle, _clips, mut engine) = setup(vec![clip]);
@@ -134,6 +136,7 @@ fn stopping_fades_out_instead_of_cutting() {
         offset: 0,
         length: 400_000,
         gain: 1.0,
+        pan: 0.0,
         audio: Arc::clone(&audio),
     };
     let (mut handle, _clips, mut engine) = setup(vec![clip]);
@@ -167,6 +170,7 @@ fn a_locate_lands_on_the_exact_sample_and_fades_in() {
         offset: 0,
         length: 400_000,
         gain: 0.5,
+        pan: 0.0,
         audio: Arc::clone(&audio),
     };
     let (mut handle, _clips, mut engine) = setup(vec![clip]);
@@ -193,6 +197,7 @@ fn mono_plays_on_both_sides_and_gain_applies() {
         offset: 0,
         length: 10_000,
         gain: 0.5,
+        pan: 0.0,
         audio: mono,
     };
     let (mut handle, _clips, mut engine) = setup(vec![clip]);
@@ -208,6 +213,7 @@ fn clips_at_another_sample_rate_stay_silent() {
         offset: 0,
         length: 10_000,
         gain: 1.0,
+        pan: 0.0,
         audio: ramp(10_000, 44_100),
     };
     let (mut handle, _clips, mut engine) = setup(vec![clip]);
@@ -224,6 +230,7 @@ fn clips_follow_tempo_changes() {
         offset: 0,
         length: 1_000,
         gain: 1.0,
+        pan: 0.0,
         audio: Arc::clone(&audio),
     };
     let (mut handle, _clips, mut engine) = setup(vec![clip]);
@@ -245,6 +252,7 @@ fn a_new_clip_list_replaces_the_old_and_the_old_is_handed_back() {
         offset: 0,
         length: 1_000,
         gain: 1.0,
+        pan: 0.0,
         audio: Arc::clone(&audio),
     };
     let (mut handle, mut clips, mut engine) = setup(vec![clip(Ticks::ZERO)]);

@@ -18,6 +18,7 @@
 //! lumen --screenshot out.png     render, save a screenshot, exit
 //! ```
 
+mod arrangement;
 mod audio;
 mod audio_settings;
 mod autosave;
@@ -59,6 +60,8 @@ struct App {
     synced: Option<u64>,
     /// The undo history window is open.
     show_history: bool,
+    /// Track headers, heights, folding and selection (M3 slice 4).
+    arrangement: arrangement::Arrangement,
     /// The note shown after undo, redo or save, and since when.
     toast: Option<(String, Instant)>,
     /// File work in progress (slice 3c): a dialog, a save or an open.
@@ -207,10 +210,9 @@ impl App {
             detail_open: self.show_detail,
             browser_size: self.browser_size,
             detail_size: self.detail_size,
-            // Vertical scroll and track heights: kept as opened until the
-            // arrangement view has them (M3 slice 4a).
             ..project.view.clone()
         };
+        self.arrangement.save_into(&mut project.view);
         project
     }
 
@@ -316,6 +318,7 @@ impl App {
     fn replace_document(&mut self, document: document::Document) {
         self.document = document;
         self.lanes = lanes::Lanes::default();
+        self.arrangement = arrangement::Arrangement::default();
         self.synced = None;
         self.show_history = false;
         self.transport.locate(Ticks::ZERO);
@@ -398,6 +401,7 @@ impl App {
                             opened.media_files,
                         )),
                     }
+                    self.arrangement = arrangement::Arrangement::restore(&view);
                     self.left_beat = view.left_beat.max(0.0);
                     self.px_per_beat = view.px_per_beat.clamp(2.0, 400.0);
                     self.show_browser = view.browser_open;
@@ -928,13 +932,24 @@ impl App {
     }
 
     fn arrangement(&mut self, ui: &mut egui::Ui) {
-        let full = ui.available_rect_before_wrap();
-        let response = ui.allocate_rect(full, Sense::hover());
+        let whole = ui.available_rect_before_wrap();
+        let response = ui.allocate_rect(whole, Sense::hover());
+        // Track headers on the left, below the ruler's height; the ruler and
+        // lanes take the rest.
+        let corner =
+            egui::Rect::from_min_size(whole.min, vec2(arrangement::HEADER_WIDTH, RULER_HEIGHT));
+        let headers = egui::Rect::from_min_max(
+            pos2(whole.left(), corner.bottom()),
+            pos2(corner.right(), whole.bottom()),
+        );
+        let full = egui::Rect::from_min_max(pos2(corner.right(), whole.top()), whole.max);
         let ruler = egui::Rect::from_min_size(full.min, vec2(full.width(), RULER_HEIGHT));
         let canvas = egui::Rect::from_min_max(pos2(full.left(), ruler.bottom()), full.max);
 
         // `contains_pointer`, not `hovered`: the ruler's own click area sits on
-        // top, and scrolling and zooming must work over it too.
+        // top, and scrolling and zooming must work over it too. The wheel
+        // scrolls the tracks; Shift+wheel or a sideways trackpad swipe
+        // scrolls the timeline; Ctrl+wheel (or a pinch) zooms.
         if response.contains_pointer() {
             // egui turns Ctrl+wheel (and trackpad pinch) into a zoom factor
             // and reports no scroll for it, so zoom must read `zoom_delta`.
@@ -946,10 +961,21 @@ impl App {
                 self.px_per_beat = (self.px_per_beat * zoom).clamp(2.0, 400.0);
                 self.left_beat = beat - anchor / self.px_per_beat;
             } else {
-                self.left_beat -= (delta.x + delta.y) / self.px_per_beat;
+                self.left_beat -= delta.x / self.px_per_beat;
+                if delta.y != 0.0 {
+                    let content = self.arrangement.height_of_content(
+                        ui.ctx(),
+                        self.document.project(),
+                        self.lanes.pending().len(),
+                    );
+                    self.arrangement.scroll(delta.y, content, canvas.height());
+                }
             }
             self.left_beat = self.left_beat.max(0.0);
         }
+        ui.painter().rect_filled(corner, 0.0, theme::p().raised);
+        self.arrangement
+            .headers(ui, headers, &mut self.document, &self.lanes);
 
         let painter = ui.painter_at(full);
         painter.rect_filled(full, 0.0, theme::p().canvas);
@@ -966,14 +992,25 @@ impl App {
             },
         ));
         let x_of = |quarters: f32| canvas.left() + (quarters - self.left_beat) * self.px_per_beat;
-        self.lanes
-            .paint(&painter, canvas, self.document.project(), x_of);
+        self.arrangement.lanes(
+            ui.ctx(),
+            &painter.with_clip_rect(canvas),
+            canvas,
+            self.document.project(),
+            &mut self.lanes,
+            x_of,
+        );
         // A hover card with the file's details.
         let hover = ui.interact(canvas, ui.id().with("clips"), Sense::hover());
         if let Some(pointer) = hover.hover_pos()
-            && let Some(item) = self
-                .lanes
-                .file_at(self.document.project(), pointer, canvas, x_of)
+            && let Some(item) = self.arrangement.item_at(
+                ui.ctx(),
+                pointer,
+                canvas,
+                self.document.project(),
+                &self.lanes,
+                x_of,
+            )
         {
             hover.on_hover_ui_at_pointer(|ui| lanes::file_card(ui, item));
         }
@@ -1333,6 +1370,7 @@ impl eframe::App for App {
         self.transport.update();
         self.transport.shortcuts(&ctx);
         self.undo_shortcuts(&ctx);
+        self.arrangement.shortcuts(&ctx, &mut self.document);
         self.file_shortcuts(&ctx);
         self.poll_files(&ctx);
         self.autosave(&ctx);
@@ -1636,6 +1674,7 @@ fn main() -> eframe::Result {
                 document,
                 synced: None,
                 show_history: false,
+                arrangement: arrangement::Arrangement::default(),
                 toast: None,
                 dialog: None,
                 saving: None,

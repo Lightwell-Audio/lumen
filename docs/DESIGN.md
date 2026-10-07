@@ -184,6 +184,39 @@ not travel.
 
 Keyboard focus shows as a 2 pt `accent` ring on every focusable control.
 
+## 7a. Tracks and clips (M3 slice 4, owner's choice)
+
+Chosen from rendered options on 2026-10-07: option A's headers with option
+B's clips.
+
+- **Header** (184 pt wide):
+  - a 4 pt colour rail;
+  - a fold arrow;
+  - the name, shortened with "…" and renamed by double-click;
+  - **M**, **S** and a round record-arm button, always visible.
+  - Lit states: **S** uses the accent, **M** the light neutral, and arm is
+    a red dot on a red-tinted circle. Text on a lit button is white or
+    near-black by the fill's brightness.
+  - A selected header takes a tint of `accent_muted`.
+- **Folded and unfolded** (as in Ableton):
+  - folded is a 44 pt row;
+  - unfolded is 96 pt until resized, with a second header row for volume
+    and pan; automation lanes join it in M7;
+  - drag the bottom edge to resize. A folded track dragged taller unfolds;
+    an unfolded track dragged below 60 pt folds;
+  - heights glide (`GLIDE`) and are saved with the project.
+- **Clip:**
+  - `clip_body` (dark in the dark theme), a 1 pt border of the track
+    colour at 60%;
+  - a 15 pt title bar in the track colour, with the name in `caption`;
+  - the waveform drawn bright in the track colour (slice 4c).
+- **Hints:**
+  - an armed track's lane gets a 7% `record` wash;
+  - a soloed track's lane gets a 6% `accent` wash;
+  - clips on tracks that cannot be heard (muted, or not soloed while
+    another track is) are drawn at 42%, with their names in
+    `text_secondary` so they stay readable in both themes.
+
 ## 8. Key flows
 
 Each flow lists its steps, its keyboard path and its feedback. Flows marked
