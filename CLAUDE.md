@@ -406,6 +406,10 @@ it first in a new session, and update it at the end of every slice.
     - a record arm that glows and breathes;
     - 22 pt height steps, a glowing resize handle;
     - a "+ Add track ▾" menu button.
+  - An architecture audit after 4a (`docs/audits/2026-10-07-architecture.md`)
+    found 3 high, 4 medium and 4 low issues; all are fixed and pushed
+    (`eea085a`). `main.rs` and `arrangement.rs` are now split into modules
+    (see ARCHITECTURE.md), so 4b–4d land in clean files.
   - MT-APP-9 run 2 awaits the owner.
   - Next: 4b (GPU clip bodies and a 200-track stress benchmark), 4c
     (waveforms), 4d (zoom, follow playhead, drag to reorder).

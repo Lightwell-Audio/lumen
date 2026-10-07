@@ -79,6 +79,27 @@ checked against `CLAUDE.md` (§2–§5), the rules in `docs/ARCHITECTURE.md`,
   (`draw_clip`, `Arrangement::name`, the metronome click). Small parameter
   structs would read better.
 
+## Status
+
+All findings were fixed on 2026-10-07, before slice 4b. Every fix passed
+fmt, workspace clippy `-D warnings` and the tests on Windows, plus the WSL
+Linux mirror (clippy, tests, and the performance gate: every scenario
+within ±0.31%, so the baseline is unchanged).
+
+| Finding | Fix | Commit |
+|---|---|---|
+| H1 | `settings::Writer` saves settings on a background thread, in order, and finishes on exit; autosave writes its note with the project on the autosave thread, and clears on its own thread | `134898f` |
+| H2 | ↑/↓ select tracks (Shift extends), ←/→ fold and unfold; accessible names on the header, name, resize handle and empty area | `5899b60` |
+| H3 | ASIO start-up failure gives an `Unavailable` backend (`lumen-audio`), so the device banner says why audio could not start | `134898f` |
+| M1 | `arrangement.rs` became `arrangement/{mod, headers, clips}.rs`; `main.rs` (now about 600 lines) keeps the `App` struct, the frame loop and start-up, and its behaviour moved to `app/{projects, recovery, history, preferences, view}.rs` | `7a7d70c`, `eea085a` |
+| M2 | `widgets.rs` holds the value slider, the fold arrow, gradients and the glow line; the type icon moved to `icons.rs` | `7a7d70c` |
+| M3 | `Document::set_volume` and `set_pan` (clamped, drags merge into one step), with tests | `8e8b93c` |
+| M4 | `lanes::engine_clips` is a pure function with four tests (rate conversion, region capping, solo and mute, gain and pan) | `8e8b93c` |
+| L1 | User-visible strings use `PRODUCT_NAME`; `lumen-media` and `lumen-audio` use neutral wording | `3d7972a` |
+| L2 | Font sizes and colours from `fonts.rs` and `theme.rs`; `motion::NOTE` for the toast; DESIGN §3 lists every token | `3d7972a` |
+| L3 | The unused ASIO driver methods and field were removed with their suppressions | `3d7972a` |
+| L4 | `ClipLook` and `metronome::Window` parameter structs; `Arrangement::name` takes its painter from `ui` | `7a7d70c` |
+
 ## Recommended order
 
 1. Before slice 4b:

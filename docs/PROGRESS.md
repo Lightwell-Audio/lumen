@@ -4,7 +4,9 @@
 
 **Current milestone:** 3 — Arrangement & Project System (plan:
 [milestones/M3.md](milestones/M3.md)). Slices 1–3 are done; slice 4
-(tracks and the arrangement view at scale) is next.
+(tracks and the arrangement view at scale) is in progress: part 4a (track
+headers) is built and the architecture audit after it is fixed
+([audits/2026-10-07-architecture.md](audits/2026-10-07-architecture.md)).
 **Previous:** M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
@@ -32,7 +34,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 1 | Performance gates by instruction count (ADR-0022) | ✅ 2026-10-07 | `03e2228` |
 | 2 | Design system, motion system, M2 retrofit; typefaces (ADR-0023, MT-APP-7) | ✅ 2026-10-07 | `dbe4777`, `392a5f8`, `d320cf0` |
 | 3 | Project model and undo, save/open, autosave and recovery (ADR-0024, MT-APP-8) | ✅ 2026-10-07 | `fd7583b`, `e2768fb`, `43c86f1`, `578bc6f`, `7780b11`, `4a7f615` |
-| 4 | Tracks and the arrangement view at scale | 🔲 next | |
+| 4 | Tracks and the arrangement view at scale: groundwork (format v3) and 4a track headers built (ADR-0025, MT-APP-9 run 2 pending); architecture audit fixed; 4b–4d next | 🟡 | 4a and audit through `eea085a` |
 | 5 | Grid, snapping, rulers, scrub, markers, loop | 🔲 | |
 | 6 | Clip editing and selection | 🔲 | |
 | 7 | Command palette, shortcuts, context menus | 🔲 | |
