@@ -389,6 +389,14 @@ clean.
   - motion system and the retrofit of the M2 UI → M3;
   - AAC/M4A → pending a licensing check.
 
+**CI:** macOS and Linux were red from slice 8 part 3 until the close: a
+helper function used only on Windows was dead code there, and clippy denies
+it. Fixed after the report. Once the tests ran again, they exposed a real
+bug: backups saved within the same millisecond could be pruned in the wrong
+order. That is fixed too, with a test that forces the collision. Linux
+clippy and tests now run in the WSL mirror before pushing platform-specific
+code.
+
 **Risks:**
 - A 64-track project has not yet run on mid-range hardware. M2 measured the
   engine, not a full project.
