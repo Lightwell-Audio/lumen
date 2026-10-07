@@ -1203,6 +1203,16 @@ audio in memory for M2, disk streaming in M9; AAC/M4A deferred.
 - On hardware: 0 dropouts on the NVIDIA HDMI output in WASAPI shared and
   exclusive.
 
+### Update 2026-10-07: clicks fade out
+Each click was cut off at a fixed 50 ms while the beep still had about
+0.2% of its peak, a small tick after every click (owner: "a little static
+on the metronome"). The last 15 ms of every click now fade to exactly zero
+(smoothstep); the beep is 26 dB down where the fade starts, so the sound
+is unchanged. Cost: `engine_transport` +2.4% instructions (about 136 per
+128-frame block; the scenario is mostly click synthesis), an intended
+change; the baseline was updated. Lengthening clicks to 80 ms instead
+cost +57% and was rejected.
+
 ---
 
 ## ADR-0021 — Device selector

@@ -60,6 +60,8 @@ struct Voice {
     age: u32,
     /// Frames the click lasts.
     length: u32,
+    /// Frames at the end that fade to zero.
+    fade: u32,
     accent: bool,
     sound: ClickSound,
     gain: f32,
@@ -74,6 +76,15 @@ impl Voice {
     fn next(&mut self, rate: f32) -> f32 {
         let t = self.age as f32 / rate;
         self.age += 1;
+        // The last `TAIL` fades to exactly zero (smoothstep, cheap enough
+        // per sample), so a click never stops short with sound in it.
+        let left = self.length - self.age;
+        let tail = if left < self.fade {
+            let x = left as f32 / self.fade as f32;
+            x * x * (3.0 - 2.0 * x)
+        } else {
+            1.0
+        };
         let value = match self.sound {
             ClickSound::Beep => {
                 let hz = if self.accent { 1_500.0 } else { 1_000.0 };
@@ -95,9 +106,15 @@ impl Voice {
                     + noise * (-t / 0.0015).exp() * 0.3
             }
         };
-        value * self.gain
+        value * self.gain * tail
     }
 }
+
+/// How long a click lasts.
+const CLICK: f32 = 0.050;
+/// The fade at the end of a click; the beep is already 26 dB down where it
+/// starts, so the sound is unchanged.
+const TAIL: f32 = 0.015;
 
 /// Where the metronome writes in a channel-major buffer: `count` frames from
 /// `offset`, for `channels` channels that are `stride` frames apart.
@@ -123,7 +140,8 @@ impl Metronome {
     fn start(&mut self, accent: bool, rate: u32) {
         self.voice = Voice {
             age: 0,
-            length: rate / 20, // 50 ms; the envelope is silent long before
+            length: (rate as f32 * CLICK) as u32,
+            fade: (rate as f32 * TAIL) as u32,
             accent,
             sound: self.settings.sound,
             gain: self.settings.volume * if accent { ACCENT_GAIN } else { BEAT_GAIN },
@@ -258,5 +276,43 @@ impl TestTone {
     pub fn silence(&mut self) {
         self.on = false;
         self.gain = 0.0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One whole click, sample by sample.
+    fn click(sound: ClickSound, accent: bool) -> Vec<f32> {
+        let mut metronome = Metronome::default();
+        metronome.settings.sound = sound;
+        metronome.settings.volume = 1.0;
+        metronome.start(accent, 48_000);
+        let mut out = Vec::new();
+        while metronome.voice.active() {
+            out.push(metronome.voice.next(48_000.0));
+        }
+        out
+    }
+
+    #[test]
+    fn every_click_fades_to_silence_instead_of_stopping_short() {
+        // Owner: a little static on the metronome. Cut off at a fixed
+        // length, the beep still had 1.5% of its level and stepped to
+        // silence, ticking after every click.
+        for sound in ClickSound::ALL {
+            for accent in [false, true] {
+                let out = click(sound, accent);
+                let peak = out.iter().fold(0.0_f32, |m, v| m.max(v.abs()));
+                let last = out.last().copied().unwrap_or(0.0).abs();
+                assert!(last < peak * 1e-4, "{sound:?}: ends at {last}, peak {peak}");
+                // The final 5 ms are at least 40 dB down, fading out.
+                let tail = out[out.len() - 240..]
+                    .iter()
+                    .fold(0.0_f32, |m, v| m.max(v.abs()));
+                assert!(tail < peak * 1e-2, "{sound:?}: tail {tail}, peak {peak}");
+            }
+        }
     }
 }
