@@ -208,6 +208,32 @@ impl Arrangement {
         }
     }
 
+    /// Moves the selection one track up (`-1`) or down (`1`) from the last
+    /// selected track; with `extend`, adds that track instead (Shift).
+    /// With nothing selected, starts at the first or the last track.
+    fn step_selection(&mut self, tracks: &[Id], by: isize, extend: bool) {
+        if tracks.is_empty() {
+            return;
+        }
+        let current = self
+            .selected
+            .last()
+            .and_then(|id| tracks.iter().position(|t| t == id));
+        let next = match current {
+            None if by < 0 => tracks.len() - 1,
+            None => 0,
+            Some(i) => i.saturating_add_signed(by).min(tracks.len() - 1),
+        };
+        let id = tracks[next];
+        if extend {
+            self.selected.retain(|s| *s != id);
+            self.selected.push(id);
+        } else {
+            self.selected = vec![id];
+            self.anchor = Some(id);
+        }
+    }
+
     /// The tracks a header button acts on: the whole selection when the
     /// clicked track is part of it, otherwise just that track.
     fn targets(&self, id: Id) -> Vec<Id> {
@@ -252,6 +278,34 @@ impl Arrangement {
         let pressed = |modifiers, key| {
             ctx.input_mut(|i| i.consume_shortcut(&egui::KeyboardShortcut::new(modifiers, key)))
         };
+        // Keyboard-only selection and folding (audit H2), unless a control
+        // has focus and uses the arrow keys itself (a slider).
+        if ctx.memory(|m| m.focused().is_none()) {
+            let tracks: Vec<Id> = doc.project().tracks.iter().map(|t| t.id).collect();
+            for (shift, key, by) in [
+                (false, Key::ArrowUp, -1),
+                (false, Key::ArrowDown, 1),
+                (true, Key::ArrowUp, -1),
+                (true, Key::ArrowDown, 1),
+            ] {
+                let modifiers = if shift {
+                    Modifiers::SHIFT
+                } else {
+                    Modifiers::NONE
+                };
+                if pressed(modifiers, key) {
+                    self.step_selection(&tracks, by, shift);
+                }
+            }
+            if pressed(Modifiers::NONE, Key::ArrowLeft) {
+                for id in &self.selected {
+                    self.expanded.remove(id);
+                }
+            }
+            if pressed(Modifiers::NONE, Key::ArrowRight) {
+                self.expanded.extend(self.selected.iter().copied());
+            }
+        }
         let after = self.selected.last().copied();
         if pressed(Modifiers::COMMAND | Modifiers::SHIFT, Key::T) {
             self.selected = vec![doc.add_track(TrackKind::Midi, after)];
@@ -298,6 +352,13 @@ impl Arrangement {
         );
         if below.height() > 0.0 {
             let empty = ui.interact(below, ui.id().with("headers below"), Sense::click());
+            empty.widget_info(|| {
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::Other,
+                    true,
+                    "Empty track area: double-click to add an audio track",
+                )
+            });
             if empty.double_clicked() {
                 self.selected = vec![doc.add_track(TrackKind::Audio, None)];
             } else if empty.clicked() {
@@ -414,6 +475,14 @@ impl Arrangement {
 
             // Background: click to select, right-click for the menu.
             let background = ui.interact(rect, id, Sense::click());
+            background.widget_info(|| {
+                egui::WidgetInfo::selected(
+                    egui::WidgetType::SelectableLabel,
+                    true,
+                    selected,
+                    track_description(&track),
+                )
+            });
             if background.clicked() {
                 self.click_select(doc.project(), track.id, modifiers);
             }
@@ -508,9 +577,12 @@ impl Arrangement {
             );
             let kind_hover =
                 Rect::from_center_size(pos2(rect.left() + 34.0, mid), vec2(16.0, 16.0));
-            let _ = ui
+            let kind = ui
                 .interact(kind_hover, id.with("kind"), Sense::hover())
                 .on_hover_text(kind_name(track.kind));
+            kind.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Label, true, kind_name(track.kind))
+            });
             let name_rect = Rect::from_min_max(
                 pos2(rect.left() + 48.0, mid - 10.0),
                 pos2(mute_rect.left() - 6.0, mid + 10.0),
@@ -585,6 +657,13 @@ impl Arrangement {
             let resize = ui
                 .interact(edge, id.with("resize"), Sense::drag())
                 .on_hover_cursor(CursorIcon::ResizeVertical);
+            resize.widget_info(|| {
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::Other,
+                    true,
+                    format!("Resize {}", track.name),
+                )
+            });
             if resize.drag_started() {
                 self.resizing = Some((track.id, row.height));
             }
@@ -673,6 +752,13 @@ impl Arrangement {
         let response = ui
             .interact(rect, id.with("name"), Sense::click())
             .on_hover_text("Double-click to rename (F2)");
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Button,
+                true,
+                format!("{}: double-click to rename", track.name),
+            )
+        });
         if response.double_clicked() {
             self.renaming = Some((track.id, track.name.clone()));
         } else if response.clicked() {
@@ -1466,6 +1552,25 @@ fn gradient(painter: &Painter, rect: Rect, left: Color32, right: Color32) {
     painter.add(egui::Shape::mesh(mesh));
 }
 
+/// What a screen reader says for a track header: "Track Kick, Audio
+/// track, muted, armed for recording".
+fn track_description(track: &lumen_project::model::Track) -> String {
+    let mut parts = vec![
+        format!("Track {}", track.name),
+        kind_name(track.kind).to_owned(),
+    ];
+    if track.mute {
+        parts.push("muted".into());
+    }
+    if track.solo {
+        parts.push("soloed".into());
+    }
+    if track.armed {
+        parts.push("armed for recording".into());
+    }
+    parts.join(", ")
+}
+
 /// The track type, for the header icon's tooltip.
 fn kind_name(kind: TrackKind) -> &'static str {
     match kind {
@@ -1606,6 +1711,44 @@ mod tests {
         assert_eq!(
             (b.top, b.expanded, b.heights),
             (a.top, a.expanded, a.heights)
+        );
+    }
+
+    #[test]
+    fn the_keyboard_alone_can_select_tracks() {
+        let tracks = [Id(1), Id(2), Id(3)];
+        let mut a = Arrangement::default();
+        a.step_selection(&tracks, 1, false);
+        assert_eq!(
+            a.selected,
+            [Id(1)],
+            "Down with nothing selected starts at the top"
+        );
+        a.step_selection(&tracks, 1, false);
+        assert_eq!(a.selected, [Id(2)]);
+        a.step_selection(&tracks, 1, true);
+        assert_eq!(a.selected, [Id(2), Id(3)], "Shift extends");
+        a.step_selection(&tracks, 1, false);
+        assert_eq!(a.selected, [Id(3)], "stops at the bottom");
+        let mut b = Arrangement::default();
+        b.step_selection(&tracks, -1, false);
+        assert_eq!(
+            b.selected,
+            [Id(3)],
+            "Up with nothing selected starts at the bottom"
+        );
+    }
+
+    #[test]
+    fn headers_describe_themselves_to_screen_readers() {
+        let mut doc = Document::new(crate::empty_project());
+        let id = doc.add_track(TrackKind::Midi, None);
+        doc.set_mute(&[id], true);
+        doc.set_armed(&[id], true);
+        let track = doc.project().tracks[0].clone();
+        assert_eq!(
+            track_description(&track),
+            "Track MIDI 1, MIDI track, muted, armed for recording"
         );
     }
 
