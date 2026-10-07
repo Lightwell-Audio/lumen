@@ -831,7 +831,7 @@ builds.
 
 ## ADR-0012 — Lumen's own license
 
-**Status:** Needs human decision · **Date:** 2026-10-05
+**Status:** Accepted 2026-10-05 by the owner: closed source (proprietary); can be relicensed later. The options below are kept as context.
 
 `CLAUDE.md` does not state Lumen's licence. It decides:
 - the ASIO path (ADR-0006): GPLv3 is only possible if Lumen is GPLv3;

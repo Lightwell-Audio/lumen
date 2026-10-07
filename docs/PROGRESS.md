@@ -2,10 +2,9 @@
 
 ## Status
 
-**Current milestone:** 2 — Audio Engine, Devices & Transport, complete and
-awaiting approval (report below). Proposed next: 3 — Arrangement & Project
-System ([milestones/M3.md](milestones/M3.md)).
-**Previous:** M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
+**Current milestone:** 3 — Arrangement & Project System (plan:
+[milestones/M3.md](milestones/M3.md))
+**Previous:** M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
 
@@ -14,8 +13,8 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | # | Milestone | Status | Notes |
 |---|---|---|---|
 | 1 | Foundations & Architecture | ✅ Complete | Plan and risk register in `docs/milestones/M1.md` |
-| 2 | Audio Engine, Devices & Transport | ✅ Complete 2026-10-06, awaiting approval | Plan: `docs/milestones/M2.md` |
-| 3 | Arrangement & Project System | 🔲 Plan proposed | `docs/milestones/M3.md` |
+| 2 | Audio Engine, Devices & Transport | ✅ Complete, approved 2026-10-07 | Plan: `docs/milestones/M2.md` |
+| 3 | Arrangement & Project System | 🟡 In progress | Plan: `docs/milestones/M3.md` |
 | 4 | Mixer, Routing & Groups | 🔲 | |
 | 5 | MIDI & Piano Roll | 🔲 | |
 | 6 | VST3 Hosting & Device System | 🔲 | |
@@ -300,7 +299,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 ## Milestone reports
 
 ### Milestone 2 — report (2026-10-06)
-**Status:** Complete, awaiting owner approval. All 8 slices are done, and
+**Status:** Complete; approved by the owner 2026-10-07. All 8 slices are done, and
 every M2 manual test passes on the owner's hardware. One planned item was not
 built: the benchmark regression gates (below).
 
@@ -401,8 +400,8 @@ code.
 - A 64-track project has not yet run on mid-range hardware. M2 measured the
   engine, not a full project.
 - Clip audio is held in memory until M9; large sessions will need streaming.
-- The ASIO SDK agreement (owner action) and Lumen's own licence (ADR-0012)
-  are still open; both gate distribution.
+- The ASIO SDK agreement is still to be signed (owner action); it gates
+  distribution. Lumen's own licence is decided: closed source (ADR-0012).
 - egui upgrades break every couple of months; the M3 arrangement grows the
   UI surface they can break.
 - Other ASIO drivers may behave differently from the Focusrite's; only the
