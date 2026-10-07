@@ -164,6 +164,17 @@ pub fn controls(selected: bool) -> Controls {
     }
 }
 
+/// A waveform inside a clip of `track` colour: brightened on the dark
+/// clip body so it reads (owner's choice: dark clips with bright
+/// waveforms); on the light theme's white body, the colour itself.
+pub fn wave(track: Color32) -> Color32 {
+    if LIGHT_IN_USE.load(Ordering::Relaxed) {
+        track
+    } else {
+        track.lerp_to_gamma(Color32::WHITE, 0.3)
+    }
+}
+
 /// Text on a filled control (a lit button): near-black on light fills,
 /// white on dark ones, whatever the theme.
 pub fn text_on(fill: Color32) -> Color32 {

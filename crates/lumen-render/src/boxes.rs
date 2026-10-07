@@ -12,6 +12,7 @@
 use bytemuck::{Pod, Zeroable};
 use vello::wgpu;
 
+use crate::waves::{self, WaveInstance, WaveStyle, Waves};
 use crate::{Area, Prepared, Renderer, View, pipeline};
 
 /// One box: a time range (timeline units, as [`View::left`]) on row slot
@@ -89,7 +90,23 @@ pub(crate) struct BoxLayer {
     rows: wgpu::Texture,
     /// Slots the texture holds.
     row_capacity: u32,
+    /// Waveforms inside the boxes, on the same rows.
+    waves: Waves,
 }
+
+/// One box layer to draw: where, at which scroll and zoom, and how.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BoxDraw {
+    pub layer: BoxLayerId,
+    pub area: Area,
+    pub view: View,
+    pub style: BoxStyle,
+    pub waves: WaveStyle,
+}
+
+/// The size of the box shader's uniform (checked against the shader).
+#[cfg(test)]
+pub(crate) const UNIFORM_SIZE: usize = size_of::<BoxUniform>();
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -293,6 +310,7 @@ impl Renderer {
             count: 0,
             rows,
             row_capacity,
+            waves: Waves::new(device),
         });
         BoxLayerId(self.box_layers.len() - 1)
     }
@@ -319,6 +337,36 @@ impl Renderer {
             queue.write_buffer(&layer.instances, 0, bytes);
         }
         layer.count = boxes.len() as u32;
+    }
+
+    /// Replaces a layer's waveforms. Reallocates only if it grew.
+    pub fn update_waves(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        id: BoxLayerId,
+        waves: &[WaveInstance],
+    ) {
+        self.box_layers[id.0]
+            .waves
+            .set_instances(device, queue, waves);
+    }
+
+    /// Stores waveform peaks as `slot` of a layer: `levels` finest first,
+    /// [`waves::PEAK_BASE`] frames per bucket at level 0, each level
+    /// [`waves::PEAK_FACTOR`] times coarser. False if the atlas is full.
+    pub fn set_peaks(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        id: BoxLayerId,
+        slot: u32,
+        levels: &[&[[i8; 4]]],
+    ) -> bool {
+        self.box_layers[id.0]
+            .waves
+            .set_peaks(device, queue, encoder, slot, levels)
     }
 
     /// Replaces a layer's row slots (every frame, if rows move).
@@ -361,12 +409,20 @@ impl Renderer {
         device: &wgpu::Device,
         target: usize,
         canvas: [u32; 2],
-        layers: &[(BoxLayerId, Area, View, BoxStyle)],
+        layers: &[BoxDraw],
     ) {
         use wgpu::util::DeviceExt;
+        let mut waves = Vec::new();
         let boxes = layers
             .iter()
-            .map(|&(id, area, view, style)| {
+            .map(|draw| {
+                let BoxDraw {
+                    layer: id,
+                    area,
+                    view,
+                    style,
+                    ..
+                } = *draw;
                 let uniform = BoxUniform {
                     canvas: [canvas[0] as f32, canvas[1] as f32],
                     origin: [area.x, area.y],
@@ -386,9 +442,25 @@ impl Renderer {
                     contents: bytemuck::bytes_of(&uniform),
                     usage: wgpu::BufferUsages::UNIFORM,
                 });
-                let rows = self.box_layers[id.0]
+                let layer = &self.box_layers[id.0];
+                let rows = layer
                     .rows
                     .create_view(&wgpu::TextureViewDescriptor::default());
+                if layer.waves.count() > 0 {
+                    let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("lumen waves view"),
+                        contents: bytemuck::bytes_of(&waves::uniform(
+                            canvas, area, view, draw.waves,
+                        )),
+                        usage: wgpu::BufferUsages::UNIFORM,
+                    });
+                    waves.push((
+                        id.0,
+                        layer
+                            .waves
+                            .bind(device, &self.wave_pipeline.bind_layout, &rows, &uniform),
+                    ));
+                }
                 let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("lumen boxes view"),
                     layout: &self.boxes.bind_layout,
@@ -411,6 +483,7 @@ impl Renderer {
             Prepared {
                 draws: Vec::new(),
                 boxes,
+                waves,
                 vector: None,
             },
         );
@@ -429,6 +502,16 @@ impl Renderer {
             pass.set_bind_group(0, bind, &[]);
             pass.set_vertex_buffer(0, layer.instances.slice(..));
             pass.draw(0..4, 0..layer.count);
+        }
+        if prepared.waves.is_empty() {
+            return;
+        }
+        pass.set_pipeline(&self.wave_pipeline.pipeline);
+        for (layer, bind) in &prepared.waves {
+            let waves = &self.box_layers[*layer].waves;
+            pass.set_bind_group(0, bind, &[]);
+            pass.set_vertex_buffer(0, waves.instances().slice(..));
+            pass.draw(0..4, 0..waves.count());
         }
     }
 }

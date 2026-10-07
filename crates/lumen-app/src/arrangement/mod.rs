@@ -18,6 +18,7 @@
 
 mod clips;
 mod headers;
+mod waves;
 
 pub use clips::TimeView;
 

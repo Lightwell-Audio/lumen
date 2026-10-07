@@ -37,6 +37,7 @@ irreversible or external) · *Superseded*.
 | [0024](#adr-0024--undo-by-shared-snapshots) | Undo by shared snapshots: every step is a cheap copy of the project that shares untouched tracks and clips | Accepted 2026-10-07 | No |
 | [0025](#adr-0025--tracks-folding-and-interim-volume-and-pan) | Tracks: owner-chosen header and clip design, Ableton-style folding and resizing, interim volume and pan until the mixer | Accepted 2026-10-07 | No |
 | [0026](#adr-0026--clips-on-the-gpu) | Clips on the GPU: a box layer with a per-frame row table; names in egui; measured first with a frame-time benchmark | Accepted 2026-10-07 | No |
+| [0027](#adr-0027--waveforms) | Waveforms: 8-bit peak pyramids built at load; drawn per pixel on the GPU from an atlas; disk cache proposed for M9 | Accepted 2026-10-07 | Disk cache deferral |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -1635,3 +1636,72 @@ Idle: 3 repaints in 3 s, all from the once-a-second device check.
   pixel by pixel when either changes.
 - Frame times are re-measured before a slice that touches the arrangement
   closes (DEVELOPMENT.md, "Frame-time benchmark").
+
+---
+
+## ADR-0027 — Waveforms
+
+**Status:** Accepted · **Date:** 2026-10-07 (M3 slice 4c) · The disk cache
+is deferred to M9, pending the owner's approval
+
+### Context
+Clips need waveforms that stay crisp and fast at every zoom (§6.2 [M]),
+in the owner-chosen look: bright waveforms on dark clips (DESIGN §7a).
+M3 risk R3: peaks for long files must not stall loading or use too much
+memory. Clips are already on the GPU with a per-frame row table
+(ADR-0026).
+
+### Decision
+- **Peaks** (`lumen-media::Peaks`): minimum and maximum per channel in
+  buckets of 16 frames, at the device rate the audio is held at; seven
+  levels, each covering four buckets of the one below (up to 65,536
+  frames). Stored as signed 8-bit fractions of full scale (minimum
+  rounded down, maximum up, so quiet audio shows): about 5 MB per 5
+  minutes of stereo. Built on the file's load thread after conversion,
+  with its cancel flag.
+- **Drawing** (`lumen-render`, in the box layer, on the same row table):
+  - peaks go into one atlas texture (4096 texels wide, growing to 128 MB),
+    with a small table of where each slot's levels start; files with the
+    same peaks share a slot;
+  - a wave is a time range on a row showing a slot's audio from a frame at
+    a number of frames per beat. A clip spanning tempo changes is one wave
+    per constant tempo, since audio plays at its own speed while beats
+    stretch;
+  - for each pixel, the fragment shader turns the pixel's width into a
+    range of frames, picks the finest level whose buckets are no wider,
+    and takes the extent of the few buckets underneath (at most six). So
+    the waveform is exact at every zoom, with no CPU work per frame.
+  - Stereo is left over right when the clip is at least 40 pt tall,
+    otherwise one combined waveform.
+  - Colour: the track colour, brightened on the dark theme's dark clip
+    body (`theme::wave`).
+- **Tests:** peaks (bucket extents, rounding, levels, mono and extra
+  channels, cancel, memory), the wave mapping (offsets at the device
+  rate, tempo splits), atlas span splitting, naga validation of the
+  shader, and each shader's uniform size against its Rust struct (a
+  mismatch had caused a GPU validation error at the first draw).
+
+### Measurements (Ryzen 7 7700X, RTX 4070)
+- Frame times with every clip of the stress project showing a waveform
+  (`--stress` now gives its files generated audio), p99 (scroll time /
+  scroll tracks / zoom): 1600 × 900 1.2 / 1.4 / 1.2 ms; 3440 × 1380
+  1.8–2.0 / 2.1 / 1.9–2.3 ms. Within noise of the same runs without
+  waveforms.
+- Loading a 5-minute stereo WAV: 100–140 ms in all, of which peaks 21 ms.
+
+### Proposed for the owner: no disk cache until M9
+The plan said peaks would be cached on disk. Until M9 every file is
+decoded into memory when it loads (owner decision, 2026-10-06), so peaks
+are built from audio already in memory in about 21 ms per 5 minutes, a
+small part of decoding (smaller still for compressed formats). A cache
+would save that and add files to keep in step. It pays off with disk
+streaming in M9, when audio is no longer decoded up front; it is built
+then.
+
+### Consequences
+- Replaced peaks (after a device-rate change) are not reclaimed in the
+  atlas until the app restarts; the atlas holds about 130 five-minute
+  stereo files. Compaction comes with streaming (M9).
+- The finest level is 16 frames per bucket. Today's deepest zoom is about
+  30 frames per pixel at 200%; a deeper zoom (slice 4d or later editing)
+  needs sample-level drawing.

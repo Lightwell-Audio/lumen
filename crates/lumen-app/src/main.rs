@@ -51,6 +51,7 @@ mod widgets;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, RichText};
@@ -528,6 +529,28 @@ fn main() -> eframe::Result {
                 });
             }
             let mut lanes = lanes::Lanes::default();
+            // `--stress`: every file of the generated project plays the
+            // same generated audio (one copy in memory, one set of peaks).
+            if std::env::args().any(|a| a == "--stress") {
+                let rate = transport.state().sample_rate;
+                let channels = bench::stress_audio(rate);
+                let peaks =
+                    lumen_media::Peaks::build(&channels, &AtomicBool::new(false)).map(Arc::new);
+                let audio = Arc::new(lumen_engine::ClipAudio {
+                    sample_rate: rate,
+                    channels,
+                });
+                for media in &document.project().media {
+                    if let Some(peaks) = &peaks {
+                        lanes.library.insert_ready(
+                            media.id.0,
+                            &media.path,
+                            Arc::clone(&audio),
+                            Arc::clone(peaks),
+                        );
+                    }
+                }
+            }
             if let Some(path) = arg_value("--open-audio") {
                 lanes.add_files(
                     vec![PathBuf::from(path)],

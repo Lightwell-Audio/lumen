@@ -821,5 +821,29 @@ after opening).
 **Expected:** every step as described, and no visual difference from
 before apart from smoother scrolling.
 
+**Run 1 (2026-10-07, owner):** "it looks good". The owner reported faint
+static on the metronome during the run; fixed (ADR-0020 update).
+
+**Last run:** run 1, passed.
+
+### MT-APP-11 · Waveforms (needs a human)
+1. Drop a few of your own audio files (a drum loop, a vocal, a long mix)
+   onto the arrangement. As each finishes loading, its clip shows its
+   waveform in the track colour.
+2. Unfold a track and make it taller: a stereo file shows left above
+   right; folded or short, one combined waveform.
+3. Ctrl+wheel from the closest zoom to the whole song: the waveform stays
+   sharp at every step, with no blocky or blurry stage, and transients
+   line up with what you hear when you play from them.
+4. Mute a track: its waveform dims with its clip. Solo another: the rest
+   dim.
+5. Change the tempo: clips keep their audio where it was; the waveforms
+   stretch or squeeze with the beats as the audio does.
+6. Run `cargo run --release -p lumen-app -- --stress`: every audio clip
+   has a waveform; scrolling and zooming stay smooth.
+7. Try steps 1–4 in the light theme and at 150%.
+
+**Expected:** every step as described.
+
 **Last run:** pending.
 

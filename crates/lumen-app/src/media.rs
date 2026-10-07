@@ -1,6 +1,7 @@
 //! Audio files in the app (M2 slice 6): each one is loaded on its own
-//! background thread (decode, then convert to the device rate) with progress
-//! and cancel, and held in memory for the clip player. When the device rate
+//! background thread (decode, convert to the device rate, then build its
+//! waveform peaks, slice 4c) with progress and cancel, and held in memory
+//! for the clip player. When the device rate
 //! changes, ready files are converted again in the background; their clips
 //! stay silent until then.
 
@@ -11,7 +12,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 
 use eframe::egui;
 use lumen_engine::ClipAudio;
-use lumen_media::MediaError;
+use lumen_media::{MediaError, Peaks};
 
 /// What the user sees about a file: from its name and size at once, the
 /// rest when it has been decoded.
@@ -58,6 +59,8 @@ pub struct Item {
     pub name: String,
     pub state: State,
     pub info: FileInfo,
+    /// Waveform peaks of the audio at the device rate, once ready.
+    pub peaks: Option<Arc<Peaks>>,
     job: Option<Job>,
 }
 
@@ -74,6 +77,7 @@ struct Done {
     /// The file's own rate, channels and length (frames, seconds).
     source: Option<(u32, usize, u64, f64)>,
     result: Result<lumen_media::Audio, MediaError>,
+    peaks: Option<Peaks>,
 }
 
 pub struct Library {
@@ -122,9 +126,32 @@ impl Library {
             name,
             state: State::Loading,
             info,
+            peaks: None,
             job: None,
         });
         self.start_job(id, rate, ctx);
+    }
+
+    /// Adds audio that is already in memory as `id`, ready at once
+    /// (`--stress`: generated audio for every file of the stress project).
+    pub fn insert_ready(&mut self, id: u64, name: &str, audio: Arc<ClipAudio>, peaks: Arc<Peaks>) {
+        self.items.retain(|i| i.id != id);
+        self.items.push(Item {
+            id,
+            path: PathBuf::from(name),
+            name: name.to_owned(),
+            info: FileInfo {
+                format: "Generated".into(),
+                sample_rate: Some(audio.sample_rate),
+                channels: Some(audio.channels.len()),
+                frames: Some(audio.frames() as u64),
+                seconds: Some(audio.frames() as f64 / f64::from(audio.sample_rate.max(1))),
+                ..FileInfo::default()
+            },
+            state: State::Ready(audio),
+            peaks: Some(peaks),
+            job: None,
+        });
     }
 
     fn start_job(&mut self, id: u64, rate: u32, ctx: &egui::Context) {
@@ -164,14 +191,25 @@ impl Library {
                     .map(|a| (a.sample_rate, a.channels(), a.frames() as u64, a.seconds()));
                 let result = decoded.and_then(|audio| {
                     let converted = lumen_media::resample(&audio, rate, &cancel);
-                    report(1.0);
+                    report(0.98);
                     converted
                 });
+                let started = std::time::Instant::now();
+                let peaks = result.as_ref().ok().and_then(|audio| audio.peaks(&cancel));
+                crate::trace::log(|| {
+                    format!(
+                        "media: peaks of {} in {:.1} ms",
+                        path.display(),
+                        started.elapsed().as_secs_f64() * 1000.0
+                    )
+                });
+                report(1.0);
                 let _ = done.send(Done {
                     id,
                     rate,
                     source,
                     result,
+                    peaks,
                 });
                 ctx.request_repaint();
             })
@@ -207,6 +245,7 @@ impl Library {
                         sample_rate: audio.sample_rate,
                         channels: audio.into_channels(),
                     }));
+                    item.peaks = done.peaks.map(Arc::new);
                 }
                 Err(MediaError::Cancelled) => {}
                 Err(error) => item.state = State::Failed(error.to_string()),

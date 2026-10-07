@@ -49,9 +49,9 @@ how the parts fit.
 | `lumen-rt` | Real-time safety tooling: allocation guard and `rt_section` (RTSan hooks) |
 | `lumen-audio` | Device layer: `Backend` and `Stream` traits; ASIO, WASAPI and cpal backends; `AudioSystem` supervisor; `Unavailable` (a driver that could not start, with the reason); a fake backend for tests |
 | `lumen-engine` | Engine on the audio thread: transport, timeline, clip player, metronome and test tone, declick; `EngineHandle` on the UI side |
-| `lumen-media` | Audio files: decoding (symphonia) and sample-rate conversion (rubato) |
+| `lumen-media` | Audio files: decoding (symphonia), sample-rate conversion (rubato), waveform peaks (ADR-0027) |
 | `lumen-project` | Document model, `.lumen` format and migrations, atomic save and backups, media locating, `History` (undo) |
-| `lumen-render` | Toolkit-independent renderer: GPU-resident instanced layers (rectangles; boxes with a per-frame row table, ADR-0026) plus Vello; GPU pipeline cache |
+| `lumen-render` | Toolkit-independent renderer: GPU-resident instanced layers (rectangles; boxes with a per-frame row table, ADR-0026; waveforms drawn per pixel from a peak atlas, ADR-0027) plus Vello; GPU pipeline cache |
 | `lumen-perf` | Performance-gate scenarios and the `perf-gate` runner |
 | `lumen-app` | The `lumen` application (modules below) |
 
@@ -60,7 +60,7 @@ how the parts fit.
 | Area | Modules |
 |---|---|
 | Projects | `document.rs` (the open project and its history), `files.rs` (project folders, save, open, recent), `autosave.rs` (autosave and recovery) |
-| Arrangement | `arrangement/` (`mod.rs`: rows, heights, folding, selection, keyboard; `headers.rs`: track headers and menus; `clips.rs`: lanes and clips), `lanes.rs` (the clip library and the engine's clip list), `media.rs` (loading audio in the background), `ruler.rs`, `position.rs`, `canvas.rs` (GPU grid and clip bodies) |
+| Arrangement | `arrangement/` (`mod.rs`: rows, heights, folding, selection, keyboard; `headers.rs`: track headers and menus; `clips.rs`: lanes and clips; `waves.rs`: which audio each clip's waveform shows), `lanes.rs` (the clip library and the engine's clip list), `media.rs` (loading audio in the background), `ruler.rs`, `position.rs`, `canvas.rs` (GPU grid and clip bodies) |
 | Transport and audio | `transport.rs` (transport bar, audio panel, shortcuts), `audio.rs` (device choice and status), `audio_settings.rs` (settings window), `probe.rs` (ASIO helper process) |
 | Design system | `theme.rs`, `motion.rs`, `fonts.rs`, `panels.rs` (sliding panels), `icons.rs` (vector icons, track-type icons, close button), `widgets.rs` (value slider, fold arrow, gradients, glow line), `owner.rs` (dialogs owned by the main window) |
 | App | `main.rs` (the `App` state, the frame loop, start-up and command-line flags); `app/` holds its behaviour by concern: `projects.rs` (new, open, save, the unsaved-changes prompt), `recovery.rs` (autosave and the recovery banner), `history.rs` (undo, redo, History window, toasts), `preferences.rs` (app menu, appearance, settings saves), `view.rs` (transport bar, arrangement composition, ruler, playhead, device banner) |

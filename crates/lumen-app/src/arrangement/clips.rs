@@ -8,12 +8,15 @@
 //! frame. Names, and the few clips still loading for import, are egui text
 //! and shapes, drawn only where they are visible.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use eframe::egui::{self, Align2, Color32, FontId, Painter, Pos2, Rect, Stroke, pos2, vec2};
+use lumen_media::Peaks;
 use lumen_project::model::{Clip, ClipContent, Project};
-use lumen_render::{BoxInstance, RowSlot, rgba};
+use lumen_render::{BoxInstance, RowSlot, WaveInstance, WaveStyle, rgba};
 
+use super::waves::{Source, wave_instances};
 use super::{Arrangement, Row, RowKind, TITLE, color_of};
 use crate::canvas::{self, ClipFrame};
 use crate::document::{Document, audible};
@@ -26,6 +29,10 @@ use crate::widgets::{draw_edge_glow, gradient};
 const INSET: f32 = 3.0;
 /// The opacity of clips on tracks that cannot be heard.
 const DIMMED: f32 = 0.42;
+/// Space between the title bar and the waveform, and below it.
+const WAVE_GAP: f32 = 2.0;
+/// Below this height (in points), stereo is drawn as one waveform.
+const SPLIT_BELOW: f32 = 40.0;
 /// Clips narrower than this show no name: a letter or two is noise, and
 /// at wide zooms thousands of names cost more than the clips.
 const NAME_MIN_WIDTH: f32 = 24.0;
@@ -54,15 +61,68 @@ impl TimeView {
     }
 }
 
-/// The clip bodies on the GPU, and what they were built from.
+/// The clip bodies and waveforms on the GPU, and what they were built
+/// from.
 #[derive(Debug, Default)]
 pub(super) struct GpuClips {
     boxes: Arc<Vec<BoxInstance>>,
+    waves: Arc<Vec<WaveInstance>>,
     generation: u64,
-    /// The document state, media revision and palette the boxes show.
-    built: Option<(u64, u64, theme::Palette)>,
+    /// Peak slots by the peaks they hold (files with the same peaks share
+    /// one), and the list the GPU side uploads from.
+    slots: HashMap<usize, (u32, Arc<Peaks>)>,
+    next_slot: u32,
+    peaks: Arc<Vec<(u32, Arc<Peaks>)>>,
+    /// The document state, media revision, device rate and palette the
+    /// boxes show.
+    built: Option<(u64, u64, u32, theme::Palette)>,
     /// A clip is fading in or loading: rebuild next frame too.
     moving: bool,
+}
+
+impl GpuClips {
+    /// The waves of every audio clip whose peaks are ready at `rate`, giving
+    /// each set of peaks a slot (shared peaks share one).
+    fn waves_for(&mut self, project: &Project, rate: u32, lanes: &Lanes) -> Vec<WaveInstance> {
+        let mut sources = HashMap::new();
+        for item in lanes.library.items() {
+            let (State::Ready(audio), Some(peaks)) = (&item.state, &item.peaks) else {
+                continue;
+            };
+            if audio.sample_rate != rate {
+                continue;
+            }
+            let key = Arc::as_ptr(peaks) as usize;
+            let next = &mut self.next_slot;
+            let (slot, _) = self.slots.entry(key).or_insert_with(|| {
+                *next += 1;
+                (*next - 1, Arc::clone(peaks))
+            });
+            sources.insert(
+                item.id,
+                Source {
+                    slot: *slot,
+                    channels: peaks.channels as u32,
+                    native_rate: item.info.sample_rate.unwrap_or(audio.sample_rate),
+                },
+            );
+        }
+        // Peaks no file holds any more (replaced after a rate change).
+        self.slots
+            .retain(|_, (_, peaks)| Arc::strong_count(peaks) > 1);
+        self.peaks = Arc::new(
+            self.slots
+                .values()
+                .map(|(slot, peaks)| (*slot, Arc::clone(peaks)))
+                .collect(),
+        );
+        wave_instances(
+            project,
+            rate,
+            |media| sources.get(&media).copied(),
+            |row| theme::wave(color_of(project.tracks[row].color)),
+        )
+    }
 }
 
 impl Arrangement {
@@ -140,12 +200,20 @@ impl Arrangement {
             ppp,
             ClipFrame {
                 boxes: Arc::clone(&self.gpu.boxes),
+                waves: Arc::clone(&self.gpu.waves),
+                peaks: Arc::clone(&self.gpu.peaks),
                 generation: self.gpu.generation,
                 rows: slots,
                 left_beat: time.left_beat,
                 px_per_beat: time.px_per_beat,
                 top: self.top,
                 style: canvas::box_style(ppp, INSET, TITLE),
+                wave_style: WaveStyle {
+                    top: (INSET + TITLE + WAVE_GAP) * ppp,
+                    bottom: (INSET + WAVE_GAP) * ppp,
+                    side: ppp,
+                    split_below: SPLIT_BELOW * ppp,
+                },
             },
         ));
 
@@ -227,7 +295,8 @@ impl Arrangement {
         lanes: &mut Lanes,
     ) {
         let palette = *theme::p();
-        let key = (state, lanes.revision(), palette);
+        let rate = lanes.rate();
+        let key = (state, lanes.revision(), rate, palette);
         if self.gpu.built == Some(key) && !self.gpu.moving {
             return;
         }
@@ -242,12 +311,13 @@ impl Arrangement {
                 boxes.push(clip_box(clip, row as u32, &look, &palette));
             }
         }
-        self.gpu = GpuClips {
-            boxes: Arc::new(boxes),
-            generation: self.gpu.generation + 1,
-            built: Some(key),
-            moving,
-        };
+        let waves = self.gpu.waves_for(project, rate, lanes);
+        let gpu = &mut self.gpu;
+        gpu.boxes = Arc::new(boxes);
+        gpu.waves = Arc::new(waves);
+        gpu.generation += 1;
+        gpu.built = Some(key);
+        gpu.moving = moving;
     }
 
     /// The file of the audio clip under `pointer`, for the hover card.

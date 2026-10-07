@@ -390,8 +390,8 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-07, during M3 slice 4 (4a done, audit fixed,
-4b built).
+**Last updated:** 2026-10-07, during M3 slice 4 (4a and 4b done, audit
+fixed, 4c built).
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
@@ -420,9 +420,11 @@ it first in a new session, and update it at the end of every slice.
     on every edit, and clip levels that glide (ADR-0025).
   - **4b built** (ADR-0026): clip bodies on the GPU (a box layer with a
     per-frame row table) and a frame-time benchmark
-    (`--stress --bench-frames`; DEVELOPMENT.md). MT-APP-10 awaits the
-    owner.
-  - Next: 4c (waveforms), 4d (zoom, follow playhead, drag to reorder).
+    (`--stress --bench-frames`; DEVELOPMENT.md). MT-APP-10 passed.
+  - **4c built** (ADR-0027): waveforms from peak pyramids built at load,
+    drawn per pixel on the GPU. MT-APP-11 awaits the owner, as does
+    approval to move the peak disk cache to M9.
+  - Next: 4d (zoom, follow playhead, drag to reorder).
   - The plan and the follow-ups are in `docs/milestones/M3.md`.
 - **Skills** (`.claude/skills/`), to load before working:
   - `lumen-architecture` before writing or changing code;
@@ -432,7 +434,7 @@ it first in a new session, and update it at the end of every slice.
 - Where to look:
   - `docs/PROGRESS.md`: every requirement's status, slice tables and the
     milestone reports;
-  - `docs/DECISIONS.md`: ADR-0001 to ADR-0026, plus the table of owner
+  - `docs/DECISIONS.md`: ADR-0001 to ADR-0027, plus the table of owner
     decisions;
   - `docs/MANUAL_TESTS.md`: hardware tests with every run's results;
   - `docs/ARCHITECTURE.md`: crates and threads;

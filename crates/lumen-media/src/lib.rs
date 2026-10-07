@@ -10,6 +10,10 @@
 //! the disk and can take seconds. It takes a cancel flag and reports
 //! progress.
 
+mod peaks;
+
+pub use peaks::{BASE as PEAK_BASE, Bucket, FACTOR as PEAK_FACTOR, LEVELS as PEAK_LEVELS, Peaks};
+
 use std::fs::File;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -61,6 +65,11 @@ impl Audio {
     }
 
     /// The samples, channel after channel, without copying.
+    /// The waveform peaks of this audio; `None` if cancelled.
+    pub fn peaks(&self, cancel: &AtomicBool) -> Option<Peaks> {
+        Peaks::build(&self.channels, cancel)
+    }
+
     pub fn into_channels(self) -> Vec<Vec<f32>> {
         self.channels
     }

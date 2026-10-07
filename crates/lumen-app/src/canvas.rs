@@ -3,14 +3,17 @@
 //! egui's wgpu device: the arrangement grid, and clip bodies (M3 slice 4b,
 //! ADR-0026).
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use eframe::egui::{self, Rect};
 use eframe::egui_wgpu::{self, wgpu};
 use lumen_core::product::PRODUCT_NAME;
+use lumen_media::Peaks;
 use lumen_render::{
-    Area, BoxInstance, BoxLayerId, BoxStyle, LayerId, RectInstance, Renderer, RowSlot, View, rgba,
+    Area, BoxDraw, BoxInstance, BoxLayerId, BoxStyle, LayerId, RectInstance, Renderer, RowSlot,
+    View, WaveInstance, WaveStyle, rgba,
 };
 
 /// Bars drawn in the empty arrangement grid.
@@ -22,8 +25,12 @@ struct Resources {
     /// The meter the grid layer was built for.
     grid_meter: GridMeter,
     clips: BoxLayerId,
-    /// The generation of clip boxes on the GPU.
+    /// The generation of clip boxes and waves on the GPU.
     clips_generation: Option<u64>,
+    /// Peak slots already in the atlas.
+    peaks_uploaded: HashSet<u32>,
+    /// The atlas is full: waves of further files are not drawn.
+    atlas_full: bool,
 }
 
 /// Drawing targets: each paint callback prepares its own.
@@ -99,6 +106,8 @@ pub fn install(state: &egui_wgpu::RenderState) -> Result<(), String> {
             grid_meter,
             clips,
             clips_generation: None,
+            peaks_uploaded: HashSet::new(),
+            atlas_full: false,
         }));
     Ok(())
 }
@@ -217,10 +226,15 @@ pub fn grid_shape(
     egui::Shape::Callback(egui_wgpu::Callback::new_paint_callback(rect, callback))
 }
 
-/// Clip bodies for the GPU: the boxes, rebuilt only when they change
-/// (`generation` says when), and where each row is this frame.
+/// Clip bodies and waveforms for the GPU: the boxes and waves, rebuilt
+/// only when they change (`generation` says when), and where each row is
+/// this frame.
 pub struct ClipFrame {
     pub boxes: Arc<Vec<BoxInstance>>,
+    pub waves: Arc<Vec<WaveInstance>>,
+    /// Every peak slot the waves may use; the GPU side uploads the ones it
+    /// does not have yet.
+    pub peaks: Arc<Vec<(u32, Arc<Peaks>)>>,
     pub generation: u64,
     pub rows: Vec<RowSlot>,
     /// Scroll and zoom: beats at the left edge and points per beat; the
@@ -230,6 +244,7 @@ pub struct ClipFrame {
     pub top: f32,
     /// Clip sizes, in physical pixels ([`box_style`]).
     pub style: BoxStyle,
+    pub wave_style: WaveStyle,
 }
 
 struct ClipsCallback {
@@ -244,16 +259,32 @@ impl egui_wgpu::CallbackTrait for ClipsCallback {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         _screen: &egui_wgpu::ScreenDescriptor,
-        _encoder: &mut wgpu::CommandEncoder,
+        encoder: &mut wgpu::CommandEncoder,
         resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
         let Some(Ok(r)) = resources.get_mut::<Mutex<Resources>>().map(Mutex::get_mut) else {
             return Vec::new();
         };
         let frame = &self.frame;
+        for (slot, peaks) in frame.peaks.iter() {
+            if r.atlas_full || r.peaks_uploaded.contains(slot) {
+                continue;
+            }
+            let levels: Vec<&[[i8; 4]]> = peaks.levels().iter().map(Vec::as_slice).collect();
+            if r.renderer
+                .set_peaks(device, queue, encoder, r.clips, *slot, &levels)
+            {
+                r.peaks_uploaded.insert(*slot);
+            } else {
+                crate::trace::log(|| "waveforms: the peak atlas is full".into());
+                r.atlas_full = true;
+            }
+        }
         if r.clips_generation != Some(frame.generation) {
             r.renderer
                 .update_boxes(device, queue, r.clips, &frame.boxes);
+            r.renderer
+                .update_waves(device, queue, r.clips, &frame.waves);
             r.clips_generation = Some(frame.generation);
         }
         r.renderer.update_rows(device, queue, r.clips, &frame.rows);
@@ -269,7 +300,13 @@ impl egui_wgpu::CallbackTrait for ClipsCallback {
             device,
             CLIPS_TARGET,
             self.port.size_px,
-            &[(r.clips, area, view, frame.style)],
+            &[BoxDraw {
+                layer: r.clips,
+                area,
+                view,
+                style: frame.style,
+                waves: frame.wave_style,
+            }],
         );
         Vec::new()
     }

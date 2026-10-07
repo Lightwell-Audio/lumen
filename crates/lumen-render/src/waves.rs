@@ -1,0 +1,570 @@
+//! Waveforms (M3 slice 4c, ADR-0027), drawn inside the clips of a box
+//! layer and sharing its row table.
+//!
+//! Peaks (minimum and maximum per bucket of frames, at several
+//! resolutions) live in one atlas texture; a small table says where each
+//! slot's levels start. A wave is a time range on a row that shows a slot's
+//! audio from a given frame. For every pixel the fragment shader turns the
+//! pixel's width into a range of frames, picks the finest level whose
+//! buckets are no wider than that, and takes the extent of the few buckets
+//! underneath: crisp at every zoom, with no work on the CPU per frame.
+
+use bytemuck::{Pod, Zeroable};
+use vello::wgpu;
+
+use crate::pipeline;
+
+/// Frames per bucket at the finest level of the peaks this draws.
+pub const PEAK_BASE: u32 = 16;
+/// Buckets of the level below that one bucket covers.
+pub const PEAK_FACTOR: u32 = 4;
+/// Most levels a slot can have.
+pub const MAX_LEVELS: usize = 8;
+
+/// Atlas texels per row; the atlas is a linear run of texels.
+const ATLAS_WIDE: u32 = 4096;
+/// The atlas never grows past this many rows (4096 × 8192 texels, 128 MB).
+const ATLAS_MAX_ROWS: u32 = 8192;
+
+/// One wave: the audio of `slot` from frame `first_frame` (at
+/// `frames_per_beat`), shown from beat `start` to `end` on row slot `row`.
+/// A clip that spans tempo changes is one wave per constant-tempo segment.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
+pub struct WaveInstance {
+    pub start: f32,
+    pub end: f32,
+    pub row: u32,
+    pub slot: u32,
+    pub first_frame: f32,
+    pub frames_per_beat: f32,
+    /// Straight alpha, `0xAABBGGRR`.
+    pub color: u32,
+    /// 1 or 2: one waveform, or left over right when there is room.
+    pub channels: u32,
+}
+
+/// Where waves sit inside their row, in physical pixels.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WaveStyle {
+    /// From the row's top to the wave area (inset, title bar, a gap).
+    pub top: f32,
+    /// From the row's bottom to the wave area.
+    pub bottom: f32,
+    /// In from the clip's left and right edges (the border).
+    pub side: f32,
+    /// Below this height, stereo is drawn as one waveform.
+    pub split_below: f32,
+}
+
+pub(crate) struct Waves {
+    instances: wgpu::Buffer,
+    count: u32,
+    atlas: wgpu::Texture,
+    atlas_rows: u32,
+    /// Texels in use (a bump allocator; replaced peaks are not reclaimed).
+    used: u32,
+    table: wgpu::Texture,
+    /// Per slot and level: first texel and bucket count. Kept here so the
+    /// table can be rewritten when it grows.
+    entries: Vec<[[u32; 2]; MAX_LEVELS]>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub(crate) struct WaveUniform {
+    canvas: [f32; 2],
+    origin: [f32; 2],
+    size: [f32; 2],
+    left: f32,
+    px_per_unit: f32,
+    top_px: f32,
+    wave_top: f32,
+    wave_bottom: f32,
+    side: f32,
+    split_below: f32,
+    _pad: [f32; 3],
+}
+
+pub(crate) const WAVE_SHADER: &str = r#"
+struct Layer {
+    canvas: vec2<f32>, origin: vec2<f32>, size: vec2<f32>,
+    left: f32, ppu: f32, top: f32,
+    wave_top: f32, wave_bottom: f32, side: f32, split_below: f32,
+    // Three floats, not a vec3, which would align to 16 bytes.
+    pad0: f32, pad1: f32, pad2: f32,
+};
+@group(0) @binding(0) var<uniform> l: Layer;
+@group(0) @binding(1) var rows: texture_2d<f32>;
+@group(0) @binding(2) var atlas: texture_2d<f32>;
+@group(0) @binding(3) var table: texture_2d<u32>;
+
+const BASE: f32 = 16.0;
+const LEVELS: i32 = 8;
+const ATLAS_WIDE: u32 = 4096u;
+
+struct Wave {
+    @location(0) start: f32, @location(1) end: f32, @location(2) row: u32,
+    @location(3) slot: u32, @location(4) first_frame: f32,
+    @location(5) frames_per_beat: f32, @location(6) color: u32,
+    @location(7) channels: u32,
+};
+struct Out {
+    @builtin(position) pos: vec4<f32>,
+    // Viewport pixels, so the fragment knows its own x and y.
+    @location(0) px: vec2<f32>,
+    @location(1) @interpolate(flat) area: vec4<f32>,
+    @location(2) @interpolate(flat) color: vec4<f32>,
+    @location(3) @interpolate(flat) wave: vec4<f32>,
+    @location(4) @interpolate(flat) slot: u32,
+    @location(5) @interpolate(flat) channels: u32,
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) v: u32, w: Wave) -> Out {
+    var out: Out;
+    let slot = textureLoad(rows, vec2<i32>(i32(w.row % 256u), i32(w.row / 256u)), 0);
+    let y0 = l.origin.y + slot.x - l.top + l.wave_top;
+    let y1 = l.origin.y + slot.x - l.top + slot.y - l.wave_bottom;
+    let x0 = round(l.origin.x + (w.start - l.left) * l.ppu) + l.side;
+    let x1 = round(l.origin.x + (w.end - l.left) * l.ppu) - l.side;
+    if (y1 - y0 < 2.0 || x1 <= x0 || slot.z <= 0.0) {
+        out.pos = vec4<f32>(-2.0, -2.0, 0.0, 1.0);
+        return out;
+    }
+    let corner = vec2<f32>(f32(v & 1u), f32((v >> 1u) & 1u));
+    let p = clamp(mix(vec2<f32>(x0, y0), vec2<f32>(x1, y1), corner), l.origin, l.origin + l.size);
+    out.pos = vec4<f32>(p.x / l.canvas.x * 2.0 - 1.0, 1.0 - p.y / l.canvas.y * 2.0, 0.0, 1.0);
+    out.px = p;
+    out.area = vec4<f32>(x0, y0, x1, y1);
+    let c = unpack4x8unorm(w.color);
+    out.color = vec4<f32>(c.rgb, c.a * slot.z);
+    out.wave = vec4<f32>(w.start, w.first_frame, w.frames_per_beat, 0.0);
+    out.slot = w.slot;
+    out.channels = w.channels;
+    return out;
+}
+
+fn texel(i: u32) -> vec4<f32> {
+    return textureLoad(atlas, vec2<i32>(i32(i % ATLAS_WIDE), i32(i / ATLAS_WIDE)), 0);
+}
+
+// How much of the pixel row [py - 0.5, py + 0.5] lies in [top, bottom],
+// with the band at least one pixel tall.
+fn cover(py: f32, top: f32, bottom: f32) -> f32 {
+    let mid = 0.5 * (top + bottom);
+    let half = max(0.5 * (bottom - top), 0.5);
+    return clamp(min(py + 0.5, mid + half) - max(py - 0.5, mid - half), 0.0, 1.0);
+}
+
+@fragment
+fn fs_main(i: Out) -> @location(0) vec4<f32> {
+    // The frames under this pixel's width.
+    let frames = i.wave.z / l.ppu;
+    let x = i.px.x - l.origin.x;
+    let frame0 = i.wave.y + (l.left + (x - 0.5) / l.ppu - i.wave.x) * i.wave.z;
+    // The finest level whose buckets are no wider than the pixel.
+    let level = clamp(i32(floor(log2(max(frames / BASE, 1.0)) * 0.5)), 0, LEVELS - 1);
+    let entry = textureLoad(table, vec2<i32>(level, i32(i.slot)), 0);
+    let count = entry.y;
+    if (count == 0u) {
+        discard;
+    }
+    let size = BASE * exp2(2.0 * f32(level));
+    let first = i32(floor(frame0 / size));
+    let last = i32(floor((frame0 + frames - 0.001) / size));
+    if (last < 0 || first >= i32(count)) {
+        discard;
+    }
+    var lo = vec2<f32>(1.0);
+    var hi = vec2<f32>(-1.0);
+    // At most five buckets: each is at least a quarter of the pixel.
+    for (var b = max(first, 0); b <= min(last, min(first + 5, i32(count) - 1)); b++) {
+        let t = texel(entry.x + u32(b));
+        lo = min(lo, t.xz);
+        hi = max(hi, t.yw);
+    }
+    let y = i.px.y;
+    let top = i.area.y;
+    let height = i.area.w - i.area.y;
+    var coverage: f32;
+    if (i.channels == 2u && height >= l.split_below) {
+        // Left above right, each in its own half.
+        let half = 0.5 * height;
+        let lane = select(1.0, 0.0, y < top + half);
+        let centre = top + half * (lane + 0.5);
+        let amp = 0.5 * half - 0.5;
+        let a = select(vec2<f32>(lo.x, hi.x), vec2<f32>(lo.y, hi.y), lane > 0.5);
+        coverage = cover(y, centre - a.y * amp, centre - a.x * amp);
+    } else {
+        let centre = top + 0.5 * height;
+        let amp = 0.5 * height - 0.5;
+        coverage = cover(y, centre - max(hi.x, hi.y) * amp, centre - min(lo.x, lo.y) * amp);
+    }
+    let a = i.color.a * coverage;
+    if (a <= 0.0) {
+        discard;
+    }
+    return vec4<f32>(i.color.rgb * a, a);
+}
+"#;
+
+pub(crate) struct WavePipeline {
+    pub(crate) pipeline: wgpu::RenderPipeline,
+    pub(crate) bind_layout: wgpu::BindGroupLayout,
+}
+
+impl WavePipeline {
+    pub(crate) fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+        let texture = |binding, sample_type| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type,
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
+        let bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("lumen waves"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                texture(1, wgpu::TextureSampleType::Float { filterable: false }),
+                texture(2, wgpu::TextureSampleType::Float { filterable: false }),
+                texture(3, wgpu::TextureSampleType::Uint),
+            ],
+        });
+        let pipeline = pipeline(
+            device,
+            "lumen waves",
+            WAVE_SHADER,
+            &bind_layout,
+            &[Some(wgpu::VertexBufferLayout {
+                array_stride: size_of::<WaveInstance>() as u64,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &wgpu::vertex_attr_array![
+                    0 => Float32, 1 => Float32, 2 => Uint32, 3 => Uint32,
+                    4 => Float32, 5 => Float32, 6 => Uint32, 7 => Uint32
+                ],
+            })],
+            wgpu::PrimitiveTopology::TriangleStrip,
+            format,
+        );
+        Self {
+            pipeline,
+            bind_layout,
+        }
+    }
+}
+
+fn atlas_texture(device: &wgpu::Device, rows: u32) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("lumen peaks"),
+        size: wgpu::Extent3d {
+            width: ATLAS_WIDE,
+            height: rows,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Snorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    })
+}
+
+fn table_texture(device: &wgpu::Device, slots: u32) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("lumen peak table"),
+        size: wgpu::Extent3d {
+            width: MAX_LEVELS as u32,
+            height: slots.max(1),
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rg32Uint,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    })
+}
+
+/// A rectangle of the atlas: `x, y, width, height`, in texels.
+type Rect = [u32; 4];
+
+/// The rectangles that hold `texels` texels from linear texel `start`: the
+/// rest of the first row, whole rows, then the start of the last row.
+fn spans(start: u32, texels: u32) -> Vec<Rect> {
+    let mut out = Vec::new();
+    let (mut at, mut left) = (start, texels);
+    while left > 0 {
+        let (x, y) = (at % ATLAS_WIDE, at / ATLAS_WIDE);
+        let (width, height) = if x == 0 && left >= ATLAS_WIDE {
+            (ATLAS_WIDE, left / ATLAS_WIDE)
+        } else {
+            ((ATLAS_WIDE - x).min(left), 1)
+        };
+        out.push([x, y, width, height]);
+        at += width * height;
+        left -= width * height;
+    }
+    out
+}
+
+/// Writes `bytes` (whole texels) at linear texel `start` of an atlas.
+fn write_span(queue: &wgpu::Queue, atlas: &wgpu::Texture, start: u32, bytes: &[u8]) {
+    const TEXEL: u32 = 4;
+    let mut rest = bytes;
+    for [x, y, width, height] in spans(start, bytes.len() as u32 / TEXEL) {
+        let n = (width * height * TEXEL) as usize;
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: atlas,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x, y, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            &rest[..n],
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * TEXEL),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        rest = &rest[n..];
+    }
+}
+
+impl Waves {
+    pub(crate) fn new(device: &wgpu::Device) -> Self {
+        Self {
+            instances: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("lumen waves"),
+                size: size_of::<WaveInstance>() as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            count: 0,
+            atlas: atlas_texture(device, 64),
+            atlas_rows: 64,
+            used: 0,
+            table: table_texture(device, 64),
+            entries: Vec::new(),
+        }
+    }
+
+    pub(crate) fn count(&self) -> u32 {
+        self.count
+    }
+
+    pub(crate) fn instances(&self) -> &wgpu::Buffer {
+        &self.instances
+    }
+
+    pub(crate) fn set_instances(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        waves: &[WaveInstance],
+    ) {
+        let bytes: &[u8] = bytemuck::cast_slice(waves);
+        if bytes.len() as u64 > self.instances.size() {
+            self.instances = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("lumen waves"),
+                size: (bytes.len() as u64).next_power_of_two(),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+        if !bytes.is_empty() {
+            queue.write_buffer(&self.instances, 0, bytes);
+        }
+        self.count = waves.len() as u32;
+    }
+
+    /// Stores `levels` (finest first) as slot `slot`. False if the atlas
+    /// is full; that slot then draws nothing.
+    pub(crate) fn set_peaks(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        slot: u32,
+        levels: &[&[[i8; 4]]],
+    ) -> bool {
+        let total: u32 = levels.iter().map(|l| l.len() as u32).sum();
+        let needed = (self.used + total).div_ceil(ATLAS_WIDE);
+        if needed > ATLAS_MAX_ROWS {
+            return false;
+        }
+        if needed > self.atlas_rows {
+            // Grow, keeping what is there.
+            let rows = needed.next_power_of_two().min(ATLAS_MAX_ROWS);
+            let bigger = atlas_texture(device, rows);
+            encoder.copy_texture_to_texture(
+                self.atlas.as_image_copy(),
+                bigger.as_image_copy(),
+                wgpu::Extent3d {
+                    width: ATLAS_WIDE,
+                    height: self.atlas_rows,
+                    depth_or_array_layers: 1,
+                },
+            );
+            self.atlas = bigger;
+            self.atlas_rows = rows;
+        }
+        let mut entry = [[0_u32; 2]; MAX_LEVELS];
+        for (n, level) in levels.iter().take(MAX_LEVELS).enumerate() {
+            entry[n] = [self.used, level.len() as u32];
+            write_span(queue, &self.atlas, self.used, bytemuck::cast_slice(level));
+            self.used += level.len() as u32;
+        }
+        let slot = slot as usize;
+        if self.entries.len() <= slot {
+            self.entries.resize(slot + 1, [[0; 2]; MAX_LEVELS]);
+        }
+        self.entries[slot] = entry;
+        if self.entries.len() as u32 > self.table.height() {
+            self.table = table_texture(device, (self.entries.len() as u32).next_power_of_two());
+            for row in 0..self.entries.len() {
+                self.write_entry(queue, row);
+            }
+        } else {
+            self.write_entry(queue, slot);
+        }
+        true
+    }
+
+    fn write_entry(&self, queue: &wgpu::Queue, slot: usize) {
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.table,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: 0,
+                    y: slot as u32,
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            bytemuck::cast_slice(&self.entries[slot]),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(MAX_LEVELS as u32 * 8),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: MAX_LEVELS as u32,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
+    pub(crate) fn bind(
+        &self,
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        rows: &wgpu::TextureView,
+        uniform: &wgpu::Buffer,
+    ) -> wgpu::BindGroup {
+        let atlas = self
+            .atlas
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let table = self
+            .table
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("lumen waves"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(rows),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&atlas),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&table),
+                },
+            ],
+        })
+    }
+}
+
+/// The uniform for drawing waves with `style` in an area.
+pub(crate) fn uniform(
+    canvas: [u32; 2],
+    area: crate::Area,
+    view: crate::View,
+    style: WaveStyle,
+) -> WaveUniform {
+    WaveUniform {
+        canvas: [canvas[0] as f32, canvas[1] as f32],
+        origin: [area.x, area.y],
+        size: [area.width, area.height],
+        left: view.left,
+        px_per_unit: view.px_per_unit,
+        top_px: view.top_px,
+        wave_top: style.top,
+        wave_bottom: style.bottom,
+        side: style.side,
+        split_below: style.split_below,
+        _pad: [0.0; 3],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_run_of_texels_splits_into_whole_rows_and_partial_ends() {
+        const W: u32 = ATLAS_WIDE;
+        // Within one row.
+        assert_eq!(spans(10, 5), [[10, 0, 5, 1]]);
+        // From mid-row, across two whole rows, into a fourth.
+        assert_eq!(
+            spans(W - 3, 3 + 2 * W + 7),
+            [[W - 3, 0, 3, 1], [0, 1, W, 2], [0, 3, 7, 1]]
+        );
+        // Exactly whole rows.
+        assert_eq!(spans(2 * W, W), [[0, 2, W, 1]]);
+        assert!(spans(5, 0).is_empty());
+        // Every texel once, in order.
+        let total: u32 = spans(123, 9 * W + 77).iter().map(|r| r[2] * r[3]).sum();
+        assert_eq!(total, 9 * W + 77);
+    }
+
+    #[test]
+    fn gpu_layouts_have_the_sizes_the_shader_expects() {
+        assert_eq!(size_of::<WaveInstance>(), 32);
+        assert_eq!(size_of::<WaveUniform>(), 64);
+    }
+}

@@ -264,7 +264,10 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
   - a 15 pt title bar in the track colour, with the name in `caption`,
     shown on clips at least 24 pt wide (narrower, a name is a letter or
     two of noise);
-  - the waveform drawn bright in the track colour (slice 4c).
+  - the waveform drawn bright in the track colour (slice 4c,
+    `theme::wave`: brightened on the dark body, the colour itself on the
+    light one), filling the body below the title bar; stereo is left over
+    right when the clip is at least 40 pt tall, otherwise combined.
 - **Hints:**
   - a soloed track's lane gets a 6% `accent` wash;
   - clips on tracks that cannot be heard (muted, or not soloed while

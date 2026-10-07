@@ -36,6 +36,8 @@ pub struct Lanes {
     /// Counts changes to what media is loaded, so drawings built from it
     /// know when to rebuild.
     revision: u64,
+    /// The device rate at the last update: the rate audio is held at.
+    rate: u32,
 }
 
 /// What the engine plays (audit M4: the model-to-engine translation, kept
@@ -121,6 +123,11 @@ impl Lanes {
         crate::motion::appear(ctx, since)
     }
 
+    /// The device rate audio is held at (as of the last update).
+    pub fn rate(&self) -> u32 {
+        self.rate
+    }
+
     /// Changes whenever loaded media changes (see `revision`).
     pub fn revision(&self) -> u64 {
         self.revision
@@ -172,6 +179,7 @@ impl Lanes {
         doc: &mut Document,
         clips: &mut ClipsHandle,
     ) {
+        self.rate = rate;
         if self.library.update(rate, ctx) {
             self.dirty = true;
             self.revision += 1;

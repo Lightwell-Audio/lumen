@@ -24,6 +24,34 @@ const SETTLE: Duration = Duration::from_millis(100);
 /// The floor: 60 fps.
 const FLOOR_MS: f64 = 1000.0 / 60.0;
 
+/// Ten seconds of drum-like stereo audio at `rate` for the stress
+/// project's files: a kick on every beat at 120 BPM, a hat between, and a
+/// slow swell, so its waveforms have real detail at every zoom.
+pub fn stress_audio(rate: u32) -> Vec<Vec<f32>> {
+    let rate_f = rate as f32;
+    let mut noise = 0x2545_F491_u32;
+    let (mut left, mut right) = (Vec::new(), Vec::new());
+    for i in 0..rate as usize * 10 {
+        let t = i as f32 / rate_f;
+        let beat = t % 0.5;
+        let kick = (std::f32::consts::TAU * (50.0 + 120.0 * (-beat * 30.0).exp()) * beat).sin()
+            * (-beat * 8.0).exp()
+            * 0.9;
+        noise ^= noise << 13;
+        noise ^= noise >> 17;
+        noise ^= noise << 5;
+        let hat = (noise as f32 / u32::MAX as f32 * 2.0 - 1.0)
+            * (-((t + 0.25) % 0.5) * 60.0).exp()
+            * 0.35;
+        let swell = (std::f32::consts::TAU * 220.0 * t).sin()
+            * 0.3
+            * (0.5 - 0.5 * (std::f32::consts::TAU * t / 10.0).cos());
+        left.push((kick + hat + swell).clamp(-1.0, 1.0));
+        right.push((kick * 0.7 + swell * 1.3 - hat).clamp(-1.0, 1.0));
+    }
+    vec![left, right]
+}
+
 /// What a measured phase does to the view.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Phase {

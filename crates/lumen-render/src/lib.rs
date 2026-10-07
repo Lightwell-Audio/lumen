@@ -10,8 +10,10 @@
 
 mod boxes;
 pub mod demo;
+mod waves;
 
-pub use boxes::{BoxInstance, BoxLayerId, BoxStyle, RowSlot};
+pub use boxes::{BoxDraw, BoxInstance, BoxLayerId, BoxStyle, RowSlot};
+pub use waves::{MAX_LEVELS, PEAK_BASE, PEAK_FACTOR, WaveInstance, WaveStyle};
 
 use bytemuck::{Pod, Zeroable};
 use vello::wgpu;
@@ -121,6 +123,7 @@ struct RectLayer {
 struct Prepared {
     draws: Vec<(usize, wgpu::BindGroup)>,
     boxes: Vec<(usize, wgpu::BindGroup)>,
+    waves: Vec<(usize, wgpu::BindGroup)>,
     vector: Option<(wgpu::Texture, wgpu::BindGroup)>,
 }
 
@@ -137,6 +140,7 @@ pub struct Renderer {
     vello: vello::Renderer,
     layers: Vec<RectLayer>,
     boxes: boxes::BoxPipeline,
+    wave_pipeline: waves::WavePipeline,
     box_layers: Vec<boxes::BoxLayer>,
     /// One prepared frame per drawing target (a host may draw several areas).
     targets: Vec<Option<Prepared>>,
@@ -263,6 +267,7 @@ impl Renderer {
         };
         let vello = vello::Renderer::new(device, options).map_err(|e| format!("vello: {e}"))?;
         let boxes = boxes::BoxPipeline::new(device, format);
+        let wave_pipeline = waves::WavePipeline::new(device, format);
         Ok(Self {
             rect_pipeline,
             rect_bind_layout,
@@ -272,6 +277,7 @@ impl Renderer {
             vello,
             layers: Vec::new(),
             boxes,
+            wave_pipeline,
             box_layers: Vec::new(),
             targets: Vec::new(),
         })
@@ -413,6 +419,7 @@ impl Renderer {
             Prepared {
                 draws,
                 boxes: Vec::new(),
+                waves: Vec::new(),
                 vector,
             },
         );
@@ -507,6 +514,7 @@ mod tests {
             ("rects", RECT_SHADER),
             ("blit", BLIT_SHADER),
             ("boxes", boxes::BOX_SHADER),
+            ("waves", waves::WAVE_SHADER),
         ] {
             let module = naga::front::wgsl::parse_str(source)
                 .unwrap_or_else(|e| panic!("{name}: {}", e.emit_to_string(source)));
@@ -516,6 +524,28 @@ mod tests {
             )
             .validate(&module)
             .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        }
+    }
+
+    #[test]
+    fn each_shader_uniform_is_the_size_of_its_rust_struct() {
+        // A mismatch is a GPU validation error at the first draw, which
+        // naga's own validation cannot see.
+        use vello::wgpu::naga;
+        for (name, source, size) in [
+            ("rects", RECT_SHADER, size_of::<LayerUniform>()),
+            ("boxes", boxes::BOX_SHADER, boxes::UNIFORM_SIZE),
+            ("waves", waves::WAVE_SHADER, size_of::<waves::WaveUniform>()),
+        ] {
+            let module = naga::front::wgsl::parse_str(source).unwrap();
+            let mut layouter = naga::proc::Layouter::default();
+            layouter.update(module.to_ctx()).unwrap();
+            let uniform = module
+                .global_variables
+                .iter()
+                .find(|(_, v)| v.space == naga::AddressSpace::Uniform)
+                .map(|(_, v)| layouter[v.ty].size as usize);
+            assert_eq!(uniform, Some(size), "{name}");
         }
     }
 
