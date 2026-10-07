@@ -219,6 +219,58 @@ pub fn save(path: &Path, settings: &Settings) -> std::io::Result<()> {
     std::fs::rename(&temporary, path)
 }
 
+/// Saves settings on a background thread, one save at a time and in order,
+/// so the UI never waits on the disk (audit H1). Dropping it finishes any
+/// save still queued.
+pub struct Writer {
+    queue: Option<std::sync::mpsc::Sender<(PathBuf, Settings)>>,
+    errors: std::sync::mpsc::Receiver<String>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Writer {
+    pub fn start() -> Self {
+        let (queue, jobs) = std::sync::mpsc::channel::<(PathBuf, Settings)>();
+        let (report, errors) = std::sync::mpsc::channel();
+        let thread = std::thread::Builder::new()
+            .name("lumen-settings".into())
+            .spawn(move || {
+                for (path, settings) in jobs {
+                    if let Err(e) = save(&path, &settings) {
+                        let _ = report.send(e.to_string());
+                    }
+                }
+            })
+            .expect("spawn settings writer");
+        Self {
+            queue: Some(queue),
+            errors,
+            thread: Some(thread),
+        }
+    }
+
+    pub fn save(&self, path: &Path, settings: &Settings) {
+        if let Some(queue) = &self.queue {
+            let _ = queue.send((path.to_path_buf(), settings.clone()));
+        }
+    }
+
+    /// A save that failed since the last call, to show the user.
+    pub fn failure(&self) -> Option<String> {
+        self.errors.try_recv().ok()
+    }
+}
+
+impl Drop for Writer {
+    fn drop(&mut self) {
+        // Closing the queue ends the thread once queued saves are done.
+        self.queue = None;
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,6 +280,21 @@ mod tests {
             std::env::temp_dir().join(format!("lumen-settings-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
+    }
+
+    #[test]
+    fn the_background_writer_saves_in_order_and_finishes_on_drop() {
+        let path = temp_dir("writer").join("settings.json");
+        let writer = Writer::start();
+        for volume in [0.1, 0.2, 0.3] {
+            let mut settings = Settings::default();
+            settings.metronome.volume = volume;
+            writer.save(&path, &settings);
+        }
+        drop(writer);
+        let (loaded, warning) = load(&path);
+        assert_eq!(warning, None);
+        assert_eq!(loaded.metronome.volume, 0.3, "the last save wins");
     }
 
     #[test]

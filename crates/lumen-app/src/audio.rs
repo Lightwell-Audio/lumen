@@ -81,8 +81,13 @@ pub fn driver_label(driver: &str) -> &str {
 pub fn backend(driver: &str) -> Option<MakeBackend> {
     match driver {
         #[cfg(windows)]
-        "asio" => Some(|| {
-            Box::new(lumen_audio::asio::AsioBackend::new().expect("COM apartment for ASIO"))
+        // If ASIO cannot start here (COM), every open fails with the reason
+        // and the app shows it, rather than the audio thread panicking.
+        "asio" => Some(|| match lumen_audio::asio::AsioBackend::new() {
+            Ok(backend) => Box::new(backend),
+            Err(e) => Box::new(lumen_audio::Unavailable::new(format!(
+                "ASIO could not start: {e}"
+            ))),
         }),
         #[cfg(windows)]
         "wasapi" => Some(|| Box::new(lumen_audio::wasapi::WasapiBackend::new(false))),

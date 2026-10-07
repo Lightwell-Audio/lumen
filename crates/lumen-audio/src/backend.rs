@@ -63,6 +63,40 @@ impl<B: Backend + ?Sized> Backend for Box<B> {
     }
 }
 
+/// A driver model that could not start (for example, Windows could not set
+/// up COM for ASIO). It lists no devices and refuses every open with the
+/// reason, so the app shows "audio could not start" with a way forward
+/// instead of the audio thread failing.
+#[derive(Debug, Clone)]
+pub struct Unavailable {
+    reason: String,
+}
+
+impl Unavailable {
+    pub fn new(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+        }
+    }
+}
+
+impl Backend for Unavailable {
+    fn devices(&mut self) -> Vec<DeviceInfo> {
+        Vec::new()
+    }
+
+    fn open(
+        &mut self,
+        _config: &StreamConfig,
+        callback: Box<dyn AudioCallback>,
+    ) -> Result<Box<dyn Stream>, OpenError> {
+        Err(OpenError {
+            error: AudioError::Driver(self.reason.clone()),
+            callback,
+        })
+    }
+}
+
 pub trait Stream {
     fn info(&self) -> StreamInfo;
 
@@ -77,4 +111,30 @@ pub trait Stream {
 
     /// Stops the stream, releases the device and returns the callback.
     fn close(self: Box<Self>) -> Box<dyn AudioCallback>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Block;
+
+    #[test]
+    fn an_unavailable_driver_refuses_with_its_reason_and_returns_the_callback() {
+        let mut backend = Unavailable::new("ASIO could not start: no COM");
+        assert!(backend.devices().is_empty());
+        let config = StreamConfig {
+            device: crate::types::DeviceId {
+                kind: crate::types::DriverKind::Asio,
+                id: "x".into(),
+            },
+            sample_rate: None,
+            buffer_frames: None,
+            input_channels: vec![],
+            output_channels: vec![0, 1],
+        };
+        let Err(failed) = backend.open(&config, Box::new(|_: &mut Block<'_>| {})) else {
+            panic!("an unavailable driver must not open");
+        };
+        assert!(failed.error.to_string().contains("no COM"));
+    }
 }

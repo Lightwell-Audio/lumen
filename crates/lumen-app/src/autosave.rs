@@ -138,10 +138,23 @@ impl Autosave {
             }
         }
         if !dirty {
-            // Saved (or back to the saved state): nothing to recover.
+            // Saved (or back to the saved state): nothing to recover. The
+            // files go in the background, never on the UI thread.
             self.pending_since = None;
             if self.written.is_some() {
-                self.clear();
+                let files: Vec<PathBuf> = [self.file(), self.note_file()]
+                    .into_iter()
+                    .flatten()
+                    .collect();
+                self.written = None;
+                std::thread::Builder::new()
+                    .name("lumen-autosave-clear".into())
+                    .spawn(move || {
+                        for file in files {
+                            let _ = std::fs::remove_file(file);
+                        }
+                    })
+                    .expect("spawn autosave cleanup thread");
             }
             return;
         }
@@ -157,15 +170,26 @@ impl Autosave {
             return;
         };
         self.pending_since = None;
-        let note = note();
-        let _ = std::fs::create_dir_all(note_file.parent().unwrap_or(Path::new(".")));
-        if let Ok(text) = serde_json::to_string_pretty(&note) {
-            let _ = std::fs::write(&note_file, text);
-        }
-        self.writing = Some(files::save(save(file)));
+        // The note and the project are written together on a background
+        // thread: the UI never waits on the disk.
+        let note = serde_json::to_string_pretty(&note()).ok();
+        let request = save(file);
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::Builder::new()
+            .name("lumen-autosave".into())
+            .spawn(move || {
+                let _ = std::fs::create_dir_all(note_file.parent().unwrap_or(Path::new(".")));
+                if let Some(text) = note {
+                    let _ = std::fs::write(&note_file, text);
+                }
+                let _ = tx.send(files::save_now(request));
+            })
+            .expect("spawn autosave thread");
+        self.writing = Some(rx);
     }
 
-    /// Deletes this session's autosave (after saving, or closing normally).
+    /// Deletes this session's autosave now, waiting for the disk: for a
+    /// normal close, when Lumen is exiting anyway.
     pub fn clear(&mut self) {
         for file in [self.file(), self.note_file()].into_iter().flatten() {
             let _ = std::fs::remove_file(file);
@@ -343,6 +367,13 @@ mod tests {
             |_| unreachable!(),
             || unreachable!(),
         );
+        // Removed in the background: give it a moment.
+        for _ in 0..200 {
+            if leftovers(tmp.path(), None).is_empty() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
         assert!(leftovers(tmp.path(), None).is_empty());
         // And a session never leaves its own autosave to itself.
         autosave.clear();

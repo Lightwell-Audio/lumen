@@ -95,6 +95,8 @@ struct App {
     /// Settings changed at this time and are not saved yet (saved once
     /// changes stop for half a second, so dragging a slider is one write).
     settings_changed: Option<Instant>,
+    /// Writes settings on a background thread (audit H1).
+    settings_writer: settings::Writer,
     show_browser: bool,
     show_detail: bool,
     /// Full panel sizes, for sliding (kept while the panels are open).
@@ -1302,15 +1304,18 @@ impl App {
             ctx.request_repaint_after(settle - changed.elapsed());
             return;
         }
+        self.write_settings();
+    }
+
+    /// Queues the settings for the background writer.
+    fn write_settings(&mut self) {
         self.settings_changed = None;
         let mut file = self.settings.clone();
         if self.appearance_override {
             file.appearance = self.saved_appearance.clone();
         }
-        if let Some(path) = &self.settings_path
-            && let Err(e) = settings::save(path, &file)
-        {
-            self.transport.audio.notice = Some(format!("Could not save settings: {e}"));
+        if let Some(path) = &self.settings_path {
+            self.settings_writer.save(path, &file);
         }
     }
 }
@@ -1319,6 +1324,11 @@ impl eframe::App for App {
     /// A normal close: nothing is left to recover (the user saved, or chose
     /// not to).
     fn on_exit(&mut self) {
+        // A change still settling is saved now; the writer finishes its
+        // queue when it is dropped with the app.
+        if self.settings_changed.is_some() {
+            self.write_settings();
+        }
         if let Some(autosave) = &mut self.autosave {
             autosave.clear();
         }
@@ -1397,6 +1407,9 @@ impl eframe::App for App {
         self.sync_document(&ctx);
         self.transport.clip_memory = self.lanes.library.memory();
         self.save_settings_when_settled(&ctx);
+        if let Some(e) = self.settings_writer.failure() {
+            self.transport.audio.notice = Some(format!("Could not save settings: {e}"));
+        }
         if let Some(path) = self.save_as.clone()
             && !self.lanes.is_loading()
             && !self.document.project().tracks.is_empty()
@@ -1671,6 +1684,7 @@ fn main() -> eframe::Result {
                 settings: saved,
                 settings_path,
                 settings_changed: None,
+                settings_writer: settings::Writer::start(),
                 document,
                 synced: None,
                 show_history: false,
