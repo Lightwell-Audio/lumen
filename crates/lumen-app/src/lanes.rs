@@ -57,6 +57,11 @@ fn db_to_gain(db: f32) -> f32 {
 }
 
 impl Lanes {
+    /// Files are still loading for import.
+    pub fn is_loading(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
     pub fn is_empty(&self, project: &Project) -> bool {
         project.tracks.is_empty() && self.pending.is_empty()
     }

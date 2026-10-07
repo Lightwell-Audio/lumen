@@ -99,9 +99,18 @@ impl Document {
         )
     }
 
-    #[cfg_attr(not(test), expect(dead_code, reason = "Save arrives in slice 3c"))]
-    pub fn mark_saved(&mut self) {
-        self.saved = self.history.state();
+    /// Records that `state` is what is on disk now (the state when a save
+    /// started: edits made during the save stay unsaved).
+    pub fn mark_saved_at(&mut self, state: u64) {
+        self.saved = state;
+    }
+
+    /// A document for a project read from `path`.
+    pub fn opened(project: Project, path: PathBuf, media_files: HashMap<Id, PathBuf>) -> Self {
+        let mut doc = Self::new(project);
+        doc.path = Some(path);
+        doc.media_files = media_files;
+        doc
     }
 
     /// A new id, unique in this project for its lifetime (never reused,
@@ -265,7 +274,7 @@ mod tests {
         assert!(doc.title().starts_with("Untitled — "));
         doc.redo();
         assert!(doc.title().starts_with("Untitled •"));
-        doc.mark_saved();
+        doc.mark_saved_at(doc.state());
         assert!(!doc.is_dirty());
         doc.undo();
         assert!(doc.is_dirty(), "undoing past a save is a change");

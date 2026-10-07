@@ -22,6 +22,7 @@ mod audio;
 mod audio_settings;
 mod canvas;
 mod document;
+mod files;
 mod fonts;
 mod icons;
 mod lanes;
@@ -36,7 +37,7 @@ mod theme;
 mod trace;
 mod transport;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -56,8 +57,20 @@ struct App {
     synced: Option<u64>,
     /// The undo history window is open.
     show_history: bool,
-    /// The note shown after undo or redo, and since when.
+    /// The note shown after undo, redo or save, and since when.
     toast: Option<(String, Instant)>,
+    /// File work in progress (slice 3c): a dialog, a save or an open.
+    dialog: Option<std::sync::mpsc::Receiver<FileDialog>>,
+    saving: Option<std::sync::mpsc::Receiver<Result<files::Saved, String>>>,
+    opening: Option<std::sync::mpsc::Receiver<Result<files::Opened, String>>>,
+    /// What to do once unsaved changes are dealt with.
+    prompt: Option<Next>,
+    /// What to do after the save in progress succeeds.
+    after_save: Option<Next>,
+    /// A problem with saving or opening, shown until dismissed.
+    file_notice: Option<String>,
+    /// Closing for real, after the unsaved-changes prompt.
+    quitting: bool,
     transport: Transport,
     /// Audio clips on the simple timeline (M2 slice 6).
     lanes: lanes::Lanes,
@@ -84,6 +97,8 @@ struct App {
     /// `--autoplay-ms`: toggle play and stop this often (latency tests).
     autoplay: Option<Duration>,
     autoplay_count: u32,
+    /// `--save-as <path>` (tests): save once imports are done, then close.
+    save_as: Option<PathBuf>,
     /// Playing or not, as last traced, to log only changes.
     traced: Option<bool>,
     /// `--scale` or `--appearance` given: a one-off, not saved; the file
@@ -140,7 +155,362 @@ impl App {
             });
         });
     }
+}
 
+/// What happens after unsaved changes are saved or discarded.
+#[derive(Debug, Clone, PartialEq)]
+enum Next {
+    New,
+    /// Open this project, or ask which.
+    Open(Option<PathBuf>),
+    Quit,
+}
+
+/// What a file dialog returned.
+enum FileDialog {
+    SaveAs(Option<PathBuf>),
+    Open(Option<PathBuf>),
+}
+
+/// Where file dialogs start when the project has no folder yet.
+fn documents_folder() -> Option<PathBuf> {
+    let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))?;
+    Some(PathBuf::from(home).join("Documents"))
+}
+
+impl App {
+    /// The project as it should be saved: the document with the loop region
+    /// and view stamped in (they are not undo steps).
+    fn stamped(&self) -> Project {
+        let mut project = self.document.project().clone();
+        let looped = self.transport.loop_region;
+        project.transport = lumen_project::model::TransportState {
+            loop_start: looped.start,
+            loop_end: looped.end,
+            loop_enabled: looped.enabled,
+        };
+        project.view = lumen_project::model::ViewState {
+            left_beat: self.left_beat,
+            px_per_beat: self.px_per_beat,
+            browser_open: self.show_browser,
+            detail_open: self.show_detail,
+            browser_size: self.browser_size,
+            detail_size: self.detail_size,
+        };
+        project
+    }
+
+    /// Save (Ctrl+S): to the project's file, or ask where (Save As).
+    fn save(&mut self, ctx: &egui::Context, ask: bool) {
+        if self.saving.is_some() || self.dialog.is_some() {
+            return;
+        }
+        match self.document.path.clone() {
+            Some(path) if !ask => self.start_save(path),
+            _ => {
+                let name = format!("{}.{}", self.document.name(), files::EXTENSION);
+                let start = self
+                    .document
+                    .path
+                    .as_deref()
+                    .and_then(|p| p.parent()?.parent().map(PathBuf::from))
+                    .or_else(documents_folder);
+                self.dialog = Some(spawn_dialog(ctx, move || {
+                    let mut dialog = rfd::FileDialog::new()
+                        .set_title("Save project")
+                        .add_filter("Lumen project", &[files::EXTENSION])
+                        .set_file_name(name);
+                    if let Some(dir) = start {
+                        dialog = dialog.set_directory(dir);
+                    }
+                    FileDialog::SaveAs(dialog.save_file())
+                }));
+            }
+        }
+    }
+
+    fn start_save(&mut self, path: PathBuf) {
+        trace::log(|| format!("files: saving {}", path.display()));
+        self.saving = Some(files::save(files::SaveRequest {
+            project: self.stamped(),
+            path,
+            media_files: self.document.media_files.clone(),
+            copy_imported: self.settings.projects.copy_imported,
+            state: self.document.state(),
+        }));
+    }
+
+    /// New, Open or Quit: first offer to save unsaved changes.
+    fn request(&mut self, ctx: &egui::Context, next: Next) {
+        if self.document.is_dirty() {
+            self.prompt = Some(next);
+        } else {
+            self.proceed(ctx, next);
+        }
+    }
+
+    fn proceed(&mut self, ctx: &egui::Context, next: Next) {
+        match next {
+            Next::New => {
+                self.replace_document(document::Document::new(empty_project()));
+                self.toast = Some(("New project".into(), Instant::now()));
+            }
+            Next::Open(Some(path)) => {
+                if self.opening.is_none() {
+                    trace::log(|| format!("files: opening {}", path.display()));
+                    self.opening = Some(files::open(path));
+                }
+            }
+            Next::Open(None) => {
+                if self.dialog.is_some() {
+                    return;
+                }
+                let start = self
+                    .document
+                    .path
+                    .as_deref()
+                    .and_then(|p| p.parent()?.parent().map(PathBuf::from))
+                    .or_else(documents_folder);
+                self.dialog = Some(spawn_dialog(ctx, move || {
+                    let mut dialog = rfd::FileDialog::new()
+                        .set_title("Open project")
+                        .add_filter("Lumen project", &[files::EXTENSION]);
+                    if let Some(dir) = start {
+                        dialog = dialog.set_directory(dir);
+                    }
+                    FileDialog::Open(dialog.pick_file())
+                }));
+            }
+            Next::Quit => {
+                self.quitting = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+    }
+
+    /// Swaps in another project: its media load afresh, the playhead goes
+    /// to the start, and the transport follows its tempo.
+    fn replace_document(&mut self, document: document::Document) {
+        self.document = document;
+        self.lanes = lanes::Lanes::default();
+        self.synced = None;
+        self.show_history = false;
+        self.transport.locate(Ticks::ZERO);
+    }
+
+    /// Results of dialogs, saves and opens; and the window's close button.
+    fn poll_files(&mut self, ctx: &egui::Context) {
+        if let Some(result) = self.dialog.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.dialog = None;
+            match result {
+                FileDialog::SaveAs(Some(chosen)) => {
+                    self.start_save(files::project_file_for(&chosen));
+                }
+                FileDialog::Open(Some(path)) => self.proceed(ctx, Next::Open(Some(path))),
+                // Cancelled: whatever was waiting on it is off too.
+                FileDialog::SaveAs(None) | FileDialog::Open(None) => self.after_save = None,
+            }
+        }
+        if let Some(result) = self.saving.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.saving = None;
+            match result {
+                Ok(saved) => {
+                    self.document.mark_saved_at(saved.state);
+                    self.document.path = Some(saved.path.clone());
+                    self.document.media_files.extend(saved.moved);
+                    self.synced = None;
+                    files::remember(&mut self.settings.projects.recent, &saved.path);
+                    self.settings_changed = Some(Instant::now());
+                    let copied = match saved.copied {
+                        0 => String::new(),
+                        1 => " (1 audio file copied in)".into(),
+                        n => format!(" ({n} audio files copied in)"),
+                    };
+                    self.toast = Some((
+                        format!("Saved {}{copied}", self.document.name()),
+                        Instant::now(),
+                    ));
+                    self.file_notice = None;
+                    if let Some(next) = self.after_save.take() {
+                        self.proceed(ctx, next);
+                    }
+                }
+                Err(e) => {
+                    self.after_save = None;
+                    self.file_notice = Some(format!("Not saved. {e}"));
+                }
+            }
+        }
+        if let Some(result) = self.opening.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.opening = None;
+            match result {
+                Ok(opened) => {
+                    let view = opened.project.view;
+                    let looped = opened.project.transport;
+                    files::remember(&mut self.settings.projects.recent, &opened.path);
+                    self.settings_changed = Some(Instant::now());
+                    self.file_notice = match opened.missing.len() {
+                        0 => None,
+                        1 => Some(format!("1 audio file is missing: {}", opened.missing[0])),
+                        n => Some(format!(
+                            "{n} audio files are missing, first {}",
+                            opened.missing[0]
+                        )),
+                    };
+                    self.replace_document(document::Document::opened(
+                        opened.project,
+                        opened.path,
+                        opened.media_files,
+                    ));
+                    self.left_beat = view.left_beat.max(0.0);
+                    self.px_per_beat = view.px_per_beat.clamp(2.0, 400.0);
+                    self.show_browser = view.browser_open;
+                    self.show_detail = view.detail_open;
+                    self.browser_size = view.browser_size.clamp(120.0, 600.0);
+                    self.detail_size = view.detail_size.clamp(80.0, 600.0);
+                    self.transport.set_loop(lumen_engine::Region::new(
+                        looped.loop_start,
+                        looped.loop_end.max(looped.loop_start + Ticks(1)),
+                        looped.loop_enabled,
+                    ));
+                    self.toast = Some((format!("Opened {}", self.document.name()), Instant::now()));
+                }
+                Err(e) => {
+                    self.file_notice = Some(format!("Could not open the project. {e}"));
+                }
+            }
+        }
+        // The window's close button: offer to save first.
+        if ctx.input(|i| i.viewport().close_requested())
+            && !self.quitting
+            && self.document.is_dirty()
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.prompt = Some(Next::Quit);
+        }
+    }
+
+    /// File shortcuts: Ctrl+N, Ctrl+O, Ctrl+S and Ctrl+Shift+S.
+    fn file_shortcuts(&mut self, ctx: &egui::Context) {
+        use egui::{Key, KeyboardShortcut, Modifiers};
+        let pressed = |modifiers, key| {
+            ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(modifiers, key)))
+        };
+        if pressed(Modifiers::COMMAND | Modifiers::SHIFT, Key::S) {
+            self.save(ctx, true);
+        } else if pressed(Modifiers::COMMAND, Key::S) {
+            self.save(ctx, false);
+        } else if pressed(Modifiers::COMMAND, Key::O) {
+            self.request(ctx, Next::Open(None));
+        } else if pressed(Modifiers::COMMAND, Key::N) {
+            self.request(ctx, Next::New);
+        }
+    }
+
+    /// "Save changes to <name>?" with Save, Don't save and Cancel. Not a
+    /// blocking dialog: the rest of the app keeps running behind it.
+    fn prompt_window(&mut self, ctx: &egui::Context) {
+        let Some(next) = self.prompt.clone() else {
+            return;
+        };
+        let mut choice = None;
+        let action = match next {
+            Next::New => "starting a new project",
+            Next::Open(_) => "opening another project",
+            Next::Quit => "closing",
+        };
+        egui::Window::new("Unsaved changes")
+            .title_bar(false)
+            .collapsible(false)
+            .resizable(false)
+            .pivot(egui::Align2::CENTER_TOP)
+            .default_pos(pos2(ctx.content_rect().center().x, 120.0))
+            .min_width(380.0)
+            .max_width(380.0)
+            .show(ctx, |ui| {
+                ui.label(
+                    RichText::new(format!("Save changes to {}?", self.document.name()))
+                        .font(fonts::display(theme::size::TITLE)),
+                );
+                ui.add_space(theme::space::XS);
+                ui.label(
+                    RichText::new(format!(
+                        "There are unsaved changes. Save them before {action}?"
+                    ))
+                    .color(theme::p().text_secondary),
+                );
+                ui.add_space(theme::space::M);
+                ui.horizontal(|ui| {
+                    if ui.button("Save").clicked() {
+                        choice = Some(0);
+                    }
+                    if ui.button("Don't save").clicked() {
+                        choice = Some(1);
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Cancel").clicked() {
+                            choice = Some(2);
+                        }
+                    });
+                });
+            });
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            choice = Some(2);
+        }
+        match choice {
+            Some(0) => {
+                self.prompt = None;
+                self.after_save = Some(next);
+                self.save(ctx, false);
+            }
+            Some(1) => {
+                self.prompt = None;
+                self.proceed(ctx, next);
+            }
+            Some(_) => self.prompt = None,
+            None => {}
+        }
+    }
+
+    /// A problem saving or opening, with a way forward.
+    fn file_banner(&mut self, ui: &mut egui::Ui) {
+        let Some(message) = self.file_notice.clone() else {
+            return;
+        };
+        let ctx = ui.ctx().clone();
+        egui::Panel::top("file banner").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let warning = theme::p().warning;
+                ui.label(RichText::new("\u{26A0}").color(warning));
+                ui.label(RichText::new(&message).color(warning));
+                if message.starts_with("Not saved") && ui.button("Save as\u{2026}").clicked() {
+                    self.save(&ctx, true);
+                }
+                if ui.small_button("Dismiss").clicked() {
+                    self.file_notice = None;
+                }
+            });
+        });
+    }
+}
+
+fn spawn_dialog(
+    ctx: &egui::Context,
+    show: impl FnOnce() -> FileDialog + Send + 'static,
+) -> std::sync::mpsc::Receiver<FileDialog> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let ctx = ctx.clone();
+    std::thread::Builder::new()
+        .name("lumen-file-dialog".into())
+        .spawn(move || {
+            let _ = tx.send(show());
+            ctx.request_repaint();
+        })
+        .expect("spawn file dialog");
+    rx
+}
+
+impl App {
     /// Undo (or redo) one step, with a brief note of what changed.
     fn undo(&mut self, redo: bool) {
         let done = if redo {
@@ -295,6 +665,54 @@ impl App {
         let menu = ui.menu_button(
             RichText::new(PRODUCT_NAME).font(fonts::display(theme::size::WORDMARK)),
             |ui| {
+                let ctx = ui.ctx().clone();
+                if ui
+                    .add(egui::Button::new("New").shortcut_text("Ctrl+N"))
+                    .clicked()
+                {
+                    self.request(&ctx, Next::New);
+                }
+                if ui
+                    .add(egui::Button::new("Open\u{2026}").shortcut_text("Ctrl+O"))
+                    .clicked()
+                {
+                    self.request(&ctx, Next::Open(None));
+                }
+                let recent = self.settings.projects.recent.clone();
+                ui.add_enabled_ui(!recent.is_empty(), |ui| {
+                    ui.menu_button("Open recent", |ui| {
+                        for path in recent {
+                            let label = Path::new(&path)
+                                .file_stem()
+                                .map_or_else(|| path.clone(), |s| s.to_string_lossy().into_owned());
+                            if ui.button(label).on_hover_text(&path).clicked() {
+                                self.request(&ctx, Next::Open(Some(PathBuf::from(&path))));
+                                ui.close();
+                            }
+                        }
+                    });
+                });
+                if ui
+                    .add(egui::Button::new("Save").shortcut_text("Ctrl+S"))
+                    .clicked()
+                {
+                    self.save(&ctx, false);
+                }
+                if ui
+                    .add(egui::Button::new("Save as\u{2026}").shortcut_text("Ctrl+Shift+S"))
+                    .clicked()
+                {
+                    self.save(&ctx, true);
+                }
+                ui.checkbox(
+                    &mut self.settings.projects.copy_imported,
+                    "Copy imported audio into the project",
+                )
+                .on_hover_text(
+                    "When saving, audio from outside the project folder is copied into \
+                     Samples/Imported, so the project keeps working if the originals move",
+                );
+                ui.separator();
                 let undo = self.document.history().undo_label().map(str::to_owned);
                 let redo = self.document.history().redo_label().map(str::to_owned);
                 let undo_text = undo.map_or("Undo".to_owned(), |l| format!("Undo {l}"));
@@ -764,6 +1182,8 @@ impl eframe::App for App {
         self.transport.update();
         self.transport.shortcuts(&ctx);
         self.undo_shortcuts(&ctx);
+        self.file_shortcuts(&ctx);
+        self.poll_files(&ctx);
         let rate = self.transport.state().sample_rate;
         let dropped: Vec<PathBuf> = ctx.input(|i| {
             i.raw
@@ -787,6 +1207,21 @@ impl eframe::App for App {
         self.sync_document(&ctx);
         self.transport.clip_memory = self.lanes.library.memory();
         self.save_settings_when_settled(&ctx);
+        if let Some(path) = self.save_as.clone()
+            && !self.lanes.is_loading()
+            && !self.document.project().tracks.is_empty()
+        {
+            if self.saving.is_none() && self.document.is_dirty() {
+                self.start_save(files::project_file_for(&path));
+            } else if self.saving.is_none() {
+                println!(
+                    "saved {}",
+                    self.document.path.as_deref().unwrap_or(&path).display()
+                );
+                self.save_as = None;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
         if let Some(every) = self.autoplay {
             // Toggle play and stop every `every`, as Space would.
             let elapsed = self.started.elapsed();
@@ -822,8 +1257,10 @@ impl eframe::App for App {
 
         egui::Panel::top("transport").show(ui, |ui| self.transport(ui));
         self.device_banner(ui);
+        self.file_banner(ui);
         self.transport.windows(&ctx);
         self.history_window(&ctx);
+        self.prompt_window(&ctx);
 
         // A focused control must not vanish with its panel: AccessKit
         // rejects focus on a node that no longer exists. Release focus
@@ -1034,6 +1471,13 @@ fn main() -> eframe::Result {
                 synced: None,
                 show_history: false,
                 toast: None,
+                dialog: None,
+                saving: None,
+                opening: None,
+                prompt: None,
+                after_save: None,
+                file_notice: None,
+                quitting: false,
                 show_browser: true,
                 show_detail: true,
                 browser_size: 220.0,
@@ -1048,6 +1492,7 @@ fn main() -> eframe::Result {
                     .and_then(|ms| ms.parse().ok())
                     .map(Duration::from_millis),
                 autoplay_count: 1,
+                save_as: arg_value("--save-as").map(PathBuf::from),
                 traced: None,
                 appearance_override: false,
                 saved_appearance: saved_appearance.clone(),
@@ -1066,6 +1511,13 @@ fn main() -> eframe::Result {
             }
             fonts::install(&cc.egui_ctx);
             app.apply_appearance(&cc.egui_ctx);
+            // `lumen <file>.lumen` (and opening a project from Explorer).
+            if let Some(path) = std::env::args()
+                .skip(1)
+                .find(|a| a.to_ascii_lowercase().ends_with(".lumen"))
+            {
+                app.opening = Some(files::open(PathBuf::from(path)));
+            }
             Ok(Box::new(app))
         }),
     )

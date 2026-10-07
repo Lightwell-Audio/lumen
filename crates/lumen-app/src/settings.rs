@@ -110,6 +110,26 @@ impl Appearance {
     }
 }
 
+/// Projects: recently opened, and whether saving copies audio in.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Projects {
+    /// Newest first, at most ten.
+    pub recent: Vec<String>,
+    /// Copy imported audio from outside the project folder into
+    /// `Samples/Imported` when saving.
+    pub copy_imported: bool,
+}
+
+impl Default for Projects {
+    fn default() -> Self {
+        Self {
+            recent: Vec::new(),
+            copy_imported: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -117,6 +137,7 @@ pub struct Settings {
     pub audio: Option<AudioSettings>,
     pub metronome: Metronome,
     pub appearance: Appearance,
+    pub projects: Projects,
 }
 
 impl Default for Settings {
@@ -126,6 +147,7 @@ impl Default for Settings {
             audio: None,
             metronome: Metronome::default(),
             appearance: Appearance::default(),
+            projects: Projects::default(),
         }
     }
 }
@@ -231,6 +253,10 @@ mod tests {
                 theme: "light".into(),
                 reduce_motion: true,
                 ui_scale: 1.5,
+            },
+            projects: Projects {
+                recent: vec!["C:/Music/Song/Song.lumen".into()],
+                copy_imported: false,
             },
         };
         save(&path, &settings).unwrap();

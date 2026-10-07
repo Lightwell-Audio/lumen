@@ -128,6 +128,12 @@ impl Transport {
         self.send(Command::Locate(at));
     }
 
+    /// Sets the loop region (when a project is opened).
+    pub fn set_loop(&mut self, region: Region) {
+        self.loop_region = region;
+        self.send(Command::SetLoop(region));
+    }
+
     pub fn toggle_loop(&mut self) {
         self.loop_region.enabled = !self.loop_region.enabled;
         self.send(Command::SetLoop(self.loop_region));
