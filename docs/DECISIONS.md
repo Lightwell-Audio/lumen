@@ -1440,3 +1440,7 @@ edit too: MIDI, automation and plugin state.
 - Memory per step is proportional to what the step changed.
 - Property tests check the guarantee: random edit sequences, then undo
   all, give the initial project; redo all gives the final one.
+- Loading costs one allocation per track and per clip for the `Arc`s:
+  parsing the quality-bar project rose by 3.2% in instructions
+  (`project_parse`, ADR-0022 gate). The baseline was updated for this
+  intended change; saving was unaffected (+0.01%).
