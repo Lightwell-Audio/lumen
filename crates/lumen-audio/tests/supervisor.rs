@@ -320,3 +320,30 @@ fn skipped_driver_buffers_count_as_dropouts_and_reset_clears_them() {
     audio.status().reset_counters();
     assert_eq!(audio.status().dropouts(), 0);
 }
+
+#[test]
+fn switching_drivers_moves_the_running_callback_to_the_new_one() {
+    let (first, second) = (FakeControl::new(), FakeControl::new());
+    let (mut audio, blocks) = system(&first);
+    audio.configure(config(None));
+    assert!(matches!(
+        audio.wait_event(WAIT),
+        Some(DeviceEvent::Started(_))
+    ));
+    wait_for_blocks(&blocks, 5);
+
+    let second_control = second.clone();
+    audio
+        .switch(move || FakeBackend(second_control), config(Some(512)))
+        .unwrap();
+    match audio.wait_event(WAIT) {
+        Some(DeviceEvent::Started(info)) => assert_eq!(info.buffer_frames, 512),
+        other => panic!("expected Started on the new driver, got {other:?}"),
+    }
+    // The same callback (its block counter) keeps running, now on the
+    // second device.
+    let before = blocks.load(Ordering::Relaxed);
+    wait_for_blocks(&blocks, before + 5);
+    assert_eq!(second.opens(), 1);
+    assert_eq!(audio.status().state(), State::Running);
+}

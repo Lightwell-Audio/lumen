@@ -304,7 +304,10 @@ impl AsioBackend {
         Ok(driver)
     }
 
-    fn describe(&self, id: &DeviceId, name: String) -> DeviceInfo {
+    /// Loads one driver and reports what it offers. Loading runs driver
+    /// code, which can hang or crash when its hardware is missing: the app
+    /// runs this in a helper process (M2 slice 8).
+    pub fn probe(&self, id: &DeviceId, name: String) -> DeviceInfo {
         let mut info = DeviceInfo {
             id: id.clone(),
             name,
@@ -356,7 +359,7 @@ impl Backend for AsioBackend {
     fn devices(&mut self) -> Vec<DeviceInfo> {
         Self::registered()
             .into_iter()
-            .map(|(id, name)| self.describe(&id, name))
+            .map(|(id, name)| self.probe(&id, name))
             .collect()
     }
 
@@ -553,6 +556,13 @@ impl AsioStream {
 impl Stream for AsioStream {
     fn info(&self) -> StreamInfo {
         self.info.clone()
+    }
+
+    fn control_panel(&mut self) -> Result<(), String> {
+        let driver = self.driver.as_ref().ok_or("the driver is not loaded")?;
+        driver
+            .control_panel()
+            .map_err(|e| format!("the driver has no control panel ({e:?})"))
     }
 
     fn poll(&mut self) -> Option<StreamEvent> {

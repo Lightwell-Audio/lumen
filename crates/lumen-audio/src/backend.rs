@@ -69,6 +69,12 @@ pub trait Stream {
     /// Non-blocking check for driver events.
     fn poll(&mut self) -> Option<StreamEvent>;
 
+    /// Opens the driver's own settings window (ASIO). Changes made there
+    /// arrive as a reset request.
+    fn control_panel(&mut self) -> Result<(), String> {
+        Err("this driver has no control panel".into())
+    }
+
     /// Stops the stream, releases the device and returns the callback.
     fn close(self: Box<Self>) -> Box<dyn AudioCallback>;
 }

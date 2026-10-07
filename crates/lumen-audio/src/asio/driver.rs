@@ -258,6 +258,11 @@ impl Driver {
         check(call!(self, start))
     }
 
+    /// Opens the driver's own settings window.
+    pub fn control_panel(&self) -> Result<(), AsioError> {
+        check(call!(self, control_panel))
+    }
+
     pub fn stop(&self) -> Result<(), AsioError> {
         check(call!(self, stop))
     }

@@ -143,6 +143,11 @@ enum Command {
     Configure(StreamConfig),
     Stop,
     Shutdown,
+    /// Open the running driver's settings window; the result comes back.
+    ControlPanel(Sender<Result<(), String>>),
+    /// Close the stream, give the callback back and end the thread, so a
+    /// new control thread can run it with another driver.
+    Handover(Sender<Box<dyn AudioCallback>>),
 }
 
 /// Timing knobs; tests shorten them.
@@ -175,8 +180,12 @@ impl Default for Timing {
 pub struct AudioSystem {
     commands: Sender<Command>,
     events: Receiver<DeviceEvent>,
+    /// Cloned into each control thread, so events keep arriving after a
+    /// driver switch.
+    event_tx: Sender<DeviceEvent>,
     status: Arc<Status>,
     thread: Option<JoinHandle<()>>,
+    timing: Timing,
 }
 
 impl AudioSystem {
@@ -187,7 +196,6 @@ impl AudioSystem {
         B: Backend + 'static,
         F: FnOnce() -> B + Send + 'static,
     {
-        let (commands, command_rx) = mpsc::channel();
         let (event_tx, events) = mpsc::channel();
         let status = Arc::new(Status::default());
         let metered: Box<dyn AudioCallback> = Box::new(Metered {
@@ -195,14 +203,42 @@ impl AudioSystem {
             status: Arc::clone(&status),
             expected_position: None,
         });
-        let thread_status = Arc::clone(&status);
+        let (commands, thread) = Self::start_thread(
+            make_backend,
+            metered,
+            event_tx.clone(),
+            Arc::clone(&status),
+            timing,
+        );
+        Self {
+            commands,
+            events,
+            event_tx,
+            status,
+            thread: Some(thread),
+            timing,
+        }
+    }
+
+    fn start_thread<B, F>(
+        make_backend: F,
+        callback: Box<dyn AudioCallback>,
+        events: Sender<DeviceEvent>,
+        status: Arc<Status>,
+        timing: Timing,
+    ) -> (Sender<Command>, JoinHandle<()>)
+    where
+        B: Backend + 'static,
+        F: FnOnce() -> B + Send + 'static,
+    {
+        let (commands, command_rx) = mpsc::channel();
         let thread = std::thread::Builder::new()
             .name("lumen-audio-control".into())
             .spawn(move || {
                 let backend = make_backend();
                 Supervisor {
                     backend,
-                    callback: Some(metered),
+                    callback: Some(callback),
                     stream: None,
                     config: None,
                     lost_since: None,
@@ -210,24 +246,63 @@ impl AudioSystem {
                     running: None,
                     window: None,
                     next_retry: Instant::now(),
-                    events: event_tx,
-                    status: thread_status,
+                    events,
+                    status,
                     timing,
                 }
                 .run(command_rx);
             })
             .expect("spawn audio control thread");
-        Self {
-            commands,
-            events,
-            status,
-            thread: Some(thread),
+        (commands, thread)
+    }
+
+    /// Switches to another driver model (ASIO to WASAPI, for example) and
+    /// opens `config` on it. The running callback, with all its state, moves
+    /// to a fresh control thread: driver models need differently set-up
+    /// threads (COM apartments), which cannot change once set. Results
+    /// arrive as events. Fails only if the old control thread is gone.
+    pub fn switch<B, F>(&mut self, make_backend: F, config: StreamConfig) -> Result<(), String>
+    where
+        B: Backend + 'static,
+        F: FnOnce() -> B + Send + 'static,
+    {
+        let (tx, rx) = mpsc::channel();
+        self.commands
+            .send(Command::Handover(tx))
+            .map_err(|_| "the audio thread has stopped".to_owned())?;
+        let callback = rx
+            .recv_timeout(Duration::from_secs(10))
+            .map_err(|_| "the audio thread did not hand over in time".to_owned())?;
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
         }
+        let (commands, thread) = Self::start_thread(
+            make_backend,
+            callback,
+            self.event_tx.clone(),
+            Arc::clone(&self.status),
+            self.timing,
+        );
+        self.commands = commands;
+        self.thread = Some(thread);
+        self.configure(config);
+        Ok(())
     }
 
     /// Opens (or switches to) a configuration. Results arrive as events.
     pub fn configure(&self, config: StreamConfig) {
         let _ = self.commands.send(Command::Configure(config));
+    }
+
+    /// Opens the running driver's own settings window (ASIO). Waits for the
+    /// driver to open it, at most a few seconds.
+    pub fn open_control_panel(&self) -> Result<(), String> {
+        let (tx, rx) = mpsc::channel();
+        self.commands
+            .send(Command::ControlPanel(tx))
+            .map_err(|_| "the audio thread has stopped".to_owned())?;
+        rx.recv_timeout(Duration::from_secs(5))
+            .map_err(|_| "the driver did not respond".to_owned())?
     }
 
     /// Audio off (the "Audio On/Off" switch).
@@ -294,6 +369,22 @@ impl<B: Backend> Supervisor<B> {
                 Ok(Command::Stop) => self.stop(),
                 Ok(Command::Shutdown) | Err(RecvTimeoutError::Disconnected) => {
                     self.stop();
+                    return;
+                }
+                Ok(Command::ControlPanel(reply)) => {
+                    let result = match self.stream.as_mut() {
+                        Some(stream) => stream.control_panel(),
+                        None => Err("audio is not running".into()),
+                    };
+                    let _ = reply.send(result);
+                }
+                Ok(Command::Handover(reply)) => {
+                    self.close();
+                    self.lost_since = None;
+                    self.status.set_state(State::Stopped);
+                    if let Some(callback) = self.callback.take() {
+                        let _ = reply.send(callback);
+                    }
                     return;
                 }
                 Err(RecvTimeoutError::Timeout) => {}
