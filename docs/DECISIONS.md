@@ -33,6 +33,7 @@ irreversible or external) · *Superseded*.
 | [0020](#adr-0020--metronome-test-tone-and-audio-health) | Metronome and test tone in the engine; dropouts from driver positions and delivery against real time | Accepted 2026-10-06 | No |
 | [0021](#adr-0021--device-selector) | Device selector: saved settings, ASIO probing in a helper process, run-time driver switching by handing the engine to a new thread | Accepted 2026-10-06 | No |
 | [0022](#adr-0022--performance-gates-by-instruction-count) | Performance gates: instruction counts under Callgrind in a pinned Linux container, compared with a committed baseline | Accepted 2026-10-07 | No |
+| [0023](#adr-0023--design-system-and-motion) | Design system and motion: semantic tokens with dark and light palettes, egui style built from them, our own window title rows, motion tokens with Reduce motion | Accepted 2026-10-07 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -1319,3 +1320,63 @@ gate on.
   player's edge fade gave **+7.24%** on `engine_clips_64`, and the gate
   exited with code 1.
 - The whole gate takes about 14 s under Valgrind.
+
+---
+
+## ADR-0023 — Design system and motion
+
+**Status:** Accepted · **Date:** 2026-10-07 (M3 slice 2). Spec:
+[`docs/DESIGN.md`](DESIGN.md).
+
+### Context
+`CLAUDE.md` §5 asks for a design system before the main UI is built. The
+owner asked for fluid, Apple-like motion (2026-10-06). The M2 UI used a
+handful of dark-only constants and egui's default style.
+
+### Decision
+- **Semantic tokens** (`theme.rs`): one `Palette` per theme (dark default,
+  light, and "match system"), plus type, spacing and radius scales. Painting
+  code asks for `theme::p().text_secondary`, never a hex value. egui's own
+  style (widgets, windows, popups, text sizes) is built from the same tokens
+  in `theme::apply`.
+- **Windows draw their own title row** (title, close button, Esc) instead of
+  egui's title bar. egui tints the active window's title bar with the
+  open-combo fill, over a rect that falls short of fixed-width windows. Our
+  own row keeps one flat surface.
+- **Motion** (`motion.rs`):
+  - tokens: `FAST` 100 ms, `BASE` 180 ms, `GLIDE` 220 ms;
+  - curves: cubic ease-out, and a critically damped spring for movement
+    (no overshoot);
+  - helpers that request frames only while something moves;
+  - egui's built-in fades and panel slides take `BASE` through
+    `style.animation_time`;
+  - **Reduce motion** sets every duration to zero.
+- The **app menu** (click "Lumen" in the transport bar) holds the theme,
+  interface size (100–200%) and Reduce motion. These are saved with the
+  settings; `--appearance` and `--scale` are one-off overrides that are not
+  saved.
+- **Typeface:** egui's bundled font stays (Ubuntu Font Licence) until a
+  separate typeface decision, which needs its own licence check.
+
+### Consequences
+- Every new screen is built on the tokens. A colour written inline is a
+  review finding.
+- The GPU grid takes its colours per frame and rebuilds its instances when
+  the theme changes.
+- egui widgets keep their own shapes; only their colours, sizes and radii
+  follow the tokens. Custom widgets (transport buttons, the close button)
+  are drawn by us.
+
+### Evidence (2026-10-07)
+- Tests:
+  - contrast (WCAG) of text, secondary text, accent and warning on every
+    background in both themes;
+  - white clip names on all 12 clip colours;
+  - motion curves are monotonic and land exactly on 1;
+  - a glide follows exactly when not animating and lands at once with
+    Reduce motion;
+  - settings round trip with the appearance.
+- Screenshots: dark and light at 100%, dark at 200%, light at 150% with a
+  clip.
+- Idle CPU with the motion system: 0.2% of one core over 10 s (debug build,
+  ASIO running).

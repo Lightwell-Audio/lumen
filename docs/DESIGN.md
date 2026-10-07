@@ -1,0 +1,214 @@
+# Lumen design system and key flows
+
+**Status:** v1, M3 slice 2 (2026-10-07). Code: `crates/lumen-app/src/theme.rs`
+(colour, type, spacing, shape and the egui style built from them) and
+`crates/lumen-app/src/motion.rs` (motion). Every screen takes its values from
+there. A colour or duration written inline in UI code is a bug.
+
+The direction comes from `CLAUDE.md` §5: Ableton's arrangement-first
+workflow, with FL Studio's clarity but not its density. Minimal and quiet
+chrome, strong contrast on content, one accent colour, and motion that is
+restrained and purposeful.
+
+---
+
+## 1. Principles
+
+1. **Content is loud, chrome is quiet.** Clips, notes, waveforms and the
+   playhead carry the contrast. Panels, borders and controls stay a step or
+   two off the background.
+2. **One accent.** Blue marks what is active, selected or playing. Record red
+   and warning amber are the only other signal colours, and each means one
+   thing.
+3. **Progressive disclosure.** Show the common case. Put the rest one click
+   away (popover, context menu, settings section), never in a modal.
+4. **Motion explains, never decorates.** Something animates only to show
+   where it came from or went (a panel sliding, a popover growing from its
+   button, a playhead gliding to a new position). Nothing loops or bounces
+   for attention.
+5. **Input is never delayed.** Animation follows state. It never holds it
+   back. A click acts on the frame it lands on.
+6. **Calm when idle.** Nothing redraws when nothing changes (near-zero idle
+   CPU, quality bar §4).
+
+## 2. Layout
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│ Lumen   │ transport │ tempo · meter │ position │ CPU · status │ panels │  transport bar, 36 pt
+├──────────────────────────────────────────────────────────────────────┤
+│ (device banner, only when the audio device needs attention)          │
+├────────────┬─────────────────────────────────────────────────────────┤
+│ Browser    │ ruler (bars · loop · markers)                            │
+│ (left,     ├─────────────────────────────────────────────────────────┤
+│ collapsible│ arrangement: track headers │ lanes, clips, playhead      │
+│ 220 pt)    │                                                         │
+├────────────┴─────────────────────────────────────────────────────────┤
+│ Detail panel (bottom, collapsible): Devices · Clip · Mixer           │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+- **Minimum window:** 960 × 540 pt, where the whole transport bar fits.
+  Window sizes are in points, so the minimum holds at any UI scale.
+- Panels **slide** open and closed (motion: `BASE`) and keep their size
+  between sessions (from M3 slice 3).
+- Windows (audio settings, later preferences) open at the **top centre** of
+  the app, have a **fixed width**, and wrap long text instead of growing.
+  They draw their own title row (title on the left, ✕ on the right; Esc
+  closes) on one flat surface, rather than egui's tinted title bar.
+- Popovers (the audio panel, menus) open under the control that opened them,
+  with a small gap.
+
+## 3. Colour
+
+Tokens are semantic: code asks for `text_secondary`, never a hex value. Both
+themes define every token. **Dark** is the default; **Light** and **Match
+Windows** are in the app menu (click **Lumen** at the left of the transport bar).
+
+| Token | Dark | Light | Use |
+|---|---|---|---|
+| `app` | `#17191D` | `#F1F2F4` | Window, panels, transport bar |
+| `canvas` | `#1B1D22` | `#FAFAFB` | Arrangement background |
+| `raised` | `#23262D` | `#E9EBEE` | Ruler, track headers, inputs |
+| `overlay` | `#262A31` | `#FFFFFF` | Popovers, windows, hover cards |
+| `control` | `#31353E` | `#E2E5E9` | Button at rest |
+| `control_hover` | `#3A3F4A` | `#D7DBE0` | Button under the pointer |
+| `control_press` | `#444A56` | `#CBD0D7` | Button held down; checkbox and radio wells |
+| `border` | `#2E323A` | `#DADDE2` | Separators, panel edges |
+| `border_strong` | `#3C414B` | `#C3C8CF` | Window and popover outlines, focus-free inputs |
+| `text` | `#E6E8EC` | `#1C1F24` | Primary text, icons |
+| `text_secondary` | `#9AA0AC` | `#5A6170` | Labels, ruler numbers |
+| `text_hint` | `#6E7480` | `#878D98` | Hints, empty states |
+| `text_disabled` | `#555A65` | `#B3B8C0` | Disabled controls |
+| `accent` | `#4FA3FF` | `#1F6FD1` | Active, selected, playhead, focus ring |
+| `accent_muted` | `#243A55` | `#D5E5FA` | Background of active toggles |
+| `record` | `#E5484D` | `#D33A40` | Record only |
+| `warning` | `#F2B14C` | `#A86400` | Problems that need attention |
+| `grid_bar` | `#343842` | `#D9DCE1` | Bar lines |
+| `grid_beat` | `#262930` | `#ECEEF1` | Beat lines |
+| `start_marker` | `#C8CCD4` | `#6B717C` | Where Play starts |
+
+- **Accent contrast:** the light accent is darker, keeping text and icons at
+  4.5:1 or better on `app`. Warning is darker on light for the same reason.
+- **Colour-vision safety:** blue against amber and red stays distinct for
+  protanopia, deuteranopia and tritanopia. State is never shown by colour
+  alone: there is also an icon, a label or a position. Examples: the status
+  dot with its text, ⚠ on warnings, and the start marker as a shape at the
+  ruler's bottom edge against the playhead at the top.
+- **Track and clip colours:** a muted palette of 12 hues, of medium
+  lightness, so white clip names read on them in both themes. Clips use the
+  same palette in both themes (content keeps its identity).
+
+## 4. Type
+
+The UI font is egui's bundled proportional font (Ubuntu, Ubuntu Font
+Licence) with Hack for numbers that must not jitter. A typeface change is a
+separate decision, with its own licence check.
+
+| Style | Size (pt) | Use |
+|---|---|---|
+| `caption` | 11 | Hints, secondary facts, sample counts |
+| `body` | 13 | Labels, values, menu items, buttons |
+| `title` | 15 | Window titles |
+| `heading` | 18 | Panel titles (Browser) |
+| `mono` | 13 | Position, tempo, CPU: anything that changes while you read it |
+
+Weight: regular everywhere, with **strong** only for section headings and
+the product name. Sentence case for every label ("Audio settings", not
+"Audio Settings").
+
+## 5. Spacing and shape
+
+- **4 pt grid:** `XS 4 · S 8 · M 12`. Controls sit 8 apart. Sections in a
+  window are divided by a separator with 10 above each heading. Content
+  insets in windows are 12.
+- **Control height:** 24 pt (transport icons 28).
+- **Radius:** `SMALL 4` (buttons, inputs, clips), `MEDIUM 6` (popovers),
+  `LARGE 8` (windows).
+- **Elevation:** only windows and popovers float. They get `overlay` fill,
+  a `border_strong` outline and one soft shadow. Nothing else has a shadow.
+- **Settings rows:** labels in a right-aligned column 96 pt wide, values to
+  the right of it, warnings wrapped within the column's width.
+
+## 6. Motion
+
+All values live in `motion.rs`. With **Reduce motion** (in the app menu) every duration becomes zero: things still change, they just do
+not travel.
+
+| Token | Duration | Curve | Use |
+|---|---|---|---|
+| `FAST` | 100 ms | ease-out | Hover and press feedback |
+| `BASE` | 180 ms | ease-out (enter), ease-in (exit) | Popovers, windows, notices, panels |
+| `GLIDE` | 220 ms | critically damped spring | Things that move to a new place: the playhead and start marker after a locate, clips settling after a drag (slice 6) |
+
+- **Ease-out** (cubic) starts fast and settles gently, so the response
+  feels immediate. **Ease-in** is used only for exits.
+- The **spring** (critically damped, no overshoot) is the "Apple" feel for
+  movement: quick to start, soft to land, no bounce.
+- **What animates:**
+  - panels opening and closing (slide);
+  - popovers and windows (fade, egui's built-in, at `BASE`);
+  - notices and banners appearing (fade and a 6 pt drop);
+  - hover and press fills on transport buttons;
+  - the playhead and start marker moving after a locate while stopped;
+  - clips appearing after an import (fade);
+  - the progress fill of a loading clip.
+- **What never animates:**
+  - the playhead while playing (it follows the audio exactly);
+  - zoom and scroll driven by the wheel or trackpad, which already follow
+    the input continuously;
+  - text values;
+  - anything on the audio thread.
+- **Costs:** an animation requests frames only while it runs. When the last
+  one settles, the app returns to its idle repaint rate.
+
+## 7. Core widgets
+
+| Widget | Rest | Hover | Pressed | Active / on | Disabled |
+|---|---|---|---|---|---|
+| Icon button (transport) | icon `text`, no fill | `control_hover` fill (`FAST`) | `control_press` | `accent` icon on `accent_muted` | `text_disabled` icon |
+| Button | `control` fill, `body` text | `control_hover` | `control_press` | — | `text_disabled` text, no fill change |
+| Toggle (Browser, Detail) | as Button | as Button | as Button | `accent_muted` fill, `accent` text | — |
+| Field (tempo, meter) | `raised` fill | `border_strong` outline | — | `accent` outline while editing | — |
+| Combo / menu | as Field, ▼ | | | selected row `accent_muted` | |
+| Popover / window | `overlay`, `border_strong`, shadow | | | | |
+| Notice | `warning` text, wrapped, with Dismiss | | | | |
+
+Keyboard focus shows as a 2 pt `accent` ring on every focusable control.
+
+## 8. Key flows
+
+Each flow lists its steps, its keyboard path and its feedback. Flows marked
+(M3) are designed here and built in later slices.
+
+1. **Play and stop.** Space plays from the start marker and stops in place.
+   Shift+Space pauses and continues. Clicking the ruler moves the playhead
+   (it glides there while stopped), with a ghost line showing where it will
+   land.
+2. **Choose an audio device.** The status dot (or a banner when there is a
+   problem) leads to the audio panel, then Audio settings. Changes apply at
+   once. A failure returns to the previous device and says so, with
+   Dismiss.
+3. **Import audio** (M3). Drag files from Explorer. While dragging, the
+   canvas says what will be added. Dropping on a track puts the clip there;
+   dropping below the last track adds a new track. Each clip fades in and
+   shows its loading progress.
+4. **Arrange** (M3). Drag clips to move them (snapped, with a visible snap
+   guide); Ctrl-drag copies; drag the edges to trim. Clips glide into place
+   when released. Every edit is one undo step (Ctrl+Z).
+5. **Save and reopen** (M3). Ctrl+S saves; the title shows unsaved changes.
+   Reopening restores the same project, zoom and panel layout.
+6. **Find any command** (M3). Ctrl+K opens the palette; type and press
+   Enter. Every entry shows its shortcut.
+
+## 9. Checklist for new UI
+
+1. Colours, sizes and durations come from `theme` and `motion`.
+2. It works in both themes and at 100%, 150% and 200% scale.
+3. Hover, pressed, focused and disabled states are all designed.
+4. Empty and error states are designed: what happened, and what to do.
+5. Long text wraps or truncates with "…". Nothing grows a window or
+   overlaps a neighbour.
+6. Motion follows §6. With Reduce motion on, it still works and simply does
+   not travel.
+7. Every control has an accessible name.

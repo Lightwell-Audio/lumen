@@ -148,29 +148,35 @@ pub fn button(
     });
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
-        let background = if active {
-            Some(theme::BUTTON_ACTIVE)
-        } else if enabled && (response.hovered() || response.has_focus()) {
-            Some(theme::BUTTON_HOVER)
-        } else {
-            None
-        };
-        if let Some(fill) = background {
-            painter.rect_filled(rect, 4.0, fill);
+        let c = theme::p();
+        // Hover and press fade in and out (motion: FAST); active is a state,
+        // shown at once.
+        let hot = enabled && (response.hovered() || response.has_focus());
+        let hover = crate::motion::hover(ui.ctx(), response.id.with("hover"), hot);
+        let press = crate::motion::hover(
+            ui.ctx(),
+            response.id.with("press"),
+            enabled && response.is_pointer_button_down_on(),
+        );
+        if active {
+            painter.rect_filled(rect, theme::radius::SMALL, c.accent_muted);
+        } else if hover > 0.0 {
+            let fill = c.control_hover.lerp_to_gamma(c.control_press, press);
+            painter.rect_filled(rect, theme::radius::SMALL, fill.gamma_multiply(hover));
         }
         if response.has_focus() {
             painter.rect_stroke(
                 rect,
-                4.0,
-                Stroke::new(1.0, theme::ACCENT),
+                theme::radius::SMALL,
+                Stroke::new(1.5, c.accent),
                 egui::StrokeKind::Inside,
             );
         }
         let color = match (enabled, active, icon) {
-            (false, _, _) => theme::ICON_DISABLED,
-            (true, _, Icon::Record) => theme::RECORD,
-            (true, true, _) => theme::ACCENT,
-            (true, false, _) => theme::ICON,
+            (false, _, _) => c.text_disabled,
+            (true, _, Icon::Record) => c.record,
+            (true, true, _) => c.accent,
+            (true, false, _) => c.text,
         };
         for shape in shapes(icon, rect.shrink(4.0), color) {
             painter.add(shape);
@@ -198,6 +204,43 @@ pub fn button(
     } else {
         response.on_disabled_hover_text(format!("{tip}. {disabled_reason}"))
     }
+}
+
+/// A window's close button: an X with the same hover fade as the
+/// transport buttons.
+pub fn close_button(ui: &mut Ui) -> Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(22.0), egui::Sense::click());
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Close"));
+    if ui.is_rect_visible(rect) {
+        let c = theme::p();
+        let hover = crate::motion::hover(
+            ui.ctx(),
+            response.id.with("hover"),
+            response.hovered() || response.has_focus(),
+        );
+        if hover > 0.0 {
+            ui.painter().rect_filled(
+                rect,
+                theme::radius::SMALL,
+                c.control_hover.gamma_multiply(hover),
+            );
+        }
+        if response.has_focus() {
+            ui.painter().rect_stroke(
+                rect,
+                theme::radius::SMALL,
+                Stroke::new(1.5, c.accent),
+                egui::StrokeKind::Inside,
+            );
+        }
+        let x = rect.shrink(6.5);
+        let stroke = Stroke::new(1.5, c.text_secondary.lerp_to_gamma(c.text, hover));
+        ui.painter()
+            .line_segment([x.left_top(), x.right_bottom()], stroke);
+        ui.painter()
+            .line_segment([x.right_top(), x.left_bottom()], stroke);
+    }
+    response.on_hover_text("Close (Esc)")
 }
 
 #[cfg(test)]

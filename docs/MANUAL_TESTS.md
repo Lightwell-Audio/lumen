@@ -595,3 +595,37 @@ and have a Dismiss button, and the driver's own error text shows on hover.
 failing device is tried (every warning now wraps).
 
 **Last run:** run 3, pass.
+
+### MT-APP-7 · Design system and motion (needs a human)
+Run `cargo run --release -p lumen-app`. This test is about feel: does Lumen
+move the way it should (`docs/DESIGN.md` §6)?
+1. **Panels:** click **Browser** and **Detail** (or Shift+Tab). The panels
+   slide closed and open, quickly and smoothly, without a jump at the end.
+2. **Transport buttons:** move the pointer across play, stop and loop. The
+   hover fill fades in and out; pressing darkens it. A click still acts at
+   once.
+3. **Playhead:** while stopped, click the ruler in a few places. The playhead
+   glides to each spot and settles softly, without overshooting. Press Space
+   to play: the playhead follows the audio exactly (no lag). Press Space to
+   stop, then Stop again: it glides back to the start.
+4. **Popovers and windows:** open the audio panel (status dot) and **Audio
+   settings…**. Both fade in. Esc or ✕ closes the window.
+5. **Notices:** in Audio settings, pick **Focusrite Thunderbolt ASIO**. The
+   "could not start" notice fades in with a small drop; **Dismiss** fades it
+   out.
+6. **Clips:** drop an audio file on the arrangement. The clip fades in, and
+   its loading fill moves smoothly.
+7. **Appearance:** click **Lumen** (top left). Switch Theme to Light, then
+   Match system, then Dark; try Interface size 150% and 200%; everything
+   stays readable and nothing overlaps.
+8. **Reduce motion:** turn it on in the same menu and repeat steps 1, 3
+   and 5. Nothing slides or glides any more: things change in place. Turn
+   it off again.
+9. Close and restart Lumen: the theme, size and Reduce motion setting are
+   remembered.
+
+**Expected:** every step as described. Motion should feel quick and
+calm: responsive at the start, soft at the end, never sluggish, bouncy or
+delayed. Say what feels off (too slow, too fast, too much, too little).
+
+**Last run:** not yet run.

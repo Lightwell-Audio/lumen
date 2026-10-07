@@ -1,6 +1,6 @@
-//! User settings that survive restarts (M2 slice 8): the audio device and
-//! the metronome. Preferences proper (theme, paths, shortcuts) join them in
-//! M9.
+//! User settings that survive restarts: the audio device and the metronome
+//! (M2 slice 8), and the appearance (M3 slice 2). Preferences proper (paths,
+//! shortcuts) join them in M9.
 //!
 //! The file is versioned JSON in the user's settings folder. It is written
 //! atomically (to a temporary file, then renamed), so a crash never leaves
@@ -76,12 +76,47 @@ impl From<&Metronome> for MetronomeSettings {
     }
 }
 
+/// Theme, motion and UI scale (`docs/DESIGN.md`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Appearance {
+    /// `dark`, `light` or `system`.
+    pub theme: String,
+    pub reduce_motion: bool,
+    /// 1.0 = 100%.
+    pub ui_scale: f32,
+}
+
+impl Default for Appearance {
+    fn default() -> Self {
+        Self {
+            theme: crate::theme::Appearance::default().key().to_owned(),
+            reduce_motion: false,
+            ui_scale: 1.0,
+        }
+    }
+}
+
+/// UI scales offered in the app menu.
+pub const UI_SCALES: [f32; 5] = [1.0, 1.25, 1.5, 1.75, 2.0];
+
+impl Appearance {
+    pub fn scale(&self) -> f32 {
+        if (0.5..=3.0).contains(&self.ui_scale) {
+            self.ui_scale
+        } else {
+            1.0
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub version: u32,
     pub audio: Option<AudioSettings>,
     pub metronome: Metronome,
+    pub appearance: Appearance,
 }
 
 impl Default for Settings {
@@ -90,6 +125,7 @@ impl Default for Settings {
             version: VERSION,
             audio: None,
             metronome: Metronome::default(),
+            appearance: Appearance::default(),
         }
     }
 }
@@ -190,6 +226,11 @@ mod tests {
                 enabled: true,
                 volume: 0.3,
                 sound: "Wood".into(),
+            },
+            appearance: Appearance {
+                theme: "light".into(),
+                reduce_motion: true,
+                ui_scale: 1.5,
             },
         };
         save(&path, &settings).unwrap();

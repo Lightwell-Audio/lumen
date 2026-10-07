@@ -24,6 +24,7 @@ mod canvas;
 mod icons;
 mod lanes;
 mod media;
+mod motion;
 mod position;
 mod probe;
 mod ruler;
@@ -72,6 +73,14 @@ struct App {
     autoplay_count: u32,
     /// Playing or not, as last traced, to log only changes.
     traced: Option<bool>,
+    /// `--scale` or `--appearance` given: a one-off, not saved; the file
+    /// keeps `saved_appearance` until the user changes it in the menu.
+    appearance_override: bool,
+    saved_appearance: settings::Appearance,
+    /// The OS theme when the appearance was last applied ("Match system").
+    system_theme: Option<egui::Theme>,
+    /// The device banner's last message, kept while it slides away.
+    banner: Option<(String, bool)>,
 }
 
 fn empty_project() -> Project {
@@ -110,11 +119,62 @@ impl App {
                 // Whatever does not fit is cut off here rather than drawn
                 // over the panel toggles.
                 ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
-                ui.label(RichText::new(PRODUCT_NAME).strong());
+                self.app_menu(ui);
                 ui.separator();
                 self.transport.ui(ui, &mut self.project);
             });
         });
+    }
+
+    /// The product name opens the app menu: appearance (theme, motion, UI
+    /// scale) and audio settings. Preferences proper arrive in M9.
+    fn app_menu(&mut self, ui: &mut egui::Ui) {
+        let before = self.settings.appearance.clone();
+        let menu = ui.menu_button(RichText::new(PRODUCT_NAME).strong(), |ui| {
+            ui.label(RichText::new("Theme").small().weak());
+            let mut chosen = theme::Appearance::from_key(&self.settings.appearance.theme);
+            for option in theme::Appearance::ALL {
+                ui.radio_value(&mut chosen, option, option.name());
+            }
+            self.settings.appearance.theme = chosen.key().to_owned();
+            ui.separator();
+            ui.label(RichText::new("Interface size").small().weak());
+            let mut scale = self.settings.appearance.scale();
+            for option in settings::UI_SCALES {
+                ui.radio_value(&mut scale, option, format!("{:.0}%", option * 100.0));
+            }
+            self.settings.appearance.ui_scale = scale;
+            ui.separator();
+            ui.checkbox(&mut self.settings.appearance.reduce_motion, "Reduce motion")
+                .on_hover_text("Things change in place instead of sliding or fading");
+            ui.separator();
+            if ui.button("Audio settings…").clicked() {
+                self.transport.settings_window.open = true;
+                ui.close();
+            }
+        });
+        menu.response
+            .on_hover_text("Appearance, interface size and audio settings");
+        if self.settings.appearance != before {
+            self.appearance_override = false;
+            self.saved_appearance = self.settings.appearance.clone();
+            self.apply_appearance(ui.ctx());
+            self.settings_changed = Some(Instant::now());
+        }
+    }
+
+    /// Applies the saved (or one-off) appearance: palette and egui style,
+    /// motion, and UI scale.
+    fn apply_appearance(&mut self, ctx: &egui::Context) {
+        let appearance = &self.settings.appearance;
+        motion::set_reduced(appearance.reduce_motion);
+        theme::apply(
+            ctx,
+            theme::Appearance::from_key(&appearance.theme),
+            motion::time(motion::BASE),
+        );
+        ctx.set_zoom_factor(appearance.scale());
+        self.system_theme = ctx.system_theme();
     }
 
     fn arrangement(&mut self, ui: &mut egui::Ui) {
@@ -142,7 +202,7 @@ impl App {
         }
 
         let painter = ui.painter_at(full);
-        painter.rect_filled(full, 0.0, theme::CANVAS);
+        painter.rect_filled(full, 0.0, theme::p().canvas);
         let meter = self.transport.timeline.meter.meter_at(Ticks::ZERO);
         painter.add(canvas::grid_shape(
             canvas,
@@ -152,6 +212,7 @@ impl App {
             canvas::GridMeter {
                 bar: meter.bar().as_quarters() as f32,
                 beat: meter.beat().as_quarters() as f32,
+                colors: [theme::p().grid_bar, theme::p().grid_beat],
             },
         ));
         let x_of = |quarters: f32| canvas.left() + (quarters - self.left_beat) * self.px_per_beat;
@@ -182,14 +243,18 @@ impl App {
         };
 
         // Ruler: loop range, then bar numbers thinned so labels never collide.
-        painter.rect_filled(ruler, 0.0, theme::RULER);
+        painter.rect_filled(ruler, 0.0, theme::p().raised);
         let looped = self.transport.loop_region;
         if looped.enabled {
             let span = egui::Rect::from_x_y_ranges(
                 x_of(looped.start.as_quarters() as f32)..=x_of(looped.end.as_quarters() as f32),
                 ruler.y_range(),
             );
-            painter.rect_filled(span.intersect(ruler), 0.0, theme::LOOP_RANGE);
+            painter.rect_filled(
+                span.intersect(ruler),
+                0.0,
+                theme::p().accent.gamma_multiply(0.18),
+            );
         }
         let bar_quarters = meter.bar().as_quarters() as f32;
         let mut step = 1;
@@ -210,7 +275,7 @@ impl App {
                     egui::Align2::LEFT_CENTER,
                     (bar + 1).to_string(),
                     egui::FontId::monospace(11.0),
-                    theme::RULER_TEXT,
+                    theme::p().text_secondary,
                 );
             }
             bar += step;
@@ -241,7 +306,7 @@ impl App {
             let gx = x_of(target.as_quarters() as f32);
             painter.line_segment(
                 [pos2(gx, ruler.top()), pos2(gx, full.bottom())],
-                Stroke::new(1.0, theme::GHOST),
+                Stroke::new(1.0, theme::p().accent.gamma_multiply(0.5)),
             );
             if ruler_response.clicked() {
                 trace::log(|| format!("ruler: locate {target:?} (snapped: {})", !free));
@@ -252,8 +317,23 @@ impl App {
         // The start marker: where Play starts. A neutral arrow on the ruler
         // only, at its bottom edge, so it stays visible when the playhead
         // (blue, at the top edge) is at the same place.
+        // Both glide to a new place while stopped (motion: GLIDE) and follow
+        // the audio exactly while playing.
         let state = self.transport.state();
-        let mx = x_of(state.marker.as_quarters() as f32);
+        let ctx = ui.ctx().clone();
+        let marker = motion::glide(
+            &ctx,
+            egui::Id::new("start marker"),
+            state.marker.as_quarters() as f32,
+            !state.playing,
+        );
+        let head = motion::glide(
+            &ctx,
+            egui::Id::new("playhead"),
+            state.ticks.as_quarters() as f32,
+            !state.playing,
+        );
+        let mx = x_of(marker);
         if (full.left()..=full.right()).contains(&mx) {
             painter.add(egui::Shape::convex_polygon(
                 vec![
@@ -261,17 +341,17 @@ impl App {
                     pos2(mx + 6.0, ruler.bottom() - 9.0),
                     pos2(mx, ruler.bottom() - 1.0),
                 ],
-                theme::START_MARKER,
-                Stroke::new(1.0, theme::CANVAS),
+                theme::p().start_marker,
+                Stroke::new(1.0, theme::p().canvas),
             ));
         }
 
         // Playhead.
-        let x = x_of(state.ticks.as_quarters() as f32);
+        let x = x_of(head);
         if (full.left()..=full.right()).contains(&x) {
             painter.line_segment(
                 [pos2(x, ruler.top()), pos2(x, full.bottom())],
-                Stroke::new(1.0, theme::ACCENT),
+                Stroke::new(1.0, theme::p().accent),
             );
             painter.add(egui::Shape::convex_polygon(
                 vec![
@@ -279,7 +359,7 @@ impl App {
                     pos2(x + 5.0, ruler.top()),
                     pos2(x, ruler.top() + 7.0),
                 ],
-                theme::ACCENT,
+                theme::p().accent,
                 Stroke::NONE,
             ));
         }
@@ -295,9 +375,9 @@ impl App {
         if !hovered.is_empty() {
             let supported = hovered.iter().filter(|p| media::is_audio_file(p)).count();
             let color = if supported > 0 {
-                theme::ACCENT
+                theme::p().accent
             } else {
-                theme::WARNING
+                theme::p().warning
             };
             painter.rect_stroke(
                 canvas.shrink(2.0),
@@ -344,7 +424,7 @@ impl App {
                 egui::Align2::CENTER_CENTER,
                 "Drop audio files here\nWAV, AIFF, FLAC, MP3 or Ogg Vorbis",
                 egui::FontId::proportional(14.0),
-                theme::HINT_TEXT,
+                theme::p().text_hint,
             );
         }
         self.lanes
@@ -358,41 +438,60 @@ impl App {
     /// offers a way forward.
     fn device_banner(&mut self, ui: &mut egui::Ui) {
         let audio = &self.transport.audio;
-        let (message, retry) = match &audio.status {
-            audio::Status::Lost(_) => (
+        let current = match &audio.status {
+            audio::Status::Lost(_) => Some((
                 format!(
                     "{} was disconnected. {} reconnects when it is back.",
                     audio.device,
                     lumen_core::product::PRODUCT_NAME
                 ),
                 false,
-            ),
-            audio::Status::Off(_) if audio.is_busy() => (
+            )),
+            audio::Status::Off(_) if audio.is_busy() => Some((
                 format!(
                     "{} is in use by another application. Close it there, then try again.",
                     audio.device
                 ),
                 true,
-            ),
+            )),
             audio::Status::Off(why)
                 if !audio.is_on() && why != "Audio is off" && !why.is_empty() =>
             {
-                (format!("Audio could not start: {why}"), true)
+                Some((format!("Audio could not start: {why}"), true))
             }
-            _ => return,
+            _ => None,
         };
-        egui::Panel::top("device banner").show(ui, |ui| {
+        // The banner slides in and out (motion: BASE); while it slides
+        // away it keeps showing its last message, with its buttons off.
+        let mut open = current.is_some();
+        if let Some(current) = current {
+            self.banner = Some(current);
+        }
+        let Some((message, retry)) = self.banner.clone() else {
+            return;
+        };
+        let live = open;
+        let shown = egui::Panel::top("device banner").show_collapsible(ui, &mut open, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("⚠").color(theme::WARNING));
-                ui.label(RichText::new(message).color(theme::WARNING));
-                if retry && self.transport.audio.can_switch() && ui.button("Try again").clicked() {
-                    self.transport.audio.set_on(true);
-                }
-                if ui.button("Audio settings…").clicked() {
-                    self.transport.settings_window.open = true;
-                }
+                let warning = theme::p().warning;
+                ui.label(RichText::new("⚠").color(warning));
+                ui.label(RichText::new(&message).color(warning));
+                ui.add_enabled_ui(live, |ui| {
+                    if retry
+                        && self.transport.audio.can_switch()
+                        && ui.button("Try again").clicked()
+                    {
+                        self.transport.audio.set_on(true);
+                    }
+                    if ui.button("Audio settings…").clicked() {
+                        self.transport.settings_window.open = true;
+                    }
+                });
             });
         });
+        if shown.is_none() {
+            self.banner = None;
+        }
     }
 
     /// Notes settings changes and writes them once they settle.
@@ -416,8 +515,12 @@ impl App {
             return;
         }
         self.settings_changed = None;
+        let mut file = self.settings.clone();
+        if self.appearance_override {
+            file.appearance = self.saved_appearance.clone();
+        }
         if let Some(path) = &self.settings_path
-            && let Err(e) = settings::save(path, &self.settings)
+            && let Err(e) = settings::save(path, &file)
         {
             self.transport.audio.notice = Some(format!("Could not save settings: {e}"));
         }
@@ -509,6 +612,9 @@ impl eframe::App for App {
                 self.traced = Some(state.playing);
             }
         }
+        if ctx.system_theme() != self.system_theme {
+            self.apply_appearance(&ctx);
+        }
         let panels_before = (self.show_browser, self.show_detail);
         if std::mem::take(&mut self.toggle_detail_requested) {
             self.show_detail = !self.show_detail;
@@ -530,22 +636,24 @@ impl eframe::App for App {
                 }
             });
         }
-        if self.show_browser {
+        // Panels slide open and closed (motion: BASE, through egui's
+        // animation time).
+        {
             egui::Panel::left("browser")
                 .resizable(true)
                 .default_size(220.0)
-                .show(ui, |ui| {
-                    ui.heading("Browser");
+                .show_collapsible(ui, &mut self.show_browser, |ui| {
+                    ui.label(RichText::new("Browser").size(theme::size::HEADING));
                     ui.add_space(8.0);
                     ui.label(RichText::new("Devices, samples, projects and your places").weak());
                     ui.label(RichText::new(arrives("Milestones 3 and 6")).weak().small());
                 });
         }
-        if self.show_detail {
+        {
             egui::Panel::bottom("detail")
                 .resizable(true)
                 .default_size(220.0)
-                .show(ui, |ui| {
+                .show_collapsible(ui, &mut self.show_detail, |ui| {
                     ui.horizontal(|ui| {
                         for (tab, milestone) in [
                             ("Devices", "Milestone 6"),
@@ -646,10 +754,9 @@ fn main() -> eframe::Result {
     let started = Instant::now();
     let screenshot = arg_value("--screenshot").map(PathBuf::from);
     let smoke_test = screenshot.is_some() || std::env::args().any(|a| a == "--smoke-test");
-    let scale: f32 = arg_value("--scale")
+    let scale: Option<f32> = arg_value("--scale")
         .and_then(|s| s.parse().ok())
-        .filter(|s| (0.5..=3.0).contains(s))
-        .unwrap_or(1.0);
+        .filter(|s| (0.5..=3.0).contains(s));
     let settings_path = settings::default_path();
     let (saved, settings_warning) = settings_path
         .as_deref()
@@ -691,7 +798,6 @@ fn main() -> eframe::Result {
             if let Some(state) = cc.wgpu_render_state.as_ref() {
                 canvas::install(state).map_err(|e| format!("renderer: {e}"))?;
             }
-            cc.egui_ctx.set_zoom_factor(scale);
             let project = empty_project();
             let mut transport = Transport::new(&project, &choice);
             transport.restore_metronome((&saved.metronome).into());
@@ -711,7 +817,8 @@ fn main() -> eframe::Result {
                     &cc.egui_ctx,
                 );
             }
-            Ok(Box::new(App {
+            let saved_appearance = saved.appearance.clone();
+            let mut app = App {
                 transport,
                 lanes,
                 drop_target: Ticks::ZERO,
@@ -732,7 +839,23 @@ fn main() -> eframe::Result {
                     .map(Duration::from_millis),
                 autoplay_count: 1,
                 traced: None,
-            }))
+                appearance_override: false,
+                saved_appearance: saved_appearance.clone(),
+                system_theme: None,
+                banner: None,
+            };
+            // `--scale` and `--appearance` are one-off overrides (tests,
+            // screenshots); they are not saved unless changed in the menu.
+            if let Some(scale) = scale {
+                app.settings.appearance.ui_scale = scale;
+                app.appearance_override = true;
+            }
+            if let Some(theme) = arg_value("--appearance") {
+                app.settings.appearance.theme = theme::Appearance::from_key(&theme).key().into();
+                app.appearance_override = true;
+            }
+            app.apply_appearance(&cc.egui_ctx);
+            Ok(Box::new(app))
         }),
     )
 }

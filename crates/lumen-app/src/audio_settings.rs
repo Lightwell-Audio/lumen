@@ -139,6 +139,8 @@ pub struct Window {
     /// The driver whose devices are shown (may differ from the one in use
     /// until a device is chosen).
     driver: Option<String>,
+    /// The notice shown last, kept while it fades out.
+    last_notice: Option<String>,
 }
 
 /// Width of the label column, so every section lines up.
@@ -149,7 +151,7 @@ const WINDOW_WIDTH: f32 = 440.0;
 
 /// A section heading with even spacing above and below.
 fn section(ui: &mut Ui, title: &str) {
-    ui.add_space(10.0);
+    ui.add_space(theme::space::S + 2.0);
     ui.label(RichText::new(title).strong());
     ui.add_space(4.0);
 }
@@ -182,7 +184,7 @@ fn warning(ui: &mut Ui, text: &str, reserve: f32) -> egui::Response {
     let width = (ui.available_width() - reserve).max(120.0);
     ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
         ui.set_max_width(width);
-        ui.add(egui::Label::new(RichText::new(text).color(theme::WARNING)).wrap())
+        ui.add(egui::Label::new(RichText::new(text).color(theme::p().warning)).wrap())
     })
     .inner
 }
@@ -231,15 +233,31 @@ impl Window {
         self.catalog.poll();
         let mut open = self.open;
         let top_centre = egui::pos2(ctx.content_rect().center().x, 72.0);
+        // Our own title row (design system §5): one flat surface, the title
+        // and a close button; Esc closes too.
         egui::Window::new("Audio settings")
-            .open(&mut open)
+            .title_bar(false)
             .pivot(egui::Align2::CENTER_TOP)
             .default_pos(top_centre)
             .collapsible(false)
             .resizable(false)
             .min_width(WINDOW_WIDTH)
             .max_width(WINDOW_WIDTH)
-            .show(ctx, |ui| self.contents(ui, audio, test_tone, &mut actions));
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Audio settings").size(theme::size::TITLE));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if crate::icons::close_button(ui).clicked() {
+                            open = false;
+                        }
+                    });
+                });
+                ui.add_space(theme::space::XS);
+                self.contents(ui, audio, test_tone, &mut actions);
+            });
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            open = false;
+        }
         self.open = open;
         actions
     }
@@ -338,8 +356,8 @@ impl Window {
             } else {
                 match &audio.status {
                     Status::Running { .. } => {
-                        dot(ui, theme::ACCENT);
-                        ui.label(RichText::new("Running").color(theme::ACCENT));
+                        dot(ui, theme::p().accent);
+                        ui.label(RichText::new("Running").color(theme::p().accent));
                     }
                     Status::Starting => {
                         ui.spinner();
@@ -355,16 +373,29 @@ impl Window {
                 }
             }
         });
+        // The notice fades in with a small drop, and fades out after Dismiss
+        // (motion: BASE), showing its last text meanwhile.
         if let Some(notice) = &audio.notice {
-            row(ui, "", |ui| {
-                // Leaves room for the Dismiss button.
-                let label = warning(ui, notice, 72.0);
-                if let Some(detail) = &audio.notice_detail {
-                    label.on_hover_text(detail);
-                }
-                if ui.small_button("Dismiss").clicked() {
-                    actions.push(Action::DismissNotice);
-                }
+            self.last_notice = Some(notice.clone());
+        }
+        let shown = crate::motion::fade(&ctx, ui.id().with("notice"), audio.notice.is_some());
+        if shown == 0.0 {
+            self.last_notice = None;
+        }
+        if let Some(notice) = self.last_notice.clone() {
+            ui.add_space((1.0 - shown) * 6.0);
+            ui.scope(|ui| {
+                ui.multiply_opacity(shown);
+                row(ui, "", |ui| {
+                    // Leaves room for the Dismiss button.
+                    let label = warning(ui, &notice, 72.0);
+                    if let Some(detail) = &audio.notice_detail {
+                        label.on_hover_text(detail);
+                    }
+                    if audio.notice.is_some() && ui.small_button("Dismiss").clicked() {
+                        actions.push(Action::DismissNotice);
+                    }
+                });
             });
         }
 

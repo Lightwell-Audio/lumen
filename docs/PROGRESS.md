@@ -68,7 +68,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | CI on Windows, macOS, Linux | M | ✅ | 1 | First run green on 2026-10-06 (run 37396217369): Windows MSVC, macOS, Linux, rustfmt, cargo-deny, VST3 self-test |
 | Test plugin simulating good and bad behaviour; real-plugin compatibility matrix | M | 🟡 | 1, 6 | Misbehaving test module (scan stage) + `docs/PLUGIN_COMPATIBILITY.md` (scan stage only) |
 | Real-time correctness enforced by tests | M | 🟡 | 1–2 | `lumen-rt` allocation guard (ADR-0010) |
-| High-DPI, 100–200% scaling, light and dark themes, keyboard-navigable, accessible names, colour-blind-safe | M | 🔲 | 3, 10 | P-UI checks AccessKit |
+| High-DPI, 100–200% scaling, light and dark themes, keyboard-navigable, accessible names, colour-blind-safe | M | 🟡 | 3, 10 | Dark, light and match-system themes; interface size 100–200% in the app menu; colour-blind-safe accent; contrast tested for both themes (M3 slice 2, `docs/DESIGN.md`). Keyboard navigation of the new views and the full accessibility pass in M3 slice 8 and M10 |
 | No telemetry by default; opt-in only | M | ✅ | — | Nothing collects data. Re-verify each milestone. |
 
 ## §6.1 Arrangement and tracks
@@ -277,8 +277,8 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | First-run wizard (audio device, plugin paths) | M | 🔲 |
 | Preferences import/export; localization-ready text | S | 🔲 |
 | Command palette; tooltips with shortcuts; context menus everywhere | M | 🔲 |
-| Design system with a crisp vector icon set (spec §5): transport icons (play, pause, stop, record, loop, metronome) in M2, full set with the design system in M3 | M | 🔲 |
-| Motion system: tokens, easing, what animates, reduce-motion; never delays input, no idle redraws; M2 widgets retrofitted (owner request 2026-10-06: fluid, Apple-like feel). Built in M3 with the design system; final polish pass in M10 | M | 🔲 |
+| Design system with a crisp vector icon set (spec §5): transport icons (play, pause, stop, record, loop, metronome) in M2, full set with the design system in M3 | M | 🟡 Design system v1 (`docs/DESIGN.md`, `theme.rs`): colour tokens for both themes, type, spacing, shape, widget states, key flows; M2 UI moved onto it (M3 slice 2). Icons grow with each slice's new controls |
+| Motion system: tokens, easing, what animates, reduce-motion; never delays input, no idle redraws; M2 widgets retrofitted (owner request 2026-10-06: fluid, Apple-like feel). Built in M3 with the design system; final polish pass in M10 | M | 🟡 Built (M3 slice 2, `motion.rs`): FAST/BASE/GLIDE tokens, ease-out and critically damped spring, Reduce motion; panels slide, popovers and windows fade, notices and banners animate, transport buttons fade on hover, playhead and start marker glide after a locate, clips fade in. Idle CPU unchanged (0.2%). Owner sign-off on the feel pending (MT-APP-7); M10 polish |
 | Reset to default, type-in, fine adjust, wheel adjust, parameter right-click menus | M | 🔲 |
 | Drag and drop for files, devices, clips, tracks; status-bar hints | M | 🔲 |
 | Resizable, collapsible panels with remembered layout; full screen; high-DPI; light and dark | M | 🔲 |

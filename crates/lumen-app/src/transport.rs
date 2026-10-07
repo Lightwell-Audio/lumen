@@ -405,9 +405,13 @@ impl Transport {
                 self.editing = Some(bbt);
             }
         }
-        ui.label(RichText::new(time).monospace().color(theme::RULER_TEXT));
+        ui.label(
+            RichText::new(time)
+                .monospace()
+                .color(theme::p().text_secondary),
+        );
         if let Some(error) = &self.error {
-            ui.label(RichText::new("⚠").color(theme::WARNING))
+            ui.label(RichText::new("⚠").color(theme::p().warning))
                 .on_hover_text(error.as_str());
         }
     }
@@ -426,9 +430,9 @@ impl Transport {
         }
         let cpu = (self.cpu_peak * 100.0).round();
         let color = if self.cpu_peak > 0.7 {
-            theme::WARNING
+            theme::p().warning
         } else {
-            theme::RULER_TEXT
+            theme::p().text_secondary
         };
         ui.label(
             RichText::new(format!("CPU {cpu:.0}%"))
@@ -445,7 +449,7 @@ impl Transport {
             ui.label(
                 RichText::new(format!("⚠ {dropouts}"))
                     .small()
-                    .color(theme::WARNING),
+                    .color(theme::p().warning),
             )
             .on_hover_text(format!(
                 "{dropouts} dropouts: audio that never reached the device. Open the audio \
@@ -486,11 +490,11 @@ impl Transport {
                 ui.label("Starting audio…");
             }
             Status::Lost(why) => {
-                ui.label(RichText::new("Device lost: reconnecting…").color(theme::WARNING));
+                ui.label(RichText::new("Device lost: reconnecting…").color(theme::p().warning));
                 ui.label(RichText::new(why).small());
             }
             Status::Off(why) => {
-                ui.label(RichText::new("Audio is off").color(theme::WARNING));
+                ui.label(RichText::new("Audio is off").color(theme::p().warning));
                 ui.label(RichText::new(why).small());
             }
         }
@@ -498,8 +502,8 @@ impl Transport {
         if let Some(notice) = &self.audio.notice {
             ui.horizontal(|ui| {
                 ui.set_max_width(260.0);
-                let label =
-                    ui.add(egui::Label::new(RichText::new(notice).color(theme::WARNING)).wrap());
+                let label = ui
+                    .add(egui::Label::new(RichText::new(notice).color(theme::p().warning)).wrap());
                 if let Some(detail) = &self.audio.notice_detail {
                     label.on_hover_text(detail);
                 }
@@ -580,7 +584,7 @@ impl Transport {
         }
         ui.separator();
         if ui
-            .button(RichText::new("Panic: stop and silence everything").color(theme::RECORD))
+            .button(RichText::new("Panic: stop and silence everything").color(theme::p().record))
             .on_hover_text(
                 "Stops playback and silences the metronome, test tone and any sound at once",
             )
@@ -600,29 +604,29 @@ impl Transport {
         let (text, color, tip) = match &self.audio.status {
             Status::Starting => (
                 "Starting audio…".to_owned(),
-                theme::HINT_TEXT,
+                theme::p().text_hint,
                 String::new(),
             ),
             Status::Running { device, detail } => (
                 format!("{device} · {detail}"),
-                theme::RULER_TEXT,
+                theme::p().text_secondary,
                 "Audio device, sample rate, buffer and round-trip latency. Choose the device \
                  with --audio until the device selector arrives"
                     .to_owned(),
             ),
             Status::Lost(why) => (
                 "Audio device lost: reconnecting…".to_owned(),
-                theme::WARNING,
+                theme::p().warning,
                 why.clone(),
             ),
-            Status::Off(why) => ("Audio off".to_owned(), theme::WARNING, why.clone()),
+            Status::Off(why) => ("Audio off".to_owned(), theme::p().warning, why.clone()),
         };
         // A dot that always fits shows the state at a glance; the text
         // shortens in narrow windows, and the tooltip always has all of it.
         let dot = match self.audio.status {
-            Status::Running { .. } => theme::ACCENT,
-            Status::Starting => theme::HINT_TEXT,
-            Status::Lost(_) | Status::Off(_) => theme::WARNING,
+            Status::Running { .. } => theme::p().accent,
+            Status::Starting => theme::p().text_hint,
+            Status::Lost(_) | Status::Off(_) => theme::p().warning,
         };
         let memory = format!(
             "Clip audio in memory: {:.0} MB",
@@ -638,7 +642,7 @@ impl Transport {
         ui.painter().circle_filled(rect.center(), 4.0, dot);
         if response.hovered() {
             ui.painter()
-                .circle_stroke(rect.center(), 6.0, egui::Stroke::new(1.0, theme::ICON));
+                .circle_stroke(rect.center(), 6.0, egui::Stroke::new(1.0, theme::p().text));
         }
         response.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Audio: {text}"))

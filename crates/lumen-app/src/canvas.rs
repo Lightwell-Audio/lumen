@@ -25,12 +25,15 @@ struct Resources {
 pub struct GridMeter {
     pub bar: f32,
     pub beat: f32,
+    /// Bar and beat line colours (theme tokens `grid_bar`, `grid_beat`).
+    pub colors: [egui::Color32; 2],
 }
 
 impl GridMeter {
     const FOUR_FOUR: GridMeter = GridMeter {
         bar: 4.0,
         beat: 1.0,
+        colors: [crate::theme::DARK.grid_bar, crate::theme::DARK.grid_beat],
     };
 }
 
@@ -43,7 +46,7 @@ fn pipeline_cache_path() -> Option<PathBuf> {
 }
 
 /// Bar lines (strong) and beat lines (faint), in quarter notes; one row that
-/// spans the canvas height.
+/// spans the canvas height. Rebuilt when the meter or the theme changes.
 fn grid_instances(meter: GridMeter) -> Vec<RectInstance> {
     let beats_per_bar = (meter.bar / meter.beat).round().max(1.0) as usize;
     (0..GRID_BARS * beats_per_bar)
@@ -54,10 +57,9 @@ fn grid_instances(meter: GridMeter) -> Vec<RectInstance> {
                 start: x,
                 end: x,
                 row: 0.0,
-                color: if bar {
-                    rgba(0x34, 0x38, 0x42, 255)
-                } else {
-                    rgba(0x26, 0x29, 0x30, 255)
+                color: {
+                    let c = meter.colors[usize::from(!bar)];
+                    rgba(c.r(), c.g(), c.b(), 255)
                 },
             }
         })

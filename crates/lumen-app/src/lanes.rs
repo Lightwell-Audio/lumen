@@ -15,20 +15,12 @@ use crate::theme;
 pub const LANE_HEIGHT: f32 = 56.0;
 const LANE_GAP: f32 = 4.0;
 
-/// A muted palette for clips, cycled per lane.
-const COLORS: [Color32; 6] = [
-    Color32::from_rgb(0x4C, 0x7A, 0x9E),
-    Color32::from_rgb(0x7A, 0x6A, 0x9E),
-    Color32::from_rgb(0x5E, 0x8C, 0x6A),
-    Color32::from_rgb(0x9E, 0x7A, 0x4C),
-    Color32::from_rgb(0x9E, 0x5A, 0x6A),
-    Color32::from_rgb(0x5A, 0x8E, 0x8E),
-];
-
 pub struct Lane {
     pub media: u64,
     pub start: Ticks,
     color: Color32,
+    /// When it was added (egui input time), for its fade-in.
+    added: f64,
 }
 
 #[derive(Default)]
@@ -53,11 +45,12 @@ impl Lanes {
         for path in paths {
             if media::is_audio_file(&path) {
                 let id = self.library.import(path, rate, ctx);
-                let color = COLORS[self.lanes.len() % COLORS.len()];
+                let color = theme::CLIP_COLORS[self.lanes.len() % theme::CLIP_COLORS.len()];
                 self.lanes.push(Lane {
                     media: id,
                     start: at,
                     color,
+                    added: ctx.input(|i| i.time),
                 });
             } else {
                 rejected.push(
@@ -162,7 +155,7 @@ impl Lanes {
             if row.top() > canvas.bottom() {
                 break;
             }
-            painter.rect_filled(row, 0.0, Color32::from_rgba_premultiplied(0, 0, 0, 40));
+            painter.rect_filled(row, 0.0, theme::p().lane);
             let Some((clip, item)) = self.clip(index, canvas, timeline, &x_of) else {
                 continue;
             };
@@ -180,18 +173,29 @@ impl Lanes {
                     )
                 }
                 State::Failed(_) => (
-                    theme::RECORD.gamma_multiply(0.4),
+                    theme::p().record.gamma_multiply(0.4),
                     format!("{} · could not load", item.name),
                 ),
             };
-            painter.rect_filled(clip, 3.0, fill);
+            // A new clip fades in (motion: BASE).
+            let ctx = painter.ctx();
+            let shown = crate::motion::appear(ctx, lane.added);
+            let fill = fill.gamma_multiply(shown);
+            let radius = theme::radius::SMALL;
+            painter.rect_filled(clip, radius, fill);
             if let (State::Loading, Some(p)) = (&item.state, self.library.progress(item.id)) {
+                // The progress fill glides between updates rather than jumping.
+                let p = ctx.animate_value_with_time(
+                    egui::Id::new(("load progress", item.id)),
+                    p,
+                    crate::motion::time(crate::motion::BASE),
+                );
                 let done = Rect::from_min_size(clip.min, vec2(clip.width() * p, clip.height()));
-                painter.rect_filled(done, 3.0, lane.color.gamma_multiply(0.8));
+                painter.rect_filled(done, radius, lane.color.gamma_multiply(0.8 * shown));
             }
             painter.rect_stroke(
                 clip,
-                3.0,
+                radius,
                 Stroke::new(1.0, fill.gamma_multiply(1.4)),
                 egui::StrokeKind::Inside,
             );
@@ -200,8 +204,8 @@ impl Lanes {
                 text_at,
                 egui::Align2::LEFT_TOP,
                 label,
-                egui::FontId::proportional(12.0),
-                Color32::WHITE,
+                egui::FontId::proportional(theme::size::BODY - 1.0),
+                theme::CLIP_TEXT.gamma_multiply(shown),
             );
         }
     }
@@ -252,7 +256,7 @@ impl Lanes {
                     }
                     for (id, name, why) in failed {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("⚠").color(theme::WARNING));
+                            ui.label(RichText::new("⚠").color(theme::p().warning));
                             ui.label(format!("{name}: {why}"));
                             if ui.small_button("Dismiss").clicked() {
                                 self.library.dismiss(id);
@@ -262,7 +266,7 @@ impl Lanes {
                     }
                     if let Some(notice) = self.notice.clone() {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("ⓘ").color(theme::RULER_TEXT));
+                            ui.label(RichText::new("ⓘ").color(theme::p().text_secondary));
                             ui.label(notice);
                             if ui.small_button("Dismiss").clicked() {
                                 self.notice = None;
@@ -302,7 +306,7 @@ pub fn file_card(ui: &mut egui::Ui, item: &Item) {
             ));
         }
         State::Failed(why) => {
-            ui.label(RichText::new(why).color(theme::WARNING));
+            ui.label(RichText::new(why).color(theme::p().warning));
         }
         _ => {}
     }
