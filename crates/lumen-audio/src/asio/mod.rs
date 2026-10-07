@@ -307,7 +307,7 @@ impl AsioBackend {
     /// Loads one driver and reports what it offers. Loading runs driver
     /// code, which can hang or crash when its hardware is missing: the app
     /// runs this in a helper process (M2 slice 8).
-    pub fn probe(&self, id: &DeviceId, name: String) -> DeviceInfo {
+    pub fn probe(&self, id: &DeviceId, name: String) -> Result<DeviceInfo, AudioError> {
         let mut info = DeviceInfo {
             id: id.clone(),
             name,
@@ -317,9 +317,7 @@ impl AsioBackend {
             current_sample_rate: None,
             buffer_sizes: None,
         };
-        let Ok(driver) = self.load(&id.id) else {
-            return info;
-        };
+        let driver = self.load(&id.id)?;
         if let Ok((inputs, outputs)) = driver.channels() {
             let names = |count: i32, input: bool| {
                 (0..count)
@@ -349,7 +347,7 @@ impl AsioBackend {
                 Some(b.granularity as u32)
             },
         });
-        info
+        Ok(info)
     }
 }
 
@@ -359,7 +357,7 @@ impl Backend for AsioBackend {
     fn devices(&mut self) -> Vec<DeviceInfo> {
         Self::registered()
             .into_iter()
-            .map(|(id, name)| self.probe(&id, name))
+            .filter_map(|(id, name)| self.probe(&id, name).ok())
             .collect()
     }
 

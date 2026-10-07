@@ -36,6 +36,7 @@ pub struct Transport {
     pub clip_memory: usize,
     pub metronome: MetronomeSettings,
     test_tone: bool,
+    pub settings_window: crate::audio_settings::Window,
     /// CPU load shown: the peak over the last second, refreshed once a second.
     cpu_peak: f32,
     cpu_taken: Option<Instant>,
@@ -68,6 +69,7 @@ impl Transport {
             settle_until: None,
             metronome: MetronomeSettings::default(),
             test_tone: false,
+            settings_window: Default::default(),
             cpu_peak: 0.0,
             cpu_taken: None,
             clip_memory: 0,
@@ -453,6 +455,28 @@ impl Transport {
     }
 
     /// The audio panel: device, Audio On/Off, test tone, meters, panic.
+    /// The audio settings window, when open; carries out what it asks.
+    pub fn windows(&mut self, ctx: &egui::Context) {
+        use crate::audio_settings::Action;
+        for action in self.settings_window.show(ctx, &self.audio, self.test_tone) {
+            match action {
+                Action::Apply(settings) => {
+                    crate::trace::log(|| format!("audio: apply {settings:?}"));
+                    self.audio.apply(settings);
+                    self.settle();
+                }
+                Action::ControlPanel => {
+                    let result = self.audio.open_control_panel();
+                    self.settings_window.control_panel_result(result);
+                }
+                Action::TestTone(on) => {
+                    self.test_tone = on;
+                    self.send(Command::TestTone(on));
+                }
+            }
+        }
+    }
+
     fn audio_panel(&mut self, ui: &mut Ui) {
         ui.set_min_width(280.0);
         match &self.audio.status {
@@ -486,6 +510,13 @@ impl Transport {
             .changed()
         {
             self.audio.set_on(on);
+        }
+        if ui
+            .button("Audio settings…")
+            .on_hover_text("Choose the driver, device, sample rate, buffer and channels")
+            .clicked()
+        {
+            self.settings_window.open = true;
         }
         if ui
             .checkbox(&mut self.test_tone, "Test tone (1 kHz, −20 dBFS)")

@@ -12,16 +12,20 @@
 //! lumen --open-audio drums.wav   add an audio file at bar 1 (or drag files
 //!                                from Explorer onto the arrangement)
 //! lumen --scale 1.5              UI scale
+//! lumen --audio-settings         open the audio settings window at start
+//! lumen --probe-asio <clsid>     (helper) report one ASIO driver as JSON
 //! lumen --smoke-test             render a few frames, report start-up time, exit
 //! lumen --screenshot out.png     render, save a screenshot, exit
 //! ```
 
 mod audio;
+mod audio_settings;
 mod canvas;
 mod icons;
 mod lanes;
 mod media;
 mod position;
+mod probe;
 mod ruler;
 mod settings;
 mod theme;
@@ -346,8 +350,55 @@ impl App {
 }
 
 impl App {
+    /// A banner under the transport when the audio device needs attention:
+    /// lost (reconnecting), busy in another application, or failed. Each
+    /// offers a way forward.
+    fn device_banner(&mut self, ui: &mut egui::Ui) {
+        let audio = &self.transport.audio;
+        let (message, retry) = match &audio.status {
+            audio::Status::Lost(_) => (
+                format!(
+                    "{} was disconnected. {} reconnects when it is back.",
+                    audio.device,
+                    lumen_core::product::PRODUCT_NAME
+                ),
+                false,
+            ),
+            audio::Status::Off(_) if audio.is_busy() => (
+                format!(
+                    "{} is in use by another application. Close it there, then try again.",
+                    audio.device
+                ),
+                true,
+            ),
+            audio::Status::Off(why)
+                if !audio.is_on() && why != "Audio is off" && !why.is_empty() =>
+            {
+                (format!("Audio could not start: {why}"), true)
+            }
+            _ => return,
+        };
+        egui::Panel::top("device banner").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("⚠").color(theme::WARNING));
+                ui.label(RichText::new(message).color(theme::WARNING));
+                if retry && self.transport.audio.can_switch() && ui.button("Try again").clicked() {
+                    self.transport.audio.set_on(true);
+                }
+                if ui.button("Audio settings…").clicked() {
+                    self.transport.settings_window.open = true;
+                }
+            });
+        });
+    }
+
     /// Notes settings changes and writes them once they settle.
     fn save_settings_when_settled(&mut self, ctx: &egui::Context) {
+        // A device setup that worked (chosen in the audio settings).
+        if let Some(audio) = self.transport.audio.confirmed.take() {
+            self.settings.audio = Some(audio);
+            self.settings_changed = Some(Instant::now());
+        }
         let metronome = settings::Metronome::from(self.transport.metronome);
         if metronome != self.settings.metronome {
             self.settings.metronome = metronome;
@@ -461,6 +512,8 @@ impl eframe::App for App {
         }
 
         egui::Panel::top("transport").show(ui, |ui| self.transport(ui));
+        self.device_banner(ui);
+        self.transport.windows(&ctx);
 
         // A focused control must not vanish with its panel: AccessKit
         // rejects focus on a node that no longer exists. Release focus
@@ -583,6 +636,10 @@ fn arg_value(flag: &str) -> Option<String> {
 }
 
 fn main() -> eframe::Result {
+    // The helper mode for safe ASIO queries (probe.rs): no window.
+    if let Some(clsid) = arg_value(probe::FLAG) {
+        std::process::exit(probe::run_helper(&clsid));
+    }
     let started = Instant::now();
     let screenshot = arg_value("--screenshot").map(PathBuf::from);
     let smoke_test = screenshot.is_some() || std::env::args().any(|a| a == "--smoke-test");
@@ -635,6 +692,7 @@ fn main() -> eframe::Result {
             let project = empty_project();
             let mut transport = Transport::new(&project, &choice);
             transport.restore_metronome((&saved.metronome).into());
+            transport.settings_window.open = std::env::args().any(|a| a == "--audio-settings");
             if let Some(warning) = settings_warning {
                 transport.audio.notice = Some(match transport.audio.notice.take() {
                     Some(notice) => format!("{warning}\n{notice}"),

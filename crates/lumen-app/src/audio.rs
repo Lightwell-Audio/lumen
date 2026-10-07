@@ -1,15 +1,15 @@
 //! Audio for the app: the device (through `lumen-audio`'s supervisor) with
-//! the engine running in its callback. Until the device selector arrives
-//! (M2 slice 8), the device is the system default output, or the one named
-//! with `--audio`.
+//! the engine running in its callback. The device comes from the audio
+//! settings (saved), from `--audio`, or is the system default output; the
+//! audio settings window changes it while Lumen runs (M2 slice 8).
 
 use std::sync::Arc;
 
-use lumen_core::product::PRODUCT_NAME;
-
 use lumen_audio::{
-    AudioSystem, Backend, Block, DeviceEvent, DeviceId, Status as Meters, StreamConfig, Timing,
+    AudioCallback, AudioError, AudioSystem, Backend, Block, DeviceEvent, DeviceId,
+    Status as Meters, StreamConfig, StreamInfo, Timing,
 };
+use lumen_core::product::PRODUCT_NAME;
 use lumen_engine::{ClipsHandle, EngineHandle, Timeline, clip_player, engine};
 
 use crate::settings::AudioSettings;
@@ -57,9 +57,27 @@ pub enum Status {
     Off(String),
 }
 
-type MakeBackend = fn() -> Box<dyn Backend>;
+pub type MakeBackend = fn() -> Box<dyn Backend>;
 
-fn backend(driver: &str) -> Option<MakeBackend> {
+/// The driver models on this platform: (key, label).
+pub const DRIVERS: &[(&str, &str)] = if cfg!(windows) {
+    &[
+        ("asio", "ASIO"),
+        ("wasapi", "Windows audio (shared)"),
+        ("exclusive", "Windows audio (exclusive)"),
+    ]
+} else {
+    &[("cpal", "System audio")]
+};
+
+pub fn driver_label(driver: &str) -> &str {
+    DRIVERS
+        .iter()
+        .find(|(key, _)| *key == driver)
+        .map_or(driver, |(_, label)| label)
+}
+
+pub fn backend(driver: &str) -> Option<MakeBackend> {
     match driver {
         #[cfg(windows)]
         "asio" => Some(|| {
@@ -75,12 +93,11 @@ fn backend(driver: &str) -> Option<MakeBackend> {
     }
 }
 
-const DEFAULT_DRIVER: &str = if cfg!(windows) { "wasapi" } else { "cpal" };
+pub const DEFAULT_DRIVER: &str = if cfg!(windows) { "wasapi" } else { "cpal" };
 
-/// Finds the device and its display name. Enumeration runs on its own
-/// thread, away from the UI thread's COM apartment.
 /// A device found for a choice.
 struct Resolved {
+    driver: String,
     make: MakeBackend,
     id: DeviceId,
     name: String,
@@ -94,8 +111,9 @@ struct Resolved {
 }
 
 impl Resolved {
-    fn found(make: MakeBackend, id: DeviceId, name: String) -> Self {
+    fn found(driver: &str, make: MakeBackend, id: DeviceId, name: String) -> Self {
         Self {
+            driver: driver.to_owned(),
             make,
             id,
             name,
@@ -106,10 +124,20 @@ impl Resolved {
             notice: None,
         }
     }
+
+    fn config(&self) -> StreamConfig {
+        StreamConfig {
+            device: self.id.clone(),
+            sample_rate: self.sample_rate,
+            buffer_frames: self.buffer_frames,
+            input_channels: self.input_channels.clone(),
+            output_channels: self.output_channels.clone(),
+        }
+    }
 }
 
 /// (id, name) of each device of `driver`, without loading ASIO drivers.
-fn listed(driver: &str, make: MakeBackend) -> Vec<(DeviceId, String)> {
+pub fn listed(driver: &str, make: MakeBackend) -> Vec<(DeviceId, String)> {
     #[cfg(windows)]
     if driver == "asio" {
         return lumen_audio::asio::AsioBackend::registered();
@@ -131,6 +159,24 @@ fn resolve(choice: &Choice) -> Result<Resolved, String> {
         .unwrap_or_else(|_| Err("audio device lookup failed".into()))
 }
 
+/// The saved device, if it is there: by id, then by name.
+fn find_saved(saved: &AudioSettings) -> Option<Resolved> {
+    let make = backend(&saved.driver)?;
+    let devices = listed(&saved.driver, make);
+    let (id, name) = devices
+        .iter()
+        .find(|(id, _)| id.id == saved.device_id)
+        .or_else(|| devices.iter().find(|(_, n)| *n == saved.device_name))
+        .cloned()?;
+    Some(Resolved {
+        sample_rate: saved.sample_rate,
+        buffer_frames: saved.buffer_frames,
+        input_channels: saved.input_channels.clone(),
+        output_channels: saved.output_channels.clone(),
+        ..Resolved::found(&saved.driver, make, id, name)
+    })
+}
+
 fn resolve_on_this_thread(choice: &Choice) -> Result<Resolved, String> {
     match choice {
         Choice::Default => {
@@ -143,7 +189,7 @@ fn resolve_on_this_thread(choice: &Choice) -> Result<Resolved, String> {
             listed(DEFAULT_DRIVER, make)
                 .into_iter()
                 .find(|(id, _)| *id == default)
-                .map(|(id, name)| Resolved::found(make, id, name))
+                .map(|(id, name)| Resolved::found(DEFAULT_DRIVER, make, id, name))
                 .ok_or_else(|| "no default audio output".into())
         }
         Choice::Named { driver, name } => {
@@ -159,51 +205,48 @@ fn resolve_on_this_thread(choice: &Choice) -> Result<Resolved, String> {
                         n.contains(&wanted)
                     }
                 })
-                .map(|(id, name)| Resolved::found(make, id, name))
+                .map(|(id, name)| Resolved::found(driver, make, id, name))
                 .ok_or_else(|| format!("no {driver} device matching {name:?}"))
         }
-        Choice::Saved(saved) => {
-            let found = backend(&saved.driver).and_then(|make| {
-                let devices = listed(&saved.driver, make);
-                devices
-                    .iter()
-                    .find(|(id, _)| id.id == saved.device_id)
-                    .or_else(|| devices.iter().find(|(_, n)| *n == saved.device_name))
-                    .cloned()
-                    .map(|(id, name)| (make, id, name))
-            });
-            match found {
-                Some((make, id, name)) => Ok(Resolved {
-                    sample_rate: saved.sample_rate,
-                    buffer_frames: saved.buffer_frames,
-                    input_channels: saved.input_channels.clone(),
-                    output_channels: saved.output_channels.clone(),
-                    ..Resolved::found(make, id, name)
-                }),
-                None => {
-                    let mut fallback = resolve_on_this_thread(&Choice::Default)?;
-                    fallback.notice = Some(format!(
-                        "{} is not connected, so {} is using {} for now. Connect it and \
-                         choose it again in the audio settings",
-                        saved.device_name, PRODUCT_NAME, fallback.name
-                    ));
-                    Ok(fallback)
-                }
+        Choice::Saved(saved) => match find_saved(saved) {
+            Some(found) => Ok(found),
+            None => {
+                let mut fallback = resolve_on_this_thread(&Choice::Default)?;
+                fallback.notice = Some(format!(
+                    "{} is not connected, so {} is using {} for now. Connect it and \
+                     choose it again in the audio settings",
+                    saved.device_name, PRODUCT_NAME, fallback.name
+                ));
+                Ok(fallback)
             }
-        }
+        },
     }
 }
 
 pub struct Audio {
-    /// `None` when no device could be found; the engine then stays idle.
+    /// `None` until a device has been found; the engine then waits in
+    /// `parked`.
     system: Option<AudioSystem>,
+    /// The engine's callback while no audio system runs it.
+    parked: Option<Box<dyn AudioCallback>>,
     pub engine: EngineHandle,
     /// Replaces the clips the engine plays.
     pub clips: ClipsHandle,
     pub status: Status,
-    device: String,
+    /// The driver model in use (`asio`, `wasapi`, ...).
+    pub driver: String,
+    pub device: String,
     /// What "Audio on" opens again.
     config: Option<StreamConfig>,
+    /// The device's latencies and block size, once running.
+    pub info: Option<StreamInfo>,
+    /// The last device error, to tell "busy" apart from other failures.
+    pub last_error: Option<AudioError>,
+    /// Settings chosen in the audio settings window, waiting for the device
+    /// to start before they are saved.
+    pending: Option<AudioSettings>,
+    /// Settings that worked: the app saves them.
+    pub confirmed: Option<AudioSettings>,
     /// Something the user should know about the device (shown in the audio
     /// panel), such as a saved device that was missing.
     pub notice: Option<String>,
@@ -215,46 +258,104 @@ impl Audio {
     pub fn start(choice: &Choice, timeline: Timeline) -> Self {
         let (clips, player) = clip_player();
         let (engine_handle, mut engine) = engine(timeline, player, 48_000);
-        let callback = move |block: &mut Block<'_>| {
+        let callback: Box<dyn AudioCallback> = Box::new(move |block: &mut Block<'_>| {
             let (rate, channels, frames) = (block.sample_rate, block.output_channels, block.frames);
             engine.process(rate, block.outputs, channels, frames);
+        });
+        let mut audio = Self {
+            system: None,
+            parked: Some(callback),
+            engine: engine_handle,
+            clips,
+            status: Status::Off(String::new()),
+            driver: String::new(),
+            device: String::new(),
+            config: None,
+            info: None,
+            last_error: None,
+            pending: None,
+            confirmed: None,
+            notice: None,
         };
         match resolve(choice) {
             Ok(found) => {
-                let system = AudioSystem::spawn(found.make, Box::new(callback), Timing::default());
-                let config = StreamConfig {
-                    device: found.id,
-                    sample_rate: found.sample_rate,
-                    buffer_frames: found.buffer_frames,
-                    input_channels: found.input_channels,
-                    output_channels: found.output_channels,
-                };
-                system.configure(config.clone());
-                Self {
-                    system: Some(system),
-                    config: Some(config),
-                    engine: engine_handle,
-                    clips,
-                    status: Status::Starting,
-                    device: found.name,
-                    notice: found.notice,
-                }
+                audio.notice = found.notice.clone();
+                audio.open(found);
             }
-            Err(message) => Self {
-                system: None,
-                engine: engine_handle,
-                clips,
-                status: Status::Off(message),
-                device: String::new(),
-                config: None,
-                notice: None,
-            },
+            Err(message) => audio.status = Status::Off(message),
         }
+        audio
+    }
+
+    /// Opens `found`: reconfigures the running driver model, switches to
+    /// another, or starts the first audio system.
+    fn open(&mut self, found: Resolved) {
+        let config = found.config();
+        if let Some(system) = &mut self.system {
+            if found.driver == self.driver {
+                system.configure(config.clone());
+            } else if let Err(e) = system.switch(found.make, config.clone()) {
+                self.status = Status::Off(format!("Could not switch the audio driver: {e}"));
+                return;
+            }
+        } else if let Some(callback) = self.parked.take() {
+            let system = AudioSystem::spawn(found.make, callback, Timing::default());
+            system.configure(config.clone());
+            self.system = Some(system);
+        }
+        self.driver = found.driver;
+        self.device = found.name;
+        self.config = Some(config);
+        self.info = None;
+        self.last_error = None;
+        self.status = Status::Starting;
+    }
+
+    /// Uses `settings` (from the audio settings window). Saved once the
+    /// device starts; on failure the reason shows and nothing is saved.
+    pub fn apply(&mut self, settings: AudioSettings) {
+        let lookup = settings.clone();
+        let found = std::thread::spawn(move || find_saved(&lookup))
+            .join()
+            .ok()
+            .flatten();
+        match found {
+            Some(found) => {
+                self.notice = None;
+                self.pending = Some(settings);
+                self.open(found);
+            }
+            None => {
+                self.notice = Some(format!("{} is not available", settings.device_name));
+            }
+        }
+    }
+
+    /// The setup in use, as settings.
+    pub fn settings(&self) -> Option<AudioSettings> {
+        let config = self.config.as_ref()?;
+        Some(AudioSettings {
+            driver: self.driver.clone(),
+            device_id: config.device.id.clone(),
+            device_name: self.device.clone(),
+            sample_rate: config.sample_rate,
+            buffer_frames: config.buffer_frames,
+            input_channels: config.input_channels.clone(),
+            output_channels: config.output_channels.clone(),
+        })
     }
 
     /// CPU load, overloads and dropouts, when a device was found.
     pub fn meters(&self) -> Option<&Arc<Meters>> {
         self.system.as_ref().map(AudioSystem::status)
+    }
+
+    /// Opens the running ASIO driver's own settings window.
+    pub fn open_control_panel(&self) -> Result<(), String> {
+        self.system
+            .as_ref()
+            .ok_or("audio is not running")?
+            .open_control_panel()
     }
 
     /// Whether the user can turn audio on or off (a device was found).
@@ -264,6 +365,12 @@ impl Audio {
 
     pub fn is_on(&self) -> bool {
         !matches!(self.status, Status::Off(_))
+    }
+
+    /// Another application holds the device.
+    pub fn is_busy(&self) -> bool {
+        matches!(self.status, Status::Off(_))
+            && matches!(self.last_error, Some(AudioError::DeviceBusy(_)))
     }
 
     /// The Audio On/Off switch: closes the device, or opens it again.
@@ -288,22 +395,42 @@ impl Audio {
         };
         let mut changed = false;
         while let Some(event) = system.try_event() {
-            self.status = match event {
+            match event {
                 DeviceEvent::Started(info)
                 | DeviceEvent::Reset(info)
-                | DeviceEvent::Restored(info) => Status::Running {
-                    device: self.device.clone(),
-                    detail: format!(
-                        "{:.1} kHz · {} samples · {:.1} ms",
-                        f64::from(info.sample_rate) / 1000.0,
-                        info.buffer_frames,
-                        info.round_trip_ms()
-                    ),
-                },
-                DeviceEvent::Lost(error) => Status::Lost(error.to_string()),
-                DeviceEvent::ConfigFailed { error, .. } => Status::Off(error.to_string()),
-                DeviceEvent::Stopped => Status::Off("Audio is off".into()),
-            };
+                | DeviceEvent::Restored(info) => {
+                    self.status = Status::Running {
+                        device: self.device.clone(),
+                        detail: format!(
+                            "{:.1} kHz · {} samples · {:.1} ms",
+                            f64::from(info.sample_rate) / 1000.0,
+                            info.buffer_frames,
+                            info.round_trip_ms()
+                        ),
+                    };
+                    self.info = Some(info);
+                    self.last_error = None;
+                    if let Some(settings) = self.pending.take() {
+                        self.confirmed = Some(settings);
+                    }
+                }
+                DeviceEvent::Lost(error) => {
+                    self.status = Status::Lost(error.to_string());
+                    self.last_error = Some(error);
+                }
+                DeviceEvent::ConfigFailed { error, reverted } => {
+                    self.pending = None;
+                    if reverted {
+                        // The previous setup is running again: keep its
+                        // status, and say why the change did not happen.
+                        self.notice = Some(format!("{error}. The previous setup is still in use"));
+                    } else {
+                        self.status = Status::Off(error.to_string());
+                    }
+                    self.last_error = Some(error);
+                }
+                DeviceEvent::Stopped => self.status = Status::Off("Audio is off".into()),
+            }
             changed = true;
         }
         self.engine.collect_garbage();
@@ -342,5 +469,15 @@ mod tests {
             Status::Off(reason) => assert!(reason.contains("no such device"), "{reason}"),
             other => panic!("expected Off, got {other:?}"),
         }
+        assert!(audio.settings().is_none());
+    }
+
+    #[test]
+    fn every_listed_driver_has_a_backend_and_a_label() {
+        for (key, label) in DRIVERS {
+            assert!(backend(key).is_some(), "{key}");
+            assert_eq!(driver_label(key), *label);
+        }
+        assert!(DRIVERS.iter().any(|(key, _)| *key == DEFAULT_DRIVER));
     }
 }

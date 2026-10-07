@@ -31,6 +31,7 @@ irreversible or external) · *Superseded*.
 | [0018](#adr-0018--transport-bar-icons-and-app-audio) | Transport bar: vector icons on egui's painter; the app opens the system default output until the device selector | Accepted 2026-10-06 | No |
 | [0019](#adr-0019--audio-files-and-clip-playback) | Audio files: symphonia + rubato into memory; clip player with edge and jump fades; one lane per file until M3 | Accepted 2026-10-06 (owner: memory now, streaming in M9) | No |
 | [0020](#adr-0020--metronome-test-tone-and-audio-health) | Metronome and test tone in the engine; dropouts from driver positions and delivery against real time | Accepted 2026-10-06 | No |
+| [0021](#adr-0021--device-selector) | Device selector: saved settings, ASIO probing in a helper process, run-time driver switching by handing the engine to a new thread | Accepted 2026-10-06 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -1187,3 +1188,57 @@ audio in memory for M2, disk streaming in M9; AAC/M4A deferred.
   one counts zero, and skipped positions count exactly.
 - On hardware: 0 dropouts on the NVIDIA HDMI output in WASAPI shared and
   exclusive.
+
+---
+
+## ADR-0021 — Device selector
+
+**Status:** Accepted · **Date:** 2026-10-06 (M2 slice 8). Owner decision:
+WASAPI and macOS/Linux input deferred to M9.
+
+### Decision
+- **Saved settings** (`settings.rs`):
+  - Versioned JSON in the user's settings folder, holding the audio device
+    and the metronome.
+  - Written atomically, and only once a setup has actually started.
+  - A damaged file is kept aside as `settings.json.bad`; a newer format is
+    left untouched.
+  - At start-up the saved device is found by id, then by name. If it is
+    missing, Lumen uses the default output with a notice. `--audio` is a
+    one-off override.
+- **ASIO probing in a helper process** (`probe.rs`, risk R6): `lumen
+  --probe-asio <clsid>` loads one driver, prints JSON and exits, with a 5 s
+  timeout. A driver that hangs or crashes only takes the helper down; its
+  error text is shown.
+  - Measured: 115–206 ms per probe.
+  - Probing a driver another process is streaming on does not interrupt
+    that stream.
+  - WASAPI and the system hosts are listed in-process, which is safe.
+- **Run-time driver switching:** `AudioSystem::switch` hands the running
+  callback (the engine, with transport, clips and metronome state) to a
+  fresh control thread for the new driver model. ASIO and WASAPI need
+  differently set-up COM apartments, which cannot change once set.
+  Switching device or settings within one driver model reconfigures in
+  place, with the existing fallback to the last working setup.
+- **What the window offers:**
+  - ASIO buffer sizes are shown read-only, with the driver's **Control
+    panel** button. Most ASIO drivers (Focusrite included) take the buffer
+    size from their own panel, as in Ableton. A running ASIO driver reports
+    only its current rate, so the window offers the standard rates and
+    reverts if the driver refuses one.
+  - WASAPI shared shows the Windows rate and period read-only; exclusive
+    and the system hosts offer their real ranges.
+  - One output pair and, for ASIO, one input pair at a time, by name (a
+    driver with blank names gets "Out n" / "In n"). Wider routing comes
+    with the mixer (M4).
+- **Problems are banners with a way forward:** lost ("reconnects when it
+  is back"), busy ("in use by another application", Try again), and failed
+  to start (Try again). Each has an Audio settings button.
+
+### Evidence (2026-10-06)
+- 5 settings tests, 1 probe round-trip test, 1 driver-switch test.
+- Probes on this machine: Focusrite USB ASIO reports 4 inputs, 2 outputs,
+  six rates and buffers of 16–1024 in steps of 16. Focusrite Thunderbolt
+  (no hardware) reports "Cannot open … 0x54f". FlexASIO reports its missing
+  Realtek device.
+- Screenshots of the window on WASAPI shared and on ASIO.

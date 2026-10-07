@@ -198,13 +198,13 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 |---|---|---|---|
 | Driver types: ASIO and WASAPI shared (Windows), CoreAudio, PipeWire/JACK/ALSA | M | 🟡 Output works on ASIO, WASAPI shared (hardware-tested) and cpal (CoreAudio/ALSA, compiled but not hardware-tested). Missing: WASAPI and cpal input (slice 8), JACK/PipeWire (ADR-0016) | 2 |
 | WASAPI exclusive | S | 🟡 Output tested on hardware: 3 ms on HDMI with events; the Focusrite switches to polling automatically (MT-AUDIO-4, -5). Input in slice 8 | 2 |
-| Device, rate, buffer selection with input/output/round-trip latency display | M | 🔲 | 2 |
+| Device, rate, buffer selection with input/output/round-trip latency display | M | 🟡 Audio settings window (M2 slice 8, ADR-0021): driver, device, rate, buffer and live latencies. ASIO buffer sizes are set in the driver's control panel, as in Ableton; WASAPI shared follows Windows. MT-APP-6 pending | 2 |
 | Device loss and return: keep the session, show the lost state, reconnect automatically (found by MT-ASIO-5) | M | 🟡 Detection and auto-reconnect done, tested with the fake backend and on hardware (MT-AUDIO-1); the lost-state UI arrives in slice 8 | 2 |
-| Channel selection with friendly names; mono and stereo configurations | M | 🔲 | 2 |
+| Channel selection with friendly names; mono and stereo configurations | M | 🟡 Output pairs and ASIO input pairs by name (mono for an odd last channel), one pair at a time; more routing with the mixer (M4) | 2 |
 | Audio input on WASAPI, CoreAudio and Linux, with drift compensation between separate devices (owner decision 2026-10-06: deferred from M2 slice 8; ASIO input works in M2) | M | 🔲 | 9 |
 | Test tone, CPU load, dropout counter, Audio On/Off | M | 🟡 All four done in the app's audio panel (M2 slice 7, ADR-0020); the full device selector page in slice 8 | 2 |
-| ASIO control panel; driver resets and rate/buffer changes without losing the session; busy/missing messages | M | 🟡 Driver resets done (MT-AUDIO-2); busy and missing errors are typed (MT-AUDIO-3); control panel and messages arrive in slice 8 | 2 |
-| Runtime changes never crash; restore a working configuration; persisted settings | M | 🟡 Fallback to the last working configuration is done and tested; persisted settings arrive in slice 8 | 2 |
+| ASIO control panel; driver resets and rate/buffer changes without losing the session; busy/missing messages | M | 🟡 Control panel button; resets (MT-AUDIO-2); busy, lost and failed banners with Try again / Audio settings; missing saved device falls back with a notice. MT-APP-6 pending | 2 |
+| Runtime changes never crash; restore a working configuration; persisted settings | M | 🟡 Driver and device switches at run time move the engine to a fresh control thread; refused changes revert with the reason; settings saved atomically once a setup works. MT-APP-6 pending | 2 |
 | MIDI devices: enable toggles, hot-plug, per-track MIDI From/To, virtual ports | M | 🔲 | 5 |
 
 ## §6.10 Projects, media and export

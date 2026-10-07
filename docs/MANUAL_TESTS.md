@@ -537,3 +537,30 @@ The 64-sample dropout check (step 4) was not reported separately.
 
 **Last run (2026-10-06, owner):** pass, after restyling the start marker at
 the owner's request (grey, ruler only, bottom edge).
+
+### MT-APP-6 · Audio settings (needs a human)
+Run `cargo run --release -p lumen-app` (no `--audio`: the saved or default
+device is used). Open the audio panel (click the status dot), then **Audio
+settings…**.
+1. The window lists the driver, device, rate, buffer, outputs and latency of
+   what is running.
+2. Switch **Driver** to ASIO and pick **Focusrite USB ASIO**: audio moves to
+   it (the status dot goes blue again), and the window shows its inputs and
+   outputs by name.
+3. Click **Control panel…**: Focusrite Control opens. Change the buffer size
+   there: the window and status follow (a reset).
+4. Change **Sample rate** to 44.1 kHz and back.
+5. Pick an input pair (Input 1/2): the latency line now shows input, output
+   and round trip.
+6. Switch back to Windows audio (shared) and its Focusrite device, then to
+   ASIO again: playback keeps working each time; a playing file and the
+   metronome survive the switch.
+7. Close Lumen and start it again: the last working device comes back.
+8. Pick **Focusrite Thunderbolt ASIO** (no hardware): a clear message, and
+   Lumen keeps running.
+9. With Lumen on ASIO, unplug the Focusrite: a banner says it was
+   disconnected; plug it back in: the banner goes away.
+
+**Expected:** every step as described, without a crash or a stuck UI.
+
+**Last run:** not yet run.
