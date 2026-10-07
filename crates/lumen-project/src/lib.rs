@@ -5,6 +5,7 @@
 //! `{ "format": "lumen-project", "version": N, "generator": ..., "project": ... }`.
 //! Older versions are upgraded by [`migrate`]; newer ones are refused.
 
+pub mod history;
 mod io;
 mod json;
 pub mod migrate;
@@ -13,6 +14,7 @@ pub mod model;
 pub mod testing;
 mod validate;
 
+pub use history::History;
 pub use io::{
     FORMAT_ID, LoadError, MediaLocation, SaveError, SaveOptions, from_bytes, load, locate_media,
     media_path_for, save, to_bytes,

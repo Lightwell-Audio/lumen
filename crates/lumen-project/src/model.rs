@@ -4,6 +4,12 @@
 //! groups, clips, notes, media, opaque plugin state). It grows feature by
 //! feature; every change to what is persisted bumps the format version and
 //! adds a migration (see `migrate`).
+//!
+//! Tracks and clips are held in [`Arc`]s so that undo snapshots share
+//! everything an edit did not touch (ADR-0024). Edit through
+//! [`Arc::make_mut`]; serde writes the `Arc`s transparently.
+
+use std::sync::Arc;
 
 use lumen_core::time::{TempoPoint, Ticks};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -55,9 +61,62 @@ pub struct Project {
     pub sample_rate: u32,
     pub tempo: Vec<TempoPoint>,
     pub time_signature: TimeSignature,
-    pub tracks: Vec<Track>,
+    pub tracks: Vec<Arc<Track>>,
     #[serde(default)]
     pub media: Vec<Media>,
+    /// Saved with the project but not part of undo (format v2).
+    #[serde(default)]
+    pub transport: TransportState,
+    /// How the project was last viewed (format v2). Not part of undo.
+    #[serde(default)]
+    pub view: ViewState,
+}
+
+/// The loop region as last set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TransportState {
+    pub loop_start: Ticks,
+    pub loop_end: Ticks,
+    pub loop_enabled: bool,
+}
+
+impl Default for TransportState {
+    fn default() -> Self {
+        Self {
+            loop_start: Ticks::ZERO,
+            // Four bars of 4/4.
+            loop_end: Ticks::quarters(16),
+            loop_enabled: false,
+        }
+    }
+}
+
+/// Scroll, zoom and panels, restored on open.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ViewState {
+    /// First visible quarter note.
+    pub left_beat: f32,
+    /// Horizontal zoom.
+    pub px_per_beat: f32,
+    pub browser_open: bool,
+    pub detail_open: bool,
+    pub browser_size: f32,
+    pub detail_size: f32,
+}
+
+impl Default for ViewState {
+    fn default() -> Self {
+        Self {
+            left_beat: 0.0,
+            px_per_beat: 24.0,
+            browser_open: true,
+            detail_open: true,
+            browser_size: 220.0,
+            detail_size: 220.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,7 +153,7 @@ pub struct Track {
     #[serde(default)]
     pub devices: Vec<Device>,
     #[serde(default)]
-    pub clips: Vec<Clip>,
+    pub clips: Vec<Arc<Clip>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

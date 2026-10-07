@@ -3,12 +3,15 @@
 
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 use lumen_core::time::{PPQ, TempoPoint, Ticks};
+use lumen_project::migrate::CURRENT_VERSION;
 use lumen_project::model::{
     Clip, ClipContent, Color, Device, Id, Media, Note, PluginRef, Project, TimeSignature, Track,
     TrackKind,
 };
+use lumen_project::model::{TransportState, ViewState};
 use lumen_project::testing::{TempDir, small_project, synthetic};
 use lumen_project::{
     LoadError, MediaLocation, SaveError, SaveOptions, from_bytes, load, locate_media,
@@ -43,7 +46,7 @@ fn golden_v1_expected() -> Project {
         bypass: false,
         state: vec![0, 1, 2, 3],
     }];
-    kick.clips = vec![Clip {
+    kick.clips = vec![Arc::new(Clip {
         id: Id(0x20),
         name: "Kick 1".into(),
         start: Ticks::ZERO,
@@ -54,7 +57,7 @@ fn golden_v1_expected() -> Project {
             offset: 0,
             gain_db: 0.0,
         },
-    }];
+    })];
     let mut bass = track(3, "Bass", TrackKind::Midi, 0x4F81BD);
     bass.gain_db = -6.0;
     bass.pan = -0.25;
@@ -68,7 +71,7 @@ fn golden_v1_expected() -> Project {
         bypass: true,
         state: vec![],
     }];
-    bass.clips = vec![Clip {
+    bass.clips = vec![Arc::new(Clip {
         id: Id(0x21),
         name: "Bassline".into(),
         start: Ticks::quarters(4),
@@ -80,7 +83,7 @@ fn golden_v1_expected() -> Project {
                 Note(Ticks(PPQ / 3), Ticks(PPQ / 4), 43, 90),
             ],
         },
-    }];
+    })];
     Project {
         name: "Golden v1".into(),
         sample_rate: 48_000,
@@ -99,10 +102,10 @@ fn golden_v1_expected() -> Project {
             denominator: 4,
         },
         tracks: vec![
-            track(1, "Drums", TrackKind::Group, 0xC0504D),
-            kick,
-            bass,
-            track(4, "Master", TrackKind::Master, 0x808080),
+            Arc::new(track(1, "Drums", TrackKind::Group, 0xC0504D)),
+            Arc::new(kick),
+            Arc::new(bass),
+            Arc::new(track(4, "Master", TrackKind::Master, 0x808080)),
         ],
         media: vec![Media {
             id: Id(0x30),
@@ -113,6 +116,9 @@ fn golden_v1_expected() -> Project {
             sample_rate: 48_000,
             size_bytes: 384_044,
         }],
+        // Not in v1 files: the v1 -> v2 migration writes the defaults.
+        transport: Default::default(),
+        view: Default::default(),
     }
 }
 
@@ -120,6 +126,40 @@ fn fixture(name: &str) -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
         .join(name)
+}
+
+/// The model the v2 golden file must always load as: v1 plus a saved loop
+/// region and view.
+fn golden_v2_expected() -> Project {
+    Project {
+        name: "Golden v2".into(),
+        transport: TransportState {
+            loop_start: Ticks::quarters(8),
+            loop_end: Ticks::quarters(24),
+            loop_enabled: true,
+        },
+        view: ViewState {
+            left_beat: 4.0,
+            px_per_beat: 32.0,
+            browser_open: false,
+            detail_open: true,
+            browser_size: 240.0,
+            detail_size: 180.0,
+        },
+        ..golden_v1_expected()
+    }
+}
+
+#[test]
+fn golden_v2_file_loads_forever() {
+    let path = fixture("v2/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() {
+        // Written once, when version 2 was introduced; never rewritten.
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v2_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v2 golden file must load");
+    assert_eq!(project, golden_v2_expected());
 }
 
 #[test]
@@ -151,7 +191,9 @@ fn round_trips_are_exact() {
 fn output_is_readable_json_with_one_note_per_line() {
     let text = String::from_utf8(to_bytes(&golden_v1_expected()).unwrap()).unwrap();
     assert!(
-        text.starts_with("{\n  \"format\": \"lumen-project\",\n  \"version\": 1,"),
+        text.starts_with(&format!(
+            "{{\n  \"format\": \"lumen-project\",\n  \"version\": {CURRENT_VERSION},"
+        )),
         "{text}"
     );
     assert!(
@@ -171,7 +213,7 @@ fn newer_versions_are_refused_with_a_clear_message() {
             error,
             LoadError::TooNew {
                 version: 999,
-                supported: 1
+                supported: CURRENT_VERSION
             }
         ),
         "{error:?}"
@@ -235,12 +277,14 @@ fn random_damage_never_panics() {
 #[test]
 fn inconsistent_projects_are_rejected_precisely() {
     let mut bad_pitch = golden_v1_expected();
-    if let ClipContent::Midi { notes } = &mut bad_pitch.tracks[2].clips[0].content {
+    if let ClipContent::Midi { notes } =
+        &mut Arc::make_mut(&mut Arc::make_mut(&mut bad_pitch.tracks[2]).clips[0]).content
+    {
         notes[0].2 = 200;
     }
     let mut cycle = golden_v1_expected();
-    cycle.tracks[0].parent = Some(Id(2)); // group inside its own child
-    cycle.tracks[1].kind = TrackKind::Group;
+    Arc::make_mut(&mut cycle.tracks[0]).parent = Some(Id(2)); // group inside its own child
+    Arc::make_mut(&mut cycle.tracks[1]).kind = TrackKind::Group;
     let mut missing_media = golden_v1_expected();
     missing_media.media.clear();
 
@@ -273,7 +317,7 @@ fn a_project_that_cannot_round_trip_is_never_written() {
     save(&golden_v1_expected(), &path, &SaveOptions::default()).unwrap();
     let before = fs::read(&path).unwrap();
     let mut broken = golden_v1_expected();
-    broken.tracks[1].gain_db = f32::NAN; // JSON would turn this into null
+    Arc::make_mut(&mut broken.tracks[1]).gain_db = f32::NAN; // JSON would turn this into null
     assert!(matches!(
         save(&broken, &path, &SaveOptions::default()),
         Err(SaveError::Invalid(_))

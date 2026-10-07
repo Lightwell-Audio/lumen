@@ -34,6 +34,7 @@ irreversible or external) · *Superseded*.
 | [0021](#adr-0021--device-selector) | Device selector: saved settings, ASIO probing in a helper process, run-time driver switching by handing the engine to a new thread | Accepted 2026-10-06 | No |
 | [0022](#adr-0022--performance-gates-by-instruction-count) | Performance gates: instruction counts under Callgrind in a pinned Linux container, compared with a committed baseline | Accepted 2026-10-07 | No |
 | [0023](#adr-0023--design-system-and-motion) | Design system and motion: semantic tokens with dark and light palettes, egui style built from them, our own window title rows, motion tokens with Reduce motion | Accepted 2026-10-07 | No |
+| [0024](#adr-0024--undo-by-shared-snapshots) | Undo by shared snapshots: every step is a cheap copy of the project that shares untouched tracks and clips | Accepted 2026-10-07 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -1393,3 +1394,49 @@ handful of dark-only constants and egui's default style.
   clip.
 - Idle CPU with the motion system: 0.2% of one core over 10 s (debug build,
   ASIO running).
+
+---
+
+## ADR-0024 — Undo by shared snapshots
+
+**Status:** Accepted · **Date:** 2026-10-07 (M3 slice 3).
+
+### Context
+`CLAUDE.md` requires that everything is undoable as one coherent step, and
+that "undo restores the exact previous state". The quality-bar project has
+200 tracks, 20,000 clips and 100,000 notes. Undo must cover every later
+edit too: MIDI, automation and plugin state.
+
+### Options
+1. **Command objects with inverses:** each edit knows how to undo itself.
+   This is compact, but every new edit needs a correct inverse forever, and
+   a wrong one corrupts the project silently.
+2. **Full snapshots:** a deep copy per step. Exact by construction, but at
+   quality-bar size each step costs tens of megabytes.
+3. **Shared snapshots** (chosen): the project holds tracks as
+   `Arc<Track>`, and each track holds its clips as `Arc<Clip>`. A step is a
+   copy of the project's top level (about 200 pointers); an edit clones
+   only what it changes (`Arc::make_mut`). Exact by construction and cheap:
+   editing one note copies one clip.
+
+### Decision
+- `lumen_project::History`:
+  - `current` and two stacks of labelled snapshots;
+  - `apply(label, merge, edit)` records one step;
+  - edits sharing a merge key while a gesture is open (a drag) become one
+    step, and `seal()` ends the gesture;
+  - `undo`, `redo`, `jump_to` and a version counter for "unsaved
+    changes";
+  - a step limit (10,000 by default) drops the oldest steps.
+- Edits that change nothing record nothing.
+- Transport and view state (loop region, zoom, panels) are saved with the
+  project but are not undo steps, as in Ableton.
+- The `.lumen` format is unchanged by the `Arc`s (serde serialises them
+  transparently).
+
+### Consequences
+- Edit code mutates through `Arc::make_mut`: a little noise, but the
+  compiler catches every place.
+- Memory per step is proportional to what the step changed.
+- Property tests check the guarantee: random edit sequences, then undo
+  all, give the initial project; redo all gives the final one.

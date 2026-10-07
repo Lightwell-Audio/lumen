@@ -2,6 +2,7 @@
 //! Not a stable API.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use lumen_core::time::{PPQ, TempoPoint, Ticks};
@@ -37,9 +38,15 @@ impl Drop for TempDir {
     }
 }
 
-struct Rng(u64);
+/// A small deterministic random number generator (xorshift) for tests.
+pub struct Rng(u64);
 
 impl Rng {
+    pub fn new(seed: u64) -> Self {
+        // Xorshift must not start at zero.
+        Self(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1)
+    }
+
     fn next(&mut self) -> u64 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
@@ -47,7 +54,7 @@ impl Rng {
         self.0
     }
 
-    fn below(&mut self, n: u64) -> u64 {
+    pub fn below(&mut self, n: u64) -> u64 {
         self.next() % n.max(1)
     }
 }
@@ -114,35 +121,37 @@ pub fn synthetic(
             Vec::new()
         } else {
             (0..clips_per_track)
-                .map(|k| Clip {
-                    id: id(),
-                    name: format!("Clip {k}"),
-                    start: Ticks::quarters(4 * k as i64) + Ticks(rng.below(PPQ as u64) as i64),
-                    length: Ticks::quarters(2),
-                    muted: rng.below(10) == 0,
-                    content: match source {
-                        Some(media) => ClipContent::Audio {
-                            media,
-                            offset: rng.below(48_000) as i64,
-                            gain_db: -(rng.below(240) as f32) / 10.0,
+                .map(|k| {
+                    Arc::new(Clip {
+                        id: id(),
+                        name: format!("Clip {k}"),
+                        start: Ticks::quarters(4 * k as i64) + Ticks(rng.below(PPQ as u64) as i64),
+                        length: Ticks::quarters(2),
+                        muted: rng.below(10) == 0,
+                        content: match source {
+                            Some(media) => ClipContent::Audio {
+                                media,
+                                offset: rng.below(48_000) as i64,
+                                gain_db: -(rng.below(240) as f32) / 10.0,
+                            },
+                            None => ClipContent::Midi {
+                                notes: (0..notes_per_clip)
+                                    .map(|_| {
+                                        Note(
+                                            Ticks(rng.below(2 * PPQ as u64) as i64),
+                                            Ticks(PPQ / 4),
+                                            36 + rng.below(48) as u8,
+                                            1 + rng.below(127) as u8,
+                                        )
+                                    })
+                                    .collect(),
+                            },
                         },
-                        None => ClipContent::Midi {
-                            notes: (0..notes_per_clip)
-                                .map(|_| {
-                                    Note(
-                                        Ticks(rng.below(2 * PPQ as u64) as i64),
-                                        Ticks(PPQ / 4),
-                                        36 + rng.below(48) as u8,
-                                        1 + rng.below(127) as u8,
-                                    )
-                                })
-                                .collect(),
-                        },
-                    },
+                    })
                 })
                 .collect()
         };
-        all_tracks.push(Track {
+        all_tracks.push(Arc::new(Track {
             id: track_id,
             name: format!("Track {index}"),
             kind,
@@ -154,7 +163,7 @@ pub fn synthetic(
             solo: false,
             devices,
             clips,
-        });
+        }));
     }
     Project {
         name: format!("Synthetic {seed}"),
@@ -175,5 +184,7 @@ pub fn synthetic(
         },
         tracks: all_tracks,
         media,
+        transport: Default::default(),
+        view: Default::default(),
     }
 }

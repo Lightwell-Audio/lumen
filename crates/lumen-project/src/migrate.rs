@@ -18,7 +18,26 @@ pub type Migration = fn(Value) -> Result<Value, String>;
 pub const FIRST_VERSION: u64 = 1;
 
 /// `MIGRATIONS[i]` upgrades version `FIRST_VERSION + i` to the next one.
-pub const MIGRATIONS: &[Migration] = &[];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2];
+
+/// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
+/// state (`view`). Version 1 files get the defaults written out.
+fn v1_to_v2(mut document: Value) -> Result<Value, String> {
+    let project = document
+        .get_mut("project")
+        .and_then(Value::as_object_mut)
+        .ok_or("missing project")?;
+    let defaults = |value: serde_json::Result<Value>| value.map_err(|e| e.to_string());
+    project.insert(
+        "transport".into(),
+        defaults(serde_json::to_value(crate::model::TransportState::default()))?,
+    );
+    project.insert(
+        "view".into(),
+        defaults(serde_json::to_value(crate::model::ViewState::default()))?,
+    );
+    Ok(document)
+}
 
 /// The version this build writes.
 pub const CURRENT_VERSION: u64 = FIRST_VERSION + MIGRATIONS.len() as u64;
@@ -101,5 +120,15 @@ mod tests {
     #[test]
     fn current_version_matches_the_registry() {
         assert_eq!(CURRENT_VERSION, FIRST_VERSION + MIGRATIONS.len() as u64);
+    }
+
+    #[test]
+    fn v1_to_v2_writes_the_default_transport_and_view() {
+        let v1 = json!({ "format": "lumen-project", "version": 1, "project": { "name": "x" } });
+        let v2 = upgrade(v1, 1, FIRST_VERSION, MIGRATIONS).unwrap();
+        assert_eq!(v2["version"], 2);
+        assert_eq!(v2["project"]["transport"]["loop_enabled"], false);
+        assert_eq!(v2["project"]["view"]["px_per_beat"], 24.0);
+        assert_eq!(v2["project"]["name"], "x");
     }
 }
