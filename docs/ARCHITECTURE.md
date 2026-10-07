@@ -1,64 +1,92 @@
-# Lumen — Architecture (draft, end of M1 prototyping)
+# Lumen — Architecture
 
-This is the shape the M1 prototypes support. Each part links to its decision
-record; nothing here is accepted until the M1 decisions are approved.
+**As built:** M3 slice 3 (2026-10-07). The decision records in
+`docs/DECISIONS.md` hold the reasoning and the evidence. This page shows
+how the parts fit.
 
 ## Processes and threads
 
 ```text
 ┌──────────────────────────── lumen (main process) ─────────────────────────────┐
 │                                                                               │
-│  UI thread ── egui/eframe (wgpu) ── document model (immutable snapshots)      │
-│     │  commands (undoable)        │ snapshots                                 │
-│     ▼                             ▼                                           │
-│  engine control (non-RT): graph compiler · disk I/O · autosave · scanning     │
-│     │  compiled graphs, commands     ▲ retired graphs (freed here)            │
-│     ▼  lock-free queues              │                                        │
-│  audio driver thread (RT): ASIO / WASAPI / CoreAudio / PipeWire callback      │
-│     │  runs the engine directly, no extra buffering                           │
-│     ├── RT worker pool (MMCSS "Pro Audio"): parallel graph nodes              │
-│     └── per block: signal plugin hosts ─ wait until deadline ─ else silence   │
-│                         │ shared memory + events                              │
-└─────────────────────────┼─────────────────────────────────────────────────────┘
-                          ▼
-   lumen-plugin-host processes (kill-on-close Job object, no crash dialogs)
-     RT thread: process plugins on shared buffers · GUI thread: plugin editors
-   lumen scan processes (short-lived, timeout): load module → factory → info
+│  UI thread ── egui/eframe (wgpu) ── Document: History of shared snapshots     │
+│     │  every edit is one undo step (ADR-0024)                                 │
+│     │                                                                         │
+│     ├── background threads: media load/convert · project save/open ·          │
+│     │   autosave · file dialogs · ASIO driver checks (child process)          │
+│     │                                                                         │
+│     ▼  commands, timelines, clip lists (lock-free queues; retired data        │
+│        comes back to be freed off the audio thread)                           │
+│  audio control thread (supervisor): open/close/reset devices, recovery,       │
+│     run-time driver switching (hands the engine to a new thread)              │
+│     ▼                                                                         │
+│  audio driver thread (RT): ASIO / WASAPI / CoreAudio / ALSA callback          │
+│     runs the engine directly, no extra buffering                              │
+│     (M6: per block, signal plugin hosts and wait until the deadline)          │
+└───────────────────────────────────────────────────────────────────────────────┘
+   lumen --probe-asio <clsid>: short-lived helper that loads one ASIO driver
+   (M6) lumen-plugin-host processes and scanning processes (prototyped in M1)
 ```
 
-| Concern | Design | Decision | Evidence |
-|---|---|---|---|
-| UI | egui host for chrome, widgets, text and accessibility; `lumen-render` (wgpu + Vello) for dense content | ADR-0002 | P-UI, P-RENDER |
-| Real-time engine | Allocation-free, block-size-invariant core; graphs built and freed off the audio thread | ADR-0003 | P-ENGINE |
-| Audio devices | Lumen's own backend layer; native ASIO over COM; driver probing in a child process | ADR-0006 | P-ASIO |
-| Plugins | `vst3` crate bindings; sandboxed host processes; out-of-process scanning | ADR-0005 | P-ISO, P-VST3 |
-| Projects | Folder + versioned JSON; migrations over untyped JSON; atomic saves | ADR-0004 | P-FORMAT |
-| Time | Integer ticks at 1,411,200 PPQ; one rounding rule to samples | ADR-0009 | P-FORMAT |
-| Real-time safety | Allocation guard in tests; RealtimeSanitizer on Linux and macOS CI (planned) | ADR-0010 | all RT prototypes |
+| Concern | Design | Decisions |
+|---|---|---|
+| UI | egui host for chrome, widgets, text and accessibility; `lumen-render` (wgpu + Vello) for dense content (the arrangement grid now, clips and waveforms from M3 slice 4) | ADR-0002 |
+| Design system | Semantic colour tokens (dark and light), type, spacing and motion, in `theme.rs`, `motion.rs` and `fonts.rs`; spec in `docs/DESIGN.md` | ADR-0023 |
+| Real-time engine | Allocation-free, block-size-invariant; transport, tempo and meter maps, declick crossfades, clip player, metronome | ADR-0003, 0017, 0019, 0020 |
+| Audio devices | Lumen's own backend layer: native ASIO over COM, WASAPI shared and exclusive, cpal for macOS and Linux; a supervisor that recovers from loss, resets and sleep | ADR-0006, 0016, 0021 |
+| Projects | Folder with versioned JSON (format v2), migrations over untyped JSON, atomic saves, rolling backups, relative media paths | ADR-0004 |
+| Undo | Shared snapshots: tracks and clips in `Arc`, every step a cheap copy | ADR-0024 |
+| Time | Integer ticks at 1,411,200 PPQ, with one rounding rule to samples | ADR-0009 |
+| Plugins (M6) | `vst3` crate bindings, sandboxed host processes, out-of-process scanning | ADR-0005 |
+| Real-time safety | Allocation guard in tests; RealtimeSanitizer in Linux CI with live canaries | ADR-0010 |
+| Performance | divan wall-clock benchmarks, plus instruction-count gates under Callgrind in CI (+2%) | ADR-0011, 0022 |
 
 ## Crates
 
-| Crate | Role | Status |
-|---|---|---|
-| `crates/lumen-core` | Product identity (name defined once), time base | Production seed |
-| `crates/lumen-rt` | Real-time safety tooling (`GuardedAllocator`, `rt_section`) | Production seed |
-| `crates/lumen-project` | Document model, `.lumen` format, migrations, atomic save | Production seed |
-| `crates/lumen-render` | Toolkit-independent renderer: GPU-resident instanced layers + Vello vector graphics; GPU pipeline cache | Production seed |
-| `crates/lumen-app` | The `lumen` application: egui host, spec layout, canvases via `lumen-render` | Production seed (shell only) |
-| `prototypes/engine-core` | Real-time core prototype | Rewrite into `lumen-engine` in M2 |
-| `prototypes/asio-probe` | Native ASIO host prototype | Becomes the ASIO backend in M2 (after ADR-0006 licensing) |
-| `prototypes/isolation-ipc` | Plugin-host transport prototype | Becomes `lumen-plugin-host` transport in M6 |
-| `prototypes/vst3-scan`, `vst3-test-module` | Scanner and misbehaving test module | Scanner seeds M6; test module grows into the test plugin |
-| `prototypes/ui-stress` | Dense-view rendering prototype, plus `lumen-render` hosted in egui | Techniques move into the M3 arrangement |
-| `prototypes/render-shell` | `lumen-render` in a bare winit window; Parley and AccessKit spike | Reference for the host comparison |
-| `prototypes/plugin-host` | Real VST3 hosting, in-process and isolated, with crash recovery | Seeds M6 |
+| Crate | Role |
+|---|---|
+| `lumen-core` | Product identity (the name, defined once), time base, tempo and meter maps |
+| `lumen-rt` | Real-time safety tooling: allocation guard and `rt_section` (RTSan hooks) |
+| `lumen-audio` | Device layer: `Backend` and `Stream` traits; ASIO, WASAPI and cpal backends; `AudioSystem` supervisor; a fake backend for tests |
+| `lumen-engine` | Engine on the audio thread: transport, timeline, clip player, metronome and test tone, declick; `EngineHandle` on the UI side |
+| `lumen-media` | Audio files: decoding (symphonia) and sample-rate conversion (rubato) |
+| `lumen-project` | Document model, `.lumen` format and migrations, atomic save and backups, media locating, `History` (undo) |
+| `lumen-render` | Toolkit-independent renderer: GPU-resident instanced layers plus Vello; GPU pipeline cache |
+| `lumen-perf` | Performance-gate scenarios and the `perf-gate` runner |
+| `lumen-app` | The `lumen` application (modules below) |
+
+`lumen-app` modules:
+
+| Area | Modules |
+|---|---|
+| Projects | `document.rs` (the open project and its history), `files.rs` (project folders, save, open, recent), `autosave.rs` (autosave and recovery) |
+| Arrangement | `lanes.rs` (tracks as lanes, the engine's clip list; replaced by the arrangement view in M3 slice 4), `media.rs` (loading audio in the background), `ruler.rs`, `position.rs`, `canvas.rs` (GPU grid) |
+| Transport and audio | `transport.rs` (transport bar, audio panel, shortcuts), `audio.rs` (device choice and status), `audio_settings.rs` (settings window), `probe.rs` (ASIO helper process) |
+| Design system | `theme.rs`, `motion.rs`, `fonts.rs`, `panels.rs` (sliding panels), `icons.rs` (vector icons, close button), `owner.rs` (dialogs owned by the main window) |
+| Other | `settings.rs` (user settings file), `trace.rs` (`LUMEN_TRACE` logging), `main.rs` (the app, menus, banners, windows) |
+
+## Prototypes (M1)
+
+| Prototype | Status |
+|---|---|
+| `engine-core` | Answered; rewritten as `lumen-engine` (M2) |
+| `asio-probe` | Answered; became the ASIO backend in `lumen-audio` (M2) |
+| `isolation-ipc`, `plugin-host` | Seed the plugin host process (M6) |
+| `vst3-scan`, `vst3-test-module` | Seed the scanner and the misbehaving test plugin (M6); CI self-test on Windows |
+| `ui-stress`, `render-shell` | Reference for dense rendering in the arrangement (M3 slice 4) |
 
 ## Rules every crate follows
-- Audio-thread code never allocates, locks, blocks or panics. Tests prove the
-  first property; the others are covered by review and, from M2,
-  RealtimeSanitizer.
-- Third-party native code (plugins, drivers during probing) runs only where a
-  crash cannot take Lumen down.
-- Lumen never writes a file it cannot read back; every persisted change bumps
-  the format version with a migration and a frozen fixture.
-- User-visible strings come from `lumen_core::product`.
+- Audio-thread code never allocates, locks, blocks or panics. Tests enforce
+  it: the allocation guard, plus RealtimeSanitizer in CI with canaries that
+  prove the sanitizer is active.
+- Third-party native code (plugins, drivers during probing) runs only where
+  a crash cannot take Lumen down.
+- Lumen never writes a file it cannot read back. Every persisted change
+  bumps the format version, with a migration and a frozen fixture.
+- Every edit goes through `Document::apply` and is one undo step.
+- Disk work runs off the UI thread: the interface and the audio never wait
+  on files.
+- Colours, sizes and durations come from the design-system modules, never
+  inline.
+- User-visible strings come from `lumen_core::product` where they name the
+  product.

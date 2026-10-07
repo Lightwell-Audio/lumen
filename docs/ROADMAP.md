@@ -355,7 +355,7 @@ Implement:
 - Media pool
 - Missing-media relinking
 - Project templates
-- Recent projects
+- Recent projects: done early, in M3 slice 3
 - Revert
 - Project settings
 - Export master

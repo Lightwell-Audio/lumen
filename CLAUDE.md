@@ -382,3 +382,78 @@ Begin with milestone 1.
 2. Create `docs/PROGRESS.md`, `docs/DECISIONS.md` and a plan for milestone 1, including the prototypes and measurements you will use to settle the early technical decisions.
 3. Execute the plan, record decisions, and deliver the milestone.
 4. Report what shipped, what was deferred, measured results and risks, propose the plan for milestone 2, and wait for approval.
+
+---
+
+## 12. Where the project stands (keep this section current)
+
+The specification above does not change. This section is the handoff: read
+it first in a new session, and update it at the end of every slice.
+
+**Last updated:** 2026-10-07, after M3 slice 3.
+
+**Status**
+- M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
+- **M3 Arrangement & Project System: in progress.** Slices 1–3 done:
+  - performance gates;
+  - design system, motion and typefaces;
+  - project model, undo, save/open, autosave and recovery.
+- **Next: M3 slice 4, tracks and the arrangement view at scale.** The plan
+  is in `docs/milestones/M3.md`, which also lists the follow-ups carried
+  forward.
+- Where to look:
+  - `docs/PROGRESS.md`: every requirement's status, slice tables and the
+    milestone reports;
+  - `docs/DECISIONS.md`: ADR-0001 to ADR-0024, plus the table of owner
+    decisions;
+  - `docs/MANUAL_TESTS.md`: hardware tests with every run's results;
+  - `docs/ARCHITECTURE.md`: crates and threads;
+  - `docs/DESIGN.md`: the design system;
+  - `docs/DEVELOPMENT.md`: setup, test flags, WSL mirror, performance gate.
+
+**How the owner works**
+- Tests by hand on Windows with a Focusrite USB interface (ASIO and
+  WASAPI). Give commands in PowerShell, starting Lumen with
+  `cargo run --release -p lumen-app` from the repository root, never an
+  `.exe` path.
+- Checks CI on GitHub themselves: push, don't watch or poll it.
+- Judges visuals by eye, and wants personality rather than generic
+  choices. Show visual options (typefaces, icons, colours) as rendered
+  specimens before downloading assets or building. Ask before downloading
+  files.
+- Pause for approval at the end of every milestone. Each slice closes with
+  a manual test (MT-*); the owner's findings are recorded as runs, fixed,
+  and re-run.
+
+**Engineering conventions learned so far**
+- **Build location:** build in the repository's `target/` folder; never
+  set `CARGO_TARGET_DIR`. A running `lumen.exe` blocks a rebuild: for
+  screenshots, use the debug build (`target/debug/lumen.exe --screenshot`),
+  never kill the owner's Lumen.
+- **Before every commit:** `cargo fmt`, workspace clippy with
+  `-D warnings`, and tests.
+- **Before pushing platform-specific code:** run the WSL Linux mirror
+  (`clippy.sh`, and `perf.sh` when engine or project code changes). See
+  DEVELOPMENT.md.
+- **Performance gate:** fails CI at +2% instructions. An intended change
+  updates `perf/baseline.json` from WSL (`perf.sh --update`), with the
+  reason recorded.
+- **Persisted changes:** every change to what is saved bumps the `.lumen`
+  format version, with a migration and a golden fixture. Owner settings
+  live in `%APPDATA%\Lumen\settings.json` (versioned).
+- **Edits:** every edit goes through `Document::apply` (one undo step;
+  drags merge into one step).
+- **Design:** UI colours, sizes and durations come from `theme.rs`,
+  `motion.rs` and `fonts.rs`, never inline. Windows draw their own title
+  row; long text wraps or truncates and never widens a window.
+- **Editing files from scripts:** rustfmt reflows code, so exact-match
+  replacements often miss. Prefer the Edit tool, and write longer scripts
+  to files rather than heredocs (Unicode and escapes break them).
+
+**Open items outside the code**
+- Owner actions:
+  - sign Steinberg's ASIO SDK agreement before any distribution;
+  - the Narrator accessibility check was deferred.
+- On 2026-10-07, GitHub rejected pushes with "Internal Server Error"
+  (server side; status page green, reads working). If `git status` shows
+  `main` ahead of `origin/main`, push again.

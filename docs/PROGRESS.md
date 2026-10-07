@@ -3,7 +3,8 @@
 ## Status
 
 **Current milestone:** 3 — Arrangement & Project System (plan:
-[milestones/M3.md](milestones/M3.md))
+[milestones/M3.md](milestones/M3.md)). Slices 1–3 are done; slice 4
+(tracks and the arrangement view at scale) is next.
 **Previous:** M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
@@ -14,7 +15,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 |---|---|---|---|
 | 1 | Foundations & Architecture | ✅ Complete | Plan and risk register in `docs/milestones/M1.md` |
 | 2 | Audio Engine, Devices & Transport | ✅ Complete, approved 2026-10-07 | Plan: `docs/milestones/M2.md` |
-| 3 | Arrangement & Project System | 🟡 In progress | Plan: `docs/milestones/M3.md` |
+| 3 | Arrangement & Project System | 🟡 In progress (slices 1–3 of 8 done) | Plan: `docs/milestones/M3.md` |
 | 4 | Mixer, Routing & Groups | 🔲 | |
 | 5 | MIDI & Piano Roll | 🔲 | |
 | 6 | VST3 Hosting & Device System | 🔲 | |
@@ -23,6 +24,24 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 9 | Recording, Media, Export & Production Workflow | 🔲 | |
 | 10 | Hardening, Performance & Release | 🔲 | |
 | S | Stretch goals (unscheduled; pulled into a milestone only with owner approval) | 🔲 | VST3 scanning and hosting on macOS and Linux |
+
+## Milestone 3 slices
+
+| # | Slice | Status | Commits |
+|---|---|---|---|
+| 1 | Performance gates by instruction count (ADR-0022) | ✅ 2026-10-07 | `03e2228` |
+| 2 | Design system, motion system, M2 retrofit; typefaces (ADR-0023, MT-APP-7) | ✅ 2026-10-07 | `dbe4777`, `392a5f8`, `d320cf0` |
+| 3 | Project model and undo, save/open, autosave and recovery (ADR-0024, MT-APP-8) | ✅ 2026-10-07 | `fd7583b`, `e2768fb`, `43c86f1`, `578bc6f`, `7780b11`, `4a7f615` |
+| 4 | Tracks and the arrangement view at scale | 🔲 next | |
+| 5 | Grid, snapping, rulers, scrub, markers, loop | 🔲 | |
+| 6 | Clip editing and selection | 🔲 | |
+| 7 | Command palette, shortcuts, context menus | 🔲 | |
+| 8 | End-to-end walkthrough and report | 🔲 | |
+
+## Milestone 2 slices
+
+All 8 slices are done and approved (2026-10-07). Details and manual test
+results are in [milestones/M2.md](milestones/M2.md); the report is below.
 
 ## Milestone 1 slices
 
@@ -57,8 +76,8 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Sample-accurate playback, MIDI, automation, loops, editing | M | 🟡 | 2–7 | Time base done (`lumen_core::time`, ADR-0009): every sample addressable at 999 BPM / 192 kHz. Transport and loops sample-accurate for every block size (`lumen-engine`, slice 3). MIDI, automation, editing later |
 | Offline render equals real-time and is repeatable | M | 🔲 | 2, 9 | P-ENGINE block-size invariance |
 | UI 60 fps minimum, 120 fps target at 200 tracks / 20,000 clips / 100,000 notes | M | 🔲 | 3, 10 | P-UI |
-| Near-zero idle CPU | M | 🔲 | 3, 10 | P-UI |
-| Cold start under 2 s; scanning and loading never block the UI | M | 🔲 | 3, 6, 10 | |
+| Near-zero idle CPU | M | 🟡 | 3, 10 | 0.0–0.2% measured with audio running (M2 MT-APP-4; M3 slice 2 with the motion system). Animations repaint only while moving. Re-measured at scale in M3 slice 4 and M10 |
+| Cold start under 2 s; scanning and loading never block the UI | M | 🟡 | 3, 6, 10 | First frame 394 ms warm / 1,110 ms cold (M1 shell). Audio files, project open and save, file dialogs and ASIO driver checks all run in the background (M2, M3). Plugin scanning in M6 |
 | Autosave, crash recovery, atomic saves, backups | M | ✅ | 3 | Atomic save and rolling backups (`lumen-project`). Autosave a minute after unsaved changes, to the local app data folder; a recovery banner after a crash; tested by killing the process (M3 slice 3d) |
 | Crashing plugins isolated, flagged, recoverable; scanning never crashes the app | M | 🔲 | 6, 10 | P-ISO, P-VST3 |
 | Device removal, rate and buffer changes, sleep and resume handled | M | 🔲 | 2, 10 | |
@@ -78,7 +97,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Rulers: bars/beats, minutes:seconds, samples, timecode | M | 🔲 | 3 |
 | Adaptive or fixed grid (triplet, dotted, off) with snap-bypass modifier | M | 🔲 | 3 |
 | Anchored zoom, zoom to selection, fit all, fit loop, pan, edge auto-scroll, follow modes. (Ctrl+wheel zoom works in the M1 shell since the 2026-10-06 fix: egui delivers it as a zoom factor, not as scroll.) | M | 🔲 | 3 |
-| Track types: audio, MIDI/instrument, group, return, master | M | 🔲 | 3–4 |
+| Track types: audio, MIDI/instrument, group, return, master | M | 🟡 All five exist in the project model; audio tracks are created by importing (M3 slice 3). Track headers and adding each type in M3 slice 4; group summing, returns and master in M4 | 3–4 |
 | Per-track name, colour, height, arm, monitor, solo, mute, polarity, I/O routing, inline fader and meter | M | 🔲 | 3–4 |
 | Group tracks: create, drag in, nest, fold, sum, own devices/sends/fader/automation, one-step ungroup, sensible solo/mute/arm | M | 🔲 | 4 |
 | Linked editing across selected tracks | S | 🔲 | 4 |
@@ -271,7 +290,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Project notes and metadata | S | 🔲 |
 | Export: master and stems; WAV/FLAC; bit depth; dither; offline and real-time; scope; tails; normalize | M | 🔲 |
 | MP3/AAC | L | 🔲 |
-| Preferences: audio, MIDI, plugin paths, file/cache locations, theme, scale, autosave interval, undo depth, track defaults, record settings | M | 🔲 |
+| Preferences: audio, MIDI, plugin paths, file/cache locations, theme, scale, autosave interval, undo depth, track defaults, record settings | M | 🟡 Audio settings window (M2); theme, interface size, Reduce motion and copy-imported-audio in the app menu (M3). The Preferences window in M9 |
 | Shortcut editor with conflict detection; Ableton-compatible default keymap | M | 🔲 |
 | FL-style keymap preset | L | 🔲 |
 | First-run wizard (audio device, plugin paths) | M | 🔲 |
@@ -280,8 +299,8 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Design system with a crisp vector icon set (spec §5): transport icons (play, pause, stop, record, loop, metronome) in M2, full set with the design system in M3 | M | 🟡 Design system v1 (`docs/DESIGN.md`, `theme.rs`): colour tokens for both themes, type, spacing, shape, widget states, key flows; M2 UI moved onto it (M3 slice 2). Icons grow with each slice's new controls |
 | Motion system: tokens, easing, what animates, reduce-motion; never delays input, no idle redraws; M2 widgets retrofitted (owner request 2026-10-06: fluid, Apple-like feel). Built in M3 with the design system; final polish pass in M10 | M | 🟡 Built (M3 slice 2, `motion.rs`): FAST/BASE/GLIDE tokens, ease-out and critically damped spring, Reduce motion; panels slide, popovers and windows fade, notices and banners animate, transport buttons fade on hover, playhead and start marker glide after a locate, clips fade in. Idle CPU unchanged (0.2%). Owner signed off (MT-APP-7, 2026-10-07); M10 polish |
 | Reset to default, type-in, fine adjust, wheel adjust, parameter right-click menus | M | 🔲 |
-| Drag and drop for files, devices, clips, tracks; status-bar hints | M | 🔲 |
-| Resizable, collapsible panels with remembered layout; full screen; high-DPI; light and dark | M | 🔲 |
+| Drag and drop for files, devices, clips, tracks; status-bar hints | M | 🟡 Files from Explorer, with a live indicator of what will be added (M2). Clips and tracks in M3, devices in M6 |
+| Resizable, collapsible panels with remembered layout; full screen; high-DPI; light and dark | M | 🟡 Resizable panels that slide open and closed; layout saved with each project; dark, light and match-system themes; interface size 100–200% (M3 slices 2–3). Full screen later |
 | Keyboard-only core flows; accessible control names. Open conflict: Shift+Tab is the spec's detail-panel shortcut and also the standard backward-focus key (ADR-0015). | M | 🔲 |
 | Detachable mixer and editor windows; hover help; welcome screen | S | 🔲 |
 | CPU, disk and dropout indicators; Audio On/Off; panic | M | 🟡 CPU (peak per second), dropouts, Audio On/Off and panic done (M2 slice 7). Disk indicator with disk streaming (M9); MIDI all-notes-off joins panic in M5 |

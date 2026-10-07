@@ -85,7 +85,29 @@ cargo clippy -p lumen-audio --all-targets --target aarch64-apple-darwin -- -D wa
 
 This checks types and lints only; nothing is linked or run. Linux can't be
 checked this way because ALSA's build script needs the Linux system
-headers, so CI is the Linux check.
+headers. Use the WSL mirror instead (next section).
+
+## Checking Linux in WSL
+
+An Ubuntu 26.04 WSL distribution on the dev machine mirrors the Linux CI,
+with the same system packages. Its clone (`/root/lumen`) pulls from this
+repository, so **commit locally first**. The scripts live in
+`C:\Users\<you>\lumen-wsl\` (see its README):
+
+| Script | Runs |
+|---|---|
+| `clippy.sh` | CI clippy and tests on Linux |
+| `perf.sh [--update]` | The performance gate under Valgrind (ADR-0022) |
+| `deny.sh` | `cargo-deny`: advisories, bans, licences, sources |
+| `ci-rtsan.sh`, `canary.sh` | RealtimeSanitizer tests and canaries |
+
+```powershell
+$env:WSL_UTF8 = "1"; wsl.exe -d Ubuntu -u root -- bash "/mnt/c/Users/<you>/lumen-wsl/clippy.sh"
+```
+
+Run `clippy.sh` before pushing any platform-specific (`cfg(windows)`)
+code: Windows-only code is dead code elsewhere, and `-D warnings` fails on
+it.
 
 ## Close Lumen before rebuilding it
 
@@ -162,6 +184,8 @@ reason. A new scenario is a `measured_<name>` function in
 
 | Path | Contents |
 |---|---|
-| `crates/` | Code intended for production |
+| `crates/` | Production code (see `docs/ARCHITECTURE.md`) |
+| `crates/lumen-app/assets/fonts/` | Inter and Unbounded, with their licence texts |
+| `perf/baseline.json` | Instruction-count baseline for the performance gate |
 | `prototypes/` | Milestone 1 measurement prototypes; deleted or rewritten once answered |
 | `docs/` | Specification companions: progress, decisions, plans, manual tests |

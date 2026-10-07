@@ -687,5 +687,8 @@ from its own copies, and a killed process was recovered.
   it back. Dialogs are now owned by Lumen's window: they stay above it,
   minimize and restore with it, and come forward when Lumen is clicked.
 
-**Last run:** run 1 with findings (above); run 2 pending.
+**Run 2 (2026-10-07, owner):** pass, all steps, including the one-line
+note and the owned file dialogs.
+
+**Last run:** run 2, pass.
 
