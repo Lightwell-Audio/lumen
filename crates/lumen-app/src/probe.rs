@@ -27,6 +27,8 @@ pub struct Probed {
 }
 
 impl Probed {
+    /// Used by the helper, which exists only on Windows.
+    #[cfg(any(windows, test))]
     pub fn from_info(info: &DeviceInfo) -> Self {
         Self {
             name: info.name.clone(),
