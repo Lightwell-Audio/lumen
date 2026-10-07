@@ -144,6 +144,9 @@ pub struct Window {
 /// Width of the label column, so every section lines up.
 const LABEL_WIDTH: f32 = 96.0;
 
+/// Fixed, so a notice or a long device name never resizes the window.
+const WINDOW_WIDTH: f32 = 440.0;
+
 /// A section heading with even spacing above and below.
 fn section(ui: &mut Ui, title: &str) {
     ui.add_space(10.0);
@@ -223,7 +226,8 @@ impl Window {
             .default_pos(top_centre)
             .collapsible(false)
             .resizable(false)
-            .min_width(440.0)
+            .min_width(WINDOW_WIDTH)
+            .max_width(WINDOW_WIDTH)
             .show(ctx, |ui| self.contents(ui, audio, test_tone, &mut actions));
         self.open = open;
         actions
@@ -342,7 +346,10 @@ impl Window {
         if let Some(notice) = &audio.notice {
             row(ui, "", |ui| {
                 // Wraps inside the window instead of widening it.
-                ui.allocate_ui(egui::vec2(260.0, 0.0), |ui| {
+                // Leaves room for the Dismiss button.
+                let width = ui.available_width() - 72.0;
+                ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
+                    ui.set_max_width(width);
                     let label = ui
                         .add(egui::Label::new(RichText::new(notice).color(theme::WARNING)).wrap());
                     if let Some(detail) = &audio.notice_detail {

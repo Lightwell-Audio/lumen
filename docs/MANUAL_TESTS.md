@@ -587,4 +587,8 @@ settings…**.
 - Thunderbolt ASIO showed its error, but "Starting" spun forever. A failed
   switch now returns to the previous device and says so.
 
-**Last run:** run 1 with findings (above); run 2 pending.
+**Run 2 (2026-10-06):** all steps pass. One finding: the failed-switch
+notice widened the window. The window now has a fixed width, notices wrap
+and have a Dismiss button, and the driver's own error text shows on hover.
+
+**Last run:** run 2, pass (notice-width fix awaiting the owner's look).
