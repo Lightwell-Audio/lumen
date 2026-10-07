@@ -61,6 +61,10 @@ short form: the rules, and the checks that keep them.
 - **Visibility is as narrow as works:** `pub(super)`, then `pub(crate)`.
 - **Platform code** (`cfg(windows)` and others) must compile clean on every
   platform: code that is dead elsewhere fails `-D warnings` there.
+- **Shaders are `.wgsl` files in `src/shaders/`**, checked at build time
+  by `lumen-shader-check` from `build.rs`; never WGSL in a Rust string.
+  Every uniform struct gets
+  `const _: () = assert!(size_of::<T>() == shaders::NAME_UNIFORM);`.
 
 ## Gates
 

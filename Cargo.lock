@@ -2092,6 +2092,7 @@ name = "lumen-render"
 version = "0.0.1"
 dependencies = [
  "bytemuck",
+ "lumen-shader-check",
  "vello",
  "wgpu",
 ]
@@ -2102,6 +2103,13 @@ version = "0.0.1"
 dependencies = [
  "divan",
  "rtsan-standalone",
+]
+
+[[package]]
+name = "lumen-shader-check"
+version = "0.0.1"
+dependencies = [
+ "naga",
 ]
 
 [[package]]
@@ -3991,6 +3999,7 @@ dependencies = [
  "bytemuck",
  "eframe",
  "lumen-render",
+ "lumen-shader-check",
  "windows-sys 0.61.2",
 ]
 

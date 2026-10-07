@@ -12,6 +12,16 @@ mod boxes;
 pub mod demo;
 mod waves;
 
+/// The WGSL shaders in `src/shaders`, compiled and checked by `build.rs`:
+/// each one's source, and the size of its uniform block.
+#[allow(dead_code)] // generated: not every shader has a uniform to check
+mod shaders {
+    include!(concat!(env!("OUT_DIR"), "/shaders.rs"));
+}
+
+// The uniform structs match their shaders, or the build fails.
+const _: () = assert!(size_of::<LayerUniform>() == shaders::RECTS_UNIFORM);
+
 pub use boxes::{BoxDraw, BoxInstance, BoxLayerId, BoxStyle, RowSlot};
 pub use waves::{MAX_LEVELS, PEAK_BASE, PEAK_FACTOR, WaveInstance, WaveStyle};
 
@@ -66,54 +76,9 @@ struct LayerUniform {
     _pad: [f32; 2],
 }
 
-const RECT_SHADER: &str = r#"
-struct Layer { canvas: vec2<f32>, origin: vec2<f32>, size: vec2<f32>, left: f32, ppu: f32, top: f32, row_h: f32, pad: vec2<f32> };
-@group(0) @binding(0) var<uniform> l: Layer;
-struct Rect { @location(0) start: f32, @location(1) end: f32, @location(2) row: f32, @location(3) color: u32 };
-struct Out { @builtin(position) pos: vec4<f32>, @location(0) color: vec4<f32> };
+const RECT_SHADER: &str = shaders::RECTS;
 
-@vertex
-fn vs_main(@builtin(vertex_index) v: u32, r: Rect) -> Out {
-    let corner = vec2<f32>(f32(v & 1u), f32((v >> 1u) & 1u));
-    let x0 = l.origin.x + (r.start - l.left) * l.ppu;
-    let x1 = max(l.origin.x + (r.end - l.left) * l.ppu, x0 + 1.0);
-    let y0 = l.origin.y + r.row * l.row_h - l.top + 1.0;
-    let y1 = y0 + max(l.row_h - 2.0, 1.0);
-    // Clamping to the area replaces scissoring, so hosts need not set one.
-    let lo = l.origin;
-    let hi = l.origin + l.size;
-    let p = clamp(vec2<f32>(mix(x0, x1, corner.x), mix(y0, y1, corner.y)), lo, hi);
-    var out: Out;
-    out.pos = vec4<f32>(p.x / l.canvas.x * 2.0 - 1.0, 1.0 - p.y / l.canvas.y * 2.0, 0.0, 1.0);
-    out.color = unpack4x8unorm(r.color);
-    return out;
-}
-
-@fragment
-fn fs_main(i: Out) -> @location(0) vec4<f32> {
-    return vec4<f32>(i.color.rgb * i.color.a, i.color.a);
-}
-"#;
-
-const BLIT_SHADER: &str = r#"
-@group(0) @binding(0) var tex: texture_2d<f32>;
-@group(0) @binding(1) var samp: sampler;
-struct Out { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
-
-@vertex
-fn vs_main(@builtin(vertex_index) v: u32) -> Out {
-    let uv = vec2<f32>(f32((v << 1u) & 2u), f32(v & 2u));
-    var out: Out;
-    out.pos = vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 0.0, 1.0);
-    out.uv = uv;
-    return out;
-}
-
-@fragment
-fn fs_main(i: Out) -> @location(0) vec4<f32> {
-    return textureSample(tex, samp, i.uv);
-}
-"#;
+const BLIT_SHADER: &str = shaders::BLIT;
 
 struct RectLayer {
     instances: wgpu::Buffer,
@@ -505,48 +470,6 @@ mod tests {
     fn gpu_layouts_have_the_sizes_the_shaders_expect() {
         assert_eq!(size_of::<RectInstance>(), 16);
         assert_eq!(size_of::<LayerUniform>(), 48);
-    }
-
-    #[test]
-    fn every_shader_parses_and_validates() {
-        use vello::wgpu::naga;
-        for (name, source) in [
-            ("rects", RECT_SHADER),
-            ("blit", BLIT_SHADER),
-            ("boxes", boxes::BOX_SHADER),
-            ("waves", waves::WAVE_SHADER),
-        ] {
-            let module = naga::front::wgsl::parse_str(source)
-                .unwrap_or_else(|e| panic!("{name}: {}", e.emit_to_string(source)));
-            naga::valid::Validator::new(
-                naga::valid::ValidationFlags::all(),
-                naga::valid::Capabilities::empty(),
-            )
-            .validate(&module)
-            .unwrap_or_else(|e| panic!("{name}: {e:?}"));
-        }
-    }
-
-    #[test]
-    fn each_shader_uniform_is_the_size_of_its_rust_struct() {
-        // A mismatch is a GPU validation error at the first draw, which
-        // naga's own validation cannot see.
-        use vello::wgpu::naga;
-        for (name, source, size) in [
-            ("rects", RECT_SHADER, size_of::<LayerUniform>()),
-            ("boxes", boxes::BOX_SHADER, boxes::UNIFORM_SIZE),
-            ("waves", waves::WAVE_SHADER, size_of::<waves::WaveUniform>()),
-        ] {
-            let module = naga::front::wgsl::parse_str(source).unwrap();
-            let mut layouter = naga::proc::Layouter::default();
-            layouter.update(module.to_ctx()).unwrap();
-            let uniform = module
-                .global_variables
-                .iter()
-                .find(|(_, v)| v.space == naga::AddressSpace::Uniform)
-                .map(|(_, v)| layouter[v.ty].size as usize);
-            assert_eq!(uniform, Some(size), "{name}");
-        }
     }
 
     #[test]

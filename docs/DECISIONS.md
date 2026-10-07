@@ -1625,8 +1625,12 @@ Idle: 3 repaints in 3 s, all from the once-a-second device check.
   thousands of names cost more than the clips.
 - **Clips loading for import** (a few at a time, sized in points before
   they have a length) stay egui shapes.
-- **Every shader is parsed and validated by naga in a unit test**, so a
-  shader error fails CI rather than the app at start-up.
+- **Every shader is parsed and validated by naga**, so a shader error
+  fails CI rather than the app at start-up. Since 2026-10-07 (owner
+  request) this happens at build time: shaders are `.wgsl` files checked
+  by `build.rs` (`lumen-shader-check`), and each uniform struct has a
+  compile-time size assertion against its shader (DEVELOPMENT.md,
+  "Shaders").
 
 ### Consequences
 - Waveforms (slice 4c) and later dense content (notes, automation) can

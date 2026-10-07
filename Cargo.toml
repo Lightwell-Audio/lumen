@@ -31,6 +31,9 @@ rubato = "5"
 eframe = "0.36"
 vello = "0.11"
 wgpu = "30"
+# The shader compiler, for build-time checks (lumen-shader-check). Keep it
+# at the version wgpu uses: upgrade the two together.
+naga = { version = "30", features = ["wgsl-in"] }
 winit = "0.30"
 pollster = "0.4"
 rfd = "0.17"
@@ -44,6 +47,7 @@ lumen-project = { path = "crates/lumen-project" }
 lumen-engine = { path = "crates/lumen-engine" }
 lumen-media = { path = "crates/lumen-media" }
 lumen-perf = { path = "crates/lumen-perf" }
+lumen-shader-check = { path = "crates/lumen-shader-check" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

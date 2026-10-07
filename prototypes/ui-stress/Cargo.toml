@@ -15,5 +15,8 @@ lumen-render.workspace = true
 workspace = true
 features = ["Win32_Foundation", "Win32_System_SystemInformation", "Win32_System_Threading"]
 
+[build-dependencies]
+lumen-shader-check.workspace = true
+
 [lints]
 workspace = true

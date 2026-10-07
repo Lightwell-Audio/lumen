@@ -182,6 +182,24 @@ reason. A new scenario is a `measured_<name>` function in
 `crates/lumen-perf/src/lib.rs`, marked `#[unsafe(no_mangle)]` and
 `#[inline(never)]`, plus an entry in `SCENARIOS`.
 
+## Shaders
+
+WGSL shaders live in `.wgsl` files under a crate's `src/shaders/`
+(`lumen-render`, and the `ui-stress` prototype). They are checked when the
+crate builds:
+
+- `build.rs` calls `lumen_shader_check::check("src/shaders")`, which parses
+  and validates each file with naga (the compiler wgpu uses). An error
+  fails `cargo build` with naga's message and the file and line.
+- It generates a `shaders` module: `BOXES` (the source of `boxes.wgsl`)
+  and `BOXES_UNIFORM` (the size of its uniform block). Each uniform struct
+  in Rust has a `const` assertion against that size, so a layout mismatch
+  (a `vec3` aligns to 16 bytes) is a compile error.
+
+To add a shader: put `name.wgsl` in `src/shaders/`, use `shaders::NAME`,
+and assert the size of its uniform struct against `shaders::NAME_UNIFORM`.
+`naga` is pinned to the version wgpu uses; upgrade them together.
+
 ## Frame-time benchmark (ADR-0026)
 
 CI has no GPU, so the arrangement's frame times are measured on the

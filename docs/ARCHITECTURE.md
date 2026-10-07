@@ -53,6 +53,7 @@ how the parts fit.
 | `lumen-project` | Document model, `.lumen` format and migrations, atomic save and backups, media locating, `History` (undo) |
 | `lumen-render` | Toolkit-independent renderer: GPU-resident instanced layers (rectangles; boxes with a per-frame row table, ADR-0026; waveforms drawn per pixel from a peak atlas, ADR-0027) plus Vello; GPU pipeline cache |
 | `lumen-perf` | Performance-gate scenarios and the `perf-gate` runner |
+| `lumen-shader-check` | Build-time shader checks: build scripts validate every `.wgsl` file with naga and generate each shader's source and uniform size |
 | `lumen-app` | The `lumen` application (modules below) |
 
 `lumen-app` modules:
