@@ -592,7 +592,11 @@ impl Transport {
     }
 
     fn status(&mut self, ui: &mut Ui) {
-        self.health(ui);
+        // In a narrow window the CPU readout gives way first; the status dot
+        // (the way into the audio panel) always stays.
+        if ui.available_width() > 120.0 {
+            self.health(ui);
+        }
         let (text, color, tip) = match &self.audio.status {
             Status::Starting => (
                 "Starting audio…".to_owned(),

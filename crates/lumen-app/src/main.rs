@@ -107,6 +107,9 @@ impl App {
                 .on_hover_text("Show or hide the browser");
             ui.separator();
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                // Whatever does not fit is cut off here rather than drawn
+                // over the panel toggles.
+                ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
                 ui.label(RichText::new(PRODUCT_NAME).strong());
                 ui.separator();
                 self.transport.ui(ui, &mut self.project);
@@ -668,7 +671,7 @@ fn main() -> eframe::Result {
         viewport: egui::ViewportBuilder::default()
             .with_title(display_name())
             .with_inner_size([1600.0, 900.0])
-            .with_min_inner_size([800.0, 500.0]),
+            .with_min_inner_size([960.0, 540.0]),
         ..Default::default()
     };
     // Compiled GPU pipelines are cached between launches (ADR-0002).
