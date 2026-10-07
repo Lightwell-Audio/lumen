@@ -628,7 +628,17 @@ move the way it should (`docs/DESIGN.md` §6)?
 calm: responsive at the start, soft at the end, never sluggish, bouncy or
 delayed. Say what feels off (too slow, too fast, too much, too little).
 
-**Last run:** not yet run.
+**Run 1 (2026-10-07, owner):** everything looked good except closing
+panels, which felt choppy (egui closes with the mirror of its opening
+curve). Fixed in `panels.rs`: the spring in both directions, and contents
+slide at full size. The owner also asked for a typeface with more
+character. After two rounds of rendered specimens they chose Inter, with
+Unbounded for titles.
+
+**Run 2 (2026-10-07, owner):** pass. The owner approved and moved on to
+slice 3.
+
+**Last run:** run 2, pass.
 
 ### MT-APP-8 · Undo, saving, opening and crash recovery (needs a human)
 Run `cargo run --release -p lumen-app`.
