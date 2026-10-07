@@ -99,6 +99,16 @@ impl Voice {
     }
 }
 
+/// Where the metronome writes in a channel-major buffer: `count` frames from
+/// `offset`, for `channels` channels that are `stride` frames apart.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Window {
+    pub stride: usize,
+    pub channels: usize,
+    pub offset: usize,
+    pub count: usize,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct Metronome {
     pub settings: MetronomeSettings,
@@ -143,21 +153,23 @@ impl Metronome {
         }
     }
 
-    /// Clicks for the timeline samples `start .. start + count`, written to
-    /// frames `offset ..` of `data`. Only new beats start clicks; a ringing
-    /// one carries on.
-    #[allow(clippy::too_many_arguments)]
+    /// Clicks for the timeline samples `start .. start + window.count`,
+    /// written to frames `window.offset ..` of `data`. Only new beats start
+    /// clicks; a ringing one carries on.
     pub fn render(
         &mut self,
         timeline: &Timeline,
         rate: u32,
         start: i64,
         data: &mut [f32],
-        stride: usize,
-        channels: usize,
-        offset: usize,
-        count: usize,
+        window: Window,
     ) {
+        let Window {
+            stride,
+            channels,
+            offset,
+            count,
+        } = window;
         let rate_f = rate as f32;
         if !self.settings.enabled {
             self.ring(data, stride, channels, offset, count, rate_f);

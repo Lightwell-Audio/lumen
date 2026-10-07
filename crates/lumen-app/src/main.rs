@@ -39,6 +39,7 @@ mod settings;
 mod theme;
 mod trace;
 mod transport;
+mod widgets;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

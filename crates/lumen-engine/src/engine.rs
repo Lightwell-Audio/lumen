@@ -26,7 +26,7 @@ use lumen_core::time::Ticks;
 use lumen_rt::DenormalGuard;
 
 use crate::declick::{Declick, MAX_FADE, fade_frames};
-use crate::metronome::{Metronome, MetronomeSettings, TestTone};
+use crate::metronome::{self, Metronome, MetronomeSettings, TestTone};
 use crate::snapshot::{Shared, TransportSnapshot};
 use crate::source::{Jump, Output, RenderContext, Source};
 use crate::timeline::Timeline;
@@ -253,10 +253,12 @@ impl<S: Source> Engine<S> {
                 self.sample_rate,
                 self.position,
                 data,
-                frames,
-                channels,
-                offset,
-                n,
+                metronome::Window {
+                    stride: frames,
+                    channels,
+                    offset,
+                    count: n,
+                },
             );
             self.position += n as i64;
             offset += n;
