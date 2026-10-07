@@ -1,0 +1,321 @@
+//! The arrangement's frame-time benchmark (M3 slice 4b; the quality bar's
+//! "60 fps minimum, 120 target with 200 tracks and 20,000 clips").
+//!
+//! `--stress` opens the generated quality-bar project. `--bench-frames
+//! <out.json>` then runs with vsync off and drives the view: a warm-up,
+//! then horizontal scrolling, vertical scrolling and zooming, recording the
+//! time between frames in each phase. Last it sits idle for three seconds
+//! and counts repaints (near-zero idle CPU). It writes the report, prints
+//! it, and exits with status 3 if any phase misses 60 fps at the 99th
+//! percentile. CI has no GPU, so this runs on the development machine
+//! (ADR-0011); results are recorded in `docs/PROGRESS.md`.
+
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
+/// Frames per measured phase.
+const FRAMES: usize = 600;
+/// Frames rendered before measuring (pipelines, caches, text layout).
+const WARM_UP: usize = 120;
+/// How long the idle phase measures.
+const IDLE: Duration = Duration::from_secs(3);
+/// Idle is measured from this long after the last driven frame.
+const SETTLE: Duration = Duration::from_millis(100);
+/// The floor: 60 fps.
+const FLOOR_MS: f64 = 1000.0 / 60.0;
+
+/// What a measured phase does to the view.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Phase {
+    WarmUp,
+    ScrollTime,
+    ScrollTracks,
+    Zoom,
+    Idle,
+}
+
+impl Phase {
+    const MEASURED: [Phase; 3] = [Phase::ScrollTime, Phase::ScrollTracks, Phase::Zoom];
+
+    fn key(self) -> &'static str {
+        match self {
+            Phase::WarmUp => "warm_up",
+            Phase::ScrollTime => "scroll_time",
+            Phase::ScrollTracks => "scroll_tracks",
+            Phase::Zoom => "zoom",
+            Phase::Idle => "idle",
+        }
+    }
+
+    fn next(self) -> Option<Phase> {
+        match self {
+            Phase::WarmUp => Some(Phase::ScrollTime),
+            Phase::ScrollTime => Some(Phase::ScrollTracks),
+            Phase::ScrollTracks => Some(Phase::Zoom),
+            Phase::Zoom => Some(Phase::Idle),
+            Phase::Idle => None,
+        }
+    }
+}
+
+/// Where the benchmark puts the view this frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct View {
+    pub left_beat: f32,
+    pub px_per_beat: f32,
+    /// Vertical scroll as a fraction of the scrollable height.
+    pub top: f32,
+}
+
+/// What the app does this frame.
+pub enum Step {
+    /// Show this view and draw the next frame at once.
+    Drive(View),
+    /// Leave the view alone and do not ask for frames.
+    Idle,
+    /// Finished: the report, and whether every phase met the floor.
+    Done(String, bool),
+}
+
+pub struct Bench {
+    out: PathBuf,
+    phase: Phase,
+    frame: usize,
+    last: Option<Instant>,
+    /// Milliseconds between frames, per measured phase.
+    times: Vec<(Phase, Vec<f64>)>,
+    idle_since: Option<Instant>,
+    idle_frames: u32,
+    /// The current frame is a counted idle repaint.
+    counting: bool,
+    /// What asked for each idle repaint ("file:line reason"), with counts.
+    idle_causes: std::collections::BTreeMap<String, u32>,
+}
+
+impl Bench {
+    pub fn new(out: PathBuf) -> Self {
+        Self {
+            out,
+            phase: Phase::WarmUp,
+            frame: 0,
+            last: None,
+            times: Phase::MEASURED
+                .iter()
+                .map(|&p| (p, Vec::with_capacity(FRAMES)))
+                .collect(),
+            idle_since: None,
+            idle_frames: 0,
+            counting: false,
+            idle_causes: std::collections::BTreeMap::new(),
+        }
+    }
+
+    /// Notes what caused an idle repaint (egui's repaint causes).
+    pub fn idle_cause(&mut self, cause: String) {
+        if !self.counting {
+            return;
+        }
+        *self.idle_causes.entry(cause).or_default() += 1;
+    }
+
+    pub fn out(&self) -> &std::path::Path {
+        &self.out
+    }
+
+    /// Call once at the start of every frame.
+    pub fn step(&mut self, now: Instant) -> Step {
+        let length = match self.phase {
+            Phase::WarmUp => WARM_UP,
+            Phase::Idle => usize::MAX,
+            _ => FRAMES,
+        };
+        if self.frame >= length
+            && let Some(next) = self.phase.next()
+        {
+            self.phase = next;
+            self.frame = 0;
+        }
+        // The time since the previous frame belongs to this frame's phase.
+        if let Some(last) = self.last.replace(now)
+            && let Some((_, times)) = self.times.iter_mut().find(|(p, _)| *p == self.phase)
+        {
+            times.push((now - last).as_secs_f64() * 1000.0);
+        }
+        if self.phase == Phase::Idle {
+            let since = *self.idle_since.get_or_insert(now);
+            let at = now - since;
+            if at >= SETTLE + IDLE {
+                return self.finish();
+            }
+            // The frames just after the last driven one settle it (egui
+            // lays out twice after a change); idle is measured after that.
+            self.counting = at >= SETTLE;
+            if self.counting {
+                self.idle_frames += 1;
+            }
+            return Step::Idle;
+        }
+        let t = self.frame as f32 / FRAMES as f32;
+        self.frame += 1;
+        Step::Drive(view(self.phase, t))
+    }
+
+    /// When to wake for the frame that ends the idle phase: once, a little
+    /// late, since timers can fire early and a wake that is too early
+    /// would schedule another (and be counted).
+    pub fn idle_left(&self, now: Instant) -> Duration {
+        let end = SETTLE + IDLE + Duration::from_millis(20);
+        self.idle_since
+            .map_or(end, |since| end.saturating_sub(now - since))
+    }
+
+    fn finish(&self) -> Step {
+        let mut pass = true;
+        let mut phases = serde_json::Map::new();
+        let mut lines = Vec::new();
+        for (phase, times) in &self.times {
+            let s = stats(times);
+            pass &= s.p99 <= FLOOR_MS;
+            lines.push(format!(
+                "{:<14} p50 {:>6.2} ms ({:>4.0} fps)  p95 {:>6.2}  p99 {:>6.2}  worst {:>6.2}",
+                phase.key(),
+                s.p50,
+                1000.0 / s.p50,
+                s.p95,
+                s.p99,
+                s.max
+            ));
+            phases.insert(
+                phase.key().into(),
+                serde_json::json!({
+                    "frames": times.len(),
+                    "p50_ms": s.p50, "p95_ms": s.p95, "p99_ms": s.p99, "max_ms": s.max,
+                    "fps_p50": 1000.0 / s.p50,
+                }),
+            );
+        }
+        lines.push(format!(
+            "idle           {} repaints in {} s",
+            self.idle_frames,
+            IDLE.as_secs()
+        ));
+        for (cause, n) in &self.idle_causes {
+            lines.push(format!("               {n} x {cause}"));
+        }
+        lines.push(format!(
+            "{} (floor: 60 fps at p99; target 120)",
+            if pass { "PASS" } else { "FAIL" }
+        ));
+        let report = serde_json::json!({
+            "phases": phases,
+            "idle_repaints": self.idle_frames,
+            "idle_causes": self.idle_causes,
+            "idle_seconds": IDLE.as_secs(),
+            "pass": pass,
+        });
+        if let Err(e) = std::fs::write(
+            &self.out,
+            serde_json::to_string_pretty(&report).unwrap_or_default(),
+        ) {
+            lines.push(format!("could not write {}: {e}", self.out.display()));
+        }
+        Step::Done(lines.join("\n"), pass)
+    }
+}
+
+/// The view at fraction `t` of a phase.
+fn view(phase: Phase, t: f32) -> View {
+    let wave = 0.5 - 0.5 * (t * std::f32::consts::TAU).cos();
+    match phase {
+        // The project spans 400 beats; sweep across most of it and back.
+        Phase::ScrollTime => View {
+            left_beat: 340.0 * wave,
+            px_per_beat: 24.0,
+            top: 0.3,
+        },
+        Phase::ScrollTracks => View {
+            left_beat: 40.0,
+            px_per_beat: 24.0,
+            top: wave,
+        },
+        // From the closest zoom out to the whole project and back.
+        Phase::Zoom => View {
+            left_beat: 0.0,
+            px_per_beat: 400.0 * (2.0_f32 / 400.0).powf(wave),
+            top: 0.3,
+        },
+        Phase::WarmUp | Phase::Idle => View {
+            left_beat: 0.0,
+            px_per_beat: 24.0,
+            top: 0.0,
+        },
+    }
+}
+
+#[derive(Debug, PartialEq)]
+struct Stats {
+    p50: f64,
+    p95: f64,
+    p99: f64,
+    max: f64,
+}
+
+fn stats(times: &[f64]) -> Stats {
+    let mut sorted = times.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let at = |q: f64| {
+        sorted
+            .get(((sorted.len() as f64 - 1.0) * q).round() as usize)
+            .copied()
+            .unwrap_or(f64::NAN)
+    };
+    Stats {
+        p50: at(0.50),
+        p95: at(0.95),
+        p99: at(0.99),
+        max: at(1.0),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn percentiles_come_from_the_sorted_times() {
+        let times: Vec<f64> = (1..=100).rev().map(f64::from).collect();
+        let s = stats(&times);
+        assert_eq!((s.p50, s.p95, s.p99, s.max), (51.0, 95.0, 99.0, 100.0));
+    }
+
+    #[test]
+    fn the_phases_run_in_order_then_idle() {
+        let mut bench = Bench::new(PathBuf::from("unused.json"));
+        let start = Instant::now();
+        let mut seen = Vec::new();
+        for i in 0..(WARM_UP + 3 * FRAMES + 2) {
+            let now = start + Duration::from_millis(i as u64);
+            if let Step::Idle = bench.step(now) {
+                seen.push(Phase::Idle);
+                break;
+            }
+            if seen.last() != Some(&bench.phase) {
+                seen.push(bench.phase);
+            }
+        }
+        assert_eq!(
+            seen,
+            [
+                Phase::WarmUp,
+                Phase::ScrollTime,
+                Phase::ScrollTracks,
+                Phase::Zoom,
+                Phase::Idle
+            ]
+        );
+        // Every measured phase recorded a frame time for each frame.
+        for (phase, times) in &bench.times {
+            assert_eq!(times.len(), FRAMES, "{phase:?}");
+        }
+    }
+}

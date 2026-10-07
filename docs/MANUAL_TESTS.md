@@ -789,5 +789,9 @@ Check in run 3:
   its audio may still be loading): no pop. If it still pops, note whether
   the audio panel's dropout count went up.
 
-**Last run:** run 2 with findings (above); run 3 pending.
+**Run 3 (2026-10-07, owner):** passed, including the audio fixes found
+during it (arming, volume and pan drags, mute and solo, the first play
+after opening).
+
+**Last run:** run 3, passed.
 

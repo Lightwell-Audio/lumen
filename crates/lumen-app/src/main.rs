@@ -14,6 +14,12 @@
 //! lumen --scale 1.5              UI scale
 //! lumen --audio-settings         open the audio settings window at start
 //! lumen --probe-asio <clsid>     (helper) report one ASIO driver as JSON
+//! lumen --stress                 open the generated quality-bar project
+//!                                (200 tracks, 20,000 clips)
+//! lumen --stress --bench-frames out.json
+//!                                frame-time benchmark: scroll and zoom it with
+//!                                vsync off, report, exit (status 3 below 60 fps);
+//!                                --bench-size 3440x1400 sets the window
 //! lumen --smoke-test             render a few frames, report start-up time, exit
 //! lumen --screenshot out.png     render, save a screenshot, exit
 //! ```
@@ -23,6 +29,7 @@ mod arrangement;
 mod audio;
 mod audio_settings;
 mod autosave;
+mod bench;
 mod canvas;
 mod document;
 mod files;
@@ -126,6 +133,8 @@ struct App {
     system_theme: Option<egui::Theme>,
     /// The device banner's last message, kept while it slides away.
     banner: Option<(String, bool)>,
+    /// `--bench-frames`: the frame-time benchmark in progress.
+    bench: Option<bench::Bench>,
 }
 
 pub(crate) fn empty_project() -> Project {
@@ -208,6 +217,7 @@ impl eframe::App for App {
             self.owner = owner::Owner::of(frame);
         }
         let ctx = ui.ctx().clone();
+        self.drive_bench(&ctx);
         self.transport.update();
         self.transport.shortcuts(&ctx);
         self.undo_shortcuts(&ctx);
@@ -463,6 +473,7 @@ fn main() -> eframe::Result {
             .clone()
             .map_or(audio::Choice::Default, audio::Choice::Saved),
     };
+    let bench = arg_value("--bench-frames").map(|out| bench::Bench::new(PathBuf::from(out)));
     let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(display_name())
@@ -470,6 +481,20 @@ fn main() -> eframe::Result {
             .with_min_inner_size([960.0, 540.0]),
         ..Default::default()
     };
+    // The benchmark measures how fast frames can be drawn, not the display's
+    // refresh rate; `--bench-size 3440x1400` sets its window.
+    if bench.is_some() {
+        options.wgpu_options.surface.present_mode = eframe::wgpu::PresentMode::AutoNoVsync;
+        if let Some((w, h)) = arg_value("--bench-size").and_then(|v| {
+            let (w, h) = v.split_once('x')?;
+            Some((w.parse::<f32>().ok()?, h.parse::<f32>().ok()?))
+        }) {
+            options.viewport = options
+                .viewport
+                .with_inner_size([w, h])
+                .with_position([0.0, 0.0]);
+        }
+    }
     // Compiled GPU pipelines are cached between launches (ADR-0002).
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup {
         let base = setup.device_descriptor.clone();
@@ -487,7 +512,12 @@ fn main() -> eframe::Result {
             if let Some(state) = cc.wgpu_render_state.as_ref() {
                 canvas::install(state).map_err(|e| format!("renderer: {e}"))?;
             }
-            let mut document = document::Document::new(empty_project());
+            let mut document =
+                document::Document::new(if std::env::args().any(|a| a == "--stress") {
+                    lumen_project::testing::synthetic(42, 200, 100, 10, 0)
+                } else {
+                    empty_project()
+                });
             let mut transport = Transport::new(document.project(), &choice);
             transport.restore_metronome((&saved.metronome).into());
             transport.settings_window.open = std::env::args().any(|a| a == "--audio-settings");
@@ -552,6 +582,7 @@ fn main() -> eframe::Result {
                 saved_appearance: saved_appearance.clone(),
                 system_theme: None,
                 banner: None,
+                bench,
             };
             // `--scale` and `--appearance` are one-off overrides (tests,
             // screenshots); they are not saved unless changed in the menu.

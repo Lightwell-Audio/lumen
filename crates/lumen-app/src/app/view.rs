@@ -7,12 +7,55 @@ use eframe::egui::{self, RichText, Sense, Stroke, pos2, vec2};
 use lumen_core::product::PRODUCT_NAME;
 use lumen_core::time::Ticks;
 
-use crate::{App, arrangement, audio, canvas, lanes, media, motion, ruler, theme, trace};
+use crate::{App, arrangement, audio, bench, canvas, lanes, media, motion, ruler, theme, trace};
 
 /// The height of the ruler above the lanes.
 const RULER_HEIGHT: f32 = 22.0;
 
 impl App {
+    /// `--bench-frames`: puts the view where the benchmark wants it this
+    /// frame, or reports and exits when it is done (`crate::bench`).
+    pub(crate) fn drive_bench(&mut self, ctx: &egui::Context) {
+        let Some(bench) = &mut self.bench else {
+            return;
+        };
+        let now = std::time::Instant::now();
+        let step = bench.step(now);
+        let idle_left = bench.idle_left(now);
+        let out = bench.out().to_path_buf();
+        match step {
+            bench::Step::Drive(view) => {
+                self.left_beat = view.left_beat;
+                self.px_per_beat = view.px_per_beat;
+                let content = self.arrangement.height_of_content(
+                    ctx,
+                    self.document.project(),
+                    self.lanes.pending().len(),
+                );
+                // The lanes take a little over half the window.
+                let visible = ctx.content_rect().height() * 0.6;
+                self.arrangement.top = view.top * (content - visible).max(0.0);
+                ctx.request_repaint();
+            }
+            bench::Step::Idle => {
+                if let Some(bench) = &mut self.bench {
+                    for cause in ctx.repaint_causes() {
+                        bench.idle_cause(format!("{}:{} {}", cause.file, cause.line, cause.reason));
+                    }
+                }
+                ctx.request_repaint_after(idle_left);
+            }
+            bench::Step::Done(report, pass) => {
+                println!(
+                    "{report}
+report: {}",
+                    out.display()
+                );
+                std::process::exit(if pass { 0 } else { 3 });
+            }
+        }
+    }
+
     pub(crate) fn transport(&mut self, ui: &mut egui::Ui) {
         // The panel toggles are laid out first, from the right, so they keep
         // their place at any width or scale; the transport takes the rest and
