@@ -240,6 +240,13 @@ fn remove_stale_temp_files(dir: &Path, name: &str) {
 /// Copies the current file to `Backups/<stem> <UTC timestamp>.lumen` and
 /// prunes the oldest beyond `keep`.
 fn back_up(path: &Path, dir: &Path, name: &str, keep: usize) -> io::Result<()> {
+    back_up_at(path, dir, name, keep, &utc_timestamp())
+}
+
+/// `back_up` with a given timestamp. Saves within the same millisecond get
+/// `_001`, `_002`… after it: `_` sorts after `.`, and the padding keeps the
+/// numbers in order, so the newest backup always sorts last.
+fn back_up_at(path: &Path, dir: &Path, name: &str, keep: usize, stamp: &str) -> io::Result<()> {
     let backups = dir.join("Backups");
     fs::create_dir_all(&backups)?;
     let stem = Path::new(name)
@@ -250,15 +257,29 @@ fn back_up(path: &Path, dir: &Path, name: &str, keep: usize) -> io::Result<()> {
         .extension()
         .map(|e| e.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let mut target = backups.join(format!("{stem} {}.{extension}", utc_timestamp()));
-    let mut counter = 1;
-    while target.exists() {
-        target = backups.join(format!(
-            "{stem} {} ({counter}).{extension}",
-            utc_timestamp()
-        ));
-        counter += 1;
+    // Continue after the highest suffix already used for this stamp, so a
+    // slot freed by pruning is never reused for a newer backup.
+    let taken = format!("{stem} {stamp}");
+    let mut newest: Option<u32> = None;
+    for entry in fs::read_dir(&backups)?.flatten() {
+        let file = entry.path();
+        let Some(rest) = file
+            .file_stem()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.strip_prefix(&taken))
+        else {
+            continue;
+        };
+        let counter = match rest {
+            "" => Some(0),
+            _ => rest.strip_prefix('_').and_then(|n| n.parse().ok()),
+        };
+        newest = newest.max(counter);
     }
+    let target = match newest {
+        None => backups.join(format!("{taken}.{extension}")),
+        Some(n) => backups.join(format!("{taken}_{:03}.{extension}", n + 1)),
+    };
     fs::copy(path, &target)?;
 
     let prefix = format!("{stem} ");
@@ -406,6 +427,28 @@ mod tests {
         // The newest backup is the version before the current one.
         assert_eq!(load(backups.last().unwrap()).unwrap(), small_project(4));
         assert_eq!(load(&path).unwrap(), small_project(5));
+    }
+
+    #[test]
+    fn backups_in_the_same_millisecond_keep_their_order() {
+        let dir = TempDir::new("backups-same-ms");
+        let path = dir.path().join("Song.lumen");
+        let stamp = "2026-10-06T120000.000Z";
+        for seed in 0..12 {
+            fs::write(&path, format!("version {seed}")).unwrap();
+            back_up_at(&path, dir.path(), "Song.lumen", 3, stamp).unwrap();
+        }
+        let mut backups: Vec<PathBuf> = fs::read_dir(dir.path().join("Backups"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .collect();
+        backups.sort();
+        let kept: Vec<String> = backups
+            .iter()
+            .map(|p| fs::read_to_string(p).unwrap())
+            .collect();
+        assert_eq!(kept, ["version 9", "version 10", "version 11"]);
     }
 
     #[test]
