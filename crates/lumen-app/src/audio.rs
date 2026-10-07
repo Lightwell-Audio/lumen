@@ -251,6 +251,8 @@ pub struct Audio {
     /// Something the user should know about the device (shown in the audio
     /// panel), such as a saved device that was missing.
     pub notice: Option<String>,
+    /// The driver's own words behind `notice`, shown on hover.
+    pub notice_detail: Option<String>,
     /// The setup in use before `apply`, to return to if the new one fails.
     previous: Option<Previous>,
     /// A control-panel request the driver has not answered yet.
@@ -292,6 +294,7 @@ impl Audio {
             pending: None,
             confirmed: None,
             notice: None,
+            notice_detail: None,
             previous: None,
             control_panel: None,
             control_panel_error: None,
@@ -340,7 +343,7 @@ impl Audio {
             .flatten();
         match found {
             Some(found) => {
-                self.notice = None;
+                self.dismiss_notice();
                 self.previous = self.config.clone().map(|config| Previous {
                     driver: self.driver.clone(),
                     device: self.device.clone(),
@@ -414,6 +417,11 @@ impl Audio {
         Some(format!("Starting {}…", pending.device_name))
     }
 
+    pub fn dismiss_notice(&mut self) {
+        self.notice = None;
+        self.notice_detail = None;
+    }
+
     /// Goes back to the setup used before a change that failed.
     fn restore_previous(&mut self, failed: &AudioError) {
         let Some(previous) = self.previous.take() else {
@@ -421,9 +429,10 @@ impl Audio {
         };
         let tried = std::mem::replace(&mut self.device, previous.device.clone());
         self.notice = Some(format!(
-            "{tried} could not start ({failed}). Still using {}",
+            "{tried} could not start. Still using {}.",
             previous.device
         ));
+        self.notice_detail = Some(failed.to_string());
         if previous.driver == self.driver {
             // The supervisor already reopened it.
             self.config = Some(previous.config);
@@ -443,8 +452,10 @@ impl Audio {
                 notice: None,
             };
             let notice = self.notice.take();
+            let detail = self.notice_detail.take();
             self.open(resolved);
             self.notice = notice;
+            self.notice_detail = detail;
         }
     }
 

@@ -25,6 +25,7 @@ pub enum Action {
     Apply(AudioSettings),
     ControlPanel,
     TestTone(bool),
+    DismissNotice,
 }
 
 /// A driver's devices as (id, name), or why they could not be listed.
@@ -340,7 +341,17 @@ impl Window {
         });
         if let Some(notice) = &audio.notice {
             row(ui, "", |ui| {
-                ui.label(RichText::new(notice).color(theme::WARNING));
+                // Wraps inside the window instead of widening it.
+                ui.allocate_ui(egui::vec2(260.0, 0.0), |ui| {
+                    let label = ui
+                        .add(egui::Label::new(RichText::new(notice).color(theme::WARNING)).wrap());
+                    if let Some(detail) = &audio.notice_detail {
+                        label.on_hover_text(detail);
+                    }
+                });
+                if ui.small_button("Dismiss").clicked() {
+                    actions.push(Action::DismissNotice);
+                }
             });
         }
 

@@ -466,6 +466,7 @@ impl Transport {
                     self.settle();
                 }
                 Action::ControlPanel => self.audio.open_control_panel(),
+                Action::DismissNotice => self.audio.dismiss_notice(),
                 Action::TestTone(on) => {
                     self.test_tone = on;
                     self.send(Command::TestTone(on));
@@ -493,8 +494,23 @@ impl Transport {
                 ui.label(RichText::new(why).small());
             }
         }
+        let mut dismiss = false;
         if let Some(notice) = &self.audio.notice {
-            ui.label(RichText::new(notice).color(theme::WARNING));
+            ui.horizontal(|ui| {
+                ui.set_max_width(260.0);
+                let label =
+                    ui.add(egui::Label::new(RichText::new(notice).color(theme::WARNING)).wrap());
+                if let Some(detail) = &self.audio.notice_detail {
+                    label.on_hover_text(detail);
+                }
+                dismiss = ui
+                    .small_button("Dismiss")
+                    .on_hover_text("Dismiss")
+                    .clicked();
+            });
+        }
+        if dismiss {
+            self.audio.dismiss_notice();
         }
         ui.separator();
         let mut on = self.audio.is_on();
