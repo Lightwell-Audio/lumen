@@ -8,7 +8,10 @@
 //! [`Renderer::prepare`] with the device and queue, then [`Renderer::paint`]
 //! inside its render pass.
 
+mod boxes;
 pub mod demo;
+
+pub use boxes::{BoxInstance, BoxLayerId, BoxStyle, RowSlot};
 
 use bytemuck::{Pod, Zeroable};
 use vello::wgpu;
@@ -117,6 +120,7 @@ struct RectLayer {
 
 struct Prepared {
     draws: Vec<(usize, wgpu::BindGroup)>,
+    boxes: Vec<(usize, wgpu::BindGroup)>,
     vector: Option<(wgpu::Texture, wgpu::BindGroup)>,
 }
 
@@ -132,6 +136,8 @@ pub struct Renderer {
     sampler: wgpu::Sampler,
     vello: vello::Renderer,
     layers: Vec<RectLayer>,
+    boxes: boxes::BoxPipeline,
+    box_layers: Vec<boxes::BoxLayer>,
     /// One prepared frame per drawing target (a host may draw several areas).
     targets: Vec<Option<Prepared>>,
 }
@@ -256,6 +262,7 @@ impl Renderer {
             ..Default::default()
         };
         let vello = vello::Renderer::new(device, options).map_err(|e| format!("vello: {e}"))?;
+        let boxes = boxes::BoxPipeline::new(device, format);
         Ok(Self {
             rect_pipeline,
             rect_bind_layout,
@@ -264,6 +271,8 @@ impl Renderer {
             sampler,
             vello,
             layers: Vec::new(),
+            boxes,
+            box_layers: Vec::new(),
             targets: Vec::new(),
         })
     }
@@ -399,11 +408,22 @@ impl Renderer {
             }
             _ => None,
         };
+        self.set_target(
+            target,
+            Prepared {
+                draws,
+                boxes: Vec::new(),
+                vector,
+            },
+        );
+        Ok(())
+    }
+
+    fn set_target(&mut self, target: usize, prepared: Prepared) {
         if self.targets.len() <= target {
             self.targets.resize_with(target + 1, || None);
         }
-        self.targets[target] = Some(Prepared { draws, vector });
-        Ok(())
+        self.targets[target] = Some(prepared);
     }
 
     /// Draws a prepared target into the host's render pass. The pass's
@@ -419,6 +439,7 @@ impl Renderer {
             pass.set_vertex_buffer(0, layer.instances.slice(..));
             pass.draw(0..4, 0..layer.count);
         }
+        self.paint_boxes(prepared, pass);
         if let Some((_, bind)) = &prepared.vector {
             pass.set_pipeline(&self.blit_pipeline);
             pass.set_bind_group(0, bind, &[]);
@@ -477,6 +498,25 @@ mod tests {
     fn gpu_layouts_have_the_sizes_the_shaders_expect() {
         assert_eq!(size_of::<RectInstance>(), 16);
         assert_eq!(size_of::<LayerUniform>(), 48);
+    }
+
+    #[test]
+    fn every_shader_parses_and_validates() {
+        use vello::wgpu::naga;
+        for (name, source) in [
+            ("rects", RECT_SHADER),
+            ("blit", BLIT_SHADER),
+            ("boxes", boxes::BOX_SHADER),
+        ] {
+            let module = naga::front::wgsl::parse_str(source)
+                .unwrap_or_else(|e| panic!("{name}: {}", e.emit_to_string(source)));
+            naga::valid::Validator::new(
+                naga::valid::ValidationFlags::all(),
+                naga::valid::Capabilities::empty(),
+            )
+            .validate(&module)
+            .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        }
     }
 
     #[test]

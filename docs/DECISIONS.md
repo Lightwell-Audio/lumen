@@ -36,6 +36,7 @@ irreversible or external) · *Superseded*.
 | [0023](#adr-0023--design-system-and-motion) | Design system and motion: semantic tokens with dark and light palettes, egui style built from them, our own window title rows, motion tokens with Reduce motion | Accepted 2026-10-07 | No |
 | [0024](#adr-0024--undo-by-shared-snapshots) | Undo by shared snapshots: every step is a cheap copy of the project that shares untouched tracks and clips | Accepted 2026-10-07 | No |
 | [0025](#adr-0025--tracks-folding-and-interim-volume-and-pan) | Tracks: owner-chosen header and clip design, Ableton-style folding and resizing, interim volume and pan until the mixer | Accepted 2026-10-07 | No |
+| [0026](#adr-0026--clips-on-the-gpu) | Clips on the GPU: a box layer with a per-frame row table; names in egui; measured first with a frame-time benchmark | Accepted 2026-10-07 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -1554,3 +1555,73 @@ Ableton-style folding and vertical resizing.
 - Screenshots of a five-track project (muted, soloed, armed and unfolded
   tracks): dark at 100%, light at 100% and 150%.
 
+---
+
+## ADR-0026 — Clips on the GPU
+
+**Status:** Accepted · **Date:** 2026-10-07 (M3 slice 4b)
+
+### Context
+The quality bar asks for at least 60 fps, with a 120 target, while
+scrolling and zooming 200 tracks and 20,000 clips, on a mid-range machine.
+M3 risk R1 planned clip bodies on the GPU from the start. Before building
+it, slice 4b added a frame-time benchmark and measured the egui clips it
+would replace.
+
+### Measurement first
+`lumen --stress --bench-frames out.json` opens the generated quality-bar
+project and drives the view with vsync off: a warm-up, then 600 frames
+each of scrolling in time, scrolling tracks and zooming. It reports the
+time between frames (p50, p95, p99, worst), then 3 s idle with its
+repaints and their causes. It exits with status 3 below 60 fps at p99.
+`--bench-size WxH` sets the window. CI has no GPU, so it runs on the
+development machine (ADR-0011).
+
+Ryzen 7 7700X with an RTX 4070, p99 in ms (scroll time / scroll tracks /
+zoom):
+
+| Window | egui clips | GPU clips |
+|---|---|---|
+| 1600 × 900 | 1.6 / 2.5 / 6.7 | 1.5 / 1.6 / 1.1 |
+| 3440 × 1380 (full width) | 7.5 / 8.2 / 13.4, worst 16.8 | 2.2 / 2.3 / 2.1, worst 4.3 |
+
+egui met the floor on this fast machine at a normal window size. At full
+width, zooming out puts thousands of clips on screen: egui then missed the
+120 fps target, before any waveforms, so a mid-range machine would miss
+60. The cost is tessellating every visible clip's shapes on the CPU each
+frame.
+
+Idle: 3 repaints in 3 s, all from the once-a-second device check.
+
+### Decision
+- **A box layer in `lumen-render`.**
+  - Each box is a time range on a row slot, with body, title-bar, border
+    and loading-fill colours and a loading progress (32 bytes).
+  - Boxes are uploaded only when the project, the media or the theme
+    change, or while a clip fades in or loads.
+  - Where rows are goes up separately each frame: top, height and opacity
+    per row, in a small float texture read in the vertex shader, so
+    scrolling, folding, resizing and their animations upload a few hundred
+    rows, never every clip. A texture rather than a storage buffer, so
+    every backend can read it in the vertex stage.
+  - The fragment shader draws the rounded body, title bar, border and
+    loading fill with a signed distance for antialiasing.
+  - Edges snap to whole pixels, and the callback's sub-pixel offset is
+    passed in (computed as egui-wgpu rounds its viewport), so boxes land
+    on the same pixels as egui's shapes: crisp borders, names aligned.
+- **Names stay egui text**, drawn only for visible clips at least 24 pt
+  wide: narrower, a name shows a letter or two, and at wide zooms
+  thousands of names cost more than the clips.
+- **Clips loading for import** (a few at a time, sized in points before
+  they have a length) stay egui shapes.
+- **Every shader is parsed and validated by naga in a unit test**, so a
+  shader error fails CI rather than the app at start-up.
+
+### Consequences
+- Waveforms (slice 4c) and later dense content (notes, automation) can
+  use the same row table.
+- The GPU and egui looks must match: `clip_box` and `draw_body` take
+  their colours from the same `ClipLook`, and screenshots are compared
+  pixel by pixel when either changes.
+- Frame times are re-measured before a slice that touches the arrangement
+  closes (DEVELOPMENT.md, "Frame-time benchmark").

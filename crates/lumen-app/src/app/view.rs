@@ -138,13 +138,17 @@ report: {}",
             },
         ));
         let x_of = |quarters: f32| canvas.left() + (quarters - self.left_beat) * self.px_per_beat;
+        let time = arrangement::TimeView {
+            left_beat: self.left_beat,
+            px_per_beat: self.px_per_beat,
+        };
         self.arrangement.lanes(
             ui.ctx(),
             &painter.with_clip_rect(canvas),
             canvas,
-            self.document.project(),
+            &self.document,
             &mut self.lanes,
-            x_of,
+            time,
         );
         // A hover card with the file's details.
         let hover = ui.interact(canvas, ui.id().with("clips"), Sense::hover());
@@ -155,7 +159,7 @@ report: {}",
                 canvas,
                 self.document.project(),
                 &self.lanes,
-                x_of,
+                time,
             )
         {
             hover.on_hover_ui_at_pointer(|ui| lanes::file_card(ui, item));

@@ -33,6 +33,9 @@ pub struct Lanes {
     notice: Option<String>,
     /// When each clip was first drawn (egui time), for its fade-in.
     seen: HashMap<u64, f64>,
+    /// Counts changes to what media is loaded, so drawings built from it
+    /// know when to rebuild.
+    revision: u64,
 }
 
 /// What the engine plays (audit M4: the model-to-engine translation, kept
@@ -118,6 +121,11 @@ impl Lanes {
         crate::motion::appear(ctx, since)
     }
 
+    /// Changes whenever loaded media changes (see `revision`).
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
     pub fn is_empty(&self, project: &Project) -> bool {
         project.tracks.is_empty() && self.pending.is_empty()
     }
@@ -164,7 +172,10 @@ impl Lanes {
         doc: &mut Document,
         clips: &mut ClipsHandle,
     ) {
-        self.dirty |= self.library.update(rate, ctx);
+        if self.library.update(rate, ctx) {
+            self.dirty = true;
+            self.revision += 1;
+        }
 
         // Loads that finished become tracks, in drop order, as one step.
         let mut imported = Vec::new();
@@ -199,6 +210,7 @@ impl Lanes {
                 && let Some(path) = doc.media_files.get(&media.id)
             {
                 self.library.import_as(media.id.0, path.clone(), rate, ctx);
+                self.revision += 1;
             }
         }
 

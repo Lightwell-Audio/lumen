@@ -795,3 +795,31 @@ after opening).
 
 **Last run:** run 3, passed.
 
+### MT-APP-10 · Clips at scale (needs a human)
+1. **Benchmark:** run
+   `cargo run --release -p lumen-app -- --stress --bench-frames "$env:TEMP\frames.json"`.
+   A window scrolls and zooms by itself for about 15 seconds, then
+   closes. The console shows each phase; every line should say well under
+   16.7 ms at p99, and "PASS". Note the numbers in the run record.
+2. **By hand:** run `cargo run --release -p lumen-app -- --stress`.
+   - Scroll through all 200 tracks with the wheel, Shift+wheel through the
+     timeline, and Ctrl+wheel from close up to the whole project: smooth,
+     no stutter.
+   - Fold, unfold and resize tracks while scrolled down: the clips follow
+     their tracks smoothly.
+   - Clips look as before: dark body, coloured title bar with the name,
+     a thin coloured border, rounded corners. Muted tracks' clips are
+     dimmed; the generated audio files are missing, so audio clips show
+     red bars with "file missing".
+   - Zoomed far out, names disappear from narrow clips; zoomed in, they
+     return.
+3. **Your own project:** open a real project, and drop a long audio file
+   onto it: while it loads, its clip shows the loading fill growing, then
+   becomes a normal clip.
+4. Try steps 2 and 3 in the light theme and at 150%.
+
+**Expected:** every step as described, and no visual difference from
+before apart from smoother scrolling.
+
+**Last run:** pending.
+

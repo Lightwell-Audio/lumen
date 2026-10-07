@@ -261,7 +261,9 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
 - **Clip:**
   - `clip_body` (dark in the dark theme), a 1 pt border of the track
     colour at 60%;
-  - a 15 pt title bar in the track colour, with the name in `caption`;
+  - a 15 pt title bar in the track colour, with the name in `caption`,
+    shown on clips at least 24 pt wide (narrower, a name is a letter or
+    two of noise);
   - the waveform drawn bright in the track colour (slice 4c).
 - **Hints:**
   - a soloed track's lane gets a 6% `accent` wash;

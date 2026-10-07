@@ -182,6 +182,23 @@ reason. A new scenario is a `measured_<name>` function in
 `crates/lumen-perf/src/lib.rs`, marked `#[unsafe(no_mangle)]` and
 `#[inline(never)]`, plus an entry in `SCENARIOS`.
 
+## Frame-time benchmark (ADR-0026)
+
+CI has no GPU, so the arrangement's frame times are measured on the
+development machine. Before closing a slice that changes the arrangement,
+run:
+
+```powershell
+cargo run --release -p lumen-app -- --stress --bench-frames "$env:TEMP\frames.json"
+cargo run --release -p lumen-app -- --stress --bench-frames "$env:TEMP\frames.json" --bench-size 3440x1380
+```
+
+It opens the generated quality-bar project (200 tracks, 20,000 clips) with
+vsync off, scrolls and zooms it, and reports p50, p95, p99 and the worst
+frame per phase, then the repaints during 3 s idle and what caused them.
+It exits with status 3 if any phase misses 60 fps at p99. Record the
+results in the slice's ADR or report when they change.
+
 ## Repository layout
 
 | Path | Contents |

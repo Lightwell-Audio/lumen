@@ -34,7 +34,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 1 | Performance gates by instruction count (ADR-0022) | ✅ 2026-10-07 | `03e2228` |
 | 2 | Design system, motion system, M2 retrofit; typefaces (ADR-0023, MT-APP-7) | ✅ 2026-10-07 | `dbe4777`, `392a5f8`, `d320cf0` |
 | 3 | Project model and undo, save/open, autosave and recovery (ADR-0024, MT-APP-8) | ✅ 2026-10-07 | `fd7583b`, `e2768fb`, `43c86f1`, `578bc6f`, `7780b11`, `4a7f615` |
-| 4 | Tracks and the arrangement view at scale: groundwork (format v3) and 4a track headers built (ADR-0025, MT-APP-9 run 2 pending); architecture audit fixed; 4b–4d next | 🟡 | 4a and audit through `eea085a` |
+| 4 | Tracks and the arrangement view at scale: groundwork (format v3), 4a track headers (ADR-0025, MT-APP-9 passed), architecture audit fixed, 4b clips on the GPU with a frame-time benchmark (ADR-0026, MT-APP-10 pending); 4c–4d next | 🟡 | 4a and audit through `eea085a`; 4b from `397f846` |
 | 5 | Grid, snapping, rulers, scrub, markers, loop | 🔲 | |
 | 6 | Clip editing and selection | 🔲 | |
 | 7 | Command palette, shortcuts, context menus | 🔲 | |
@@ -77,8 +77,8 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | No buffering beyond the driver | M | 🔲 | 2 | ADR-0003 |
 | Sample-accurate playback, MIDI, automation, loops, editing | M | 🟡 | 2–7 | Time base done (`lumen_core::time`, ADR-0009): every sample addressable at 999 BPM / 192 kHz. Transport and loops sample-accurate for every block size (`lumen-engine`, slice 3). MIDI, automation, editing later |
 | Offline render equals real-time and is repeatable | M | 🔲 | 2, 9 | P-ENGINE block-size invariance |
-| UI 60 fps minimum, 120 fps target at 200 tracks / 20,000 clips / 100,000 notes | M | 🔲 | 3, 10 | P-UI |
-| Near-zero idle CPU | M | 🟡 | 3, 10 | 0.0–0.2% measured with audio running (M2 MT-APP-4; M3 slice 2 with the motion system). Animations repaint only while moving. Re-measured at scale in M3 slice 4 and M10 |
+| UI 60 fps minimum, 120 fps target at 200 tracks / 20,000 clips / 100,000 notes | M | 🟡 | 3, 10 | Clips: met. With clips on the GPU (M3 slice 4b, ADR-0026), the stress project scrolls and zooms at p99 ≤ 2.3 ms at 3440 × 1380 (Ryzen 7 7700X, RTX 4070), measured by `--bench-frames`. Waveforms (4c) and notes (M5) still to measure; mid-range hardware in M10 |
+| Near-zero idle CPU | M | 🟡 | 3, 10 | 0.0–0.2% measured with audio running (M2 MT-APP-4; M3 slice 2 with the motion system). Animations repaint only while moving. Re-measured at scale in M3 slice 4b: 3 repaints in 3 s idle with the stress project (the once-a-second device check); M10 |
 | Cold start under 2 s; scanning and loading never block the UI | M | 🟡 | 3, 6, 10 | First frame 394 ms warm / 1,110 ms cold (M1 shell). Audio files, project open and save, file dialogs and ASIO driver checks all run in the background (M2, M3). Plugin scanning in M6 |
 | Autosave, crash recovery, atomic saves, backups | M | ✅ | 3 | Atomic save and rolling backups (`lumen-project`). Autosave a minute after unsaved changes, to the local app data folder; a recovery banner after a crash; tested by killing the process (M3 slice 3d) |
 | Crashing plugins isolated, flagged, recoverable; scanning never crashes the app | M | 🔲 | 6, 10 | P-ISO, P-VST3 |

@@ -19,6 +19,8 @@
 mod clips;
 mod headers;
 
+pub use clips::TimeView;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use eframe::egui::{self, Color32, Id as EguiId, Key, Modifiers};
@@ -94,6 +96,8 @@ pub struct Arrangement {
     /// The track whose bottom edge glows (hovered or dragged), and how
     /// strongly, so the lane can continue the glow.
     hot_edge: Option<(Id, f32)>,
+    /// Clip bodies on the GPU (slice 4b).
+    gpu: clips::GpuClips,
 }
 
 fn color_of(c: Color) -> Color32 {
