@@ -291,6 +291,30 @@ impl Document {
         self.edit_tracks(label, ids, |t| t.armed = armed);
     }
 
+    /// Track volume in dB (−60 to +6). A drag merges into one undo step per
+    /// track.
+    pub fn set_volume(&mut self, id: Id, db: f32) {
+        let db = db.clamp(-60.0, 6.0);
+        self.history
+            .apply("Change volume", Some(&format!("volume {:x}", id.0)), |p| {
+                if let Some(t) = p.tracks.iter_mut().find(|t| t.id == id) {
+                    Arc::make_mut(t).gain_db = db;
+                }
+            });
+    }
+
+    /// Track pan, −1 (left) to +1 (right). A drag merges into one undo step
+    /// per track.
+    pub fn set_pan(&mut self, id: Id, pan: f32) {
+        let pan = pan.clamp(-1.0, 1.0);
+        self.history
+            .apply("Change pan", Some(&format!("pan {:x}", id.0)), |p| {
+                if let Some(t) = p.tracks.iter_mut().find(|t| t.id == id) {
+                    Arc::make_mut(t).pan = pan;
+                }
+            });
+    }
+
     /// Moves `ids` (kept in their current order) so the first lands at
     /// `index` among the remaining tracks.
     pub fn move_tracks(&mut self, ids: &[Id], index: usize) {
@@ -541,6 +565,29 @@ mod tests {
         doc.undo();
         doc.undo();
         assert_eq!(heard(&doc), [false, true, true]);
+    }
+
+    #[test]
+    fn a_volume_or_pan_drag_is_one_step_per_track_and_stays_in_range() {
+        let mut doc = Document::new(crate::empty_project());
+        let a = doc.add_track(TrackKind::Audio, None);
+        let b = doc.add_track(TrackKind::Audio, None);
+        for db in [-1.0, -2.0, -3.0, -99.0] {
+            doc.set_volume(a, db);
+        }
+        assert_eq!(doc.project().tracks[0].gain_db, -60.0, "clamped");
+        doc.seal();
+        doc.set_pan(b, 3.0);
+        assert_eq!(doc.project().tracks[1].pan, 1.0, "clamped");
+        assert_eq!(doc.history().undo_label(), Some("Change pan"));
+        doc.undo();
+        assert_eq!(doc.history().undo_label(), Some("Change volume"));
+        doc.undo();
+        assert_eq!(
+            doc.project().tracks[0].gain_db,
+            0.0,
+            "the whole drag undoes at once"
+        );
     }
 
     #[test]

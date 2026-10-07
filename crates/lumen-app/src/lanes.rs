@@ -35,6 +35,57 @@ pub struct Lanes {
     seen: HashMap<u64, f64>,
 }
 
+/// What the engine plays (audit M4: the model-to-engine translation, kept
+/// pure so it is tested): every unmuted clip on a track that can be heard
+/// whose audio is loaded (`audio` gives the audio at the device rate and the
+/// file's own rate), for the shorter of the clip and the file, with clip and
+/// track gain and the track's pan.
+pub fn engine_clips(
+    project: &Project,
+    rate: u32,
+    audio: impl Fn(Id) -> Option<(std::sync::Arc<lumen_engine::ClipAudio>, u32)>,
+) -> Vec<Clip> {
+    let tempo = lumen_core::time::TempoMap::new(project.tempo.clone()).ok();
+    let audible = crate::document::audible(project);
+    let mut list = Vec::new();
+    for track in project.tracks.iter().filter(|t| audible(t)) {
+        for clip in track.clips.iter().filter(|c| !c.muted) {
+            let ClipContent::Audio {
+                media,
+                offset,
+                gain_db,
+            } = &clip.content
+            else {
+                continue;
+            };
+            let Some((samples, native)) = audio(*media) else {
+                continue;
+            };
+            // The offset is in the file's frames; the audio is at the
+            // device rate.
+            let offset =
+                (*offset as f64 * f64::from(samples.sample_rate) / f64::from(native.max(1))) as i64;
+            let region = tempo.as_ref().map_or(i64::MAX, |t| {
+                t.sample_at(clip.start + clip.length, rate) - t.sample_at(clip.start, rate)
+            });
+            let length = (samples.frames() as i64 - offset).min(region);
+            if length > 0 {
+                list.push(Clip {
+                    start: clip.start,
+                    offset,
+                    length,
+                    // Track volume and pan (M3 slice 4); the mixer takes
+                    // over in M4.
+                    gain: db_to_gain(*gain_db) * db_to_gain(track.gain_db),
+                    pan: track.pan,
+                    audio: samples,
+                });
+            }
+        }
+    }
+    list
+}
+
 fn db_to_gain(db: f32) -> f32 {
     10f32.powf(db / 20.0)
 }
@@ -150,52 +201,18 @@ impl Lanes {
         }
     }
 
-    /// What the engine plays: every unmuted audio clip whose file is loaded,
-    /// for the shorter of the clip and the file.
+    /// What the engine plays, from the files that are loaded.
     fn engine_clips(&self, project: &Project, rate: u32) -> Vec<Clip> {
-        let tempo = lumen_core::time::TempoMap::new(project.tempo.clone()).ok();
-        let audible = crate::document::audible(project);
-        let mut list = Vec::new();
-        for track in project.tracks.iter().filter(|t| audible(t)) {
-            for clip in track.clips.iter().filter(|c| !c.muted) {
-                let ClipContent::Audio {
-                    media,
-                    offset,
-                    gain_db,
-                } = &clip.content
-                else {
-                    continue;
-                };
-                let Some(item) = self.library.get(media.0) else {
-                    continue;
-                };
-                let State::Ready(audio) = &item.state else {
-                    continue;
-                };
-                // The offset is in the file's frames; the audio is at the
-                // device rate.
-                let native = item.info.sample_rate.unwrap_or(audio.sample_rate).max(1);
-                let offset =
-                    (*offset as f64 * f64::from(audio.sample_rate) / f64::from(native)) as i64;
-                let region = tempo.as_ref().map_or(i64::MAX, |t| {
-                    t.sample_at(clip.start + clip.length, rate) - t.sample_at(clip.start, rate)
-                });
-                let length = (audio.frames() as i64 - offset).min(region);
-                if length > 0 {
-                    list.push(Clip {
-                        start: clip.start,
-                        offset,
-                        length,
-                        // Track volume and pan (M3 slice 4); the mixer
-                        // takes over in M4.
-                        gain: db_to_gain(*gain_db) * db_to_gain(track.gain_db),
-                        pan: track.pan,
-                        audio: audio.clone(),
-                    });
-                }
-            }
-        }
-        list
+        engine_clips(project, rate, |media| {
+            let item = self.library.get(media.0)?;
+            let State::Ready(audio) = &item.state else {
+                return None;
+            };
+            Some((
+                audio.clone(),
+                item.info.sample_rate.unwrap_or(audio.sample_rate),
+            ))
+        })
     }
 
     /// The panel for loads in progress (with Cancel), failures (with
@@ -303,4 +320,100 @@ pub fn file_card(ui: &mut egui::Ui, item: &Item) {
             .small()
             .weak(),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::document::{Document, Imported};
+    use lumen_engine::ClipAudio;
+    use lumen_project::model::TrackKind;
+
+    /// A document with one two-second clip on each of `n` tracks, and the
+    /// audio for it at 48 kHz.
+    fn setup(n: usize) -> (Document, Arc<ClipAudio>) {
+        let mut doc = Document::new(crate::empty_project());
+        let files = (0..n)
+            .map(|i| Imported {
+                media: Id(1000 + i as u64),
+                path: PathBuf::from(format!("C:/a/{i}.wav")),
+                name: format!("T{i}"),
+                sample_rate: 48_000,
+                channels: 2,
+                frames: 96_000,
+                size_bytes: 0,
+                at: Ticks::ZERO,
+            })
+            .collect();
+        doc.import(files);
+        let audio = Arc::new(ClipAudio {
+            sample_rate: 48_000,
+            channels: vec![vec![0.5; 96_000], vec![0.5; 96_000]],
+        });
+        (doc, audio)
+    }
+
+    fn played(doc: &Document, audio: &Arc<ClipAudio>, native: u32) -> Vec<Clip> {
+        engine_clips(doc.project(), 48_000, |_| Some((audio.clone(), native)))
+    }
+
+    #[test]
+    fn clips_play_whole_with_track_gain_and_pan() {
+        let (mut doc, audio) = setup(1);
+        let id = doc.project().tracks[0].id;
+        doc.set_volume(id, -6.0);
+        doc.set_pan(id, -0.5);
+        let clips = played(&doc, &audio, 48_000);
+        assert_eq!(clips.len(), 1);
+        assert_eq!((clips[0].offset, clips[0].length), (0, 96_000));
+        assert!((clips[0].gain - 10f32.powf(-6.0 / 20.0)).abs() < 1e-6);
+        assert_eq!(clips[0].pan, -0.5);
+    }
+
+    #[test]
+    fn mute_solo_and_missing_audio_decide_what_plays() {
+        let (mut doc, audio) = setup(3);
+        let ids: Vec<Id> = doc.project().tracks.iter().map(|t| t.id).collect();
+        assert_eq!(played(&doc, &audio, 48_000).len(), 3);
+        doc.set_mute(&ids[..1], true);
+        assert_eq!(played(&doc, &audio, 48_000).len(), 2);
+        doc.set_solo(&ids[2..], true, true);
+        assert_eq!(
+            played(&doc, &audio, 48_000).len(),
+            1,
+            "only the soloed track"
+        );
+        // Audio not loaded (or missing): nothing to play for it.
+        let none = engine_clips(doc.project(), 48_000, |_| None);
+        assert!(none.is_empty());
+    }
+
+    #[test]
+    fn offsets_follow_the_device_rate_and_the_clip_region_caps_the_length() {
+        let (mut doc, audio) = setup(1);
+        // The file was 44.1 kHz; the audio has been converted to 48 kHz.
+        doc.apply("Trim", None, |p| {
+            let clip = Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]);
+            if let ClipContent::Audio { offset, .. } = &mut clip.content {
+                *offset = 44_100;
+            }
+            // One beat at 120 BPM: half a second.
+            clip.length = Ticks::quarters(1);
+        });
+        let clips = played(&doc, &audio, 44_100);
+        assert_eq!(clips[0].offset, 48_000, "one second of the file, at 48 kHz");
+        assert_eq!(clips[0].length, 24_000, "capped to the clip's half second");
+    }
+
+    #[test]
+    fn midi_and_muted_clips_are_not_sent_as_audio() {
+        let (mut doc, audio) = setup(1);
+        doc.add_track(TrackKind::Midi, None);
+        doc.apply("Mute clip", None, |p| {
+            Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]).muted = true;
+        });
+        assert!(played(&doc, &audio, 48_000).is_empty());
+    }
 }

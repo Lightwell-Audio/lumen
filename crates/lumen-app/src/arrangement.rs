@@ -838,15 +838,7 @@ impl Arrangement {
             &format!("Volume {}", track.name),
         );
         if db != track.gain_db {
-            doc.apply(
-                "Change volume",
-                Some(&format!("volume {:x}", track.id.0)),
-                |p| {
-                    if let Some(t) = p.tracks.iter_mut().find(|t| t.id == track.id) {
-                        std::sync::Arc::make_mut(t).gain_db = db;
-                    }
-                },
-            );
+            doc.set_volume(track.id, db);
         }
         let pan = value_slider(
             ui,
@@ -857,11 +849,7 @@ impl Arrangement {
             &format!("Pan {}", track.name),
         );
         if pan != track.pan {
-            doc.apply("Change pan", Some(&format!("pan {:x}", track.id.0)), |p| {
-                if let Some(t) = p.tracks.iter_mut().find(|t| t.id == track.id) {
-                    std::sync::Arc::make_mut(t).pan = pan;
-                }
-            });
+            doc.set_pan(track.id, pan);
         }
     }
 
