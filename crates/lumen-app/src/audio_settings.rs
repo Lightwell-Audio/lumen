@@ -176,6 +176,17 @@ fn dot(ui: &mut Ui, color: egui::Color32) {
     ui.painter().circle_filled(rect.center(), 3.5, color);
 }
 
+/// Warning text that wraps within the space left (minus `reserve` for a
+/// button beside it), so a long driver message never widens the window.
+fn warning(ui: &mut Ui, text: &str, reserve: f32) -> egui::Response {
+    let width = (ui.available_width() - reserve).max(120.0);
+    ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
+        ui.set_max_width(width);
+        ui.add(egui::Label::new(RichText::new(text).color(theme::WARNING)).wrap())
+    })
+    .inner
+}
+
 fn hint(ui: &mut Ui, text: &str) {
     ui.label(RichText::new(text).small().weak());
 }
@@ -265,7 +276,7 @@ impl Window {
                     ui.label("Looking for devices…");
                 }
                 Some(Err(e)) => {
-                    ui.label(RichText::new(e).color(theme::WARNING));
+                    warning(ui, e, 0.0);
                 }
                 Some(Ok(devices)) if devices.is_empty() => {
                     ui.label("No devices found");
@@ -319,7 +330,11 @@ impl Window {
         row(ui, "", |ui| {
             if let Some(changing) = audio.changing() {
                 ui.spinner();
-                ui.label(changing);
+                let width = ui.available_width().max(120.0);
+                ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
+                    ui.set_max_width(width);
+                    ui.add(egui::Label::new(changing).wrap());
+                });
             } else {
                 match &audio.status {
                     Status::Running { .. } => {
@@ -331,31 +346,22 @@ impl Window {
                         ui.label("Starting…");
                     }
                     Status::Lost(_) => {
-                        ui.label(
-                            RichText::new("Disconnected: reconnects when it is back")
-                                .color(theme::WARNING),
-                        );
+                        warning(ui, "Disconnected: reconnects when it is back", 0.0);
                     }
                     Status::Off(why) => {
                         let why = if why.is_empty() { "Audio is off" } else { why };
-                        ui.label(RichText::new(why).color(theme::WARNING));
+                        warning(ui, why, 0.0);
                     }
                 }
             }
         });
         if let Some(notice) = &audio.notice {
             row(ui, "", |ui| {
-                // Wraps inside the window instead of widening it.
                 // Leaves room for the Dismiss button.
-                let width = ui.available_width() - 72.0;
-                ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
-                    ui.set_max_width(width);
-                    let label = ui
-                        .add(egui::Label::new(RichText::new(notice).color(theme::WARNING)).wrap());
-                    if let Some(detail) = &audio.notice_detail {
-                        label.on_hover_text(detail);
-                    }
-                });
+                let label = warning(ui, notice, 72.0);
+                if let Some(detail) = &audio.notice_detail {
+                    label.on_hover_text(detail);
+                }
                 if ui.small_button("Dismiss").clicked() {
                     actions.push(Action::DismissNotice);
                 }
@@ -379,9 +385,13 @@ impl Window {
                 return;
             }
             Some(Err(e)) => {
-                row(ui, "", |ui| {
-                    ui.label(RichText::new(e).color(theme::WARNING));
-                });
+                // When the device is off or lost, the status line above
+                // already says why.
+                if matches!(audio.status, Status::Running { .. }) {
+                    row(ui, "", |ui| {
+                        warning(ui, &e, 0.0);
+                    });
+                }
                 return;
             }
             Some(Ok(info)) => info,
@@ -490,10 +500,7 @@ impl Window {
         });
         if let Some(e) = &audio.control_panel_error {
             row(ui, "", |ui| {
-                ui.label(
-                    RichText::new(format!("The control panel did not open: {e}"))
-                        .color(theme::WARNING),
-                );
+                warning(ui, &format!("The control panel did not open: {e}"), 0.0);
             });
         }
         ui.add_space(4.0);
