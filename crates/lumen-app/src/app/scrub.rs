@@ -5,13 +5,13 @@
 //! follows the hand like tape. While playing, a drag jumps playback from
 //! step to step instead. Right-click adds a locator there.
 
-use eframe::egui::{self, Color32, CursorIcon, FontId, Pos2, Rect, Sense, pos2};
+use eframe::egui::{self, CursorIcon, Rect, Sense, pos2};
 use lumen_core::time::Ticks;
 use lumen_engine::{MAX_SCRUB_SPEED, ScrubStyle};
 
 use super::grid::draw_snap_guide;
 use super::rulers::{BRACE_BAND, Layout};
-use crate::{App, ruler, theme, trace};
+use crate::{App, ruler, theme, trace, widgets};
 
 /// What a scrub drag last sent.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -59,6 +59,8 @@ impl App {
                 let id = self.document.add_marker(t, None);
                 self.locators.selected = Some(id);
                 self.arrangement.selected.clear();
+                self.arrangement.clips.clear();
+                self.arrangement.range = None;
                 ui.close();
             }
         });
@@ -93,7 +95,7 @@ impl App {
                 // The tape's speed, as the hand sets it.
                 let speed = self.tape_speed(ui, id, raw);
                 let text = format!("tape {speed:.1}×");
-                hint_text(
+                widgets::draw_caption(
                     painter,
                     pos2(pointer.x + 12.0, row),
                     &text,
@@ -152,7 +154,7 @@ impl App {
             );
             "drag to listen · Alt tape"
         };
-        hint_text(
+        widgets::draw_caption(
             painter,
             pos2(pointer.x + 12.0, row),
             hint,
@@ -205,15 +207,4 @@ struct Speed {
     song: f64,
     time: f64,
     speed: f64,
-}
-
-/// A quiet caption beside the pointer, kept inside `bounds`.
-fn hint_text(painter: &egui::Painter, at: Pos2, text: &str, colour: Color32, bounds: Rect) {
-    let galley = painter.layout_no_wrap(
-        text.to_owned(),
-        FontId::proportional(theme::size::CAPTION),
-        colour,
-    );
-    let x = at.x.min(bounds.right() - galley.size().x - 4.0);
-    painter.galley(pos2(x, at.y - galley.size().y / 2.0), galley, colour);
 }

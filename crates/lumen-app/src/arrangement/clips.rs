@@ -12,23 +12,24 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use eframe::egui::{self, Align2, Color32, FontId, Painter, Pos2, Rect, Stroke, pos2, vec2};
+use lumen_core::time::Ticks;
 use lumen_media::Peaks;
 use lumen_project::model::{Clip, ClipContent, Project};
 use lumen_render::{BoxInstance, RowSlot, WaveInstance, WaveStyle, beats, rgba};
 
 use super::samples::{Geometry, Pixels, Strips};
 use super::waves::{Source, wave_instances};
-use super::{Arrangement, Row, RowKind, TITLE, color_of};
+use super::{Arrangement, Row, RowKind, TITLE, color_of, select};
 use crate::canvas::{self, ClipFrame};
 use crate::document::{Document, audible};
 use crate::lanes::Lanes;
 use crate::media::{Item, State};
 use crate::theme;
 use crate::timeview::TimeView;
-use crate::widgets::{draw_edge_glow, gradient};
+use crate::widgets::{draw_edge_glow, draw_glow_rect, gradient};
 
 /// Space between a lane's edges and its clips.
-const INSET: f32 = 3.0;
+pub(super) const INSET: f32 = 3.0;
 /// The opacity of clips on tracks that cannot be heard.
 const DIMMED: f32 = 0.42;
 /// Space between the title bar and the waveform, and below it.
@@ -307,6 +308,109 @@ impl Arrangement {
         }
         // The drop line of a track drag continues across the lanes.
         self.draw_drop_line(painter, canvas);
+        self.draw_selection(painter, canvas, project, &rows, time);
+    }
+
+    /// The selection, in the owner's choices: selected clips glow (S3),
+    /// the hovered clip's half brightens with a dashed line at the split
+    /// (H1), a time range is a band with accent brackets along its top, and
+    /// the marquee is a soft rounded box.
+    fn draw_selection(
+        &self,
+        painter: &Painter,
+        canvas: Rect,
+        project: &Project,
+        rows: &[Row],
+        time: TimeView,
+    ) {
+        let palette = theme::p();
+        let painter = painter.with_clip_rect(canvas);
+        let lane = |row: &Row| {
+            Rect::from_min_size(
+                pos2(canvas.left(), canvas.top() + row.y - self.top),
+                vec2(canvas.width(), row.height),
+            )
+        };
+        let x = |t: Ticks| time.x(canvas.left(), t.as_quarters());
+
+        if let Some(range) = &self.range {
+            let (x0, x1) = (x(range.start), x(range.end));
+            let mut top = None;
+            for row in rows {
+                let RowKind::Track(index) = row.kind else {
+                    continue;
+                };
+                if !range.tracks.contains(&project.tracks[index].id) {
+                    continue;
+                }
+                let band = Rect::from_x_y_ranges(x0..=x1, lane(row).y_range());
+                painter.rect_filled(band, 0.0, palette.accent.gamma_multiply(0.16));
+                let edge = Stroke::new(1.0, palette.accent.gamma_multiply(0.6));
+                painter.vline(x0, band.y_range(), edge);
+                painter.vline(x1, band.y_range(), edge);
+                top.get_or_insert(band.top());
+            }
+            if let Some(y) = top {
+                let stroke = Stroke::new(2.0, palette.accent);
+                let y = y + 1.0;
+                painter.line_segment([pos2(x0, y), pos2(x1, y)], stroke);
+                for edge in [x0, x1] {
+                    painter.line_segment([pos2(edge, y), pos2(edge, y + 5.0)], stroke);
+                }
+            }
+        }
+
+        for row in rows {
+            let RowKind::Track(index) = row.kind else {
+                continue;
+            };
+            let lane = lane(row);
+            if lane.bottom() < canvas.top() || lane.top() > canvas.bottom() {
+                continue;
+            }
+            for clip in &project.tracks[index].clips {
+                let selected = self.clips.contains(&clip.id);
+                let hovered = self.hover.filter(|(id, _)| *id == clip.id);
+                if !selected && hovered.is_none() {
+                    continue;
+                }
+                let (x0, x1) = span(time, canvas, clip);
+                if x1 < canvas.left() || x0 > canvas.right() {
+                    continue;
+                }
+                let rect = Rect::from_x_y_ranges(
+                    x0..=x1.max(x0 + 1.0),
+                    lane.top() + INSET..=lane.bottom() - INSET,
+                );
+                if let Some((_, half)) = hovered {
+                    let split = select::split_y(rect);
+                    let wash = match half {
+                        select::Half::Top => rect.with_max_y(split),
+                        select::Half::Bottom => rect.with_min_y(split),
+                    };
+                    painter.rect_filled(wash, 0.0, palette.text.gamma_multiply(0.08));
+                    painter.add(egui::Shape::dashed_line(
+                        &[pos2(rect.left(), split), pos2(rect.right(), split)],
+                        Stroke::new(1.0, palette.text.gamma_multiply(0.35)),
+                        4.0,
+                        3.0,
+                    ));
+                }
+                if selected {
+                    draw_glow_rect(&painter, rect, f32::from(theme::radius::SMALL));
+                }
+            }
+        }
+
+        if let Some(area) = self.marquee {
+            painter.rect(
+                area,
+                f32::from(theme::radius::MEDIUM),
+                palette.accent.gamma_multiply(0.12),
+                Stroke::new(1.0, palette.accent.gamma_multiply(0.6)),
+                egui::StrokeKind::Inside,
+            );
+        }
     }
 
     /// Rebuilds the GPU boxes if the project, the media or the theme

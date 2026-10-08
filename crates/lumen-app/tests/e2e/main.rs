@@ -11,6 +11,7 @@
 //! Run them with `cargo test -p lumen-app --test e2e`. Add a scenario for every
 //! workflow a slice delivers (DEVELOPMENT.md, "End-to-end tests").
 
+mod clips;
 mod editing;
 mod files;
 mod grid;
@@ -124,6 +125,25 @@ impl Lumen {
             .accesskit_node()
             .toggled()
             .is_some_and(|t| t == egui::accesskit::Toggled::True)
+    }
+
+    /// Drags with the left button from `from` to `to` in small steps,
+    /// holding `modifiers`, then lets the app react.
+    pub fn drag(&mut self, from: egui::Pos2, to: egui::Pos2, modifiers: Modifiers) {
+        self.harness.event(egui::Event::ModifiersChanged(modifiers));
+        self.harness.hover_at(from);
+        self.harness.drag_at(from);
+        self.frames(2);
+        for step in 1..=8 {
+            self.harness
+                .hover_at(from + (to - from) * (step as f32 / 8.0));
+            self.frames(1);
+        }
+        self.harness.drop_at(to);
+        self.frames(3);
+        self.harness
+            .event(egui::Event::ModifiersChanged(Modifiers::NONE));
+        self.frames(1);
     }
 
     /// Presses `key` with `modifiers`, then lets the app react.

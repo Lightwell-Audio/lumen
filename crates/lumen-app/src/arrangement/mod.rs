@@ -20,6 +20,7 @@ mod clips;
 mod headers;
 mod reorder;
 mod samples;
+pub mod select;
 mod waves;
 
 pub use samples::Update as StripUpdate;
@@ -106,6 +107,18 @@ pub struct Arrangement {
     fitted: Option<(BTreeMap<Id, f32>, BTreeSet<Id>, f32)>,
     /// Tracks being dragged to a new place (slice 4d).
     drag: Option<reorder::Drag>,
+    /// Selected clips (slice 6a). Selecting clips clears the track
+    /// selection, and the other way round.
+    pub clips: BTreeSet<Id>,
+    /// The clip drag or marquee in progress.
+    pub gesture: Option<select::Gesture>,
+    /// The clip under the pointer and its half, for the H1 hover.
+    pub hover: Option<(Id, select::Half)>,
+    /// The marquee being drawn, on screen.
+    pub marquee: Option<egui::Rect>,
+    /// The selected time range (selecting one clears the clip selection,
+    /// and the other way round).
+    pub range: Option<select::TimeRange>,
 }
 
 /// The tallest whole-step height at which `count` tracks fit in `visible`

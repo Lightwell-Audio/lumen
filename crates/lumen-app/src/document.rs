@@ -411,6 +411,69 @@ impl Document {
         });
     }
 
+    /// Puts clips at new places (M3 slice 6): each [`ClipMove`] moves that
+    /// clip to its start on its track. Locked clips, and moves to tracks
+    /// that do not exist, are left out. `merge` joins the moves of one drag
+    /// into one step.
+    pub fn move_clips(&mut self, moves: &[ClipMove], merge: Option<&str>) {
+        let label = plural(moves.len(), "Move clip", "Move {} clips");
+        self.history
+            .apply(&label, merge, |project| place_clips(project, moves));
+    }
+
+    /// Puts copies of clips at new places, as Ctrl+drag does: the copy of
+    /// `moves[i].clip` gets the id `ids[i]`. A drag calls this every frame
+    /// with the same `ids` and `merge`: the copies made last time are
+    /// replaced, so the gesture stays one step.
+    pub fn copy_clips(&mut self, moves: &[ClipMove], ids: &[Id], merge: Option<&str>) {
+        let label = plural(moves.len(), "Copy clip", "Copy {} clips");
+        self.history.apply(&label, merge, |project| {
+            for track in &mut project.tracks {
+                if track.clips.iter().any(|c| ids.contains(&c.id)) {
+                    Arc::make_mut(track).clips.retain(|c| !ids.contains(&c.id));
+                }
+            }
+            let copies: Vec<(Clip, ClipMove)> = moves
+                .iter()
+                .zip(ids)
+                .filter_map(|(m, &id)| {
+                    let clip = project
+                        .tracks
+                        .iter()
+                        .flat_map(|t| &t.clips)
+                        .find(|c| c.id == m.clip)?;
+                    let mut copy = (**clip).clone();
+                    copy.id = id;
+                    copy.locked = false;
+                    copy.start = m.start.max(Ticks::ZERO);
+                    Some((copy, *m))
+                })
+                .collect();
+            for (copy, m) in copies {
+                if let Some(t) = project.tracks.iter_mut().find(|t| t.id == m.track) {
+                    let t = Arc::make_mut(t);
+                    t.clips.push(Arc::new(copy));
+                    t.clips.sort_by_key(|c| c.start);
+                }
+            }
+        });
+    }
+
+    /// Deletes clips; locked ones stay. Their media stays in the project
+    /// (the media pool, M9).
+    pub fn delete_clips(&mut self, ids: &[Id]) {
+        let label = plural(ids.len(), "Delete clip", "Delete {} clips");
+        self.history.apply(&label, None, |project| {
+            for track in &mut project.tracks {
+                if track.clips.iter().any(|c| ids.contains(&c.id) && !c.locked) {
+                    Arc::make_mut(track)
+                        .clips
+                        .retain(|c| c.locked || !ids.contains(&c.id));
+                }
+            }
+        });
+    }
+
     /// Changes the given tracks, as one step named `label`.
     fn edit_tracks(&mut self, label: &str, ids: &[Id], change: impl Fn(&mut Track)) {
         self.history.apply(label, None, |project| {
@@ -493,6 +556,48 @@ impl Document {
 }
 
 /// "Delete track" or "Delete 3 tracks".
+/// Where a clip goes: a track and a start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClipMove {
+    pub clip: Id,
+    pub track: Id,
+    pub start: Ticks,
+}
+
+/// Moves each clip in `moves` to its track and start, keeping every
+/// track's clips in time order. Locked clips, and moves to tracks that do
+/// not exist, are left out, so no clip is ever lost.
+fn place_clips(project: &mut Project, moves: &[ClipMove]) {
+    let tracks: Vec<Id> = project.tracks.iter().map(|t| t.id).collect();
+    let target = |c: &Arc<Clip>| {
+        moves
+            .iter()
+            .find(|m| m.clip == c.id && !c.locked && tracks.contains(&m.track))
+            .copied()
+    };
+    let mut taken = Vec::new();
+    for track in &mut project.tracks {
+        if track.clips.iter().any(|c| target(c).is_some()) {
+            let t = Arc::make_mut(track);
+            let (go, stay): (Vec<_>, Vec<_>) = t.clips.drain(..).partition(|c| target(c).is_some());
+            t.clips = stay;
+            taken.extend(go.into_iter().filter_map(|c| Some((target(&c)?, c))));
+        }
+    }
+    for (m, clip) in taken {
+        if let Some(t) = project.tracks.iter_mut().find(|t| t.id == m.track) {
+            let mut clip = (*clip).clone();
+            clip.start = m.start.max(Ticks::ZERO);
+            Arc::make_mut(t).clips.push(Arc::new(clip));
+        }
+    }
+    for track in &mut project.tracks {
+        if !track.clips.is_sorted_by_key(|c| c.start) {
+            Arc::make_mut(track).clips.sort_by_key(|c| c.start);
+        }
+    }
+}
+
 fn plural(n: usize, one: &str, many: &str) -> String {
     if n == 1 {
         one.to_owned()
@@ -600,6 +705,84 @@ mod tests {
         // Ids survive reopening: a new id never repeats a locator's.
         let reopened = Document::new(doc.project().clone()).fresh_id();
         assert!(reopened.0 > a.0.max(b.0));
+    }
+
+    #[test]
+    fn clips_move_and_copy_across_tracks_as_one_step_and_locked_ones_stay() {
+        let mut doc = Document::new(crate::empty_project());
+        let (a, b) = (doc.fresh_id(), doc.fresh_id());
+        doc.import(vec![
+            file(a, "Kick", Ticks::ZERO),
+            file(b, "Snare", Ticks::quarters(4)),
+        ]);
+        let tracks: Vec<Id> = doc.project().tracks.iter().map(|t| t.id).collect();
+        let kick = doc.project().tracks[0].clips[0].id;
+        // A drag: three frames, one step; the kick ends on the snare's track.
+        for q in [1, 2, 8] {
+            let to = ClipMove {
+                clip: kick,
+                track: tracks[1],
+                start: Ticks::quarters(q),
+            };
+            doc.move_clips(&[to], Some("clip drag"));
+        }
+        let project = doc.project();
+        assert!(project.tracks[0].clips.is_empty());
+        let starts: Vec<_> = project.tracks[1].clips.iter().map(|c| c.start).collect();
+        assert_eq!(
+            starts,
+            [Ticks::quarters(4), Ticks::quarters(8)],
+            "in time order"
+        );
+        assert_eq!(lumen_project::validate(project), Ok(()));
+        doc.undo();
+        assert_eq!(
+            doc.project().tracks[0].clips[0].start,
+            Ticks::ZERO,
+            "one step"
+        );
+
+        // A copy-drag: twice, still one copy.
+        let copy = doc.fresh_id();
+        for q in [12, 16] {
+            let to = ClipMove {
+                clip: kick,
+                track: tracks[0],
+                start: Ticks::quarters(q),
+            };
+            doc.copy_clips(&[to], &[copy], Some("clip copy"));
+        }
+        let kicks: Vec<_> = doc.project().tracks[0]
+            .clips
+            .iter()
+            .map(|c| (c.id, c.start))
+            .collect();
+        assert_eq!(kicks, [(kick, Ticks::ZERO), (copy, Ticks::quarters(16))]);
+
+        // Locked clips neither move nor go; a move to a missing track is
+        // ignored rather than losing the clip.
+        doc.apply("lock", None, |p| {
+            Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]).locked = true;
+        });
+        let away = ClipMove {
+            clip: kick,
+            track: tracks[1],
+            start: Ticks::ZERO,
+        };
+        doc.move_clips(&[away], None);
+        doc.delete_clips(&[kick, copy]);
+        let left: Vec<_> = doc.project().tracks[0].clips.iter().map(|c| c.id).collect();
+        assert_eq!(left, [kick]);
+        let lost = ClipMove {
+            clip: kick,
+            track: Id(999_999),
+            start: Ticks::ZERO,
+        };
+        doc.apply("unlock", None, |p| {
+            Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]).locked = false;
+        });
+        doc.move_clips(&[lost], None);
+        assert_eq!(doc.project().tracks[0].clips[0].id, kick);
     }
 
     #[test]

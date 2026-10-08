@@ -103,7 +103,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Per-track name, colour, height, arm, monitor, solo, mute, polarity, I/O routing, inline fader and meter | M | 🟡 Name, type icon, colour, height (drag to resize in 22 pt steps, fold and unfold), arm (glows and breathes), solo and mute in the track header; interim volume and pan sliders in unfolded headers (M3 slice 4a, ADR-0025). Monitor, polarity, routing, real fader and meter with the mixer (M4) | 3–4 |
 | Group tracks: create, drag in, nest, fold, sum, own devices/sends/fader/automation, one-step ungroup, sensible solo/mute/arm | M | 🔲 | 4 |
 | Linked editing across selected tracks | S | 🔲 | 4 |
-| Clips: move, copy-drag, trim, slip, fades, gain handle, loop-extend, rename, recolour, mute, lock | M | 🔲 | 3 |
+| Clips: move, copy-drag, trim, slip, fades, gain handle, loop-extend, rename, recolour, mute, lock | M | 🟡 M3 6a: move across tracks and Ctrl+copy-drag by the top half (snapped, one undo step, kinds respected, locked clips stay). Format v5 holds colour, lock, fades and loops, and the engine plays fades and loops (golden renders); their handles in 6c–6e | 3 |
 | Selection: clip, marquee, time range with cut/copy/duplicate/delete/split/consolidate | M | 🔲 | 3, 7 |
 | Loop and punch regions, markers and locators, tempo and time-signature lanes | M | 🟡 Engine side of loop and punch done (slice 3); loop brace and punch (M3 5c) and named locators (M3 5d) done; tempo and time-signature lanes later in M3 | 2–3 |
 | Track height presets, collapse, hide, reorder by drag, multi-select | M | 🟡 Fold and unfold, resize by dragging or Alt+wheel, H fits every track, multi-select (Ctrl, Shift), move with Alt+arrows and the menu (4a), reorder by drag with auto-scroll (4d). Hide and height presets later | 3 |
@@ -257,7 +257,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Track types with routing, arm, monitor, polarity | M | 🔲 |
 | Freeze, unfreeze, flatten | M | 🔲 |
 | Track delay, lock, icons, templates | S | 🔲 |
-| Select, marquee, range; cut/copy/paste/duplicate/delete/ripple delete/insert silence | M | 🔲 |
+| Select, marquee, range; cut/copy/paste/duplicate/delete/ripple delete/insert silence | M | 🟡 M3 6a: click, Ctrl and Shift selection, marquee, time ranges across tracks (a clip's bottom half), Delete and Esc on clips. The edits on ranges in 6b |
 | Split, join, consolidate, trim, crop, slip, nudge, move, loop/unloop | M | 🔲 |
 | Fades, crossfades, clip gain, reverse, normalize, polarity | M | 🔲 |
 | Snap and grid; zoom; clip name/colour/mute/lock; clip properties | M | 🟡 | Grid and snapping (M3 5a) and zoom (4d) done; clip properties in slice 6 |

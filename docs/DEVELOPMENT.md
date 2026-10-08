@@ -173,6 +173,11 @@ cargo test -p lumen-app --test smoke -- --ignored             # the real binary,
   and their own autosave folder. Do the same when running Lumen by hand
   for screenshots:
   `target/debug/lumen.exe --audio test:fake --settings <dir>/settings.json --autosave-dir <dir>/autosave ...`
+- **Hovers, drags and selections by eye** (`crates/lumen-app/tests/shots.rs`):
+  states a `--screenshot` cannot reach, rendered headless with the GPU
+  (clips, waveforms and grid included) to PNG files. Ignored in CI; add a
+  function for each new state worth checking.
+  `$env:SHOTS = "<folder>"; cargo test -p lumen-app --test shots -- --ignored`
 
 ## Test flags for files and recovery (M3 slice 3)
 

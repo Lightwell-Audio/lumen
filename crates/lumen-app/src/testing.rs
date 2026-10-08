@@ -57,6 +57,15 @@ impl Launch {
     }
 }
 
+/// Installs Lumen's GPU renderer (grid, clips, waveforms) when the harness
+/// renders with wgpu, as `run` does for the real window.
+pub fn install_renderer(cc: &eframe::CreationContext<'_>) -> Result<(), String> {
+    match cc.wgpu_render_state.as_ref() {
+        Some(state) => crate::canvas::install(state).map_err(|e| format!("renderer: {e}")),
+        None => Ok(()),
+    }
+}
+
 /// Where a project called `name` is saved in `dir` (its own folder).
 pub fn project_file(dir: &Path, name: &str) -> PathBuf {
     files::project_file_for(&dir.join(name))
@@ -132,6 +141,34 @@ impl App {
     pub fn engine_loop(&self) -> (Ticks, Ticks, bool) {
         let r = self.transport.loop_region;
         (r.start, r.end, r.enabled)
+    }
+
+    /// Where clip `id` is drawn on screen, if it is in view.
+    pub fn clip_rect(&self, ctx: &egui::Context, id: Id) -> Option<egui::Rect> {
+        self.arrangement
+            .clip_rects(
+                ctx,
+                self.canvas,
+                self.document.project(),
+                self.lanes.pending().len(),
+                self.nav.view,
+            )
+            .into_iter()
+            .find(|(_, clip, _)| *clip == id)
+            .map(|(_, _, rect)| rect)
+    }
+
+    /// The selected clips.
+    pub fn selected_clips(&self) -> Vec<Id> {
+        self.arrangement.clips.iter().copied().collect()
+    }
+
+    /// The selected time range: start, end and tracks.
+    pub fn time_range(&self) -> Option<(Ticks, Ticks, Vec<Id>)> {
+        self.arrangement
+            .range
+            .as_ref()
+            .map(|r| (r.start, r.end, r.tracks.clone()))
     }
 
     /// The drag hint drawn by the pointer in the last frame, if any.

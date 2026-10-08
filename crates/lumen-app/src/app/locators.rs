@@ -78,8 +78,11 @@ impl App {
     /// on the selected locator. Runs before the arrangement's keys, so a
     /// selected locator takes Delete and F2.
     pub(crate) fn locator_shortcuts(&mut self, ctx: &egui::Context) {
-        // Selecting tracks deselects the locator.
-        if !self.arrangement.selected.is_empty() {
+        // Selecting tracks, clips or a range deselects the locator.
+        if !self.arrangement.selected.is_empty()
+            || !self.arrangement.clips.is_empty()
+            || self.arrangement.range.is_some()
+        {
             self.locators.selected = None;
         }
         if ctx.egui_wants_keyboard_input() {
@@ -189,6 +192,8 @@ impl App {
             if response.drag_started() {
                 self.locators.selected = Some(marker.id);
                 self.arrangement.selected.clear();
+                self.arrangement.clips.clear();
+                self.arrangement.range = None;
                 // Where on the flag it was grabbed, so it doesn't jump.
                 let grabbed = ui
                     .input(|i| i.pointer.press_origin())
@@ -218,6 +223,8 @@ impl App {
             } else if response.clicked() {
                 self.locators.selected = Some(marker.id);
                 self.arrangement.selected.clear();
+                self.arrangement.clips.clear();
+                self.arrangement.range = None;
                 self.transport.locate(marker.at);
                 self.transport.follow_paused = false;
             }

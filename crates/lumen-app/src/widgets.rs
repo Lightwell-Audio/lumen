@@ -460,3 +460,35 @@ pub fn draw_hint(painter: &Painter, at: Pos2, mark: HintMark, text: &str, bounds
     );
     rect
 }
+
+/// A quiet caption beside the pointer, saying what a drag will do (the
+/// owner's choice B2), kept inside `bounds`.
+pub fn draw_caption(painter: &Painter, at: Pos2, text: &str, colour: Color32, bounds: Rect) {
+    let galley = painter.layout_no_wrap(
+        text.to_owned(),
+        FontId::proportional(theme::size::CAPTION),
+        colour,
+    );
+    let x = at.x.min(bounds.right() - galley.size().x - 4.0);
+    painter.galley(pos2(x, at.y - galley.size().y / 2.0), galley, colour);
+}
+
+/// The selection glow around a clip (the owner's choice S3, like the
+/// record arm's): a crisp accent line with two soft layers outside it.
+pub fn draw_glow_rect(painter: &Painter, rect: Rect, radius: f32) {
+    let accent = theme::p().accent;
+    for (grow, width, alpha) in [(3.0, 4.0, 0.12), (1.5, 2.5, 0.28)] {
+        painter.rect_stroke(
+            rect.expand(grow),
+            radius + grow,
+            Stroke::new(width, accent.gamma_multiply(alpha)),
+            egui::StrokeKind::Middle,
+        );
+    }
+    painter.rect_stroke(
+        rect,
+        radius,
+        Stroke::new(1.5, accent),
+        egui::StrokeKind::Inside,
+    );
+}

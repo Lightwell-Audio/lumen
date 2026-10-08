@@ -116,6 +116,7 @@ report: {}",
         );
         let canvas = egui::Rect::from_min_max(pos2(full.left(), ruler.bottom()), time.right_top());
 
+        self.canvas = canvas;
         self.navigate(ui, &response, canvas);
         self.follow(canvas);
         let view = self.nav.view;
@@ -164,11 +165,13 @@ report: {}",
             &mut self.lanes,
             view,
         );
-        // A hover card with the file's details; right-click the lanes for
-        // the grid menu (slice 5a).
-        let hover = ui.interact(canvas, ui.id().with("clips"), Sense::click());
+        // Clip selection and editing (slice 6); a hover card with the
+        // file's details; right-click the lanes for the grid menu (5a).
+        let hover = ui.interact(canvas, ui.id().with("clips"), Sense::click_and_drag());
+        self.clip_editing(ui, &hover, canvas, &painter);
         hover.context_menu(|ui| self.grid_menu(ui));
         if let Some(pointer) = hover.hover_pos()
+            && !hover.dragged()
             && let Some(item) = self.arrangement.item_at(
                 ui.ctx(),
                 pointer,

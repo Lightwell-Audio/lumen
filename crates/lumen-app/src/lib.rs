@@ -135,6 +135,8 @@ pub struct App {
     /// The drag hint drawn this frame, if any (MT-APP-13 run 1); the
     /// end-to-end tests read it.
     hint: Option<String>,
+    /// Where the lanes were drawn last frame.
+    canvas: egui::Rect,
     smoke_test_frames: Option<u32>,
     /// Where `--screenshot` saves, once the frames have rendered.
     screenshot: Option<PathBuf>,
@@ -246,6 +248,7 @@ impl eframe::App for App {
         self.undo_shortcuts(&ctx);
         self.grid_shortcuts(&ctx);
         self.locator_shortcuts(&ctx);
+        self.clip_shortcuts(&ctx);
         self.arrangement.shortcuts(&ctx, &mut self.document);
         self.file_shortcuts(&ctx);
         self.poll_files(&ctx);
@@ -554,6 +557,7 @@ impl App {
             grid: lumen_core::grid::Grid::default(),
             locators: app::locators::Locators::default(),
             hint: None,
+            canvas: egui::Rect::NOTHING,
             smoke_test_frames: launch.smoke_test.then_some(SMOKE_FRAMES),
             screenshot: launch.screenshot,
             started,

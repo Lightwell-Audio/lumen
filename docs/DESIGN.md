@@ -275,6 +275,24 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
     another track is) are drawn at 42%, with their names in
     `text_secondary` so they stay readable in both themes.
 
+### Clip selection (M3 slice 6, owner's choices S3 and H1)
+
+The split-clip model: a clip's top half moves it (Ctrl copies), its bottom
+half selects a time range, empty lanes draw a marquee.
+- **Hover (H1):** the half under the pointer brightens (`text` at 8%), a
+  dashed line (`text` at 35%, 4 on, 3 off) marks the split, and a hint
+  chip (`widgets::draw_hint`) says "drag to move · Ctrl copies" (move
+  mark) or "drag to select time" (double arrow). Cursors: grab, copy, or
+  an I-beam; locked clips show "locked" and a not-allowed cursor. Each
+  half is at least 11 pt tall.
+- **Selected clips (S3):** an `accent` glow (`widgets::draw_glow_rect`):
+  a crisp 1.5 pt line with soft layers at 28% and 12% outside it.
+- **Time range:** `accent` at 16% over the lanes it spans, with 1 pt
+  edges at 60% and a 2 pt bracket along its top.
+- **Marquee:** a rounded (`radius::MEDIUM`) box, `accent` at 12% with a
+  1 pt edge at 60%.
+- A drag shows the snap guide at the grabbed clip's new start.
+
 ## 7b. Navigation (M3 slice 4d, ADR-0028)
 
 - **Zoom** glides (`GLIDE`) for keys and fits; the wheel and pinch follow

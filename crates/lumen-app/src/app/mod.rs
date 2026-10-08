@@ -2,6 +2,7 @@
 //! start-up stay in `main.rs`; these modules hold its `impl` blocks (audit
 //! M1).
 
+pub(crate) mod editing;
 pub(crate) mod grid;
 pub(crate) mod history;
 pub(crate) mod locators;
