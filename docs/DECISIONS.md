@@ -1968,5 +1968,7 @@ the choices made inside those.
   `scrubbing_never_touches_the_heap`.
 - E2E: grid, rulers, looping, locators and scrubbing scenarios
   (`crates/lumen-app/tests/e2e/`).
+- Performance gate (WSL, `b3ccb4b`): engine_transport +0.46%,
+  engine_clips_64 +0.00%, project_parse +0.03%; all inside +2%.
 - By ear: MT-APP-13.
 
