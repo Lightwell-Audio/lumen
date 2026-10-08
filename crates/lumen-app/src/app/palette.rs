@@ -44,8 +44,24 @@ pub(crate) struct Palette {
 }
 
 impl Palette {
+    /// A closed palette remembering the saved recent commands (ids).
+    pub(crate) fn with_recent(ids: &[String]) -> Self {
+        Self {
+            recent: ids
+                .iter()
+                .filter_map(|id| crate::commands::by_id(id))
+                .collect(),
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn is_open(&self) -> bool {
         self.open
+    }
+
+    /// The recent commands' ids, to save.
+    fn recent_ids(&self) -> Vec<String> {
+        self.recent.iter().map(|c| c.info().id.to_owned()).collect()
     }
 }
 
@@ -332,6 +348,8 @@ impl App {
                 self.palette.recent.retain(|&c| c != command);
                 self.palette.recent.insert(0, command);
                 self.palette.recent.truncate(RECENT);
+                self.settings.commands.recent = self.palette.recent_ids();
+                self.settings_changed = Some(std::time::Instant::now());
                 self.run(ctx, command);
             }
             Entry::Tempo(bpm) => self.document.set_tempo(bpm, None),
@@ -357,8 +375,11 @@ impl App {
             return;
         }
         // The list's keys, before the field sees them.
-        let (up, down, enter, close) = ctx.input_mut(|i| {
+        // Ctrl+Enter records new keys for the chosen command (the owner's
+        // E3); while recording, `capture_chord` has taken the keys.
+        let (rekey, up, down, enter, close) = ctx.input_mut(|i| {
             (
+                i.consume_key(Modifiers::COMMAND, Key::Enter),
                 i.consume_key(Modifiers::NONE, Key::ArrowUp),
                 i.consume_key(Modifiers::NONE, Key::ArrowDown),
                 i.consume_key(Modifiers::NONE, Key::Enter),
@@ -385,6 +406,12 @@ impl App {
         self.palette.chosen = self.palette.chosen.min(last);
         if up || down {
             self.palette.notice = None;
+        }
+        if rekey
+            && let Some(Entry::Command(command)) = rows.get(self.palette.chosen).map(|r| &r.entry)
+        {
+            let slot = (!self.keymap.chords(*command).is_empty()).then_some(0);
+            self.start_rebind(*command, slot);
         }
         if enter && let Some(row) = rows.get(self.palette.chosen) {
             self.run_row(ctx, row);
@@ -485,7 +512,11 @@ impl App {
                                 .color(palette.text_hint),
                         );
                     }
-                    let response = self.palette_row(ui, row, i == self.palette.chosen);
+                    let (response, rekey) = self.palette_row(ui, row, i == self.palette.chosen);
+                    if let (Some(slot), Entry::Command(command)) = (rekey, &row.entry) {
+                        self.palette.chosen = i;
+                        self.start_rebind(*command, Some(slot));
+                    }
                     if i == self.palette.chosen && moved {
                         response.scroll_to_me(None);
                     }
@@ -502,7 +533,15 @@ impl App {
         picked
     }
 
-    fn palette_row(&self, ui: &mut egui::Ui, row: &Row, chosen: bool) -> egui::Response {
+    /// A row; with the chord slot whose keycaps were clicked, to record
+    /// new keys for it.
+    fn palette_row(
+        &self,
+        ui: &mut egui::Ui,
+        row: &Row,
+        chosen: bool,
+    ) -> (egui::Response, Option<usize>) {
+        let mut rekey = None;
         let palette = *theme::p();
         let (rect, response) =
             ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::click());
@@ -519,7 +558,7 @@ impl App {
             egui::WidgetInfo::labeled(egui::WidgetType::Button, row.ready.is_ok(), &name)
         });
         if !ui.is_rect_visible(rect) {
-            return response;
+            return (response, None);
         }
         if chosen {
             ui.painter()
@@ -540,7 +579,22 @@ impl App {
             if let Entry::Command(command) = row.entry {
                 let area = command.info().area;
                 if let Some(chord) = self.keymap.chords(command).first() {
-                    widgets::keycaps(ui, &chord.modifier_names(), chord.key_name(), area.light());
+                    let caps = widgets::keycaps(
+                        ui,
+                        &chord.modifier_names(),
+                        chord.key_name(),
+                        area.light(),
+                    );
+                    caps.widget_info(|| {
+                        egui::WidgetInfo::labeled(
+                            egui::WidgetType::Button,
+                            true,
+                            format!("Change {} shortcut {}", command.name(), chord.text()),
+                        )
+                    });
+                    if caps.clicked() {
+                        rekey = Some(0);
+                    }
                 }
                 ui.label(
                     RichText::new(area.name())
@@ -549,7 +603,7 @@ impl App {
                 );
             }
         });
-        response
+        (response, rekey)
     }
 
     /// What the chosen row does, or why it cannot run, with every chord
@@ -567,9 +621,31 @@ impl App {
             Entry::Track(_) => ("Selects the track and scrolls to it.", None),
             Entry::Locator(_) => ("Moves the playhead to the locator.", None),
         };
-        let (text, colour) = match (self.palette.notice, row.ready) {
-            (Some(why), _) | (None, Err(why)) => (why, palette.warning),
-            (None, Ok(())) => (about, palette.text_secondary),
+        let rebind = match row.entry {
+            Entry::Command(command) => self.rebind.filter(|r| r.command == command),
+            _ => None,
+        };
+        let recording;
+        let (text, colour) = match (rebind, self.palette.notice, row.ready) {
+            (Some(r), ..) => match r.clash {
+                Some((chord, other)) => {
+                    recording = format!(
+                        "{} is used by {}. Enter takes it \u{B7} Esc cancels",
+                        chord.text(),
+                        other.name()
+                    );
+                    (recording.as_str(), palette.warning)
+                }
+                None => {
+                    recording = format!(
+                        "Press the new keys for {} \u{B7} Esc cancels",
+                        r.command.name()
+                    );
+                    (recording.as_str(), palette.accent)
+                }
+            },
+            (None, Some(why), _) | (None, None, Err(why)) => (why, palette.warning),
+            (None, None, Ok(())) => (about, palette.text_secondary),
         };
         ui.horizontal(|ui| {
             ui.add(egui::Label::new(RichText::new(text).color(colour)).wrap());
@@ -591,7 +667,9 @@ impl App {
             }
         });
         ui.label(
-            RichText::new("\u{2191}\u{2193} move \u{B7} Enter run \u{B7} Esc close")
+            RichText::new(
+                "\u{2191}\u{2193} move \u{B7} Enter run \u{B7} Ctrl+Enter change keys \u{B7} Esc close",
+            )
                 .size(theme::size::CAPTION)
                 .color(palette.text_hint),
         );

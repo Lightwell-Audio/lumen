@@ -63,6 +63,17 @@ impl Launch {
         self.appearance = Some(appearance.to_owned());
         self
     }
+
+    /// Starts with command `id`'s shortcuts saved as `chords` ("Alt+W"),
+    /// as a settings file with a changed shortcut would.
+    pub fn with_saved_shortcut(mut self, id: &str, chords: &[&str]) -> Self {
+        let chords = chords.iter().map(|c| (*c).to_owned()).collect();
+        self.settings
+            .commands
+            .shortcuts
+            .insert(id.to_owned(), chords);
+        self
+    }
 }
 
 /// Installs Lumen's GPU renderer (grid, clips, waveforms) when the harness
@@ -255,6 +266,29 @@ impl App {
     /// The name of every command in the palette's table.
     pub fn command_names() -> Vec<&'static str> {
         crate::commands::ALL.iter().map(|info| info.name).collect()
+    }
+
+    /// The shortcuts of the command named `name`, as shown ("Ctrl+D").
+    pub fn shortcuts_of(&self, name: &str) -> Vec<String> {
+        let info = crate::commands::ALL
+            .iter()
+            .find(|info| info.name == name)
+            .unwrap_or_else(|| panic!("no command named {name}"));
+        self.keymap
+            .chords(info.command)
+            .iter()
+            .map(|c| c.text())
+            .collect()
+    }
+
+    /// The changed shortcuts the settings file will keep, by command id.
+    pub fn saved_shortcuts(&self) -> std::collections::BTreeMap<String, Vec<String>> {
+        self.settings.commands.shortcuts.clone()
+    }
+
+    /// Whether the Keyboard shortcuts window is open.
+    pub fn shortcuts_open(&self) -> bool {
+        self.shortcuts.open
     }
 
     /// Puts the system's cursor at `at` (or nowhere), as read while files

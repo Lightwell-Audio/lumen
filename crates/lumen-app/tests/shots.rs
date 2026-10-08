@@ -20,9 +20,19 @@ fn lumen(dir: &TempDir) -> Harness<'static, App> {
 
 /// [`lumen`] in `appearance`, at `scale`.
 fn lumen_looking(dir: &TempDir, appearance: &str, scale: f32) -> Harness<'static, App> {
+    lumen_looking_sized(dir, appearance, scale, vec2(1200.0, 420.0))
+}
+
+/// [`lumen_looking`] in a window of `size`.
+fn lumen_looking_sized(
+    dir: &TempDir,
+    appearance: &str,
+    scale: f32,
+    size: eframe::egui::Vec2,
+) -> Harness<'static, App> {
     let launch = Launch::for_test(dir.path()).appearing(appearance);
     let mut h = Harness::builder()
-        .with_size(vec2(1200.0, 420.0))
+        .with_size(size)
         .with_pixels_per_point(scale)
         .with_theme(if appearance == "light" {
             eframe::egui::Theme::Light
@@ -352,6 +362,62 @@ fn command_palette_looking(appearance: &str, scale: f32) {
     h.event(Event::Text("sna".into()));
     h.run_steps(4);
     save(&mut h, "palette-track");
+    h.key_press(Key::Escape);
+    h.run_steps(3);
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn keyboard_shortcuts() {
+    for (appearance, scale) in [("dark", 1.0), ("light", 1.5)] {
+        keyboard_shortcuts_looking(appearance, scale);
+    }
+}
+
+fn keyboard_shortcuts_looking(appearance: &str, scale: f32) {
+    use egui_kittest::kittest::Queryable;
+    let dir = TempDir::new("shots-shortcuts");
+    let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1280.0, 800.0));
+    let save = |h: &mut Harness<'static, App>, name: &str| {
+        save(
+            h,
+            &format!("{name}-{appearance}-{}", (scale * 100.0) as u32),
+        );
+    };
+    h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+    h.run_steps(3);
+    h.event(Event::Text("keyboard".into()));
+    h.run_steps(3);
+    h.key_press(Key::Enter);
+    h.run_steps(6);
+    save(&mut h, "shortcuts-open");
+    h.get_by_label("Ctrl").click();
+    h.run_steps(4);
+    save(&mut h, "shortcuts-ctrl-layer");
+    h.get_by_label("Ctrl").click();
+    h.run_steps(2);
+    h.get_by_label("Search shortcuts").click();
+    h.run_steps(2);
+    h.event(Event::Text("fit song".into()));
+    h.run_steps(3);
+    h.get_by_label("Change Fit song to width shortcut W")
+        .click();
+    h.run_steps(3);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::D);
+    h.run_steps(4);
+    save(&mut h, "shortcuts-clash");
+    h.key_press(Key::Escape);
+    h.run_steps(3);
+    h.key_press(Key::Escape);
+    h.run_steps(3);
+    // In the palette: Ctrl+Enter on a row records new keys there.
+    h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+    h.run_steps(3);
+    h.event(Event::Text("fit song".into()));
+    h.run_steps(3);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
+    h.run_steps(4);
+    save(&mut h, "palette-rekey");
     h.key_press(Key::Escape);
     h.run_steps(3);
 }

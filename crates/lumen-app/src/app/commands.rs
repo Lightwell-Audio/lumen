@@ -91,6 +91,7 @@ impl App {
             | Command::FitHeight
             | Command::ToggleDetail
             | Command::OpenPalette
+            | Command::OpenShortcuts
             | Command::GridNarrower
             | Command::GridWider
             | Command::TripletGrid
@@ -167,6 +168,7 @@ impl App {
             Command::FitHeight => self.nav.steps.push(ViewStep::FitHeight),
             Command::ToggleDetail => self.toggle_detail_requested = true,
             Command::OpenPalette => self.toggle_palette(),
+            Command::OpenShortcuts => self.open_shortcuts(),
             Command::GridNarrower => self.grid.narrower(),
             Command::GridWider => self.grid.wider(),
             Command::TripletGrid => self.grid.toggle_triplet(),
@@ -192,7 +194,7 @@ impl App {
     /// keys (an Esc just typed included: `App::typing`).
     pub(crate) fn command_keys(&mut self, ctx: &egui::Context) {
         self.sync_selection();
-        if ctx.egui_wants_keyboard_input() || self.typing {
+        if ctx.egui_wants_keyboard_input() || self.typing || self.rebind.is_some() {
             return;
         }
         let focused = ctx.memory(|m| m.focused().is_some());

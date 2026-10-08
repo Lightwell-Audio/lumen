@@ -2180,8 +2180,8 @@ curves, clip properties). ADR-0031 covers the curves.
 
 ## ADR-0033 — Commands and the keymap (M3 slice 7)
 
-**Status:** Accepted · **Date:** 2026-10-08 (7a and 7b; remapping and
-menus follow in 7c and 7d)
+**Status:** Accepted · **Date:** 2026-10-08 (7a to 7c; menus, tooltips
+and the remaining keys follow in 7d)
 
 ### Context
 Slice 7 brings the command palette, remappable shortcuts with clash
@@ -2250,8 +2250,35 @@ Option 3.
 - **Keycaps (the owner's K5)** are `widgets::keycaps`: the light under
   the key is the command's area colour (`Area::light`, one of the track
   colours).
-- The recent commands live for the session; they are saved with the
-  keymap's settings in 7c.
+- **Remapping (7c, the owner's E2 with E3).** `Keymap::set` refuses a
+  chord another command has and names that command; the window shows the
+  clash on the row with Reassign (`Keymap::reassign`, which takes it) or
+  Cancel. A command's chords are slots: clicking one records over it,
+  "+" adds one, Remove takes one away, ↺ resets the command (taking its
+  defaults back from whoever has them), Reset all restores everything.
+  Recording is one state for the window and the palette
+  (`App::rebind`): `capture_chord` runs first each frame and takes every
+  key and letter typed, so a chord being recorded never also runs its
+  command or types into a field; the dispatcher and the detail panel's
+  raw-input hook stand aside while it lasts, so even Shift+Tab can be
+  recorded. Esc cancels, and with a clash waiting Enter reassigns. In the
+  palette, Ctrl+Enter on a row (or a click on its keycaps) records there.
+- **The keyboard map** (`app/shortcuts.rs`) is drawn from a table of
+  keys: a 15-key main block and the arrows with the keys above them.
+  Keys bound on the layer shown (Ctrl, Shift and Alt chips, or held
+  modifiers) are outlined with the command's name, ellipsized, and the
+  area's light; clicking a key searches the list for its chord, and a
+  free one says so.
+- **Saving.** The settings gain a `commands` section: the shortcuts that
+  differ from the defaults, by command id, as text ("Ctrl+Shift+Z", Ctrl
+  standing for Cmd on macOS, egui's key names), and the palette's recent
+  commands. It is an added field with a default, as the follow mode and
+  the time format were, so older files read as before and no version
+  change is needed. `Keymap::from_saved` skips ids and chords it does not
+  know, and a saved chord wins over a default that clashes with it (a
+  default a later version adds).
+- **Presets.** One keymap ships, Ableton's, shown by name in the window;
+  the FL-style preset is [L] (CLAUDE.md §7).
 
 ### Consequences
 - A new command is one row in the table plus its `availability` and
@@ -2272,7 +2299,15 @@ Option 3.
   with its reason; commands that open a file dialog or the save question
   are found only), context names and reasons, numbers and names.
 - Unit tests: `palette` (fuzzy scoring, typed values, counts),
-  `the_tempo_is_clamped_and_a_drag_is_one_step`.
+  `the_tempo_is_clamped_and_a_drag_is_one_step`, `commands::keys`
+  (chords saved and read back, rebinding with clashes and reset, only
+  changes saved and winning when read).
+- E2E (`shortcuts`): a chord recorded in the window runs and is kept for
+  the settings while the old one is freed; a clash cancelled with Esc,
+  reassigned, then Reset all; Ctrl+Enter in the palette; saved shortcuts
+  used from the start. 72 scenarios.
+- Screenshots (`keyboard_shortcuts`: the window, the Ctrl layer, a clash,
+  and recording in the palette; dark at 100% and light at 150%).
 - Screenshots (`tests/shots.rs`, `command_palette`: empty with a recent
   command, a search, an unavailable command, a value and a track, in
   dark at 100% and light at 150%).

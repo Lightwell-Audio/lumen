@@ -100,6 +100,43 @@ impl Chord {
         parts.push(self.key_name());
         parts.join("+")
     }
+
+    /// How a chord is saved: "Ctrl+Shift+Z", with Ctrl for the command key
+    /// on every system and egui's key names, which it reads back.
+    pub(crate) fn saved(self) -> String {
+        let mut parts = Vec::new();
+        for (on, name) in [
+            (self.ctrl, "Ctrl"),
+            (self.shift, "Shift"),
+            (self.alt, "Alt"),
+        ] {
+            if on {
+                parts.push(name);
+            }
+        }
+        parts.push(self.key.name());
+        parts.join("+")
+    }
+
+    /// Reads a saved chord; `None` for one this version does not know.
+    pub(crate) fn from_saved(text: &str) -> Option<Self> {
+        let (modifiers, key) = match text.rsplit_once('+') {
+            // "Ctrl++" is Ctrl and the plus key.
+            Some((rest, "")) => (rest.strip_suffix('+')?, "+"),
+            Some((modifiers, key)) => (modifiers, key),
+            None => ("", text),
+        };
+        let mut chord = plain(Key::from_name(key)?);
+        for part in modifiers.split('+').filter(|p| !p.is_empty()) {
+            match part {
+                "Ctrl" => chord.ctrl = true,
+                "Shift" => chord.shift = true,
+                "Alt" => chord.alt = true,
+                _ => return None,
+            }
+        }
+        Some(chord)
+    }
 }
 
 /// Which chords run which commands.
@@ -139,11 +176,110 @@ impl Keymap {
             .map(|(&command, _)| command)
     }
 
+    /// Whether `command` has its default chords.
+    pub(crate) fn is_default(&self, command: Command) -> bool {
+        self.chords(command) == command.info().keys
+    }
+
+    /// Sets chord `slot` of `command` to `chord` (`None` adds a chord). If
+    /// another command has `chord`, nothing changes and that command is
+    /// returned: the editor asks before taking it.
+    pub(crate) fn set(
+        &mut self,
+        command: Command,
+        slot: Option<usize>,
+        chord: Chord,
+    ) -> Result<(), Command> {
+        if let Some(other) = self.command_for(chord)
+            && other != command
+        {
+            return Err(other);
+        }
+        let chords = self.chords.entry(command).or_default();
+        let slot = slot.filter(|&i| i < chords.len());
+        // The chord may already be in another of its slots.
+        if let Some(at) = chords.iter().position(|&c| c == chord) {
+            if slot.is_some_and(|i| i != at) {
+                chords.remove(at);
+            } else {
+                return Ok(());
+            }
+        }
+        match slot {
+            Some(i) if i < chords.len() => chords[i] = chord,
+            _ => chords.push(chord),
+        }
+        Ok(())
+    }
+
+    /// Sets the chord as [`Keymap::set`] does, taking it from whichever
+    /// command had it.
+    pub(crate) fn reassign(&mut self, command: Command, slot: Option<usize>, chord: Chord) {
+        for (&other, chords) in &mut self.chords {
+            if other != command {
+                chords.retain(|&c| c != chord);
+            }
+        }
+        // Nothing else has the chord now, so this cannot clash.
+        let _ = self.set(command, slot, chord);
+    }
+
+    /// Removes chord `slot` of `command`.
+    pub(crate) fn remove(&mut self, command: Command, slot: usize) {
+        if let Some(chords) = self.chords.get_mut(&command)
+            && slot < chords.len()
+        {
+            chords.remove(slot);
+        }
+    }
+
+    /// Gives `command` its default chords back, taking them from any
+    /// command that has one now.
+    pub(crate) fn reset(&mut self, command: Command) {
+        self.chords.insert(command, Vec::new());
+        for &chord in command.info().keys {
+            self.reassign(command, None, chord);
+        }
+    }
+
+    /// What is saved: the chords of every command not at its defaults, by
+    /// command id.
+    pub(crate) fn saved(&self) -> BTreeMap<String, Vec<String>> {
+        ALL.iter()
+            .filter(|info| !self.is_default(info.command))
+            .map(|info| {
+                let chords = self.chords(info.command).iter().map(|c| c.saved());
+                (info.id.to_owned(), chords.collect())
+            })
+            .collect()
+    }
+
+    /// The defaults with `saved` changes on top. Unknown ids and chords
+    /// are skipped; a saved chord wins over a default one that clashes
+    /// with it (a default added by a later version, say).
+    pub(crate) fn from_saved(saved: &BTreeMap<String, Vec<String>>) -> Self {
+        let mut keymap = Self::default();
+        let changed: Vec<(Command, Vec<Chord>)> = ALL
+            .iter()
+            .filter_map(|info| {
+                let chords = saved.get(info.id)?;
+                let chords = chords.iter().filter_map(|c| Chord::from_saved(c));
+                Some((info.command, chords.collect()))
+            })
+            .collect();
+        for (command, _) in &changed {
+            keymap.chords.insert(*command, Vec::new());
+        }
+        for (command, chords) in changed {
+            for chord in chords {
+                keymap.reassign(command, None, chord);
+            }
+        }
+        keymap
+    }
+
     /// Chords bound to more than one command, with those commands.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the shortcut editor shows clashes (slice 7c)")
-    )]
+    #[cfg(test)]
     pub(crate) fn clashes(&self) -> Vec<(Chord, Vec<Command>)> {
         let mut by_chord: BTreeMap<Chord, Vec<Command>> = BTreeMap::new();
         for (&command, chords) in &self.chords {
@@ -161,6 +297,76 @@ impl Keymap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_default_chord_is_saved_and_read_back() {
+        for info in ALL {
+            for &chord in info.keys {
+                assert_eq!(Chord::from_saved(&chord.saved()), Some(chord), "{chord:?}");
+            }
+        }
+        assert_eq!(Chord::from_saved("Ctrl+Shift+Z"), Some(ctrl_shift(Key::Z)));
+        assert_eq!(Chord::from_saved("Ctrl++"), Some(ctrl(Key::Plus)));
+        assert_eq!(Chord::from_saved("Hyper+Z"), None);
+        assert_eq!(Chord::from_saved("Ctrl+Nonsense"), None);
+    }
+
+    #[test]
+    fn rebinding_asks_before_taking_a_chord_and_resets() {
+        let mut keymap = Keymap::default();
+        // Ctrl+D is Duplicate's: setting it on Zoom in is refused.
+        assert_eq!(
+            keymap.set(Command::ZoomIn, Some(0), ctrl(Key::D)),
+            Err(Command::Duplicate)
+        );
+        assert!(keymap.is_default(Command::ZoomIn));
+        // Reassigned, it moves.
+        keymap.reassign(Command::ZoomIn, Some(0), ctrl(Key::D));
+        assert_eq!(keymap.command_for(ctrl(Key::D)), Some(Command::ZoomIn));
+        assert!(keymap.chords(Command::Duplicate).is_empty());
+        assert!(keymap.clashes().is_empty());
+        // A free chord is added with no slot; a slot is replaced.
+        assert_eq!(keymap.set(Command::FitWidth, None, alt(Key::W)), Ok(()));
+        assert_eq!(
+            keymap.chords(Command::FitWidth),
+            [plain(Key::W), alt(Key::W)]
+        );
+        assert_eq!(
+            keymap.set(Command::FitWidth, Some(0), shift(Key::W)),
+            Ok(())
+        );
+        assert_eq!(
+            keymap.chords(Command::FitWidth),
+            [shift(Key::W), alt(Key::W)]
+        );
+        keymap.remove(Command::FitWidth, 0);
+        assert_eq!(keymap.chords(Command::FitWidth), [alt(Key::W)]);
+        // Reset gives Duplicate its chord back, from Zoom in.
+        keymap.reset(Command::Duplicate);
+        assert_eq!(keymap.command_for(ctrl(Key::D)), Some(Command::Duplicate));
+        assert!(keymap.clashes().is_empty());
+    }
+
+    #[test]
+    fn only_changes_are_saved_and_they_win_when_read() {
+        let mut keymap = Keymap::default();
+        assert!(keymap.saved().is_empty(), "defaults save nothing");
+        keymap.reassign(Command::ZoomIn, Some(0), ctrl(Key::D));
+        let saved = keymap.saved();
+        assert_eq!(saved.len(), 2, "Zoom in and Duplicate changed: {saved:?}");
+        assert_eq!(saved["edit.duplicate"], Vec::<String>::new());
+        let read = Keymap::from_saved(&saved);
+        assert_eq!(read.command_for(ctrl(Key::D)), Some(Command::ZoomIn));
+        assert_eq!(read.saved(), saved);
+        // A saved chord wins over a default that clashes with it.
+        let mut later = BTreeMap::new();
+        later.insert("view.fit_width".to_owned(), vec!["Space".to_owned()]);
+        later.insert("not.a_command".to_owned(), vec!["F".to_owned()]);
+        let read = Keymap::from_saved(&later);
+        assert_eq!(read.command_for(plain(Key::Space)), Some(Command::FitWidth));
+        assert!(read.chords(Command::PlayStop).is_empty());
+        assert!(read.clashes().is_empty());
+    }
 
     #[test]
     fn no_two_default_shortcuts_clash() {

@@ -115,6 +115,10 @@ impl App {
                     self.transport.settings_window.open = true;
                     ui.close();
                 }
+                if ui.button("Keyboard shortcuts…").clicked() {
+                    self.open_shortcuts();
+                    ui.close();
+                }
             },
         );
         menu.response

@@ -593,8 +593,10 @@ pub fn keycaps(ui: &mut Ui, modifiers: &[&str], key: &str, light: Color32) -> eg
         .map(|(g, _)| g.size().x + 2.0 * pad.x)
         .sum::<f32>()
         + theme::space::XS * (caps.len() - 1) as f32;
+    // Clickable: the shortcut editor and the palette record a new chord
+    // when a shortcut is clicked.
     let (rect, response) =
-        ui.allocate_exact_size(vec2(width, cap_height + KEY_LIGHT_ROOM), Sense::hover());
+        ui.allocate_exact_size(vec2(width, cap_height + KEY_LIGHT_ROOM), Sense::click());
     if !ui.is_rect_visible(rect) {
         return response;
     }

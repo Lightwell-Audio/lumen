@@ -146,6 +146,10 @@ pub struct App {
     keymap: commands::Keymap,
     /// The command palette (Ctrl+K).
     palette: app::palette::Palette,
+    /// The Keyboard shortcuts window.
+    shortcuts: app::shortcuts::Shortcuts,
+    /// A chord being recorded for a command (the window or the palette).
+    rebind: Option<app::shortcuts::Rebind>,
     /// Where the arrangement looks (zoom, scroll, fit, back): slice 4d.
     nav: app::navigate::Nav,
     /// The editing grid and snapping (slice 5a); saved with the project.
@@ -249,6 +253,10 @@ impl eframe::App for App {
                 trace::log(|| format!("input: key {key:?}"));
             }
         }
+        // While a chord is recorded, it may be the panel's own.
+        if self.rebind.is_some() {
+            return;
+        }
         let keymap = &self.keymap;
         let mut toggle = false;
         raw_input.events.retain(|event| {
@@ -284,6 +292,7 @@ impl eframe::App for App {
         self.drive_bench(&ctx);
         self.hint = None;
         self.transport.update();
+        self.capture_chord(&ctx);
         self.command_keys(&ctx);
         self.poll_files(&ctx);
         self.autosave(&ctx);
@@ -384,6 +393,7 @@ impl eframe::App for App {
         self.transport.windows(&ctx);
         self.history_window(&ctx);
         self.prompt_window(&ctx);
+        self.shortcuts_window(&ctx);
         self.palette_window(&ctx);
 
         // A focused control must not vanish with its panel: AccessKit
@@ -575,6 +585,8 @@ impl App {
             );
         }
         let saved_appearance = saved.appearance.clone();
+        let keymap = commands::Keymap::from_saved(&saved.commands.shortcuts);
+        let palette = app::palette::Palette::with_recent(&saved.commands.recent);
         let mut app = App {
             transport,
             lanes,
@@ -609,8 +621,10 @@ impl App {
             browser_size: 220.0,
             detail_size: 220.0,
             toggle_detail_requested: false,
-            keymap: commands::Keymap::default(),
-            palette: Default::default(),
+            keymap,
+            palette,
+            shortcuts: Default::default(),
+            rebind: None,
             nav: app::navigate::Nav::default(),
             grid: lumen_core::grid::Grid::default(),
             locators: app::locators::Locators::default(),

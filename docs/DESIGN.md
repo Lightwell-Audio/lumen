@@ -490,6 +490,27 @@ Chosen by the owner from rendered specimens (Ableton's split):
 - **Typed values become actions:** a number offers "Set tempo to N BPM"
   (20–999) and "Go to bar N"; "bar N", "tempo N" and "N bpm" ask for one;
   a track's or locator's name offers going to it.
+- **The Keyboard shortcuts window (the owner's E2, `app/shortcuts.rs`).**
+  A `Dialog` 820 points wide, from the app menu or the palette:
+  - a "Layer" row of Ctrl, Shift and Alt chips (holding a modifier shows
+    its layer too) and, at the right, each area's light and name;
+  - the keyboard: keys bound on the layer are on the overlay fill,
+    outlined, with the key's label, the command's name (ending in "…" when
+    it does not fit) and the area's light along the bottom; free keys are
+    plain on `raised` with hint text; modifier keys light in
+    `accent_muted` while their layer shows; hovering outlines a key in the
+    accent, and a click searches the list for its chord;
+  - a search field (names and shortcuts), "Keymap: Ableton" and Reset
+    all;
+  - the list, by area under a light and name: the command, "changed" in
+    hint text when it differs from the default, its K5 keycaps (click to
+    record over one), "+" to add, ↺ to reset. Recording shows "Press
+    keys…" in the accent with Cancel (and Remove when replacing); a clash
+    shows a line in the warning colour, "Ctrl+D is used by Duplicate.",
+    with Reassign and Cancel.
+- **Recording in the palette (E3):** Ctrl+Enter on a row, or a click on
+  its keycaps; the strip says "Press the new keys for …" in the accent,
+  or the clash in the warning colour with "Enter takes it".
 
 ## 8. Key flows
 

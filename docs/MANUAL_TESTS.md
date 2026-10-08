@@ -1099,8 +1099,9 @@ findings, both fixed:
 
 ### MT-APP-15 · Commands, the palette and shortcuts (needs a human)
 Run `cargo run --release -p lumen-app` with a project that has a few
-tracks with clips and a locator or two. Steps 1 to 7 cover 7a and 7b; the
-shortcut editor, menus and the remaining keys are added with 7c and 7d.
+tracks with clips and a locator or two. Steps 1 to 7 cover 7a and 7b,
+steps 8 to 12 7c; menus, tooltips and the remaining keys are added with
+7d.
 1. **Keys as before:** Space, Shift+Space, Home, Ctrl+Z, Ctrl+Shift+Z,
    Ctrl+D, Delete, 0, Alt+Enter, Ctrl+T, Alt+Up, the arrows, `+`, `-`, X,
    W, H, Ctrl+1 to Ctrl+5, M and Ctrl+Left or Right all do what they did.
@@ -1123,6 +1124,20 @@ shortcut editor, menus and the remaining keys are added with 7c and 7d.
    locator's name: the playhead jumps there.
 7. Try steps 3 to 6 in the light theme and at 150%; at a small window
    the list gets shorter rather than covering the transport bar.
+8. **The shortcuts window:** open it from the Lumen menu (Keyboard
+   shortcuts…) or the palette. The keyboard shows what each key does,
+   with a coloured light per area. Click Ctrl (or hold Ctrl): the Ctrl
+   layer shows. Click a key: the list below finds its command.
+9. **Changing one:** search "fit song", click its W, press Alt+W. Close
+   the window: Alt+W now fits the song and W does nothing. Restart Lumen:
+   Alt+W still fits it.
+10. **A clash:** click a shortcut and press Ctrl+D: the row says Ctrl+D is
+    used by Duplicate, with Reassign and Cancel. Esc while recording
+    cancels the recording, not the window. ↺ and Reset all put things
+    back.
+11. **From the palette:** search a command, press Ctrl+Enter, press new
+    keys: it changes there.
+12. Try steps 8 to 10 in the light theme and at 150%.
 
 **Expected:** every step as described.
 

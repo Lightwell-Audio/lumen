@@ -60,6 +60,7 @@ pub(crate) enum Command {
     OpenProject,
     Save,
     SaveAs,
+    OpenShortcuts,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -113,10 +114,6 @@ impl Area {
 pub(crate) struct Info {
     pub command: Command,
     /// Stable, for saved keymaps: never renamed once shipped.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "saved keymaps name commands by id (slice 7c)")
-    )]
     pub id: &'static str,
     pub name: &'static str,
     pub area: Area,
@@ -180,6 +177,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::OpenProject, "file.open", "Open…", Area::File, &[ctrl(Key::O)], "Opens a project."),
     info(Command::Save, "file.save", "Save", Area::File, &[ctrl(Key::S)], "Saves the project."),
     info(Command::SaveAs, "file.save_as", "Save as…", Area::File, &[ctrl_shift(Key::S)], "Saves the project under a new name or place."),
+    info(Command::OpenShortcuts, "file.shortcuts", "Keyboard shortcuts", Area::File, &[], "Shows every shortcut on a keyboard, and changes them."),
 ];
 
 const fn info(
@@ -198,6 +196,13 @@ const fn info(
         keys,
         about,
     }
+}
+
+/// The command with saved id `id`.
+pub(crate) fn by_id(id: &str) -> Option<Command> {
+    ALL.iter()
+        .find(|info| info.id == id)
+        .map(|info| info.command)
 }
 
 impl Command {
@@ -236,7 +241,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::SaveAs as usize + 1,
+            Command::OpenShortcuts as usize + 1,
             ALL.len(),
             "a command is missing"
         );

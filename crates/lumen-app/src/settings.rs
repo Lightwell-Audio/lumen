@@ -1,12 +1,14 @@
 //! User settings that survive restarts: the audio device and the metronome
-//! (M2 slice 8), and the appearance (M3 slice 2). Preferences proper (paths,
-//! shortcuts) join them in M9.
+//! (M2 slice 8), the appearance (M3 slice 2), and changed shortcuts and the
+//! palette's recent commands (M3 slice 7). Preferences proper (paths and
+//! the rest) join them in M9.
 //!
 //! The file is versioned JSON in the user's settings folder. It is written
 //! atomically (to a temporary file, then renamed), so a crash never leaves
 //! it half-written. A file that cannot be read is moved aside as
 //! `settings.json.bad` and Lumen starts with defaults, saying why.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use lumen_core::product::PRODUCT_NAME;
@@ -153,6 +155,17 @@ impl Default for Projects {
     }
 }
 
+/// Commands (M3 slice 7): the shortcuts changed from the defaults, by
+/// command id ("edit.duplicate": ["Ctrl+D"]; an empty list means none),
+/// and the palette's recent commands, newest first. An added field with a
+/// default, so older files read as before (no version change).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Commands {
+    pub shortcuts: BTreeMap<String, Vec<String>>,
+    pub recent: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -164,6 +177,7 @@ pub struct Settings {
     pub follow: Follow,
     /// The time ruler's format (M3 slice 5b).
     pub time_format: crate::timefmt::TimeFormat,
+    pub commands: Commands,
 }
 
 impl Default for Settings {
@@ -176,6 +190,7 @@ impl Default for Settings {
             projects: Projects::default(),
             follow: Follow::default(),
             time_format: crate::timefmt::TimeFormat::default(),
+            commands: Commands::default(),
         }
     }
 }
@@ -355,6 +370,10 @@ mod tests {
             },
             follow: Follow::Continuous,
             time_format: crate::timefmt::TimeFormat::Timecode25,
+            commands: Commands {
+                shortcuts: [("edit.duplicate".to_owned(), vec!["Ctrl+Shift+D".to_owned()])].into(),
+                recent: vec!["track.add_audio".into()],
+            },
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path), (settings.clone(), None));

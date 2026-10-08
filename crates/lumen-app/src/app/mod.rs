@@ -17,4 +17,5 @@ pub(crate) mod recovery;
 pub(crate) mod regions;
 pub(crate) mod rulers;
 pub(crate) mod scrub;
+pub(crate) mod shortcuts;
 pub(crate) mod view;
