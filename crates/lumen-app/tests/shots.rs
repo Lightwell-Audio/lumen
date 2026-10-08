@@ -88,6 +88,30 @@ fn clip_selection() {
     h.event(Event::ModifiersChanged(Modifiers::NONE));
 }
 
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn clip_handles() {
+    let dir = TempDir::new("shots-handles");
+    let mut h = lumen(&dir);
+    let a = clip(&h, 0);
+    h.hover_at(Pos2::new(a.right() - 2.0, a.center().y));
+    save(&mut h, "handle-edge");
+    // Shift+drag the end four times as far: a looping clip.
+    let from = Pos2::new(a.right() - 2.0, a.center().y);
+    h.event(Event::ModifiersChanged(Modifiers::SHIFT));
+    h.hover_at(from);
+    h.drag_at(from);
+    h.run_steps(2);
+    let to = from + vec2(a.width() * 3.0, 0.0);
+    h.hover_at(to);
+    h.run_steps(2);
+    h.drop_at(to);
+    h.run_steps(2);
+    h.event(Event::ModifiersChanged(Modifiers::NONE));
+    h.hover_at(Pos2::new(to.x + 300.0, a.bottom() + 120.0));
+    save(&mut h, "handle-looped");
+}
+
 #[derive(Debug)]
 struct Dropped(PathBuf);
 

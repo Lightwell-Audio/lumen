@@ -292,6 +292,14 @@ half selects a time range, empty lanes draw a marquee.
 - **Marquee:** a rounded (`radius::MEDIUM`) box, `accent` at 12% with a
   1 pt edge at 60%.
 - A drag shows the snap guide at the grabbed clip's new start.
+- **Handles (owner's choice L3, slice 6c):** shown only near the pointer.
+  Within 6 pt of a side (a quarter of a narrow clip) the side glows as a
+  rail, `accent` 3 pt at 60% over 6 pt at 15%, with a resize cursor and
+  the chip "drag to trim · Shift loops" ("drag to loop" with Shift).
+  Ctrl+Alt over the top half: "drag to slip the audio". Fade and gain
+  handles join in 6d.
+- **Looping clips:** a dashed `text` line at 30% with a 2 pt dot at 60%
+  where each repeat starts, and the waveform drawn again in each.
 
 ## 7b. Navigation (M3 slice 4d, ADR-0028)
 

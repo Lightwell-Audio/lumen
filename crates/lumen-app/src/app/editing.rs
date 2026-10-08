@@ -12,7 +12,7 @@ use lumen_project::model::Id;
 
 use super::grid::draw_snap_guide;
 use crate::arrangement::Arrangement;
-use crate::arrangement::select::{Gesture, Half, TimeRange, drag_moves};
+use crate::arrangement::select::{Edge, Gesture, Half, TimeRange, drag_moves};
 use lumen_project::edit;
 
 use crate::{App, ruler, widgets};
@@ -155,7 +155,7 @@ impl App {
             && let Some(p) = response.hover_pos()
             && let Some(hit) = self.hit(&ctx, p, canvas)
         {
-            self.arrangement.hover = Some((hit.clip, hit.half));
+            self.arrangement.hover = Some((hit.clip, hit.half, hit.edge));
             let locked = self
                 .document
                 .project()
@@ -164,17 +164,36 @@ impl App {
                 .and_then(|t| t.clips.iter().find(|c| c.id == hit.clip))
                 .is_some_and(|c| c.locked);
             use widgets::HintMark;
-            let (cursor, mark, text) = match hit.half {
-                Half::Top if locked => (CursorIcon::NotAllowed, HintMark::None, "locked"),
-                Half::Top if modifiers.command => {
+            let slip = modifiers.command && modifiers.alt;
+            let (cursor, mark, text) = match (hit.edge, hit.half) {
+                (_, _) if locked => (CursorIcon::NotAllowed, HintMark::None, "locked"),
+                (Some(Edge::End), _) if modifiers.shift => {
+                    (CursorIcon::ResizeEast, HintMark::Resize, "drag to loop")
+                }
+                (Some(Edge::End), _) => (
+                    CursorIcon::ResizeHorizontal,
+                    HintMark::Resize,
+                    "drag to trim · Shift loops",
+                ),
+                (Some(Edge::Start), _) => (
+                    CursorIcon::ResizeHorizontal,
+                    HintMark::Resize,
+                    "drag to trim",
+                ),
+                (None, Half::Top) if slip => (
+                    CursorIcon::ResizeColumn,
+                    HintMark::Resize,
+                    "drag to slip the audio",
+                ),
+                (None, Half::Top) if modifiers.command => {
                     (CursorIcon::Copy, HintMark::Move, "drag to copy")
                 }
-                Half::Top => (
+                (None, Half::Top) => (
                     CursorIcon::Grab,
                     HintMark::Move,
                     "drag to move · Ctrl copies",
                 ),
-                Half::Bottom => (CursorIcon::Text, HintMark::Resize, "drag to select time"),
+                (None, Half::Bottom) => (CursorIcon::Text, HintMark::Resize, "drag to select time"),
             };
             ctx.set_cursor_icon(cursor);
             let row = match hit.half {
@@ -225,6 +244,40 @@ impl App {
             self.arrangement.range = None;
             return Some(Gesture::Marquee { from: origin, kept });
         };
+        let locked = self
+            .document
+            .project()
+            .tracks
+            .get(hit.track)
+            .and_then(|t| t.clips.iter().find(|c| c.id == hit.clip))
+            .is_none_or(|c| c.locked);
+        if let Some(edge) = hit.edge {
+            if locked {
+                return None;
+            }
+            self.arrangement.clips = BTreeSet::from([hit.clip]);
+            self.arrangement.range = None;
+            self.selected_clips_now();
+            return Some(Gesture::Trim {
+                base: std::sync::Arc::new(self.document.project().clone()),
+                clip: hit.clip,
+                edge,
+                looping: edge == Edge::End && modifiers.shift,
+            });
+        }
+        if hit.half == Half::Top && modifiers.command && modifiers.alt {
+            if locked {
+                return None;
+            }
+            self.arrangement.clips = BTreeSet::from([hit.clip]);
+            self.arrangement.range = None;
+            self.selected_clips_now();
+            return Some(Gesture::Slip {
+                base: std::sync::Arc::new(self.document.project().clone()),
+                clip: hit.clip,
+                at: self.ticks_at(canvas, origin.x),
+            });
+        }
         if hit.half == Half::Bottom {
             self.arrangement.clips.clear();
             return Some(Gesture::Range {
@@ -249,6 +302,7 @@ impl App {
             .command
             .then(|| grabbed.iter().map(|_| self.document.fresh_id()).collect());
         Some(Gesture::Move {
+            base: std::sync::Arc::new(self.document.project().clone()),
             grabbed,
             anchor: hit.clip,
             at: self.ticks_at(canvas, origin.x),
@@ -277,6 +331,7 @@ impl App {
         let guides = Rect::from_x_y_ranges(canvas.x_range(), canvas.y_range());
         match gesture {
             Gesture::Move {
+                base,
                 grabbed,
                 anchor,
                 at,
@@ -285,13 +340,15 @@ impl App {
             } => {
                 let delta = self.ticks_at(canvas, p.x) - at;
                 let down = row.map_or(0, |r| r as isize - track as isize);
-                let moves = drag_moves(project, &grabbed, anchor, delta, down, |t| {
+                let moves = drag_moves(&base, &grabbed, anchor, delta, down, |t| {
                     self.snapped(t, free)
                 });
                 let landed = moves.iter().find(|m| m.clip == anchor).map(|m| m.start);
                 match &copies {
-                    Some(ids) => self.document.copy_clips(&moves, ids, Some("clip copy")),
-                    None => self.document.move_clips(&moves, Some("clip drag")),
+                    Some(ids) => self
+                        .document
+                        .copy_clips(&base, &moves, ids, Some("clip copy")),
+                    None => self.document.move_clips(&base, &moves, Some("clip drag")),
                 }
                 if let Some(start) = landed {
                     draw_snap_guide(painter, x(start), guides);
@@ -318,6 +375,42 @@ impl App {
                 if !self.arrangement.clips.is_empty() {
                     self.selected_clips_now();
                 }
+            }
+            Gesture::Trim {
+                base,
+                clip,
+                edge,
+                looping,
+            } => {
+                let to = self.snapped(self.ticks_at(canvas, p.x), free);
+                self.document
+                    .trim_clip(&base, clip, edge, to, looping, Some("clip trim"));
+                if let Some(c) = self
+                    .document
+                    .project()
+                    .tracks
+                    .iter()
+                    .flat_map(|t| &t.clips)
+                    .find(|c| c.id == clip)
+                {
+                    let side = match edge {
+                        Edge::Start => c.start,
+                        Edge::End => c.start + c.length,
+                    };
+                    draw_snap_guide(painter, x(side), guides);
+                }
+                self.arrangement.hover = Some((clip, Half::Top, Some(edge)));
+                ctx.set_cursor_icon(if looping {
+                    CursorIcon::ResizeEast
+                } else {
+                    CursorIcon::ResizeHorizontal
+                });
+            }
+            Gesture::Slip { base, clip, at } => {
+                // Slipping is free: the audio follows the hand exactly.
+                let by = self.ticks_at(canvas, p.x) - at;
+                self.document.slip_clip(&base, clip, by, Some("clip slip"));
+                ctx.set_cursor_icon(CursorIcon::ResizeColumn);
             }
             Gesture::Range { at, track } => {
                 let (a, b) = (

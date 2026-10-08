@@ -6,6 +6,7 @@
 //! app turns them into document edits (`App::clip_editing`).
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use eframe::egui::{self, Pos2, Rect, pos2};
 use lumen_core::time::Ticks;
@@ -19,6 +20,23 @@ use crate::timeview::TimeView;
 /// Each half of a clip is at least this tall, so both stay easy to hit on
 /// short tracks (the owner's split-clip choice).
 pub const MIN_HALF: f32 = 11.0;
+/// Within this many points of a clip's side, a drag trims it (slice 6c; a
+/// quarter of the clip when it is narrow).
+pub const EDGE_ZONE: f32 = 6.0;
+
+pub use lumen_project::edit::Edge;
+
+/// The side of `rect` that `x` is close enough to trim, if any.
+pub fn edge_at(rect: Rect, x: f32) -> Option<Edge> {
+    let zone = EDGE_ZONE.min(rect.width() / 4.0);
+    if x - rect.left() <= zone {
+        Some(Edge::Start)
+    } else if rect.right() - x <= zone {
+        Some(Edge::End)
+    } else {
+        None
+    }
+}
 
 /// Which half of a clip the pointer is over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +74,8 @@ pub struct ClipHit {
     /// Where it is drawn.
     pub rect: Rect,
     pub half: Half,
+    /// A side close enough to trim, which wins over the halves.
+    pub edge: Option<Edge>,
 }
 
 /// A clip picked up by a drag, as it was.
@@ -69,12 +89,14 @@ pub struct Grabbed {
     pub audio: bool,
 }
 
-/// What a pointer drag on the lanes is doing.
-#[derive(Debug, Clone, PartialEq)]
+/// What a pointer drag on the lanes is doing. Edits keep `base`, the
+/// project as the drag found it: every frame redoes the edit from there.
+#[derive(Debug, Clone)]
 pub enum Gesture {
     /// Moving (or copying) clips: picked up at `at` on track `track`;
     /// `anchor` is the clip under the pointer, the one that snaps.
     Move {
+        base: Arc<Project>,
         grabbed: Vec<Grabbed>,
         anchor: Id,
         at: Ticks,
@@ -86,6 +108,20 @@ pub enum Gesture {
     Marquee { from: Pos2, kept: BTreeSet<Id> },
     /// A time range from `at` on track `track` (a clip's bottom half).
     Range { at: Ticks, track: usize },
+    /// Trimming a side of `clip`; with `looping` (Shift at the start) the
+    /// end extends by repeating.
+    Trim {
+        base: Arc<Project>,
+        clip: Id,
+        edge: Edge,
+        looping: bool,
+    },
+    /// Sliding `clip`'s content, picked up at `at` (Ctrl+Alt).
+    Slip {
+        base: Arc<Project>,
+        clip: Id,
+        at: Ticks,
+    },
 }
 
 /// A time range across neighbouring tracks, independent of clips (slice
@@ -211,6 +247,7 @@ impl Arrangement {
                 clip,
                 rect,
                 half: half_at(rect, pointer.y),
+                edge: edge_at(rect, pointer.x),
             })
     }
 
@@ -299,6 +336,17 @@ mod tests {
             TimeRange::between(&p, Ticks::ZERO, Ticks(1), 0, 9).is_none(),
             "no such track"
         );
+    }
+
+    #[test]
+    fn sides_trim_within_a_few_points_or_a_quarter_of_a_narrow_clip() {
+        let wide = Rect::from_min_size(pos2(100.0, 0.0), vec2(200.0, 40.0));
+        assert_eq!(edge_at(wide, 104.0), Some(Edge::Start));
+        assert_eq!(edge_at(wide, 296.0), Some(Edge::End));
+        assert_eq!(edge_at(wide, 150.0), None);
+        let narrow = Rect::from_min_size(pos2(0.0, 0.0), vec2(12.0, 40.0));
+        assert_eq!(edge_at(narrow, 6.0), None, "the middle still moves it");
+        assert_eq!(edge_at(narrow, 2.0), Some(Edge::Start));
     }
 
     #[test]

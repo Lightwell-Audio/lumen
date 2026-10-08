@@ -412,27 +412,36 @@ impl Document {
     }
 
     /// Puts clips at new places (M3 slice 6): each [`ClipMove`] moves that
-    /// clip to its start on its track. Locked clips, and moves to tracks
-    /// that do not exist, are left out. `merge` joins the moves of one drag
-    /// into one step.
-    pub fn move_clips(&mut self, moves: &[ClipMove], merge: Option<&str>) {
+    /// clip to its start on its track, starting from `base`, the project as
+    /// the drag found it, so every frame of a drag is the same edit redone
+    /// (one undo step with `merge`). Moved clips cut away what they cover,
+    /// as in Ableton (owner, slice 6c). Locked clips, and moves to tracks
+    /// that do not exist, are left out.
+    pub fn move_clips(&mut self, base: &Project, moves: &[ClipMove], merge: Option<&str>) {
         let label = plural(moves.len(), "Move clip", "Move {} clips");
-        self.history
-            .apply(&label, merge, |project| place_clips(project, moves));
+        let next = &mut self.next_id;
+        self.history.apply(&label, merge, |project| {
+            *project = base.clone();
+            place_clips(project, moves);
+            let placed: Vec<Id> = moves.iter().map(|m| m.clip).collect();
+            edit::overwrite(project, &placed, &mut fresh_ids(next));
+        });
     }
 
     /// Puts copies of clips at new places, as Ctrl+drag does: the copy of
-    /// `moves[i].clip` gets the id `ids[i]`. A drag calls this every frame
-    /// with the same `ids` and `merge`: the copies made last time are
-    /// replaced, so the gesture stays one step.
-    pub fn copy_clips(&mut self, moves: &[ClipMove], ids: &[Id], merge: Option<&str>) {
+    /// `moves[i].clip` gets the id `ids[i]`. Like [`Document::move_clips`],
+    /// from `base`, and the copies cut away what they cover.
+    pub fn copy_clips(
+        &mut self,
+        base: &Project,
+        moves: &[ClipMove],
+        ids: &[Id],
+        merge: Option<&str>,
+    ) {
         let label = plural(moves.len(), "Copy clip", "Copy {} clips");
+        let next = &mut self.next_id;
         self.history.apply(&label, merge, |project| {
-            for track in &mut project.tracks {
-                if track.clips.iter().any(|c| ids.contains(&c.id)) {
-                    Arc::make_mut(track).clips.retain(|c| !ids.contains(&c.id));
-                }
-            }
+            *project = base.clone();
             let copies: Vec<(Clip, ClipMove)> = moves
                 .iter()
                 .zip(ids)
@@ -456,6 +465,40 @@ impl Document {
                     t.clips.sort_by_key(|c| c.start);
                 }
             }
+            edit::overwrite(project, ids, &mut fresh_ids(next));
+        });
+    }
+
+    /// Trims `clip`'s `edge` to `to` (slice 6c), from `base`; with
+    /// `looping`, the end extends by repeating the clip. The trimmed clip
+    /// cuts away what it now covers.
+    pub fn trim_clip(
+        &mut self,
+        base: &Project,
+        clip: Id,
+        edge: edit::Edge,
+        to: Ticks,
+        looping: bool,
+        merge: Option<&str>,
+    ) {
+        let label = if looping { "Loop clip" } else { "Trim clip" };
+        let next = &mut self.next_id;
+        self.history.apply(label, merge, |project| {
+            *project = base.clone();
+            let tempo = edit::tempo_of(base);
+            replace_clip(project, clip, |c| {
+                edit::trim(base, &tempo, c, edge, to, looping)
+            });
+            edit::overwrite(project, &[clip], &mut fresh_ids(next));
+        });
+    }
+
+    /// Slides `clip`'s content `by` inside it, from `base` (Ctrl+Alt+drag).
+    pub fn slip_clip(&mut self, base: &Project, clip: Id, by: Ticks, merge: Option<&str>) {
+        self.history.apply("Slip clip", merge, |project| {
+            *project = base.clone();
+            let tempo = edit::tempo_of(base);
+            replace_clip(project, clip, |c| edit::slip(base, &tempo, c, by));
         });
     }
 
@@ -613,6 +656,18 @@ impl Document {
 }
 
 /// "Delete track" or "Delete 3 tracks".
+/// Replaces the unlocked clip `id` with `change` of it.
+fn replace_clip(project: &mut Project, id: Id, change: impl FnOnce(&Clip) -> Clip) {
+    for track in &mut project.tracks {
+        if let Some(i) = track.clips.iter().position(|c| c.id == id && !c.locked) {
+            let t = Arc::make_mut(track);
+            t.clips[i] = Arc::new(change(&t.clips[i]));
+            t.clips.sort_by_key(|c| c.start);
+            return;
+        }
+    }
+}
+
 /// Where a clip goes: a track and a start.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClipMove {
@@ -784,13 +839,14 @@ mod tests {
         let tracks: Vec<Id> = doc.project().tracks.iter().map(|t| t.id).collect();
         let kick = doc.project().tracks[0].clips[0].id;
         // A drag: three frames, one step; the kick ends on the snare's track.
+        let base = doc.project().clone();
         for q in [1, 2, 8] {
             let to = ClipMove {
                 clip: kick,
                 track: tracks[1],
                 start: Ticks::quarters(q),
             };
-            doc.move_clips(&[to], Some("clip drag"));
+            doc.move_clips(&base, &[to], Some("clip drag"));
         }
         let project = doc.project();
         assert!(project.tracks[0].clips.is_empty());
@@ -810,13 +866,14 @@ mod tests {
 
         // A copy-drag: twice, still one copy.
         let copy = doc.fresh_id();
+        let base = doc.project().clone();
         for q in [12, 16] {
             let to = ClipMove {
                 clip: kick,
                 track: tracks[0],
                 start: Ticks::quarters(q),
             };
-            doc.copy_clips(&[to], &[copy], Some("clip copy"));
+            doc.copy_clips(&base, &[to], &[copy], Some("clip copy"));
         }
         let kicks: Vec<_> = doc.project().tracks[0]
             .clips
@@ -835,7 +892,8 @@ mod tests {
             track: tracks[1],
             start: Ticks::ZERO,
         };
-        doc.move_clips(&[away], None);
+        let base = doc.project().clone();
+        doc.move_clips(&base, &[away], None);
         doc.delete_clips(&[kick, copy]);
         let left: Vec<_> = doc.project().tracks[0].clips.iter().map(|c| c.id).collect();
         assert_eq!(left, [kick]);
@@ -847,7 +905,8 @@ mod tests {
         doc.apply("unlock", None, |p| {
             Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]).locked = false;
         });
-        doc.move_clips(&[lost], None);
+        let base = doc.project().clone();
+        doc.move_clips(&base, &[lost], None);
         assert_eq!(doc.project().tracks[0].clips[0].id, kick);
     }
 

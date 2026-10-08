@@ -303,7 +303,7 @@ fn copy_pastes_at_the_playhead_and_delete_time_closes_the_gap() {
     // range starts on a clip's bottom half), then Ctrl+Shift+Delete. The
     // paste moves back a bar.
     let pasted = lumen.app().project().tracks[0].clips[1].id;
-    select_range(&mut lumen, pasted, snare, 8.2, 4.0);
+    select_range(&mut lumen, pasted, snare, 8.6, 4.0);
     let (a, b, _) = lumen.app().time_range().unwrap();
     assert_eq!((a, b), (Ticks(BAR), Ticks(2 * BAR)));
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Delete);
@@ -361,4 +361,108 @@ fn dragging_the_time_ruler_selects_empty_bars_on_every_track() {
     lumen.key(Modifiers::COMMAND, Key::I);
     assert_eq!(lumen.app().undo_label(), Some("Insert time"));
     assert_eq!(starts(&lumen, 0), [(0, BAR / 2)]);
+}
+
+/// The offset of `clip`'s audio in its file.
+fn offset(lumen: &Lumen, clip: Id) -> i64 {
+    let project = lumen.app().project();
+    let found = project
+        .tracks
+        .iter()
+        .flat_map(|t| &t.clips)
+        .find(|c| c.id == clip);
+    match found.map(|c| &c.content) {
+        Some(lumen_project::model::ClipContent::Audio { offset, .. }) => *offset,
+        _ => panic!("an audio clip"),
+    }
+}
+
+#[test]
+fn an_edge_trims_within_the_file_and_shift_loops_it() {
+    let (mut lumen, kick, _) = with_two_clips("clip-trim");
+    // Quarters.
+    lumen.key(Modifiers::COMMAND, Key::Num1);
+    lumen.key(Modifiers::COMMAND, Key::Num1);
+    let zoom = lumen.app().view().zoom as f32;
+    let r = rect(&lumen, kick);
+    let end = Pos2::new(r.right() - 2.0, r.center().y);
+    lumen.harness.hover_at(end);
+    lumen.frames(2);
+    assert_eq!(lumen.app().hint(), Some("drag to trim · Shift loops"));
+
+    // A quarter shorter: one step.
+    lumen.drag(end, end - vec2(zoom, 0.0), Modifiers::NONE);
+    assert_eq!(starts(&lumen, 0), [(0, BAR / 4)]);
+    assert_eq!(lumen.app().undo_label(), Some("Trim clip"));
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert_eq!(starts(&lumen, 0), [(0, BAR / 2)]);
+
+    // Past the file's end it stops there (the file is one second, two
+    // quarters).
+    lumen.drag(end, end + vec2(6.0 * zoom, 0.0), Modifiers::NONE);
+    assert_eq!(starts(&lumen, 0), [(0, BAR / 2)]);
+
+    // With Shift it loops: two bars of a two-quarter clip.
+    lumen.drag(end, end + vec2(6.0 * zoom, 0.0), Modifiers::SHIFT);
+    let clip = &lumen.app().project().tracks[0].clips[0];
+    assert_eq!(
+        (clip.length, clip.loop_length),
+        (Ticks(2 * BAR), Some(Ticks(BAR / 2)))
+    );
+    assert_eq!(lumen.app().undo_label(), Some("Loop clip"));
+}
+
+#[test]
+fn a_clip_dropped_on_another_cuts_it_back_as_in_ableton() {
+    let (mut lumen, kick, snare) = with_two_clips("clip-overwrite");
+    lumen.key(Modifiers::COMMAND, Key::Num1);
+    lumen.key(Modifiers::COMMAND, Key::Num1);
+    let zoom = lumen.app().view().zoom as f32;
+    // The snare onto the kick's track, a quarter in: the kick keeps its
+    // first quarter.
+    let from = top_half(rect(&lumen, snare));
+    let over = Pos2::new(from.x + zoom, top_half(rect(&lumen, kick)).y);
+    lumen.drag(from, over, Modifiers::NONE);
+    assert_eq!(place(&lumen, snare), (0, Ticks(BAR / 4)));
+    assert_eq!(starts(&lumen, 0), [(0, BAR / 4), (BAR / 4, BAR / 2)]);
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert_eq!(starts(&lumen, 0), [(0, BAR / 2)], "one step");
+
+    // Passing over the kick and dropping elsewhere leaves it whole.
+    let from = top_half(rect(&lumen, snare));
+    let over = Pos2::new(from.x + zoom, top_half(rect(&lumen, kick)).y);
+    lumen.harness.hover_at(from);
+    lumen.harness.drag_at(from);
+    lumen.frames(2);
+    for p in [over, over + vec2(zoom, 0.0), from + vec2(12.0 * zoom, 0.0)] {
+        lumen.harness.hover_at(p);
+        lumen.frames(2);
+    }
+    lumen.harness.drop_at(from + vec2(12.0 * zoom, 0.0));
+    lumen.frames(3);
+    assert_eq!(starts(&lumen, 0), [(0, BAR / 2)], "the kick is whole");
+}
+
+#[test]
+fn ctrl_alt_slips_the_audio_inside_the_clip() {
+    let (mut lumen, kick, _) = with_two_clips("clip-slip");
+    // Trim the start in a quarter first, so there is audio to slip back to.
+    lumen.key(Modifiers::COMMAND, Key::Num1);
+    lumen.key(Modifiers::COMMAND, Key::Num1);
+    let zoom = lumen.app().view().zoom as f32;
+    let r = rect(&lumen, kick);
+    let start = Pos2::new(r.left() + 2.0, r.center().y);
+    lumen.drag(start, start + vec2(zoom, 0.0), Modifiers::NONE);
+    assert_eq!(offset(&lumen, kick), 24_000, "half a second: a quarter at 120 BPM");
+
+    let r = rect(&lumen, kick);
+    let p = Pos2::new(r.center().x, top_half(r).y);
+    lumen.drag(
+        p,
+        p + vec2(zoom / 2.0, 0.0),
+        Modifiers::COMMAND | Modifiers::ALT,
+    );
+    assert!(offset(&lumen, kick) < 24_000, "the audio moved later");
+    assert_eq!(starts(&lumen, 0), [(BAR / 4, BAR / 4)], "the clip stayed");
+    assert_eq!(lumen.app().undo_label(), Some("Slip clip"));
 }

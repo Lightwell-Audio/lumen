@@ -370,10 +370,7 @@ impl Arrangement {
             }
             for clip in &project.tracks[index].clips {
                 let selected = self.clips.contains(&clip.id);
-                let hovered = self.hover.filter(|(id, _)| *id == clip.id);
-                if !selected && hovered.is_none() {
-                    continue;
-                }
+                let hovered = self.hover.filter(|(id, ..)| *id == clip.id);
                 let (x0, x1) = span(time, canvas, clip);
                 if x1 < canvas.left() || x0 > canvas.right() {
                     continue;
@@ -382,7 +379,53 @@ impl Arrangement {
                     x0..=x1.max(x0 + 1.0),
                     lane.top() + INSET..=lane.bottom() - INSET,
                 );
-                if let Some((_, half)) = hovered {
+                // Each repeat of a looping clip starts at a notch.
+                if let Some(period) = clip.loop_length.filter(|p| *p > Ticks::ZERO) {
+                    let step = (period.as_quarters() * time.zoom) as f32;
+                    if step >= 6.0 {
+                        let mut at = clip.start + period;
+                        while at < clip.start + clip.length {
+                            let x = x(at);
+                            if x > canvas.right() {
+                                break;
+                            }
+                            if x >= canvas.left() {
+                                painter.add(egui::Shape::dashed_line(
+                                    &[pos2(x, rect.top() + TITLE), pos2(x, rect.bottom())],
+                                    Stroke::new(1.0, palette.text.gamma_multiply(0.3)),
+                                    2.0,
+                                    2.0,
+                                ));
+                                painter.circle_filled(
+                                    pos2(x, rect.top() + TITLE),
+                                    2.0,
+                                    palette.text.gamma_multiply(0.6),
+                                );
+                            }
+                            at = at + period;
+                        }
+                    }
+                }
+                if !selected && hovered.is_none() {
+                    continue;
+                }
+                if let Some((_, _, Some(edge))) = hovered {
+                    // L3: the side that would trim glows as a rail.
+                    let side = match edge {
+                        select::Edge::Start => rect.left() + 1.5,
+                        select::Edge::End => rect.right() - 1.5,
+                    };
+                    painter.vline(
+                        side,
+                        rect.y_range(),
+                        Stroke::new(6.0, palette.accent.gamma_multiply(0.15)),
+                    );
+                    painter.vline(
+                        side,
+                        rect.y_range(),
+                        Stroke::new(3.0, palette.accent.gamma_multiply(0.6)),
+                    );
+                } else if let Some((_, half, None)) = hovered {
                     let split = select::split_y(rect);
                     let wash = match half {
                         select::Half::Top => rect.with_max_y(split),

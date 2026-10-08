@@ -10,6 +10,10 @@ use lumen_render::{WaveInstance, beats, rgba};
 
 use super::samples::Geometry;
 
+/// The most repeats of one looping clip drawn as waves; past this, a very
+/// short loop over a long clip shows its first repeats only.
+const MAX_REPEATS: usize = 4_096;
+
 /// What the waveform of a media file needs: its atlas slot, how many
 /// channels to show, and the file's own sample rate.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -52,13 +56,24 @@ pub(super) fn wave_instances(
             // The file offset in the device-rate frames the peaks index.
             let offset = *offset as f64 * f64::from(rate) / f64::from(source.native_rate.max(1));
             let (start, end) = (clip.start, clip.start + clip.length);
-            let at_start = tempo.sample_at(start, rate);
             let mut cuts: Vec<Ticks> = tempo
                 .points()
                 .iter()
                 .map(|p| p.at)
                 .filter(|&at| at > start && at < end)
                 .collect();
+            // A looping clip draws its content again from each repeat
+            // (slice 6c), as the engine plays it.
+            let period = clip.loop_length.filter(|p| *p > Ticks::ZERO);
+            if let Some(period) = period {
+                let mut at = start + period;
+                while at < end && cuts.len() < MAX_REPEATS {
+                    cuts.push(at);
+                    at = at + period;
+                }
+                cuts.sort_unstable();
+                cuts.dedup();
+            }
             cuts.push(end);
             let mut from = start;
             for to in cuts {
@@ -66,8 +81,10 @@ pub(super) fn wave_instances(
                 if length <= 0.0 {
                     continue;
                 }
+                let repeat = period.map_or(start, |p| start + Ticks((from - start).0 / p.0 * p.0));
                 let frames = (tempo.sample_at(to, rate) - tempo.sample_at(from, rate)) as f64;
-                let first_frame = offset + (tempo.sample_at(from, rate) - at_start) as f64;
+                let first_frame =
+                    offset + (tempo.sample_at(from, rate) - tempo.sample_at(repeat, rate)) as f64;
                 waves.push(Wave {
                     instance: WaveInstance {
                         start: beats(from.as_quarters()),
@@ -174,6 +191,24 @@ mod tests {
         );
         assert_eq!(w.first_frame, 48_000.0);
         assert_eq!(w.frames_per_beat, 24_000.0);
+    }
+
+    #[test]
+    fn a_looping_clip_draws_its_content_again_from_each_repeat() {
+        let mut p = project(vec![bpm(0, 120.0)], 1_000);
+        let track = Arc::make_mut(&mut p.tracks[0]);
+        Arc::make_mut(&mut track.clips[0]).loop_length = Some(Ticks::quarters(1));
+        let waves = waves(&p, 48_000);
+        let spans: Vec<_> = waves.iter().map(|w| (w.start[0], w.first_frame)).collect();
+        assert_eq!(
+            spans,
+            [
+                (4.0, 1_000.0),
+                (5.0, 1_000.0),
+                (6.0, 1_000.0),
+                (7.0, 1_000.0)
+            ]
+        );
     }
 
     #[test]

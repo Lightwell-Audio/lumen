@@ -112,8 +112,9 @@ pub struct Arrangement {
     pub clips: BTreeSet<Id>,
     /// The clip drag or marquee in progress.
     pub gesture: Option<select::Gesture>,
-    /// The clip under the pointer and its half, for the H1 hover.
-    pub hover: Option<(Id, select::Half)>,
+    /// The clip under the pointer, its half and the side it would trim,
+    /// for the H1 hover and the L3 handles.
+    pub hover: Option<(Id, select::Half, Option<select::Edge>)>,
     /// The marquee being drawn, on screen.
     pub marquee: Option<egui::Rect>,
     /// The selected time range (selecting one clears the clip selection,
