@@ -38,6 +38,7 @@ irreversible or external) · *Superseded*.
 | [0025](#adr-0025--tracks-folding-and-interim-volume-and-pan) | Tracks: owner-chosen header and clip design, Ableton-style folding and resizing, interim volume and pan until the mixer | Accepted 2026-10-07 | No |
 | [0026](#adr-0026--clips-on-the-gpu) | Clips on the GPU: a box layer with a per-frame row table; names in egui; measured first with a frame-time benchmark | Accepted 2026-10-07 | No |
 | [0027](#adr-0027--waveforms) | Waveforms: 8-bit peak pyramids built at load; drawn per pixel on the GPU from an atlas; disk cache in M9 | Accepted 2026-10-07 | No |
+| [0028](#adr-0028--navigating-the-arrangement) | Navigation: f64 view with split beats on the GPU, zoom to single samples, Ableton keys, Follow (page, on), drag to reorder, sample-level waveforms | Accepted 2026-10-07 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -1734,3 +1735,64 @@ then.
 - The finest level is 16 frames per bucket. Today's deepest zoom is about
   30 frames per pixel at 200%; a deeper zoom (slice 4d or later editing)
   needs sample-level drawing.
+
+---
+
+## ADR-0028 — Navigating the arrangement
+
+**Status:** Accepted · **Date:** 2026-10-07 (M3 slice 4d)
+
+### Context
+§6.1 asks for anchored zoom, zoom to fit, follow-playhead modes, pan,
+edge auto-scroll, and reordering tracks by drag. The owner chose zoom down
+to single samples (as Ableton does) and Follow by page, on by default
+(owner-decisions table).
+
+### Decision
+- **One horizontal view, `TimeView`** (`timeview.rs`): the beat at the
+  left edge and points per beat, in f64. Zooming about an anchor,
+  scrolling, fitting, the limits (0.1 points per beat to 8 points per
+  sample at the tempo in view) and glides are pure functions, tested.
+- **Precision at sample-level zoom:** positions go to the GPU as whole
+  and fractional beats (`lumen_render::Beats`), and the view's left edge
+  likewise; shaders subtract the parts separately, so boxes, grid lines
+  and waveform edges stay exact an hour into a song at 8 points per
+  sample. The playhead and start marker use the exact position once
+  their glide settles.
+- **Keys, as in Ableton:** Ctrl+wheel or a pinch zooms at the pointer
+  (one gesture is one step back); `+` and `-` glide around the pointer,
+  else the playhead, else the middle; X steps back; W fits the song's
+  width; H fits every track's height in whole 22 pt steps, and H again
+  restores; Alt+wheel steps the height of the track under the pointer.
+- **Follow** (`app/navigate.rs`): page turns the view when the playhead
+  passes 95% of the width and puts it 2% in; continuous keeps it 40% in.
+  Scrolling or zooming by hand, fitting, stepping back and clicking the
+  ruler pause it; Play or the button resumes it. A Follow button (a
+  playhead line with an arrow) toggles it, right-click chooses the mode,
+  Ctrl+Shift+F as in Ableton. Saved in settings.
+- **Reordering:** drag a header (the selection, or just that track); the
+  dragged headers dim, an accent line across headers and lanes shows
+  where they land, the list scrolls near its top and bottom edges, the
+  drop is one undo step, Esc cancels. The drag is followed from the
+  arrangement's state, so it survives its header scrolling out of view.
+- **Sample-level waveforms:** below 16 frames per pixel, each visible
+  wave's visible samples (with a screen's width to spare) go to a sample
+  atlas; a per-wave table holds the strip and, computed in f64, where its
+  first sample falls in viewport pixels. The shader draws the line
+  through the samples under each pixel. Strips are reused while
+  scrolling within their margin.
+- **Ruler:** when bars are wider than 240 points it labels beats and
+  sixteenths (bar.beat.sixteenth). Other formats are slice 5.
+
+### Measurements (Ryzen 7 7700X, RTX 4070, `--bench-frames`)
+At 3440 × 1380, p99 (scroll time / scroll tracks / zoom): 2.3–3.1 /
+2.8–2.9 / 2.2–2.6 ms across three runs; medians 1.4–1.6 / 1.9–2.0 /
+0.9 ms. Compared with 4c, about 0.1–0.15 ms more per frame at the median
+(the navigation, follow and strip bookkeeping); well inside the 8.3 ms
+of 120 fps. Idle: 3 repaints in 3 s.
+
+### Consequences
+- At the deepest zooms the ruler labels only sixteenths (KNOWN_ISSUES;
+  slice 5 adds time and sample formats).
+- Group folding and dragging tracks into groups come with group tracks
+  (M4).

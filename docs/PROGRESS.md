@@ -34,7 +34,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 1 | Performance gates by instruction count (ADR-0022) | ✅ 2026-10-07 | `03e2228` |
 | 2 | Design system, motion system, M2 retrofit; typefaces (ADR-0023, MT-APP-7) | ✅ 2026-10-07 | `dbe4777`, `392a5f8`, `d320cf0` |
 | 3 | Project model and undo, save/open, autosave and recovery (ADR-0024, MT-APP-8) | ✅ 2026-10-07 | `fd7583b`, `e2768fb`, `43c86f1`, `578bc6f`, `7780b11`, `4a7f615` |
-| 4 | Tracks and the arrangement view at scale: groundwork (format v3), 4a track headers (ADR-0025, MT-APP-9 passed), architecture audit fixed, 4b clips on the GPU with a frame-time benchmark (ADR-0026, MT-APP-10 passed), 4c waveforms (ADR-0027, MT-APP-11 passed); 4d next | 🟡 | 4a and audit through `eea085a`; 4b from `397f846` |
+| 4 | Tracks and the arrangement view at scale: groundwork (format v3), 4a track headers (ADR-0025, MT-APP-9 passed), architecture audit fixed, 4b clips on the GPU with a frame-time benchmark (ADR-0026, MT-APP-10 passed), 4c waveforms (ADR-0027, MT-APP-11 passed), 4d navigation (ADR-0028, MT-APP-12 pending) | 🟡 | 4a and audit through `eea085a`; 4b from `397f846` |
 | 5 | Grid, snapping, rulers, scrub, markers, loop | 🔲 | |
 | 6 | Clip editing and selection | 🔲 | |
 | 7 | Command palette, shortcuts, context menus | 🔲 | |
@@ -98,7 +98,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 |---|---|---|---|
 | Rulers: bars/beats, minutes:seconds, samples, timecode | M | 🔲 | 3 |
 | Adaptive or fixed grid (triplet, dotted, off) with snap-bypass modifier | M | 🔲 | 3 |
-| Anchored zoom, zoom to selection, fit all, fit loop, pan, edge auto-scroll, follow modes. (Ctrl+wheel zoom works in the M1 shell since the 2026-10-06 fix: egui delivers it as a zoom factor, not as scroll.) | M | 🔲 | 3 |
+| Anchored zoom, zoom to selection, fit all, fit loop, pan, edge auto-scroll, follow modes. (Ctrl+wheel zoom works in the M1 shell since the 2026-10-06 fix: egui delivers it as a zoom factor, not as scroll.) | M | 🟡 | 3 | M3 slice 4d (ADR-0028): zoom at the pointer to single samples, `+`/`-`, X back, W fit all, H fit heights, Alt+wheel heights, pan, auto-scroll while dragging tracks, Follow page and continuous. Zoom to selection with selection (slice 6); fit loop with the command palette (slice 7) |
 | Track types: audio, MIDI/instrument, group, return, master | M | 🟡 All five exist in the project model; audio tracks are created by importing (M3 slice 3). Track headers and adding each type in M3 slice 4; group summing, returns and master in M4 | 3–4 |
 | Per-track name, colour, height, arm, monitor, solo, mute, polarity, I/O routing, inline fader and meter | M | 🟡 Name, type icon, colour, height (drag to resize in 22 pt steps, fold and unfold), arm (glows and breathes), solo and mute in the track header; interim volume and pan sliders in unfolded headers (M3 slice 4a, ADR-0025). Monitor, polarity, routing, real fader and meter with the mixer (M4) | 3–4 |
 | Group tracks: create, drag in, nest, fold, sum, own devices/sends/fader/automation, one-step ungroup, sensible solo/mute/arm | M | 🔲 | 4 |
@@ -106,7 +106,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Clips: move, copy-drag, trim, slip, fades, gain handle, loop-extend, rename, recolour, mute, lock | M | 🔲 | 3 |
 | Selection: clip, marquee, time range with cut/copy/duplicate/delete/split/consolidate | M | 🔲 | 3, 7 |
 | Loop and punch regions, markers and locators, tempo and time-signature lanes | M | 🟡 Engine side of loop and punch done (slice 3); markers, locators and the lanes in M3 | 2–3 |
-| Track height presets, collapse, hide, reorder by drag, multi-select | M | 🟡 Fold and unfold, resize by dragging, multi-select (Ctrl, Shift), move with Alt+arrows and the menu (M3 slice 4a). Reorder by drag in slice 4d; hide and height presets later | 3 |
+| Track height presets, collapse, hide, reorder by drag, multi-select | M | 🟡 Fold and unfold, resize by dragging or Alt+wheel, H fits every track, multi-select (Ctrl, Shift), move with Alt+arrows and the menu (4a), reorder by drag with auto-scroll (4d). Hide and height presets later | 3 |
 | Track templates, delay offset, lock, overview strip | S | 🔲 | 3, 9 |
 
 ## §6.2 Audio
@@ -118,7 +118,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Clip hover card with file details (format, rate, channels, length, size, path) | S | 🟡 Basic card done in M2 slice 6 (owner request, MT-MEDIA-1); full clip properties panel in M3 | 3 |
 | Glitch-free playback, seamless loops, instant seeking | M | 🟡 Clips play sample-exactly from memory, with click-free crossfaded loops and locates (slice 6; golden renders; MT-MEDIA-1 passes by ear). Large sessions need disk streaming (M9) | 2 |
 | Disk streaming of clip audio with read-ahead, so large sessions need not fit in RAM; in-memory playback becomes a per-clip RAM option (owner decision 2026-10-06: memory in M2, streaming in M9) | M | 🔲 | 9 |
-| Crisp, fast waveforms at every zoom | M | ✅ | 3 | M3 slice 4c (ADR-0027): peak pyramids built at load, drawn per pixel on the GPU; no measurable frame cost with 10,000 waveforms. Disk cache deferred to M9 with disk streaming (owner approved); sample-level drawing when zoom goes past 16 frames per pixel |
+| Crisp, fast waveforms at every zoom | M | ✅ | 3 | M3 slice 4c (ADR-0027): peak pyramids built at load, drawn per pixel on the GPU; no measurable frame cost with 10,000 waveforms. Disk cache deferred to M9 with disk streaming (owner approved); drawn sample by sample below 16 frames per pixel (4d, ADR-0028) |
 | Recording: multi-arm, monitoring, multichannel, crash-safe capture, latency compensation and offset, punch, count-in, input meters | M | 🔲 | 9 |
 | Loop recording into takes; capture MIDI | S | 🔲 | 9 |
 | Clip gain, fade shapes, automatic crossfades, reverse, normalize, polarity, pitch | M | 🔲 | 3, 7 |
@@ -253,7 +253,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Edit cursor separate from playhead; scrubbing. **Owner request (2026-10-06), raised from S to M, Ableton-style:** click in the scrub strip to set the playback position; drag to scrub audibly; drag in the beat ruler vertically to zoom and horizontally to scroll. Locate-on-click in M2; scrub strip, audible scrubbing and ruler zoom in M3. | M | 🟡 Click-to-locate on the ruler done (M2 slice 5): zoom-adaptive snapping, Alt to place freely, ghost line preview. Scrub strip, audible scrubbing and ruler drag-zoom in M3 |
 | MIDI clock / MTC out | S | 🔲 |
 | Clock / MTC in, Ableton Link | L | 🔲 |
-| Tracks: add, delete, duplicate, rename, recolour, reorder, multi-select | M | 🟡 All of these from the track menu, the "+ Add track" menu button and keys (Ctrl+T, Ctrl+Shift+T, Ctrl+D, Delete, F2, Alt+arrows), each one undo step (M3 slice 4a). Drag to reorder in slice 4d |
+| Tracks: add, delete, duplicate, rename, recolour, reorder, multi-select | M | 🟡 All of these from the track menu, the "+ Add track" menu button and keys (Ctrl+T, Ctrl+Shift+T, Ctrl+D, Delete, F2, Alt+arrows), each one undo step (M3 slice 4a). Drag to reorder (slice 4d) |
 | Track types with routing, arm, monitor, polarity | M | 🔲 |
 | Freeze, unfreeze, flatten | M | 🔲 |
 | Track delay, lock, icons, templates | S | 🔲 |

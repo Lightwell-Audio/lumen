@@ -391,7 +391,7 @@ The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
 **Last updated:** 2026-10-07, during M3 slice 4 (4a, 4b and 4c done; 4d
-next).
+built, MT-APP-12 pending).
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
@@ -424,9 +424,13 @@ next).
   - **4c done** (ADR-0027): waveforms from peak pyramids built at load,
     drawn per pixel on the GPU; MT-APP-11 passed. The peak disk cache
     moved to M9 (owner approved).
+  - **4d built** (ADR-0028): zoom to single samples (f64 view, split
+    beats on the GPU, sample-level waveforms), Ableton keys (`+`/`-`, X,
+    W, H, Alt+wheel), Follow (page by default, on), drag to reorder tracks.
+    MT-APP-12 awaits the owner; then slice 4 closes.
   - Shaders are `.wgsl` files checked at build time (`lumen-shader-check`).
   - Problems found and not fixed yet: `docs/KNOWN_ISSUES.md`.
-  - Next: 4d (zoom, follow playhead, drag to reorder).
+  - Next: slice 5 (grid, snapping, rulers, markers, loop).
   - The plan and the follow-ups are in `docs/milestones/M3.md`.
 - **Skills** (`.claude/skills/`), to load before working:
   - `lumen-architecture` before writing or changing code;
@@ -436,7 +440,7 @@ next).
 - Where to look:
   - `docs/PROGRESS.md`: every requirement's status, slice tables and the
     milestone reports;
-  - `docs/DECISIONS.md`: ADR-0001 to ADR-0027, plus the table of owner
+  - `docs/DECISIONS.md`: ADR-0001 to ADR-0028, plus the table of owner
     decisions;
   - `docs/MANUAL_TESTS.md`: hardware tests with every run's results;
   - `docs/KNOWN_ISSUES.md`: problems found and not fixed yet, and where

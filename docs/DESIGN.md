@@ -274,6 +274,21 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
     another track is) are drawn at 42%, with their names in
     `text_secondary` so they stay readable in both themes.
 
+## 7b. Navigation (M3 slice 4d, ADR-0028)
+
+- **Zoom** glides (`GLIDE`) for keys and fits; the wheel and pinch follow
+  the hand directly. Down to 8 points per sample, where the waveform is a
+  line through the samples.
+- **Follow** is a transport-bar toggle (a playhead line with an arrow).
+  Lit when following; unlit while paused by looking around, with a
+  tooltip saying Play or a click resumes it.
+- **Dragging tracks:** the dragged headers dim to 60%; a 2 pt accent line
+  across the headers and lanes marks where they land; the cursor is a
+  closed hand.
+- **Ruler:** bar numbers, thinned to 40 points apart; once a bar is wider
+  than 240 points, beats and sixteenths too (bar.beat.sixteenth), at least
+  64 points apart.
+
 ## 8. Key flows
 
 Each flow lists its steps, its keyboard path and its feedback. Flows marked

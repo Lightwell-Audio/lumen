@@ -867,3 +867,32 @@ steady while zooming.
 
 **Last run:** run 3, passed.
 
+### MT-APP-12 · Navigation (needs a human)
+Run `cargo run --release -p lumen-app` with a project that has a few audio
+tracks (one long file helps).
+1. **Zoom:** Ctrl+wheel over a clip zooms around the pointer; keep going
+   until single samples show as a connected line (8 points apart). The
+   waveform stays sharp all the way, with no blocks or flicker, and the
+   ruler shows beats and sixteenths when zoomed in.
+2. **Keys:** `+` and `-` glide in and out around the pointer (or the
+   playhead); W shows the whole song; X steps back through earlier views;
+   H fits every track's height, and H again puts them back; Alt+wheel over
+   a track makes it taller or shorter in steps.
+3. **Deep and far:** zoom all the way in an hour into a long session (or
+   near the end of a long file) and scroll: nothing jitters or drifts.
+4. **Follow:** play; when the playhead reaches the right edge the view
+   turns a page. Right-click the Follow button (the arrow next to the
+   metronome) and choose Continuous: the playhead stays put and the song
+   scrolls. Scroll by hand while playing: Follow pauses (the button
+   unlights); press Play again, or click the button: it follows again.
+   Ctrl+Shift+F turns it on and off. It is remembered after a restart.
+5. **Reorder:** drag a track's header up or down: a blue line shows where
+   it lands; drop it. Select several and drag them together. Drag toward
+   the top or bottom edge of a long list: it scrolls. Esc cancels a drag.
+   Ctrl+Z undoes a move in one step.
+6. Try steps 1, 2 and 5 in the light theme and at 150%.
+
+**Expected:** every step as described, smooth and without lag.
+
+**Last run:** pending.
+
