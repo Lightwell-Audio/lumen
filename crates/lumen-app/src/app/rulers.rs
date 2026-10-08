@@ -210,10 +210,84 @@ impl App {
     }
 
     /// The time ruler along the bottom, in the chosen format.
+    /// Dragging the time ruler selects a time range on every track, so
+    /// empty bars can be chosen too (owner, slice 6b); a click moves the
+    /// playhead, as on the bar ruler. Both snap; Alt places freely.
+    pub(crate) fn time_ruler_input(
+        &mut self,
+        ui: &mut egui::Ui,
+        painter: &egui::Painter,
+        at: &Layout,
+    ) {
+        let id = ui.id().with("time ruler");
+        let response = ui
+            .interact(at.time, id, Sense::click_and_drag())
+            .on_hover_text("Drag to select time on every track; click to move the playhead");
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Other,
+                true,
+                "Time ruler: drag to select time on every track",
+            )
+        });
+        let Some(pointer) = response.interact_pointer_pos().or(response.hover_pos()) else {
+            return;
+        };
+        let free = ui.input(|i| i.modifiers.alt);
+        let ticks = |x: f32| ruler::ticks_at(at.view.beat_at(at.canvas.left(), x)).max(Ticks::ZERO);
+        let target = self.snapped(ticks(pointer.x), free);
+        ui.ctx().set_cursor_icon(CursorIcon::Text);
+        if response.drag_started()
+            && let Some(origin) = ui.input(|i| i.pointer.press_origin())
+        {
+            let start = self.snapped(ticks(origin.x), free);
+            ui.data_mut(|d| d.insert_temp(id, start));
+        }
+        if response.dragged()
+            && let Some(start) = ui.data(|d| d.get_temp::<Ticks>(id))
+        {
+            let project = self.document.project();
+            let last = project.tracks.len().saturating_sub(1);
+            self.arrangement.range =
+                crate::arrangement::select::TimeRange::between(project, start, target, 0, last);
+            self.arrangement.clips.clear();
+            self.arrangement.selected.clear();
+            self.locators.selected = None;
+        }
+        if response.drag_stopped() {
+            ui.data_mut(|d| d.remove::<Ticks>(id));
+        }
+        draw_snap_guide(painter, at.x(target.as_quarters()), at.guides());
+        if response.clicked() {
+            self.transport.locate(target);
+            self.transport.follow_paused = true;
+        }
+        if !response.dragged() {
+            let text = "drag to select time on every track · click to jump";
+            crate::widgets::draw_hint(
+                painter,
+                pos2(pointer.x + 12.0, at.time.top() - 11.0),
+                crate::widgets::HintMark::Resize,
+                text,
+                at.canvas,
+            );
+            self.hint = Some(text.to_owned());
+        }
+    }
+
     pub(crate) fn time_ruler(&mut self, painter: &egui::Painter, at: &Layout) {
         let palette = theme::p();
         let rect = at.time;
         painter.rect_filled(rect, 0.0, palette.raised);
+        // The selected time range shows on the ruler too.
+        if let Some(range) = &self.arrangement.range {
+            let span = Rect::from_x_y_ranges(
+                at.x(range.start.as_quarters())..=at.x(range.end.as_quarters()),
+                rect.y_range(),
+            )
+            .intersect(rect);
+            painter.rect_filled(span, 0.0, palette.accent.gamma_multiply(0.22));
+        }
         painter.line_segment(
             [rect.left_top(), rect.right_top()],
             Stroke::new(1.0, palette.border),

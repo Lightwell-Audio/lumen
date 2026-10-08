@@ -366,6 +366,9 @@ Chosen by the owner from rendered specimens (Ableton's split):
   (100 points ≈ 2.7 times), sideways scrolls, with a zoom cursor.
 - **Time ruler** (20 pt, `raised`, along the bottom): monospace captions in
   `text_hint` at least 90 points apart, on round values, with 5 pt ticks.
+  Dragging it selects a time range on every track (owner, slice 6b), shown
+  on the ruler in `accent` at 22%; a click moves the playhead. An I-beam
+  and a hint chip above it say so.
   Its corner names the format ("Time", "Samples", "TC 25") with an arrow
   and opens the format menu.
 - The playhead runs from the bar ruler through the time ruler.

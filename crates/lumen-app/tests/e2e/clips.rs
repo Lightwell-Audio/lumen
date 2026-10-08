@@ -335,3 +335,30 @@ fn the_lanes_menu_edits_what_was_right_clicked() {
     lumen.click("Duplicate Ctrl+D");
     assert_eq!(starts(&lumen, 0).len(), 2);
 }
+
+/// Owner, slice 6b: a range could only start on a clip, so empty bars could
+/// not be chosen. Dragging the time ruler selects time on every track.
+#[test]
+fn dragging_the_time_ruler_selects_empty_bars_on_every_track() {
+    let (mut lumen, _, _) = with_two_clips("time-ruler-range");
+    let ruler = lumen
+        .harness
+        .get_by_label("Time ruler: drag to select time on every track")
+        .rect();
+    let zoom = lumen.app().view().zoom as f32;
+    let x = |q: f32| ruler.left() + q * zoom;
+    let y = ruler.center().y;
+    lumen.drag(Pos2::new(x(8.2), y), Pos2::new(x(16.3), y), Modifiers::NONE);
+    let (a, b, tracks) = lumen.app().time_range().expect("a range");
+    assert_eq!((a, b), (Ticks(2 * BAR), Ticks(4 * BAR)), "snapped to bars");
+    assert_eq!(
+        tracks.len(),
+        lumen.app().project().tracks.len(),
+        "every track"
+    );
+
+    // Insert two bars of time there: one step, the clips before it stay.
+    lumen.key(Modifiers::COMMAND, Key::I);
+    assert_eq!(lumen.app().undo_label(), Some("Insert time"));
+    assert_eq!(starts(&lumen, 0), [(0, BAR / 2)]);
+}

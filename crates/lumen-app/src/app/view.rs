@@ -205,6 +205,7 @@ report: {}",
         self.locator_strip(ui, &painter, &at);
         self.bar_ruler(ui, &painter, &at);
         self.time_ruler(&painter, &at);
+        self.time_ruler_input(ui, &painter, &at);
 
         // The start marker: where Play starts. A neutral arrow on the ruler
         // only, at its bottom edge, so it stays visible when the playhead
