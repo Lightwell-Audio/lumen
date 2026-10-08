@@ -979,5 +979,8 @@ E2E: `hovering_the_brace_says_what_a_drag_will_do`,
 switch, one click turns snapping on or off; the menu item stays
 (`the_magnet_turns_snapping_on_and_off`). Re-run steps 1, 3, 4 and 5.
 
-**Last run:** run 1, four findings, all fixed; run 2 waiting.
+**Run 2 (2026-10-08, owner):** passed ("looks great"), with the hints,
+the magnet switch and adding locators on the strip.
+
+**Last run:** run 2, passed.
 

@@ -390,7 +390,7 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-08: M3 slice 5 built; MT-APP-13 waiting on the owner.
+**Last updated:** 2026-10-08: M3 slice 5 done; slice 6 planning.
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
@@ -398,7 +398,7 @@ it first in a new session, and update it at the end of every slice.
   - performance gates;
   - design system, motion and typefaces;
   - project model, undo, save/open, autosave and recovery.
-- **M3 slice 4 (tracks and the arrangement at scale) is done; slice 5 is built.**
+- **M3 slices 4 and 5 are done.**
   - Groundwork (format v3) and part 4a are built: track headers in the
     owner-chosen design, refined after MT-APP-9 run 1 (DESIGN §7a,
     ADR-0025):
@@ -441,8 +441,9 @@ it first in a new session, and update it at the end of every slice.
     brace and punch as undoable document edits; named locators (M,
     Ctrl+Left/Right, Set ◂ ▸); the scrub strip (Ableton-style loops of the
     grid step, Alt for tape), with an engine scrub mode.
-  - Next: MT-APP-13 (owner, by ear and by eye), then slice 6 (clip
-    editing).
+    MT-APP-13 passed in run 2 (after drag hints, the snap magnet and
+    locators added on the strip). **Slice 5 is done.**
+  - Next: slice 6 (clip editing and selection).
   - The plan and the follow-ups are in `docs/milestones/M3.md`.
 - **Skills** (`.claude/skills/`), to load before working:
   - `lumen-architecture` before writing or changing code;
