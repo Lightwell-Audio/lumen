@@ -392,7 +392,9 @@ it first in a new session, and update it at the end of every slice.
 
 **Last updated:** 2026-10-08: M3 slice 6e built; the owner's MT-APP-14
 run 2 changes made (menus for what was clicked, the grid behind clips,
-click to move the playhead); MT-APP-14 run 3 next.
+click to move the playhead); MT-APP-14 run 3 next. Progress and milestone
+docs brought up to date; the owner's drag-to-cut request is recorded for
+M7 with split (the M3 plan, out of scope).
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
@@ -478,7 +480,7 @@ click to move the playhead); MT-APP-14 run 3 next.
 - Where to look:
   - `docs/PROGRESS.md`: every requirement's status, slice tables and the
     milestone reports;
-  - `docs/DECISIONS.md`: ADR-0001 to ADR-0031, plus the table of owner
+  - `docs/DECISIONS.md`: ADR-0001 to ADR-0032, plus the table of owner
     decisions;
   - `docs/MANUAL_TESTS.md`: hardware tests with every run's results;
   - `docs/KNOWN_ISSUES.md`: problems found and not fixed yet, and where

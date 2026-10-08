@@ -1,6 +1,6 @@
 # Lumen — Architecture
 
-**As built:** M3 slice 4a (2026-10-07). The decision records in
+**As built:** M3 slice 6e (2026-10-08). The decision records in
 `docs/DECISIONS.md` hold the reasoning and the evidence. This page shows
 how the parts fit.
 
@@ -34,7 +34,7 @@ how the parts fit.
 | Design system | Semantic colour tokens (dark and light), type, spacing and motion, in `theme.rs`, `motion.rs` and `fonts.rs`; spec in `docs/DESIGN.md` | ADR-0023 |
 | Real-time engine | Allocation-free, block-size-invariant; transport, tempo and meter maps, declick crossfades, clip player, metronome | ADR-0003, 0017, 0019, 0020 |
 | Audio devices | Lumen's own backend layer: native ASIO over COM, WASAPI shared and exclusive, cpal for macOS and Linux; a supervisor that recovers from loss, resets and sleep | ADR-0006, 0016, 0021 |
-| Projects | Folder with versioned JSON (format v3), migrations over untyped JSON, atomic saves, rolling backups, relative media paths | ADR-0004 |
+| Projects | Folder with versioned JSON (format v6), migrations over untyped JSON, atomic saves, rolling backups, relative media paths | ADR-0004 |
 | Undo | Shared snapshots: tracks and clips in `Arc`, every step a cheap copy | ADR-0024 |
 | Time | Integer ticks at 1,411,200 PPQ, with one rounding rule to samples | ADR-0009 |
 | Plugins (M6) | `vst3` crate bindings, sandboxed host processes, out-of-process scanning | ADR-0005 |
@@ -50,7 +50,7 @@ how the parts fit.
 | `lumen-audio` | Device layer: `Backend` and `Stream` traits; ASIO, WASAPI and cpal backends; `AudioSystem` supervisor; `Unavailable` (a driver that could not start, with the reason); a fake backend for tests |
 | `lumen-engine` | Engine on the audio thread: transport, timeline, clip player, metronome and test tone, declick, scrubbing (`scrub.rs`: loop and tape styles, while stopped); `EngineHandle` on the UI side |
 | `lumen-media` | Audio files: decoding (symphonia), sample-rate conversion (rubato), waveform peaks (ADR-0027) |
-| `lumen-project` | Document model, `.lumen` format and migrations, atomic save and backups, media locating, `History` (undo) |
+| `lumen-project` | Document model, `.lumen` format and migrations, atomic save and backups, media locating, `History` (undo), `edit` (clip and time-range edits: cut, paste, delete and insert time, and Ableton's overlap rule) |
 | `lumen-render` | Toolkit-independent renderer: GPU-resident instanced layers (rectangles; boxes with a per-frame row table, ADR-0026; waveforms drawn per pixel from a peak atlas, ADR-0027) plus Vello; GPU pipeline cache |
 | `lumen-perf` | Performance-gate scenarios and the `perf-gate` runner |
 | `lumen-shader-check` | Build-time shader checks: build scripts validate every `.wgsl` file with naga and generate each shader's source and uniform size |

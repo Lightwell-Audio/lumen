@@ -1,6 +1,6 @@
 # Lumen design system and key flows
 
-**Status:** v1, M3 slice 2 (2026-10-07). Code: `crates/lumen-app/src/theme.rs`
+**Status:** v1, M3 slice 2 (2026-10-07), extended by slices 4 to 6e (2026-10-08). Code: `crates/lumen-app/src/theme.rs`
 (colour, type, spacing, shape and the egui style built from them) and
 `crates/lumen-app/src/motion.rs` (motion). Every screen takes its values from
 there. A colour or duration written inline in UI code is a bug.
