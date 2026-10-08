@@ -29,7 +29,7 @@ impl Launch {
             autosave_dir: Some(dir.join("autosave")),
             autosave_after: None,
             crash_dir: Some(dir.join("crashes")),
-            crash_test: false,
+            crash_test: None,
             open: None,
             open_audio: None,
             stress: false,

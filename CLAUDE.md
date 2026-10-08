@@ -504,6 +504,11 @@ it first in a new session, and update it at the end of every slice.
   live in `%APPDATA%\Lumen\settings.json` (versioned).
 - **Edits:** every edit goes through `Document::apply` (one undo step;
   drags merge into one step).
+- **Draw only what is in view.** Deep in, a clip can be hundreds of
+  millions of points wide: anything sized by a clip's or range's width
+  (dashed lines, repeats, labels) is cut to the visible lanes first. A
+  dashed line across a long clip once asked for 64 GiB and crashed
+  (owner, after slice 6c; E2E `hovering_a_long_clip_at_the_deepest_zoom_stays_quick`).
 - **Design:** UI colours, sizes and durations come from `theme.rs`,
   `motion.rs` and `fonts.rs`, never inline. Windows draw their own title
   row; long text wraps or truncates and never widens a window.

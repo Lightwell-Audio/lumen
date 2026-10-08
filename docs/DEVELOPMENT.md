@@ -175,8 +175,10 @@ cargo test -p lumen-app --test smoke -- --ignored             # the real binary,
   `target/debug/lumen.exe --audio test:fake --settings <dir>/settings.json --autosave-dir <dir>/autosave --crash-dir <dir>/crashes ...`
 - **Crash reports:** a panic writes `crash-<time>.txt` (what, where,
   backtrace, version, system, thread) to `%LOCALAPPDATA%\Lumen\Crashes`
-  (or `--crash-dir`), and the next start offers it. `--crash-test` panics
-  on the first frame to check the path; the smoke tests do.
+  (or `--crash-dir`), and the next start offers it. A failed allocation is
+  not a panic: the binary's allocator (`lumen_rt::ReportingAllocator`)
+  reports it first. `--crash-test` (a panic) and `--crash-test-memory` (a
+  failed allocation) check both paths; the smoke tests do.
 - **Hovers, drags and selections by eye** (`crates/lumen-app/tests/shots.rs`):
   states a `--screenshot` cannot reach, rendered headless with the GPU
   (clips, waveforms and grid included) to PNG files. Ignored in CI; add a

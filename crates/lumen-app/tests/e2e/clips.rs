@@ -489,3 +489,33 @@ fn holding_ctrl_over_a_clip_tells_how_to_slip() {
         Some("drag to copy · add Alt to slip the audio")
     );
 }
+
+/// Owner, after 6c: zooming all the way into a long clip crashed ("memory
+/// allocation of 68719476736 bytes failed"): the hover's dashed split line
+/// ran the clip's whole width, hundreds of millions of points deep in.
+/// Drawing is now cut to the view, so deep frames stay quick.
+#[test]
+fn hovering_a_long_clip_at_the_deepest_zoom_stays_quick() {
+    let mut lumen = Lumen::start("deep-long-clip");
+    let file = wav(&lumen.dir().join("long.wav"), 60.0);
+    lumen.drop_files(&[file]);
+    lumen.frames(5);
+    let clip = lumen.app().project().tracks[0].clips[0].id;
+    let r = rect(&lumen, clip);
+    let p = Pos2::new(r.left() + r.width().min(600.0) * 0.5, top_half(r).y);
+    lumen.harness.hover_at(p);
+    // About a second in all with the fix; nearly a minute without it.
+    let started = std::time::Instant::now();
+    for _ in 0..80 {
+        lumen.key(Modifiers::NONE, Key::Equals);
+    }
+    assert!(lumen.app().view().zoom > 100_000.0, "single samples");
+    lumen.harness.hover_at(p + vec2(1.0, 0.0));
+    lumen.frames(3);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(15),
+        "zooming in took {:?}",
+        started.elapsed()
+    );
+    assert!(lumen.app().hint().is_some(), "hovering the clip");
+}

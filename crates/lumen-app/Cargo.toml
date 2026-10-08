@@ -18,6 +18,7 @@ lumen-engine.workspace = true
 lumen-media.workspace = true
 lumen-project.workspace = true
 lumen-render.workspace = true
+lumen-rt.workspace = true
 png.workspace = true
 rfd.workspace = true
 raw-window-handle.workspace = true

@@ -188,10 +188,34 @@ fn the_light_theme_at_200_percent_draws() {
 #[test]
 #[ignore = "runs the real binary; needs a desktop and a GPU"]
 fn a_panic_leaves_a_crash_report() {
+    let report = crash_report("--crash-test");
+    assert!(
+        report.contains("What:     --crash-test: a deliberate panic"),
+        "{report}"
+    );
+    assert!(report.contains("Where:    crates"), "{report}");
+    assert!(report.contains("Backtrace:"), "{report}");
+}
+
+/// A failed allocation is not a panic, yet it leaves a report too, with
+/// the backtrace that says where (owner: the deep-zoom crash left none).
+#[test]
+#[ignore = "runs the real binary; needs a desktop and a GPU"]
+fn a_failed_allocation_leaves_a_crash_report() {
+    let report = crash_report("--crash-test-memory");
+    assert!(
+        report.contains("What:     memory allocation of 70368744177664 bytes failed"),
+        "{report}"
+    );
+    assert!(report.contains("lumen_app::crash::fail"), "{report}");
+}
+
+/// Runs `lumen` with a deliberate failure (`flag`) and returns its report.
+fn crash_report(flag: &str) -> String {
     let dir = TempDir::new("smoke-crash");
     let crashes = dir.path().join("crashes");
     let status = Command::new(env!("CARGO_BIN_EXE_lumen"))
-        .args(["--audio", "test:fake", "--crash-test"])
+        .args(["--audio", "test:fake", flag])
         .arg("--settings")
         .arg(dir.path().join("settings.json"))
         .arg("--autosave-dir")
@@ -202,18 +226,12 @@ fn a_panic_leaves_a_crash_report() {
         .stderr(Stdio::null())
         .status()
         .expect("start lumen");
-    assert!(!status.success(), "--crash-test must end in a crash");
+    assert!(!status.success(), "{flag} must end in a crash");
     let reports: Vec<PathBuf> = std::fs::read_dir(&crashes)
         .expect("a crash folder")
         .filter_map(|e| Some(e.ok()?.path()))
         .filter(|p| p.extension().is_some_and(|x| x == "txt"))
         .collect();
     assert_eq!(reports.len(), 1, "{reports:?}");
-    let report = std::fs::read_to_string(&reports[0]).unwrap();
-    assert!(
-        report.contains("What:     --crash-test: a deliberate panic"),
-        "{report}"
-    );
-    assert!(report.contains("Where:    crates"), "{report}");
-    assert!(report.contains("Backtrace:"), "{report}");
+    std::fs::read_to_string(&reports[0]).unwrap()
 }

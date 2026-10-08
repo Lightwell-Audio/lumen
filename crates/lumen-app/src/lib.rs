@@ -108,7 +108,7 @@ pub struct App {
     leftover: Option<autosave::Leftover>,
     /// A crash report from an earlier run not shown yet, and `--crash-test`.
     crash_report: Option<PathBuf>,
-    crash_test: bool,
+    crash_test: Option<crash::Test>,
     /// The leftover being recovered (its open is in progress).
     recovering: Option<autosave::Leftover>,
     transport: Transport,
@@ -247,7 +247,9 @@ impl eframe::App for App {
             self.owner = owner::Owner::of(frame);
         }
         let ctx = ui.ctx().clone();
-        assert!(!self.crash_test, "--crash-test: a deliberate panic");
+        if let Some(test) = self.crash_test {
+            crash::fail(test);
+        }
         self.drive_bench(&ctx);
         self.hint = None;
         self.transport.update();

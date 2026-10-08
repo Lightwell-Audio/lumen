@@ -77,6 +77,80 @@ unsafe impl GlobalAlloc for GuardedAllocator {
     }
 }
 
+/// What runs when an allocation fails, before the process ends (set by
+/// [`on_allocation_failure`]).
+static FAILURE_HOOK: std::sync::OnceLock<fn(usize)> = std::sync::OnceLock::new();
+
+thread_local! {
+    // Set while the hook runs, so an allocation failing inside it does not
+    // call it again.
+    #[allow(clippy::missing_const_for_thread_local)]
+    static IN_FAILURE_HOOK: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Calls `hook` with the size of any allocation that fails, before Rust
+/// ends the process (an allocation failure is not a panic, so a panic hook
+/// never sees it). Set once; later calls are ignored.
+pub fn on_allocation_failure(hook: fn(usize)) {
+    let _ = FAILURE_HOOK.set(hook);
+}
+
+#[cold]
+fn allocation_failed(size: usize) {
+    let Some(hook) = FAILURE_HOOK.get() else {
+        return;
+    };
+    let first = IN_FAILURE_HOOK
+        .try_with(|busy| !busy.replace(true))
+        .unwrap_or(false);
+    if first {
+        hook(size);
+        let _ = IN_FAILURE_HOOK.try_with(|busy| busy.set(false));
+    }
+}
+
+/// The app's global allocator: the system allocator, which, when an
+/// allocation fails, first lets [`on_allocation_failure`]'s hook write a
+/// crash report. One null check per allocation; nothing else changes.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ReportingAllocator;
+
+// SAFETY: every method forwards to `System` with the caller's arguments
+// unchanged; a failed allocation is still returned as null, after the hook.
+unsafe impl GlobalAlloc for ReportingAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        // SAFETY: forwarded unchanged; the caller upholds the contract.
+        let ptr = unsafe { System.alloc(layout) };
+        if ptr.is_null() {
+            allocation_failed(layout.size());
+        }
+        ptr
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        // SAFETY: forwarded unchanged; the caller upholds the contract.
+        let ptr = unsafe { System.alloc_zeroed(layout) };
+        if ptr.is_null() {
+            allocation_failed(layout.size());
+        }
+        ptr
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        // SAFETY: forwarded unchanged; `ptr` was allocated by `System` via this allocator.
+        unsafe { System.dealloc(ptr, layout) }
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        // SAFETY: forwarded unchanged; `ptr` was allocated by `System` via this allocator.
+        let new = unsafe { System.realloc(ptr, layout, new_size) };
+        if new.is_null() {
+            allocation_failed(new_size);
+        }
+        new
+    }
+}
+
 /// Installs [`GuardedAllocator`] as the global allocator of the current binary.
 ///
 /// Use once per test or benchmark binary that checks real-time safety.

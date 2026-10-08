@@ -332,9 +332,15 @@ impl Arrangement {
             )
         };
         let x = |t: Ticks| time.x(canvas.left(), t.as_quarters());
+        // Deep in, a clip or range can be hundreds of millions of points
+        // wide: everything drawn here is cut to the lanes in view (plus a
+        // margin, so edges outside stay outside). A dashed line across a
+        // whole long clip once asked for 64 GiB (owner, after slice 6c).
+        let (near_left, near_right) = (canvas.left() - 16.0, canvas.right() + 16.0);
+        let shown = |x0: f32, x1: f32| (x0.max(near_left), x1.min(near_right));
 
         if let Some(range) = &self.range {
-            let (x0, x1) = (x(range.start), x(range.end));
+            let (x0, x1) = shown(x(range.start), x(range.end));
             let mut top = None;
             for row in rows {
                 let RowKind::Track(index) = row.kind else {
@@ -375,15 +381,19 @@ impl Arrangement {
                 if x1 < canvas.left() || x0 > canvas.right() {
                     continue;
                 }
+                let (x0, x1) = shown(x0, x1);
                 let rect = Rect::from_x_y_ranges(
                     x0..=x1.max(x0 + 1.0),
                     lane.top() + INSET..=lane.bottom() - INSET,
                 );
-                // Each repeat of a looping clip starts at a notch.
+                // Each repeat of a looping clip starts at a notch: from the
+                // first in view, not the clip's start.
                 if let Some(period) = clip.loop_length.filter(|p| *p > Ticks::ZERO) {
                     let step = (period.as_quarters() * time.zoom) as f32;
                     if step >= 6.0 {
-                        let mut at = clip.start + period;
+                        let view = crate::ruler::ticks_at(time.left);
+                        let skipped = ((view - clip.start).0 / period.0).max(1);
+                        let mut at = clip.start + Ticks(skipped * period.0);
                         while at < clip.start + clip.length {
                             let x = x(at);
                             if x > canvas.right() {

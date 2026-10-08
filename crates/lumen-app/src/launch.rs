@@ -22,8 +22,9 @@ pub struct Launch {
     pub(crate) autosave_after: Option<Duration>,
     /// Where crash reports go (`--crash-dir`); `None`: nowhere.
     pub(crate) crash_dir: Option<PathBuf>,
-    /// `--crash-test`: panic on the first frame, to check crash reports.
-    pub(crate) crash_test: bool,
+    /// `--crash-test` (a panic) or `--crash-test-memory` (a failed
+    /// allocation) on the first frame, to check crash reports.
+    pub(crate) crash_test: Option<crate::crash::Test>,
     /// A project to open (`lumen song.lumen`).
     pub(crate) open: Option<PathBuf>,
     /// `--open-audio`: an audio file added at bar 1.
@@ -93,7 +94,13 @@ impl Launch {
             crash_dir: value("--crash-dir")
                 .map(PathBuf::from)
                 .or_else(crate::crash::default_dir),
-            crash_test: has("--crash-test"),
+            crash_test: if has("--crash-test") {
+                Some(crate::crash::Test::Panic)
+            } else if has("--crash-test-memory") {
+                Some(crate::crash::Test::Memory)
+            } else {
+                None
+            },
             autosave_after: value("--autosave-after-ms")
                 .and_then(|v| v.parse().ok())
                 .map(Duration::from_millis),

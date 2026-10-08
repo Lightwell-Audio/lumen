@@ -8,8 +8,10 @@
 //! `~/Library/Logs/Lumen` (macOS) or `$XDG_STATE_HOME/lumen/crashes`
 //! (Linux). Nothing is sent anywhere (CLAUDE.md §4, privacy).
 //!
-//! A failure raised by native code itself (a driver's fail-fast) ends the
-//! process before any Rust code can run, so it leaves no report.
+//! A failed allocation is not a panic: the app's allocator
+//! (`lumen_rt::ReportingAllocator`) reports it before Rust ends the
+//! process. A failure raised by native code itself (a driver's fail-fast)
+//! ends the process before any Rust code can run, so it leaves no report.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -40,9 +42,15 @@ pub fn default_dir() -> Option<PathBuf> {
     Some(dir)
 }
 
-/// Writes a report to `dir` whenever anything panics, then lets the usual
-/// message print. Installed once, by the real binary only.
+/// Where reports go, for the allocation-failure hook (a plain function).
+static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Writes a report to `dir` whenever anything panics or an allocation
+/// fails, then lets the usual message print. Installed once, by the real
+/// binary only.
 pub fn install(dir: PathBuf) {
+    let _ = DIR.set(dir.clone());
+    lumen_rt::on_allocation_failure(out_of_memory);
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let message = info
@@ -69,6 +77,44 @@ pub fn install(dir: PathBuf) {
             .and_then(|()| std::fs::write(dir.join(file_name(now())), report));
         previous(info);
     }));
+}
+
+/// An allocation failed (`ReportingAllocator`): not a panic, so this is
+/// the only chance to say where. Small allocations still work, so the
+/// report is written as usual.
+fn out_of_memory(size: usize) {
+    let Some(dir) = DIR.get() else {
+        return;
+    };
+    let thread = std::thread::current();
+    let report = report(&Panic {
+        message: &format!("memory allocation of {size} bytes failed"),
+        location: "see the backtrace (the first lumen_ frame)",
+        thread: thread.name().unwrap_or("unnamed"),
+        backtrace: &std::backtrace::Backtrace::force_capture().to_string(),
+        seconds: now(),
+    });
+    let _ = std::fs::create_dir_all(dir)
+        .and_then(|()| std::fs::write(dir.join(file_name(now())), report));
+}
+
+/// A deliberate failure, to check that reports are written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Test {
+    Panic,
+    Memory,
+}
+
+/// Fails as `test` says.
+pub fn fail(test: Test) {
+    match test {
+        Test::Panic => panic!("--crash-test: a deliberate panic"),
+        Test::Memory => {
+            // 64 TiB: no machine has it, so the allocation fails.
+            let huge = vec![0_u8; 1 << 46];
+            std::hint::black_box(&huge);
+        }
+    }
 }
 
 /// What a report says.
