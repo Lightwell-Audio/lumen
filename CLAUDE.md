@@ -390,8 +390,7 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-07, during M3 slice 4 (4a, 4b and 4c done; 4d
-built, MT-APP-12 pending).
+**Last updated:** 2026-10-08: M3 slice 4 done; slice 5 planning.
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
@@ -427,7 +426,7 @@ built, MT-APP-12 pending).
   - **4d built** (ADR-0028): zoom to single samples (f64 view, split
     beats on the GPU, sample-level waveforms), Ableton keys (`+`/`-`, X,
     W, H, Alt+wheel), Follow (page by default, on), drag to reorder tracks.
-    MT-APP-12 awaits the owner; then slice 4 closes.
+    MT-APP-12 passed (run 2). **Slice 4 is done** (2026-10-08).
   - MT-APP-12 run 1: zoom-out now stops at the song (as in Ableton) and
     the grid covers any view (`28b40d4`).
   - **End-to-end tests** (ADR-0029, 2026-10-08): `crates/lumen-app/tests/e2e/`

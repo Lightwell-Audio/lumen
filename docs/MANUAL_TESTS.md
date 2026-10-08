@@ -905,5 +905,8 @@ scroll. Fixed: the song sets the widest zoom and how far the view
 scrolls, as in Ableton, and grid lines cover any view and thin out
 (ADR-0028). Re-run step 3.
 
-**Last run:** run 1, one finding fixed; re-run pending.
+**Run 2 (2026-10-08, owner):** passed ("it looks good"); zoom-out stops
+at the song and the grid stays even.
+
+**Last run:** run 2, passed.
 
