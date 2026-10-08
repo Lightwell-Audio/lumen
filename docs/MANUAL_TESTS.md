@@ -880,6 +880,10 @@ tracks (one long file helps).
    a track makes it taller or shorter in steps.
 3. **Deep and far:** zoom all the way in an hour into a long session (or
    near the end of a long file) and scroll: nothing jitters or drifts.
+   Zoom all the way out: it stops with the whole song (and a little room
+   after it) across the width; the grid stays even, with lines every few
+   bars, and Shift+wheel scrolls until the song's end reaches the right
+   edge.
 4. **Follow:** play; when the playhead reaches the right edge the view
    turns a page. Right-click the Follow button (the arrow next to the
    metronome) and choose Continuous: the playhead stays put and the song
@@ -894,5 +898,12 @@ tracks (one long file helps).
 
 **Expected:** every step as described, smooth and without lag.
 
-**Last run:** pending.
+**Run 1 (2026-10-07, owner):** sample-level zoom "looks solid". One
+finding: zooming far out had no limit, the grid ended at bar 512 (empty
+past it, and dense stripes before it), and the timeline seemed not to
+scroll. Fixed: the song sets the widest zoom and how far the view
+scrolls, as in Ableton, and grid lines cover any view and thin out
+(ADR-0028). Re-run step 3.
+
+**Last run:** run 1, one finding fixed; re-run pending.
 

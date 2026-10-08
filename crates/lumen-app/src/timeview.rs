@@ -6,10 +6,16 @@
 
 /// Points per sample at the closest zoom (owner: zoom to single samples).
 pub const MAX_POINTS_PER_SAMPLE: f64 = 8.0;
-/// The widest zoom: an hour at 120 BPM in under a thousand points.
-pub const MIN_ZOOM: f64 = 0.1;
+/// The widest zoom there can ever be (a safety floor: the song's length
+/// sets the real one, [`Limits::new`]).
+pub const MIN_ZOOM: f64 = 0.001;
 /// Room left on each side when fitting.
 const FIT_MARGIN: f64 = 0.02;
+/// The view reaches at least this far (beats: 32 bars of 4/4), so an empty
+/// or short song still has room to work in.
+const MIN_SONG: f64 = 128.0;
+/// Room after the song: the view reaches this fraction past its end.
+const ROOM: f64 = 0.1;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TimeView {
@@ -19,21 +25,37 @@ pub struct TimeView {
     pub zoom: f64,
 }
 
-/// How far the view may zoom, in points per beat.
+/// How far the view may zoom (points per beat) and scroll.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Limits {
     pub min: f64,
     pub max: f64,
+    /// The last beat the view scrolls to: the song with some room after it.
+    pub end: f64,
+    /// The view's width in points.
+    pub width: f32,
 }
 
 impl Limits {
-    /// For audio at `frames_per_beat` (at the device rate and the tempo in
-    /// view): out to [`MIN_ZOOM`], in to [`MAX_POINTS_PER_SAMPLE`].
-    pub fn for_audio(frames_per_beat: f64) -> Self {
+    /// As in Ableton, the song sets how far out the view goes: `song` is
+    /// the furthest beat in use (clips, playhead, loop), shown `width`
+    /// points wide with [`ROOM`] after it. In, it goes to
+    /// [`MAX_POINTS_PER_SAMPLE`] for audio at `frames_per_beat` (the device
+    /// rate at the tempo in view).
+    pub fn new(song: f64, width: f32, frames_per_beat: f64) -> Self {
+        let end = song.max(MIN_SONG) * (1.0 + ROOM);
+        let min = (f64::from(width) / end).max(MIN_ZOOM);
         Self {
-            min: MIN_ZOOM,
-            max: (frames_per_beat * MAX_POINTS_PER_SAMPLE).max(MIN_ZOOM),
+            min,
+            max: (frames_per_beat * MAX_POINTS_PER_SAMPLE).max(min),
+            end,
+            width,
         }
+    }
+
+    /// The furthest left edge at `zoom`: the view ends at [`Self::end`].
+    fn last_left(self, zoom: f64) -> f64 {
+        (self.end - f64::from(self.width) / zoom).max(0.0)
     }
 }
 
@@ -58,21 +80,27 @@ impl TimeView {
     }
 
     /// Zoomed by `factor`, keeping the beat `anchor` points from the left
-    /// edge where it is (the pointer, or the playhead).
+    /// edge where it is (the pointer, or the playhead), within the start
+    /// and the song's end.
     pub fn zoomed(self, anchor: f32, factor: f64, limits: Limits) -> Self {
         let beat = self.left + f64::from(anchor) / self.zoom;
         let zoom = (self.zoom * factor).clamp(limits.min, limits.max);
         Self {
-            left: (beat - f64::from(anchor) / zoom).max(0.0),
+            left: (beat - f64::from(anchor) / zoom)
+                .min(limits.last_left(zoom))
+                .max(0.0),
             zoom,
         }
     }
 
     /// Scrolled by `points` (positive moves the content right, as a wheel
-    /// delta does). Never before the start.
-    pub fn scrolled(self, points: f32) -> Self {
+    /// delta does). Never before the start, nor further than the song's
+    /// end (a view already past it stays, and can scroll back).
+    pub fn scrolled(self, points: f32, limits: Limits) -> Self {
+        let left = self.left - f64::from(points) / self.zoom;
+        let last = limits.last_left(self.zoom).max(self.left);
         Self {
-            left: (self.left - f64::from(points) / self.zoom).max(0.0),
+            left: left.min(last).max(0.0),
             ..self
         }
     }
@@ -114,6 +142,8 @@ mod tests {
     const WIDE: Limits = Limits {
         min: MIN_ZOOM,
         max: 1e6,
+        end: 1e9,
+        width: 1_000.0,
     };
 
     #[test]
@@ -142,6 +172,7 @@ mod tests {
             Limits {
                 min: 1.0,
                 max: 500.0,
+                ..WIDE
             },
         );
         assert_eq!(capped.zoom, 500.0);
@@ -156,7 +187,7 @@ mod tests {
         // An hour in at 120 BPM, zoomed to 8 points per sample at 48 kHz:
         // the beat under the pointer is still exact to a fraction of a
         // sample after zooming there.
-        let limits = Limits::for_audio(24_000.0);
+        let limits = Limits::new(10_000.0, 1_000.0, 24_000.0);
         assert_eq!(limits.max, 192_000.0);
         let view = TimeView {
             left: 7_200.0,
@@ -185,8 +216,41 @@ mod tests {
             left: 1.0,
             zoom: 10.0,
         };
-        assert_eq!(view.scrolled(-20.0).left, 3.0);
-        assert_eq!(view.scrolled(50.0).left, 0.0);
+        assert_eq!(view.scrolled(-20.0, WIDE).left, 3.0);
+        assert_eq!(view.scrolled(50.0, WIDE).left, 0.0);
+    }
+
+    #[test]
+    fn the_song_sets_how_far_out_and_along_the_view_goes() {
+        // A 1,000-beat song, 1,100 points wide: out to the song and its
+        // 10% of room, 1 point per beat.
+        let limits = Limits::new(1_000.0, 1_100.0, 24_000.0);
+        assert!((limits.min - 1.0).abs() < 1e-9);
+        assert!((limits.end - 1_100.0).abs() < 1e-9);
+        let view = TimeView {
+            left: 500.0,
+            zoom: 4.0,
+        };
+        let out = view.zoomed(550.0, 1e-6, limits);
+        assert!((out.zoom - 1.0).abs() < 1e-9);
+        // All the way out, the whole song is in view from the start.
+        assert_eq!(out.left, 0.0);
+        // Scrolling stops where the view's right edge meets the end...
+        let end = view.scrolled(-1e6, limits);
+        assert!((end.left - (1_100.0 - 1_100.0 / 4.0)).abs() < 1e-9);
+        // ...and zooming out near the end keeps the end at the right edge.
+        let out = end.zoomed(1_000.0, 0.5, limits);
+        assert!((out.left - (1_100.0 - 1_100.0 / 2.0)).abs() < 1e-9);
+        // A view already past the end stays, and can scroll back.
+        let past = TimeView {
+            left: 5_000.0,
+            zoom: 4.0,
+        };
+        assert_eq!(past.scrolled(-40.0, limits).left, 5_000.0);
+        assert_eq!(past.scrolled(40.0, limits).left, 4_990.0);
+        // A short or empty song still has 32 bars and room to work in.
+        let empty = Limits::new(0.0, 1_000.0, 24_000.0);
+        assert!((empty.end - 128.0 * 1.1).abs() < 1e-9);
     }
 
     #[test]

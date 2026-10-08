@@ -278,7 +278,10 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
 
 - **Zoom** glides (`GLIDE`) for keys and fits; the wheel and pinch follow
   the hand directly. Down to 8 points per sample, where the waveform is a
-  line through the samples.
+  line through the samples; out to the whole song with 10% of room (at
+  least 32 bars), as in Ableton.
+- **Grid** lines never sit closer than 12 points: beat lines drop out
+  first, then bar lines thin to every 2nd, 4th, 8th... bar.
 - **Follow** is a transport-bar toggle (a playhead line with an arrow).
   Lit when following; unlit while paused by looking around, with a
   tooltip saying Play or a click resumes it.

@@ -18,14 +18,15 @@ use lumen_render::{
     View, WaveInstance, WaveStyle, rgba,
 };
 
-/// Bars drawn in the empty arrangement grid.
-pub const GRID_BARS: usize = 512;
+/// Grid lines are at least this far apart (points), as the finest snap
+/// step is; closer ones thin out.
+const GRID_GAP: f64 = crate::ruler::MIN_STEP_PX as f64;
 
 struct Resources {
     renderer: Renderer,
     grid: LayerId,
-    /// The meter the grid layer was built for.
-    grid_meter: GridMeter,
+    /// The lines the grid layer holds.
+    grid_lines: Option<GridLines>,
     clips: BoxLayerId,
     /// The generation of clip boxes and waves on the GPU.
     clips_generation: Option<u64>,
@@ -48,12 +49,78 @@ pub struct GridMeter {
     pub colors: [egui::Color32; 2],
 }
 
-impl GridMeter {
-    const FOUR_FOUR: GridMeter = GridMeter {
-        bar: 4.0,
-        beat: 1.0,
-        colors: [crate::theme::DARK.grid_bar, crate::theme::DARK.grid_beat],
-    };
+/// The grid lines around the view: bars `from..to`, a bar line every
+/// `every` bars, and beat lines when they are far enough apart. Covers a
+/// few screens around the view, so scrolling rarely rebuilds it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct GridLines {
+    meter: GridMeter,
+    from: i64,
+    to: i64,
+    every: i64,
+    beats: bool,
+}
+
+impl GridLines {
+    /// The lines for `time` across `width` points: no two closer than
+    /// [`GRID_GAP`]. Zoomed far out, bar lines thin to every 2nd, 4th, 8th...
+    /// bar (as the ruler's numbers do).
+    fn around(time: TimeView, width: f32, meter: GridMeter) -> Self {
+        let bar = f64::from(meter.bar).max(1e-3);
+        let bar_pt = bar * time.zoom;
+        let beats_per_bar = (meter.bar / meter.beat).round().max(1.0);
+        let beats = beats_per_bar > 1.0 && f64::from(meter.beat) * time.zoom >= GRID_GAP;
+        let mut every = 1_i64;
+        while (every as f64) * bar_pt < GRID_GAP {
+            every *= 2;
+        }
+        // Whole windows of a power of two bars (at least `every`), one
+        // before the view and two after it.
+        let visible = (f64::from(width) / bar_pt).ceil().max(1.0) as i64 + 1;
+        let window = (visible as u64).next_power_of_two().max(every as u64) as i64;
+        let first = (time.left / bar).floor() as i64;
+        let from = ((first.div_euclid(window) - 1) * window).max(0);
+        Self {
+            meter,
+            from,
+            to: from + 4 * window,
+            every,
+            beats,
+        }
+    }
+
+    /// Bar lines (strong) and beat lines (faint), in quarter notes; one row
+    /// that spans the canvas height.
+    fn instances(self) -> Vec<RectInstance> {
+        let meter = self.meter;
+        let per_bar = if self.beats {
+            (meter.bar / meter.beat).round().max(1.0) as i64
+        } else {
+            1
+        };
+        let line = |at: f64, bar: bool| {
+            let c = meter.colors[usize::from(!bar)];
+            RectInstance::new(at, at, 0.0, rgba(c.r(), c.g(), c.b(), 255))
+        };
+        (self.from..self.to)
+            .step_by(self.every as usize)
+            .flat_map(|bar| {
+                let start = bar as f64 * f64::from(meter.bar);
+                (0..per_bar)
+                    .map(move |beat| line(start + beat as f64 * f64::from(meter.beat), beat == 0))
+            })
+            .collect()
+    }
+
+    /// Whether these lines also do for `wanted`: the same kind of lines,
+    /// over a range that covers it.
+    fn covers(self, wanted: Self) -> bool {
+        self.meter == wanted.meter
+            && self.every == wanted.every
+            && self.beats == wanted.beats
+            && self.from <= wanted.from
+            && wanted.to <= self.to
+    }
 }
 
 /// Where compiled GPU pipelines are cached between launches.
@@ -62,25 +129,6 @@ fn pipeline_cache_path() -> Option<PathBuf> {
     let dir = PathBuf::from(base).join(PRODUCT_NAME).join("cache");
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir.join("gpu-pipelines.bin"))
-}
-
-/// Bar lines (strong) and beat lines (faint), in quarter notes; one row that
-/// spans the canvas height. Rebuilt when the meter or the theme changes.
-fn grid_instances(meter: GridMeter) -> Vec<RectInstance> {
-    let beats_per_bar = (meter.bar / meter.beat).round().max(1.0) as usize;
-    (0..GRID_BARS * beats_per_bar)
-        .map(|beat| {
-            let bar = beat % beats_per_bar == 0;
-            let x = beat as f32 * meter.beat;
-            let c = meter.colors[usize::from(!bar)];
-            RectInstance::new(
-                f64::from(x),
-                f64::from(x),
-                0.0,
-                rgba(c.r(), c.g(), c.b(), 255),
-            )
-        })
-        .collect()
 }
 
 pub fn install(state: &egui_wgpu::RenderState) -> Result<(), String> {
@@ -93,8 +141,8 @@ pub fn install(state: &egui_wgpu::RenderState) -> Result<(), String> {
     if let Some(p) = &path {
         lumen_render::save_pipeline_cache(cache.as_ref(), p);
     }
-    let grid_meter = GridMeter::FOUR_FOUR;
-    let grid = renderer.add_layer(&state.device, &grid_instances(grid_meter));
+    // Filled in on the first frame (`GridLines`); a buffer cannot be empty.
+    let grid = renderer.add_layer(&state.device, &[RectInstance::new(0.0, 0.0, 0.0, 0)]);
     let clips = renderer.add_box_layer(&state.device);
     state
         .renderer
@@ -103,7 +151,7 @@ pub fn install(state: &egui_wgpu::RenderState) -> Result<(), String> {
         .insert(Mutex::new(Resources {
             renderer,
             grid,
-            grid_meter,
+            grid_lines: None,
             clips,
             clips_generation: None,
             peaks_uploaded: HashSet::new(),
@@ -115,7 +163,7 @@ pub fn install(state: &egui_wgpu::RenderState) -> Result<(), String> {
 struct GridCallback {
     view: View,
     port: Port,
-    meter: GridMeter,
+    lines: GridLines,
 }
 
 /// A callback's viewport, as egui-wgpu sets it: each edge rounded to a
@@ -166,10 +214,10 @@ impl egui_wgpu::CallbackTrait for GridCallback {
         let Some(Ok(r)) = resources.get_mut::<Mutex<Resources>>().map(Mutex::get_mut) else {
             return Vec::new();
         };
-        if r.grid_meter != self.meter {
+        if !r.grid_lines.is_some_and(|l| l.covers(self.lines)) {
             r.renderer
-                .update_layer(device, queue, r.grid, &grid_instances(self.meter));
-            r.grid_meter = self.meter;
+                .update_layer(device, queue, r.grid, &self.lines.instances());
+            r.grid_lines = Some(self.lines);
         }
         let view = View {
             row_height: self.port.size_px[1] as f32,
@@ -212,7 +260,7 @@ pub fn grid_shape(
     meter: GridMeter,
 ) -> egui::Shape {
     let callback = GridCallback {
-        meter,
+        lines: GridLines::around(time, rect.width(), meter),
         view: View {
             left: time.left,
             px_per_unit: (time.zoom * f64::from(pixels_per_point)) as f32,
@@ -355,6 +403,52 @@ pub fn box_style(pixels_per_point: f32, inset: f32, title: f32) -> BoxStyle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const FOUR_FOUR: GridMeter = GridMeter {
+        bar: 4.0,
+        beat: 1.0,
+        colors: [egui::Color32::WHITE, egui::Color32::GRAY],
+    };
+
+    #[test]
+    fn grid_lines_cover_the_view_wherever_it_is() {
+        // Bar 2,000, far past where the grid used to end, 24 points a beat:
+        // 1,000 points show about 10 bars.
+        let view = TimeView {
+            left: 8_000.0,
+            zoom: 24.0,
+        };
+        let lines = GridLines::around(view, 1_000.0, FOUR_FOUR);
+        assert!(lines.beats && lines.every == 1);
+        assert!(lines.from <= 2_000 && 2_011 <= lines.to);
+        let instances = lines.instances();
+        assert_eq!(instances.len() as i64, (lines.to - lines.from) * 4);
+        // Scrolling a little: the same lines do.
+        let moved = TimeView {
+            left: 8_010.0,
+            ..view
+        };
+        assert!(lines.covers(GridLines::around(moved, 1_000.0, FOUR_FOUR)));
+    }
+
+    #[test]
+    fn grid_lines_thin_out_as_the_view_zooms_out() {
+        // 1 point a beat: beats are too close, bars are 4 points, so every
+        // 4th bar has a line (16 points apart; 8 would be under 12).
+        let far = TimeView {
+            left: 0.0,
+            zoom: 1.0,
+        };
+        let lines = GridLines::around(far, 1_000.0, FOUR_FOUR);
+        assert!(!lines.beats);
+        assert_eq!(lines.every, 4);
+        assert_eq!(lines.from % lines.every, 0);
+        let instances = lines.instances();
+        assert_eq!(instances.len() as i64, (lines.to - lines.from) / 4);
+        // A tenth of that: every 32 bars (12.8 points).
+        let farther = TimeView { zoom: 0.1, ..far };
+        assert_eq!(GridLines::around(farther, 1_000.0, FOUR_FOUR).every, 32);
+    }
 
     #[test]
     fn a_port_rounds_like_egui_wgpu_and_keeps_the_remainder() {

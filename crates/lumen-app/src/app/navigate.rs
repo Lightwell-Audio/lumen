@@ -101,14 +101,30 @@ impl Nav {
 }
 
 impl App {
-    /// How far the view may zoom: in to single samples at the tempo where
-    /// the view is.
-    fn zoom_limits(&self) -> Limits {
-        let rate = self.transport.state().sample_rate;
+    /// How far the view may zoom and scroll: out to the song (as in
+    /// Ableton), in to single samples at the tempo where the view is.
+    fn zoom_limits(&self, width: f32) -> Limits {
+        let state = self.transport.state();
+        let rate = state.sample_rate;
         let tempo = &self.transport.timeline.tempo;
         let at = Ticks((self.nav.view.left * PPQ as f64) as i64).max(Ticks::ZERO);
         let frames = tempo.sample_at(at + Ticks(PPQ), rate) - tempo.sample_at(at, rate);
-        Limits::for_audio(frames as f64)
+        // The furthest beat in use: clips, the playhead, the start marker
+        // and the loop.
+        let looped = self.transport.loop_region;
+        let song = [
+            self.song_end(),
+            state.ticks.as_quarters(),
+            state.marker.as_quarters(),
+            if looped.enabled {
+                looped.end.as_quarters()
+            } else {
+                0.0
+            },
+        ]
+        .into_iter()
+        .fold(0.0, f64::max);
+        Limits::new(song, width, frames as f64)
     }
 
     /// Wheel, pinch and keys over the arrangement (`over` is where they
@@ -119,7 +135,7 @@ impl App {
         if self.nav.advance(now) {
             ctx.request_repaint();
         }
-        let limits = self.zoom_limits();
+        let limits = self.zoom_limits(canvas.width());
         let pointer = ctx.input(|i| i.pointer.hover_pos());
 
         // `contains_pointer`, not `hovered`: the ruler's own click area sits
@@ -161,7 +177,7 @@ impl App {
                 }
             } else {
                 if delta.x != 0.0 {
-                    let view = self.nav.target().scrolled(delta.x);
+                    let view = self.nav.target().scrolled(delta.x, limits);
                     self.nav.set(view);
                     self.transport.follow_paused = true;
                 }

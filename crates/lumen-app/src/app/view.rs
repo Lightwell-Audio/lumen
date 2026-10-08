@@ -201,7 +201,7 @@ report: {}",
             loop {
                 let start = self.transport.timeline.meter.bar_start(bar);
                 let x = x_of(start.as_quarters());
-                if x > full.right() || bar >= canvas::GRID_BARS as i64 {
+                if x > full.right() {
                     break;
                 }
                 label(x, (bar + 1).to_string());

@@ -1751,8 +1751,21 @@ to single samples (as Ableton does) and Follow by page, on by default
 ### Decision
 - **One horizontal view, `TimeView`** (`timeview.rs`): the beat at the
   left edge and points per beat, in f64. Zooming about an anchor,
-  scrolling, fitting, the limits (0.1 points per beat to 8 points per
-  sample at the tempo in view) and glides are pure functions, tested.
+  scrolling, fitting, the limits and glides are pure functions, tested.
+- **Limits, as in Ableton** (after MT-APP-12 run 1): the song sets how
+  far out the view goes and how far right it scrolls. The furthest beat
+  in use (the last clip's end, the playhead, the start marker, an enabled
+  loop; at least 32 bars), with 10% of room after it, fills the width at
+  the widest zoom, and scrolling stops when the view's right edge reaches
+  it. A view already past it (clips deleted) stays and can scroll back.
+  In, the view goes to 8 points per sample at the tempo in view.
+- **Grid lines cover the view wherever it is**, a few screens' worth
+  rebuilt only when the view leaves them. Lines stay at least 12 points
+  apart (the finest snap step): beat lines go first, then bar lines
+  thin to every 2nd, 4th, 8th... bar, as the ruler's numbers do. (The
+  first grid was a fixed 512 bars of every beat: past bar 512 it was
+  empty, and zoomed out it blurred into stripes.) The adaptive and fixed
+  grid with subdivisions is slice 5.
 - **Precision at sample-level zoom:** positions go to the GPU as whole
   and fractional beats (`lumen_render::Beats`), and the view's left edge
   likewise; shaders subtract the parts separately, so boxes, grid lines
