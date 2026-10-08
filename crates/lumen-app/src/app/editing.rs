@@ -30,16 +30,6 @@ pub(crate) enum Edit {
 }
 
 impl Edit {
-    pub(crate) const ALL: [Edit; 7] = [
-        Edit::Cut,
-        Edit::Copy,
-        Edit::Paste,
-        Edit::Duplicate,
-        Edit::Delete,
-        Edit::DeleteTime,
-        Edit::InsertTime,
-    ];
-
     pub(crate) fn name(self) -> &'static str {
         match self {
             Edit::Cut => "Cut",
@@ -63,6 +53,15 @@ impl Edit {
             Edit::InsertTime => "Ctrl+I",
         }
     }
+}
+
+/// What the lanes' right-click menu is for: what was right-clicked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum MenuFor {
+    Clips,
+    Range,
+    #[default]
+    Lanes,
 }
 
 /// Where the earliest of `clips` starts.
@@ -144,22 +143,41 @@ impl App {
             }
             self.arrangement.range = None;
             self.selected_clips_now();
+            // A plain click anywhere on the lanes also moves the playhead
+            // there (snapped; Alt places freely), as in Ableton (owner,
+            // MT-APP-14 run 2). Ctrl and Shift clicks only build a
+            // selection.
+            if !adding {
+                let target = self.snapped(self.ticks_at(canvas, p.x), modifiers.alt);
+                self.transport.locate(target.max(Ticks::ZERO));
+                self.transport.follow_paused = true;
+            }
         }
 
-        // Right-click on a clip that is not selected selects it first, so
-        // the menu acts on what was clicked.
+        // A right-click decides what the menu is for (the owner's A, after
+        // MT-APP-14 run 2): inside the time range, the range; on a clip,
+        // the clips (a clip that is not selected is selected first, so the
+        // menu acts on what was clicked); elsewhere, the lanes.
         if response.secondary_clicked()
             && let Some(p) = response.interact_pointer_pos()
-            && let Some(hit) = self.hit(&ctx, p, canvas)
-            && !self.arrangement.clips.contains(&hit.clip)
-            && self.arrangement.range.is_none()
         {
-            self.arrangement.clips = BTreeSet::from([hit.clip]);
-            self.selected_clips_now();
+            self.menu_for = if self.in_range(&ctx, canvas, p) {
+                MenuFor::Range
+            } else if let Some(hit) = self.hit(&ctx, p, canvas) {
+                if !self.arrangement.clips.contains(&hit.clip) {
+                    self.arrangement.clips = BTreeSet::from([hit.clip]);
+                    self.arrangement.range = None;
+                    self.selected_clips_now();
+                }
+                MenuFor::Clips
+            } else {
+                MenuFor::Lanes
+            };
         }
 
         // The H1 hover: which half is under the pointer, and what it does.
-        if self.arrangement.gesture.is_some() {
+        // Not while a menu is open: the hint would sit on it.
+        if self.arrangement.gesture.is_some() || egui::Popup::is_any_open(&ctx) {
             return;
         }
         self.arrangement.hover = None;
@@ -239,6 +257,21 @@ impl App {
             self.lanes.pending().len(),
             self.nav.view,
         )
+    }
+
+    /// Whether `p` is inside the time range.
+    fn in_range(&self, ctx: &egui::Context, canvas: Rect, p: Pos2) -> bool {
+        let Some(range) = &self.arrangement.range else {
+            return false;
+        };
+        let at = self.ticks_at(canvas, p.x);
+        let project = self.document.project();
+        let track = self
+            .arrangement
+            .track_index_at(ctx, project, self.lanes.pending().len(), canvas, p.y)
+            .and_then(|i| project.tracks.get(i))
+            .map(|t| t.id);
+        (range.start..range.end).contains(&at) && track.is_some_and(|t| range.tracks.contains(&t))
     }
 
     fn ticks_at(&self, canvas: Rect, x: f32) -> Ticks {
@@ -498,7 +531,10 @@ impl App {
             && (pressed(Modifiers::NONE, Key::Delete) || pressed(Modifiers::NONE, Key::Backspace))
         {
             Edit::Delete
-        } else if chosen && pressed(Modifiers::NONE, Key::Escape) {
+        } else if chosen && !egui::Popup::is_any_open(ctx) && pressed(Modifiers::NONE, Key::Escape)
+        {
+            // An open menu takes Esc first (MT-APP-14 run 2): it closes
+            // without the selection going too.
             self.arrangement.clips.clear();
             self.arrangement.range = None;
             return;
@@ -509,22 +545,55 @@ impl App {
         ctx.request_repaint();
     }
 
-    /// The lanes' right-click menu: the editing commands, then the grid.
+    /// The lanes' right-click menu, for what was clicked (the owner's A):
+    /// clips get the clip edits and properties, a time range its edits,
+    /// empty lanes Paste and the grid. Commands that cannot run are left
+    /// out rather than greyed.
     pub(crate) fn lanes_menu(&mut self, ui: &mut egui::Ui) {
-        for command in Edit::ALL {
+        match self.menu_for {
+            MenuFor::Clips => {
+                use Edit::{Copy, Cut, Delete, Duplicate};
+                self.edit_items(ui, &[Cut, Copy, Duplicate, Delete]);
+                ui.separator();
+                self.clip_menu(ui);
+            }
+            MenuFor::Range => {
+                use Edit::{Copy, Cut, Delete, DeleteTime, Duplicate, InsertTime, Paste};
+                self.edit_items(ui, &[Cut, Copy, Paste, Duplicate, Delete]);
+                ui.separator();
+                self.edit_items(ui, &[DeleteTime, InsertTime]);
+            }
+            MenuFor::Lanes => {
+                if self.edit_items(ui, &[Edit::Paste]) {
+                    ui.separator();
+                }
+                let label = format!("Grid: {}", self.grid_label());
+                ui.menu_button(label, |ui| self.grid_menu(ui));
+                let snap = egui::Button::selectable(self.grid.snap, "Snap to grid")
+                    .shortcut_text("Ctrl+4");
+                if ui.add(snap).clicked() {
+                    self.grid.snap = !self.grid.snap;
+                    ui.close();
+                }
+            }
+        }
+    }
+
+    /// Menu items for the `commands` that can run now; whether any could.
+    fn edit_items(&mut self, ui: &mut egui::Ui, commands: &[Edit]) -> bool {
+        let mut any = false;
+        for &command in commands {
+            if !self.can_edit(command) {
+                continue;
+            }
+            any = true;
             let button = egui::Button::new(command.name()).shortcut_text(command.keys());
-            if ui.add_enabled(self.can_edit(command), button).clicked() {
+            if ui.add(button).clicked() {
                 self.edit(command);
                 ui.close();
             }
-            if command == Edit::Delete {
-                ui.separator();
-            }
         }
-        ui.separator();
-        self.clip_menu(ui);
-        self.fade_menu(ui);
-        self.grid_menu(ui);
+        any
     }
 
     /// Whether `command` can run now, for menus.

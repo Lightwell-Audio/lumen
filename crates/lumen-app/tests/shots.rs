@@ -274,6 +274,34 @@ fn file_drops() {
     save(&mut h, "drop-between-tracks");
 }
 
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn lanes_menus() {
+    let dir = TempDir::new("shots-menus");
+    let mut h = lumen(&dir);
+    h.run_steps(20);
+    let a = clip(&h, 0);
+    for (name, p) in [
+        ("menu-clip", pos(a, 0.5, 0.3)),
+        ("menu-lanes", Pos2::new(a.right() + 300.0, a.center().y)),
+    ] {
+        h.hover_at(p);
+        h.run_steps(1);
+        for pressed in [true, false] {
+            h.event(Event::PointerButton {
+                pos: p,
+                button: eframe::egui::PointerButton::Secondary,
+                pressed,
+                modifiers: Modifiers::NONE,
+            });
+            h.run_steps(1);
+        }
+        save(&mut h, name);
+        h.key_press(Key::Escape);
+        h.run_steps(3);
+    }
+}
+
 /// A left click at `p`.
 fn click(h: &mut Harness<'static, App>, p: Pos2) {
     h.hover_at(p);

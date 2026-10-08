@@ -42,6 +42,10 @@ const SPLIT_BELOW: f32 = 40.0;
 const NAME_MIN_WIDTH: f32 = 24.0;
 /// Width of a clip still loading for import, before it has a length.
 const PENDING_WIDTH: f32 = 160.0;
+/// How opaque a clip's body is: the grid shows faintly through it, as in
+/// Ableton (the owner's G1, MT-APP-14 run 2). The title bar and waveform
+/// stay solid.
+const BODY_OPACITY: f32 = 0.55;
 /// A locked clip's padlock, and the narrowest title that shows it.
 const LOCK_ICON: f32 = 9.0;
 const LOCK_MIN_WIDTH: f32 = 30.0;
@@ -699,7 +703,7 @@ fn clip_box(clip: &Clip, row: u32, look: &ClipLook<'_>, palette: &theme::Palette
         start: beats(clip.start.as_quarters()),
         end: beats((clip.start + clip.length).as_quarters()),
         row,
-        body: straight(palette.clip_body.gamma_multiply(a)),
+        body: straight(palette.clip_body.gamma_multiply(BODY_OPACITY * a)),
         bar: straight(bar.gamma_multiply(a)),
         border: straight(look.color.gamma_multiply(0.6 * a)),
         fill: straight(look.color.gamma_multiply(0.25 * a)),
@@ -718,7 +722,11 @@ fn draw_body(painter: &Painter, rect: Rect, look: &ClipLook<'_>) {
     let radius = theme::radius::SMALL;
     let alpha = look.alpha;
     let (bar, _) = bar_and_label(look, palette);
-    painter.rect_filled(rect, radius, palette.clip_body.gamma_multiply(alpha));
+    painter.rect_filled(
+        rect,
+        radius,
+        palette.clip_body.gamma_multiply(BODY_OPACITY * alpha),
+    );
     if let (ClipState::Loading, Some(p)) = (look.state, look.progress) {
         let done = Rect::from_min_size(rect.min, vec2(rect.width() * p, rect.height()));
         painter.rect_filled(done, radius, look.color.gamma_multiply(0.25 * alpha));

@@ -216,13 +216,11 @@ fn every_fade_shape_is_in_the_right_click_menu() {
         lumen.frames(1);
     }
     lumen.frames(2);
-    // A submenu's name ends with its arrow ("Fade-out shape ⏵").
-    lumen
-        .harness
-        .get_by_label_contains("Fade-out shape")
-        .click();
+    // One Fades submenu (owner's A, MT-APP-14 run 2); a submenu's name ends
+    // with its arrow ("Fades ⏵").
+    lumen.harness.get_by_label_contains("Fades").click();
     lumen.frames(3);
-    lumen.click("S-curve");
+    lumen.click("Fade out: S-curve");
     assert_eq!(clip(&lumen, id).fade_out.curve, FadeShape::SCurve.curve());
 }
 

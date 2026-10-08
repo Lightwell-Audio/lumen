@@ -223,8 +223,9 @@ impl App {
         }
     }
 
-    /// The preset fade shapes for the selected audio clips, in the lanes'
-    /// menu, for the fade in and the fade out; the one in use is ticked.
+    /// The preset fade shapes for the selected audio clips, in one Fades
+    /// submenu of the clip menu (owner's A, MT-APP-14 run 2): the fade in's
+    /// and the fade out's, under headings; the ones in use are ticked.
     pub(super) fn fade_menu(&mut self, ui: &mut egui::Ui) {
         let project = self.document.project();
         let clips: Vec<&Clip> = project
@@ -243,24 +244,30 @@ impl App {
             FadeShape::of(&first.fade_in.curve),
             FadeShape::of(&first.fade_out.curve),
         ];
-        for (edge, label, now) in [
-            (Edge::Start, "Fade-in shape", current[0]),
-            (Edge::End, "Fade-out shape", current[1]),
-        ] {
-            ui.menu_button(label, |ui| {
+        ui.menu_button("Fades", |ui| {
+            for (edge, label, now) in [
+                (Edge::Start, "Fade in", current[0]),
+                (Edge::End, "Fade out", current[1]),
+            ] {
+                ui.label(egui::RichText::new(label).weak().small());
                 for shape in FadeShape::ALL {
                     let mut chosen = now;
-                    if ui
-                        .radio_value(&mut chosen, Some(shape), shape.name())
-                        .clicked()
-                    {
+                    let radio = ui.radio_value(&mut chosen, Some(shape), shape.name());
+                    radio.widget_info(|| {
+                        egui::WidgetInfo::selected(
+                            egui::WidgetType::RadioButton,
+                            true,
+                            now == Some(shape),
+                            format!("{label}: {}", shape.name()),
+                        )
+                    });
+                    if radio.clicked() {
                         self.document
                             .set_fade_curve(&ids, edge, shape.curve(), None);
                         ui.close();
                     }
                 }
-            });
-        }
-        ui.separator();
+            }
+        });
     }
 }

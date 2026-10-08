@@ -80,6 +80,7 @@ irreversible or external) · *Superseded*.
 | Fade and gain handles (M3 slice 6d, 2026-10-08) | Chosen from rendered specimens: **F3 with the glow**, a fade is a glowing accent curve with a round handle at its top and a dot that bends it; **G1**, clip gain is a glowing level line across the clip, dragged up or down, with the waveform shrinking under it and the dB beside the pointer. |
 | Free curves (M3 slice 6d, 2026-10-08) | The owner asked for curves that move freely, left and right as well as up and down, "as flexible as Ableton", to set the bar for automation later. Chosen from interactive specimens: **C3**, one free dot the curve passes through, with Alt-drag adding S-shape (over C1, the dot alone, and C2, two Bézier handles). Replaces the stepped bend (Slow, Linear, Fast). ADR-0031. |
 | Clip properties (M3 slice 6e, 2026-10-08) | Chosen from rendered specimens: **M1**, a muted clip drains to grey as in Ableton (name and waveform stay readable); **K3**, a locked clip shows a padlock in its title bar and light clamp bars at both ends; **P1**, the properties view is the hover card pinned beside its clip and edited in place (Alt+Enter, or Properties in the right-click menu), after seeing it in context, over a strip under the arrangement (P2) and a toolbar above the clip (P3). ADR-0032. |
+| Lanes menu and grid behind clips (MT-APP-14 run 2, 2026-10-08) | Chosen from rendered specimens: **A**, each right-click gets the menu for what it landed on, as in Ableton (a clip, a time range, or empty lanes; commands that cannot run are left out), over B (grouped submenus) and C (an action strip); **G1**, the grid shows through a see-through clip body, closest to Ableton (the owner: G1 unless there is a strong argument for G2; none held up), over G2 (lines drawn across clips) and G3 (bar lines only). The owner also asked for a click anywhere on the lanes to move the playhead, as in Ableton. ADR-0032. |
 | Hints and tooltips (2026-10-08) | The owner noted that hints have piled up slice by slice: behaviour should come across without reading much (cursors, handle shapes, motion before text). **A dedicated UX pass**, scheduled when the next milestones are planned; until then new hints stay short. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
@@ -2112,6 +2113,20 @@ curves, clip properties). ADR-0031 covers the curves.
   import together once all have loaded, as one undo step. While files are
   dragged over, the lane lights with a ghost clip, or an accent line marks
   where new tracks go.
+- **Menus for what was clicked** (the owner's A, after MT-APP-14 run 2):
+  a right-click inside the time range opens the range's menu, on a clip
+  the clip menu (11 rows; both fade shapes in one Fades submenu), on
+  empty lanes Paste, the grid (one submenu) and Snap to grid. Commands
+  that cannot run are left out rather than greyed. An open menu takes
+  Esc before the clip keys do, and drag hints hide under menus.
+- **The grid behind clips** (G1): clip bodies are drawn at 55% opacity
+  (`BODY_OPACITY`), title bars and waveforms solid. The specimen's 82%
+  showed the grid by about one level of 255 in the dark theme, where the
+  body and the lanes are close in colour; 55% shows it at about half its
+  strength outside clips.
+- **A click on the lanes moves the playhead** (owner, as in Ableton):
+  snapped, Alt places freely, Follow pauses as for a ruler click; on a
+  clip it also selects it; Ctrl and Shift clicks only build a selection.
 - **Esc belongs to the field being typed in.** egui takes a text field's
   focus away on Esc before the app's keys run, so the clip keys used to
   see no field and take the Esc to clear the selection, and the field's
@@ -2132,8 +2147,10 @@ curves, clip properties). ADR-0031 covers the curves.
   `clip_properties_are_single_steps_and_work_on_locked_clips`),
   `files_land_on_the_track_or_between_the_tracks_they_were_dropped_on`,
   `arrangement::drop`, `app::clip_card` (fade milliseconds, card place).
-- E2E (59 scenarios): `clips`, `editing`, `fades`, `looping`, and
+- E2E (61 scenarios): `clips`, `editing`, `fades`, `looping`, and
   `properties` (0 mutes, the menu locks, Ctrl+R and F2 rename with Esc
-  cancelling, the card from the keyboard, drops onto and between tracks).
+  cancelling, the card from the keyboard, drops onto and between tracks),
+  `each_right_click_gets_the_menu_for_what_it_landed_on`,
+  `a_click_on_the_lanes_moves_the_playhead`.
 - Screenshots (`tests/shots.rs`: `clip_properties` in dark at 100% and
-  light at 150%, `file_drops`).
+  light at 150%, `file_drops`, `lanes_menus`).

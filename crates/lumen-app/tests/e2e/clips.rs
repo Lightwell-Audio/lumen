@@ -256,6 +256,87 @@ fn a_range_on_two_tracks_cuts_and_pastes_as_one_step_each() {
     assert_eq!((a, tracks.len()), (Ticks(2 * BAR), 2));
 }
 
+/// Right-clicks at `p`.
+fn right_click(lumen: &mut Lumen, p: Pos2) {
+    lumen.harness.hover_at(p);
+    lumen.frames(1);
+    for pressed in [true, false] {
+        lumen.harness.event(eframe::egui::Event::PointerButton {
+            pos: p,
+            button: eframe::egui::PointerButton::Secondary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+        lumen.frames(1);
+    }
+    lumen.frames(2);
+}
+
+/// Owner, MT-APP-14 run 2: the menu had grown to 33 rows. Its choice A:
+/// each right-click gets the menu for what it landed on.
+#[test]
+fn each_right_click_gets_the_menu_for_what_it_landed_on() {
+    let (mut lumen, kick, snare) = with_two_clips("menus");
+    let a = rect(&lumen, kick);
+    // A clip: clip edits and properties; no grid, no time edits.
+    right_click(&mut lumen, top_half(a));
+    assert!(lumen.shows("Rename Ctrl+R") && lumen.shows("Cut Ctrl+X"));
+    assert!(!lumen.shows("Delete time Ctrl+Shift+Delete"));
+    assert!(!lumen.shows("Narrowest"));
+    // Esc closes the menu and keeps the selection.
+    lumen.key(Modifiers::NONE, Key::Escape);
+    assert!(!lumen.shows("Rename Ctrl+R"), "closed");
+    assert_eq!(lumen.app().selected_clips(), [kick]);
+    let away = Pos2::new(a.right() + 300.0, a.bottom() + 120.0);
+
+    // Empty lanes: the grid, in a submenu; Paste only once there is
+    // something to paste.
+    let empty = Pos2::new(a.right() + 300.0, a.center().y);
+    right_click(&mut lumen, empty);
+    // The ruler's grid button has the same name: the menu adds a second.
+    let grids = |lumen: &Lumen| {
+        lumen
+            .harness
+            .query_all_by_label_contains("Grid: 1 bar")
+            .count()
+    };
+    assert_eq!(grids(&lumen), 2);
+    assert!(!lumen.shows("Cut Ctrl+X") && !lumen.shows("Paste Ctrl+V"));
+    // A click elsewhere closes it.
+    lumen.drag(away, away, Modifiers::NONE);
+    assert_eq!(grids(&lumen), 1);
+
+    // A time range: its edits, Delete time and Insert time.
+    // From a beat in (the left edge would trim), snapped to bar 1.
+    select_range(&mut lumen, kick, snare, 1.0, 4.0);
+    let inside = Pos2::new(a.center().x, a.bottom() - 5.0);
+    right_click(&mut lumen, inside);
+    assert!(lumen.shows("Delete time Ctrl+Shift+Delete"));
+    assert!(!lumen.shows("Rename Ctrl+R"));
+}
+
+/// Owner, MT-APP-14 run 2: a click anywhere on the lanes moves the
+/// playhead there (snapped), as in Ableton; on a clip it also selects it.
+#[test]
+fn a_click_on_the_lanes_moves_the_playhead() {
+    let (mut lumen, kick, _) = with_two_clips("click-locate");
+    let a = rect(&lumen, kick);
+    let zoom = lumen.app().view().zoom as f32;
+    // Empty lane, near bar 3 (8 quarters): snapped to it.
+    let p = Pos2::new(a.left() + 8.4 * zoom, a.center().y);
+    lumen.drag(p, p, Modifiers::NONE);
+    lumen.wait_for("the playhead", |app| app.playhead() == Ticks::quarters(8));
+    // On a clip: selected, and the playhead goes to its bar.
+    lumen.drag(top_half(a), top_half(a), Modifiers::NONE);
+    assert_eq!(lumen.app().selected_clips(), [kick]);
+    lumen.wait_for("the playhead", |app| app.playhead() == Ticks::ZERO);
+    // Ctrl+click only adds to the selection.
+    let empty = Pos2::new(a.left() + 4.2 * zoom, a.center().y);
+    lumen.drag(empty, empty, Modifiers::COMMAND);
+    lumen.frames(10);
+    assert_eq!(lumen.app().playhead(), Ticks::ZERO);
+}
+
 /// Moves the playhead to `quarters` by clicking the ruler.
 fn locate(lumen: &mut Lumen, quarters: f64) {
     let ruler = lumen

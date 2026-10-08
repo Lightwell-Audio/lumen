@@ -150,6 +150,8 @@ pub struct App {
     /// takes its focus away on Esc before the app's keys run, so that Esc
     /// is the field's (it cancels), not a clip or track key (slice 6e).
     typing: bool,
+    /// What the lanes' right-click menu is for (owner's A, MT-APP-14 run 2).
+    menu_for: app::editing::MenuFor,
     /// The clip being renamed and the pinned properties card (slice 6e).
     clip_props: app::clip_card::ClipProps,
     smoke_test_frames: Option<u32>,
@@ -598,6 +600,7 @@ impl App {
             canvas: egui::Rect::NOTHING,
             clipboard: None,
             typing: false,
+            menu_for: app::editing::MenuFor::default(),
             clip_props: app::clip_card::ClipProps::default(),
             smoke_test_frames: launch.smoke_test.then_some(SMOKE_FRAMES),
             screenshot: launch.screenshot,

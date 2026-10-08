@@ -1044,5 +1044,31 @@ curves, clip gain, heard as drawn) passed ("looks good"). The steps for
 6e (mute, lock, rename, recolour, the properties view, drops on a chosen
 track) are added with that part and run as run 2.
 
-**Last run:** run 1, 6d steps passed; run 2 (steps 7 to 13, slice 6e)
-to come.
+**Run 2 (2026-10-08, owner):** three changes asked for (two not about 6e),
+all made:
+1. The right-click menu had grown too long (33 rows). The owner chose
+   proposal A from specimens: each right-click gets the menu for what it
+   landed on. Also fixed: Esc did not close the menu while clips were
+   selected. Steps 14 and 15.
+2. The grid should show a little through clips, as in Ableton. The owner
+   chose G1 (a see-through clip body). Step 16.
+3. A click anywhere on the lanes should move the playhead, as in Ableton.
+   Step 17.
+
+14. **Menus:** right-click a clip: 11 rows (Cut, Copy, Duplicate, Delete;
+    Rename, Colour, Mute clip, Lock clip, Fades, Properties), no grid.
+    Fades holds both fade shapes under headings. Right-click empty lane
+    space: Grid (the whole grid menu one level in) and Snap to grid;
+    Paste too once something is copied. Drag a time range, right-click
+    inside it: its edits with Delete time and Insert time.
+15. With a clip selected, right-click it and press Esc: the menu closes
+    and the clip stays selected. No drag hint sits on an open menu.
+16. **Grid behind clips:** at any zoom, the grid lines show faintly
+    through clip bodies (title bars and waveforms stay solid), in both
+    themes.
+17. **Click to move the playhead:** click empty lane space: the playhead
+    jumps there, snapped to the grid (Alt: exactly there). Click a clip:
+    it is selected and the playhead jumps too. Ctrl+click and Shift+click
+    only change the selection. While playing, a click jumps playback.
+
+**Last run:** run 2, changes made; run 3 (steps 7 to 17) to come.

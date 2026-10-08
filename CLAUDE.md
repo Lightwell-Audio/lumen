@@ -390,8 +390,9 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-08: M3 slice 6e built (clip properties and
-drops, ADR-0032); MT-APP-14 run 2 (its 6e steps) next.
+**Last updated:** 2026-10-08: M3 slice 6e built; the owner's MT-APP-14
+run 2 changes made (menus for what was clicked, the grid behind clips,
+click to move the playhead); MT-APP-14 run 3 next.
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
@@ -455,7 +456,11 @@ drops, ADR-0032); MT-APP-14 run 2 (its 6e steps) next.
     P1 pinned card): 0 mutes, the menu locks, Ctrl+R or F2 renames in the
     title bar, clip colours, the properties card (Alt+Enter;
     `app/clip_card.rs`), files dropped on a track or between tracks
-    (`arrangement/drop.rs`). Next: MT-APP-14 run 2 (steps 7 to 13), then
+    (`arrangement/drop.rs`). MT-APP-14 run 2 (owner) asked for three
+    changes, all made: the right-click menu is for what was clicked (the
+    owner's A, 11 rows on a clip instead of 33); the grid shows through
+    clip bodies (G1, 55%); a click anywhere on the lanes moves the
+    playhead, as in Ableton. Next: MT-APP-14 run 3 (steps 7 to 17), then
     slice 7.
   - Esc after typing belongs to the text field (`App::typing`): egui
     drops a field's focus on Esc before the app's keys run, so key

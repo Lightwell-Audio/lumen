@@ -356,6 +356,18 @@ half selects a time range, empty lanes draw a marquee.
     shown.
 - **The hover card** ends with "Alt+Enter: edit its properties" in
   `accent`.
+- **The lanes' right-click menu** (the owner's A, MT-APP-14 run 2) is for
+  what was clicked: a clip (Cut, Copy, Duplicate, Delete; Rename, Colour,
+  Mute clip, Lock clip, Fades, Properties), a time range (its edits,
+  Delete time, Insert time), or empty lanes (Paste when there is
+  something to paste, the grid as a submenu, Snap to grid). Commands that
+  cannot run are left out, not greyed. Drag hints hide while a menu is
+  open.
+- **The grid behind clips** (G1): clip bodies are drawn at 55% opacity,
+  so the grid shows through at about half its strength; the title bar,
+  border and waveform stay solid.
+- **A click on the lanes** moves the playhead there (snapped; Alt
+  freely), as a ruler click does; on a clip it selects it too.
 - **Dropping files** (from the system): over an audio track's lane, the
   lane washes in `accent` at 8% with a 1 pt edge at 50%, and a ghost clip
   (dashed `accent` outline over `accent` at 14%, the file's name, or "3

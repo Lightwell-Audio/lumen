@@ -312,6 +312,7 @@ impl App {
             self.toggle_clip_lock();
             ui.close();
         }
+        self.fade_menu(ui);
         if ui
             .add(egui::Button::new("Properties").shortcut_text("Alt+Enter"))
             .clicked()
@@ -319,7 +320,6 @@ impl App {
             self.open_clip_card(first);
             ui.close();
         }
-        ui.separator();
     }
 
     /// Where clip `id` is drawn, if it is in view.
