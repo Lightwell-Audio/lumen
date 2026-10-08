@@ -390,7 +390,8 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-08: M3 slice 6d built (fades and clip gain); 6e next.
+**Last updated:** 2026-10-08: M3 slice 6d passed the owner's test
+(MT-APP-14 run 1, 6d steps); 6e next.
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
@@ -449,6 +450,7 @@ it first in a new session, and update it at the end of every slice.
     edits, 6c trim, loop-extend and slip, 6d fades and clip gain are
     built. Fades bend along free curves (the owner's C3; format v6,
     `lumen_core::curve`, ADR-0031), the model automation reuses in M7.
+    6d passed the owner's test (MT-APP-14 run 1, 2026-10-08).
     Next: 6e (mute, lock, rename, recolour, a properties view, drops on a
     chosen track), then MT-APP-14 and ADR-0032 for the slice.
   - Moved, trimmed or deleted clips crossfade over 5 ms while playing

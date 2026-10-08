@@ -1010,3 +1010,10 @@ taller for steps 1 to 4, then try them again at the default height.
 6. Try steps 1 to 3 in the light theme and at 150%.
 
 **Expected:** every step as described; no clicks.
+
+**Run 1 (2026-10-08, owner):** steps 1 to 6 (slice 6d: fades, free bend
+curves, clip gain, heard as drawn) passed ("looks good"). The steps for
+6e (mute, lock, rename, recolour, the properties view, drops on a chosen
+track) are added with that part and run as run 2.
+
+**Last run:** run 1, 6d steps passed; 6e steps to come.
