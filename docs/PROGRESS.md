@@ -3,10 +3,8 @@
 ## Status
 
 **Current milestone:** 3 — Arrangement & Project System (plan:
-[milestones/M3.md](milestones/M3.md)). Slices 1–5 are done. Slice 6 (clip
-editing and selection) is built, parts 6a to 6e, with the owner's MT-APP-14
-run 2 and run 3 findings fixed; MT-APP-14 run 4 (steps 18 and 19) is next.
-Then slice 7
+[milestones/M3.md](milestones/M3.md)). Slices 1–6 are done (slice 6, clip
+editing and selection, passed MT-APP-14 in run 4). Next come slice 7
 (command palette, shortcuts, context menus) and slice 8 (walkthrough and
 report).
 **Previous:** M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
@@ -38,7 +36,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 3 | Project model and undo, save/open, autosave and recovery (ADR-0024, MT-APP-8) | ✅ 2026-10-07 | `fd7583b`, `e2768fb`, `43c86f1`, `578bc6f`, `7780b11`, `4a7f615` |
 | 4 | Tracks and the arrangement view at scale: groundwork (format v3), 4a track headers (ADR-0025, MT-APP-9 passed), architecture audit fixed, 4b clips on the GPU with a frame-time benchmark (ADR-0026, MT-APP-10 passed), 4c waveforms (ADR-0027, MT-APP-11 passed), 4d navigation (ADR-0028, MT-APP-12 passed) | ✅ 2026-10-08 | 4a and audit through `eea085a`; 4b from `397f846` |
 | 5 | Grid, snapping, rulers, scrub, markers, loop: groundwork (format v4), 5a grid and snapping, 5b rulers (layout A), 5c loop and punch, 5d locators, 5e scrubbing | ✅ 2026-10-08 (ADR-0030, MT-APP-13 passed) | `1317d07` groundwork; `c7104a5`, `b3fd9d6`, `d9eab12`, `5fdc6e4`, `b3ccb4b` (5a to 5e); `656a10a`, `efc3012`, `9492652` (MT-APP-13 run 1); `ec5541f` closes it |
-| 6 | Clip editing and selection: groundwork (format v5), 6a selection and moving, 6b time ranges and edits, 6c trim, loop-extend and slip, 6d fades and clip gain (format v6, ADR-0031; MT-APP-14 run 1 passed its steps), 6e clip properties (mute, lock, rename, colour, the pinned card) and drops on a chosen track (ADR-0032) | 🟡 built, with the owner's changes from MT-APP-14 run 2 (menus for what was clicked, the grid behind clips, click to move the playhead) and the run 3 fixes (title rows, drops between tracks on Windows); run 4 to come | `f66c647` to `a6a2164`; 6e `6cc6860`; run-2 changes `3127ec7` |
+| 6 | Clip editing and selection: groundwork (format v5), 6a selection and moving, 6b time ranges and edits, 6c trim, loop-extend and slip, 6d fades and clip gain (format v6, ADR-0031; MT-APP-14 run 1 passed its steps), 6e clip properties (mute, lock, rename, colour, the pinned card) and drops on a chosen track (ADR-0032) | ✅ 2026-10-08 (ADR-0031, ADR-0032; MT-APP-14 passed in run 4, after the owner's run 2 changes and run 3 fixes) | `f66c647` to `a6a2164`; 6e `6cc6860`; run-2 changes `3127ec7`; run-3 fixes `4e8c779` |
 | 7 | Command palette, shortcuts, context menus | 🔲 | |
 | 8 | End-to-end walkthrough and report | 🔲 | |
 
@@ -116,7 +114,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
 | Import by drag and drop with sample-rate handling and optional copy into project | M | 🟡 Drag and drop from Explorer and automatic rate conversion done (M2 slice 6, ADR-0019), with a supported-file indicator while dragging. Imported audio is copied into `Samples/Imported` on save (setting, on by default; M3 slice 3c). Dropped on an audio track's lane, files land on that track at the pointer, one after another; between tracks they make new tracks there (M3 6e) | 3 |
-| Drop files onto a specific track; dropping between tracks or below them creates a track (owner request, MT-MEDIA-1, 2026-10-06) | M | 🟡 Built in M3 6e (`arrangement/drop.rs`): over an audio track's lane, files land on it at the pointer; between tracks, below the last one or over another kind of track, they make new tracks there. MT-APP-14 run 3 found drops between tracks were never offered on Windows (no pointer during a drag from Explorer); fixed by reading the system's cursor (ADR-0032). Run 4 (step 19) re-tests it | 3 |
+| Drop files onto a specific track; dropping between tracks or below them creates a track (owner request, MT-MEDIA-1, 2026-10-06) | M | ✅ Done in M3 6e (`arrangement/drop.rs`): over an audio track's lane, files land on it at the pointer; between tracks, below the last one or over another kind of track, they make new tracks there. MT-APP-14 run 3 found drops between tracks were never offered on Windows (no pointer during a drag from Explorer); fixed by reading the system's cursor (ADR-0032); passed in run 4. macOS and Linux: KNOWN_ISSUES | 3 |
 | Clip hover card with file details (format, rate, channels, length, size, path) | S | ✅ 2026-10-08 Basic card in M2 slice 6 (owner request, MT-MEDIA-1); in M3 6e it pins open as the clip's properties card (Alt+Enter; the owner's P1) | 3 |
 | Glitch-free playback, seamless loops, instant seeking | M | 🟡 Clips play sample-exactly from memory, with click-free crossfaded loops and locates (slice 6; golden renders; MT-MEDIA-1 passes by ear). Large sessions need disk streaming (M9) | 2 |
 | Disk streaming of clip audio with read-ahead, so large sessions need not fit in RAM; in-memory playback becomes a per-clip RAM option (owner decision 2026-10-06: memory in M2, streaming in M9) | M | 🔲 | 9 |
@@ -262,7 +260,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Select, marquee, range; cut/copy/paste/duplicate/delete/ripple delete/insert silence | M | 🟡 M3 6a: click, Ctrl and Shift selection, marquee, time ranges across tracks (a clip's bottom half). M3 6b (`lumen_project::edit`): cut, copy, paste (at the playhead or into a range, overwriting as Ableton), duplicate, delete, delete time (ripple, the whole song) and insert time, on clips and ranges, each one undo step, in the lanes' right-click menu. Crop and the remaining range edits come with M7's split |
 | Split, join, consolidate, trim, crop, slip, nudge, move, loop/unloop | M | 🟡 Trim, slip, move and loop-extend (M3 6a to 6c). Split (with the drag-to-cut gesture the owner asked for), join, consolidate, crop, unloop into copies and clip nudge in M7 |
 | Fades, crossfades, clip gain, reverse, normalize, polarity | M | 🟡 Fades with free curves and four presets, and clip gain (M3 6d, ADR-0031). Moved clips crossfade while playing (5 ms, engine). Automatic crossfades on overlaps, reverse, normalize and polarity in M7 |
-| Snap and grid; zoom; clip name/colour/mute/lock; clip properties | M | 🟡 | Grid and snapping (M3 5a) and zoom (4d) done; clip name, colour, mute, lock and the properties card built in M3 6e (ADR-0032); passed MT-APP-14 run 3 (title-row fix re-tested in run 4) |
+| Snap and grid; zoom; clip name/colour/mute/lock; clip properties | M | ✅ | Grid and snapping (M3 5a) and zoom (4d) done; clip name, colour, mute, lock and the properties card done in M3 6e (ADR-0032; MT-APP-14 passed in run 4) |
 | Tool model: pointer, draw, erase, split, mute and zoom, with single-key switching and temporary modifiers (CLAUDE.md §5). Not built, and in no milestone plan yet; proposed for M7 with split | M | 🔲 Proposed for M7 (owner to confirm) |
 | Warp, transient and tempo detection, pitch shift | S | 🔲 |
 | Take lanes and comping | S | 🔲 |

@@ -1093,4 +1093,6 @@ findings, both fixed:
     lane: it lands there. Drop on the line between two tracks: a new
     track there. Below the last track: a new track at the end.
 
-**Last run:** run 3, two fixes made; run 4 (steps 18 and 19) to come.
+**Run 4 (2026-10-08, owner):** steps 18 and 19 passed ("looks good").
+
+**Last run:** run 4, passed. MT-APP-14 is done.

@@ -390,12 +390,11 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-08: M3 slice 6e built; MT-APP-14 runs 2 and 3
-fixed (menus for what was clicked, the grid behind clips, click to move
-the playhead, title rows, drops between tracks on Windows); MT-APP-14
-run 4 next. Progress and milestone
-docs brought up to date; the owner's drag-to-cut request is recorded for
-M7 with split (the M3 plan, out of scope).
+**Last updated:** 2026-10-08: M3 slice 6 done (MT-APP-14 passed in
+run 4, after fixes for title rows and drops between tracks on Windows).
+Slice 7 (command palette, shortcuts, context menus) is next. The owner's
+drag-to-cut request is recorded for M7 with split (the M3 plan, out of
+scope).
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
@@ -448,7 +447,7 @@ M7 with split (the M3 plan, out of scope).
     grid step, Alt for tape), with an engine scrub mode.
     MT-APP-13 passed in run 2 (after drag hints, the snap magnet and
     locators added on the strip). **Slice 5 is done.**
-  - **Slice 6 in progress** (clip editing; owner's split-clip drag model,
+  - **Slice 6 done** (clip editing; owner's split-clip drag model,
     S3 and H1 selection look, L3 handles, Ableton's overlap rule, F3 and
     G1 for fades and gain): 6a selection and moving, 6b time ranges and
     edits, 6c trim, loop-extend and slip, 6d fades and clip gain are
@@ -467,8 +466,8 @@ M7 with split (the M3 plan, out of scope).
     fixed: the ✕ now sits level with the title's letters in every window
     (`widgets::title_row`), and drops between tracks work on Windows,
     where egui gets no pointer during a drag from Explorer (Lumen reads
-    the system's cursor; ADR-0032). Next: MT-APP-14 run 4 (steps 18 and
-    19), then slice 7.
+    the system's cursor; ADR-0032). MT-APP-14 passed in run 4.
+    **Slice 6 is done** (2026-10-08). Next: slice 7.
   - Esc after typing belongs to the text field (`App::typing`): egui
     drops a field's focus on Esc before the app's keys run, so key
     handlers must check `self.typing` as well as
