@@ -48,7 +48,8 @@ impl Layout {
 
 impl App {
     /// The strip above the bar ruler: the loop brace (edited by
-    /// `App::loop_brace`), punch in and out, and from slice 5d the locators.
+    /// `App::loop_brace`), punch in and out, and the locators
+    /// (`App::locator_flags`).
     pub(crate) fn locator_strip(
         &mut self,
         ui: &mut egui::Ui,
@@ -86,6 +87,7 @@ impl App {
             }
         }
         super::regions::draw_punch(painter, at, &looped);
+        self.locator_flags(ui, painter, at);
     }
 
     /// The bar ruler: labels, click to locate, drag to zoom and scroll.

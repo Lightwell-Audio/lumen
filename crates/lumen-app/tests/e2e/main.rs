@@ -14,6 +14,7 @@
 mod editing;
 mod files;
 mod grid;
+mod locators;
 mod looping;
 mod navigation;
 mod playback;

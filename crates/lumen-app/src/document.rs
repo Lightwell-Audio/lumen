@@ -11,7 +11,9 @@ use std::sync::Arc;
 
 use lumen_core::time::Ticks;
 use lumen_project::History;
-use lumen_project::model::{Clip, ClipContent, Color, Id, Media, Project, Track, TrackKind};
+use lumen_project::model::{
+    Clip, ClipContent, Color, Id, Marker, Media, Project, Track, TrackKind,
+};
 
 /// Track colours, cycled for new tracks (`theme::CLIP_COLORS`, as `#RRGGBB`).
 fn track_color(index: usize) -> Color {
@@ -366,6 +368,49 @@ impl Document {
         });
     }
 
+    /// Adds a locator at `at` (M3 slice 5d), named "Locator 1", "Locator 2"
+    /// and so on when `name` is `None`. Returns its id.
+    pub fn add_marker(&mut self, at: Ticks, name: Option<&str>) -> Id {
+        let id = self.fresh_id();
+        let at = at.max(Ticks::ZERO);
+        self.history.apply("Add locator", None, |project| {
+            let name = name.map_or_else(|| next_marker_name(&project.markers), str::to_owned);
+            project.markers.push(Marker { id, at, name });
+            sort_markers(&mut project.markers);
+        });
+        id
+    }
+
+    /// Moves a locator (`merge` joins the moves of one drag into one step).
+    pub fn move_marker(&mut self, id: Id, at: Ticks, merge: Option<&str>) {
+        let at = at.max(Ticks::ZERO);
+        self.history.apply("Move locator", merge, |project| {
+            if let Some(m) = project.markers.iter_mut().find(|m| m.id == id) {
+                m.at = at;
+            }
+            sort_markers(&mut project.markers);
+        });
+    }
+
+    /// Renames a locator (empty names are ignored).
+    pub fn rename_marker(&mut self, id: Id, name: &str) {
+        let name = name.trim();
+        if name.is_empty() {
+            return;
+        }
+        self.history.apply("Rename locator", None, |project| {
+            if let Some(m) = project.markers.iter_mut().find(|m| m.id == id) {
+                m.name = name.to_owned();
+            }
+        });
+    }
+
+    pub fn delete_marker(&mut self, id: Id) {
+        self.history.apply("Delete locator", None, |project| {
+            project.markers.retain(|m| m.id != id);
+        });
+    }
+
     /// Changes the given tracks, as one step named `label`.
     fn edit_tracks(&mut self, label: &str, ids: &[Id], change: impl Fn(&mut Track)) {
         self.history.apply(label, None, |project| {
@@ -471,6 +516,21 @@ fn ticks_at_seconds(project: &Project, seconds: f64) -> Ticks {
 }
 
 /// The highest id used anywhere in `project`.
+/// Locators stay in time order (equal times keep their order).
+fn sort_markers(markers: &mut [Marker]) {
+    markers.sort_by_key(|m| m.at);
+}
+
+/// "Locator N", one past the highest number in use.
+fn next_marker_name(markers: &[Marker]) -> String {
+    let n = markers
+        .iter()
+        .filter_map(|m| m.name.strip_prefix("Locator ")?.parse::<u32>().ok())
+        .max()
+        .unwrap_or(0);
+    format!("Locator {}", n + 1)
+}
+
 fn highest_id(project: &Project) -> u64 {
     let tracks = project.tracks.iter().flat_map(|t| {
         std::iter::once(t.id.0)
@@ -479,6 +539,7 @@ fn highest_id(project: &Project) -> u64 {
     });
     tracks
         .chain(project.media.iter().map(|m| m.id.0))
+        .chain(project.markers.iter().map(|m| m.id.0))
         .max()
         .unwrap_or(0)
 }
@@ -498,6 +559,42 @@ mod tests {
             size_bytes: 384_044,
             at,
         }
+    }
+
+    #[test]
+    fn locators_are_kept_in_order_and_each_change_is_one_step() {
+        let mut doc = Document::new(crate::empty_project());
+        let b = doc.add_marker(Ticks::quarters(8), None);
+        let a = doc.add_marker(Ticks::quarters(4), None);
+        let names: Vec<_> = doc
+            .project()
+            .markers
+            .iter()
+            .map(|m| m.name.as_str())
+            .collect();
+        assert_eq!(names, ["Locator 2", "Locator 1"]);
+        for _ in 0..3 {
+            doc.move_marker(b, Ticks::ZERO, Some("drag"));
+        }
+        assert_eq!(doc.project().markers[0].id, b);
+        doc.rename_marker(a, "  Chorus ");
+        doc.rename_marker(a, " ");
+        assert_eq!(doc.project().markers[1].name, "Chorus");
+        doc.delete_marker(b);
+        assert_eq!(doc.project().markers.len(), 1);
+        assert_eq!(lumen_project::validate(doc.project()), Ok(()));
+        doc.undo();
+        doc.undo();
+        assert_eq!(doc.project().markers[1].name, "Locator 2");
+        doc.undo();
+        assert_eq!(
+            doc.project().markers[0].id,
+            a,
+            "the drag undoes as one step"
+        );
+        // Ids survive reopening: a new id never repeats a locator's.
+        let reopened = Document::new(doc.project().clone()).fresh_id();
+        assert!(reopened.0 > a.0.max(b.0));
     }
 
     #[test]

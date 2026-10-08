@@ -121,11 +121,10 @@ report: {}",
         let view = self.nav.view;
         let palette = theme::p();
         ui.painter().rect_filled(corner, 0.0, palette.raised);
-        ui.painter().rect_filled(
-            egui::Rect::from_min_size(corner.min, vec2(header, rulers::STRIP_HEIGHT)),
-            0.0,
-            palette.app,
-        );
+        let strip_corner =
+            egui::Rect::from_min_size(corner.min, vec2(header, rulers::STRIP_HEIGHT));
+        ui.painter().rect_filled(strip_corner, 0.0, palette.app);
+        self.locator_buttons(ui, strip_corner);
         self.grid_button(
             ui,
             egui::Rect::from_min_max(

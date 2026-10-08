@@ -134,6 +134,11 @@ impl App {
         (r.start, r.end, r.enabled)
     }
 
+    /// What Undo would undo.
+    pub fn undo_label(&self) -> Option<&str> {
+        self.document.history().undo_label()
+    }
+
     /// Saves to `path`, as Save does once its dialog has a path.
     pub fn save_to(&mut self, path: PathBuf) {
         self.start_save(path);
