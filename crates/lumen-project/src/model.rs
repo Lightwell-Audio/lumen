@@ -69,7 +69,7 @@ pub struct Project {
     /// Named locators, in time order (format v4). Part of undo.
     #[serde(default)]
     pub markers: Vec<Marker>,
-    /// Saved with the project but not part of undo (format v2).
+    /// The loop and punch (format v2; part of undo from v4).
     #[serde(default)]
     pub transport: TransportState,
     /// How the project was last viewed (format v2). Not part of undo.
@@ -85,16 +85,16 @@ pub struct Marker {
     pub name: String,
 }
 
-/// The loop and punch regions as last set.
+/// The loop brace and the punch switches. Part of undo from format v4
+/// (M3 slice 5c), as in Ableton.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TransportState {
     pub loop_start: Ticks,
     pub loop_end: Ticks,
     pub loop_enabled: bool,
-    /// Punch in and out (format v4): recording happens only inside.
-    pub punch_start: Ticks,
-    pub punch_end: Ticks,
+    /// Punch in and out (format v4) at the loop brace's start and end, as
+    /// in Ableton: recording starts and stops there.
     pub punch_in: bool,
     pub punch_out: bool,
 }
@@ -106,8 +106,6 @@ impl Default for TransportState {
             // Four bars of 4/4.
             loop_end: Ticks::quarters(16),
             loop_enabled: false,
-            punch_start: Ticks::ZERO,
-            punch_end: Ticks::quarters(16),
             punch_in: false,
             punch_out: false,
         }

@@ -150,8 +150,6 @@
       "loop_start": 11289600,
       "loop_end": 33868800,
       "loop_enabled": true,
-      "punch_start": 5644800,
-      "punch_end": 16934400,
       "punch_in": true,
       "punch_out": false
     },

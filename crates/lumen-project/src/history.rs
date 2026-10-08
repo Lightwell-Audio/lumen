@@ -176,6 +176,7 @@ fn unchanged(a: &Project, b: &Project) -> bool {
         && a.tempo == b.tempo
         && a.time_signature == b.time_signature
         && a.media == b.media
+        && a.markers == b.markers
         && a.transport == b.transport
         && a.view == b.view
         && a.tracks.len() == b.tracks.len()

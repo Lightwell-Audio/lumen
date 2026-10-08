@@ -47,20 +47,26 @@ impl Layout {
 }
 
 impl App {
-    /// The strip above the bar ruler: the loop brace (edited in slice 5c)
-    /// and, from slice 5d, the locators.
-    pub(crate) fn locator_strip(&mut self, painter: &egui::Painter, at: &Layout) {
+    /// The strip above the bar ruler: the loop brace (edited by
+    /// `App::loop_brace`), punch in and out, and from slice 5d the locators.
+    pub(crate) fn locator_strip(
+        &mut self,
+        ui: &mut egui::Ui,
+        painter: &egui::Painter,
+        at: &Layout,
+    ) {
+        self.loop_brace(ui, painter, at);
         let palette = theme::p();
         painter.rect_filled(at.strip, 0.0, palette.app);
-        let looped = self.transport.loop_region;
+        let looped = self.document.project().transport;
         let (a, b) = (
-            at.x(looped.start.as_quarters()),
-            at.x(looped.end.as_quarters()),
+            at.x(looped.loop_start.as_quarters()),
+            at.x(looped.loop_end.as_quarters()),
         );
         let brace = Rect::from_x_y_ranges(a..=b, at.strip.bottom() - 7.0..=at.strip.bottom())
             .intersect(at.strip);
         if brace.width() > 0.0 {
-            let (fill, edge) = if looped.enabled {
+            let (fill, edge) = if looped.loop_enabled {
                 (palette.accent_muted, palette.accent)
             } else {
                 (palette.control, palette.text_hint)
@@ -79,6 +85,7 @@ impl App {
                 }
             }
         }
+        super::regions::draw_punch(painter, at, &looped);
     }
 
     /// The bar ruler: labels, click to locate, drag to zoom and scroll.

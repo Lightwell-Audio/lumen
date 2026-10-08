@@ -140,10 +140,14 @@ impl Transport {
         self.send(Command::Locate(at));
     }
 
-    /// Sets the loop region (when a project is opened).
-    pub fn set_loop(&mut self, region: Region) {
-        self.loop_region = region;
-        self.send(Command::SetLoop(region));
+    /// Plays the project's loop (its brace and switch are document edits,
+    /// slice 5c): sends it to the engine when it differs from what plays.
+    pub fn follow_loop(&mut self, state: &lumen_project::model::TransportState) {
+        let region = Region::new(state.loop_start, state.loop_end, state.loop_enabled);
+        if region != self.loop_region {
+            self.loop_region = region;
+            self.send(Command::SetLoop(region));
+        }
     }
 
     /// Follow on, off, or back on after a pause (the button and Ctrl+Shift+F).
@@ -205,11 +209,6 @@ impl Transport {
         });
     }
 
-    pub fn toggle_loop(&mut self) {
-        self.loop_region.enabled = !self.loop_region.enabled;
-        self.send(Command::SetLoop(self.loop_region));
-    }
-
     /// Rebuilds the timeline from the project and sends it to the engine
     /// (after an edit, undo or redo that may have changed tempo or meter).
     /// Most edits (arming, volume, pan, renaming) leave tempo and meter as
@@ -264,7 +263,6 @@ impl Transport {
     }
 
     pub fn ui(&mut self, ui: &mut Ui, doc: &mut crate::document::Document) {
-        let project = doc.project();
         let state = self.state();
         let running = matches!(self.audio.status, Status::Running { .. });
         let no_audio = "No audio device is running";
@@ -333,19 +331,20 @@ impl Transport {
             false,
             "Recording arrives in Milestone 9",
         );
-        if icons::button(
+        let looped = doc.project().transport;
+        let loop_button = icons::button(
             ui,
             Icon::Loop,
             "Loop",
-            None,
-            self.loop_region.enabled,
+            Some("right-click for punch in and out"),
+            looped.loop_enabled,
             true,
             "",
-        )
-        .clicked()
-        {
-            self.toggle_loop();
+        );
+        if loop_button.clicked() {
+            doc.set_loop_enabled(!looped.loop_enabled);
         }
+        loop_button.context_menu(|ui| punch_menu(ui, doc));
         let metronome = icons::button(
             ui,
             Icon::Metronome,
@@ -382,6 +381,7 @@ impl Transport {
         ui.separator();
 
         // Tempo.
+        let project = doc.project();
         let mut bpm = project.tempo.first().map_or(120.0, |p| p.bpm);
         let tempo = ui
             .add(
@@ -761,4 +761,43 @@ impl Transport {
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
             .show(|ui| self.audio_panel(ui));
     }
+}
+
+/// Loop and punch switches: the loop button's and the loop brace's
+/// right-click menus. Punch in and out act at the loop's edges, as in
+/// Ableton (recording arrives in Milestone 9).
+pub fn punch_menu(ui: &mut Ui, doc: &mut crate::document::Document) {
+    let t = doc.project().transport;
+    if ui
+        .add(egui::Button::selectable(t.loop_enabled, "Loop"))
+        .clicked()
+    {
+        doc.set_loop_enabled(!t.loop_enabled);
+        ui.close();
+    }
+    if ui
+        .add(egui::Button::selectable(
+            t.punch_in,
+            "Punch in at the loop start",
+        ))
+        .clicked()
+    {
+        doc.set_punch(!t.punch_in, t.punch_out);
+        ui.close();
+    }
+    if ui
+        .add(egui::Button::selectable(
+            t.punch_out,
+            "Punch out at the loop end",
+        ))
+        .clicked()
+    {
+        doc.set_punch(t.punch_in, !t.punch_out);
+        ui.close();
+    }
+    ui.label(
+        RichText::new("Recording, which punch controls, arrives in Milestone 9")
+            .weak()
+            .small(),
+    );
 }

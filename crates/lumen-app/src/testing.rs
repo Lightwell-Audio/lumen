@@ -128,6 +128,12 @@ impl App {
             .height_of_content(ctx, self.document.project(), self.lanes.pending().len())
     }
 
+    /// The loop the engine plays: start, end, on.
+    pub fn engine_loop(&self) -> (Ticks, Ticks, bool) {
+        let r = self.transport.loop_region;
+        (r.start, r.end, r.enabled)
+    }
+
     /// Saves to `path`, as Save does once its dialog has a path.
     pub fn save_to(&mut self, path: PathBuf) {
         self.start_save(path);

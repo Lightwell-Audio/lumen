@@ -64,7 +64,7 @@ fn v2_to_v3(mut document: Value) -> Result<Value, String> {
 }
 
 /// Version 4 (M3 slice 5) adds named locators (`markers`), the punch
-/// region to the transport, and the grid to the view. The defaults are
+/// switches to the transport, and the grid to the view. The defaults are
 /// written out.
 fn v3_to_v4(mut document: Value) -> Result<Value, String> {
     let project = document
@@ -72,15 +72,9 @@ fn v3_to_v4(mut document: Value) -> Result<Value, String> {
         .and_then(Value::as_object_mut)
         .ok_or("missing project")?;
     project.entry("markers").or_insert(Value::Array(Vec::new()));
-    let defaults = crate::model::TransportState::default();
     if let Some(transport) = project.get_mut("transport").and_then(Value::as_object_mut) {
-        for (key, value) in [
-            ("punch_start", Value::from(defaults.punch_start.0)),
-            ("punch_end", Value::from(defaults.punch_end.0)),
-            ("punch_in", Value::Bool(false)),
-            ("punch_out", Value::Bool(false)),
-        ] {
-            transport.entry(key).or_insert(value);
+        for key in ["punch_in", "punch_out"] {
+            transport.entry(key).or_insert(Value::Bool(false));
         }
     }
     if let Some(view) = project.get_mut("view").and_then(Value::as_object_mut) {
@@ -221,10 +215,7 @@ mod tests {
         let transport = &v4["project"]["transport"];
         assert_eq!(transport["loop_enabled"], true, "kept");
         assert_eq!(transport["punch_in"], false);
-        assert_eq!(
-            transport["punch_end"],
-            crate::model::TransportState::default().punch_end.0
-        );
+        assert_eq!(transport["punch_out"], false);
         assert_eq!(v4["project"]["view"]["grid"]["width"], "narrow");
         assert_eq!(v4["project"]["view"]["left_beat"], 3.0);
     }

@@ -2,8 +2,8 @@
 //! is saved, and whether it has changed since.
 //!
 //! Every edit goes through [`Document::apply`], so it is one undo step
-//! (ADR-0024). Transport and view state are not edits: they are stamped into
-//! the project when it is saved (slice 3c).
+//! (ADR-0024). The loop and punch are edits too (slice 5c, as in Ableton);
+//! view state is not: it is stamped into the project when it is saved.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -325,6 +325,44 @@ impl Document {
             let at = index.min(rest.len());
             rest.splice(at..at, moving);
             project.tracks = rest;
+        });
+    }
+
+    /// Sets the loop brace, as one step named `label` (`merge` joins the
+    /// moves of one drag into one step). A region that ends before it
+    /// starts is ignored.
+    pub fn set_loop(
+        &mut self,
+        label: &str,
+        merge: Option<&str>,
+        start: Ticks,
+        end: Ticks,
+        enabled: bool,
+    ) {
+        if end <= start || start < Ticks::ZERO {
+            return;
+        }
+        self.history.apply(label, merge, |project| {
+            let t = &mut project.transport;
+            t.loop_start = start;
+            t.loop_end = end;
+            t.loop_enabled = enabled;
+        });
+    }
+
+    /// Turns looping on or off.
+    pub fn set_loop_enabled(&mut self, enabled: bool) {
+        let label = if enabled { "Loop on" } else { "Loop off" };
+        self.history.apply(label, None, |project| {
+            project.transport.loop_enabled = enabled
+        });
+    }
+
+    /// Turns punch in and punch out on or off (at the loop's edges).
+    pub fn set_punch(&mut self, punch_in: bool, punch_out: bool) {
+        self.history.apply("Punch", None, |project| {
+            project.transport.punch_in = punch_in;
+            project.transport.punch_out = punch_out;
         });
     }
 

@@ -170,7 +170,7 @@ fn golden_v3_expected() -> Project {
 }
 
 /// The model the v4 golden file must always load as: v3 plus two
-/// locators, a punch region and a fixed triplet grid.
+/// locators, punch in and a fixed triplet grid.
 fn golden_v4_expected() -> Project {
     let mut project = Project {
         name: "Golden v4".into(),
@@ -188,8 +188,6 @@ fn golden_v4_expected() -> Project {
             name: "Verse".into(),
         },
     ];
-    project.transport.punch_start = Ticks::quarters(4);
-    project.transport.punch_end = Ticks::quarters(12);
     project.transport.punch_in = true;
     project.view.grid = Grid {
         fixed: true,

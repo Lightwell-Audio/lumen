@@ -200,7 +200,7 @@ report: {}",
             draw_snap_guide(&painter, x_of(self.drop_target.as_quarters()), at.guides());
         }
 
-        self.locator_strip(&painter, &at);
+        self.locator_strip(ui, &painter, &at);
         self.bar_ruler(ui, &painter, &at);
         self.time_ruler(&painter, &at);
 

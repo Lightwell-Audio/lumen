@@ -36,17 +36,10 @@ pub(crate) fn documents_folder() -> Option<PathBuf> {
 }
 
 impl App {
-    /// The project as it should be saved: the document with the loop region
-    /// and view stamped in (they are not undo steps).
+    /// The project as it should be saved: the document with the view
+    /// stamped in (it is not an undo step).
     pub(crate) fn stamped(&self) -> Project {
         let mut project = self.document.project().clone();
-        let looped = self.transport.loop_region;
-        project.transport = lumen_project::model::TransportState {
-            loop_start: looped.start,
-            loop_end: looped.end,
-            loop_enabled: looped.enabled,
-            ..project.transport
-        };
         project.view = lumen_project::model::ViewState {
             left_beat: self.nav.view.left as f32,
             px_per_beat: self.nav.view.zoom as f32,
@@ -217,7 +210,6 @@ impl App {
             match result {
                 Ok(opened) => {
                     let view = opened.project.view.clone();
-                    let looped = opened.project.transport;
                     files::remember(&mut self.settings.projects.recent, &opened.path);
                     self.settings_changed = Some(Instant::now());
                     self.file_notice = match opened.missing.len() {
@@ -256,11 +248,6 @@ impl App {
                     self.show_detail = view.detail_open;
                     self.browser_size = view.browser_size.clamp(120.0, 600.0);
                     self.detail_size = view.detail_size.clamp(80.0, 600.0);
-                    self.transport.set_loop(lumen_engine::Region::new(
-                        looped.loop_start,
-                        looped.loop_end.max(looped.loop_start + Ticks(1)),
-                        looped.loop_enabled,
-                    ));
                     let what = if recovered {
                         "Recovered unsaved changes to"
                     } else {

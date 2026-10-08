@@ -52,6 +52,8 @@ impl App {
         if !ctx.input(|i| i.pointer.any_down()) {
             self.document.seal();
         }
+        self.transport
+            .follow_loop(&self.document.project().transport);
         if self.synced != Some(self.document.state()) {
             self.transport.timeline_changed(self.document.project());
             self.synced = Some(self.document.state());
