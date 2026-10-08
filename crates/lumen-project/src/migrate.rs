@@ -18,7 +18,7 @@ pub type Migration = fn(Value) -> Result<Value, String>;
 pub const FIRST_VERSION: u64 = 1;
 
 /// `MIGRATIONS[i]` upgrades version `FIRST_VERSION + i` to the next one.
-pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
 /// state (`view`). Version 1 files get the defaults written out.
@@ -59,6 +59,34 @@ fn v2_to_v3(mut document: Value) -> Result<Value, String> {
         view.entry("track_heights")
             .or_insert(Value::Object(serde_json::Map::new()));
         view.entry("expanded").or_insert(Value::Array(Vec::new()));
+    }
+    Ok(document)
+}
+
+/// Version 4 (M3 slice 5) adds named locators (`markers`), the punch
+/// region to the transport, and the grid to the view. The defaults are
+/// written out.
+fn v3_to_v4(mut document: Value) -> Result<Value, String> {
+    let project = document
+        .get_mut("project")
+        .and_then(Value::as_object_mut)
+        .ok_or("missing project")?;
+    project.entry("markers").or_insert(Value::Array(Vec::new()));
+    let defaults = crate::model::TransportState::default();
+    if let Some(transport) = project.get_mut("transport").and_then(Value::as_object_mut) {
+        for (key, value) in [
+            ("punch_start", Value::from(defaults.punch_start.0)),
+            ("punch_end", Value::from(defaults.punch_end.0)),
+            ("punch_in", Value::Bool(false)),
+            ("punch_out", Value::Bool(false)),
+        ] {
+            transport.entry(key).or_insert(value);
+        }
+    }
+    if let Some(view) = project.get_mut("view").and_then(Value::as_object_mut) {
+        view.entry("grid").or_insert(
+            serde_json::to_value(lumen_core::grid::Grid::default()).map_err(|e| e.to_string())?,
+        );
     }
     Ok(document)
 }
@@ -163,7 +191,7 @@ mod tests {
             "version": 2,
             "project": { "tracks": [{ "id": "1" }], "view": { "left_beat": 3.0 } }
         });
-        let v3 = upgrade(v2, 2, FIRST_VERSION, MIGRATIONS).unwrap();
+        let v3 = upgrade(v2, 2, FIRST_VERSION, &MIGRATIONS[..2]).unwrap();
         assert_eq!(v3["version"], 3);
         assert_eq!(v3["project"]["tracks"][0]["armed"], false);
         assert_eq!(v3["project"]["view"]["top"], 0.0);
@@ -175,5 +203,29 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(v3["project"]["view"]["expanded"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn v3_to_v4_writes_markers_punch_and_the_grid() {
+        let v3 = json!({
+            "format": "lumen-project",
+            "version": 3,
+            "project": {
+                "transport": { "loop_enabled": true },
+                "view": { "left_beat": 3.0 }
+            }
+        });
+        let v4 = upgrade(v3, 3, FIRST_VERSION, &MIGRATIONS[..3]).unwrap();
+        assert_eq!(v4["version"], 4);
+        assert_eq!(v4["project"]["markers"], json!([]));
+        let transport = &v4["project"]["transport"];
+        assert_eq!(transport["loop_enabled"], true, "kept");
+        assert_eq!(transport["punch_in"], false);
+        assert_eq!(
+            transport["punch_end"],
+            crate::model::TransportState::default().punch_end.0
+        );
+        assert_eq!(v4["project"]["view"]["grid"]["width"], "narrow");
+        assert_eq!(v4["project"]["view"]["left_beat"], 3.0);
     }
 }

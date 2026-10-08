@@ -164,6 +164,7 @@ pub(crate) fn empty_project() -> Project {
         },
         tracks: Vec::new(),
         media: Vec::new(),
+        markers: Vec::new(),
         transport: Default::default(),
         view: Default::default(),
     }

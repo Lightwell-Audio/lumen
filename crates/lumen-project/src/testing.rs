@@ -185,6 +185,7 @@ pub fn synthetic(
         },
         tracks: all_tracks,
         media,
+        markers: Vec::new(),
         transport: Default::default(),
         view: Default::default(),
     }

@@ -46,6 +46,23 @@ pub fn validate(project: &Project) -> Result<(), String> {
     }
 
     let mut ids = HashSet::new();
+    for (index, marker) in project.markers.iter().enumerate() {
+        if !ids.insert(marker.id) {
+            return Err(format!("marker {index} {:?}: duplicate id", marker.name));
+        }
+        if marker.at < Ticks::ZERO {
+            return Err(format!(
+                "marker {index} {:?}: before the start",
+                marker.name
+            ));
+        }
+    }
+    // The punch region is new in v4 and always written whole; the loop is
+    // not checked, so an older file with an odd loop still opens.
+    let transport = &project.transport;
+    if transport.punch_end <= transport.punch_start {
+        return Err("the punch region ends before it starts".into());
+    }
     for track in &project.tracks {
         let at = || format!("track {:?}", track.name);
         // JSON cannot represent NaN or infinity; they must never reach a file.

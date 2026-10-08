@@ -12,6 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use lumen_core::grid::Grid;
 use lumen_core::time::{TempoPoint, Ticks};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -65,6 +66,9 @@ pub struct Project {
     pub tracks: Vec<Arc<Track>>,
     #[serde(default)]
     pub media: Vec<Media>,
+    /// Named locators, in time order (format v4). Part of undo.
+    #[serde(default)]
+    pub markers: Vec<Marker>,
     /// Saved with the project but not part of undo (format v2).
     #[serde(default)]
     pub transport: TransportState,
@@ -73,13 +77,26 @@ pub struct Project {
     pub view: ViewState,
 }
 
-/// The loop region as last set.
+/// A named locator (format v4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Marker {
+    pub id: Id,
+    pub at: Ticks,
+    pub name: String,
+}
+
+/// The loop and punch regions as last set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TransportState {
     pub loop_start: Ticks,
     pub loop_end: Ticks,
     pub loop_enabled: bool,
+    /// Punch in and out (format v4): recording happens only inside.
+    pub punch_start: Ticks,
+    pub punch_end: Ticks,
+    pub punch_in: bool,
+    pub punch_out: bool,
 }
 
 impl Default for TransportState {
@@ -89,6 +106,10 @@ impl Default for TransportState {
             // Four bars of 4/4.
             loop_end: Ticks::quarters(16),
             loop_enabled: false,
+            punch_start: Ticks::ZERO,
+            punch_end: Ticks::quarters(16),
+            punch_in: false,
+            punch_out: false,
         }
     }
 }
@@ -112,6 +133,8 @@ pub struct ViewState {
     pub track_heights: BTreeMap<Id, f32>,
     /// Tracks shown unfolded, with their detailed header (format v3).
     pub expanded: BTreeSet<Id>,
+    /// The editing grid and snapping (format v4).
+    pub grid: Grid,
 }
 
 impl Default for ViewState {
@@ -126,6 +149,7 @@ impl Default for ViewState {
             top: 0.0,
             track_heights: BTreeMap::new(),
             expanded: BTreeSet::new(),
+            grid: Grid::default(),
         }
     }
 }

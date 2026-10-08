@@ -5,13 +5,14 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
+use lumen_core::grid::{Feel, Grid, Size};
 use lumen_core::time::{PPQ, TempoPoint, Ticks};
 use lumen_project::migrate::CURRENT_VERSION;
 use lumen_project::model::{
     Clip, ClipContent, Color, Device, Id, Media, Note, PluginRef, Project, TimeSignature, Track,
     TrackKind,
 };
-use lumen_project::model::{TransportState, ViewState};
+use lumen_project::model::{Marker, TransportState, ViewState};
 use lumen_project::testing::{TempDir, small_project, synthetic};
 use lumen_project::{
     LoadError, MediaLocation, SaveError, SaveOptions, from_bytes, load, locate_media,
@@ -117,7 +118,8 @@ fn golden_v1_expected() -> Project {
             sample_rate: 48_000,
             size_bytes: 384_044,
         }],
-        // Not in v1 files: the v1 -> v2 migration writes the defaults.
+        // Not in v1 files: the migrations write the defaults.
+        markers: Vec::new(),
         transport: Default::default(),
         view: Default::default(),
     }
@@ -138,6 +140,7 @@ fn golden_v2_expected() -> Project {
             loop_start: Ticks::quarters(8),
             loop_end: Ticks::quarters(24),
             loop_enabled: true,
+            ..TransportState::default()
         },
         view: ViewState {
             left_beat: 4.0,
@@ -164,6 +167,50 @@ fn golden_v3_expected() -> Project {
     project.view.track_heights.insert(Id(2), 96.0);
     project.view.expanded.insert(Id(2));
     project
+}
+
+/// The model the v4 golden file must always load as: v3 plus two
+/// locators, a punch region and a fixed triplet grid.
+fn golden_v4_expected() -> Project {
+    let mut project = Project {
+        name: "Golden v4".into(),
+        ..golden_v3_expected()
+    };
+    project.markers = vec![
+        Marker {
+            id: Id(0x40),
+            at: Ticks::ZERO,
+            name: "Intro".into(),
+        },
+        Marker {
+            id: Id(0x41),
+            at: Ticks::quarters(16),
+            name: "Verse".into(),
+        },
+    ];
+    project.transport.punch_start = Ticks::quarters(4);
+    project.transport.punch_end = Ticks::quarters(12);
+    project.transport.punch_in = true;
+    project.view.grid = Grid {
+        fixed: true,
+        size: Size::Note(8),
+        feel: Feel::Triplet,
+        snap: false,
+        ..Grid::default()
+    };
+    project
+}
+
+#[test]
+fn golden_v4_file_loads_forever() {
+    let path = fixture("v4/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        // Written once, when version 4 was introduced; never rewritten.
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v4_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v4 golden file must load");
+    assert_eq!(project, golden_v4_expected());
 }
 
 #[test]

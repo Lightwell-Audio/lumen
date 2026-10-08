@@ -45,6 +45,7 @@ impl App {
             loop_start: looped.start,
             loop_end: looped.end,
             loop_enabled: looped.enabled,
+            ..project.transport
         };
         project.view = lumen_project::model::ViewState {
             left_beat: self.nav.view.left as f32,
