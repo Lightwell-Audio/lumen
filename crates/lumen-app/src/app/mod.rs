@@ -8,4 +8,5 @@ pub(crate) mod navigate;
 pub(crate) mod preferences;
 pub(crate) mod projects;
 pub(crate) mod recovery;
+pub(crate) mod rulers;
 pub(crate) mod view;

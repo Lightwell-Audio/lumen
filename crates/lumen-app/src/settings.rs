@@ -162,6 +162,8 @@ pub struct Settings {
     pub appearance: Appearance,
     pub projects: Projects,
     pub follow: Follow,
+    /// The time ruler's format (M3 slice 5b).
+    pub time_format: crate::timefmt::TimeFormat,
 }
 
 impl Default for Settings {
@@ -173,6 +175,7 @@ impl Default for Settings {
             appearance: Appearance::default(),
             projects: Projects::default(),
             follow: Follow::default(),
+            time_format: crate::timefmt::TimeFormat::default(),
         }
     }
 }
@@ -351,6 +354,7 @@ mod tests {
                 copy_imported: false,
             },
             follow: Follow::Continuous,
+            time_format: crate::timefmt::TimeFormat::Timecode25,
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path), (settings.clone(), None));

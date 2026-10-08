@@ -24,6 +24,8 @@ const PAGE_TURN: f64 = 0.95;
 const PAGE_IN: f64 = 0.02;
 /// Continuous follow: where the playhead stays.
 const CONTINUOUS_AT: f64 = 0.4;
+/// Dragging the ruler 100 points down zooms in by e (about 2.7 times).
+const RULER_ZOOM_PER_POINT: f64 = 0.01;
 
 /// Where the arrangement looks, how it got there, and where it was.
 #[derive(Debug, Default)]
@@ -37,6 +39,8 @@ pub struct Nav {
     height_wheel: f32,
     /// Playing at the last frame (Follow resumes when playback starts).
     was_playing: bool,
+    /// The beat grabbed by a ruler drag in progress.
+    ruler_drag: Option<f64>,
 }
 
 /// A view on its way to another (key zooms, fits, X).
@@ -101,6 +105,33 @@ impl Nav {
 }
 
 impl App {
+    /// Dragging the bar ruler, as in Ableton: down zooms in, up zooms out,
+    /// sideways scrolls, and the grabbed beat stays under the pointer. True
+    /// while a drag is moving the view.
+    pub(crate) fn drag_ruler(&mut self, response: &egui::Response, canvas: Rect) -> bool {
+        if response.drag_started()
+            && let Some(p) = response.interact_pointer_pos()
+        {
+            self.nav.remember();
+            self.nav.glide = None;
+            self.nav.ruler_drag = Some(self.nav.view.beat_at(canvas.left(), p.x));
+            // Looking around pauses Follow.
+            self.transport.follow_paused = true;
+        }
+        if response.drag_stopped() {
+            self.nav.ruler_drag = None;
+        }
+        let (Some(beat), Some(p)) = (self.nav.ruler_drag, response.interact_pointer_pos()) else {
+            return false;
+        };
+        let limits = self.zoom_limits(canvas.width());
+        let zoom =
+            self.nav.view.zoom * (f64::from(response.drag_delta().y) * RULER_ZOOM_PER_POINT).exp();
+        self.nav
+            .set(TimeView::holding(beat, p.x - canvas.left(), zoom, limits));
+        true
+    }
+
     /// How far the view may zoom and scroll: out to the song (as in
     /// Ableton), in to single samples at the tempo where the view is.
     fn zoom_limits(&self, width: f32) -> Limits {

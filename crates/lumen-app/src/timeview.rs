@@ -105,6 +105,19 @@ impl TimeView {
         }
     }
 
+    /// The view at `zoom` with `beat` held `x` points from the left edge
+    /// (dragging the ruler: the grabbed beat stays under the pointer),
+    /// within the limits.
+    pub fn holding(beat: f64, x: f32, zoom: f64, limits: Limits) -> Self {
+        let zoom = zoom.clamp(limits.min, limits.max);
+        Self {
+            left: (beat - f64::from(x) / zoom)
+                .min(limits.last_left(zoom))
+                .max(0.0),
+            zoom,
+        }
+    }
+
     /// The view showing beats `from..to` across `width` points, with a
     /// small margin either side (W, "fit width").
     pub fn fit(from: f64, to: f64, width: f32, limits: Limits) -> Self {
@@ -208,6 +221,28 @@ mod tests {
         assert!(view.x(0.0, 100.0) > 950.0, "nearly full width");
         // An empty song still gets a sensible view.
         assert!(TimeView::fit(0.0, 0.0, 1_000.0, WIDE).zoom.is_finite());
+    }
+
+    #[test]
+    fn a_held_beat_stays_under_the_pointer() {
+        let view = TimeView::holding(40.0, 200.0, 10.0, WIDE);
+        assert_eq!(
+            view,
+            TimeView {
+                left: 20.0,
+                zoom: 10.0
+            }
+        );
+        assert!((view.beat_at(0.0, 200.0) - 40.0).abs() < 1e-9);
+        // Near the start it stops at the start; the zoom is limited.
+        let near = TimeView::holding(1.0, 500.0, 1e9, Limits { max: 100.0, ..WIDE });
+        assert_eq!(
+            near,
+            TimeView {
+                left: 0.0,
+                zoom: 100.0
+            }
+        );
     }
 
     #[test]

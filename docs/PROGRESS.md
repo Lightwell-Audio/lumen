@@ -35,7 +35,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 2 | Design system, motion system, M2 retrofit; typefaces (ADR-0023, MT-APP-7) | ✅ 2026-10-07 | `dbe4777`, `392a5f8`, `d320cf0` |
 | 3 | Project model and undo, save/open, autosave and recovery (ADR-0024, MT-APP-8) | ✅ 2026-10-07 | `fd7583b`, `e2768fb`, `43c86f1`, `578bc6f`, `7780b11`, `4a7f615` |
 | 4 | Tracks and the arrangement view at scale: groundwork (format v3), 4a track headers (ADR-0025, MT-APP-9 passed), architecture audit fixed, 4b clips on the GPU with a frame-time benchmark (ADR-0026, MT-APP-10 passed), 4c waveforms (ADR-0027, MT-APP-11 passed), 4d navigation (ADR-0028, MT-APP-12 passed) | ✅ 2026-10-08 | 4a and audit through `eea085a`; 4b from `397f846` |
-| 5 | Grid, snapping, rulers, scrub, markers, loop: groundwork (format v4), 5a grid and snapping | 🟡 | |
+| 5 | Grid, snapping, rulers, scrub, markers, loop: groundwork (format v4), 5a grid and snapping, 5b rulers (layout A) | 🟡 | |
 | 6 | Clip editing and selection | 🔲 | |
 | 7 | Command palette, shortcuts, context menus | 🔲 | |
 | 8 | End-to-end walkthrough and report | 🔲 | |
@@ -96,7 +96,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
-| Rulers: bars/beats, minutes:seconds, samples, timecode | M | 🔲 | 3 |
+| Rulers: bars/beats, minutes:seconds, samples, timecode | M | ✅ 2026-10-08 | 3 | M3 slice 5b, layout A (owner): the bar ruler on top; a time ruler along the bottom in minutes and seconds, samples, or timecode at 24, 25, 29.97 drop-frame or 30 fps (`timefmt.rs`, tested), chosen from its corner and saved in settings; the position display follows it. At the deepest zoom the bar ruler pins the position of its left edge |
 | Adaptive or fixed grid (triplet, dotted, off) with snap-bypass modifier | M | ✅ 2026-10-08 | 3 | M3 slice 5a: `lumen_core::grid`, adaptive in five widths or fixed 8 bars to 1/64, triplet and dotted, snap on or off (Ctrl+1 to Ctrl+5, the grid menu and button); Alt bypasses; snap guide; saved with the project (format v4). Used by the ruler and dropped files now, by clip edits in slice 6 |
 | Anchored zoom, zoom to selection, fit all, fit loop, pan, edge auto-scroll, follow modes. (Ctrl+wheel zoom works in the M1 shell since the 2026-10-06 fix: egui delivers it as a zoom factor, not as scroll.) | M | 🟡 | 3 | M3 slice 4d (ADR-0028): zoom at the pointer to single samples, `+`/`-`, X back, W fit all, H fit heights, Alt+wheel heights, pan, auto-scroll while dragging tracks, Follow page and continuous. Zoom to selection with selection (slice 6); fit loop with the command palette (slice 7) |
 | Track types: audio, MIDI/instrument, group, return, master | M | 🟡 All five exist in the project model; audio tracks are created by importing (M3 slice 3). Track headers and adding each type in M3 slice 4; group summing, returns and master in M4 | 3–4 |
@@ -250,7 +250,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Loop region, punch in/out, auto-punch | M | 🟡 Sample-accurate loop wrap and punch-region reporting in the engine (slice 3). Recording through punch in M9 |
 | Markers with names and navigation | M | 🔲 |
 | Multiple time formats; editable position field | M | 🔲 |
-| Edit cursor separate from playhead; scrubbing. **Owner request (2026-10-06), raised from S to M, Ableton-style:** click in the scrub strip to set the playback position; drag to scrub audibly; drag in the beat ruler vertically to zoom and horizontally to scroll. Locate-on-click in M2; scrub strip, audible scrubbing and ruler zoom in M3. | M | 🟡 Click-to-locate on the ruler done (M2 slice 5): zoom-adaptive snapping, Alt to place freely, ghost line preview. Scrub strip, audible scrubbing and ruler drag-zoom in M3 |
+| Edit cursor separate from playhead; scrubbing. **Owner request (2026-10-06), raised from S to M, Ableton-style:** click in the scrub strip to set the playback position; drag to scrub audibly; drag in the beat ruler vertically to zoom and horizontally to scroll. Locate-on-click in M2; scrub strip, audible scrubbing and ruler zoom in M3. | M | 🟡 Click-to-locate on the ruler done (M2 slice 5), snapping to the editing grid (M3 5a). Ruler drag: down or up zooms, sideways scrolls, the grabbed beat stays under the pointer (M3 5b). Scrub strip and audible scrubbing in M3 5e |
 | MIDI clock / MTC out | S | 🔲 |
 | Clock / MTC in, Ableton Link | L | 🔲 |
 | Tracks: add, delete, duplicate, rename, recolour, reorder, multi-select | M | 🟡 All of these from the track menu, the "+ Add track" menu button and keys (Ctrl+T, Ctrl+Shift+T, Ctrl+D, Delete, F2, Alt+arrows), each one undo step (M3 slice 4a). Drag to reorder (slice 4d) |

@@ -10,7 +10,6 @@ run. Add new ones here as they are found.
 | 2026-10-07 (M3 4) | **Deleting a clip or track while it plays stops its audio at once**, rather than fading (mute, solo, volume and pan glide). | A click | M4 mixer (ADR-0025) |
 | 2026-10-07 (M3 2) | **Audio clips do not follow tempo.** Changing the tempo keeps each clip's start in beats; its audio plays at its own speed, so playback continues from the same bar at a different point in the file, and a clip's region can cut its audio short. | Expected until warping | Warp (S); clip trimming (M3 slice 6) |
 | 2026-10-07 (M3 4c) | **Waveform peaks are not reclaimed** after a device-rate change until Lumen restarts (ADR-0027). | The atlas holds about 130 five-minute stereo files | Streaming (M9) |
-| 2026-10-07 (M3 4d) | **At very deep zoom the ruler labels only sixteenth notes** (bar.beat.sixteenth), so a narrow view can show no label at all; zooming out a little brings them back. | Navigation by the ruler alone is harder at sample-level zoom | Ruler formats (time, samples, timecode), M3 slice 5 |
 
 Follow-ups owned by a later slice of the current milestone are also listed
 in the milestone plan (for M3: `docs/milestones/M3.md`, "Follow-ups found on

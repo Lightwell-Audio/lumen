@@ -52,6 +52,7 @@ mod ruler;
 mod settings;
 pub mod testing;
 mod theme;
+mod timefmt;
 mod timeview;
 mod trace;
 mod transport;
@@ -473,6 +474,7 @@ impl App {
         let mut transport = Transport::new(document.project(), &launch.audio);
         transport.restore_metronome((&saved.metronome).into());
         transport.restore_follow(saved.follow);
+        transport.time_format = saved.time_format;
         transport.settings_window.open = launch.audio_settings;
         if let Some(warning) = settings_warning {
             transport.audio.notice = Some(match transport.audio.notice.take() {

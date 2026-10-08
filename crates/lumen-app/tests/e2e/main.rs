@@ -16,6 +16,7 @@ mod files;
 mod grid;
 mod navigation;
 mod playback;
+mod rulers;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};

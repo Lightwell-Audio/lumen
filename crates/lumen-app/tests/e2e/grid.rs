@@ -32,7 +32,10 @@ fn the_keys_change_the_grid_and_the_button_shows_it() {
     lumen.frames(30);
     assert!(lumen.shows("Grid: 1/2T"), "fixed through a zoom");
     lumen.key(Modifiers::COMMAND, Key::Num5);
-    assert!(!lumen.shows("Grid: 1/2T"), "adaptive again: finer when zoomed in");
+    assert!(
+        !lumen.shows("Grid: 1/2T"),
+        "adaptive again: finer when zoomed in"
+    );
 }
 
 #[test]
@@ -48,7 +51,10 @@ fn the_ruler_snaps_to_the_grid_chosen_in_the_menu() {
     assert_eq!(lumen.app().playhead().0 % bar, 0, "on a bar line");
 
     // Alt places it freely: the middle of the ruler is not on a bar line.
-    lumen.harness.get_by_label(RULER).click_modifiers(Modifiers::ALT);
+    lumen
+        .harness
+        .get_by_label(RULER)
+        .click_modifiers(Modifiers::ALT);
     lumen.frames(3);
     lumen.wait_for("the playhead to move", |app| app.playhead().0 % bar != 0);
 }

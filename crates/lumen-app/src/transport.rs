@@ -41,6 +41,8 @@ pub struct Transport {
     pub follow_paused: bool,
     /// The Follow mode to turn back on after Off.
     follow_last: crate::settings::Follow,
+    /// How the time ruler and the position's time read (saved in settings).
+    pub time_format: crate::timefmt::TimeFormat,
     test_tone: bool,
     pub settings_window: crate::audio_settings::Window,
     /// CPU load shown: the peak over the last second, refreshed once a second.
@@ -77,6 +79,7 @@ impl Transport {
             follow: crate::settings::Follow::Page,
             follow_paused: false,
             follow_last: crate::settings::Follow::Page,
+            time_format: crate::timefmt::TimeFormat::MinSec,
             test_tone: false,
             settings_window: Default::default(),
             cpu_peak: 0.0,
@@ -454,7 +457,11 @@ impl Transport {
 
     fn position_field(&mut self, ui: &mut Ui, state: TransportSnapshot) {
         let bbt = position::format_bbt(&self.timeline, state.ticks);
-        let time = position::format_time(self.timeline.tempo.seconds_at(state.ticks));
+        let time = crate::timefmt::format(
+            self.time_format,
+            self.timeline.tempo.seconds_at(state.ticks),
+            state.sample_rate,
+        );
         if let Some(text) = &mut self.editing {
             let edit = ui.add(
                 egui::TextEdit::singleline(text)

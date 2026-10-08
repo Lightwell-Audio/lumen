@@ -5,15 +5,10 @@ use std::path::PathBuf;
 
 use eframe::egui::{self, RichText, Sense, Stroke, pos2, vec2};
 use lumen_core::product::PRODUCT_NAME;
-use lumen_core::time::{PPQ, Ticks};
 
 use super::grid::draw_snap_guide;
-use crate::{App, arrangement, audio, bench, canvas, lanes, media, motion, ruler, theme, trace};
-
-/// The height of the ruler above the lanes.
-const RULER_HEIGHT: f32 = 22.0;
-/// Bars wider than this (points) get beat labels on the ruler.
-const RULER_BEATS_FROM: f64 = 240.0;
+use super::rulers;
+use crate::{App, arrangement, audio, bench, canvas, lanes, media, motion, ruler, theme};
 
 /// A glided position, or the exact one once the glide has settled: the
 /// glide runs in f32, which is pixels off at sample-level zoom.
@@ -95,29 +90,55 @@ report: {}",
     pub(crate) fn arrangement(&mut self, ui: &mut egui::Ui) {
         let whole = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(whole, Sense::hover());
-        // Track headers on the left, below the ruler's height; the ruler and
-        // lanes take the rest.
-        let corner =
-            egui::Rect::from_min_size(whole.min, vec2(arrangement::HEADER_WIDTH, RULER_HEIGHT));
+        // Layout A (owner, slice 5b): the locator strip and the bar ruler
+        // on top, the time ruler at the bottom; track headers on the left
+        // between their corners; the lanes in the middle.
+        let header = arrangement::HEADER_WIDTH;
+        let top = rulers::STRIP_HEIGHT + rulers::RULER_HEIGHT;
+        let corner = egui::Rect::from_min_size(whole.min, vec2(header, top));
+        let time_corner = egui::Rect::from_min_max(
+            pos2(whole.left(), whole.bottom() - rulers::TIME_HEIGHT),
+            pos2(whole.left() + header, whole.bottom()),
+        );
         let headers = egui::Rect::from_min_max(
             pos2(whole.left(), corner.bottom()),
-            pos2(corner.right(), whole.bottom()),
+            pos2(corner.right(), time_corner.top()),
         );
         let full = egui::Rect::from_min_max(pos2(corner.right(), whole.top()), whole.max);
-        let ruler = egui::Rect::from_min_size(full.min, vec2(full.width(), RULER_HEIGHT));
-        let canvas = egui::Rect::from_min_max(pos2(full.left(), ruler.bottom()), full.max);
+        let strip = egui::Rect::from_min_size(full.min, vec2(full.width(), rulers::STRIP_HEIGHT));
+        let ruler = egui::Rect::from_min_size(
+            pos2(full.left(), strip.bottom()),
+            vec2(full.width(), rulers::RULER_HEIGHT),
+        );
+        let time = egui::Rect::from_min_max(
+            pos2(full.left(), full.bottom() - rulers::TIME_HEIGHT),
+            full.max,
+        );
+        let canvas = egui::Rect::from_min_max(pos2(full.left(), ruler.bottom()), time.right_top());
 
         self.navigate(ui, &response, canvas);
         self.follow(canvas);
         let view = self.nav.view;
-        ui.painter().rect_filled(corner, 0.0, theme::p().raised);
-        self.grid_button(ui, corner);
+        let palette = theme::p();
+        ui.painter().rect_filled(corner, 0.0, palette.raised);
+        ui.painter().rect_filled(
+            egui::Rect::from_min_size(corner.min, vec2(header, rulers::STRIP_HEIGHT)),
+            0.0,
+            palette.app,
+        );
+        self.grid_button(
+            ui,
+            egui::Rect::from_min_max(
+                pos2(corner.left(), corner.top() + rulers::STRIP_HEIGHT),
+                corner.max,
+            ),
+        );
+        self.time_format_button(ui, time_corner);
         self.arrangement
             .headers(ui, headers, &mut self.document, &self.lanes);
 
         let painter = ui.painter_at(full);
-        painter.rect_filled(full, 0.0, theme::p().canvas);
-        let meter = self.transport.timeline.meter.meter_at(Ticks::ZERO);
+        painter.rect_filled(full, 0.0, palette.canvas);
         painter.add(canvas::grid_shape(
             canvas,
             ui.ctx().pixels_per_point(),
@@ -125,13 +146,16 @@ report: {}",
             &canvas::GridLook {
                 grid: self.grid,
                 meter: self.transport.timeline.meter.clone(),
-                colors: [
-                    theme::p().grid_bar,
-                    theme::p().grid_beat,
-                    theme::p().grid_sub,
-                ],
+                colors: [palette.grid_bar, palette.grid_beat, palette.grid_sub],
             },
         ));
+        let at = rulers::Layout {
+            strip,
+            ruler,
+            canvas,
+            time,
+            view,
+        };
         let x_of = |quarters: f64| view.x(canvas.left(), quarters);
         self.arrangement.lanes(
             ui.ctx(),
@@ -141,8 +165,8 @@ report: {}",
             &mut self.lanes,
             view,
         );
-        // A hover card with the file's details.
-        // Right-click the lanes for the grid menu (slice 5a).
+        // A hover card with the file's details; right-click the lanes for
+        // the grid menu (slice 5a).
         let hover = ui.interact(canvas, ui.id().with("clips"), Sense::click());
         hover.context_menu(|ui| self.grid_menu(ui));
         if let Some(pointer) = hover.hover_pos()
@@ -173,112 +197,12 @@ report: {}",
             None => self.transport.state().ticks,
         };
         if dragging_files && pointer.is_some() {
-            draw_snap_guide(&painter, x_of(self.drop_target.as_quarters()), full);
+            draw_snap_guide(&painter, x_of(self.drop_target.as_quarters()), at.guides());
         }
 
-        // Ruler: loop range, then bar numbers thinned so labels never collide.
-        painter.rect_filled(ruler, 0.0, theme::p().raised);
-        let looped = self.transport.loop_region;
-        if looped.enabled {
-            let span = egui::Rect::from_x_y_ranges(
-                x_of(looped.start.as_quarters())..=x_of(looped.end.as_quarters()),
-                ruler.y_range(),
-            );
-            painter.rect_filled(
-                span.intersect(ruler),
-                0.0,
-                theme::p().accent.gamma_multiply(0.18),
-            );
-        }
-        let label = |x: f32, text: String| {
-            if (full.left()..=full.right()).contains(&x) {
-                painter.text(
-                    pos2(x + 4.0, ruler.center().y),
-                    egui::Align2::LEFT_CENTER,
-                    text,
-                    egui::FontId::monospace(theme::size::CAPTION),
-                    theme::p().text_secondary,
-                );
-            }
-        };
-        let bar_quarters = meter.bar().as_quarters();
-        if bar_quarters * view.zoom < RULER_BEATS_FROM {
-            // Bar numbers, thinned so labels never collide.
-            let mut step = 1;
-            while step as f64 * bar_quarters * view.zoom < 40.0 {
-                step *= 2;
-            }
-            let first_bar = (view.left / bar_quarters).floor() as i64;
-            let mut bar = first_bar - first_bar.rem_euclid(step);
-            loop {
-                let start = self.transport.timeline.meter.bar_start(bar);
-                let x = x_of(start.as_quarters());
-                if x > full.right() {
-                    break;
-                }
-                label(x, (bar + 1).to_string());
-                bar += step;
-            }
-        } else {
-            // Zoomed in (slice 4d): label beats and sixteenths too, as
-            // bar.beat.sixteenth, thinned to one label per 64 points.
-            // Other ruler formats arrive with slice 5.
-            let sixteenth = Ticks(PPQ / 4);
-            let mut step = ruler::step(meter, view.zoom as f32).max(sixteenth);
-            while step.as_quarters() * view.zoom < 64.0 {
-                step = Ticks(step.0 * 2);
-            }
-            let left = Ticks((view.left * PPQ as f64) as i64).max(Ticks::ZERO);
-            let mut t = Ticks(left.0 - left.0.rem_euclid(step.0));
-            loop {
-                let x = x_of(t.as_quarters());
-                if x > full.right() {
-                    break;
-                }
-                let bbt = self.transport.timeline.meter.bbt_at(t);
-                let text = if bbt.ticks == Ticks::ZERO && bbt.beat == 0 {
-                    (bbt.bar + 1).to_string()
-                } else if bbt.ticks == Ticks::ZERO {
-                    format!("{}.{}", bbt.bar + 1, bbt.beat + 1)
-                } else {
-                    format!(
-                        "{}.{}.{}",
-                        bbt.bar + 1,
-                        bbt.beat + 1,
-                        bbt.ticks.0 / sixteenth.0 + 1
-                    )
-                };
-                label(x, text);
-                t = t + step;
-            }
-        }
-
-        // Click-to-locate: the ruler moves the playhead to the nearest line of
-        // the editing grid (Alt bypasses snapping). The snap guide shows
-        // where a click will land.
-        let ruler_response = ui
-            .interact(ruler, ui.id().with("ruler"), Sense::click())
-            .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .on_hover_text("Click to move the playhead. Hold Alt to place it freely");
-        ruler_response.widget_info(|| {
-            egui::WidgetInfo::labeled(
-                egui::WidgetType::Other,
-                true,
-                "Ruler: click to move the playhead",
-            )
-        });
-        if let Some(pointer) = ruler_response.hover_pos() {
-            let free = ui.input(|i| i.modifiers.alt);
-            let raw = ruler::ticks_at(view.beat_at(canvas.left(), pointer.x));
-            let target = self.snapped(raw, free);
-            draw_snap_guide(&painter, x_of(target.as_quarters()), full);
-            if ruler_response.clicked() {
-                trace::log(|| format!("ruler: locate {target:?} (snapped: {})", !free));
-                self.transport.locate(target);
-                // As in Ableton, a click on the ruler pauses Follow.
-                self.transport.follow_paused = true;
-            }
-        }
+        self.locator_strip(&painter, &at);
+        self.bar_ruler(ui, &painter, &at);
+        self.time_ruler(&painter, &at);
 
         // The start marker: where Play starts. A neutral arrow on the ruler
         // only, at its bottom edge, so it stays visible when the playhead
@@ -307,17 +231,17 @@ report: {}",
                     pos2(mx + 6.0, ruler.bottom() - 9.0),
                     pos2(mx, ruler.bottom() - 1.0),
                 ],
-                theme::p().start_marker,
-                Stroke::new(1.0, theme::p().canvas),
+                palette.start_marker,
+                Stroke::new(1.0, palette.canvas),
             ));
         }
 
-        // Playhead.
+        // Playhead: from the bar ruler through the time ruler.
         let x = x_of(settled(head, state.ticks.as_quarters()));
         if (full.left()..=full.right()).contains(&x) {
             painter.line_segment(
                 [pos2(x, ruler.top()), pos2(x, full.bottom())],
-                Stroke::new(1.0, theme::p().accent),
+                Stroke::new(1.0, palette.accent),
             );
             painter.add(egui::Shape::convex_polygon(
                 vec![
@@ -325,7 +249,7 @@ report: {}",
                     pos2(x + 5.0, ruler.top()),
                     pos2(x, ruler.top() + 7.0),
                 ],
-                theme::p().accent,
+                palette.accent,
                 Stroke::NONE,
             ));
         }
@@ -394,7 +318,7 @@ report: {}",
             );
         }
         self.lanes
-            .panel(ui.ctx(), pos2(full.left() + 8.0, full.bottom() - 8.0));
+            .panel(ui.ctx(), pos2(canvas.left() + 8.0, canvas.bottom() - 8.0));
         self.toast(ui.ctx(), pos2(full.right() - 12.0, canvas.top() + 10.0));
     }
 

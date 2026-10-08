@@ -309,6 +309,23 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
 - **Snap guide:** a 1 pt accent line at half strength, from the ruler to
   the bottom, where a click on the ruler or a dropped file will land.
 
+## 7d. Rulers (M3 slice 5b, layout A)
+
+Chosen by the owner from rendered specimens (Ableton's split):
+- **Locator strip** (20 pt, `app`): locators (slice 5d) and the loop brace,
+  a 7 pt band at the strip's bottom edge: `accent_muted` with `accent`
+  edges when the loop is on, `control` with `text_hint` edges when off.
+- **Bar ruler** (22 pt, `raised`): bar numbers thinned to 40 points apart;
+  past 240 points a bar, bar.beat.sixteenth at least 64 apart. When no
+  label falls in view, the left edge's position is pinned at the left in
+  `text_hint` with "…". Click locates (snapped); drag down or up zooms
+  (100 points ≈ 2.7 times), sideways scrolls, with a zoom cursor.
+- **Time ruler** (20 pt, `raised`, along the bottom): monospace captions in
+  `text_hint` at least 90 points apart, on round values, with 5 pt ticks.
+  Its corner names the format ("Time", "Samples", "TC 25") with an arrow
+  and opens the format menu.
+- The playhead runs from the bar ruler through the time ruler.
+
 ## 8. Key flows
 
 Each flow lists its steps, its keyboard path and its feedback. Flows marked
