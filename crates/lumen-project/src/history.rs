@@ -251,6 +251,11 @@ mod tests {
                         start: Ticks::quarters(rng.below(64) as i64),
                         length: Ticks::quarters(1 + rng.below(8) as i64),
                         muted: false,
+                        color: None,
+                        locked: false,
+                        fade_in: Default::default(),
+                        fade_out: Default::default(),
+                        loop_length: None,
                         content: ClipContent::Midi { notes: vec![] },
                     });
                     Arc::make_mut(&mut project.tracks[i]).clips.push(clip);

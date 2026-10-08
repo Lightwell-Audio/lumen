@@ -128,6 +128,11 @@ pub fn synthetic(
                         start: Ticks::quarters(4 * k as i64) + Ticks(rng.below(PPQ as u64) as i64),
                         length: Ticks::quarters(2),
                         muted: rng.below(10) == 0,
+                        color: None,
+                        locked: false,
+                        fade_in: Default::default(),
+                        fade_out: Default::default(),
+                        loop_length: None,
                         content: match source {
                             Some(media) => ClipContent::Audio {
                                 media,

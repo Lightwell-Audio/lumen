@@ -12,6 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use lumen_core::fade::Fade;
 use lumen_core::grid::Grid;
 use lumen_core::time::{TempoPoint, Ticks};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -221,9 +222,25 @@ pub struct Clip {
     pub id: Id,
     pub name: String,
     pub start: Ticks,
+    /// How long the clip lasts on the timeline, repeats included.
     pub length: Ticks,
     #[serde(default)]
     pub muted: bool,
+    /// Its own colour, or the track's when `None` (format v5).
+    #[serde(default)]
+    pub color: Option<Color>,
+    /// Locked clips cannot be moved, trimmed or deleted (format v5).
+    #[serde(default)]
+    pub locked: bool,
+    /// Fades at the clip's start and end (format v5).
+    #[serde(default)]
+    pub fade_in: Fade,
+    #[serde(default)]
+    pub fade_out: Fade,
+    /// When set, the content repeats every `loop_length` from the clip's
+    /// start, for as long as the clip lasts (loop-extend, format v5).
+    #[serde(default)]
+    pub loop_length: Option<Ticks>,
     pub content: ClipContent,
 }
 

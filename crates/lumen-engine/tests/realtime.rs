@@ -125,6 +125,7 @@ fn clips_metronome_and_tone_never_touch_the_heap() {
                 gain: 0.5,
                 pan: 0.0,
                 audio: Arc::clone(&audio),
+                shape: Default::default(),
             })
             .collect()
     };

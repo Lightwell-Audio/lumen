@@ -18,7 +18,7 @@ pub type Migration = fn(Value) -> Result<Value, String>;
 pub const FIRST_VERSION: u64 = 1;
 
 /// `MIGRATIONS[i]` upgrades version `FIRST_VERSION + i` to the next one.
-pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
 /// state (`view`). Version 1 files get the defaults written out.
@@ -81,6 +81,31 @@ fn v3_to_v4(mut document: Value) -> Result<Value, String> {
         view.entry("grid").or_insert(
             serde_json::to_value(lumen_core::grid::Grid::default()).map_err(|e| e.to_string())?,
         );
+    }
+    Ok(document)
+}
+
+/// Version 5 (M3 slice 6) gives clips a colour, a lock, fades and a loop.
+/// The defaults are written out on every clip.
+fn v4_to_v5(mut document: Value) -> Result<Value, String> {
+    let fade =
+        serde_json::to_value(lumen_core::fade::Fade::default()).map_err(|e| e.to_string())?;
+    let tracks = document
+        .get_mut("project")
+        .and_then(|p| p.get_mut("tracks"))
+        .and_then(Value::as_array_mut);
+    for track in tracks.into_iter().flatten() {
+        let clips = track.get_mut("clips").and_then(Value::as_array_mut);
+        for clip in clips.into_iter().flatten() {
+            let Some(clip) = clip.as_object_mut() else {
+                return Err("a clip is not an object".into());
+            };
+            clip.entry("color").or_insert(Value::Null);
+            clip.entry("locked").or_insert(Value::Bool(false));
+            clip.entry("fade_in").or_insert(fade.clone());
+            clip.entry("fade_out").or_insert(fade.clone());
+            clip.entry("loop_length").or_insert(Value::Null);
+        }
     }
     Ok(document)
 }
@@ -218,5 +243,29 @@ mod tests {
         assert_eq!(transport["punch_out"], false);
         assert_eq!(v4["project"]["view"]["grid"]["width"], "narrow");
         assert_eq!(v4["project"]["view"]["left_beat"], 3.0);
+    }
+
+    #[test]
+    fn v4_to_v5_writes_clip_colour_lock_fades_and_loop() {
+        let v4 = json!({
+            "format": "lumen-project",
+            "version": 4,
+            "project": {
+                "tracks": [
+                    { "clips": [{ "name": "Kick", "muted": true }] },
+                    { "clips": [] },
+                    { "name": "no clips" }
+                ]
+            }
+        });
+        let v5 = upgrade(v4, 4, FIRST_VERSION, &MIGRATIONS[..4]).unwrap();
+        assert_eq!(v5["version"], 5);
+        let clip = &v5["project"]["tracks"][0]["clips"][0];
+        assert_eq!(clip["muted"], true, "kept");
+        assert_eq!(clip["color"], Value::Null);
+        assert_eq!(clip["locked"], false);
+        assert_eq!(clip["fade_in"], json!({ "length": 0, "shape": "linear" }));
+        assert_eq!(clip["fade_out"], json!({ "length": 0, "shape": "linear" }));
+        assert_eq!(clip["loop_length"], Value::Null);
     }
 }

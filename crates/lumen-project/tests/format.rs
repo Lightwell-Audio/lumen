@@ -5,6 +5,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
+use lumen_core::fade::{Fade, FadeShape};
 use lumen_core::grid::{Feel, Grid, Size};
 use lumen_core::time::{PPQ, TempoPoint, Ticks};
 use lumen_project::migrate::CURRENT_VERSION;
@@ -54,6 +55,11 @@ fn golden_v1_expected() -> Project {
         start: Ticks::ZERO,
         length: Ticks::quarters(4),
         muted: false,
+        color: None,
+        locked: false,
+        fade_in: Default::default(),
+        fade_out: Default::default(),
+        loop_length: None,
         content: ClipContent::Audio {
             media: Id(0x30),
             offset: 0,
@@ -79,6 +85,11 @@ fn golden_v1_expected() -> Project {
         start: Ticks::quarters(4),
         length: Ticks::quarters(4),
         muted: true,
+        color: None,
+        locked: false,
+        fade_in: Default::default(),
+        fade_out: Default::default(),
+        loop_length: None,
         content: ClipContent::Midi {
             notes: vec![
                 Note(Ticks::ZERO, Ticks(PPQ / 4), 36, 100),
@@ -197,6 +208,41 @@ fn golden_v4_expected() -> Project {
         ..Grid::default()
     };
     project
+}
+
+/// The model the v5 golden file must always load as: v4 with a clip that
+/// has its own colour, a lock, fades and a loop.
+fn golden_v5_expected() -> Project {
+    let mut project = Project {
+        name: "Golden v5".into(),
+        ..golden_v4_expected()
+    };
+    let kick = Arc::make_mut(&mut project.tracks[1]);
+    let clip = Arc::make_mut(&mut kick.clips[0]);
+    clip.color = Some(Color(0x5FB3A1));
+    clip.locked = true;
+    clip.fade_in = Fade {
+        length: Ticks(PPQ / 4),
+        shape: FadeShape::SCurve,
+    };
+    clip.fade_out = Fade {
+        length: Ticks(PPQ / 2),
+        shape: FadeShape::Fast,
+    };
+    clip.loop_length = Some(Ticks::quarters(1));
+    project
+}
+
+#[test]
+fn golden_v5_file_loads_forever() {
+    let path = fixture("v5/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        // Written once, when version 5 was introduced; never rewritten.
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v5_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v5 golden file must load");
+    assert_eq!(project, golden_v5_expected());
 }
 
 #[test]

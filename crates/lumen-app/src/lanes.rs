@@ -71,10 +71,39 @@ pub fn engine_clips(
             // device rate.
             let offset =
                 (*offset as f64 * f64::from(samples.sample_rate) / f64::from(native.max(1))) as i64;
-            let region = tempo.as_ref().map_or(i64::MAX, |t| {
-                t.sample_at(clip.start + clip.length, rate) - t.sample_at(clip.start, rate)
-            });
-            let length = (samples.frames() as i64 - offset).min(region);
+            // Frames between two musical positions at the device rate.
+            let frames = |a: Ticks, b: Ticks| {
+                tempo
+                    .as_ref()
+                    .map_or(0, |t| t.sample_at(b, rate) - t.sample_at(a, rate))
+            };
+            let end = clip.start + clip.length;
+            let region = if tempo.is_some() {
+                frames(clip.start, end)
+            } else {
+                i64::MAX
+            };
+            // A looping clip repeats for its whole length; otherwise it
+            // stops where the file does.
+            let length = if clip.loop_length.is_some() {
+                region
+            } else {
+                (samples.frames() as i64 - offset).min(region)
+            };
+            let shape = lumen_engine::ClipShape {
+                fade_in: lumen_engine::FadeFrames {
+                    frames: frames(clip.start, clip.start + clip.fade_in.length),
+                    shape: clip.fade_in.shape,
+                },
+                fade_out: lumen_engine::FadeFrames {
+                    frames: frames(end - clip.fade_out.length, end),
+                    shape: clip.fade_out.shape,
+                },
+                period: clip
+                    .loop_length
+                    .map(|l| frames(clip.start, clip.start + l))
+                    .filter(|p| *p > 0),
+            };
             if length > 0 {
                 list.push(Clip {
                     id: clip.id.0,
@@ -92,6 +121,7 @@ pub fn engine_clips(
                     },
                     pan: track.pan,
                     audio: samples,
+                    shape,
                 });
             }
         }
@@ -401,6 +431,37 @@ mod tests {
         assert_eq!((clips[0].offset, clips[0].length), (0, 96_000));
         assert!((clips[0].gain - 10f32.powf(-6.0 / 20.0)).abs() < 1e-6);
         assert_eq!(clips[0].pan, -0.5);
+    }
+
+    #[test]
+    fn fades_and_loops_reach_the_engine_in_frames() {
+        let (mut doc, audio) = setup(1);
+        // A two-second file (four quarters at 120 BPM), stretched to eight
+        // quarters and looped every quarter, with fades.
+        doc.apply("shape", None, |p| {
+            let track = Arc::make_mut(&mut p.tracks[0]);
+            let clip = Arc::make_mut(&mut track.clips[0]);
+            clip.length = Ticks::quarters(8);
+            clip.loop_length = Some(Ticks::quarters(1));
+            clip.fade_in.length = Ticks(lumen_core::time::PPQ / 2);
+            clip.fade_out.length = Ticks::quarters(1);
+            clip.fade_out.shape = lumen_core::fade::FadeShape::SCurve;
+        });
+        let clip = &played(&doc, &audio, 48_000)[0];
+        assert_eq!(clip.length, 192_000, "repeats past the file's end");
+        assert_eq!(clip.shape.period, Some(24_000));
+        assert_eq!(clip.shape.fade_in.frames, 12_000);
+        assert_eq!(clip.shape.fade_out.frames, 24_000);
+        assert_eq!(
+            clip.shape.fade_out.shape,
+            lumen_core::fade::FadeShape::SCurve
+        );
+        // Without the loop it stops where the file does.
+        doc.apply("unloop", None, |p| {
+            let track = Arc::make_mut(&mut p.tracks[0]);
+            Arc::make_mut(&mut track.clips[0]).loop_length = None;
+        });
+        assert_eq!(played(&doc, &audio, 48_000)[0].length, 96_000);
     }
 
     #[test]

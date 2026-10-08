@@ -3,11 +3,12 @@
 
 use std::sync::Arc;
 
+use lumen_core::fade::FadeShape;
 use lumen_core::meter::Meter;
 use lumen_core::time::Ticks;
 use lumen_engine::{
-    Clip, ClipAudio, ClipPlayer, ClipsHandle, Command, Engine, EngineHandle, Region, Timeline,
-    clip_player, engine,
+    Clip, ClipAudio, ClipPlayer, ClipShape, ClipsHandle, Command, Engine, EngineHandle, FadeFrames,
+    Region, Timeline, clip_player, engine,
 };
 
 const RATE: u32 = 48_000;
@@ -69,6 +70,7 @@ fn a_clip_plays_on_its_exact_samples_at_every_block_size() {
         gain: 1.0,
         pan: 0.0,
         audio: Arc::clone(&audio),
+        shape: Default::default(),
     };
     let mut reference = None;
     for block in [1, 64, 128, 333, 4_096] {
@@ -102,6 +104,7 @@ fn the_loop_wrap_crossfades_and_stays_on_the_exact_sample() {
         gain: 1.0,
         pan: 0.0,
         audio: Arc::clone(&audio),
+        shape: Default::default(),
     };
     let (mut handle, _clips, mut engine) = setup(vec![clip]);
     handle
@@ -141,6 +144,7 @@ fn stopping_fades_out_instead_of_cutting() {
         gain: 1.0,
         pan: 0.0,
         audio: Arc::clone(&audio),
+        shape: Default::default(),
     };
     let (mut handle, _clips, mut engine) = setup(vec![clip]);
     handle.send(Command::Play).unwrap();
@@ -176,6 +180,7 @@ fn a_locate_lands_on_the_exact_sample_and_fades_in() {
         gain: 0.5,
         pan: 0.0,
         audio: Arc::clone(&audio),
+        shape: Default::default(),
     };
     let (mut handle, _clips, mut engine) = setup(vec![clip]);
     handle.send(Command::Play).unwrap();
@@ -204,6 +209,7 @@ fn mono_plays_on_both_sides_and_gain_applies() {
         gain: 0.5,
         pan: 0.0,
         audio: mono,
+        shape: Default::default(),
     };
     let (mut handle, _clips, mut engine) = setup(vec![clip]);
     handle.send(Command::Play).unwrap();
@@ -221,6 +227,7 @@ fn clips_at_another_sample_rate_stay_silent() {
         gain: 1.0,
         pan: 0.0,
         audio: ramp(10_000, 44_100),
+        shape: Default::default(),
     };
     let (mut handle, _clips, mut engine) = setup(vec![clip]);
     handle.send(Command::Play).unwrap();
@@ -239,6 +246,7 @@ fn clips_follow_tempo_changes() {
         gain: 1.0,
         pan: 0.0,
         audio: Arc::clone(&audio),
+        shape: Default::default(),
     };
     let (mut handle, _clips, mut engine) = setup(vec![clip]);
     handle
@@ -262,6 +270,7 @@ fn a_new_clip_list_replaces_the_old_and_the_old_is_handed_back() {
         gain: 1.0,
         pan: 0.0,
         audio: Arc::clone(&audio),
+        shape: Default::default(),
     };
     let (mut handle, mut clips, mut engine) = setup(vec![clip(Ticks::ZERO)]);
     handle.send(Command::Play).unwrap();
@@ -294,6 +303,7 @@ fn resending_the_same_timeline_while_playing_changes_nothing() {
         gain: 1.0,
         pan: 0.0,
         audio: Arc::clone(&audio),
+        shape: Default::default(),
     };
     let (mut handle, _clips, mut engine) = setup(vec![clip.clone()]);
     handle.send(Command::Play).unwrap();
@@ -322,6 +332,7 @@ fn a_tempo_change_while_playing_crossfades() {
         gain: 1.0,
         pan: 0.0,
         audio: Arc::clone(&audio),
+        shape: Default::default(),
     };
     let (mut handle, _clips, mut engine) = setup(vec![clip]);
     handle.send(Command::Play).unwrap();
@@ -357,6 +368,7 @@ fn steady_clip(audio: &Arc<ClipAudio>, gain: f32, pan: f32) -> Clip {
         gain,
         pan,
         audio: Arc::clone(audio),
+        shape: Default::default(),
     }
 }
 
@@ -427,4 +439,97 @@ fn a_clip_heard_from_its_start_keeps_its_attack() {
     handle.send(Command::Play).unwrap();
     let out = run(&mut engine, 24_200, 128);
     assert_eq!(out[24_000 + FADE as usize], (0.5, 0.5));
+}
+
+/// Plays `clip` from the start at several block sizes and checks every
+/// frame against `want(pos)` (`pos` frames into the clip at bar 1).
+fn golden(clip: &Clip, frames: usize, want: impl Fn(i64) -> (f32, f32)) {
+    for block in [1, 64, 128, 333, 4_096] {
+        let (mut handle, _clips, mut engine) = setup(vec![clip.clone()]);
+        handle.send(Command::Play).unwrap();
+        let out = run(&mut engine, frames, block);
+        for (t, &(left, right)) in out.iter().enumerate() {
+            let pos = t as i64 - 96_000;
+            let (l, r) = if (0..clip.length).contains(&pos) {
+                want(pos)
+            } else {
+                (0.0, 0.0)
+            };
+            let close = |a: f32, b: f32| (a - b).abs() <= 1e-6 * b.abs().max(1e-7);
+            assert!(
+                close(left, l) && close(right, r),
+                "block {block}, frame {pos}: got ({left}, {right}), want ({l}, {r})"
+            );
+        }
+    }
+}
+
+#[test]
+fn fades_sound_as_drawn_in_every_shape() {
+    let audio = ramp(30_000, RATE);
+    for (in_shape, out_shape) in [
+        (FadeShape::Linear, FadeShape::Linear),
+        (FadeShape::Slow, FadeShape::Fast),
+        (FadeShape::Fast, FadeShape::SCurve),
+        (FadeShape::SCurve, FadeShape::Slow),
+    ] {
+        let (length, fade_in, fade_out) = (20_000, 4_800, 9_600);
+        let clip = Clip {
+            id: 1,
+            start: bars(1),
+            offset: 0,
+            length,
+            gain: 1.0,
+            pan: 0.0,
+            audio: Arc::clone(&audio),
+            shape: ClipShape {
+                fade_in: FadeFrames {
+                    frames: fade_in,
+                    shape: in_shape,
+                },
+                fade_out: FadeFrames {
+                    frames: fade_out,
+                    shape: out_shape,
+                },
+                period: None,
+            },
+        };
+        // The curve the arrangement draws: the same `FadeShape::gain`.
+        golden(&clip, 120_000, |pos| {
+            let (l, r) = expected(&audio, 0, length, pos);
+            let mut g = 1.0;
+            if pos < fade_in {
+                g *= in_shape.gain((pos as f32 + 0.5) / fade_in as f32);
+            }
+            if length - pos <= fade_out {
+                g *= out_shape.gain(((length - pos) as f32 - 0.5) / fade_out as f32);
+            }
+            (l * g, r * g)
+        });
+    }
+}
+
+#[test]
+fn a_looping_clip_repeats_its_content_with_clean_seams() {
+    let audio = ramp(30_000, RATE);
+    let (offset, period, length) = (100, 3_000, 10_000);
+    let clip = Clip {
+        id: 1,
+        start: bars(1),
+        offset,
+        length,
+        gain: 1.0,
+        pan: 0.0,
+        audio: Arc::clone(&audio),
+        shape: ClipShape {
+            period: Some(period),
+            ..Default::default()
+        },
+    };
+    golden(&clip, 110_000, |pos| {
+        // Each repeat is the content from the offset again, with its own
+        // edge fades; the last one is cut short by the clip's end.
+        let repeat = pos / period * period;
+        expected(&audio, offset, period.min(length - repeat), pos - repeat)
+    });
 }

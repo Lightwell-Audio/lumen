@@ -21,7 +21,7 @@ mod snapshot;
 mod source;
 mod timeline;
 
-pub use clips::{Clip, ClipAudio, ClipPlayer, ClipsHandle, clip_player};
+pub use clips::{Clip, ClipAudio, ClipPlayer, ClipShape, ClipsHandle, FadeFrames, clip_player};
 pub use engine::{Command, Engine, EngineHandle, Region, engine};
 pub use metronome::{ClickSound, MetronomeSettings};
 pub use scrub::{MAX_SPEED as MAX_SCRUB_SPEED, ScrubStyle};

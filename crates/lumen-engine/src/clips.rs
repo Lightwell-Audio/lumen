@@ -15,9 +15,14 @@
 //! so volume and pan drags, mute and solo never step or click. A clip that
 //! appears partway through (its audio finished loading during playback)
 //! fades in. The M4 mixer takes this over with per-track smoothing.
+//!
+//! A clip can fade in and out in any [`FadeShape`] and repeat its content
+//! (loop-extend, M3 slice 6). Each repeat gets the 2 ms edge fades, so the
+//! seams never click. Clips with neither take the plain path.
 
 use std::sync::Arc;
 
+use lumen_core::fade::FadeShape;
 use lumen_core::time::Ticks;
 
 use crate::source::{Jump, Output, RenderContext, Source};
@@ -52,7 +57,7 @@ pub struct Clip {
     pub start: Ticks,
     /// First frame of the audio played at the clip start.
     pub offset: i64,
-    /// Frames played.
+    /// Frames played, repeats included.
     pub length: i64,
     /// Linear gain; 0 for a clip that is muted or cannot be heard, which
     /// stays in the list so it fades out and back in.
@@ -63,6 +68,48 @@ pub struct Clip {
     /// Plays only while the device runs at `audio.sample_rate`; otherwise
     /// the clip is silent until the app converts it again.
     pub audio: Arc<ClipAudio>,
+    /// Fades and repeats.
+    pub shape: ClipShape,
+}
+
+/// A clip's fades and repeats, in frames at the device rate.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct ClipShape {
+    pub fade_in: FadeFrames,
+    pub fade_out: FadeFrames,
+    /// The content repeats every `period` frames from the clip's start.
+    pub period: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct FadeFrames {
+    pub frames: i64,
+    pub shape: FadeShape,
+}
+
+impl ClipShape {
+    fn plain(&self) -> bool {
+        self.fade_in.frames <= 0 && self.fade_out.frames <= 0 && self.period.is_none()
+    }
+
+    /// The gain of the fades on frame `pos` of a clip `length` frames long.
+    #[inline]
+    fn fade_gain(&self, pos: i64, length: i64) -> f32 {
+        let mut gain = 1.0;
+        let fade_in = self.fade_in.frames;
+        if pos < fade_in {
+            gain *= self.fade_in.shape.gain((pos as f32 + 0.5) / fade_in as f32);
+        }
+        let fade_out = self.fade_out.frames;
+        let left = length - pos;
+        if left <= fade_out {
+            gain *= self
+                .fade_out
+                .shape
+                .gain((left as f32 - 0.5) / fade_out as f32);
+        }
+        gain
+    }
 }
 
 /// A clip list. Start samples are worked out every block from the current
@@ -197,7 +244,7 @@ struct Placement {
 }
 
 /// Adds `clip`'s audio at `gain` for the timeline samples `frames` into
-/// `target`.
+/// `target`: the plain path, for clips without fades or repeats.
 #[inline(always)]
 fn mix(
     target: &mut [f32],
@@ -216,6 +263,38 @@ fn mix(
             continue;
         };
         target[(t - at.from) as usize] += sample * gain * edge_gain(pos, clip.length, at.edge);
+    }
+}
+
+/// [`mix`] for a clip with fades or repeats: each repeat plays the content
+/// from the offset again, with its own edge fades.
+#[inline(always)]
+fn mix_shaped(
+    target: &mut [f32],
+    samples: &[f32],
+    clip: &Clip,
+    at: Placement,
+    frames: std::ops::Range<i64>,
+    gain: f32,
+) {
+    let shape = &clip.shape;
+    for t in frames {
+        let pos = t - at.start;
+        let (inner, span) = match shape.period {
+            Some(period) if period > 0 => {
+                let repeat = pos.div_euclid(period) * period;
+                (pos - repeat, period.min(clip.length - repeat))
+            }
+            _ => (pos, clip.length),
+        };
+        let Some(&sample) = usize::try_from(clip.offset + inner)
+            .ok()
+            .and_then(|i| samples.get(i))
+        else {
+            continue;
+        };
+        let shaped = edge_gain(inner, span, at.edge) * shape.fade_gain(pos, clip.length);
+        target[(t - at.from) as usize] += sample * gain * shaped;
     }
 }
 
@@ -288,6 +367,7 @@ impl Source for ClipPlayer {
             }
             let sources = clip.audio.channels.len();
             let at = Placement { start, from, edge };
+            let mix = if clip.shape.plain() { mix } else { mix_shaped };
             for output in 0..outputs {
                 // Mono plays on both sides; extra channels are ignored.
                 let samples = &clip.audio.channels[output.min(sources - 1)];

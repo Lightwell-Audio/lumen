@@ -123,6 +123,11 @@ mod tests {
                 start: Ticks::quarters(4),
                 length: Ticks::quarters(4),
                 muted: false,
+                color: None,
+                locked: false,
+                fade_in: Default::default(),
+                fade_out: Default::default(),
+                loop_length: None,
                 content: ClipContent::Audio {
                     media: Id(3),
                     offset,

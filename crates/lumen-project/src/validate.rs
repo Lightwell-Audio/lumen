@@ -90,6 +90,15 @@ pub fn validate(project: &Project) -> Result<(), String> {
             if clip.start < Ticks::ZERO || clip.length <= Ticks::ZERO {
                 return Err(format!("{}: invalid position or length", at()));
             }
+            if clip.fade_in.length < Ticks::ZERO
+                || clip.fade_out.length < Ticks::ZERO
+                || clip.fade_in.length + clip.fade_out.length > clip.length
+            {
+                return Err(format!("{}: fades are longer than the clip", at()));
+            }
+            if clip.loop_length.is_some_and(|l| l <= Ticks::ZERO) {
+                return Err(format!("{}: invalid loop length", at()));
+            }
             match &clip.content {
                 ClipContent::Audio {
                     media: id,
@@ -141,4 +150,39 @@ pub fn validate(project: &Project) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::testing::small_project;
+
+    fn with_first_clip(edit: impl FnOnce(&mut crate::model::Clip)) -> Result<(), String> {
+        let mut project = small_project(3);
+        let track = project
+            .tracks
+            .iter_mut()
+            .find(|t| !t.clips.is_empty())
+            .unwrap();
+        edit(Arc::make_mut(&mut Arc::make_mut(track).clips[0]));
+        validate(&project)
+    }
+
+    #[test]
+    fn fades_must_fit_the_clip_and_loops_must_have_a_length() {
+        assert_eq!(with_first_clip(|_| {}), Ok(()));
+        let fades = with_first_clip(|c| {
+            c.fade_in.length = c.length;
+            c.fade_out.length = Ticks(1);
+        });
+        assert!(fades.unwrap_err().contains("fades are longer"));
+        let looped = with_first_clip(|c| c.loop_length = Some(Ticks::ZERO));
+        assert!(looped.unwrap_err().contains("invalid loop length"));
+        assert_eq!(
+            with_first_clip(|c| c.loop_length = Some(Ticks(c.length.0 / 3))),
+            Ok(())
+        );
+    }
 }

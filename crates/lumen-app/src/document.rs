@@ -475,6 +475,11 @@ impl Document {
                         start: file.at,
                         length: (end - file.at).max(Ticks(1)),
                         muted: false,
+                        color: None,
+                        locked: false,
+                        fade_in: Default::default(),
+                        fade_out: Default::default(),
+                        loop_length: None,
                         content: ClipContent::Audio {
                             media: file.media,
                             offset: 0,
