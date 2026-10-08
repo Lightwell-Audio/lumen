@@ -17,7 +17,6 @@ fn tracks_are_added_from_the_menu_and_the_keyboard() {
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::T);
     let kinds: Vec<_> = lumen
         .app()
-        .document
         .project()
         .tracks
         .iter()
@@ -41,20 +40,20 @@ fn mute_solo_and_arm_toggle_and_undo_as_one_step_each() {
 
     lumen.click(&mute);
     assert!(lumen.is_on(&mute));
-    assert!(lumen.app().document.project().tracks[0].mute);
+    assert!(lumen.app().project().tracks[0].mute);
     lumen.click(&format!("Solo {name}"));
-    assert!(lumen.app().document.project().tracks[0].solo);
+    assert!(lumen.app().project().tracks[0].solo);
     lumen.click(&format!("Arm {name}"));
-    assert!(lumen.app().document.project().tracks[0].armed);
+    assert!(lumen.app().project().tracks[0].armed);
 
     // Undo steps back through arm, solo and mute; redo brings mute back.
     for _ in 0..3 {
         lumen.key(Modifiers::COMMAND, Key::Z);
     }
-    let track = &lumen.app().document.project().tracks[0];
+    let track = &lumen.app().project().tracks[0];
     assert!(!track.armed && !track.solo && !track.mute);
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
-    assert!(lumen.app().document.project().tracks[0].mute);
+    assert!(lumen.app().project().tracks[0].mute);
     assert!(lumen.is_on(&mute));
 }
 
@@ -65,21 +64,14 @@ fn the_keyboard_alone_selects_and_moves_tracks() {
         lumen.key(Modifiers::COMMAND, Key::T);
     }
     let names = lumen.track_names();
-    let ids: Vec<_> = lumen
-        .app()
-        .document
-        .project()
-        .tracks
-        .iter()
-        .map(|t| t.id)
-        .collect();
-    assert_eq!(lumen.app().arrangement.selected, [ids[2]], "the newest");
+    let ids: Vec<_> = lumen.app().project().tracks.iter().map(|t| t.id).collect();
+    assert_eq!(lumen.app().selected_tracks(), [ids[2]], "the newest");
 
     // Up selects the one above; Shift+Up extends the selection.
     lumen.key(Modifiers::NONE, Key::ArrowUp);
-    assert_eq!(lumen.app().arrangement.selected, [ids[1]]);
+    assert_eq!(lumen.app().selected_tracks(), [ids[1]]);
     lumen.key(Modifiers::SHIFT, Key::ArrowUp);
-    let selected = &lumen.app().arrangement.selected;
+    let selected = &lumen.app().selected_tracks();
     assert!(selected.len() == 2 && selected.contains(&ids[0]) && selected.contains(&ids[1]));
 
     // Alt+Down moves both below the third.

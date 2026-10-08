@@ -1,5 +1,5 @@
-//! How Lumen was started: from the command line (`main`), or by a test (the
-//! end-to-end suite, `e2e`), which starts the same `App` with its own
+//! How Lumen was started: from the command line (`run`), or by a test (the
+//! end-to-end suite in `tests/e2e/`, through `testing`), which starts the same `App` with its own
 //! settings, autosave folder and the silent test device, so it never touches
 //! the user's.
 
@@ -10,40 +10,40 @@ use crate::{audio, bench, settings};
 
 /// Everything start-up needs to know.
 pub struct Launch {
-    pub started: Instant,
-    pub settings: settings::Settings,
+    pub(crate) started: Instant,
+    pub(crate) settings: settings::Settings,
     /// A problem reading the settings, shown once started.
-    pub settings_warning: Option<String>,
+    pub(crate) settings_warning: Option<String>,
     /// Where settings are saved; `None` never saves them.
-    pub settings_path: Option<PathBuf>,
-    pub audio: audio::Choice,
+    pub(crate) settings_path: Option<PathBuf>,
+    pub(crate) audio: audio::Choice,
     /// Where autosaves go; `None` turns autosave off.
-    pub autosave_dir: Option<PathBuf>,
-    pub autosave_after: Option<Duration>,
+    pub(crate) autosave_dir: Option<PathBuf>,
+    pub(crate) autosave_after: Option<Duration>,
     /// A project to open (`lumen song.lumen`).
-    pub open: Option<PathBuf>,
+    pub(crate) open: Option<PathBuf>,
     /// `--open-audio`: an audio file added at bar 1.
-    pub open_audio: Option<PathBuf>,
+    pub(crate) open_audio: Option<PathBuf>,
     /// `--stress`: the generated quality-bar project.
-    pub stress: bool,
+    pub(crate) stress: bool,
     /// `--audio-settings`: the audio settings window open at start.
-    pub audio_settings: bool,
+    pub(crate) audio_settings: bool,
     /// `--recover-latest` (tests): press Recover at once.
-    pub recover_latest: bool,
+    pub(crate) recover_latest: bool,
     /// `--scale` and `--appearance`: one-off overrides, not saved.
-    pub scale: Option<f32>,
-    pub appearance: Option<String>,
+    pub(crate) scale: Option<f32>,
+    pub(crate) appearance: Option<String>,
     /// `--smoke-test`: render a few frames, report, close.
-    pub smoke_test: bool,
+    pub(crate) smoke_test: bool,
     /// `--screenshot`: render, save a screenshot, close.
-    pub screenshot: Option<PathBuf>,
+    pub(crate) screenshot: Option<PathBuf>,
     /// `--bench-frames`: the frame-time benchmark, and `--bench-size`.
-    pub bench: Option<bench::Bench>,
-    pub bench_size: Option<(f32, f32)>,
+    pub(crate) bench: Option<bench::Bench>,
+    pub(crate) bench_size: Option<(f32, f32)>,
     /// `--autoplay-ms`: toggle play and stop this often (latency tests).
-    pub autoplay: Option<Duration>,
+    pub(crate) autoplay: Option<Duration>,
     /// `--save-as` (tests): save once imports are done, then close.
-    pub save_as: Option<PathBuf>,
+    pub(crate) save_as: Option<PathBuf>,
 }
 
 impl Launch {
@@ -113,34 +113,6 @@ impl Launch {
                 .and_then(|ms| ms.parse().ok())
                 .map(Duration::from_millis),
             save_as: value("--save-as").map(PathBuf::from),
-        }
-    }
-
-    /// A clean start for a test: default settings that are never saved,
-    /// autosaves in `dir`, and the silent test device.
-    #[cfg(test)]
-    pub fn for_test(dir: &std::path::Path) -> Self {
-        Self {
-            started: Instant::now(),
-            settings: settings::Settings::default(),
-            settings_warning: None,
-            settings_path: None,
-            audio: audio::Choice::test_device(),
-            autosave_dir: Some(dir.join("autosave")),
-            autosave_after: None,
-            open: None,
-            open_audio: None,
-            stress: false,
-            audio_settings: false,
-            recover_latest: false,
-            scale: None,
-            appearance: None,
-            smoke_test: false,
-            screenshot: None,
-            bench: None,
-            bench_size: None,
-            autoplay: None,
-            save_as: None,
         }
     }
 }

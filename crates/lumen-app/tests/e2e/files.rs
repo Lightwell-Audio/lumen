@@ -3,15 +3,14 @@
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers};
+use lumen_app::testing::{PROJECT_EXTENSION, project_file};
 
 use super::{Lumen, wav};
-use crate::files;
 
 /// The clips of every track, as (track name, clip count).
 fn clips(lumen: &Lumen) -> Vec<(String, usize)> {
     lumen
         .app()
-        .document
         .project()
         .tracks
         .iter()
@@ -26,18 +25,11 @@ fn dropped_audio_becomes_a_track_with_a_clip_and_plays() {
     lumen.drop_files(&[file]);
     lumen.frames(5);
     assert_eq!(clips(&lumen), [("kick".to_owned(), 1)]);
-    // Its audio is ready for the engine, with a waveform.
-    let media = lumen.app().document.project().media[0].id.0;
-    let item = lumen
-        .app()
-        .lanes
-        .library
-        .get(media)
-        .expect("in the library");
-    assert!(item.peaks.is_some(), "a waveform was built");
+    let media = lumen.app().project().media[0].id;
+    assert!(lumen.app().has_waveform(media), "loaded, with a waveform");
 
     lumen.key(Modifiers::NONE, Key::Space);
-    lumen.wait_for("playback", |app| app.transport.state().playing);
+    lumen.wait_for("playback", |app| app.is_playing());
     lumen.key(Modifiers::NONE, Key::Space);
 }
 
@@ -49,40 +41,32 @@ fn a_project_saves_and_opens_again_unchanged() {
     lumen.key(Modifiers::COMMAND, Key::T);
     let name = lumen.track_names()[0].clone();
     lumen.click(&format!("Mute {name}"));
-    assert!(lumen.app().document.is_dirty());
+    assert!(lumen.app().is_dirty());
 
     // Save as the Save dialog would, once a path is chosen.
-    let path = files::project_file_for(&lumen.dir().join("Song"));
-    lumen.app_mut().start_save(path.clone());
-    lumen.wait_for("the save", |app| {
-        app.saving.is_none() && !app.document.is_dirty()
-    });
+    let path = project_file(lumen.dir(), "Song");
+    lumen.app_mut().save_to(path.clone());
+    lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
     assert!(path.exists(), "{}", path.display());
-    let saved = lumen.app().document.project().clone();
+    let saved = lumen.app().project().clone();
 
     // A fresh Lumen opens it: the same project, its audio loaded.
     let dir = lumen.crash();
-    let mut again = Lumen::start_with(dir, |launch| launch.open = Some(path.clone()));
-    again.wait_for("the project to open", |app| {
-        app.opening.is_none() && !app.lanes.is_loading()
-    });
+    let mut again = Lumen::start_with(dir, |launch| launch.opening(path.clone()));
+    again.wait_for("the project to open", |app| !app.is_busy());
     again.frames(5);
-    let opened = again.app().document.project();
+    let opened = again.app().project();
     assert_eq!(opened.tracks, saved.tracks);
     assert_eq!(opened.media.len(), saved.media.len());
-    assert!(!again.app().document.is_dirty());
-    assert!(
-        again.app().file_notice.is_none(),
-        "{:?}",
-        again.app().file_notice
-    );
+    assert!(!again.app().is_dirty());
+    assert_eq!(again.app().file_notice(), None);
 }
 
 #[test]
 fn work_survives_a_crash_through_the_autosave() {
     let mut lumen = Lumen::start_with(
         lumen_project::testing::TempDir::new("e2e-recover"),
-        |launch| launch.autosave_after = Some(Duration::from_millis(50)),
+        |launch| launch.autosaving_after(Duration::from_millis(50)),
     );
     lumen.key(Modifiers::COMMAND, Key::T);
     lumen.key(Modifiers::COMMAND, Key::T);
@@ -92,21 +76,21 @@ fn work_survives_a_crash_through_the_autosave() {
         std::fs::read_dir(&autosaves).is_ok_and(|entries| {
             entries
                 .flatten()
-                .any(|e| e.path().extension().is_some_and(|x| x == files::EXTENSION))
+                .any(|e| e.path().extension().is_some_and(|x| x == PROJECT_EXTENSION))
         })
     });
 
     // Lumen stops without closing normally; the next start offers the work.
     let dir = lumen.crash();
-    let mut again = Lumen::start_with(dir, |_| {});
+    let mut again = Lumen::start_with(dir, |launch| launch);
     assert!(again.track_names().is_empty());
     again.click("Recover");
     again.wait_for("the recovered project", |app| {
-        app.opening.is_none() && app.document.project().tracks.len() == 2
+        !app.is_busy() && app.project().tracks.len() == 2
     });
     assert_eq!(again.track_names(), names);
     assert!(
-        again.app().document.is_dirty(),
+        again.app().is_dirty(),
         "recovered work is unsaved until saved"
     );
 }

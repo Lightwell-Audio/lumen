@@ -8,7 +8,7 @@
 //! is needed (GPU drawing is covered by `lumen-render`'s tests and the
 //! real-binary smoke tests in `tests/smoke.rs`), so these run in CI.
 //!
-//! Run them with `cargo test -p lumen-app e2e`. Add a scenario for every
+//! Run them with `cargo test -p lumen-app --test e2e`. Add a scenario for every
 //! workflow a slice delivers (DEVELOPMENT.md, "End-to-end tests").
 
 mod editing;
@@ -24,9 +24,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use lumen_project::testing::TempDir;
 
-use crate::App;
-use crate::audio::Status;
-use crate::launch::Launch;
+use lumen_app::{App, Launch};
 
 /// The window size the tests run at, in points.
 const SIZE: egui::Vec2 = egui::vec2(1600.0, 900.0);
@@ -34,8 +32,8 @@ const SIZE: egui::Vec2 = egui::vec2(1600.0, 900.0);
 const PATIENCE: Duration = Duration::from_secs(30);
 
 /// A running Lumen.
-pub(crate) struct Lumen {
-    harness: Harness<'static, App>,
+pub struct Lumen {
+    pub harness: Harness<'static, App>,
     /// Autosaves and the test's files; removed when the test ends.
     dir: TempDir,
 }
@@ -43,22 +41,19 @@ pub(crate) struct Lumen {
 impl Lumen {
     /// Starts Lumen with a fresh folder, as [`Launch::for_test`] describes.
     pub fn start(name: &str) -> Self {
-        Self::start_with(TempDir::new(&format!("e2e-{name}")), |_| {})
+        Self::start_with(TempDir::new(&format!("e2e-{name}")), |launch| launch)
     }
 
     /// Starts Lumen in `dir` (kept from an earlier run, for recovery), with
     /// `adjust` changing how it starts.
-    pub fn start_with(dir: TempDir, adjust: impl FnOnce(&mut Launch)) -> Self {
-        let mut launch = Launch::for_test(dir.path());
-        adjust(&mut launch);
+    pub fn start_with(dir: TempDir, adjust: impl FnOnce(Launch) -> Launch) -> Self {
+        let launch = adjust(Launch::for_test(dir.path()));
         let harness = Harness::builder()
             .with_size(SIZE)
             .with_step_dt(1.0 / 60.0)
             .build_eframe(|cc| App::new(cc, launch));
         let mut lumen = Self { harness, dir };
-        lumen.wait_for("the audio to start", |app| {
-            matches!(app.transport.audio.status, Status::Running { .. })
-        });
+        lumen.wait_for("the audio to start", App::audio_running);
         lumen
     }
 
@@ -140,13 +135,12 @@ impl Lumen {
             .map(|p| std::sync::Arc::new(Dropped(p.clone())) as egui::DroppedFileHandle)
             .collect();
         self.harness.step();
-        self.wait_for("the files to load", |app| !app.lanes.is_loading());
+        self.wait_for("the files to load", |app| !app.is_busy());
     }
 
     /// Track names, top to bottom.
     pub fn track_names(&self) -> Vec<String> {
         self.app()
-            .document
             .project()
             .tracks
             .iter()
@@ -170,7 +164,7 @@ impl egui::DroppedFile for Dropped {
 }
 
 /// A stereo WAV of `seconds` of a quiet tone at 48 kHz, written to `path`.
-pub(crate) fn wav(path: &Path, seconds: f32) -> PathBuf {
+pub fn wav(path: &Path, seconds: f32) -> PathBuf {
     let rate = 48_000_u32;
     let frames = (seconds * rate as f32) as usize;
     let data: Vec<u8> = (0..frames)

@@ -1837,7 +1837,7 @@ whole app the way a user does.
 
 ### Decision
 Both 1 and 3, in two layers:
-- **The E2E suite** (`crates/lumen-app/src/e2e/`): the whole app with
+- **The E2E suite** (`crates/lumen-app/tests/e2e/`): the whole app with
   egui_kittest (MIT/Apache-2.0, a dev-dependency only, kept at eframe's
   version). Scenarios cover tracks (add from the menu and the keyboard,
   mute, solo, arm, rename, move, delete, undo, redo, keyboard-only
@@ -1860,6 +1860,18 @@ Both 1 and 3, in two layers:
 - **Start-up is a value:** `launch::Launch` holds what start-up needs,
   from the command line (`Launch::from_args`) or a test
   (`Launch::for_test`); `App::new` builds the app from it.
+- **Where the tests live** (owner review, 2026-10-08): Rust's convention
+  puts end-to-end and integration tests in the crate's `tests/` folder,
+  where each file is a separate crate that sees only the public API, and
+  keeps a binary's `main.rs` thin over a library so they can reach it
+  (The Rust Book, ch. 11.3). So `lumen-app` is a library (`lib.rs`, with
+  `run()`) and a three-line `main.rs`; the suite is `tests/e2e/` beside
+  `tests/smoke.rs`. The tests drive the app through its controls and a
+  small public API, `lumen_app::testing` (a clean start, and read-only
+  looks at the project, playhead, view and background work), as
+  `lumen_project::testing` does for projects; the app's fields stay
+  private. Unit tests of private logic stay inline (`#[cfg(test)] mod
+  tests`), also per the convention.
 - **The rule** (owner): the E2E suite and the real-binary smoke tests run
   at the end of every slice, and each slice adds scenarios for the
   workflows it delivers (`lumen-architecture` skill, DEVELOPMENT.md).

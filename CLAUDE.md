@@ -430,7 +430,7 @@ built, MT-APP-12 pending).
     MT-APP-12 awaits the owner; then slice 4 closes.
   - MT-APP-12 run 1: zoom-out now stops at the song (as in Ableton) and
     the grid covers any view (`28b40d4`).
-  - **End-to-end tests** (ADR-0029, 2026-10-08): `crates/lumen-app/src/e2e/`
+  - **End-to-end tests** (ADR-0029, 2026-10-08): `crates/lumen-app/tests/e2e/`
     drives the whole app headless in CI; `tests/smoke.rs` runs the real
     binary at the end of every slice.
   - Shaders are `.wgsl` files checked at build time (`lumen-shader-check`).
@@ -479,7 +479,7 @@ built, MT-APP-12 pending).
 - **Before every commit:** `cargo fmt`, workspace clippy with
   `-D warnings`, and tests.
 - **At the end of every slice** (owner rule, ADR-0029): the E2E suite
-  (`cargo test -p lumen-app e2e`) and the real-binary smoke tests
+  (`cargo test -p lumen-app --test e2e`) and the real-binary smoke tests
   (`cargo test -p lumen-app --test smoke -- --ignored`) pass, and the
   slice adds E2E scenarios for what it delivered. Run Lumen by hand for
   screenshots only with `--audio test:fake --settings ... --autosave-dir

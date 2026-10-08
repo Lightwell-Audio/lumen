@@ -45,8 +45,8 @@ short form: the rules, and the checks that keep them.
 
 - **Modules stay small and single-purpose.** Past about 800 lines, or once
   a file mixes concerns, split it before adding more. In the app,
-  `main.rs` holds only `App`, the frame loop and start-up; its behaviour
-  lives in `app/` by concern (projects, recovery, history, preferences,
+  `main.rs` only calls `lumen_app::run()`; `lib.rs` holds `App`, the frame
+  loop and start-up; its behaviour lives in `app/` by concern (projects, recovery, history, preferences,
   view). The arrangement is `arrangement/{mod, headers, clips}`.
 - **Shared controls live in the design system**, not in the feature that
   first needed them (`widgets.rs`, `icons.rs`); see the `lumen-design`
@@ -85,13 +85,18 @@ Before pushing:
 
 **At the end of every slice** (owner rule, ADR-0029), before the slice's
 report and manual test:
-- run the E2E suite, `cargo test -p lumen-app e2e`, and the real-binary
+- run the E2E suite, `cargo test -p lumen-app --test e2e`, and the real-binary
   smoke tests, `cargo test -p lumen-app --test smoke -- --ignored`. Both
   must pass; report the results.
-- add E2E scenarios (`crates/lumen-app/src/e2e/`) for every workflow the
+- add E2E scenarios (`crates/lumen-app/tests/e2e/`) for every workflow the
   slice delivers, driven as a user would: by accessible names, keys and
   dropped files. A bug the owner finds gets a scenario that fails without
   the fix.
+- tests live where Rust's convention puts them: unit tests of private
+  logic inline (`#[cfg(test)] mod tests`); end-to-end and integration
+  tests in the crate's `tests/` folder, using only the public API. If a
+  test needs to see more, add a narrow, documented accessor to
+  `lumen_app::testing`, never `pub` fields.
 - run Lumen by hand only in isolation: `--audio test:fake --settings
   <dir>/settings.json --autosave-dir <dir>/autosave` (never the owner's
   settings, autosaves or audio device).

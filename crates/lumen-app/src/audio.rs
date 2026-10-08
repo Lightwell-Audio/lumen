@@ -45,7 +45,6 @@ impl Choice {
     }
 
     /// The silent test device ([`TEST_DRIVER`]).
-    #[cfg(test)]
     pub fn test_device() -> Self {
         Choice::Named {
             driver: TEST_DRIVER.into(),

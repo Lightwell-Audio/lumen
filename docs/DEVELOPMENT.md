@@ -153,11 +153,11 @@ Run both **at the end of every slice**, and add scenarios for the
 workflows the slice delivers.
 
 ```powershell
-cargo test -p lumen-app e2e                                   # the E2E suite (about 3 s; also in CI)
+cargo test -p lumen-app --test e2e                            # the E2E suite (about 3 s; also in CI)
 cargo test -p lumen-app --test smoke -- --ignored             # the real binary, with its window and GPU
 ```
 
-- **The E2E suite** (`crates/lumen-app/src/e2e/`) starts the whole app
+- **The E2E suite** (`crates/lumen-app/tests/e2e/`) starts the whole app
   with egui's test harness, without a window, and drives it by accessible
   names, keys and dropped files. Use the `Lumen` helper: `start`, `click`,
   `key`, `drop_files`, `wait_for`, `shows`, `is_on`. Wait on state (a
