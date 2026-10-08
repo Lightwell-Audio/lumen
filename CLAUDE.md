@@ -422,8 +422,8 @@ next).
     per-frame row table) and a frame-time benchmark
     (`--stress --bench-frames`; DEVELOPMENT.md). MT-APP-10 passed.
   - **4c done** (ADR-0027): waveforms from peak pyramids built at load,
-    drawn per pixel on the GPU; MT-APP-11 passed. Moving the peak disk
-    cache to M9 awaits the owner's approval.
+    drawn per pixel on the GPU; MT-APP-11 passed. The peak disk cache
+    moved to M9 (owner approved).
   - Shaders are `.wgsl` files checked at build time (`lumen-shader-check`).
   - Problems found and not fixed yet: `docs/KNOWN_ISSUES.md`.
   - Next: 4d (zoom, follow playhead, drag to reorder).

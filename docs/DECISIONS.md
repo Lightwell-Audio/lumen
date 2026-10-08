@@ -37,7 +37,7 @@ irreversible or external) · *Superseded*.
 | [0024](#adr-0024--undo-by-shared-snapshots) | Undo by shared snapshots: every step is a cheap copy of the project that shares untouched tracks and clips | Accepted 2026-10-07 | No |
 | [0025](#adr-0025--tracks-folding-and-interim-volume-and-pan) | Tracks: owner-chosen header and clip design, Ableton-style folding and resizing, interim volume and pan until the mixer | Accepted 2026-10-07 | No |
 | [0026](#adr-0026--clips-on-the-gpu) | Clips on the GPU: a box layer with a per-frame row table; names in egui; measured first with a frame-time benchmark | Accepted 2026-10-07 | No |
-| [0027](#adr-0027--waveforms) | Waveforms: 8-bit peak pyramids built at load; drawn per pixel on the GPU from an atlas; disk cache proposed for M9 | Accepted 2026-10-07 | Disk cache deferral |
+| [0027](#adr-0027--waveforms) | Waveforms: 8-bit peak pyramids built at load; drawn per pixel on the GPU from an atlas; disk cache in M9 | Accepted 2026-10-07 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -67,6 +67,7 @@ irreversible or external) · *Superseded*.
 | Track design (M3 slice 4, 2026-10-07) | Option A headers with option B's dark clips; type icons; Ableton-style folding and resizing in 22 pt steps; sliders with values inside, with pan saturating toward the edges; record arm that glows and breathes; a "+ Add track ▾" menu button with a double-click hint (DESIGN §7a, ADR-0025). |
 | macOS CI (2026-10-07) | **Paused**: the GitHub Actions minutes ran out, so CI runs Windows and Linux only. macOS code is checked with the cross-target clippy (DEVELOPMENT.md) before pushing; macOS CI comes back when there is budget. |
 | Reviews (2026-10-07) | A full repository review at the end of every milestone, against CLAUDE.md, the architecture and the design system (the `lumen-architecture` and `lumen-design` skills), before the milestone report. |
+| Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
 
 ---
@@ -1646,7 +1647,7 @@ Idle: 3 repaints in 3 s, all from the once-a-second device check.
 ## ADR-0027 — Waveforms
 
 **Status:** Accepted · **Date:** 2026-10-07 (M3 slice 4c) · The disk cache
-is deferred to M9, pending the owner's approval
+is deferred to M9 (owner approved, 2026-10-07)
 
 ### Context
 Clips need waveforms that stay crisp and fast at every zoom (§6.2 [M]),
@@ -1716,7 +1717,7 @@ memory. Clips are already on the GPU with a per-frame row table
 - After the run 2 fixes (up to 17 reads per pixel): 3440 × 1380 p99
   2.7 / 2.2 / 1.9 ms, 1600 × 900 1.1 / 1.3 / 1.0 ms; unchanged.
 
-### Proposed for the owner: no disk cache until M9
+### No disk cache until M9 (owner approved, 2026-10-07)
 The plan said peaks would be cached on disk. Until M9 every file is
 decoded into memory when it loads (owner decision, 2026-10-06), so peaks
 are built from audio already in memory in about 21 ms per 5 minutes, a

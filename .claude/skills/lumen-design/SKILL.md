@@ -86,6 +86,8 @@ Look at the result yourself before reporting:
 - never kill the owner's running Lumen: use the debug build for
   screenshots.
 
+Visual problems found and not fixed now go in `docs/KNOWN_ISSUES.md`.
+
 Then run through DESIGN.md §9 and the UX acceptance checklist in CLAUDE.md
 §5, and add the manual steps the owner will check to the slice's MT-*
 test.

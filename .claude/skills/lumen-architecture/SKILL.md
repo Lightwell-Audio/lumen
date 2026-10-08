@@ -95,5 +95,10 @@ each run's findings.
 - Significant choices get an ADR in `docs/DECISIONS.md`. Owner decisions
   go in its table.
 - Every requirement's status is tracked in `docs/PROGRESS.md`.
+- **Problems found and not fixed now go in `docs/KNOWN_ISSUES.md`**: what
+  happens, its effect, and where it will be addressed. Check it before
+  working in an area, so a known problem is not rediscovered or made
+  worse. When one is fixed, remove it and record the fix in the relevant
+  ADR or manual test run.
 - At the end of each slice, keep `CLAUDE.md` §12 and the
   `ARCHITECTURE.md` module tables current.

@@ -118,7 +118,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Clip hover card with file details (format, rate, channels, length, size, path) | S | 🟡 Basic card done in M2 slice 6 (owner request, MT-MEDIA-1); full clip properties panel in M3 | 3 |
 | Glitch-free playback, seamless loops, instant seeking | M | 🟡 Clips play sample-exactly from memory, with click-free crossfaded loops and locates (slice 6; golden renders; MT-MEDIA-1 passes by ear). Large sessions need disk streaming (M9) | 2 |
 | Disk streaming of clip audio with read-ahead, so large sessions need not fit in RAM; in-memory playback becomes a per-clip RAM option (owner decision 2026-10-06: memory in M2, streaming in M9) | M | 🔲 | 9 |
-| Crisp, fast waveforms at every zoom | M | ✅ | 3 | M3 slice 4c (ADR-0027): peak pyramids built at load, drawn per pixel on the GPU; no measurable frame cost with 10,000 waveforms. Disk cache proposed for M9 (owner to approve); sample-level drawing when zoom goes past 16 frames per pixel |
+| Crisp, fast waveforms at every zoom | M | ✅ | 3 | M3 slice 4c (ADR-0027): peak pyramids built at load, drawn per pixel on the GPU; no measurable frame cost with 10,000 waveforms. Disk cache deferred to M9 with disk streaming (owner approved); sample-level drawing when zoom goes past 16 frames per pixel |
 | Recording: multi-arm, monitoring, multichannel, crash-safe capture, latency compensation and offset, punch, count-in, input meters | M | 🔲 | 9 |
 | Loop recording into takes; capture MIDI | S | 🔲 | 9 |
 | Clip gain, fade shapes, automatic crossfades, reverse, normalize, polarity, pitch | M | 🔲 | 3, 7 |

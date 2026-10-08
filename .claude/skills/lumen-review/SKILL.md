@@ -58,8 +58,11 @@ Then judge by reading:
   responsive, feedback, empty and error states, both themes at 100%, 150%
   and 200%, accessible names. Take screenshots (see `lumen-design`).
 - **Docs drift:** whether `ARCHITECTURE.md` module tables, `PROGRESS.md`
-  statuses, `DESIGN.md` tokens, `MANUAL_TESTS.md` and `CLAUDE.md` §12 match
-  the code.
+  statuses, `DESIGN.md` tokens, `MANUAL_TESTS.md`, `KNOWN_ISSUES.md` and
+  `CLAUDE.md` §12 match the code.
+- **Known issues:** every entry in `docs/KNOWN_ISSUES.md` is still real
+  and still has an owner (a slice or milestone); fixed ones are removed.
+  Anything the review finds but does not fix goes there.
 
 ## 4. Report, then fix
 
