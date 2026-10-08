@@ -99,3 +99,23 @@ fn while_playing_a_drag_jumps_playback() {
         app.is_playing() && (4 * BAR..5 * BAR).contains(&t)
     });
 }
+
+/// MT-APP-13 run 1 (owner): the scrub strip gave no hint of what a drag
+/// would do.
+#[test]
+fn the_strip_hints_what_a_drag_will_do() {
+    let mut lumen = Lumen::start("scrub-hints");
+    let p = at(&lumen, 5.3);
+    lumen.harness.hover_at(p);
+    lumen.frames(2);
+    assert_eq!(lumen.app().hint(), Some("drag to listen · Alt tape"));
+    lumen
+        .harness
+        .event(eframe::egui::Event::ModifiersChanged(Modifiers::ALT));
+    lumen.frames(2);
+    assert_eq!(lumen.app().hint(), Some("drag to scrub like tape"));
+    scrub(&mut lumen, 5.3, 9.0, Modifiers::ALT, |lumen| {
+        let hint = lumen.app().hint().unwrap_or_default();
+        assert!(hint.starts_with("tape ") && hint.ends_with('×'), "{hint}");
+    });
+}

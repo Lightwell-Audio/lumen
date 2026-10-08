@@ -114,3 +114,46 @@ fn punch_in_and_out_are_set_from_the_loop_menu() {
     lumen.key(Modifiers::COMMAND, eframe::egui::Key::Z);
     assert!(!lumen.app().project().transport.punch_out, "undoable");
 }
+
+/// MT-APP-13 run 1 (owner): nothing said whether a drag would move or
+/// resize the loop, and the edges were hard to catch.
+#[test]
+fn hovering_the_brace_says_what_a_drag_will_do() {
+    let mut lumen = Lumen::start("loop-hints");
+    let band = lumen.harness.get_by_label(BRACE).rect();
+    let y = band.center().y;
+    let hover = |lumen: &mut Lumen, x: f32| {
+        lumen.harness.hover_at(Pos2::new(x, y));
+        lumen.frames(2);
+        lumen.app().hint().map(str::to_owned)
+    };
+    // The default loop is bars 1 to 4 (quarters 0 to 16).
+    let start = x_of(&lumen, band.left(), 0.0);
+    let end = x_of(&lumen, band.left(), 16.0);
+    let (middle, after) = (
+        x_of(&lumen, band.left(), 8.0),
+        x_of(&lumen, band.left(), 20.0),
+    );
+    assert_eq!(
+        hover(&mut lumen, start + 7.0).as_deref(),
+        Some("Loop start")
+    );
+    assert_eq!(hover(&mut lumen, end - 7.0).as_deref(), Some("Loop end"));
+    assert_eq!(
+        hover(&mut lumen, middle).as_deref(),
+        Some("Move loop · click: on or off")
+    );
+    assert_eq!(
+        hover(&mut lumen, after).as_deref(),
+        Some("Drag to draw a loop")
+    );
+
+    // 7 points inside the start edge still resizes.
+    lumen.click("Grid: 1/8");
+    lumen.click("1 bar");
+    let from = Pos2::new(start + 7.0, y);
+    let to = Pos2::new(x_of(&lumen, band.left(), 4.2), y);
+    drag(&mut lumen, from, to);
+    let t = lumen.app().project().transport;
+    assert_eq!((t.loop_start.0, t.loop_end.0), (BAR, 4 * BAR));
+}

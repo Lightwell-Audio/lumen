@@ -132,6 +132,9 @@ pub struct App {
     grid: lumen_core::grid::Grid,
     /// The selected locator and the one being renamed (slice 5d).
     locators: app::locators::Locators,
+    /// The drag hint drawn this frame, if any (MT-APP-13 run 1); the
+    /// end-to-end tests read it.
+    hint: Option<String>,
     smoke_test_frames: Option<u32>,
     /// Where `--screenshot` saves, once the frames have rendered.
     screenshot: Option<PathBuf>,
@@ -237,6 +240,7 @@ impl eframe::App for App {
         }
         let ctx = ui.ctx().clone();
         self.drive_bench(&ctx);
+        self.hint = None;
         self.transport.update();
         self.transport.shortcuts(&ctx);
         self.undo_shortcuts(&ctx);
@@ -549,6 +553,7 @@ impl App {
             nav: app::navigate::Nav::default(),
             grid: lumen_core::grid::Grid::default(),
             locators: app::locators::Locators::default(),
+            hint: None,
             smoke_test_frames: launch.smoke_test.then_some(SMOKE_FRAMES),
             screenshot: launch.screenshot,
             started,

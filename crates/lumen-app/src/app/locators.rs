@@ -189,14 +189,20 @@ impl App {
             if response.drag_started() {
                 self.locators.selected = Some(marker.id);
                 self.arrangement.selected.clear();
+                // Where on the flag it was grabbed, so it doesn't jump.
+                let grabbed = ui
+                    .input(|i| i.pointer.press_origin())
+                    .map_or(0.0, |p| p.x - x);
+                ui.data_mut(|d| d.insert_temp(id, grabbed));
             }
             if response.dragged()
                 && let Some(p) = response.interact_pointer_pos()
             {
                 ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
                 let free = ui.input(|i| i.modifiers.alt);
+                let grabbed: f32 = ui.data(|d| d.get_temp(id)).unwrap_or(0.0);
                 let to = self.snapped(
-                    ruler::ticks_at(at.view.beat_at(at.canvas.left(), p.x)),
+                    ruler::ticks_at(at.view.beat_at(at.canvas.left(), p.x - grabbed)),
                     free,
                 );
                 self.document

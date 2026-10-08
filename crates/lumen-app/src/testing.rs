@@ -134,6 +134,11 @@ impl App {
         (r.start, r.end, r.enabled)
     }
 
+    /// The drag hint drawn by the pointer in the last frame, if any.
+    pub fn hint(&self) -> Option<&str> {
+        self.hint.as_deref()
+    }
+
     /// What Undo would undo.
     pub fn undo_label(&self) -> Option<&str> {
         self.document.history().undo_label()

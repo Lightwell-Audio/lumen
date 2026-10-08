@@ -23,7 +23,7 @@ fn the_keys_change_the_grid_and_the_button_shows_it() {
     lumen.key(Modifiers::COMMAND, Key::Num3);
     assert!(lumen.shows("Grid: 1/2T"), "Ctrl+3 triplet");
     lumen.key(Modifiers::COMMAND, Key::Num4);
-    assert!(lumen.shows("Grid: Off"), "Ctrl+4 snap off");
+    assert!(lumen.shows("Grid: 1/2T, snap off"), "Ctrl+4 snap off");
     lumen.key(Modifiers::COMMAND, Key::Num4);
 
     // Ctrl+5 fixes the step showing now; zooming no longer changes it.

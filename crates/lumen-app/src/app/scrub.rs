@@ -5,9 +5,9 @@
 //! follows the hand like tape. While playing, a drag jumps playback from
 //! step to step instead. Right-click adds a locator there.
 
-use eframe::egui::{self, CursorIcon, Rect, Sense};
+use eframe::egui::{self, Color32, CursorIcon, FontId, Pos2, Rect, Sense, pos2};
 use lumen_core::time::Ticks;
-use lumen_engine::ScrubStyle;
+use lumen_engine::{MAX_SCRUB_SPEED, ScrubStyle};
 
 use super::grid::draw_snap_guide;
 use super::rulers::{BRACE_BAND, Layout};
@@ -69,10 +69,14 @@ impl App {
         let raw = ruler::ticks_at(at.view.beat_at(at.canvas.left(), pointer.x)).max(Ticks::ZERO);
         let x = |t: Ticks| at.view.x(at.canvas.left(), t.as_quarters());
 
+        let palette = theme::p();
+        let row = zone.center().y;
+        let playing = self.transport.state().playing;
+
         if response.dragged() {
             ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
             let sent: Option<Sent> = ui.data(|d| d.get_temp(id));
-            let next = if self.transport.state().playing {
+            let next = if playing {
                 // Playing: jump from step to step, as a click would.
                 let target = self.snapped(raw, free);
                 if sent.is_none_or(|s| s.at != target) {
@@ -86,6 +90,18 @@ impl App {
                 if sent.is_none_or(|s| s.at != raw) {
                     self.transport.scrub(raw, ScrubStyle::Tape);
                 }
+                // The tape's speed, as the hand sets it.
+                let speed = self.tape_speed(ui, id, raw);
+                let text = format!("tape {speed:.1}×");
+                hint_text(
+                    painter,
+                    pos2(pointer.x + 12.0, row),
+                    &text,
+                    palette.accent,
+                    at.strip,
+                );
+                self.hint = Some(text);
+                ui.ctx().request_repaint();
                 Sent {
                     at: raw,
                     style: ScrubStyle::Tape,
@@ -103,7 +119,7 @@ impl App {
                 painter.rect_filled(
                     Rect::from_x_y_ranges(x(start)..=x(end), zone.y_range()),
                     0.0,
-                    theme::p().accent_muted,
+                    palette.accent_muted,
                 );
                 next
             };
@@ -112,12 +128,38 @@ impl App {
             return;
         }
         if response.drag_stopped() {
-            ui.data_mut(|d| d.remove::<Sent>(id));
+            ui.data_mut(|d| {
+                d.remove::<Sent>(id);
+                d.remove::<Speed>(id);
+            });
             self.transport.end_scrub();
             return;
         }
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
         let target = self.snapped(raw, free);
+        // What a drag would do (MT-APP-13 run 1, the owner's choice B2):
+        // the step it would play, washed, and a quiet hint beside it.
+        let hint = if playing {
+            "click or drag to jump"
+        } else if free {
+            "drag to scrub like tape"
+        } else {
+            let (start, end) = self.grid_cell(raw);
+            painter.rect_filled(
+                Rect::from_x_y_ranges(x(start)..=x(end), zone.y_range()),
+                0.0,
+                palette.accent_muted.gamma_multiply(0.6),
+            );
+            "drag to listen · Alt tape"
+        };
+        hint_text(
+            painter,
+            pos2(pointer.x + 12.0, row),
+            hint,
+            palette.text_hint,
+            at.strip,
+        );
+        self.hint = Some(hint.to_owned());
         draw_snap_guide(painter, x(target), at.guides());
         if response.clicked() {
             trace::log(|| format!("scrub strip: locate {target:?}"));
@@ -125,4 +167,53 @@ impl App {
             self.transport.follow_paused = true;
         }
     }
+
+    /// How fast a tape scrub plays, times normal: the song time the hand
+    /// covers per second, smoothed, within the engine's limit.
+    fn tape_speed(&self, ui: &egui::Ui, id: egui::Id, at: Ticks) -> f64 {
+        let rate = self.transport.state().sample_rate.max(1);
+        let song = self.transport.timeline.sample_at(at, rate) as f64 / f64::from(rate);
+        let now = ui.input(|i| i.time);
+        let last: Option<Speed> = ui.data(|d| d.get_temp(id));
+        let speed = match last {
+            Some(last) if now > last.time => {
+                let instant = (song - last.song) / (now - last.time);
+                last.speed + (instant - last.speed) * 0.3
+            }
+            Some(last) => last.speed,
+            None => 0.0,
+        }
+        .clamp(-MAX_SCRUB_SPEED, MAX_SCRUB_SPEED);
+        ui.data_mut(|d| {
+            d.insert_temp(
+                id,
+                Speed {
+                    song,
+                    time: now,
+                    speed,
+                },
+            )
+        });
+        speed
+    }
+}
+
+/// A tape scrub's speed, carried from frame to frame.
+#[derive(Debug, Clone, Copy)]
+struct Speed {
+    /// Where the hand was, in seconds of song, and when.
+    song: f64,
+    time: f64,
+    speed: f64,
+}
+
+/// A quiet caption beside the pointer, kept inside `bounds`.
+fn hint_text(painter: &egui::Painter, at: Pos2, text: &str, colour: Color32, bounds: Rect) {
+    let galley = painter.layout_no_wrap(
+        text.to_owned(),
+        FontId::proportional(theme::size::CAPTION),
+        colour,
+    );
+    let x = at.x.min(bounds.right() - galley.size().x - 4.0);
+    painter.galley(pos2(x, at.y - galley.size().y / 2.0), galley, colour);
 }

@@ -399,3 +399,64 @@ mod tests {
         assert_eq!(p.parse("-50"), Some(-0.5));
     }
 }
+
+/// The mark in front of a hint's words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HintMark {
+    /// A double arrow: dragging resizes.
+    Resize,
+    /// Four arrows: dragging moves.
+    Move,
+    None,
+}
+
+/// A small chip naming what a drag will do (MT-APP-13 run 1: the owner
+/// could not tell whether a drag would move or resize). Placed with its
+/// left edge at `at.x`, centred on `at.y`, kept inside `bounds`. Returns
+/// where it was drawn.
+pub fn draw_hint(painter: &Painter, at: Pos2, mark: HintMark, text: &str, bounds: Rect) -> Rect {
+    let palette = theme::p();
+    let font = FontId::proportional(theme::size::CAPTION);
+    let galley = painter.layout_no_wrap(text.to_owned(), font, palette.text);
+    let mark_width = if mark == HintMark::None { 0.0 } else { 12.0 };
+    let size = vec2(
+        galley.size().x + mark_width + 2.0 * theme::space::XS + 2.0,
+        theme::size::CAPTION + 4.0,
+    );
+    let x = at.x.min(bounds.right() - size.x).max(bounds.left());
+    let rect = Rect::from_min_size(pos2(x, at.y - size.y / 2.0), size);
+    painter.rect(
+        rect,
+        theme::radius::SMALL,
+        palette.overlay,
+        Stroke::new(1.0, palette.border_strong),
+        egui::StrokeKind::Inside,
+    );
+    let left = rect.left() + theme::space::XS;
+    let mid = rect.center().y;
+    let stroke = Stroke::new(1.2, palette.accent);
+    let arrow = |from: Pos2, to: Pos2| {
+        painter.line_segment([from, to], stroke);
+        let d = (to - from).normalized() * 2.5;
+        let n = vec2(-d.y, d.x);
+        painter.line_segment([to, to - d + n], stroke);
+        painter.line_segment([to, to - d - n], stroke);
+        painter.line_segment([from, from + d + n], stroke);
+        painter.line_segment([from, from + d - n], stroke);
+    };
+    let centre = pos2(left + 4.5, mid);
+    match mark {
+        HintMark::Resize => arrow(centre - vec2(4.5, 0.0), centre + vec2(4.5, 0.0)),
+        HintMark::Move => {
+            arrow(centre - vec2(4.5, 0.0), centre + vec2(4.5, 0.0));
+            arrow(centre - vec2(0.0, 4.5), centre + vec2(0.0, 4.5));
+        }
+        HintMark::None => {}
+    }
+    painter.galley(
+        pos2(left + mark_width, mid - galley.size().y / 2.0),
+        galley,
+        palette.text,
+    );
+    rect
+}

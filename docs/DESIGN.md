@@ -297,9 +297,11 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
 
 - **The grid button** sits in the ruler's corner, above the track headers:
   "Grid" in hint text at the left, the step at the right in the monospace
-  caption ("1/16", "1/8T", "4 bars"), in hint colour when snapping is off
-  ("Off"). A click opens the grid menu; right-clicking the lanes opens it
-  too.
+  caption ("1/16", "1/8T", "4 bars"), always shown. Before it, a magnet
+  (`Icon::Magnet`, 14 pt): `accent` while snapping, struck through in
+  `text_hint` when not, with the size in hint colour too (owner's choice
+  C1, MT-APP-13 run 1). A click opens the grid menu; right-clicking the
+  lanes opens it too.
 - **The grid menu** lists the adaptive widths, the fixed sizes, Triplet,
   Dotted and Snap to grid as selectable items with their shortcuts.
 - **Lines:** bar lines `grid_bar`, beat lines `grid_beat`, lines between
@@ -320,9 +322,19 @@ Chosen by the owner from rendered specimens (Ableton's split):
     strip, a 6 pt right-pointing triangle and the name in a caption,
     `start_marker` (`accent` when selected, its name in `text`); the name
     gets a `control_hover` wash on hover;
-  - the **scrub strip** (slice 5e): the rest of the top 14 pt. A pointing
-    hand and a snap guide on hover; while dragging, the grid step that
-    plays is lit in `accent_muted`.
+  - the **scrub strip** (slice 5e): the rest of the top 14 pt. On hover, a
+    pointing hand, a snap guide, the step a drag would play washed in
+    `accent_muted` at 60%, and a caption in `text_hint` beside the pointer
+    ("drag to listen · Alt tape"; "drag to scrub like tape" with Alt;
+    "click or drag to jump" while playing). While dragging, the step that
+    plays is lit in `accent_muted`; a tape scrub shows "tape 1.4×" in
+    `accent` (owner's choice B2, on trial).
+  - **Drag hints** on the brace (owner's choice A1): near an edge (8 pt) a
+    2 pt `accent` bracket rises at that edge and a chip says "↔ Loop
+    start" or "Loop end"; inside, the brace lights (`accent` at 35%) and the
+    chip says "Move loop · click: on or off"; elsewhere, "Drag to draw a
+    loop". Chips (`widgets::draw_hint`): `overlay` with a `border_strong`
+    hairline, caption text, an accent mark drawn as arrows.
 - **Strip corner** (over the headers): "Locators" in `text_hint`, then
   ◂ Set ▸ at the right edge. Set is `accent` when a locator sits at the
   playhead; the arrows dim when there is nothing that way.

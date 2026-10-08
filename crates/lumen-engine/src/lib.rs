@@ -24,7 +24,7 @@ mod timeline;
 pub use clips::{Clip, ClipAudio, ClipPlayer, ClipsHandle, clip_player};
 pub use engine::{Command, Engine, EngineHandle, Region, engine};
 pub use metronome::{ClickSound, MetronomeSettings};
-pub use scrub::ScrubStyle;
+pub use scrub::{MAX_SPEED as MAX_SCRUB_SPEED, ScrubStyle};
 pub use snapshot::TransportSnapshot;
 pub use source::{Jump, Output, RenderContext, Source};
 pub use timeline::Timeline;

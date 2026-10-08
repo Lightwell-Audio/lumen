@@ -72,6 +72,7 @@ irreversible or external) · *Superseded*.
 | Reviews (2026-10-07) | A full repository review at the end of every milestone, against CLAUDE.md, the architecture and the design system (the `lumen-architecture` and `lumen-design` skills), before the milestone report. |
 | Navigation (M3 slice 4d, 2026-10-07) | **Zoom to single samples**, as Ableton does; waveforms draw individual samples past the stored detail. **Follow playhead: page by default, on**; continuous is the second mode. Ableton-style keys: `+`/`-` zoom, X back, W fit width, H fit height, Alt+wheel a track's height. |
 | Rulers and scrubbing (M3 slice 5, 2026-10-08) | **Ruler layout A, Ableton split** (chosen from rendered specimens): locators and the loop brace in a strip above the bar ruler, a time ruler (minutes and seconds, samples or timecode) along the bottom of the arrangement. **Both scrub styles:** dragging in the scrub strip plays short loops of the grid step under the pointer at normal pitch (Ableton-style, for songwriting and arranging); holding Alt scrubs tape-style, audio following the hand's speed and pitch (for precise editing). |
+| Drag hints (MT-APP-13 run 1, 2026-10-08) | Chosen from rendered specimens: **A1** the loop brace grows a bracket at the edge a drag will resize, lights when it will move, and a chip names the action; **B2** (on trial) the scrub strip washes the step a drag would play and shows a quiet hint ("drag to listen · Alt tape"), and a tape scrub shows its speed; **C1** the grid button always shows the size, with a magnet lit while snapping and struck through when not. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
 
@@ -1947,6 +1948,14 @@ the choices made inside those.
     letting go leaves the playhead there.
   - Real-time safe: the buffers are allocated with the engine; the
     real-time test scrubs both styles under the allocation guard.
+- **Hints for drags** (MT-APP-13 run 1, the owner's choices A1, B2, C1):
+  a hint names what a drag will do (`widgets::draw_hint` chips on the
+  brace, quiet captions on the scrub strip), and the grid button shows a
+  magnet for snapping. The brace's edge zone grew from 5 to 8 points (at
+  most a third of the brace), and what a drag grabs is decided where the
+  button went down, not where egui first reports the drag a few points
+  later (that turned edge grabs into moves). Right-clicking the scrub
+  strip adds a locator there without moving the playhead, as in Ableton.
 - **The strip** (24 pt) holds the scrub strip and locator flags in its top
   14 pt and the loop brace in its bottom 10 pt; flags take precedence over
   scrubbing, and the brace has its own band (DESIGN §7d).

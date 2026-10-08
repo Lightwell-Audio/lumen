@@ -332,12 +332,10 @@ impl Grid {
         self.fixed = !self.fixed;
     }
 
-    /// What the grid is, for the screen: "1/16", "1/8T", "1/8.", "4 bars",
-    /// or "Off".
+    /// What the grid is, for the screen: "1/16", "1/8T", "1/8.", "4 bars".
+    /// Shown whether or not snapping is on (the app shows that with a
+    /// magnet, MT-APP-13 run 1).
     pub fn label(&self, step: Step) -> String {
-        if !self.snap {
-            return "Off".into();
-        }
         step_label(step, self.feel)
     }
 }
@@ -649,7 +647,8 @@ mod tests {
                 ..grid
             }
             .label(Step::Bars(1)),
-            "Off"
+            "1 bar",
+            "the size shows with snapping off"
         );
     }
 

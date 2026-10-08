@@ -962,6 +962,20 @@ crackles or dropouts) at a 128-sample buffer.
    stays (E2E `a_locator_is_added_where_the_strip_is_right_clicked_without_moving_the_playhead`).
    Re-run step 4.
 
-**Last run:** run 1, four findings (one fixed, three waiting on the
-owner's choice of specimens).
+Fixes from the owner's choices of specimens (A1, B2 on trial, C1):
+1. The brace: near an edge a bracket rises and a chip says "Loop start" or
+   "Loop end"; inside it lights and says "Move loop · click: on or off";
+   elsewhere "Drag to draw a loop". The edge zone grew from 5 to 8
+   points, and a bug that turned edge grabs into moves (the grab was read
+   a few points into the drag) is fixed.
+2. The scrub strip: the step a drag would play is washed and a caption
+   says "drag to listen · Alt tape" (with Alt: "drag to scrub like tape";
+   while playing: "click or drag to jump"); a tape scrub shows its speed.
+3. The grid button always shows the size, after a magnet: blue while
+   snapping, struck through when not.
+E2E: `hovering_the_brace_says_what_a_drag_will_do`,
+`the_strip_hints_what_a_drag_will_do`, and the grid keys scenario
+("Grid: 1/2T, snap off"). Re-run steps 1, 3, 4 and 5.
+
+**Last run:** run 1, four findings, all fixed; run 2 waiting.
 

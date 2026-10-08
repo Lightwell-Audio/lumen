@@ -62,7 +62,7 @@ impl App {
         let palette = theme::p();
         painter.rect_filled(at.strip, 0.0, palette.app);
         self.scrub_zone(ui, painter, at);
-        self.loop_brace(ui, painter, at);
+        let brace_hint = self.loop_brace(ui, painter, at);
         let looped = self.document.project().transport;
         let (a, b) = (
             at.x(looped.loop_start.as_quarters()),
@@ -92,6 +92,10 @@ impl App {
         }
         super::regions::draw_punch(painter, at, &looped);
         self.locator_flags(ui, painter, at);
+        if let Some(hint) = brace_hint {
+            let text = super::regions::draw_brace_hint(painter, at, &looped, hint);
+            self.hint = Some(text.to_owned());
+        }
     }
 
     /// The bar ruler: labels, click to locate, drag to zoom and scroll.

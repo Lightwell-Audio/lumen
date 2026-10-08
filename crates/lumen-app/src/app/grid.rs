@@ -6,6 +6,7 @@ use eframe::egui::{self, Align2, FontId, Key, Modifiers, Rect, Sense, Stroke, po
 use lumen_core::grid::{Feel, Size, Step, Width};
 use lumen_core::time::Ticks;
 
+use crate::icons::{self, Icon};
 use crate::{App, motion, ruler, theme};
 
 impl App {
@@ -32,7 +33,7 @@ impl App {
         self.grid.step(meter, self.nav.view.zoom)
     }
 
-    /// What the grid is, for the screen: "1/16", "1/8T", "4 bars", "Off".
+    /// What the grid is, for the screen: "1/16", "1/8T", "4 bars".
     pub(crate) fn grid_label(&self) -> String {
         self.grid.label(self.grid_step())
     }
@@ -125,9 +126,16 @@ impl App {
         let label = self.grid_label();
         let response = ui
             .interact(rect, ui.id().with("grid button"), Sense::click())
-            .on_hover_text("Grid and snapping (Ctrl+1 to Ctrl+5; right-click the lanes too)");
+            .on_hover_text(
+                "Grid and snapping: the magnet is lit while snapping is on (Ctrl+4). \n                 Ctrl+1 to Ctrl+5; right-click the lanes too",
+            );
         response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Grid: {label}"))
+            let snap = if self.grid.snap { "" } else { ", snap off" };
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Button,
+                true,
+                format!("Grid: {label}{snap}"),
+            )
         });
         let palette = theme::p();
         let hover = motion::hover(ui.ctx(), response.id.with("hover"), response.hovered());
@@ -146,7 +154,9 @@ impl App {
             FontId::proportional(theme::size::CAPTION),
             palette.text_hint,
         );
-        painter.text(
+        // The size, and a magnet: lit while snapping, struck through when
+        // not (MT-APP-13 run 1).
+        let size = painter.text(
             pos2(rect.right() - 8.0, rect.center().y),
             Align2::RIGHT_CENTER,
             &label,
@@ -157,6 +167,17 @@ impl App {
                 palette.text_hint
             },
         );
+        let (icon, colour) = if self.grid.snap {
+            (Icon::Magnet, palette.accent)
+        } else {
+            (Icon::MagnetOff, palette.text_hint)
+        };
+        let side = theme::size::CAPTION + 3.0;
+        let magnet = Rect::from_center_size(
+            pos2(size.left() - 4.0 - side / 2.0, rect.center().y),
+            egui::vec2(side, side),
+        );
+        painter.extend(icons::shapes(icon, magnet, colour));
         egui::Popup::menu(&response)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
             .show(|ui| self.grid_menu(ui));

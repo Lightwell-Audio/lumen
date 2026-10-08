@@ -23,11 +23,15 @@ pub enum Icon {
     Metronome,
     /// Follow the playhead: a playhead line with an arrow.
     Follow,
+    /// Snapping on: a horseshoe magnet.
+    Magnet,
+    /// Snapping off: the magnet, struck through.
+    MagnetOff,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 8] = [
+    pub const ALL: [Icon; 10] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
@@ -36,6 +40,8 @@ impl Icon {
         Icon::Loop,
         Icon::Metronome,
         Icon::Follow,
+        Icon::Magnet,
+        Icon::MagnetOff,
     ];
 }
 
@@ -127,6 +133,32 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             Shape::line_segment([g.p(8.0, 11.0), g.p(12.0, 4.0)], stroke),
             Shape::circle_filled(g.p(10.3, 7.0), 1.3 * g.unit, color),
         ],
+        Icon::Magnet | Icon::MagnetOff => {
+            // A horseshoe: two legs joined by a half circle on top, with
+            // pole tips at the bottom.
+            let thick = Stroke::new(2.4 * g.unit, color);
+            let mut arch: Vec<Pos2> = (0..=12)
+                .map(|k| {
+                    let a = PI + PI * k as f32 / 12.0;
+                    g.p(8.0 + 4.0 * a.cos(), 7.5 + 4.0 * a.sin())
+                })
+                .collect();
+            // The legs stop short of the tips, so the notch shows at 100%.
+            arch.insert(0, g.p(4.0, 10.0));
+            arch.push(g.p(12.0, 10.0));
+            let mut shapes = vec![
+                Shape::line(arch, thick),
+                Shape::rect_filled(g.rect(2.6, 11.6, 5.4, 14.4), 0.3 * g.unit, color),
+                Shape::rect_filled(g.rect(10.6, 11.6, 13.4, 14.4), 0.3 * g.unit, color),
+            ];
+            if icon == Icon::MagnetOff {
+                shapes.push(Shape::line_segment(
+                    [g.p(2.0, 2.0), g.p(14.0, 14.0)],
+                    stroke,
+                ));
+            }
+            shapes
+        }
         Icon::Follow => vec![
             Shape::line_segment([g.p(4.0, 2.5), g.p(4.0, 13.5)], stroke),
             Shape::line_segment([g.p(6.5, 8.0), g.p(11.5, 8.0)], stroke),
