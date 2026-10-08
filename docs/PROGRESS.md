@@ -34,7 +34,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 1 | Performance gates by instruction count (ADR-0022) | ✅ 2026-10-07 | `03e2228` |
 | 2 | Design system, motion system, M2 retrofit; typefaces (ADR-0023, MT-APP-7) | ✅ 2026-10-07 | `dbe4777`, `392a5f8`, `d320cf0` |
 | 3 | Project model and undo, save/open, autosave and recovery (ADR-0024, MT-APP-8) | ✅ 2026-10-07 | `fd7583b`, `e2768fb`, `43c86f1`, `578bc6f`, `7780b11`, `4a7f615` |
-| 4 | Tracks and the arrangement view at scale: groundwork (format v3), 4a track headers (ADR-0025, MT-APP-9 passed), architecture audit fixed, 4b clips on the GPU with a frame-time benchmark (ADR-0026, MT-APP-10 passed), 4c waveforms (ADR-0027, MT-APP-11 pending); 4d next | 🟡 | 4a and audit through `eea085a`; 4b from `397f846` |
+| 4 | Tracks and the arrangement view at scale: groundwork (format v3), 4a track headers (ADR-0025, MT-APP-9 passed), architecture audit fixed, 4b clips on the GPU with a frame-time benchmark (ADR-0026, MT-APP-10 passed), 4c waveforms (ADR-0027, MT-APP-11 passed); 4d next | 🟡 | 4a and audit through `eea085a`; 4b from `397f846` |
 | 5 | Grid, snapping, rulers, scrub, markers, loop | 🔲 | |
 | 6 | Clip editing and selection | 🔲 | |
 | 7 | Command palette, shortcuts, context menus | 🔲 | |

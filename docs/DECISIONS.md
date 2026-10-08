@@ -1713,6 +1713,8 @@ memory. Clips are already on the GPU with a per-frame row table
   1.8–2.0 / 2.1 / 1.9–2.3 ms. Within noise of the same runs without
   waveforms.
 - Loading a 5-minute stereo WAV: 100–140 ms in all, of which peaks 21 ms.
+- After the run 2 fixes (up to 17 reads per pixel): 3440 × 1380 p99
+  2.7 / 2.2 / 1.9 ms, 1600 × 900 1.1 / 1.3 / 1.0 ms; unchanged.
 
 ### Proposed for the owner: no disk cache until M9
 The plan said peaks would be cached on disk. Until M9 every file is

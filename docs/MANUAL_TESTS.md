@@ -863,5 +863,7 @@ Check in run 3: zoom in and out slowly over a long file; then zoom all the
 way in at its start, middle and end: the waveform is there everywhere and
 steady while zooming.
 
-**Last run:** run 2 with findings (fixed); run 3 pending.
+**Run 3 (2026-10-07, owner):** passed ("it looks good").
+
+**Last run:** run 3, passed.
 

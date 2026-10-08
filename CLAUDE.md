@@ -390,8 +390,8 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-07, during M3 slice 4 (4a and 4b done, audit
-fixed, 4c built).
+**Last updated:** 2026-10-07, during M3 slice 4 (4a, 4b and 4c done; 4d
+next).
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
@@ -421,9 +421,11 @@ fixed, 4c built).
   - **4b built** (ADR-0026): clip bodies on the GPU (a box layer with a
     per-frame row table) and a frame-time benchmark
     (`--stress --bench-frames`; DEVELOPMENT.md). MT-APP-10 passed.
-  - **4c built** (ADR-0027): waveforms from peak pyramids built at load,
-    drawn per pixel on the GPU. MT-APP-11 awaits the owner, as does
-    approval to move the peak disk cache to M9.
+  - **4c done** (ADR-0027): waveforms from peak pyramids built at load,
+    drawn per pixel on the GPU; MT-APP-11 passed. Moving the peak disk
+    cache to M9 awaits the owner's approval.
+  - Shaders are `.wgsl` files checked at build time (`lumen-shader-check`).
+  - Problems found and not fixed yet: `docs/KNOWN_ISSUES.md`.
   - Next: 4d (zoom, follow playhead, drag to reorder).
   - The plan and the follow-ups are in `docs/milestones/M3.md`.
 - **Skills** (`.claude/skills/`), to load before working:
