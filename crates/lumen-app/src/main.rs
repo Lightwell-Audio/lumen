@@ -22,7 +22,12 @@
 //!                                --bench-size 3440x1400 sets the window
 //! lumen --smoke-test             render a few frames, report start-up time, exit
 //! lumen --screenshot out.png     render, save a screenshot, exit
+//! lumen --audio test:fake --settings s.json --autosave-dir dir
+//!                                isolated from the user (tests): the silent
+//!                                test device, its own settings and autosaves
 //! ```
+//!
+//! More test flags are in `launch.rs` and `docs/DEVELOPMENT.md`.
 
 mod app;
 mod arrangement;
@@ -32,10 +37,13 @@ mod autosave;
 mod bench;
 mod canvas;
 mod document;
+#[cfg(test)]
+mod e2e;
 mod files;
 mod fonts;
 mod icons;
 mod lanes;
+mod launch;
 mod media;
 mod motion;
 mod owner;
@@ -61,6 +69,7 @@ use lumen_core::time::{TempoPoint, Ticks};
 use lumen_project::model::{Project, TimeSignature};
 
 use app::projects::{FileDialog, Next};
+use launch::Launch;
 use transport::Transport;
 
 struct App {
@@ -440,50 +449,149 @@ fn save_png(path: &std::path::Path, image: &egui::ColorImage) -> Result<(), Stri
         .map_err(|e| e.to_string())
 }
 
-/// The value after `flag`, if given.
-/// Where autosaves go: `--autosave-dir` (tests), or the app data folder.
-fn autosave_dir() -> Option<PathBuf> {
-    arg_value("--autosave-dir")
-        .map(PathBuf::from)
-        .or_else(autosave::default_dir)
-}
-
-fn arg_value(flag: &str) -> Option<String> {
-    let args: Vec<String> = std::env::args().collect();
-    args.iter()
-        .position(|a| a == flag)
-        .and_then(|i| args.get(i + 1).cloned())
+impl App {
+    /// Starts Lumen as `launch` says: from the command line, or a test.
+    fn new(cc: &eframe::CreationContext<'_>, launch: Launch) -> Self {
+        let Launch {
+            started,
+            settings: saved,
+            settings_warning,
+            settings_path,
+            ..
+        } = launch;
+        let mut document = document::Document::new(if launch.stress {
+            lumen_project::testing::synthetic(42, 200, 100, 10, 0)
+        } else {
+            empty_project()
+        });
+        let mut transport = Transport::new(document.project(), &launch.audio);
+        transport.restore_metronome((&saved.metronome).into());
+        transport.restore_follow(saved.follow);
+        transport.settings_window.open = launch.audio_settings;
+        if let Some(warning) = settings_warning {
+            transport.audio.notice = Some(match transport.audio.notice.take() {
+                Some(notice) => format!("{warning}\n{notice}"),
+                None => warning,
+            });
+        }
+        let mut lanes = lanes::Lanes::default();
+        // `--stress`: every file of the generated project plays the same
+        // generated audio (one copy in memory, one set of peaks).
+        if launch.stress {
+            let rate = transport.state().sample_rate;
+            let channels = bench::stress_audio(rate);
+            let peaks = lumen_media::Peaks::build(&channels, &AtomicBool::new(false)).map(Arc::new);
+            let audio = Arc::new(lumen_engine::ClipAudio {
+                sample_rate: rate,
+                channels,
+            });
+            for media in &document.project().media {
+                if let Some(peaks) = &peaks {
+                    lanes.library.insert_ready(
+                        media.id.0,
+                        &media.path,
+                        Arc::clone(&audio),
+                        Arc::clone(peaks),
+                    );
+                }
+            }
+        }
+        if let Some(path) = launch.open_audio {
+            lanes.add_files(
+                vec![path],
+                Ticks::ZERO,
+                transport.state().sample_rate,
+                &cc.egui_ctx,
+                &mut document,
+            );
+        }
+        let saved_appearance = saved.appearance.clone();
+        let mut app = App {
+            transport,
+            lanes,
+            drop_target: Ticks::ZERO,
+            settings: saved,
+            settings_path,
+            settings_changed: None,
+            settings_writer: settings::Writer::start(),
+            document,
+            synced: None,
+            show_history: false,
+            arrangement: arrangement::Arrangement::default(),
+            toast: None,
+            dialog: None,
+            saving: None,
+            opening: None,
+            prompt: None,
+            after_save: None,
+            file_notice: None,
+            quitting: false,
+            owner: None,
+            autosave: None,
+            leftover: None,
+            recovering: None,
+            show_browser: true,
+            show_detail: true,
+            browser_size: 220.0,
+            detail_size: 220.0,
+            toggle_detail_requested: false,
+            nav: app::navigate::Nav::default(),
+            smoke_test_frames: launch.smoke_test.then_some(SMOKE_FRAMES),
+            screenshot: launch.screenshot,
+            started,
+            autoplay: launch.autoplay,
+            autoplay_count: 1,
+            save_as: launch.save_as,
+            traced: None,
+            appearance_override: false,
+            saved_appearance: saved_appearance.clone(),
+            system_theme: None,
+            banner: None,
+            bench: launch.bench,
+        };
+        // `--scale` and `--appearance` are one-off overrides (tests,
+        // screenshots); they are not saved unless changed in the menu.
+        if let Some(scale) = launch.scale {
+            app.settings.appearance.ui_scale = scale;
+            app.appearance_override = true;
+        }
+        if let Some(theme) = launch.appearance {
+            app.settings.appearance.theme = theme::Appearance::from_key(&theme).key().into();
+            app.appearance_override = true;
+        }
+        fonts::install(&cc.egui_ctx);
+        app.apply_appearance(&cc.egui_ctx);
+        let mut autosave = autosave::Autosave::new(launch.autosave_dir);
+        if let Some(delay) = launch.autosave_after {
+            autosave = autosave.with_delay(delay);
+        }
+        app.autosave = Some(autosave);
+        app.leftover = app.next_leftover();
+        if launch.recover_latest
+            && let Some(leftover) = app.leftover.take()
+        {
+            app.opening = Some(files::open(leftover.file.clone()));
+            app.recovering = Some(leftover);
+        }
+        // `lumen <file>.lumen` (and opening a project from Explorer).
+        if let Some(path) = launch.open {
+            app.opening = Some(files::open(path));
+        }
+        app
+    }
 }
 
 fn main() -> eframe::Result {
     // The helper mode for safe ASIO queries (probe.rs): no window.
-    if let Some(clsid) = arg_value(probe::FLAG) {
-        std::process::exit(probe::run_helper(&clsid));
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(clsid) = args
+        .iter()
+        .position(|a| a == probe::FLAG)
+        .and_then(|i| args.get(i + 1))
+    {
+        std::process::exit(probe::run_helper(clsid));
     }
-    let started = Instant::now();
-    let screenshot = arg_value("--screenshot").map(PathBuf::from);
-    let smoke_test = screenshot.is_some() || std::env::args().any(|a| a == "--smoke-test");
-    let scale: Option<f32> = arg_value("--scale")
-        .and_then(|s| s.parse().ok())
-        .filter(|s| (0.5..=3.0).contains(s));
-    let settings_path = settings::default_path();
-    let (saved, settings_warning) = settings_path
-        .as_deref()
-        .map(settings::load)
-        .unwrap_or_default();
-    // `--audio` is a one-off choice; otherwise the saved device, otherwise
-    // the system default.
-    let choice = match arg_value("--audio") {
-        Some(arg) => audio::Choice::parse(&arg).unwrap_or_else(|e| {
-            eprintln!("{e}; using the default output");
-            audio::Choice::Default
-        }),
-        None => saved
-            .audio
-            .clone()
-            .map_or(audio::Choice::Default, audio::Choice::Saved),
-    };
-    let bench = arg_value("--bench-frames").map(|out| bench::Bench::new(PathBuf::from(out)));
+    let launch = Launch::from_args();
     let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(display_name())
@@ -493,12 +601,9 @@ fn main() -> eframe::Result {
     };
     // The benchmark measures how fast frames can be drawn, not the display's
     // refresh rate; `--bench-size 3440x1400` sets its window.
-    if bench.is_some() {
+    if launch.bench.is_some() {
         options.wgpu_options.surface.present_mode = eframe::wgpu::PresentMode::AutoNoVsync;
-        if let Some((w, h)) = arg_value("--bench-size").and_then(|v| {
-            let (w, h) = v.split_once('x')?;
-            Some((w.parse::<f32>().ok()?, h.parse::<f32>().ok()?))
-        }) {
+        if let Some((w, h)) = launch.bench_size {
             options.viewport = options
                 .viewport
                 .with_inner_size([w, h])
@@ -522,133 +627,7 @@ fn main() -> eframe::Result {
             if let Some(state) = cc.wgpu_render_state.as_ref() {
                 canvas::install(state).map_err(|e| format!("renderer: {e}"))?;
             }
-            let mut document =
-                document::Document::new(if std::env::args().any(|a| a == "--stress") {
-                    lumen_project::testing::synthetic(42, 200, 100, 10, 0)
-                } else {
-                    empty_project()
-                });
-            let mut transport = Transport::new(document.project(), &choice);
-            transport.restore_metronome((&saved.metronome).into());
-            transport.restore_follow(saved.follow);
-            transport.settings_window.open = std::env::args().any(|a| a == "--audio-settings");
-            if let Some(warning) = settings_warning {
-                transport.audio.notice = Some(match transport.audio.notice.take() {
-                    Some(notice) => format!("{warning}\n{notice}"),
-                    None => warning,
-                });
-            }
-            let mut lanes = lanes::Lanes::default();
-            // `--stress`: every file of the generated project plays the
-            // same generated audio (one copy in memory, one set of peaks).
-            if std::env::args().any(|a| a == "--stress") {
-                let rate = transport.state().sample_rate;
-                let channels = bench::stress_audio(rate);
-                let peaks =
-                    lumen_media::Peaks::build(&channels, &AtomicBool::new(false)).map(Arc::new);
-                let audio = Arc::new(lumen_engine::ClipAudio {
-                    sample_rate: rate,
-                    channels,
-                });
-                for media in &document.project().media {
-                    if let Some(peaks) = &peaks {
-                        lanes.library.insert_ready(
-                            media.id.0,
-                            &media.path,
-                            Arc::clone(&audio),
-                            Arc::clone(peaks),
-                        );
-                    }
-                }
-            }
-            if let Some(path) = arg_value("--open-audio") {
-                lanes.add_files(
-                    vec![PathBuf::from(path)],
-                    Ticks::ZERO,
-                    transport.state().sample_rate,
-                    &cc.egui_ctx,
-                    &mut document,
-                );
-            }
-            let saved_appearance = saved.appearance.clone();
-            let mut app = App {
-                transport,
-                lanes,
-                drop_target: Ticks::ZERO,
-                settings: saved,
-                settings_path,
-                settings_changed: None,
-                settings_writer: settings::Writer::start(),
-                document,
-                synced: None,
-                show_history: false,
-                arrangement: arrangement::Arrangement::default(),
-                toast: None,
-                dialog: None,
-                saving: None,
-                opening: None,
-                prompt: None,
-                after_save: None,
-                file_notice: None,
-                quitting: false,
-                owner: None,
-                autosave: None,
-                leftover: None,
-                recovering: None,
-                show_browser: true,
-                show_detail: true,
-                browser_size: 220.0,
-                detail_size: 220.0,
-                toggle_detail_requested: false,
-                nav: app::navigate::Nav::default(),
-                smoke_test_frames: smoke_test.then_some(SMOKE_FRAMES),
-                screenshot,
-                started,
-                autoplay: arg_value("--autoplay-ms")
-                    .and_then(|ms| ms.parse().ok())
-                    .map(Duration::from_millis),
-                autoplay_count: 1,
-                save_as: arg_value("--save-as").map(PathBuf::from),
-                traced: None,
-                appearance_override: false,
-                saved_appearance: saved_appearance.clone(),
-                system_theme: None,
-                banner: None,
-                bench,
-            };
-            // `--scale` and `--appearance` are one-off overrides (tests,
-            // screenshots); they are not saved unless changed in the menu.
-            if let Some(scale) = scale {
-                app.settings.appearance.ui_scale = scale;
-                app.appearance_override = true;
-            }
-            if let Some(theme) = arg_value("--appearance") {
-                app.settings.appearance.theme = theme::Appearance::from_key(&theme).key().into();
-                app.appearance_override = true;
-            }
-            fonts::install(&cc.egui_ctx);
-            app.apply_appearance(&cc.egui_ctx);
-            let mut autosave = autosave::Autosave::new(autosave_dir());
-            if let Some(ms) = arg_value("--autosave-after-ms").and_then(|v| v.parse().ok()) {
-                autosave = autosave.with_delay(Duration::from_millis(ms));
-            }
-            app.autosave = Some(autosave);
-            app.leftover = app.next_leftover();
-            // `--recover-latest` (tests): press Recover at once.
-            if std::env::args().any(|a| a == "--recover-latest")
-                && let Some(leftover) = app.leftover.take()
-            {
-                app.opening = Some(files::open(leftover.file.clone()));
-                app.recovering = Some(leftover);
-            }
-            // `lumen <file>.lumen` (and opening a project from Explorer).
-            if let Some(path) = std::env::args()
-                .skip(1)
-                .find(|a| a.to_ascii_lowercase().ends_with(".lumen"))
-            {
-                app.opening = Some(files::open(PathBuf::from(path)));
-            }
-            Ok(Box::new(app))
+            Ok(Box::new(App::new(cc, launch)))
         }),
     )
 }

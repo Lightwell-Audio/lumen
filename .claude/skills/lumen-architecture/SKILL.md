@@ -71,7 +71,7 @@ short form: the rules, and the checks that keep them.
 Before every commit:
 - `cargo fmt --all`;
 - `cargo clippy --workspace --all-targets -- -D warnings`;
-- `cargo test --workspace`.
+- `cargo test --workspace` (includes the E2E suite).
 
 Before pushing:
 - **Platform-specific code:** the WSL Linux mirror (`clippy.sh`), and the
@@ -82,6 +82,19 @@ Before pushing:
   with `perf.sh --update` and record the reason in the ADR.
 - Commands are in `docs/DEVELOPMENT.md`. Build in the repository's
   `target/`; never set `CARGO_TARGET_DIR`.
+
+**At the end of every slice** (owner rule, ADR-0029), before the slice's
+report and manual test:
+- run the E2E suite, `cargo test -p lumen-app e2e`, and the real-binary
+  smoke tests, `cargo test -p lumen-app --test smoke -- --ignored`. Both
+  must pass; report the results.
+- add E2E scenarios (`crates/lumen-app/src/e2e/`) for every workflow the
+  slice delivers, driven as a user would: by accessible names, keys and
+  dropped files. A bug the owner finds gets a scenario that fails without
+  the fix.
+- run Lumen by hand only in isolation: `--audio test:fake --settings
+  <dir>/settings.json --autosave-dir <dir>/autosave` (never the owner's
+  settings, autosaves or audio device).
 
 Tests that need hardware or a human (devices, plugins, look and feel) are
 manual tests in `docs/MANUAL_TESTS.md` (MT-*). Add steps there, and record

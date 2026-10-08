@@ -428,6 +428,11 @@ built, MT-APP-12 pending).
     beats on the GPU, sample-level waveforms), Ableton keys (`+`/`-`, X,
     W, H, Alt+wheel), Follow (page by default, on), drag to reorder tracks.
     MT-APP-12 awaits the owner; then slice 4 closes.
+  - MT-APP-12 run 1: zoom-out now stops at the song (as in Ableton) and
+    the grid covers any view (`28b40d4`).
+  - **End-to-end tests** (ADR-0029, 2026-10-08): `crates/lumen-app/src/e2e/`
+    drives the whole app headless in CI; `tests/smoke.rs` runs the real
+    binary at the end of every slice.
   - Shaders are `.wgsl` files checked at build time (`lumen-shader-check`).
   - Problems found and not fixed yet: `docs/KNOWN_ISSUES.md`.
   - Next: slice 5 (grid, snapping, rulers, markers, loop).
@@ -440,7 +445,7 @@ built, MT-APP-12 pending).
 - Where to look:
   - `docs/PROGRESS.md`: every requirement's status, slice tables and the
     milestone reports;
-  - `docs/DECISIONS.md`: ADR-0001 to ADR-0028, plus the table of owner
+  - `docs/DECISIONS.md`: ADR-0001 to ADR-0029, plus the table of owner
     decisions;
   - `docs/MANUAL_TESTS.md`: hardware tests with every run's results;
   - `docs/KNOWN_ISSUES.md`: problems found and not fixed yet, and where
@@ -473,6 +478,12 @@ built, MT-APP-12 pending).
   never kill the owner's Lumen.
 - **Before every commit:** `cargo fmt`, workspace clippy with
   `-D warnings`, and tests.
+- **At the end of every slice** (owner rule, ADR-0029): the E2E suite
+  (`cargo test -p lumen-app e2e`) and the real-binary smoke tests
+  (`cargo test -p lumen-app --test smoke -- --ignored`) pass, and the
+  slice adds E2E scenarios for what it delivered. Run Lumen by hand for
+  screenshots only with `--audio test:fake --settings ... --autosave-dir
+  ...`, never with the owner's settings, autosaves or device.
 - **Before pushing platform-specific code:** run the WSL Linux mirror
   (`clippy.sh`, and `perf.sh` when engine or project code changes) and the
   macOS cross-target clippy. See DEVELOPMENT.md.

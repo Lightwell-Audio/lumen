@@ -657,10 +657,14 @@ impl Arrangement {
             (TrackKind::Group, "Add group track", ""),
             (TrackKind::Return, "Add return track", ""),
         ] {
-            if ui
-                .add(egui::Button::new(text).shortcut_text(keys))
-                .clicked()
-            {
+            let button = egui::Button::new(text);
+            // No shortcut, no trailing space in the accessible name.
+            let button = if keys.is_empty() {
+                button
+            } else {
+                button.shortcut_text(keys)
+            };
+            if ui.add(button).clicked() {
                 self.selected = vec![doc.add_track(kind, after)];
                 ui.close();
             }

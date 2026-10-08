@@ -21,6 +21,9 @@ the milestone's plan in `docs/milestones/`.
 - fmt;
 - workspace clippy `-D warnings`;
 - tests;
+- the E2E suite and the real-binary smoke tests (`docs/DEVELOPMENT.md`,
+  "End-to-end tests"); also check that every workflow the milestone
+  delivered has an E2E scenario;
 - the WSL mirror (`clippy.sh`, `perf.sh`);
 - the macOS cross-check (see `docs/DEVELOPMENT.md`).
 

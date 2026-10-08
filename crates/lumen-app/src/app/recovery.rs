@@ -6,7 +6,7 @@ use std::time::Instant;
 use eframe::egui::{self, RichText};
 use lumen_core::product::PRODUCT_NAME;
 
-use crate::{App, autosave, autosave_dir, files, theme, trace};
+use crate::{App, autosave, files, theme, trace};
 
 impl App {
     /// Writes an autosave a minute after unsaved changes, and removes it
@@ -87,8 +87,9 @@ impl App {
 
     /// The newest autosave left by another session, if any.
     pub(crate) fn next_leftover(&self) -> Option<autosave::Leftover> {
-        let dir = autosave_dir()?;
-        let own = self.autosave.as_ref().map(|a| a.session().to_owned());
-        autosave::leftovers(&dir, own.as_deref()).into_iter().next()
+        let autosave = self.autosave.as_ref()?;
+        autosave::leftovers(autosave.dir()?, Some(autosave.session()))
+            .into_iter()
+            .next()
     }
 }

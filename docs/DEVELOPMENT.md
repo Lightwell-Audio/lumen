@@ -147,6 +147,33 @@ cargo fmt --all
 cargo bench -p lumen-rt                  # real benchmark run (release profile)
 ```
 
+## End-to-end tests (ADR-0029)
+
+Run both **at the end of every slice**, and add scenarios for the
+workflows the slice delivers.
+
+```powershell
+cargo test -p lumen-app e2e                                   # the E2E suite (about 3 s; also in CI)
+cargo test -p lumen-app --test smoke -- --ignored             # the real binary, with its window and GPU
+```
+
+- **The E2E suite** (`crates/lumen-app/src/e2e/`) starts the whole app
+  with egui's test harness, without a window, and drives it by accessible
+  names, keys and dropped files. Use the `Lumen` helper: `start`, `click`,
+  `key`, `drop_files`, `wait_for`, `shows`, `is_on`. Wait on state (a
+  position, a flag), never on time; `wait_for` gives up after 30 s and
+  says what it waited for. A control a test needs must have an accessible
+  name (CLAUDE.md §5, item 10).
+- **The smoke tests** (`crates/lumen-app/tests/smoke.rs`) run `lumen`
+  itself: start and draw, import, save, reopen with a screenshot that must
+  not be blank, the quality-bar project, and the light theme at 200%. A
+  window flashes up for each. They build the debug binary, so a release
+  Lumen can stay open.
+- **Isolation:** both use the silent test device, their own settings file
+  and their own autosave folder. Do the same when running Lumen by hand
+  for screenshots:
+  `target/debug/lumen.exe --audio test:fake --settings <dir>/settings.json --autosave-dir <dir>/autosave ...`
+
 ## Test flags for files and recovery (M3 slice 3)
 
 | Flag | What it does |
@@ -156,6 +183,8 @@ cargo bench -p lumen-rt                  # real benchmark run (release profile)
 | `--autosave-dir <dir>` | Keeps autosaves in `<dir>` instead of the app data folder |
 | `--autosave-after-ms <n>` | Autosaves after `n` ms instead of a minute |
 | `--recover-latest` | Recovers the newest leftover autosave at start, as the banner's Recover button would |
+| `--settings <file>` | Reads and saves settings in `<file>` instead of the user's (tests) |
+| `--audio test:fake` | The silent test device: runs the engine without sound hardware (tests) |
 
 Example: import, save into a project folder, then reopen it.
 

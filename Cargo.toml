@@ -29,6 +29,9 @@ png = "0.18"
 symphonia = { version = "0.6", default-features = false, features = ["wav", "aiff", "pcm", "flac", "mp3", "ogg", "vorbis"] }
 rubato = "5"
 eframe = "0.36"
+# egui's test harness, for the end-to-end suite (ADR-0029). Keep it at
+# eframe's version.
+egui_kittest = "0.36"
 vello = "0.11"
 wgpu = "30"
 # The shader compiler, for build-time checks (lumen-shader-check). Keep it

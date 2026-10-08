@@ -84,7 +84,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Crashing plugins isolated, flagged, recoverable; scanning never crashes the app | M | 🔲 | 6, 10 | P-ISO, P-VST3 |
 | Device removal, rate and buffer changes, sleep and resume handled | M | 🔲 | 2, 10 | |
 | Safe mode without plugins | M | 🔲 | 6 | |
-| Automated tests: core logic, editing, serialization and migration, audio (golden renders) | M | 🟡 | all | Harness in place |
+| Automated tests: core logic, editing, serialization and migration, audio (golden renders) | M | 🟡 | all | Unit and integration tests per crate; an end-to-end suite that drives the whole app (CI), and real-binary smoke tests run at the end of every slice (ADR-0029, 2026-10-08). Golden renders with export (M9) |
 | Benchmarks with regression gates in CI | M | ✅ | 1–3 | divan wall-clock benchmarks (smoke-run in CI), plus instruction-count gates under Callgrind that fail CI above +2% (M3 slice 1, ADR-0022). Each milestone adds its hot paths |
 | CI on Windows, macOS, Linux | M | ⚠️ | 1 | First run green on 2026-10-06 (run 37396217369): Windows MSVC, macOS, Linux, rustfmt, cargo-deny, VST3 self-test. **macOS paused 2026-10-07** (owner: Actions minutes ran out); Windows and Linux run, macOS is checked by cross-target clippy until it returns |
 | Test plugin simulating good and bad behaviour; real-plugin compatibility matrix | M | 🟡 | 1, 6 | Misbehaving test module (scan stage) + `docs/PLUGIN_COMPATIBILITY.md` (scan stage only) |

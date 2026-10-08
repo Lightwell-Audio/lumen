@@ -43,6 +43,15 @@ impl Choice {
             name: name.into(),
         })
     }
+
+    /// The silent test device ([`TEST_DRIVER`]).
+    #[cfg(test)]
+    pub fn test_device() -> Self {
+        Choice::Named {
+            driver: TEST_DRIVER.into(),
+            name: "fake".into(),
+        }
+    }
 }
 
 /// What the transport bar shows about audio.
@@ -95,11 +104,21 @@ pub fn backend(driver: &str) -> Option<MakeBackend> {
         "exclusive" => Some(|| Box::new(lumen_audio::wasapi::WasapiBackend::new(true))),
         #[cfg(not(windows))]
         "cpal" => Some(|| Box::new(lumen_audio::cpal_host::CpalBackend::new())),
+        // A silent device for automated tests (`--audio test:fake`, the E2E
+        // suite): it runs the engine a block every few milliseconds without
+        // sound hardware. Not in `DRIVERS`, so users never see it.
+        TEST_DRIVER => Some(|| {
+            Box::new(lumen_audio::fake::FakeBackend(
+                lumen_audio::fake::FakeControl::new(),
+            ))
+        }),
         _ => None,
     }
 }
 
 pub const DEFAULT_DRIVER: &str = if cfg!(windows) { "wasapi" } else { "cpal" };
+/// The silent test device's driver key.
+pub const TEST_DRIVER: &str = "test";
 
 /// A device found for a choice.
 struct Resolved {

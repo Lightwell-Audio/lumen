@@ -24,5 +24,8 @@ raw-window-handle.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+[dev-dependencies]
+egui_kittest = { workspace = true, features = ["eframe"] }
+
 [lints]
 workspace = true

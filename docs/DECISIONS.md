@@ -39,6 +39,7 @@ irreversible or external) · *Superseded*.
 | [0026](#adr-0026--clips-on-the-gpu) | Clips on the GPU: a box layer with a per-frame row table; names in egui; measured first with a frame-time benchmark | Accepted 2026-10-07 | No |
 | [0027](#adr-0027--waveforms) | Waveforms: 8-bit peak pyramids built at load; drawn per pixel on the GPU from an atlas; disk cache in M9 | Accepted 2026-10-07 | No |
 | [0028](#adr-0028--navigating-the-arrangement) | Navigation: f64 view with split beats on the GPU, zoom to single samples, Ableton keys, Follow (page, on), drag to reorder, sample-level waveforms | Accepted 2026-10-07 | No |
+| [0029](#adr-0029--end-to-end-smoke-tests) | End-to-end smoke tests: the whole app driven by egui_kittest in CI, plus real-binary smoke tests at the end of every slice; isolated settings, autosaves and a silent test device | Accepted 2026-10-08 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -1809,3 +1810,75 @@ of 120 fps. Idle: 3 repaints in 3 s.
   slice 5 adds time and sample formats).
 - Group folding and dragging tracks into groups come with group tracks
   (M4).
+
+---
+
+## ADR-0029 — End-to-end smoke tests
+
+**Status:** Accepted · **Date:** 2026-10-08 (M3, between slices 4 and 5)
+
+### Context
+The owner asked for automated end-to-end smoke tests, so that new changes
+cannot quietly break what already works, and for them to run at the end
+of every slice. Until now the app was covered by unit tests of its logic,
+GPU tests in `lumen-render`, and manual tests (MT-*). Nothing drove the
+whole app the way a user does.
+
+### Options
+1. **egui's own test harness (`egui_kittest`)**, in-process: it runs the
+   real `App` frame by frame, finds controls through the AccessKit tree by
+   their accessible names, and clicks, types and presses keys. No window
+   or GPU is needed, so it runs in CI on every platform.
+2. **Driving the real binary** with OS automation (UI Automation on
+   Windows): a window and a desktop in CI, slow and flaky.
+3. **The binary's own test flags only** (`--smoke-test`, `--screenshot`,
+   `--save-as`): true end to end with the GPU, but they cannot click or
+   type.
+
+### Decision
+Both 1 and 3, in two layers:
+- **The E2E suite** (`crates/lumen-app/src/e2e/`): the whole app with
+  egui_kittest (MIT/Apache-2.0, a dev-dependency only, kept at eframe's
+  version). Scenarios cover tracks (add from the menu and the keyboard,
+  mute, solo, arm, rename, move, delete, undo, redo, keyboard-only
+  selection), the transport (Space, the buttons, metronome, loop,
+  Follow), navigation (zoom keys, fit, back, the song's limits, track
+  heights, Follow turning the page), and files (dropping audio, saving
+  and opening, recovering after a crash). It runs in about 3 seconds and
+  in CI on Windows and Linux, with the other tests.
+- **Real-binary smoke tests** (`crates/lumen-app/tests/smoke.rs`): start
+  `lumen` with its window and GPU, draw, import, save, reopen and
+  screenshot (checked to be not blank), the quality-bar project, and the
+  light theme at 200%. They need a desktop and a GPU, so they are
+  `#[ignore]`d in CI and run locally at the end of every slice (a debug
+  build, so they never clash with a release Lumen that is running).
+- **Isolation:** every run uses its own settings file (new `--settings`
+  flag), its own autosave folder, and a **silent test audio device**
+  (`--audio test:fake`, `lumen_audio::fake`), which is not listed in the
+  device selector. A run never touches the user's settings, autosaves or
+  sound card (ASIO devices are often exclusive).
+- **Start-up is a value:** `launch::Launch` holds what start-up needs,
+  from the command line (`Launch::from_args`) or a test
+  (`Launch::for_test`); `App::new` builds the app from it.
+- **The rule** (owner): the E2E suite and the real-binary smoke tests run
+  at the end of every slice, and each slice adds scenarios for the
+  workflows it delivers (`lumen-architecture` skill, DEVELOPMENT.md).
+
+### Found on the way
+- **Alt+Up and Alt+Down selected the track above instead of moving the
+  selection, and Shift+Up and Shift+Down did not extend it**, whenever
+  no control had keyboard focus (keyboard-only use). egui matches
+  shortcuts ignoring extra Shift and Alt, so the plain arrow keys, checked
+  first, took them. Fixed by checking the most specific shortcuts first;
+  covered by `the_keyboard_alone_selects_and_moves_tracks`.
+- The "+ Add track" menu items without a shortcut had a trailing space in
+  their accessible names; fixed.
+
+### Consequences
+- Accessible names are now part of the tested interface: renaming a
+  control's accessible name breaks the tests that use it, on purpose
+  (CLAUDE.md §5, item 10).
+- GPU drawing is not in the CI suite; `lumen-render`'s GPU tests, the
+  real-binary smoke tests and the frame-time benchmark cover it locally.
+- The test device runs one block per 10 ms poll (about a quarter of real
+  time), so tests that play wait on positions, never on wall-clock time.

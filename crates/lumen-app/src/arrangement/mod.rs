@@ -334,18 +334,26 @@ impl Arrangement {
         if ctx.egui_wants_keyboard_input() {
             return;
         }
+        // egui matches shortcuts ignoring extra Shift and Alt, so the most
+        // specific ones go first: Alt+Up before Shift+Up before Up (an E2E
+        // test found Alt+Up selecting instead of moving).
         let pressed = |modifiers, key| {
             ctx.input_mut(|i| i.consume_shortcut(&egui::KeyboardShortcut::new(modifiers, key)))
         };
+        if pressed(Modifiers::ALT, Key::ArrowUp) {
+            self.nudge(doc, -1);
+        } else if pressed(Modifiers::ALT, Key::ArrowDown) {
+            self.nudge(doc, 1);
+        }
         // Keyboard-only selection and folding (audit H2), unless a control
         // has focus and uses the arrow keys itself (a slider).
         if ctx.memory(|m| m.focused().is_none()) {
             let tracks: Vec<Id> = doc.project().tracks.iter().map(|t| t.id).collect();
             for (shift, key, by) in [
-                (false, Key::ArrowUp, -1),
-                (false, Key::ArrowDown, 1),
                 (true, Key::ArrowUp, -1),
                 (true, Key::ArrowDown, 1),
+                (false, Key::ArrowUp, -1),
+                (false, Key::ArrowDown, 1),
             ] {
                 let modifiers = if shift {
                     Modifiers::SHIFT
@@ -378,10 +386,6 @@ impl Arrangement {
         {
             doc.delete_tracks(&self.selected);
             self.selected.clear();
-        } else if pressed(Modifiers::ALT, Key::ArrowUp) {
-            self.nudge(doc, -1);
-        } else if pressed(Modifiers::ALT, Key::ArrowDown) {
-            self.nudge(doc, 1);
         } else if pressed(Modifiers::NONE, Key::F2)
             && let Some(id) = self.selected.last().copied()
             && let Some(track) = doc.project().tracks.iter().find(|t| t.id == id)

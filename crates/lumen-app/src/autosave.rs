@@ -99,6 +99,11 @@ impl Autosave {
         &self.session
     }
 
+    /// Where autosaves go (`None`: autosave is off).
+    pub fn dir(&self) -> Option<&Path> {
+        self.dir.as_deref()
+    }
+
     fn file(&self) -> Option<PathBuf> {
         Some(
             self.dir
