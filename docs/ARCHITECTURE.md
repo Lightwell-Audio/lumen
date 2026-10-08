@@ -45,7 +45,7 @@ how the parts fit.
 
 | Crate | Role |
 |---|---|
-| `lumen-core` | Product identity (the name, defined once), time base, tempo and meter maps, the editing grid (`grid`: steps, snapping, lines) |
+| `lumen-core` | Product identity (the name, defined once), time base, tempo and meter maps, the editing grid (`grid`: steps, snapping, lines), curves for fades and envelopes (`curve`) and fades (`fade`) |
 | `lumen-rt` | Real-time safety tooling: allocation guard and `rt_section` (RTSan hooks) |
 | `lumen-audio` | Device layer: `Backend` and `Stream` traits; ASIO, WASAPI and cpal backends; `AudioSystem` supervisor; `Unavailable` (a driver that could not start, with the reason); a fake backend for tests |
 | `lumen-engine` | Engine on the audio thread: transport, timeline, clip player, metronome and test tone, declick, scrubbing (`scrub.rs`: loop and tape styles, while stopped); `EngineHandle` on the UI side |

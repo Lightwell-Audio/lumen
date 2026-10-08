@@ -1,17 +1,19 @@
-//! Fade and gain handles on the lanes (M3 slice 6d, the owner's F3 and
-//! G1): drag a fade's handle along to set its length, its middle dot up or
-//! down to bend it, and the gain line up or down (Shift for fine steps).
-//! A double-click resets each; the right-click menu picks any fade shape.
+//! Fade and gain handles on the lanes (M3 slice 6d, the owner's F3, C3 and
+//! G1): drag a fade's handle along to set its length; drag its dot
+//! anywhere to bend it (the curve passes through the dot), with Alt to add
+//! S-shape; drag the gain line up or down (Shift for fine steps). A
+//! double-click resets each; the right-click menu has the preset shapes.
 //! Every drag is one undo step. Where the handles are is worked out in
 //! `arrangement::handles`.
 
 use eframe::egui::{self, CursorIcon, Pos2, Rect, pos2};
+use lumen_core::curve::Curve;
 use lumen_core::fade::FadeShape;
 use lumen_core::time::Ticks;
 use lumen_project::edit;
 use lumen_project::model::{Clip, ClipContent, Id};
 
-use crate::arrangement::handles::{ClipHandles, Handle, bend_shape, db_per_point};
+use crate::arrangement::handles::{ClipHandles, Handle, bend, db_per_point};
 use crate::arrangement::select::{ClipHit, Edge, Gesture, Half, Hover};
 use crate::widgets::{self, HintMark};
 use crate::{App, ruler};
@@ -33,9 +35,16 @@ impl App {
 
     /// A drag starting at `origin` on the handle of `hit`: it selects the
     /// clip alone.
-    pub(super) fn start_handle_gesture(&mut self, hit: &ClipHit, origin: Pos2) -> Option<Gesture> {
+    pub(super) fn start_handle_gesture(
+        &mut self,
+        hit: &ClipHit,
+        origin: Pos2,
+        canvas: Rect,
+    ) -> Option<Gesture> {
         let handle = hit.handle?;
         let clip = self.clip(hit.clip)?;
+        let view = self.nav.view;
+        let handles = ClipHandles::of(clip, hit.rect, |t| view.x(canvas.left(), t.as_quarters()))?;
         let gesture = match handle {
             Handle::Fade(edge) => Gesture::Fade {
                 clip: hit.clip,
@@ -44,17 +53,14 @@ impl App {
             Handle::Bend(edge) => Gesture::Bend {
                 clip: hit.clip,
                 edge,
-                start: match edge {
-                    Edge::Start => clip.fade_in.shape,
-                    Edge::End => clip.fade_out.shape,
-                },
-                y: origin.y,
+                handle: handles.fade(edge).curve.handle(),
+                last: origin,
+                size: handles.fade_size(edge),
             },
             Handle::Gain => {
                 let ClipContent::Audio { gain_db, .. } = clip.content else {
                     return None;
                 };
-                let handles = ClipHandles::of(clip, hit.rect, |_| hit.rect.left())?;
                 Gesture::Gain {
                     clip: hit.clip,
                     db: gain_db,
@@ -80,7 +86,7 @@ impl App {
         canvas: Rect,
         painter: &egui::Painter,
     ) {
-        let fine = ctx.input(|i| i.modifiers.shift);
+        let (fine, alt) = ctx.input(|i| (i.modifiers.shift, i.modifiers.alt));
         let at = ruler::ticks_at(self.nav.view.beat_at(canvas.left(), p.x));
         let (clip, handle, text) = match gesture {
             Gesture::Fade { clip, edge } => {
@@ -101,14 +107,31 @@ impl App {
             Gesture::Bend {
                 clip,
                 edge,
-                start,
-                y,
+                handle,
+                last,
+                size,
             } => {
-                let shape = bend_shape(start, y - p.y);
+                // Step by step, so Alt can come and go mid-drag.
+                let handle = bend(handle, edge, size, p - last, alt);
+                let curve = Curve::from_handle(handle);
                 self.document
-                    .set_fade_shape(&[clip], edge, shape, Some("clip fade shape"));
-                ctx.set_cursor_icon(CursorIcon::ResizeVertical);
-                (clip, Handle::Bend(edge), shape.name().to_owned())
+                    .set_fade_curve(&[clip], edge, curve, Some("clip fade curve"));
+                self.arrangement.gesture = Some(Gesture::Bend {
+                    clip,
+                    edge,
+                    handle,
+                    last: p,
+                    size,
+                });
+                ctx.set_cursor_icon(CursorIcon::Move);
+                // A preset's name when the curve lands on one; the S-shape
+                // while Alt sets it.
+                let text = if alt {
+                    format!("S {:.0}%", handle.s * 100.0)
+                } else {
+                    FadeShape::of(&curve).map_or_else(String::new, |s| s.name().to_owned())
+                };
+                (clip, Handle::Bend(edge), text)
             }
             Gesture::Gain {
                 clip,
@@ -138,13 +161,10 @@ impl App {
             edge: None,
             handle: Some(handle),
         });
-        widgets::draw_hint(
-            painter,
-            pos2(p.x + 14.0, p.y - 12.0),
-            HintMark::None,
-            &text,
-            canvas,
-        );
+        if !text.is_empty() {
+            let at = pos2(p.x + 14.0, p.y - 12.0);
+            widgets::draw_hint(painter, at, HintMark::None, &text, canvas);
+        }
     }
 
     /// The pointer is over a handle: its cursor and a short hint.
@@ -152,7 +172,7 @@ impl App {
         let (cursor, text) = match hit.handle? {
             Handle::Fade(Edge::Start) => (CursorIcon::ResizeHorizontal, "fade in".to_owned()),
             Handle::Fade(Edge::End) => (CursorIcon::ResizeHorizontal, "fade out".to_owned()),
-            Handle::Bend(_) => (CursorIcon::ResizeVertical, "bend".to_owned()),
+            Handle::Bend(_) => (CursorIcon::Move, "bend · Alt for S".to_owned()),
             Handle::Gain => {
                 let db = match self.clip(hit.clip)?.content {
                     ClipContent::Audio { gain_db, .. } => gain_db,
@@ -178,7 +198,7 @@ impl App {
             }
             Some(Handle::Bend(edge)) => {
                 self.document
-                    .set_fade_shape(&[hit.clip], edge, FadeShape::Linear, None);
+                    .set_fade_curve(&[hit.clip], edge, Curve::LINEAR, None);
             }
             Some(Handle::Gain) => self.document.set_clip_gain(&[hit.clip], 0.0, None),
             None => {}
@@ -203,8 +223,8 @@ impl App {
         }
     }
 
-    /// The fade shapes of the selected audio clips, for the lanes' menu:
-    /// any shape for the fade in and the fade out.
+    /// The preset fade shapes for the selected audio clips, in the lanes'
+    /// menu, for the fade in and the fade out; the one in use is ticked.
     pub(super) fn fade_menu(&mut self, ui: &mut egui::Ui) {
         let project = self.document.project();
         let clips: Vec<&Clip> = project
@@ -219,7 +239,10 @@ impl App {
             return;
         };
         let ids: Vec<Id> = clips.iter().map(|c| c.id).collect();
-        let current = [first.fade_in.shape, first.fade_out.shape];
+        let current = [
+            FadeShape::of(&first.fade_in.curve),
+            FadeShape::of(&first.fade_out.curve),
+        ];
         for (edge, label, now) in [
             (Edge::Start, "Fade-in shape", current[0]),
             (Edge::End, "Fade-out shape", current[1]),
@@ -227,8 +250,12 @@ impl App {
             ui.menu_button(label, |ui| {
                 for shape in FadeShape::ALL {
                     let mut chosen = now;
-                    if ui.radio_value(&mut chosen, shape, shape.name()).clicked() {
-                        self.document.set_fade_shape(&ids, edge, shape, None);
+                    if ui
+                        .radio_value(&mut chosen, Some(shape), shape.name())
+                        .clicked()
+                    {
+                        self.document
+                            .set_fade_curve(&ids, edge, shape.curve(), None);
                         ui.close();
                     }
                 }

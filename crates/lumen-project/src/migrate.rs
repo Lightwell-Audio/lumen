@@ -18,7 +18,7 @@ pub type Migration = fn(Value) -> Result<Value, String>;
 pub const FIRST_VERSION: u64 = 1;
 
 /// `MIGRATIONS[i]` upgrades version `FIRST_VERSION + i` to the next one.
-pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
 /// state (`view`). Version 1 files get the defaults written out.
@@ -89,8 +89,8 @@ fn v3_to_v4(mut document: Value) -> Result<Value, String> {
 /// The defaults are written out on every clip here; saving writes them
 /// only when set.
 fn v4_to_v5(mut document: Value) -> Result<Value, String> {
-    let fade =
-        serde_json::to_value(lumen_core::fade::Fade::default()).map_err(|e| e.to_string())?;
+    // Version 5's own words, frozen: later versions change fades.
+    let fade = serde_json::json!({ "length": 0, "shape": "linear" });
     let tracks = document
         .get_mut("project")
         .and_then(|p| p.get_mut("tracks"))
@@ -106,6 +106,46 @@ fn v4_to_v5(mut document: Value) -> Result<Value, String> {
             clip.entry("fade_in").or_insert(fade.clone());
             clip.entry("fade_out").or_insert(fade.clone());
             clip.entry("loop_length").or_insert(Value::Null);
+        }
+    }
+    Ok(document)
+}
+
+/// Version 6 (M3 slice 6d, owner's choice C3) bends fades freely: a fade's
+/// `shape` (one of four names) becomes a `curve`, four numbers for a cubic
+/// Bézier, written only when it is not straight. Each named shape is an
+/// exact curve, so old fades sound the same.
+fn v5_to_v6(mut document: Value) -> Result<Value, String> {
+    const THIRD: f64 = 1.0 / 3.0;
+    let curve = |shape: &str| -> Result<Option<Value>, String> {
+        Ok(match shape {
+            "linear" => None,
+            "slow" => Some(serde_json::json!([THIRD, 0.0, 2.0 * THIRD, THIRD])),
+            "fast" => Some(serde_json::json!([THIRD, 2.0 * THIRD, 2.0 * THIRD, 1.0])),
+            "s_curve" => Some(serde_json::json!([THIRD, 0.0, 2.0 * THIRD, 1.0])),
+            other => return Err(format!("unknown fade shape {other:?}")),
+        })
+    };
+    let tracks = document
+        .get_mut("project")
+        .and_then(|p| p.get_mut("tracks"))
+        .and_then(Value::as_array_mut);
+    for track in tracks.into_iter().flatten() {
+        let clips = track.get_mut("clips").and_then(Value::as_array_mut);
+        for clip in clips.into_iter().flatten() {
+            for side in ["fade_in", "fade_out"] {
+                let Some(fade) = clip.get_mut(side).and_then(Value::as_object_mut) else {
+                    continue;
+                };
+                let shape = match fade.remove("shape") {
+                    Some(Value::String(shape)) => shape,
+                    Some(_) => return Err("a fade shape is not a name".into()),
+                    None => continue,
+                };
+                if let Some(curve) = curve(&shape)? {
+                    fade.insert("curve".into(), curve);
+                }
+            }
         }
     }
     Ok(document)
@@ -268,5 +308,37 @@ mod tests {
         assert_eq!(clip["fade_in"], json!({ "length": 0, "shape": "linear" }));
         assert_eq!(clip["fade_out"], json!({ "length": 0, "shape": "linear" }));
         assert_eq!(clip["loop_length"], Value::Null);
+    }
+
+    #[test]
+    fn v5_to_v6_turns_named_fade_shapes_into_exact_curves() {
+        let v5 = json!({
+            "format": "lumen-project",
+            "version": 5,
+            "project": {
+                "tracks": [{ "clips": [{
+                    "fade_in": { "length": 10, "shape": "s_curve" },
+                    "fade_out": { "length": 0, "shape": "linear" }
+                }, {
+                    "fade_in": { "length": 5, "shape": "slow" },
+                    "fade_out": { "length": 5, "shape": "fast" }
+                }]}, { "clips": [{ "name": "no fades" }] }]
+            }
+        });
+        let v6 = upgrade(v5, 5, FIRST_VERSION, &MIGRATIONS[..5]).unwrap();
+        assert_eq!(v6["version"], 6);
+        let clips = &v6["project"]["tracks"][0]["clips"];
+        let curve = |v: &Value| -> lumen_core::curve::Curve {
+            serde_json::from_value(v["curve"].clone()).unwrap()
+        };
+        use lumen_core::curve::Curve;
+        assert_eq!(curve(&clips[0]["fade_in"]), Curve::S_CURVE);
+        assert_eq!(clips[0]["fade_out"], json!({ "length": 0 }), "straight");
+        assert_eq!(curve(&clips[1]["fade_in"]), Curve::SLOW);
+        assert_eq!(curve(&clips[1]["fade_out"]), Curve::FAST);
+        let bad = json!({ "version": 5, "project": { "tracks": [{ "clips": [{
+            "fade_in": { "length": 1, "shape": "wobbly" }
+        }]}]}});
+        assert!(upgrade(bad, 5, FIRST_VERSION, &MIGRATIONS[..5]).is_err());
     }
 }

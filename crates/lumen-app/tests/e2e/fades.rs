@@ -113,8 +113,10 @@ fn dragging_a_fade_handle_fades_the_clip_in_one_step() {
     assert!(clip(&lumen, id).fade_in.is_none(), "one undo step each");
 }
 
+/// The owner's C3: the dot moves freely, left and right as well as up and
+/// down, and the curve passes through it; Alt adds S-shape.
 #[test]
-fn the_middle_dot_bends_a_fade_and_a_double_click_resets_it() {
+fn the_dot_bends_a_fade_freely_and_alt_adds_s_shape() {
     let (mut lumen, id) = with_a_wide_clip("fade-bend");
     let at = handles(&lumen, id);
     lumen.drag(
@@ -125,17 +127,40 @@ fn the_middle_dot_bends_a_fade_and_a_double_click_resets_it() {
     let dot = handles(&lumen, id).bend_in.expect("a bend dot");
     lumen.harness.hover_at(dot);
     lumen.frames(2);
-    assert_eq!(lumen.app().hint(), Some("bend"));
-    lumen.drag(dot, dot - vec2(0.0, 12.0), Modifiers::NONE);
-    assert_eq!(clip(&lumen, id).fade_in.shape, FadeShape::Fast, "up");
+    assert_eq!(lumen.app().hint(), Some("bend · Alt for S"));
+
+    // Left and up: the dot follows the pointer, and the curve with it.
+    let to = dot + vec2(-15.0, -6.0);
+    lumen.drag(dot, to, Modifiers::NONE);
+    let moved = handles(&lumen, id).bend_in.expect("a bend dot");
+    assert!(
+        moved.distance(to) < 1.5,
+        "the dot at {moved:?}, the pointer at {to:?}"
+    );
+    let curve = clip(&lumen, id).fade_in.curve;
+    let bent = curve.handle();
+    assert!(bent.dot[0] < 0.45 && bent.dot[1] > 0.55, "{bent:?}");
+    assert_eq!(lumen.app().undo_label(), Some("Fade curve"));
+
+    // Right and down: the other way.
+    let to = moved + vec2(30.0, 10.0);
+    lumen.drag(moved, to, Modifiers::NONE);
+    let other = clip(&lumen, id).fade_in.curve.handle();
+    assert!(
+        other.dot[0] > bent.dot[0] && other.dot[1] < bent.dot[1],
+        "{other:?}"
+    );
+
+    // Alt and up: S-shape, the dot staying where it is.
     let dot = handles(&lumen, id).bend_in.expect("a bend dot");
-    lumen.drag(dot, dot + vec2(0.0, 22.0), Modifiers::NONE);
-    assert_eq!(clip(&lumen, id).fade_in.shape, FadeShape::Slow, "down");
-    assert_eq!(lumen.app().undo_label(), Some("Fade shape"));
+    lumen.drag(dot, dot - vec2(0.0, 20.0), Modifiers::ALT);
+    let s = clip(&lumen, id).fade_in.curve.handle();
+    assert!((s.s - 0.5).abs() < 0.1, "{s:?}");
+    assert!((s.dot[0] - other.dot[0]).abs() < 1e-3 && (s.dot[1] - other.dot[1]).abs() < 1e-3);
 
     let dot = handles(&lumen, id).bend_in.expect("a bend dot");
     double_click(&mut lumen, dot);
-    assert_eq!(clip(&lumen, id).fade_in.shape, FadeShape::Linear);
+    assert!(clip(&lumen, id).fade_in.curve.is_linear(), "straight again");
     let handle = handles(&lumen, id).fade_in;
     double_click(&mut lumen, handle);
     assert!(clip(&lumen, id).fade_in.is_none(), "no fade");
@@ -198,7 +223,7 @@ fn every_fade_shape_is_in_the_right_click_menu() {
         .click();
     lumen.frames(3);
     lumen.click("S-curve");
-    assert_eq!(clip(&lumen, id).fade_out.shape, FadeShape::SCurve);
+    assert_eq!(clip(&lumen, id).fade_out.curve, FadeShape::SCurve.curve());
 }
 
 /// Heard as drawn: a fade in starts the clip from silence, and clip gain

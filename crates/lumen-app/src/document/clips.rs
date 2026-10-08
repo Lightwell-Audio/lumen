@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use std::ops::RangeInclusive;
 
-use lumen_core::fade::FadeShape;
+use lumen_core::curve::Curve;
 use lumen_core::time::Ticks;
 use lumen_project::edit::{self, Edge};
 use lumen_project::model::{Clip, ClipContent, Id, Project};
@@ -129,22 +129,20 @@ impl Document {
         });
     }
 
-    /// Sets the shape of the fades at `edge` of `clips` (the bend dot, the
-    /// right-click menu). Locked clips stay as they are.
-    pub fn set_fade_shape(
-        &mut self,
-        clips: &[Id],
-        edge: Edge,
-        shape: FadeShape,
-        merge: Option<&str>,
-    ) {
-        self.history.apply("Fade shape", merge, |project| {
+    /// Sets the curve of the fades at `edge` of `clips` (the bend dot, the
+    /// right-click menu). Locked clips stay as they are, and a curve that
+    /// leaves its square is refused.
+    pub fn set_fade_curve(&mut self, clips: &[Id], edge: Edge, curve: Curve, merge: Option<&str>) {
+        if !curve.is_valid() {
+            return;
+        }
+        self.history.apply("Fade curve", merge, |project| {
             for &id in clips {
                 replace_clip(project, id, |c| {
                     let mut c = c.clone();
                     match edge {
-                        Edge::Start => c.fade_in.shape = shape,
-                        Edge::End => c.fade_out.shape = shape,
+                        Edge::Start => c.fade_in.curve = curve,
+                        Edge::End => c.fade_out.curve = curve,
                     }
                     c
                 });
@@ -416,10 +414,10 @@ mod tests {
         doc.set_fade_length(clip.id, Edge::Start, Ticks(-Ticks::quarters(2).0), None);
         assert_eq!(get(&doc).fade_in.length, Ticks::ZERO, "never negative");
         doc.set_fade_length(clip.id, Edge::Start, Ticks::quarters(1), None);
-        doc.set_fade_shape(&[clip.id], Edge::Start, FadeShape::SCurve, None);
+        doc.set_fade_curve(&[clip.id], Edge::Start, Curve::S_CURVE, None);
         let faded = get(&doc);
         assert_eq!(faded.fade_in.length, Ticks::quarters(1));
-        assert_eq!(faded.fade_in.shape, FadeShape::SCurve);
+        assert_eq!(faded.fade_in.curve, Curve::S_CURVE);
         assert_eq!(faded.fade_out.length, Ticks::quarters(1));
         assert_eq!(lumen_project::validate(doc.project()), Ok(()));
 
@@ -448,7 +446,7 @@ mod tests {
         let before = get(&doc);
         doc.set_fade_length(id, Edge::Start, Ticks::ZERO, None);
         doc.set_clip_gain(&[id], 0.0, None);
-        doc.set_fade_shape(&[id], Edge::End, FadeShape::Fast, None);
+        doc.set_fade_curve(&[id], Edge::End, Curve::FAST, None);
         assert_eq!(get(&doc), before);
     }
 }

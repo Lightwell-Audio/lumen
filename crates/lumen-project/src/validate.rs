@@ -96,6 +96,9 @@ pub fn validate(project: &Project) -> Result<(), String> {
             {
                 return Err(format!("{}: fades are longer than the clip", at()));
             }
+            if !clip.fade_in.curve.is_valid() || !clip.fade_out.curve.is_valid() {
+                return Err(format!("{}: a fade curve leaves its square", at()));
+            }
             if clip.loop_length.is_some_and(|l| l <= Ticks::ZERO) {
                 return Err(format!("{}: invalid loop length", at()));
             }

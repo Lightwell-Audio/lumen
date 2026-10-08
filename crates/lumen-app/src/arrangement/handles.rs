@@ -1,14 +1,16 @@
 //! Fade and gain handles (M3 slice 6d), in the owner's choices: a fade is a
-//! glowing curve with a round handle at its top and a dot in its middle
-//! that bends it (F3: up Fast, middle Linear, down Slow); clip gain is a
-//! glowing level line across the clip (G1). They show on audio clips.
+//! glowing curve with a round handle at its top and a dot that bends it
+//! (F3); the dot moves freely, the curve passing through it, and Alt adds
+//! S-shape (C3, `lumen_core::curve`). Clip gain is a glowing level line
+//! across the clip (G1). They show on audio clips.
 //!
 //! Where everything sits, and what the pointer is over, is pure and tested
 //! here; the app turns drags on the handles into document edits
 //! (`app/handles.rs`) and the arrangement draws them (`draw_handles`).
 
-use eframe::egui::{self, Color32, Painter, Pos2, Rangef, Rect, Stroke, pos2};
-use lumen_core::fade::{Fade, FadeShape};
+use eframe::egui::{self, Color32, Painter, Pos2, Rangef, Rect, Stroke, Vec2, pos2};
+use lumen_core::curve::{self, Curve};
+use lumen_core::fade::Fade;
 use lumen_core::time::Ticks;
 use lumen_project::model::{Clip, ClipContent};
 
@@ -38,15 +40,16 @@ const MIN_HEIGHT: f32 = 10.0;
 const BEND_MIN: f32 = 16.0;
 /// The coarsest a gain drag gets (Shift: a tenth of it).
 const MAX_DB_PER_POINT: f32 = 0.5;
-/// How far a bend dot moves for each shape it steps through.
-pub const BEND_STEP: f32 = 10.0;
+/// How far up an Alt-drag on a bend dot goes from no S-shape to all of it.
+pub const S_SPAN: f32 = 40.0;
 
 /// A handle on a clip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Handle {
     /// The top of a fade: drag it along to set the fade's length.
     Fade(Edge),
-    /// The middle of a fade: drag it up or down to bend it.
+    /// The dot on a fade's curve: drag it anywhere to bend the fade, with
+    /// Alt for S-shape.
     Bend(Edge),
     /// The gain line: drag it up or down.
     Gain,
@@ -59,7 +62,7 @@ pub struct FadeLook {
     pub edge: Edge,
     pub from: f32,
     pub to: f32,
-    pub shape: FadeShape,
+    pub curve: Curve,
 }
 
 impl FadeLook {
@@ -72,7 +75,7 @@ impl FadeLook {
             edge,
             from,
             to,
-            shape: fade.shape,
+            curve: fade.curve,
         }
     }
 
@@ -87,8 +90,17 @@ impl FadeLook {
         }
         let t = ((x - self.from) / self.width()).clamp(0.0, 1.0);
         match self.edge {
-            Edge::Start => self.shape.gain(t),
-            Edge::End => self.shape.gain(1.0 - t),
+            Edge::Start => self.curve.at(t),
+            Edge::End => self.curve.at(1.0 - t),
+        }
+    }
+
+    /// Where the point `[u, v]` of the curve (u along it from silence, v
+    /// its level) is across: a fade out runs backwards.
+    fn x_of(&self, u: f32) -> f32 {
+        match self.edge {
+            Edge::Start => self.from + u * self.width(),
+            Edge::End => self.to - u * self.width(),
         }
     }
 
@@ -133,23 +145,29 @@ pub fn db_per_point(height: f32) -> f32 {
     ((MAX_DB - MIN_DB) / height.max(1.0)).min(MAX_DB_PER_POINT)
 }
 
-/// The shape a fade bent from `start` takes when its dot has been dragged
-/// `rise` points up (negative: down): a shape per [`BEND_STEP`], Slow,
-/// Linear, Fast from low to high, the same at any track height. S-curve
-/// sits with Linear (both are half way up at the middle) and comes from
-/// the menu; it stays until the dot moves a step.
-pub fn bend_shape(start: FadeShape, rise: f32) -> FadeShape {
-    const ORDER: [FadeShape; 3] = [FadeShape::Slow, FadeShape::Linear, FadeShape::Fast];
-    let from = match start {
-        FadeShape::Slow => 0,
-        FadeShape::Linear | FadeShape::SCurve => 1,
-        FadeShape::Fast => 2,
-    };
-    let steps = (rise / BEND_STEP).round() as i32;
-    if steps == 0 {
-        return start;
+/// A bend handle moved by the pointer moving `by` points over a fade at
+/// `edge` drawn `size` points wide and tall (C3): the dot follows the
+/// pointer, within the curve's middle three quarters; with `alt`, up adds
+/// S-shape and down takes it away, [`S_SPAN`] points for all of it.
+pub fn bend(handle: curve::Handle, edge: Edge, size: Vec2, by: Vec2, alt: bool) -> curve::Handle {
+    if alt {
+        return curve::Handle {
+            s: (handle.s - by.y / S_SPAN).clamp(0.0, 1.0),
+            ..handle
+        };
     }
-    ORDER[(from + steps).clamp(0, 2) as usize]
+    let across = match edge {
+        Edge::Start => by.x,
+        Edge::End => -by.x,
+    };
+    let [u, v] = handle.dot;
+    curve::Handle {
+        dot: [
+            (u + across / size.x.max(1.0)).clamp(curve::DOT_MIN, curve::DOT_MAX),
+            (v - by.y / size.y.max(1.0)).clamp(curve::DOT_MIN, curve::DOT_MAX),
+        ],
+        ..handle
+    }
 }
 
 impl ClipHandles {
@@ -207,15 +225,21 @@ impl ClipHandles {
         pos2(x, self.wave.top())
     }
 
-    /// Where a fade's bend dot is (half way along it, on the curve), if the
-    /// fade is long enough to show one.
+    /// Where a fade's bend dot is (its curve's handle, on the curve), if
+    /// the fade is long enough to show one.
     pub fn bend_pos(&self, edge: Edge) -> Option<Pos2> {
         let fade = self.fade(edge);
         if fade.width() < BEND_MIN {
             return None;
         }
-        let x = fade.from + fade.width() / 2.0;
-        Some(pos2(x, self.y_of(fade.level_at(x))))
+        let [u, v] = fade.curve.handle().dot;
+        Some(pos2(fade.x_of(u), self.y_of(v)))
+    }
+
+    /// How big a fade is drawn, for bending it: its width and the wave
+    /// area's height.
+    pub fn fade_size(&self, edge: Edge) -> Vec2 {
+        egui::vec2(self.fade(edge).width(), self.wave.height())
     }
 
     /// The y of the gain line.
@@ -390,21 +414,21 @@ mod tests {
         ClipHandles::of(&clip, rect, |t| (t.as_quarters() * 100.0) as f32).unwrap()
     }
 
-    fn fade(beats: i64, shape: FadeShape) -> Fade {
+    fn fade(beats: i64, curve: Curve) -> Fade {
         Fade {
             length: Ticks::quarters(beats),
-            shape,
+            curve,
         }
     }
 
     #[test]
     fn fades_are_drawn_as_the_engine_plays_them() {
-        let h = setup(fade(1, FadeShape::Slow), fade(2, FadeShape::Fast), 0.0);
+        let h = setup(fade(1, Curve::SLOW), fade(2, Curve::FAST), 0.0);
         assert_eq!((h.fade_in.from, h.fade_in.to), (0.0, 100.0));
         assert_eq!((h.fade_out.from, h.fade_out.to), (200.0, 400.0));
-        // The same curve as `FadeShape::gain`, backwards for a fade-out.
-        assert_eq!(h.fade_in.level_at(50.0), FadeShape::Slow.gain(0.5));
-        assert_eq!(h.fade_out.level_at(250.0), FadeShape::Fast.gain(0.75));
+        // The same curve the engine plays, backwards for a fade-out.
+        assert_eq!(h.fade_in.level_at(50.0), Curve::SLOW.at(0.5));
+        assert_eq!(h.fade_out.level_at(250.0), Curve::FAST.at(0.75));
         assert_eq!(h.fade_in.level_at(300.0), 1.0);
         let curve = h.curve(Edge::Start, -50.0, 1_000.0);
         assert_eq!(
@@ -418,7 +442,7 @@ mod tests {
 
     #[test]
     fn handles_sit_at_the_fades_tops_and_clear_of_the_sides() {
-        let h = setup(fade(1, FadeShape::Linear), Fade::default(), 0.0);
+        let h = setup(fade(1, Curve::LINEAR), Fade::default(), 0.0);
         assert_eq!(h.handle_pos(Edge::Start), pos2(100.0, h.wave.top()));
         // No fade: the handle waits in the corner, clear of the trim edge.
         assert_eq!(h.handle_pos(Edge::End).x, h.wave.right() - CORNER);
@@ -430,7 +454,7 @@ mod tests {
 
     #[test]
     fn the_pointer_finds_fade_handles_then_bends_then_the_gain_line() {
-        let h = setup(fade(1, FadeShape::Linear), Fade::default(), 0.0);
+        let h = setup(fade(1, Curve::LINEAR), Fade::default(), 0.0);
         let at = |x: f32, y: f32| h.handle_at(pos2(x, y));
         assert_eq!(
             at(102.0, h.wave.top() + 2.0),
@@ -465,15 +489,50 @@ mod tests {
     }
 
     #[test]
-    fn a_bend_dot_steps_up_to_fast_and_down_to_slow() {
-        use FadeShape::*;
-        assert_eq!(bend_shape(Linear, 3.0), Linear, "less than half a step");
-        assert_eq!(bend_shape(Linear, BEND_STEP), Fast);
-        assert_eq!(bend_shape(Linear, -BEND_STEP), Slow);
-        assert_eq!(bend_shape(Slow, 2.0 * BEND_STEP), Fast);
-        assert_eq!(bend_shape(Fast, 9.0 * BEND_STEP), Fast, "no further");
-        assert_eq!(bend_shape(SCurve, 2.0), SCurve, "kept until it moves");
-        assert_eq!(bend_shape(SCurve, -BEND_STEP), Slow);
+    fn a_bend_dot_follows_the_pointer_and_alt_adds_s_shape() {
+        let size = egui::vec2(100.0, 50.0);
+        let start = Curve::LINEAR.handle();
+        // Up and to the right on a fade in: further along, louder.
+        let moved = bend(start, Edge::Start, size, egui::vec2(10.0, -5.0), false);
+        assert!((moved.dot[0] - 0.6).abs() < 1e-6 && (moved.dot[1] - 0.6).abs() < 1e-6);
+        // A fade out runs backwards: right is back towards its start.
+        let back = bend(start, Edge::End, size, egui::vec2(10.0, 0.0), false);
+        assert!((back.dot[0] - 0.4).abs() < 1e-6);
+        // Never past the middle three quarters.
+        let far = bend(start, Edge::Start, size, egui::vec2(1e4, 1e4), false);
+        assert_eq!(far.dot, [curve::DOT_MAX, curve::DOT_MIN]);
+        // Alt: up adds S-shape and leaves the dot where it is.
+        let s = bend(
+            start,
+            Edge::Start,
+            size,
+            egui::vec2(30.0, -S_SPAN / 2.0),
+            true,
+        );
+        assert_eq!((s.dot, s.s), (start.dot, 0.5));
+        assert_eq!(
+            bend(s, Edge::Start, size, egui::vec2(0.0, 1e3), true).s,
+            0.0
+        );
+    }
+
+    #[test]
+    fn the_bend_dot_sits_on_the_curve_where_it_bends() {
+        let bent = Curve::from_handle(curve::Handle {
+            dot: [0.25, 0.75],
+            s: 0.0,
+        });
+        let h = setup(fade(1, bent), fade(1, bent), 0.0);
+        let dot = h.bend_pos(Edge::Start).unwrap();
+        assert!((dot.x - 25.0).abs() < 1e-3, "a quarter along: {dot:?}");
+        assert!(
+            (h.fade_in.level_at(dot.x) - 0.75).abs() < 1e-3,
+            "on the curve"
+        );
+        // The fade out (300 to 400) mirrors it.
+        let dot = h.bend_pos(Edge::End).unwrap();
+        assert!((dot.x - 375.0).abs() < 1e-3, "{dot:?}");
+        assert!((h.fade_out.level_at(dot.x) - 0.75).abs() < 1e-3);
     }
 
     #[test]

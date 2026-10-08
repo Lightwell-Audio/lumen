@@ -264,7 +264,7 @@ impl App {
             return Some(Gesture::Marquee { from: origin, kept });
         };
         if hit.handle.is_some() {
-            return self.start_handle_gesture(&hit, origin);
+            return self.start_handle_gesture(&hit, origin, canvas);
         }
         let locked = self
             .document

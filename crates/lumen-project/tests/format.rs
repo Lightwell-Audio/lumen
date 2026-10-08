@@ -223,14 +223,44 @@ fn golden_v5_expected() -> Project {
     clip.locked = true;
     clip.fade_in = Fade {
         length: Ticks(PPQ / 4),
-        shape: FadeShape::SCurve,
+        curve: FadeShape::SCurve.curve(),
     };
     clip.fade_out = Fade {
         length: Ticks(PPQ / 2),
-        shape: FadeShape::Fast,
+        curve: FadeShape::Fast.curve(),
     };
     clip.loop_length = Some(Ticks::quarters(1));
     project
+}
+
+/// The model the v6 golden file must always load as: v5 with fades bent
+/// freely by the owner's C3 handle (a dot off centre, some S-shape).
+fn golden_v6_expected() -> Project {
+    use lumen_core::curve::{Curve, Handle};
+    let mut project = Project {
+        name: "Golden v6".into(),
+        ..golden_v5_expected()
+    };
+    let kick = Arc::make_mut(&mut project.tracks[1]);
+    let clip = Arc::make_mut(&mut kick.clips[0]);
+    clip.fade_in.curve = Curve::from_handle(Handle {
+        dot: [0.3, 0.75],
+        s: 0.4,
+    });
+    clip.fade_out.curve = Curve::SLOW;
+    project
+}
+
+#[test]
+fn golden_v6_file_loads_forever() {
+    let path = fixture("v6/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        // Written once, when version 6 was introduced; never rewritten.
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v6_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v6 golden file must load");
+    assert_eq!(project, golden_v6_expected());
 }
 
 #[test]

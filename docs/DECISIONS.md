@@ -75,7 +75,8 @@ irreversible or external) · *Superseded*.
 | Drag hints (MT-APP-13 run 1, 2026-10-08) | Chosen from rendered specimens: **A1** the loop brace grows a bracket at the edge a drag will resize, lights when it will move, and a chip names the action; **B2** (on trial) the scrub strip washes the step a drag would play and shows a quiet hint ("drag to listen · Alt tape"), and a tape scrub shows its speed; **C1** the grid button always shows the size, with a magnet lit while snapping and struck through when not. |
 | Clip drag model (M3 slice 6, 2026-10-08) | **Split clip**, as in Bitwig, after comparing it with Ableton's (no marquee) and the classic model (range behind a modifier): the top half of a clip moves it (Ctrl copies), the bottom half selects a time range across tracks, empty lanes draw a marquee. Cursors and hints show which half is under the pointer. |
 | Selection look (M3 slice 6, 2026-10-08) | Chosen from rendered specimens: **S3 glow**, selected clips glow in the accent like the record arm, a time range is a band with accent brackets along its top, the marquee a soft rounded accent box ("some character"); **H1**, hovering a clip brightens the half under the pointer with a dashed line at the split. |
-| Fade and gain handles (M3 slice 6d, 2026-10-08) | Chosen from rendered specimens: **F3 with the glow**, a fade is a glowing accent curve with a round handle at its top and a dot in its middle that bends it (up Fast, middle Linear, down Slow; S-curve from the right-click menu, with every shape); **G1**, clip gain is a glowing level line across the clip, dragged up or down, with the waveform shrinking under it and the dB beside the pointer. |
+| Fade and gain handles (M3 slice 6d, 2026-10-08) | Chosen from rendered specimens: **F3 with the glow**, a fade is a glowing accent curve with a round handle at its top and a dot that bends it; **G1**, clip gain is a glowing level line across the clip, dragged up or down, with the waveform shrinking under it and the dB beside the pointer. |
+| Free curves (M3 slice 6d, 2026-10-08) | The owner asked for curves that move freely, left and right as well as up and down, "as flexible as Ableton", to set the bar for automation later. Chosen from interactive specimens: **C3**, one free dot the curve passes through, with Alt-drag adding S-shape (over C1, the dot alone, and C2, two Bézier handles). Replaces the stepped bend (Slow, Linear, Fast). ADR-0031. |
 | Hints and tooltips (2026-10-08) | The owner noted that hints have piled up slice by slice: behaviour should come across without reading much (cursors, handle shapes, motion before text). **A dedicated UX pass**, scheduled when the next milestones are planned; until then new hints stay short. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
@@ -1984,4 +1985,70 @@ the choices made inside those.
 - Performance gate (WSL, `b3ccb4b`): engine_transport +0.46%,
   engine_clips_64 +0.00%, project_parse +0.03%; all inside +2%.
 - By ear: MT-APP-13.
+
+---
+
+## ADR-0031 — Curves for fades and envelopes (format v6)
+
+**Status:** Accepted · **Date:** 2026-10-08 (M3 slice 6d)
+
+### Context
+Slice 6d first gave fades four named shapes, bent in steps. The owner
+asked for curves that move freely ("as flexible as Ableton") and that set
+the bar for envelopes in general, ahead of automation (M7). A fade's shape
+must be stored, played on the audio thread, drawn on the GPU, and edited
+with one handle (the owner's choice C3).
+
+### Options
+1. **More named shapes, or one bend amount** (Ableton's fade slope). Simple
+   to store, but the bend cannot move left or right.
+2. **A curve through a stored point** (a spline through the handle's dot).
+   Natural to edit, but S-curves need a second parameter anyway, and
+   curves through points can overshoot.
+3. **A cubic Bézier from (0, 0) to (1, 1) with two inner control points**
+   (as CSS easing curves). Any smooth monotone shape; the four named shapes
+   are exact cases (linear, x², 1 − (1 − x)², smoothstep); a familiar
+   model for automation segments too.
+
+### Decision
+Option 3, as `lumen_core::curve::Curve`, saved as four numbers.
+- **Editing (C3):** one handle, a dot plus an S amount. The control points
+  sit either side of a centre, a sixth apart across; the curve's middle
+  point (t = ½) is the dot, so the curve passes through it; Alt-drag
+  spreads the points up and down for S-shape without moving the dot. The
+  dot stays in the middle three quarters, which keeps every control point
+  in the unit square: the curve always rises from silence to full. The
+  four presets are exactly reachable, and `Curve::handle` gives back the
+  handle of any curve it made.
+- **Format v6:** a fade's `shape` name becomes `curve` (written only when
+  not straight). The migration maps each name to its exact curve, so old
+  projects sound the same; a golden v6 fixture holds a freely bent curve.
+  Version 5's migration now writes its own fade words literally, so it
+  stays true when later versions change fades.
+- **Playing:** the audio thread does no solving. The UI side builds a
+  1,024-step table per distinct curve (cached and shared by clips and
+  lists), and the clip player reads it with linear interpolation: within
+  about 10⁻⁶ of the curve except in its steepest first step.
+- **Drawing:** the waveform shader takes each fade's four numbers and
+  finds the level by halving (14 steps per pixel inside a fade only); the
+  arrangement draws the curve with `Curve::at`.
+
+### Consequences
+- Automation segments (M7) use the same `Curve` and the same handle, so
+  envelopes bend alike everywhere.
+- A curve built some other way (a future two-handle editor) is still a
+  valid curve; the C3 handle then reshapes it into its own family on the
+  first drag.
+- Wave instances grow to 108 bytes (uploaded only when the project
+  changes).
+
+### Evidence
+- Unit tests: `lumen_core::curve` (presets exact to 10⁻⁵, every handle
+  curve rising, the dot on the curve, handles round-tripping, saving),
+  `lumen_core::fade`, the v5 → v6 migration, golden v5 and v6 fixtures.
+- Engine: `fades_sound_as_drawn_in_every_shape_and_free_curve` (within
+  2·10⁻⁵ of the drawn curve at five block sizes); fades under the
+  allocation guard in `realtime.rs`.
+- E2E: `the_dot_bends_a_fade_freely_and_alt_adds_s_shape`, and the
+  listening scenario `fades_and_gain_are_heard`.
 

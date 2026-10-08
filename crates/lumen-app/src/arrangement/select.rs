@@ -148,13 +148,14 @@ pub enum Gesture {
     },
     /// Dragging the handle of `clip`'s fade at `edge` along (slice 6d).
     Fade { clip: Id, edge: Edge },
-    /// Bending that fade with its middle dot, from the shape `start`,
-    /// picked up at height `y`.
+    /// Bending that fade by its dot (C3): the handle as it is now, the
+    /// pointer's last place, and the fade's size on screen.
     Bend {
         clip: Id,
         edge: Edge,
-        start: lumen_core::fade::FadeShape,
-        y: f32,
+        handle: lumen_core::curve::Handle,
+        last: Pos2,
+        size: egui::Vec2,
     },
     /// Dragging `clip`'s gain line from `db`, picked up at height `y`;
     /// `per_point` dB a point.

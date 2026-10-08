@@ -307,14 +307,18 @@ half selects a time range, empty lanes draw a marquee.
     the handles show: a round `accent` dot (3.5 pt, with a 20% halo) at
     the top of the wave area where each fade reaches full level, an open
     ring in the corner (8 pt in, clear of the trim edge) where there is no
-    fade yet, and a bend dot (3 pt, `clip_body` with an `accent` ring)
-    half way along each fade at least 16 pt long.
+    fade yet, and a bend dot (3 pt, `clip_body` with an `accent` ring) on
+    each fade at least 16 pt long. The dot moves freely (the owner's C3):
+    the curve passes through it, within the fade's middle three quarters;
+    Alt-drag up adds S-shape and down takes it away (40 pt for all of it).
+    The cursor is a move cursor; the chip names a preset when the curve
+    lands on one, and shows "S 40%" while Alt sets it.
   - The gain line crosses the wave area at the clip's gain (even in dB,
     −∞ at the bottom, 0 dB five sixths up, +12 dB at the top): `accent`
     at 55%, 1 pt, glowing only when the pointer is on it, so it does not
     crowd the fades.
   - Whatever is under the pointer grows by 1 pt and brightens. Hints are
-    one or two words ("fade in", "bend", "gain 0.0 dB"); a drag shows its
+    short ("fade in", "bend · Alt for S", "gain 0.0 dB"); a drag shows its
     value beside the pointer ("125 ms", "Fast", "−4.4 dB").
   - Fade handles win over the sides, the sides over the gain line.
 - **Looping clips:** a dashed `text` line at 30% with a 2 pt dot at 60%

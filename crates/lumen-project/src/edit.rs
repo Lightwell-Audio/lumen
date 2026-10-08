@@ -551,11 +551,11 @@ mod tests {
                 locked: false,
                 fade_in: Fade {
                     length: q(1),
-                    shape: FadeShape::Slow,
+                    curve: FadeShape::Slow.curve(),
                 },
                 fade_out: Fade {
                     length: q(1),
-                    shape: FadeShape::Fast,
+                    curve: FadeShape::Fast.curve(),
                 },
                 loop_length: None,
                 content: ClipContent::Audio {

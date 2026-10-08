@@ -34,9 +34,10 @@ struct Wave {
     @location(3) slot: u32, @location(4) first_frame: f32,
     @location(5) frames_per_beat: f32, @location(6) color: u32,
     @location(7) channels: u32,
-    @location(8) gain: f32, @location(9) shapes: u32,
+    // The fade curves: (x1, y1, x2, y2) of a cubic Bézier from (0, 0) to (1, 1).
+    @location(8) gain: f32, @location(9) curve_in: vec4<f32>, @location(10) curve_out: vec4<f32>,
     // Fade in and fade out: (from, to) as split beats.
-    @location(10) fade_in: vec4<f32>, @location(11) fade_out: vec4<f32>,
+    @location(11) fade_in: vec4<f32>, @location(12) fade_out: vec4<f32>,
 };
 struct Out {
     @builtin(position) pos: vec4<f32>,
@@ -51,7 +52,8 @@ struct Out {
     // Where the fades run, in viewport pixels: in (from, to), out (from, to).
     @location(7) @interpolate(flat) fades: vec4<f32>,
     @location(8) @interpolate(flat) gain: f32,
-    @location(9) @interpolate(flat) shapes: u32,
+    @location(9) @interpolate(flat) curve_in: vec4<f32>,
+    @location(10) @interpolate(flat) curve_out: vec4<f32>,
 };
 
 @vertex
@@ -85,7 +87,8 @@ fn vs_main(@builtin(vertex_index) v: u32, @builtin(instance_index) index: u32, w
         x_at(w.fade_in.xy), x_at(w.fade_in.zw), x_at(w.fade_out.xy), x_at(w.fade_out.zw),
     );
     out.gain = w.gain;
-    out.shapes = w.shapes;
+    out.curve_in = w.curve_in;
+    out.curve_out = w.curve_out;
     return out;
 }
 
@@ -94,16 +97,28 @@ fn x_at(b: vec2<f32>) -> f32 {
     return l.origin.x + from_left(b) * l.ppu;
 }
 
-// A fade's level `t` of the way from silence to full, as `FadeShape::gain`
-// plays it (0 linear, 1 slow, 2 fast, 3 S-curve).
-fn fade_level(shape: u32, t: f32) -> f32 {
-    let x = clamp(t, 0.0, 1.0);
-    switch shape {
-        case 1u: { return x * x; }
-        case 2u: { return 1.0 - (1.0 - x) * (1.0 - x); }
-        case 3u: { return x * x * (3.0 - 2.0 * x); }
-        default: { return x; }
+// One coordinate of a cubic Bézier from 0 to 1 with inner controls a and b.
+fn bezier(a: f32, b: f32, t: f32) -> f32 {
+    let u = 1.0 - t;
+    return 3.0 * u * u * t * a + 3.0 * u * t * t * b + t * t * t;
+}
+
+// A fade's level `x` of the way from silence to full, as `Curve::at` gives
+// it: find where the curve crosses x (it rises with t), then its height.
+fn fade_level(c: vec4<f32>, x: f32) -> f32 {
+    let want = clamp(x, 0.0, 1.0);
+    var lo = 0.0;
+    var hi = 1.0;
+    // 14 halvings: far finer than a pixel.
+    for (var i = 0; i < 14; i++) {
+        let mid = 0.5 * (lo + hi);
+        if (bezier(c.x, c.z, mid) < want) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
     }
+    return clamp(bezier(c.y, c.w, 0.5 * (lo + hi)), 0.0, 1.0);
 }
 
 // The level the wave is drawn at under pixel x: the clip's gain through its
@@ -111,11 +126,11 @@ fn fade_level(shape: u32, t: f32) -> f32 {
 fn envelope(i: Out) -> f32 {
     var level = i.gain;
     let f = i.fades;
-    if (f.y > f.x) {
-        level *= fade_level(i.shapes & 255u, (i.px.x - f.x) / (f.y - f.x));
+    if (f.y > f.x && i.px.x < f.y) {
+        level *= fade_level(i.curve_in, (i.px.x - f.x) / (f.y - f.x));
     }
-    if (f.w > f.z) {
-        level *= fade_level((i.shapes >> 8u) & 255u, (f.w - i.px.x) / (f.w - f.z));
+    if (f.w > f.z && i.px.x > f.z) {
+        level *= fade_level(i.curve_out, (f.w - i.px.x) / (f.w - f.z));
     }
     return level;
 }

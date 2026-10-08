@@ -447,8 +447,10 @@ it first in a new session, and update it at the end of every slice.
     S3 and H1 selection look, L3 handles, Ableton's overlap rule, F3 and
     G1 for fades and gain): 6a selection and moving, 6b time ranges and
     edits, 6c trim, loop-extend and slip, 6d fades and clip gain are
-    built. Next: 6e (mute, lock, rename, recolour, a properties view,
-    drops on a chosen track), then MT-APP-14 and ADR-0031.
+    built. Fades bend along free curves (the owner's C3; format v6,
+    `lumen_core::curve`, ADR-0031), the model automation reuses in M7.
+    Next: 6e (mute, lock, rename, recolour, a properties view, drops on a
+    chosen track), then MT-APP-14 and ADR-0032 for the slice.
   - Moved, trimmed or deleted clips crossfade over 5 ms while playing
     (owner: dragging a playing clip crackled); E2E scenarios can listen
     to the test device (`app.heard()`).
@@ -461,7 +463,7 @@ it first in a new session, and update it at the end of every slice.
 - Where to look:
   - `docs/PROGRESS.md`: every requirement's status, slice tables and the
     milestone reports;
-  - `docs/DECISIONS.md`: ADR-0001 to ADR-0030, plus the table of owner
+  - `docs/DECISIONS.md`: ADR-0001 to ADR-0031, plus the table of owner
     decisions;
   - `docs/MANUAL_TESTS.md`: hardware tests with every run's results;
   - `docs/KNOWN_ISSUES.md`: problems found and not fixed yet, and where

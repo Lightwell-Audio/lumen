@@ -16,9 +16,11 @@
 //! appears partway through (its audio finished loading during playback)
 //! fades in. The M4 mixer takes this over with per-track smoothing.
 //!
-//! A clip can fade in and out in any [`FadeShape`] and repeat its content
+//! A clip can fade in and out along any [`Curve`] and repeat its content
 //! (loop-extend, M3 slice 6). Each repeat gets the 2 ms edge fades, so the
-//! seams never click. Clips with neither take the plain path.
+//! seams never click. Clips with neither take the plain path. The audio
+//! thread reads fades from tables built on the UI side, one per distinct
+//! curve, shared between clips and lists.
 //!
 //! A clip that moves, is trimmed or slipped, or goes away while playing
 //! crossfades over 5 ms: its old placement fades out while the new one
@@ -29,7 +31,9 @@
 
 use std::sync::Arc;
 
-use lumen_core::fade::FadeShape;
+use std::collections::HashMap;
+
+use lumen_core::curve::Curve;
 use lumen_core::time::Ticks;
 
 use crate::source::{Jump, Output, RenderContext, Source};
@@ -43,6 +47,15 @@ const GLIDE_PER_SECOND: f32 = 50.0;
 /// A clip list change that moves clips crossfades over 5 ms.
 const SWAP_PER_SECOND: u32 = 200;
 const QUEUE: usize = 4;
+/// Fade curves are read from tables of this many steps: within about
+/// 10⁻⁶ of the curve (far below hearing) for all but its steepest
+/// first step.
+const TABLE_STEPS: usize = 1_024;
+/// The table cache starts over past this many curves.
+const MAX_TABLES: usize = 256;
+
+/// A fade curve's levels at `TABLE_STEPS + 1` evenly spaced points.
+type Table = Arc<[f32]>;
 
 /// Audio for clips, channel after channel, at `sample_rate`.
 #[derive(Debug, Clone, PartialEq)]
@@ -93,7 +106,23 @@ pub struct ClipShape {
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct FadeFrames {
     pub frames: i64,
-    pub shape: FadeShape,
+    /// From silence to full; a fade out plays it backwards.
+    pub curve: Curve,
+}
+
+/// A clip's fade in and fade out tables, when it has fades.
+#[derive(Clone, Default)]
+struct Fades([Option<Table>; 2]);
+
+/// The level `x` (0 to 1) of the way through `table`.
+#[inline]
+fn read(table: &[f32], x: f32) -> f32 {
+    let p = x.clamp(0.0, 1.0) * TABLE_STEPS as f32;
+    let i = (p as usize).min(TABLE_STEPS - 1);
+    match (table.get(i), table.get(i + 1)) {
+        (Some(&a), Some(&b)) => a + (b - a) * (p - i as f32),
+        _ => 1.0,
+    }
 }
 
 impl ClipShape {
@@ -101,21 +130,23 @@ impl ClipShape {
         self.fade_in.frames <= 0 && self.fade_out.frames <= 0 && self.period.is_none()
     }
 
-    /// The gain of the fades on frame `pos` of a clip `length` frames long.
+    /// The gain of the fades on frame `pos` of a clip `length` frames long,
+    /// read from `fades`.
     #[inline]
-    fn fade_gain(&self, pos: i64, length: i64) -> f32 {
+    fn fade_gain(&self, fades: &Fades, pos: i64, length: i64) -> f32 {
         let mut gain = 1.0;
         let fade_in = self.fade_in.frames;
-        if pos < fade_in {
-            gain *= self.fade_in.shape.gain((pos as f32 + 0.5) / fade_in as f32);
+        if pos < fade_in
+            && let Some(table) = &fades.0[0]
+        {
+            gain *= read(table, (pos as f32 + 0.5) / fade_in as f32);
         }
         let fade_out = self.fade_out.frames;
         let left = length - pos;
-        if left <= fade_out {
-            gain *= self
-                .fade_out
-                .shape
-                .gain((left as f32 - 0.5) / fade_out as f32);
+        if left <= fade_out
+            && let Some(table) = &fades.0[1]
+        {
+            gain *= read(table, (left as f32 - 0.5) / fade_out as f32);
         }
         gain
     }
@@ -135,20 +166,41 @@ struct ClipSet {
     /// Per clip, set when the list arrives: in the new list, the clip moved
     /// and fades in; in the old one, it moved or went away and fades out.
     swapped: Vec<bool>,
+    /// Per clip, its fade tables.
+    fades: Vec<Fades>,
 }
 
 impl ClipSet {
-    /// Allocates; called on the UI side.
-    fn new(clips: Vec<Clip>) -> Self {
+    /// Allocates; called on the UI side. Fade tables come from `tables`,
+    /// built there the first time a curve is seen.
+    fn new(clips: Vec<Clip>, tables: &mut HashMap<[u32; 4], Table>) -> Self {
         let mut by_id: Vec<(u64, u32)> = clips
             .iter()
             .enumerate()
             .map(|(i, clip)| (clip.id, i as u32))
             .collect();
         by_id.sort_unstable();
+        if tables.len() > MAX_TABLES {
+            tables.clear();
+        }
+        let mut table = |fade: &FadeFrames| {
+            (fade.frames > 0).then(|| {
+                let key = <[f32; 4]>::from(fade.curve).map(f32::to_bits);
+                Arc::clone(
+                    tables
+                        .entry(key)
+                        .or_insert_with(|| fade.curve.table(TABLE_STEPS).into()),
+                )
+            })
+        };
+        let fades = clips
+            .iter()
+            .map(|c| Fades([table(&c.shape.fade_in), table(&c.shape.fade_out)]))
+            .collect();
         Self {
             levels: vec![[f32::NAN; 2]; clips.len()],
             swapped: vec![false; clips.len()],
+            fades,
             clips,
             by_id,
         }
@@ -199,6 +251,8 @@ impl Clip {
 pub struct ClipsHandle {
     incoming: rtrb::Producer<Box<ClipSet>>,
     retired: rtrb::Consumer<Box<ClipSet>>,
+    /// Fade tables by curve, shared between clips and lists.
+    tables: HashMap<[u32; 4], Table>,
 }
 
 impl ClipsHandle {
@@ -206,7 +260,7 @@ impl ClipsHandle {
     /// next frame).
     pub fn set(&mut self, clips: Vec<Clip>) -> Result<(), Vec<Clip>> {
         self.incoming
-            .push(Box::new(ClipSet::new(clips)))
+            .push(Box::new(ClipSet::new(clips, &mut self.tables)))
             .map_err(|rtrb::PushError::Full(set)| set.clips)
     }
 
@@ -248,12 +302,13 @@ pub fn clip_player() -> (ClipsHandle, ClipPlayer) {
         ClipsHandle {
             incoming: incoming_tx,
             retired: retired_rx,
+            tables: HashMap::new(),
         },
         ClipPlayer {
             incoming: incoming_rx,
             retired: retired_tx,
             stash: None,
-            current: Box::new(ClipSet::new(Vec::new())),
+            current: Box::new(ClipSet::new(Vec::new(), &mut HashMap::new())),
             swap: None,
         },
     )
@@ -334,6 +389,7 @@ impl Ramp {
 /// move it.
 fn play(
     clip: &Clip,
+    fades: &Fades,
     kept: &mut [f32; 2],
     cx: &RenderContext<'_>,
     block: &Block,
@@ -371,6 +427,7 @@ fn play(
         start,
         from: block.from,
         edge: block.edge,
+        fades,
     };
     let mix = if clip.shape.plain() { mix } else { mix_shaped };
     for output in 0..block.outputs {
@@ -398,13 +455,15 @@ fn play(
 
 /// Where a clip sits in the block being rendered.
 #[derive(Clone, Copy)]
-struct Placement {
+struct Placement<'a> {
     /// Timeline sample of the clip's first frame.
     start: i64,
     /// Timeline sample of the block's first frame.
     from: i64,
     /// Edge fade length, in frames.
     edge: i64,
+    /// The clip's fade tables.
+    fades: &'a Fades,
 }
 
 /// Adds `clip`'s audio at `gain` for the timeline samples `frames` into
@@ -414,7 +473,7 @@ fn mix(
     target: &mut [f32],
     samples: &[f32],
     clip: &Clip,
-    at: Placement,
+    at: Placement<'_>,
     frames: std::ops::Range<i64>,
     gain: f32,
 ) {
@@ -437,7 +496,7 @@ fn mix_shaped(
     target: &mut [f32],
     samples: &[f32],
     clip: &Clip,
-    at: Placement,
+    at: Placement<'_>,
     frames: std::ops::Range<i64>,
     gain: f32,
 ) {
@@ -457,7 +516,7 @@ fn mix_shaped(
         else {
             continue;
         };
-        let shaped = edge_gain(inner, span, at.edge) * shape.fade_gain(pos, clip.length);
+        let shaped = edge_gain(inner, span, at.edge) * shape.fade_gain(at.fades, pos, clip.length);
         target[(t - at.from) as usize] += sample * gain * shaped;
     }
 }
@@ -555,19 +614,27 @@ impl Source for ClipPlayer {
             }
         });
         let set = &mut *self.current;
-        let clips = set.clips.iter().zip(&mut set.levels).zip(&set.swapped);
-        for ((clip, level), &swapped) in clips {
+        for i in 0..set.clips.len() {
             let ramp = match crossfade {
-                Some(x) if swapped => Ramp::In(x),
+                Some(x) if set.swapped[i] => Ramp::In(x),
                 _ => Ramp::Steady,
             };
-            play(clip, level, cx, &block, ramp, out);
+            let (clip, fades) = (&set.clips[i], &set.fades[i]);
+            play(clip, fades, &mut set.levels[i], cx, &block, ramp, out);
         }
         if let (Some(swap), Some(x)) = (self.swap.as_mut(), crossfade) {
             let old = &mut *swap.old;
-            let clips = old.clips.iter().zip(&mut old.levels).zip(&old.swapped);
-            for ((clip, level), _) in clips.filter(|(_, swapped)| **swapped) {
-                play(clip, level, cx, &block, Ramp::Out(x), out);
+            for i in (0..old.clips.len()).filter(|&i| old.swapped[i]) {
+                let (clip, fades) = (&old.clips[i], &old.fades[i]);
+                play(
+                    clip,
+                    fades,
+                    &mut old.levels[i],
+                    cx,
+                    &block,
+                    Ramp::Out(x),
+                    out,
+                );
             }
             if !cx.tail {
                 swap.done += frames;

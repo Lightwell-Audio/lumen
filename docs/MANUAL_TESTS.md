@@ -992,10 +992,13 @@ taller for steps 1 to 4, then try them again at the default height.
    left one in: the fade in follows the pointer with its length beside
    it, and the waveform tapers along the glowing curve. Do the same on
    the right. A fade never runs past the other.
-2. **Bending:** drag a fade's middle dot up: Fast; down: Slow (a step
-   every 10 points). Right-click the clip: Fade-in shape and Fade-out
-   shape list all four, S-curve included. Double-click a dot: straight
-   again; double-click a fade's handle: no fade.
+2. **Bending:** drag a fade's dot anywhere, left and right as well as up
+   and down: the curve follows through it, and the waveform with it. Hold
+   Alt and drag up: the curve grows an S (flat at both ends) without the
+   dot moving; down takes it away. Right-click the clip: Fade-in shape and
+   Fade-out shape list the four presets. Double-click a dot: straight
+   again; double-click a fade's handle: no fade. Save, close and reopen:
+   the curves are as you left them.
 3. **Gain:** hover the clip; the thin line near its top is its gain. Drag
    it down: the dB shows beside the pointer and the waveform shrinks;
    hold Shift for fine steps. Double-click it: 0 dB.

@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use lumen_core::curve::{Curve, Handle};
 use lumen_core::fade::FadeShape;
 use lumen_core::meter::Meter;
 use lumen_core::time::Ticks;
@@ -532,7 +533,7 @@ fn lists_sent_while_stopped_never_play_late() {
         shape: ClipShape {
             fade_in: FadeFrames {
                 frames: fade,
-                shape: FadeShape::Linear,
+                curve: Curve::LINEAR,
             },
             ..Default::default()
         },
@@ -603,13 +604,19 @@ fn golden(clip: &Clip, frames: usize, want: impl Fn(i64) -> (f32, f32)) {
 }
 
 #[test]
-fn fades_sound_as_drawn_in_every_shape() {
+fn fades_sound_as_drawn_in_every_shape_and_free_curve() {
     let audio = ramp(30_000, RATE);
-    for (in_shape, out_shape) in [
-        (FadeShape::Linear, FadeShape::Linear),
-        (FadeShape::Slow, FadeShape::Fast),
-        (FadeShape::Fast, FadeShape::SCurve),
-        (FadeShape::SCurve, FadeShape::Slow),
+    // A curve bent freely by the owner's C3 handle.
+    let free = Curve::from_handle(Handle {
+        dot: [0.35, 0.7],
+        s: 0.4,
+    });
+    for (fade_in_curve, fade_out_curve) in [
+        (Curve::LINEAR, Curve::LINEAR),
+        (FadeShape::Slow.curve(), FadeShape::Fast.curve()),
+        (FadeShape::Fast.curve(), FadeShape::SCurve.curve()),
+        (FadeShape::SCurve.curve(), free),
+        (free, FadeShape::Slow.curve()),
     ] {
         let (length, fade_in, fade_out) = (20_000, 4_800, 9_600);
         let clip = Clip {
@@ -623,27 +630,42 @@ fn fades_sound_as_drawn_in_every_shape() {
             shape: ClipShape {
                 fade_in: FadeFrames {
                     frames: fade_in,
-                    shape: in_shape,
+                    curve: fade_in_curve,
                 },
                 fade_out: FadeFrames {
                     frames: fade_out,
-                    shape: out_shape,
+                    curve: fade_out_curve,
                 },
                 period: None,
             },
         };
-        // The curve the arrangement draws: the same `FadeShape::gain`.
-        golden(&clip, 120_000, |pos| {
-            let (l, r) = expected(&audio, 0, length, pos);
-            let mut g = 1.0;
-            if pos < fade_in {
-                g *= in_shape.gain((pos as f32 + 0.5) / fade_in as f32);
+        // The curve the arrangement draws (`Curve::at`), heard to within
+        // 2·10⁻⁵ of the level (the engine reads it from a table).
+        for block in [1, 64, 333, 4_096] {
+            let (mut handle, _clips, mut engine) = setup(vec![clip.clone()]);
+            handle.send(Command::Play).unwrap();
+            let out = run(&mut engine, 120_000, block);
+            for (t, &(left, _)) in out.iter().enumerate() {
+                let pos = t as i64 - 96_000;
+                if !(0..length).contains(&pos) {
+                    assert_eq!(left, 0.0);
+                    continue;
+                }
+                let (full, _) = expected(&audio, 0, length, pos);
+                let mut g = 1.0;
+                if pos < fade_in {
+                    g *= fade_in_curve.at((pos as f32 + 0.5) / fade_in as f32);
+                }
+                if length - pos <= fade_out {
+                    g *= fade_out_curve.at(((length - pos) as f32 - 0.5) / fade_out as f32);
+                }
+                assert!(
+                    (left - full * g).abs() <= 2e-5 * full.abs() + 1e-12,
+                    "block {block}, frame {pos}: got {left}, want {}",
+                    full * g
+                );
             }
-            if length - pos <= fade_out {
-                g *= out_shape.gain(((length - pos) as f32 - 0.5) / fade_out as f32);
-            }
-            (l * g, r * g)
-        });
+        }
     }
 }
 

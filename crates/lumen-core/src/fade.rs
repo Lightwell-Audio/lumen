@@ -1,16 +1,17 @@
-//! Fade curves (M3 slice 6), shared by the engine that plays them and the
-//! arrangement that draws them, so a fade sounds as it is drawn.
+//! Fades (M3 slice 6), shared by the engine that plays them and the
+//! arrangement that draws them, so a fade sounds as it is drawn. A fade's
+//! shape is a [`Curve`] (format v6, owner's choice C3), bent freely; the
+//! four named shapes are presets of it.
 
 use serde::{Deserialize, Serialize};
 
+use crate::curve::Curve;
 use crate::time::Ticks;
 
-/// How a fade's level moves from silence to full.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+/// The preset fade shapes, in the right-click menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FadeShape {
     /// Straight.
-    #[default]
     Linear,
     /// Slow at first, then quick (x²): gentle starts.
     Slow,
@@ -32,32 +33,43 @@ impl FadeShape {
         }
     }
 
-    /// The level `x` of the way through a fade-in (0 to 1), from 0 to 1.
-    /// A fade-out plays it backwards: `gain(1 - x)`.
-    #[inline]
-    pub fn gain(self, x: f32) -> f32 {
-        let x = x.clamp(0.0, 1.0);
+    /// The curve of this shape: exactly the shape it is named for.
+    pub fn curve(self) -> Curve {
         match self {
-            Self::Linear => x,
-            Self::Slow => x * x,
-            Self::Fast => 1.0 - (1.0 - x) * (1.0 - x),
-            Self::SCurve => x * x * (3.0 - 2.0 * x),
+            Self::Linear => Curve::LINEAR,
+            Self::Slow => Curve::SLOW,
+            Self::Fast => Curve::FAST,
+            Self::SCurve => Curve::S_CURVE,
         }
+    }
+
+    /// The preset `curve` is, if it is one.
+    pub fn of(curve: &Curve) -> Option<Self> {
+        Self::ALL.into_iter().find(|s| s.curve().same(curve))
     }
 }
 
-/// A clip's fade in or out: how long, and its shape. A zero length is no
-/// fade (the 2 ms edge fade still applies).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+/// A clip's fade in or out: how long, and its curve from silence to full
+/// (a fade out plays it backwards). A zero length is no fade (the 2 ms
+/// edge fade still applies).
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub struct Fade {
     pub length: Ticks,
-    pub shape: FadeShape,
+    /// Written only when it is not straight.
+    #[serde(default, skip_serializing_if = "Curve::is_linear")]
+    pub curve: Curve,
 }
 
 impl Fade {
-    /// No fade: zero length, the default shape.
+    /// No fade: zero length, straight.
     pub fn is_none(&self) -> bool {
-        *self == Self::default()
+        self.length == Ticks::ZERO && self.curve.is_linear()
+    }
+
+    /// The level `x` of the way through a fade in (0 to 1), from silence
+    /// to full; a fade out reads it backwards, at `1 − x`.
+    pub fn level(&self, x: f32) -> f32 {
+        self.curve.at(x)
     }
 }
 
@@ -66,19 +78,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_shape_runs_from_silence_to_full_and_never_falls() {
+    fn every_preset_runs_from_silence_to_full_and_is_found_again() {
         for shape in FadeShape::ALL {
-            assert_eq!(shape.gain(0.0), 0.0, "{shape:?}");
-            assert_eq!(shape.gain(1.0), 1.0, "{shape:?}");
-            let mut last = 0.0;
-            for k in 0..=100 {
-                let g = shape.gain(k as f32 / 100.0);
-                assert!(g >= last, "{shape:?} falls at {k}");
-                last = g;
-            }
+            let fade = Fade {
+                length: Ticks::quarters(1),
+                curve: shape.curve(),
+            };
+            assert_eq!(fade.level(0.0), 0.0, "{shape:?}");
+            assert!((fade.level(1.0) - 1.0).abs() < 1e-6, "{shape:?}");
+            assert_eq!(FadeShape::of(&fade.curve), Some(shape));
         }
-        assert!(FadeShape::Slow.gain(0.5) < 0.5);
-        assert!(FadeShape::Fast.gain(0.5) > 0.5);
-        assert_eq!(FadeShape::SCurve.gain(0.5), 0.5);
+        assert!(FadeShape::Slow.curve().at(0.5) < 0.5);
+        assert!(FadeShape::Fast.curve().at(0.5) > 0.5);
+        assert!((FadeShape::SCurve.curve().at(0.5) - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_straight_fade_saves_without_its_curve() {
+        let plain = Fade {
+            length: Ticks(100),
+            curve: Curve::LINEAR,
+        };
+        assert_eq!(serde_json::to_string(&plain).unwrap(), r#"{"length":100}"#);
+        let bent = Fade {
+            length: Ticks(100),
+            curve: Curve::SLOW,
+        };
+        let text = serde_json::to_string(&bent).unwrap();
+        assert!(text.contains("\"curve\":["), "{text}");
+        assert_eq!(serde_json::from_str::<Fade>(&text).unwrap(), bent);
+        assert!(Fade::default().is_none());
     }
 }

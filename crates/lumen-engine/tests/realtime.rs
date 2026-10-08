@@ -125,7 +125,22 @@ fn clips_metronome_and_tone_never_touch_the_heap() {
                 gain: 0.5,
                 pan: 0.0,
                 audio: Arc::clone(&audio),
-                shape: Default::default(),
+                // A third fade in and out along curves (read from tables).
+                shape: if i % 3 == 0 {
+                    lumen_engine::ClipShape {
+                        fade_in: lumen_engine::FadeFrames {
+                            frames: 4_800,
+                            curve: lumen_core::curve::Curve::SLOW,
+                        },
+                        fade_out: lumen_engine::FadeFrames {
+                            frames: 9_600,
+                            curve: lumen_core::curve::Curve::S_CURVE,
+                        },
+                        period: None,
+                    }
+                } else {
+                    Default::default()
+                },
             })
             .collect()
     };

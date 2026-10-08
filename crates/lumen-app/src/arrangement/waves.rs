@@ -4,26 +4,15 @@
 //! to what is heard (`lanes::engine_clips`).
 
 use eframe::egui::Color32;
-use lumen_core::fade::FadeShape;
 use lumen_core::time::{TempoMap, Ticks};
 use lumen_project::model::{ClipContent, Project};
-use lumen_render::{FADE_FAST, FADE_LINEAR, FADE_S_CURVE, FADE_SLOW, WaveInstance, beats, rgba};
+use lumen_render::{WaveInstance, beats, rgba};
 
 use super::samples::Geometry;
 
 /// The most repeats of one looping clip drawn as waves; past this, a very
 /// short loop over a long clip shows its first repeats only.
 const MAX_REPEATS: usize = 4_096;
-
-/// A fade shape as the shader draws it.
-fn shape_code(shape: FadeShape) -> u32 {
-    match shape {
-        FadeShape::Linear => FADE_LINEAR,
-        FadeShape::Slow => FADE_SLOW,
-        FadeShape::Fast => FADE_FAST,
-        FadeShape::SCurve => FADE_S_CURVE,
-    }
-}
 
 /// What the waveform of a media file needs: its atlas slot, how many
 /// channels to show, and the file's own sample rate.
@@ -94,7 +83,7 @@ pub(super) fn wave_instances(
             // Drawn at the clip's gain and through its fades (slice 6d),
             // as the engine plays it.
             let gain = 10f32.powf(gain_db / 20.0);
-            let shapes = shape_code(clip.fade_in.shape) | shape_code(clip.fade_out.shape) << 8;
+            let (curve_in, curve_out) = (clip.fade_in.curve.into(), clip.fade_out.curve.into());
             let fade_in = [
                 beats(start.as_quarters()),
                 beats((start + clip.fade_in.length).as_quarters()),
@@ -124,7 +113,8 @@ pub(super) fn wave_instances(
                         color: rgba(r, g, b, a),
                         channels: source.channels,
                         gain,
-                        shapes,
+                        curve_in,
+                        curve_out,
                         fade_in,
                         fade_out,
                     },

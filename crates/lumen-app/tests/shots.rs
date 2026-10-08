@@ -165,9 +165,16 @@ fn clip_fades_and_gain() {
     h.hover_at(bend);
     h.drag_at(bend);
     h.run_steps(2);
-    h.hover_at(bend + vec2(0.0, 8.0));
+    // Freely: left and up (the owner's C3).
+    h.hover_at(bend + vec2(-25.0, -20.0));
     save(&mut h, "fade-bending");
-    h.drop_at(bend + vec2(0.0, 8.0));
+    h.drop_at(bend + vec2(-25.0, -20.0));
+    h.run_steps(2);
+    // Alt adds S-shape to the fade out.
+    let bend = at(&h).bend_out.expect("a bend dot");
+    h.event(Event::ModifiersChanged(Modifiers::ALT));
+    drag(&mut h, bend, bend - vec2(0.0, 30.0));
+    h.event(Event::ModifiersChanged(Modifiers::NONE));
     h.run_steps(2);
     h.hover_at(Pos2::new(a.right() + 300.0, a.bottom() + 120.0));
     save(&mut h, "fade-gain-idle");

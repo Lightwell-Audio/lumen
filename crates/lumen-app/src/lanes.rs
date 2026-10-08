@@ -93,11 +93,11 @@ pub fn engine_clips(
             let shape = lumen_engine::ClipShape {
                 fade_in: lumen_engine::FadeFrames {
                     frames: frames(clip.start, clip.start + clip.fade_in.length),
-                    shape: clip.fade_in.shape,
+                    curve: clip.fade_in.curve,
                 },
                 fade_out: lumen_engine::FadeFrames {
                     frames: frames(end - clip.fade_out.length, end),
-                    shape: clip.fade_out.shape,
+                    curve: clip.fade_out.curve,
                 },
                 period: clip
                     .loop_length
@@ -457,17 +457,14 @@ mod tests {
             clip.loop_length = Some(Ticks::quarters(1));
             clip.fade_in.length = Ticks(lumen_core::time::PPQ / 2);
             clip.fade_out.length = Ticks::quarters(1);
-            clip.fade_out.shape = lumen_core::fade::FadeShape::SCurve;
+            clip.fade_out.curve = lumen_core::curve::Curve::S_CURVE;
         });
         let clip = &played(&doc, &audio, 48_000)[0];
         assert_eq!(clip.length, 192_000, "repeats past the file's end");
         assert_eq!(clip.shape.period, Some(24_000));
         assert_eq!(clip.shape.fade_in.frames, 12_000);
         assert_eq!(clip.shape.fade_out.frames, 24_000);
-        assert_eq!(
-            clip.shape.fade_out.shape,
-            lumen_core::fade::FadeShape::SCurve
-        );
+        assert_eq!(clip.shape.fade_out.curve, lumen_core::curve::Curve::S_CURVE);
         // Without the loop it stops where the file does.
         doc.apply("unloop", None, |p| {
             let track = Arc::make_mut(&mut p.tracks[0]);
