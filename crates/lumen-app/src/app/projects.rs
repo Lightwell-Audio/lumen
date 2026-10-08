@@ -47,8 +47,8 @@ impl App {
             loop_enabled: looped.enabled,
         };
         project.view = lumen_project::model::ViewState {
-            left_beat: self.left_beat,
-            px_per_beat: self.px_per_beat,
+            left_beat: self.nav.view.left as f32,
+            px_per_beat: self.nav.view.zoom as f32,
             browser_open: self.show_browser,
             detail_open: self.show_detail,
             browser_size: self.browser_size,
@@ -245,8 +245,10 @@ impl App {
                         )),
                     }
                     self.arrangement = arrangement::Arrangement::restore(&view);
-                    self.left_beat = view.left_beat.max(0.0);
-                    self.px_per_beat = view.px_per_beat.clamp(2.0, 400.0);
+                    self.nav.set(crate::timeview::TimeView {
+                        left: f64::from(view.left_beat).max(0.0),
+                        zoom: f64::from(view.px_per_beat).clamp(crate::timeview::MIN_ZOOM, 1e7),
+                    });
                     self.show_browser = view.browser_open;
                     self.show_detail = view.detail_open;
                     self.browser_size = view.browser_size.clamp(120.0, 600.0);

@@ -20,8 +20,6 @@ mod clips;
 mod headers;
 mod waves;
 
-pub use clips::TimeView;
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use eframe::egui::{self, Color32, Id as EguiId, Key, Modifiers};
@@ -99,6 +97,15 @@ pub struct Arrangement {
     hot_edge: Option<(Id, f32)>,
     /// Clip bodies on the GPU (slice 4b).
     gpu: clips::GpuClips,
+    /// Heights, folding and scroll before H fitted every track (H again
+    /// restores them).
+    fitted: Option<(BTreeMap<Id, f32>, BTreeSet<Id>, f32)>,
+}
+
+/// The tallest whole-step height at which `count` tracks fit in `visible`
+/// points, between folded and the largest height.
+fn fit_height(visible: f32, count: f32) -> f32 {
+    ((visible / count / STEP).floor() * STEP).clamp(FOLDED, MAX_HEIGHT)
 }
 
 fn color_of(c: Color) -> Color32 {
@@ -161,6 +168,63 @@ impl Arrangement {
         if self.renaming.as_ref().is_some_and(|(id, _)| !exists(id)) {
             self.renaming = None;
         }
+    }
+
+    /// The track whose row is `y` points below the lanes' top edge.
+    pub fn track_at(
+        &self,
+        ctx: &egui::Context,
+        project: &Project,
+        pending: usize,
+        y: f32,
+    ) -> Option<Id> {
+        let y = y + self.top;
+        self.rows(ctx, project, pending)
+            .iter()
+            .find(|r| (r.y..r.y + r.height).contains(&y))
+            .and_then(|r| match r.kind {
+                RowKind::Track(i) => project.tracks.get(i).map(|t| t.id),
+                RowKind::Pending(_) => None,
+            })
+    }
+
+    /// `steps` height steps taller (or shorter, if negative), as dragging
+    /// the edge does: below the unfolded height the track folds (Alt+wheel,
+    /// slice 4d).
+    pub fn step_height(&mut self, id: Id, steps: i32) {
+        let from = self.target_height(id);
+        let wanted = snap_height((from + steps as f32 * STEP).clamp(FOLDED, MAX_HEIGHT));
+        if wanted < FOLD_BELOW {
+            self.expanded.remove(&id);
+        } else {
+            self.expanded.insert(id);
+            self.heights.insert(id, wanted);
+        }
+        self.fitted = None;
+    }
+
+    /// H: every track as tall as fits in `visible` points, in whole steps
+    /// (folded if even the unfolded height does not fit); H again puts
+    /// heights, folding and scroll back as they were.
+    pub fn toggle_fit_heights(&mut self, project: &Project, visible: f32) {
+        if let Some((heights, expanded, top)) = self.fitted.take() {
+            self.heights = heights;
+            self.expanded = expanded;
+            self.top = top;
+            return;
+        }
+        self.fitted = Some((self.heights.clone(), self.expanded.clone(), self.top));
+        let count = project.tracks.len().max(1) as f32;
+        let each = fit_height(visible, count);
+        for track in &project.tracks {
+            if each >= UNFOLDED {
+                self.expanded.insert(track.id);
+                self.heights.insert(track.id, each);
+            } else {
+                self.expanded.remove(&track.id);
+            }
+        }
+        self.top = 0.0;
     }
 
     /// Scrolls vertically by `delta` points, within the content.
@@ -352,6 +416,17 @@ impl Arrangement {
 mod tests {
     use super::headers::track_description;
     use super::*;
+
+    #[test]
+    fn fitted_heights_are_whole_steps_that_fit() {
+        // 10 tracks in 500 points: 50 each, down to 44 (two steps).
+        assert_eq!(fit_height(500.0, 10.0), 44.0);
+        // 3 tracks in 500: 166, down to 154 (seven steps).
+        assert_eq!(fit_height(500.0, 3.0), 154.0);
+        // Never above the largest, never below folded.
+        assert_eq!(fit_height(5_000.0, 1.0), MAX_HEIGHT);
+        assert_eq!(fit_height(100.0, 50.0), FOLDED);
+    }
 
     #[test]
     fn heights_come_in_whole_steps() {

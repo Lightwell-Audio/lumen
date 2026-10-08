@@ -12,7 +12,7 @@
 use bytemuck::{Pod, Zeroable};
 use vello::wgpu;
 
-use crate::pipeline;
+use crate::{Beats, beats, pipeline};
 
 /// Frames per bucket at the finest level of the peaks this draws.
 pub const PEAK_BASE: u32 = 16;
@@ -32,8 +32,8 @@ const ATLAS_MAX_ROWS: u32 = 8192;
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct WaveInstance {
-    pub start: f32,
-    pub end: f32,
+    pub start: Beats,
+    pub end: Beats,
     pub row: u32,
     pub slot: u32,
     pub first_frame: f32,
@@ -86,7 +86,8 @@ pub(crate) struct WaveUniform {
     wave_bottom: f32,
     side: f32,
     split_below: f32,
-    _pad: [f32; 3],
+    left_frac: f32,
+    _pad: [f32; 2],
 }
 
 pub(crate) const WAVE_SHADER: &str = crate::shaders::WAVES;
@@ -135,7 +136,7 @@ impl WavePipeline {
                 array_stride: size_of::<WaveInstance>() as u64,
                 step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &wgpu::vertex_attr_array![
-                    0 => Float32, 1 => Float32, 2 => Uint32, 3 => Uint32,
+                    0 => Float32x2, 1 => Float32x2, 2 => Uint32, 3 => Uint32,
                     4 => Float32, 5 => Float32, 6 => Uint32, 7 => Uint32
                 ],
             })],
@@ -419,14 +420,15 @@ pub(crate) fn uniform(
         canvas: [canvas[0] as f32, canvas[1] as f32],
         origin: [area.x, area.y],
         size: [area.width, area.height],
-        left: view.left,
+        left: beats(view.left)[0],
         px_per_unit: view.px_per_unit,
         top_px: view.top_px,
         wave_top: style.top,
         wave_bottom: style.bottom,
         side: style.side,
         split_below: style.split_below,
-        _pad: [0.0; 3],
+        left_frac: beats(view.left)[1],
+        _pad: [0.0; 2],
     }
 }
 
@@ -530,7 +532,7 @@ mod tests {
 
     #[test]
     fn gpu_layouts_have_the_sizes_the_shader_expects() {
-        assert_eq!(size_of::<WaveInstance>(), 32);
+        assert_eq!(size_of::<WaveInstance>(), 40);
         assert_eq!(size_of::<WaveUniform>(), 64);
     }
 }

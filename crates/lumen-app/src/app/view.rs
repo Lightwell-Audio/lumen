@@ -5,12 +5,24 @@ use std::path::PathBuf;
 
 use eframe::egui::{self, RichText, Sense, Stroke, pos2, vec2};
 use lumen_core::product::PRODUCT_NAME;
-use lumen_core::time::Ticks;
+use lumen_core::time::{PPQ, Ticks};
 
 use crate::{App, arrangement, audio, bench, canvas, lanes, media, motion, ruler, theme, trace};
 
 /// The height of the ruler above the lanes.
 const RULER_HEIGHT: f32 = 22.0;
+/// Bars wider than this (points) get beat labels on the ruler.
+const RULER_BEATS_FROM: f64 = 240.0;
+
+/// A glided position, or the exact one once the glide has settled: the
+/// glide runs in f32, which is pixels off at sample-level zoom.
+fn settled(glided: f32, exact: f64) -> f64 {
+    if (f64::from(glided) - exact).abs() < 1e-3 {
+        exact
+    } else {
+        f64::from(glided)
+    }
+}
 
 impl App {
     /// `--bench-frames`: puts the view where the benchmark wants it this
@@ -25,8 +37,10 @@ impl App {
         let out = bench.out().to_path_buf();
         match step {
             bench::Step::Drive(view) => {
-                self.left_beat = view.left_beat;
-                self.px_per_beat = view.px_per_beat;
+                self.nav.set(crate::timeview::TimeView {
+                    left: f64::from(view.left_beat),
+                    zoom: f64::from(view.px_per_beat),
+                });
                 let content = self.arrangement.height_of_content(
                     ctx,
                     self.document.project(),
@@ -92,33 +106,8 @@ report: {}",
         let ruler = egui::Rect::from_min_size(full.min, vec2(full.width(), RULER_HEIGHT));
         let canvas = egui::Rect::from_min_max(pos2(full.left(), ruler.bottom()), full.max);
 
-        // `contains_pointer`, not `hovered`: the ruler's own click area sits on
-        // top, and scrolling and zooming must work over it too. The wheel
-        // scrolls the tracks; Shift+wheel or a sideways trackpad swipe
-        // scrolls the timeline; Ctrl+wheel (or a pinch) zooms.
-        if response.contains_pointer() {
-            // egui turns Ctrl+wheel (and trackpad pinch) into a zoom factor
-            // and reports no scroll for it, so zoom must read `zoom_delta`.
-            let (delta, zoom, pointer) =
-                ui.input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.pointer.hover_pos()));
-            if zoom != 1.0 {
-                let anchor = pointer.map_or(canvas.center().x, |p| p.x) - canvas.left();
-                let beat = self.left_beat + anchor / self.px_per_beat;
-                self.px_per_beat = (self.px_per_beat * zoom).clamp(2.0, 400.0);
-                self.left_beat = beat - anchor / self.px_per_beat;
-            } else {
-                self.left_beat -= delta.x / self.px_per_beat;
-                if delta.y != 0.0 {
-                    let content = self.arrangement.height_of_content(
-                        ui.ctx(),
-                        self.document.project(),
-                        self.lanes.pending().len(),
-                    );
-                    self.arrangement.scroll(delta.y, content, canvas.height());
-                }
-            }
-            self.left_beat = self.left_beat.max(0.0);
-        }
+        self.navigate(ui, &response, canvas);
+        let view = self.nav.view;
         ui.painter().rect_filled(corner, 0.0, theme::p().raised);
         self.arrangement
             .headers(ui, headers, &mut self.document, &self.lanes);
@@ -129,26 +118,21 @@ report: {}",
         painter.add(canvas::grid_shape(
             canvas,
             ui.ctx().pixels_per_point(),
-            self.left_beat,
-            self.px_per_beat,
+            view,
             canvas::GridMeter {
                 bar: meter.bar().as_quarters() as f32,
                 beat: meter.beat().as_quarters() as f32,
                 colors: [theme::p().grid_bar, theme::p().grid_beat],
             },
         ));
-        let x_of = |quarters: f32| canvas.left() + (quarters - self.left_beat) * self.px_per_beat;
-        let time = arrangement::TimeView {
-            left_beat: self.left_beat,
-            px_per_beat: self.px_per_beat,
-        };
+        let x_of = |quarters: f64| view.x(canvas.left(), quarters);
         self.arrangement.lanes(
             ui.ctx(),
             &painter.with_clip_rect(canvas),
             canvas,
             &self.document,
             &mut self.lanes,
-            time,
+            view,
         );
         // A hover card with the file's details.
         let hover = ui.interact(canvas, ui.id().with("clips"), Sense::hover());
@@ -159,7 +143,7 @@ report: {}",
                 canvas,
                 self.document.project(),
                 &self.lanes,
-                time,
+                view,
             )
         {
             hover.on_hover_ui_at_pointer(|ui| lanes::file_card(ui, item));
@@ -173,8 +157,8 @@ report: {}",
         self.drop_target = match pointer {
             Some(p) => ruler::snap(
                 &self.transport.timeline.meter,
-                ruler::ticks_at_x(p.x, canvas.left(), self.left_beat, self.px_per_beat),
-                self.px_per_beat,
+                ruler::ticks_at(view.beat_at(canvas.left(), p.x)),
+                view.zoom as f32,
             ),
             None => self.transport.state().ticks,
         };
@@ -184,7 +168,7 @@ report: {}",
         let looped = self.transport.loop_region;
         if looped.enabled {
             let span = egui::Rect::from_x_y_ranges(
-                x_of(looped.start.as_quarters() as f32)..=x_of(looped.end.as_quarters() as f32),
+                x_of(looped.start.as_quarters())..=x_of(looped.end.as_quarters()),
                 ruler.y_range(),
             );
             painter.rect_filled(
@@ -193,29 +177,67 @@ report: {}",
                 theme::p().accent.gamma_multiply(0.18),
             );
         }
-        let bar_quarters = meter.bar().as_quarters() as f32;
-        let mut step = 1;
-        while step as f32 * bar_quarters * self.px_per_beat < 40.0 {
-            step *= 2;
-        }
-        let first_bar = (self.left_beat / bar_quarters).floor() as i64;
-        let mut bar = first_bar - first_bar.rem_euclid(step);
-        loop {
-            let start = self.transport.timeline.meter.bar_start(bar);
-            let x = x_of(start.as_quarters() as f32);
-            if x > full.right() || bar >= canvas::GRID_BARS as i64 {
-                break;
-            }
-            if x >= full.left() {
+        let label = |x: f32, text: String| {
+            if (full.left()..=full.right()).contains(&x) {
                 painter.text(
                     pos2(x + 4.0, ruler.center().y),
                     egui::Align2::LEFT_CENTER,
-                    (bar + 1).to_string(),
+                    text,
                     egui::FontId::monospace(theme::size::CAPTION),
                     theme::p().text_secondary,
                 );
             }
-            bar += step;
+        };
+        let bar_quarters = meter.bar().as_quarters();
+        if bar_quarters * view.zoom < RULER_BEATS_FROM {
+            // Bar numbers, thinned so labels never collide.
+            let mut step = 1;
+            while step as f64 * bar_quarters * view.zoom < 40.0 {
+                step *= 2;
+            }
+            let first_bar = (view.left / bar_quarters).floor() as i64;
+            let mut bar = first_bar - first_bar.rem_euclid(step);
+            loop {
+                let start = self.transport.timeline.meter.bar_start(bar);
+                let x = x_of(start.as_quarters());
+                if x > full.right() || bar >= canvas::GRID_BARS as i64 {
+                    break;
+                }
+                label(x, (bar + 1).to_string());
+                bar += step;
+            }
+        } else {
+            // Zoomed in (slice 4d): label beats and sixteenths too, as
+            // bar.beat.sixteenth, thinned to one label per 64 points.
+            // Other ruler formats arrive with slice 5.
+            let sixteenth = Ticks(PPQ / 4);
+            let mut step = ruler::step(meter, view.zoom as f32).max(sixteenth);
+            while step.as_quarters() * view.zoom < 64.0 {
+                step = Ticks(step.0 * 2);
+            }
+            let left = Ticks((view.left * PPQ as f64) as i64).max(Ticks::ZERO);
+            let mut t = Ticks(left.0 - left.0.rem_euclid(step.0));
+            loop {
+                let x = x_of(t.as_quarters());
+                if x > full.right() {
+                    break;
+                }
+                let bbt = self.transport.timeline.meter.bbt_at(t);
+                let text = if bbt.ticks == Ticks::ZERO && bbt.beat == 0 {
+                    (bbt.bar + 1).to_string()
+                } else if bbt.ticks == Ticks::ZERO {
+                    format!("{}.{}", bbt.bar + 1, bbt.beat + 1)
+                } else {
+                    format!(
+                        "{}.{}.{}",
+                        bbt.bar + 1,
+                        bbt.beat + 1,
+                        bbt.ticks.0 / sixteenth.0 + 1
+                    )
+                };
+                label(x, text);
+                t = t + step;
+            }
         }
 
         // Click-to-locate: the ruler moves the playhead to the nearest line of
@@ -234,13 +256,13 @@ report: {}",
         });
         if let Some(pointer) = ruler_response.hover_pos() {
             let free = ui.input(|i| i.modifiers.alt);
-            let raw = ruler::ticks_at_x(pointer.x, canvas.left(), self.left_beat, self.px_per_beat);
+            let raw = ruler::ticks_at(view.beat_at(canvas.left(), pointer.x));
             let target = if free {
                 raw
             } else {
-                ruler::snap(&self.transport.timeline.meter, raw, self.px_per_beat)
+                ruler::snap(&self.transport.timeline.meter, raw, view.zoom as f32)
             };
-            let gx = x_of(target.as_quarters() as f32);
+            let gx = x_of(target.as_quarters());
             painter.line_segment(
                 [pos2(gx, ruler.top()), pos2(gx, full.bottom())],
                 Stroke::new(1.0, theme::p().accent.gamma_multiply(0.5)),
@@ -270,7 +292,7 @@ report: {}",
             state.ticks.as_quarters() as f32,
             !state.playing,
         );
-        let mx = x_of(marker);
+        let mx = x_of(settled(marker, state.marker.as_quarters()));
         if (full.left()..=full.right()).contains(&mx) {
             painter.add(egui::Shape::convex_polygon(
                 vec![
@@ -284,7 +306,7 @@ report: {}",
         }
 
         // Playhead.
-        let x = x_of(head);
+        let x = x_of(settled(head, state.ticks.as_quarters()));
         if (full.left()..=full.right()).contains(&x) {
             painter.line_segment(
                 [pos2(x, ruler.top()), pos2(x, full.bottom())],

@@ -48,12 +48,12 @@ pub fn clip_instances() -> Vec<RectInstance> {
             let start = k as f32 * 4.0 + (rng.unit() * 4.0).floor() * 0.25;
             let len = 1.0 + (rng.unit() * 8.0).floor() * 0.25;
             let _ = rng.next();
-            out.push(RectInstance {
-                start,
-                end: start + len,
-                row: track as f32,
-                color: rgba(r, g, b, 255),
-            });
+            out.push(RectInstance::new(
+                f64::from(start),
+                f64::from(start + len),
+                track as f32,
+                rgba(r, g, b, 255),
+            ));
         }
     }
     out
@@ -70,12 +70,12 @@ pub fn note_instances() -> Vec<RectInstance> {
             let velocity = 1 + (rng.next() % 127) as u8;
             let shade = 0.45 + f32::from(velocity) / 127.0 * 0.55;
             let c = |v: u8| (f32::from(v) * shade) as u8;
-            RectInstance {
-                start,
-                end: start + len,
-                row: f32::from(127 - pitch),
-                color: rgba(c(0x5B), c(0x9B), c(0xE6), 255),
-            }
+            RectInstance::new(
+                f64::from(start),
+                f64::from(start + len),
+                f32::from(127 - pitch),
+                rgba(c(0x5B), c(0x9B), c(0xE6), 255),
+            )
         })
         .collect()
 }

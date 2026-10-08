@@ -45,6 +45,7 @@ mod probe;
 mod ruler;
 mod settings;
 mod theme;
+mod timeview;
 mod trace;
 mod transport;
 mod widgets;
@@ -113,8 +114,8 @@ struct App {
     detail_size: f32,
     /// Set by the raw-input hook when Shift+Tab is pressed.
     toggle_detail_requested: bool,
-    left_beat: f32,
-    px_per_beat: f32,
+    /// Where the arrangement looks (zoom, scroll, fit, back): slice 4d.
+    nav: app::navigate::Nav,
     smoke_test_frames: Option<u32>,
     /// Where `--screenshot` saves, once the frames have rendered.
     screenshot: Option<PathBuf>,
@@ -598,8 +599,7 @@ fn main() -> eframe::Result {
                 browser_size: 220.0,
                 detail_size: 220.0,
                 toggle_detail_requested: false,
-                left_beat: 0.0,
-                px_per_beat: 24.0,
+                nav: app::navigate::Nav::default(),
                 smoke_test_frames: smoke_test.then_some(SMOKE_FRAMES),
                 screenshot,
                 started,

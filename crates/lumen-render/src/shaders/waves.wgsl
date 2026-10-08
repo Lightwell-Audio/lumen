@@ -2,20 +2,28 @@ struct Layer {
     canvas: vec2<f32>, origin: vec2<f32>, size: vec2<f32>,
     left: f32, ppu: f32, top: f32,
     wave_top: f32, wave_bottom: f32, side: f32, split_below: f32,
-    // Three floats, not a vec3, which would align to 16 bytes.
-    pad0: f32, pad1: f32, pad2: f32,
+    left_frac: f32,
+    // Floats, not a vec2 or vec3, which would align to 8 or 16 bytes.
+    pad0: f32, pad1: f32,
 };
 @group(0) @binding(0) var<uniform> l: Layer;
 @group(0) @binding(1) var rows: texture_2d<f32>;
 @group(0) @binding(2) var atlas: texture_2d<f32>;
 @group(0) @binding(3) var table: texture_2d<u32>;
 
+// Beats arrive split into whole and fractional parts, and so does the view's
+// left edge: subtracting the parts separately stays exact deep into a long
+// song at sample-level zoom, where one f32 subtraction would be pixels off.
+fn from_left(b: vec2<f32>) -> f32 {
+    return (b.x - l.left) + (b.y - l.left_frac);
+}
+
 const BASE: f32 = 16.0;
 const LEVELS: i32 = 8;
 const ATLAS_WIDE: u32 = 4096u;
 
 struct Wave {
-    @location(0) start: f32, @location(1) end: f32, @location(2) row: u32,
+    @location(0) start: vec2<f32>, @location(1) end: vec2<f32>, @location(2) row: u32,
     @location(3) slot: u32, @location(4) first_frame: f32,
     @location(5) frames_per_beat: f32, @location(6) color: u32,
     @location(7) channels: u32,
@@ -40,9 +48,9 @@ fn vs_main(@builtin(vertex_index) v: u32, w: Wave) -> Out {
     // as the pixel grid slides across its buckets.
     let y0 = round(l.origin.y + slot.x - l.top + l.wave_top);
     let y1 = round(l.origin.y + slot.x - l.top + slot.y - l.wave_bottom);
-    let edge = round(l.origin.x + (w.start - l.left) * l.ppu);
+    let edge = round(l.origin.x + from_left(w.start) * l.ppu);
     let x0 = edge + l.side;
-    let x1 = round(l.origin.x + (w.end - l.left) * l.ppu) - l.side;
+    let x1 = round(l.origin.x + from_left(w.end) * l.ppu) - l.side;
     if (y1 - y0 < 2.0 || x1 <= x0 || slot.z <= 0.0) {
         out.pos = vec4<f32>(-2.0, -2.0, 0.0, 1.0);
         return out;
@@ -54,7 +62,7 @@ fn vs_main(@builtin(vertex_index) v: u32, w: Wave) -> Out {
     out.area = vec4<f32>(x0, y0, x1, y1);
     let c = unpack4x8unorm(w.color);
     out.color = vec4<f32>(c.rgb, c.a * slot.z);
-    out.wave = vec4<f32>(w.start, w.first_frame, w.frames_per_beat, edge);
+    out.wave = vec4<f32>(0.0, w.first_frame, w.frames_per_beat, edge);
     out.slot = w.slot;
     out.channels = w.channels;
     return out;

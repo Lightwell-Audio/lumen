@@ -53,8 +53,11 @@ impl Labels {
         for row in first..last {
             for k in 0..demo::CLIPS_PER_TRACK {
                 let clip = self.clips[row * demo::CLIPS_PER_TRACK + k];
-                let x0 = area.x + (clip.start - view.left) * view.px_per_unit;
-                let x1 = area.x + (clip.end - view.left) * view.px_per_unit;
+                let x = |b: [f32; 2]| {
+                    let beat = f64::from(b[0]) + f64::from(b[1]);
+                    area.x + ((beat - view.left) * f64::from(view.px_per_unit)) as f32
+                };
+                let (x0, x1) = (x(clip.start), x(clip.end));
                 if x1 < area.x || x0 > area.x + area.width || x1 - x0 < 40.0 {
                     continue;
                 }

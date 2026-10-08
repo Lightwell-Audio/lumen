@@ -130,7 +130,7 @@ pub fn shape(
         target,
         layer,
         view: View {
-            left: view.left_beat,
+            left: f64::from(view.left_beat),
             px_per_unit: view.px_per_beat * ppp,
             top_px: view.top_px * ppp,
             row_height: view.row_h * ppp,

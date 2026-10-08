@@ -11,6 +11,8 @@ use eframe::egui::{self, Rect};
 use eframe::egui_wgpu::{self, wgpu};
 use lumen_core::product::PRODUCT_NAME;
 use lumen_media::Peaks;
+
+use crate::timeview::TimeView;
 use lumen_render::{
     Area, BoxDraw, BoxInstance, BoxLayerId, BoxStyle, LayerId, RectInstance, Renderer, RowSlot,
     View, WaveInstance, WaveStyle, rgba,
@@ -70,15 +72,13 @@ fn grid_instances(meter: GridMeter) -> Vec<RectInstance> {
         .map(|beat| {
             let bar = beat % beats_per_bar == 0;
             let x = beat as f32 * meter.beat;
-            RectInstance {
-                start: x,
-                end: x,
-                row: 0.0,
-                color: {
-                    let c = meter.colors[usize::from(!bar)];
-                    rgba(c.r(), c.g(), c.b(), 255)
-                },
-            }
+            let c = meter.colors[usize::from(!bar)];
+            RectInstance::new(
+                f64::from(x),
+                f64::from(x),
+                0.0,
+                rgba(c.r(), c.g(), c.b(), 255),
+            )
         })
         .collect()
 }
@@ -204,20 +204,18 @@ impl egui_wgpu::CallbackTrait for GridCallback {
     }
 }
 
-/// Paint shape for the arrangement grid in `rect`, scrolled to `left_beat`
-/// at `px_per_beat` (both in egui points; beats are quarter notes).
+/// Paint shape for the arrangement grid in `rect`, at `time`.
 pub fn grid_shape(
     rect: Rect,
     pixels_per_point: f32,
-    left_beat: f32,
-    px_per_beat: f32,
+    time: TimeView,
     meter: GridMeter,
 ) -> egui::Shape {
     let callback = GridCallback {
         meter,
         view: View {
-            left: left_beat,
-            px_per_unit: px_per_beat * pixels_per_point,
+            left: time.left,
+            px_per_unit: (time.zoom * f64::from(pixels_per_point)) as f32,
             top_px: 0.0,
             row_height: 1.0,
         },
@@ -237,10 +235,8 @@ pub struct ClipFrame {
     pub peaks: Arc<Vec<(u32, Arc<Peaks>)>>,
     pub generation: u64,
     pub rows: Vec<RowSlot>,
-    /// Scroll and zoom: beats at the left edge and points per beat; the
-    /// vertical scroll in points.
-    pub left_beat: f32,
-    pub px_per_beat: f32,
+    /// Scroll and zoom; the vertical scroll in points.
+    pub time: TimeView,
     pub top: f32,
     /// Clip sizes, in physical pixels ([`box_style`]).
     pub style: BoxStyle,
@@ -289,8 +285,8 @@ impl egui_wgpu::CallbackTrait for ClipsCallback {
         let ppp = self.pixels_per_point;
         let area = self.port.area();
         let view = View {
-            left: frame.left_beat,
-            px_per_unit: frame.px_per_beat * ppp,
+            left: frame.time.left,
+            px_per_unit: (frame.time.zoom * f64::from(ppp)) as f32,
             top_px: frame.top * ppp,
             row_height: 0.0,
         };

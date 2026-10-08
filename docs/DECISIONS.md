@@ -67,6 +67,7 @@ irreversible or external) · *Superseded*.
 | Track design (M3 slice 4, 2026-10-07) | Option A headers with option B's dark clips; type icons; Ableton-style folding and resizing in 22 pt steps; sliders with values inside, with pan saturating toward the edges; record arm that glows and breathes; a "+ Add track ▾" menu button with a double-click hint (DESIGN §7a, ADR-0025). |
 | macOS CI (2026-10-07) | **Paused**: the GitHub Actions minutes ran out, so CI runs Windows and Linux only. macOS code is checked with the cross-target clippy (DEVELOPMENT.md) before pushing; macOS CI comes back when there is budget. |
 | Reviews (2026-10-07) | A full repository review at the end of every milestone, against CLAUDE.md, the architecture and the design system (the `lumen-architecture` and `lumen-design` skills), before the milestone report. |
+| Navigation (M3 slice 4d, 2026-10-07) | **Zoom to single samples**, as Ableton does; waveforms draw individual samples past the stored detail. **Follow playhead: page by default, on**; continuous is the second mode. Ableton-style keys: `+`/`-` zoom, X back, W fit width, H fit height, Alt+wheel a track's height. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
 

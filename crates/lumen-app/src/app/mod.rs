@@ -3,6 +3,7 @@
 //! M1).
 
 pub(crate) mod history;
+pub(crate) mod navigate;
 pub(crate) mod preferences;
 pub(crate) mod projects;
 pub(crate) mod recovery;

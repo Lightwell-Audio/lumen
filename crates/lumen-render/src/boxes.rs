@@ -13,15 +13,15 @@ use bytemuck::{Pod, Zeroable};
 use vello::wgpu;
 
 use crate::waves::{self, WaveInstance, WaveStyle, Waves};
-use crate::{Area, Prepared, Renderer, View, pipeline};
+use crate::{Area, Beats, Prepared, Renderer, View, beats, pipeline};
 
 /// One box: a time range (timeline units, as [`View::left`]) on row slot
 /// `row`, with straight-alpha colours (`0xAABBGGRR`, from [`crate::rgba`]).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct BoxInstance {
-    pub start: f32,
-    pub end: f32,
+    pub start: Beats,
+    pub end: Beats,
     pub row: u32,
     pub body: u32,
     /// The title bar along the top.
@@ -121,7 +121,8 @@ struct BoxUniform {
     title: f32,
     border: f32,
     min_width: f32,
-    _pad: [f32; 2],
+    left_frac: f32,
+    _pad: f32,
 }
 
 pub(crate) const BOX_SHADER: &str = crate::shaders::BOXES;
@@ -167,7 +168,7 @@ impl BoxPipeline {
                 array_stride: size_of::<BoxInstance>() as u64,
                 step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &wgpu::vertex_attr_array![
-                    0 => Float32, 1 => Float32, 2 => Uint32, 3 => Uint32,
+                    0 => Float32x2, 1 => Float32x2, 2 => Uint32, 3 => Uint32,
                     4 => Uint32, 5 => Uint32, 6 => Uint32, 7 => Float32
                 ],
             })],
@@ -330,7 +331,7 @@ impl Renderer {
                     canvas: [canvas[0] as f32, canvas[1] as f32],
                     origin: [area.x, area.y],
                     size: [area.width, area.height],
-                    left: view.left,
+                    left: beats(view.left)[0],
                     px_per_unit: view.px_per_unit,
                     top_px: view.top_px,
                     inset: style.inset,
@@ -338,7 +339,8 @@ impl Renderer {
                     title: style.title,
                     border: style.border,
                     min_width: style.min_width,
-                    _pad: [0.0; 2],
+                    left_frac: beats(view.left)[1],
+                    _pad: 0.0,
                 };
                 let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("lumen boxes view"),
@@ -425,7 +427,7 @@ mod tests {
 
     #[test]
     fn gpu_layouts_have_the_sizes_the_shader_expects() {
-        assert_eq!(size_of::<BoxInstance>(), 32);
+        assert_eq!(size_of::<BoxInstance>(), 40);
         assert_eq!(size_of::<RowSlot>(), 16, "one Rgba32Float texel");
         assert_eq!(size_of::<BoxUniform>(), 64);
     }

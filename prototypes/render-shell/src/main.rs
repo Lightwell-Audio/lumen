@@ -55,13 +55,13 @@ fn fit_all(t: f32, arr: [f32; 2], piano: [f32; 2]) -> (View, View) {
 fn editing(t: f32, arr: [f32; 2], _piano: [f32; 2]) -> (View, View) {
     (
         View {
-            left: t * 360.0,
+            left: f64::from(t * 360.0),
             px_per_unit: 24.0,
             top_px: t * (200.0 * 48.0 - arr[1]).max(0.0),
             row_height: 48.0,
         },
         View {
-            left: t * 3_800.0,
+            left: f64::from(t * 3_800.0),
             px_per_unit: 120.0,
             top_px: 480.0,
             row_height: 12.0,
@@ -73,7 +73,7 @@ fn zoom_sweep(t: f32, arr: [f32; 2], piano: [f32; 2]) -> (View, View) {
     let ppu = 2.0 * 200_f32.powf(0.5 - 0.5 * (std::f32::consts::TAU * t).cos());
     (
         View {
-            left: 200.0 - arr[0] / 2.0 / ppu,
+            left: f64::from(200.0 - arr[0] / 2.0 / ppu),
             px_per_unit: ppu,
             top_px: 480.0,
             row_height: 32.0,

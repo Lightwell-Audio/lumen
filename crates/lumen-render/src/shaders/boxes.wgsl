@@ -2,13 +2,20 @@ struct Layer {
     canvas: vec2<f32>, origin: vec2<f32>, size: vec2<f32>,
     left: f32, ppu: f32, top: f32,
     inset: f32, radius: f32, title: f32, border: f32, min_width: f32,
-    pad: vec2<f32>,
+    left_frac: f32, pad: f32,
 };
 @group(0) @binding(0) var<uniform> l: Layer;
 @group(0) @binding(1) var rows: texture_2d<f32>;
 
+// Beats arrive split into whole and fractional parts, and so does the view's
+// left edge: subtracting the parts separately stays exact deep into a long
+// song at sample-level zoom, where one f32 subtraction would be pixels off.
+fn from_left(b: vec2<f32>) -> f32 {
+    return (b.x - l.left) + (b.y - l.left_frac);
+}
+
 struct Box {
-    @location(0) start: f32, @location(1) end: f32, @location(2) row: u32,
+    @location(0) start: vec2<f32>, @location(1) end: vec2<f32>, @location(2) row: u32,
     @location(3) body: u32, @location(4) bar: u32, @location(5) border: u32,
     @location(6) fill: u32, @location(7) progress: f32,
 };
@@ -34,8 +41,8 @@ fn vs_main(@builtin(vertex_index) v: u32, b: Box) -> Out {
         return out;
     }
     let corner = vec2<f32>(f32(v & 1u), f32((v >> 1u) & 1u));
-    let x0 = l.origin.x + (b.start - l.left) * l.ppu;
-    let x1 = max(l.origin.x + (b.end - l.left) * l.ppu, x0 + l.min_width);
+    let x0 = l.origin.x + from_left(b.start) * l.ppu;
+    let x1 = max(l.origin.x + from_left(b.end) * l.ppu, x0 + l.min_width);
     let y0 = l.origin.y + slot.x - l.top + l.inset;
     // Edges on whole pixels, as egui snaps its rectangles: crisp borders,
     // and the box lines up with text and shapes drawn beside it.

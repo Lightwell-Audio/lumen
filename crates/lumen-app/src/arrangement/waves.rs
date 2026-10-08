@@ -6,7 +6,7 @@
 use eframe::egui::Color32;
 use lumen_core::time::{TempoMap, Ticks};
 use lumen_project::model::{ClipContent, Project};
-use lumen_render::{WaveInstance, rgba};
+use lumen_render::{WaveInstance, beats, rgba};
 
 /// What the waveform of a media file needs: its atlas slot, how many
 /// channels to show, and the file's own sample rate.
@@ -53,18 +53,18 @@ pub fn wave_instances(
             cuts.push(end);
             let mut from = start;
             for to in cuts {
-                let beats = (to - from).as_quarters();
-                if beats <= 0.0 {
+                let length = (to - from).as_quarters();
+                if length <= 0.0 {
                     continue;
                 }
                 let frames = (tempo.sample_at(to, rate) - tempo.sample_at(from, rate)) as f64;
                 waves.push(WaveInstance {
-                    start: from.as_quarters() as f32,
-                    end: to.as_quarters() as f32,
+                    start: beats(from.as_quarters()),
+                    end: beats(to.as_quarters()),
                     row: row as u32,
                     slot: source.slot,
                     first_frame: (offset + (tempo.sample_at(from, rate) - at_start) as f64) as f32,
-                    frames_per_beat: (frames / beats) as f32,
+                    frames_per_beat: (frames / length) as f32,
                     color: rgba(r, g, b, a),
                     channels: source.channels,
                 });
@@ -144,7 +144,7 @@ mod tests {
         let w = waves[0];
         assert_eq!(
             (w.start, w.end, w.row, w.slot, w.channels),
-            (4.0, 8.0, 0, 5, 2)
+            ([4.0, 0.0], [8.0, 0.0], 0, 5, 2)
         );
         assert_eq!(w.first_frame, 48_000.0);
         assert_eq!(w.frames_per_beat, 24_000.0);
@@ -156,8 +156,8 @@ mod tests {
         // twice as long, and its audio starts where the first half's ended.
         let waves = waves(&project(vec![bpm(0, 120.0), bpm(6, 60.0)], 0), 48_000);
         assert_eq!(waves.len(), 2);
-        assert_eq!((waves[0].start, waves[0].end), (4.0, 6.0));
-        assert_eq!((waves[1].start, waves[1].end), (6.0, 8.0));
+        assert_eq!((waves[0].start, waves[0].end), ([4.0, 0.0], [6.0, 0.0]));
+        assert_eq!((waves[1].start, waves[1].end), ([6.0, 0.0], [8.0, 0.0]));
         assert_eq!(waves[0].first_frame, 0.0);
         assert_eq!(waves[0].frames_per_beat, 24_000.0);
         assert_eq!(waves[1].first_frame, 48_000.0);

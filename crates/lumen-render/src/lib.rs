@@ -30,15 +30,38 @@ use vello::wgpu;
 
 pub use vello;
 
+/// A position in timeline units (beats), split into whole and fractional
+/// parts so the GPU keeps sub-pixel precision at sample-level zoom deep into
+/// a long song (see [`beats`]).
+pub type Beats = [f32; 2];
+
+/// `b` as [`Beats`]: exact for whole parts below 2²⁴ (hours of music), and
+/// to about 10⁻⁷ of a beat in the fraction.
+pub fn beats(b: f64) -> Beats {
+    let whole = b.floor();
+    [whole as f32, (b - whole) as f32]
+}
+
 /// One rectangle: horizontal extent in timeline units (beats), a row index
 /// (track or pitch row) and a colour (`0xAABBGGRR`, as from RGBA bytes).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct RectInstance {
-    pub start: f32,
-    pub end: f32,
+    pub start: Beats,
+    pub end: Beats,
     pub row: f32,
     pub color: u32,
+}
+
+impl RectInstance {
+    pub fn new(start: f64, end: f64, row: f32, color: u32) -> Self {
+        Self {
+            start: beats(start),
+            end: beats(end),
+            row,
+            color,
+        }
+    }
 }
 
 pub fn rgba(r: u8, g: u8, b: u8, a: u8) -> u32 {
@@ -57,7 +80,8 @@ pub struct Area {
 /// The scroll and zoom of a layer.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct View {
-    pub left: f32,
+    /// Timeline units at the area's left edge (f64: see [`Beats`]).
+    pub left: f64,
     pub px_per_unit: f32,
     pub top_px: f32,
     pub row_height: f32,
@@ -73,7 +97,8 @@ struct LayerUniform {
     px_per_unit: f32,
     top_px: f32,
     row_height: f32,
-    _pad: [f32; 2],
+    left_frac: f32,
+    _pad: f32,
 }
 
 const RECT_SHADER: &str = shaders::RECTS;
@@ -190,7 +215,7 @@ impl Renderer {
             &[Some(wgpu::VertexBufferLayout {
                 array_stride: size_of::<RectInstance>() as u64,
                 step_mode: wgpu::VertexStepMode::Instance,
-                attributes: &wgpu::vertex_attr_array![0 => Float32, 1 => Float32, 2 => Float32, 3 => Uint32],
+                attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32, 3 => Uint32],
             })],
             wgpu::PrimitiveTopology::TriangleStrip,
             format,
@@ -307,11 +332,12 @@ impl Renderer {
                     canvas: [canvas[0] as f32, canvas[1] as f32],
                     origin: [area.x, area.y],
                     size: [area.width, area.height],
-                    left: view.left,
+                    left: beats(view.left)[0],
                     px_per_unit: view.px_per_unit,
                     top_px: view.top_px,
                     row_height: view.row_height,
-                    _pad: [0.0; 2],
+                    left_frac: beats(view.left)[1],
+                    _pad: 0.0,
                 };
                 let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("lumen layer view"),
@@ -468,8 +494,20 @@ mod tests {
 
     #[test]
     fn gpu_layouts_have_the_sizes_the_shaders_expect() {
-        assert_eq!(size_of::<RectInstance>(), 16);
+        assert_eq!(size_of::<RectInstance>(), 24);
         assert_eq!(size_of::<LayerUniform>(), 48);
+    }
+
+    #[test]
+    fn beats_split_exactly_and_keep_the_fraction_fine() {
+        assert_eq!(beats(12.25), [12.0, 0.25]);
+        assert_eq!(beats(-0.5), [-1.0, 0.5]);
+        // An hour at 120 BPM, plus a fiftieth of a sample at 48 kHz: one
+        // f32 would round it away; the split keeps it.
+        let b = 7_200.0 + 1.0 / 24_000.0 / 50.0;
+        let [whole, frac] = beats(b);
+        assert_eq!(whole, 7_200.0);
+        assert!((f64::from(frac) - (b - 7_200.0)).abs() < 1e-9);
     }
 
     #[test]

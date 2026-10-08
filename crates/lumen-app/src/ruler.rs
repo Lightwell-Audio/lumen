@@ -9,10 +9,9 @@ use lumen_core::time::{PPQ, Ticks};
 /// The finest snap step must be at least this wide on screen.
 pub const MIN_STEP_PX: f32 = 12.0;
 
-/// The musical position under `x`, for a view starting at `left_quarter`
-/// (in quarter notes) at `px_per_quarter`. Never before the start.
-pub fn ticks_at_x(x: f32, origin_x: f32, left_quarter: f32, px_per_quarter: f32) -> Ticks {
-    let quarters = f64::from(left_quarter) + f64::from((x - origin_x) / px_per_quarter);
+/// The position at `quarters` (from `TimeView::beat_at`), on the nearest
+/// tick. Never before the start.
+pub fn ticks_at(quarters: f64) -> Ticks {
     Ticks((quarters * PPQ as f64).round() as i64).max(Ticks::ZERO)
 }
 
@@ -57,11 +56,11 @@ mod tests {
     const FOUR_FOUR: Meter = Meter::FOUR_FOUR;
 
     #[test]
-    fn x_maps_to_ticks_and_clamps_at_zero() {
-        assert_eq!(ticks_at_x(100.0, 100.0, 0.0, 24.0), Ticks::ZERO);
-        assert_eq!(ticks_at_x(148.0, 100.0, 0.0, 24.0), Ticks::quarters(2));
-        assert_eq!(ticks_at_x(100.0, 100.0, 8.0, 24.0), Ticks::quarters(8));
-        assert_eq!(ticks_at_x(10.0, 100.0, 0.0, 24.0), Ticks::ZERO);
+    fn beats_map_to_the_nearest_tick_and_clamp_at_zero() {
+        assert_eq!(ticks_at(0.0), Ticks::ZERO);
+        assert_eq!(ticks_at(2.0), Ticks::quarters(2));
+        assert_eq!(ticks_at(1.0 + 0.4 / PPQ as f64), Ticks::quarters(1));
+        assert_eq!(ticks_at(-3.0), Ticks::ZERO);
     }
 
     #[test]

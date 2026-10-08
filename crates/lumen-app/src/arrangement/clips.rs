@@ -14,7 +14,7 @@ use std::sync::Arc;
 use eframe::egui::{self, Align2, Color32, FontId, Painter, Pos2, Rect, Stroke, pos2, vec2};
 use lumen_media::Peaks;
 use lumen_project::model::{Clip, ClipContent, Project};
-use lumen_render::{BoxInstance, RowSlot, WaveInstance, WaveStyle, rgba};
+use lumen_render::{BoxInstance, RowSlot, WaveInstance, WaveStyle, beats, rgba};
 
 use super::waves::{Source, wave_instances};
 use super::{Arrangement, Row, RowKind, TITLE, color_of};
@@ -23,6 +23,7 @@ use crate::document::{Document, audible};
 use crate::lanes::Lanes;
 use crate::media::{Item, State};
 use crate::theme;
+use crate::timeview::TimeView;
 use crate::widgets::{draw_edge_glow, gradient};
 
 /// Space between a lane's edges and its clips.
@@ -39,26 +40,12 @@ const NAME_MIN_WIDTH: f32 = 24.0;
 /// Width of a clip still loading for import, before it has a length.
 const PENDING_WIDTH: f32 = 160.0;
 
-/// The horizontal view: the beat (quarter note) at the canvas's left edge,
-/// and points per beat.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct TimeView {
-    pub left_beat: f32,
-    pub px_per_beat: f32,
-}
-
-impl TimeView {
-    fn x(self, canvas: Rect, quarters: f32) -> f32 {
-        canvas.left() + (quarters - self.left_beat) * self.px_per_beat
-    }
-
-    /// The clip's left and right edges.
-    fn span(self, canvas: Rect, clip: &Clip) -> (f32, f32) {
-        (
-            self.x(canvas, clip.start.as_quarters() as f32),
-            self.x(canvas, (clip.start + clip.length).as_quarters() as f32),
-        )
-    }
+/// A clip's left and right edges in `view`.
+fn span(view: TimeView, canvas: Rect, clip: &Clip) -> (f32, f32) {
+    (
+        view.x(canvas.left(), clip.start.as_quarters()),
+        view.x(canvas.left(), (clip.start + clip.length).as_quarters()),
+    )
 }
 
 /// The clip bodies and waveforms on the GPU, and what they were built
@@ -204,8 +191,7 @@ impl Arrangement {
                 peaks: Arc::clone(&self.gpu.peaks),
                 generation: self.gpu.generation,
                 rows: slots,
-                left_beat: time.left_beat,
-                px_per_beat: time.px_per_beat,
+                time,
                 top: self.top,
                 style: canvas::box_style(ppp, INSET, TITLE),
                 wave_style: WaveStyle {
@@ -227,7 +213,7 @@ impl Arrangement {
                     let track = &project.tracks[index];
                     let heard = audible(track);
                     for clip in &track.clips {
-                        let (x0, x1) = time.span(canvas, clip);
+                        let (x0, x1) = span(time, canvas, clip);
                         if x1 < canvas.left() || x0 > canvas.right() || x1 - x0 < NAME_MIN_WIDTH {
                             continue;
                         }
@@ -246,7 +232,7 @@ impl Arrangement {
                     let Some(&(id, at)) = lanes.pending().get(i) else {
                         continue;
                     };
-                    let x0 = time.x(canvas, at.as_quarters() as f32);
+                    let x0 = time.x(canvas.left(), at.as_quarters());
                     let rect = Rect::from_x_y_ranges(
                         x0..=x0 + PENDING_WIDTH,
                         lane.top() + INSET..=lane.bottom() - INSET,
@@ -339,7 +325,7 @@ impl Arrangement {
         })?;
         match row.kind {
             RowKind::Track(index) => project.tracks[index].clips.iter().find_map(|clip| {
-                let (x0, x1) = time.span(canvas, clip);
+                let (x0, x1) = span(time, canvas, clip);
                 match &clip.content {
                     ClipContent::Audio { media, .. } if (x0..=x1).contains(&pointer.x) => {
                         lanes.library.get(media.0)
@@ -349,7 +335,7 @@ impl Arrangement {
             }),
             RowKind::Pending(i) => {
                 let &(id, at) = lanes.pending().get(i)?;
-                let x0 = time.x(canvas, at.as_quarters() as f32);
+                let x0 = time.x(canvas.left(), at.as_quarters());
                 (x0..=x0 + PENDING_WIDTH)
                     .contains(&pointer.x)
                     .then(|| lanes.library.get(id))
@@ -439,8 +425,8 @@ fn clip_box(clip: &Clip, row: u32, look: &ClipLook<'_>, palette: &theme::Palette
     let a = look.alpha;
     let (bar, _) = bar_and_label(look, palette);
     BoxInstance {
-        start: clip.start.as_quarters() as f32,
-        end: (clip.start + clip.length).as_quarters() as f32,
+        start: beats(clip.start.as_quarters()),
+        end: beats((clip.start + clip.length).as_quarters()),
         row,
         body: straight(palette.clip_body.gamma_multiply(a)),
         bar: straight(bar.gamma_multiply(a)),
