@@ -300,8 +300,11 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
   caption ("1/16", "1/8T", "4 bars"), always shown. Before it, a magnet
   (`Icon::Magnet`, 14 pt): `accent` while snapping, struck through in
   `text_hint` when not, with the size in hint colour too (owner's choice
-  C1, MT-APP-13 run 1). A click opens the grid menu; right-clicking the
-  lanes opens it too.
+  C1, MT-APP-13 run 1). The magnet is its own switch: a click turns
+  snapping on or off (accessible as the "Snap to grid" checkbox, with a
+  `control_press` wash on hover). A click elsewhere on the button opens
+  the grid menu, which keeps "Snap to grid"; right-clicking the lanes
+  opens it too.
 - **The grid menu** lists the adaptive widths, the fixed sizes, Triplet,
   Dotted and Snap to grid as selectable items with their shortcuts.
 - **Lines:** bar lines `grid_bar`, beat lines `grid_beat`, lines between

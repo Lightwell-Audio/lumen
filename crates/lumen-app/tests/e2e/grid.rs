@@ -76,3 +76,18 @@ fn the_grid_is_saved_with_the_project() {
     again.wait_for("the project to open", |app| !app.is_busy());
     assert!(again.shows("Grid: 1/16T"));
 }
+
+/// Owner, after MT-APP-13 run 1: the magnet switches snapping with one
+/// click; the menu keeps its item too.
+#[test]
+fn the_magnet_turns_snapping_on_and_off() {
+    let mut lumen = Lumen::start("grid-magnet");
+    assert!(lumen.is_on("Snap to grid"));
+    lumen.click("Snap to grid");
+    assert!(lumen.shows("Grid: 1/8, snap off"), "one click");
+    assert!(!lumen.shows("Triplet"), "the menu stays closed");
+    assert!(!lumen.is_on("Snap to grid"));
+    lumen.click("Snap to grid");
+    assert!(lumen.shows("Grid: 1/8"));
+    assert!(lumen.is_on("Snap to grid"));
+}

@@ -975,7 +975,9 @@ Fixes from the owner's choices of specimens (A1, B2 on trial, C1):
    snapping, struck through when not.
 E2E: `hovering_the_brace_says_what_a_drag_will_do`,
 `the_strip_hints_what_a_drag_will_do`, and the grid keys scenario
-("Grid: 1/2T, snap off"). Re-run steps 1, 3, 4 and 5.
+("Grid: 1/2T, snap off"). Owner, after run 1: the magnet is also a
+switch, one click turns snapping on or off; the menu item stays
+(`the_magnet_turns_snapping_on_and_off`). Re-run steps 1, 3, 4 and 5.
 
 **Last run:** run 1, four findings, all fixed; run 2 waiting.
 

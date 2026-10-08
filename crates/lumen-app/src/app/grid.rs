@@ -177,7 +177,35 @@ impl App {
             pos2(size.left() - 4.0 - side / 2.0, rect.center().y),
             egui::vec2(side, side),
         );
+        // The magnet is its own switch (owner, after MT-APP-13 run 1): a
+        // click turns snapping on or off; the rest of the button opens the
+        // menu, which keeps "Snap to grid" too.
+        let target =
+            Rect::from_center_size(magnet.center(), egui::vec2(side + 8.0, rect.height() - 4.0));
+        let switch = ui
+            .interact(target, ui.id().with("snap switch"), Sense::click())
+            .on_hover_text(if self.grid.snap {
+                "Snapping is on: click to turn it off (Ctrl+4; hold Alt to place freely)"
+            } else {
+                "Snapping is off: click to turn it on (Ctrl+4)"
+            });
+        let snap = self.grid.snap;
+        switch.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, snap, "Snap to grid")
+        });
+        let hover = motion::hover(ui.ctx(), switch.id.with("hover"), switch.hovered());
+        let painter = ui.painter();
+        if hover > 0.0 {
+            painter.rect_filled(
+                target,
+                theme::radius::SMALL,
+                palette.control_press.gamma_multiply(hover),
+            );
+        }
         painter.extend(icons::shapes(icon, magnet, colour));
+        if switch.clicked() {
+            self.grid.snap = !self.grid.snap;
+        }
         egui::Popup::menu(&response)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
             .show(|ui| self.grid_menu(ui));
