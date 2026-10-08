@@ -116,6 +116,9 @@ pub struct App {
     lanes: lanes::Lanes,
     /// Where dropped files go: under the pointer, snapped, or the playhead.
     drop_target: Ticks,
+    /// Where dropped files go: new tracks, or the track under the pointer
+    /// (slice 6e).
+    drop_into: document::DropInto,
     settings: settings::Settings,
     settings_path: Option<PathBuf>,
     /// Settings changed at this time and are not saved yet (saved once
@@ -143,6 +146,12 @@ pub struct App {
     canvas: egui::Rect,
     /// What Copy and Cut put aside (slice 6b), for Paste.
     clipboard: Option<lumen_project::edit::Clipboard>,
+    /// A text field had the keyboard at the end of the last frame. egui
+    /// takes its focus away on Esc before the app's keys run, so that Esc
+    /// is the field's (it cancels), not a clip or track key (slice 6e).
+    typing: bool,
+    /// The clip being renamed and the pinned properties card (slice 6e).
+    clip_props: app::clip_card::ClipProps,
     smoke_test_frames: Option<u32>,
     /// Where `--screenshot` saves, once the frames have rendered.
     screenshot: Option<PathBuf>,
@@ -257,6 +266,7 @@ impl eframe::App for App {
         self.undo_shortcuts(&ctx);
         self.grid_shortcuts(&ctx);
         self.locator_shortcuts(&ctx);
+        self.clip_property_shortcuts(&ctx);
         self.clip_shortcuts(&ctx);
         self.arrangement.shortcuts(&ctx, &mut self.document);
         self.file_shortcuts(&ctx);
@@ -272,9 +282,22 @@ impl eframe::App for App {
                 .collect()
         });
         if !dropped.is_empty() {
-            trace::log(|| format!("drop: {} file(s) at {:?}", dropped.len(), self.drop_target));
-            self.lanes
-                .add_files(dropped, self.drop_target, rate, &ctx, &mut self.document);
+            trace::log(|| {
+                format!(
+                    "drop: {} file(s) at {:?} into {:?}",
+                    dropped.len(),
+                    self.drop_target,
+                    self.drop_into
+                )
+            });
+            self.lanes.add_files(
+                dropped,
+                self.drop_target,
+                self.drop_into,
+                rate,
+                &ctx,
+                &mut self.document,
+            );
         }
         self.lanes.update(
             rate,
@@ -399,6 +422,7 @@ impl eframe::App for App {
             },
         );
         egui::CentralPanel::default().show(ui, |ui| self.arrangement(ui));
+        self.typing = ctx.egui_wants_keyboard_input();
 
         // Scheduled after drawing, because buttons are clicked while drawing.
         // Every frame while playing or settling after a command; otherwise
@@ -528,6 +552,7 @@ impl App {
             lanes.add_files(
                 vec![path],
                 Ticks::ZERO,
+                document::DropInto::NewTracks { before: None },
                 transport.state().sample_rate,
                 &cc.egui_ctx,
                 &mut document,
@@ -538,6 +563,7 @@ impl App {
             transport,
             lanes,
             drop_target: Ticks::ZERO,
+            drop_into: document::DropInto::NewTracks { before: None },
             settings: saved,
             settings_path,
             settings_changed: None,
@@ -571,6 +597,8 @@ impl App {
             hint: None,
             canvas: egui::Rect::NOTHING,
             clipboard: None,
+            typing: false,
+            clip_props: app::clip_card::ClipProps::default(),
             smoke_test_frames: launch.smoke_test.then_some(SMOKE_FRAMES),
             screenshot: launch.screenshot,
             started,

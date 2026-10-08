@@ -17,6 +17,7 @@
 //! (motion: GLIDE) and are saved with the project, but are not undo steps.
 
 mod clips;
+mod drop;
 pub mod handles;
 mod headers;
 mod reorder;
@@ -24,12 +25,13 @@ mod samples;
 pub mod select;
 mod waves;
 
+pub use drop::FileDrop;
 pub use samples::Update as StripUpdate;
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use eframe::egui::{self, Color32, Id as EguiId, Key, Modifiers};
-use lumen_project::model::{Color, Id, Project, TrackKind};
+use lumen_project::model::{Clip, Color, Id, Project, Track, TrackKind};
 
 use crate::document::Document;
 use crate::motion;
@@ -60,7 +62,7 @@ fn snap_height(height: f32) -> f32 {
 }
 
 /// The clip title bar.
-const TITLE: f32 = 15.0;
+pub(crate) const TITLE: f32 = 15.0;
 
 const BUTTON: f32 = 19.0;
 
@@ -129,11 +131,21 @@ fn fit_height(visible: f32, count: f32) -> f32 {
     ((visible / count / STEP).floor() * STEP).clamp(FOLDED, MAX_HEIGHT)
 }
 
-fn color_of(c: Color) -> Color32 {
+pub(crate) fn color_of(c: Color) -> Color32 {
     Color32::from_rgb((c.0 >> 16) as u8, (c.0 >> 8) as u8, c.0 as u8)
 }
 
-fn color_from(c: Color32) -> Color {
+/// The colour `clip` is drawn in: its own, or its track's, and grey while
+/// muted (the owner's M1, slice 6e).
+pub(crate) fn clip_color(track: &Track, clip: &Clip) -> Color32 {
+    if clip.muted {
+        crate::theme::CLIP_MUTED
+    } else {
+        color_of(clip.color.unwrap_or(track.color))
+    }
+}
+
+pub(crate) fn color_from(c: Color32) -> Color {
     Color(u32::from(c.r()) << 16 | u32::from(c.g()) << 8 | u32::from(c.b()))
 }
 

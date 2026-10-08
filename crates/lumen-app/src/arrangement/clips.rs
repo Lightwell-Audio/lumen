@@ -20,14 +20,14 @@ use lumen_render::{BoxInstance, RowSlot, WaveInstance, WaveStyle, beats, rgba};
 use super::handles::{ClipHandles, draw_handles};
 use super::samples::{Geometry, Pixels, Strips};
 use super::waves::{Source, wave_instances};
-use super::{Arrangement, Row, RowKind, TITLE, color_of, select};
+use super::{Arrangement, Row, RowKind, TITLE, clip_color, color_of, select};
 use crate::canvas::{self, ClipFrame};
 use crate::document::{Document, audible};
-use crate::lanes::Lanes;
+use crate::lanes::{Landing, Lanes};
 use crate::media::{Item, State};
-use crate::theme;
 use crate::timeview::TimeView;
 use crate::widgets::{draw_edge_glow, draw_glow_rect, gradient};
+use crate::{icons, theme};
 
 /// Space between a lane's edges and its clips.
 pub(super) const INSET: f32 = 3.0;
@@ -42,6 +42,11 @@ const SPLIT_BELOW: f32 = 40.0;
 const NAME_MIN_WIDTH: f32 = 24.0;
 /// Width of a clip still loading for import, before it has a length.
 const PENDING_WIDTH: f32 = 160.0;
+/// A locked clip's padlock, and the narrowest title that shows it.
+const LOCK_ICON: f32 = 9.0;
+const LOCK_MIN_WIDTH: f32 = 30.0;
+/// A locked clip's clamps: bars this wide at both ends (the owner's K3).
+const CLAMP: f32 = 3.0;
 
 /// A clip's left and right edges in `view`.
 fn span(view: TimeView, canvas: Rect, clip: &Clip) -> (f32, f32) {
@@ -119,7 +124,7 @@ impl GpuClips {
             project,
             rate,
             |media| sources.get(&media).copied(),
-            |row| theme::wave(color_of(project.tracks[row].color)),
+            |track, clip| theme::wave(clip_color(track, clip)),
         )
     }
 }
@@ -259,10 +264,40 @@ impl Arrangement {
                             x0..=x1,
                             lane.top() + INSET..=lane.bottom() - INSET,
                         );
-                        let mut look = look_of(clip, color_of(track.color), lanes, ctx);
+                        let mut look = look_of(clip, clip_color(track, clip), lanes, ctx);
                         if !heard {
                             look.alpha *= DIMMED;
                         }
+                        draw_name(painter, rect, lane, &look);
+                    }
+                    // Files dropped on this track, while they load (slice
+                    // 6e), side by side from where they were dropped.
+                    let landing: Vec<Landing> = lanes
+                        .landing()
+                        .iter()
+                        .filter(|l| l.track == track.id)
+                        .copied()
+                        .collect();
+                    for (k, Landing { id, at, .. }) in landing.into_iter().enumerate() {
+                        let x0 = time.x(canvas.left(), at.as_quarters())
+                            + k as f32 * (PENDING_WIDTH + INSET);
+                        let rect = Rect::from_x_y_ranges(
+                            x0..=x0 + PENDING_WIDTH,
+                            lane.top() + INSET..=lane.bottom() - INSET,
+                        );
+                        let name = lanes
+                            .library
+                            .get(id)
+                            .map_or_else(String::new, |i| i.name.clone());
+                        let look = ClipLook {
+                            name: &name,
+                            color: color_of(track.color),
+                            state: lanes.library.get(id).map_or(ClipState::Loading, item_state),
+                            progress: lanes.library.progress(id),
+                            alpha: lanes.shown(id, ctx),
+                            locked: false,
+                        };
+                        draw_body(painter, rect, &look);
                         draw_name(painter, rect, lane, &look);
                     }
                 }
@@ -290,6 +325,7 @@ impl Arrangement {
                         state,
                         progress,
                         alpha: shown,
+                        locked: false,
                     };
                     draw_body(painter, rect, &look);
                     draw_name(painter, rect, lane, &look);
@@ -420,6 +456,16 @@ impl Arrangement {
                 // Fades and gain (slice 6d), placed by the clip's whole
                 // extent and drawn only where they are in view.
                 let whole = Rect::from_x_y_ranges(left..=right, rect.y_range());
+                if clip.locked && right - left >= 4.0 * CLAMP {
+                    // K3: clamped at both ends; it has no handles to show.
+                    let clamp = palette.text.gamma_multiply(0.55);
+                    for x in [left, right - CLAMP] {
+                        if (near_left..=near_right).contains(&x) {
+                            let bar = Rect::from_x_y_ranges(x..=x + CLAMP, rect.y_range());
+                            painter.rect_filled(bar, 0.0, clamp);
+                        }
+                    }
+                }
                 if let Some(h) = (!clip.locked)
                     .then(|| ClipHandles::of(clip, whole, x))
                     .flatten()
@@ -513,9 +559,8 @@ impl Arrangement {
         let count = project.tracks.iter().map(|t| t.clips.len()).sum();
         let mut boxes = Vec::with_capacity(count);
         for (row, track) in project.tracks.iter().enumerate() {
-            let color = color_of(track.color);
             for clip in &track.clips {
-                let look = look_of(clip, color, lanes, ctx);
+                let look = look_of(clip, clip_color(track, clip), lanes, ctx);
                 moving |= look.alpha < 1.0;
                 boxes.push(clip_box(clip, row as u32, &look, &palette));
             }
@@ -593,6 +638,8 @@ struct ClipLook<'a> {
     state: ClipState,
     progress: Option<f32>,
     alpha: f32,
+    /// Locked (the owner's K3, slice 6e): a padlock ends the title bar.
+    locked: bool,
 }
 
 /// A project clip's look, before dimming for its track.
@@ -619,6 +666,7 @@ fn look_of<'a>(
         state,
         progress,
         alpha: lanes.shown(key, ctx),
+        locked: clip.locked,
     }
 }
 
@@ -705,18 +753,30 @@ fn draw_name(painter: &Painter, rect: Rect, lane: Rect, look: &ClipLook<'_>) {
     }
     let (_, label) = bar_and_label(look, palette);
     let alpha = look.alpha;
-    painter
-        .with_clip_rect(visible.shrink2(vec2(4.0, 0.0)))
-        .text(
-            pos2(visible.left() + 5.0, title.center().y),
-            Align2::LEFT_CENTER,
-            label,
-            FontId::proportional(theme::size::CAPTION),
-            // Dimmed clips keep a readable name in both themes.
-            if alpha < 0.9 {
-                palette.text_secondary.gamma_multiply(alpha.max(0.6))
-            } else {
-                theme::CLIP_TEXT.gamma_multiply(alpha)
-            },
+    let mut room = visible.shrink2(vec2(4.0, 0.0));
+    if look.locked && visible.width() >= LOCK_MIN_WIDTH {
+        let side = LOCK_ICON;
+        let at = Rect::from_center_size(
+            pos2(visible.right() - 4.0 - side / 2.0, title.center().y),
+            vec2(side, side),
         );
+        painter.extend(icons::shapes(
+            icons::Icon::Lock,
+            at,
+            theme::CLIP_TEXT.gamma_multiply(0.9 * alpha),
+        ));
+        room.max.x = at.left() - 3.0;
+    }
+    painter.with_clip_rect(room).text(
+        pos2(visible.left() + 5.0, title.center().y),
+        Align2::LEFT_CENTER,
+        label,
+        FontId::proportional(theme::size::CAPTION),
+        // Dimmed clips keep a readable name in both themes.
+        if alpha < 0.9 {
+            palette.text_secondary.gamma_multiply(alpha.max(0.6))
+        } else {
+            theme::CLIP_TEXT.gamma_multiply(alpha)
+        },
+    );
 }

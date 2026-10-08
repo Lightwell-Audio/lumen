@@ -114,6 +114,15 @@ pub fn db_text(db: f32) -> String {
     }
 }
 
+/// "0 ms", "125 ms", "1.25 s".
+pub fn ms_text(ms: f32) -> String {
+    if ms < 999.5 {
+        format!("{:.0} ms", ms.max(0.0))
+    } else {
+        format!("{:.2} s", ms / 1000.0)
+    }
+}
+
 /// "C", "L 30", "R 100".
 pub fn pan_text(pan: f32) -> String {
     let n = (pan * 100.0).round() as i32;
@@ -130,6 +139,12 @@ pub enum SliderKind {
     Volume,
     /// −1 (left) to +1 (right), filled from the centre; resets to centre.
     Pan,
+    /// A clip's gain (slice 6e): −60 to +12 dB, filled from the left;
+    /// resets to 0 dB.
+    ClipGain,
+    /// A length in milliseconds, 0 to `max_ms`, filled from the left;
+    /// resets to 0 (a fade's length, slice 6e).
+    Millis { max_ms: f32 },
 }
 
 impl SliderKind {
@@ -137,13 +152,16 @@ impl SliderKind {
         match self {
             SliderKind::Volume => (-60.0, 6.0),
             SliderKind::Pan => (-1.0, 1.0),
+            SliderKind::ClipGain => (-60.0, 12.0),
+            SliderKind::Millis { max_ms } => (0.0, max_ms.max(0.0)),
         }
     }
 
     pub fn text(self, value: f32) -> String {
         match self {
-            SliderKind::Volume => db_text(value),
+            SliderKind::Volume | SliderKind::ClipGain => db_text(value),
             SliderKind::Pan => pan_text(value),
+            SliderKind::Millis { .. } => ms_text(value),
         }
     }
 
@@ -151,7 +169,19 @@ impl SliderKind {
     pub fn parse(self, text: &str) -> Option<f32> {
         let text = text.trim().replace('\u{2212}', "-").to_ascii_uppercase();
         match self {
-            SliderKind::Volume => text.trim_end_matches("DB").trim().parse().ok(),
+            SliderKind::Volume | SliderKind::ClipGain => {
+                text.trim_end_matches("DB").trim().parse().ok()
+            }
+            SliderKind::Millis { .. } => {
+                let text = text.replace(',', ".");
+                if let Some(ms) = text.strip_suffix("MS") {
+                    ms.trim().parse().ok()
+                } else if let Some(s) = text.strip_suffix('S') {
+                    s.trim().parse::<f32>().ok().map(|s| s * 1000.0)
+                } else {
+                    text.parse().ok()
+                }
+            }
             SliderKind::Pan => {
                 if text == "C" {
                     return Some(0.0);
@@ -219,6 +249,12 @@ pub fn value_slider(
             SliderKind::Pan => {
                 "Pan: drag (Shift for fine), double-click to centre, or click and type L 30 or R 30"
             }
+            SliderKind::ClipGain => {
+                "Gain: drag (Shift for fine), double-click for 0 dB, or click and type"
+            }
+            SliderKind::Millis { .. } => {
+                "Length: drag (Shift for fine), double-click for none, or click and type 40 ms or 1.2 s"
+            }
         });
     response.widget_info(|| {
         egui::WidgetInfo::slider(
@@ -244,7 +280,7 @@ pub fn value_slider(
             let typed = i.events.iter().find_map(|e| match e {
                 egui::Event::Text(t)
                     if t.chars()
-                        .all(|c| c.is_ascii_digit() || "-.,lLrRcC".contains(c)) =>
+                        .all(|c| c.is_ascii_digit() || "-.,lLrRcCsS".contains(c)) =>
                 {
                     Some(t.clone())
                 }
@@ -280,7 +316,7 @@ pub fn value_slider(
     p.rect_filled(rect, radius, look.fill.lerp_to_gamma(look.hover, hover));
     let x_at = |v: f32| rect.left() + (v - lo) / (hi - lo) * rect.width();
     match kind {
-        SliderKind::Volume => {
+        SliderKind::Volume | SliderKind::ClipGain | SliderKind::Millis { .. } => {
             let x = x_at(out);
             p.rect_filled(
                 Rect::from_min_max(rect.min, pos2(x, rect.bottom())),

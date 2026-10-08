@@ -984,7 +984,7 @@ the magnet switch and adding locators on the strip.
 
 **Last run:** run 2, passed.
 
-### MT-APP-14 · Clip editing (needs a human; draft, completed with slice 6e)
+### MT-APP-14 · Clip editing (needs a human)
 Run `cargo run --release -p lumen-app` with a project that has a drum loop
 and a long melodic or vocal clip, through the Focusrite. Make the track
 taller for steps 1 to 4, then try them again at the default height.
@@ -1009,6 +1009,34 @@ taller for steps 1 to 4, then try them again at the default height.
    it and delete it: no clicks or crackle (owner, after 6c).
 6. Try steps 1 to 3 in the light theme and at 150%.
 
+Slice 6e (clip properties and drops):
+7. **Mute:** click a clip and press 0: it turns grey (name and waveform
+   still readable) and goes silent while playing, without a click. 0
+   again brings it back. Ctrl+Z takes back one step.
+8. **Lock:** right-click a clip, Lock clip: a padlock ends its title bar
+   and light bars clamp both ends. It cannot be dragged, trimmed, faded or
+   deleted (hovering says "locked"), but 0 still mutes it. Right-click,
+   Unlock clip.
+9. **Rename:** select a clip, press Ctrl+R: a field opens over its title
+   bar. Type a name, Enter. F2 does the same; Esc keeps the old name.
+10. **Colour:** right-click a clip, Colour: pick a swatch; the title bar,
+    border and waveform take it. Colour, Track colour (the round one)
+    follows the track again.
+11. **The card:** hover a clip: the hover card ends with "Alt+Enter: edit
+    its properties". Select the clip, press Alt+Enter: the card opens
+    beside it with the name ready to type. Using only the keyboard (Tab
+    between fields, type values, Enter): rename it, set the gain to −6 dB
+    and a 250 ms fade in, choose a fade shape. Each change is heard and
+    drawn. Click another clip: the card moves to it. Esc closes it. Lock
+    a clip in its card: gain and fades grey out with the reason.
+12. **Dropping files:** drag a WAV from Explorer over an audio track's
+    lane: the lane lights, with a ghost clip named after the file at the
+    snapped point. Drop: it lands on that track there (cutting away what
+    it covers). Drag two files over the line between two tracks: an
+    accent line with "new track here"; drop: two new tracks there. Below
+    the last track: new tracks at the end.
+13. Try steps 10 and 11 in the light theme and at 150%.
+
 **Expected:** every step as described; no clicks.
 
 **Run 1 (2026-10-08, owner):** steps 1 to 6 (slice 6d: fades, free bend
@@ -1016,4 +1044,5 @@ curves, clip gain, heard as drawn) passed ("looks good"). The steps for
 6e (mute, lock, rename, recolour, the properties view, drops on a chosen
 track) are added with that part and run as run 2.
 
-**Last run:** run 1, 6d steps passed; 6e steps to come.
+**Last run:** run 1, 6d steps passed; run 2 (steps 7 to 13, slice 6e)
+to come.

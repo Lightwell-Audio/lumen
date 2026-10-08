@@ -16,15 +16,33 @@ use lumen_core::time::Ticks;
 use lumen_engine::{Clip, ClipsHandle};
 use lumen_project::model::{ClipContent, Id, Project};
 
-use crate::document::{Document, Imported};
+use crate::document::{Document, DropInto, Imported};
 use crate::media::{self, Item, Library, State};
 use crate::theme;
+
+/// A file loading for import onto a track.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Landing {
+    pub id: u64,
+    pub at: Ticks,
+    pub track: Id,
+    drop: u64,
+}
 
 #[derive(Default)]
 pub struct Lanes {
     pub library: Library,
-    /// Files loading for import: library id and where they were dropped.
+    /// Files loading for import onto new tracks: library id and where they
+    /// were dropped. Each shows as a row below the tracks while it loads.
     pending: Vec<(u64, Ticks)>,
+    /// Where each of those new tracks goes (slice 6e).
+    before: HashMap<u64, Option<Id>>,
+    /// Files loading for import onto a track (slice 6e), drawn in its lane
+    /// while they load. Files dropped together import together, once none
+    /// of them is still loading, so they can follow one another.
+    landing: Vec<Landing>,
+    /// Counts drops, to keep files dropped together together.
+    drops: u64,
     /// The project state the engine's clip list was built from.
     built: Option<u64>,
     /// The engine's clip list needs rebuilding.
@@ -138,7 +156,12 @@ impl Lanes {
     /// Files dropped for import are still loading (not an opened
     /// project's media: `library.is_loading()` covers every load).
     pub fn is_loading(&self) -> bool {
-        !self.pending.is_empty()
+        !self.pending.is_empty() || !self.landing.is_empty()
+    }
+
+    /// Files loading for import onto tracks (slice 6e).
+    pub fn landing(&self) -> &[Landing] {
+        &self.landing
     }
 
     /// Files loading for import: library id and where they were dropped.
@@ -166,25 +189,38 @@ impl Lanes {
     }
 
     pub fn is_empty(&self, project: &Project) -> bool {
-        project.tracks.is_empty() && self.pending.is_empty()
+        project.tracks.is_empty() && !self.is_loading()
     }
 
-    /// Starts loading each audio file, to be added at `at`; anything else is
-    /// reported, not added.
+    /// Starts loading each audio file, to be added at `at`, `into` new
+    /// tracks or onto a track; anything else is reported, not added.
     pub fn add_files(
         &mut self,
         paths: Vec<PathBuf>,
         at: Ticks,
+        into: DropInto,
         rate: u32,
         ctx: &egui::Context,
         doc: &mut Document,
     ) {
         let mut rejected = Vec::new();
+        self.drops += 1;
         for path in paths {
             if media::is_audio_file(&path) {
                 let id = doc.fresh_id().0;
                 self.library.import_as(id, path, rate, ctx);
-                self.pending.push((id, at));
+                match into {
+                    DropInto::NewTracks { before } => {
+                        self.pending.push((id, at));
+                        self.before.insert(id, before);
+                    }
+                    DropInto::Track(track) => self.landing.push(Landing {
+                        id,
+                        at,
+                        track,
+                        drop: self.drops,
+                    }),
+                }
             } else {
                 rejected.push(
                     path.file_name()
@@ -217,29 +253,38 @@ impl Lanes {
             self.revision += 1;
         }
 
-        // Loads that finished become tracks, in drop order, as one step.
+        // Loads that finished join the project, in drop order, as one step:
+        // new tracks as each loads; files dropped on a track once all the
+        // files dropped with them have.
         let mut imported = Vec::new();
         let library = &self.library;
-        self.pending.retain(|&(id, at)| match library.get(id) {
-            Some(item) => match (&item.state, item.info.frames, item.info.sample_rate) {
-                (State::Ready(_), Some(frames), Some(sample_rate)) => {
-                    imported.push(Imported {
-                        media: Id(id),
-                        path: item.path.clone(),
-                        name: item.name.clone(),
-                        sample_rate,
-                        channels: item.info.channels.unwrap_or(2) as u16,
-                        frames,
-                        size_bytes: item.info.size_bytes,
-                        at,
-                    });
-                    false
-                }
-                (State::Failed(_), ..) => false,
-                _ => true,
-            },
-            // Cancelled.
-            None => false,
+        let before = &mut self.before;
+        self.pending.retain(|&(id, at)| match load(library, id) {
+            Load::Loading => true,
+            Load::Gone => {
+                before.remove(&id);
+                false
+            }
+            Load::Ready(file) => {
+                let before = before.remove(&id).flatten();
+                imported.push(file(at, DropInto::NewTracks { before }));
+                false
+            }
+        });
+        let waiting: Vec<u64> = self
+            .landing
+            .iter()
+            .filter(|l| matches!(load(library, l.id), Load::Loading))
+            .map(|l| l.drop)
+            .collect();
+        self.landing.retain(|l| {
+            if waiting.contains(&l.drop) {
+                return true;
+            }
+            if let Load::Ready(file) = load(library, l.id) {
+                imported.push(file(l.at, DropInto::Track(l.track)));
+            }
+            false
         });
         doc.import(imported);
 
@@ -344,9 +389,67 @@ impl Lanes {
     }
 }
 
+/// Where a file being imported is.
+enum Load<F> {
+    Loading,
+    /// Failed or cancelled.
+    Gone,
+    /// Loaded: makes the import, given where it goes.
+    Ready(F),
+}
+
+/// The state of the import `id`.
+fn load(library: &Library, id: u64) -> Load<impl FnOnce(Ticks, DropInto) -> Imported + '_> {
+    let Some(item) = library.get(id) else {
+        return Load::Gone;
+    };
+    match (&item.state, item.info.frames, item.info.sample_rate) {
+        (State::Ready(_), Some(frames), Some(sample_rate)) => {
+            Load::Ready(move |at, into| Imported {
+                media: Id(id),
+                path: item.path.clone(),
+                name: item.name.clone(),
+                sample_rate,
+                channels: item.info.channels.unwrap_or(2) as u16,
+                frames,
+                size_bytes: item.info.size_bytes,
+                at,
+                into,
+            })
+        }
+        (State::Failed(_), ..) => Load::Gone,
+        _ => Load::Loading,
+    }
+}
+
 /// The hover card for a clip's file.
 pub fn file_card(ui: &mut egui::Ui, item: &Item) {
     ui.label(RichText::new(&item.name).strong());
+    file_facts(ui, item);
+    // Every gesture on a clip, so none stays hidden (owner, after 6c: slip
+    // was not discoverable).
+    ui.separator();
+    for line in [
+        "Top half: drag to move · Ctrl copies · Ctrl+Alt slips the audio",
+        "Bottom half: drag to select time",
+        "Sides: drag to trim · Shift loops",
+        "Top corners: fades · their middle dot bends them · the line sets gain",
+        "Right-click: edits, colour, mute, lock and fade shapes",
+    ] {
+        ui.label(RichText::new(line).small().weak());
+    }
+    // The way into the properties card (slice 6e, the owner's P1).
+    ui.label(
+        RichText::new("Alt+Enter: edit its properties")
+            .small()
+            .color(theme::p().accent),
+    );
+}
+
+/// What a clip's file is: format, rate, channels, length, size, any
+/// conversion or failure, and its path. The hover card and the clip's
+/// properties card show it.
+pub fn file_facts(ui: &mut egui::Ui, item: &Item) {
     let info = &item.info;
     let mut facts = vec![info.format.clone()];
     if let Some(rate) = info.sample_rate {
@@ -376,23 +479,14 @@ pub fn file_card(ui: &mut egui::Ui, item: &Item) {
         }
         _ => {}
     }
-    ui.label(
-        RichText::new(item.path.display().to_string())
-            .small()
-            .weak(),
+    ui.add(
+        egui::Label::new(
+            RichText::new(item.path.display().to_string())
+                .small()
+                .weak(),
+        )
+        .truncate(),
     );
-    // Every gesture on a clip, so none stays hidden (owner, after 6c: slip
-    // was not discoverable).
-    ui.separator();
-    for line in [
-        "Top half: drag to move · Ctrl copies · Ctrl+Alt slips the audio",
-        "Bottom half: drag to select time",
-        "Sides: drag to trim · Shift loops",
-        "Top corners: fades · their middle dot bends them · the line sets gain",
-        "Right-click: edits and fade shapes",
-    ] {
-        ui.label(RichText::new(line).small().weak());
-    }
 }
 
 #[cfg(test)]
@@ -418,6 +512,7 @@ mod tests {
                 frames: 96_000,
                 size_bytes: 0,
                 at: Ticks::ZERO,
+                into: DropInto::NewTracks { before: None },
             })
             .collect();
         doc.import(files);

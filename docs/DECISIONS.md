@@ -41,6 +41,8 @@ irreversible or external) · *Superseded*.
 | [0028](#adr-0028--navigating-the-arrangement) | Navigation: f64 view with split beats on the GPU, zoom to single samples, Ableton keys, Follow (page, on), drag to reorder, sample-level waveforms | Accepted 2026-10-07 | No |
 | [0029](#adr-0029--end-to-end-smoke-tests) | End-to-end smoke tests: the whole app driven by egui_kittest in CI, plus real-binary smoke tests at the end of every slice; isolated settings, autosaves and a silent test device | Accepted 2026-10-08 | No |
 | [0030](#adr-0030--grid-rulers-loop-locators-and-scrubbing) | Grid, rulers, loop, locators and scrubbing (M3 slice 5): a grid model in core, the loop and punch as document edits, punch at the loop's edges, locator keys, both scrub styles in an engine scrub mode | Accepted 2026-10-08 | No |
+| [0031](#adr-0031--curves-for-fades-and-envelopes-format-v6) | Curves for fades and envelopes (format v6): a cubic Bézier from silence to full, edited by one free dot with Alt for S-shape, played from tables, drawn on the GPU | Accepted 2026-10-08 | No |
+| [0032](#adr-0032--clip-editing-m3-slice-6) | Clip editing (M3 slice 6): the split-clip model, drags redone from where they started, Ableton's overlap rule, clip properties and the pinned card, drops on a chosen track, Esc for the field being typed in | Accepted 2026-10-08 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -77,6 +79,7 @@ irreversible or external) · *Superseded*.
 | Selection look (M3 slice 6, 2026-10-08) | Chosen from rendered specimens: **S3 glow**, selected clips glow in the accent like the record arm, a time range is a band with accent brackets along its top, the marquee a soft rounded accent box ("some character"); **H1**, hovering a clip brightens the half under the pointer with a dashed line at the split. |
 | Fade and gain handles (M3 slice 6d, 2026-10-08) | Chosen from rendered specimens: **F3 with the glow**, a fade is a glowing accent curve with a round handle at its top and a dot that bends it; **G1**, clip gain is a glowing level line across the clip, dragged up or down, with the waveform shrinking under it and the dB beside the pointer. |
 | Free curves (M3 slice 6d, 2026-10-08) | The owner asked for curves that move freely, left and right as well as up and down, "as flexible as Ableton", to set the bar for automation later. Chosen from interactive specimens: **C3**, one free dot the curve passes through, with Alt-drag adding S-shape (over C1, the dot alone, and C2, two Bézier handles). Replaces the stepped bend (Slow, Linear, Fast). ADR-0031. |
+| Clip properties (M3 slice 6e, 2026-10-08) | Chosen from rendered specimens: **M1**, a muted clip drains to grey as in Ableton (name and waveform stay readable); **K3**, a locked clip shows a padlock in its title bar and light clamp bars at both ends; **P1**, the properties view is the hover card pinned beside its clip and edited in place (Alt+Enter, or Properties in the right-click menu), after seeing it in context, over a strip under the arrangement (P2) and a toolbar above the clip (P3). ADR-0032. |
 | Hints and tooltips (2026-10-08) | The owner noted that hints have piled up slice by slice: behaviour should come across without reading much (cursors, handle shapes, motion before text). **A dedicated UX pass**, scheduled when the next milestones are planned; until then new hints stay short. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
@@ -2052,3 +2055,85 @@ Option 3, as `lumen_core::curve::Curve`, saved as four numbers.
 - E2E: `the_dot_bends_a_fade_freely_and_alt_adds_s_shape`, and the
   listening scenario `fades_and_gain_are_heard`.
 
+## ADR-0032 — Clip editing (M3 slice 6)
+
+**Status:** Accepted · **Date:** 2026-10-08 (M3 slice 6, parts 6a to 6e)
+
+### Context
+Slice 6 makes clips editable on the arrangement: selecting, moving,
+copying, time ranges and their edits, trimming, looping, slipping, fades
+and gain, and, in 6e, a clip's own properties (mute, lock, name, colour)
+and dropping files onto a chosen track. Every edit must be one undo step,
+work from the keyboard as well as the mouse, and never click while
+playing. The owner chose each look from rendered specimens (owner-decisions
+table: clip drag model, selection look, fade and gain handles, free
+curves, clip properties). ADR-0031 covers the curves.
+
+### Decision
+- **Split-clip model** (owner): a clip's top half moves it (Ctrl copies,
+  Ctrl+Alt slips), its bottom half selects a time range across tracks,
+  empty lanes draw a marquee; sides trim (Shift loop-extends); top corners
+  fade; a line sets gain.
+- **A drag redoes its edit from the project as the drag found it**, every
+  frame, merged into one undo step: passing over a clip leaves it whole,
+  and the result does not depend on the frame rate.
+- **Ableton's overlap rule:** a clip put down on others (moved, copied,
+  trimmed, pasted, or dropped from Explorer onto a track) cuts away what
+  it covers (`lumen_project::edit::overwrite`).
+- **Moved clips crossfade while playing** (5 ms in the engine), so
+  dragging a playing clip does not crackle.
+- **Clip properties (6e):**
+  - mute (0, the menu, the card): the clip's colour drains to
+    `theme::CLIP_MUTED` (M1); the engine already plays muted clips at gain
+    0;
+  - lock (the menu, the card): a padlock and clamp bars (K3). A lock keeps
+    a clip in place, so locked clips can still be muted, renamed and
+    recoloured; moves, trims, slips, fades, gain and Delete leave them
+    alone;
+  - rename: Ctrl+R (Ableton) or F2 opens a field in the title bar; a clip
+    out of view is renamed in its card instead;
+  - colour: the twelve track colours as swatches, and "Track colour" to
+    follow the track again. Clips now draw in their own colour (format v5
+    already saved it);
+  - **the card (P1)**: an `egui::Area` placed each frame beside the
+    clip's part in view (right, else left, kept across the lanes and
+    inside the window), so it follows scrolling. It holds name, colour,
+    gain, both fades (length in milliseconds through the tempo map, and
+    shape), mute and lock, and the file's details. Tab walks its fields,
+    so gain and fades no longer need the mouse. It follows the selection:
+    another clip moves it there, none closes it, as do Esc and ✕. Gain
+    and fades are greyed out on a locked clip, with the reason.
+  - No format change: the fields existed since format v5.
+- **Drops on a chosen track (6e):** over an audio track's lane, dropped
+  files land on that track at the pointer (snapped), one after another
+  when several; within 7 points of the line between two tracks, below the
+  last, or over a track of another kind, they make new tracks there.
+  `DropInto` travels with each load; files dropped together onto a track
+  import together once all have loaded, as one undo step. While files are
+  dragged over, the lane lights with a ghost clip, or an accent line marks
+  where new tracks go.
+- **Esc belongs to the field being typed in.** egui takes a text field's
+  focus away on Esc before the app's keys run, so the clip keys used to
+  see no field and take the Esc to clear the selection, and the field's
+  loss of focus then applied what was typed. The app remembers whether a
+  field had the keyboard at the end of the last frame (`App::typing`) and
+  leaves that Esc to it. Found while testing 6e's rename.
+
+### Consequences
+- Every clip edit is a named `Document` method with tests; drags pass a
+  merge key.
+- The card is the keyboard way into a clip; the detail panel's clip tab
+  (M5) can take its fields later without changing the model.
+- New tracks made by a drop between tracks show as loading rows at the
+  bottom until their files load, then join at the chosen place.
+
+### Evidence
+- Unit tests: `document::clips` (moves, copies, fades, gain, and
+  `clip_properties_are_single_steps_and_work_on_locked_clips`),
+  `files_land_on_the_track_or_between_the_tracks_they_were_dropped_on`,
+  `arrangement::drop`, `app::clip_card` (fade milliseconds, card place).
+- E2E (59 scenarios): `clips`, `editing`, `fades`, `looping`, and
+  `properties` (0 mutes, the menu locks, Ctrl+R and F2 rename with Esc
+  cancelling, the card from the keyboard, drops onto and between tracks).
+- Screenshots (`tests/shots.rs`: `clip_properties` in dark at 100% and
+  light at 150%, `file_drops`).

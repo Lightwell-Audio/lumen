@@ -10,7 +10,7 @@ use std::ops::RangeInclusive;
 use lumen_core::curve::Curve;
 use lumen_core::time::Ticks;
 use lumen_project::edit::{self, Edge};
-use lumen_project::model::{Clip, ClipContent, Id, Project};
+use lumen_project::model::{Clip, ClipContent, Color, Id, Project};
 
 use super::{Document, plural};
 
@@ -166,6 +166,64 @@ impl Document {
         });
     }
 
+    /// Mutes or unmutes clips (slice 6e; locked ones too: a lock keeps a
+    /// clip in place, not silent).
+    pub fn set_clips_muted(&mut self, ids: &[Id], muted: bool) {
+        let label = match (muted, ids.len()) {
+            (true, 1) => "Mute clip".to_owned(),
+            (false, 1) => "Unmute clip".to_owned(),
+            (true, n) => format!("Mute {n} clips"),
+            (false, n) => format!("Unmute {n} clips"),
+        };
+        self.edit_clips(&label, ids, |c| c.muted = muted);
+    }
+
+    /// Locks or unlocks clips: locked clips cannot be moved, trimmed,
+    /// faded or deleted.
+    pub fn set_clips_locked(&mut self, ids: &[Id], locked: bool) {
+        let label = match (locked, ids.len()) {
+            (true, 1) => "Lock clip".to_owned(),
+            (false, 1) => "Unlock clip".to_owned(),
+            (true, n) => format!("Lock {n} clips"),
+            (false, n) => format!("Unlock {n} clips"),
+        };
+        self.edit_clips(&label, ids, |c| c.locked = locked);
+    }
+
+    /// Renames a clip (empty names are ignored).
+    pub fn rename_clip(&mut self, id: Id, name: &str) {
+        let name = name.trim();
+        if name.is_empty() {
+            return;
+        }
+        self.edit_clips("Rename clip", &[id], |c| c.name = name.to_owned());
+    }
+
+    /// Gives clips their own colour, or, with `None`, the track's again.
+    pub fn recolor_clips(&mut self, ids: &[Id], color: Option<Color>) {
+        let label = plural(ids.len(), "Change clip colour", "Change {} clips' colour");
+        self.edit_clips(&label, ids, |c| c.color = color);
+    }
+
+    /// Changes each of the clips `ids`, locked or not, as one step; clips
+    /// the change leaves as they were are not touched.
+    fn edit_clips(&mut self, label: &str, ids: &[Id], change: impl Fn(&mut Clip)) {
+        self.history.apply(label, None, |project| {
+            for track in &mut project.tracks {
+                for i in 0..track.clips.len() {
+                    if !ids.contains(&track.clips[i].id) {
+                        continue;
+                    }
+                    let mut clip = (*track.clips[i]).clone();
+                    change(&mut clip);
+                    if clip != *track.clips[i] {
+                        Arc::make_mut(track).clips[i] = Arc::new(clip);
+                    }
+                }
+            }
+        });
+    }
+
     /// Deletes clips; locked ones stay. Their media stays in the project
     /// (the media pool, M9).
     pub fn delete_clips(&mut self, ids: &[Id]) {
@@ -294,7 +352,7 @@ fn place_clips(project: &mut Project, moves: &[ClipMove]) {
 }
 
 /// New ids from a document's counter, for edits that make clips.
-fn fresh_ids(next: &mut u64) -> impl FnMut() -> Id + '_ {
+pub(super) fn fresh_ids(next: &mut u64) -> impl FnMut() -> Id + '_ {
     move || {
         let id = Id(*next);
         *next += 1;
@@ -448,5 +506,51 @@ mod tests {
         doc.set_clip_gain(&[id], 0.0, None);
         doc.set_fade_curve(&[id], Edge::End, Curve::FAST, None);
         assert_eq!(get(&doc), before);
+    }
+
+    #[test]
+    fn clip_properties_are_single_steps_and_work_on_locked_clips() {
+        let mut doc = Document::new(crate::empty_project());
+        let (a, b) = (doc.fresh_id(), doc.fresh_id());
+        doc.import(vec![
+            file(a, "Kick", Ticks::ZERO),
+            file(b, "Snare", Ticks::quarters(4)),
+        ]);
+        let ids: Vec<Id> = doc.project().tracks.iter().map(|t| t.clips[0].id).collect();
+        let clip = |doc: &Document, i: usize| (*doc.project().tracks[i].clips[0]).clone();
+        let steps = |doc: &Document| doc.history().steps().0.len();
+        let start = steps(&doc);
+
+        doc.set_clips_locked(&ids[..1], true);
+        doc.set_clips_muted(&ids, true);
+        doc.rename_clip(ids[0], "  Big kick ");
+        doc.recolor_clips(&ids, Some(Color(0x9E5A6A)));
+        let (kick, snare) = (clip(&doc, 0), clip(&doc, 1));
+        assert!(kick.locked && kick.muted && snare.muted && !snare.locked);
+        assert_eq!(kick.name, "Big kick", "trimmed, and locked clips rename");
+        assert_eq!(
+            (kick.color, snare.color),
+            (Some(Color(0x9E5A6A)), Some(Color(0x9E5A6A)))
+        );
+        assert_eq!(steps(&doc) - start, 4, "one step each");
+        assert_eq!(
+            doc.history().steps().0.last(),
+            Some(&"Change 2 clips' colour")
+        );
+
+        // Nothing to change, nothing recorded; an empty name is refused.
+        doc.set_clips_muted(&ids, true);
+        doc.rename_clip(ids[1], "   ");
+        assert_eq!(steps(&doc) - start, 4);
+        assert_eq!(clip(&doc, 1).name, "Snare");
+
+        // The track's colour again; then undo takes back one edit.
+        doc.recolor_clips(&ids[1..], None);
+        assert_eq!(clip(&doc, 1).color, None);
+        doc.undo();
+        assert_eq!(clip(&doc, 1).color, Some(Color(0x9E5A6A)));
+        doc.set_clips_locked(&ids[..1], false);
+        assert!(!clip(&doc, 0).locked);
+        assert_eq!(lumen_project::validate(doc.project()), Ok(()));
     }
 }

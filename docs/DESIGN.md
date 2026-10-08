@@ -119,7 +119,10 @@ unselected header.
   ruler's bottom edge against the playhead at the top.
 - **Track and clip colours:** a muted palette of 12 hues, of medium
   lightness, so white clip names read on them in both themes. Clips use the
-  same palette in both themes (content keeps its identity).
+  same palette in both themes (content keeps its identity). A clip can
+  have its own colour from the palette, or follow its track's.
+- **Muted clips:** `CLIP_MUTED` (`#6C7078`, both themes), a grey of the
+  same lightness, so names and waveforms stay readable (the owner's M1).
 
 ## 4. Type
 
@@ -323,6 +326,43 @@ half selects a time range, empty lanes draw a marquee.
   - Fade handles win over the sides, the sides over the gain line.
 - **Looping clips:** a dashed `text` line at 30% with a 2 pt dot at 60%
   where each repeat starts, and the waveform drawn again in each.
+
+### Clip properties (M3 slice 6e, owner's choices M1, K3 and P1)
+
+- **Muted (M1):** the title bar, border and waveform turn `CLIP_MUTED`
+  grey, as in Ableton. Key 0 mutes or unmutes the selected clips.
+- **Locked (K3):** a padlock (`icons::Icon::Lock`, 9 pt) ends the title
+  bar, and 3 pt clamp bars (`text` at 55%) stand at both ends; a locked
+  clip shows no fade or gain handles, and hovering it says "locked".
+- **Own colour:** the title bar, border and waveform take the clip's
+  colour when it has one.
+- **Rename:** Ctrl+R or F2 opens a field over the title bar (at least
+  120 pt wide); Enter or clicking away applies, Esc cancels.
+- **The properties card (P1):** the hover card, pinned. Alt+Enter, or
+  Properties in the right-click menu, opens it beside the clip's part in
+  view (8 pt to its right, else its left, kept across the lanes and inside
+  the window). 272 pt wide, a 1 pt `accent` border, the popup surface.
+  - A title row like a dialog: "Clip" in the display face, ✕ at the right.
+  - Rows with a 62 pt label column (`text_secondary`): Name (focused when
+    it opens), Colour (12 square swatches and a round "Track colour"
+    swatch, 14 pt, ringed in `accent` when chosen), Gain (a
+    `value_slider`), Fade in and Fade out (a `value_slider` in
+    milliseconds and a shape menu), State (Mute clip and Lock clip,
+    framed buttons that light when on); then the file's details.
+  - Gain and fades are greyed out on a locked clip, with a hint saying
+    why.
+  - It follows the selection; Esc while typing cancels the typing, the
+    next Esc closes the card. While it is open the hover card is not
+    shown.
+- **The hover card** ends with "Alt+Enter: edit its properties" in
+  `accent`.
+- **Dropping files** (from the system): over an audio track's lane, the
+  lane washes in `accent` at 8% with a 1 pt edge at 50%, and a ghost clip
+  (dashed `accent` outline over `accent` at 14%, the file's name, or "3
+  files") sits at the snapped drop point. Within 7 pt of the line between
+  two tracks, below the last, or over a track of another kind, a 2 pt
+  `accent` line (over 6 pt at 15%) marks where new tracks go, with the
+  chip "new track here".
 
 ## 7b. Navigation (M3 slice 4d, ADR-0028)
 

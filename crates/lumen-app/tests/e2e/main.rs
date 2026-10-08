@@ -20,6 +20,7 @@ mod locators;
 mod looping;
 mod navigation;
 mod playback;
+mod properties;
 mod rulers;
 mod scrubbing;
 
@@ -162,6 +163,14 @@ impl Lumen {
             .collect();
         self.harness.step();
         self.wait_for("the files to load", |app| !app.is_busy());
+    }
+
+    /// Drops files with the pointer at `at`, as from Explorer onto that
+    /// place (slice 6e: a track's lane, or the line between two).
+    pub fn drop_files_at(&mut self, at: egui::Pos2, paths: &[PathBuf]) {
+        self.harness.hover_at(at);
+        self.frames(2);
+        self.drop_files(paths);
     }
 
     /// Track names, top to bottom.

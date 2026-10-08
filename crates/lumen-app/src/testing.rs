@@ -57,6 +57,12 @@ impl Launch {
         self.autosave_after = Some(after);
         self
     }
+
+    /// Starts in `appearance` ("light", "dark"), as `--appearance` does.
+    pub fn appearing(mut self, appearance: &str) -> Self {
+        self.appearance = Some(appearance.to_owned());
+        self
+    }
 }
 
 /// Installs Lumen's GPU renderer (grid, clips, waveforms) when the harness
@@ -247,4 +253,10 @@ pub struct ClipHandlesAt {
     pub gain: egui::Pos2,
     /// Where the waveform is drawn.
     pub wave: egui::Rect,
+}
+
+/// The `index`th colour of the clip and track palette, as the swatch
+/// "Colour {index + 1}" sets it (slice 6e).
+pub fn clip_colour(index: usize) -> lumen_project::model::Color {
+    crate::arrangement::color_from(crate::theme::CLIP_COLORS[index])
 }

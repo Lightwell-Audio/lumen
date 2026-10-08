@@ -11,32 +11,17 @@ use std::sync::Arc;
 
 use lumen_core::time::Ticks;
 use lumen_project::History;
-use lumen_project::model::{
-    Clip, ClipContent, Color, Id, Marker, Media, Project, Track, TrackKind,
-};
+use lumen_project::model::{Color, Id, Marker, Project, Track, TrackKind};
 
 mod clips;
+mod import;
 pub use clips::{CLIP_GAIN, ClipMove};
+pub use import::{DropInto, Imported};
 
 /// Track colours, cycled for new tracks (`theme::CLIP_COLORS`, as `#RRGGBB`).
 fn track_color(index: usize) -> Color {
     let c = crate::theme::CLIP_COLORS[index % crate::theme::CLIP_COLORS.len()];
     Color(u32::from(c.r()) << 16 | u32::from(c.g()) << 8 | u32::from(c.b()))
-}
-
-/// An audio file that finished loading, ready to become a track.
-#[derive(Debug, Clone)]
-pub struct Imported {
-    pub media: Id,
-    pub path: PathBuf,
-    pub name: String,
-    /// The file's own format.
-    pub sample_rate: u32,
-    pub channels: u16,
-    pub frames: u64,
-    pub size_bytes: u64,
-    /// Where the clip starts.
-    pub at: Ticks,
 }
 
 pub struct Document {
@@ -428,71 +413,6 @@ impl Document {
             }
         });
     }
-
-    /// Adds loaded files as new audio tracks, each with one clip, as one
-    /// undo step.
-    pub fn import(&mut self, files: Vec<Imported>) {
-        if files.is_empty() {
-            return;
-        }
-        let label = match files.as_slice() {
-            [one] => format!("Import {}", one.name),
-            many => format!("Import {} files", many.len()),
-        };
-        let mut additions = Vec::new();
-        for file in files {
-            let (track, clip) = (self.fresh_id(), self.fresh_id());
-            self.media_files.insert(file.media, file.path.clone());
-            additions.push((track, clip, file));
-        }
-        self.history.apply(&label, None, |project| {
-            for (track, clip, file) in additions {
-                let start_seconds = seconds_at(project, file.at);
-                let seconds = file.frames as f64 / f64::from(file.sample_rate.max(1));
-                let end = ticks_at_seconds(project, start_seconds + seconds);
-                project.media.push(Media {
-                    id: file.media,
-                    path: file.path.to_string_lossy().into_owned(),
-                    original_path: None,
-                    frames: file.frames,
-                    channels: file.channels,
-                    sample_rate: file.sample_rate,
-                    size_bytes: file.size_bytes,
-                });
-                let color = track_color(project.tracks.len());
-                project.tracks.push(Arc::new(Track {
-                    id: track,
-                    name: file.name.clone(),
-                    kind: TrackKind::Audio,
-                    color,
-                    parent: None,
-                    gain_db: 0.0,
-                    pan: 0.0,
-                    mute: false,
-                    solo: false,
-                    armed: false,
-                    devices: vec![],
-                    clips: vec![Arc::new(Clip {
-                        id: clip,
-                        name: file.name,
-                        start: file.at,
-                        length: (end - file.at).max(Ticks(1)),
-                        muted: false,
-                        color: None,
-                        locked: false,
-                        fade_in: Default::default(),
-                        fade_out: Default::default(),
-                        loop_length: None,
-                        content: ClipContent::Audio {
-                            media: file.media,
-                            offset: 0,
-                            gain_db: 0.0,
-                        },
-                    })],
-                }));
-            }
-        });
-    }
 }
 
 /// "Delete track" or "Delete 3 tracks".
@@ -566,6 +486,7 @@ mod tests {
             frames: 96_000,
             size_bytes: 384_044,
             at,
+            into: DropInto::NewTracks { before: None },
         }
     }
 

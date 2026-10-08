@@ -5,7 +5,7 @@
 
 use eframe::egui::Color32;
 use lumen_core::time::{TempoMap, Ticks};
-use lumen_project::model::{ClipContent, Project};
+use lumen_project::model::{Clip, ClipContent, Project, Track};
 use lumen_render::{WaveInstance, beats, rgba};
 
 use super::samples::Geometry;
@@ -38,15 +38,15 @@ pub(super) fn wave_instances(
     project: &Project,
     rate: u32,
     source: impl Fn(u64) -> Option<Source>,
-    color: impl Fn(usize) -> Color32,
+    color: impl Fn(&Track, &Clip) -> Color32,
 ) -> Vec<Wave> {
     let Ok(tempo) = TempoMap::new(project.tempo.clone()) else {
         return Vec::new();
     };
     let mut waves = Vec::new();
     for (row, track) in project.tracks.iter().enumerate() {
-        let [r, g, b, a] = color(row).to_srgba_unmultiplied();
         for clip in &track.clips {
+            let [r, g, b, a] = color(track, clip).to_srgba_unmultiplied();
             let ClipContent::Audio {
                 media,
                 offset,
@@ -188,7 +188,7 @@ mod tests {
                     native_rate,
                 })
             },
-            |_| Color32::WHITE,
+            |_, _| Color32::WHITE,
         );
         waves.into_iter().map(|w| w.instance).collect()
     }
@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn clips_without_loaded_peaks_have_no_wave() {
         let project = project(vec![bpm(0, 120.0)], 0);
-        let none = wave_instances(&project, 48_000, |_| None, |_| Color32::WHITE);
+        let none = wave_instances(&project, 48_000, |_| None, |_, _| Color32::WHITE);
         assert!(none.is_empty());
     }
 }

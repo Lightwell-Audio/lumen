@@ -390,8 +390,8 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-08: M3 slice 6d passed the owner's test
-(MT-APP-14 run 1, 6d steps); 6e next.
+**Last updated:** 2026-10-08: M3 slice 6e built (clip properties and
+drops, ADR-0032); MT-APP-14 run 2 (its 6e steps) next.
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
@@ -451,8 +451,16 @@ it first in a new session, and update it at the end of every slice.
     built. Fades bend along free curves (the owner's C3; format v6,
     `lumen_core::curve`, ADR-0031), the model automation reuses in M7.
     6d passed the owner's test (MT-APP-14 run 1, 2026-10-08).
-    Next: 6e (mute, lock, rename, recolour, a properties view, drops on a
-    chosen track), then MT-APP-14 and ADR-0032 for the slice.
+    **6e built** (ADR-0032; owner's M1 grey mute, K3 padlock and clamps,
+    P1 pinned card): 0 mutes, the menu locks, Ctrl+R or F2 renames in the
+    title bar, clip colours, the properties card (Alt+Enter;
+    `app/clip_card.rs`), files dropped on a track or between tracks
+    (`arrangement/drop.rs`). Next: MT-APP-14 run 2 (steps 7 to 13), then
+    slice 7.
+  - Esc after typing belongs to the text field (`App::typing`): egui
+    drops a field's focus on Esc before the app's keys run, so key
+    handlers must check `self.typing` as well as
+    `egui_wants_keyboard_input()` (ADR-0032).
   - Moved, trimmed or deleted clips crossfade over 5 ms while playing
     (owner: dragging a playing clip crackled); E2E scenarios can listen
     to the test device (`app.heard()`).

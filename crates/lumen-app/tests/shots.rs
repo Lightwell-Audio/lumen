@@ -15,9 +15,20 @@ use lumen_project::testing::TempDir;
 
 /// A window with two one-second clips on a one-bar grid.
 fn lumen(dir: &TempDir) -> Harness<'static, App> {
-    let launch = Launch::for_test(dir.path());
+    lumen_looking(dir, "dark", 1.0)
+}
+
+/// [`lumen`] in `appearance`, at `scale`.
+fn lumen_looking(dir: &TempDir, appearance: &str, scale: f32) -> Harness<'static, App> {
+    let launch = Launch::for_test(dir.path()).appearing(appearance);
     let mut h = Harness::builder()
         .with_size(vec2(1200.0, 420.0))
+        .with_pixels_per_point(scale)
+        .with_theme(if appearance == "light" {
+            eframe::egui::Theme::Light
+        } else {
+            eframe::egui::Theme::Dark
+        })
         .with_step_dt(1.0 / 60.0)
         .wgpu()
         .build_eframe(|cc| {
@@ -178,6 +189,104 @@ fn clip_fades_and_gain() {
     h.run_steps(2);
     h.hover_at(Pos2::new(a.right() + 300.0, a.bottom() + 120.0));
     save(&mut h, "fade-gain-idle");
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn clip_properties() {
+    for (appearance, scale) in [("dark", 1.0), ("light", 1.5)] {
+        clip_properties_looking(appearance, scale);
+    }
+}
+
+fn clip_properties_looking(appearance: &str, scale: f32) {
+    use egui_kittest::kittest::Queryable;
+    let dir = TempDir::new("shots-props");
+    let mut h = lumen_looking(&dir, appearance, scale);
+    let save = |h: &mut Harness<'static, App>, name: &str| {
+        save(
+            h,
+            &format!("{name}-{appearance}-{}", (scale * 100.0) as u32),
+        );
+    };
+    for _ in 0..2 {
+        h.key_press(Key::Equals);
+        h.run_steps(2);
+    }
+    h.run_steps(20);
+    // Mute the first clip (0), lock and recolour the second in its card.
+    let a = clip(&h, 0);
+    click(&mut h, pos(a, 0.5, 0.3));
+    h.run_steps(2);
+    h.key_press(Key::Num0);
+    h.run_steps(2);
+    let b = clip(&h, 1);
+    click(&mut h, pos(b, 0.5, 0.3));
+    h.run_steps(2);
+    h.key_press_modifiers(Modifiers::ALT, Key::Enter);
+    h.run_steps(4);
+    h.get_by_label("Colour 5").click();
+    h.run_steps(2);
+    h.get_by_label("Lock clip").click();
+    h.run_steps(4);
+    h.hover_at(Pos2::new(a.right() + 300.0, 400.0));
+    save(&mut h, "props-card");
+    h.key_press(Key::Escape);
+    h.run_steps(4);
+    // Rename the third in its title bar.
+    let c = clip(&h, 2);
+    click(&mut h, pos(c, 0.5, 0.3));
+    h.run_steps(2);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::R);
+    h.run_steps(4);
+    save(&mut h, "props-rename");
+    h.key_press(Key::Escape);
+    h.run_steps(2);
+    h.key_press(Key::Escape);
+    h.run_steps(4);
+    h.hover_at(Pos2::new(a.right() + 300.0, 400.0));
+    save(&mut h, "props-idle");
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn file_drops() {
+    let dir = TempDir::new("shots-drops");
+    let mut h = lumen(&dir);
+    h.run_steps(20);
+    let a = clip(&h, 0);
+    h.input_mut().hovered_files = vec![eframe::egui::HoveredFile {
+        path: Some(dir.path().join("hat.wav")),
+        ..Default::default()
+    }];
+    h.hover_at(Pos2::new(a.right() + 120.0, a.center().y));
+    h.run_steps(2);
+    save(&mut h, "drop-onto-track");
+    h.input_mut().hovered_files = vec![
+        eframe::egui::HoveredFile {
+            path: Some(dir.path().join("hat.wav")),
+            ..Default::default()
+        };
+        2
+    ];
+    h.hover_at(Pos2::new(a.right() + 120.0, a.bottom() + 3.0));
+    h.run_steps(2);
+    save(&mut h, "drop-between-tracks");
+}
+
+/// A left click at `p`.
+fn click(h: &mut Harness<'static, App>, p: Pos2) {
+    h.hover_at(p);
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(Event::PointerButton {
+            pos: p,
+            button: eframe::egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
 }
 
 /// The point `fx` across and `fy` down `r`.

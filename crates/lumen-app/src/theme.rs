@@ -197,6 +197,11 @@ pub const TEXT_ON_LIGHT: Color32 = Color32::from_rgb(0x0B, 0x0D, 0x10);
 /// Text on clips.
 pub const CLIP_TEXT: Color32 = Color32::WHITE;
 
+/// A muted clip (the owner's M1, slice 6e): its colour drains to this grey,
+/// as in Ableton. Medium lightness like [`CLIP_COLORS`], so its name and
+/// waveform stay readable in both themes.
+pub const CLIP_MUTED: Color32 = Color32::from_rgb(0x6C, 0x70, 0x78);
+
 /// Spacing on a 4 pt grid (`DESIGN.md` §5).
 pub mod space {
     pub const XS: f32 = 4.0;
@@ -445,7 +450,7 @@ mod tests {
 
     #[test]
     fn clip_names_read_on_every_clip_colour() {
-        for color in CLIP_COLORS {
+        for color in CLIP_COLORS.into_iter().chain([CLIP_MUTED]) {
             assert!(contrast(CLIP_TEXT, color) >= 3.0, "{color:?}");
         }
     }

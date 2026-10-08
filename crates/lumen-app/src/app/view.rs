@@ -8,6 +8,8 @@ use lumen_core::product::PRODUCT_NAME;
 
 use super::grid::draw_snap_guide;
 use super::rulers;
+use crate::arrangement::FileDrop;
+use crate::document::DropInto;
 use crate::{App, arrangement, audio, bench, canvas, lanes, media, motion, ruler, theme};
 
 /// A glided position, or the exact one once the glide has settled: the
@@ -170,8 +172,13 @@ report: {}",
         let hover = ui.interact(canvas, ui.id().with("clips"), Sense::click_and_drag());
         self.clip_editing(ui, &hover, canvas, &painter);
         hover.context_menu(|ui| self.lanes_menu(ui));
+        // Clip properties (slice 6e): renaming in the title bar, and the
+        // pinned card, which takes the hover card's place.
+        self.clip_rename(ui, canvas);
+        self.clip_card(ui.ctx(), canvas);
         if let Some(pointer) = hover.hover_pos()
             && !hover.dragged()
+            && self.clip_props.pinned().is_none()
             && let Some(item) = self.arrangement.item_at(
                 ui.ctx(),
                 pointer,
@@ -185,21 +192,60 @@ report: {}",
         }
 
         // Dropped files land under the pointer (snapped; Alt places them
-        // freely) when the system reports it, otherwise at the playhead. A
-        // snap guide shows where while files are dragged over.
-        let (pointer, free, dragging_files) = ui.input(|i| {
+        // freely) when the system reports it, otherwise at the playhead, on
+        // new tracks at the end. Over an audio track's lane they land on it;
+        // near the line between two tracks they make new tracks there
+        // (slice 6e). The lane or the line, and a snap guide, show where
+        // while files are dragged over.
+        let (pointer, free, dragging) = ui.input(|i| {
             (
                 i.pointer.hover_pos().filter(|p| canvas.contains(*p)),
                 i.modifiers.alt,
-                !i.raw.hovered_files.is_empty(),
+                i.raw
+                    .hovered_files
+                    .iter()
+                    .map(|f| {
+                        f.path
+                            .as_ref()
+                            .and_then(|p| p.file_name())
+                            .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+                    })
+                    .collect::<Vec<_>>(),
             )
         });
         self.drop_target = match pointer {
             Some(p) => self.snapped(ruler::ticks_at(view.beat_at(canvas.left(), p.x)), free),
             None => self.transport.state().ticks,
         };
-        if dragging_files && pointer.is_some() {
-            draw_snap_guide(&painter, x_of(self.drop_target.as_quarters()), at.guides());
+        let pending = self.lanes.pending().len();
+        let (into, line) = match pointer {
+            Some(p) => {
+                self.arrangement
+                    .file_drop(ui.ctx(), self.document.project(), pending, canvas, p.y)
+            }
+            None => (DropInto::NewTracks { before: None }, canvas.top()),
+        };
+        self.drop_into = into;
+        if !dragging.is_empty() && pointer.is_some() {
+            let x = x_of(self.drop_target.as_quarters());
+            draw_snap_guide(&painter, x, at.guides());
+            let label = match dragging.as_slice() {
+                [one] => one.clone(),
+                many => format!("{} files", many.len()),
+            };
+            self.arrangement.draw_file_drop(
+                ui.ctx(),
+                &painter,
+                self.document.project(),
+                pending,
+                canvas,
+                &FileDrop {
+                    into,
+                    line,
+                    x,
+                    label: &label,
+                },
+            );
         }
 
         self.locator_strip(ui, &painter, &at);

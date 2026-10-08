@@ -27,11 +27,13 @@ pub enum Icon {
     Magnet,
     /// Snapping off: the magnet, struck through.
     MagnetOff,
+    /// A locked clip (M3 slice 6e): a padlock.
+    Lock,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 10] = [
+    pub const ALL: [Icon; 11] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
@@ -42,6 +44,7 @@ impl Icon {
         Icon::Follow,
         Icon::Magnet,
         Icon::MagnetOff,
+        Icon::Lock,
     ];
 }
 
@@ -159,6 +162,20 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             }
             shapes
         }
+        Icon::Lock => vec![
+            // A shackle over a solid body.
+            Shape::line(
+                std::iter::once(g.p(5.0, 8.0))
+                    .chain((0..=12).map(|k| {
+                        let a = PI + PI * k as f32 / 12.0;
+                        g.p(8.0 + 3.0 * a.cos(), 6.5 + 3.5 * a.sin())
+                    }))
+                    .chain([g.p(11.0, 8.0)])
+                    .collect(),
+                stroke,
+            ),
+            Shape::rect_filled(g.rect(3.0, 7.5, 13.0, 14.5), 1.0 * g.unit, color),
+        ],
         Icon::Follow => vec![
             Shape::line_segment([g.p(4.0, 2.5), g.p(4.0, 13.5)], stroke),
             Shape::line_segment([g.p(6.5, 8.0), g.p(11.5, 8.0)], stroke),

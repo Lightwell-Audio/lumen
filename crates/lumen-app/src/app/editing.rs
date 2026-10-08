@@ -470,7 +470,7 @@ impl App {
     /// (delete time), Ctrl+I (insert time), Esc. Runs before the track
     /// keys, so a clip or range selection takes them.
     pub(crate) fn clip_shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.egui_wants_keyboard_input() {
+        if ctx.egui_wants_keyboard_input() || self.typing {
             return;
         }
         // Selecting tracks deselects clips and the range.
@@ -522,6 +522,7 @@ impl App {
             }
         }
         ui.separator();
+        self.clip_menu(ui);
         self.fade_menu(ui);
         self.grid_menu(ui);
     }
