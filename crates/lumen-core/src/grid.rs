@@ -195,10 +195,22 @@ impl Grid {
         if !self.snap {
             return t;
         }
+        let (before, after) = self.cell(map, t, points_per_quarter);
+        if (t - before).0 <= (after - t).0 {
+            before
+        } else {
+            after
+        }
+    }
+
+    /// The grid step `t` falls in, `[start, end)`, whether or not snapping
+    /// is on (scrubbing plays it, M3 slice 5e). Steps never cross a bar
+    /// line.
+    pub fn cell(&self, map: &MeterMap, t: Ticks, points_per_quarter: f64) -> (Ticks, Ticks) {
         let bar = map.bbt_at(t).bar;
         let start = map.bar_start(bar);
         let meter = map.meter_at(start);
-        let (before, after) = match self.step(meter, points_per_quarter) {
+        match self.step(meter, points_per_quarter) {
             Step::Bars(n) => {
                 let first = bar - bar.rem_euclid(i64::from(n));
                 (map.bar_start(first), map.bar_start(first + i64::from(n)))
@@ -209,11 +221,6 @@ impl Grid {
                 let before = start + Ticks(k * step.0);
                 (before, (before + step).min(next))
             }
-        };
-        if (t - before).0 <= (after - t).0 {
-            before
-        } else {
-            after
         }
     }
 
@@ -426,6 +433,22 @@ mod tests {
 
     fn map() -> MeterMap {
         MeterMap::constant(FOUR).unwrap()
+    }
+
+    #[test]
+    fn the_cell_is_the_step_around_a_time_even_without_snapping() {
+        let grid = Grid {
+            snap: false,
+            ..Grid::default()
+        };
+        // 24 points a quarter: eighths.
+        let eighth = Ticks(PPQ / 2);
+        let t = Ticks(PPQ * 5 + PPQ / 4 + 7);
+        assert_eq!(
+            grid.cell(&map(), t, 24.0),
+            (Ticks(PPQ * 5), Ticks(PPQ * 5) + eighth)
+        );
+        assert_eq!(grid.snap(&map(), t, 24.0), t, "snapping off");
     }
 
     #[test]

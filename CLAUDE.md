@@ -390,7 +390,7 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-08: M3 slice 4 done; slice 5 planning.
+**Last updated:** 2026-10-08: M3 slice 5 built; MT-APP-13 waiting on the owner.
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
@@ -398,7 +398,7 @@ it first in a new session, and update it at the end of every slice.
   - performance gates;
   - design system, motion and typefaces;
   - project model, undo, save/open, autosave and recovery.
-- **M3 slice 4 (tracks and the arrangement at scale) is in progress.**
+- **M3 slice 4 (tracks and the arrangement at scale) is done; slice 5 is built.**
   - Groundwork (format v3) and part 4a are built: track headers in the
     owner-chosen design, refined after MT-APP-9 run 1 (DESIGN §7a,
     ADR-0025):
@@ -434,7 +434,15 @@ it first in a new session, and update it at the end of every slice.
     binary at the end of every slice.
   - Shaders are `.wgsl` files checked at build time (`lumen-shader-check`).
   - Problems found and not fixed yet: `docs/KNOWN_ISSUES.md`.
-  - Next: slice 5 (grid, snapping, rulers, markers, loop).
+  - **Slice 5 built** (ADR-0030, format v4): the editing grid and
+    snapping (`lumen_core::grid`, Ctrl+1 to Ctrl+5, Alt bypasses);
+    rulers in layout A (bar ruler on top, drag to zoom; a time ruler at
+    the bottom in minutes and seconds, samples or timecode); the loop
+    brace and punch as undoable document edits; named locators (M,
+    Ctrl+Left/Right, Set ◂ ▸); the scrub strip (Ableton-style loops of the
+    grid step, Alt for tape), with an engine scrub mode.
+  - Next: MT-APP-13 (owner, by ear and by eye), then slice 6 (clip
+    editing).
   - The plan and the follow-ups are in `docs/milestones/M3.md`.
 - **Skills** (`.claude/skills/`), to load before working:
   - `lumen-architecture` before writing or changing code;
@@ -444,7 +452,7 @@ it first in a new session, and update it at the end of every slice.
 - Where to look:
   - `docs/PROGRESS.md`: every requirement's status, slice tables and the
     milestone reports;
-  - `docs/DECISIONS.md`: ADR-0001 to ADR-0029, plus the table of owner
+  - `docs/DECISIONS.md`: ADR-0001 to ADR-0030, plus the table of owner
     decisions;
   - `docs/MANUAL_TESTS.md`: hardware tests with every run's results;
   - `docs/KNOWN_ISSUES.md`: problems found and not fixed yet, and where

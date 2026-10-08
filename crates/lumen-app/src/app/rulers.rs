@@ -14,8 +14,11 @@ use crate::timefmt::{self, TimeFormat};
 use crate::timeview::TimeView;
 use crate::{App, motion, ruler, theme, trace};
 
-/// The strip for locators and the loop brace.
-pub(crate) const STRIP_HEIGHT: f32 = 20.0;
+/// The strip for locators, scrubbing and the loop brace.
+pub(crate) const STRIP_HEIGHT: f32 = 24.0;
+/// The loop brace's band, along the strip's bottom; scrubbing and the
+/// locator flags take the rest.
+pub(crate) const BRACE_BAND: f32 = 10.0;
 /// The bar ruler.
 pub(crate) const RULER_HEIGHT: f32 = 22.0;
 /// The time ruler along the bottom.
@@ -56,9 +59,10 @@ impl App {
         painter: &egui::Painter,
         at: &Layout,
     ) {
-        self.loop_brace(ui, painter, at);
         let palette = theme::p();
         painter.rect_filled(at.strip, 0.0, palette.app);
+        self.scrub_zone(ui, painter, at);
+        self.loop_brace(ui, painter, at);
         let looped = self.document.project().transport;
         let (a, b) = (
             at.x(looped.loop_start.as_quarters()),

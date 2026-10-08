@@ -19,6 +19,12 @@ impl App {
             .snap(&self.transport.timeline.meter, t, self.nav.view.zoom)
     }
 
+    /// The grid step `t` falls in, at the current zoom (scrubbing).
+    pub(crate) fn grid_cell(&self, t: Ticks) -> (Ticks, Ticks) {
+        self.grid
+            .cell(&self.transport.timeline.meter, t, self.nav.view.zoom)
+    }
+
     /// The step showing now, where the view starts.
     fn grid_step(&self) -> Step {
         let map = &self.transport.timeline.meter;

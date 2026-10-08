@@ -312,9 +312,20 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
 ## 7d. Rulers (M3 slice 5b, layout A)
 
 Chosen by the owner from rendered specimens (Ableton's split):
-- **Locator strip** (20 pt, `app`): locators (slice 5d) and the loop brace,
-  a 7 pt band at the strip's bottom edge: `accent_muted` with `accent`
-  edges when the loop is on, `control` with `text_hint` edges when off.
+- **Locator strip** (24 pt, `app`), three layers:
+  - the **loop brace**, a 7 pt band at the strip's bottom edge
+    (`accent_muted` with `accent` edges when the loop is on, `control`
+    with `text_hint` edges when off), edited in the bottom 10 pt;
+  - **locator flags** (slice 5d) in the top 14 pt: a 1 pt post down the
+    strip, a 6 pt right-pointing triangle and the name in a caption,
+    `start_marker` (`accent` when selected, its name in `text`); the name
+    gets a `control_hover` wash on hover;
+  - the **scrub strip** (slice 5e): the rest of the top 14 pt. A pointing
+    hand and a snap guide on hover; while dragging, the grid step that
+    plays is lit in `accent_muted`.
+- **Strip corner** (over the headers): "Locators" in `text_hint`, then
+  ◂ Set ▸ at the right edge. Set is `accent` when a locator sits at the
+  playhead; the arrows dim when there is nothing that way.
 - **Bar ruler** (22 pt, `raised`): bar numbers thinned to 40 points apart;
   past 240 points a bar, bar.beat.sixteenth at least 64 apart. When no
   label falls in view, the left edge's position is pinned at the left in

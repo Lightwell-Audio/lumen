@@ -19,6 +19,7 @@ mod looping;
 mod navigation;
 mod playback;
 mod rulers;
+mod scrubbing;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};

@@ -17,6 +17,10 @@
 //!   its start on the exact sample. Playback that starts after the loop end
 //!   plays on.
 //!
+//! - **Scrub** (while stopped): plays around a position in a
+//!   [`ScrubStyle`] and moves both markers there; **EndScrub** fades it out.
+//!   While playing, the app locates instead.
+//!
 //! Every jump is click-free (`declick`): a 2 ms crossfade on locates and
 //! loop wraps, a fade-in on play and a fade-out on stop and pause.
 
@@ -27,6 +31,7 @@ use lumen_rt::DenormalGuard;
 
 use crate::declick::{Declick, MAX_FADE, fade_frames};
 use crate::metronome::{self, Metronome, MetronomeSettings, TestTone};
+use crate::scrub::{ScrubStyle, Scrubber};
 use crate::snapshot::{Shared, TransportSnapshot};
 use crate::source::{Jump, Output, RenderContext, Source};
 use crate::timeline::Timeline;
@@ -74,8 +79,16 @@ pub enum Command {
     SetMetronome(MetronomeSettings),
     /// 1 kHz at −20 dBFS on every output, playing or not.
     TestTone(bool),
+    /// While stopped: play around `at` in `style`, and move the play
+    /// marker and the playhead there. Ignored while playing.
+    Scrub {
+        at: Ticks,
+        style: ScrubStyle,
+    },
+    /// Fade the scrub out.
+    EndScrub,
     /// Stop at once and silence everything: playback, the metronome, the
-    /// test tone and any fade in progress. (MIDI all-notes-off joins it in
+    /// test tone, scrubbing and any fade in progress. (MIDI all-notes-off joins it in
     /// M5.)
     Panic,
 }
@@ -144,6 +157,7 @@ pub struct Engine<S> {
     declick: Declick,
     metronome: Metronome,
     test_tone: TestTone,
+    scrub: Scrubber,
 }
 
 /// Creates the engine pair. Allocates, so call it off the audio thread.
@@ -176,6 +190,7 @@ pub fn engine<S: Source>(
         declick: Declick::default(),
         metronome: Metronome::default(),
         test_tone: TestTone::default(),
+        scrub: Scrubber::default(),
     };
     engine.publish();
     let handle = EngineHandle {
@@ -218,6 +233,16 @@ impl<S: Source> Engine<S> {
         if self.playing {
             self.render(data, channels, frames);
         } else {
+            if self.scrub.active() {
+                self.scrub.render(
+                    &mut self.source,
+                    &self.timeline,
+                    rate,
+                    data,
+                    channels,
+                    frames,
+                );
+            }
             if self.declick.active() {
                 // A stop or pause just happened: its tail fades out over silence.
                 self.declick.apply(data, frames, channels, 0, frames);
@@ -304,6 +329,7 @@ impl<S: Source> Engine<S> {
             match command {
                 Command::Play | Command::Continue => {
                     if !self.playing {
+                        self.scrub.end();
                         if command == Command::Play {
                             self.position = self.sample_at(self.play_marker);
                         }
@@ -342,6 +368,20 @@ impl<S: Source> Engine<S> {
                     self.punch = region;
                     self.refresh_regions();
                 }
+                Command::Scrub { at, style } => {
+                    if !self.playing {
+                        let at = at.max(Ticks::ZERO);
+                        self.play_marker = at;
+                        self.position = self.sample_at(at);
+                        let end = match style {
+                            ScrubStyle::Loop { length } => self.sample_at(at + length),
+                            ScrubStyle::Tape => self.position,
+                        };
+                        self.scrub
+                            .scrub(self.position, end, style, self.sample_rate);
+                    }
+                }
+                Command::EndScrub => self.scrub.end(),
                 Command::SetMetronome(settings) => self.metronome.settings = settings,
                 Command::TestTone(on) => self.test_tone.on = on,
                 Command::Panic => {
@@ -349,6 +389,7 @@ impl<S: Source> Engine<S> {
                     self.declick.clear();
                     self.metronome.silence();
                     self.test_tone.silence();
+                    self.scrub.silence();
                 }
             }
         }

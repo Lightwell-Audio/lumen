@@ -5,7 +5,9 @@
 
 use lumen_core::meter::Meter;
 use lumen_core::time::Ticks;
-use lumen_engine::{Command, Jump, Output, Region, RenderContext, Source, Timeline, engine};
+use lumen_engine::{
+    Command, Jump, Output, Region, RenderContext, ScrubStyle, Source, Timeline, engine,
+};
 use lumen_rt::{count_rt_violations, guard_is_active};
 
 lumen_rt::install_guarded_allocator!();
@@ -71,6 +73,34 @@ fn process_never_touches_the_heap() {
         assert_eq!(heap, 0, "heap operation in process() at block {block}");
         let _ = handle.transport();
         handle.collect_garbage();
+    }
+}
+
+#[test]
+fn scrubbing_never_touches_the_heap() {
+    let (mut handle, mut engine) = engine(Timeline::default(), Tone { phase: 0.0 }, 48_000);
+    let mut data = vec![0.0; 2 * 128];
+    for block in 0..3_000_i64 {
+        // Both styles, moving like a hand at 60 frames a second, released
+        // and grabbed again; then Play over a scrub.
+        let at = Ticks(Ticks::quarters(1).0 * ((block / 8) % 40));
+        let style = if block < 1_500 {
+            ScrubStyle::Loop {
+                length: Ticks(Ticks::quarters(1).0 / 4),
+            }
+        } else {
+            ScrubStyle::Tape
+        };
+        match block % 700 {
+            0..=599 if block % 6 == 0 => handle.send(Command::Scrub { at, style }).unwrap(),
+            600 => handle.send(Command::EndScrub).unwrap(),
+            _ => {}
+        }
+        if block == 2_900 {
+            handle.send(Command::Play).unwrap();
+        }
+        let ((), heap) = count_rt_violations(|| engine.process(48_000, &mut data, 2, 128));
+        assert_eq!(heap, 0, "heap operation in process() at block {block}");
     }
 }
 

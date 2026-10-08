@@ -79,7 +79,8 @@ pub enum Jump {
 /// real-time safe: no allocation, locks or blocking (ADR-0010).
 pub trait Source: Send {
     /// Adds `out.frames()` frames of audio starting at timeline sample
-    /// `cx.start` to `out`. Called only while playing.
+    /// `cx.start` to `out`. Called while playing, and while scrubbing at
+    /// any position (M3 slice 5e).
     fn render(&mut self, cx: &RenderContext<'_>, out: &mut Output<'_>);
 
     /// Playback starts or jumps to `sample`, for the reason given. Sources

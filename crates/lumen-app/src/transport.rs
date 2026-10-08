@@ -140,6 +140,16 @@ impl Transport {
         self.send(Command::Locate(at));
     }
 
+    /// Scrubs at `at` while stopped (slice 5e); the engine ignores it while
+    /// playing.
+    pub fn scrub(&mut self, at: Ticks, style: lumen_engine::ScrubStyle) {
+        self.send(Command::Scrub { at, style });
+    }
+
+    pub fn end_scrub(&mut self) {
+        self.send(Command::EndScrub);
+    }
+
     /// Plays the project's loop (its brace and switch are document edits,
     /// slice 5c): sends it to the engine when it differs from what plays.
     pub fn follow_loop(&mut self, state: &lumen_project::model::TransportState) {

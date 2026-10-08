@@ -910,3 +910,46 @@ at the song and the grid stays even.
 
 **Last run:** run 2, passed.
 
+### MT-APP-13 · Grid, rulers, loop, locators and scrubbing (needs a human)
+Run `cargo run --release -p lumen-app` with a project that has a drum loop
+and a melodic or vocal track, through the Focusrite.
+1. **Grid:** right-click the lanes: the grid menu. Try Narrow and Wide,
+   a fixed 1/16, Triplet and Dotted; the lines follow and the grid button
+   (top-left, by "Grid") shows the setting. Ctrl+1 and Ctrl+2 make it
+   finer and coarser, Ctrl+3 triplet, Ctrl+4 snap on or off, Ctrl+5 fixed
+   or adaptive. Click the ruler: the playhead lands on a line; hold Alt:
+   it lands exactly where you click.
+2. **Rulers:** the time ruler along the bottom; click its corner and try
+   each format (minutes and seconds, samples, timecode). Drag down on the
+   bar ruler: it zooms in around the pointer; up zooms out; sideways
+   scrolls; the playhead does not move.
+3. **Loop:** drag in the strip's bottom band (below the flags) to draw a
+   loop; it snaps and plays. Drag it to move it, drag an edge to resize,
+   click it to turn looping off and on. Each is one Ctrl+Z. Right-click
+   the brace or the Loop button: punch in and out show as red posts at
+   the loop's edges.
+4. **Locators:** press M while stopped: a flag appears at the playhead.
+   Move the playhead and click Set (top-left). Ctrl+Left and Ctrl+Right,
+   and ◂ ▸, jump between them; clicking a flag jumps there. Drag a flag:
+   it snaps (Alt frees it). Double-click it (or select it and press F2),
+   type a name, Enter. Delete removes the selected one. M on a flag
+   removes it. Save, reopen: the flags are there.
+5. **Scrub, by ear:** stopped, drag slowly along the top of the strip
+   (above the loop band). You hear the beat under the pointer looping at
+   normal pitch, the step lit on the strip; moving to the next step
+   changes cleanly, without clicks. Change the grid to 1/16 and 1 bar and
+   try again: the loops follow the grid. Let go: silence, and the
+   playhead stays there.
+6. **Tape scrub, by ear:** hold Alt and drag: the audio follows your hand,
+   higher and faster when you move fast, backwards when you drag left,
+   silent when you hold still. No clicks when you start, stop or change
+   direction.
+7. **While playing:** drag along the strip: playback jumps from step to
+   step. A click on the strip jumps there too.
+8. Try steps 3 to 5 in the light theme and at 150%.
+
+**Expected:** every step as described; the scrub is clean (no clicks,
+crackles or dropouts) at a 128-sample buffer.
+
+**Last run:** not run yet.
+

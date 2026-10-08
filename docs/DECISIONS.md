@@ -40,6 +40,7 @@ irreversible or external) · *Superseded*.
 | [0027](#adr-0027--waveforms) | Waveforms: 8-bit peak pyramids built at load; drawn per pixel on the GPU from an atlas; disk cache in M9 | Accepted 2026-10-07 | No |
 | [0028](#adr-0028--navigating-the-arrangement) | Navigation: f64 view with split beats on the GPU, zoom to single samples, Ableton keys, Follow (page, on), drag to reorder, sample-level waveforms | Accepted 2026-10-07 | No |
 | [0029](#adr-0029--end-to-end-smoke-tests) | End-to-end smoke tests: the whole app driven by egui_kittest in CI, plus real-binary smoke tests at the end of every slice; isolated settings, autosaves and a silent test device | Accepted 2026-10-08 | No |
+| [0030](#adr-0030--grid-rulers-loop-locators-and-scrubbing) | Grid, rulers, loop, locators and scrubbing (M3 slice 5): a grid model in core, the loop and punch as document edits, punch at the loop's edges, locator keys, both scrub styles in an engine scrub mode | Accepted 2026-10-08 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -1895,3 +1896,77 @@ Both 1 and 3, in two layers:
   real-binary smoke tests and the frame-time benchmark cover it locally.
 - The test device runs one block per 10 ms poll (about a quarter of real
   time), so tests that play wait on positions, never on wall-clock time.
+
+## ADR-0030 — Grid, rulers, loop, locators and scrubbing
+
+**Status:** Accepted · **Date:** 2026-10-08 (M3 slice 5)
+
+### Context
+Slice 5 gives the arrangement its time tools: the editing grid and
+snapping, rulers in several formats, the loop brace and punch, named
+locators, and Ableton-style scrubbing (an owner request raised from S to
+M). The owner chose ruler layout A and both scrub styles from rendered
+specimens (owner-decisions table, "Rulers and scrubbing"). This records
+the choices made inside those.
+
+### Decisions
+- **The grid is a model in `lumen-core`** (`grid::Grid`): adaptive in five
+  widths (6 to 64 points per line) or fixed from 8 bars to 1/64, with
+  triplet and dotted feels and snap on or off. `snap`, `cell` (the step a
+  time falls in) and `lines` are pure and tested, so clip editing (slice 6)
+  and the piano roll (M5) share one implementation. Ableton's keys:
+  Ctrl+1 to Ctrl+5. Alt bypasses snapping everywhere. The grid is saved
+  with the view (format v4).
+- **The loop and punch are document edits** (format v4 makes them part of
+  undo), as in Ableton: drawing, moving, resizing and toggling the loop
+  are undo steps, one per drag. The transport plays whatever the document
+  says (`Transport::follow_loop`, every frame).
+- **Punch in and out sit at the loop's edges**, as in Ableton, instead of
+  a second region: two switches in the loop's menus. Fewer things on the
+  strip, and the loop already marks the take. Recording uses them in M9.
+- **Locators** are `Project.markers` (format v4), kept in time order. Keys
+  (Ableton-compatible where Ableton has one): **M** sets a locator at the
+  playhead or removes the one there (Ableton's "Set" button behaviour);
+  **Ctrl+Left / Ctrl+Right** jump to the previous or next one (Ableton
+  has no default; these are free in Lumen and match common DAWs);
+  **F2** renames and **Delete** removes the selected one, taking
+  precedence over the track keys while a locator is selected. Default
+  names are "Locator N". Marker ids share the project's id space.
+- **Scrubbing is an engine mode** (`Command::Scrub { at, style }`,
+  `Command::EndScrub`; `lumen-engine/src/scrub.rs`), only while stopped;
+  while playing, a drag on the scrub strip jumps playback from step to
+  step instead, as Ableton does.
+  - **Loop** (default): the grid cell under the pointer (`Grid::cell`,
+    whether or not snapping is on), at least 50 ms, loops at normal speed;
+    every pass and every change is enveloped over 2 ms.
+  - **Tape** (Alt): a read head follows the hand with 30 ms of lag and
+    10 ms of inertia, up to 4× speed either way, read from the source in
+    256-frame chunks and resampled linearly; it fades to silence below a
+    quarter of normal speed, so holding still is silent.
+  - A scrub moves the play marker and the playhead to where it is, so
+    letting go leaves the playhead there.
+  - Real-time safe: the buffers are allocated with the engine; the
+    real-time test scrubs both styles under the allocation guard.
+- **The strip** (24 pt) holds the scrub strip and locator flags in its top
+  14 pt and the loop brace in its bottom 10 pt; flags take precedence over
+  scrubbing, and the brace has its own band (DESIGN §7d).
+
+### Consequences
+- `Source::render` is now also called at arbitrary positions while
+  stopped. The clip player already rendered by position; disk streaming
+  (M9) must keep random access cheap or serve scrubs from a cache.
+- Loop and punch changes are undo steps: Ctrl+Z after drawing a loop
+  removes it, which matches Ableton.
+- The performance gate covers the engine with the scrub mode idle: one
+  branch per block.
+
+### Evidence
+- Unit tests: `lumen_core::grid` (10), the scrubber (loop passes, short
+  steps, crossfaded changes, tape speed, backwards, the speed cap, silence
+  when still), locator order and undo, previous and next.
+- Engine tests: `scrubbing_while_stopped_plays_the_step_and_moves_the_markers`,
+  `scrubbing_never_touches_the_heap`.
+- E2E: grid, rulers, looping, locators and scrubbing scenarios
+  (`crates/lumen-app/tests/e2e/`).
+- By ear: MT-APP-13.
+

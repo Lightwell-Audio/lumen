@@ -4,7 +4,8 @@
 use lumen_core::meter::Meter;
 use lumen_core::time::{TempoMap, TempoPoint, Ticks};
 use lumen_engine::{
-    Command, Engine, EngineHandle, Jump, Output, Region, RenderContext, Source, Timeline, engine,
+    Command, Engine, EngineHandle, Jump, Output, Region, RenderContext, ScrubStyle, Source,
+    Timeline, engine,
 };
 
 const RATE: u32 = 48_000;
@@ -331,4 +332,41 @@ fn disabled_or_empty_regions_do_nothing() {
         run(&mut engine, 300_000, 4_096, RATE);
         assert_eq!(engine.source().played.last(), Some(&299_999), "{region:?}");
     }
+}
+
+#[test]
+fn scrubbing_while_stopped_plays_the_step_and_moves_the_markers() {
+    let (mut handle, mut engine) = setup(Timeline::default());
+    let beat = Ticks::quarters(1);
+    let style = ScrubStyle::Loop { length: beat };
+    handle.send(Command::Scrub { at: beat, style }).unwrap();
+    // Half a second plays the beat (24,000 samples at 120 BPM) once, from
+    // where it starts, without the playhead moving on.
+    run(&mut engine, 24_000, 128, RATE);
+    let played = &engine.source().played;
+    assert_eq!(played.first(), Some(&24_000));
+    assert_eq!(played.last(), Some(&47_999));
+    let t = handle.transport();
+    assert!(!t.playing);
+    assert_eq!((t.ticks, t.marker), (beat, beat));
+
+    // Released, it fades out and goes quiet.
+    handle.send(Command::EndScrub).unwrap();
+    run(&mut engine, 1_000, 128, RATE);
+    let heard = engine.source().played.len();
+    run(&mut engine, 1_000, 128, RATE);
+    assert_eq!(engine.source().played.len(), heard, "silent");
+
+    // While playing, a scrub does nothing: the app locates instead.
+    handle.send(Command::Play).unwrap();
+    run(&mut engine, 128, 128, RATE);
+    let at = handle.transport().sample;
+    handle
+        .send(Command::Scrub {
+            at: bars(8),
+            style: ScrubStyle::Tape,
+        })
+        .unwrap();
+    run(&mut engine, 128, 128, RATE);
+    assert_eq!(handle.transport().sample, at + 128);
 }

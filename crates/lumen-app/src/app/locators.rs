@@ -14,7 +14,7 @@ use super::rulers::Layout;
 use crate::{App, motion, ruler, theme, widgets};
 
 /// The flags' height, from the strip's top; the brace takes the rest.
-const FLAG_HEIGHT: f32 = 13.0;
+const FLAG_HEIGHT: f32 = 14.0;
 /// The flag's triangle, and the gap before the name.
 const FLAG_POINT: f32 = 6.0;
 const NAME_GAP: f32 = 3.0;

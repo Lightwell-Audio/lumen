@@ -57,10 +57,12 @@ pub(crate) fn dragged(
 }
 
 impl App {
-    /// The loop brace's interaction, on the strip's lower half.
+    /// The loop brace's interaction, on the strip's bottom band.
     pub(crate) fn loop_brace(&mut self, ui: &mut egui::Ui, painter: &egui::Painter, at: &Layout) {
-        let band =
-            Rect::from_x_y_ranges(at.strip.x_range(), at.strip.center().y..=at.strip.bottom());
+        let band = Rect::from_x_y_ranges(
+            at.strip.x_range(),
+            at.strip.bottom() - super::rulers::BRACE_BAND..=at.strip.bottom(),
+        );
         let id = ui.id().with("loop brace");
         let response = ui
             .interact(band, id, Sense::click_and_drag())
