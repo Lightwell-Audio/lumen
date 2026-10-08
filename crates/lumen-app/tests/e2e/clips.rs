@@ -453,7 +453,11 @@ fn ctrl_alt_slips_the_audio_inside_the_clip() {
     let r = rect(&lumen, kick);
     let start = Pos2::new(r.left() + 2.0, r.center().y);
     lumen.drag(start, start + vec2(zoom, 0.0), Modifiers::NONE);
-    assert_eq!(offset(&lumen, kick), 24_000, "half a second: a quarter at 120 BPM");
+    assert_eq!(
+        offset(&lumen, kick),
+        24_000,
+        "half a second: a quarter at 120 BPM"
+    );
 
     let r = rect(&lumen, kick);
     let p = Pos2::new(r.center().x, top_half(r).y);

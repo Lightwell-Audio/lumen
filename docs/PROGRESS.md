@@ -306,7 +306,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Keyboard-only core flows; accessible control names. Open conflict: Shift+Tab is the spec's detail-panel shortcut and also the standard backward-focus key (ADR-0015). | M | 🔲 |
 | Detachable mixer and editor windows; hover help; welcome screen | S | 🔲 |
 | CPU, disk and dropout indicators; Audio On/Off; panic | M | 🟡 CPU (peak per second), dropouts, Audio On/Off and panic done (M2 slice 7). Disk indicator with disk streaming (M9); MIDI all-notes-off joins panic in M5 |
-| Crash report file; logging with "reveal logs" | M | 🔲 |
+| Crash report file; logging with "reveal logs" | M | 🟡 Crash reports (owner request, M3 6c): a panic on any thread writes what failed, where, the backtrace, the version, the system and the thread to `%LOCALAPPDATA%\Lumen\Crashes`; the next start offers it (Show report, Dismiss). Logging and "reveal logs" later |
 | Device hot-unplug, sleep/resume, rate-change handling | M | 🟡 Unplug and replug recover on ASIO and WASAPI (MT-AUDIO-1, -4); driver resets on ASIO (MT-AUDIO-2). Sleep/resume and Windows format and rate changes recover too (MT-AUDIO-6). Banners for these states (slice 8). macOS and Linux untested on hardware |
 | Single instance; file association; open by double-click or drop | M | 🟡 `lumen <file>.lumen` opens a project (M3 slice 3c). File association with a project file icon in M9 (per user), system-wide by the installer in M10 |
 | App icon and `.lumen` file icon (owner request, 2026-10-07) | S | 🔲 M9, shown as specimens first |

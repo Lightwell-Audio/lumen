@@ -30,6 +30,8 @@ fn lumen(dir: &Path, args: &[&str]) -> String {
         .arg(&settings)
         .arg("--autosave-dir")
         .arg(&autosave)
+        .arg("--crash-dir")
+        .arg(dir.join("crashes"))
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -179,4 +181,39 @@ fn the_light_theme_at_200_percent_draws() {
     );
     assert!(out.contains("screenshot saved"), "{out}");
     assert!(colours(&shot) > 20, "the window looks blank");
+}
+
+/// A panic leaves a crash report naming what failed and where, and the
+/// next start offers it (owner, M3 slice 6c).
+#[test]
+#[ignore = "runs the real binary; needs a desktop and a GPU"]
+fn a_panic_leaves_a_crash_report() {
+    let dir = TempDir::new("smoke-crash");
+    let crashes = dir.path().join("crashes");
+    let status = Command::new(env!("CARGO_BIN_EXE_lumen"))
+        .args(["--audio", "test:fake", "--crash-test"])
+        .arg("--settings")
+        .arg(dir.path().join("settings.json"))
+        .arg("--autosave-dir")
+        .arg(dir.path().join("autosave"))
+        .arg("--crash-dir")
+        .arg(&crashes)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("start lumen");
+    assert!(!status.success(), "--crash-test must end in a crash");
+    let reports: Vec<PathBuf> = std::fs::read_dir(&crashes)
+        .expect("a crash folder")
+        .filter_map(|e| Some(e.ok()?.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "txt"))
+        .collect();
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    let report = std::fs::read_to_string(&reports[0]).unwrap();
+    assert!(
+        report.contains("What:     --crash-test: a deliberate panic"),
+        "{report}"
+    );
+    assert!(report.contains("Where:    crates"), "{report}");
+    assert!(report.contains("Backtrace:"), "{report}");
 }

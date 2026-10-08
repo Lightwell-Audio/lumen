@@ -94,3 +94,19 @@ fn work_survives_a_crash_through_the_autosave() {
         "recovered work is unsaved until saved"
     );
 }
+
+/// A crash report from an earlier run is offered once (owner, M3 6c).
+#[test]
+fn a_crash_report_from_last_time_is_offered_once() {
+    let dir = lumen_project::testing::TempDir::new("e2e-crash-report");
+    let crashes = dir.path().join("crashes");
+    std::fs::create_dir_all(&crashes).unwrap();
+    std::fs::write(crashes.join("crash-001791468187.txt"), "Lumen crash report").unwrap();
+    let mut lumen = Lumen::start_with(dir, |launch| launch);
+    assert!(lumen.shows("Dismiss"), "the crash banner");
+    lumen.click("Dismiss");
+    assert!(!lumen.shows("Dismiss"));
+    let dir = lumen.crash();
+    let again = Lumen::start_with(dir, |launch| launch);
+    assert!(!again.shows("Dismiss"), "shown once");
+}

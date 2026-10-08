@@ -491,7 +491,8 @@ it first in a new session, and update it at the end of every slice.
   (`cargo test -p lumen-app --test smoke -- --ignored`) pass, and the
   slice adds E2E scenarios for what it delivered. Run Lumen by hand for
   screenshots only with `--audio test:fake --settings ... --autosave-dir
-  ...`, never with the owner's settings, autosaves or device.
+  ... --crash-dir ...`, never with the owner's settings, autosaves, crash
+  reports or device. Crash reports (`crash.rs`) say what failed and where.
 - **Before pushing platform-specific code:** run the WSL Linux mirror
   (`clippy.sh`, and `perf.sh` when engine or project code changes) and the
   macOS cross-target clippy. See DEVELOPMENT.md.

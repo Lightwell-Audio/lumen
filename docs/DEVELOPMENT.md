@@ -172,7 +172,11 @@ cargo test -p lumen-app --test smoke -- --ignored             # the real binary,
 - **Isolation:** both use the silent test device, their own settings file
   and their own autosave folder. Do the same when running Lumen by hand
   for screenshots:
-  `target/debug/lumen.exe --audio test:fake --settings <dir>/settings.json --autosave-dir <dir>/autosave ...`
+  `target/debug/lumen.exe --audio test:fake --settings <dir>/settings.json --autosave-dir <dir>/autosave --crash-dir <dir>/crashes ...`
+- **Crash reports:** a panic writes `crash-<time>.txt` (what, where,
+  backtrace, version, system, thread) to `%LOCALAPPDATA%\Lumen\Crashes`
+  (or `--crash-dir`), and the next start offers it. `--crash-test` panics
+  on the first frame to check the path; the smoke tests do.
 - **Hovers, drags and selections by eye** (`crates/lumen-app/tests/shots.rs`):
   states a `--screenshot` cannot reach, rendered headless with the GPU
   (clips, waveforms and grid included) to PNG files. Ignored in CI; add a

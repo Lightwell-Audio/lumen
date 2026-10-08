@@ -85,6 +85,38 @@ impl App {
         }
     }
 
+    /// A crash report from an earlier run: offered once, to show or
+    /// dismiss (owner, M3 slice 6c).
+    pub(crate) fn crash_banner(&mut self, ui: &mut egui::Ui) {
+        let Some(report) = self.crash_report.clone() else {
+            return;
+        };
+        let mut done = false;
+        egui::Panel::top("crash banner").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("\u{26A0}").color(theme::p().warning));
+                ui.label(format!(
+                    "{PRODUCT_NAME} closed unexpectedly last time. A crash report was saved."
+                ));
+                if ui
+                    .button("Show report")
+                    .on_hover_text(report.display().to_string())
+                    .clicked()
+                {
+                    crate::crash::reveal(&report);
+                    done = true;
+                }
+                if ui.button("Dismiss").clicked() {
+                    done = true;
+                }
+            });
+        });
+        if done {
+            crate::crash::mark_seen(&report);
+            self.crash_report = None;
+        }
+    }
+
     /// The newest autosave left by another session, if any.
     pub(crate) fn next_leftover(&self) -> Option<autosave::Leftover> {
         let autosave = self.autosave.as_ref()?;

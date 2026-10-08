@@ -28,6 +28,8 @@ impl Launch {
             audio: audio::Choice::test_device(),
             autosave_dir: Some(dir.join("autosave")),
             autosave_after: None,
+            crash_dir: Some(dir.join("crashes")),
+            crash_test: false,
             open: None,
             open_audio: None,
             stress: false,

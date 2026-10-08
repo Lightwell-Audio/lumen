@@ -36,6 +36,7 @@ mod audio_settings;
 mod autosave;
 mod bench;
 mod canvas;
+mod crash;
 mod document;
 mod files;
 mod fonts;
@@ -105,6 +106,9 @@ pub struct App {
     autosave: Option<autosave::Autosave>,
     /// An autosave left by a crash, offered for recovery.
     leftover: Option<autosave::Leftover>,
+    /// A crash report from an earlier run not shown yet, and `--crash-test`.
+    crash_report: Option<PathBuf>,
+    crash_test: bool,
     /// The leftover being recovered (its open is in progress).
     recovering: Option<autosave::Leftover>,
     transport: Transport,
@@ -243,6 +247,7 @@ impl eframe::App for App {
             self.owner = owner::Owner::of(frame);
         }
         let ctx = ui.ctx().clone();
+        assert!(!self.crash_test, "--crash-test: a deliberate panic");
         self.drive_bench(&ctx);
         self.hint = None;
         self.transport.update();
@@ -333,6 +338,7 @@ impl eframe::App for App {
 
         egui::Panel::top("transport").show(ui, |ui| self.transport(ui));
         self.device_banner(ui);
+        self.crash_banner(ui);
         self.file_banner(ui);
         self.recovery_banner(ui);
         self.transport.windows(&ctx);
@@ -549,6 +555,8 @@ impl App {
             owner: None,
             autosave: None,
             leftover: None,
+            crash_report: launch.crash_dir.as_deref().and_then(crash::unseen),
+            crash_test: launch.crash_test,
             recovering: None,
             show_browser: true,
             show_detail: true,
@@ -618,6 +626,9 @@ pub fn run() -> eframe::Result {
         std::process::exit(probe::run_helper(clsid));
     }
     let launch = Launch::from_args();
+    if let Some(dir) = &launch.crash_dir {
+        crash::install(dir.clone());
+    }
     let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(display_name())

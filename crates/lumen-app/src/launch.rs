@@ -20,6 +20,10 @@ pub struct Launch {
     /// Where autosaves go; `None` turns autosave off.
     pub(crate) autosave_dir: Option<PathBuf>,
     pub(crate) autosave_after: Option<Duration>,
+    /// Where crash reports go (`--crash-dir`); `None`: nowhere.
+    pub(crate) crash_dir: Option<PathBuf>,
+    /// `--crash-test`: panic on the first frame, to check crash reports.
+    pub(crate) crash_test: bool,
     /// A project to open (`lumen song.lumen`).
     pub(crate) open: Option<PathBuf>,
     /// `--open-audio`: an audio file added at bar 1.
@@ -86,6 +90,10 @@ impl Launch {
             autosave_dir: value("--autosave-dir")
                 .map(PathBuf::from)
                 .or_else(crate::autosave::default_dir),
+            crash_dir: value("--crash-dir")
+                .map(PathBuf::from)
+                .or_else(crate::crash::default_dir),
+            crash_test: has("--crash-test"),
             autosave_after: value("--autosave-after-ms")
                 .and_then(|v| v.parse().ok())
                 .map(Duration::from_millis),
