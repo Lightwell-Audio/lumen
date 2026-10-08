@@ -18,6 +18,7 @@
 
 mod clips;
 mod headers;
+mod reorder;
 mod waves;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -100,6 +101,8 @@ pub struct Arrangement {
     /// Heights, folding and scroll before H fitted every track (H again
     /// restores them).
     fitted: Option<(BTreeMap<Id, f32>, BTreeSet<Id>, f32)>,
+    /// Tracks being dragged to a new place (slice 4d).
+    drag: Option<reorder::Drag>,
 }
 
 /// The tallest whole-step height at which `count` tracks fit in `visible`

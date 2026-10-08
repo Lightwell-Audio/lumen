@@ -125,7 +125,7 @@ impl Arrangement {
         let modifiers = ui.input(|i| i.modifiers);
         let audible = audible(doc.project());
         let mut hot_edge = None;
-        for row in rows {
+        for &row in &rows {
             let rect = Rect::from_min_size(
                 pos2(column.left(), column.top() + row.y - self.top),
                 vec2(column.width(), row.height),
@@ -163,7 +163,8 @@ impl Arrangement {
             let heard = audible(&track);
 
             // Background: click to select, right-click for the menu.
-            let background = ui.interact(rect, id, Sense::click());
+            // Click to select; drag to move (the selection, or this track).
+            let background = ui.interact(rect, id, Sense::click_and_drag());
             background.widget_info(|| {
                 egui::WidgetInfo::selected(
                     egui::WidgetType::SelectableLabel,
@@ -174,6 +175,9 @@ impl Arrangement {
             });
             if background.clicked() {
                 self.click_select(doc.project(), track.id, modifiers);
+            }
+            if background.drag_started() {
+                self.start_drag(doc.project(), track.id);
             }
             background.context_menu(|ui| {
                 if !self.selected.contains(&track.id) {
@@ -398,6 +402,20 @@ impl Arrangement {
             column.y_range(),
             Stroke::new(1.0, palette.border),
         );
+        // Dragged tracks are dimmed; the line shows where they will land.
+        for row in &rows {
+            if let RowKind::Track(index) = row.kind
+                && self.is_dragged(doc.project().tracks[index].id)
+            {
+                let rect = Rect::from_min_size(
+                    pos2(column.left(), column.top() + row.y - self.top),
+                    vec2(column.width(), row.height),
+                );
+                painter.rect_filled(rect, 0.0, palette.header.gamma_multiply(0.6));
+            }
+        }
+        self.follow_drag(ui, column, &rows, content, doc);
+        self.draw_drop_line(&painter, column);
     }
 
     /// The name, or the rename field. Double-click to rename; Enter or

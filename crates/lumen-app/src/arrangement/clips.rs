@@ -269,6 +269,8 @@ impl Arrangement {
                 draw_edge_glow(painter, canvas.x_range(), lane.bottom(), t);
             }
         }
+        // The drop line of a track drag continues across the lanes.
+        self.draw_drop_line(painter, canvas);
     }
 
     /// Rebuilds the GPU boxes if the project, the media or the theme
