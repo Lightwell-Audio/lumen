@@ -3,13 +3,20 @@ struct Layer {
     left: f32, ppu: f32, top: f32,
     wave_top: f32, wave_bottom: f32, side: f32, split_below: f32,
     left_frac: f32,
-    // Floats, not a vec2 or vec3, which would align to 8 or 16 bytes.
-    pad0: f32, pad1: f32,
+    // 1 while any wave is drawn sample by sample; otherwise the strip
+    // table is not read at all.
+    strips_on: f32,
+    // A float, not a vec, which would change the alignment.
+    pad1: f32,
 };
 @group(0) @binding(0) var<uniform> l: Layer;
 @group(0) @binding(1) var rows: texture_2d<f32>;
 @group(0) @binding(2) var atlas: texture_2d<f32>;
 @group(0) @binding(3) var table: texture_2d<u32>;
+// Deep zoom: samples (left, right) and, per wave instance, where its strip is:
+// first texel, count, viewport x of the first sample, pixels per sample.
+@group(0) @binding(4) var strips: texture_2d<i32>;
+@group(0) @binding(5) var strip_table: texture_2d<u32>;
 
 // Beats arrive split into whole and fractional parts, and so does the view's
 // left edge: subtracting the parts separately stays exact deep into a long
@@ -37,10 +44,11 @@ struct Out {
     @location(3) @interpolate(flat) wave: vec4<f32>,
     @location(4) @interpolate(flat) slot: u32,
     @location(5) @interpolate(flat) channels: u32,
+    @location(6) @interpolate(flat) index: u32,
 };
 
 @vertex
-fn vs_main(@builtin(vertex_index) v: u32, w: Wave) -> Out {
+fn vs_main(@builtin(vertex_index) v: u32, @builtin(instance_index) index: u32, w: Wave) -> Out {
     var out: Out;
     let slot = textureLoad(rows, vec2<i32>(i32(w.row % 256u), i32(w.row / 256u)), 0);
     // Everything on whole pixels, as the clip box is: while scrolling, the
@@ -65,11 +73,26 @@ fn vs_main(@builtin(vertex_index) v: u32, w: Wave) -> Out {
     out.wave = vec4<f32>(0.0, w.first_frame, w.frames_per_beat, edge);
     out.slot = w.slot;
     out.channels = w.channels;
+    out.index = index;
     return out;
 }
 
 fn texel(i: u32) -> vec4<f32> {
     return textureLoad(atlas, vec2<i32>(i32(i % ATLAS_WIDE), i32(i / ATLAS_WIDE)), 0);
+}
+
+fn sample(first: u32, k: u32) -> vec2<f32> {
+    let i = first + k;
+    let v = textureLoad(strips, vec2<i32>(i32(i % ATLAS_WIDE), i32(i / ATLAS_WIDE)), 0).xy;
+    return vec2<f32>(v) / 32767.0;
+}
+
+// The line through the samples at fractional sample `s` (clamped to the strip).
+fn line_at(first: u32, count: u32, s: f32) -> vec2<f32> {
+    let at = clamp(s, 0.0, f32(count - 1u));
+    let k = u32(floor(at));
+    let next = min(k + 1u, count - 1u);
+    return mix(sample(first, k), sample(first, next), at - f32(k));
 }
 
 // How much of the pixel row [py - 0.5, py + 0.5] lies in [top, bottom],
@@ -82,6 +105,37 @@ fn cover(py: f32, top: f32, bottom: f32) -> f32 {
 
 @fragment
 fn fs_main(i: Out) -> @location(0) vec4<f32> {
+    var lo = vec2<f32>(1.0);
+    var hi = vec2<f32>(-1.0);
+    var strip = vec4<u32>(0u);
+    if (l.strips_on > 0.5) {
+        strip = textureLoad(strip_table, vec2<i32>(i32(i.index % 256u), i32(i.index / 256u)), 0);
+    }
+    if (strip.y > 1u) {
+        // Deep zoom: the line through the samples under this pixel (its
+        // ends, and every sample between). Positions come from the app in
+        // viewport pixels, so they stay exact deep into a long file.
+        let first_x = bitcast<f32>(strip.z);
+        let per = bitcast<f32>(strip.w);
+        let s0 = (i.px.x - 0.5 - first_x) / per;
+        let s1 = (i.px.x + 0.5 - first_x) / per;
+        if (s1 < 0.0 || s0 > f32(strip.y - 1u)) {
+            discard;
+        }
+        let a = line_at(strip.x, strip.y, s0);
+        let b = line_at(strip.x, strip.y, s1);
+        lo = min(a, b);
+        hi = max(a, b);
+        let k0 = u32(max(ceil(s0), 0.0));
+        let k1 = u32(clamp(floor(s1), 0.0, f32(strip.y - 1u)));
+        // Up to 16 samples under a pixel (sample level starts there).
+        for (var k = k0; k <= min(k1, k0 + 16u); k++) {
+            let v = sample(strip.x, k);
+            lo = min(lo, v);
+            hi = max(hi, v);
+        }
+        return shade(i, lo, hi);
+    }
     // The frames under this pixel: columns are counted from the clip's
     // pixel edge, so column k always shows the same frames at this zoom,
     // wherever the view has scrolled to.
@@ -103,14 +157,17 @@ fn fs_main(i: Out) -> @location(0) vec4<f32> {
     if (last < 0 || first >= i32(count)) {
         discard;
     }
-    var lo = vec2<f32>(1.0);
-    var hi = vec2<f32>(-1.0);
     // At most 17 buckets: 4 to 16 under the pixel, and one it straddles.
     for (var b = max(first, 0); b <= min(last, min(first + 17, i32(count) - 1)); b++) {
         let t = texel(entry.x + u32(b));
         lo = min(lo, t.xz);
         hi = max(hi, t.yw);
     }
+    return shade(i, lo, hi);
+}
+
+// The pixel's colour for a waveform spanning `lo` to `hi` (left, right).
+fn shade(i: Out, lo: vec2<f32>, hi: vec2<f32>) -> vec4<f32> {
     let y = i.px.y;
     let top = i.area.y;
     let height = i.area.w - i.area.y;

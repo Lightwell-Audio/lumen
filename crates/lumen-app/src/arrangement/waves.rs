@@ -8,6 +8,8 @@ use lumen_core::time::{TempoMap, Ticks};
 use lumen_project::model::{ClipContent, Project};
 use lumen_render::{WaveInstance, beats, rgba};
 
+use super::samples::Geometry;
+
 /// What the waveform of a media file needs: its atlas slot, how many
 /// channels to show, and the file's own sample rate.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -17,16 +19,23 @@ pub struct Source {
     pub native_rate: u32,
 }
 
+/// A wave for the GPU, and its exact place for drawing sample by sample.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Wave {
+    pub instance: WaveInstance,
+    pub geometry: Geometry,
+}
+
 /// The waves for every audio clip whose peaks are loaded (`source` gives
 /// them by media id), with frames at the device `rate` as the audio is
 /// held. A clip spanning tempo changes gets one wave per constant tempo,
 /// since audio plays at its own speed while beats stretch.
-pub fn wave_instances(
+pub(super) fn wave_instances(
     project: &Project,
     rate: u32,
     source: impl Fn(u64) -> Option<Source>,
     color: impl Fn(usize) -> Color32,
-) -> Vec<WaveInstance> {
+) -> Vec<Wave> {
     let Ok(tempo) = TempoMap::new(project.tempo.clone()) else {
         return Vec::new();
     };
@@ -58,15 +67,26 @@ pub fn wave_instances(
                     continue;
                 }
                 let frames = (tempo.sample_at(to, rate) - tempo.sample_at(from, rate)) as f64;
-                waves.push(WaveInstance {
-                    start: beats(from.as_quarters()),
-                    end: beats(to.as_quarters()),
-                    row: row as u32,
-                    slot: source.slot,
-                    first_frame: (offset + (tempo.sample_at(from, rate) - at_start) as f64) as f32,
-                    frames_per_beat: (frames / length) as f32,
-                    color: rgba(r, g, b, a),
-                    channels: source.channels,
+                let first_frame = offset + (tempo.sample_at(from, rate) - at_start) as f64;
+                waves.push(Wave {
+                    instance: WaveInstance {
+                        start: beats(from.as_quarters()),
+                        end: beats(to.as_quarters()),
+                        row: row as u32,
+                        slot: source.slot,
+                        first_frame: first_frame as f32,
+                        frames_per_beat: (frames / length) as f32,
+                        color: rgba(r, g, b, a),
+                        channels: source.channels,
+                    },
+                    geometry: Geometry {
+                        media: media.0,
+                        row: row as u32,
+                        start: from.as_quarters(),
+                        first_frame,
+                        frames_per_beat: frames / length,
+                        frames,
+                    },
                 });
                 from = to;
             }
@@ -114,7 +134,7 @@ mod tests {
     }
 
     fn waves(project: &Project, native_rate: u32) -> Vec<WaveInstance> {
-        wave_instances(
+        let waves = wave_instances(
             project,
             48_000,
             |media| {
@@ -125,7 +145,8 @@ mod tests {
                 })
             },
             |_| Color32::WHITE,
-        )
+        );
+        waves.into_iter().map(|w| w.instance).collect()
     }
 
     fn bpm(at: i64, bpm: f64) -> TempoPoint {

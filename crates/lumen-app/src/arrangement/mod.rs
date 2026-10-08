@@ -19,7 +19,10 @@
 mod clips;
 mod headers;
 mod reorder;
+mod samples;
 mod waves;
+
+pub use samples::Update as StripUpdate;
 
 use std::collections::{BTreeMap, BTreeSet};
 

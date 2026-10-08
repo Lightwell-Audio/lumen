@@ -23,6 +23,11 @@ pub const MAX_LEVELS: usize = 8;
 
 /// Atlas texels per row; the atlas is a linear run of texels.
 const ATLAS_WIDE: u32 = 4096;
+/// Samples the sample atlas holds (left and right, 16 bits each: 8 MB).
+/// The app hands out space within it and starts over when it is full.
+pub const STRIP_CAPACITY: u32 = ATLAS_WIDE * 512;
+/// Strip table entries per texture row.
+const STRIPS_WIDE: u32 = 256;
 /// The atlas never grows past this many rows (4096 × 8192 texels, 128 MB).
 const ATLAS_MAX_ROWS: u32 = 8192;
 
@@ -68,7 +73,19 @@ pub(crate) struct Waves {
     /// Per slot and level: first texel and bucket count. Kept here so the
     /// table can be rewritten when it grows.
     entries: Vec<[[u32; 2]; MAX_LEVELS]>,
+    /// Samples for waves drawn at sample level ([`STRIP_CAPACITY`]), and
+    /// per wave where its strip is ([`StripEntry`]).
+    strips: wgpu::Texture,
+    strip_table: wgpu::Texture,
+    /// Some wave has a strip: the shader reads the table only then.
+    pub(crate) strips_on: bool,
 }
+
+/// Where a wave's samples are, for drawing it sample by sample: first
+/// texel and sample count in the sample atlas, then the viewport x of the
+/// first sample and pixels per sample (as `f32` bits). A count of 0 draws
+/// the wave from its peaks.
+pub type StripEntry = [u32; 4];
 
 // Matches the shader's uniform block, or the build fails.
 const _: () = assert!(size_of::<WaveUniform>() == crate::shaders::WAVES_UNIFORM);
@@ -87,7 +104,8 @@ pub(crate) struct WaveUniform {
     side: f32,
     split_below: f32,
     left_frac: f32,
-    _pad: [f32; 2],
+    strips_on: f32,
+    _pad: f32,
 }
 
 pub(crate) const WAVE_SHADER: &str = crate::shaders::WAVES;
@@ -125,6 +143,8 @@ impl WavePipeline {
                 texture(1, wgpu::TextureSampleType::Float { filterable: false }),
                 texture(2, wgpu::TextureSampleType::Float { filterable: false }),
                 texture(3, wgpu::TextureSampleType::Uint),
+                texture(4, wgpu::TextureSampleType::Sint),
+                texture(5, wgpu::TextureSampleType::Uint),
             ],
         });
         let pipeline = pipeline(
@@ -165,6 +185,42 @@ fn atlas_texture(device: &wgpu::Device, rows: u32) -> wgpu::Texture {
         usage: wgpu::TextureUsages::TEXTURE_BINDING
             | wgpu::TextureUsages::COPY_DST
             | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    })
+}
+
+fn sample_texture(device: &wgpu::Device, rows: u32) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("lumen samples"),
+        size: wgpu::Extent3d {
+            width: ATLAS_WIDE,
+            height: rows,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        // Integers, scaled in the shader: 16-bit normalised formats need
+        // an optional GPU feature.
+        format: wgpu::TextureFormat::Rg16Sint,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    })
+}
+
+fn strip_table_texture(device: &wgpu::Device, rows: u32) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("lumen sample strips"),
+        size: wgpu::Extent3d {
+            width: STRIPS_WIDE,
+            height: rows,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba32Uint,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     })
 }
@@ -252,7 +308,51 @@ impl Waves {
             used: 0,
             table: table_texture(device, 64),
             entries: Vec::new(),
+            strips: sample_texture(device, 1),
+            strip_table: strip_table_texture(device, 1),
+            strips_on: false,
         }
+    }
+
+    /// Puts sample strips in place: `writes` are `(first texel, samples)`
+    /// within [`STRIP_CAPACITY`]; `table` has an entry per wave instance
+    /// (missing ones draw from peaks).
+    pub(crate) fn set_strips(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        table: &[StripEntry],
+        writes: &[(u32, &[[i16; 2]])],
+    ) {
+        if !writes.is_empty() && self.strips.height() == 1 {
+            self.strips = sample_texture(device, STRIP_CAPACITY / ATLAS_WIDE);
+        }
+        for (start, samples) in writes {
+            if start + samples.len() as u32 <= STRIP_CAPACITY {
+                write_span(queue, &self.strips, *start, bytemuck::cast_slice(samples));
+            }
+        }
+        self.strips_on = table.iter().any(|e| e[1] > 1);
+        let rows = (table.len() as u32).div_ceil(STRIPS_WIDE).max(1);
+        if rows > self.strip_table.height() {
+            self.strip_table = strip_table_texture(device, rows.next_power_of_two());
+        }
+        let mut data = table.to_vec();
+        data.resize((rows * STRIPS_WIDE) as usize, [0; 4]);
+        queue.write_texture(
+            self.strip_table.as_image_copy(),
+            bytemuck::cast_slice(&data),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(STRIPS_WIDE * 16),
+                rows_per_image: Some(rows),
+            },
+            wgpu::Extent3d {
+                width: STRIPS_WIDE,
+                height: rows,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 
     pub(crate) fn count(&self) -> u32 {
@@ -384,6 +484,12 @@ impl Waves {
         let table = self
             .table
             .create_view(&wgpu::TextureViewDescriptor::default());
+        let strips = self
+            .strips
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let strip_table = self
+            .strip_table
+            .create_view(&wgpu::TextureViewDescriptor::default());
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("lumen waves"),
             layout,
@@ -404,6 +510,14 @@ impl Waves {
                     binding: 3,
                     resource: wgpu::BindingResource::TextureView(&table),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&strips),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&strip_table),
+                },
             ],
         })
     }
@@ -415,6 +529,7 @@ pub(crate) fn uniform(
     area: crate::Area,
     view: crate::View,
     style: WaveStyle,
+    strips_on: bool,
 ) -> WaveUniform {
     WaveUniform {
         canvas: [canvas[0] as f32, canvas[1] as f32],
@@ -428,7 +543,8 @@ pub(crate) fn uniform(
         side: style.side,
         split_below: style.split_below,
         left_frac: beats(view.left)[1],
-        _pad: [0.0; 2],
+        strips_on: if strips_on { 1.0 } else { 0.0 },
+        _pad: 0.0,
     }
 }
 

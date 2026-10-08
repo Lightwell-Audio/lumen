@@ -228,6 +228,8 @@ pub fn grid_shape(
 /// only when they change (`generation` says when), and where each row is
 /// this frame.
 pub struct ClipFrame {
+    /// Samples for waves drawn sample by sample, when they change.
+    pub strips: Option<crate::arrangement::StripUpdate>,
     pub boxes: Arc<Vec<BoxInstance>>,
     pub waves: Arc<Vec<WaveInstance>>,
     /// Every peak slot the waves may use; the GPU side uploads the ones it
@@ -282,6 +284,15 @@ impl egui_wgpu::CallbackTrait for ClipsCallback {
             r.clips_generation = Some(frame.generation);
         }
         r.renderer.update_rows(device, queue, r.clips, &frame.rows);
+        if let Some(strips) = &frame.strips {
+            let writes: Vec<(u32, &[[i16; 2]])> = strips
+                .writes
+                .iter()
+                .map(|(at, samples)| (*at, samples.as_slice()))
+                .collect();
+            r.renderer
+                .update_strips(device, queue, r.clips, &strips.table, &writes);
+        }
         let ppp = self.pixels_per_point;
         let area = self.port.area();
         let view = View {

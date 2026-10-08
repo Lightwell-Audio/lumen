@@ -16,6 +16,7 @@ use lumen_media::Peaks;
 use lumen_project::model::{Clip, ClipContent, Project};
 use lumen_render::{BoxInstance, RowSlot, WaveInstance, WaveStyle, beats, rgba};
 
+use super::samples::{Geometry, Pixels, Strips};
 use super::waves::{Source, wave_instances};
 use super::{Arrangement, Row, RowKind, TITLE, color_of};
 use crate::canvas::{self, ClipFrame};
@@ -54,6 +55,10 @@ fn span(view: TimeView, canvas: Rect, clip: &Clip) -> (f32, f32) {
 pub(super) struct GpuClips {
     boxes: Arc<Vec<BoxInstance>>,
     waves: Arc<Vec<WaveInstance>>,
+    /// Each wave's exact place, and the samples of those drawn sample by
+    /// sample (slice 4d).
+    geometry: Vec<Geometry>,
+    strips: Strips,
     generation: u64,
     /// Peak slots by the peaks they hold (files with the same peaks share
     /// one), and the list the GPU side uploads from.
@@ -70,7 +75,12 @@ pub(super) struct GpuClips {
 impl GpuClips {
     /// The waves of every audio clip whose peaks are ready at `rate`, giving
     /// each set of peaks a slot (shared peaks share one).
-    fn waves_for(&mut self, project: &Project, rate: u32, lanes: &Lanes) -> Vec<WaveInstance> {
+    fn waves_for(
+        &mut self,
+        project: &Project,
+        rate: u32,
+        lanes: &Lanes,
+    ) -> Vec<super::waves::Wave> {
         let mut sources = HashMap::new();
         for item in lanes.library.items() {
             let (State::Ready(audio), Some(peaks)) = (&item.state, &item.peaks) else {
@@ -182,10 +192,36 @@ impl Arrangement {
                 RowKind::Pending(_) => None,
             })
             .collect();
+        // Deep zoom: the visible samples of waves past the peaks' detail.
+        let top = self.top;
+        let shown = |r: &&Row| r.y - top < canvas.height() && r.y + r.height - top > 0.0;
+        let visible = match (
+            rows.iter().position(|r| shown(&r)),
+            rows.iter().rposition(|r| shown(&r)),
+        ) {
+            (Some(a), Some(b)) => a as u32..b as u32 + 1,
+            _ => 0..0,
+        };
+        let left_px = f64::from(canvas.left() * ppp);
+        let strips = self.gpu.strips.update(
+            &self.gpu.geometry,
+            visible,
+            Pixels {
+                left: time.left,
+                per_beat: time.zoom * f64::from(ppp),
+                origin: left_px - left_px.round(),
+                width: f64::from(canvas.width() * ppp),
+            },
+            |media| match lanes.library.get(media).map(|i| &i.state) {
+                Some(State::Ready(audio)) => Some(Arc::clone(audio)),
+                _ => None,
+            },
+        );
         painter.add(canvas::clips_shape(
             canvas,
             ppp,
             ClipFrame {
+                strips,
                 boxes: Arc::clone(&self.gpu.boxes),
                 waves: Arc::clone(&self.gpu.waves),
                 peaks: Arc::clone(&self.gpu.peaks),
@@ -304,7 +340,9 @@ impl Arrangement {
         let waves = self.gpu.waves_for(project, rate, lanes);
         let gpu = &mut self.gpu;
         gpu.boxes = Arc::new(boxes);
-        gpu.waves = Arc::new(waves);
+        gpu.geometry = waves.iter().map(|w| w.geometry).collect();
+        gpu.waves = Arc::new(waves.into_iter().map(|w| w.instance).collect());
+        gpu.strips.reset();
         gpu.generation += 1;
         gpu.built = Some(key);
         gpu.moving = moving;

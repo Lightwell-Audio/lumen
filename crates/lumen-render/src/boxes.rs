@@ -12,7 +12,7 @@
 use bytemuck::{Pod, Zeroable};
 use vello::wgpu;
 
-use crate::waves::{self, WaveInstance, WaveStyle, Waves};
+use crate::waves::{self, StripEntry, WaveInstance, WaveStyle, Waves};
 use crate::{Area, Beats, Prepared, Renderer, View, beats, pipeline};
 
 /// One box: a time range (timeline units, as [`View::left`]) on row slot
@@ -273,6 +273,21 @@ impl Renderer {
             .set_peaks(device, queue, slot, levels)
     }
 
+    /// Sample strips for waves drawn sample by sample (deep zoom): see
+    /// [`StripEntry`].
+    pub fn update_strips(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        id: BoxLayerId,
+        table: &[StripEntry],
+        writes: &[(u32, &[[i16; 2]])],
+    ) {
+        self.box_layers[id.0]
+            .waves
+            .set_strips(device, queue, table, writes);
+    }
+
     /// Replaces a layer's row slots (every frame, if rows move).
     pub fn update_rows(
         &mut self,
@@ -355,7 +370,11 @@ impl Renderer {
                     let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("lumen waves view"),
                         contents: bytemuck::bytes_of(&waves::uniform(
-                            canvas, area, view, draw.waves,
+                            canvas,
+                            area,
+                            view,
+                            draw.waves,
+                            layer.waves.strips_on,
                         )),
                         usage: wgpu::BufferUsages::UNIFORM,
                     });

@@ -23,7 +23,9 @@ mod shaders {
 const _: () = assert!(size_of::<LayerUniform>() == shaders::RECTS_UNIFORM);
 
 pub use boxes::{BoxDraw, BoxInstance, BoxLayerId, BoxStyle, RowSlot};
-pub use waves::{MAX_LEVELS, PEAK_BASE, PEAK_FACTOR, WaveInstance, WaveStyle};
+pub use waves::{
+    MAX_LEVELS, PEAK_BASE, PEAK_FACTOR, STRIP_CAPACITY, StripEntry, WaveInstance, WaveStyle,
+};
 
 use bytemuck::{Pod, Zeroable};
 use vello::wgpu;
