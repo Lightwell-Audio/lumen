@@ -19,6 +19,13 @@
 //! A clip can fade in and out in any [`FadeShape`] and repeat its content
 //! (loop-extend, M3 slice 6). Each repeat gets the 2 ms edge fades, so the
 //! seams never click. Clips with neither take the plain path.
+//!
+//! A clip that moves, is trimmed or slipped, or goes away while playing
+//! crossfades over 5 ms: its old placement fades out while the new one
+//! fades in, so a clip dragged under the playhead never clicks (owner,
+//! after M3 slice 6c: dragging a playing clip crackled). Clips whose
+//! placement did not change play straight through. New lists wait while a
+//! crossfade runs, so at most two lists play at once.
 
 use std::sync::Arc;
 
@@ -33,6 +40,8 @@ const FADE_PER_SECOND: u32 = 500;
 /// How fast a level glides: full scale in 20 ms (owner: pan and volume
 /// drags crackled while the level stepped once per screen frame).
 const GLIDE_PER_SECOND: f32 = 50.0;
+/// A clip list change that moves clips crossfades over 5 ms.
+const SWAP_PER_SECOND: u32 = 200;
 const QUEUE: usize = 4;
 
 /// Audio for clips, channel after channel, at `sample_rate`.
@@ -123,6 +132,9 @@ struct ClipSet {
     levels: Vec<[f32; 2]>,
     /// `(id, index)` sorted by id, to carry levels into the next list.
     by_id: Vec<(u64, u32)>,
+    /// Per clip, set when the list arrives: in the new list, the clip moved
+    /// and fades in; in the old one, it moved or went away and fades out.
+    swapped: Vec<bool>,
 }
 
 impl ClipSet {
@@ -136,14 +148,19 @@ impl ClipSet {
         by_id.sort_unstable();
         Self {
             levels: vec![[f32::NAN; 2]; clips.len()],
+            swapped: vec![false; clips.len()],
             clips,
             by_id,
         }
     }
 
-    /// Carries the levels of clips that are in both lists from `old`.
+    /// Carries the levels of clips that are in both lists from `old`, and
+    /// marks the clips that must crossfade: those that moved (in both
+    /// lists) and those that went away (in `old`). Returns whether any did.
     /// Real-time safe: one merge over two sorted lists.
-    fn carry_levels(&mut self, old: &ClipSet) {
+    fn carry_levels(&mut self, old: &mut ClipSet) -> bool {
+        self.swapped.fill(false);
+        old.swapped.fill(true);
         let (mut i, mut j) = (0, 0);
         while let (Some(&(new_id, new_index)), Some(&(old_id, old_index))) =
             (self.by_id.get(i), old.by_id.get(j))
@@ -152,12 +169,29 @@ impl ClipSet {
                 std::cmp::Ordering::Less => i += 1,
                 std::cmp::Ordering::Greater => j += 1,
                 std::cmp::Ordering::Equal => {
-                    self.levels[new_index as usize] = old.levels[old_index as usize];
+                    let (new_index, old_index) = (new_index as usize, old_index as usize);
+                    self.levels[new_index] = old.levels[old_index];
+                    let moved = !self.clips[new_index].placed_as(&old.clips[old_index]);
+                    self.swapped[new_index] = moved;
+                    old.swapped[old_index] = moved;
                     i += 1;
                     j += 1;
                 }
             }
         }
+        old.swapped.contains(&true)
+    }
+}
+
+impl Clip {
+    /// Whether `other` plays the same audio on the same samples (its level
+    /// may differ: levels glide instead).
+    fn placed_as(&self, other: &Clip) -> bool {
+        self.start == other.start
+            && self.offset == other.offset
+            && self.length == other.length
+            && self.shape == other.shape
+            && Arc::ptr_eq(&self.audio, &other.audio)
     }
 }
 
@@ -193,6 +227,16 @@ pub struct ClipPlayer {
     /// A replaced list that did not fit in the retired queue yet.
     stash: Option<Box<ClipSet>>,
     current: Box<ClipSet>,
+    /// The list `current` replaced, while its moved clips fade out.
+    swap: Option<Swap>,
+}
+
+/// A crossfade from one clip list to the next.
+struct Swap {
+    old: Box<ClipSet>,
+    /// Frames played of `length` (set on the first block, from its rate).
+    done: i64,
+    length: i64,
 }
 
 /// Creates the clip pair, starting with no clips. Allocates, so call it off
@@ -210,6 +254,7 @@ pub fn clip_player() -> (ClipsHandle, ClipPlayer) {
             retired: retired_tx,
             stash: None,
             current: Box::new(ClipSet::new(Vec::new())),
+            swap: None,
         },
     )
 }
@@ -229,6 +274,125 @@ fn balance(pan: f32, output: usize, outputs: usize) -> f32 {
         (1.0 - pan).min(1.0)
     } else {
         (1.0 + pan).min(1.0)
+    }
+}
+
+/// The block being rendered.
+struct Block {
+    /// Timeline samples of the first frame and one past the last.
+    from: i64,
+    to: i64,
+    /// Edge fade length, in frames.
+    edge: i64,
+    outputs: usize,
+    /// How far a level moves in one frame.
+    glide: f32,
+}
+
+/// How a clip fades across a clip list change, on top of its level.
+#[derive(Clone, Copy)]
+enum Ramp {
+    Steady,
+    /// Its new placement fades in.
+    In(Crossfade),
+    /// Its old placement fades out, and is silent after.
+    Out(Crossfade),
+}
+
+/// Where a crossfade stands in this block.
+#[derive(Clone, Copy)]
+struct Crossfade {
+    /// Timeline sample at which it ends. Counted from the block, so it
+    /// holds while scrubbing too, where blocks do not follow each other.
+    end: i64,
+    length: i64,
+}
+
+impl Ramp {
+    fn active(self, t: i64) -> bool {
+        match self {
+            Ramp::Steady => false,
+            Ramp::In(x) | Ramp::Out(x) => t < x.end,
+        }
+    }
+
+    /// The gain at timeline sample `t`. In and out always add up to one.
+    #[inline]
+    fn gain(self, t: i64) -> f32 {
+        let progress =
+            |x: Crossfade| (((t - (x.end - x.length)) as f32 + 0.5) / x.length as f32).min(1.0);
+        match self {
+            Ramp::Steady => 1.0,
+            Ramp::In(x) => progress(x),
+            Ramp::Out(x) => 1.0 - progress(x),
+        }
+    }
+}
+
+/// Plays `clip` at its kept level into this block of `out`, faded by
+/// `ramp`. A tail (rendered ahead of a jump) reads the level but does not
+/// move it.
+fn play(
+    clip: &Clip,
+    kept: &mut [f32; 2],
+    cx: &RenderContext<'_>,
+    block: &Block,
+    ramp: Ramp,
+    out: &mut Output<'_>,
+) {
+    let rate = cx.sample_rate;
+    if clip.audio.sample_rate != rate || clip.length <= 0 {
+        return;
+    }
+    let mut scratch = *kept;
+    let level = if cx.tail { &mut scratch } else { kept };
+    let goals = targets(clip, block.outputs);
+    let start = cx.timeline.sample_at(clip.start, rate);
+    let end = start + clip.length;
+    let (a, mut b) = (block.from.max(start), block.to.min(end));
+    if let Ramp::Out(x) = ramp {
+        b = b.min(x.end);
+    }
+    if a >= b {
+        // Silent in this block: nothing to glide from.
+        *level = goals;
+        return;
+    }
+    if level[0].is_nan() {
+        // First heard. At its start the edge fade covers it; partway
+        // through, it fades in.
+        *level = if a == start { goals } else { [0.0; 2] };
+    }
+    if goals == [0.0; 2] && *level == [0.0; 2] {
+        return;
+    }
+    let sources = clip.audio.channels.len();
+    let at = Placement {
+        start,
+        from: block.from,
+        edge: block.edge,
+    };
+    let mix = if clip.shape.plain() { mix } else { mix_shaped };
+    for output in 0..block.outputs {
+        // Mono plays on both sides; extra channels are ignored.
+        let samples = &clip.audio.channels[output.min(sources - 1)];
+        let target = out.channel(output);
+        let goal = goals[output];
+        let mut gain = level[output];
+        let mut t = a;
+        // Gliding or crossfading: a new gain every frame until both settle.
+        while t < b && (gain != goal || ramp.active(t)) {
+            gain = if (goal - gain).abs() <= block.glide {
+                goal
+            } else {
+                gain + block.glide.copysign(goal - gain)
+            };
+            mix(target, samples, clip, at, t..t + 1, gain * ramp.gain(t));
+            t += 1;
+        }
+        // Steady: the common case, kept as tight as before.
+        mix(target, samples, clip, at, t..b, gain);
+        level[output] = gain;
     }
 }
 
@@ -312,90 +476,103 @@ fn edge_gain(pos: i64, length: i64, edge: i64) -> f32 {
 }
 
 impl ClipPlayer {
-    /// Takes a new clip list if one arrived. Real-time safe.
-    fn take_new(&mut self) {
-        if let Some(old) = self.stash.take()
-            && let Err(rtrb::PushError::Full(old)) = self.retired.push(old)
-        {
-            self.stash = Some(old);
+    /// Takes a new clip list if one arrived and no crossfade is running.
+    /// With `fade`, clips that moved crossfade into it. Real-time safe.
+    fn take_new(&mut self, fade: bool) {
+        if let Some(old) = self.stash.take() {
+            self.retire(old);
+            if self.stash.is_some() {
+                return;
+            }
+        }
+        if self.swap.is_some() {
             return;
         }
-        if let Ok(mut new) = self.incoming.pop() {
-            new.carry_levels(&self.current);
-            let old = std::mem::replace(&mut self.current, new);
-            if let Err(rtrb::PushError::Full(old)) = self.retired.push(old) {
-                self.stash = Some(old);
-            }
+        let Ok(mut new) = self.incoming.pop() else {
+            return;
+        };
+        let moved = new.carry_levels(&mut self.current);
+        let old = std::mem::replace(&mut self.current, new);
+        if fade && moved {
+            self.swap = Some(Swap {
+                old,
+                done: 0,
+                length: 0,
+            });
+        } else {
+            self.retire(old);
+        }
+    }
+
+    /// Hands `old` back to be freed, keeping it if the queue is full. Only
+    /// called while the stash is empty.
+    fn retire(&mut self, old: Box<ClipSet>) {
+        if let Err(rtrb::PushError::Full(old)) = self.retired.push(old) {
+            self.stash = Some(old);
+        }
+    }
+
+    /// Ends the crossfade once it is done, or at once with `now`.
+    fn finish_swap(&mut self, now: bool) {
+        if self.stash.is_some() {
+            return;
+        }
+        if let Some(swap) = self.swap.take_if(|s| now || s.done >= s.length) {
+            self.retire(swap.old);
         }
     }
 }
 
 impl Source for ClipPlayer {
     fn render(&mut self, cx: &RenderContext<'_>, out: &mut Output<'_>) {
-        self.take_new();
+        if !cx.tail {
+            self.take_new(true);
+        }
         let rate = cx.sample_rate;
         let frames = out.frames() as i64;
-        let (from, to) = (cx.start, cx.start + frames);
-        let edge = i64::from(fade_length(rate));
-        let outputs = out.channels().min(2);
-        let glide = GLIDE_PER_SECOND / rate as f32;
+        let block = Block {
+            from: cx.start,
+            to: cx.start + frames,
+            edge: i64::from(fade_length(rate)),
+            outputs: out.channels().min(2),
+            glide: GLIDE_PER_SECOND / rate as f32,
+        };
+        let crossfade = self.swap.as_mut().map(|swap| {
+            if swap.length == 0 {
+                swap.length = i64::from((rate / SWAP_PER_SECOND).max(1));
+            }
+            Crossfade {
+                end: block.from + (swap.length - swap.done),
+                length: swap.length,
+            }
+        });
         let set = &mut *self.current;
-        for (clip, kept) in set.clips.iter().zip(set.levels.iter_mut()) {
-            if clip.audio.sample_rate != rate || clip.length <= 0 {
-                continue;
+        let clips = set.clips.iter().zip(&mut set.levels).zip(&set.swapped);
+        for ((clip, level), &swapped) in clips {
+            let ramp = match crossfade {
+                Some(x) if swapped => Ramp::In(x),
+                _ => Ramp::Steady,
+            };
+            play(clip, level, cx, &block, ramp, out);
+        }
+        if let (Some(swap), Some(x)) = (self.swap.as_mut(), crossfade) {
+            let old = &mut *swap.old;
+            let clips = old.clips.iter().zip(&mut old.levels).zip(&old.swapped);
+            for ((clip, level), _) in clips.filter(|(_, swapped)| **swapped) {
+                play(clip, level, cx, &block, Ramp::Out(x), out);
             }
-            // A tail (rendered ahead of a jump) reads the levels but does
-            // not move them.
-            let mut scratch = *kept;
-            let level = if cx.tail { &mut scratch } else { kept };
-            let goals = targets(clip, outputs);
-            let start = cx.timeline.sample_at(clip.start, rate);
-            let end = start + clip.length;
-            let (a, b) = (from.max(start), to.min(end));
-            if a >= b {
-                // Silent in this block: nothing to glide from.
-                *level = goals;
-                continue;
-            }
-            if level[0].is_nan() {
-                // First heard. At its start the edge fade covers it;
-                // partway through, it fades in.
-                *level = if a == start { goals } else { [0.0; 2] };
-            }
-            if goals == [0.0; 2] && *level == [0.0; 2] {
-                continue;
-            }
-            let sources = clip.audio.channels.len();
-            let at = Placement { start, from, edge };
-            let mix = if clip.shape.plain() { mix } else { mix_shaped };
-            for output in 0..outputs {
-                // Mono plays on both sides; extra channels are ignored.
-                let samples = &clip.audio.channels[output.min(sources - 1)];
-                let target = out.channel(output);
-                let goal = goals[output];
-                let mut gain = level[output];
-                let mut t = a;
-                // Gliding: a new gain every frame until it arrives.
-                while t < b && gain != goal {
-                    gain = if (goal - gain).abs() <= glide {
-                        goal
-                    } else {
-                        gain + glide.copysign(goal - gain)
-                    };
-                    mix(target, samples, clip, at, t..t + 1, gain);
-                    t += 1;
-                }
-                // Steady: the common case, kept as tight as before.
-                mix(target, samples, clip, at, t..b, gain);
-                level[output] = gain;
+            if !cx.tail {
+                swap.done += frames;
             }
         }
+        self.finish_swap(false);
     }
 
     fn locate(&mut self, _: &Timeline, _: u32, _: i64, _: Jump) {
-        self.take_new();
-        // A jump is crossfaded by the engine; levels start there at their
-        // targets rather than gliding.
+        // A jump is crossfaded by the engine: a crossfade between lists ends
+        // here, and levels start at their targets rather than gliding.
+        self.finish_swap(true);
+        self.take_new(false);
         let set = &mut *self.current;
         for (clip, level) in set.clips.iter().zip(set.levels.iter_mut()) {
             *level = targets(clip, 2);

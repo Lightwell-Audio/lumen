@@ -100,6 +100,24 @@ impl App {
         self.transport.state().ticks
     }
 
+    /// What the test device has played since the last call, as (left,
+    /// right) frames: the audio a user would hear.
+    pub fn heard(&mut self) -> Vec<(f32, f32)> {
+        let Some(heard) = self.transport.audio.heard.as_mut() else {
+            return Vec::new();
+        };
+        let Ok(chunk) = heard.read_chunk(heard.slots()) else {
+            return Vec::new();
+        };
+        let samples: Vec<f32> = chunk.into_iter().collect();
+        samples
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&[l, r]| (l, r))
+            .collect()
+    }
+
     /// Background work is in progress: a save, an open, or files loading.
     pub fn is_busy(&self) -> bool {
         self.saving.is_some() || self.opening.is_some() || self.lanes.is_loading()

@@ -151,7 +151,9 @@ fn clips_metronome_and_tone_never_touch_the_heap() {
         .unwrap();
     let mut data = vec![0.0; 2 * 128];
     for block in 0..3_000_i64 {
-        if block % 300 == 150 {
+        // Now and then, and as fast as a drag (moved clips crossfade).
+        let dragging = (1_000..1_400).contains(&block) && block % 6 == 0;
+        if block % 300 == 150 || dragging {
             // Built and sent from the UI side, outside the real-time section.
             let _ = clips_handle.set(clips(block));
         }

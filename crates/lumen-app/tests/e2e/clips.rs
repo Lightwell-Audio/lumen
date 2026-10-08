@@ -519,3 +519,59 @@ fn hovering_a_long_clip_at_the_deepest_zoom_stays_quick() {
     );
     assert!(lumen.app().hint().is_some(), "hovering the clip");
 }
+
+/// Owner, after 6c: dragging a clip while it played crackled. Each new
+/// position made the audio under the playhead jump to another point of the
+/// file, once per screen frame. Moved clips now crossfade in the engine.
+#[test]
+fn dragging_a_playing_clip_does_not_click() {
+    let mut lumen = Lumen::start("drag-while-playing");
+    let file = wav(&lumen.dir().join("tone.wav"), 8.0);
+    lumen.drop_files(&[file]);
+    lumen.frames(5);
+    let clip = lumen.app().project().tracks[0].clips[0].id;
+    let (_, start) = place(&lumen, clip);
+    lumen.key(Modifiers::NONE, Key::Space);
+    // Well inside the clip, however far the drag below moves it.
+    lumen.wait_for("the playhead to pass beat 2", |app| {
+        app.playhead() > Ticks::quarters(2)
+    });
+    lumen.app_mut().heard();
+
+    // Back and forth, off the grid (Alt), a step per screen frame.
+    let zoom = lumen.app().view().zoom as f32;
+    let from = top_half(rect(&lumen, clip));
+    lumen
+        .harness
+        .event(eframe::egui::Event::ModifiersChanged(Modifiers::ALT));
+    lumen.harness.hover_at(from);
+    lumen.harness.drag_at(from);
+    lumen.frames(2);
+    for step in 0..24 {
+        let beats = [0.3, 0.6, 0.9, 0.6][step % 4];
+        lumen.harness.hover_at(from + vec2(beats * zoom, 0.0));
+        lumen.frames(1);
+        std::thread::sleep(std::time::Duration::from_millis(16));
+    }
+    lumen.harness.drop_at(from + vec2(0.3 * zoom, 0.0));
+    lumen.frames(3);
+    lumen
+        .harness
+        .event(eframe::egui::Event::ModifiersChanged(Modifiers::NONE));
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    lumen.frames(1);
+    let heard = lumen.app_mut().heard();
+    assert!(lumen.app().is_playing());
+    assert!(place(&lumen, clip).1 > start, "the clip moved");
+
+    // The test tone is 0.09 loud and moves at most 0.0046 a frame; a jump
+    // to another point of it steps by up to 0.18.
+    assert!(heard.len() > 2_000, "heard {} frames", heard.len());
+    let loudest = heard.iter().map(|s| s.0.abs()).fold(0.0, f32::max);
+    assert!(loudest > 0.05, "the clip played: {loudest}");
+    let steepest = heard
+        .windows(2)
+        .map(|w| (w[1].0 - w[0].0).abs().max((w[1].1 - w[0].1).abs()))
+        .fold(0.0, f32::max);
+    assert!(steepest < 0.006, "a click: a step of {steepest}");
+}

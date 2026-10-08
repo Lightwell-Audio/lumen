@@ -164,6 +164,10 @@ cargo test -p lumen-app --test smoke -- --ignored             # the real binary,
   position, a flag), never on time; `wait_for` gives up after 30 s and
   says what it waited for. A control a test needs must have an accessible
   name (CLAUDE.md §5, item 10).
+- **Listening:** the test device keeps what it plays. `app.heard()`
+  returns the frames played since the last call (the fake device runs at
+  about a quarter of real time), so a scenario can check for clicks, as
+  `dragging_a_playing_clip_does_not_click` does.
 - **The smoke tests** (`crates/lumen-app/tests/smoke.rs`) run `lumen`
   itself: start and draw, import, save, reopen with a screenshot that must
   not be blank, the quality-bar project, and the light theme at 200%. A

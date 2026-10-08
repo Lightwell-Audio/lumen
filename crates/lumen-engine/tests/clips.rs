@@ -441,6 +441,108 @@ fn a_clip_heard_from_its_start_keeps_its_attack() {
     assert_eq!(out[24_000 + FADE as usize], (0.5, 0.5));
 }
 
+/// A smooth 200 Hz tone at 0.5: from one frame to the next it moves by at
+/// most 0.5 × 2π × 200 / 48,000 ≈ 0.013.
+fn tone(frames: usize) -> Arc<ClipAudio> {
+    let wave: Vec<f32> = (0..frames)
+        .map(|i| 0.5 * (i as f32 * std::f32::consts::TAU * 200.0 / RATE as f32).sin())
+        .collect();
+    Arc::new(ClipAudio {
+        sample_rate: RATE,
+        channels: vec![wave.clone(), wave],
+    })
+}
+
+/// The tone's own steepest step, plus what a 5 ms crossfade between two
+/// unrelated points of it can add (at most 1.0 over 240 frames).
+const TONE_STEP: f32 = 0.0131 + 1.0 / 240.0;
+
+#[test]
+fn dragging_a_playing_clip_crossfades_instead_of_clicking() {
+    // Owner (after M3 slice 6c): dragging a clip while it played crackled.
+    // Each new position made the audio under the playhead jump to another
+    // point of the file, once per screen frame.
+    let audio = tone(200_000);
+    let clip = |start: Ticks| Clip {
+        id: 3,
+        start,
+        offset: 0,
+        length: 200_000,
+        gain: 1.0,
+        pan: 0.0,
+        audio: Arc::clone(&audio),
+        shape: Default::default(),
+    };
+    let (mut handle, mut clips, mut engine) = setup(vec![clip(Ticks::ZERO)]);
+    // From bar 2 (sample 96,000), well inside the clip however it moves.
+    handle.send(Command::Locate(bars(1))).unwrap();
+    handle.send(Command::Play).unwrap();
+    let mut out = run(&mut engine, 4_000, 128);
+    // The app frees replaced lists every frame; so does this test.
+    let mut send = |list: Vec<Clip>| {
+        clips.collect_garbage();
+        clips.set(list).unwrap();
+    };
+    // A drag: a new position every screen frame (768 frames), each landing
+    // on another part of the wave.
+    for step in 1..=12 {
+        send(vec![clip(Ticks(Ticks::quarters(1).0 * step / 7))]);
+        out.extend(run(&mut engine, 768, 128));
+    }
+    let settled = out.len();
+    // Dragged off the playhead (it fades out), back under it, then deleted.
+    send(vec![clip(bars(8))]);
+    out.extend(run(&mut engine, 768, 128));
+    assert!(
+        out[out.len() - 400..].iter().all(|&s| s == (0.0, 0.0)),
+        "silent once the clip has left the playhead"
+    );
+    send(vec![clip(Ticks::ZERO)]);
+    out.extend(run(&mut engine, 768, 128));
+    send(Vec::new());
+    out.extend(run(&mut engine, 768, 128));
+    assert_eq!(out.last(), Some(&(0.0, 0.0)), "deleted, it is silent");
+    assert!(
+        steepest(&out) <= TONE_STEP,
+        "steepest step {}",
+        steepest(&out)
+    );
+
+    // After each crossfade the clip plays its exact samples at its new place.
+    let start = Timeline::default().sample_at(Ticks(Ticks::quarters(12).0 / 7), RATE);
+    let at = settled - 1;
+    let want = audio.channels[0][(96_000 + at as i64 - start) as usize];
+    assert!((out[at].0 - want).abs() < 1e-6, "{} vs {want}", out[at].0);
+}
+
+#[test]
+fn a_list_that_moves_no_clip_does_not_crossfade() {
+    // Volume drags resend every frame; those must not cost a crossfade.
+    let audio = tone(48_000);
+    let clip = Clip {
+        id: 3,
+        start: Ticks::ZERO,
+        offset: 0,
+        length: 48_000,
+        gain: 1.0,
+        pan: 0.0,
+        audio: Arc::clone(&audio),
+        shape: Default::default(),
+    };
+    let (mut handle, _clips, mut engine) = setup(vec![clip.clone()]);
+    handle.send(Command::Play).unwrap();
+    let reference = run(&mut engine, 8_000, 128);
+    let (mut handle, mut resent, mut engine) = setup(vec![clip.clone()]);
+    handle.send(Command::Play).unwrap();
+    let mut out = run(&mut engine, 1_000, 128);
+    for _ in 0..7 {
+        resent.collect_garbage();
+        resent.set(vec![clip.clone()]).unwrap();
+        out.extend(run(&mut engine, 1_000, 128));
+    }
+    assert_eq!(out, reference);
+}
+
 /// Plays `clip` from the start at several block sizes and checks every
 /// frame against `want(pos)` (`pos` frames into the clip at bar 1).
 fn golden(clip: &Clip, frames: usize, want: impl Fn(i64) -> (f32, f32)) {

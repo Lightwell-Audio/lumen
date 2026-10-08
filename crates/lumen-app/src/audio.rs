@@ -15,6 +15,10 @@ use lumen_engine::{ClipsHandle, EngineHandle, Timeline, clip_player, engine};
 
 use crate::settings::AudioSettings;
 
+/// What the test device's tap holds: 40 seconds of the fake device's
+/// playback (it runs at about a quarter of real time), left and right.
+const HEARD: usize = 1 << 20;
+
 /// Which device to open.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Choice {
@@ -247,6 +251,20 @@ fn resolve_on_this_thread(choice: &Choice) -> Result<Resolved, String> {
     }
 }
 
+/// Copies a block of planar output into the test tap, left and right per
+/// frame (mono twice). Whole blocks only, so a full tap leaves a gap
+/// between blocks, never inside one. Real-time safe.
+fn listen(tap: &mut rtrb::Producer<f32>, outputs: &[f32], channels: usize, frames: usize) {
+    if channels == 0 {
+        return;
+    }
+    let Ok(chunk) = tap.write_chunk_uninit(2 * frames) else {
+        return;
+    };
+    let right = usize::from(channels > 1) * frames;
+    chunk.fill_from_iter((0..frames).flat_map(|i| [outputs[i], outputs[right + i]]));
+}
+
 pub struct Audio {
     /// `None` until a device has been found; the engine then waits in
     /// `parked`.
@@ -256,6 +274,9 @@ pub struct Audio {
     pub engine: EngineHandle,
     /// Replaces the clips the engine plays.
     pub clips: ClipsHandle,
+    /// What the test device played, left and right frame by frame, for the
+    /// end-to-end tests to listen to (`testing`). Real devices have none.
+    pub(crate) heard: Option<rtrb::Consumer<f32>>,
     pub status: Status,
     /// The driver model in use (`asio`, `wasapi`, ...).
     pub driver: String,
@@ -299,15 +320,26 @@ impl Audio {
     pub fn start(choice: &Choice, timeline: Timeline) -> Self {
         let (clips, player) = clip_player();
         let (engine_handle, mut engine) = engine(timeline, player, 48_000);
+        let testing = matches!(choice, Choice::Named { driver, .. } if driver == TEST_DRIVER);
+        let (mut tap, heard) = if testing {
+            let (tap, heard) = rtrb::RingBuffer::new(HEARD);
+            (Some(tap), Some(heard))
+        } else {
+            (None, None)
+        };
         let callback: Box<dyn AudioCallback> = Box::new(move |block: &mut Block<'_>| {
             let (rate, channels, frames) = (block.sample_rate, block.output_channels, block.frames);
             engine.process(rate, block.outputs, channels, frames);
+            if let Some(tap) = &mut tap {
+                listen(tap, block.outputs, channels, frames);
+            }
         });
         let mut audio = Self {
             system: None,
             parked: Some(callback),
             engine: engine_handle,
             clips,
+            heard,
             status: Status::Off(String::new()),
             driver: String::new(),
             device: String::new(),
