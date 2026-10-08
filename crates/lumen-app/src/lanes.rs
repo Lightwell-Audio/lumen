@@ -381,6 +381,17 @@ pub fn file_card(ui: &mut egui::Ui, item: &Item) {
             .small()
             .weak(),
     );
+    // Every gesture on a clip, so none stays hidden (owner, after 6c: slip
+    // was not discoverable).
+    ui.separator();
+    for line in [
+        "Top half: drag to move · Ctrl copies · Ctrl+Alt slips the audio",
+        "Bottom half: drag to select time",
+        "Sides: drag to trim · Shift loops",
+        "Right-click: cut, copy, paste, duplicate, delete",
+    ] {
+        ui.label(RichText::new(line).small().weak());
+    }
 }
 
 #[cfg(test)]

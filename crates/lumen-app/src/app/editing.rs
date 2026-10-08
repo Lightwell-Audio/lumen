@@ -185,9 +185,11 @@ impl App {
                     HintMark::Resize,
                     "drag to slip the audio",
                 ),
-                (None, Half::Top) if modifiers.command => {
-                    (CursorIcon::Copy, HintMark::Move, "drag to copy")
-                }
+                (None, Half::Top) if modifiers.command => (
+                    CursorIcon::Copy,
+                    HintMark::Move,
+                    "drag to copy · add Alt to slip the audio",
+                ),
                 (None, Half::Top) => (
                     CursorIcon::Grab,
                     HintMark::Move,

@@ -470,3 +470,22 @@ fn ctrl_alt_slips_the_audio_inside_the_clip() {
     assert_eq!(starts(&lumen, 0), [(BAR / 4, BAR / 4)], "the clip stayed");
     assert_eq!(lumen.app().undo_label(), Some("Slip clip"));
 }
+
+/// Owner, after 6c: nothing showed that slipping exists. Holding Ctrl over
+/// a clip's top half says so.
+#[test]
+fn holding_ctrl_over_a_clip_tells_how_to_slip() {
+    let (mut lumen, kick, _) = with_two_clips("clip-slip-hint");
+    let r = rect(&lumen, kick);
+    lumen
+        .harness
+        .event(eframe::egui::Event::ModifiersChanged(Modifiers::COMMAND));
+    lumen
+        .harness
+        .hover_at(Pos2::new(r.center().x, top_half(r).y));
+    lumen.frames(2);
+    assert_eq!(
+        lumen.app().hint(),
+        Some("drag to copy · add Alt to slip the audio")
+    );
+}
