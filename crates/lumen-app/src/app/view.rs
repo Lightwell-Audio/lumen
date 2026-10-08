@@ -89,6 +89,29 @@ report: {}",
         });
     }
 
+    /// While files are dragged in from the system: where the pointer is
+    /// (`App::drag_pointer`), and a frame after frame, so the line or the
+    /// lit lane follows it: the system sends no events while it moves.
+    pub(crate) fn follow_file_drag(&mut self, ctx: &egui::Context) {
+        let (hovered, dropped) = ctx.input(|i| {
+            (
+                !i.raw.hovered_files.is_empty(),
+                !i.raw.dropped_files.is_empty(),
+            )
+        });
+        self.drag_pointer = if hovered || dropped {
+            self.system_cursor.or_else(|| {
+                self.owner
+                    .and_then(|window| window.cursor(ctx.pixels_per_point()))
+            })
+        } else {
+            None
+        };
+        if hovered {
+            ctx.request_repaint();
+        }
+    }
+
     pub(crate) fn arrangement(&mut self, ui: &mut egui::Ui) {
         let whole = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(whole, Sense::hover());
@@ -199,7 +222,9 @@ report: {}",
         // while files are dragged over.
         let (pointer, free, dragging) = ui.input(|i| {
             (
-                i.pointer.hover_pos().filter(|p| canvas.contains(*p)),
+                self.drag_pointer
+                    .or_else(|| i.pointer.hover_pos())
+                    .filter(|p| canvas.contains(*p)),
                 i.modifiers.alt,
                 i.raw
                     .hovered_files

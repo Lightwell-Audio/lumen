@@ -1071,4 +1071,26 @@ all made:
     it is selected and the playhead jumps too. Ctrl+click and Shift+click
     only change the selection. While playing, a click jumps playback.
 
-**Last run:** run 2, changes made; run 3 (steps 7 to 17) to come.
+**Run 3 (2026-10-08, owner):** steps 7 to 11 and 13 to 17 passed. Two
+findings, both fixed:
+1. The card's ✕ sat higher than its title "Clip". It was centred on the
+   title's line, which leaves room below for descenders; every dialog had
+   the same offset (5.5 points). One title row (`widgets::title_row`) now
+   centres it on the title's letters, for the card and every dialog. Step
+   18.
+2. Step 12: dropping between tracks was never offered. On Windows, egui
+   gets no pointer while Explorer drags files over the window, so every
+   drop went to new tracks at the end. Lumen now reads the system's
+   cursor during the drag (ADR-0032). The E2E scenarios now drag files in
+   without a pointer, as Windows does. Step 19.
+
+18. **Title rows:** open the clip card (Alt+Enter) and Audio settings:
+    the ✕ is level with the middle of the title's letters, at 100% and
+    150%.
+19. **Drops, again:** drag a WAV from Explorer over the lanes and move it
+    around without letting go: the lit lane and ghost clip, or the
+    "new track here" line, follow the pointer. Drop on an audio track's
+    lane: it lands there. Drop on the line between two tracks: a new
+    track there. Below the last track: a new track at the end.
+
+**Last run:** run 3, two fixes made; run 4 (steps 18 and 19) to come.

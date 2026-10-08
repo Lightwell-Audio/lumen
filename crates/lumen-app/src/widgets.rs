@@ -5,9 +5,11 @@
 //! reuse them.
 
 use eframe::egui::{
-    self, Align2, Color32, FontId, Id as EguiId, Key, Painter, Pos2, Rect, Sense, Stroke, Ui, pos2,
-    vec2,
+    self, Align2, Color32, FontId, Id as EguiId, Key, Painter, Pos2, Rect, Sense, Stroke, Ui, Vec2,
+    pos2, vec2,
 };
+
+use eframe::emath::GuiRounding as _;
 
 use crate::{fonts, icons, motion, theme};
 
@@ -66,34 +68,7 @@ impl<'a> Dialog<'a> {
             .default_pos(self.pos)
             .show(ctx, |ui| {
                 ui.set_width(self.width);
-                ui.horizontal(|ui| {
-                    let reserve = if self.closable {
-                        icons::CLOSE_SIZE + ui.spacing().item_spacing.x
-                    } else {
-                        0.0
-                    };
-                    ui.allocate_ui_with_layout(
-                        vec2(ui.available_width() - reserve, 0.0),
-                        egui::Layout::top_down(egui::Align::Min),
-                        |ui| {
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(self.title)
-                                        .font(fonts::display(theme::size::TITLE)),
-                                )
-                                .wrap(),
-                            );
-                        },
-                    );
-                    if self.closable {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if icons::close_button(ui).clicked() {
-                                close = true;
-                            }
-                        });
-                    }
-                });
-                ui.add_space(theme::space::XS);
+                close = title_row(ui, self.title, self.closable);
                 contents(ui);
             });
         if self.closable && ctx.input(|i| i.key_pressed(Key::Escape)) {
@@ -101,6 +76,63 @@ impl<'a> Dialog<'a> {
         }
         close
     }
+}
+
+/// A floating window's title row, shared by `Dialog` and the cards that
+/// float beside what they edit: the title in the display face, wrapping
+/// inside the width, and, when `closable`, the close button at the right
+/// edge. The button is centred on the title's first letter, not on its
+/// line, whose lower part is room for descenders: centred on the line it
+/// sat visibly high (owner, MT-APP-14 run 3). Then the space before the
+/// content. True when the close button was clicked.
+pub fn title_row(ui: &mut Ui, title: &str, closable: bool) -> bool {
+    let width = ui.available_width();
+    let reserve = if closable {
+        icons::CLOSE_SIZE + ui.spacing().item_spacing.x
+    } else {
+        0.0
+    };
+    let galley =
+        egui::WidgetText::from(egui::RichText::new(title).font(fonts::display(theme::size::TITLE)))
+            .into_galley(
+                ui,
+                Some(egui::TextWrapMode::Wrap),
+                width - reserve,
+                egui::TextStyle::Body,
+            );
+    let middle = letter_middle(&galley).unwrap_or(galley.size().y / 2.0);
+    // The button may reach above the text: push both down so it fits.
+    let half = icons::CLOSE_SIZE / 2.0;
+    let drop = if closable {
+        (half - middle).max(0.0)
+    } else {
+        0.0
+    };
+    let height = (drop + galley.size().y).max(if closable { drop + middle + half } else { 0.0 });
+    let (row, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+    let text = Rect::from_min_size(row.left_top() + vec2(0.0, drop), galley.size());
+    ui.place(text, egui::Label::new(galley));
+    let mut close = false;
+    if closable {
+        let button = Rect::from_center_size(
+            pos2(row.right() - half, row.top() + drop + middle),
+            Vec2::splat(icons::CLOSE_SIZE),
+        )
+        .round_to_pixels(ui.pixels_per_point());
+        close = ui
+            .place(button, |ui: &mut Ui| icons::close_button(ui))
+            .clicked();
+    }
+    ui.add_space(theme::space::XS);
+    close
+}
+
+/// The height of the middle of `galley`'s first drawn letter, from its
+/// top.
+fn letter_middle(galley: &egui::Galley) -> Option<f32> {
+    let placed = galley.rows.first()?;
+    let glyph = placed.row.glyphs.iter().find(|g| !g.uv_rect.is_nothing())?;
+    Some(placed.pos.y + glyph.pos.y + glyph.uv_rect.offset.y + glyph.uv_rect.size.y / 2.0)
 }
 
 /// "−3.0 dB", "−∞ dB".

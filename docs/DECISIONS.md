@@ -2114,6 +2114,21 @@ curves, clip properties). ADR-0031 covers the curves.
   import together once all have loaded, as one undo step. While files are
   dragged over, the lane lights with a ghost clip, or an accent line marks
   where new tracks go.
+- **Where the pointer is during a drag from the system** (MT-APP-14
+  run 3: the owner was never offered a place between tracks). On Windows
+  the window gets no pointer moves while Explorer drags files over it,
+  and winit 0.30 drops the position the system reports with each drag
+  update (`IDropTarget::DragOver`), so egui had no pointer and every drop
+  went to new tracks at the end. While files hover, Lumen reads the
+  system's cursor itself (`GetCursorPos`, `ScreenToClient`;
+  `Owner::cursor`) and repaints each frame, so the lit lane or the line
+  follows the pointer. Other systems keep egui's pointer (see
+  KNOWN_ISSUES).
+- **One title row for every floating window** (`widgets::title_row`, used
+  by `Dialog` and the card). The ✕ is centred on the title's first
+  letter rather than on its line, whose lower part is room for
+  descenders: centred on the line, it sat 5.5 points above the letters in
+  the card and in every dialog (owner, MT-APP-14 run 3).
 - **Menus for what was clicked** (the owner's A, after MT-APP-14 run 2):
   a right-click inside the time range opens the range's menu, on a clip
   the clip menu (11 rows; both fade shapes in one Fades submenu), on
@@ -2150,7 +2165,9 @@ curves, clip properties). ADR-0031 covers the curves.
   `arrangement::drop`, `app::clip_card` (fade milliseconds, card place).
 - E2E (61 scenarios): `clips`, `editing`, `fades`, `looping`, and
   `properties` (0 mutes, the menu locks, Ctrl+R and F2 rename with Esc
-  cancelling, the card from the keyboard, drops onto and between tracks),
+  cancelling, the card from the keyboard, drops onto and between tracks
+  with egui given no pointer during the drag, as on Windows, and
+  `the_cards_close_button_is_level_with_its_title`),
   `each_right_click_gets_the_menu_for_what_it_landed_on`,
   `a_click_on_the_lanes_moves_the_playhead`.
 - Screenshots (`tests/shots.rs`: `clip_properties` in dark at 100% and

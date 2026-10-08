@@ -165,12 +165,24 @@ impl Lumen {
         self.wait_for("the files to load", |app| !app.is_busy());
     }
 
-    /// Drops files with the pointer at `at`, as from Explorer onto that
-    /// place (slice 6e: a track's lane, or the line between two).
+    /// Drags files in from the system and drops them at `at`, as from
+    /// Explorer onto that place (slice 6e: a track's lane, or the line
+    /// between two). As on Windows, egui has no pointer while they are
+    /// dragged: Lumen reads the system's cursor (MT-APP-14 run 3).
     pub fn drop_files_at(&mut self, at: egui::Pos2, paths: &[PathBuf]) {
-        self.harness.hover_at(at);
+        self.harness.event(egui::Event::PointerGone);
+        self.app_mut().set_system_cursor(Some(at));
+        self.harness.input_mut().hovered_files = paths
+            .iter()
+            .map(|p| egui::HoveredFile {
+                path: Some(p.clone()),
+                ..Default::default()
+            })
+            .collect();
         self.frames(2);
+        self.harness.input_mut().hovered_files.clear();
         self.drop_files(paths);
+        self.app_mut().set_system_cursor(None);
     }
 
     /// Track names, top to bottom.

@@ -237,6 +237,12 @@ impl App {
     pub fn save_to(&mut self, path: PathBuf) {
         self.start_save(path);
     }
+
+    /// Puts the system's cursor at `at` (or nowhere), as read while files
+    /// are dragged in from the system, when egui has no pointer.
+    pub fn set_system_cursor(&mut self, at: Option<egui::Pos2>) {
+        self.system_cursor = at;
+    }
 }
 
 /// Where a clip's fade and gain handles are on screen

@@ -15,7 +15,7 @@ use lumen_project::model::{Clip, ClipContent, Color, Id, Project};
 
 use crate::arrangement::{TITLE, color_from, color_of};
 use crate::widgets::{self, SliderKind};
-use crate::{App, fonts, icons, lanes, theme};
+use crate::{App, lanes, theme};
 
 /// The card's width: its content wraps or truncates inside it.
 const CARD_WIDTH: f32 = 272.0;
@@ -450,20 +450,7 @@ impl App {
     ) -> bool {
         let palette = *theme::p();
         let id = clip.id;
-        let mut close = false;
-        ui.horizontal(|ui| {
-            ui.allocate_ui_with_layout(
-                vec2(CARD_WIDTH - icons::CLOSE_SIZE - theme::space::S, 0.0),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| {
-                    ui.label(RichText::new("Clip").font(fonts::display(theme::size::TITLE)));
-                },
-            );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                close = icons::close_button(ui).clicked();
-            });
-        });
-        ui.add_space(theme::space::XS);
+        let close = widgets::title_row(ui, "Clip", true);
 
         row(ui, "Name", |ui| {
             let props = &mut self.clip_props;

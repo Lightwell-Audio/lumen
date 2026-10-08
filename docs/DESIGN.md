@@ -55,8 +55,10 @@ restrained and purposeful.
   between sessions (from M3 slice 3).
 - Windows (audio settings, later preferences) open at the **top centre** of
   the app, have a **fixed width**, and wrap long text instead of growing.
-  They draw their own title row (title on the left, ✕ on the right; Esc
-  closes) on one flat surface, rather than egui's tinted title bar.
+  They draw their own title row (title on the left, ✕ on the right and
+  level with the title's letters; Esc closes) on one flat surface, rather
+  than egui's tinted title bar. The row is `widgets::title_row`, shared
+  with cards that float beside what they edit.
   **Every window is a `widgets::Dialog`**, so the ✕ sits at the same place
   in all of them; a question (the unsaved-changes prompt) has no ✕ and is
   answered by its buttons.

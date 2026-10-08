@@ -3,7 +3,7 @@
 //! sets name, colour, gain and fades from the keyboard, and files dropped
 //! on a track land on it, or between tracks make a track there.
 
-use eframe::egui::{Event, Key, Modifiers, PointerButton, Pos2, Rect};
+use eframe::egui::{Color32, Event, FontFamily, FontId, Key, Modifiers, PointerButton, Pos2, Rect};
 use egui_kittest::kittest::Queryable;
 use lumen_core::time::Ticks;
 use lumen_project::model::{Clip, ClipContent, Color, Id};
@@ -249,4 +249,38 @@ fn files_dropped_on_a_track_land_on_it_and_between_tracks_make_one_there() {
     let bass = wav(&lumen.dir().join("bass.wav"), 0.5);
     lumen.drop_files_at(Pos2::new(r.right() + 150.0, line), &[bass]);
     assert_eq!(lumen.track_names(), [&before[0], "bass", &before[1]]);
+}
+
+/// The card's close button sits level with the middle of its title's
+/// letters, not of the title's line, which leaves room below for
+/// descenders (owner, MT-APP-14 run 3: it sat 6.5 points high, as it did
+/// in every dialog).
+#[test]
+fn the_cards_close_button_is_level_with_its_title() {
+    let (mut lumen, kick, _) = with_two_clips("card-title");
+    select(&mut lumen, kick);
+    lumen.key(Modifiers::ALT, Key::Enter);
+    let close = lumen.harness.get_by_label("Close").rect();
+    // The card's title: the "Clip" left of the close button, on its row
+    // (not the detail panel's Clip tab).
+    let title = lumen
+        .harness
+        .get_all_by_label("Clip")
+        .map(|node| node.rect())
+        .find(|r| r.right() < close.left() && (r.center().y - close.center().y).abs() < 12.0)
+        .expect("the card's title");
+    // Where the C is drawn in the display face, from the top of its line.
+    let display = FontId::new(15.0, FontFamily::Name("display".into()));
+    let galley = lumen
+        .harness
+        .ctx
+        .fonts_mut(|f| f.layout_no_wrap("C".into(), display, Color32::WHITE));
+    let placed = &galley.rows[0];
+    let c = &placed.row.glyphs[0];
+    let middle = placed.pos.y + c.pos.y + c.uv_rect.offset.y + c.uv_rect.size.y / 2.0;
+    let off = close.center().y - (title.top() + middle);
+    assert!(
+        off.abs() <= 0.5,
+        "the close button is {off} points off the title's letters"
+    );
 }

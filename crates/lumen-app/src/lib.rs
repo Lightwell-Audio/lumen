@@ -119,6 +119,14 @@ pub struct App {
     /// Where dropped files go: new tracks, or the track under the pointer
     /// (slice 6e).
     drop_into: document::DropInto,
+    /// Where the pointer is while files are dragged in from the system.
+    /// egui does not know: on Windows the window gets no pointer moves
+    /// during the drag, and the window integration drops the position the
+    /// system reports, so it is read from the system (owner, MT-APP-14
+    /// run 3: drops between tracks were never offered).
+    drag_pointer: Option<egui::Pos2>,
+    /// Stands in for the system's cursor in tests (`testing`).
+    system_cursor: Option<egui::Pos2>,
     settings: settings::Settings,
     settings_path: Option<PathBuf>,
     /// Settings changed at this time and are not saved yet (saved once
@@ -258,6 +266,7 @@ impl eframe::App for App {
             self.owner = owner::Owner::of(frame);
         }
         let ctx = ui.ctx().clone();
+        self.follow_file_drag(&ctx);
         if let Some(test) = self.crash_test {
             crash::fail(test);
         }
@@ -566,6 +575,8 @@ impl App {
             lanes,
             drop_target: Ticks::ZERO,
             drop_into: document::DropInto::NewTracks { before: None },
+            drag_pointer: None,
+            system_cursor: None,
             settings: saved,
             settings_path,
             settings_changed: None,

@@ -390,9 +390,10 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-08: M3 slice 6e built; the owner's MT-APP-14
-run 2 changes made (menus for what was clicked, the grid behind clips,
-click to move the playhead); MT-APP-14 run 3 next. Progress and milestone
+**Last updated:** 2026-10-08: M3 slice 6e built; MT-APP-14 runs 2 and 3
+fixed (menus for what was clicked, the grid behind clips, click to move
+the playhead, title rows, drops between tracks on Windows); MT-APP-14
+run 4 next. Progress and milestone
 docs brought up to date; the owner's drag-to-cut request is recorded for
 M7 with split (the M3 plan, out of scope).
 
@@ -462,8 +463,12 @@ M7 with split (the M3 plan, out of scope).
     changes, all made: the right-click menu is for what was clicked (the
     owner's A, 11 rows on a clip instead of 33); the grid shows through
     clip bodies (G1, 55%); a click anywhere on the lanes moves the
-    playhead, as in Ableton. Next: MT-APP-14 run 3 (steps 7 to 17), then
-    slice 7.
+    playhead, as in Ableton. Run 3 passed except two findings, both
+    fixed: the ✕ now sits level with the title's letters in every window
+    (`widgets::title_row`), and drops between tracks work on Windows,
+    where egui gets no pointer during a drag from Explorer (Lumen reads
+    the system's cursor; ADR-0032). Next: MT-APP-14 run 4 (steps 18 and
+    19), then slice 7.
   - Esc after typing belongs to the text field (`App::typing`): egui
     drops a field's focus on Esc before the app's keys run, so key
     handlers must check `self.typing` as well as
