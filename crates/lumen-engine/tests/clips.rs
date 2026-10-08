@@ -516,6 +516,42 @@ fn dragging_a_playing_clip_crossfades_instead_of_clicking() {
 }
 
 #[test]
+fn lists_sent_while_stopped_never_play_late() {
+    // Found by the 6d E2E: each frame of a fade drag sent a list, which
+    // queued while stopped; on Play the engine stepped through them, a
+    // crossfade each, so the clip played without its new fade at first.
+    let audio = tone(48_000);
+    let clip = |fade: i64| Clip {
+        id: 3,
+        start: Ticks::ZERO,
+        offset: 0,
+        length: 48_000,
+        gain: 1.0,
+        pan: 0.0,
+        audio: Arc::clone(&audio),
+        shape: ClipShape {
+            fade_in: FadeFrames {
+                frames: fade,
+                shape: FadeShape::Linear,
+            },
+            ..Default::default()
+        },
+    };
+    let (mut handle, mut clips, mut engine) = setup(vec![clip(0)]);
+    for fade in [100, 1_000, 10_000] {
+        clips.set(vec![clip(fade)]).unwrap();
+    }
+    handle.send(Command::Play).unwrap();
+    let out = run(&mut engine, 2_000, 128);
+    // The newest list, with its 10,000-frame fade, from the first frame.
+    for (t, &(left, _)) in out.iter().enumerate() {
+        let level = (t as f32 + 0.5) / 10_000.0;
+        assert!(left.abs() <= 0.5 * level + 1e-6, "frame {t}: {left}");
+    }
+    assert_eq!(clips.collect_garbage(), 4, "every older list came back");
+}
+
+#[test]
 fn a_list_that_moves_no_clip_does_not_crossfade() {
     // Volume drags resend every frame; those must not cost a crossfade.
     let audio = tone(48_000);

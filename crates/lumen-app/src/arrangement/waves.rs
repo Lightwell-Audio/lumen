@@ -4,15 +4,26 @@
 //! to what is heard (`lanes::engine_clips`).
 
 use eframe::egui::Color32;
+use lumen_core::fade::FadeShape;
 use lumen_core::time::{TempoMap, Ticks};
 use lumen_project::model::{ClipContent, Project};
-use lumen_render::{WaveInstance, beats, rgba};
+use lumen_render::{FADE_FAST, FADE_LINEAR, FADE_S_CURVE, FADE_SLOW, WaveInstance, beats, rgba};
 
 use super::samples::Geometry;
 
 /// The most repeats of one looping clip drawn as waves; past this, a very
 /// short loop over a long clip shows its first repeats only.
 const MAX_REPEATS: usize = 4_096;
+
+/// A fade shape as the shader draws it.
+fn shape_code(shape: FadeShape) -> u32 {
+    match shape {
+        FadeShape::Linear => FADE_LINEAR,
+        FadeShape::Slow => FADE_SLOW,
+        FadeShape::Fast => FADE_FAST,
+        FadeShape::SCurve => FADE_S_CURVE,
+    }
+}
 
 /// What the waveform of a media file needs: its atlas slot, how many
 /// channels to show, and the file's own sample rate.
@@ -47,7 +58,12 @@ pub(super) fn wave_instances(
     for (row, track) in project.tracks.iter().enumerate() {
         let [r, g, b, a] = color(row).to_srgba_unmultiplied();
         for clip in &track.clips {
-            let ClipContent::Audio { media, offset, .. } = &clip.content else {
+            let ClipContent::Audio {
+                media,
+                offset,
+                gain_db,
+            } = &clip.content
+            else {
                 continue;
             };
             let Some(source) = source(media.0) else {
@@ -75,6 +91,18 @@ pub(super) fn wave_instances(
                 cuts.dedup();
             }
             cuts.push(end);
+            // Drawn at the clip's gain and through its fades (slice 6d),
+            // as the engine plays it.
+            let gain = 10f32.powf(gain_db / 20.0);
+            let shapes = shape_code(clip.fade_in.shape) | shape_code(clip.fade_out.shape) << 8;
+            let fade_in = [
+                beats(start.as_quarters()),
+                beats((start + clip.fade_in.length).as_quarters()),
+            ];
+            let fade_out = [
+                beats((end - clip.fade_out.length).as_quarters()),
+                beats(end.as_quarters()),
+            ];
             let mut from = start;
             for to in cuts {
                 let length = (to - from).as_quarters();
@@ -95,6 +123,10 @@ pub(super) fn wave_instances(
                         frames_per_beat: (frames / length) as f32,
                         color: rgba(r, g, b, a),
                         channels: source.channels,
+                        gain,
+                        shapes,
+                        fade_in,
+                        fade_out,
                     },
                     geometry: Geometry {
                         media: media.0,

@@ -390,7 +390,7 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-08: M3 slice 5 done; slice 6 planning.
+**Last updated:** 2026-10-08: M3 slice 6d built (fades and clip gain); 6e next.
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
@@ -443,7 +443,15 @@ it first in a new session, and update it at the end of every slice.
     grid step, Alt for tape), with an engine scrub mode.
     MT-APP-13 passed in run 2 (after drag hints, the snap magnet and
     locators added on the strip). **Slice 5 is done.**
-  - Next: slice 6 (clip editing and selection).
+  - **Slice 6 in progress** (clip editing; owner's split-clip drag model,
+    S3 and H1 selection look, L3 handles, Ableton's overlap rule, F3 and
+    G1 for fades and gain): 6a selection and moving, 6b time ranges and
+    edits, 6c trim, loop-extend and slip, 6d fades and clip gain are
+    built. Next: 6e (mute, lock, rename, recolour, a properties view,
+    drops on a chosen track), then MT-APP-14 and ADR-0031.
+  - Moved, trimmed or deleted clips crossfade over 5 ms while playing
+    (owner: dragging a playing clip crackled); E2E scenarios can listen
+    to the test device (`app.heard()`).
   - The plan and the follow-ups are in `docs/milestones/M3.md`.
 - **Skills** (`.claude/skills/`), to load before working:
   - `lumen-architecture` before writing or changing code;

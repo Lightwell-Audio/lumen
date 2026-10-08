@@ -24,7 +24,8 @@ const _: () = assert!(size_of::<LayerUniform>() == shaders::RECTS_UNIFORM);
 
 pub use boxes::{BoxDraw, BoxInstance, BoxLayerId, BoxStyle, RowSlot};
 pub use waves::{
-    MAX_LEVELS, PEAK_BASE, PEAK_FACTOR, STRIP_CAPACITY, StripEntry, WaveInstance, WaveStyle,
+    FADE_FAST, FADE_LINEAR, FADE_S_CURVE, FADE_SLOW, MAX_LEVELS, PEAK_BASE, PEAK_FACTOR,
+    STRIP_CAPACITY, StripEntry, WaveInstance, WaveStyle,
 };
 
 use bytemuck::{Pod, Zeroable};

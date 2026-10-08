@@ -17,6 +17,7 @@
 //! (motion: GLIDE) and are saved with the project, but are not undo steps.
 
 mod clips;
+pub mod handles;
 mod headers;
 mod reorder;
 mod samples;
@@ -114,7 +115,7 @@ pub struct Arrangement {
     pub gesture: Option<select::Gesture>,
     /// The clip under the pointer, its half and the side it would trim,
     /// for the H1 hover and the L3 handles.
-    pub hover: Option<(Id, select::Half, Option<select::Edge>)>,
+    pub hover: Option<select::Hover>,
     /// The marquee being drawn, on screen.
     pub marquee: Option<egui::Rect>,
     /// The selected time range (selecting one clears the clip selection,

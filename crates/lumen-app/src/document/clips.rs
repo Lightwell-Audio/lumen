@@ -5,11 +5,17 @@
 
 use std::sync::Arc;
 
+use std::ops::RangeInclusive;
+
+use lumen_core::fade::FadeShape;
 use lumen_core::time::Ticks;
-use lumen_project::edit;
-use lumen_project::model::{Clip, Id, Project};
+use lumen_project::edit::{self, Edge};
+use lumen_project::model::{Clip, ClipContent, Id, Project};
 
 use super::{Document, plural};
+
+/// Clip gain, in dB: from silence (shown as −∞) to +12 dB.
+pub const CLIP_GAIN: RangeInclusive<f32> = -60.0..=12.0;
 
 impl Document {
     /// Puts clips at new places (M3 slice 6): each [`ClipMove`] moves that
@@ -100,6 +106,65 @@ impl Document {
             *project = base.clone();
             let tempo = edit::tempo_of(base);
             replace_clip(project, clip, |c| edit::slip(base, &tempo, c, by));
+        });
+    }
+
+    /// Sets the fade at `clip`'s `edge` to `length` (slice 6d), kept within
+    /// what the clip's other fade leaves of it. A drag passes `merge`.
+    pub fn set_fade_length(&mut self, clip: Id, edge: Edge, length: Ticks, merge: Option<&str>) {
+        let label = match edge {
+            Edge::Start => "Fade in",
+            Edge::End => "Fade out",
+        };
+        self.history.apply(label, merge, |project| {
+            replace_clip(project, clip, |c| {
+                let mut c = c.clone();
+                let room = |other: Ticks| length.clamp(Ticks::ZERO, c.length - other);
+                match edge {
+                    Edge::Start => c.fade_in.length = room(c.fade_out.length),
+                    Edge::End => c.fade_out.length = room(c.fade_in.length),
+                }
+                c
+            });
+        });
+    }
+
+    /// Sets the shape of the fades at `edge` of `clips` (the bend dot, the
+    /// right-click menu). Locked clips stay as they are.
+    pub fn set_fade_shape(
+        &mut self,
+        clips: &[Id],
+        edge: Edge,
+        shape: FadeShape,
+        merge: Option<&str>,
+    ) {
+        self.history.apply("Fade shape", merge, |project| {
+            for &id in clips {
+                replace_clip(project, id, |c| {
+                    let mut c = c.clone();
+                    match edge {
+                        Edge::Start => c.fade_in.shape = shape,
+                        Edge::End => c.fade_out.shape = shape,
+                    }
+                    c
+                });
+            }
+        });
+    }
+
+    /// Sets the gain of the audio `clips` to `db`, within [`CLIP_GAIN`].
+    pub fn set_clip_gain(&mut self, clips: &[Id], db: f32, merge: Option<&str>) {
+        let db = db.clamp(*CLIP_GAIN.start(), *CLIP_GAIN.end());
+        self.history.apply("Clip gain", merge, |project| {
+            for &id in clips {
+                replace_clip(project, id, |c| {
+                    let mut c = c.clone();
+                    if let ClipContent::Audio { gain_db, .. } = &mut c.content {
+                        *gain_db = db;
+                    }
+                    c
+                });
+            }
         });
     }
 
@@ -324,5 +389,66 @@ mod tests {
         let base = doc.project().clone();
         doc.move_clips(&base, &[lost], None);
         assert_eq!(doc.project().tracks[0].clips[0].id, kick);
+    }
+
+    #[test]
+    fn fades_and_gain_are_single_steps_and_stay_in_range() {
+        let mut doc = Document::new(crate::empty_project());
+        let a = doc.fresh_id();
+        doc.import(vec![file(a, "Kick", Ticks::ZERO)]);
+        let clip = doc.project().tracks[0].clips[0].clone();
+        let get = |doc: &Document| (*doc.project().tracks[0].clips[0]).clone();
+        let steps = |doc: &Document| doc.history().steps().0.len();
+        let before_edits = steps(&doc);
+
+        // A fade drag: one step, and never past what the other fade leaves.
+        for q in [1, 3, 99] {
+            doc.set_fade_length(clip.id, Edge::End, Ticks::quarters(q), Some("clip fade"));
+        }
+        assert_eq!(
+            get(&doc).fade_out.length,
+            clip.length,
+            "the whole clip at most"
+        );
+        doc.set_fade_length(clip.id, Edge::Start, Ticks::quarters(2), None);
+        assert_eq!(get(&doc).fade_in.length, Ticks::ZERO, "no room left");
+        doc.set_fade_length(clip.id, Edge::End, Ticks::quarters(1), None);
+        doc.set_fade_length(clip.id, Edge::Start, Ticks(-Ticks::quarters(2).0), None);
+        assert_eq!(get(&doc).fade_in.length, Ticks::ZERO, "never negative");
+        doc.set_fade_length(clip.id, Edge::Start, Ticks::quarters(1), None);
+        doc.set_fade_shape(&[clip.id], Edge::Start, FadeShape::SCurve, None);
+        let faded = get(&doc);
+        assert_eq!(faded.fade_in.length, Ticks::quarters(1));
+        assert_eq!(faded.fade_in.shape, FadeShape::SCurve);
+        assert_eq!(faded.fade_out.length, Ticks::quarters(1));
+        assert_eq!(lumen_project::validate(doc.project()), Ok(()));
+
+        // A gain drag: one step, clamped.
+        for db in [-3.0, -9.0, -400.0] {
+            doc.set_clip_gain(&[clip.id], db, Some("clip gain"));
+        }
+        let gain = |doc: &Document| match get(doc).content {
+            ClipContent::Audio { gain_db, .. } => gain_db,
+            ClipContent::Midi { .. } => unreachable!("an audio clip"),
+        };
+        assert_eq!(gain(&doc), *CLIP_GAIN.start());
+        doc.set_clip_gain(&[clip.id], 40.0, None);
+        assert_eq!(gain(&doc), *CLIP_GAIN.end());
+        // Two drags, four edits; the two that changed nothing left no step.
+        assert_eq!(steps(&doc) - before_edits, 6);
+        doc.undo();
+        assert_eq!(gain(&doc), *CLIP_GAIN.start(), "undo takes back one edit");
+
+        // Locked clips keep their fades and gain.
+        let id = clip.id;
+        doc.apply("Lock", None, |p| {
+            let t = Arc::make_mut(&mut p.tracks[0]);
+            Arc::make_mut(&mut t.clips[0]).locked = true;
+        });
+        let before = get(&doc);
+        doc.set_fade_length(id, Edge::Start, Ticks::ZERO, None);
+        doc.set_clip_gain(&[id], 0.0, None);
+        doc.set_fade_shape(&[id], Edge::End, FadeShape::Fast, None);
+        assert_eq!(get(&doc), before);
     }
 }

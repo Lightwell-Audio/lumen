@@ -112,6 +112,72 @@ fn clip_handles() {
     save(&mut h, "handle-looped");
 }
 
+/// Drags with the left button from `from` to `to`, holding `modifiers`.
+fn drag(h: &mut Harness<'static, App>, from: Pos2, to: Pos2) {
+    h.hover_at(from);
+    h.drag_at(from);
+    h.run_steps(2);
+    for step in 1..=6 {
+        h.hover_at(from + (to - from) * (step as f32 / 6.0));
+        h.run_steps(1);
+    }
+    h.drop_at(to);
+    h.run_steps(2);
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn clip_fades_and_gain() {
+    let dir = TempDir::new("shots-fades");
+    let mut h = lumen(&dir);
+    // Close enough that the first clip is wide.
+    for _ in 0..2 {
+        h.key_press(Key::Equals);
+        h.run_steps(2);
+    }
+    h.run_steps(20);
+    // A taller first track, by its header's resize edge.
+    let a = clip(&h, 0);
+    drag(
+        &mut h,
+        Pos2::new(300.0, a.bottom() + 1.5),
+        Pos2::new(300.0, a.bottom() + 70.0),
+    );
+    h.run_steps(20);
+    let id = h.state().project().tracks[0].clips[0].id;
+    let at = |h: &Harness<'static, App>| h.state().clip_handles(&h.ctx, id).expect("handles");
+    let a = clip(&h, 0);
+    h.hover_at(pos(a, 0.5, 0.75));
+    save(&mut h, "fade-hover");
+
+    let fade_in = at(&h).fade_in;
+    drag(&mut h, fade_in, fade_in + vec2(a.width() * 0.3, 0.0));
+    let fade_out = at(&h).fade_out;
+    drag(&mut h, fade_out, fade_out - vec2(a.width() * 0.25, 0.0));
+    // Bend the fade out up (Fast), and hold the fade in's bend mid-drag.
+    let bend = at(&h).bend_out.expect("a bend dot");
+    drag(&mut h, bend, bend - vec2(0.0, 12.0));
+    let gain = at(&h).gain;
+    drag(&mut h, gain, gain + vec2(0.0, 6.0));
+    h.hover_at(pos(a, 0.5, 0.75));
+    save(&mut h, "fade-gain-hover");
+    let bend = at(&h).bend_in.expect("a bend dot");
+    h.hover_at(bend);
+    h.drag_at(bend);
+    h.run_steps(2);
+    h.hover_at(bend + vec2(0.0, 8.0));
+    save(&mut h, "fade-bending");
+    h.drop_at(bend + vec2(0.0, 8.0));
+    h.run_steps(2);
+    h.hover_at(Pos2::new(a.right() + 300.0, a.bottom() + 120.0));
+    save(&mut h, "fade-gain-idle");
+}
+
+/// The point `fx` across and `fy` down `r`.
+fn pos(r: Rect, fx: f32, fy: f32) -> Pos2 {
+    Pos2::new(r.left() + r.width() * fx, r.top() + r.height() * fy)
+}
+
 #[derive(Debug)]
 struct Dropped(PathBuf);
 

@@ -178,6 +178,32 @@ impl App {
             .map(|(_, _, rect)| rect)
     }
 
+    /// Where the handles of audio clip `id` are on screen (slice 6d), if it
+    /// is in view and big enough to show them.
+    pub fn clip_handles(&self, ctx: &egui::Context, id: Id) -> Option<ClipHandlesAt> {
+        use crate::arrangement::handles::ClipHandles;
+        use crate::arrangement::select::Edge;
+        let rect = self.clip_rect(ctx, id)?;
+        let clip = self
+            .document
+            .project()
+            .tracks
+            .iter()
+            .flat_map(|t| &t.clips)
+            .find(|c| c.id == id)?;
+        let view = self.nav.view;
+        let left = self.canvas.left();
+        let h = ClipHandles::of(clip, rect, |t| view.x(left, t.as_quarters()))?;
+        Some(ClipHandlesAt {
+            fade_in: h.handle_pos(Edge::Start),
+            fade_out: h.handle_pos(Edge::End),
+            bend_in: h.bend_pos(Edge::Start),
+            bend_out: h.bend_pos(Edge::End),
+            gain: egui::pos2(h.wave.center().x, h.gain_y()),
+            wave: h.wave,
+        })
+    }
+
     /// The selected clips.
     pub fn selected_clips(&self) -> Vec<Id> {
         self.arrangement.clips.iter().copied().collect()
@@ -205,4 +231,20 @@ impl App {
     pub fn save_to(&mut self, path: PathBuf) {
         self.start_save(path);
     }
+}
+
+/// Where a clip's fade and gain handles are on screen
+/// ([`App::clip_handles`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ClipHandlesAt {
+    /// The fade handles, at the top of the wave area.
+    pub fade_in: egui::Pos2,
+    pub fade_out: egui::Pos2,
+    /// The bend dots, when a fade is long enough to show one.
+    pub bend_in: Option<egui::Pos2>,
+    pub bend_out: Option<egui::Pos2>,
+    /// The middle of the gain line.
+    pub gain: egui::Pos2,
+    /// Where the waveform is drawn.
+    pub wave: egui::Rect,
 }

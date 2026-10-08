@@ -34,6 +34,9 @@ struct Wave {
     @location(3) slot: u32, @location(4) first_frame: f32,
     @location(5) frames_per_beat: f32, @location(6) color: u32,
     @location(7) channels: u32,
+    @location(8) gain: f32, @location(9) shapes: u32,
+    // Fade in and fade out: (from, to) as split beats.
+    @location(10) fade_in: vec4<f32>, @location(11) fade_out: vec4<f32>,
 };
 struct Out {
     @builtin(position) pos: vec4<f32>,
@@ -45,6 +48,10 @@ struct Out {
     @location(4) @interpolate(flat) slot: u32,
     @location(5) @interpolate(flat) channels: u32,
     @location(6) @interpolate(flat) index: u32,
+    // Where the fades run, in viewport pixels: in (from, to), out (from, to).
+    @location(7) @interpolate(flat) fades: vec4<f32>,
+    @location(8) @interpolate(flat) gain: f32,
+    @location(9) @interpolate(flat) shapes: u32,
 };
 
 @vertex
@@ -74,7 +81,43 @@ fn vs_main(@builtin(vertex_index) v: u32, @builtin(instance_index) index: u32, w
     out.slot = w.slot;
     out.channels = w.channels;
     out.index = index;
+    out.fades = vec4<f32>(
+        x_at(w.fade_in.xy), x_at(w.fade_in.zw), x_at(w.fade_out.xy), x_at(w.fade_out.zw),
+    );
+    out.gain = w.gain;
+    out.shapes = w.shapes;
     return out;
+}
+
+// The viewport x of split beats `b`.
+fn x_at(b: vec2<f32>) -> f32 {
+    return l.origin.x + from_left(b) * l.ppu;
+}
+
+// A fade's level `t` of the way from silence to full, as `FadeShape::gain`
+// plays it (0 linear, 1 slow, 2 fast, 3 S-curve).
+fn fade_level(shape: u32, t: f32) -> f32 {
+    let x = clamp(t, 0.0, 1.0);
+    switch shape {
+        case 1u: { return x * x; }
+        case 2u: { return 1.0 - (1.0 - x) * (1.0 - x); }
+        case 3u: { return x * x * (3.0 - 2.0 * x); }
+        default: { return x; }
+    }
+}
+
+// The level the wave is drawn at under pixel x: the clip's gain through its
+// fades, so the waveform looks as it sounds.
+fn envelope(i: Out) -> f32 {
+    var level = i.gain;
+    let f = i.fades;
+    if (f.y > f.x) {
+        level *= fade_level(i.shapes & 255u, (i.px.x - f.x) / (f.y - f.x));
+    }
+    if (f.w > f.z) {
+        level *= fade_level((i.shapes >> 8u) & 255u, (f.w - i.px.x) / (f.w - f.z));
+    }
+    return level;
 }
 
 fn texel(i: u32) -> vec4<f32> {
@@ -134,7 +177,8 @@ fn fs_main(i: Out) -> @location(0) vec4<f32> {
             lo = min(lo, v);
             hi = max(hi, v);
         }
-        return shade(i, lo, hi);
+        let env = envelope(i);
+        return shade(i, lo * env, hi * env);
     }
     // The frames under this pixel: columns are counted from the clip's
     // pixel edge, so column k always shows the same frames at this zoom,
@@ -163,7 +207,8 @@ fn fs_main(i: Out) -> @location(0) vec4<f32> {
         lo = min(lo, t.xz);
         hi = max(hi, t.yw);
     }
-    return shade(i, lo, hi);
+    let env = envelope(i);
+    return shade(i, lo * env, hi * env);
 }
 
 // The pixel's colour for a waveform spanning `lo` to `hi` (left, right).

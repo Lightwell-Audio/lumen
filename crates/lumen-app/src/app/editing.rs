@@ -12,7 +12,7 @@ use lumen_project::model::Id;
 
 use super::grid::draw_snap_guide;
 use crate::arrangement::Arrangement;
-use crate::arrangement::select::{Edge, Gesture, Half, TimeRange, drag_moves};
+use crate::arrangement::select::{Edge, Gesture, Half, Hover, TimeRange, drag_moves};
 use lumen_project::edit;
 
 use crate::{App, ruler, widgets};
@@ -96,6 +96,8 @@ impl App {
                 .input(|i| i.pointer.press_origin())
                 .or(response.interact_pointer_pos())
         {
+            // A drag shows its own hover (a trim rail, a handle), if any.
+            self.arrangement.hover = None;
             self.arrangement.gesture = self.start_gesture(&ctx, origin, canvas, modifiers);
         }
         if response.dragged_by(egui::PointerButton::Primary)
@@ -113,6 +115,13 @@ impl App {
             }
             self.arrangement.gesture = None;
             self.arrangement.marquee = None;
+        }
+
+        if response.double_clicked()
+            && let Some(p) = response.interact_pointer_pos()
+            && let Some(hit) = self.hit(&ctx, p, canvas)
+        {
+            self.reset_handle(&hit);
         }
 
         if response.clicked()
@@ -150,12 +159,24 @@ impl App {
         }
 
         // The H1 hover: which half is under the pointer, and what it does.
+        if self.arrangement.gesture.is_some() {
+            return;
+        }
         self.arrangement.hover = None;
-        if self.arrangement.gesture.is_none()
-            && let Some(p) = response.hover_pos()
+        if let Some(p) = response.hover_pos()
             && let Some(hit) = self.hit(&ctx, p, canvas)
         {
-            self.arrangement.hover = Some((hit.clip, hit.half, hit.edge));
+            self.arrangement.hover = Some(Hover::from(&hit));
+            let row = match hit.half {
+                Half::Top => hit.rect.top() + 7.0,
+                Half::Bottom => hit.rect.bottom() - 7.0,
+            };
+            if let Some(text) = self.handle_hover(&ctx, &hit) {
+                let at = pos2(p.x + 14.0, p.y - 12.0);
+                widgets::draw_hint(painter, at, widgets::HintMark::None, &text, canvas);
+                self.hint = Some(text);
+                return;
+            }
             let locked = self
                 .document
                 .project()
@@ -198,10 +219,6 @@ impl App {
                 (None, Half::Bottom) => (CursorIcon::Text, HintMark::Resize, "drag to select time"),
             };
             ctx.set_cursor_icon(cursor);
-            let row = match hit.half {
-                Half::Top => hit.rect.top() + 7.0,
-                Half::Bottom => hit.rect.bottom() - 7.0,
-            };
             // A chip, not a bare caption: clips are busy underneath.
             widgets::draw_hint(painter, pos2(p.x + 14.0, row), mark, text, canvas);
             self.hint = Some(text.to_owned());
@@ -246,6 +263,9 @@ impl App {
             self.arrangement.range = None;
             return Some(Gesture::Marquee { from: origin, kept });
         };
+        if hit.handle.is_some() {
+            return self.start_handle_gesture(&hit, origin);
+        }
         let locked = self
             .document
             .project()
@@ -401,7 +421,12 @@ impl App {
                     };
                     draw_snap_guide(painter, x(side), guides);
                 }
-                self.arrangement.hover = Some((clip, Half::Top, Some(edge)));
+                self.arrangement.hover = Some(Hover {
+                    clip,
+                    half: Half::Top,
+                    edge: Some(edge),
+                    handle: None,
+                });
                 ctx.set_cursor_icon(if looping {
                     CursorIcon::ResizeEast
                 } else {
@@ -413,6 +438,9 @@ impl App {
                 let by = self.ticks_at(canvas, p.x) - at;
                 self.document.slip_clip(&base, clip, by, Some("clip slip"));
                 ctx.set_cursor_icon(CursorIcon::ResizeColumn);
+            }
+            handle @ (Gesture::Fade { .. } | Gesture::Bend { .. } | Gesture::Gain { .. }) => {
+                self.continue_handle_gesture(ctx, handle, p, canvas, painter);
             }
             Gesture::Range { at, track } => {
                 let (a, b) = (
@@ -430,7 +458,7 @@ impl App {
     }
 
     /// Clips (or a range) were just selected: tracks and locators are not.
-    fn selected_clips_now(&mut self) {
+    pub(super) fn selected_clips_now(&mut self) {
         if !self.arrangement.clips.is_empty() {
             self.arrangement.selected.clear();
             self.locators.selected = None;
@@ -494,6 +522,7 @@ impl App {
             }
         }
         ui.separator();
+        self.fade_menu(ui);
         self.grid_menu(ui);
     }
 

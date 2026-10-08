@@ -388,7 +388,8 @@ pub fn file_card(ui: &mut egui::Ui, item: &Item) {
         "Top half: drag to move · Ctrl copies · Ctrl+Alt slips the audio",
         "Bottom half: drag to select time",
         "Sides: drag to trim · Shift loops",
-        "Right-click: cut, copy, paste, duplicate, delete",
+        "Top corners: fades · their middle dot bends them · the line sets gain",
+        "Right-click: edits and fade shapes",
     ] {
         ui.label(RichText::new(line).small().weak());
     }

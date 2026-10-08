@@ -984,3 +984,26 @@ the magnet switch and adding locators on the strip.
 
 **Last run:** run 2, passed.
 
+### MT-APP-14 · Clip editing (needs a human; draft, completed with slice 6e)
+Run `cargo run --release -p lumen-app` with a project that has a drum loop
+and a long melodic or vocal clip, through the Focusrite. Make the track
+taller for steps 1 to 4, then try them again at the default height.
+1. **Fades:** hover a clip: open rings wait in its top corners. Drag the
+   left one in: the fade in follows the pointer with its length beside
+   it, and the waveform tapers along the glowing curve. Do the same on
+   the right. A fade never runs past the other.
+2. **Bending:** drag a fade's middle dot up: Fast; down: Slow (a step
+   every 10 points). Right-click the clip: Fade-in shape and Fade-out
+   shape list all four, S-curve included. Double-click a dot: straight
+   again; double-click a fade's handle: no fade.
+3. **Gain:** hover the clip; the thin line near its top is its gain. Drag
+   it down: the dB shows beside the pointer and the waveform shrinks;
+   hold Shift for fine steps. Double-click it: 0 dB.
+4. **Heard as drawn:** play the clip through its fades and listen: they
+   sound as drawn, with no clicks. Ctrl+Z takes back each drag in one
+   step.
+5. **While playing:** drag a clip back and forth under the playhead, trim
+   it and delete it: no clicks or crackle (owner, after 6c).
+6. Try steps 1 to 3 in the light theme and at 150%.
+
+**Expected:** every step as described; no clicks.

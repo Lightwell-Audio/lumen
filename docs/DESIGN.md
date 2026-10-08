@@ -296,8 +296,27 @@ half selects a time range, empty lanes draw a marquee.
   Within 6 pt of a side (a quarter of a narrow clip) the side glows as a
   rail, `accent` 3 pt at 60% over 6 pt at 15%, with a resize cursor and
   the chip "drag to trim · Shift loops" ("drag to loop" with Shift).
-  Ctrl+Alt over the top half: "drag to slip the audio". Fade and gain
-  handles join in 6d.
+  Ctrl+Alt over the top half: "drag to slip the audio".
+- **Fades and gain (owner's choices F3 with the glow, and G1; slice 6d):**
+  on audio clips at least 28 pt wide with a wave area of 10 pt or more.
+  - At rest a fade is a quiet curve (`text` at 45%, 1 pt) over the
+    waveform, which itself follows the fade and the clip's gain on the
+    GPU, so the clip looks as it sounds.
+  - On hover the curves glow (`accent` 1.5 pt over 3.5 pt at 22% and 6 pt
+    at 10%), the part a fade takes away is washed in `accent` at 10%, and
+    the handles show: a round `accent` dot (3.5 pt, with a 20% halo) at
+    the top of the wave area where each fade reaches full level, an open
+    ring in the corner (8 pt in, clear of the trim edge) where there is no
+    fade yet, and a bend dot (3 pt, `clip_body` with an `accent` ring)
+    half way along each fade at least 16 pt long.
+  - The gain line crosses the wave area at the clip's gain (even in dB,
+    −∞ at the bottom, 0 dB five sixths up, +12 dB at the top): `accent`
+    at 55%, 1 pt, glowing only when the pointer is on it, so it does not
+    crowd the fades.
+  - Whatever is under the pointer grows by 1 pt and brightens. Hints are
+    one or two words ("fade in", "bend", "gain 0.0 dB"); a drag shows its
+    value beside the pointer ("125 ms", "Fast", "−4.4 dB").
+  - Fade handles win over the sides, the sides over the gain line.
 - **Looping clips:** a dashed `text` line at 30% with a 2 pt dot at 60%
   where each repeat starts, and the waveform drawn again in each.
 

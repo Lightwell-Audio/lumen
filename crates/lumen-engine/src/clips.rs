@@ -491,6 +491,14 @@ impl ClipPlayer {
         let Ok(mut new) = self.incoming.pop() else {
             return;
         };
+        // Only the newest list matters: lists that queued up (while
+        // stopped, or during a crossfade) go straight back unplayed, so a
+        // drag's old positions never play late.
+        while self.stash.is_none()
+            && let Ok(newer) = self.incoming.pop()
+        {
+            self.retire(std::mem::replace(&mut new, newer));
+        }
         let moved = new.carry_levels(&mut self.current);
         let old = std::mem::replace(&mut self.current, new);
         if fade && moved {

@@ -13,6 +13,7 @@ use lumen_core::time::Ticks;
 use lumen_project::model::{ClipContent, Id, Project, TrackKind};
 
 use super::clips::INSET;
+use super::handles::{ClipHandles, Handle};
 use super::{Arrangement, RowKind};
 use crate::document::ClipMove;
 use crate::timeview::TimeView;
@@ -76,6 +77,29 @@ pub struct ClipHit {
     pub half: Half,
     /// A side close enough to trim, which wins over the halves.
     pub edge: Option<Edge>,
+    /// A fade or gain handle (slice 6d): fade handles win over the sides,
+    /// the sides over the gain line.
+    pub handle: Option<Handle>,
+}
+
+/// What the pointer is over on a clip, for drawing its hover.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Hover {
+    pub clip: Id,
+    pub half: Half,
+    pub edge: Option<Edge>,
+    pub handle: Option<Handle>,
+}
+
+impl From<&ClipHit> for Hover {
+    fn from(hit: &ClipHit) -> Self {
+        Self {
+            clip: hit.clip,
+            half: hit.half,
+            edge: hit.edge,
+            handle: hit.handle,
+        }
+    }
 }
 
 /// A clip picked up by a drag, as it was.
@@ -121,6 +145,24 @@ pub enum Gesture {
         base: Arc<Project>,
         clip: Id,
         at: Ticks,
+    },
+    /// Dragging the handle of `clip`'s fade at `edge` along (slice 6d).
+    Fade { clip: Id, edge: Edge },
+    /// Bending that fade with its middle dot, from the shape `start`,
+    /// picked up at height `y`.
+    Bend {
+        clip: Id,
+        edge: Edge,
+        start: lumen_core::fade::FadeShape,
+        y: f32,
+    },
+    /// Dragging `clip`'s gain line from `db`, picked up at height `y`;
+    /// `per_point` dB a point.
+    Gain {
+        clip: Id,
+        db: f32,
+        y: f32,
+        per_point: f32,
     },
 }
 
@@ -242,12 +284,25 @@ impl Arrangement {
             .into_iter()
             .rev()
             .find(|(_, _, rect)| rect.contains(pointer))
-            .map(|(track, clip, rect)| ClipHit {
-                track,
-                clip,
-                rect,
-                half: half_at(rect, pointer.y),
-                edge: edge_at(rect, pointer.x),
+            .map(|(track, clip, rect)| {
+                let edge = edge_at(rect, pointer.x);
+                let handle = project.tracks[track]
+                    .clips
+                    .iter()
+                    .find(|c| c.id == clip && !c.locked)
+                    .and_then(|c| {
+                        ClipHandles::of(c, rect, |t| time.x(canvas.left(), t.as_quarters()))
+                    })
+                    .and_then(|h| h.handle_at(pointer))
+                    .filter(|h| edge.is_none() || *h != Handle::Gain);
+                ClipHit {
+                    track,
+                    clip,
+                    rect,
+                    half: half_at(rect, pointer.y),
+                    edge: if handle.is_some() { None } else { edge },
+                    handle,
+                }
             })
     }
 

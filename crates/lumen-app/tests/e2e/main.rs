@@ -13,6 +13,7 @@
 
 mod clips;
 mod editing;
+mod fades;
 mod files;
 mod grid;
 mod locators;

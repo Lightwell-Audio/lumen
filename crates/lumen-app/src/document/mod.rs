@@ -16,7 +16,7 @@ use lumen_project::model::{
 };
 
 mod clips;
-pub use clips::ClipMove;
+pub use clips::{CLIP_GAIN, ClipMove};
 
 /// Track colours, cycled for new tracks (`theme::CLIP_COLORS`, as `#RRGGBB`).
 fn track_color(index: usize) -> Color {

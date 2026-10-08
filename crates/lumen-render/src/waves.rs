@@ -47,7 +47,25 @@ pub struct WaveInstance {
     pub color: u32,
     /// 1 or 2: one waveform, or left over right when there is room.
     pub channels: u32,
+    /// The level the wave is drawn at (the clip's gain; 1 as recorded), so
+    /// a quieter clip looks quieter.
+    pub gain: f32,
+    /// The clip's fade shapes, as [`FADE_LINEAR`] and the rest: the fade
+    /// in in the low byte, the fade out in the next.
+    pub shapes: u32,
+    /// Where the clip's fade in runs, from silence to full; equal ends are
+    /// no fade. The wave follows the fade's curve.
+    pub fade_in: [Beats; 2],
+    /// Where its fade out runs, from full to silence.
+    pub fade_out: [Beats; 2],
 }
+
+/// Fade shapes, as the shader draws them: straight; x² (slow, then
+/// quick); 1 − (1 − x)² (quick, then slow); and smoothstep.
+pub const FADE_LINEAR: u32 = 0;
+pub const FADE_SLOW: u32 = 1;
+pub const FADE_FAST: u32 = 2;
+pub const FADE_S_CURVE: u32 = 3;
 
 /// Where waves sit inside their row, in physical pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -157,7 +175,8 @@ impl WavePipeline {
                 step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &wgpu::vertex_attr_array![
                     0 => Float32x2, 1 => Float32x2, 2 => Uint32, 3 => Uint32,
-                    4 => Float32, 5 => Float32, 6 => Uint32, 7 => Uint32
+                    4 => Float32, 5 => Float32, 6 => Uint32, 7 => Uint32,
+                    8 => Float32, 9 => Uint32, 10 => Float32x4, 11 => Float32x4
                 ],
             })],
             wgpu::PrimitiveTopology::TriangleStrip,
@@ -648,7 +667,7 @@ mod tests {
 
     #[test]
     fn gpu_layouts_have_the_sizes_the_shader_expects() {
-        assert_eq!(size_of::<WaveInstance>(), 40);
+        assert_eq!(size_of::<WaveInstance>(), 80);
         assert_eq!(size_of::<WaveUniform>(), 64);
     }
 }

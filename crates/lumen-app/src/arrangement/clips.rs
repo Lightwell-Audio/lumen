@@ -17,6 +17,7 @@ use lumen_media::Peaks;
 use lumen_project::model::{Clip, ClipContent, Project};
 use lumen_render::{BoxInstance, RowSlot, WaveInstance, WaveStyle, beats, rgba};
 
+use super::handles::{ClipHandles, draw_handles};
 use super::samples::{Geometry, Pixels, Strips};
 use super::waves::{Source, wave_instances};
 use super::{Arrangement, Row, RowKind, TITLE, color_of, select};
@@ -33,7 +34,7 @@ pub(super) const INSET: f32 = 3.0;
 /// The opacity of clips on tracks that cannot be heard.
 const DIMMED: f32 = 0.42;
 /// Space between the title bar and the waveform, and below it.
-const WAVE_GAP: f32 = 2.0;
+pub(super) const WAVE_GAP: f32 = 2.0;
 /// Below this height (in points), stereo is drawn as one waveform.
 const SPLIT_BELOW: f32 = 40.0;
 /// Clips narrower than this show no name: a letter or two is noise, and
@@ -376,12 +377,12 @@ impl Arrangement {
             }
             for clip in &project.tracks[index].clips {
                 let selected = self.clips.contains(&clip.id);
-                let hovered = self.hover.filter(|(id, ..)| *id == clip.id);
-                let (x0, x1) = span(time, canvas, clip);
-                if x1 < canvas.left() || x0 > canvas.right() {
+                let hovered = self.hover.filter(|h| h.clip == clip.id);
+                let (left, right) = span(time, canvas, clip);
+                if right < canvas.left() || left > canvas.right() {
                     continue;
                 }
-                let (x0, x1) = shown(x0, x1);
+                let (x0, x1) = shown(left, right);
                 let rect = Rect::from_x_y_ranges(
                     x0..=x1.max(x0 + 1.0),
                     lane.top() + INSET..=lane.bottom() - INSET,
@@ -416,10 +417,29 @@ impl Arrangement {
                         }
                     }
                 }
+                // Fades and gain (slice 6d), placed by the clip's whole
+                // extent and drawn only where they are in view.
+                let whole = Rect::from_x_y_ranges(left..=right, rect.y_range());
+                if let Some(h) = (!clip.locked)
+                    .then(|| ClipHandles::of(clip, whole, x))
+                    .flatten()
+                {
+                    let view = egui::Rangef::new(near_left, near_right);
+                    draw_handles(
+                        &painter,
+                        &h,
+                        view,
+                        hovered.is_some(),
+                        hovered.and_then(|h| h.handle),
+                    );
+                }
                 if !selected && hovered.is_none() {
                     continue;
                 }
-                if let Some((_, _, Some(edge))) = hovered {
+                if let Some(select::Hover {
+                    edge: Some(edge), ..
+                }) = hovered
+                {
                     // L3: the side that would trim glows as a rail.
                     let side = match edge {
                         select::Edge::Start => rect.left() + 1.5,
@@ -435,7 +455,13 @@ impl Arrangement {
                         rect.y_range(),
                         Stroke::new(3.0, palette.accent.gamma_multiply(0.6)),
                     );
-                } else if let Some((_, half, None)) = hovered {
+                } else if let Some(select::Hover {
+                    half,
+                    edge: None,
+                    handle: None,
+                    ..
+                }) = hovered
+                {
                     let split = select::split_y(rect);
                     let wash = match half {
                         select::Half::Top => rect.with_max_y(split),
