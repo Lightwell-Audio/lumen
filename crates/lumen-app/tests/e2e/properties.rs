@@ -11,7 +11,7 @@ use lumen_project::model::{Clip, ClipContent, Color, Id};
 use super::{Lumen, wav};
 
 /// Lumen with two two-second files dropped in: two tracks, a clip each.
-fn with_two_clips(name: &str) -> (Lumen, Id, Id) {
+pub(super) fn with_two_clips(name: &str) -> (Lumen, Id, Id) {
     let mut lumen = Lumen::start(name);
     let kick = wav(&lumen.dir().join("kick.wav"), 2.0);
     let snare = wav(&lumen.dir().join("snare.wav"), 2.0);
@@ -31,7 +31,7 @@ fn rect(lumen: &Lumen, clip: Id) -> Rect {
         .expect("the clip is in view")
 }
 
-fn clip(lumen: &Lumen, id: Id) -> Clip {
+pub(super) fn clip(lumen: &Lumen, id: Id) -> Clip {
     lumen
         .app()
         .project()
@@ -44,7 +44,7 @@ fn clip(lumen: &Lumen, id: Id) -> Clip {
 }
 
 /// Clicks `clip`'s top half, selecting it.
-fn select(lumen: &mut Lumen, id: Id) {
+pub(super) fn select(lumen: &mut Lumen, id: Id) {
     let r = rect(lumen, id);
     let p = Pos2::new(r.left() + 12.0, r.top() + 6.0);
     lumen.harness.hover_at(p);

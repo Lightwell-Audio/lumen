@@ -43,6 +43,7 @@ irreversible or external) · *Superseded*.
 | [0030](#adr-0030--grid-rulers-loop-locators-and-scrubbing) | Grid, rulers, loop, locators and scrubbing (M3 slice 5): a grid model in core, the loop and punch as document edits, punch at the loop's edges, locator keys, both scrub styles in an engine scrub mode | Accepted 2026-10-08 | No |
 | [0031](#adr-0031--curves-for-fades-and-envelopes-format-v6) | Curves for fades and envelopes (format v6): a cubic Bézier from silence to full, edited by one free dot with Alt for S-shape, played from tables, drawn on the GPU | Accepted 2026-10-08 | No |
 | [0032](#adr-0032--clip-editing-m3-slice-6) | Clip editing (M3 slice 6): the split-clip model, drags redone from where they started, Ableton's overlap rule, clip properties and the pinned card, drops on a chosen track, Esc for the field being typed in | Accepted 2026-10-08 | No |
+| [0033](#adr-0033--commands-and-the-keymap-m3-slice-7) | Commands and the keymap (M3 slice 7): one table of commands, chords matched exactly, one command per key whatever is selected, one dispatcher | Accepted 2026-10-08 (7a) | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -83,6 +84,7 @@ irreversible or external) · *Superseded*.
 | Lanes menu and grid behind clips (MT-APP-14 run 2, 2026-10-08) | Chosen from rendered specimens: **A**, each right-click gets the menu for what it landed on, as in Ableton (a clip, a time range, or empty lanes; commands that cannot run are left out), over B (grouped submenus) and C (an action strip); **G1**, the grid shows through a see-through clip body, closest to Ableton (the owner: G1 unless there is a strong argument for G2; none held up), over G2 (lines drawn across clips) and G3 (bar lines only). The owner also asked for a click anywhere on the lanes to move the playhead, as in Ableton. ADR-0032. |
 | Hints and tooltips (2026-10-08) | The owner noted that hints have piled up slice by slice: behaviour should come across without reading much (cursors, handle shapes, motion before text). **A dedicated UX pass**, scheduled when the next milestones are planned; until then new hints stay short. |
 | Split and tools (2026-10-08) | The owner asked to select a clip and drag it to cut it. **Split** is planned in M7 with the rest of the split work, and the drag-to-cut gesture is chosen there from rendered specimens. The tool model (pointer, draw, erase, split, mute, zoom; CLAUDE.md §5) is proposed for M7 with it, for the owner to confirm. |
+| Commands and shortcuts (M3 slice 7, 2026-10-08) | Chosen from interactive specimens: palette **P2 with P3's values** (context names such as "Duplicate 2 clips", commands that cannot run listed dimmed with the reason, a detail strip, typed values becoming actions); keycaps **K5 area light** after asking for more personality than the first round (plain modifiers, the main key outlined with a light in its area's colour); shortcut editor **E2 with E3** (a keyboard map lit by area over the list, plus rebinding from a palette result); **Shift+Tab depends on focus**, F6 and Shift+F6 between panes (ADR-0015). |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
 
@@ -916,7 +918,8 @@ locally with cargo-deny 0.20.2):
 
 ## ADR-0015 — Shift+Tab conflict
 
-**Status:** Open · **Date:** 2026-10-06
+**Status:** Accepted (owner, 2026-10-08: option 3, built in M3 slice 7) ·
+**Date:** 2026-10-06
 
 ### Context
 The spec (§5) assigns Shift+Tab to "toggle detail panel", as in Ableton.
@@ -2172,3 +2175,71 @@ curves, clip properties). ADR-0031 covers the curves.
   `a_click_on_the_lanes_moves_the_playhead`.
 - Screenshots (`tests/shots.rs`: `clip_properties` in dark at 100% and
   light at 150%, `file_drops`, `lanes_menus`).
+
+---
+
+## ADR-0033 — Commands and the keymap (M3 slice 7)
+
+**Status:** Accepted · **Date:** 2026-10-08 (7a; the palette, remapping
+and menus follow in 7b to 7d)
+
+### Context
+Slice 7 brings the command palette, remappable shortcuts with clash
+detection, and tooltips and menus that show shortcuts. Until now each
+feature read its own keys: eleven functions across the app, each with
+`consume_key` checks. egui matches a plain key with Shift or Alt held, so
+each function had to order its checks (Alt+Up before Up), and three keys
+meant different things in different places (Ctrl+D, Delete, F2, Esc),
+decided by which function ran first. Shortcut text in menus and tooltips
+was written by hand next to the code that handled the key.
+
+### Options
+1. Keep the handlers and add a list of shortcuts for display. The list
+   and the handlers drift apart, and nothing can be remapped.
+2. A command per context ("Delete clips", "Delete tracks"), each with its
+   own keys. The same chord is bound twice, so "no clashes" cannot be a
+   rule.
+3. **One table of commands; a command that acts on what is selected;
+   one dispatcher.**
+
+### Decision
+Option 3.
+- `commands/mod.rs` holds every command once: a stable id
+  (`edit.duplicate`, for saved keymaps), a name, an area (for grouping and
+  the K5 keycap light) and its default chords, Ableton's where it has one.
+  A test keeps the table in the enum's order.
+- `commands/keys.rs`: a `Chord` is Ctrl (Cmd on macOS), Shift, Alt and a
+  key, matched **exactly**: Alt+Up and Up are different chords, and
+  Shift+Delete is no longer Delete. The `Keymap` maps chords to commands
+  and reports clashes; the defaults have none (a test).
+- A key that acts on the selection is one command: Delete deletes the
+  selected clips or time range, the locator, or the tracks; Duplicate,
+  Rename (Ctrl+R and F2, now for tracks and locators too) and Deselect
+  (Esc) likewise. Selections are one kind at a time
+  (`App::sync_selection`), so the meaning is never ambiguous.
+- `app/commands.rs`: `availability` says whether a command can run now,
+  and why not in a few words (for the palette's dimmed rows); `run` runs
+  it, for keys, the palette and menus alike; `command_keys` is the one
+  dispatcher. It skips while a field has the keyboard, leaves arrow keys
+  to a focused control (`yields_to_focus`), runs the command bound to each
+  chord pressed when it can run, and takes that key from the input so no
+  widget also sees it. A key whose command cannot run is left for others.
+- View commands need the lanes' size and the pointer, so they queue a
+  `ViewStep` that the arrangement runs when it draws.
+- The detail panel's chord is read from the keymap in the raw-input hook,
+  before egui moves focus with it (ADR-0015).
+- Menus take names and shortcut text from the table and the keymap.
+
+### Consequences
+- A new command is one row in the table plus its `availability` and
+  `run` arms; the compiler finds missing arms.
+- The keymap can be saved by command id and changed at run time (7c).
+- Plain keys held with an extra modifier no longer run the plain command.
+  That frees chords such as Shift+Delete for later commands.
+
+### Evidence
+- Unit tests: `commands` (table order, unique ids and names),
+  `commands::keys` (no default clashes, exact matching, chord text).
+- E2E: the existing 62 scenarios pass unchanged;
+  `shortcuts_match_their_modifiers_exactly`,
+  `ctrl_r_renames_the_selected_track_as_f2_does`.

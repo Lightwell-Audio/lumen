@@ -2,7 +2,7 @@
 //! grid menu (right-click the lanes, or the grid button in the ruler's
 //! corner) and the snap guide. The grid itself is `lumen_core::grid`.
 
-use eframe::egui::{self, Align2, FontId, Key, Modifiers, Rect, Sense, Stroke, pos2};
+use eframe::egui::{self, Align2, FontId, Rect, Sense, Stroke, pos2};
 use lumen_core::grid::{Feel, Size, Step, Width};
 use lumen_core::time::Ticks;
 
@@ -27,7 +27,7 @@ impl App {
     }
 
     /// The step showing now, where the view starts.
-    fn grid_step(&self) -> Step {
+    pub(crate) fn grid_step(&self) -> Step {
         let map = &self.transport.timeline.meter;
         let meter = map.meter_at(ruler::ticks_at(self.nav.view.left));
         self.grid.step(meter, self.nav.view.zoom)
@@ -36,30 +36,6 @@ impl App {
     /// What the grid is, for the screen: "1/16", "1/8T", "4 bars".
     pub(crate) fn grid_label(&self) -> String {
         self.grid.label(self.grid_step())
-    }
-
-    /// Ableton's grid keys: Ctrl+1 narrower, Ctrl+2 wider, Ctrl+3 triplet,
-    /// Ctrl+4 snap on or off, Ctrl+5 fixed or adaptive.
-    pub(crate) fn grid_shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.egui_wants_keyboard_input() {
-            return;
-        }
-        let pressed = |key| ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, key));
-        let step = self.grid_step();
-        if pressed(Key::Num1) {
-            self.grid.narrower();
-        } else if pressed(Key::Num2) {
-            self.grid.wider();
-        } else if pressed(Key::Num3) {
-            self.grid.toggle_triplet();
-        } else if pressed(Key::Num4) {
-            self.grid.snap = !self.grid.snap;
-        } else if pressed(Key::Num5) {
-            self.grid.toggle_fixed(step);
-        } else {
-            return;
-        }
-        ctx.request_repaint();
     }
 
     /// The grid menu: adaptive widths, fixed sizes, triplet, dotted, snap.

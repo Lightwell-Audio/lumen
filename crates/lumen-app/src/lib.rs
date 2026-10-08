@@ -36,6 +36,7 @@ mod audio_settings;
 mod autosave;
 mod bench;
 mod canvas;
+mod commands;
 mod crash;
 mod document;
 mod files;
@@ -141,6 +142,8 @@ pub struct App {
     detail_size: f32,
     /// Set by the raw-input hook when Shift+Tab is pressed.
     toggle_detail_requested: bool,
+    /// Which keys run which commands (slice 7).
+    keymap: commands::Keymap,
     /// Where the arrangement looks (zoom, scroll, fit, back): slice 4d.
     nav: app::navigate::Nav,
     /// The editing grid and snapping (slice 5a); saved with the project.
@@ -223,7 +226,7 @@ impl eframe::App for App {
         }
     }
 
-    /// Shift+Tab toggles the detail panel (spec §5). It is taken here, before
+    /// The detail panel's key (Shift+Tab, spec §5) is taken here, before
     /// egui sees it, so it does not also move keyboard focus backwards.
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         for event in &raw_input.events {
@@ -244,21 +247,27 @@ impl eframe::App for App {
                 trace::log(|| format!("input: key {key:?}"));
             }
         }
+        let keymap = &self.keymap;
+        let mut toggle = false;
         raw_input.events.retain(|event| {
-            let toggle = matches!(
-                event,
-                egui::Event::Key { key: egui::Key::Tab, pressed: true, modifiers, .. }
-                    if modifiers.shift && !modifiers.ctrl && !modifiers.alt
-            );
-            if toggle {
-                self.toggle_detail_requested = true;
+            let egui::Event::Key {
+                key,
+                pressed,
+                modifiers,
+                ..
+            } = *event
+            else {
+                return true;
+            };
+            let chord = commands::Chord::pressed(modifiers, key);
+            if keymap.command_for(chord) != Some(commands::Command::ToggleDetail) {
+                return true;
             }
+            toggle |= pressed;
             // Drop the release too, so egui never sees half of the shortcut.
-            !matches!(
-                event,
-                egui::Event::Key { key: egui::Key::Tab, modifiers, .. } if modifiers.shift && !modifiers.ctrl && !modifiers.alt
-            )
+            false
         });
+        self.toggle_detail_requested |= toggle;
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
@@ -273,14 +282,7 @@ impl eframe::App for App {
         self.drive_bench(&ctx);
         self.hint = None;
         self.transport.update();
-        self.transport.shortcuts(&ctx);
-        self.undo_shortcuts(&ctx);
-        self.grid_shortcuts(&ctx);
-        self.locator_shortcuts(&ctx);
-        self.clip_property_shortcuts(&ctx);
-        self.clip_shortcuts(&ctx);
-        self.arrangement.shortcuts(&ctx, &mut self.document);
-        self.file_shortcuts(&ctx);
+        self.command_keys(&ctx);
         self.poll_files(&ctx);
         self.autosave(&ctx);
         let rate = self.transport.state().sample_rate;
@@ -604,6 +606,7 @@ impl App {
             browser_size: 220.0,
             detail_size: 220.0,
             toggle_detail_requested: false,
+            keymap: commands::Keymap::default(),
             nav: app::navigate::Nav::default(),
             grid: lumen_core::grid::Grid::default(),
             locators: app::locators::Locators::default(),

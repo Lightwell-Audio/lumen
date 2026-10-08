@@ -30,7 +30,7 @@ pub use samples::Update as StripUpdate;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use eframe::egui::{self, Color32, Id as EguiId, Key, Modifiers};
+use eframe::egui::{self, Color32, Id as EguiId, Modifiers};
 use lumen_project::model::{Clip, Color, Id, Project, Track, TrackKind};
 
 use crate::document::Document;
@@ -297,7 +297,7 @@ impl Arrangement {
     /// Moves the selection one track up (`-1`) or down (`1`) from the last
     /// selected track; with `extend`, adds that track instead (Shift).
     /// With nothing selected, starts at the first or the last track.
-    fn step_selection(&mut self, tracks: &[Id], by: isize, extend: bool) {
+    fn step_through(&mut self, tracks: &[Id], by: isize, extend: bool) {
         if tracks.is_empty() {
             return;
         }
@@ -331,7 +331,7 @@ impl Arrangement {
     }
 
     /// Moves the selected tracks one place up (`-1`) or down (`1`).
-    fn nudge(&mut self, doc: &mut Document, by: isize) {
+    pub(crate) fn move_selected(&mut self, doc: &mut Document, by: isize) {
         let tracks = &doc.project().tracks;
         let positions: Vec<usize> = tracks
             .iter()
@@ -353,71 +353,51 @@ impl Arrangement {
         }
     }
 
-    /// Track shortcuts (not while typing in a field): Ctrl+T adds an audio
-    /// track and Ctrl+Shift+T a MIDI track, after the selection; Ctrl+D
-    /// duplicates the selected tracks; Delete removes them; F2 renames;
-    /// Alt+Up and Alt+Down move them.
-    pub fn shortcuts(&mut self, ctx: &egui::Context, doc: &mut Document) {
-        if ctx.egui_wants_keyboard_input() {
-            return;
-        }
-        // egui matches shortcuts ignoring extra Shift and Alt, so the most
-        // specific ones go first: Alt+Up before Shift+Up before Up (an E2E
-        // test found Alt+Up selecting instead of moving).
-        let pressed = |modifiers, key| {
-            ctx.input_mut(|i| i.consume_shortcut(&egui::KeyboardShortcut::new(modifiers, key)))
-        };
-        if pressed(Modifiers::ALT, Key::ArrowUp) {
-            self.nudge(doc, -1);
-        } else if pressed(Modifiers::ALT, Key::ArrowDown) {
-            self.nudge(doc, 1);
-        }
-        // Keyboard-only selection and folding (audit H2), unless a control
-        // has focus and uses the arrow keys itself (a slider).
-        if ctx.memory(|m| m.focused().is_none()) {
-            let tracks: Vec<Id> = doc.project().tracks.iter().map(|t| t.id).collect();
-            for (shift, key, by) in [
-                (true, Key::ArrowUp, -1),
-                (true, Key::ArrowDown, 1),
-                (false, Key::ArrowUp, -1),
-                (false, Key::ArrowDown, 1),
-            ] {
-                let modifiers = if shift {
-                    Modifiers::SHIFT
-                } else {
-                    Modifiers::NONE
-                };
-                if pressed(modifiers, key) {
-                    self.step_selection(&tracks, by, shift);
-                }
-            }
-            if pressed(Modifiers::NONE, Key::ArrowLeft) {
-                for id in &self.selected {
-                    self.expanded.remove(id);
-                }
-            }
-            if pressed(Modifiers::NONE, Key::ArrowRight) {
-                self.expanded.extend(self.selected.iter().copied());
-            }
-        }
+    /// Adds a track of `kind` after the selection and selects it.
+    pub(crate) fn add_track(&mut self, doc: &mut Document, kind: TrackKind) {
         let after = self.selected.last().copied();
-        if pressed(Modifiers::COMMAND | Modifiers::SHIFT, Key::T) {
-            self.selected = vec![doc.add_track(TrackKind::Midi, after)];
-        } else if pressed(Modifiers::COMMAND, Key::T) {
-            self.selected = vec![doc.add_track(TrackKind::Audio, after)];
-        } else if pressed(Modifiers::COMMAND, Key::D) && !self.selected.is_empty() {
+        self.selected = vec![doc.add_track(kind, after)];
+    }
+
+    /// Duplicates the selected tracks and selects the copies.
+    pub(crate) fn duplicate_selected(&mut self, doc: &mut Document) {
+        if !self.selected.is_empty() {
             self.selected = doc.duplicate_tracks(&self.selected);
-        } else if (pressed(Modifiers::NONE, Key::Delete)
-            || pressed(Modifiers::NONE, Key::Backspace))
-            && !self.selected.is_empty()
-        {
+        }
+    }
+
+    /// Deletes the selected tracks.
+    pub(crate) fn delete_selected(&mut self, doc: &mut Document) {
+        if !self.selected.is_empty() {
             doc.delete_tracks(&self.selected);
             self.selected.clear();
-        } else if pressed(Modifiers::NONE, Key::F2)
-            && let Some(id) = self.selected.last().copied()
+        }
+    }
+
+    /// Starts renaming the last selected track in its header.
+    pub(crate) fn rename_selected(&mut self, doc: &Document) {
+        if let Some(id) = self.selected.last().copied()
             && let Some(track) = doc.project().tracks.iter().find(|t| t.id == id)
         {
             self.renaming = Some((id, track.name.clone()));
+        }
+    }
+
+    /// Selects the track `by` places from the last selected one (or the
+    /// first or last track), or adds it to the selection when `extend`.
+    pub(crate) fn step_selection(&mut self, doc: &Document, by: isize, extend: bool) {
+        let tracks: Vec<Id> = doc.project().tracks.iter().map(|t| t.id).collect();
+        self.step_through(&tracks, by, extend);
+    }
+
+    /// Folds (`fold`) or unfolds the selected tracks.
+    pub(crate) fn fold_selected(&mut self, fold: bool) {
+        if fold {
+            for id in &self.selected {
+                self.expanded.remove(id);
+            }
+        } else {
+            self.expanded.extend(self.selected.iter().copied());
         }
     }
 
@@ -511,12 +491,12 @@ mod tests {
         };
         let order =
             |doc: &Document| -> Vec<Id> { doc.project().tracks.iter().map(|t| t.id).collect() };
-        a.nudge(&mut doc, -1);
+        a.move_selected(&mut doc, -1);
         assert_eq!(order(&doc), [ids[0], ids[2], ids[1]]);
-        a.nudge(&mut doc, -1);
-        a.nudge(&mut doc, -1);
+        a.move_selected(&mut doc, -1);
+        a.move_selected(&mut doc, -1);
         assert_eq!(order(&doc), [ids[2], ids[0], ids[1]], "stops at the top");
-        a.nudge(&mut doc, 1);
+        a.move_selected(&mut doc, 1);
         assert_eq!(order(&doc), [ids[0], ids[2], ids[1]]);
     }
 
@@ -541,20 +521,20 @@ mod tests {
     fn the_keyboard_alone_can_select_tracks() {
         let tracks = [Id(1), Id(2), Id(3)];
         let mut a = Arrangement::default();
-        a.step_selection(&tracks, 1, false);
+        a.step_through(&tracks, 1, false);
         assert_eq!(
             a.selected,
             [Id(1)],
             "Down with nothing selected starts at the top"
         );
-        a.step_selection(&tracks, 1, false);
+        a.step_through(&tracks, 1, false);
         assert_eq!(a.selected, [Id(2)]);
-        a.step_selection(&tracks, 1, true);
+        a.step_through(&tracks, 1, true);
         assert_eq!(a.selected, [Id(2), Id(3)], "Shift extends");
-        a.step_selection(&tracks, 1, false);
+        a.step_through(&tracks, 1, false);
         assert_eq!(a.selected, [Id(3)], "stops at the bottom");
         let mut b = Arrangement::default();
-        b.step_selection(&tracks, -1, false);
+        b.step_through(&tracks, -1, false);
         assert_eq!(
             b.selected,
             [Id(3)],

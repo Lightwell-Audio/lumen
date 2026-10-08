@@ -3,6 +3,7 @@
 //! M1).
 
 pub(crate) mod clip_card;
+mod commands;
 pub(crate) mod editing;
 pub(crate) mod grid;
 mod handles;

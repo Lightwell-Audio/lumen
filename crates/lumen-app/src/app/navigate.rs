@@ -1,9 +1,10 @@
 //! Moving around the arrangement (M3 slice 4d): scrolling; zooming with
 //! the wheel, a pinch or the keys; fitting; stepping back; and Alt+wheel
-//! track heights. Keys as in Ableton: `+`/`-` zoom, X back, W fit width,
-//! H fit height. The view itself is `crate::timeview`.
+//! track heights. The keys (as in Ableton: `+`/`-` zoom, X back, W fit
+//! width, H fit height) are commands (`app/commands.rs`) that queue a
+//! [`ViewStep`] here. The view itself is `crate::timeview`.
 
-use eframe::egui::{self, Key, Modifiers, Rect};
+use eframe::egui::{self, Rect};
 use lumen_core::time::{PPQ, Ticks};
 
 use crate::settings::Follow;
@@ -27,10 +28,23 @@ const CONTINUOUS_AT: f64 = 0.4;
 /// Dragging the ruler 100 points down zooms in by e (about 2.7 times).
 const RULER_ZOOM_PER_POINT: f64 = 0.01;
 
+/// A view command waiting for the arrangement, which knows the lanes'
+/// size and where the pointer is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ViewStep {
+    ZoomIn,
+    ZoomOut,
+    Back,
+    FitWidth,
+    FitHeight,
+}
+
 /// Where the arrangement looks, how it got there, and where it was.
 #[derive(Debug, Default)]
 pub struct Nav {
     pub view: TimeView,
+    /// View commands run since the arrangement last drew.
+    pub(crate) steps: Vec<ViewStep>,
     back: Vec<TimeView>,
     glide: Option<Glide>,
     /// When the last wheel zoom happened (egui time).
@@ -223,21 +237,15 @@ impl App {
             }
         }
 
-        if ctx.egui_wants_keyboard_input() {
-            return;
-        }
-        let (zoom_in, zoom_out, back, fit_width, fit_height) = ctx.input_mut(|i| {
-            let plus = i.consume_key(Modifiers::NONE, Key::Plus)
-                || i.consume_key(Modifiers::NONE, Key::Equals)
-                || i.consume_key(Modifiers::SHIFT, Key::Equals);
-            (
-                plus,
-                i.consume_key(Modifiers::NONE, Key::Minus),
-                i.consume_key(Modifiers::NONE, Key::X),
-                i.consume_key(Modifiers::NONE, Key::W),
-                i.consume_key(Modifiers::NONE, Key::H),
-            )
-        });
+        let steps = std::mem::take(&mut self.nav.steps);
+        let ran = |step| steps.contains(&step);
+        let (zoom_in, zoom_out, back, fit_width, fit_height) = (
+            ran(ViewStep::ZoomIn),
+            ran(ViewStep::ZoomOut),
+            ran(ViewStep::Back),
+            ran(ViewStep::FitWidth),
+            ran(ViewStep::FitHeight),
+        );
         if zoom_in || zoom_out {
             // Around the pointer when it is over the lanes, else the
             // playhead when it is in view, else the middle.

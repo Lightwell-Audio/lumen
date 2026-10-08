@@ -23,28 +23,6 @@ impl App {
         }
     }
 
-    /// Undo and redo from the keyboard: Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y.
-    /// Not while typing in a field, which has its own text undo.
-    pub(crate) fn undo_shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.egui_wants_keyboard_input() {
-            return;
-        }
-        use egui::{Key, KeyboardShortcut, Modifiers};
-        let redo = ctx.input_mut(|i| {
-            i.consume_shortcut(&KeyboardShortcut::new(
-                Modifiers::COMMAND | Modifiers::SHIFT,
-                Key::Z,
-            )) || i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Y))
-        });
-        let undo = ctx
-            .input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::Z)));
-        if redo {
-            self.undo(true);
-        } else if undo {
-            self.undo(false);
-        }
-    }
-
     /// Keeps the app in step with the document: gestures end when the
     /// pointer is released, and the transport follows tempo and meter
     /// changes from edits, undo and redo.

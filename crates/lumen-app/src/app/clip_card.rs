@@ -6,7 +6,7 @@
 //! step; a lock keeps a clip in place, so locked clips can still be muted,
 //! renamed and recoloured.
 
-use eframe::egui::{self, FontId, Key, Modifiers, Pos2, Rect, RichText, Sense, Stroke, Vec2};
+use eframe::egui::{self, FontId, Key, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use eframe::egui::{pos2, vec2};
 use lumen_core::fade::FadeShape;
 use lumen_core::time::{TempoMap, Ticks};
@@ -193,7 +193,7 @@ fn swatches(
 
 impl App {
     /// The selected clip that comes first: top track first, then by time.
-    fn first_selected_clip(&self) -> Option<Id> {
+    pub(crate) fn first_selected_clip(&self) -> Option<Id> {
         self.document
             .project()
             .tracks
@@ -203,31 +203,8 @@ impl App {
             .map(|c| c.id)
     }
 
-    /// The clip property keys on the selected clips: 0 mutes or unmutes,
-    /// Ctrl+R or F2 renames, Alt+Enter opens the properties card. Runs
-    /// before the track keys, so a clip selection takes F2.
-    pub(crate) fn clip_property_shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.egui_wants_keyboard_input() || self.typing {
-            return;
-        }
-        let Some(first) = self.first_selected_clip() else {
-            return;
-        };
-        let pressed = |modifiers, key| ctx.input_mut(|i| i.consume_key(modifiers, key));
-        if pressed(Modifiers::ALT, Key::Enter) {
-            self.open_clip_card(first);
-        } else if pressed(Modifiers::NONE, Key::Num0) {
-            self.toggle_clip_mute();
-        } else if pressed(Modifiers::COMMAND, Key::R) || pressed(Modifiers::NONE, Key::F2) {
-            self.start_clip_rename(first);
-        } else {
-            return;
-        }
-        ctx.request_repaint();
-    }
-
     /// Mutes the selected clips, or unmutes them when all are muted.
-    fn toggle_clip_mute(&mut self) {
+    pub(crate) fn toggle_clip_mute(&mut self) {
         let ids: Vec<Id> = self.arrangement.clips.iter().copied().collect();
         let project = self.document.project();
         let all = ids

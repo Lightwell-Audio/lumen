@@ -12,6 +12,7 @@
 //! workflow a slice delivers (DEVELOPMENT.md, "End-to-end tests").
 
 mod clips;
+mod commands;
 mod editing;
 mod fades;
 mod files;

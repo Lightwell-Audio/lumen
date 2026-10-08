@@ -7,7 +7,7 @@
 
 use std::time::{Duration, Instant};
 
-use eframe::egui::{self, Key, Modifiers, RichText, Ui};
+use eframe::egui::{self, Key, RichText, Ui};
 use lumen_core::meter::{Meter, MeterMap};
 use lumen_core::time::{TempoMap, Ticks};
 use lumen_engine::{ClickSound, Command, MetronomeSettings, Region, Timeline, TransportSnapshot};
@@ -244,32 +244,6 @@ impl Transport {
                 .is_err();
         }
         self.audio.poll()
-    }
-
-    /// Global shortcuts. Call before drawing, so the keys are consumed
-    /// before any widget sees them.
-    pub fn shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.egui_wants_keyboard_input() {
-            return;
-        }
-        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::F)) {
-            self.toggle_follow();
-        }
-        let (pause, play, home) = ctx.input_mut(|i| {
-            (
-                i.consume_key(Modifiers::SHIFT, Key::Space),
-                i.consume_key(Modifiers::NONE, Key::Space),
-                i.consume_key(Modifiers::NONE, Key::Home),
-            )
-        });
-        if pause {
-            self.pause_continue();
-        } else if play {
-            self.play_stop();
-        }
-        if home {
-            self.locate(Ticks::ZERO);
-        }
     }
 
     pub fn ui(&mut self, ui: &mut Ui, doc: &mut crate::document::Document) {

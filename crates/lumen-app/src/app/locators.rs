@@ -5,7 +5,7 @@
 //! Delete to remove; jump between them with ◂ ▸ or Ctrl+Left and
 //! Ctrl+Right. Every change is one undo step.
 
-use eframe::egui::{self, Align2, CursorIcon, FontId, Key, Modifiers, Rect, Sense, Stroke, pos2};
+use eframe::egui::{self, Align2, CursorIcon, FontId, Key, Rect, Sense, Stroke, pos2};
 use lumen_core::time::Ticks;
 use lumen_project::model::{Id, Marker};
 
@@ -42,6 +42,13 @@ pub(crate) fn at(markers: &[Marker], at: Ticks) -> Option<Id> {
 }
 
 impl App {
+    /// Starts renaming locator `id` on its flag.
+    pub(crate) fn start_locator_rename(&mut self, id: Id) {
+        if let Some(m) = self.document.project().markers.iter().find(|m| m.id == id) {
+            self.locators.renaming = Some((id, m.name.clone()));
+        }
+    }
+
     /// Adds a locator at the playhead, or removes the one already there.
     pub(crate) fn set_locator(&mut self) {
         let here = self.transport.state().ticks;
@@ -72,46 +79,6 @@ impl App {
             self.transport.locate(t);
             self.transport.follow_paused = false;
         }
-    }
-
-    /// M sets or removes; Ctrl+Left and Ctrl+Right jump; Delete and F2 act
-    /// on the selected locator. Runs before the arrangement's keys, so a
-    /// selected locator takes Delete and F2.
-    pub(crate) fn locator_shortcuts(&mut self, ctx: &egui::Context) {
-        // Selecting tracks, clips or a range deselects the locator.
-        if !self.arrangement.selected.is_empty()
-            || !self.arrangement.clips.is_empty()
-            || self.arrangement.range.is_some()
-        {
-            self.locators.selected = None;
-        }
-        if ctx.egui_wants_keyboard_input() {
-            return;
-        }
-        let pressed = |modifiers, key| ctx.input_mut(|i| i.consume_key(modifiers, key));
-        if pressed(Modifiers::COMMAND, Key::ArrowLeft) {
-            self.jump_to_locator(false);
-        } else if pressed(Modifiers::COMMAND, Key::ArrowRight) {
-            self.jump_to_locator(true);
-        } else if pressed(Modifiers::NONE, Key::M) {
-            self.set_locator();
-        } else if let Some(id) = self.locators.selected {
-            if pressed(Modifiers::NONE, Key::Delete) || pressed(Modifiers::NONE, Key::Backspace) {
-                self.document.delete_marker(id);
-                self.locators.selected = None;
-            } else if pressed(Modifiers::NONE, Key::F2)
-                && let Some(m) = self.document.project().markers.iter().find(|m| m.id == id)
-            {
-                self.locators.renaming = Some((id, m.name.clone()));
-            } else if pressed(Modifiers::NONE, Key::Escape) {
-                self.locators.selected = None;
-            } else {
-                return;
-            }
-        } else {
-            return;
-        }
-        ctx.request_repaint();
     }
 
     /// The flags, on the strip's upper part. Called after the loop brace,

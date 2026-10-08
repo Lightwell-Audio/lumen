@@ -603,14 +603,14 @@ impl Arrangement {
             .add(egui::Button::new("Move up").shortcut_text("Alt+\u{2191}"))
             .clicked()
         {
-            self.nudge(doc, -1);
+            self.move_selected(doc, -1);
             ui.close();
         }
         if ui
             .add(egui::Button::new("Move down").shortcut_text("Alt+\u{2193}"))
             .clicked()
         {
-            self.nudge(doc, 1);
+            self.move_selected(doc, 1);
             ui.close();
         }
         if ui

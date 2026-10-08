@@ -271,23 +271,6 @@ impl App {
         }
     }
 
-    /// File shortcuts: Ctrl+N, Ctrl+O, Ctrl+S and Ctrl+Shift+S.
-    pub(crate) fn file_shortcuts(&mut self, ctx: &egui::Context) {
-        use egui::{Key, KeyboardShortcut, Modifiers};
-        let pressed = |modifiers, key| {
-            ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(modifiers, key)))
-        };
-        if pressed(Modifiers::COMMAND | Modifiers::SHIFT, Key::S) {
-            self.save(ctx, true);
-        } else if pressed(Modifiers::COMMAND, Key::S) {
-            self.save(ctx, false);
-        } else if pressed(Modifiers::COMMAND, Key::O) {
-            self.request(ctx, Next::Open(None));
-        } else if pressed(Modifiers::COMMAND, Key::N) {
-            self.request(ctx, Next::New);
-        }
-    }
-
     /// "Save changes to <name>?" with Save, Don't save and Cancel. Not a
     /// blocking dialog: the rest of the app keeps running behind it.
     pub(crate) fn prompt_window(&mut self, ctx: &egui::Context) {

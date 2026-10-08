@@ -13,6 +13,7 @@ use lumen_project::model::Id;
 use super::grid::draw_snap_guide;
 use crate::arrangement::Arrangement;
 use crate::arrangement::select::{Edge, Gesture, Half, Hover, TimeRange, drag_moves};
+use crate::commands::Command;
 use lumen_project::edit;
 
 use crate::{App, ruler, widgets};
@@ -30,27 +31,16 @@ pub(crate) enum Edit {
 }
 
 impl Edit {
-    pub(crate) fn name(self) -> &'static str {
+    /// The command that runs this edit, for its name and shortcut.
+    pub(crate) fn command(self) -> Command {
         match self {
-            Edit::Cut => "Cut",
-            Edit::Copy => "Copy",
-            Edit::Paste => "Paste",
-            Edit::Duplicate => "Duplicate",
-            Edit::Delete => "Delete",
-            Edit::DeleteTime => "Delete time",
-            Edit::InsertTime => "Insert time",
-        }
-    }
-
-    pub(crate) fn keys(self) -> &'static str {
-        match self {
-            Edit::Cut => "Ctrl+X",
-            Edit::Copy => "Ctrl+C",
-            Edit::Paste => "Ctrl+V",
-            Edit::Duplicate => "Ctrl+D",
-            Edit::Delete => "Delete",
-            Edit::DeleteTime => "Ctrl+Shift+Delete",
-            Edit::InsertTime => "Ctrl+I",
+            Edit::Cut => Command::Cut,
+            Edit::Copy => Command::Copy,
+            Edit::Paste => Command::Paste,
+            Edit::Duplicate => Command::Duplicate,
+            Edit::Delete => Command::Delete,
+            Edit::DeleteTime => Command::DeleteTime,
+            Edit::InsertTime => Command::InsertTime,
         }
     }
 }
@@ -498,53 +488,6 @@ impl App {
         }
     }
 
-    /// The editing keys (Ableton's), on the selected clips or the time
-    /// range: Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+D, Delete, Ctrl+Shift+Delete
-    /// (delete time), Ctrl+I (insert time), Esc. Runs before the track
-    /// keys, so a clip or range selection takes them.
-    pub(crate) fn clip_shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.egui_wants_keyboard_input() || self.typing {
-            return;
-        }
-        // Selecting tracks deselects clips and the range.
-        if !self.arrangement.selected.is_empty() {
-            self.arrangement.clips.clear();
-            self.arrangement.range = None;
-        }
-        use egui::Key;
-        let pressed = |modifiers, key| ctx.input_mut(|i| i.consume_key(modifiers, key));
-        let chosen = !self.arrangement.clips.is_empty() || self.arrangement.range.is_some();
-        // Specific chords first: plain keys also match with Shift held.
-        let command = if chosen && pressed(Modifiers::COMMAND | Modifiers::SHIFT, Key::Delete) {
-            Edit::DeleteTime
-        } else if chosen && pressed(Modifiers::COMMAND, Key::I) {
-            Edit::InsertTime
-        } else if chosen && pressed(Modifiers::COMMAND, Key::C) {
-            Edit::Copy
-        } else if chosen && pressed(Modifiers::COMMAND, Key::X) {
-            Edit::Cut
-        } else if chosen && pressed(Modifiers::COMMAND, Key::D) {
-            Edit::Duplicate
-        } else if self.clipboard.is_some() && pressed(Modifiers::COMMAND, Key::V) {
-            Edit::Paste
-        } else if chosen
-            && (pressed(Modifiers::NONE, Key::Delete) || pressed(Modifiers::NONE, Key::Backspace))
-        {
-            Edit::Delete
-        } else if chosen && !egui::Popup::is_any_open(ctx) && pressed(Modifiers::NONE, Key::Escape)
-        {
-            // An open menu takes Esc first (MT-APP-14 run 2): it closes
-            // without the selection going too.
-            self.arrangement.clips.clear();
-            self.arrangement.range = None;
-            return;
-        } else {
-            return;
-        };
-        self.edit(command);
-        ctx.request_repaint();
-    }
-
     /// The lanes' right-click menu, for what was clicked (the owner's A):
     /// clips get the clip edits and properties, a time range its edits,
     /// empty lanes Paste and the grid. Commands that cannot run are left
@@ -587,7 +530,9 @@ impl App {
                 continue;
             }
             any = true;
-            let button = egui::Button::new(command.name()).shortcut_text(command.keys());
+            let run = command.command();
+            let button = egui::Button::new(run.name())
+                .shortcut_text(self.keymap.text(run).unwrap_or_default());
             if ui.add(button).clicked() {
                 self.edit(command);
                 ui.close();
