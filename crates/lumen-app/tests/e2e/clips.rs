@@ -3,6 +3,7 @@
 //! marquee; clicks select; Delete and Esc.
 
 use eframe::egui::{Key, Modifiers, Pos2, Rect, vec2};
+use egui_kittest::kittest::Queryable;
 use lumen_core::time::Ticks;
 use lumen_project::model::Id;
 
@@ -186,4 +187,151 @@ fn clicks_select_and_hovering_names_each_half() {
         lumen.app().selected_clips().is_empty(),
         "empty space clears"
     );
+}
+
+/// Selects bars `from` to `to` (quarters, snapped) over both tracks by
+/// dragging the kick's bottom half down to the snare's.
+fn select_range(lumen: &mut Lumen, kick: Id, snare: Id, from: f64, to: f64) {
+    let zoom = lumen.app().view().zoom as f32;
+    let (a, b) = (rect(lumen, kick), rect(lumen, snare));
+    let left = lumen
+        .app()
+        .clip_rect(&lumen.harness.ctx.clone(), kick)
+        .unwrap()
+        .left()
+        - (place(lumen, kick).1.as_quarters() as f32) * zoom;
+    let p = |q: f64, r: Rect| Pos2::new(left + q as f32 * zoom, r.bottom() - 5.0);
+    lumen.drag(p(from, a), p(to, b), Modifiers::NONE);
+    assert!(lumen.app().time_range().is_some(), "a range");
+}
+
+fn starts(lumen: &Lumen, track: usize) -> Vec<(i64, i64)> {
+    lumen.app().project().tracks[track]
+        .clips
+        .iter()
+        .map(|c| (c.start.0, c.length.0))
+        .collect()
+}
+
+#[test]
+fn a_range_on_two_tracks_cuts_and_pastes_as_one_step_each() {
+    let (mut lumen, kick, snare) = with_two_clips("range-cut");
+    // The one-second clips last two quarters from quarter 0.
+    assert_eq!(starts(&lumen, 0), [(0, BAR / 2)]);
+    // Quarters: the one-bar grid, twice finer.
+    lumen.key(Modifiers::COMMAND, Key::Num1);
+    lumen.key(Modifiers::COMMAND, Key::Num1);
+    select_range(&mut lumen, kick, snare, 1.0, 1.9);
+    let (a, b, tracks) = lumen.app().time_range().unwrap();
+    assert_eq!((a, b), (Ticks::quarters(1), Ticks::quarters(2)));
+    assert_eq!(tracks.len(), 2);
+
+    // Cut: both clips end at the range; one undo step brings both back.
+    lumen.key(Modifiers::COMMAND, Key::X);
+    for track in 0..2 {
+        assert_eq!(starts(&lumen, track), [(0, BAR / 4)], "track {track}");
+    }
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    for track in 0..2 {
+        assert_eq!(starts(&lumen, track), [(0, BAR / 2)], "track {track}");
+    }
+
+    // Copy it, and paste at the playhead (bar 3): both tracks get a piece.
+    select_range(&mut lumen, kick, snare, 1.0, 1.9);
+    lumen.key(Modifiers::COMMAND, Key::C);
+    lumen.key(Modifiers::NONE, Key::Escape);
+    locate(&mut lumen, 8.0);
+    lumen.key(Modifiers::COMMAND, Key::V);
+    for track in 0..2 {
+        assert_eq!(
+            starts(&lumen, track),
+            [(0, BAR / 2), (2 * BAR, BAR / 4)],
+            "track {track}"
+        );
+    }
+    let (a, _, tracks) = lumen
+        .app()
+        .time_range()
+        .expect("the pasted range is selected");
+    assert_eq!((a, tracks.len()), (Ticks(2 * BAR), 2));
+}
+
+/// Moves the playhead to `quarters` by clicking the ruler.
+fn locate(lumen: &mut Lumen, quarters: f64) {
+    let ruler = lumen
+        .harness
+        .get_by_label("Ruler: click to move the playhead")
+        .rect();
+    let zoom = lumen.app().view().zoom as f32;
+    let at = Pos2::new(ruler.left() + quarters as f32 * zoom, ruler.center().y);
+    lumen.drag(at, at, Modifiers::NONE);
+    let target = Ticks::quarters(quarters as i64);
+    lumen.wait_for("the playhead", |app| app.playhead() == target);
+}
+
+#[test]
+fn ctrl_d_duplicates_clips_right_after_them() {
+    let (mut lumen, kick, _) = with_two_clips("clip-duplicate");
+    let p = top_half(rect(&lumen, kick));
+    lumen.drag(p, p, Modifiers::NONE);
+    assert_eq!(lumen.app().selected_clips(), [kick]);
+    lumen.key(Modifiers::COMMAND, Key::D);
+    let clips = starts(&lumen, 0);
+    assert_eq!(clips, [(0, BAR / 2), (BAR / 2, BAR / 2)], "right after it");
+    assert_eq!(starts(&lumen, 1).len(), 1, "the snare is untouched");
+    let copy = lumen.app().project().tracks[0].clips[1].id;
+    assert_eq!(lumen.app().selected_clips(), [copy], "the copy is selected");
+    lumen.key(Modifiers::COMMAND, Key::D);
+    assert_eq!(starts(&lumen, 0).len(), 3, "again, after the copy");
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert_eq!(starts(&lumen, 0).len(), 1);
+}
+
+#[test]
+fn copy_pastes_at_the_playhead_and_delete_time_closes_the_gap() {
+    let (mut lumen, kick, snare) = with_two_clips("clip-paste");
+    let p = top_half(rect(&lumen, kick));
+    lumen.drag(p, p, Modifiers::NONE);
+    lumen.key(Modifiers::COMMAND, Key::C);
+    // The playhead to bar 3 by the ruler, then paste.
+    locate(&mut lumen, 8.0);
+    lumen.key(Modifiers::COMMAND, Key::V);
+    assert_eq!(starts(&lumen, 0), [(0, BAR / 2), (2 * BAR, BAR / 2)]);
+
+    // Delete bar 2 as time: a range from the pasted clip back to bar 2 (a
+    // range starts on a clip's bottom half), then Ctrl+Shift+Delete. The
+    // paste moves back a bar.
+    let pasted = lumen.app().project().tracks[0].clips[1].id;
+    select_range(&mut lumen, pasted, snare, 8.2, 4.0);
+    let (a, b, _) = lumen.app().time_range().unwrap();
+    assert_eq!((a, b), (Ticks(BAR), Ticks(2 * BAR)));
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Delete);
+    assert_eq!(starts(&lumen, 0), [(0, BAR / 2), (BAR, BAR / 2)]);
+    assert!(lumen.app().time_range().is_none());
+}
+
+#[test]
+fn the_lanes_menu_edits_what_was_right_clicked() {
+    let (mut lumen, kick, _) = with_two_clips("clip-menu");
+    let p = top_half(rect(&lumen, kick));
+    lumen.harness.hover_at(p);
+    lumen.frames(1);
+    for pressed in [true, false] {
+        lumen.harness.event(eframe::egui::Event::PointerButton {
+            pos: p,
+            button: eframe::egui::PointerButton::Secondary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+        lumen.frames(1);
+    }
+    lumen.frames(2);
+    assert_eq!(
+        lumen.app().selected_clips(),
+        [kick],
+        "selected by the right-click"
+    );
+    lumen.click("Duplicate Ctrl+D");
+    assert_eq!(starts(&lumen, 0).len(), 2);
 }

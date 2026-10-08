@@ -10,10 +10,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
-use lumen_project::History;
 use lumen_project::model::{
     Clip, ClipContent, Color, Id, Marker, Media, Project, Track, TrackKind,
 };
+use lumen_project::{History, edit};
 
 /// Track colours, cycled for new tracks (`theme::CLIP_COLORS`, as `#RRGGBB`).
 fn track_color(index: usize) -> Color {
@@ -474,6 +474,63 @@ impl Document {
         });
     }
 
+    /// Empties `[a, b)` on `tracks` (a time range's Delete, or its Cut):
+    /// clips are cut back at its edges or split around it.
+    pub fn clear_range(&mut self, label: &str, tracks: &[Id], a: Ticks, b: Ticks) {
+        let next = &mut self.next_id;
+        self.history.apply(label, None, |project| {
+            edit::clear(project, tracks, a, b, &mut fresh_ids(next));
+        });
+    }
+
+    /// Deletes `[a, b)` from the whole song (Ableton's Delete Time).
+    pub fn delete_time(&mut self, a: Ticks, b: Ticks) {
+        let next = &mut self.next_id;
+        self.history.apply("Delete time", None, |project| {
+            edit::delete_time(project, a, b, &mut fresh_ids(next));
+        });
+    }
+
+    /// Inserts `length` of silence at `at` across the whole song.
+    pub fn insert_time(&mut self, at: Ticks, length: Ticks) {
+        let next = &mut self.next_id;
+        self.history.apply("Insert time", None, |project| {
+            edit::insert_time(project, at, length, &mut fresh_ids(next));
+        });
+    }
+
+    /// Pastes `clipboard` at `at` from the track with index `track`,
+    /// overwriting what is there, as one step named `label` ("Paste",
+    /// "Duplicate"). Returns the new clips' ids.
+    pub fn paste(
+        &mut self,
+        label: &str,
+        clipboard: &edit::Clipboard,
+        at: Ticks,
+        track: usize,
+    ) -> Vec<Id> {
+        let next = &mut self.next_id;
+        let mut pasted = Vec::new();
+        self.history.apply(label, None, |project| {
+            pasted = edit::paste(project, clipboard, at, track, &mut fresh_ids(next));
+        });
+        pasted
+    }
+
+    /// Deletes clips as a Cut (the clipboard holds them).
+    pub fn cut_clips(&mut self, ids: &[Id]) {
+        let label = plural(ids.len(), "Cut clip", "Cut {} clips");
+        self.history.apply(&label, None, |project| {
+            for track in &mut project.tracks {
+                if track.clips.iter().any(|c| ids.contains(&c.id) && !c.locked) {
+                    Arc::make_mut(track)
+                        .clips
+                        .retain(|c| c.locked || !ids.contains(&c.id));
+                }
+            }
+        });
+    }
+
     /// Changes the given tracks, as one step named `label`.
     fn edit_tracks(&mut self, label: &str, ids: &[Id], change: impl Fn(&mut Track)) {
         self.history.apply(label, None, |project| {
@@ -595,6 +652,15 @@ fn place_clips(project: &mut Project, moves: &[ClipMove]) {
         if !track.clips.is_sorted_by_key(|c| c.start) {
             Arc::make_mut(track).clips.sort_by_key(|c| c.start);
         }
+    }
+}
+
+/// New ids from a document's counter, for edits that make clips.
+fn fresh_ids(next: &mut u64) -> impl FnMut() -> Id + '_ {
+    move || {
+        let id = Id(*next);
+        *next += 1;
+        id
     }
 }
 

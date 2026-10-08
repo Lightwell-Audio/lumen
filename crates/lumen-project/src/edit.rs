@@ -1,0 +1,584 @@
+//! Editing time on the arrangement (M3 slice 6b): taking the part of a
+//! clip between two times, clearing a span, deleting or inserting time
+//! across the whole song, and the clipboard. Pure functions over the
+//! model, so every edit is tested here and the app wraps each in one undo
+//! step.
+//!
+//! A clip cut at a time keeps its audio in place: its media offset moves on
+//! by the frames between its old and new start, at the file's own rate
+//! (audio plays at its own speed until warping). Fades stay only on the
+//! edges a clip keeps. MIDI notes are cut at the edges.
+//!
+//! Known limit: a looping clip cut partway through a repeat restarts its
+//! repeats at the cut (M7 adds a loop phase with splitting).
+
+use std::sync::Arc;
+
+use lumen_core::time::{TempoMap, Ticks};
+
+use crate::model::{Clip, ClipContent, Id, Note, Project, TrackKind};
+
+/// Times before and after any clip, for "everything before" and "everything
+/// after" (far from overflow).
+const FOREVER_BEFORE: Ticks = Ticks(i64::MIN / 4);
+const FOREVER_AFTER: Ticks = Ticks(i64::MAX / 4);
+
+/// The part of `clip` inside `[a, b)`, or `None` if they do not meet. It
+/// keeps `clip`'s id; give it a new one if both parts stay.
+pub fn slice(project: &Project, tempo: &TempoMap, clip: &Clip, a: Ticks, b: Ticks) -> Option<Clip> {
+    let (start, end) = (clip.start.max(a), (clip.start + clip.length).min(b));
+    if start >= end {
+        return None;
+    }
+    let mut part = clip.clone();
+    let cut = start - clip.start;
+    part.start = start;
+    part.length = end - start;
+    match &mut part.content {
+        ClipContent::Audio { media, offset, .. } => {
+            if cut > Ticks::ZERO {
+                let rate = project
+                    .media
+                    .iter()
+                    .find(|m| m.id == *media)
+                    .map_or(project.sample_rate, |m| m.sample_rate);
+                *offset += tempo.sample_at(start, rate) - tempo.sample_at(clip.start, rate);
+            }
+        }
+        ClipContent::Midi { notes } => {
+            *notes = notes
+                .iter()
+                .filter_map(|n| {
+                    let (from, to) = (
+                        n.start().max(cut),
+                        (n.start() + n.length()).min(cut + part.length),
+                    );
+                    (from < to && n.start() >= cut)
+                        .then(|| Note(from - cut, to - from, n.pitch(), n.velocity()))
+                })
+                .collect();
+        }
+    }
+    if start != clip.start {
+        part.fade_in = Default::default();
+    }
+    if end != clip.start + clip.length {
+        part.fade_out = Default::default();
+    }
+    part.fade_in.length = part.fade_in.length.min(part.length);
+    part.fade_out.length = part.fade_out.length.min(part.length - part.fade_in.length);
+    Some(part)
+}
+
+/// The project's tempo, or 120 BPM if it is invalid (validation keeps it
+/// valid; this only avoids a panic).
+fn tempo_of(project: &Project) -> TempoMap {
+    TempoMap::new(project.tempo.clone())
+        .unwrap_or_else(|_| TempoMap::constant(120.0).expect("120 BPM is a valid tempo"))
+}
+
+/// Empties `[a, b)` on `tracks`: clips inside go, clips crossing an edge
+/// are cut back to it, and a clip spanning the whole span is split in two
+/// (the right part gets an id from `fresh`). Locked clips stay whole.
+pub fn clear(
+    project: &mut Project,
+    tracks: &[Id],
+    a: Ticks,
+    b: Ticks,
+    fresh: &mut impl FnMut() -> Id,
+) {
+    if a >= b {
+        return;
+    }
+    let tempo = tempo_of(project);
+    let snapshot = project.clone();
+    for track in &mut project.tracks {
+        if !tracks.contains(&track.id) {
+            continue;
+        }
+        let touched = |c: &Arc<Clip>| !c.locked && c.start < b && c.start + c.length > a;
+        if !track.clips.iter().any(touched) {
+            continue;
+        }
+        let mut kept = Vec::with_capacity(track.clips.len() + 1);
+        for clip in &track.clips {
+            if !touched(clip) {
+                kept.push(Arc::clone(clip));
+                continue;
+            }
+            if let Some(left) = slice(&snapshot, &tempo, clip, FOREVER_BEFORE, a) {
+                kept.push(Arc::new(left));
+            }
+            if let Some(mut right) = slice(&snapshot, &tempo, clip, b, FOREVER_AFTER) {
+                if clip.start < a {
+                    right.id = fresh();
+                }
+                kept.push(Arc::new(right));
+            }
+        }
+        kept.sort_by_key(|c| c.start);
+        Arc::make_mut(track).clips = kept;
+    }
+}
+
+/// Where a time lands when `[a, b)` is deleted: before it stays, inside it
+/// goes to `a`, after it moves back by its length.
+fn closed(t: Ticks, a: Ticks, b: Ticks) -> Ticks {
+    if t <= a {
+        t
+    } else if t < b {
+        a
+    } else {
+        t - (b - a)
+    }
+}
+
+/// Deletes `[a, b)` from the whole song, as Ableton's Delete Time: every
+/// track is cleared there and everything after moves back; locators inside
+/// go, those after move; the loop closes up (unless that would empty it).
+pub fn delete_time(project: &mut Project, a: Ticks, b: Ticks, fresh: &mut impl FnMut() -> Id) {
+    if a >= b {
+        return;
+    }
+    let all: Vec<Id> = project.tracks.iter().map(|t| t.id).collect();
+    clear(project, &all, a, b, fresh);
+    for track in &mut project.tracks {
+        if track.clips.iter().any(|c| c.start >= b && !c.locked) {
+            for clip in &mut Arc::make_mut(track).clips {
+                if clip.start >= b && !clip.locked {
+                    Arc::make_mut(clip).start = clip.start - (b - a);
+                }
+            }
+        }
+    }
+    project.markers.retain(|m| m.at <= a || m.at >= b);
+    for marker in &mut project.markers {
+        marker.at = closed(marker.at, a, b);
+    }
+    let t = &mut project.transport;
+    let (start, end) = (closed(t.loop_start, a, b), closed(t.loop_end, a, b));
+    if start < end {
+        (t.loop_start, t.loop_end) = (start, end);
+    }
+    sort_clips(project);
+}
+
+/// Inserts `length` of silence at `at` across the whole song (Ableton's
+/// Insert Time): clips crossing it split, and everything after moves on,
+/// locators and the loop included.
+pub fn insert_time(
+    project: &mut Project,
+    at: Ticks,
+    length: Ticks,
+    fresh: &mut impl FnMut() -> Id,
+) {
+    if length <= Ticks::ZERO {
+        return;
+    }
+    let tempo = tempo_of(project);
+    let snapshot = project.clone();
+    for track in &mut project.tracks {
+        let crossing = |c: &Arc<Clip>| !c.locked && c.start < at && c.start + c.length > at;
+        let after = |c: &Arc<Clip>| !c.locked && c.start >= at;
+        if !track.clips.iter().any(|c| crossing(c) || after(c)) {
+            continue;
+        }
+        let mut kept = Vec::with_capacity(track.clips.len() + 1);
+        for clip in &track.clips {
+            if crossing(clip) {
+                if let Some(left) = slice(&snapshot, &tempo, clip, FOREVER_BEFORE, at) {
+                    kept.push(Arc::new(left));
+                }
+                if let Some(mut right) = slice(&snapshot, &tempo, clip, at, FOREVER_AFTER) {
+                    right.id = fresh();
+                    right.start = right.start + length;
+                    kept.push(Arc::new(right));
+                }
+            } else if after(clip) {
+                let mut moved = (**clip).clone();
+                moved.start = moved.start + length;
+                kept.push(Arc::new(moved));
+            } else {
+                kept.push(Arc::clone(clip));
+            }
+        }
+        Arc::make_mut(track).clips = kept;
+    }
+    let later = |t: Ticks| if t >= at { t + length } else { t };
+    for marker in &mut project.markers {
+        marker.at = later(marker.at);
+    }
+    let t = &mut project.transport;
+    t.loop_start = later(t.loop_start);
+    t.loop_end = later(t.loop_end);
+    sort_clips(project);
+}
+
+fn sort_clips(project: &mut Project) {
+    for track in &mut project.tracks {
+        if !track.clips.is_sorted_by_key(|c| c.start) {
+            Arc::make_mut(track).clips.sort_by_key(|c| c.start);
+        }
+    }
+}
+
+/// Copied clips, ready to paste: each with its track counted from the
+/// topmost copied track, and its start from the copy's start.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Clipboard {
+    pub clips: Vec<(usize, Clip)>,
+    /// How long the copy lasts.
+    pub length: Ticks,
+    /// How many tracks it spans.
+    pub tracks: usize,
+    /// Copied from a time range: pasting clears the whole span on every
+    /// track it lands on. Copied clips clear only under themselves.
+    pub range: bool,
+    /// The topmost track it was copied from (index), where it pastes back
+    /// when nothing else is chosen.
+    pub from_track: usize,
+}
+
+/// The selected clips `ids`, copied (locked ones too: copying changes
+/// nothing).
+pub fn copy_clips(project: &Project, ids: &[Id]) -> Option<Clipboard> {
+    let found: Vec<(usize, &Clip)> = project
+        .tracks
+        .iter()
+        .enumerate()
+        .flat_map(|(i, t)| t.clips.iter().map(move |c| (i, &**c)))
+        .filter(|(_, c)| ids.contains(&c.id))
+        .collect();
+    let top = found.iter().map(|(i, _)| *i).min()?;
+    let bottom = found.iter().map(|(i, _)| *i).max()?;
+    let origin = found.iter().map(|(_, c)| c.start).min()?;
+    let end = found.iter().map(|(_, c)| c.start + c.length).max()?;
+    let clips = found
+        .into_iter()
+        .map(|(i, c)| {
+            let mut copy = c.clone();
+            copy.start = c.start - origin;
+            copy.locked = false;
+            (i - top, copy)
+        })
+        .collect();
+    Some(Clipboard {
+        clips,
+        length: end - origin,
+        tracks: bottom - top + 1,
+        range: false,
+        from_track: top,
+    })
+}
+
+/// The time range `[a, b)` on `tracks`, copied: clips cut at its edges.
+pub fn copy_range(project: &Project, tracks: &[Id], a: Ticks, b: Ticks) -> Option<Clipboard> {
+    let tempo = tempo_of(project);
+    let rows: Vec<usize> = project
+        .tracks
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| tracks.contains(&t.id))
+        .map(|(i, _)| i)
+        .collect();
+    let top = *rows.first()?;
+    let mut clips = Vec::new();
+    for &i in &rows {
+        for clip in &project.tracks[i].clips {
+            if let Some(mut part) = slice(project, &tempo, clip, a, b) {
+                part.start = part.start - a;
+                part.locked = false;
+                clips.push((i - top, part));
+            }
+        }
+    }
+    (a < b).then_some(Clipboard {
+        clips,
+        length: b - a,
+        tracks: rows.last()? - top + 1,
+        range: true,
+        from_track: top,
+    })
+}
+
+/// Pastes `clipboard` at `at`, its first track on the track with index
+/// `track`, overwriting what is there (as Ableton). Clips land only on
+/// tracks of their kind; the rest are left out. Returns the new clips'
+/// ids.
+pub fn paste(
+    project: &mut Project,
+    clipboard: &Clipboard,
+    at: Ticks,
+    track: usize,
+    fresh: &mut impl FnMut() -> Id,
+) -> Vec<Id> {
+    let at = at.max(Ticks::ZERO);
+    let fits = |row: usize, clip: &Clip| {
+        project.tracks.get(row).is_some_and(|t| match clip.content {
+            ClipContent::Audio { .. } => t.kind == TrackKind::Audio,
+            ClipContent::Midi { .. } => t.kind == TrackKind::Midi,
+        })
+    };
+    let landing: Vec<(usize, Clip)> = clipboard
+        .clips
+        .iter()
+        .map(|(row, clip)| (track + row, clip))
+        .filter(|(row, clip)| fits(*row, clip))
+        .map(|(row, clip)| {
+            let mut c = clip.clone();
+            c.start = c.start + at;
+            (row, c)
+        })
+        .collect();
+    // Make room.
+    if clipboard.range {
+        let rows: Vec<Id> = (track..track + clipboard.tracks)
+            .filter_map(|r| project.tracks.get(r).map(|t| t.id))
+            .collect();
+        clear(project, &rows, at, at + clipboard.length, fresh);
+    } else {
+        for (row, clip) in &landing {
+            let id = project.tracks[*row].id;
+            clear(project, &[id], clip.start, clip.start + clip.length, fresh);
+        }
+    }
+    let mut ids = Vec::with_capacity(landing.len());
+    for (row, mut clip) in landing {
+        clip.id = fresh();
+        ids.push(clip.id);
+        Arc::make_mut(&mut project.tracks[row])
+            .clips
+            .push(Arc::new(clip));
+    }
+    sort_clips(project);
+    ids
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Color, Media, Track};
+    use lumen_core::fade::{Fade, FadeShape};
+
+    const Q: i64 = lumen_core::time::PPQ;
+
+    fn q(n: i64) -> Ticks {
+        Ticks::quarters(n)
+    }
+
+    /// Three audio tracks; track 0 has a clip from 4 to 12, track 1 one
+    /// from 0 to 8, track 2 is empty. 120 BPM, files at 48 kHz.
+    fn song() -> Project {
+        let mut project = crate::testing::small_project(1);
+        project.tempo = vec![lumen_core::time::TempoPoint {
+            at: Ticks::ZERO,
+            bpm: 120.0,
+        }];
+        project.media = vec![Media {
+            id: Id(900),
+            path: "a.wav".into(),
+            original_path: None,
+            frames: 480_000,
+            channels: 2,
+            sample_rate: 48_000,
+            size_bytes: 0,
+        }];
+        let clip = |id: u64, start: i64, length: i64| {
+            Arc::new(Clip {
+                id: Id(id),
+                name: format!("c{id}"),
+                start: q(start),
+                length: q(length),
+                muted: false,
+                color: None,
+                locked: false,
+                fade_in: Fade {
+                    length: q(1),
+                    shape: FadeShape::Slow,
+                },
+                fade_out: Fade {
+                    length: q(1),
+                    shape: FadeShape::Fast,
+                },
+                loop_length: None,
+                content: ClipContent::Audio {
+                    media: Id(900),
+                    offset: 1_000,
+                    gain_db: 0.0,
+                },
+            })
+        };
+        let track = |id: u64, clips: Vec<Arc<Clip>>| {
+            Arc::new(Track {
+                id: Id(id),
+                name: format!("t{id}"),
+                kind: TrackKind::Audio,
+                color: Color(0),
+                parent: None,
+                gain_db: 0.0,
+                pan: 0.0,
+                mute: false,
+                solo: false,
+                armed: false,
+                devices: vec![],
+                clips,
+            })
+        };
+        project.tracks = vec![
+            track(1, vec![clip(10, 4, 8)]),
+            track(2, vec![clip(20, 0, 8)]),
+            track(3, vec![]),
+        ];
+        project.markers.clear();
+        project
+    }
+
+    fn ids() -> impl FnMut() -> Id {
+        let mut next = 1_000;
+        move || {
+            next += 1;
+            Id(next)
+        }
+    }
+
+    /// `(id, start, length, offset)` per clip on track `i`, in quarters.
+    fn clips(p: &Project, i: usize) -> Vec<(u64, i64, i64, i64)> {
+        p.tracks[i]
+            .clips
+            .iter()
+            .map(|c| {
+                let offset = match c.content {
+                    ClipContent::Audio { offset, .. } => offset,
+                    ClipContent::Midi { .. } => 0,
+                };
+                (c.id.0, c.start.0 / Q, c.length.0 / Q, offset)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_slice_keeps_its_audio_in_place_and_only_its_own_edges_fades() {
+        let p = song();
+        let tempo = tempo_of(&p);
+        let clip = &p.tracks[0].clips[0];
+        // From quarter 6: two quarters in, a second at 120 BPM.
+        let part = slice(&p, &tempo, clip, q(6), q(100)).unwrap();
+        assert_eq!((part.start, part.length), (q(6), q(6)));
+        assert_eq!(
+            part.content,
+            ClipContent::Audio {
+                media: Id(900),
+                offset: 49_000,
+                gain_db: 0.0
+            }
+        );
+        assert!(part.fade_in.is_none(), "cut there");
+        assert_eq!(part.fade_out.length, q(1), "kept its own end");
+        assert!(slice(&p, &tempo, clip, q(12), q(20)).is_none());
+    }
+
+    #[test]
+    fn a_midi_slice_keeps_the_notes_that_start_inside_cut_at_its_end() {
+        let p = song();
+        let mut clip = (*p.tracks[1].clips[0]).clone();
+        clip.content = ClipContent::Midi {
+            notes: vec![Note(q(1), q(1), 60, 100), Note(q(5), q(2), 62, 90)],
+        };
+        let part = slice(&p, &tempo_of(&p), &clip, q(4), q(6)).unwrap();
+        assert_eq!(
+            part.content,
+            ClipContent::Midi {
+                notes: vec![Note(q(1), q(1), 62, 90)]
+            }
+        );
+    }
+
+    #[test]
+    fn clearing_trims_crossing_clips_and_splits_one_spanning_the_span() {
+        let mut p = song();
+        clear(&mut p, &[Id(1), Id(2)], q(6), q(8), &mut ids());
+        assert_eq!(
+            clips(&p, 0),
+            [(10, 4, 2, 1_000), (1001, 8, 4, 1_000 + 96_000)]
+        );
+        assert_eq!(clips(&p, 1), [(20, 0, 6, 1_000)]);
+        assert_eq!(crate::validate(&p), Ok(()));
+    }
+
+    #[test]
+    fn deleting_time_closes_the_gap_everywhere() {
+        let mut p = song();
+        p.markers = vec![
+            crate::model::Marker {
+                id: Id(50),
+                at: q(7),
+                name: "in".into(),
+            },
+            crate::model::Marker {
+                id: Id(51),
+                at: q(16),
+                name: "after".into(),
+            },
+        ];
+        p.transport.loop_start = q(0);
+        p.transport.loop_end = q(16);
+        delete_time(&mut p, q(6), q(8), &mut ids());
+        assert_eq!(clips(&p, 0), [(10, 4, 2, 1_000), (1001, 6, 4, 97_000)]);
+        assert_eq!(clips(&p, 1), [(20, 0, 6, 1_000)]);
+        let markers: Vec<_> = p.markers.iter().map(|m| (m.name.as_str(), m.at)).collect();
+        assert_eq!(markers, [("after", q(14))], "the one inside goes");
+        assert_eq!(
+            (p.transport.loop_start, p.transport.loop_end),
+            (q(0), q(14))
+        );
+        assert_eq!(crate::validate(&p), Ok(()));
+    }
+
+    #[test]
+    fn inserting_time_splits_what_crosses_and_moves_what_follows() {
+        let mut p = song();
+        insert_time(&mut p, q(6), q(4), &mut ids());
+        assert_eq!(clips(&p, 0), [(10, 4, 2, 1_000), (1001, 10, 6, 49_000)]);
+        assert_eq!(clips(&p, 1), [(20, 0, 6, 1_000), (1002, 10, 2, 145_000)]);
+        assert_eq!(crate::validate(&p), Ok(()));
+    }
+
+    #[test]
+    fn a_copied_range_pastes_over_what_is_there() {
+        let mut p = song();
+        let copy = copy_range(&p, &[Id(1), Id(2)], q(4), q(8)).unwrap();
+        assert_eq!((copy.length, copy.tracks), (q(4), 2));
+        // Onto tracks 1 and 2 at quarter 2: track 1's clip is cut back.
+        let new = paste(&mut p, &copy, q(2), 1, &mut ids());
+        assert_eq!(new.len(), 2);
+        assert_eq!(
+            clips(&p, 1),
+            [
+                (20, 0, 2, 1_000),
+                (new[0].0, 2, 4, 1_000),
+                (1001, 6, 2, 145_000)
+            ]
+        );
+        assert_eq!(
+            p.tracks[2].clips.len(),
+            1,
+            "track 1's part of the copy lands on track 2"
+        );
+        assert_eq!(crate::validate(&p), Ok(()));
+    }
+
+    #[test]
+    fn copied_clips_keep_their_layout_and_skip_tracks_of_another_kind() {
+        let mut p = song();
+        Arc::make_mut(&mut p.tracks[2]).kind = TrackKind::Midi;
+        let copy = copy_clips(&p, &[Id(10), Id(20)]).unwrap();
+        assert_eq!((copy.length, copy.tracks, copy.from_track), (q(12), 2, 0));
+        let new = paste(&mut p, &copy, q(20), 1, &mut ids());
+        assert_eq!(new.len(), 1, "the second would land on the MIDI track");
+        assert_eq!(
+            clips(&p, 1).last().unwrap().1,
+            24,
+            "kept its offset from the first"
+        );
+    }
+}

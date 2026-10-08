@@ -169,7 +169,7 @@ report: {}",
         // file's details; right-click the lanes for the grid menu (5a).
         let hover = ui.interact(canvas, ui.id().with("clips"), Sense::click_and_drag());
         self.clip_editing(ui, &hover, canvas, &painter);
-        hover.context_menu(|ui| self.grid_menu(ui));
+        hover.context_menu(|ui| self.lanes_menu(ui));
         if let Some(pointer) = hover.hover_pos()
             && !hover.dragged()
             && let Some(item) = self.arrangement.item_at(

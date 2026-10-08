@@ -137,6 +137,8 @@ pub struct App {
     hint: Option<String>,
     /// Where the lanes were drawn last frame.
     canvas: egui::Rect,
+    /// What Copy and Cut put aside (slice 6b), for Paste.
+    clipboard: Option<lumen_project::edit::Clipboard>,
     smoke_test_frames: Option<u32>,
     /// Where `--screenshot` saves, once the frames have rendered.
     screenshot: Option<PathBuf>,
@@ -558,6 +560,7 @@ impl App {
             locators: app::locators::Locators::default(),
             hint: None,
             canvas: egui::Rect::NOTHING,
+            clipboard: None,
             smoke_test_frames: launch.smoke_test.then_some(SMOKE_FRAMES),
             screenshot: launch.screenshot,
             started,

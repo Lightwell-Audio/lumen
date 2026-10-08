@@ -13,7 +13,68 @@ use lumen_project::model::Id;
 use super::grid::draw_snap_guide;
 use crate::arrangement::Arrangement;
 use crate::arrangement::select::{Gesture, Half, TimeRange, drag_moves};
+use lumen_project::edit;
+
 use crate::{App, ruler, widgets};
+
+/// The editing commands on clips and time ranges (slice 6b).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Edit {
+    Cut,
+    Copy,
+    Paste,
+    Duplicate,
+    Delete,
+    DeleteTime,
+    InsertTime,
+}
+
+impl Edit {
+    pub(crate) const ALL: [Edit; 7] = [
+        Edit::Cut,
+        Edit::Copy,
+        Edit::Paste,
+        Edit::Duplicate,
+        Edit::Delete,
+        Edit::DeleteTime,
+        Edit::InsertTime,
+    ];
+
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Edit::Cut => "Cut",
+            Edit::Copy => "Copy",
+            Edit::Paste => "Paste",
+            Edit::Duplicate => "Duplicate",
+            Edit::Delete => "Delete",
+            Edit::DeleteTime => "Delete time",
+            Edit::InsertTime => "Insert time",
+        }
+    }
+
+    pub(crate) fn keys(self) -> &'static str {
+        match self {
+            Edit::Cut => "Ctrl+X",
+            Edit::Copy => "Ctrl+C",
+            Edit::Paste => "Ctrl+V",
+            Edit::Duplicate => "Ctrl+D",
+            Edit::Delete => "Delete",
+            Edit::DeleteTime => "Ctrl+Shift+Delete",
+            Edit::InsertTime => "Ctrl+I",
+        }
+    }
+}
+
+/// Where the earliest of `clips` starts.
+fn clips_start(project: &lumen_project::model::Project, clips: &[Id]) -> Option<Ticks> {
+    project
+        .tracks
+        .iter()
+        .flat_map(|t| &t.clips)
+        .filter(|c| clips.contains(&c.id))
+        .map(|c| c.start)
+        .min()
+}
 
 impl App {
     /// Clip selection, moving, copying, marquees and time ranges, from the
@@ -73,6 +134,18 @@ impl App {
                 None => {}
             }
             self.arrangement.range = None;
+            self.selected_clips_now();
+        }
+
+        // Right-click on a clip that is not selected selects it first, so
+        // the menu acts on what was clicked.
+        if response.secondary_clicked()
+            && let Some(p) = response.interact_pointer_pos()
+            && let Some(hit) = self.hit(&ctx, p, canvas)
+            && !self.arrangement.clips.contains(&hit.clip)
+            && self.arrangement.range.is_none()
+        {
+            self.arrangement.clips = BTreeSet::from([hit.clip]);
             self.selected_clips_now();
         }
 
@@ -269,8 +342,10 @@ impl App {
         }
     }
 
-    /// Delete removes the selected clips; Esc clears the clip selection and
-    /// the range. Runs before the track keys, so selected clips take them.
+    /// The editing keys (Ableton's), on the selected clips or the time
+    /// range: Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+D, Delete, Ctrl+Shift+Delete
+    /// (delete time), Ctrl+I (insert time), Esc. Runs before the track
+    /// keys, so a clip or range selection takes them.
     pub(crate) fn clip_shortcuts(&mut self, ctx: &egui::Context) {
         if ctx.egui_wants_keyboard_input() {
             return;
@@ -280,18 +355,161 @@ impl App {
             self.arrangement.clips.clear();
             self.arrangement.range = None;
         }
-        let pressed = |key| ctx.input_mut(|i| i.consume_key(Modifiers::NONE, key));
-        if !self.arrangement.clips.is_empty()
-            && (pressed(egui::Key::Delete) || pressed(egui::Key::Backspace))
+        use egui::Key;
+        let pressed = |modifiers, key| ctx.input_mut(|i| i.consume_key(modifiers, key));
+        let chosen = !self.arrangement.clips.is_empty() || self.arrangement.range.is_some();
+        // Specific chords first: plain keys also match with Shift held.
+        let command = if chosen && pressed(Modifiers::COMMAND | Modifiers::SHIFT, Key::Delete) {
+            Edit::DeleteTime
+        } else if chosen && pressed(Modifiers::COMMAND, Key::I) {
+            Edit::InsertTime
+        } else if chosen && pressed(Modifiers::COMMAND, Key::C) {
+            Edit::Copy
+        } else if chosen && pressed(Modifiers::COMMAND, Key::X) {
+            Edit::Cut
+        } else if chosen && pressed(Modifiers::COMMAND, Key::D) {
+            Edit::Duplicate
+        } else if self.clipboard.is_some() && pressed(Modifiers::COMMAND, Key::V) {
+            Edit::Paste
+        } else if chosen
+            && (pressed(Modifiers::NONE, Key::Delete) || pressed(Modifiers::NONE, Key::Backspace))
         {
-            let ids: Vec<Id> = self.arrangement.clips.iter().copied().collect();
-            self.document.delete_clips(&ids);
-            self.arrangement.clips.clear();
-        } else if (!self.arrangement.clips.is_empty() || self.arrangement.range.is_some())
-            && pressed(egui::Key::Escape)
-        {
+            Edit::Delete
+        } else if chosen && pressed(Modifiers::NONE, Key::Escape) {
             self.arrangement.clips.clear();
             self.arrangement.range = None;
+            return;
+        } else {
+            return;
+        };
+        self.edit(command);
+        ctx.request_repaint();
+    }
+
+    /// The lanes' right-click menu: the editing commands, then the grid.
+    pub(crate) fn lanes_menu(&mut self, ui: &mut egui::Ui) {
+        for command in Edit::ALL {
+            let button = egui::Button::new(command.name()).shortcut_text(command.keys());
+            if ui.add_enabled(self.can_edit(command), button).clicked() {
+                self.edit(command);
+                ui.close();
+            }
+            if command == Edit::Delete {
+                ui.separator();
+            }
         }
+        ui.separator();
+        self.grid_menu(ui);
+    }
+
+    /// Whether `command` can run now, for menus.
+    pub(crate) fn can_edit(&self, command: Edit) -> bool {
+        let chosen = !self.arrangement.clips.is_empty() || self.arrangement.range.is_some();
+        match command {
+            Edit::Paste => self.clipboard.is_some(),
+            Edit::DeleteTime | Edit::InsertTime => self.arrangement.range.is_some(),
+            _ => chosen,
+        }
+    }
+
+    /// Runs an editing command on the clip selection or the time range.
+    pub(crate) fn edit(&mut self, command: Edit) {
+        let project = self.document.project();
+        let range = self.arrangement.range.clone();
+        let clips: Vec<Id> = self.arrangement.clips.iter().copied().collect();
+        let index_of = |id: Id| project.tracks.iter().position(|t| t.id == id);
+        match command {
+            Edit::Copy | Edit::Cut => {
+                let copied = match &range {
+                    Some(r) => edit::copy_range(project, &r.tracks, r.start, r.end),
+                    None => edit::copy_clips(project, &clips),
+                };
+                if copied.is_none() {
+                    return;
+                }
+                self.clipboard = copied;
+                if command == Edit::Cut {
+                    match &range {
+                        Some(r) => self.document.clear_range("Cut", &r.tracks, r.start, r.end),
+                        None => {
+                            self.document.cut_clips(&clips);
+                            self.arrangement.clips.clear();
+                        }
+                    }
+                }
+            }
+            Edit::Paste => {
+                let Some(clipboard) = self.clipboard.clone() else {
+                    return;
+                };
+                // Into the range if there is one; otherwise at the playhead,
+                // on the first selected track or where it was copied from.
+                let (at, track) = match &range {
+                    Some(r) => (r.start, r.tracks.first().and_then(|&t| index_of(t))),
+                    None => (
+                        self.transport.state().ticks,
+                        self.arrangement.selected.first().and_then(|&t| index_of(t)),
+                    ),
+                };
+                let track = track.unwrap_or(clipboard.from_track);
+                self.paste(&clipboard, at, track, "Paste");
+            }
+            Edit::Duplicate => {
+                let copied = match &range {
+                    Some(r) => edit::copy_range(project, &r.tracks, r.start, r.end),
+                    None => edit::copy_clips(project, &clips),
+                };
+                let Some(copied) = copied else {
+                    return;
+                };
+                // Right after the selection, on the same tracks.
+                let at = match &range {
+                    Some(r) => r.end,
+                    None => clips_start(project, &clips).unwrap_or_default() + copied.length,
+                };
+                self.paste(&copied, at, copied.from_track, "Duplicate");
+            }
+            Edit::Delete => match &range {
+                Some(r) => self
+                    .document
+                    .clear_range("Delete", &r.tracks, r.start, r.end),
+                None => {
+                    self.document.delete_clips(&clips);
+                    self.arrangement.clips.clear();
+                }
+            },
+            Edit::DeleteTime => {
+                if let Some(r) = &range {
+                    self.document.delete_time(r.start, r.end);
+                    self.arrangement.range = None;
+                }
+            }
+            Edit::InsertTime => {
+                if let Some(r) = &range {
+                    self.document.insert_time(r.start, r.end - r.start);
+                }
+            }
+        }
+    }
+
+    /// Pastes and selects what was pasted: the new clips, or, for a copied
+    /// range, the same range where it landed.
+    fn paste(&mut self, clipboard: &edit::Clipboard, at: Ticks, track: usize, label: &str) {
+        let pasted = self.document.paste(label, clipboard, at, track);
+        let project = self.document.project();
+        if clipboard.range {
+            self.arrangement.range = TimeRange::between(
+                project,
+                at,
+                at + clipboard.length,
+                track,
+                (track + clipboard.tracks - 1).min(project.tracks.len().saturating_sub(1)),
+            );
+            self.arrangement.clips.clear();
+        } else {
+            self.arrangement.clips = pasted.into_iter().collect();
+            self.arrangement.range = None;
+        }
+        self.selected_clips_now();
     }
 }

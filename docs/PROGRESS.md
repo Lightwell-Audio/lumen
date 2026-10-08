@@ -257,7 +257,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Track types with routing, arm, monitor, polarity | M | 🔲 |
 | Freeze, unfreeze, flatten | M | 🔲 |
 | Track delay, lock, icons, templates | S | 🔲 |
-| Select, marquee, range; cut/copy/paste/duplicate/delete/ripple delete/insert silence | M | 🟡 M3 6a: click, Ctrl and Shift selection, marquee, time ranges across tracks (a clip's bottom half), Delete and Esc on clips. The edits on ranges in 6b |
+| Select, marquee, range; cut/copy/paste/duplicate/delete/ripple delete/insert silence | M | 🟡 M3 6a: click, Ctrl and Shift selection, marquee, time ranges across tracks (a clip's bottom half). M3 6b (`lumen_project::edit`): cut, copy, paste (at the playhead or into a range, overwriting as Ableton), duplicate, delete, delete time (ripple, the whole song) and insert time, on clips and ranges, each one undo step, in the lanes' right-click menu. Crop and the remaining range edits come with M7's split |
 | Split, join, consolidate, trim, crop, slip, nudge, move, loop/unloop | M | 🔲 |
 | Fades, crossfades, clip gain, reverse, normalize, polarity | M | 🔲 |
 | Snap and grid; zoom; clip name/colour/mute/lock; clip properties | M | 🟡 | Grid and snapping (M3 5a) and zoom (4d) done; clip properties in slice 6 |
