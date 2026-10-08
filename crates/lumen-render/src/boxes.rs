@@ -263,14 +263,13 @@ impl Renderer {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
         id: BoxLayerId,
         slot: u32,
         levels: &[&[[i8; 4]]],
     ) -> bool {
         self.box_layers[id.0]
             .waves
-            .set_peaks(device, queue, encoder, slot, levels)
+            .set_peaks(device, queue, slot, levels)
     }
 
     /// Replaces a layer's row slots (every frame, if rows move).

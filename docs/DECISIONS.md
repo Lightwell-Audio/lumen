@@ -1685,6 +1685,19 @@ memory. Clips are already on the GPU with a per-frame row table
     as in Ableton. Measured: a third of a pixel of scroll changed 3.5% of
     the waveform's pixels before (8% at two thirds); after, the image is
     the same shifted by one pixel (21 of 138,000 pixels differ).
+  - **Four or more buckets per pixel** (MT-APP-11 run 2: it shimmered
+    while zooming). The shader reads the level with at least four buckets
+    under each pixel (up to 17 reads), so the buckets straddling a pixel's
+    edges decide little and detail no longer flickers as the zoom slides.
+  - **Atlas growth is submitted at once** (MT-APP-11 run 2: the waveform
+    vanished at the finest zoom). Queue writes run before the command
+    buffers of the next submission, so the copy into a bigger atlas,
+    recorded in the frame's encoder, landed after the new peaks and
+    overwrote them with the old atlas's empty rows; the finest level,
+    written first, became a flat line near the start of long files. The
+    copy is now its own submission before the writes. A GPU test (skipped
+    where there is no GPU) reads the atlas back after it grows; it fails
+    with the old ordering.
   - Colour: the track colour, brightened on the dark theme's dark clip
     body (`theme::wave`).
 - **Tests:** peaks (bucket extents, rounding, levels, mono and extra

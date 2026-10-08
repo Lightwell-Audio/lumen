@@ -852,5 +852,16 @@ columns are now anchored to the clip's pixel edge (ADR-0027). Check in run
 2: scroll slowly and quickly with Shift+wheel, and scroll tracks: the
 waveform moves steadily, without shimmer.
 
-**Last run:** run 1 with a finding (fixed); run 2 pending.
+**Run 2 (2026-10-07, owner):** scrolling fixed; two findings, fixed:
+- A little of the same shimmer while zooming: the shader now reads four or
+  more buckets per pixel.
+- At the closest zoom the waveform disappeared (a flat line) near the
+  start of a long file: the atlas copy overwrote the newest peaks when it
+  grew (ADR-0027).
+
+Check in run 3: zoom in and out slowly over a long file; then zoom all the
+way in at its start, middle and end: the waveform is there everywhere and
+steady while zooming.
+
+**Last run:** run 2 with findings (fixed); run 3 pending.
 

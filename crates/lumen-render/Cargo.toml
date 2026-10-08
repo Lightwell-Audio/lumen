@@ -11,6 +11,9 @@ bytemuck = { version = "1", features = ["derive"] }
 vello.workspace = true
 wgpu.workspace = true
 
+[dev-dependencies]
+pollster.workspace = true
+
 [build-dependencies]
 lumen-shader-check.workspace = true
 

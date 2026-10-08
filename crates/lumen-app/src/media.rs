@@ -280,7 +280,7 @@ impl Library {
         Some(f32::from_bits(job.progress.load(Ordering::Relaxed)))
     }
 
-    #[cfg(test)]
+    /// Any file is loading or converting.
     pub fn is_loading(&self) -> bool {
         self.items.iter().any(|i| i.job.is_some())
     }

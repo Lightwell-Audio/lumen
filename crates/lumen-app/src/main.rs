@@ -389,8 +389,16 @@ impl eframe::App for App {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
         }
+        // A screenshot shows the settled state: it waits while a project
+        // opens or files load (at most 30 s, so a stuck load cannot hang a
+        // test run).
+        let settling = self.screenshot.is_some()
+            && (self.opening.is_some() || self.lanes.library.is_loading())
+            && self.started.elapsed() < Duration::from_secs(30);
         if let Some(frames) = self.smoke_test_frames.as_mut() {
-            *frames = frames.saturating_sub(1);
+            if !settling {
+                *frames = frames.saturating_sub(1);
+            }
             if *frames == 0 && self.screenshot.is_some() {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
                 self.smoke_test_frames = None;

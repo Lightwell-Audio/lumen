@@ -300,7 +300,9 @@ impl Arrangement {
         if self.gpu.built == Some(key) && !self.gpu.moving {
             return;
         }
-        let mut moving = lanes.is_loading();
+        // Any file loading (an import, or an opened project's media) has a
+        // progress fill to keep moving.
+        let mut moving = lanes.library.is_loading();
         let count = project.tracks.iter().map(|t| t.clips.len()).sum();
         let mut boxes = Vec::with_capacity(count);
         for (row, track) in project.tracks.iter().enumerate() {

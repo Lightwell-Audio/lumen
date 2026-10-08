@@ -289,7 +289,6 @@ impl Waves {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
         slot: u32,
         levels: &[&[[i8; 4]]],
     ) -> bool {
@@ -299,10 +298,18 @@ impl Waves {
             return false;
         }
         if needed > self.atlas_rows {
-            // Grow, keeping what is there.
+            // Grow, keeping what is there. The copy is submitted at once:
+            // the queue writes below run before any command buffer of the
+            // next submission, so a copy recorded in the frame's encoder
+            // would land after them and overwrite the new peaks with the old
+            // atlas's empty rows (owner, MT-APP-11: the waveform vanished at
+            // the finest zoom near the start of a long file).
             let rows = needed.next_power_of_two().min(ATLAS_MAX_ROWS);
             let bigger = atlas_texture(device, rows);
-            encoder.copy_texture_to_texture(
+            let mut copy = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("lumen peaks grow"),
+            });
+            copy.copy_texture_to_texture(
                 self.atlas.as_image_copy(),
                 bigger.as_image_copy(),
                 wgpu::Extent3d {
@@ -311,6 +318,7 @@ impl Waves {
                     depth_or_array_layers: 1,
                 },
             );
+            queue.submit([copy.finish()]);
             self.atlas = bigger;
             self.atlas_rows = rows;
         }
@@ -425,6 +433,82 @@ pub(crate) fn uniform(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A GPU device, or `None` where there is none (some CI machines).
+    fn gpu() -> Option<(wgpu::Device, wgpu::Queue)> {
+        let instance = wgpu::Instance::default();
+        let adapter =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+                .ok()?;
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()
+    }
+
+    /// The atlas's first `texels` texels, read back from the GPU.
+    fn read_atlas(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        waves: &Waves,
+        texels: u32,
+    ) -> Vec<[i8; 4]> {
+        let rows = texels.div_ceil(ATLAS_WIDE);
+        let row_bytes = ATLAS_WIDE * 4;
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: u64::from(rows * row_bytes),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        encoder.copy_texture_to_buffer(
+            waves.atlas.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(row_bytes),
+                    rows_per_image: Some(rows),
+                },
+            },
+            wgpu::Extent3d {
+                width: ATLAS_WIDE,
+                height: rows,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit([encoder.finish()]);
+        buffer.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: None,
+            })
+            .unwrap();
+        let data = buffer.slice(..).get_mapped_range().expect("mapped");
+        bytemuck::cast_slice::<u8, [i8; 4]>(&data)[..texels as usize].to_vec()
+    }
+
+    #[test]
+    fn peaks_survive_the_atlas_growing() {
+        // Owner, MT-APP-11: a long file's waveform vanished at the finest
+        // zoom. Its peaks were written, then the atlas grew and the copy of
+        // the old, smaller atlas landed over them.
+        let Some((device, queue)) = gpu() else {
+            eprintln!("no GPU here: skipped");
+            return;
+        };
+        let mut waves = Waves::new(&device);
+        let first: Vec<[i8; 4]> = (0..1_000).map(|i| [(i % 100) as i8, 1, 2, 3]).collect();
+        // Far more than the 64 rows the atlas starts with.
+        let second: Vec<[i8; 4]> = (0..ATLAS_WIDE * 100)
+            .map(|i| [-((i % 90) as i8), 5, 6, 7])
+            .collect();
+        assert!(waves.set_peaks(&device, &queue, 0, &[&first]));
+        assert!(waves.set_peaks(&device, &queue, 1, &[&second]));
+        assert!(waves.atlas_rows > 64, "the atlas grew");
+        let read = read_atlas(&device, &queue, &waves, 1_000 + ATLAS_WIDE * 100);
+        assert_eq!(read[..1_000], first[..], "the first peaks were kept");
+        assert_eq!(read[1_000..], second[..], "the second peaks are whole");
+    }
 
     #[test]
     fn a_run_of_texels_splits_into_whole_rows_and_partial_ends() {

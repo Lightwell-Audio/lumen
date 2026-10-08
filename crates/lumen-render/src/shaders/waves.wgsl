@@ -80,8 +80,10 @@ fn fs_main(i: Out) -> @location(0) vec4<f32> {
     let frames = i.wave.z / l.ppu;
     let column = floor(i.px.x - i.wave.w);
     let frame0 = i.wave.y + column * frames;
-    // The finest level whose buckets are no wider than the pixel.
-    let level = clamp(i32(floor(log2(max(frames / BASE, 1.0)) * 0.5)), 0, LEVELS - 1);
+    // A level with at least four buckets under the pixel: the buckets that
+    // straddle its edges then decide little, so the waveform stays steady
+    // while zooming instead of shimmering as they come and go.
+    let level = clamp(i32(floor(log2(max(frames / (BASE * 4.0), 1.0)) * 0.5)), 0, LEVELS - 1);
     let entry = textureLoad(table, vec2<i32>(level, i32(i.slot)), 0);
     let count = entry.y;
     if (count == 0u) {
@@ -95,8 +97,8 @@ fn fs_main(i: Out) -> @location(0) vec4<f32> {
     }
     var lo = vec2<f32>(1.0);
     var hi = vec2<f32>(-1.0);
-    // At most five buckets: each is at least a quarter of the pixel.
-    for (var b = max(first, 0); b <= min(last, min(first + 5, i32(count) - 1)); b++) {
+    // At most 17 buckets: 4 to 16 under the pixel, and one it straddles.
+    for (var b = max(first, 0); b <= min(last, min(first + 17, i32(count) - 1)); b++) {
         let t = texel(entry.x + u32(b));
         lo = min(lo, t.xz);
         hi = max(hi, t.yw);

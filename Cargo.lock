@@ -2093,6 +2093,7 @@ version = "0.0.1"
 dependencies = [
  "bytemuck",
  "lumen-shader-check",
+ "pollster 0.4.0",
  "vello",
  "wgpu",
 ]

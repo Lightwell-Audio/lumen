@@ -105,6 +105,8 @@ fn db_to_gain(db: f32) -> f32 {
 
 impl Lanes {
     /// Files are still loading for import.
+    /// Files dropped for import are still loading (not an opened
+    /// project's media: `library.is_loading()` covers every load).
     pub fn is_loading(&self) -> bool {
         !self.pending.is_empty()
     }

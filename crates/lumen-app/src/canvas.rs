@@ -259,7 +259,7 @@ impl egui_wgpu::CallbackTrait for ClipsCallback {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         _screen: &egui_wgpu::ScreenDescriptor,
-        encoder: &mut wgpu::CommandEncoder,
+        _encoder: &mut wgpu::CommandEncoder,
         resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
         let Some(Ok(r)) = resources.get_mut::<Mutex<Resources>>().map(Mutex::get_mut) else {
@@ -271,9 +271,7 @@ impl egui_wgpu::CallbackTrait for ClipsCallback {
                 continue;
             }
             let levels: Vec<&[[i8; 4]]> = peaks.levels().iter().map(Vec::as_slice).collect();
-            if r.renderer
-                .set_peaks(device, queue, encoder, r.clips, *slot, &levels)
-            {
+            if r.renderer.set_peaks(device, queue, r.clips, *slot, &levels) {
                 r.peaks_uploaded.insert(*slot);
             } else {
                 crate::trace::log(|| "waveforms: the peak atlas is full".into());
