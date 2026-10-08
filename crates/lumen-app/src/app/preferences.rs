@@ -153,6 +153,10 @@ impl App {
             self.settings.metronome = metronome;
             self.settings_changed = Some(Instant::now());
         }
+        if self.transport.follow != self.settings.follow {
+            self.settings.follow = self.transport.follow;
+            self.settings_changed = Some(Instant::now());
+        }
         let Some(changed) = self.settings_changed else {
             return;
         };

@@ -530,6 +530,7 @@ fn main() -> eframe::Result {
                 });
             let mut transport = Transport::new(document.project(), &choice);
             transport.restore_metronome((&saved.metronome).into());
+            transport.restore_follow(saved.follow);
             transport.settings_window.open = std::env::args().any(|a| a == "--audio-settings");
             if let Some(warning) = settings_warning {
                 transport.audio.notice = Some(match transport.audio.notice.take() {

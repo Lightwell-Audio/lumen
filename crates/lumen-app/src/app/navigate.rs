@@ -6,6 +6,7 @@
 use eframe::egui::{self, Key, Modifiers, Rect};
 use lumen_core::time::{PPQ, Ticks};
 
+use crate::settings::Follow;
 use crate::timeview::{Limits, TimeView};
 use crate::{App, motion};
 
@@ -17,6 +18,12 @@ const GESTURE: f64 = 0.5;
 const NOTCH: f32 = 40.0;
 /// The keys zoom by this factor.
 const KEY_ZOOM: f64 = 2.0;
+/// Page follow: the page turns when the playhead passes this fraction of
+/// the width, and the playhead lands this far in.
+const PAGE_TURN: f64 = 0.95;
+const PAGE_IN: f64 = 0.02;
+/// Continuous follow: where the playhead stays.
+const CONTINUOUS_AT: f64 = 0.4;
 
 /// Where the arrangement looks, how it got there, and where it was.
 #[derive(Debug, Default)]
@@ -28,6 +35,8 @@ pub struct Nav {
     wheel_zoom: Option<f64>,
     /// Alt+wheel scroll not yet turned into a height step.
     height_wheel: f32,
+    /// Playing at the last frame (Follow resumes when playback starts).
+    was_playing: bool,
 }
 
 /// A view on its way to another (key zooms, fits, X).
@@ -132,6 +141,7 @@ impl App {
                 self.nav.wheel_zoom = Some(now);
                 let view = self.nav.target().zoomed(anchor, f64::from(zoom), limits);
                 self.nav.set(view);
+                self.transport.follow_paused = true;
             } else if alt && (delta.y != 0.0 || delta.x != 0.0) {
                 // Alt can turn the wheel sideways on some systems.
                 let wheel = if delta.y != 0.0 { delta.y } else { delta.x };
@@ -153,6 +163,7 @@ impl App {
                 if delta.x != 0.0 {
                     let view = self.nav.target().scrolled(delta.x);
                     self.nav.set(view);
+                    self.transport.follow_paused = true;
                 }
                 if delta.y != 0.0 {
                     let content = self.arrangement.height_of_content(
@@ -209,8 +220,34 @@ impl App {
             self.arrangement
                 .toggle_fit_heights(self.document.project(), canvas.height());
         }
+        if zoom_in || zoom_out || fit_width || back {
+            // Looking around pauses Follow, as in Ableton.
+            self.transport.follow_paused = true;
+        }
         if zoom_in || zoom_out || fit_width || back || fit_height {
             ctx.request_repaint();
+        }
+    }
+
+    /// Keeps the playhead in view while playing (Follow: page or
+    /// continuous). Resumes when playback starts.
+    pub(crate) fn follow(&mut self, canvas: Rect) {
+        let state = self.transport.state();
+        if state.playing && !self.nav.was_playing {
+            self.transport.follow_paused = false;
+        }
+        self.nav.was_playing = state.playing;
+        if !state.playing || self.transport.follow_paused || self.nav.glide.is_some() {
+            return;
+        }
+        let head = state.ticks.as_quarters();
+        if let Some(view) = follow_view(
+            self.nav.view,
+            self.transport.follow,
+            head,
+            f64::from(canvas.width()),
+        ) {
+            self.nav.set(view);
         }
     }
 
@@ -223,5 +260,67 @@ impl App {
             .flat_map(|t| t.clips.iter())
             .map(|c| (c.start + c.length).as_quarters())
             .fold(16.0, f64::max)
+    }
+}
+
+/// Where `follow` puts a view showing `width` points so the playhead at
+/// `head` stays in sight; `None` when it need not move.
+fn follow_view(view: TimeView, follow: Follow, head: f64, width: f64) -> Option<TimeView> {
+    let span = width / view.zoom;
+    let left = match follow {
+        Follow::Off => return None,
+        Follow::Page => {
+            let at = (head - view.left) / span;
+            if (0.0..PAGE_TURN).contains(&at) {
+                return None;
+            }
+            head - span * PAGE_IN
+        }
+        Follow::Continuous => head - span * CONTINUOUS_AT,
+    };
+    let left = left.max(0.0);
+    (left != view.left).then_some(TimeView { left, ..view })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const VIEW: TimeView = TimeView {
+        left: 0.0,
+        zoom: 10.0,
+    };
+
+    #[test]
+    fn page_follow_turns_the_page_near_the_right_edge() {
+        // 1,000 points at 10 per beat: 100 beats in view.
+        assert_eq!(follow_view(VIEW, Follow::Page, 50.0, 1_000.0), None);
+        let turned = follow_view(VIEW, Follow::Page, 96.0, 1_000.0).unwrap();
+        assert_eq!(turned.left, 94.0, "the playhead lands 2% in");
+        assert_eq!(turned.zoom, VIEW.zoom);
+        // A playhead behind the view (after a loop wrap) brings it back.
+        let behind = TimeView {
+            left: 200.0,
+            ..VIEW
+        };
+        assert_eq!(
+            follow_view(behind, Follow::Page, 10.0, 1_000.0)
+                .unwrap()
+                .left,
+            8.0
+        );
+    }
+
+    #[test]
+    fn continuous_follow_keeps_the_playhead_in_place() {
+        let view = follow_view(VIEW, Follow::Continuous, 140.0, 1_000.0).unwrap();
+        assert_eq!(view.left, 100.0, "40% in");
+        // Near the start the view stays at the start.
+        assert_eq!(follow_view(VIEW, Follow::Continuous, 10.0, 1_000.0), None);
+    }
+
+    #[test]
+    fn off_never_moves() {
+        assert_eq!(follow_view(VIEW, Follow::Off, 500.0, 1_000.0), None);
     }
 }

@@ -21,11 +21,13 @@ pub enum Icon {
     Record,
     Loop,
     Metronome,
+    /// Follow the playhead: a playhead line with an arrow.
+    Follow,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 7] = [
+    pub const ALL: [Icon; 8] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
@@ -33,6 +35,7 @@ impl Icon {
         Icon::Record,
         Icon::Loop,
         Icon::Metronome,
+        Icon::Follow,
     ];
 }
 
@@ -123,6 +126,15 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             ),
             Shape::line_segment([g.p(8.0, 11.0), g.p(12.0, 4.0)], stroke),
             Shape::circle_filled(g.p(10.3, 7.0), 1.3 * g.unit, color),
+        ],
+        Icon::Follow => vec![
+            Shape::line_segment([g.p(4.0, 2.5), g.p(4.0, 13.5)], stroke),
+            Shape::line_segment([g.p(6.5, 8.0), g.p(11.5, 8.0)], stroke),
+            Shape::convex_polygon(
+                vec![g.p(14.0, 8.0), g.p(10.5, 5.0), g.p(10.5, 11.0)],
+                color,
+                none,
+            ),
         ],
     }
 }

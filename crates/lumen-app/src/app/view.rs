@@ -107,6 +107,7 @@ report: {}",
         let canvas = egui::Rect::from_min_max(pos2(full.left(), ruler.bottom()), full.max);
 
         self.navigate(ui, &response, canvas);
+        self.follow(canvas);
         let view = self.nav.view;
         ui.painter().rect_filled(corner, 0.0, theme::p().raised);
         self.arrangement
@@ -270,6 +271,8 @@ report: {}",
             if ruler_response.clicked() {
                 trace::log(|| format!("ruler: locate {target:?} (snapped: {})", !free));
                 self.transport.locate(target);
+                // As in Ableton, a click on the ruler pauses Follow.
+                self.transport.follow_paused = true;
             }
         }
 

@@ -35,6 +35,12 @@ pub struct Transport {
     /// Bytes of clip audio in memory, shown in the audio panel.
     pub clip_memory: usize,
     pub metronome: MetronomeSettings,
+    /// How the arrangement follows the playhead (saved in settings), and
+    /// whether that is paused by scrolling by hand (until Play).
+    pub follow: crate::settings::Follow,
+    pub follow_paused: bool,
+    /// The Follow mode to turn back on after Off.
+    follow_last: crate::settings::Follow,
     test_tone: bool,
     pub settings_window: crate::audio_settings::Window,
     /// CPU load shown: the peak over the last second, refreshed once a second.
@@ -68,6 +74,9 @@ impl Transport {
             error: None,
             settle_until: None,
             metronome: MetronomeSettings::default(),
+            follow: crate::settings::Follow::Page,
+            follow_paused: false,
+            follow_last: crate::settings::Follow::Page,
             test_tone: false,
             settings_window: Default::default(),
             cpu_peak: 0.0,
@@ -134,6 +143,65 @@ impl Transport {
         self.send(Command::SetLoop(region));
     }
 
+    /// Follow on, off, or back on after a pause (the button and Ctrl+Shift+F).
+    pub fn toggle_follow(&mut self) {
+        use crate::settings::Follow;
+        if self.follow == Follow::Off {
+            self.follow = self.follow_last;
+            self.follow_paused = false;
+        } else if self.follow_paused {
+            self.follow_paused = false;
+        } else {
+            self.follow_last = self.follow;
+            self.follow = Follow::Off;
+        }
+    }
+
+    /// Applies the saved Follow mode.
+    pub fn restore_follow(&mut self, follow: crate::settings::Follow) {
+        self.follow = follow;
+        if follow != crate::settings::Follow::Off {
+            self.follow_last = follow;
+        }
+    }
+
+    fn follow_button(&mut self, ui: &mut egui::Ui) {
+        use crate::settings::Follow;
+        let on = self.follow != Follow::Off;
+        let response = icons::button(
+            ui,
+            Icon::Follow,
+            "Follow playhead",
+            Some("Ctrl+Shift+F; right-click for page or continuous"),
+            on && !self.follow_paused,
+            true,
+            "",
+        );
+        let response = if on && self.follow_paused {
+            response.on_hover_text("Paused while you look around; Play or a click resumes it")
+        } else {
+            response
+        };
+        if response.clicked() {
+            self.toggle_follow();
+        }
+        response.context_menu(|ui| {
+            ui.label("Follow the playhead");
+            for mode in [Follow::Page, Follow::Continuous, Follow::Off] {
+                if ui
+                    .radio_value(&mut self.follow, mode, mode.name())
+                    .clicked()
+                {
+                    self.follow_paused = false;
+                    if mode != Follow::Off {
+                        self.follow_last = mode;
+                    }
+                    ui.close();
+                }
+            }
+        });
+    }
+
     pub fn toggle_loop(&mut self) {
         self.loop_region.enabled = !self.loop_region.enabled;
         self.send(Command::SetLoop(self.loop_region));
@@ -171,6 +239,9 @@ impl Transport {
     pub fn shortcuts(&mut self, ctx: &egui::Context) {
         if ctx.egui_wants_keyboard_input() {
             return;
+        }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::F)) {
+            self.toggle_follow();
         }
         let (pause, play, home) = ctx.input_mut(|i| {
             (
@@ -285,6 +356,7 @@ impl Transport {
             self.metronome.enabled = !self.metronome.enabled;
             self.send(Command::SetMetronome(self.metronome));
         }
+        self.follow_button(ui);
         metronome.context_menu(|ui| {
             let mut changed = false;
             ui.label("Metronome volume");

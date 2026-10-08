@@ -110,6 +110,29 @@ impl Appearance {
     }
 }
 
+/// How the arrangement follows the playhead while playing (M3 slice 4d;
+/// owner: page by default, on).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Follow {
+    Off,
+    /// The view jumps a page when the playhead reaches the right edge.
+    #[default]
+    Page,
+    /// The view scrolls under a playhead that stays in place.
+    Continuous,
+}
+
+impl Follow {
+    pub fn name(self) -> &'static str {
+        match self {
+            Follow::Off => "Off",
+            Follow::Page => "Page",
+            Follow::Continuous => "Continuous",
+        }
+    }
+}
+
 /// Projects: recently opened, and whether saving copies audio in.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -138,6 +161,7 @@ pub struct Settings {
     pub metronome: Metronome,
     pub appearance: Appearance,
     pub projects: Projects,
+    pub follow: Follow,
 }
 
 impl Default for Settings {
@@ -148,6 +172,7 @@ impl Default for Settings {
             metronome: Metronome::default(),
             appearance: Appearance::default(),
             projects: Projects::default(),
+            follow: Follow::default(),
         }
     }
 }
@@ -325,6 +350,7 @@ mod tests {
                 recent: vec!["C:/Music/Song/Song.lumen".into()],
                 copy_imported: false,
             },
+            follow: Follow::Continuous,
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path), (settings.clone(), None));
@@ -382,5 +408,7 @@ mod tests {
         assert_eq!(settings.metronome.volume, 0.8);
         assert_eq!(settings.metronome.sound, "Beep");
         assert_eq!(settings.audio, None);
+        // Files from before slice 4d: Follow on, by page (owner's default).
+        assert_eq!(settings.follow, Follow::Page);
     }
 }
