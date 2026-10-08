@@ -226,20 +226,22 @@ pub struct Clip {
     pub length: Ticks,
     #[serde(default)]
     pub muted: bool,
-    /// Its own colour, or the track's when `None` (format v5).
-    #[serde(default)]
+    // Format v5. Written only when set, so a plain clip reads (and costs)
+    // the same as before and files stay small.
+    /// Its own colour, or the track's when `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<Color>,
-    /// Locked clips cannot be moved, trimmed or deleted (format v5).
-    #[serde(default)]
+    /// Locked clips cannot be moved, trimmed or deleted.
+    #[serde(default, skip_serializing_if = "is_false")]
     pub locked: bool,
-    /// Fades at the clip's start and end (format v5).
-    #[serde(default)]
+    /// Fades at the clip's start and end.
+    #[serde(default, skip_serializing_if = "Fade::is_none")]
     pub fade_in: Fade,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Fade::is_none")]
     pub fade_out: Fade,
     /// When set, the content repeats every `loop_length` from the clip's
-    /// start, for as long as the clip lasts (loop-extend, format v5).
-    #[serde(default)]
+    /// start, for as long as the clip lasts (loop-extend).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loop_length: Option<Ticks>,
     pub content: ClipContent,
 }
@@ -308,4 +310,8 @@ mod base64_bytes {
             .decode(text.as_bytes())
             .map_err(serde::de::Error::custom)
     }
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }

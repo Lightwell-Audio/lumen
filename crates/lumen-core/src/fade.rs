@@ -54,6 +54,13 @@ pub struct Fade {
     pub shape: FadeShape,
 }
 
+impl Fade {
+    /// No fade: zero length, the default shape.
+    pub fn is_none(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

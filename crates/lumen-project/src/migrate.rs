@@ -86,7 +86,8 @@ fn v3_to_v4(mut document: Value) -> Result<Value, String> {
 }
 
 /// Version 5 (M3 slice 6) gives clips a colour, a lock, fades and a loop.
-/// The defaults are written out on every clip.
+/// The defaults are written out on every clip here; saving writes them
+/// only when set.
 fn v4_to_v5(mut document: Value) -> Result<Value, String> {
     let fade =
         serde_json::to_value(lumen_core::fade::Fade::default()).map_err(|e| e.to_string())?;
