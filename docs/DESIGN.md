@@ -90,6 +90,7 @@ Windows** are in the app menu (click **Lumen** at the left of the transport bar)
 | `warning` | `#F2B14C` | `#A86400` | Problems that need attention |
 | `grid_bar` | `#343842` | `#D9DCE1` | Bar lines |
 | `grid_beat` | `#262930` | `#ECEEF1` | Beat lines |
+| `grid_sub` | `#212329` | `#F3F4F6` | Grid lines between beats |
 | `start_marker` | `#C8CCD4` | `#6B717C` | Where Play starts |
 | `lane` | `#1B1D22` | `#F6F7F8` | Arrangement lanes behind clips |
 | `header` | `#1E2126` | `#ECEEF1` | Track header column |
@@ -291,6 +292,22 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
 - **Ruler:** bar numbers, thinned to 40 points apart; once a bar is wider
   than 240 points, beats and sixteenths too (bar.beat.sixteenth), at least
   64 points apart.
+
+## 7c. Grid and snapping (M3 slice 5a)
+
+- **The grid button** sits in the ruler's corner, above the track headers:
+  "Grid" in hint text at the left, the step at the right in the monospace
+  caption ("1/16", "1/8T", "4 bars"), in hint colour when snapping is off
+  ("Off"). A click opens the grid menu; right-clicking the lanes opens it
+  too.
+- **The grid menu** lists the adaptive widths, the fixed sizes, Triplet,
+  Dotted and Snap to grid as selectable items with their shortcuts.
+- **Lines:** bar lines `grid_bar`, beat lines `grid_beat`, lines between
+  beats `grid_sub`. Never closer than 6 points; a grid finer than that on
+  screen shows calmer lines 12 points apart, and still snaps to its own
+  steps.
+- **Snap guide:** a 1 pt accent line at half strength, from the ruler to
+  the bottom, where a click on the ruler or a dropped file will land.
 
 ## 8. Key flows
 

@@ -7,6 +7,7 @@ use eframe::egui::{self, RichText, Sense, Stroke, pos2, vec2};
 use lumen_core::product::PRODUCT_NAME;
 use lumen_core::time::{PPQ, Ticks};
 
+use super::grid::draw_snap_guide;
 use crate::{App, arrangement, audio, bench, canvas, lanes, media, motion, ruler, theme, trace};
 
 /// The height of the ruler above the lanes.
@@ -110,6 +111,7 @@ report: {}",
         self.follow(canvas);
         let view = self.nav.view;
         ui.painter().rect_filled(corner, 0.0, theme::p().raised);
+        self.grid_button(ui, corner);
         self.arrangement
             .headers(ui, headers, &mut self.document, &self.lanes);
 
@@ -120,10 +122,14 @@ report: {}",
             canvas,
             ui.ctx().pixels_per_point(),
             view,
-            canvas::GridMeter {
-                bar: meter.bar().as_quarters() as f32,
-                beat: meter.beat().as_quarters() as f32,
-                colors: [theme::p().grid_bar, theme::p().grid_beat],
+            &canvas::GridLook {
+                grid: self.grid,
+                meter: self.transport.timeline.meter.clone(),
+                colors: [
+                    theme::p().grid_bar,
+                    theme::p().grid_beat,
+                    theme::p().grid_sub,
+                ],
             },
         ));
         let x_of = |quarters: f64| view.x(canvas.left(), quarters);
@@ -136,7 +142,9 @@ report: {}",
             view,
         );
         // A hover card with the file's details.
-        let hover = ui.interact(canvas, ui.id().with("clips"), Sense::hover());
+        // Right-click the lanes for the grid menu (slice 5a).
+        let hover = ui.interact(canvas, ui.id().with("clips"), Sense::click());
+        hover.context_menu(|ui| self.grid_menu(ui));
         if let Some(pointer) = hover.hover_pos()
             && let Some(item) = self.arrangement.item_at(
                 ui.ctx(),
@@ -150,19 +158,23 @@ report: {}",
             hover.on_hover_ui_at_pointer(|ui| lanes::file_card(ui, item));
         }
 
-        // Dropped files land under the pointer (snapped) when the system
-        // reports it, otherwise at the playhead.
-        let pointer = ui
-            .input(|i| i.pointer.hover_pos())
-            .filter(|p| canvas.contains(*p));
+        // Dropped files land under the pointer (snapped; Alt places them
+        // freely) when the system reports it, otherwise at the playhead. A
+        // snap guide shows where while files are dragged over.
+        let (pointer, free, dragging_files) = ui.input(|i| {
+            (
+                i.pointer.hover_pos().filter(|p| canvas.contains(*p)),
+                i.modifiers.alt,
+                !i.raw.hovered_files.is_empty(),
+            )
+        });
         self.drop_target = match pointer {
-            Some(p) => ruler::snap(
-                &self.transport.timeline.meter,
-                ruler::ticks_at(view.beat_at(canvas.left(), p.x)),
-                view.zoom as f32,
-            ),
+            Some(p) => self.snapped(ruler::ticks_at(view.beat_at(canvas.left(), p.x)), free),
             None => self.transport.state().ticks,
         };
+        if dragging_files && pointer.is_some() {
+            draw_snap_guide(&painter, x_of(self.drop_target.as_quarters()), full);
+        }
 
         // Ruler: loop range, then bar numbers thinned so labels never collide.
         painter.rect_filled(ruler, 0.0, theme::p().raised);
@@ -242,7 +254,7 @@ report: {}",
         }
 
         // Click-to-locate: the ruler moves the playhead to the nearest line of
-        // the zoom-adaptive grid (Alt bypasses snapping). A ghost line shows
+        // the editing grid (Alt bypasses snapping). The snap guide shows
         // where a click will land.
         let ruler_response = ui
             .interact(ruler, ui.id().with("ruler"), Sense::click())
@@ -258,16 +270,8 @@ report: {}",
         if let Some(pointer) = ruler_response.hover_pos() {
             let free = ui.input(|i| i.modifiers.alt);
             let raw = ruler::ticks_at(view.beat_at(canvas.left(), pointer.x));
-            let target = if free {
-                raw
-            } else {
-                ruler::snap(&self.transport.timeline.meter, raw, view.zoom as f32)
-            };
-            let gx = x_of(target.as_quarters());
-            painter.line_segment(
-                [pos2(gx, ruler.top()), pos2(gx, full.bottom())],
-                Stroke::new(1.0, theme::p().accent.gamma_multiply(0.5)),
-            );
+            let target = self.snapped(raw, free);
+            draw_snap_guide(&painter, x_of(target.as_quarters()), full);
             if ruler_response.clicked() {
                 trace::log(|| format!("ruler: locate {target:?} (snapped: {})", !free));
                 self.transport.locate(target);

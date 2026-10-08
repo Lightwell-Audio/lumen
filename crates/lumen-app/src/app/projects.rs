@@ -54,6 +54,7 @@ impl App {
             detail_open: self.show_detail,
             browser_size: self.browser_size,
             detail_size: self.detail_size,
+            grid: self.grid,
             ..project.view.clone()
         };
         self.arrangement.save_into(&mut project.view);
@@ -250,6 +251,7 @@ impl App {
                         left: f64::from(view.left_beat).max(0.0),
                         zoom: f64::from(view.px_per_beat).clamp(crate::timeview::MIN_ZOOM, 1e7),
                     });
+                    self.grid = view.grid;
                     self.show_browser = view.browser_open;
                     self.show_detail = view.detail_open;
                     self.browser_size = view.browser_size.clamp(120.0, 600.0);

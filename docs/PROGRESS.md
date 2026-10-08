@@ -35,7 +35,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 2 | Design system, motion system, M2 retrofit; typefaces (ADR-0023, MT-APP-7) | ✅ 2026-10-07 | `dbe4777`, `392a5f8`, `d320cf0` |
 | 3 | Project model and undo, save/open, autosave and recovery (ADR-0024, MT-APP-8) | ✅ 2026-10-07 | `fd7583b`, `e2768fb`, `43c86f1`, `578bc6f`, `7780b11`, `4a7f615` |
 | 4 | Tracks and the arrangement view at scale: groundwork (format v3), 4a track headers (ADR-0025, MT-APP-9 passed), architecture audit fixed, 4b clips on the GPU with a frame-time benchmark (ADR-0026, MT-APP-10 passed), 4c waveforms (ADR-0027, MT-APP-11 passed), 4d navigation (ADR-0028, MT-APP-12 passed) | ✅ 2026-10-08 | 4a and audit through `eea085a`; 4b from `397f846` |
-| 5 | Grid, snapping, rulers, scrub, markers, loop | 🔲 | |
+| 5 | Grid, snapping, rulers, scrub, markers, loop: groundwork (format v4), 5a grid and snapping | 🟡 | |
 | 6 | Clip editing and selection | 🔲 | |
 | 7 | Command palette, shortcuts, context menus | 🔲 | |
 | 8 | End-to-end walkthrough and report | 🔲 | |
@@ -97,7 +97,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
 | Rulers: bars/beats, minutes:seconds, samples, timecode | M | 🔲 | 3 |
-| Adaptive or fixed grid (triplet, dotted, off) with snap-bypass modifier | M | 🔲 | 3 |
+| Adaptive or fixed grid (triplet, dotted, off) with snap-bypass modifier | M | ✅ 2026-10-08 | 3 | M3 slice 5a: `lumen_core::grid`, adaptive in five widths or fixed 8 bars to 1/64, triplet and dotted, snap on or off (Ctrl+1 to Ctrl+5, the grid menu and button); Alt bypasses; snap guide; saved with the project (format v4). Used by the ruler and dropped files now, by clip edits in slice 6 |
 | Anchored zoom, zoom to selection, fit all, fit loop, pan, edge auto-scroll, follow modes. (Ctrl+wheel zoom works in the M1 shell since the 2026-10-06 fix: egui delivers it as a zoom factor, not as scroll.) | M | 🟡 | 3 | M3 slice 4d (ADR-0028): zoom at the pointer to single samples, `+`/`-`, X back, W fit all, H fit heights, Alt+wheel heights, pan, auto-scroll while dragging tracks, Follow page and continuous. Zoom to selection with selection (slice 6); fit loop with the command palette (slice 7) |
 | Track types: audio, MIDI/instrument, group, return, master | M | 🟡 All five exist in the project model; audio tracks are created by importing (M3 slice 3). Track headers and adding each type in M3 slice 4; group summing, returns and master in M4 | 3–4 |
 | Per-track name, colour, height, arm, monitor, solo, mute, polarity, I/O routing, inline fader and meter | M | 🟡 Name, type icon, colour, height (drag to resize in 22 pt steps, fold and unfold), arm (glows and breathes), solo and mute in the track header; interim volume and pan sliders in unfolded headers (M3 slice 4a, ADR-0025). Monitor, polarity, routing, real fader and meter with the mixer (M4) | 3–4 |
@@ -260,7 +260,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Select, marquee, range; cut/copy/paste/duplicate/delete/ripple delete/insert silence | M | 🔲 |
 | Split, join, consolidate, trim, crop, slip, nudge, move, loop/unloop | M | 🔲 |
 | Fades, crossfades, clip gain, reverse, normalize, polarity | M | 🔲 |
-| Snap and grid; zoom; clip name/colour/mute/lock; clip properties | M | 🔲 |
+| Snap and grid; zoom; clip name/colour/mute/lock; clip properties | M | 🟡 | Grid and snapping (M3 5a) and zoom (4d) done; clip properties in slice 6 |
 | Warp, transient and tempo detection, pitch shift | S | 🔲 |
 | Take lanes and comping | S | 🔲 |
 | Unlimited undo/redo with visible history | M | 🟡 Undo and redo for imports, tempo and time signature (Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y), a History window, and a note after each undo (M3 slice 3, ADR-0024). Every later edit joins it as it is built |

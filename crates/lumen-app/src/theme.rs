@@ -36,6 +36,8 @@ pub struct Palette {
     pub warning: Color32,
     pub grid_bar: Color32,
     pub grid_beat: Color32,
+    /// Grid lines between beats (M3 slice 5a).
+    pub grid_sub: Color32,
     /// The start marker (where Play starts): neutral, so it never reads as
     /// the playhead.
     pub start_marker: Color32,
@@ -75,6 +77,7 @@ pub const DARK: Palette = Palette {
     warning: Color32::from_rgb(0xF2, 0xB1, 0x4C),
     grid_bar: Color32::from_rgb(0x34, 0x38, 0x42),
     grid_beat: Color32::from_rgb(0x26, 0x29, 0x30),
+    grid_sub: Color32::from_rgb(0x21, 0x23, 0x29),
     start_marker: Color32::from_rgb(0xC8, 0xCC, 0xD4),
     lane: Color32::from_rgb(0x1B, 0x1D, 0x22),
     header: Color32::from_rgb(0x1E, 0x21, 0x26),
@@ -104,6 +107,7 @@ pub const LIGHT: Palette = Palette {
     warning: Color32::from_rgb(0xA8, 0x64, 0x00),
     grid_bar: Color32::from_rgb(0xD9, 0xDC, 0xE1),
     grid_beat: Color32::from_rgb(0xEC, 0xEE, 0xF1),
+    grid_sub: Color32::from_rgb(0xF3, 0xF4, 0xF6),
     start_marker: Color32::from_rgb(0x6B, 0x71, 0x7C),
     lane: Color32::from_rgb(0xF6, 0xF7, 0xF8),
     header: Color32::from_rgb(0xEC, 0xEE, 0xF1),

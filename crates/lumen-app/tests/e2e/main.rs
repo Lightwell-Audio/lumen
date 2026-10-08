@@ -13,6 +13,7 @@
 
 mod editing;
 mod files;
+mod grid;
 mod navigation;
 mod playback;
 

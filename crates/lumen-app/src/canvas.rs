@@ -13,14 +13,13 @@ use lumen_core::product::PRODUCT_NAME;
 use lumen_media::Peaks;
 
 use crate::timeview::TimeView;
+use lumen_core::grid::{Grid, Level, Step};
+use lumen_core::meter::MeterMap;
+use lumen_core::time::{PPQ, Ticks};
 use lumen_render::{
     Area, BoxDraw, BoxInstance, BoxLayerId, BoxStyle, LayerId, RectInstance, Renderer, RowSlot,
     View, WaveInstance, WaveStyle, rgba,
 };
-
-/// Grid lines are at least this far apart (points), as the finest snap
-/// step is; closer ones thin out.
-const GRID_GAP: f64 = crate::ruler::MIN_STEP_PX as f64;
 
 struct Resources {
     renderer: Renderer,
@@ -40,84 +39,82 @@ struct Resources {
 const GRID_TARGET: usize = 0;
 const CLIPS_TARGET: usize = 1;
 
-/// Bar and beat lengths, in quarter notes, for drawing the grid.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct GridMeter {
-    pub bar: f32,
-    pub beat: f32,
-    /// Bar and beat line colours (theme tokens `grid_bar`, `grid_beat`).
-    pub colors: [egui::Color32; 2],
+/// What the arrangement grid shows: the editing grid, the time signatures
+/// it counts from, and the line colours (theme tokens `grid_bar`,
+/// `grid_beat`, `grid_sub`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct GridLook {
+    pub grid: Grid,
+    pub meter: MeterMap,
+    pub colors: [egui::Color32; 3],
 }
 
-/// The grid lines around the view: bars `from..to`, a bar line every
-/// `every` bars, and beat lines when they are far enough apart. Covers a
-/// few screens around the view, so scrolling rarely rebuilds it.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// The grid lines around the view, covering a few screens so scrolling
+/// rarely rebuilds them. The lines depend on the zoom only through the
+/// step drawn in each time signature (`steps`), so zooming rebuilds them
+/// only when a step changes.
+#[derive(Debug, Clone, PartialEq)]
 struct GridLines {
-    meter: GridMeter,
-    from: i64,
-    to: i64,
-    every: i64,
-    beats: bool,
+    look: GridLook,
+    steps: Vec<Step>,
+    from: Ticks,
+    to: Ticks,
+    zoom: f64,
 }
 
 impl GridLines {
-    /// The lines for `time` across `width` points: no two closer than
-    /// [`GRID_GAP`]. Zoomed far out, bar lines thin to every 2nd, 4th, 8th...
-    /// bar (as the ruler's numbers do).
-    fn around(time: TimeView, width: f32, meter: GridMeter) -> Self {
-        let bar = f64::from(meter.bar).max(1e-3);
-        let bar_pt = bar * time.zoom;
-        let beats_per_bar = (meter.bar / meter.beat).round().max(1.0);
-        let beats = beats_per_bar > 1.0 && f64::from(meter.beat) * time.zoom >= GRID_GAP;
-        let mut every = 1_i64;
-        while (every as f64) * bar_pt < GRID_GAP {
-            every *= 2;
-        }
-        // Whole windows of a power of two bars (at least `every`), one
-        // before the view and two after it.
-        let visible = (f64::from(width) / bar_pt).ceil().max(1.0) as i64 + 1;
-        let window = (visible as u64).next_power_of_two().max(every as u64) as i64;
-        let first = (time.left / bar).floor() as i64;
-        let from = ((first.div_euclid(window) - 1) * window).max(0);
+    /// The lines for `time` across `width` points: whole windows of a
+    /// power of two quarter notes, one before the view and two after it.
+    fn around(time: TimeView, width: f32, look: &GridLook) -> Self {
+        let steps = look
+            .meter
+            .points()
+            .iter()
+            .map(|p| look.grid.display_step(p.meter, time.zoom))
+            .collect();
+        let span = (f64::from(width) / time.zoom).max(1e-9);
+        let window = 2_f64.powi(span.log2().ceil() as i32);
+        let from = ((time.left / window).floor() - 1.0).max(0.0) * window;
+        let ticks = |quarters: f64| Ticks((quarters * PPQ as f64).round() as i64);
         Self {
-            meter,
-            from,
-            to: from + 4 * window,
-            every,
-            beats,
+            look: look.clone(),
+            steps,
+            from: ticks(from),
+            to: ticks(from + 4.0 * window),
+            zoom: time.zoom,
         }
     }
 
-    /// Bar lines (strong) and beat lines (faint), in quarter notes; one row
-    /// that spans the canvas height.
-    fn instances(self) -> Vec<RectInstance> {
-        let meter = self.meter;
-        let per_bar = if self.beats {
-            (meter.bar / meter.beat).round().max(1.0) as i64
-        } else {
-            1
-        };
-        let line = |at: f64, bar: bool| {
-            let c = meter.colors[usize::from(!bar)];
-            RectInstance::new(at, at, 0.0, rgba(c.r(), c.g(), c.b(), 255))
-        };
-        (self.from..self.to)
-            .step_by(self.every as usize)
-            .flat_map(|bar| {
-                let start = bar as f64 * f64::from(meter.bar);
-                (0..per_bar)
-                    .map(move |beat| line(start + beat as f64 * f64::from(meter.beat), beat == 0))
+    /// One line instance per grid line; one row spans the canvas height.
+    fn instances(&self) -> Vec<RectInstance> {
+        let [bar, beat, sub] = self.look.colors;
+        let mut instances: Vec<RectInstance> = self
+            .look
+            .grid
+            .lines(&self.look.meter, self.from, self.to, self.zoom)
+            .into_iter()
+            .map(|line| {
+                let c = match line.level {
+                    Level::Bar => bar,
+                    Level::Beat => beat,
+                    Level::Sub => sub,
+                };
+                let at = line.at.as_quarters();
+                RectInstance::new(at, at, 0.0, rgba(c.r(), c.g(), c.b(), 255))
             })
-            .collect()
+            .collect();
+        // A layer is never empty.
+        if instances.is_empty() {
+            instances.push(RectInstance::new(0.0, 0.0, 0.0, 0));
+        }
+        instances
     }
 
-    /// Whether these lines also do for `wanted`: the same kind of lines,
-    /// over a range that covers it.
-    fn covers(self, wanted: Self) -> bool {
-        self.meter == wanted.meter
-            && self.every == wanted.every
-            && self.beats == wanted.beats
+    /// Whether these lines also do for `wanted`: the same grid, steps and
+    /// colours, over a range that covers it.
+    fn covers(&self, wanted: &Self) -> bool {
+        self.look == wanted.look
+            && self.steps == wanted.steps
             && self.from <= wanted.from
             && wanted.to <= self.to
     }
@@ -214,10 +211,10 @@ impl egui_wgpu::CallbackTrait for GridCallback {
         let Some(Ok(r)) = resources.get_mut::<Mutex<Resources>>().map(Mutex::get_mut) else {
             return Vec::new();
         };
-        if !r.grid_lines.is_some_and(|l| l.covers(self.lines)) {
+        if !r.grid_lines.as_ref().is_some_and(|l| l.covers(&self.lines)) {
             r.renderer
                 .update_layer(device, queue, r.grid, &self.lines.instances());
-            r.grid_lines = Some(self.lines);
+            r.grid_lines = Some(self.lines.clone());
         }
         let view = View {
             row_height: self.port.size_px[1] as f32,
@@ -257,10 +254,10 @@ pub fn grid_shape(
     rect: Rect,
     pixels_per_point: f32,
     time: TimeView,
-    meter: GridMeter,
+    look: &GridLook,
 ) -> egui::Shape {
     let callback = GridCallback {
-        lines: GridLines::around(time, rect.width(), meter),
+        lines: GridLines::around(time, rect.width(), look),
         view: View {
             left: time.left,
             px_per_unit: (time.zoom * f64::from(pixels_per_point)) as f32,
@@ -404,50 +401,63 @@ pub fn box_style(pixels_per_point: f32, inset: f32, title: f32) -> BoxStyle {
 mod tests {
     use super::*;
 
-    const FOUR_FOUR: GridMeter = GridMeter {
-        bar: 4.0,
-        beat: 1.0,
-        colors: [egui::Color32::WHITE, egui::Color32::GRAY],
-    };
+    fn look(grid: Grid) -> GridLook {
+        GridLook {
+            grid,
+            meter: MeterMap::constant(lumen_core::meter::Meter::FOUR_FOUR).unwrap(),
+            colors: [
+                egui::Color32::WHITE,
+                egui::Color32::GRAY,
+                egui::Color32::DARK_GRAY,
+            ],
+        }
+    }
 
     #[test]
     fn grid_lines_cover_the_view_wherever_it_is() {
-        // Bar 2,000, far past where the grid used to end, 24 points a beat:
-        // 1,000 points show about 10 bars.
+        // Bar 2,000, 24 points a beat: 1,000 points show about 10 bars; the
+        // Narrow grid draws eighths there.
         let view = TimeView {
             left: 8_000.0,
             zoom: 24.0,
         };
-        let lines = GridLines::around(view, 1_000.0, FOUR_FOUR);
-        assert!(lines.beats && lines.every == 1);
-        assert!(lines.from <= 2_000 && 2_011 <= lines.to);
+        let look = look(Grid::default());
+        let lines = GridLines::around(view, 1_000.0, &look);
+        assert!(lines.from <= Ticks::quarters(8_000) && Ticks::quarters(8_042) <= lines.to);
         let instances = lines.instances();
-        assert_eq!(instances.len() as i64, (lines.to - lines.from) * 4);
-        // Scrolling a little: the same lines do.
+        let quarters = (lines.to - lines.from).as_quarters();
+        assert_eq!(instances.len() as f64, quarters * 2.0, "an eighth apart");
+        // Scrolling a little: the same lines do; zooming within the same
+        // step does too.
         let moved = TimeView {
-            left: 8_010.0,
-            ..view
+            left: 8_001.0,
+            zoom: 25.0,
         };
-        assert!(lines.covers(GridLines::around(moved, 1_000.0, FOUR_FOUR)));
+        assert!(lines.covers(&GridLines::around(moved, 1_000.0, &look)));
+        // A different grid does not.
+        let triplet = self::look(Grid {
+            feel: lumen_core::grid::Feel::Triplet,
+            ..Grid::default()
+        });
+        assert!(!lines.covers(&GridLines::around(view, 1_000.0, &triplet)));
     }
 
     #[test]
-    fn grid_lines_thin_out_as_the_view_zooms_out() {
-        // 1 point a beat: beats are too close, bars are 4 points, so every
-        // 4th bar has a line (16 points apart; 8 would be under 12).
+    fn grid_lines_stay_calm_far_out() {
+        // 0.1 points a beat: every 32 bars (12.8 points).
         let far = TimeView {
             left: 0.0,
-            zoom: 1.0,
+            zoom: 0.1,
         };
-        let lines = GridLines::around(far, 1_000.0, FOUR_FOUR);
-        assert!(!lines.beats);
-        assert_eq!(lines.every, 4);
-        assert_eq!(lines.from % lines.every, 0);
-        let instances = lines.instances();
-        assert_eq!(instances.len() as i64, (lines.to - lines.from) / 4);
-        // A tenth of that: every 32 bars (12.8 points).
-        let farther = TimeView { zoom: 0.1, ..far };
-        assert_eq!(GridLines::around(farther, 1_000.0, FOUR_FOUR).every, 32);
+        let lines = GridLines::around(far, 1_000.0, &look(Grid::default()));
+        let at: Vec<f64> = lines
+            .look
+            .grid
+            .lines(&lines.look.meter, lines.from, lines.to, far.zoom)
+            .iter()
+            .map(|l| l.at.as_quarters())
+            .collect();
+        assert_eq!(at[1] - at[0], 128.0);
     }
 
     #[test]

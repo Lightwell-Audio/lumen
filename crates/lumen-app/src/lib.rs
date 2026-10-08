@@ -127,6 +127,8 @@ pub struct App {
     toggle_detail_requested: bool,
     /// Where the arrangement looks (zoom, scroll, fit, back): slice 4d.
     nav: app::navigate::Nav,
+    /// The editing grid and snapping (slice 5a); saved with the project.
+    grid: lumen_core::grid::Grid,
     smoke_test_frames: Option<u32>,
     /// Where `--screenshot` saves, once the frames have rendered.
     screenshot: Option<PathBuf>,
@@ -235,6 +237,7 @@ impl eframe::App for App {
         self.transport.update();
         self.transport.shortcuts(&ctx);
         self.undo_shortcuts(&ctx);
+        self.grid_shortcuts(&ctx);
         self.arrangement.shortcuts(&ctx, &mut self.document);
         self.file_shortcuts(&ctx);
         self.poll_files(&ctx);
@@ -539,6 +542,7 @@ impl App {
             detail_size: 220.0,
             toggle_detail_requested: false,
             nav: app::navigate::Nav::default(),
+            grid: lumen_core::grid::Grid::default(),
             smoke_test_frames: launch.smoke_test.then_some(SMOKE_FRAMES),
             screenshot: launch.screenshot,
             started,

@@ -154,9 +154,11 @@ pub struct Line {
     pub level: Level,
 }
 
-/// Lines are never drawn closer than this (points); finer grids show a
-/// coarser set of lines, and still snap to their own steps.
+/// Lines are never drawn closer than this (points)...
 pub const MIN_LINE_POINTS: f64 = 6.0;
+/// ...and a grid finer than that shows lines this far apart instead (as
+/// the Narrow adaptive grid), still snapping to its own steps.
+pub const FALLBACK_LINE_POINTS: f64 = 12.0;
 
 /// The longest bar step an adaptive grid uses.
 const MAX_BARS: u32 = 1 << 16;
@@ -233,11 +235,7 @@ impl Grid {
                 break;
             }
             let meter = map.meter_at(start);
-            let mut step = self.step(meter, points_per_quarter);
-            if points(step, meter, points_per_quarter) < MIN_LINE_POINTS {
-                step = adaptive(meter, points_per_quarter, MIN_LINE_POINTS, Feel::Straight);
-            }
-            match step {
+            match self.display_step(meter, points_per_quarter) {
                 Step::Bars(n) => {
                     let n = i64::from(n);
                     if bar.rem_euclid(n) == 0 && start >= from {
@@ -271,6 +269,24 @@ impl Grid {
             }
         }
         lines
+    }
+
+    /// The step lines are drawn at in `meter`: this grid's step when it is
+    /// at least [`MIN_LINE_POINTS`] wide, otherwise the finest straight step
+    /// at least [`FALLBACK_LINE_POINTS`] wide. The lines change only when
+    /// this does.
+    pub fn display_step(&self, meter: Meter, points_per_quarter: f64) -> Step {
+        let step = self.step(meter, points_per_quarter);
+        if points(step, meter, points_per_quarter) < MIN_LINE_POINTS {
+            adaptive(
+                meter,
+                points_per_quarter,
+                FALLBACK_LINE_POINTS,
+                Feel::Straight,
+            )
+        } else {
+            step
+        }
     }
 
     /// One step finer (Ctrl+1): a narrower width, or a smaller size.
@@ -566,7 +582,8 @@ mod tests {
     #[test]
     fn lines_thin_out_when_the_grid_is_finer_than_the_screen() {
         // A fixed 1/64 grid at 1 point a quarter would be 0.06 points apart:
-        // the lines shown are every few bars instead; snapping still uses 1/64.
+        // the lines shown are every 4 bars (16 points) instead; snapping
+        // still uses 1/64.
         let grid = Grid {
             fixed: true,
             size: Size::Note(64),
@@ -576,8 +593,8 @@ mod tests {
         assert!(lines.iter().all(|l| l.level == Level::Bar));
         assert_eq!(
             lines[1].at - lines[0].at,
-            Ticks::quarters(8),
-            "every 2 bars"
+            Ticks::quarters(16),
+            "every 4 bars"
         );
         assert_eq!(grid.snap(&map(), Ticks(PPQ / 16 + 1), 1.0), Ticks(PPQ / 16));
     }

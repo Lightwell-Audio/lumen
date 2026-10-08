@@ -1,9 +1,7 @@
-//! Ruler geometry and snapping (M2 slice 5, the first part of the owner's
-//! Ableton-style scrubbing request). Clicking the ruler moves the playhead
-//! to the nearest grid line; the grid adapts to zoom. Holding Alt bypasses
-//! snapping.
+//! Ruler geometry (M2 slice 5). Snapping is the editing grid's
+//! (`lumen_core::grid`, slice 5a); the ruler's labels use [`step`].
 
-use lumen_core::meter::{Meter, MeterMap};
+use lumen_core::meter::Meter;
 use lumen_core::time::{PPQ, Ticks};
 
 /// The finest snap step must be at least this wide on screen.
@@ -36,22 +34,9 @@ pub fn step(meter: Meter, px_per_quarter: f32) -> Ticks {
     best
 }
 
-/// `t` moved to the nearest grid line. Lines are counted from the start of
-/// the bar containing `t`, so they stay right across time-signature changes,
-/// and never pass the next bar line.
-pub fn snap(meter: &MeterMap, t: Ticks, px_per_quarter: f32) -> Ticks {
-    let bar = meter.bbt_at(t).bar;
-    let start = meter.bar_start(bar);
-    let next = meter.bar_start(bar + 1);
-    let step = step(meter.meter_at(start), px_per_quarter).0;
-    let lines = ((t - start).0 as f64 / step as f64).round() as i64;
-    (start + Ticks(lines * step)).min(next)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lumen_core::meter::MeterPoint;
 
     const FOUR_FOUR: Meter = Meter::FOUR_FOUR;
 
@@ -78,52 +63,5 @@ mod tests {
         };
         assert_eq!(step(six_eight, 24.0), Ticks(PPQ / 2));
         assert_eq!(step(six_eight, 48.0), Ticks(PPQ / 4));
-    }
-
-    #[test]
-    fn clicks_snap_to_the_nearest_line() {
-        let map = MeterMap::constant(FOUR_FOUR).unwrap();
-        let eighth = PPQ / 2;
-        // At 24 px per quarter the step is an eighth.
-        assert_eq!(snap(&map, Ticks(eighth / 2 - 1), 24.0), Ticks::ZERO);
-        assert_eq!(snap(&map, Ticks(eighth / 2 + 1), 24.0), Ticks(eighth));
-        assert_eq!(
-            snap(&map, Ticks::quarters(5) + Ticks(10), 24.0),
-            Ticks::quarters(5)
-        );
-        // Zoomed out the step is a bar: just past the middle goes forward.
-        assert_eq!(
-            snap(&map, Ticks::quarters(2) + Ticks(1), 1.0),
-            Ticks::quarters(4)
-        );
-        assert_eq!(snap(&map, Ticks::quarters(2) - Ticks(1), 1.0), Ticks::ZERO);
-    }
-
-    #[test]
-    fn snapping_respects_time_signature_changes() {
-        // Two bars of 4/4, then 7/8: bar 3 starts at quarter 8 and is 3.5
-        // quarters long, so bar 4 starts at quarter 11.5.
-        let map = MeterMap::new(vec![
-            MeterPoint {
-                at: Ticks::ZERO,
-                meter: FOUR_FOUR,
-            },
-            MeterPoint {
-                at: Ticks::quarters(8),
-                meter: Meter {
-                    numerator: 7,
-                    denominator: 8,
-                },
-            },
-        ])
-        .unwrap();
-        let bar4 = Ticks::quarters(11) + Ticks(PPQ / 2);
-        // Zoomed out, steps are bars: near the end of bar 3 snaps to bar 4.
-        assert_eq!(snap(&map, bar4 - Ticks(PPQ / 4), 1.0), bar4);
-        // At beat zoom (eighths in 7/8), lines count from the bar start.
-        assert_eq!(
-            snap(&map, Ticks::quarters(9) + Ticks(PPQ / 2 - 3), 24.0),
-            Ticks::quarters(9) + Ticks(PPQ / 2)
-        );
     }
 }
