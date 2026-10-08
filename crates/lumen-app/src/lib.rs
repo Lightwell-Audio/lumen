@@ -144,6 +144,8 @@ pub struct App {
     toggle_detail_requested: bool,
     /// Which keys run which commands (slice 7).
     keymap: commands::Keymap,
+    /// The command palette (Ctrl+K).
+    palette: app::palette::Palette,
     /// Where the arrangement looks (zoom, scroll, fit, back): slice 4d.
     nav: app::navigate::Nav,
     /// The editing grid and snapping (slice 5a); saved with the project.
@@ -382,6 +384,7 @@ impl eframe::App for App {
         self.transport.windows(&ctx);
         self.history_window(&ctx);
         self.prompt_window(&ctx);
+        self.palette_window(&ctx);
 
         // A focused control must not vanish with its panel: AccessKit
         // rejects focus on a node that no longer exists. Release focus
@@ -607,6 +610,7 @@ impl App {
             detail_size: 220.0,
             toggle_detail_requested: false,
             keymap: commands::Keymap::default(),
+            palette: Default::default(),
             nav: app::navigate::Nav::default(),
             grid: lumen_core::grid::Grid::default(),
             locators: app::locators::Locators::default(),

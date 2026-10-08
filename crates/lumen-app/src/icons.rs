@@ -29,11 +29,13 @@ pub enum Icon {
     MagnetOff,
     /// A locked clip (M3 slice 6e): a padlock.
     Lock,
+    /// The command palette (M3 slice 7): a magnifier.
+    Search,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 11] = [
+    pub const ALL: [Icon; 12] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
@@ -45,6 +47,7 @@ impl Icon {
         Icon::Magnet,
         Icon::MagnetOff,
         Icon::Lock,
+        Icon::Search,
     ];
 }
 
@@ -175,6 +178,10 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
                 stroke,
             ),
             Shape::rect_filled(g.rect(3.0, 7.5, 13.0, 14.5), 1.0 * g.unit, color),
+        ],
+        Icon::Search => vec![
+            Shape::circle_stroke(g.p(7.0, 7.0), 4.5 * g.unit, stroke),
+            Shape::line_segment([g.p(10.3, 10.3), g.p(13.5, 13.5)], stroke),
         ],
         Icon::Follow => vec![
             Shape::line_segment([g.p(4.0, 2.5), g.p(4.0, 13.5)], stroke),

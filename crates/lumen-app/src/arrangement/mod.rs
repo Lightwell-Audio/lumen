@@ -265,6 +265,31 @@ impl Arrangement {
         self.top = (self.top - delta).clamp(0.0, (content - visible + FOLDED).max(0.0));
     }
 
+    /// Selects track `id` alone and scrolls just enough to show it in the
+    /// `visible` height (the palette's "Go to track").
+    pub fn reveal(
+        &mut self,
+        ctx: &egui::Context,
+        project: &Project,
+        pending: usize,
+        id: Id,
+        visible: f32,
+    ) {
+        let Some(index) = project.tracks.iter().position(|t| t.id == id) else {
+            return;
+        };
+        self.selected = vec![id];
+        self.anchor = Some(id);
+        let rows = self.rows(ctx, project, pending);
+        if let Some(row) = rows.iter().find(|r| r.kind == RowKind::Track(index)) {
+            if row.y < self.top {
+                self.top = row.y;
+            } else if row.y + row.height > self.top + visible {
+                self.top = (row.y + row.height - visible).max(0.0);
+            }
+        }
+    }
+
     /// Height of everything, for scrolling.
     pub fn height_of_content(&self, ctx: &egui::Context, project: &Project, pending: usize) -> f32 {
         Self::content_height(&self.rows(ctx, project, pending))

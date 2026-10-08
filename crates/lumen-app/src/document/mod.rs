@@ -340,6 +340,17 @@ impl Document {
         });
     }
 
+    /// Sets the song's tempo, clamped to 20–999 BPM (`merge` joins the
+    /// changes of one drag into one step).
+    pub fn set_tempo(&mut self, bpm: f64, merge: Option<&str>) {
+        let bpm = bpm.clamp(20.0, 999.0);
+        self.history.apply("Change tempo", merge, |project| {
+            if let Some(first) = project.tempo.first_mut() {
+                first.bpm = bpm;
+            }
+        });
+    }
+
     /// Turns looping on or off.
     pub fn set_loop_enabled(&mut self, enabled: bool) {
         let label = if enabled { "Loop on" } else { "Loop off" };
@@ -488,6 +499,20 @@ mod tests {
             at,
             into: DropInto::NewTracks { before: None },
         }
+    }
+
+    #[test]
+    fn the_tempo_is_clamped_and_a_drag_is_one_step() {
+        let mut doc = Document::new(crate::empty_project());
+        doc.set_tempo(140.0, None);
+        for bpm in [141.0, 142.0, 2000.0] {
+            doc.set_tempo(bpm, Some("drag"));
+        }
+        assert_eq!(doc.project().tempo[0].bpm, 999.0);
+        doc.undo();
+        assert_eq!(doc.project().tempo[0].bpm, 140.0, "the drag was one step");
+        doc.set_tempo(1.0, None);
+        assert_eq!(doc.project().tempo[0].bpm, 20.0);
     }
 
     #[test]

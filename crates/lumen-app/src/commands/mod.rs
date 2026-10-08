@@ -47,6 +47,7 @@ pub(crate) enum Command {
     FitWidth,
     FitHeight,
     ToggleDetail,
+    OpenPalette,
     GridNarrower,
     GridWider,
     TripletGrid,
@@ -76,10 +77,6 @@ pub(crate) enum Area {
 }
 
 impl Area {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the palette groups by area (slice 7b)")
-    )]
     pub(crate) fn name(self) -> &'static str {
         match self {
             Area::Transport => "Transport",
@@ -91,6 +88,23 @@ impl Area {
             Area::Locators => "Locators",
             Area::File => "File",
         }
+    }
+
+    /// The light under a keycap's key for commands of this area (the
+    /// owner's K5): one of the track colours, so areas read apart the way
+    /// tracks do.
+    pub(crate) fn light(self) -> eframe::egui::Color32 {
+        let index = match self {
+            Area::Edit => 0,
+            Area::Track => 1,
+            Area::View => 2,
+            Area::Clip => 3,
+            Area::Transport => 4,
+            Area::Grid => 5,
+            Area::Locators => 9,
+            Area::File => 11,
+        };
+        crate::theme::CLIP_COLORS[index]
     }
 }
 
@@ -105,14 +119,12 @@ pub(crate) struct Info {
     )]
     pub id: &'static str,
     pub name: &'static str,
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the palette groups by area (slice 7b)")
-    )]
     pub area: Area,
     /// The default shortcuts, Ableton's where it has one; the first is the
     /// one shown.
     pub keys: &'static [Chord],
+    /// What it does, in one sentence (the palette's detail strip).
+    pub about: &'static str,
 }
 
 use eframe::egui::Key;
@@ -122,51 +134,52 @@ use keys::{alt, ctrl, ctrl_shift, plain, shift};
 /// per command, so it reads as one.
 #[rustfmt::skip]
 pub(crate) const ALL: &[Info] = &[
-    info(Command::PlayStop, "transport.play_stop", "Play / Stop", Area::Transport, &[plain(Key::Space)]),
-    info(Command::PauseContinue, "transport.pause_continue", "Stop here / Continue", Area::Transport, &[shift(Key::Space)]),
-    info(Command::GoToStart, "transport.go_to_start", "Go to start", Area::Transport, &[plain(Key::Home)]),
-    info(Command::ToggleFollow, "transport.follow", "Follow playhead", Area::Transport, &[ctrl_shift(Key::F)]),
-    info(Command::Undo, "edit.undo", "Undo", Area::Edit, &[ctrl(Key::Z)]),
-    info(Command::Redo, "edit.redo", "Redo", Area::Edit, &[ctrl_shift(Key::Z), ctrl(Key::Y)]),
-    info(Command::Cut, "edit.cut", "Cut", Area::Edit, &[ctrl(Key::X)]),
-    info(Command::Copy, "edit.copy", "Copy", Area::Edit, &[ctrl(Key::C)]),
-    info(Command::Paste, "edit.paste", "Paste", Area::Edit, &[ctrl(Key::V)]),
-    info(Command::Duplicate, "edit.duplicate", "Duplicate", Area::Edit, &[ctrl(Key::D)]),
-    info(Command::Delete, "edit.delete", "Delete", Area::Edit, &[plain(Key::Delete), plain(Key::Backspace)]),
-    info(Command::DeleteTime, "edit.delete_time", "Delete time", Area::Edit, &[ctrl_shift(Key::Delete)]),
-    info(Command::InsertTime, "edit.insert_time", "Insert time", Area::Edit, &[ctrl(Key::I)]),
-    info(Command::Deselect, "edit.deselect", "Deselect", Area::Edit, &[plain(Key::Escape)]),
-    info(Command::Rename, "edit.rename", "Rename", Area::Edit, &[ctrl(Key::R), plain(Key::F2)]),
-    info(Command::MuteClips, "clip.mute", "Mute clip", Area::Clip, &[plain(Key::Num0)]),
-    info(Command::ClipProperties, "clip.properties", "Clip properties", Area::Clip, &[alt(Key::Enter)]),
-    info(Command::AddAudioTrack, "track.add_audio", "Add audio track", Area::Track, &[ctrl(Key::T)]),
-    info(Command::AddMidiTrack, "track.add_midi", "Add MIDI track", Area::Track, &[ctrl_shift(Key::T)]),
-    info(Command::MoveTracksUp, "track.move_up", "Move track up", Area::Track, &[alt(Key::ArrowUp)]),
-    info(Command::MoveTracksDown, "track.move_down", "Move track down", Area::Track, &[alt(Key::ArrowDown)]),
-    info(Command::SelectTrackAbove, "track.select_above", "Select track above", Area::Track, &[plain(Key::ArrowUp)]),
-    info(Command::SelectTrackBelow, "track.select_below", "Select track below", Area::Track, &[plain(Key::ArrowDown)]),
-    info(Command::ExtendSelectionUp, "track.extend_up", "Add track above to selection", Area::Track, &[shift(Key::ArrowUp)]),
-    info(Command::ExtendSelectionDown, "track.extend_down", "Add track below to selection", Area::Track, &[shift(Key::ArrowDown)]),
-    info(Command::FoldTracks, "track.fold", "Fold track", Area::Track, &[plain(Key::ArrowLeft)]),
-    info(Command::UnfoldTracks, "track.unfold", "Unfold track", Area::Track, &[plain(Key::ArrowRight)]),
-    info(Command::ZoomIn, "view.zoom_in", "Zoom in", Area::View, &[plain(Key::Plus), shift(Key::Plus), plain(Key::Equals), shift(Key::Equals)]),
-    info(Command::ZoomOut, "view.zoom_out", "Zoom out", Area::View, &[plain(Key::Minus)]),
-    info(Command::ZoomBack, "view.zoom_back", "Zoom back", Area::View, &[plain(Key::X)]),
-    info(Command::FitWidth, "view.fit_width", "Fit song to width", Area::View, &[plain(Key::W)]),
-    info(Command::FitHeight, "view.fit_height", "Fit tracks to height", Area::View, &[plain(Key::H)]),
-    info(Command::ToggleDetail, "view.detail_panel", "Show / hide detail panel", Area::View, &[shift(Key::Tab)]),
-    info(Command::GridNarrower, "grid.narrower", "Grid narrower", Area::Grid, &[ctrl(Key::Num1)]),
-    info(Command::GridWider, "grid.wider", "Grid wider", Area::Grid, &[ctrl(Key::Num2)]),
-    info(Command::TripletGrid, "grid.triplet", "Triplet grid", Area::Grid, &[ctrl(Key::Num3)]),
-    info(Command::SnapToGrid, "grid.snap", "Snap to grid", Area::Grid, &[ctrl(Key::Num4)]),
-    info(Command::FixedGrid, "grid.fixed", "Fixed grid", Area::Grid, &[ctrl(Key::Num5)]),
-    info(Command::SetLocator, "locators.set", "Set locator", Area::Locators, &[plain(Key::M)]),
-    info(Command::PreviousLocator, "locators.previous", "Previous locator", Area::Locators, &[ctrl(Key::ArrowLeft)]),
-    info(Command::NextLocator, "locators.next", "Next locator", Area::Locators, &[ctrl(Key::ArrowRight)]),
-    info(Command::NewProject, "file.new", "New project", Area::File, &[ctrl(Key::N)]),
-    info(Command::OpenProject, "file.open", "Open…", Area::File, &[ctrl(Key::O)]),
-    info(Command::Save, "file.save", "Save", Area::File, &[ctrl(Key::S)]),
-    info(Command::SaveAs, "file.save_as", "Save as…", Area::File, &[ctrl_shift(Key::S)]),
+    info(Command::PlayStop, "transport.play_stop", "Play / Stop", Area::Transport, &[plain(Key::Space)], "Plays from the start marker, or stops where playback is."),
+    info(Command::PauseContinue, "transport.pause_continue", "Stop here / Continue", Area::Transport, &[shift(Key::Space)], "Stops in place, or carries on from the playhead."),
+    info(Command::GoToStart, "transport.go_to_start", "Go to start", Area::Transport, &[plain(Key::Home)], "Moves the playhead to the start of the song."),
+    info(Command::ToggleFollow, "transport.follow", "Follow playhead", Area::Transport, &[ctrl_shift(Key::F)], "Keeps the playhead in view while playing."),
+    info(Command::Undo, "edit.undo", "Undo", Area::Edit, &[ctrl(Key::Z)], "Takes back the last change."),
+    info(Command::Redo, "edit.redo", "Redo", Area::Edit, &[ctrl_shift(Key::Z), ctrl(Key::Y)], "Puts back the change just undone."),
+    info(Command::Cut, "edit.cut", "Cut", Area::Edit, &[ctrl(Key::X)], "Copies the selected clips or time range, then removes them."),
+    info(Command::Copy, "edit.copy", "Copy", Area::Edit, &[ctrl(Key::C)], "Copies the selected clips or time range."),
+    info(Command::Paste, "edit.paste", "Paste", Area::Edit, &[ctrl(Key::V)], "Pastes into the time range, or at the playhead."),
+    info(Command::Duplicate, "edit.duplicate", "Duplicate", Area::Edit, &[ctrl(Key::D)], "Copies the selection right after itself."),
+    info(Command::Delete, "edit.delete", "Delete", Area::Edit, &[plain(Key::Delete), plain(Key::Backspace)], "Deletes the selected clips, time range, tracks or locator."),
+    info(Command::DeleteTime, "edit.delete_time", "Delete time", Area::Edit, &[ctrl_shift(Key::Delete)], "Removes the time range, pulling everything after it back."),
+    info(Command::InsertTime, "edit.insert_time", "Insert time", Area::Edit, &[ctrl(Key::I)], "Inserts empty time the length of the range, pushing everything after it on."),
+    info(Command::Deselect, "edit.deselect", "Deselect", Area::Edit, &[plain(Key::Escape)], "Clears the clip, range or locator selection."),
+    info(Command::Rename, "edit.rename", "Rename", Area::Edit, &[ctrl(Key::R), plain(Key::F2)], "Renames the selected clip, track or locator."),
+    info(Command::MuteClips, "clip.mute", "Mute clip", Area::Clip, &[plain(Key::Num0)], "Mutes the selected clips, or unmutes them."),
+    info(Command::ClipProperties, "clip.properties", "Clip properties", Area::Clip, &[alt(Key::Enter)], "Pins the properties card beside the clip."),
+    info(Command::AddAudioTrack, "track.add_audio", "Add audio track", Area::Track, &[ctrl(Key::T)], "Adds an audio track after the selection."),
+    info(Command::AddMidiTrack, "track.add_midi", "Add MIDI track", Area::Track, &[ctrl_shift(Key::T)], "Adds a MIDI track after the selection."),
+    info(Command::MoveTracksUp, "track.move_up", "Move track up", Area::Track, &[alt(Key::ArrowUp)], "Moves the selected tracks one place up."),
+    info(Command::MoveTracksDown, "track.move_down", "Move track down", Area::Track, &[alt(Key::ArrowDown)], "Moves the selected tracks one place down."),
+    info(Command::SelectTrackAbove, "track.select_above", "Select track above", Area::Track, &[plain(Key::ArrowUp)], "Selects the track above."),
+    info(Command::SelectTrackBelow, "track.select_below", "Select track below", Area::Track, &[plain(Key::ArrowDown)], "Selects the track below."),
+    info(Command::ExtendSelectionUp, "track.extend_up", "Add track above to selection", Area::Track, &[shift(Key::ArrowUp)], "Adds the track above to the selection."),
+    info(Command::ExtendSelectionDown, "track.extend_down", "Add track below to selection", Area::Track, &[shift(Key::ArrowDown)], "Adds the track below to the selection."),
+    info(Command::FoldTracks, "track.fold", "Fold track", Area::Track, &[plain(Key::ArrowLeft)], "Folds the selected tracks."),
+    info(Command::UnfoldTracks, "track.unfold", "Unfold track", Area::Track, &[plain(Key::ArrowRight)], "Unfolds the selected tracks."),
+    info(Command::ZoomIn, "view.zoom_in", "Zoom in", Area::View, &[plain(Key::Plus), shift(Key::Plus), plain(Key::Equals), shift(Key::Equals)], "Zooms in around the pointer, or the playhead."),
+    info(Command::ZoomOut, "view.zoom_out", "Zoom out", Area::View, &[plain(Key::Minus)], "Zooms out around the pointer, or the playhead."),
+    info(Command::ZoomBack, "view.zoom_back", "Zoom back", Area::View, &[plain(Key::X)], "Goes back to the view before the last zoom."),
+    info(Command::FitWidth, "view.fit_width", "Fit song to width", Area::View, &[plain(Key::W)], "Fits the whole song to the window's width."),
+    info(Command::FitHeight, "view.fit_height", "Fit tracks to height", Area::View, &[plain(Key::H)], "Fits every track into the window's height, or back."),
+    info(Command::ToggleDetail, "view.detail_panel", "Show / hide detail panel", Area::View, &[shift(Key::Tab)], "Shows or hides the detail panel."),
+    info(Command::OpenPalette, "view.palette", "Command palette", Area::View, &[ctrl(Key::K)], "Finds any command by name, and runs it."),
+    info(Command::GridNarrower, "grid.narrower", "Grid narrower", Area::Grid, &[ctrl(Key::Num1)], "Makes the grid finer."),
+    info(Command::GridWider, "grid.wider", "Grid wider", Area::Grid, &[ctrl(Key::Num2)], "Makes the grid coarser."),
+    info(Command::TripletGrid, "grid.triplet", "Triplet grid", Area::Grid, &[ctrl(Key::Num3)], "Switches the grid to triplets, or back."),
+    info(Command::SnapToGrid, "grid.snap", "Snap to grid", Area::Grid, &[ctrl(Key::Num4)], "Turns snapping to the grid on or off."),
+    info(Command::FixedGrid, "grid.fixed", "Fixed grid", Area::Grid, &[ctrl(Key::Num5)], "Keeps the grid at its size whatever the zoom, or lets it adapt."),
+    info(Command::SetLocator, "locators.set", "Set locator", Area::Locators, &[plain(Key::M)], "Adds a locator at the playhead, or removes the one there."),
+    info(Command::PreviousLocator, "locators.previous", "Previous locator", Area::Locators, &[ctrl(Key::ArrowLeft)], "Jumps to the previous locator."),
+    info(Command::NextLocator, "locators.next", "Next locator", Area::Locators, &[ctrl(Key::ArrowRight)], "Jumps to the next locator."),
+    info(Command::NewProject, "file.new", "New project", Area::File, &[ctrl(Key::N)], "Starts a new project."),
+    info(Command::OpenProject, "file.open", "Open…", Area::File, &[ctrl(Key::O)], "Opens a project."),
+    info(Command::Save, "file.save", "Save", Area::File, &[ctrl(Key::S)], "Saves the project."),
+    info(Command::SaveAs, "file.save_as", "Save as…", Area::File, &[ctrl_shift(Key::S)], "Saves the project under a new name or place."),
 ];
 
 const fn info(
@@ -175,6 +188,7 @@ const fn info(
     name: &'static str,
     area: Area,
     keys: &'static [Chord],
+    about: &'static str,
 ) -> Info {
     Info {
         command,
@@ -182,6 +196,7 @@ const fn info(
         name,
         area,
         keys,
+        about,
     }
 }
 

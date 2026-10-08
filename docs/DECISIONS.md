@@ -2180,8 +2180,8 @@ curves, clip properties). ADR-0031 covers the curves.
 
 ## ADR-0033 — Commands and the keymap (M3 slice 7)
 
-**Status:** Accepted · **Date:** 2026-10-08 (7a; the palette, remapping
-and menus follow in 7b to 7d)
+**Status:** Accepted · **Date:** 2026-10-08 (7a and 7b; remapping and
+menus follow in 7c and 7d)
 
 ### Context
 Slice 7 brings the command palette, remappable shortcuts with clash
@@ -2229,6 +2229,29 @@ Option 3.
 - The detail panel's chord is read from the keymap in the raw-input hook,
   before egui moves focus with it (ADR-0015).
 - Menus take names and shortcut text from the table and the keymap.
+- **The palette (7b, the owner's P2 with P3's values).** Each command
+  has a one-sentence `about` in the table for the palette's strip. The
+  rows are built by `App::palette_rows`, which the drawing and the tests
+  share: typed values first (a tempo and a bar for a number), then
+  commands and track or locator names by fuzzy score (subsequence,
+  consecutive letters and starts of words count more; the table's order
+  on ties); with nothing typed, recent commands first. A command's label
+  says what it will act on (`App::command_label`: "Duplicate 2 clips",
+  "Undo: Move clip"), and its search still matches the plain name, so
+  "clip prop" finds "Properties of “kick”". Commands that cannot run stay
+  listed with `availability`'s reason; Enter on one keeps the palette
+  open and shows the reason in the strip. Running a row closes the
+  palette first, so a command that focuses a field (Rename) gets the
+  keyboard. Tempo goes through a new `Document::set_tempo` (one step, a
+  drag merged), also used by the transport's tempo field, which edited
+  the project in an inline closure before. "Go to track" queues a
+  `ViewStep::Reveal`, which selects the track and scrolls just enough to
+  show it.
+- **Keycaps (the owner's K5)** are `widgets::keycaps`: the light under
+  the key is the command's area colour (`Area::light`, one of the track
+  colours).
+- The recent commands live for the session; they are saved with the
+  keymap's settings in 7c.
 
 ### Consequences
 - A new command is one row in the table plus its `availability` and
@@ -2242,4 +2265,14 @@ Option 3.
   `commands::keys` (no default clashes, exact matching, chord text).
 - E2E: the existing 62 scenarios pass unchanged;
   `shortcuts_match_their_modifiers_exactly`,
-  `ctrl_r_renames_the_selected_track_as_f2_does`.
+  `ctrl_r_renames_the_selected_track_as_f2_does`; the palette's
+  (`palette`): Ctrl+K and Enter, recent first, the transport button,
+  `every_command_can_be_found_and_run_from_the_palette` (the slice's pass
+  test: each command found first by its name, then run, or kept open
+  with its reason; commands that open a file dialog or the save question
+  are found only), context names and reasons, numbers and names.
+- Unit tests: `palette` (fuzzy scoring, typed values, counts),
+  `the_tempo_is_clamped_and_a_drag_is_one_step`.
+- Screenshots (`tests/shots.rs`, `command_palette`: empty with a recent
+  command, a search, an unavailable command, a value and a track, in
+  dark at 100% and light at 150%).

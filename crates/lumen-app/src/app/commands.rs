@@ -90,6 +90,7 @@ impl App {
             | Command::FitWidth
             | Command::FitHeight
             | Command::ToggleDetail
+            | Command::OpenPalette
             | Command::GridNarrower
             | Command::GridWider
             | Command::TripletGrid
@@ -165,6 +166,7 @@ impl App {
             Command::FitWidth => self.nav.steps.push(ViewStep::FitWidth),
             Command::FitHeight => self.nav.steps.push(ViewStep::FitHeight),
             Command::ToggleDetail => self.toggle_detail_requested = true,
+            Command::OpenPalette => self.toggle_palette(),
             Command::GridNarrower => self.grid.narrower(),
             Command::GridWider => self.grid.wider(),
             Command::TripletGrid => self.grid.toggle_triplet(),

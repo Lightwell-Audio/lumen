@@ -9,7 +9,9 @@ use lumen_core::product::PRODUCT_NAME;
 use super::grid::draw_snap_guide;
 use super::rulers;
 use crate::arrangement::FileDrop;
+use crate::commands::Command;
 use crate::document::DropInto;
+use crate::icons::{self, Icon};
 use crate::{App, arrangement, audio, bench, canvas, lanes, media, motion, ruler, theme};
 
 /// A glided position, or the exact one once the glide has settled: the
@@ -77,6 +79,20 @@ report: {}",
                 .on_hover_text("Show or hide the detail panel (Shift+Tab)");
             ui.toggle_value(&mut self.show_browser, "Browser")
                 .on_hover_text("Show or hide the browser");
+            let keys = self.keymap.text(Command::OpenPalette);
+            if icons::button(
+                ui,
+                Icon::Search,
+                "Command palette",
+                keys.as_deref(),
+                self.palette.is_open(),
+                true,
+                "",
+            )
+            .clicked()
+            {
+                self.toggle_palette();
+            }
             ui.separator();
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 // Whatever does not fit is cut off here rather than drawn

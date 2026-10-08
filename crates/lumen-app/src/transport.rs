@@ -383,11 +383,7 @@ impl Transport {
         tempo.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::DragValue, true, "Tempo"));
         if tempo.changed() {
             // A drag is one undo step (merged until the pointer is released).
-            doc.apply("Change tempo", Some("tempo"), |p| {
-                if let Some(first) = p.tempo.first_mut() {
-                    first.bpm = bpm;
-                }
-            });
+            doc.set_tempo(bpm, Some("tempo"));
         }
         let project = doc.project();
 

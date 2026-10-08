@@ -302,6 +302,60 @@ fn lanes_menus() {
     }
 }
 
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn command_palette() {
+    for (appearance, scale) in [("dark", 1.0), ("light", 1.5)] {
+        command_palette_looking(appearance, scale);
+    }
+}
+
+fn command_palette_looking(appearance: &str, scale: f32) {
+    let dir = TempDir::new("shots-palette");
+    let mut h = lumen_looking(&dir, appearance, scale);
+    let save = |h: &mut Harness<'static, App>, name: &str| {
+        save(
+            h,
+            &format!("{name}-{appearance}-{}", (scale * 100.0) as u32),
+        );
+    };
+    // Two clips selected, so commands name what they act on.
+    let a = clip(&h, 0);
+    click(&mut h, pos(a, 0.5, 0.3));
+    let b = clip(&h, 1);
+    h.event(Event::ModifiersChanged(Modifiers::COMMAND));
+    click(&mut h, pos(b, 0.5, 0.3));
+    h.event(Event::ModifiersChanged(Modifiers::NONE));
+    h.run_steps(2);
+    // Run one from the palette so the empty palette has a recent command.
+    h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+    h.run_steps(3);
+    h.event(Event::Text("mute".into()));
+    h.run_steps(3);
+    h.key_press(Key::Enter);
+    h.run_steps(3);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+    h.run_steps(4);
+    save(&mut h, "palette-empty");
+    h.event(Event::Text("dup".into()));
+    h.run_steps(4);
+    save(&mut h, "palette-dup");
+    h.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    h.event(Event::Text("past".into()));
+    h.run_steps(4);
+    save(&mut h, "palette-unavailable");
+    h.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    h.event(Event::Text("128".into()));
+    h.run_steps(4);
+    save(&mut h, "palette-value");
+    h.key_press_modifiers(Modifiers::COMMAND, Key::A);
+    h.event(Event::Text("sna".into()));
+    h.run_steps(4);
+    save(&mut h, "palette-track");
+    h.key_press(Key::Escape);
+    h.run_steps(3);
+}
+
 /// A left click at `p`.
 fn click(h: &mut Harness<'static, App>, p: Pos2) {
     h.hover_at(p);

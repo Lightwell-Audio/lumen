@@ -238,6 +238,25 @@ impl App {
         self.start_save(path);
     }
 
+    /// Whether the command palette is open.
+    pub fn palette_open(&self) -> bool {
+        self.palette.is_open()
+    }
+
+    /// The palette's rows, top to bottom: what each says, and whether it
+    /// can run now.
+    pub fn palette_shows(&self, ctx: &egui::Context) -> Vec<(String, bool)> {
+        self.palette_rows(ctx)
+            .into_iter()
+            .map(|row| (row.label, row.ready.is_ok()))
+            .collect()
+    }
+
+    /// The name of every command in the palette's table.
+    pub fn command_names() -> Vec<&'static str> {
+        crate::commands::ALL.iter().map(|info| info.name).collect()
+    }
+
     /// Puts the system's cursor at `at` (or nowhere), as read while files
     /// are dragged in from the system, when egui has no pointer.
     pub fn set_system_cursor(&mut self, at: Option<egui::Pos2>) {

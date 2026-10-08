@@ -458,6 +458,39 @@ Chosen by the owner from rendered specimens (Ableton's split):
   and opens the format menu.
 - The playhead runs from the bar ruler through the time ruler.
 
+## 7e. Commands, keycaps and the palette (M3 slice 7)
+
+- **Keycaps (the owner's K5, `widgets::keycaps`).** Wherever a shortcut
+  shows: modifiers as plain small caps on the control fill, the main key
+  outlined in `border_strong`, with a short light under it in the colour
+  of the command's area (`Area::light`, one of the track colours: Edit
+  blue, Track violet, View green, Clip amber, Transport rose, Grid teal,
+  Locators terracotta, File brown). The light groups commands the way
+  track colours group tracks; it never carries state, so it does not
+  break the one-accent rule, and the area is also named in text beside
+  it.
+- **The palette (the owner's P2 with P3's values, `app/palette.rs`).**
+  Ctrl+K, or the magnifier at the right of the transport bar. It opens
+  top-centre, 520 points wide, on the overlay surface with a strong
+  border:
+  - a frameless search field (title size) with a magnifier;
+  - rows of 30 points: the label (what the command acts on: "Duplicate 2
+    clips", "Undo: Move clip"), matched letters in the accent, the area
+    in hint text and the keycaps at the right. The chosen row has the
+    `accent_muted` fill. Rows that cannot run now use `text_disabled`;
+  - with nothing typed, "Recent" (the last five run from it) heads the
+    list, then "All commands";
+  - a strip under the list explains the chosen row in secondary text,
+    or why it cannot run in the warning colour, with every chord that
+    runs it;
+  - a hint line: ↑↓ move · Enter run · Esc close.
+  The list shows up to ten rows, fewer when the window is short, so the
+  palette never covers the transport bar. Esc, Ctrl+K or a click
+  elsewhere closes it; hovering picks a row only when the pointer moves.
+- **Typed values become actions:** a number offers "Set tempo to N BPM"
+  (20–999) and "Go to bar N"; "bar N", "tempo N" and "N bpm" ask for one;
+  a track's or locator's name offers going to it.
+
 ## 8. Key flows
 
 Each flow lists its steps, its keyboard path and its feedback. Flows marked

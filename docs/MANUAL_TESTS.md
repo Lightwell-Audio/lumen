@@ -1096,3 +1096,34 @@ findings, both fixed:
 **Run 4 (2026-10-08, owner):** steps 18 and 19 passed ("looks good").
 
 **Last run:** run 4, passed. MT-APP-14 is done.
+
+### MT-APP-15 · Commands, the palette and shortcuts (needs a human)
+Run `cargo run --release -p lumen-app` with a project that has a few
+tracks with clips and a locator or two. Steps 1 to 7 cover 7a and 7b; the
+shortcut editor, menus and the remaining keys are added with 7c and 7d.
+1. **Keys as before:** Space, Shift+Space, Home, Ctrl+Z, Ctrl+Shift+Z,
+   Ctrl+D, Delete, 0, Alt+Enter, Ctrl+T, Alt+Up, the arrows, `+`, `-`, X,
+   W, H, Ctrl+1 to Ctrl+5, M and Ctrl+Left or Right all do what they did.
+   Ctrl+R now renames a selected track or locator too.
+2. **Exact chords:** with a clip selected, Alt+0 and Shift+Delete do
+   nothing (they used to mute and delete).
+3. **Opening:** Ctrl+K opens the palette under the transport bar, with
+   the cursor in its field; the magnifier at the right of the transport
+   bar opens and closes it too. Esc, Ctrl+K or a click elsewhere closes it.
+4. **Searching:** type "dup" with two clips selected: "Duplicate 2 clips"
+   comes first, its matched letters in blue, with Ctrl and an outlined D
+   with a blue light under it. The arrows move the choice (the strip
+   below says what it does); Enter runs it. Open it again empty: the
+   command just run is under "Recent".
+5. **Can't run:** type "paste" with nothing copied: Paste is greyed, the
+   strip says why in amber, and Enter leaves the palette open.
+6. **Values and names:** type "128": "Set tempo to 128 BPM" and "Go to bar
+   128". Run the first: the tempo changes (Ctrl+Z takes it back). Type a
+   track's name: "Go to track “…”" selects it and scrolls to it. Type a
+   locator's name: the playhead jumps there.
+7. Try steps 3 to 6 in the light theme and at 150%; at a small window
+   the list gets shorter rather than covering the transport bar.
+
+**Expected:** every step as described.
+
+**Last run:** none yet.

@@ -560,3 +560,72 @@ pub fn draw_glow_rect(painter: &Painter, rect: Rect, radius: f32) {
         egui::StrokeKind::Inside,
     );
 }
+
+/// Room under a keycap for its light.
+const KEY_LIGHT_ROOM: f32 = 4.0;
+
+/// A shortcut drawn as keycaps (the owner's K5, slice 7): each modifier a
+/// plain small cap, the key outlined, with a short light under it in
+/// `light`, the colour of its command's area. Allocates its own size.
+pub fn keycaps(ui: &mut Ui, modifiers: &[&str], key: &str, light: Color32) -> egui::Response {
+    let palette = theme::p();
+    let font = FontId::proportional(theme::size::CAPTION);
+    let pad = vec2(6.0, 2.0);
+    let caps: Vec<_> = modifiers
+        .iter()
+        .map(|m| (*m, false))
+        .chain(std::iter::once((key, true)))
+        .map(|(text, main)| {
+            let colour = if main {
+                palette.text
+            } else {
+                palette.text_secondary
+            };
+            let galley = ui
+                .painter()
+                .layout_no_wrap(text.to_owned(), font.clone(), colour);
+            (galley, main)
+        })
+        .collect();
+    let cap_height = caps.iter().map(|(g, _)| g.size().y).fold(0.0, f32::max) + 2.0 * pad.y;
+    let width = caps
+        .iter()
+        .map(|(g, _)| g.size().x + 2.0 * pad.x)
+        .sum::<f32>()
+        + theme::space::XS * (caps.len() - 1) as f32;
+    let (rect, response) =
+        ui.allocate_exact_size(vec2(width, cap_height + KEY_LIGHT_ROOM), Sense::hover());
+    if !ui.is_rect_visible(rect) {
+        return response;
+    }
+    let ppp = ui.pixels_per_point();
+    let painter = ui.painter();
+    let mut x = rect.left();
+    for (galley, main) in caps {
+        let cap = Rect::from_min_size(
+            pos2(x, rect.top()),
+            vec2(galley.size().x + 2.0 * pad.x, cap_height),
+        )
+        .round_to_pixels(ppp);
+        if main {
+            painter.rect_stroke(
+                cap,
+                theme::radius::SMALL,
+                Stroke::new(1.0, palette.border_strong),
+                egui::StrokeKind::Inside,
+            );
+            let bar = Rect::from_min_max(
+                pos2(cap.left() + 3.0, cap.bottom() + 2.0),
+                pos2(cap.right() - 3.0, cap.bottom() + 4.0),
+            )
+            .round_to_pixels(ppp);
+            painter.rect_filled(bar.expand(1.5), 2.0, light.gamma_multiply(0.3));
+            painter.rect_filled(bar, 1.0, light);
+        } else {
+            painter.rect_filled(cap, theme::radius::SMALL, palette.control);
+        }
+        painter.galley(cap.center() - galley.size() / 2.0, galley, palette.text);
+        x = cap.right() + theme::space::XS;
+    }
+    response
+}

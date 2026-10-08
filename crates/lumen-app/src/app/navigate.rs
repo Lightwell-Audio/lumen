@@ -37,6 +37,8 @@ pub(crate) enum ViewStep {
     Back,
     FitWidth,
     FitHeight,
+    /// Select a track and scroll it into view.
+    Reveal(lumen_project::model::Id),
 }
 
 /// Where the arrangement looks, how it got there, and where it was.
@@ -238,6 +240,17 @@ impl App {
         }
 
         let steps = std::mem::take(&mut self.nav.steps);
+        for step in &steps {
+            if let ViewStep::Reveal(id) = *step {
+                self.arrangement.reveal(
+                    &ctx,
+                    self.document.project(),
+                    self.lanes.pending().len(),
+                    id,
+                    canvas.height(),
+                );
+            }
+        }
         let ran = |step| steps.contains(&step);
         let (zoom_in, zoom_out, back, fit_width, fit_height) = (
             ran(ViewStep::ZoomIn),

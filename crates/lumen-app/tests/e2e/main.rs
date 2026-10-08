@@ -20,6 +20,7 @@ mod grid;
 mod locators;
 mod looping;
 mod navigation;
+mod palette;
 mod playback;
 mod properties;
 mod rulers;
