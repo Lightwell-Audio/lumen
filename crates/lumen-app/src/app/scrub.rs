@@ -3,7 +3,7 @@
 //! freely). Drag to hear the song under the pointer: by default the grid
 //! step under it loops at normal pitch (Ableton-style); with Alt, the audio
 //! follows the hand like tape. While playing, a drag jumps playback from
-//! step to step instead.
+//! step to step instead. Right-click adds a locator there.
 
 use eframe::egui::{self, CursorIcon, Rect, Sense};
 use lumen_core::time::Ticks;
@@ -33,7 +33,7 @@ impl App {
             .interact(zone, id, Sense::click_and_drag())
             .on_hover_text(
                 "Click to jump here. Drag to hear the beat under the pointer; hold Alt to \
-                 scrub like tape",
+                 scrub like tape. Right-click to add a locator here",
             );
         response.widget_info(|| {
             egui::WidgetInfo::labeled(
@@ -41,6 +41,26 @@ impl App {
                 true,
                 "Scrub strip: click to jump, drag to listen",
             )
+        });
+        // Right-click: add a locator where it was clicked, leaving the
+        // playhead alone (MT-APP-13 run 1, as in Ableton).
+        let menu_at = id.with("menu at");
+        if response.secondary_clicked()
+            && let Some(p) = response.interact_pointer_pos()
+        {
+            let free = ui.input(|i| i.modifiers.alt);
+            let t = ruler::ticks_at(at.view.beat_at(at.canvas.left(), p.x)).max(Ticks::ZERO);
+            let t = self.snapped(t, free);
+            ui.data_mut(|d| d.insert_temp(menu_at, t));
+        }
+        response.context_menu(|ui| {
+            let t: Ticks = ui.data(|d| d.get_temp(menu_at)).unwrap_or_default();
+            if ui.button("Add locator here").clicked() {
+                let id = self.document.add_marker(t, None);
+                self.locators.selected = Some(id);
+                self.arrangement.selected.clear();
+                ui.close();
+            }
         });
         let Some(pointer) = response.interact_pointer_pos().or(response.hover_pos()) else {
             return;

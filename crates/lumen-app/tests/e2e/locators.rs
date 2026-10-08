@@ -1,7 +1,7 @@
 //! Locators: set at the playhead (M and the Set button), jumped between,
 //! dragged (snapped), renamed, deleted, undone and saved.
 
-use eframe::egui::{Event, Key, Modifiers, Pos2};
+use eframe::egui::{Event, Key, Modifiers, PointerButton, Pos2};
 use egui_kittest::kittest::Queryable;
 use lumen_app::testing::project_file;
 use lumen_core::time::Ticks;
@@ -107,4 +107,34 @@ fn a_locator_is_dragged_renamed_deleted_and_saved() {
     again.key(Modifiers::NONE, Key::Delete);
     assert!(locator_times(&again).is_empty());
     assert_eq!(again.track_names(), tracks);
+}
+
+/// MT-APP-13 run 1 (owner): a locator could only be added at the playhead.
+#[test]
+fn a_locator_is_added_where_the_strip_is_right_clicked_without_moving_the_playhead() {
+    const STRIP: &str = "Scrub strip: click to jump, drag to listen";
+    let mut lumen = Lumen::start("locators-here");
+    lumen.click("Grid: 1/8");
+    lumen.click("1 bar");
+    let strip = lumen.harness.get_by_label(STRIP).rect();
+    let p = Pos2::new(
+        strip.left() + (8.3 * lumen.app().view().zoom) as f32,
+        strip.center().y,
+    );
+    lumen.harness.hover_at(p);
+    lumen.frames(1);
+    for pressed in [true, false] {
+        lumen.harness.event(Event::PointerButton {
+            pos: p,
+            button: PointerButton::Secondary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+        lumen.frames(1);
+    }
+    lumen.frames(3);
+    lumen.click("Add locator here");
+    assert_eq!(locator_times(&lumen), [("Locator 1".into(), 2 * BAR)]);
+    lumen.frames(5);
+    assert_eq!(lumen.app().playhead(), Ticks::ZERO, "the playhead stays");
 }

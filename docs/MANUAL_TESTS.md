@@ -951,5 +951,17 @@ and a melodic or vocal track, through the Focusrite.
 **Expected:** every step as described; the scrub is clean (no clicks,
 crackles or dropouts) at a 128-sample buffer.
 
-**Last run:** not run yet.
+**Run 1 (2026-10-08, owner):** four findings.
+1. Resizing the loop by its edges is hard and confusing: nothing shows
+   whether a drag will move or resize it. Hover hints, from specimens.
+2. Scrubbing needs a clearer cursor and hints. From specimens.
+3. The grid button shows "Off" when snapping is off, hiding the grid
+   size; it isn't clear that "Snap to grid" changes it. From specimens.
+4. A locator could only be added at the playhead. Fixed: right-click the
+   scrub strip, "Add locator here" (snapped), as in Ableton; the playhead
+   stays (E2E `a_locator_is_added_where_the_strip_is_right_clicked_without_moving_the_playhead`).
+   Re-run step 4.
+
+**Last run:** run 1, four findings (one fixed, three waiting on the
+owner's choice of specimens).
 
