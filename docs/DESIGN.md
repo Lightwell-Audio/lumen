@@ -277,7 +277,9 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
     taller unfolds; an unfolded one dragged below 4 steps folds;
   - heights glide (`GLIDE`) and are saved with the project.
 - **Group tracks** (M4 slice 3, the owner's H1 and L1, ADR-0037):
-  - a group's tracks step in **12 pt a level** (capped at four levels),
+  - groups go **three deep at most**; a refused Ctrl+G or drop says why
+    in a note, and a drop there greys its line with a no-entry cursor;
+  - a group's tracks step in **12 pt a level** (three levels at most),
     and every group they are in keeps its **colour rail** at its own
     indent, so the rails run down beside the whole group;
   - a group's name is **medium weight**; folded, it is followed by
@@ -292,6 +294,11 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
   - dragging headers: the drop line steps in to the level the tracks
     will land at; over the middle half of a group's header, the header
     lights (accent wash and a 2 pt accent frame) instead.
+- **The header column** (MT-MIX-3 run 1): 204 pt wide by default, dragged
+  wider at its edge with the lanes up to 480 pt (the edge glows like a
+  track's bottom edge), double-click to go back; saved with the project.
+  Controls stay at the right; the name and the volume slider take the
+  room.
 - **Adding tracks:**
   - a **"+ Add track ▾"** button below the last track opens a menu of
     every type with its shortcut (audio Ctrl+T, MIDI Ctrl+Shift+T, group,

@@ -93,6 +93,7 @@ irreversible or external) · *Superseded*.
 | M3 close (2026-10-09) | M3 approved after MT-APP-16 passed. The M4 plan (`docs/milestones/M4.md`) waits for approval and its three questions. |
 | M4 plan (2026-10-09) | Approved. **Solo: Ableton's by default** (a click solos only that track, Ctrl+click adds). **The UX pass on hints runs first**, as M4 slice 0. Pan law −3 dB constant power by default (the proposal, recorded as an assumption). |
 | Group tracks (M4 slice 3, 2026-10-09) | Chosen from rendered specimens and asked before building: **H1**, a group's tracks step in 12 pt a level with every enclosing group's colour rail running down beside them (over H2 tree lines and H3 a tinted block); **L1**, a group's lane shows a thin bar per track inside it in that track's colour (over L2 a summed band with a waveform and L3 ghost clips); **deleting a group deletes its tracks** (Ableton; Ungroup keeps them) over moving them up a level; **a group's arm button arms its tracks** (Cubase-style, half a ring when some are armed) over no arm on groups (Ableton). Also proposed and not objected to: the Ableton rules for Ctrl+G, Ctrl+Shift+G, the fold arrow, drops and groups holding no clips (ADR-0037). |
+| Group tracks, MT-MIX-3 run 1 (2026-10-09) | The owner's findings: **groups go three deep at most** (Group › Group › Group › tracks; "needing more than that probably doesn't do much"), refused with a note; **the track header column is resizable**, its width **saved per project** (over app-wide), 204 to 480 pt; soloing a track in a group must not silence it (a bug, fixed). ADR-0037 amendment. |
 | Routing in the model (M4 slice 2, 2026-10-09) | Asked before building: **a new send starts at −∞** (over 0 dB) and **post-fader** (over pre-fader); **deleting a return removes its sends** in the same undo step (over asking first); **the pan law is chosen from the mixer panel's menu** and the palette (over a project settings window, M9). |
 | Dropouts (2026-10-09) | Chosen from mockups: **A, recent and in words**: no chip while audio is healthy, "Dropouts ×3" in amber while they happen, fading after 10 s of clean audio, details in the audio panel; over B (a labelled total until reset) and C (an amber status dot). Driver resets no longer count (ADR-0020 update). |
 | Mixer behaviour (M4 slice 1, 2026-10-09) | Asked after the graph was built (the owner: variants first, before building): **centre −3 dB** (a hard-panned side at unity; projects from M3 play 3 dB quieter) over centre unity with +3 dB sides; **balance** panning of stereo tracks over a true stereo pan; **mute silences every send**, pre-fader ones too (Ableton) over pre-fader sends playing on (Pro Tools, Cubase); **post-fader sends after the pan** over before it. All four as built (ADR-0035). |
@@ -2801,3 +2802,34 @@ tests; `nesting` tests (bar layout, arm state); E2E `groups` (7 scenarios:
 keys and undo, nesting and taking out, folding saved with the project,
 dragging in and out, arming and deleting, files dropped on a group's lane,
 a tone heard through two groups and silenced by the outer mute).
+
+### Amendment (2026-10-09, MT-MIX-3 run 1)
+- **Solo inside groups** (bug: soloing a track in a group silenced it,
+  because its group was not soloed and every unsoloed track was cut).
+  `document::audible` now hears, while anything is soloed, the soloed
+  tracks, what plays into them (a soloed group's tracks), and where their
+  output leads (their groups, by `routing::destination`), so the path
+  stays open; others in the same group stay silent. Returns, solo-safe and
+  the rest are slice 4's table of cases. Tests: `routing.rs`
+  `solo_keeps_the_path_through_groups_open`; E2E `groups` (a soloed track
+  inside two groups is heard).
+- **Groups go three deep at most** (owner): `groups::MAX_NESTING` and
+  `groups::nesting`. Every group edit runs through one trial
+  (`Document::trial`), refused with `Refused::TooDeep` when groups would go
+  deeper than three and deeper than before (an older, deeper project still
+  opens and edits; files are never rejected for it). `group_tracks` returns
+  a `Result`; a refusal shows a note ("Groups go three deep at most",
+  `Arrangement::note` turned into the toast). `check_move` lets a header
+  drag grey its drop line and show a no-entry cursor where the drop would
+  be refused (checked when the place changes, not every frame). Indents
+  stop at three levels.
+- **A resizable header column** (owner; format v9, `ViewState::header_width`,
+  migration v8 → v9 writes 204, golden fixture `v9` at 296): drag the edge
+  between the headers and the lanes (`app/view.rs` `header_divider`, on the
+  headers' side of the edge so a drag at the lanes' left edge stays a clip
+  or locator drag), 204 to 480 pt, double-click back to 204; the edge glows
+  like a track's bottom edge (`widgets::draw_edge_glow_vertical`). Saved
+  with the project's view, not an undo step, as panel sizes are. Header
+  contents already followed the column's width. The known issue about
+  short names is closed.
+- Performance gate unchanged (`project_parse` −0.04%).

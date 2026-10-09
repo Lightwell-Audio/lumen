@@ -1321,6 +1321,26 @@ five or six audio files (drums, bass, anything): one track each.
 10. **Looks:** check steps 1, 4 and 6 in the light theme and at 150% and
     200%: rails line up with their groups, nothing overlaps, long names end
     in "…".
+11. **Three deep** (run 1): with a track inside three nested groups,
+    select it and press Ctrl+G: nothing changes and a note says "Groups go
+    three deep at most". Drag a group onto the innermost group's header:
+    the frame and cursor turn grey (no entry), and letting go leaves it
+    where it was, with the same note.
+12. **Solo inside a group** (run 1): play, and solo a track inside a
+    nested group: it is heard (alone); the other tracks in its group are
+    silent. Solo the group itself: everything inside it is heard.
+13. **Header width** (run 1): drag the edge between the track headers and
+    the lanes to the right: the headers widen (up to about twice), long
+    names show in full, the edge glows while dragged. Save, close and
+    reopen: the width is kept. Double-click the edge: back to the narrow
+    default.
 
 **Expected:** every step as described, each edit undoes in one step, and
 nothing clicks while grouping during playback.
+
+**Run 1 (2026-10-09, owner):** three findings, all fixed (ADR-0037
+amendment): nesting went on without limit (the owner: three deep is
+enough); names were cut short in the fixed-width headers (the column is
+now resizable, saved per project, format v9); soloing a track inside a
+group silenced it (solo now keeps its groups open). Steps 11 to 13
+added.

@@ -425,7 +425,11 @@ then `normalize`), edits in `document/groups.rs` (`group_tracks`,
 `Arrangement::collapsed` (rows skip hidden tracks; the GPU row table
 keeps a slot per track index), the look in `arrangement/nesting.rs`, the
 menus in `arrangement/menus.rs`. The perf baseline was updated (parse
-+1.71% over slices 2 and 3; reason in ADR-0037). MT-MIX-3 waits for the
++1.71% over slices 2 and 3; reason in ADR-0037). MT-MIX-3 run 1's
+findings are fixed (ADR-0037 amendment): groups go three deep at most
+(`groups::MAX_NESTING`, refusals via `Document::trial` and a note), a
+resizable header column saved per project (format v9), and solo keeps a
+soloed track's groups open (`document::audible`). Run 2 waits for the
 owner; slice 4 (mute, solo, returns, master, cue) is next, with the solo
 rules as a table of cases for the owner first. The owner's drag-to-cut request is recorded for M7
 with split (the M3 plan, out of scope).
