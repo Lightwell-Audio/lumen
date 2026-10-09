@@ -18,7 +18,13 @@ and out, nested rails and lane bars, arming and deleting a group; MT-MIX-3
 run 1's findings are fixed (three-deep groups, a resizable header column
 saved per project in format v9, solo inside groups), and run 2's (a
 crash deleting from a track's menu, grouped tracks playing quieter);
-**MT-MIX-3 passed** (slice 3 done) ([milestones/M4.md](milestones/M4.md)).
+**MT-MIX-3 passed** (slice 3 done). **Slice 4, mute, solo, returns,
+master and cue, is built** (ADR-0038, format v10): the owner's solo rules
+as a pure function with their 14 cases, hollow M and S, the transport's S
+chip, additive solo; returns lettered and pinned with the master at the
+bottom; comet send knobs; cue to a second output pair and the metronome's
+output (the owner's O1). MT-MIX-4 waits for the owner
+([milestones/M4.md](milestones/M4.md)).
 **Previous:** M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
@@ -30,7 +36,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 1 | Foundations & Architecture | ✅ Complete | Plan and risk register in `docs/milestones/M1.md` |
 | 2 | Audio Engine, Devices & Transport | ✅ Complete, approved 2026-10-07 | Plan: `docs/milestones/M2.md` |
 | 3 | Arrangement & Project System | ✅ Complete, approved 2026-10-09 | Plan: `docs/milestones/M3.md` |
-| 4 | Mixer, Routing & Groups | 🟡 In progress (slices 0–3 built, slice 3 done) | Plan: `docs/milestones/M4.md` |
+| 4 | Mixer, Routing & Groups | 🟡 In progress (slices 0–4 built, slice 3 done; MT-MIX-4 waits) | Plan: `docs/milestones/M4.md` |
 | 5 | MIDI & Piano Roll | 🔲 | |
 | 6 | VST3 Hosting & Device System | 🔲 | |
 | 7 | Automation, Envelopes & Advanced Editing | 🔲 | |
@@ -111,9 +117,9 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Rulers: bars/beats, minutes:seconds, samples, timecode | M | ✅ 2026-10-08 | 3 | M3 slice 5b, layout A (owner): the bar ruler on top; a time ruler along the bottom in minutes and seconds, samples, or timecode at 24, 25, 29.97 drop-frame or 30 fps (`timefmt.rs`, tested), chosen from its corner and saved in settings; the position display follows it. At the deepest zoom the bar ruler pins the position of its left edge |
 | Adaptive or fixed grid (triplet, dotted, off) with snap-bypass modifier | M | ✅ 2026-10-08 | 3 | M3 slice 5a: `lumen_core::grid`, adaptive in five widths or fixed 8 bars to 1/64, triplet and dotted, snap on or off (Ctrl+1 to Ctrl+5, the grid menu and button); Alt bypasses; snap guide; saved with the project (format v4). Used by the ruler and dropped files now, by clip edits in slice 6 |
 | Anchored zoom, zoom to selection, fit all, fit loop, pan, edge auto-scroll, follow modes. (Ctrl+wheel zoom works in the M1 shell since the 2026-10-06 fix: egui delivers it as a zoom factor, not as scroll.) | M | 🟡 | 3 | M3 slice 4d (ADR-0028): zoom at the pointer to single samples, `+`/`-`, X back, W fit all, H fit heights, Alt+wheel heights, pan, auto-scroll while dragging tracks, Follow page and continuous. Zoom to selection (Z) and fit loop added in slice 7d (ADR-0033), on the bar ruler's menu with the other view commands |
-| Track types: audio, MIDI/instrument, group, return, master | M | 🟡 All five exist in the project model; audio tracks are created by importing (M3 slice 3). Track headers and adding each type in M3 slice 4; group summing, returns and master in M4 | 3–4 |
+| Track types: audio, MIDI/instrument, group, return, master | M | 🟡 All five exist in the project model and the arrangement. Groups sum their tracks (M4 slices 1 and 3); returns and the master are pinned at the bottom of the arrangement, returns lettered A, B, C with sends from every audio, MIDI and group track (M4 slice 4, ADR-0038). Their channel strips in the mixer panel (slice 5) | 3–4 |
 | Per-track name, colour, height, arm, monitor, solo, mute, polarity, I/O routing, inline fader and meter | M | 🟡 Name, type icon, colour, height (drag to resize in 22 pt steps, fold and unfold), arm (glows and breathes), solo and mute in the track header; interim volume and pan sliders in unfolded headers (M3 slice 4a, ADR-0025). Monitor, polarity, routing, real fader and meter with the mixer (M4) | 3–4 |
-| Group tracks: create, drag in, nest, fold, sum, own devices/sends/fader/automation, one-step ungroup, sensible solo/mute/arm | M | 🟡 M4 slice 3 (format v8, ADR-0037): Ctrl+G and Ctrl+Shift+G (one step each), nesting three deep at most, folding (saved), dragging tracks in and out, groups summing their tracks (slice 1), mute, a group's arm arming its tracks, deleting and duplicating a group with its tracks. Solo keeps a soloed track's groups open (MT-MIX-3 run 1); the rest of solo across groups and returns in slice 4; a group's devices with M6, its sends' controls in slices 4 and 5, automation in M7 | 4 |
+| Group tracks: create, drag in, nest, fold, sum, own devices/sends/fader/automation, one-step ungroup, sensible solo/mute/arm | M | 🟡 M4 slice 3 (format v8, ADR-0037): Ctrl+G and Ctrl+Shift+G (one step each), nesting three deep at most, folding (saved), dragging tracks in and out, groups summing their tracks (slice 1), mute, a group's arm arming its tracks, deleting and duplicating a group with its tracks. Solo across groups and returns by the agreed rules, a soloed group showing its tracks with a hollow S, and a group's sends on its header (slice 4, ADR-0038); a group's devices with M6, automation in M7 | 4 |
 | Linked editing across selected tracks | S | 🔲 | 4 |
 | Clips: move, copy-drag, trim, slip, fades, gain handle, loop-extend, rename, recolour, mute, lock | M | 🟡 M3 6a: move across tracks and Ctrl+copy-drag by the top half (snapped, one undo step, kinds respected, locked clips stay). 6c: trim edges (within the file), Shift loop-extend, Ctrl+Alt slip, and Ableton's overlap rule (a clip put down cuts away what it covers). 6d: fade handles with a free bend dot and Alt for S-shape (owner's F3 and C3; curves in format v6, ADR-0031), presets in the menu, a clip gain line (G1), heard and drawn alike; moved clips crossfade while playing. 6e (ADR-0032): 0 mutes (grey, the owner's M1), lock from the menu or card (padlock and clamps, K3; locked clips can still be muted, renamed and recoloured), Ctrl+R or F2 renames in the title bar, clips take their own colour, and the properties card (P1) sets all of it, gain and fades from the keyboard | 3 |
 | Selection: clip, marquee, time range with cut/copy/duplicate/delete/split/consolidate | M | 🟡 Clip and marquee selection and time ranges across tracks (M3 6a); cut, copy, paste, duplicate and delete on clips and ranges (6b). From the keyboard (M3 review H2, the owner's choice): with a clip selected the arrows move between clips (←/→ along its track, ↑/↓ to the nearest clip above or below), Shift adds. Split and consolidate in M7 | 3, 7 |
@@ -199,9 +205,9 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
-| Channel strip: input gain, polarity, devices, pre/post sends, fader, pan law, mute, solo, cue, output | M | 🟡 In the engine (M4 slice 1, ADR-0035): input trim, polarity, mute, pre- and post-fader sends, volume and pan with four pan laws (−3 dB constant power by default), output to a node or a device pair, all gliding over 20 ms. Track volume, pan and mute reach it from the headers. Saved and undoable in the model (slice 2, format v7, ADR-0036): output, sends, polarity, input trim and the pan law; their controls in slices 4 and 5; cue in slice 4 | 4 |
-| Returns, groups, master, sidechain from any track, hardware output routing | M | 🟡 The engine graph sums groups (nested), returns and a master and routes to device pairs (slice 1); a track in a group plays into it. A master track in every project, outputs and sends in the model, loops refused (slice 2, ADR-0036); grouping built (slice 3, ADR-0037); the master and returns shown (slice 4), sidechain (slice 6) | 4 |
-| Solo keeps soloed paths audible; exclusive-solo option | M | 🔲 | 4 |
+| Channel strip: input gain, polarity, devices, pre/post sends, fader, pan law, mute, solo, cue, output | M | 🟡 In the engine (M4 slice 1, ADR-0035): input trim, polarity, mute, pre- and post-fader sends, volume and pan with four pan laws (−3 dB constant power by default), output to a node or a device pair, all gliding over 20 ms. Saved and undoable in the model (slice 2, format v7, ADR-0036). Slice 4 (ADR-0038): sends set from comet knobs on the headers (pre/post from their menu), mute and solo by the agreed rules, cue before the fader to a second output pair. Input trim, polarity, output and the strip itself in the mixer panel (slice 5) | 4 |
+| Returns, groups, master, sidechain from any track, hardware output routing | M | 🟡 The engine graph sums groups (nested), returns and a master and routes to device pairs (slice 1); a track in a group plays into it. A master track in every project, outputs and sends in the model, loops refused (slice 2, ADR-0036); grouping built (slice 3, ADR-0037); returns and the master pinned at the bottom of the arrangement with sends on the headers (slice 4, ADR-0038). Output choices in the mixer panel (slice 5), sidechain (slice 6) | 4 |
+| Solo keeps soloed paths audible; exclusive-solo option | M | 🟡 Built (M4 slice 4, ADR-0038): the owner's 14 cases as one pure function (`lumen_project::solo`) and its tests: a soloed path stays open, mute beats solo, returns are solo-safe, a soloed return plays wet only. Exclusive by default (Ableton), additive as a preference; hollow M and S show why a track is silent or heard; the transport's S chip clears every solo. MT-MIX-4 waits for the owner | 4 |
 | Automatic plugin delay compensation with indicator | M | 🔲 | 4, 6 |
 | Peak (hold, clip), RMS; master LUFS and true peak | M | 🔲 | 4 |
 | Dockable mixer panel; inline fader, pan and meter on track headers | M | 🔲 | 4 |
@@ -258,7 +264,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 |---|---|---|
 | Transport: play, stop, record, loop, return to start, go to start/end, previous/next marker. **Owner request:** transport controls use vector icons, not text (M2). | M | 🟡 Engine transport done (slice 3, ADR-0017). Transport bar with vector icons, Space / Shift+Space / Home, go to start, stop, play/pause and loop in the app (slice 4, ADR-0018). Record in M9; markers and go to end in M3 |
 | Tempo 20–999 BPM and time signature with change maps; tap tempo | M | 🟡 Tempo and time-signature maps with changes (`lumen-core`), swapped into the engine live (slice 3). Tap tempo and the UI later |
-| Metronome: accent, volume, sound, count-in, pre-roll, record-only, output routing | M | 🟡 On/off, accented downbeat, volume and two synthesized sounds, sample-accurate (M2 slice 7, ADR-0020). Count-in, pre-roll and record-only with recording (M9); output routing with the mixer (M4); settings saved with preferences (M9) |
+| Metronome: accent, volume, sound, count-in, pre-roll, record-only, output routing | M | 🟡 On/off, accented downbeat, volume and two synthesized sounds, sample-accurate (M2 slice 7, ADR-0020). Output routing: Main or Cue from its menu, never through the master (M4 slice 4, ADR-0038). Count-in, pre-roll and record-only with recording (M9) |
 | Loop region, punch in/out, auto-punch | M | 🟡 Sample-accurate loop wrap and punch-region reporting in the engine (M2 slice 3). M3 slice 5c: the loop brace is edited on the strip (draw, move, resize, snapped; click toggles), undoable; punch in and out at the loop's edges, as in Ableton, from the loop menus. Recording through punch in M9 |
 | Markers with names and navigation | M | ✅ 2026-10-08 M3 slice 5d: named locators on the strip, set or removed at the playhead (M, Set), jumped between (Ctrl+Left/Right, ◂ ▸, click a flag), dragged (snapped), renamed (double-click, F2), deleted; undoable, saved (format v4) |
 | Multiple time formats; editable position field | M | 🟡 Time formats in M3 5b (`timefmt.rs`: bars and beats, minutes and seconds, samples, timecode), and a Go to position field in the transport bar |
@@ -289,7 +295,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | MIDI effects; on-screen keyboard | S | 🔲 |
 | MPE, MIDI 2.0 | L | 🔲 |
 | Automation: all parameters, curves, R/W/T/L, clip envelopes, tempo and signature, override, simplification | M | 🔲 |
-| Mixer: fader, pan law, mute, solo, sends, returns, groups, master, routing, sidechain, PDC, meters, cue | M | 🟡 The engine graph (M4 slice 1, ADR-0035); the rest through M4 |
+| Mixer: fader, pan law, mute, solo, sends, returns, groups, master, routing, sidechain, PDC, meters, cue | M | 🟡 The engine graph (M4 slice 1, ADR-0035); routing in the model (slice 2); groups (slice 3); mute, solo, sends, returns, the master and cue (slice 4, ADR-0038); the panel, meters, sidechain and PDC through M4 |
 | LUFS and true-peak metering; mono-check and dim | S | 🔲 |
 | Reference track | L | 🔲 |
 | Async cached VST3 scanning, custom paths, blocklist, search, favourites, recents | M | 🔲 |

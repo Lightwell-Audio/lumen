@@ -1349,3 +1349,59 @@ added.
 amendment): deleting a track from its right-click menu crashed Lumen;
 tracks in groups played 3 dB quieter a level (buses now stay at unity
 when centred). Then passed: "everything looks good".
+
+### MT-MIX-4 · Mute, solo, returns, master and cue (needs a human)
+Run `cargo run --release -p lumen-app`. Start a new project, drop in four
+audio files (drums, bass, a vocal, anything) and group the first two
+(Ctrl+G).
+1. **Solo and the hollow M:** play, and click S on the bass. Only the bass
+   is heard. The other tracks' M buttons show a hollow ring and their
+   names dim: silent, but not muted by you. The transport shows a lit
+   "S" chip. Ctrl+click S on the vocal: both are heard, the chip reads
+   "S 2". Click the chip: every solo clears, in one undo step.
+2. **Solo a group:** click S on the group. Its tracks show a hollow S
+   (heard through the group) and play; the others are silent. Mute one
+   track inside: it goes silent although the group is soloed (mute beats
+   solo).
+3. **Returns at the bottom:** open "+ Add track ▾" and add two return
+   tracks. They appear under a divider at the bottom, lettered A and B in
+   their colours, with the master last; they stay put while the tracks
+   above scroll. Click the "Returns" caption: they fold away (the master
+   stays); click again. Drag the divider up and down: the area resizes and
+   the returns scroll inside it; double-click it for its natural size.
+   Save, close and reopen: the size and fold are kept.
+4. **Sends (comet knobs):** unfold the vocal (its arrow). Under volume and
+   pan sit two knobs, A and B, in the returns' colours. Drag A upwards:
+   a trail of light grows round the ring to a glowing head; the level
+   shows beside it while dragging. Hover the knob: the A return's header
+   lights up; hover the A return: the knob lights. Double-click the knob:
+   silent. Right-click it: Pre-fader puts a small dot at the top. Click
+   it and type -12, Enter: the send is at −12 dB.
+5. **Soloed return, wet only:** turn the vocal's send to A up and solo
+   return A. You hear only what the vocal sends there (until M8's reverb,
+   the return plays it unchanged), not the vocal itself; the vocal's M is
+   hollow. Mute the vocal: the send goes too.
+6. **Master:** unfold the master: volume and pan work as on a track.
+7. **Additive solo:** in the Lumen menu tick "Additive solo" (or run it
+   from Ctrl+K). Now a click on S adds the track and Ctrl+click solos it
+   alone. Untick it again.
+8. **Palette:** select a track, Ctrl+K "Solo selected tracks", then "Mute
+   selected tracks", then "Clear all solos": each acts and undoes in one
+   step.
+9. **Cue (no second output pair):** your Focusrite has only outputs 1/2,
+   so the master's Solo/Cue switch is grey; clicking it says to choose a
+   Cue output in Audio settings, and Audio settings › Cue says this device
+   has no second pair. (Cue itself is checked by the E2E tests on the
+   four-output test device; on a four-output interface: choose Cue 3/4,
+   switch to Cue, click a track's headphone button, and it plays in the
+   headphones before its fader while the speakers play on.)
+10. **Metronome:** right-click the metronome: Output Main is chosen, Cue
+    is grey without a cue pair. Clicks play on 1/2 and are never in the
+    master (turning the master down leaves them as loud).
+11. **Looks:** check steps 1, 3 and 4 in the light theme and at 150% and
+    200%: letters, knobs and the hollow rings line up; nothing overlaps.
+
+**Expected:** every step as described; solo, mute and send edits undo in
+one step; nothing clicks while soloing, muting or turning sends during
+playback.
+

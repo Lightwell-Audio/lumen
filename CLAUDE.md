@@ -390,7 +390,7 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-09: M4 slice 3 built (below). Before it, M3 slice 8 built (the exit flow, the
+**Last updated:** 2026-10-09: M4 slice 4 built (below). Before it, M3 slice 8 built (the exit flow, the
 accessibility audit, the end-of-milestone review and every finding fixed
 or recorded). MT-APP-16 passed and **M3 is approved** (2026-10-09). The M3
 report is in PROGRESS.md and M4 is proposed in `docs/milestones/M4.md`.
@@ -432,8 +432,21 @@ resizable header column saved per project (format v9), and solo keeps a
 soloed track's groups open (`document::audible`). Run 2 found a crash
 deleting from a track's menu (header rows now skip tracks gone mid-frame)
 and grouped tracks 3 dB quieter a level (every bus pans with the balance
-law); both fixed. **MT-MIX-3 passed; slice 3 is done.** Next: slice 4 (mute, solo, returns, master, cue) is next, with the solo
-rules as a table of cases for the owner first. The owner's drag-to-cut request is recorded for M7
+law); both fixed. **MT-MIX-3 passed; slice 3 is done.** **Slice 4, mute, solo, returns,
+master and cue, is built** (format v10, ADR-0038; the owner agreed 14
+solo cases and chose D1–D7, A1, K1 comet knobs, hollow M, and O1 for the
+cue outputs): the rules are one pure function, `lumen_project::solo`
+(its tests are the cases); the engine gates a node's output apart from
+its sends (wet-only returns) and has a pre-fader cue bus
+(`Routing::cue`, channels 3/4: the stream opens the main pair then the
+cue pair); rows carry a `Zone` and returns and the master are pinned at
+the bottom (`arrangement/pinned.rs`; returns keep any list order);
+`widgets/knob.rs` and `arrangement/sends.rs` are the comet sends (tracks
+with sends unfold five steps); `app/cue.rs` lends the cue settings to the
+headers. The owner's Focusrite has two outputs: cue is verified on the
+four-output test device (`App::heard_all`). MT-MIX-4 waits for the owner.
+Next: slice 5 (the mixer panel and meters), with specimens first; it
+also owns the wheel on value controls and output choices (KNOWN_ISSUES). The owner's drag-to-cut request is recorded for M7
 with split (the M3 plan, out of scope).
 
 **Status**

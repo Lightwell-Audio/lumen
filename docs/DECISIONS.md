@@ -98,7 +98,7 @@ irreversible or external) · *Superseded*.
 | Dropouts (2026-10-09) | Chosen from mockups: **A, recent and in words**: no chip while audio is healthy, "Dropouts ×3" in amber while they happen, fading after 10 s of clean audio, details in the audio panel; over B (a labelled total until reset) and C (an amber status dot). Driver resets no longer count (ADR-0020 update). |
 | Mixer behaviour (M4 slice 1, 2026-10-09) | Asked after the graph was built (the owner: variants first, before building): **centre −3 dB** (a hard-panned side at unity; projects from M3 play 3 dB quieter) over centre unity with +3 dB sides; **balance** panning of stereo tracks over a true stereo pan; **mute silences every send**, pre-fader ones too (Ableton) over pre-fader sends playing on (Pro Tools, Cubase); **post-fader sends after the pan** over before it. All four as built (ADR-0035). |
 | Hints (M4 slice 0, 2026-10-09) | Chosen from interactive specimens: **an info line** along the bottom of the window (C, Ableton's Info View in spirit) over quiet chips (A) and rest-to-reveal (B), **with the K5 keycaps** the palette and menus use (the owner's addition, for consistency), **no chips for held keys** (the cursor and the lit action say it), full width (ADR-0034). |
-| Mute, solo, returns, master and cue (M4 slice 4, 2026-10-09) | The solo rules agreed as a table of 14 cases before building (`docs/milestones/M4.md` §5): solo keeps a soloed track's path open, **mute always beats solo** along the path, returns are solo-safe, **a soloed return plays wet only** (sends into it stay on, their tracks' outputs go silent), the master, metronome and cue are never touched by solo. **D1 A** a group's solo solos the group (its tracks show it hollow); **D2 A** additive solo is a preference (Ctrl+click then replaces); **D3 A** a lit "S" chip in the transport while anything is soloed, a click clears; **D4 A1** returns then the master pinned at the bottom under a divider, a "Returns" caption that folds them, returns lettered A, B, C and never grouped; **D5 C1** Ableton's Solo/Cue switch on the master, cue **pre-fader** to a chosen pair, unavailable with a note when that pair is the main one; **D6** the metronome has its own output (Main, Cue or a pair), never through the master; **D7** palette commands Solo and Mute selected tracks and Clear all solos, no default keys. Chosen from interactive specimens: **sends as K1 "comet" knobs** (a trail of light in the return's colour, brightening to a glowing head; a dot marks pre-fader; hovering a send lights its return and the reverse) over lantern, droplet and plain knobs; **a track silenced by another's solo shows a hollow M and a dimmed name** (hollow S inside a soloed group) over dimming the whole row. |
+| Mute, solo, returns, master and cue (M4 slice 4, 2026-10-09) | The solo rules agreed as a table of 14 cases before building (`docs/milestones/M4.md` §5): solo keeps a soloed track's path open, **mute always beats solo** along the path, returns are solo-safe, **a soloed return plays wet only** (sends into it stay on, their tracks' outputs go silent), the master, metronome and cue are never touched by solo. **D1 A** a group's solo solos the group (its tracks show it hollow); **D2 A** additive solo is a preference (Ctrl+click then replaces); **D3 A** a lit "S" chip in the transport while anything is soloed, a click clears; **D4 A1** returns then the master pinned at the bottom under a divider, a "Returns" caption that folds them, returns lettered A, B, C and never grouped; **D5 C1** Ableton's Solo/Cue switch on the master, cue **pre-fader** to a chosen pair, unavailable with a note when that pair is the main one; **D6** the metronome has its own output (Main, Cue or a pair), never through the master; **D7** palette commands Solo and Mute selected tracks and Clear all solos, no default keys. Chosen from interactive specimens: **sends as K1 "comet" knobs** (a trail of light in the return's colour, brightening to a glowing head; a dot marks pre-fader; hovering a send lights its return and the reverse) over lantern, droplet and plain knobs; **a track silenced by another's solo shows a hollow M and a dimmed name** (hollow S inside a soloed group) over dimming the whole row. Asked while building 4d: **O1**, the cue output chosen in the audio settings beside the main pair, over Ableton's per-pair output configuration (so the metronome's output is Main or Cue); the owner's interface has two outputs, so cue is checked on the four-output test device. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
 
@@ -2854,3 +2854,106 @@ a tone heard through two groups and silenced by the outer mute).
   `buses_are_unity_when_centred_and_tracks_follow_the_pan_law`; E2E
   `groups` (a tone through two groups plays as loud as the track alone;
   half as loud before the fix).
+
+## ADR-0038 — Mute, solo, returns, master and cue (M4 slice 4, format v10)
+
+**Status:** Accepted · **Date:** 2026-10-09
+
+### Context
+Slices 1 to 3 built the mixer graph, routing in the model and group
+tracks, but solo only kept a soloed track's groups open, returns and the
+master were invisible or mixed in with the tracks, sends had no control,
+and there was no cue or metronome routing (deferred from M2). The plan
+asked for the solo rules as a table of cases agreed with the owner before
+building (risk R3). The owner agreed the 14 cases and chose D1 to D7, then
+the A1 layout, K1 comet knobs and the hollow-M look from interactive
+specimens, and O1 for the cue outputs (owner-decisions table).
+
+### Decision
+- **4a, the solo rules as one pure function** (`lumen_project::solo`):
+  `hearing(project)` says per track whether its output and its sends are
+  heard, whether it is silenced without being muted (hollow M) and whether
+  it is heard through a soloed group (hollow S). A soloed path stays open
+  (the soloed tracks, what plays into them and where they play out to);
+  returns are solo-safe unless a return is soloed; a soloed return plays
+  wet only (the sends into it stay on, the senders' outputs go silent);
+  mute beats solo along the whole path, sends included; the master is
+  never silenced by solo. The 14 cases are its tests. The engine gates a
+  node's output apart from its sends (`NodeSpec::sends_audible`, a gliding
+  output gate), so wet-only plays without clicks. Additive solo is a
+  setting (`Mixing::additive_solo`, D2); the transport's S chip (count when
+  more than one) and the palette's "Clear all solos" clear every solo in
+  one step; palette commands "Solo selected tracks" and "Mute selected
+  tracks" (a new Mixer area of commands, no default keys, D7).
+- **4b, returns and the master pinned at the bottom** (`arrangement/
+  pinned.rs`, the owner's A1): rows carry a zone (main, returns, master)
+  and each zone clips its drawing and its pointer, so the tracks scroll
+  under the pinned area. Returns keep any place in the project's list (no
+  order rule in the file): the arrangement draws them pinned in list
+  order, lettered A, B, C (then AA) in their colour, without an arm
+  button, never dragged; a new return goes after the last. A "Returns"
+  caption folds them; the master's row comes last (fold arrow, volume and
+  pan). The divider resizes the area up to 60% of the lanes (the returns
+  scroll inside it when it is smaller; double-click for its natural size,
+  as the header column's edge). **Format v10:** `ViewState::returns_height`
+  (absent at the natural size) and `returns_folded`; migration v9 → v10
+  writes the fold; golden fixture `v10` (110 points, folded). H fits the
+  tracks into the height above the pinned area.
+- **4c, sends as comet knobs** (`widgets/knob.rs`, `arrangement/sends.rs`,
+  the owner's K1): a knob per return on an unfolded audio, MIDI or group
+  track, in the return's colour and letter; the level is a trail of light
+  that brightens to a glowing head, dimmed when the send is not heard; a
+  dot marks pre-fader. A 270° travel with 0 dB at three quarters and +6 dB
+  at the top (`48·log10(p/0.75)`), silence below −60 dB. Drag (Shift
+  fine), double-click for silence, click and type, arrow keys, and a menu
+  for pre- or post-fader; a drag is one undo step. Hovering a send lights
+  its return's header, and the reverse (one frame behind). Tracks with
+  sends to show unfold a step taller (five steps), so the knobs have
+  their own row under volume and pan.
+- **4d, cue and the metronome's output** (the owner's C1 with O1): the
+  audio settings choose a Cue output pair beside the main one
+  (`AudioSettings::cue_channels`, an added field); the stream opens the
+  main pair then the cue pair, so the engine always finds the cue on
+  channels 3 and 4. The engine's cue bus takes each cued node after trim
+  and polarity, before mute and the fader, whatever solo says, and writes
+  it to that pair at the cue level (`Routing::cue`, `NodeSpec::cue`; the
+  level glides; a device without the pair does not hear it). The master's
+  Solo/Cue switch (greyed without a cue pair; a click says to choose one in
+  Audio settings) turns the S buttons into headphone buttons (Ableton's
+  click and Ctrl+click), and its unfolded row gains the cue level. What is
+  cued is session state (`Arrangement::cued`); the switch and level are
+  settings (`Mixing::cue_mode`, `cue_volume_db`). The metronome plays on
+  Main or Cue (`MetronomeSettings::channel`, settings `metronome.output`),
+  never through the master, falling back to the main pair. The test device
+  has four outputs; the E2E tap records both pairs (`App::heard_all`).
+
+### Consequences
+- Track headers are taller when unfolded in projects with returns (110
+  points instead of 88); saved heights are unchanged.
+- A master output to a device pair other than the first would now land on
+  the cue pair when one is chosen; no control offers such outputs until
+  the mixer panel (slice 5), which defines output choices with the cue in
+  mind.
+- Known issues recorded: no wheel adjustment on sliders and knobs yet
+  (slice 5), returns not reorderable by drag, "+N" for knobs past the
+  header's width.
+- Performance gate: `engine_routed_64` −5.6% (the gated output path
+  compiled leaner), `engine_transport` +1.6% (the metronome's pair),
+  others unchanged; baseline updated from WSL. Frame times on the stress
+  project p99 1.5 to 1.8 ms; idle 3 repaints in 3 s, as before.
+
+### Evidence
+`solo.rs` tests (cases 1 to 13 and a group sending to a soloed return);
+engine `mixer` tests (wet only with a gliding gate; a cued track before
+its fader and mute, the cue level gliding, silence without the pair) and
+`metronome` (Main, Cue, fallback); the allocation guard with a cue bus and
+the metronome on the cue pair (`realtime`); `routing.rs` (wet only and
+cue reach the engine); arrangement unit tests (returns after the tracks,
+letters, the saved view); knob taper and typed levels; migration v9 →
+v10 and the v10 golden fixture. E2E: `solo` (silenced tracks say so, the
+chip clears, Ctrl+click adds, mute beats a group's solo, palette and
+additive solo), `returns` (pinned under the divider, folding, the divider
+and its saved size, the master's volume), `sends` (drag, silence,
+pre-fader and undo; a typed level; a soloed return heard wet only), `cue`
+(the switch explains itself, a cued track on the cue pair before its
+fader and mute, the metronome on the cue pair).

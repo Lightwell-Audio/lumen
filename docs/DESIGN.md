@@ -420,6 +420,43 @@ half selects a time range, empty lanes draw a marquee.
   `accent` line (over 6 pt at 15%) marks where new tracks go, with the
   chip "new track here".
 
+### Mute, solo, returns, master and cue (M4 slice 4, owner's choices)
+
+Chosen from interactive specimens (ADR-0038):
+- **Why a track is silent or heard.** A track silenced by another's solo,
+  or by a muted group it plays through, shows a **hollow M** (a 1.5 pt
+  ring in the M's lit colour, the letter in it, on a half-strength fill)
+  and its name and type icon dim. A track heard because its group is
+  soloed shows a **hollow S** in the accent. Lit buttons mean the user set
+  them on that track.
+- **The S chip** in the transport, after Follow: quiet grey "S" while
+  nothing is soloed, the accent with "S" (or "S 2", "S 3") while anything
+  is; a click clears every solo.
+- **Returns and the master (A1):** pinned at the bottom under a 7 pt
+  divider (`raised`, strong edges, a 28 × 2 pt grip; it glows with the
+  accent while hovered or dragged, as edges do), then a 22 pt "Returns"
+  caption with a fold arrow and the count, the returns, and the master's
+  row with a grey rail. The area takes at most 60% of the lanes' height;
+  its lanes have a quieter ground (`canvas` at 70%). A return's name
+  follows a 16 pt **letter badge** in its colour (text by `text_on`); no
+  arm button on returns or the master.
+- **Send knobs (K1 "comet"):** 24 pt knobs, 5 pt apart, under volume and
+  pan on unfolded audio, MIDI and group tracks (such tracks unfold five
+  steps tall). A 270° ring in `control`; the level a trail in the
+  return's colour, from 18% to full strength and thickening towards a
+  glowing head (two soft circles, a white core, a colour centre); the
+  return's letter in the middle (`text` when sending, `text_hint` when
+  silent); a 1.6 pt dot at the top for pre-fader; the level beside it in
+  caption size while it moves; at 40% strength while the send is not
+  heard. Hovering a knob lights its return's header (10% wash, 1 pt frame
+  in its colour) and hovering a return rings its knobs.
+- **Cue (C1):** the master's **Solo/Cue switch** (46 × 18 pt at the
+  header's right): "Solo" in control colours, the accent with headphones
+  and "Cue" when on, greyed (`text_disabled`) without a cue pair. On Cue,
+  the S buttons draw **headphones** (`icons::draw_headphones`) and light
+  with the accent. The master's unfolded row adds a "Cue" level slider
+  while a cue pair is open.
+
 ## 7b. Navigation (M3 slice 4d, ADR-0028)
 
 - **Zoom** glides (`GLIDE`) for keys and fits; the wheel and pinch follow
