@@ -38,6 +38,16 @@ impl App {
         })
     }
 
+    /// A window is open (the shortcuts, audio settings, history, or the
+    /// unsaved-changes question): it takes Esc, and Shift+Tab moves focus in
+    /// it.
+    pub(crate) fn window_open(&self) -> bool {
+        self.shortcuts.open
+            || self.transport.settings_window.open
+            || self.show_history
+            || self.prompt.is_some()
+    }
+
     /// Selections are one kind at a time: selecting tracks deselects clips
     /// and the range, and selecting anything deselects the locator.
     pub(crate) fn sync_selection(&mut self) {
@@ -94,8 +104,12 @@ impl App {
                 let t = &self.document.project().transport;
                 need(t.loop_end > t.loop_start, "There is no loop yet")
             }
+            Command::ImportAudio => need(self.dialog.is_none(), "A file dialog is open"),
+            // An open menu or window takes Esc first (MT-APP-14 run 2; the
+            // slice 8 accessibility test: Esc deselected a clip instead of
+            // closing the shortcuts window).
             Command::Deselect => need(
-                (clips || locator) && !egui::Popup::is_any_open(ctx),
+                (clips || locator) && !egui::Popup::is_any_open(ctx) && !self.window_open(),
                 "Nothing is selected",
             ),
             Command::Rename => need(
@@ -245,6 +259,7 @@ impl App {
             Command::OpenProject => self.request(ctx, Next::Open(None)),
             Command::Save => self.save(ctx, false),
             Command::SaveAs => self.save(ctx, true),
+            Command::ImportAudio => self.import_audio(ctx),
         }
         ctx.request_repaint();
     }

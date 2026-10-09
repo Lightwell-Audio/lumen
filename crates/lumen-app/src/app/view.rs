@@ -71,15 +71,32 @@ report: {}",
     }
 
     pub(crate) fn transport(&mut self, ui: &mut egui::Ui) {
-        // The panel toggles are laid out first, from the right, so they keep
-        // their place at any width or scale; the transport takes the rest and
-        // the status text shortens to fit.
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let detail = ui.toggle_value(&mut self.show_detail, "Detail");
-            let keys = self.keymap.keys(Command::ToggleDetail);
-            widgets::tip(detail, "Show or hide the detail panel", keys.as_ref(), None);
-            ui.toggle_value(&mut self.show_browser, "Browser")
-                .on_hover_text("Show or hide the browser");
+        // The panel toggles keep their place at the right at any width or
+        // scale, so their room is set aside first (as wide as they were
+        // last frame); the transport takes the rest, and the status text
+        // shortens to fit. They are drawn last, so Tab reaches them after
+        // the transport, in reading order (slice 8: they came first).
+        let full = ui.available_rect_before_wrap();
+        let width_id = ui.id().with("panel toggles width");
+        let width: f32 = ui.data(|d| d.get_temp(width_id)).unwrap_or(220.0);
+        let split = (full.right() - width).max(full.left());
+        let left = egui::Rect::from_min_max(full.min, egui::pos2(split, full.bottom()));
+        let right = egui::Rect::from_min_max(egui::pos2(split, full.top()), full.max);
+        let row = |rect| {
+            egui::UiBuilder::new()
+                .max_rect(rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Center))
+        };
+        ui.scope_builder(row(left), |ui| {
+            // Whatever does not fit is cut off here rather than drawn over
+            // the panel toggles.
+            ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
+            self.app_menu(ui);
+            ui.separator();
+            self.transport.ui(ui, &mut self.document, &self.keymap);
+        });
+        let toggles = ui.scope_builder(row(right), |ui| {
+            ui.separator();
             let keys = self.keymap.keys(Command::OpenPalette);
             if icons::button(
                 ui,
@@ -97,16 +114,17 @@ report: {}",
             {
                 self.toggle_palette();
             }
-            ui.separator();
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                // Whatever does not fit is cut off here rather than drawn
-                // over the panel toggles.
-                ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
-                self.app_menu(ui);
-                ui.separator();
-                self.transport.ui(ui, &mut self.document, &self.keymap);
-            });
+            ui.toggle_value(&mut self.show_browser, "Browser")
+                .on_hover_text("Show or hide the browser");
+            let detail = ui.toggle_value(&mut self.show_detail, "Detail");
+            let keys = self.keymap.keys(Command::ToggleDetail);
+            widgets::tip(detail, "Show or hide the detail panel", keys.as_ref(), None);
         });
+        let used = toggles.response.rect.width();
+        if (used - width).abs() > 0.5 {
+            ui.data_mut(|d| d.insert_temp(width_id, used));
+            ui.ctx().request_repaint();
+        }
     }
 
     /// While files are dragged in from the system: where the pointer is
@@ -215,6 +233,13 @@ report: {}",
         // Clip selection and editing (slice 6); a hover card with the
         // file's details; right-click the lanes for the grid menu (5a).
         let hover = ui.interact(canvas, ui.id().with("clips"), Sense::click_and_drag());
+        hover.widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Other,
+                true,
+                "Lanes: click to move the playhead, drag clips, or drag below a clip's middle to select time",
+            )
+        });
         self.clip_editing(ui, &hover, canvas, &painter);
         hover.context_menu(|ui| self.lanes_menu(ui));
         // Clip properties (slice 6e): renaming in the title bar, and the
@@ -314,10 +339,11 @@ report: {}",
             state.marker.as_quarters() as f32,
             !state.playing,
         );
+        let playhead = self.transport.playhead().as_quarters();
         let head = motion::glide(
             &ctx,
             egui::Id::new("playhead"),
-            state.ticks.as_quarters() as f32,
+            playhead as f32,
             !state.playing,
         );
         let mx = x_of(settled(marker, state.marker.as_quarters()));
@@ -334,7 +360,7 @@ report: {}",
         }
 
         // Playhead: from the bar ruler through the time ruler.
-        let x = x_of(settled(head, state.ticks.as_quarters()));
+        let x = x_of(settled(head, playhead));
         if (full.left()..=full.right()).contains(&x) {
             painter.line_segment(
                 [pos2(x, ruler.top()), pos2(x, full.bottom())],
@@ -406,13 +432,31 @@ report: {}",
                 color,
             );
         } else if self.lanes.is_empty(self.document.project()) {
-            painter.text(
+            let text = painter.text(
                 canvas.center(),
                 egui::Align2::CENTER_CENTER,
                 "Drop audio files here\nWAV, AIFF, FLAC, MP3 or Ogg Vorbis",
                 egui::FontId::proportional(theme::size::BODY),
                 theme::p().text_hint,
             );
+            // Or choose them (M3 review H1: importing was mouse-drag only).
+            let below = egui::Rect::from_min_max(
+                pos2(canvas.left(), text.bottom() + theme::space::M),
+                canvas.max,
+            );
+            let builder = egui::UiBuilder::new()
+                .max_rect(below)
+                .layout(egui::Layout::top_down(egui::Align::Center));
+            let clicked = ui
+                .scope_builder(builder, |ui| {
+                    let keys = self.keymap.keys(Command::ImportAudio);
+                    let button = ui.button("Import audio\u{2026}");
+                    widgets::tip(button, "Choose audio files to add", keys.as_ref(), None).clicked()
+                })
+                .inner;
+            if clicked && self.availability(ui.ctx(), Command::ImportAudio).is_ok() {
+                self.run(&ui.ctx().clone(), Command::ImportAudio);
+            }
         }
         self.lanes
             .panel(ui.ctx(), pos2(canvas.left() + 8.0, canvas.bottom() - 8.0));

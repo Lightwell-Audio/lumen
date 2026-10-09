@@ -39,6 +39,7 @@ impl App {
                 });
                 self.menu_command(ui, Command::Save, "Save");
                 self.menu_command(ui, Command::SaveAs, "Save as\u{2026}");
+                self.menu_command(ui, Command::ImportAudio, "Import audio\u{2026}");
                 ui.checkbox(
                     &mut self.settings.projects.copy_imported,
                     "Copy imported audio into the project",

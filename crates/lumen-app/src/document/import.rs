@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
-use lumen_project::model::{Clip, ClipContent, Id, Media, Track, TrackKind};
+use lumen_project::model::{Clip, ClipContent, Id, Media, Project, Track, TrackKind};
 
 use super::{Document, clips, seconds_at, ticks_at_seconds, track_color};
 
@@ -36,6 +36,23 @@ pub enum DropInto {
     /// Onto an audio track, one after another, cutting away what they
     /// cover (Ableton's overlap rule).
     Track(Id),
+}
+
+/// Where Import audio puts files (M3 review H1): onto the chosen audio
+/// track, the last selected track or the track of a selected clip; when
+/// that is not an audio track, on new tracks right after it; with nothing
+/// chosen, on new tracks at the end. `chosen` is the last selected track,
+/// or the track of the first selected clip.
+pub fn import_place(project: &Project, chosen: Option<Id>) -> DropInto {
+    let Some(i) = chosen.and_then(|id| project.tracks.iter().position(|t| t.id == id)) else {
+        return DropInto::NewTracks { before: None };
+    };
+    match project.tracks[i].kind {
+        TrackKind::Audio => DropInto::Track(project.tracks[i].id),
+        _ => DropInto::NewTracks {
+            before: project.tracks.get(i + 1).map(|t| t.id),
+        },
+    }
 }
 
 impl Document {
@@ -148,6 +165,30 @@ impl Document {
 mod tests {
     use super::*;
     use crate::document::tests::file;
+
+    #[test]
+    fn import_goes_onto_the_chosen_audio_track_or_new_tracks_after_it() {
+        let mut doc = Document::new(crate::empty_project());
+        let audio = doc.add_track(TrackKind::Audio, None);
+        let midi = doc.add_track(TrackKind::Midi, Some(audio));
+        let last = doc.add_track(TrackKind::Audio, Some(midi));
+        let project = doc.project();
+        assert_eq!(import_place(project, Some(audio)), DropInto::Track(audio));
+        assert_eq!(
+            import_place(project, Some(midi)),
+            DropInto::NewTracks { before: Some(last) },
+            "right after the MIDI track"
+        );
+        let end = DropInto::NewTracks { before: None };
+        assert_eq!(import_place(project, None), end, "nothing chosen");
+        assert_eq!(import_place(project, Some(Id(9_999))), end, "a track gone");
+        doc.delete_tracks(&[last]);
+        assert_eq!(
+            import_place(doc.project(), Some(midi)),
+            end,
+            "the last track"
+        );
+    }
 
     #[test]
     fn files_land_on_the_track_or_between_the_tracks_they_were_dropped_on() {

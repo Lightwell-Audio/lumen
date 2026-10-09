@@ -11,8 +11,9 @@ use lumen_core::product::PRODUCT_NAME;
 use lumen_core::time::Ticks;
 use lumen_project::model::Project;
 
+use crate::document::DropInto;
 use crate::widgets::Dialog;
-use crate::{App, arrangement, document, empty_project, files, lanes, theme, trace};
+use crate::{App, arrangement, document, empty_project, files, lanes, media, theme, trace};
 
 /// What happens after unsaved changes are saved or discarded.
 #[derive(Debug, Clone, PartialEq)]
@@ -27,6 +28,13 @@ pub(crate) enum Next {
 pub(crate) enum FileDialog {
     SaveAs(Option<PathBuf>),
     Open(Option<PathBuf>),
+    /// Audio files to import (none when cancelled), and where they go: the
+    /// playhead and the chosen track when the dialog opened (M3 review H1).
+    Import {
+        paths: Vec<PathBuf>,
+        at: Ticks,
+        into: DropInto,
+    },
 }
 
 /// Where file dialogs start when the project has no folder yet.
@@ -70,7 +78,7 @@ impl App {
                     .and_then(|p| p.parent()?.parent().map(PathBuf::from))
                     .or_else(documents_folder);
                 let owner = self.owner;
-                self.dialog = Some(spawn_dialog(ctx, move || {
+                let show = move || {
                     let mut dialog = rfd::FileDialog::new()
                         .set_title("Save project")
                         .add_filter(format!("{PRODUCT_NAME} project"), &[files::EXTENSION])
@@ -82,9 +90,70 @@ impl App {
                         dialog = dialog.set_parent(owner);
                     }
                     FileDialog::SaveAs(dialog.save_file())
-                }));
+                };
+                self.file_dialog(ctx, show, |paths| {
+                    FileDialog::SaveAs(paths.into_iter().next())
+                });
             }
         }
+    }
+
+    /// Import audio (M3 review H1): the system's file dialog, then the
+    /// chosen files load as dropped files do, at the playhead, onto the
+    /// selected audio track (or the track of the selected clip), else onto
+    /// new tracks after the selection.
+    pub(crate) fn import_audio(&mut self, ctx: &egui::Context) {
+        if self.dialog.is_some() {
+            return;
+        }
+        let at = self.transport.state().ticks;
+        let project = self.document.project();
+        let chosen = self.arrangement.selected.last().copied().or_else(|| {
+            let clip = self.first_selected_clip()?;
+            let track = project
+                .tracks
+                .iter()
+                .find(|t| t.clips.iter().any(|c| c.id == clip))?;
+            Some(track.id)
+        });
+        let into = document::import_place(project, chosen);
+        let owner = self.owner;
+        let show = move || {
+            let mut dialog = rfd::FileDialog::new()
+                .set_title("Import audio")
+                .add_filter("Audio", media::EXTENSIONS);
+            if let Some(owner) = &owner {
+                dialog = dialog.set_parent(owner);
+            }
+            let paths = dialog.pick_files().unwrap_or_default();
+            FileDialog::Import { paths, at, into }
+        };
+        self.file_dialog(ctx, show, move |paths| FileDialog::Import {
+            paths,
+            at,
+            into,
+        });
+    }
+
+    /// Shows a system file dialog on its own thread (`show`). In a test it
+    /// is answered at once instead, with the next answer the test gave or
+    /// as if cancelled, through `answered`, which makes the result from the
+    /// chosen paths: a test never opens a real dialog.
+    fn file_dialog(
+        &mut self,
+        ctx: &egui::Context,
+        show: impl FnOnce() -> FileDialog + Send + 'static,
+        answered: impl FnOnce(Vec<PathBuf>) -> FileDialog,
+    ) {
+        self.dialog = Some(match &mut self.dialog_answers {
+            Some(answers) => {
+                let (tx, rx) = std::sync::mpsc::channel();
+                let _ = tx.send(answered(answers.pop_front().unwrap_or_default()));
+                ctx.request_repaint();
+                rx
+            }
+            None => spawn_dialog(ctx, show),
+        });
     }
 
     pub(crate) fn start_save(&mut self, path: PathBuf) {
@@ -131,7 +200,7 @@ impl App {
                     .and_then(|p| p.parent()?.parent().map(PathBuf::from))
                     .or_else(documents_folder);
                 let owner = self.owner;
-                self.dialog = Some(spawn_dialog(ctx, move || {
+                let show = move || {
                     let mut dialog = rfd::FileDialog::new()
                         .set_title("Open project")
                         .add_filter(format!("{PRODUCT_NAME} project"), &[files::EXTENSION]);
@@ -142,7 +211,10 @@ impl App {
                         dialog = dialog.set_parent(owner);
                     }
                     FileDialog::Open(dialog.pick_file())
-                }));
+                };
+                self.file_dialog(ctx, show, |paths| {
+                    FileDialog::Open(paths.into_iter().next())
+                });
             }
             Next::Quit => {
                 self.quitting = true;
@@ -171,6 +243,13 @@ impl App {
                     self.start_save(files::project_file_for(&chosen));
                 }
                 FileDialog::Open(Some(path)) => self.proceed(ctx, Next::Open(Some(path))),
+                FileDialog::Import { paths, at, into } => {
+                    if !paths.is_empty() {
+                        let rate = self.transport.state().sample_rate;
+                        self.lanes
+                            .add_files(paths, at, into, rate, ctx, &mut self.document);
+                    }
+                }
                 // Cancelled: whatever was waiting on it is off too.
                 FileDialog::SaveAs(None) | FileDialog::Open(None) => self.after_save = None,
             }

@@ -4,9 +4,9 @@
 //!
 //! Dropped files load in the background as placeholders that are not part
 //! of the project. A file joins the project, as one undo step, once it has
-//! loaded and its exact length is known; a failed or cancelled load never
-//! touches it. The engine's clip list is derived from the project after
-//! every change, undo and redo.
+//! loaded and its exact length is known, in the order the files were
+//! dropped; a failed or cancelled load never touches it. The engine's clip
+//! list is derived from the project after every change, undo and redo.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -32,11 +32,13 @@ pub struct Landing {
 #[derive(Default)]
 pub struct Lanes {
     pub library: Library,
-    /// Files loading for import onto new tracks: library id and where they
-    /// were dropped. Each shows as a row below the tracks while it loads.
+    /// Files loading for import onto new tracks, in the order they were
+    /// dropped: library id and where they were dropped. Each shows as a row
+    /// below the tracks until it joins the project.
     pending: Vec<(u64, Ticks)>,
-    /// Where each of those new tracks goes (slice 6e).
-    before: HashMap<u64, Option<Id>>,
+    /// Where each of those new tracks goes (slice 6e), and the drop it
+    /// came in.
+    before: HashMap<u64, (Option<Id>, u64)>,
     /// Files loading for import onto a track (slice 6e), drawn in its lane
     /// while they load. Files dropped together import together, once none
     /// of them is still loading, so they can follow one another.
@@ -212,7 +214,7 @@ impl Lanes {
                 match into {
                     DropInto::NewTracks { before } => {
                         self.pending.push((id, at));
-                        self.before.insert(id, before);
+                        self.before.insert(id, (before, self.drops));
                     }
                     DropInto::Track(track) => self.landing.push(Landing {
                         id,
@@ -253,40 +255,7 @@ impl Lanes {
             self.revision += 1;
         }
 
-        // Loads that finished join the project, in drop order, as one step:
-        // new tracks as each loads; files dropped on a track once all the
-        // files dropped with them have.
-        let mut imported = Vec::new();
-        let library = &self.library;
-        let before = &mut self.before;
-        self.pending.retain(|&(id, at)| match load(library, id) {
-            Load::Loading => true,
-            Load::Gone => {
-                before.remove(&id);
-                false
-            }
-            Load::Ready(file) => {
-                let before = before.remove(&id).flatten();
-                imported.push(file(at, DropInto::NewTracks { before }));
-                false
-            }
-        });
-        let waiting: Vec<u64> = self
-            .landing
-            .iter()
-            .filter(|l| matches!(load(library, l.id), Load::Loading))
-            .map(|l| l.drop)
-            .collect();
-        self.landing.retain(|l| {
-            if waiting.contains(&l.drop) {
-                return true;
-            }
-            if let Load::Ready(file) = load(library, l.id) {
-                imported.push(file(l.at, DropInto::Track(l.track)));
-            }
-            false
-        });
-        doc.import(imported);
+        self.join_loaded(doc);
 
         // Media the project refers to but that is not loaded (an opened
         // project, slice 3c).
@@ -305,6 +274,53 @@ impl Lanes {
             self.dirty = clips.set(list).is_err();
             self.built = Some(doc.state());
         }
+    }
+
+    /// Loads that finished join the project as one step, once all the
+    /// files dropped with them have, in the order they were dropped,
+    /// whatever order their loads finish in (a short file loads first, and
+    /// used to come first; Ableton keeps the dropped order). Files for new
+    /// tracks also wait for every earlier drop, so tracks keep the order of
+    /// the drops too; files dropped on a track only for their own drop.
+    fn join_loaded(&mut self, doc: &mut Document) {
+        let mut imported = Vec::new();
+        let library = &self.library;
+        let before = &mut self.before;
+        // `pending` is in drop order: the files before the first drop with
+        // a file still loading are ready to join.
+        let drop_of = |id: &u64| before.get(id).map_or(0, |b| b.1);
+        let loading = self
+            .pending
+            .iter()
+            .find(|&&(id, _)| matches!(load(library, id), Load::Loading))
+            .map(|(id, _)| drop_of(id));
+        let ended = self
+            .pending
+            .iter()
+            .take_while(|(id, _)| loading.is_none_or(|drop| drop_of(id) < drop))
+            .count();
+        for (id, at) in self.pending.drain(..ended) {
+            let into = before.remove(&id).and_then(|b| b.0);
+            if let Load::Ready(file) = load(library, id) {
+                imported.push(file(at, DropInto::NewTracks { before: into }));
+            }
+        }
+        let waiting: Vec<u64> = self
+            .landing
+            .iter()
+            .filter(|l| matches!(load(library, l.id), Load::Loading))
+            .map(|l| l.drop)
+            .collect();
+        self.landing.retain(|l| {
+            if waiting.contains(&l.drop) {
+                return true;
+            }
+            if let Load::Ready(file) = load(library, l.id) {
+                imported.push(file(l.at, DropInto::Track(l.track)));
+            }
+            false
+        });
+        doc.import(imported);
     }
 
     /// What the engine plays, from the files that are loaded.
@@ -622,5 +638,55 @@ mod tests {
         assert_eq!(clips.len(), 1, "the audio clip only");
         assert_eq!(clips[0].gain, 0.0);
         assert_eq!(clips[0].id, doc.project().tracks[0].clips[0].id.0);
+    }
+
+    #[test]
+    fn files_dropped_together_join_in_drop_order_whatever_order_they_load_in() {
+        let mut doc = Document::new(crate::empty_project());
+        let mut lanes = Lanes::default();
+        let names = ["kick", "snare", "hat"];
+        let ids: Vec<u64> = names.iter().map(|_| doc.fresh_id().0).collect();
+        // Kick and snare dropped together onto new tracks, then the hat in
+        // a second drop, as `add_files` queues them.
+        for (i, (&id, name)) in ids.iter().zip(names).enumerate() {
+            let drop = if i < 2 { 1 } else { 2 };
+            lanes.library.insert_loading(id, name, 48_000);
+            lanes.pending.push((id, Ticks::ZERO));
+            lanes.before.insert(id, (None, drop));
+        }
+        let channels = vec![vec![0.5; 96_000]; 2];
+        let peaks = Arc::new(
+            lumen_media::Peaks::build(&channels, &std::sync::atomic::AtomicBool::new(false))
+                .expect("not cancelled"),
+        );
+        let audio = Arc::new(ClipAudio {
+            sample_rate: 48_000,
+            channels,
+        });
+        let tracks = |doc: &Document| -> Vec<String> {
+            doc.project()
+                .tracks
+                .iter()
+                .map(|t| t.name.clone())
+                .collect()
+        };
+
+        // The hat loads first: it waits for the earlier drop. Then the
+        // kick: it waits for the snare, dropped with it.
+        for (i, why) in [(2, "waits for the earlier drop"), (0, "waits for its drop")] {
+            lanes
+                .library
+                .insert_ready(ids[i], names[i], audio.clone(), peaks.clone());
+            lanes.join_loaded(&mut doc);
+            assert!(tracks(&doc).is_empty(), "{why}");
+            assert_eq!(lanes.pending().len(), 3, "still shown as loading");
+        }
+        lanes
+            .library
+            .insert_ready(ids[1], names[1], audio.clone(), peaks.clone());
+        lanes.join_loaded(&mut doc);
+        assert_eq!(tracks(&doc), names, "the order they were dropped in");
+        assert!(lanes.pending().is_empty() && lanes.before.is_empty());
+        assert_eq!(doc.history().steps().0.len(), 1, "one step");
     }
 }

@@ -653,12 +653,19 @@ impl App {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let chords = self.keymap.chords(*command);
                     for (i, chord) in chords.iter().enumerate().rev() {
-                        widgets::keycaps(
+                        let caps = widgets::keycaps(
                             ui,
                             &chord.modifier_names(),
                             chord.key_name(),
                             area.light(),
                         );
+                        caps.widget_info(|| {
+                            egui::WidgetInfo::labeled(
+                                egui::WidgetType::Label,
+                                true,
+                                format!("Shortcut {}", chord.text()),
+                            )
+                        });
                         if i > 0 {
                             ui.label(RichText::new("or").color(palette.text_hint));
                         }

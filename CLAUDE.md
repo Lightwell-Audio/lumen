@@ -390,9 +390,9 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-08: M3 slice 7 built (7a to 7d: the command
-registry, the palette, remapping, menus and keys; ADR-0033); MT-APP-15
-(steps 1 to 19) is next. The owner's drag-to-cut request is recorded for
+**Last updated:** 2026-10-08: M3 slice 7 done (the command registry, the
+palette, remapping, menus and keys; ADR-0033; MT-APP-15 passed). Slice 8
+(the end-to-end walkthrough, the milestone review and report) is next. The owner's drag-to-cut request is recorded for
 M7 with split (the M3 plan, out of scope).
 
 **Status**
@@ -467,7 +467,7 @@ M7 with split (the M3 plan, out of scope).
     where egui gets no pointer during a drag from Explorer (Lumen reads
     the system's cursor; ADR-0032). MT-APP-14 passed in run 4.
     **Slice 6 is done** (2026-10-08).
-  - **Slice 7 built** (ADR-0033; owner's P2 palette with P3's values, K5
+  - **Slice 7 done** (ADR-0033; owner's P2 palette with P3's values, K5
     area-light keycaps, E2 keyboard map with E3 rebinding in the palette,
     Shift+Tab by focus):
     - 7a: every key is a `Command` in one table (`commands/`: id, name,
@@ -482,7 +482,7 @@ M7 with split (the M3 plan, out of scope).
     - 7d: menus and tooltips from the keymap (`widgets::menu_item`,
       `menu_toggle`, `tip`), ruler and track-name menus, Z, Ctrl+A,
       Ctrl+L, Fit loop, F6 panes (`app/panes.rs`), Shift+Tab by focus.
-    Next: MT-APP-15 (steps 1 to 19), then slice 8.
+    MT-APP-15 passed (2026-10-08). Next: slice 8.
   - Esc after typing belongs to the text field (`App::typing`): egui
     drops a field's focus on Esc before the app's keys run, so key
     handlers must check `self.typing` as well as `text_edit_focused()`

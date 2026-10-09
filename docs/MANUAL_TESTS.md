@@ -1162,4 +1162,6 @@ steps 8 to 12 7c, steps 13 to 19 7d.
 
 **Expected:** every step as described.
 
-**Last run:** none yet.
+**Run 1 (2026-10-08, owner):** passed ("looks good").
+
+**Last run:** run 1, passed. MT-APP-15 is done.

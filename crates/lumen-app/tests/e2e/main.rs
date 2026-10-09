@@ -11,6 +11,7 @@
 //! Run them with `cargo test -p lumen-app --test e2e`. Add a scenario for every
 //! workflow a slice delivers (DEVELOPMENT.md, "End-to-end tests").
 
+mod access;
 mod clips;
 mod commands;
 mod editing;
@@ -27,6 +28,7 @@ mod properties;
 mod rulers;
 mod scrubbing;
 mod shortcuts;
+mod walkthrough;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};

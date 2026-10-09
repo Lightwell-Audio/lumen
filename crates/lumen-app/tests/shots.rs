@@ -480,6 +480,32 @@ fn menus_and_tips_looking(appearance: &str, scale: f32) {
     save(&mut h, "tip-play");
 }
 
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn smallest_window_at_200() {
+    use egui_kittest::kittest::Queryable;
+    let dir = TempDir::new("shots-small");
+    let mut h = lumen_looking_sized(&dir, "dark", 2.0, vec2(960.0, 540.0));
+    let save = |h: &mut Harness<'static, App>, name: &str| save(h, &format!("small-{name}"));
+    save(&mut h, "main");
+    h.key_press_modifiers(Modifiers::COMMAND, Key::K);
+    h.run_steps(4);
+    save(&mut h, "palette");
+    h.event(Event::Text("keyboard".into()));
+    h.run_steps(3);
+    h.key_press(Key::Enter);
+    h.run_steps(6);
+    save(&mut h, "shortcuts");
+    h.key_press(Key::Escape);
+    h.run_steps(3);
+    let a = clip(&h, 0);
+    click(&mut h, pos(a, 0.5, 0.3));
+    h.key_press_modifiers(Modifiers::ALT, Key::Enter);
+    h.run_steps(6);
+    save(&mut h, "card");
+    let _ = h.query_by_label("Lumen");
+}
+
 /// A left click at `p`.
 fn click(h: &mut Harness<'static, App>, p: Pos2) {
     h.hover_at(p);

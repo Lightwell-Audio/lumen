@@ -1,6 +1,6 @@
 //! Clip edits (M3 slice 6): moving, copying, trimming, slipping, fades and
-//! gain, deleting, ranges and paste. Each is one undo step through
-//! [`Document::apply`]; drags pass a merge key and redo their edit from the
+//! gain, deleting, ranges and paste. Each is one undo step through the
+//! history's `apply`; drags pass a merge key and redo their edit from the
 //! project as the drag found it.
 
 use std::sync::Arc;

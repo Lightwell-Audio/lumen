@@ -49,6 +49,8 @@ pub struct Launch {
     pub(crate) autoplay: Option<Duration>,
     /// `--save-as` (tests): save once imports are done, then close.
     pub(crate) save_as: Option<PathBuf>,
+    /// Tests: file dialogs are answered by the test, never shown.
+    pub(crate) scripted_dialogs: bool,
 }
 
 impl Launch {
@@ -128,6 +130,7 @@ impl Launch {
                 .and_then(|ms| ms.parse().ok())
                 .map(Duration::from_millis),
             save_as: value("--save-as").map(PathBuf::from),
+            scripted_dialogs: false,
         }
     }
 }

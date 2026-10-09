@@ -14,7 +14,7 @@ use crate::widgets::Tip;
 use lumen_core::meter::{Meter, MeterMap};
 use lumen_core::time::{TempoMap, Ticks};
 use lumen_engine::{ClickSound, Command, MetronomeSettings, Region, Timeline, TransportSnapshot};
-use lumen_project::model::{Project, TimeSignature};
+use lumen_project::model::Project;
 
 use crate::audio::{Audio, Choice, Status};
 use crate::icons::{self, Icon};
@@ -51,6 +51,10 @@ pub struct Transport {
     /// CPU load shown: the peak over the last second, refreshed once a second.
     cpu_peak: f32,
     cpu_taken: Option<Instant>,
+    /// The playhead as drawn while playing: smooth, where the engine's
+    /// position moves once per audio block (`playhead.rs`).
+    clock: crate::playhead::Clock,
+    head: Option<Ticks>,
 }
 
 fn timeline_of(project: &Project) -> Timeline {
@@ -88,11 +92,47 @@ impl Transport {
             cpu_peak: 0.0,
             cpu_taken: None,
             clip_memory: 0,
+            clock: Default::default(),
+            head: None,
         }
     }
 
     pub fn state(&self) -> TransportSnapshot {
         self.audio.engine.transport()
+    }
+
+    /// Moves the drawn playhead on to `now` (seconds on the frame clock).
+    /// Once per frame, before anything reads [`Self::playhead`].
+    pub fn advance_playhead(&mut self, now: f64) {
+        let state = self.state();
+        let rate = state.sample_rate;
+        let region = self.loop_region;
+        let looped = (region.enabled && region.end > region.start).then(|| {
+            (
+                self.timeline.sample_at(region.start, rate),
+                self.timeline.sample_at(region.end, rate),
+            )
+        });
+        let sample = self.clock.update(
+            now,
+            crate::playhead::Reading {
+                playing: state.playing,
+                sample: state.sample,
+                sample_rate: rate,
+                looped,
+            },
+        );
+        self.head = (state.playing && rate > 0).then(|| {
+            self.timeline
+                .tempo
+                .ticks_at_seconds(sample / f64::from(rate))
+        });
+    }
+
+    /// Where the playhead is drawn and followed: smooth while playing,
+    /// exactly the engine's position otherwise.
+    pub fn playhead(&self) -> Ticks {
+        self.head.unwrap_or_else(|| self.state().ticks)
     }
 
     /// Whether the UI should redraw every frame: while playing, and briefly
@@ -420,7 +460,7 @@ impl Transport {
             .add(
                 egui::DragValue::new(&mut numerator)
                     .update_while_editing(false)
-                    .range(1..=99)
+                    .range(1..=crate::document::MAX_BEATS_PER_BAR)
                     .speed(0.1),
             )
             .on_hover_text("Beats per bar");
@@ -447,12 +487,7 @@ impl Transport {
                 project.time_signature.denominator.into(),
             )
         {
-            doc.apply("Change time signature", Some("meter"), |p| {
-                p.time_signature = TimeSignature {
-                    numerator: numerator as u8,
-                    denominator: denominator as u8,
-                };
-            });
+            doc.set_time_signature(numerator, denominator, Some("meter"));
         }
         ui.separator();
 

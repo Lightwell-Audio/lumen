@@ -43,6 +43,7 @@ impl Launch {
             bench_size: None,
             autoplay: None,
             save_as: None,
+            scripted_dialogs: true,
         }
     }
 
@@ -115,6 +116,11 @@ impl App {
 
     pub fn playhead(&self) -> Ticks {
         self.transport.state().ticks
+    }
+
+    /// Where the playhead is drawn: smoothed while playing (`playhead.rs`).
+    pub fn drawn_playhead(&self) -> Ticks {
+        self.transport.playhead()
     }
 
     /// What the test device has played since the last call, as (left,
@@ -244,6 +250,14 @@ impl App {
         self.document.history().undo_label()
     }
 
+    /// Answers the next file dialog with `paths`, as if the user chose
+    /// them (a dialog with no answer given is cancelled).
+    pub fn answer_next_dialog(&mut self, paths: Vec<PathBuf>) {
+        if let Some(answers) = &mut self.dialog_answers {
+            answers.push_back(paths);
+        }
+    }
+
     /// Saves to `path`, as Save does once its dialog has a path.
     pub fn save_to(&mut self, path: PathBuf) {
         self.start_save(path);
@@ -284,6 +298,12 @@ impl App {
     /// The changed shortcuts the settings file will keep, by command id.
     pub fn saved_shortcuts(&self) -> std::collections::BTreeMap<String, Vec<String>> {
         self.settings.commands.shortcuts.clone()
+    }
+
+    /// The project as Save writes it: the document with the view stamped
+    /// in (zoom, scroll, panels, grid, track heights).
+    pub fn project_as_saved(&self) -> Project {
+        self.stamped()
     }
 
     /// The pane whose anchor has the keyboard (F6), by name.

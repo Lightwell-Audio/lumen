@@ -87,10 +87,7 @@ impl Catalog {
                 let mut details = Vec::new();
                 let list = match audio::backend(&driver) {
                     None => Err(format!("{driver} is not available here")),
-                    Some(_) if driver == "asio" => Ok(audio::listed(
-                        &driver,
-                        audio::backend(&driver).expect("checked"),
-                    )),
+                    Some(make) if driver == "asio" => Ok(audio::listed(&driver, make)),
                     Some(make) => {
                         let devices = make().devices();
                         let list = devices
@@ -164,7 +161,11 @@ fn row(ui: &mut Ui, label: &str, contents: impl FnOnce(&mut Ui)) {
             egui::Layout::right_to_left(egui::Align::Center),
             |ui| {
                 ui.set_min_size(egui::vec2(LABEL_WIDTH, 20.0));
-                ui.label(RichText::new(label).weak());
+                // A row without a heading has no label at all: an empty
+                // one is a nameless node for screen readers (slice 8).
+                if !label.is_empty() {
+                    ui.label(RichText::new(label).weak());
+                }
             },
         );
         ui.add_space(8.0);

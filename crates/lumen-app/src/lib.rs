@@ -48,6 +48,7 @@ mod media;
 mod motion;
 mod owner;
 mod panels;
+mod playhead;
 mod position;
 mod probe;
 mod ruler;
@@ -90,6 +91,9 @@ pub struct App {
     toast: Option<(String, Instant)>,
     /// File work in progress (slice 3c): a dialog, a save or an open.
     dialog: Option<std::sync::mpsc::Receiver<FileDialog>>,
+    /// In tests, the answers file dialogs give instead of showing (`None`:
+    /// real dialogs).
+    dialog_answers: Option<std::collections::VecDeque<Vec<PathBuf>>>,
     saving: Option<std::sync::mpsc::Receiver<Result<files::Saved, String>>>,
     opening: Option<std::sync::mpsc::Receiver<Result<files::Opened, String>>>,
     /// What to do once unsaved changes are dealt with.
@@ -262,10 +266,7 @@ impl eframe::App for App {
         if self.rebind.is_some() {
             return;
         }
-        let window = self.shortcuts.open
-            || self.transport.settings_window.open
-            || self.show_history
-            || self.prompt.is_some();
+        let window = self.window_open();
         let focused = ctx.memory(|m| m.focused().is_some());
         if ctx.text_edit_focused() || (window && focused) {
             return;
@@ -298,6 +299,7 @@ impl eframe::App for App {
             self.owner = owner::Owner::of(frame);
         }
         let ctx = ui.ctx().clone();
+        self.transport.advance_playhead(ctx.input(|i| i.time));
         self.follow_file_drag(&ctx);
         if let Some(test) = self.crash_test {
             crash::fail(test);
@@ -307,6 +309,9 @@ impl eframe::App for App {
         self.transport.update();
         self.capture_chord(&ctx);
         self.command_keys(&ctx);
+        if std::mem::take(&mut self.arrangement.import_requested) {
+            self.run(&ctx, commands::Command::ImportAudio);
+        }
         self.poll_files(&ctx);
         self.autosave(&ctx);
         let rate = self.transport.state().sample_rate;
@@ -621,6 +626,7 @@ impl App {
             arrangement: arrangement::Arrangement::default(),
             toast: None,
             dialog: None,
+            dialog_answers: launch.scripted_dialogs.then(Default::default),
             saving: None,
             opening: None,
             prompt: None,
