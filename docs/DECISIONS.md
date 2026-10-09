@@ -23,7 +23,7 @@ irreversible or external) · *Superseded*.
 | [0009](#adr-0009--time-base) | Time base: integer ticks at 1,411,200 PPQ | **Accepted** 2026-10-05 | — |
 | [0010](#adr-0010--real-time-safety-is-enforced-by-tests) | Real-time safety enforced by tests | Accepted | No |
 | [0011](#adr-0011--benchmarks-and-performance-gates) | Benchmarks and performance gates | Accepted | No |
-| [0012](#adr-0012--lumens-own-license) | Lumen's own license | **Accepted** 2026-10-05: closed source (proprietary) | — |
+| [0012](#adr-0012--lumens-own-license) | Lumen's own license | **Superseded** 2026-10-09 by ADR-0039 (was: closed source) | — |
 | [0013](#adr-0013--dependency-license-policy) | Dependency license policy | Accepted | No |
 | [0015](#adr-0015--shifttab-conflict) | Shift+Tab: detail panel versus backward focus | **Open** (decide with the shortcut system, M3) | Yes |
 | [0016](#adr-0016--wasapi-coreaudio-and-linux-backends) | WASAPI through the `wasapi` crate; CoreAudio and ALSA through cpal | Accepted 2026-10-06 | No |
@@ -48,6 +48,8 @@ irreversible or external) · *Superseded*.
 | [0035](#adr-0035--the-mixer-graph-m4-slice-1) | The mixer graph (M4 slice 1): a node per track with a stereo bus, compiled on the UI side into a flat ordered plan, swapped at a block edge with levels carried by id; plans of a new shape crossfade over 5 ms | Accepted 2026-10-09 | No |
 | [0036](#adr-0036--routing-in-the-model-format-v7) | Routing in the model (format v7): a master track kept apart from the tracks, outputs, sends, polarity, trim and the pan law; one routing rule shared by validation, edits and the engine | Accepted 2026-10-09 | No |
 | [0037](#adr-0037--group-tracks-format-v8) | Group tracks (format v8): a group's tracks always follow it in the list; grouping, ungrouping, folding, nested rails, lane bars, arming and deleting a group | Accepted 2026-10-09 | No |
+| [0038](#adr-0038--mute-solo-returns-master-and-cue-m4-slice-4-format-v10) | Mute, solo, returns, master and cue (format v10) | Accepted 2026-10-09 | No |
+| [0039](#adr-0039--lumens-licence-gpl-30-or-later-supersedes-adr-0012) | Lumen's licence: GPL-3.0-or-later, sold packaged binaries (supersedes ADR-0012) | Accepted 2026-10-09 | Yes (owner items) |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -56,7 +58,7 @@ irreversible or external) · *Superseded*.
 
 | Question | Decision |
 |---|---|
-| Lumen's licence (ADR-0012) | Closed source (proprietary). Can be relicensed later by the owner. |
+| Lumen's licence (ADR-0039) | GPL-3.0-or-later, open source; the signed packaged binary is sold. Supersedes ADR-0012 (closed source). |
 | ASIO licensing (ADR-0006) | Sign Steinberg's free proprietary ASIO SDK agreement. Owner action; required before any distribution. |
 | UI (ADR-0002) | Lumen owns its rendering: a toolkit-independent `lumen-render` (wgpu instanced pipelines for dense content, Vello for vector graphics). The host (egui or a custom winit shell) is chosen after P-RENDER measures both. **Slint dropped** (2026-10-06): it tessellates shapes much as egui does, is harder to combine with custom GPU drawing, and needs a licence notice. Lyon rejected: CPU tessellation is the measured bottleneck. |
 | Engine, plugins, project format (ADR-0001, 0003, 0004, 0005, 0009) | Approved as recommended. |
@@ -668,7 +670,7 @@ The choices for shipping:
 1. **Sign the free proprietary ASIO SDK agreement** (recommended if Lumen is
    closed-source or permissively licensed). The native Rust host is written
    against the SDK's interface definitions under that agreement.
-2. Use the **GPLv3 option**. Only possible if Lumen itself is GPLv3 (ADR-0012).
+2. Use the **GPLv3 option**. Only possible if Lumen itself is GPLv3 (ADR-0039, now true; the SDK's current terms still need confirming).
 3. Ship **clean-room interface definitions without the SDK**. Legally plausible
    (interoperability) but needs legal review; trademark rules still apply.
 
@@ -879,7 +881,7 @@ builds.
 
 ## ADR-0012 — Lumen's own license
 
-**Status:** Accepted 2026-10-05 by the owner: closed source (proprietary); can be relicensed later. The options below are kept as context.
+**Status:** Superseded 2026-10-09 by ADR-0039 (GPL-3.0-or-later). Was: accepted 2026-10-05 as closed source (proprietary). The options below are kept as context.
 
 `CLAUDE.md` does not state Lumen's licence. It decides:
 - the ASIO path (ADR-0006): GPLv3 is only possible if Lumen is GPLv3;
@@ -3021,3 +3023,46 @@ fader and mute, the metronome on the cue pair).
   every frame and never added up. The few points of egui's drag threshold
   now count too.
 
+
+---
+
+## ADR-0039 — Lumen's licence: GPL-3.0-or-later (supersedes ADR-0012)
+
+**Status:** Accepted · **Date:** 2026-10-09 · Owner decision. Supersedes ADR-0012.
+
+**Context.** The owner wants Lumen to be open source, with the signed, packaged binary sold. ADR-0012 kept the licence open while the code was closed. ADR-0006 records that the Steinberg ASIO SDK's GPLv3 option is only possible if Lumen is GPLv3. ADR-0013 keeps dependencies permissive-only, with recorded exceptions (symphonia under MPL-2.0, OFL fonts). The VST3 SDK is MIT (ADR-0005). Every commit so far is by the owner, so the owner holds the copyright and can still offer another licence later.
+
+**Options.**
+
+| Licence | Can sell binaries | Forks must stay open | Notes |
+|---|---|---|---|
+| GPL-3.0-or-later | Yes | Yes | The GPL family is used this way by Blender and Ardour. Enables the ASIO GPLv3 route. Conflicts with Mac App Store terms. |
+| MPL-2.0 | Yes | Changed files only | Competitors can keep most of their code closed. Weaker protection. |
+| Apache-2.0 or MIT | Yes | No | Anyone can close the code and resell it. |
+| FSL-1.1 (source-available) | Yes, except competing use | No | Not OSI open source. Converts to Apache-2.0 after two years. Closes the ASIO GPL route. |
+| Dual licence (GPL plus a paid commercial licence) | Yes | Yes | Needs a contributor agreement before outside contributions. Kept open as an option. |
+
+**Choice.** GPL-3.0-or-later. The text is in `LICENSE`. `license` is set once in the workspace (`Cargo.toml`), and every crate inherits it.
+
+**Why.**
+- Anyone who sells a modified Lumen must publish its source under the same licence, so improvements come back to the project.
+- It is the licence the ASIO path needs (ADR-0006).
+- Every current dependency is compatible: permissive licences, MPL-2.0 (symphonia, used unmodified), OFL fonts (bundled with their licence text), and the MIT VST3 SDK.
+- GPLv3 rather than v2, because the Apache-2.0 dependencies are incompatible with GPLv2.
+
+**Consequences.**
+- The product that is sold is the signed installer, updates, support and the name. No licence stops a third party from selling a copy; a GPL copy must come with its source. The name stays protected only if it is registered as a trademark, and no trademark policy is written yet.
+- Every distributed binary must have its source available: publish the tag for the exact commit, with the licence and third-party notices, which the installer ships (M10).
+- Dependency policy (ADR-0013) is unchanged. A copyleft dependency still needs a recorded decision.
+- macOS: GPL conflicts with the Mac App Store terms. Sell macOS builds directly or through Steam, not the Mac App Store, unless a legal review says otherwise.
+- Outside contributions: before accepting one, add a Developer Certificate of Origin sign-off to the workflow. Ask for a contributor licence agreement only if dual licensing is needed later.
+- Making the repository public is a separate owner action. The repository is private and nothing has been published, so there are no earlier grants to revoke.
+
+**Open items (owner).**
+1. Trademark clearance search for "Lumen" in software classes. Lumen Technologies is a large registrant.
+2. Trademark policy for the name and logo: forks must use another name.
+3. ASIO: confirm the SDK's current licence text allows the GPLv3 option, and follow its trademark rules. Check `crates/lumen-audio/src/asio/ffi.rs` against the SDK's headers before publishing.
+4. VST: the VST trademark notice is needed. The MIT licence covers the SDK code, not the name.
+5. One commit uses a second author email (`andrewl913@yahoo.com`). Decide whether to rewrite history before publishing. Not done.
+6. Code-signing certificates and release secrets stay outside the repository.
+7. Make the repository public and publish a release only after items 1 to 6. Not done.

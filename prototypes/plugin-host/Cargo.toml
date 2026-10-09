@@ -2,6 +2,7 @@
 name = "plugin-host"
 description = "P-HOST prototype: a real VST3 processing audio, with state save/restore, inside an isolated host process"
 version.workspace = true
+license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true

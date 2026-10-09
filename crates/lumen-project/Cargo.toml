@@ -2,6 +2,7 @@
 name = "lumen-project"
 description = "Project document model and the versioned, crash-safe .lumen file format"
 version.workspace = true
+license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true

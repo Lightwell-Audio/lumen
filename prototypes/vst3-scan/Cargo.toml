@@ -2,6 +2,7 @@
 name = "vst3-scan"
 description = "P-VST3 prototype: out-of-process VST3 scanning with a moduleinfo.json fast path"
 version.workspace = true
+license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true

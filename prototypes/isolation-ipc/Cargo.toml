@@ -2,6 +2,7 @@
 name = "isolation-ipc"
 description = "P-ISO prototype: shared-memory plugin-host transport, crash and hang survival"
 version.workspace = true
+license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
