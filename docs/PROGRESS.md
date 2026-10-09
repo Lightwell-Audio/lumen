@@ -23,8 +23,12 @@ master and cue, is built** (ADR-0038, format v10): the owner's solo rules
 as a pure function with their 14 cases, hollow M and S, the transport's S
 chip, additive solo; returns lettered and pinned with the master at the
 bottom; comet send knobs; cue to a second output pair and the metronome's
-output (the owner's O1). MT-MIX-4 waits for the owner
-([milestones/M4.md](milestones/M4.md)).
+output (the owner's O1). Runs 1 to 5 added, from mock-ups, knobs that
+step up on selected rows, a "+N ▾" list of every send, a return's
+senders (its four loudest, then "+N more"; silent ones leave), at most 12
+returns, and fixed a silent floor of −80 dB, overlapping live values,
+rows that swapped and slow drags stuck at −∞. **MT-MIX-4 passed; slice 4
+is done** ([milestones/M4.md](milestones/M4.md)).
 **Previous:** M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
@@ -36,7 +40,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 1 | Foundations & Architecture | ✅ Complete | Plan and risk register in `docs/milestones/M1.md` |
 | 2 | Audio Engine, Devices & Transport | ✅ Complete, approved 2026-10-07 | Plan: `docs/milestones/M2.md` |
 | 3 | Arrangement & Project System | ✅ Complete, approved 2026-10-09 | Plan: `docs/milestones/M3.md` |
-| 4 | Mixer, Routing & Groups | 🟡 In progress (slices 0–4 built, slice 3 done; MT-MIX-4 waits) | Plan: `docs/milestones/M4.md` |
+| 4 | Mixer, Routing & Groups | 🟡 In progress (slices 0–4 built; slices 3 and 4 done) | Plan: `docs/milestones/M4.md` |
 | 5 | MIDI & Piano Roll | 🔲 | |
 | 6 | VST3 Hosting & Device System | 🔲 | |
 | 7 | Automation, Envelopes & Advanced Editing | 🔲 | |
@@ -207,7 +211,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 |---|---|---|---|
 | Channel strip: input gain, polarity, devices, pre/post sends, fader, pan law, mute, solo, cue, output | M | 🟡 In the engine (M4 slice 1, ADR-0035): input trim, polarity, mute, pre- and post-fader sends, volume and pan with four pan laws (−3 dB constant power by default), output to a node or a device pair, all gliding over 20 ms. Saved and undoable in the model (slice 2, format v7, ADR-0036). Slice 4 (ADR-0038): sends set from comet knobs on the headers (pre/post from their menu), mute and solo by the agreed rules, cue before the fader to a second output pair. Input trim, polarity, output and the strip itself in the mixer panel (slice 5) | 4 |
 | Returns, groups, master, sidechain from any track, hardware output routing | M | 🟡 The engine graph sums groups (nested), returns and a master and routes to device pairs (slice 1); a track in a group plays into it. A master track in every project, outputs and sends in the model, loops refused (slice 2, ADR-0036); grouping built (slice 3, ADR-0037); returns and the master pinned at the bottom of the arrangement with sends on the headers (slice 4, ADR-0038). Output choices in the mixer panel (slice 5), sidechain (slice 6) | 4 |
-| Solo keeps soloed paths audible; exclusive-solo option | M | 🟡 Built (M4 slice 4, ADR-0038): the owner's 14 cases as one pure function (`lumen_project::solo`) and its tests: a soloed path stays open, mute beats solo, returns are solo-safe, a soloed return plays wet only. Exclusive by default (Ableton), additive as a preference; hollow M and S show why a track is silent or heard; the transport's S chip clears every solo. MT-MIX-4 waits for the owner | 4 |
+| Solo keeps soloed paths audible; exclusive-solo option | M | 🟡 Built (M4 slice 4, ADR-0038): the owner's 14 cases as one pure function (`lumen_project::solo`) and its tests: a soloed path stays open, mute beats solo, returns are solo-safe, a soloed return plays wet only. Exclusive by default (Ableton), additive as a preference; hollow M and S show why a track is silent or heard; the transport's S chip clears every solo. MT-MIX-4 passed | 4 |
 | Automatic plugin delay compensation with indicator | M | 🔲 | 4, 6 |
 | Peak (hold, clip), RMS; master LUFS and true peak | M | 🔲 | 4 |
 | Dockable mixer panel; inline fader, pan and meter on track headers | M | 🔲 | 4 |

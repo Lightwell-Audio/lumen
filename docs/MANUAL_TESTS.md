@@ -1481,3 +1481,7 @@ drag now keeps its own position from where it was pressed: 16 points up
 from −∞ gives about −42 dB, 32 about −28 dB (E2E
 `a_slow_drag_turns_a_silent_send_up` stayed at −∞ before the fix).
 
+**Passed (2026-10-09, owner):** "looks good now". Step 9's cue on a
+four-output interface is still to be tried by hand (KNOWN_ISSUES); cue is
+checked by E2E on the four-output test device.
+

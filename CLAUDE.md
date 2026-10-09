@@ -444,9 +444,20 @@ the bottom (`arrangement/pinned.rs`; returns keep any list order);
 `widgets/knob.rs` and `arrangement/sends.rs` are the comet sends (tracks
 with sends unfold five steps); `app/cue.rs` lends the cue settings to the
 headers. The owner's Focusrite has two outputs: cue is verified on the
-four-output test device (`App::heard_all`). MT-MIX-4 waits for the owner.
-Next: slice 5 (the mixer panel and meters), with specimens first; it
-also owns the wheel on value controls and output choices (KNOWN_ISSUES). The owner's drag-to-cut request is recorded for M7
+four-output test device (`App::heard_all`). MT-MIX-4 runs 1–5 (ADR-0038
+amendments): knobs step up on selected rows (C4); a "+N ▾" list of every
+send (O1); an unfolded return lists its four loudest senders, then
+"+N more" (R2, L4), silent ones leaving when let go (S1); at most 12
+returns (`mixer::MAX_RETURNS`); a knob drag keeps its own travel in
+widget memory (slow drags from −∞ were lost); a knob's live value is a
+chip above it, none in lists; senders re-sort only when one joins or
+leaves. The owner keeps the standard +6 dB of an empty return. **MT-MIX-4
+passed; slice 4 is done** (2026-10-09). Next: slice 5 (the mixer panel
+and meters), with specimens first; it also owns the wheel on value
+controls and output choices (KNOWN_ISSUES). The owner asks for mock-ups
+before any visual change, bug fixes included, and checks findings fast:
+run the full suite before every push (a push once went out with two
+failing E2E tests). The owner's drag-to-cut request is recorded for M7
 with split (the M3 plan, out of scope).
 
 **Status**
