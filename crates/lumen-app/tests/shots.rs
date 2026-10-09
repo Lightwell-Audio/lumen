@@ -459,6 +459,18 @@ fn menus_and_tips_looking(appearance: &str, scale: f32) {
     click(&mut h, pos(a, 0.5, 0.3));
     right(&mut h, pos(a, 0.5, 0.3));
     save(&mut h, "menu-clip");
+    // A row under the pointer: its keycaps inside the highlight.
+    let copy = h.get_by_label_contains("Copy").rect().center();
+    h.hover_at(copy);
+    save(&mut h, "menu-clip-hover");
+    h.key_press(Key::Escape);
+    h.run_steps(3);
+    // The empty lanes' menu, on "Snap to grid", which is on (the owner's
+    // screenshot: a lit toggle's keycaps sat off).
+    right(&mut h, pos(a, 4.0, 0.5));
+    let snap = h.get_by_label("Snap to grid Ctrl+4").rect().center();
+    h.hover_at(snap);
+    save(&mut h, "menu-lanes-hover");
     h.key_press(Key::Escape);
     h.run_steps(3);
     // The ruler's view menu.

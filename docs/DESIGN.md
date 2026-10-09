@@ -543,6 +543,13 @@ Chosen by the owner from rendered specimens (Ableton's split):
   shows or hides the detail panel everywhere else (the owner's choice,
   ADR-0015).
 
+**Keycap alignment (owner, 2026-10-09).** Keycaps keep the light's room
+above them as well as below, so any layout that centres them centres the
+caps and the light hangs below. In a menu row the highlight reaches a
+little past the row, so the label and the keycaps sit equally far in from
+its edges; on a highlighted row the key's outline and the modifier caps
+step up (`theme::controls(true)`), or they vanish into the highlight.
+
 ## 8. Key flows
 
 Each flow lists its steps, its keyboard path and its feedback. Flows marked

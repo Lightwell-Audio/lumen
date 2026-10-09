@@ -23,7 +23,9 @@ pub struct Keys {
 }
 
 /// Keycaps laid out: each cap's text, whether it is the main key, and the
-/// whole size.
+/// whole size. The size keeps the light's room above the caps as well as
+/// below, so whatever centres keycaps centres the caps themselves and the
+/// light hangs below (the owner: shortcuts sat high in menu rows).
 struct Caps {
     caps: Vec<(std::sync::Arc<egui::Galley>, bool)>,
     cap_height: f32,
@@ -61,12 +63,16 @@ fn lay_out_caps(ui: &Ui, modifiers: &[&str], key: Option<&str>) -> Caps {
     Caps {
         caps,
         cap_height,
-        size: vec2(width, cap_height + KEY_LIGHT_ROOM),
+        size: vec2(width, cap_height + 2.0 * KEY_LIGHT_ROOM),
     }
 }
 
-fn paint_caps(painter: &Painter, ppp: f32, caps: Caps, at: Pos2, light: Color32) {
+/// Paints `caps` in the room laid out for them, its top left at `at`. On a
+/// `lit` surface (a highlighted menu row) the key's outline steps up, as
+/// controls do on selected rows, or it would vanish into the highlight.
+fn paint_caps(painter: &Painter, ppp: f32, caps: Caps, at: Pos2, light: Color32, lit: bool) {
     let palette = theme::p();
+    let at = at + vec2(0.0, KEY_LIGHT_ROOM);
     let mut x = at.x;
     for (galley, main) in caps.caps {
         let cap = Rect::from_min_size(
@@ -78,7 +84,14 @@ fn paint_caps(painter: &Painter, ppp: f32, caps: Caps, at: Pos2, light: Color32)
             painter.rect_stroke(
                 cap,
                 theme::radius::SMALL,
-                Stroke::new(1.0, palette.border_strong),
+                Stroke::new(
+                    1.0,
+                    if lit {
+                        palette.text_secondary
+                    } else {
+                        palette.border_strong
+                    },
+                ),
                 egui::StrokeKind::Inside,
             );
             let bar = Rect::from_min_max(
@@ -89,7 +102,7 @@ fn paint_caps(painter: &Painter, ppp: f32, caps: Caps, at: Pos2, light: Color32)
             painter.rect_filled(bar.expand(1.5), 2.0, light.gamma_multiply(0.3));
             painter.rect_filled(bar, 1.0, light);
         } else {
-            painter.rect_filled(cap, theme::radius::SMALL, palette.control);
+            painter.rect_filled(cap, theme::radius::SMALL, theme::controls(lit).fill);
         }
         painter.galley(cap.center() - galley.size() / 2.0, galley, palette.text);
         x = cap.right() + theme::space::XS;
@@ -105,7 +118,14 @@ pub fn keycaps(ui: &mut Ui, modifiers: &[&str], key: &str, light: Color32) -> eg
     let caps = lay_out_caps(ui, modifiers, Some(key));
     let (rect, response) = ui.allocate_exact_size(caps.size, Sense::click());
     if ui.is_rect_visible(rect) {
-        paint_caps(ui.painter(), ui.pixels_per_point(), caps, rect.min, light);
+        paint_caps(
+            ui.painter(),
+            ui.pixels_per_point(),
+            caps,
+            rect.min,
+            light,
+            false,
+        );
     }
     response
 }
@@ -123,8 +143,9 @@ pub fn modifier_caps(ui: &mut Ui, modifiers: &[&str]) -> egui::Response {
             ui.painter(),
             ui.pixels_per_point(),
             caps,
-            rect.min + vec2(0.0, KEY_LIGHT_ROOM / 2.0),
+            rect.min,
             Color32::TRANSPARENT,
+            false,
         );
     }
     response
@@ -150,9 +171,14 @@ impl Keys {
         let caps = lay_out_caps(ui, &self.modifiers, Some(self.key));
         let (rect, _) = ui.allocate_exact_size(caps.size, Sense::hover());
         if ui.is_rect_visible(rect) {
-            // The cap, not cap and light, centred on the row's words.
-            let at = rect.min + vec2(0.0, KEY_LIGHT_ROOM / 2.0);
-            paint_caps(ui.painter(), ui.pixels_per_point(), caps, at, self.light);
+            paint_caps(
+                ui.painter(),
+                ui.pixels_per_point(),
+                caps,
+                rect.min,
+                self.light,
+                false,
+            );
         }
     }
 }
@@ -195,10 +221,12 @@ fn menu_row(
     );
     let caps = keys.map(|k| lay_out_caps(ui, &k.modifiers, Some(k.key)));
     let pad = ui.spacing().button_padding;
-    let caps_width = caps
-        .as_ref()
-        .map_or(0.0, |c| c.size.x + 2.0 * theme::space::M);
-    let height = galley.size().y.max(caps.as_ref().map_or(0.0, |c| c.size.y)) + 2.0 * pad.y;
+    let caps_width = caps.as_ref().map_or(0.0, |c| c.size.x + theme::space::M);
+    // Every row is as tall as one with keycaps, light included, with room
+    // above and below, so rows with and without shortcuts line up and the
+    // light stays well inside the highlight.
+    let keyed = lay_out_caps(ui, &[], Some("X")).size.y;
+    let height = galley.size().y.max(keyed) + 2.0 * pad.y.max(theme::space::XS / 2.0);
     // A menu is sized in a first pass from what its rows need; only after
     // that does a row fill the menu's width, so the keycaps line up at its
     // right edge without stretching the menu.
@@ -222,12 +250,17 @@ fn menu_row(
         .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, on, &name));
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
+        // The highlight reaches a little past the row on both sides, so the
+        // label and the keycaps sit equally far in from its edges (the
+        // owner: the keycaps sat against its right edge).
+        let highlight = rect.expand2(vec2(theme::space::XS, 0.0));
+        let hovered = enabled && (response.hovered() || response.has_focus());
         if on {
-            painter.rect_filled(rect, theme::radius::SMALL, palette.accent_muted);
+            painter.rect_filled(highlight, theme::radius::SMALL, palette.accent_muted);
         }
-        if enabled && (response.hovered() || response.has_focus()) {
+        if hovered {
             painter.rect_filled(
-                rect,
+                highlight,
                 theme::radius::SMALL,
                 ui.visuals().widgets.hovered.weak_bg_fill,
             );
@@ -242,7 +275,14 @@ fn menu_row(
                 rect.right() - pad.x - caps.size.x,
                 rect.center().y - caps.size.y / 2.0,
             );
-            paint_caps(painter, ui.pixels_per_point(), caps, at, k.light);
+            paint_caps(
+                painter,
+                ui.pixels_per_point(),
+                caps,
+                at,
+                k.light,
+                on || hovered,
+            );
         }
     }
     if response.clicked() && toggle.is_none() {
