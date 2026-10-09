@@ -10,6 +10,10 @@ use lumen_project::model::{Id, Level, Output, Project, Send, Track, TrackKind};
 
 use super::Document;
 
+/// A project holds at most this many return tracks (the owner, MT-MIX-4
+/// run 2): letters A to L.
+pub const MAX_RETURNS: usize = 12;
+
 /// Send levels, in dB: from silence to +6 dB.
 pub const SEND_MAX_DB: f32 = 6.0;
 /// Input trim, in dB.
@@ -24,6 +28,8 @@ pub enum Refused {
     Loop,
     /// Groups would go deeper than `groups::MAX_NESTING` (M4 slice 3).
     TooDeep,
+    /// More than [`MAX_RETURNS`] return tracks.
+    TooManyReturns,
 }
 
 impl Refused {
@@ -33,6 +39,7 @@ impl Refused {
             Refused::Invalid => "That cannot go there",
             Refused::Loop => "That would feed the audio back into itself",
             Refused::TooDeep => "Groups go three deep at most",
+            Refused::TooManyReturns => "A project holds 12 return tracks at most",
         }
     }
 }
@@ -330,5 +337,31 @@ mod tests {
         doc.undo();
         assert_eq!(track(&doc, ids[0]).trim_db, 0.0);
         assert_eq!(doc.project().pan_law, PanLaw::ConstantPower);
+    }
+
+    #[test]
+    fn a_project_holds_twelve_returns_at_most() {
+        // MT-MIX-4 run 2 (owner).
+        let mut doc = Document::new(crate::empty_project());
+        let first = doc.add_track(TrackKind::Return, None);
+        for _ in 1..MAX_RETURNS {
+            doc.add_track(TrackKind::Return, None);
+        }
+        assert!(doc.returns_full());
+        let tracks = doc.project().tracks.len();
+        doc.add_track(TrackKind::Return, None);
+        assert_eq!(
+            doc.project().tracks.len(),
+            tracks,
+            "a thirteenth is refused"
+        );
+        assert!(doc.duplicate_tracks(&[first]).is_empty(), "nor duplicated");
+        assert_eq!(doc.project().tracks.len(), tracks);
+        let audio = doc.add_track(TrackKind::Audio, None);
+        assert_eq!(
+            doc.duplicate_tracks(&[first, audio]).len(),
+            1,
+            "the audio track is"
+        );
     }
 }

@@ -140,8 +140,20 @@ impl Arrangement {
             (TrackKind::Return, "Add return track", None),
         ] {
             let keys = command.and_then(|c| keymap.keys(c));
-            if widgets::menu_item(ui, text, keys.as_ref(), true).clicked() {
-                self.selected = vec![doc.add_track(kind, after)];
+            let full = kind == TrackKind::Return && doc.returns_full();
+            let item = widgets::menu_item(ui, text, keys.as_ref(), !full);
+            let item = if full {
+                item.on_disabled_hover_text("A project holds 12 return tracks at most")
+            } else {
+                item
+            };
+            if item.clicked() {
+                if kind == TrackKind::Return {
+                    // After the last return, shown even if folded away.
+                    self.add_track(doc, kind);
+                } else {
+                    self.selected = vec![doc.add_track(kind, after)];
+                }
             }
         }
     }

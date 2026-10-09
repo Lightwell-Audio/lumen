@@ -1433,3 +1433,13 @@ fader, which can sound louder than the fader says. Fixed and built
     send here yet". Turn a send to the bottom: it reads −∞ and the track
     is exactly as loud as with no send.
 
+**Run 2 (2026-10-09, owner):** five findings. (1) A return's sender list
+does not fit many senders; (2) its knobs touch each other (20 pt knobs
+with hover rings on 22 pt rows, every one ringed while the return is
+hovered); (3) senders turned off stay listed; (4) cap returns at 12
+(built: the menu greys the item, Ctrl+D copies no return past twelve, a
+note says why); (5) a 0 dB send to an empty return still makes the track
+louder: explained again (+6 dB, the return plays a copy until it holds an
+effect, as in every DAW), options offered. Mock-ups for 1 to 3 shown
+before building.
+

@@ -186,6 +186,14 @@ impl Document {
             // One master per project, kept apart from the tracks.
             TrackKind::Master => return self.project().master.id,
         };
+        if kind == TrackKind::Return && self.returns_full() {
+            // Callers check first (the menu is greyed); nothing changes.
+            let last = self.project().tracks.iter().rev();
+            return last
+                .clone()
+                .find(|t| t.kind == TrackKind::Return)
+                .map_or(self.project().master.id, |t| t.id);
+        }
         self.history.apply(label, None, |project| {
             let number = project.tracks.iter().filter(|t| t.kind == kind).count() + 1;
             let after = after.and_then(|a| project.tracks.iter().position(|t| t.id == a));
@@ -208,6 +216,12 @@ impl Document {
         id
     }
 
+    /// Whether the project holds as many return tracks as it can.
+    pub fn returns_full(&self) -> bool {
+        let returns = self.project().tracks.iter();
+        returns.filter(|t| t.kind == TrackKind::Return).count() >= mixer::MAX_RETURNS
+    }
+
     /// Deletes tracks, and everything inside the groups among them (as in
     /// Ableton; ungrouping keeps a group's tracks). Their clips go with
     /// them; their media stays in the project (the media pool, M9).
@@ -226,7 +240,29 @@ impl Document {
     /// after its original; a group comes with everything inside it.
     /// Returns the copies' ids (the groups', not what is inside them).
     pub fn duplicate_tracks(&mut self, ids: &[Id]) -> Vec<Id> {
-        let heads = lumen_project::groups::outermost(&self.project().tracks, ids);
+        let mut heads = lumen_project::groups::outermost(&self.project().tracks, ids);
+        // Returns past the cap are not copied.
+        let tracks = &self.project().tracks;
+        let mut room = mixer::MAX_RETURNS.saturating_sub(
+            tracks
+                .iter()
+                .filter(|t| t.kind == TrackKind::Return)
+                .count(),
+        );
+        heads.retain(|id| {
+            let is_return = tracks
+                .iter()
+                .any(|t| t.id == *id && t.kind == TrackKind::Return);
+            if !is_return {
+                return true;
+            }
+            let fits = room > 0;
+            room = room.saturating_sub(1);
+            fits
+        });
+        if heads.is_empty() {
+            return Vec::new();
+        }
         let tracks = self.project().tracks.clone();
         let runs = groups::copy_runs(&tracks, &heads, || self.fresh_id());
         let new_ids: Vec<Id> = runs

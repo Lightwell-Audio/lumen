@@ -665,6 +665,10 @@ impl Arrangement {
     /// return goes after the last return (they are drawn pinned at the
     /// bottom) and shows the returns if they were folded away.
     pub(crate) fn add_track(&mut self, doc: &mut Document, kind: TrackKind) {
+        if kind == TrackKind::Return && doc.returns_full() {
+            self.note = Some(crate::document::Refused::TooManyReturns.reason());
+            return;
+        }
         let after = if kind == TrackKind::Return {
             let tracks = &doc.project().tracks;
             tracks
@@ -722,8 +726,25 @@ impl Arrangement {
 
     /// Duplicates the selected tracks and selects the copies.
     pub(crate) fn duplicate_selected(&mut self, doc: &mut Document) {
-        if !self.selected.is_empty() {
-            self.selected = doc.duplicate_tracks(&self.selected);
+        if self.selected.is_empty() {
+            return;
+        }
+        let copies = doc.duplicate_tracks(&self.selected);
+        let returns = |ids: &[Id]| {
+            let tracks = &doc.project().tracks;
+            ids.iter()
+                .filter(|id| {
+                    tracks
+                        .iter()
+                        .any(|t| t.id == **id && t.kind == TrackKind::Return)
+                })
+                .count()
+        };
+        if copies.len() < self.selected.len() && returns(&self.selected) > 0 {
+            self.note = Some(crate::document::Refused::TooManyReturns.reason());
+        }
+        if !copies.is_empty() {
+            self.selected = copies;
         }
     }
 
