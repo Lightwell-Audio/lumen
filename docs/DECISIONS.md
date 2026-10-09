@@ -2833,3 +2833,13 @@ a tone heard through two groups and silenced by the outer mute).
   contents already followed the column's width. The known issue about
   short names is closed.
 - Performance gate unchanged (`project_parse` −0.04%).
+- **Deleting a track from its right-click menu crashed Lumen** (owner,
+  after run 1). The header column lays out its rows at the start of a
+  frame, and a header's menu deletes tracks partway through drawing them;
+  later rows (and the dimming of dragged tracks) still indexed the old
+  list. `headers.rs` now remembers the track each row was laid out for and
+  skips rows whose track is no longer in its place for the rest of that
+  frame, and a drag does not follow stale rows. E2E
+  `deleting_any_kind_of_track_from_its_menu_or_by_key_never_crashes`
+  (audio, MIDI, group with a track inside, and return; from the menu and
+  by key; undo restores all) failed with the crash before the fix.

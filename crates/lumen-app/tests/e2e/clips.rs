@@ -271,22 +271,6 @@ fn a_range_on_two_tracks_cuts_and_pastes_as_one_step_each() {
     assert_eq!((a, tracks.len()), (Ticks(2 * BAR), 2));
 }
 
-/// Right-clicks at `p`.
-fn right_click(lumen: &mut Lumen, p: Pos2) {
-    lumen.harness.hover_at(p);
-    lumen.frames(1);
-    for pressed in [true, false] {
-        lumen.harness.event(eframe::egui::Event::PointerButton {
-            pos: p,
-            button: eframe::egui::PointerButton::Secondary,
-            pressed,
-            modifiers: Modifiers::NONE,
-        });
-        lumen.frames(1);
-    }
-    lumen.frames(2);
-}
-
 /// Owner, MT-APP-14 run 2: the menu had grown to 33 rows. Its choice A:
 /// each right-click gets the menu for what it landed on.
 #[test]
@@ -294,7 +278,7 @@ fn each_right_click_gets_the_menu_for_what_it_landed_on() {
     let (mut lumen, kick, snare) = with_two_clips("menus");
     let a = rect(&lumen, kick);
     // A clip: clip edits and properties; no grid, no time edits.
-    right_click(&mut lumen, top_half(a));
+    lumen.right_click(top_half(a));
     assert!(lumen.shows("Rename Ctrl+R") && lumen.shows("Cut Ctrl+X"));
     assert!(!lumen.shows("Delete time Ctrl+Shift+Delete"));
     assert!(!lumen.shows("Narrowest"));
@@ -307,7 +291,7 @@ fn each_right_click_gets_the_menu_for_what_it_landed_on() {
     // Empty lanes: the grid, in a submenu; Paste only once there is
     // something to paste.
     let empty = Pos2::new(a.right() + 300.0, a.center().y);
-    right_click(&mut lumen, empty);
+    lumen.right_click(empty);
     // The ruler's grid button has the same name: the menu adds a second.
     let grids = |lumen: &Lumen| {
         lumen
@@ -325,7 +309,7 @@ fn each_right_click_gets_the_menu_for_what_it_landed_on() {
     // From a beat in (the left edge would trim), snapped to bar 1.
     select_range(&mut lumen, kick, snare, 1.0, 4.0);
     let inside = Pos2::new(a.center().x, a.bottom() - 5.0);
-    right_click(&mut lumen, inside);
+    lumen.right_click(inside);
     assert!(lumen.shows("Delete time Ctrl+Shift+Delete"));
     assert!(!lumen.shows("Rename Ctrl+R"));
 }

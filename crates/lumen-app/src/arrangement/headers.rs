@@ -8,7 +8,7 @@ use eframe::egui::{
     vec2,
 };
 use eframe::emath::GuiRounding as _;
-use lumen_project::model::TrackKind;
+use lumen_project::model::{Id, TrackKind};
 
 use super::nesting::{self, Arm};
 use super::{Arrangement, BUTTON, FOLD_BELOW, FOLDED, MAX_HEIGHT, RowKind, STEP, snap_height};
@@ -139,7 +139,26 @@ impl Arrangement {
         let modifiers = ui.input(|i| i.modifiers);
         let audible = audible(doc.project());
         let mut hot_edge = None;
-        for &row in &rows {
+        // The track each row was laid out for. A header's menu can delete or
+        // move tracks partway through drawing them: rows whose track is no
+        // longer at its place are skipped for the rest of the frame (the
+        // next frame lays them out afresh). Deleting a track from its menu
+        // crashed Lumen before (owner, after MT-MIX-3 run 1).
+        let laid_out: Vec<Option<Id>> = rows
+            .iter()
+            .map(|r| match r.kind {
+                RowKind::Track(i) => doc.project().tracks.get(i).map(|t| t.id),
+                RowKind::Pending(_) => None,
+            })
+            .collect();
+        let still = |doc: &Document, index: usize, row: usize| {
+            doc.project()
+                .tracks
+                .get(index)
+                .filter(|t| Some(t.id) == laid_out[row])
+                .cloned()
+        };
+        for (n, &row) in rows.iter().enumerate() {
             let rect = Rect::from_min_size(
                 pos2(column.left(), column.top() + row.y - self.top),
                 vec2(column.width(), row.height),
@@ -171,7 +190,9 @@ impl Arrangement {
                 );
                 continue;
             };
-            let track = doc.project().tracks[index].clone();
+            let Some(track) = still(doc, index, n) else {
+                continue;
+            };
             let id = EguiId::new(("track header", track.id));
             let selected = self.selected.contains(&track.id);
             let heard = audible(&track);
@@ -443,9 +464,9 @@ impl Arrangement {
             Stroke::new(1.0, palette.border),
         );
         // Dragged tracks are dimmed; the line shows where they will land.
-        for row in &rows {
+        for (n, row) in rows.iter().enumerate() {
             if let RowKind::Track(index) = row.kind
-                && self.is_dragged(doc.project().tracks[index].id)
+                && still(doc, index, n).is_some_and(|t| self.is_dragged(t.id))
             {
                 let rect = Rect::from_min_size(
                     pos2(column.left(), column.top() + row.y - self.top),
@@ -454,7 +475,14 @@ impl Arrangement {
                 painter.rect_filled(rect, 0.0, palette.header.gamma_multiply(0.6));
             }
         }
-        self.follow_drag(ui, column, &rows, content, doc);
+        // A drag follows rows laid out this frame: none if tracks changed.
+        let unchanged = rows.iter().enumerate().all(|(n, row)| match row.kind {
+            RowKind::Track(index) => still(doc, index, n).is_some(),
+            RowKind::Pending(_) => true,
+        });
+        if unchanged {
+            self.follow_drag(ui, column, &rows, content, doc);
+        }
         self.draw_drop_line(&painter, column, true);
     }
 

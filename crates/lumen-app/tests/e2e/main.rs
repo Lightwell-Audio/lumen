@@ -157,6 +157,22 @@ impl Lumen {
         self.frames(1);
     }
 
+    /// Right-clicks at `p`, then lets the app react (a menu opens).
+    pub fn right_click(&mut self, p: egui::Pos2) {
+        self.harness.hover_at(p);
+        self.frames(1);
+        for pressed in [true, false] {
+            self.harness.event(egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: Modifiers::NONE,
+            });
+            self.frames(1);
+        }
+        self.frames(2);
+    }
+
     /// Clicks twice at `p`, quickly, after a pause (so it is not counted
     /// with an earlier double-click).
     pub fn double_click(&mut self, p: egui::Pos2) {

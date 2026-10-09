@@ -2,6 +2,8 @@
 
 use eframe::egui::{Event, Key, Modifiers};
 
+use egui_kittest::kittest::Queryable;
+
 use super::Lumen;
 
 #[test]
@@ -108,4 +110,62 @@ fn tracks_are_renamed_moved_and_deleted() {
     assert_eq!(lumen.track_names(), [before[0].as_str()]);
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(lumen.track_names(), [before[0].as_str(), "Drums"]);
+}
+
+/// Owner, after MT-MIX-3 run 1: deleting a track from its right-click menu
+/// crashed Lumen (the headers went on drawing rows of tracks just
+/// deleted). Every kind of track, from its menu and by key, then undo.
+#[test]
+fn deleting_any_kind_of_track_from_its_menu_or_by_key_never_crashes() {
+    let mut lumen = Lumen::start("delete-kinds");
+    lumen.key(Modifiers::COMMAND, Key::T);
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::T);
+    for kind in ["Add group track", "Add return track"] {
+        lumen.click("Add track");
+        lumen.click(kind);
+    }
+    lumen.key(Modifiers::COMMAND, Key::T);
+    // A group holding the last track, so it has something inside.
+    lumen.key(Modifiers::COMMAND, Key::G);
+    let all = lumen.track_names();
+    assert_eq!(all.len(), 6, "{all:?}");
+
+    // From the menu, the last header first and then from the top, so the
+    // rows after the deleted one are still to be drawn that frame.
+    for name in [
+        all[5].clone(),
+        all[0].clone(),
+        all[1].clone(),
+        all[2].clone(),
+    ] {
+        let header = lumen
+            .harness
+            .get_by_label_contains(&format!("Track {name},"))
+            .rect();
+        lumen.right_click(header.left_center() + eframe::egui::vec2(60.0, 0.0));
+        lumen.click("Delete Delete");
+        assert!(!lumen.track_names().contains(&name), "{name} deleted");
+    }
+    // By key, every track left.
+    while let Some(name) = lumen.track_names().first().cloned() {
+        lumen
+            .harness
+            .get_by_label(&format!("{name}: double-click to rename"))
+            .click();
+        lumen.frames(3);
+        lumen.key(Modifiers::NONE, Key::Delete);
+        assert!(
+            !lumen.track_names().contains(&name),
+            "{name} deleted by key"
+        );
+    }
+    // Undo brings everything back.
+    while lumen
+        .app()
+        .undo_label()
+        .is_some_and(|l| l.starts_with("Delete"))
+    {
+        lumen.key(Modifiers::COMMAND, Key::Z);
+    }
+    assert_eq!(lumen.track_names(), all);
 }
