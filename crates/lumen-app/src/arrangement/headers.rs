@@ -511,6 +511,10 @@ impl Arrangement {
             // Unfolded: volume and pan on a second row, then the sends.
             if row.height >= FOLDED + 22.0 {
                 self.mixer_row(ui, doc, &track, rect, id, look);
+            } else {
+                // Folded: the level as a hairline (the owner's H2).
+                let span = (rect.left() + 30.0, rect.right() - 8.0);
+                self.hairline_meter(ui, rect, span, &track, id);
             }
             if row.height >= super::sends::SENDS_FROM && super::sends::has_sends(track.kind) {
                 self.sends_row(ui, doc, &track, rect, selected);
@@ -768,6 +772,8 @@ impl Arrangement {
         if db != track.gain_db {
             doc.set_volume(track.id, db);
         }
+        // The level under the value that sets it (the owner's H2).
+        self.slider_meter(ui, volume_rect, track, id);
         let pan = value_slider(
             ui,
             pan_rect,

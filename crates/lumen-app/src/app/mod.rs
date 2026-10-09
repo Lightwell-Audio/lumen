@@ -11,6 +11,7 @@ mod handles;
 pub(crate) mod history;
 pub(crate) mod info;
 pub(crate) mod locators;
+mod mixer;
 pub(crate) mod navigate;
 pub(crate) mod palette;
 pub(crate) mod panes;

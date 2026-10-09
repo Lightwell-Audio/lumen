@@ -91,6 +91,15 @@ pub fn project_file(dir: &Path, name: &str) -> PathBuf {
     files::project_file_for(&dir.join(name))
 }
 
+/// What a meter shows (`App::meter`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MeterShown {
+    pub peak_db: f32,
+    pub rms_db: f32,
+    pub hold_db: f32,
+    pub clipped: bool,
+}
+
 /// The extension of project files (and autosaves).
 pub const PROJECT_EXTENSION: &str = files::EXTENSION;
 
@@ -144,6 +153,30 @@ impl App {
     /// slice 4; silent without a cue pair).
     pub fn heard_all(&mut self) -> Vec<[f32; 4]> {
         self.heard_frames()
+    }
+
+    /// What track `id`'s meter shows (M4 slice 5): the louder side's
+    /// peak, RMS and hold line in dB, and the clip light.
+    pub fn meter(&self, id: Id) -> MeterShown {
+        let reading = self.arrangement.meters.reading(id.0);
+        MeterShown {
+            peak_db: reading.peak[0].max(reading.peak[1]),
+            rms_db: reading.rms[0].max(reading.rms[1]),
+            hold_db: reading.hold_db(),
+            clipped: reading.clipped,
+        }
+    }
+
+    /// Some meter is still moving, so the app keeps drawing frames.
+    pub fn meters_moving(&self) -> bool {
+        self.arrangement.meters.moving()
+    }
+
+    /// The master's loudness as shown: momentary, short-term and
+    /// integrated LUFS, and the true peak in dBTP.
+    pub fn loudness(&self) -> (f64, f64, f64, f32) {
+        let l = self.arrangement.meters.loudness();
+        (l.momentary, l.short_term, l.integrated, l.true_peak)
     }
 
     /// A cue pair is open (chosen in the audio settings and running).

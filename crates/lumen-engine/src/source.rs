@@ -98,6 +98,10 @@ pub trait Source: Send {
     /// Playback starts or jumps to `sample`, for the reason given. Sources
     /// reposition here. The engine already crossfades every jump.
     fn locate(&mut self, _timeline: &Timeline, _sample_rate: u32, _sample: i64, _jump: Jump) {}
+
+    /// A block of `frames` passed without rendering (stopped, not
+    /// scrubbing): what measures levels lets them fall (M4 slice 5).
+    fn idle(&mut self, _sample_rate: u32, _frames: usize) {}
 }
 
 /// Silence.

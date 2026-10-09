@@ -206,6 +206,21 @@ fn the_master_reads_an_ebu_reference_tone_at_minus_23_lufs() {
 }
 
 #[test]
+fn stopped_meters_fall_to_rest_without_rendering() {
+    let tone = sine(1_000.0, -6.0, 4.0);
+    let mut r = rig(vec![clip(1, &tone)], &routing(vec![to_master(1)]));
+    let playing = r.level_after(1, 1.0).rms[0];
+    r._transport.send(Command::Stop).unwrap();
+    // Two seconds stopped: the 300 ms RMS falls about 29 dB.
+    let stopped = r.level_after(1, 2.0);
+    assert_eq!(stopped.peak, [0.0, 0.0]);
+    let fallen = db(stopped.rms[0] / playing);
+    assert!((-31.0..-27.0).contains(&fallen), "{fallen}");
+    // Long enough, it reaches silence.
+    assert_eq!(r.level_after(1, 30.0).rms[0], 0.0);
+}
+
+#[test]
 fn a_node_the_routing_does_not_have_has_no_level() {
     let r = rig(Vec::new(), &routing(Vec::new()));
     assert!(r.routing.take_level(42).is_none());

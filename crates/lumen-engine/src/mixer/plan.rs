@@ -473,6 +473,18 @@ impl Plan {
         }
     }
 
+    /// `frames` passed with nothing played: every node's RMS falls as in
+    /// silence. Real-time safe: a load and a store per side and node.
+    pub(super) fn idle_meters(&self, rate: u32, frames: usize) {
+        let Some(meters) = self.meters.as_deref() else {
+            return;
+        };
+        let keep = keep(frames, rate);
+        for node in &self.nodes {
+            meters.silence(node.meter, keep);
+        }
+    }
+
     /// Every level jumps to its target (after a transport jump).
     pub(super) fn settle(&mut self) {
         for node in &mut self.nodes {

@@ -288,6 +288,10 @@ impl<T: TrackSource> Source for Mixer<T> {
         }
     }
 
+    fn idle(&mut self, sample_rate: u32, frames: usize) {
+        self.plan.idle_meters(sample_rate, frames);
+    }
+
     fn locate(&mut self, timeline: &Timeline, sample_rate: u32, sample: i64, jump: Jump) {
         // The engine crossfades every jump: a plan crossfade ends here,
         // and levels start at their targets rather than gliding.

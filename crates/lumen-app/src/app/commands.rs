@@ -147,6 +147,10 @@ impl App {
                 lumen_project::solo::any_soloed(self.document.project()),
                 "Nothing is soloed",
             ),
+            Command::ClearClips => need(
+                self.arrangement.meters.any_clipped(),
+                "No meter has clipped",
+            ),
             Command::FoldAllGroups | Command::UnfoldAllGroups => need(
                 self.document
                     .project()
@@ -179,6 +183,7 @@ impl App {
             | Command::ToggleDetail
             | Command::ToggleInfoLine
             | Command::AdditiveSolo
+            | Command::TrackColourMeters
             | Command::OpenPalette
             | Command::OpenShortcuts
             | Command::NextPane
@@ -321,6 +326,12 @@ impl App {
             Command::AdditiveSolo => {
                 let additive = &mut self.settings.mixing.additive_solo;
                 *additive = !*additive;
+                self.settings_changed = Some(std::time::Instant::now());
+            }
+            Command::ClearClips => self.arrangement.meters.clear_all_clips(),
+            Command::TrackColourMeters => {
+                let coloured = &mut self.settings.mixing.track_colour_meters;
+                *coloured = !*coloured;
                 self.settings_changed = Some(std::time::Instant::now());
             }
             Command::ToggleInfoLine => {

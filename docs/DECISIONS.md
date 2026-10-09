@@ -3108,6 +3108,21 @@ waiting on the UI, and must not raise idle CPU (risk R5).
     oversamples four times with a 49-tap Kaiser-windowed sinc (13 taps a
     phase, every phase summing to one) and is taken like a peak;
   - RMS is the signal's true RMS: a full-scale sine reads −3.0 dB.
+  - While stopped the engine renders nothing; it calls `Source::idle`, and
+    the mixer lets every node's RMS fall as in silence (a load and a store
+    per side), so meters come to rest.
+- **5b, meters on the headers** (`meters.rs`, `arrangement/levels.rs`,
+  `app/mixer.rs`; the owner's H2 and B2): each frame the app takes every
+  track's level and moves its meter on (peaks fall 20 dB/s, a 1.5 s hold,
+  clips latched until cleared), keeps the master's loudness windows and
+  true peak, and resets integrated loudness and true peak when playback
+  starts from stop (B5: `Transport::played_from_stop`, set by Space and
+  the play button; Continue keeps it). `Loudness` only gates 400 ms blocks
+  made wholly after a reset. While the device is not running, meters fall
+  to rest. The frame loop keeps drawing while a meter moves and returns to
+  its idle once-a-second poll when all rest. Commands: "Clear clip lights"
+  and "Meters in track colours" (the M2 setting, `Mixing::
+  track_colour_meters`, an added settings field), in the Mixer area.
 
 ### Consequences
 - Performance (divan, 128 frames at 48 kHz, this machine): 64 routed
@@ -3134,5 +3149,14 @@ seconds). Engine `tests/meters.rs`: a 0 dBFS sine reads 0.0 dB peak and
 soloed return's senders read silent while it reads the wet signal; an over
 latches the clip until read; the master reads EBU case 1 at −23 LUFS
 (momentary, short-term, integrated) and its true peak at −23 dB; a node
-not routed has no level; banks grow past 64 nodes and keep reading.
+not routed has no level; banks grow past 64 nodes and keep reading;
+stopped meters fall about 29 dB in two seconds without rendering, then to
+silence. App `meters` unit tests (peaks fall 20 dB/s, the hold stays then
+falls, clips stay until cleared, meters come to rest, an unrouted track
+reads silence); `levels` (the meter shares the volume slider's scale).
+E2E `meters`: a playing track's level shows after fader and pan law on it
+and the master, and peaks and hold come to rest when stopped; clip lights
+stay until clicked, one by one or all from the palette; integrated
+loudness keeps counting through Pause and Continue and starts again on
+Play from stop.
 

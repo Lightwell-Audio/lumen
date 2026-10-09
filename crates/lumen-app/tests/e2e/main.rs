@@ -24,6 +24,7 @@ mod info;
 mod keys;
 mod locators;
 mod looping;
+mod meters;
 mod mixing;
 mod navigation;
 mod palette;
@@ -271,11 +272,16 @@ impl egui::DroppedFile for Dropped {
 
 /// A stereo WAV of `seconds` of a quiet tone at 48 kHz, written to `path`.
 pub fn wav(path: &Path, seconds: f32) -> PathBuf {
+    wav_at(path, seconds, 3_000.0)
+}
+
+/// [`wav`] with its peak at `peak` (of 32,767).
+pub fn wav_at(path: &Path, seconds: f32, peak: f32) -> PathBuf {
     let rate = 48_000_u32;
     let frames = (seconds * rate as f32) as usize;
     let data: Vec<u8> = (0..frames)
         .flat_map(|i| {
-            let v = ((i as f32 * 0.05).sin() * 3_000.0) as i16;
+            let v = ((i as f32 * 0.05).sin() * peak) as i16;
             let [a, b] = v.to_le_bytes();
             [a, b, a, b]
         })

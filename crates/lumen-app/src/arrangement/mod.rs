@@ -29,6 +29,7 @@ mod clips;
 mod drop;
 pub mod handles;
 mod headers;
+mod levels;
 mod menus;
 mod nesting;
 mod pinned;
@@ -232,6 +233,11 @@ pub struct Arrangement {
     pub(crate) cue: CueControls,
     /// The additive-solo preference (M4 slice 4), set by the app.
     pub(crate) additive_solo: bool,
+    /// Every track's meter and the master's loudness (M4 slice 5), moved
+    /// on by the app each frame.
+    pub(crate) meters: crate::meters::Meters,
+    /// Meters in track colours (the owner's M2 setting), set by the app.
+    pub(crate) track_colour_meters: bool,
 }
 
 /// The tallest whole-step height at which `count` tracks fit in `visible`

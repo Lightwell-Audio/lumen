@@ -507,6 +507,9 @@ impl Arrangement {
         self.cue_switch(ui, rect, mid);
         if rect.height() >= FOLDED + 22.0 {
             self.mixer_row(ui, doc, &master, rect, id, look);
+        } else {
+            let span = (rect.left() + 30.0, rect.right() - 8.0);
+            self.hairline_meter(ui, rect, span, &master, id);
         }
         // The cue level, under volume and pan, while a cue pair is open.
         if self.cue.ready && rect.height() >= FOLDED + 2.0 * super::STEP {

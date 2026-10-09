@@ -56,6 +56,9 @@ pub struct Transport {
     /// position moves once per audio block (`playhead.rs`).
     clock: crate::playhead::Clock,
     head: Option<Ticks>,
+    /// Playback started from stop since the app last looked: integrated
+    /// loudness starts again (the owner's B5; Continue keeps it).
+    pub played_from_stop: bool,
 }
 
 fn timeline_of(project: &Project) -> Timeline {
@@ -96,6 +99,7 @@ impl Transport {
             clip_memory: 0,
             clock: Default::default(),
             head: None,
+            played_from_stop: false,
         }
     }
 
@@ -160,6 +164,7 @@ impl Transport {
         let command = if self.state().playing {
             Command::Stop
         } else {
+            self.played_from_stop = true;
             Command::Play
         };
         self.send(command);

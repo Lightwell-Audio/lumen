@@ -45,6 +45,7 @@ mod icons;
 mod lanes;
 mod launch;
 mod media;
+mod meters;
 mod motion;
 mod owner;
 mod panels;
@@ -178,6 +179,8 @@ pub struct App {
     /// takes its focus away on Esc before the app's keys run, so that Esc
     /// is the field's (it cancels), not a clip or track key (slice 6e).
     typing: bool,
+    /// When the meters last moved on (M4 slice 5).
+    meters_at: Option<Instant>,
     /// What the lanes' right-click menu is for (owner's A, MT-APP-14 run 2).
     menu_for: app::editing::MenuFor,
     /// The clip being renamed and the pinned properties card (slice 6e).
@@ -362,6 +365,7 @@ impl eframe::App for App {
             &cue,
         );
         self.sync_document(&ctx);
+        let meters_moving = self.update_meters();
         self.transport.clip_memory = self.lanes.library.memory();
         self.save_settings_when_settled(&ctx);
         if let Some(e) = self.settings_writer.failure() {
@@ -488,7 +492,8 @@ impl eframe::App for App {
         // Scheduled after drawing, because buttons are clicked while drawing.
         // Every frame while playing or settling after a command; otherwise
         // once a second for device events, so idle CPU stays near zero.
-        if self.transport.animating() {
+        // Meters draw until they come to rest (risk R5).
+        if self.transport.animating() || meters_moving {
             ctx.request_repaint();
         } else {
             ctx.request_repaint_after(Duration::from_secs(1));
@@ -677,6 +682,7 @@ impl App {
             canvas: egui::Rect::NOTHING,
             clipboard: None,
             typing: false,
+            meters_at: None,
             menu_for: app::editing::MenuFor::default(),
             clip_props: app::clip_card::ClipProps::default(),
             smoke_test_frames: launch.smoke_test.then_some(SMOKE_FRAMES),

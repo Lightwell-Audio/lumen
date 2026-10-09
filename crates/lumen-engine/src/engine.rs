@@ -242,6 +242,9 @@ impl<S: Source> Engine<S> {
                     channels,
                     frames,
                 );
+            } else {
+                // Meters fall to rest while nothing plays.
+                self.source.idle(rate, frames);
             }
             if self.declick.active() {
                 // A stop or pause just happened: its tail fades out over silence.

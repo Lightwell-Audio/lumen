@@ -125,6 +125,7 @@ impl Transport {
             let command = if state.playing {
                 Command::Pause
             } else {
+                self.played_from_stop = true;
                 Command::Play
             };
             self.send(command);

@@ -163,6 +163,9 @@ pub struct Loudness {
     /// Every 400 ms gating block's mean square since the reset (one per
     /// 100 ms, overlapping by 75%), louder than the absolute gate.
     gating: Vec<f64>,
+    /// Blocks pushed since the reset: a gating block only counts once all
+    /// four of its 100 ms blocks came after it.
+    fresh: usize,
     integrated: f64,
 }
 
@@ -177,6 +180,7 @@ impl Loudness {
     /// Starts integrating again; the windows keep their history.
     pub fn reset(&mut self) {
         self.gating.clear();
+        self.fresh = 0;
         self.integrated = SILENT;
     }
 
@@ -186,7 +190,8 @@ impl Loudness {
             self.recent.pop_front();
         }
         self.recent.push_back(f64::from(mean_square.max(0.0)));
-        if self.recent.len() >= MOMENTARY {
+        self.fresh += 1;
+        if self.fresh >= MOMENTARY {
             let block = self.window(MOMENTARY);
             if lufs(block) > ABSOLUTE_GATE {
                 self.gating.push(block);
@@ -452,6 +457,14 @@ mod tests {
         assert_eq!(l.integrated(), SILENT);
         // The windows keep their history.
         assert!(near(l.momentary(), -23.0, 0.1));
+        // Integrating starts once a whole 400 ms block follows the reset:
+        // nothing from before it counts.
+        for _ in 0..3 {
+            l.push(1e-3);
+        }
+        assert_eq!(l.integrated(), SILENT);
+        l.push(1e-3);
+        assert!(near(l.integrated(), lufs(1e-3), 0.01));
         let quiet = measure(&[(-90.0, 5.0)]);
         assert_eq!(quiet.integrated(), SILENT);
     }

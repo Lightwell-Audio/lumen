@@ -110,6 +110,10 @@ pub struct Mixing {
     pub cue_mode: bool,
     /// The cue bus's level, in dB.
     pub cue_volume_db: f32,
+    /// Meters in their track's colour rather than the accent (the owner's
+    /// M2, a setting; M1, the accent, by default). M4 slice 5, an added
+    /// field.
+    pub track_colour_meters: bool,
 }
 
 /// Theme, motion and UI scale (`docs/DESIGN.md`).
@@ -421,6 +425,7 @@ mod tests {
                 additive_solo: true,
                 cue_mode: true,
                 cue_volume_db: -6.0,
+                track_colour_meters: true,
             },
         };
         save(&path, &settings).unwrap();

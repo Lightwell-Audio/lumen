@@ -472,6 +472,31 @@ Chosen from interactive specimens (ADR-0038):
   with the accent. The master's unfolded row adds a "Cue" level slider
   while a cue pair is open.
 
+### Meters (M4 slice 5, owner's choices, ADR-0040)
+
+Chosen from interactive specimens:
+- **Colours (M1, M2 a setting):** a level is `accent` up to −6 dB
+  (`theme::METER_WARN_DB`), `warning` up to full scale, `record` above it
+  (`theme::meter`). "Meters in track colours" (app menu, palette) swaps the
+  accent for the track's colour (`theme::wave`). The peak is drawn at 40%
+  (`METER_PEAK_ALPHA`) behind the solid RMS; the hold is a 1.5 pt tick in
+  `text` (`record` above 0 dB).
+- **Ballistics (B2):** a peak jumps up at once and falls 20 dB a second;
+  the hold stays 1.5 s on the highest peak, then falls 30 dB a second; the
+  RMS is a 300 ms average; below −60 dB is silence. A clip stays lit until
+  clicked (Alt+click clears every one; "Clear clip lights" in the
+  palette). Levels are read after fader, pan and the solo gate (B1).
+- **On track headers (H2):** an unfolded track's level runs along the
+  bottom of its volume slider on the slider's own scale (−60 to +6 dB):
+  two 2 pt bars (left over right), 2 pt above the slider's bottom, with the
+  hold tick across them. A folded track has no slider: a hairline (two
+  1.5 pt bars) along the header, 6 pt above its bottom edge (clear of the
+  resize edge), from the name's left to 8 pt from the right. A clip lights
+  a red mark at the right end (3 × 14 pt in the slider, 4 pt on the
+  hairline), and hovering it sets the info line.
+- Meters draw frames only while a level moves and come to rest when it
+  stops, so a silent project idles.
+
 ## 7b. Navigation (M3 slice 4d, ADR-0028)
 
 - **Zoom** glides (`GLIDE`) for keys and fits; the wheel and pinch follow

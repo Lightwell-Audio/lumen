@@ -83,6 +83,16 @@ impl App {
                 {
                     self.settings_changed = Some(Instant::now());
                 }
+                if ui
+                    .checkbox(
+                        &mut self.settings.mixing.track_colour_meters,
+                        "Meters in track colours",
+                    )
+                    .on_hover_text("Meters take their track's colour instead of the accent")
+                    .changed()
+                {
+                    self.settings_changed = Some(Instant::now());
+                }
                 ui.separator();
                 if ui.button("Audio settings…").clicked() {
                     self.transport.settings_window.open = true;
