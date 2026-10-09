@@ -371,7 +371,7 @@ manual test, MT-APP-16, is the exit flow by hand.
 
 **Automated tests:** 434 in the workspace, all passing, plus 6 real-binary
 smoke tests (passing) and 10 screenshot renders run on demand. By crate:
-`lumen-app` 230 (142 unit, 88 end-to-end), `lumen-engine` 55 (with the
+`lumen-app` 231 (143 unit, 88 end-to-end), `lumen-engine` 55 (with the
 allocation-guard tests), `lumen-project` 50, `lumen-core` 30,
 `lumen-audio` 25, `lumen-media` 12, `lumen-rt` 9, `lumen-render` 9, and 13
 in tools and the M1 prototypes. clippy (`-D warnings`) and rustfmt are clean on Windows,
