@@ -288,7 +288,15 @@ fn a_track_in_nested_groups_is_heard_through_them_and_the_outer_mute_silences_it
         assert!(heard.len() > 1_000, "heard {} frames", heard.len());
         heard.iter().fold(0.0f32, |m, s| m.max(s.0.abs()))
     };
-    assert!(loudest(&mut lumen) > 0.01, "heard through both groups");
+    // As loud as the track alone: its own pan law at the centre (−3 dB)
+    // and nothing more from the groups, which stay at unity (owner, after
+    // MT-MIX-3 run 1: grouped tracks played quieter, 3 dB a level).
+    let alone = 3_000.0 / 32_768.0 * std::f32::consts::FRAC_1_SQRT_2;
+    let level = loudest(&mut lumen);
+    assert!(
+        (level - alone).abs() < alone * 0.05,
+        "heard through both groups at {level}, alone {alone}"
+    );
     // Soloing the track keeps its groups open (MT-MIX-3 run 1: it went
     // silent).
     let name = lumen.track_names()[2].clone();

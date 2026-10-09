@@ -7,7 +7,7 @@
 
 use lumen_core::pan::PanLaw;
 use lumen_engine::{Destination, NodeSpec, Routing, SendSpec};
-use lumen_project::model::{Project, Track};
+use lumen_project::model::{Project, Track, TrackKind};
 use lumen_project::routing::{self as rules, destination};
 
 /// The routing that plays `project`.
@@ -16,13 +16,20 @@ pub fn routing(project: &Project) -> Routing {
     let nodes = rules::all_tracks(project)
         .map(|track| {
             let master = track.id == project.master.id;
+            // Buses (groups, returns and the master) carry sound their
+            // tracks have already panned: centred, they stay at unity, or
+            // every group level took another 3 dB off what is inside it
+            // (owner, after MT-MIX-3 run 1).
+            let bus = matches!(
+                track.kind,
+                TrackKind::Group | TrackKind::Return | TrackKind::Master
+            );
             NodeSpec {
                 trim: db_to_gain(track.trim_db),
                 invert: track.invert,
                 volume: db_to_gain(track.gain_db),
                 pan: track.pan,
-                // The master stays at unity when centred.
-                law: if master {
+                law: if bus {
                     PanLaw::Balance
                 } else {
                     project.pan_law
@@ -61,7 +68,7 @@ pub fn db_to_gain(db: f32) -> f32 {
 mod tests {
     use std::sync::Arc;
 
-    use lumen_project::model::{Id, Level, Output, TrackKind};
+    use lumen_project::model::{Id, Level, Output};
 
     use super::*;
     use crate::document::Document;
@@ -110,6 +117,18 @@ mod tests {
         assert_eq!(heard(&doc), [false, true, true]);
         doc.set_solo(&ids[2..], true, true);
         assert_eq!(heard(&doc), [false, false, true], "only the soloed track");
+    }
+
+    #[test]
+    fn buses_are_unity_when_centred_and_tracks_follow_the_pan_law() {
+        // Owner, after MT-MIX-3 run 1: tracks in groups played quieter.
+        let (doc, ids) = doc_with(&[TrackKind::Audio, TrackKind::Group, TrackKind::Return]);
+        let routing = routing(doc.project());
+        assert_eq!(node(&routing, ids[0]).law, PanLaw::ConstantPower);
+        for bus in [ids[1], ids[2], doc.project().master.id] {
+            assert_eq!(node(&routing, bus).law, PanLaw::Balance);
+            assert_eq!(PanLaw::Balance.gains(0.0), [1.0, 1.0]);
+        }
     }
 
     #[test]

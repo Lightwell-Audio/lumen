@@ -2843,3 +2843,13 @@ a tone heard through two groups and silenced by the outer mute).
   `deleting_any_kind_of_track_from_its_menu_or_by_key_never_crashes`
   (audio, MIDI, group with a track inside, and return; from the menu and
   by key; undo restores all) failed with the crash before the fix.
+- **Tracks in groups played quieter** (owner, after run 1): groups and
+  returns took the project's pan law (−3 dB at the centre by default), so
+  each group level took another 3 dB off what was inside it (−6 dB two
+  groups deep), and sends lost 3 dB at their return. Only the master was
+  at unity (ADR-0035). Now every bus (group, return, master) pans with the
+  balance law, unity when centred: the owner's −3 dB centre applies once,
+  at the track that pans the sound. Tests: `routing.rs`
+  `buses_are_unity_when_centred_and_tracks_follow_the_pan_law`; E2E
+  `groups` (a tone through two groups plays as loud as the track alone;
+  half as loud before the fix).
