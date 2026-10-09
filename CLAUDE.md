@@ -394,9 +394,8 @@ it first in a new session, and update it at the end of every slice.
 accessibility audit, the end-of-milestone review and every finding fixed
 or recorded). MT-APP-16 passed and **M3 is approved** (2026-10-09). The M3
 report is in PROGRESS.md and M4 is proposed in `docs/milestones/M4.md`.
-**Waiting for the owner:** approval of the M4 plan with its three
-questions (solo default, when the UX pass on hints runs, pan law). Do not
-start M4 before that. The owner's drag-to-cut request is recorded for M7
+M4 is approved (Ableton's solo by default, −3 dB pan law) and starts
+with slice 0, the UX pass on hints (owner: now rather than later). The owner's drag-to-cut request is recorded for M7
 with split (the M3 plan, out of scope).
 
 **Status**

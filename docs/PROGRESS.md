@@ -4,8 +4,8 @@
 
 **Current milestone:** 3 — Arrangement & Project System (plan:
 [milestones/M3.md](milestones/M3.md)). **Complete, approved by the owner
-2026-10-09** (MT-APP-16 passed; report below). Next: M4, proposed in
-[milestones/M4.md](milestones/M4.md), waiting for approval.
+2026-10-09** (MT-APP-16 passed; report below). **M4 (Mixer, Routing & Groups) is approved and started** with slice 0, the
+UX pass on hints ([milestones/M4.md](milestones/M4.md)).
 **Previous:** M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
@@ -17,7 +17,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 1 | Foundations & Architecture | ✅ Complete | Plan and risk register in `docs/milestones/M1.md` |
 | 2 | Audio Engine, Devices & Transport | ✅ Complete, approved 2026-10-07 | Plan: `docs/milestones/M2.md` |
 | 3 | Arrangement & Project System | ✅ Complete, approved 2026-10-09 | Plan: `docs/milestones/M3.md` |
-| 4 | Mixer, Routing & Groups | 🔲 | |
+| 4 | Mixer, Routing & Groups | 🟡 In progress (slice 0) | Plan: `docs/milestones/M4.md` |
 | 5 | MIDI & Piano Roll | 🔲 | |
 | 6 | VST3 Hosting & Device System | 🔲 | |
 | 7 | Automation, Envelopes & Advanced Editing | 🔲 | |
