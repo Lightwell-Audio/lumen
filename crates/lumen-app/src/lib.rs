@@ -51,6 +51,7 @@ mod panels;
 mod playhead;
 mod position;
 mod probe;
+mod routing;
 mod ruler;
 mod settings;
 pub mod testing;
@@ -350,6 +351,7 @@ impl eframe::App for App {
             &ctx,
             &mut self.document,
             &mut self.transport.audio.clips,
+            &mut self.transport.audio.mixer,
         );
         self.sync_document(&ctx);
         self.transport.clip_memory = self.lanes.library.memory();

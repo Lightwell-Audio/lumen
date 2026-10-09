@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use eframe::egui::{self, Pos2, RichText};
 use lumen_core::time::Ticks;
-use lumen_engine::{Clip, ClipsHandle};
+use lumen_engine::{Clip, ClipsHandle, MixerHandle};
 use lumen_project::model::{ClipContent, Id, Project};
 
 use crate::document::{Document, DropInto, Imported};
@@ -49,6 +49,8 @@ pub struct Lanes {
     built: Option<u64>,
     /// The engine's clip list needs rebuilding.
     dirty: bool,
+    /// The project state the engine's routing was built from.
+    routed: Option<u64>,
     /// A message about files that could not be added.
     notice: Option<String>,
     /// When each clip was first drawn (egui time), for its fade-in.
@@ -61,20 +63,18 @@ pub struct Lanes {
 }
 
 /// What the engine plays (audit M4: the model-to-engine translation, kept
-/// pure so it is tested): every unmuted clip on a track that can be heard
-/// whose audio is loaded (`audio` gives the audio at the device rate and the
-/// file's own rate), for the shorter of the clip and the file, with clip and
-/// track gain and the track's pan.
+/// pure so it is tested): every audio clip whose audio is loaded (`audio`
+/// gives the audio at the device rate and the file's own rate), for the
+/// shorter of the clip and the file, at its clip gain, on its track. The
+/// track's level, pan, mute and solo are in the routing (`routing.rs`).
 pub fn engine_clips(
     project: &Project,
     rate: u32,
     audio: impl Fn(Id) -> Option<(std::sync::Arc<lumen_engine::ClipAudio>, u32)>,
 ) -> Vec<Clip> {
     let tempo = lumen_core::time::TempoMap::new(project.tempo.clone()).ok();
-    let audible = crate::document::audible(project);
     let mut list = Vec::new();
     for track in &project.tracks {
-        let heard = audible(track);
         for clip in &track.clips {
             let ClipContent::Audio {
                 media,
@@ -127,19 +127,17 @@ pub fn engine_clips(
             if length > 0 {
                 list.push(Clip {
                     id: clip.id.0,
+                    track: track.id.0,
                     start: clip.start,
                     offset,
                     length,
-                    // Track volume and pan (M3 slice 4); the mixer takes
-                    // over in M4.
-                    // Muted and unheard clips stay at gain 0, so they fade
-                    // out and back in rather than clicking.
-                    gain: if heard && !clip.muted {
-                        db_to_gain(*gain_db) * db_to_gain(track.gain_db)
-                    } else {
+                    // Muted clips stay at gain 0, so they fade out and
+                    // back in rather than clicking.
+                    gain: if clip.muted {
                         0.0
+                    } else {
+                        crate::routing::db_to_gain(*gain_db)
                     },
-                    pan: track.pan,
                     audio: samples,
                     shape,
                 });
@@ -147,10 +145,6 @@ pub fn engine_clips(
         }
     }
     list
-}
-
-fn db_to_gain(db: f32) -> f32 {
-    10f32.powf(db / 20.0)
 }
 
 impl Lanes {
@@ -248,6 +242,7 @@ impl Lanes {
         ctx: &egui::Context,
         doc: &mut Document,
         clips: &mut ClipsHandle,
+        mixer: &mut MixerHandle,
     ) {
         self.rate = rate;
         if self.library.update(rate, ctx) {
@@ -273,6 +268,23 @@ impl Lanes {
             let list = self.engine_clips(doc.project(), rate);
             self.dirty = clips.set(list).is_err();
             self.built = Some(doc.state());
+        }
+        // The routing follows the clips, never ahead of them: a deleted
+        // track's clips fade out while its node is still there, and a new
+        // track's clips wait for their node, then fade in.
+        if !self.dirty && self.routed != Some(doc.state()) {
+            match mixer.set(&crate::routing::routing(doc.project())) {
+                Ok(true) => self.routed = Some(doc.state()),
+                // The queue is full: the engine has not caught up.
+                Ok(false) => {}
+                // `routing` never builds one the engine refuses; if it
+                // did, the last routing plays on.
+                Err(e) => {
+                    debug_assert!(false, "routing refused: {e}");
+                    eprintln!("routing refused: {e}");
+                    self.routed = Some(doc.state());
+                }
+            }
         }
     }
 
@@ -548,16 +560,15 @@ mod tests {
     }
 
     #[test]
-    fn clips_play_whole_with_track_gain_and_pan() {
+    fn clips_play_whole_on_their_track_at_their_own_gain() {
         let (mut doc, audio) = setup(1);
         let id = doc.project().tracks[0].id;
+        // The track's volume is the mixer's (`routing.rs`), not the clip's.
         doc.set_volume(id, -6.0);
-        doc.set_pan(id, -0.5);
         let clips = played(&doc, &audio, 48_000);
         assert_eq!(clips.len(), 1);
         assert_eq!((clips[0].offset, clips[0].length), (0, 96_000));
-        assert!((clips[0].gain - 10f32.powf(-6.0 / 20.0)).abs() < 1e-6);
-        assert_eq!(clips[0].pan, -0.5);
+        assert_eq!((clips[0].gain, clips[0].track), (1.0, id.0));
     }
 
     #[test]
@@ -589,22 +600,15 @@ mod tests {
     }
 
     #[test]
-    fn mute_solo_and_missing_audio_decide_what_plays() {
+    fn missing_audio_plays_nothing_and_track_mutes_are_the_mixers() {
         let (mut doc, audio) = setup(3);
         let ids: Vec<Id> = doc.project().tracks.iter().map(|t| t.id).collect();
-        // Every clip is sent; the ones that cannot be heard at gain 0, so
-        // the engine fades them rather than cutting them off.
-        let heard = |doc: &Document| {
-            played(doc, &audio, 48_000)
-                .iter()
-                .map(|c| c.gain > 0.0)
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(heard(&doc), [true, true, true]);
+        // Mute and solo silence tracks in the mixer (`routing.rs`): every
+        // clip is still sent at its own gain.
         doc.set_mute(&ids[..1], true);
-        assert_eq!(heard(&doc), [false, true, true]);
         doc.set_solo(&ids[2..], true, true);
-        assert_eq!(heard(&doc), [false, false, true], "only the soloed track");
+        let clips = played(&doc, &audio, 48_000);
+        assert!(clips.iter().all(|c| c.gain == 1.0));
         // Audio not loaded (or missing): nothing to play for it.
         let none = engine_clips(doc.project(), 48_000, |_| None);
         assert!(none.is_empty());

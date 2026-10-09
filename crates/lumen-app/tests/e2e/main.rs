@@ -22,6 +22,7 @@ mod info;
 mod keys;
 mod locators;
 mod looping;
+mod mixing;
 mod navigation;
 mod palette;
 mod playback;

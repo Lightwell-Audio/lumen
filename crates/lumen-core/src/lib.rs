@@ -4,5 +4,6 @@ pub mod curve;
 pub mod fade;
 pub mod grid;
 pub mod meter;
+pub mod pan;
 pub mod product;
 pub mod time;

@@ -8,8 +8,9 @@ use lumen_core::fade::FadeShape;
 use lumen_core::meter::Meter;
 use lumen_core::time::Ticks;
 use lumen_engine::{
-    Clip, ClipAudio, ClipPlayer, ClipShape, ClipsHandle, Command, Engine, EngineHandle, FadeFrames,
-    Region, Timeline, clip_player, engine,
+    Clip, ClipAudio, ClipPlayer, ClipShape, ClipsHandle, Command, Destination, Engine,
+    EngineHandle, FadeFrames, Mixer, NodeSpec, Region, Routing, Timeline, clip_player, engine,
+    mixer,
 };
 
 const RATE: u32 = 48_000;
@@ -30,15 +31,21 @@ fn bars(n: i64) -> Ticks {
     Ticks::quarters(4 * n)
 }
 
-fn setup(clips: Vec<Clip>) -> (EngineHandle, ClipsHandle, Engine<ClipPlayer>) {
+type Player = Engine<Mixer<ClipPlayer>>;
+
+/// Clips on track 0, which plays straight to the device at unity.
+fn setup(clips: Vec<Clip>) -> (EngineHandle, ClipsHandle, Player) {
     let (mut clips_handle, player) = clip_player();
     clips_handle.set(clips).unwrap();
-    let (handle, engine) = engine(Timeline::default(), player, RATE);
+    let (mut routing, source) = mixer(player);
+    let unity = NodeSpec::unity(0, Destination::Hardware(0));
+    assert!(routing.set(&Routing { nodes: vec![unity] }).unwrap());
+    let (handle, engine) = engine(Timeline::default(), source, RATE);
     (handle, clips_handle, engine)
 }
 
 /// Renders `frames` in blocks of `block`; returns (left, right) per frame.
-fn run(engine: &mut Engine<ClipPlayer>, frames: usize, block: usize) -> Vec<(f32, f32)> {
+fn run(engine: &mut Player, frames: usize, block: usize) -> Vec<(f32, f32)> {
     let mut data = vec![0.0; 2 * block];
     let mut out = Vec::with_capacity(frames);
     let mut done = 0;
@@ -69,7 +76,7 @@ fn a_clip_plays_on_its_exact_samples_at_every_block_size() {
         offset,
         length,
         gain: 1.0,
-        pan: 0.0,
+        track: 0,
         audio: Arc::clone(&audio),
         shape: Default::default(),
     };
@@ -103,7 +110,7 @@ fn the_loop_wrap_crossfades_and_stays_on_the_exact_sample() {
         offset: 0,
         length: 400_000,
         gain: 1.0,
-        pan: 0.0,
+        track: 0,
         audio: Arc::clone(&audio),
         shape: Default::default(),
     };
@@ -143,7 +150,7 @@ fn stopping_fades_out_instead_of_cutting() {
         offset: 0,
         length: 400_000,
         gain: 1.0,
-        pan: 0.0,
+        track: 0,
         audio: Arc::clone(&audio),
         shape: Default::default(),
     };
@@ -179,7 +186,7 @@ fn a_locate_lands_on_the_exact_sample_and_fades_in() {
         offset: 0,
         length: 400_000,
         gain: 0.5,
-        pan: 0.0,
+        track: 0,
         audio: Arc::clone(&audio),
         shape: Default::default(),
     };
@@ -208,7 +215,7 @@ fn mono_plays_on_both_sides_and_gain_applies() {
         offset: 0,
         length: 10_000,
         gain: 0.5,
-        pan: 0.0,
+        track: 0,
         audio: mono,
         shape: Default::default(),
     };
@@ -226,7 +233,7 @@ fn clips_at_another_sample_rate_stay_silent() {
         offset: 0,
         length: 10_000,
         gain: 1.0,
-        pan: 0.0,
+        track: 0,
         audio: ramp(10_000, 44_100),
         shape: Default::default(),
     };
@@ -245,7 +252,7 @@ fn clips_follow_tempo_changes() {
         offset: 0,
         length: 1_000,
         gain: 1.0,
-        pan: 0.0,
+        track: 0,
         audio: Arc::clone(&audio),
         shape: Default::default(),
     };
@@ -269,7 +276,7 @@ fn a_new_clip_list_replaces_the_old_and_the_old_is_handed_back() {
         offset: 0,
         length: 1_000,
         gain: 1.0,
-        pan: 0.0,
+        track: 0,
         audio: Arc::clone(&audio),
         shape: Default::default(),
     };
@@ -302,7 +309,7 @@ fn resending_the_same_timeline_while_playing_changes_nothing() {
         offset: 0,
         length: 20_000,
         gain: 1.0,
-        pan: 0.0,
+        track: 0,
         audio: Arc::clone(&audio),
         shape: Default::default(),
     };
@@ -331,7 +338,7 @@ fn a_tempo_change_while_playing_crossfades() {
         offset: 0,
         length: 40_000,
         gain: 1.0,
-        pan: 0.0,
+        track: 0,
         audio: Arc::clone(&audio),
         shape: Default::default(),
     };
@@ -360,14 +367,14 @@ fn steady(frames: usize) -> Arc<ClipAudio> {
     })
 }
 
-fn steady_clip(audio: &Arc<ClipAudio>, gain: f32, pan: f32) -> Clip {
+fn steady_clip(audio: &Arc<ClipAudio>, gain: f32) -> Clip {
     Clip {
         id: 7,
         start: Ticks::ZERO,
         offset: 0,
         length: audio.frames() as i64,
         gain,
-        pan,
+        track: 0,
         audio: Arc::clone(audio),
         shape: Default::default(),
     }
@@ -384,28 +391,28 @@ fn steepest(out: &[(f32, f32)]) -> f32 {
 const MAX_STEP: f32 = 0.5 * 50.0 / RATE as f32 + 1e-6;
 
 #[test]
-fn volume_pan_and_mute_changes_glide_instead_of_stepping() {
+fn clip_gain_and_mute_changes_glide_instead_of_stepping() {
     // Owner: dragging volume or pan crackled during playback, and muting
     // clicked: each new clip list changed the level at once.
     let audio = steady(48_000);
-    let (mut handle, mut clips, mut engine) = setup(vec![steady_clip(&audio, 1.0, 0.0)]);
+    let (mut handle, mut clips, mut engine) = setup(vec![steady_clip(&audio, 1.0)]);
     handle.send(Command::Play).unwrap();
     let mut out = run(&mut engine, 1_000, 128);
     // A drag: a new level every 16 ms (one screen frame).
     // The app frees replaced lists every frame; so does this test.
-    let mut send = |gain, pan| {
+    let mut send = |gain| {
         clips.collect_garbage();
-        clips.set(vec![steady_clip(&audio, gain, pan)]).unwrap();
+        clips.set(vec![steady_clip(&audio, gain)]).unwrap();
     };
-    for (gain, pan) in [(0.8, 0.0), (0.6, -0.3), (0.6, -0.9), (1.0, 0.5)] {
-        send(gain, pan);
+    for gain in [0.8, 0.6, 0.2, 1.0] {
+        send(gain);
         out.extend(run(&mut engine, 768, 128));
     }
     // Mute (gain 0), then unmute.
-    send(0.0, 0.0);
+    send(0.0);
     out.extend(run(&mut engine, 2_000, 128));
     assert_eq!(out.last(), Some(&(0.0, 0.0)), "muted reaches silence");
-    send(1.0, 0.0);
+    send(1.0);
     out.extend(run(&mut engine, 2_000, 128));
     assert_eq!(out.last(), Some(&(0.5, 0.5)), "unmuted reaches full level");
     assert!(
@@ -423,7 +430,7 @@ fn a_clip_that_appears_partway_fades_in() {
     let (mut handle, mut clips, mut engine) = setup(Vec::new());
     handle.send(Command::Play).unwrap();
     let mut out = run(&mut engine, 5_000, 128);
-    clips.set(vec![steady_clip(&audio, 1.0, 0.0)]).unwrap();
+    clips.set(vec![steady_clip(&audio, 1.0)]).unwrap();
     out.extend(run(&mut engine, 2_000, 128));
     assert!(steepest(&out) <= MAX_STEP, "steepest {}", steepest(&out));
     assert_eq!(out.last(), Some(&(0.5, 0.5)));
@@ -434,7 +441,7 @@ fn a_clip_heard_from_its_start_keeps_its_attack() {
     // A new clip that starts on its own first sample is not slowed by the
     // glide: only its 2 ms edge fade applies.
     let audio = steady(48_000);
-    let mut late = steady_clip(&audio, 1.0, 0.0);
+    let mut late = steady_clip(&audio, 1.0);
     late.start = Ticks::quarters(1); // sample 24,000
     let (mut handle, _clips, mut engine) = setup(vec![late]);
     handle.send(Command::Play).unwrap();
@@ -470,7 +477,7 @@ fn dragging_a_playing_clip_crossfades_instead_of_clicking() {
         offset: 0,
         length: 200_000,
         gain: 1.0,
-        pan: 0.0,
+        track: 0,
         audio: Arc::clone(&audio),
         shape: Default::default(),
     };
@@ -528,7 +535,7 @@ fn lists_sent_while_stopped_never_play_late() {
         offset: 0,
         length: 48_000,
         gain: 1.0,
-        pan: 0.0,
+        track: 0,
         audio: Arc::clone(&audio),
         shape: ClipShape {
             fade_in: FadeFrames {
@@ -562,7 +569,7 @@ fn a_list_that_moves_no_clip_does_not_crossfade() {
         offset: 0,
         length: 48_000,
         gain: 1.0,
-        pan: 0.0,
+        track: 0,
         audio: Arc::clone(&audio),
         shape: Default::default(),
     };
@@ -625,7 +632,7 @@ fn fades_sound_as_drawn_in_every_shape_and_free_curve() {
             offset: 0,
             length,
             gain: 1.0,
-            pan: 0.0,
+            track: 0,
             audio: Arc::clone(&audio),
             shape: ClipShape {
                 fade_in: FadeFrames {
@@ -679,7 +686,7 @@ fn a_looping_clip_repeats_its_content_with_clean_seams() {
         offset,
         length,
         gain: 1.0,
-        pan: 0.0,
+        track: 0,
         audio: Arc::clone(&audio),
         shape: ClipShape {
             period: Some(period),

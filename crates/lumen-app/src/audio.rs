@@ -11,7 +11,7 @@ use lumen_audio::{
     Status as Meters, StreamConfig, StreamInfo, Timing,
 };
 use lumen_core::product::PRODUCT_NAME;
-use lumen_engine::{ClipsHandle, EngineHandle, Timeline, clip_player, engine};
+use lumen_engine::{ClipsHandle, EngineHandle, MixerHandle, Timeline, clip_player, engine, mixer};
 
 use crate::settings::AudioSettings;
 
@@ -274,6 +274,8 @@ pub struct Audio {
     pub engine: EngineHandle,
     /// Replaces the clips the engine plays.
     pub clips: ClipsHandle,
+    /// Replaces the routing they play through (M4).
+    pub mixer: MixerHandle,
     /// What the test device played, left and right frame by frame, for the
     /// end-to-end tests to listen to (`testing`). Real devices have none.
     pub(crate) heard: Option<rtrb::Consumer<f32>>,
@@ -319,7 +321,8 @@ impl Audio {
     /// in [`Status`].
     pub fn start(choice: &Choice, timeline: Timeline) -> Self {
         let (clips, player) = clip_player();
-        let (engine_handle, mut engine) = engine(timeline, player, 48_000);
+        let (mixer, source) = mixer(player);
+        let (engine_handle, mut engine) = engine(timeline, source, 48_000);
         let testing = matches!(choice, Choice::Named { driver, .. } if driver == TEST_DRIVER);
         let (mut tap, heard) = if testing {
             let (tap, heard) = rtrb::RingBuffer::new(HEARD);
@@ -339,6 +342,7 @@ impl Audio {
             parked: Some(callback),
             engine: engine_handle,
             clips,
+            mixer,
             heard,
             status: Status::Off(String::new()),
             driver: String::new(),
@@ -601,6 +605,7 @@ impl Audio {
         }
         self.engine.collect_garbage();
         self.clips.collect_garbage();
+        self.mixer.collect_garbage();
         changed
     }
 }

@@ -39,6 +39,18 @@ impl<'a> Output<'a> {
         self.channels
     }
 
+    /// `frames` frames of this part from its frame `from`.
+    pub(crate) fn part(&mut self, from: usize, frames: usize) -> Output<'_> {
+        debug_assert!(from + frames <= self.frames);
+        Output::new(
+            self.data,
+            self.stride,
+            self.offset + from,
+            frames,
+            self.channels,
+        )
+    }
+
     /// The frames of `channel` this part covers. Already zeroed; sources add
     /// to them.
     pub fn channel(&mut self, channel: usize) -> &mut [f32] {

@@ -105,10 +105,11 @@ fn scrubbing_never_touches_the_heap() {
 }
 
 #[test]
-fn clips_metronome_and_tone_never_touch_the_heap() {
+fn routed_clips_metronome_and_tone_never_touch_the_heap() {
     use std::sync::Arc;
 
-    use lumen_engine::{Clip, ClipAudio, clip_player};
+    use lumen_engine::testing::routed;
+    use lumen_engine::{Clip, ClipAudio, clip_player, mixer};
 
     assert!(guard_is_active(), "guarded allocator not installed");
     let audio = Arc::new(ClipAudio {
@@ -123,7 +124,7 @@ fn clips_metronome_and_tone_never_touch_the_heap() {
                 offset: 0,
                 length: 96_000,
                 gain: 0.5,
-                pan: 0.0,
+                track: i as u64,
                 audio: Arc::clone(&audio),
                 // A third fade in and out along curves (read from tables).
                 shape: if i % 3 == 0 {
@@ -145,8 +146,11 @@ fn clips_metronome_and_tone_never_touch_the_heap() {
             .collect()
     };
     let (mut clips_handle, player) = clip_player();
-    let (mut handle, mut engine) = engine(Timeline::default(), player, 48_000);
+    // 64 tracks in groups, with sends to two returns (M4 slice 1).
+    let (mut routing, source) = mixer(player);
+    let (mut handle, mut engine) = engine(Timeline::default(), source, 48_000);
     clips_handle.set(clips(0)).unwrap();
+    assert!(routing.set(&routed(64, 0)).unwrap());
     handle.send(Command::Play).unwrap();
     // The metronome and the test tone run on the audio thread too.
     handle
@@ -172,12 +176,18 @@ fn clips_metronome_and_tone_never_touch_the_heap() {
             // Built and sent from the UI side, outside the real-time section.
             let _ = clips_handle.set(clips(block));
         }
+        // Levels change as fast as a fader drag; every other one reroutes
+        // a track, which crossfades between plans.
+        if (1_500..2_000).contains(&block) && block % 6 == 0 {
+            let _ = routing.set(&routed(64, (block / 6) as u32));
+        }
         if block % 700 == 350 {
             handle.send(Command::Locate(Ticks::quarters(3))).unwrap();
         }
         let ((), heap) = count_rt_violations(|| engine.process(48_000, &mut data, 2, 128));
         assert_eq!(heap, 0, "heap operation in process() at block {block}");
         clips_handle.collect_garbage();
+        routing.collect_garbage();
         handle.collect_garbage();
     }
 }
