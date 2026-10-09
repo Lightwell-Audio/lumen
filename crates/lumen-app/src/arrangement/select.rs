@@ -14,7 +14,7 @@ use lumen_project::model::{ClipContent, Id, Project, TrackKind};
 
 use super::clips::INSET;
 use super::handles::{ClipHandles, Handle};
-use super::{Arrangement, RowKind};
+use super::{Arrangement, RowKind, Zone};
 use crate::document::ClipMove;
 use crate::timeview::TimeView;
 
@@ -308,7 +308,7 @@ impl Arrangement {
     ) -> Vec<(usize, Id, Rect)> {
         let mut out = Vec::new();
         for row in self.rows(ctx, project, pending) {
-            let RowKind::Track(index) = row.kind else {
+            let (RowKind::Track(index), Zone::Main) = (row.kind, row.zone) else {
                 continue;
             };
             let top = canvas.top() + row.y - self.top;
@@ -399,9 +399,10 @@ impl Arrangement {
         let rows: Vec<_> = self
             .rows(ctx, project, pending)
             .into_iter()
+            .filter(|r| r.zone == Zone::Main)
             .filter_map(|r| match r.kind {
                 RowKind::Track(i) => Some((i, r)),
-                RowKind::Pending(_) => None,
+                RowKind::Pending(_) | RowKind::Master => None,
             })
             .collect();
         let (first, last) = (rows.first()?, rows.last()?);

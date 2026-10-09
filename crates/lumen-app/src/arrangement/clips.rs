@@ -20,7 +20,7 @@ use lumen_render::{BoxInstance, RowSlot, WaveInstance, WaveStyle, beats, rgba};
 use super::handles::{ClipHandles, draw_handles};
 use super::samples::{Geometry, Pixels, Strips};
 use super::waves::{Source, wave_instances};
-use super::{Arrangement, Row, RowKind, TITLE, clip_color, color_of, select};
+use super::{Arrangement, Row, RowKind, TITLE, Zone, clip_color, color_of, select};
 use crate::canvas::{self, ClipFrame};
 use crate::document::{Document, audible};
 use crate::lanes::{Landing, Lanes};
@@ -147,7 +147,17 @@ impl Arrangement {
         let palette = *theme::p();
         let project = doc.project();
         let audible = audible(project);
-        let rows = self.rows(ctx, project, lanes.pending().len());
+        // The returns and master pinned at the bottom (slice 4) draw their
+        // own lanes; everything below works in the scrolling tracks' zone.
+        let all = self.rows(ctx, project, lanes.pending().len());
+        self.pinned_lanes(ctx, painter, canvas, project, &all);
+        let canvas = Rect::from_x_y_ranges(
+            canvas.x_range(),
+            self.zone_span(ctx, project, Zone::Main, canvas.y_range()),
+        );
+        let clipped = painter.with_clip_rect(canvas.intersect(painter.clip_rect()));
+        let painter = &clipped;
+        let rows: Vec<Row> = all.into_iter().filter(|r| r.zone == Zone::Main).collect();
         let top = self.top;
         let lane_of = |row: &Row| {
             let lane = Rect::from_min_size(
@@ -213,7 +223,7 @@ impl Arrangement {
             .filter(|r| shown(r))
             .filter_map(|r| match r.kind {
                 RowKind::Track(index) => Some(index as u32),
-                RowKind::Pending(_) => None,
+                RowKind::Pending(_) | RowKind::Master => None,
             });
         let visible = indices
             .clone()
@@ -341,6 +351,7 @@ impl Arrangement {
                     draw_body(painter, rect, &look);
                     draw_name(painter, rect, lane, &look);
                 }
+                RowKind::Master => {}
             }
             painter.hline(
                 canvas.x_range(),
@@ -597,8 +608,9 @@ impl Arrangement {
         lanes: &'a Lanes,
         time: TimeView,
     ) -> Option<&'a Item> {
+        let zone = self.zone_at(ctx, project, pointer.y - canvas.top())?;
         let rows = self.rows(ctx, project, lanes.pending().len());
-        let row = rows.iter().find(|r| {
+        let row = rows.iter().filter(|r| r.zone == zone).find(|r| {
             let y = canvas.top() + r.y - self.top;
             (y..y + r.height).contains(&pointer.y)
         })?;
@@ -620,6 +632,7 @@ impl Arrangement {
                     .then(|| lanes.library.get(id))
                     .flatten()
             }
+            RowKind::Master => None,
         }
     }
 }

@@ -15,7 +15,7 @@ use eframe::egui::{self, CursorIcon, Key, Rect, Stroke, pos2};
 use lumen_project::groups;
 use lumen_project::model::{Id, TrackKind};
 
-use super::{Arrangement, Row, RowKind};
+use super::{Arrangement, Row, RowKind, Zone};
 use crate::document::{Document, Place, Refused};
 use crate::theme;
 
@@ -143,6 +143,7 @@ impl Arrangement {
             let tracks = &doc.project().tracks;
             let spots: Vec<Spot> = rows
                 .iter()
+                .filter(|r| r.zone == Zone::Main)
                 .filter_map(|r| match r.kind {
                     RowKind::Track(i) if !drag.moving.contains(&tracks[i].id) => {
                         let t = &tracks[i];

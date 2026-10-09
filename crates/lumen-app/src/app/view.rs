@@ -182,6 +182,10 @@ report: {}",
         let canvas = egui::Rect::from_min_max(pos2(full.left(), ruler.bottom()), time.right_top());
 
         self.canvas = canvas;
+        // Across the headers and the lanes: the pinned returns and master.
+        let pinned = egui::Rect::from_x_y_ranges(headers.left()..=canvas.right(), canvas.y_range());
+        self.arrangement
+            .pinned_wheel(ui, pinned, self.document.project());
         self.navigate(ui, &response, canvas);
         self.follow(canvas);
         let view = self.nav.view;
@@ -243,6 +247,7 @@ report: {}",
         });
         self.clip_editing(ui, &hover, canvas, &painter);
         hover.context_menu(|ui| self.lanes_menu(ui));
+        self.arrangement.pinned_controls(ui, pinned, &self.document);
         // Clip properties (slice 6e): renaming in the title bar, and the
         // pinned card, which takes the hover card's place.
         self.clip_rename(ui, canvas);

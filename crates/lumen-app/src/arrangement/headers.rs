@@ -11,7 +11,9 @@ use eframe::emath::GuiRounding as _;
 use lumen_project::model::{Id, TrackKind};
 
 use super::nesting::{self, Arm};
-use super::{Arrangement, BUTTON, FOLD_BELOW, FOLDED, MAX_HEIGHT, RowKind, STEP, snap_height};
+use super::{
+    Arrangement, BUTTON, FOLD_BELOW, FOLDED, MAX_HEIGHT, RowKind, STEP, Zone, snap_height,
+};
 use crate::commands::{Command, Keymap};
 use crate::document::Document;
 use crate::icons::draw_type_icon;
@@ -41,16 +43,20 @@ impl Arrangement {
         let palette = *theme::p();
         let painter = ui.painter_at(column);
         painter.rect_filled(column, 0.0, palette.header);
+        self.view_height = column.height();
         let rows = self.rows(&ctx, doc.project(), lanes.pending().len());
-        let content = Self::content_height(&rows);
+        let content = self.content_height(&ctx, doc.project(), &rows);
+        // The scrolling tracks end where the pinned returns and master
+        // begin (slice 4).
+        let main = self.zone_span(&ctx, doc.project(), Zone::Main, column.y_range());
 
         // Below the last track: double-click or right-click to add one.
         let below = Rect::from_min_max(
             pos2(
                 column.left(),
-                (column.top() + content - self.top).max(column.top()),
+                (column.top() + Self::main_bottom(&rows) - self.top).max(column.top()),
             ),
-            column.max,
+            pos2(column.right(), main.max),
         );
         if below.height() > 0.0 {
             let empty = ui.interact(below, ui.id().with("headers below"), Sense::click());
@@ -85,7 +91,7 @@ impl Arrangement {
                 below.min + vec2(8.0, 8.0),
                 vec2(column.width() - 16.0, 26.0),
             );
-            if button.bottom() < column.bottom() {
+            if button.bottom() < main.max {
                 let response = ui
                     .interact(button, ui.id().with("add track"), Sense::click())
                     .on_hover_text("Add an audio, MIDI, group or return track");
@@ -148,7 +154,7 @@ impl Arrangement {
             .iter()
             .map(|r| match r.kind {
                 RowKind::Track(i) => doc.project().tracks.get(i).map(|t| t.id),
-                RowKind::Pending(_) => None,
+                RowKind::Pending(_) | RowKind::Master => None,
             })
             .collect();
         let still = |doc: &Document, index: usize, row: usize| {
@@ -158,12 +164,26 @@ impl Arrangement {
                 .filter(|t| Some(t.id) == laid_out[row])
                 .cloned()
         };
+        // Each row draws and takes the pointer only inside its zone: the
+        // scrolling tracks pass under the pinned returns and master.
+        let base_clip = ui.clip_rect();
+        let base_painter = painter.clone();
         for (n, &row) in rows.iter().enumerate() {
+            let zone = Rect::from_x_y_ranges(
+                column.x_range(),
+                self.zone_span(&ctx, doc.project(), row.zone, column.y_range()),
+            );
             let rect = Rect::from_min_size(
                 pos2(column.left(), column.top() + row.y - self.top),
                 vec2(column.width(), row.height),
             );
-            if rect.bottom() < column.top() || rect.top() > column.bottom() {
+            if rect.bottom() < zone.top() || rect.top() > zone.bottom() {
+                continue;
+            }
+            ui.set_clip_rect(zone.intersect(base_clip));
+            let painter = base_painter.with_clip_rect(zone.intersect(base_painter.clip_rect()));
+            if row.kind == RowKind::Master {
+                self.master_header(ui, doc, rect);
                 continue;
             }
             let RowKind::Track(index) = row.kind else {
@@ -172,7 +192,7 @@ impl Arrangement {
                     .pending()
                     .get(match row.kind {
                         RowKind::Pending(i) => i,
-                        RowKind::Track(_) => unreachable!(),
+                        RowKind::Track(_) | RowKind::Master => unreachable!(),
                     })
                     .and_then(|(id, _)| lanes.library.get(*id))
                     .map_or_else(String::new, |i| i.name.clone());
@@ -216,7 +236,9 @@ impl Arrangement {
             if background.clicked() {
                 self.click_select(doc.project(), track.id, modifiers);
             }
-            if background.drag_started() {
+            // Returns stay pinned in their own order (reordering them waits;
+            // KNOWN_ISSUES).
+            if background.drag_started() && track.kind != TrackKind::Return {
                 self.start_drag(doc.project(), track.id);
             }
             background.context_menu(|ui| {
@@ -331,10 +353,31 @@ impl Arrangement {
             kind.widget_info(|| {
                 egui::WidgetInfo::labeled(egui::WidgetType::Label, true, kind_name(track.kind))
             });
-            let name_rect = Rect::from_min_max(
+            let mut name_rect = Rect::from_min_max(
                 pos2(left + NAME_X, mid - 10.0),
                 pos2(mute_rect.left() - 6.0, mid + 10.0),
             );
+            // A return's letter (A, B, C), in its colour: its sends carry
+            // the same letter and colour (slice 4).
+            if track.kind == TrackKind::Return
+                && let Some(letter) = super::pinned::letter_of(doc.project(), track.id)
+            {
+                let badge = Rect::from_min_size(
+                    pos2(name_rect.left(), mid - 8.0),
+                    vec2(16.0_f32.max(9.0 * letter.len() as f32 + 7.0), 16.0),
+                )
+                .round_to_pixels(ui.ctx().pixels_per_point());
+                let fill = super::color_of(track.color);
+                painter.rect_filled(badge, theme::radius::SMALL, fill);
+                painter.text(
+                    badge.center(),
+                    Align2::CENTER_CENTER,
+                    &letter,
+                    fonts::medium(theme::size::CAPTION),
+                    theme::text_on(fill),
+                );
+                name_rect.min.x = badge.right() + 6.0;
+            }
             // The name is on top of the header's background: it gets the
             // same menu, so a right-click on it opens the track's menu too.
             let count = (group && collapsed).then_some(inside);
@@ -425,7 +468,10 @@ impl Arrangement {
                 let exclusive = modifiers.command == additive;
                 doc.set_solo(&self.targets(track.id), !track.solo, exclusive);
             }
-            if arm_button(ui, arm_rect, id, &track.name, arm, look) {
+            // Returns record nothing: no arm button.
+            if track.kind != TrackKind::Return
+                && arm_button(ui, arm_rect, id, &track.name, arm, look)
+            {
                 doc.set_armed(&self.targets(track.id), !arm.on());
             }
 
@@ -483,6 +529,7 @@ impl Arrangement {
                 draw_edge_glow(&painter, column.x_range(), rect.bottom(), glow);
             }
         }
+        ui.set_clip_rect(base_clip);
         self.hot_edge = hot_edge;
         painter.vline(
             column.right() - 0.5,
@@ -504,7 +551,7 @@ impl Arrangement {
         // A drag follows rows laid out this frame: none if tracks changed.
         let unchanged = rows.iter().enumerate().all(|(n, row)| match row.kind {
             RowKind::Track(index) => still(doc, index, n).is_some(),
-            RowKind::Pending(_) => true,
+            RowKind::Pending(_) | RowKind::Master => true,
         });
         if unchanged {
             self.follow_drag(ui, column, &rows, content, doc);
@@ -628,7 +675,7 @@ impl Arrangement {
     }
 
     /// Volume and pan, for an unfolded track. Double-click resets either.
-    fn mixer_row(
+    pub(super) fn mixer_row(
         &mut self,
         ui: &mut Ui,
         doc: &mut Document,

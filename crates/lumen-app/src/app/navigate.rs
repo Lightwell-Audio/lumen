@@ -354,8 +354,12 @@ impl App {
             self.nav.glide_to(previous, None, now);
         }
         if fit_height {
+            // Into the height above the pinned returns and master.
+            let room = self
+                .arrangement
+                .main_height(&ctx, self.document.project(), canvas.height());
             self.arrangement
-                .toggle_fit_heights(self.document.project(), canvas.height());
+                .toggle_fit_heights(self.document.project(), room);
         }
         if zoom_in || zoom_out || fit_width || back {
             // Looking around pauses Follow, as in Ableton.

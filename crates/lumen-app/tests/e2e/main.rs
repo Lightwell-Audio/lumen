@@ -28,6 +28,7 @@ mod navigation;
 mod palette;
 mod playback;
 mod properties;
+mod returns;
 mod rulers;
 mod scrubbing;
 mod shortcuts;

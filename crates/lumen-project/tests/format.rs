@@ -311,6 +311,30 @@ fn golden_v9_expected() -> Project {
     project
 }
 
+/// The model the v10 golden file must always load as: v9 with the area
+/// pinned at the bottom dragged to 110 points and its returns folded.
+fn golden_v10_expected() -> Project {
+    let mut project = Project {
+        name: "Golden v10".into(),
+        ..golden_v9_expected()
+    };
+    project.view.returns_height = Some(110.0);
+    project.view.returns_folded = true;
+    project
+}
+
+#[test]
+fn golden_v10_file_loads_forever() {
+    let path = fixture("v10/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        // Written once, when version 10 was introduced; never rewritten.
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v10_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v10 golden file must load");
+    assert_eq!(project, golden_v10_expected());
+}
+
 #[test]
 fn golden_v9_file_loads_forever() {
     let path = fixture("v9/golden.lumen");

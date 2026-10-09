@@ -19,7 +19,7 @@ pub const FIRST_VERSION: u64 = 1;
 
 /// `MIGRATIONS[i]` upgrades version `FIRST_VERSION + i` to the next one.
 pub const MIGRATIONS: &[Migration] = &[
-    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9,
+    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10,
 ];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
@@ -276,6 +276,20 @@ fn v8_to_v9(mut document: Value) -> Result<Value, String> {
         .and_then(Value::as_object_mut);
     if let Some(view) = view {
         view.entry("header_width").or_insert(Value::from(204.0));
+    }
+    Ok(document)
+}
+
+/// v10 (M4 slice 4): returns and the master pinned at the bottom of the
+/// arrangement, the area's height (absent: its natural size) and whether
+/// the returns are folded away.
+fn v9_to_v10(mut document: Value) -> Result<Value, String> {
+    let view = document
+        .get_mut("project")
+        .and_then(|p| p.get_mut("view"))
+        .and_then(Value::as_object_mut);
+    if let Some(view) = view {
+        view.entry("returns_folded").or_insert(Value::from(false));
     }
     Ok(document)
 }
@@ -562,6 +576,14 @@ mod tests {
         let v8 = json!({ "version": 8, "project": { "view": {}, "tracks": [] } });
         let v9 = upgrade(v8, 8, FIRST_VERSION, MIGRATIONS).unwrap();
         assert_eq!(v9["project"]["view"]["header_width"], json!(204.0));
+    }
+
+    #[test]
+    fn v9_to_v10_writes_the_returns_area_unfolded_at_its_natural_size() {
+        let v9 = json!({ "version": 9, "project": { "view": {}, "tracks": [] } });
+        let v10 = upgrade(v9, 9, FIRST_VERSION, MIGRATIONS).unwrap();
+        assert_eq!(v10["project"]["view"]["returns_folded"], json!(false));
+        assert!(v10["project"]["view"].get("returns_height").is_none());
     }
 
     #[test]

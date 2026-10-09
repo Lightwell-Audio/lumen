@@ -20,6 +20,10 @@
 //! in by [`INDENT`] a level, with the colour rail of every group they are
 //! in running down beside them. A group's arrow hides or shows its tracks
 //! (`collapsed`, saved with the project); its height is still dragged.
+//!
+//! Returns and the master (M4 slice 4, the owner's A1) are pinned at the
+//! bottom, under a divider (`pinned`): rows carry the [`Zone`] they are
+//! drawn in, and each zone clips its own.
 
 mod clips;
 mod drop;
@@ -27,6 +31,7 @@ pub mod handles;
 mod headers;
 mod menus;
 mod nesting;
+mod pinned;
 mod reorder;
 mod samples;
 pub mod select;
@@ -88,12 +93,14 @@ pub(crate) fn indent(depth: usize) -> f32 {
 
 const BUTTON: f32 = 19.0;
 
-/// One row of the arrangement, in content coordinates.
+/// One row of the arrangement, in content coordinates (on screen at the
+/// lanes' top + `y` − the scroll), drawn inside its zone.
 #[derive(Debug, Clone, Copy)]
 struct Row {
     kind: RowKind,
     y: f32,
     height: f32,
+    zone: Zone,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -102,6 +109,17 @@ enum RowKind {
     Track(usize),
     /// Index into the files loading for import.
     Pending(usize),
+    /// The master track (`Project::master`).
+    Master,
+}
+
+/// Where a row is drawn: the scrolling tracks, or the area pinned at the
+/// bottom (the returns, then the master).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Zone {
+    Main,
+    Returns,
+    Master,
 }
 
 /// The arrangement's view state: vertical scroll, heights, folding,
@@ -162,6 +180,18 @@ pub struct Arrangement {
     /// The header column's width when dragged from the default (saved
     /// with the project, as panel sizes are).
     width: Option<f32>,
+    /// The lanes' height, set by the headers each frame: the pinned area
+    /// sits at its bottom.
+    view_height: f32,
+    /// The pinned area's height when dragged (saved; `None` fits it to its
+    /// rows).
+    returns_size: Option<f32>,
+    /// The returns folded away under their caption (saved).
+    pub(crate) returns_folded: bool,
+    /// How far the returns are scrolled inside the pinned area.
+    returns_top: f32,
+    /// The pinned area's height when its divider drag began.
+    sizing_returns: Option<f32>,
     /// The additive-solo preference (M4 slice 4), set by the app.
     pub(crate) additive_solo: bool,
 }
@@ -207,21 +237,26 @@ impl Arrangement {
                 .any(|g| self.collapsed.contains(&g))
     }
 
-    /// The tracks shown, in order: those not hidden in a folded group.
+    /// The tracks shown, in order: those not hidden in a folded group,
+    /// then the returns unless folded away (they are drawn at the bottom).
     pub(crate) fn visible<'p>(&self, project: &'p Project) -> impl Iterator<Item = &'p Arc<Track>> {
-        project
+        let returns = |t: &&Arc<Track>| t.kind == TrackKind::Return;
+        let tracks = project
             .tracks
             .iter()
-            .filter(move |t| !self.hidden(project, t.id))
+            .filter(move |t| !returns(t) && !self.hidden(project, t.id));
+        let folded = self.returns_folded;
+        tracks.chain(project.tracks.iter().filter(move |t| !folded && returns(t)))
     }
 
     /// Every row with its position; heights glide to their targets. Tracks
-    /// hidden in a folded group have no row.
+    /// hidden in a folded group have no row. The scrolling tracks come
+    /// first, then the pinned returns and the master.
     fn rows(&self, ctx: &egui::Context, project: &Project, pending: usize) -> Vec<Row> {
-        let mut rows = Vec::with_capacity(project.tracks.len() + pending);
+        let mut rows = Vec::with_capacity(project.tracks.len() + pending + 1);
         let mut y = 0.0;
         for (i, track) in project.tracks.iter().enumerate() {
-            if self.hidden(project, track.id) {
+            if track.kind == TrackKind::Return || self.hidden(project, track.id) {
                 continue;
             }
             let height = motion::glide(
@@ -234,6 +269,7 @@ impl Arrangement {
                 kind: RowKind::Track(i),
                 y,
                 height,
+                zone: Zone::Main,
             });
             y += height;
         }
@@ -242,19 +278,96 @@ impl Arrangement {
                 kind: RowKind::Pending(i),
                 y,
                 height: FOLDED,
+                zone: Zone::Main,
             });
             y += FOLDED;
         }
+        // The pinned area, placed so that `lanes' top + y − scroll` lands
+        // in it whatever the scroll.
+        let zones = self.zones(ctx, project);
+        let mut y = self.top + zones.returns.0 - self.returns_top;
+        for (i, track) in project.tracks.iter().enumerate() {
+            if track.kind != TrackKind::Return || self.returns_folded {
+                continue;
+            }
+            let height = motion::glide(
+                ctx,
+                EguiId::new(("track height", track.id)),
+                self.target_height(track.id),
+                true,
+            );
+            rows.push(Row {
+                kind: RowKind::Track(i),
+                y,
+                height,
+                zone: Zone::Returns,
+            });
+            y += height;
+        }
+        rows.push(Row {
+            kind: RowKind::Master,
+            y: self.top + zones.master.0,
+            height: zones.master.1 - zones.master.0,
+            zone: Zone::Master,
+        });
         rows
     }
 
-    fn content_height(rows: &[Row]) -> f32 {
-        rows.last().map_or(0.0, |r| r.y + r.height)
+    /// The bottom of the scrolling tracks, in content coordinates.
+    fn main_bottom(rows: &[Row]) -> f32 {
+        rows.iter()
+            .rfind(|r| r.zone == Zone::Main)
+            .map_or(0.0, |r| r.y + r.height)
+    }
+
+    /// Height of everything, for scrolling: the scrolling tracks and the
+    /// pinned area under them.
+    fn content_height(&self, ctx: &egui::Context, project: &Project, rows: &[Row]) -> f32 {
+        Self::main_bottom(rows) + (self.view_height - self.zones(ctx, project).main).max(0.0)
+    }
+
+    /// The height left to the scrolling tracks in lanes `height` tall.
+    pub(crate) fn main_height(&self, ctx: &egui::Context, project: &Project, height: f32) -> f32 {
+        let pinned = (self.view_height - self.zones(ctx, project).main).max(0.0);
+        (height - pinned).max(FOLDED)
+    }
+
+    /// The zone a point `y` below the lanes' top falls in (`None`: the
+    /// divider or the caption).
+    fn zone_at(&self, ctx: &egui::Context, project: &Project, y: f32) -> Option<Zone> {
+        let zones = self.zones(ctx, project);
+        if y < zones.main {
+            Some(Zone::Main)
+        } else if (zones.returns.0..zones.returns.1).contains(&y) {
+            Some(Zone::Returns)
+        } else if y >= zones.master.0 {
+            Some(Zone::Master)
+        } else {
+            None
+        }
+    }
+
+    /// The span a zone covers on screen, given the lanes' top and bottom.
+    fn zone_span(
+        &self,
+        ctx: &egui::Context,
+        project: &Project,
+        zone: Zone,
+        lanes: egui::Rangef,
+    ) -> egui::Rangef {
+        let zones = self.zones(ctx, project);
+        let at = |y: f32| (lanes.min + y).min(lanes.max);
+        match zone {
+            Zone::Main => egui::Rangef::new(lanes.min, at(zones.main)),
+            Zone::Returns => egui::Rangef::new(at(zones.returns.0), at(zones.returns.1)),
+            Zone::Master => egui::Rangef::new(at(zones.master.0), at(zones.master.1)),
+        }
     }
 
     /// Forgets selected, resized or unfolded tracks that no longer exist.
     fn prune(&mut self, project: &Project) {
-        let exists = |id: &Id| project.tracks.iter().any(|t| t.id == *id);
+        let exists =
+            |id: &Id| *id == project.master.id || project.tracks.iter().any(|t| t.id == *id);
         self.selected.retain(exists);
         self.heights.retain(|id, _| exists(id));
         self.expanded.retain(exists);
@@ -272,13 +385,15 @@ impl Arrangement {
         pending: usize,
         y: f32,
     ) -> Option<Id> {
+        let zone = self.zone_at(ctx, project, y)?;
         let y = y + self.top;
         self.rows(ctx, project, pending)
             .iter()
+            .filter(|r| r.zone == zone)
             .find(|r| (r.y..r.y + r.height).contains(&y))
             .and_then(|r| match r.kind {
                 RowKind::Track(i) => project.tracks.get(i).map(|t| t.id),
-                RowKind::Pending(_) => None,
+                RowKind::Pending(_) | RowKind::Master => None,
             })
     }
 
@@ -360,7 +475,11 @@ impl Arrangement {
             return;
         };
         let rows = self.rows(ctx, project, pending);
-        if let Some(row) = rows.iter().find(|r| r.kind == RowKind::Track(index)) {
+        let visible = visible - (self.view_height - self.zones(ctx, project).main).max(0.0);
+        if let Some(row) = rows
+            .iter()
+            .find(|r| r.kind == RowKind::Track(index) && r.zone == Zone::Main)
+        {
             if row.y < self.top {
                 self.top = row.y;
             } else if row.y + row.height > self.top + visible {
@@ -371,7 +490,7 @@ impl Arrangement {
 
     /// Height of everything, for scrolling.
     pub fn height_of_content(&self, ctx: &egui::Context, project: &Project, pending: usize) -> f32 {
-        Self::content_height(&self.rows(ctx, project, pending))
+        self.content_height(ctx, project, &self.rows(ctx, project, pending))
     }
 
     /// Selects `id` the way a click does: alone, toggled with Ctrl, or as a
@@ -487,9 +606,29 @@ impl Arrangement {
         let _ = doc.move_tracks(&ids, Place { index, group });
     }
 
-    /// Adds a track of `kind` after the selection and selects it.
+    /// Adds a track of `kind` after the selection and selects it. A
+    /// return goes after the last return (they are drawn pinned at the
+    /// bottom) and shows the returns if they were folded away.
     pub(crate) fn add_track(&mut self, doc: &mut Document, kind: TrackKind) {
-        let after = self.selected.last().copied();
+        let after = if kind == TrackKind::Return {
+            let tracks = &doc.project().tracks;
+            tracks
+                .iter()
+                .rev()
+                .find(|t| t.kind == TrackKind::Return)
+                .or(tracks.last())
+                .map(|t| t.id)
+        } else {
+            self.selected.last().copied().filter(|id| {
+                doc.project()
+                    .tracks
+                    .iter()
+                    .any(|t| t.id == *id && t.kind != TrackKind::Return)
+            })
+        };
+        if kind == TrackKind::Return {
+            self.returns_folded = false;
+        }
         self.selected = vec![doc.add_track(kind, after)];
     }
 
@@ -630,6 +769,8 @@ impl Arrangement {
         view.track_heights = self.heights.clone();
         view.expanded = self.expanded.clone();
         view.collapsed = self.collapsed.clone();
+        view.returns_height = self.returns_size;
+        view.returns_folded = self.returns_folded;
     }
 
     /// Restores the view state of an opened project.
@@ -645,6 +786,11 @@ impl Arrangement {
             collapsed: view.collapsed.clone(),
             width: (view.header_width.is_finite() && view.header_width != HEADER_WIDTH)
                 .then(|| view.header_width.clamp(HEADER_WIDTH, MAX_HEADER_WIDTH)),
+            returns_size: view
+                .returns_height
+                .filter(|h| h.is_finite())
+                .map(|h| h.max(0.0)),
+            returns_folded: view.returns_folded,
             ..Self::default()
         }
     }
@@ -742,12 +888,72 @@ mod tests {
             ),
             (a.top, a.expanded, a.heights, 300.0)
         );
+        // The pinned area's height and fold (format v10).
+        let mut d = Arrangement {
+            returns_size: Some(110.0),
+            returns_folded: true,
+            ..Arrangement::default()
+        };
+        d.save_into(&mut view);
+        assert_eq!(
+            (view.returns_height, view.returns_folded),
+            (Some(110.0), true)
+        );
+        let e = Arrangement::restore(&view);
+        assert_eq!((e.returns_size, e.returns_folded), (Some(110.0), true));
+        d.returns_size = None;
+        d.save_into(&mut view);
+        assert_eq!(view.returns_height, None, "natural size is not written");
         // Out of range widths are kept in range.
         let mut c = Arrangement::default();
         c.set_header_width(2_000.0);
         assert_eq!(c.header_width(), MAX_HEADER_WIDTH);
         c.set_header_width(10.0);
         assert_eq!(c.header_width(), HEADER_WIDTH);
+    }
+
+    #[test]
+    fn returns_come_after_the_tracks_and_new_ones_after_the_last_return() {
+        let mut doc = Document::new(crate::empty_project());
+        let mut a = Arrangement::default();
+        a.add_track(&mut doc, TrackKind::Audio);
+        a.add_track(&mut doc, TrackKind::Return);
+        let first_return = a.selected[0];
+        a.add_track(&mut doc, TrackKind::Audio);
+        a.add_track(&mut doc, TrackKind::Return);
+        let second_return = a.selected[0];
+        // A track added with a return selected goes among the tracks.
+        a.add_track(&mut doc, TrackKind::Midi);
+        let kinds = |a: &Arrangement, doc: &Document| -> Vec<TrackKind> {
+            a.visible(doc.project()).map(|t| t.kind).collect()
+        };
+        assert_eq!(
+            kinds(&a, &doc),
+            [
+                TrackKind::Audio,
+                TrackKind::Audio,
+                TrackKind::Midi,
+                TrackKind::Return,
+                TrackKind::Return
+            ]
+        );
+        let returns: Vec<Id> = doc
+            .project()
+            .tracks
+            .iter()
+            .filter(|t| t.kind == TrackKind::Return)
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(returns, [first_return, second_return]);
+        assert_eq!(
+            pinned::letter_of(doc.project(), second_return).as_deref(),
+            Some("B")
+        );
+        // Folded away, they are skipped by the arrow keys too.
+        a.returns_folded = true;
+        assert_eq!(kinds(&a, &doc).len(), 3);
+        a.add_track(&mut doc, TrackKind::Return);
+        assert!(!a.returns_folded, "adding a return shows them");
     }
 
     #[test]

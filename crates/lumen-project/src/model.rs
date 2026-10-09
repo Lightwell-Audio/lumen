@@ -146,6 +146,12 @@ pub struct ViewState {
     pub collapsed: BTreeSet<Id>,
     /// Width of the track header column, in points (format v9).
     pub header_width: f32,
+    /// Height of the area pinned at the bottom (returns and the master),
+    /// in points, when dragged from its natural size (format v10).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub returns_height: Option<f32>,
+    /// Returns folded away in that area, leaving the master (format v10).
+    pub returns_folded: bool,
 }
 
 impl Default for ViewState {
@@ -163,6 +169,8 @@ impl Default for ViewState {
             grid: Grid::default(),
             collapsed: BTreeSet::new(),
             header_width: 204.0,
+            returns_height: None,
+            returns_folded: false,
         }
     }
 }

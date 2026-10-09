@@ -7,7 +7,7 @@
 use eframe::egui::{self, Painter, Rect, Stroke, pos2, vec2};
 use lumen_project::model::{Id, Project, TrackKind};
 
-use super::{Arrangement, RowKind};
+use super::{Arrangement, RowKind, Zone};
 use crate::document::DropInto;
 use crate::theme;
 use crate::widgets;
@@ -110,9 +110,11 @@ impl Arrangement {
         canvas: Rect,
         y: f32,
     ) -> (DropInto, f32) {
+        // Files land among the scrolling tracks, never on the returns.
         let rows: Vec<DropRow> = self
             .rows(ctx, project, pending)
             .iter()
+            .filter(|r| r.zone == Zone::Main)
             .filter_map(|r| match r.kind {
                 RowKind::Track(i) => {
                     let t = &project.tracks[i];
@@ -125,7 +127,7 @@ impl Arrangement {
                         depth: lumen_project::groups::depth(&project.tracks, t.id),
                     })
                 }
-                RowKind::Pending(_) => None,
+                RowKind::Pending(_) | RowKind::Master => None,
             })
             .collect();
         let (into, line) = drop_place(&rows, y - canvas.top() + self.top);
