@@ -614,3 +614,46 @@ fn dropouts() {
         save(&mut h, &format!("dropouts-panel-{appearance}-{scale}"));
     }
 }
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn sends() {
+    // MT-MIX-4 run 1: knobs on a selected row (C4), the "+N" list (O1)
+    // and a return's senders (R2).
+    use egui_kittest::kittest::Queryable;
+    for (appearance, scale) in [("dark", 1.0), ("light", 1.0), ("dark", 1.5)] {
+        let dir = TempDir::new("shots-sends");
+        let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1200.0, 700.0));
+        for _ in 0..10 {
+            h.get_by_label("Add track").click();
+            h.run_steps(3);
+            h.get_by_label_contains("Add return track").click();
+            h.run_steps(3);
+        }
+        h.get_by_label("Fold kick").click();
+        h.run_steps(30);
+        for (knob, level) in [("A", "-6"), ("B", "-20")] {
+            h.get_by_label_contains(&format!("Send kick to {knob} "))
+                .click();
+            h.run_steps(2);
+            h.event(Event::Text(level.into()));
+            h.run_steps(2);
+            h.key_press(Key::Enter);
+            h.run_steps(2);
+        }
+        h.get_by_label("Fold Return 1").click();
+        h.run_steps(30);
+        // Up to the top: kick selected.
+        for _ in 0..16 {
+            h.key_press(Key::ArrowUp);
+            h.run_steps(1);
+        }
+        h.hover_at(Pos2::new(900.0, 650.0));
+        h.run_steps(10);
+        save(&mut h, &format!("sends-{appearance}-{scale}"));
+        h.get_by_label_contains("more sends from kick").click();
+        h.run_steps(5);
+        save(&mut h, &format!("sends-list-{appearance}-{scale}"));
+        h.key_press(Key::Escape);
+    }
+}

@@ -216,6 +216,9 @@ pub struct Arrangement {
     /// Tracks that show sends (audio, MIDI and groups, while the project
     /// has returns): they unfold a step taller.
     with_sends: BTreeSet<Id>,
+    /// How many tracks send to each return: it unfolds tall enough to
+    /// list them.
+    senders: BTreeMap<Id, usize>,
     /// Tracks cued with their headphone buttons (slice 4): session state.
     pub(crate) cued: BTreeSet<Id>,
     /// The cue's settings, lent by the app while the headers draw.
@@ -256,6 +259,10 @@ impl Arrangement {
             // knobs have their own row (slice 4).
             let unfolded = if self.with_sends.contains(&id) {
                 UNFOLDED + STEP
+            } else if let Some(&senders) = self.senders.get(&id) {
+                // A return opens tall enough to list what sends to it
+                // (MT-MIX-4 run 1, the owner's R2).
+                (UNFOLDED + senders.saturating_sub(1) as f32 * STEP).min(MAX_HEIGHT)
             } else {
                 UNFOLDED
             };
@@ -413,6 +420,12 @@ impl Arrangement {
             .iter()
             .filter(|t| returns && sends::has_sends(t.kind))
             .map(|t| t.id)
+            .collect();
+        self.senders = project
+            .tracks
+            .iter()
+            .filter(|t| t.kind == TrackKind::Return)
+            .map(|t| (t.id, sends::senders(project, t.id).len()))
             .collect();
         if self.renaming.as_ref().is_some_and(|(id, _)| !exists(id)) {
             self.renaming = None;

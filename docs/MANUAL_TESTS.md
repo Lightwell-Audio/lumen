@@ -1405,3 +1405,31 @@ audio files (drums, bass, a vocal, anything) and group the first two
 one step; nothing clicks while soloing, muting or turning sends during
 playback.
 
+**Run 1 (2026-10-09, owner):** four findings. (1) Sending to a return
+makes the track louder: expected while returns hold no effect (the return
+plays a copy of what is sent; a 0 dB send adds +6 dB), as in every DAW;
+explained, waiting for the owner to confirm it was not louder at −∞. (2)
+The send knobs are hard to read on a selected (blue) row. (3) With many
+returns, the sends past "+N" cannot be reached. (4) A return should show
+which tracks send to it. Mock-ups for 2 to 4 shown before building (the
+owner asked for mocks for every visual change); the owner chose C4 (after
+a second round of ideas), O1 with a redrawn button, and R2. The owner
+confirmed (1) also happened at the knob's lowest: the bottom stored
+−80 dB instead of silence (fixed; inaudible, but not off). A louder track
+with a send at the bottom was not reproduced (E2E measures the same level
+before sending and at the bottom); a pre-fader send ignores the track's
+fader, which can sound louder than the fader says. Fixed and built
+(ADR-0038 amendment); steps 12 to 14 added.
+12. **Knobs on a selected track** (run 1): select an unfolded track with
+    sends: the knobs' rings and letters stay clear on the blue row, in
+    both themes.
+13. **Many returns** (run 1): add returns until the header shows "+N ▾"
+    after its knobs (drawn like "+ Add track ▾"). Click it: "Sends from …"
+    lists every return with its knob, letter, name and level; set one
+    there. A dot before the number shows when a hidden send is up.
+14. **Who sends to a return** (run 1): unfold a return: under volume and
+    pan, every track that sends to it is listed, in its colour, with its
+    send knob and level; turn one there. With nothing sending: "No tracks
+    send here yet". Turn a send to the bottom: it reads −∞ and the track
+    is exactly as loud as with no send.
+

@@ -450,6 +450,19 @@ Chosen from interactive specimens (ADR-0038):
   caption size while it moves; at 40% strength while the send is not
   heard. Hovering a knob lights its return's header (10% wash, 1 pt frame
   in its colour) and hovering a return rings its knobs.
+  - **On a selected row (C4, MT-MIX-4 run 1):** the ring is a quarter of
+    the way from the control colour to the text colour, and a silent
+    knob's letter is `text_secondary`, so the knobs stay clear of the
+    row in both themes.
+  - **"+N ▾" (O1):** past the header's width, a 20 pt button drawn as
+    "+ Add track ▾" is (control fill, 6 pt corners, the filled arrow, an
+    accent edge on hover and while open), with a dot in a return's colour
+    before the number while a hidden send is up. It opens "Sends from …":
+    a 20 pt knob, the letter badge, the name and the level per return.
+  - **A return's senders (R2):** an unfolded return lists, from its third
+    step, every track that sends to it: a 4 × 14 pt bar in the track's
+    colour, its name, a 20 pt knob and the level; it unfolds tall enough
+    for them (a step each). "No tracks send here yet" when none do.
 - **Cue (C1):** the master's **Solo/Cue switch** (46 × 18 pt at the
   header's right): "Solo" in control colours, the accent with headphones
   and "Cue" when on, greyed (`text_disabled`) without a cue pair. On Cue,

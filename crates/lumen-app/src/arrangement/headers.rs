@@ -511,7 +511,11 @@ impl Arrangement {
                 self.mixer_row(ui, doc, &track, rect, id, look);
             }
             if row.height >= super::sends::SENDS_FROM && super::sends::has_sends(track.kind) {
-                self.sends_row(ui, doc, &track, rect, id, hears);
+                self.sends_row(ui, doc, &track, rect, selected);
+            }
+            // An unfolded return lists what sends to it (the owner's R2).
+            if track.kind == TrackKind::Return && row.height >= FOLDED + 2.0 * STEP {
+                self.senders_rows(ui, doc, &track, rect);
             }
             // A return lights with the sends that feed it, and the other
             // way round (the owner's K1).

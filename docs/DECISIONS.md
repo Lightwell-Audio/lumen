@@ -2957,3 +2957,26 @@ and its saved size, the master's volume), `sends` (drag, silence,
 pre-fader and undo; a typed level; a soloed return heard wet only), `cue`
 (the switch explains itself, a cued track on the cue pair before its
 fader and mute, the metronome on the cue pair).
+
+### Amendment: MT-MIX-4 run 1 (2026-10-09)
+- **The knob's bottom was not silence:** `knob::level` took the floor as
+  position 0, so the bottom of the travel stored about −80 dB. The floor
+  is now the position of −60 dB (`knob::floor`); E2E
+  `a_send_at_the_bottom_is_silent_and_leaves_the_level_alone` stored
+  −80.7 dB before the fix. A louder track with the send at the bottom was
+  not reproduced (the same E2E measures the level before sending and at
+  the bottom).
+- **C4** (the owner, after two rounds of mock-ups): knobs take the row's
+  selection; on a selected row the ring is a quarter of the way to the
+  text colour (`SendKnob::selected`).
+- **O1, drawn as "+ Add track ▾":** knobs past the header's width are
+  reached from a "+N ▾" button opening every send of the track
+  (`sends::more_sends`, an egui menu popup).
+- **R2:** an unfolded return lists its senders with their knobs
+  (`sends::senders_rows`), unfolding a step taller per sender
+  (`Arrangement::senders`). Knob widgets are named by place (header, list,
+  return) so the same send can show twice.
+- E2E: the "+N" list sets the tenth return's send; a return lists its
+  sender and sets it there. `tests/shots.rs` `sends` renders the selected
+  row, the list and a return's senders in both themes and at 150%.
+

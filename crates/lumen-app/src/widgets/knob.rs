@@ -40,9 +40,15 @@ pub fn position(db: f32) -> f32 {
     (UNITY_AT * 10f32.powf(db.min(MAX_DB) / TAPER)).clamp(0.0, 1.0)
 }
 
-/// The level at `position` on the travel: silence at the bottom.
+/// Where the travel turns to silence: the position of −60 dB.
+fn floor() -> f32 {
+    UNITY_AT * 10f32.powf(FLOOR_DB / TAPER)
+}
+
+/// The level at `position` on the travel: silence at the bottom. (Before
+/// MT-MIX-4 run 1 the bottom was −80 dB: the floor was taken as 0.)
 pub fn level(position: f32) -> f32 {
-    if position <= self::position(FLOOR_DB) {
+    if position <= floor() {
         return f32::NEG_INFINITY;
     }
     (TAPER * (position.min(1.0) / UNITY_AT).log10()).min(MAX_DB)
@@ -62,6 +68,9 @@ pub struct SendKnob<'a> {
     pub heard: bool,
     /// Its return is hovered somewhere: the knob lights up to match.
     pub linked: bool,
+    /// On a selected row its ring and letter step up, as every control's
+    /// colours do there (the owner's C4, MT-MIX-4 run 1).
+    pub selected: bool,
     /// The accessible name: "Send Vocal to A Reverb".
     pub name: &'a str,
 }
@@ -240,14 +249,23 @@ fn on_ring(center: Pos2, r: f32, t: f32) -> Pos2 {
 /// in its colour.
 fn draw(painter: &egui::Painter, rect: Rect, knob: &SendKnob<'_>, at: f32, hot: f32) {
     let palette = *theme::p();
+    let look = theme::controls(knob.selected);
     let center = rect.center();
     let r = rect.width() / 2.0 - 2.0;
     let width = (r * 0.28).max(1.8);
-    // The ring, all the way round its sweep.
+    // The ring, all the way round its sweep: two steps up on a selected
+    // row, where the plain control colour vanishes into the row.
+    let ring_color = if knob.selected {
+        // A quarter of the way to the text colour: lighter on dark, darker
+        // on light, clear of the selected row either way.
+        look.fill.lerp_to_gamma(palette.text, 0.25)
+    } else {
+        look.fill
+    };
     let ring: Vec<Pos2> = (0..=32)
         .map(|i| on_ring(center, r, i as f32 / 32.0))
         .collect();
-    painter.add(Shape::line(ring, Stroke::new(width, palette.control)));
+    painter.add(Shape::line(ring, Stroke::new(width, ring_color)));
     let strength = if knob.heard { 1.0 } else { 0.4 };
     if at > 0.0 {
         // The trail: faint at the start, full at the head, and thicker
@@ -278,10 +296,10 @@ fn draw(painter: &egui::Painter, rect: Rect, knob: &SendKnob<'_>, at: f32, hot: 
             Stroke::new(1.0, knob.color.gamma_multiply(0.5 * hot)),
         );
     }
-    let ink = if at > 0.0 {
-        palette.text
-    } else {
-        palette.text_hint
+    let ink = match (at > 0.0, knob.selected) {
+        (true, _) => palette.text,
+        (false, true) => palette.text_secondary,
+        (false, false) => palette.text_hint,
     };
     painter.text(
         center,
@@ -310,6 +328,8 @@ mod tests {
         assert!((position(0.0) - 0.75).abs() < 1e-6);
         assert!((position(MAX_DB) - 1.0).abs() < 1e-4);
         assert_eq!(level(0.0), f32::NEG_INFINITY);
+        assert_eq!(level(floor()), f32::NEG_INFINITY, "the bottom is silence");
+        assert!(level(floor() + 1e-4) > -60.1);
         for db in [-48.0, -24.0, -12.0, -6.0, 0.0, 3.0, 6.0] {
             assert!((level(position(db)) - db).abs() < 0.01, "{db}");
         }

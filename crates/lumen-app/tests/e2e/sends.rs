@@ -125,3 +125,124 @@ fn a_soloed_return_plays_only_what_is_sent_to_it() {
     assert!(loudest(&mut lumen) < 1e-4);
     lumen.key(Modifiers::NONE, Key::Space);
 }
+
+#[test]
+fn a_send_at_the_bottom_is_silent_and_leaves_the_level_alone() {
+    // MT-MIX-4 run 1 (owner): the track seemed louder with its send at the
+    // lowest. The bottom of the knob stored −80 dB, not silence.
+    let (mut lumen, track) = with_a_return("send-silent");
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
+    let loudest = |lumen: &mut Lumen| {
+        std::thread::sleep(Duration::from_millis(150));
+        lumen.frames(1);
+        lumen.app_mut().heard();
+        std::thread::sleep(Duration::from_millis(150));
+        lumen.frames(1);
+        let heard = lumen.app_mut().heard();
+        heard.iter().fold(0.0f32, |m, s| m.max(s.0.abs()))
+    };
+    let before = loudest(&mut lumen);
+    let label = format!("Send {track} to A Return 1");
+    let knob = lumen.harness.get_by_label_contains(&label).rect();
+    lumen.drag(
+        knob.center(),
+        knob.center() - vec2(0.0, 60.0),
+        Modifiers::NONE,
+    );
+    assert!(
+        send(&lumen).is_some_and(|s| s.0 > -60.0),
+        "{:?}",
+        send(&lumen)
+    );
+    assert!(
+        loudest(&mut lumen) > before * 1.01,
+        "an empty return adds a copy"
+    );
+    lumen.drag(
+        knob.center(),
+        knob.center() + vec2(0.0, 400.0),
+        Modifiers::NONE,
+    );
+    assert_eq!(
+        send(&lumen).map(|s| s.0),
+        Some(f32::NEG_INFINITY),
+        "silence"
+    );
+    let after = loudest(&mut lumen);
+    assert!(
+        (after - before).abs() < before * 0.01,
+        "before {before}, after {after}"
+    );
+    lumen.key(Modifiers::NONE, Key::Space);
+}
+
+#[test]
+fn sends_past_the_headers_width_are_set_from_the_plus_list() {
+    // MT-MIX-4 run 1 (owner): the "+N" could not be reached (the owner's O1).
+    let (mut lumen, track) = with_a_return("send-more");
+    for _ in 0..9 {
+        lumen.click("Add track");
+        lumen.click("Add return track");
+    }
+    lumen.frames(20);
+    let more = format!("more sends from {track}");
+    assert!(lumen.harness.query_by_label_contains(&more).is_some());
+    // The tenth return's knob is not on the header.
+    assert!(
+        lumen
+            .harness
+            .query_by_label_contains("to J Return 10")
+            .is_none()
+    );
+    lumen.harness.get_by_label_contains(&more).click();
+    lumen.frames(3);
+    lumen
+        .harness
+        .get_by_label_contains("to J Return 10")
+        .click();
+    lumen.frames(2);
+    lumen.harness.event(eframe::egui::Event::Text("-9".into()));
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::Enter);
+    let project = lumen.app().project();
+    let ret = project
+        .tracks
+        .iter()
+        .find(|t| t.name == "Return 10")
+        .unwrap()
+        .id;
+    let level = project.tracks[0]
+        .sends
+        .iter()
+        .find(|s| s.to == ret)
+        .map(|s| s.level.0);
+    assert_eq!(level, Some(-9.0));
+}
+
+#[test]
+fn an_unfolded_return_lists_what_sends_to_it_and_sets_it_there() {
+    // MT-MIX-4 run 1 (owner): a return should say what sends to it (R2).
+    let (mut lumen, track) = with_a_return("send-senders");
+    lumen.click("Fold Return 1");
+    lumen.frames(30);
+    let into = format!("{track} into A Return 1");
+    assert!(
+        lumen.harness.query_by_label_contains(&into).is_none(),
+        "nothing sends yet"
+    );
+    let label = format!("Send {track} to A Return 1");
+    lumen.harness.get_by_label_contains(&label).click();
+    lumen.frames(2);
+    lumen.harness.event(eframe::egui::Event::Text("-6".into()));
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.frames(30);
+    // Listed on the return, and set from there too.
+    lumen.harness.get_by_label_contains(&into).click();
+    lumen.frames(2);
+    lumen.harness.event(eframe::egui::Event::Text("-15".into()));
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::Enter);
+    assert_eq!(send(&lumen).map(|s| s.0), Some(-15.0));
+}
