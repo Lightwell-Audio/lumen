@@ -216,9 +216,16 @@ pub struct Arrangement {
     /// Tracks that show sends (audio, MIDI and groups, while the project
     /// has returns): they unfold a step taller.
     with_sends: BTreeSet<Id>,
-    /// How many tracks send to each return: it unfolds tall enough to
-    /// list them.
+    /// The rows each return's senders take: it unfolds tall enough for
+    /// them.
     senders: BTreeMap<Id, usize>,
+    /// The send (track, return) whose knob in a return's list is being set:
+    /// it keeps its row while silent until let go (the owner's S1). Taken
+    /// from the frame before; `held_next` collects this frame's.
+    held_send: Option<(Id, Id)>,
+    held_next: Option<(Id, Id)>,
+    /// The order each return lists its senders in, loudest first.
+    sender_order: BTreeMap<Id, Vec<Id>>,
     /// Tracks cued with their headphone buttons (slice 4): session state.
     pub(crate) cued: BTreeSet<Id>,
     /// The cue's settings, lent by the app while the headers draw.
@@ -259,10 +266,10 @@ impl Arrangement {
             // knobs have their own row (slice 4).
             let unfolded = if self.with_sends.contains(&id) {
                 UNFOLDED + STEP
-            } else if let Some(&senders) = self.senders.get(&id) {
+            } else if let Some(&rows) = self.senders.get(&id) {
                 // A return opens tall enough to list what sends to it
-                // (MT-MIX-4 run 1, the owner's R2).
-                (UNFOLDED + senders.saturating_sub(1) as f32 * STEP).min(MAX_HEIGHT)
+                // (MT-MIX-4 runs 1 and 2, the owner's R2 and L4).
+                (UNFOLDED + rows.saturating_sub(1) as f32 * STEP).min(MAX_HEIGHT)
             } else {
                 UNFOLDED
             };
@@ -425,8 +432,12 @@ impl Arrangement {
             .tracks
             .iter()
             .filter(|t| t.kind == TrackKind::Return)
-            .map(|t| (t.id, sends::senders(project, t.id).len()))
+            .map(|t| {
+                let count = sends::senders(project, t.id, self.held_send).len();
+                (t.id, sends::sender_rows(count))
+            })
             .collect();
+        self.sender_order.retain(|id, _| exists(id));
         if self.renaming.as_ref().is_some_and(|(id, _)| !exists(id)) {
             self.renaming = None;
         }

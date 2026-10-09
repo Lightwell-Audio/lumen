@@ -246,3 +246,111 @@ fn an_unfolded_return_lists_what_sends_to_it_and_sets_it_there() {
     lumen.key(Modifiers::NONE, Key::Enter);
     assert_eq!(send(&lumen).map(|s| s.0), Some(-15.0));
 }
+
+/// Sets the send `label` names to `level` by clicking it and typing.
+fn type_into(lumen: &mut Lumen, label: &str, level: &str) {
+    lumen.harness.get_by_label_contains(label).click();
+    lumen.frames(2);
+    lumen.harness.event(eframe::egui::Event::Text(level.into()));
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.frames(2);
+}
+
+#[test]
+fn a_return_lists_its_four_loudest_senders_then_all_of_them_from_more() {
+    // MT-MIX-4 run 2 (owner): many senders did not fit (the owner's L4).
+    let mut lumen = Lumen::start("send-many");
+    for _ in 0..6 {
+        lumen.key(Modifiers::COMMAND, Key::T);
+    }
+    lumen.click("Add track");
+    lumen.click("Add return track");
+    let names = lumen.track_names();
+    let tracks: Vec<String> = names.iter().take(6).cloned().collect();
+    for (n, track) in tracks.iter().enumerate() {
+        lumen.click(&format!("Fold {track}"));
+        lumen.frames(30);
+        type_into(
+            &mut lumen,
+            &format!("Send {track} to A Return 1"),
+            &format!("-{}", n * 3),
+        );
+        lumen.click(&format!("Fold {track}"));
+        lumen.frames(30);
+    }
+    lumen.click("Fold Return 1");
+    lumen.frames(40);
+    let listed = |lumen: &Lumen| {
+        lumen
+            .harness
+            .query_all_by_label_contains("into A Return 1:")
+            .count()
+    };
+    assert_eq!(listed(&lumen), 4, "the four loudest");
+    // The loudest are the first four (0, −3, −6, −9 dB).
+    for track in &tracks[..4] {
+        let row = format!("{track} into A Return 1:");
+        assert!(
+            lumen.harness.query_by_label_contains(&row).is_some(),
+            "{track}"
+        );
+    }
+    let quiet = format!("{} into A Return 1:", tracks[5]);
+    assert!(lumen.harness.query_by_label_contains(&quiet).is_none());
+    lumen
+        .harness
+        .get_by_label_contains("2 more tracks sending into A Return 1")
+        .click();
+    lumen.frames(3);
+    assert_eq!(listed(&lumen), 4 + 6, "the list opens with every sender");
+    lumen.key(Modifiers::NONE, Key::Escape);
+}
+
+#[test]
+fn a_send_turned_off_leaves_the_returns_list_when_let_go() {
+    // MT-MIX-4 run 2 (owner): senders turned off stayed listed (S1).
+    let (mut lumen, track) = with_a_return("send-off");
+    lumen.click("Fold Return 1");
+    lumen.frames(30);
+    type_into(&mut lumen, &format!("Send {track} to A Return 1"), "-6");
+    lumen.frames(30);
+    let into = format!("{track} into A Return 1");
+    assert!(lumen.harness.query_by_label_contains(&into).is_some());
+    // Silenced on the track (double-click): gone from the return's list,
+    // pre-fader kept on the track.
+    let knob = lumen
+        .harness
+        .get_by_label_contains(&format!("Send {track} to A Return 1"))
+        .rect();
+    lumen.right_click(knob.center());
+    lumen.click("Pre-fader");
+    lumen.double_click(knob.center());
+    lumen.frames(30);
+    assert!(lumen.harness.query_by_label_contains(&into).is_none());
+    assert_eq!(send(&lumen), Some((f32::NEG_INFINITY, true)));
+    // Turned down from the return's own list, it stays while held.
+    type_into(&mut lumen, &format!("Send {track} to A Return 1"), "-6");
+    lumen.frames(30);
+    let row = lumen.harness.get_by_label_contains(&into).rect();
+    lumen.harness.hover_at(row.center());
+    lumen.harness.drag_at(row.center());
+    lumen.frames(2);
+    for step in 1..=8 {
+        lumen
+            .harness
+            .hover_at(row.center() + vec2(0.0, 50.0 * step as f32));
+        lumen.frames(1);
+    }
+    assert_eq!(send(&lumen).map(|s| s.0), Some(f32::NEG_INFINITY));
+    assert!(
+        lumen.harness.query_by_label_contains(&into).is_some(),
+        "held: still listed"
+    );
+    lumen.harness.drop_at(row.center() + vec2(0.0, 400.0));
+    lumen.frames(30);
+    assert!(
+        lumen.harness.query_by_label_contains(&into).is_none(),
+        "let go: gone"
+    );
+}

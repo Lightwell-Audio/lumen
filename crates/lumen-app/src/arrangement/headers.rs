@@ -46,6 +46,8 @@ impl Arrangement {
         self.view_height = column.height();
         // A send and its return light together: what was hovered last frame.
         self.hot_return = self.hot_return_next.take();
+        // A send being set in a return's list keeps its row (S1).
+        self.held_send = self.held_next.take();
         let rows = self.rows(&ctx, doc.project(), lanes.pending().len());
         let content = self.content_height(&ctx, doc.project(), &rows);
         // The scrolling tracks end where the pinned returns and master

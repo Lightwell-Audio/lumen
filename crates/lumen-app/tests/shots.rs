@@ -623,7 +623,7 @@ fn sends() {
     use egui_kittest::kittest::Queryable;
     for (appearance, scale) in [("dark", 1.0), ("light", 1.0), ("dark", 1.5)] {
         let dir = TempDir::new("shots-sends");
-        let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1200.0, 700.0));
+        let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1200.0, 900.0));
         for _ in 0..10 {
             h.get_by_label("Add track").click();
             h.run_steps(3);
@@ -641,6 +641,37 @@ fn sends() {
             h.key_press(Key::Enter);
             h.run_steps(2);
         }
+        // Five more tracks sending into A, so it lists four and "+N more"
+        // (returns folded away meanwhile, so the new tracks are in view).
+        h.get_by_label("Fold returns").click();
+        h.run_steps(10);
+        for n in 0..5 {
+            h.key_press_modifiers(Modifiers::COMMAND, Key::T);
+            h.run_steps(3);
+            let name = h
+                .state()
+                .project()
+                .tracks
+                .iter()
+                .rev()
+                .find(|t| t.kind == lumen_project::model::TrackKind::Audio)
+                .unwrap()
+                .name
+                .clone();
+            h.get_by_label(&format!("Fold {name}")).click();
+            h.run_steps(30);
+            h.get_by_label_contains(&format!("Send {name} to A "))
+                .click();
+            h.run_steps(2);
+            h.event(Event::Text(format!("-{}", 3 + n * 4)));
+            h.run_steps(2);
+            h.key_press(Key::Enter);
+            h.run_steps(2);
+            h.get_by_label(&format!("Fold {name}")).click();
+            h.run_steps(30);
+        }
+        h.get_by_label("Fold returns").click();
+        h.run_steps(10);
         h.get_by_label("Fold Return 1").click();
         h.run_steps(30);
         // Up to the top: kick selected.
@@ -654,6 +685,12 @@ fn sends() {
         h.get_by_label_contains("more sends from kick").click();
         h.run_steps(5);
         save(&mut h, &format!("sends-list-{appearance}-{scale}"));
+        h.key_press(Key::Escape);
+        h.run_steps(3);
+        h.get_by_label_contains("more tracks sending into A")
+            .click();
+        h.run_steps(5);
+        save(&mut h, &format!("senders-list-{appearance}-{scale}"));
         h.key_press(Key::Escape);
     }
 }

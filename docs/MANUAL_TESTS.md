@@ -1441,5 +1441,17 @@ hovered); (3) senders turned off stay listed; (4) cap returns at 12
 note says why); (5) a 0 dB send to an empty return still makes the track
 louder: explained again (+6 dB, the return plays a copy until it holds an
 effect, as in every DAW), options offered. Mock-ups for 1 to 3 shown
-before building.
+before building. The owner chose L4 (the four loudest senders, then
+"+N more ▾" for all of them) and S1 (a send turned off leaves the list
+when let go), and kept the standard behaviour for (5). Built (ADR-0038
+amendment 2); steps 15 and 16 added.
+15. **Many senders** (run 2): send six tracks into one return at
+    different levels and unfold it: the four loudest are listed, then
+    "+2 more ▾", which opens all six, loudest first, each with its knob.
+    The knobs do not touch. While you drag a knob the rows keep still.
+16. **Senders turned off** (run 2): turn a sender down to the bottom from
+    the return's list: its row stays while you hold it and goes when you
+    let go. Double-click a send knob on the track: it leaves the list too;
+    its pre/post-fader setting is kept for when it is turned up again.
+    Add twelve returns: "Add return track" greys out, saying why.
 

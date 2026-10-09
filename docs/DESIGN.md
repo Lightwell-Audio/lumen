@@ -459,10 +459,12 @@ Chosen from interactive specimens (ADR-0038):
     accent edge on hover and while open), with a dot in a return's colour
     before the number while a hidden send is up. It opens "Sends from …":
     a 20 pt knob, the letter badge, the name and the level per return.
-  - **A return's senders (R2):** an unfolded return lists, from its third
-    step, every track that sends to it: a 4 × 14 pt bar in the track's
-    colour, its name, a 20 pt knob and the level; it unfolds tall enough
-    for them (a step each). "No tracks send here yet" when none do.
+  - **A return's senders (R2, L4, S1):** an unfolded return lists, from
+    its third step, the tracks sending to it: a 4 × 14 pt bar in the
+    track's colour, its name, an 18 pt knob (no hover ring there) and the
+    level, the four loudest first, then "+N more ▾" opening "Sends into …"
+    with them all. A send at −∞ leaves the list when let go. It unfolds
+    tall enough (a step a row). "No tracks send here yet" when none do.
 - **Cue (C1):** the master's **Solo/Cue switch** (46 × 18 pt at the
   header's right): "Solo" in control colours, the accent with headphones
   and "Cue" when on, greyed (`text_disabled`) without a cue pair. On Cue,

@@ -83,6 +83,8 @@ pub struct KnobOut {
     /// Pre- or post-fader chosen from the menu.
     pub pre_fader: Option<bool>,
     pub hovered: bool,
+    /// Being set right now: dragged, focused or typed into.
+    pub active: bool,
 }
 
 /// A send knob in `rect` (square). Returns what the user changed.
@@ -113,6 +115,7 @@ pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> Kno
         } else {
             ui.data_mut(|d| d.insert_temp(typing_id, text));
         }
+        out.active = true;
         return out;
     }
 
@@ -130,6 +133,7 @@ pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> Kno
         )
     });
     out.hovered = response.hovered() || response.dragged();
+    out.active = response.dragged() || response.has_focus();
     let fine = ui.input(|i| i.modifiers.shift);
     let mut at = position(knob.db);
     let before = at;
