@@ -114,7 +114,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
-| Import by drag and drop with sample-rate handling and optional copy into project | M | 🟡 Drag and drop from Explorer and automatic rate conversion done (M2 slice 6, ADR-0019), with a supported-file indicator while dragging. Imported audio is copied into `Samples/Imported` on save (setting, on by default; M3 slice 3c). Dropped on an audio track's lane, files land on that track at the pointer, one after another; between tracks they make new tracks there (M3 6e). **Import audio…** (Ctrl+Shift+I; the app menu, the palette, a track's menu and the empty arrangement) opens the system dialog and imports at the playhead onto the selected audio track or new tracks (M3 review H1). Files dropped together keep their order | 3 |
+| Import by drag and drop with sample-rate handling and optional copy into project | M | 🟡 Drag and drop from Explorer and automatic rate conversion done (M2 slice 6, ADR-0019), with a supported-file indicator while dragging. Imported audio is copied into `Samples/Imported` on save (setting, on by default; M3 slice 3c). Dropped on an audio track's lane, files land on that track at the pointer, one after another; between tracks they make new tracks there (M3 6e). **Import audio…** (Ctrl+Shift+I; the app menu, the palette, a track's menu and the empty arrangement) opens the system dialog and imports at the playhead onto the selected audio track or new tracks (M3 review H1). Files dropped together keep their order, and later drops never overtake earlier ones (`6ea0681`) | 3 |
 | Drop files onto a specific track; dropping between tracks or below them creates a track (owner request, MT-MEDIA-1, 2026-10-06) | M | ✅ Done in M3 6e (`arrangement/drop.rs`): over an audio track's lane, files land on it at the pointer; between tracks, below the last one or over another kind of track, they make new tracks there. MT-APP-14 run 3 found drops between tracks were never offered on Windows (no pointer during a drag from Explorer); fixed by reading the system's cursor (ADR-0032); passed in run 4. macOS and Linux: KNOWN_ISSUES | 3 |
 | Clip hover card with file details (format, rate, channels, length, size, path) | S | ✅ 2026-10-08 Basic card in M2 slice 6 (owner request, MT-MEDIA-1); in M3 6e it pins open as the clip's properties card (Alt+Enter; the owner's P1) | 3 |
 | Glitch-free playback, seamless loops, instant seeking | M | 🟡 Clips play sample-exactly from memory, with click-free crossfaded loops and locates (slice 6; golden renders; MT-MEDIA-1 passes by ear). Large sessions need disk streaming (M9) | 2 |
@@ -369,7 +369,7 @@ manual test, MT-APP-16, is the exit flow by hand.
 - An end-to-end suite (ADR-0029) that drives the whole app headless in CI
   through its accessibility tree, and real-binary smoke tests.
 
-**Automated tests:** 433 in the workspace, all passing, plus 6 real-binary
+**Automated tests:** 434 in the workspace, all passing, plus 6 real-binary
 smoke tests (passing) and 10 screenshot renders run on demand. By crate:
 `lumen-app` 230 (142 unit, 88 end-to-end), `lumen-engine` 55 (with the
 allocation-guard tests), `lumen-project` 50, `lumen-core` 30,
