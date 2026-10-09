@@ -32,7 +32,7 @@ const GAP: f32 = 5.0;
 /// A knob in a list (the "+N" list, a return's senders): small enough
 /// that knobs on 22 pt rows never touch.
 const SMALL_KNOB: f32 = 18.0;
-/// The "+N" lists scroll past this many rows.
+/// A return's "+N more" list scrolls past this many senders.
 const LIST_ROWS: usize = 10;
 /// A return lists this many senders, then "+N more" (the owner's L4).
 pub(super) const RETURN_ROWS: usize = 4;
@@ -351,7 +351,11 @@ impl Arrangement {
                 });
                 ui.separator();
                 egui::ScrollArea::vertical()
-                    .max_height(LIST_ROWS as f32 * (SMALL_KNOB + 4.0))
+                    // Returns stop at twelve: the list shows them all.
+                    .max_height(
+                        crate::document::MAX_RETURNS as f32
+                            * (SMALL_KNOB + 4.0 + ui.spacing().item_spacing.y),
+                    )
                     .show(ui, |ui| {
                         for to in returns {
                             let (row, _) = ui

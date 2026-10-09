@@ -37,6 +37,15 @@ fn choose_cue_pair(lumen: &mut Lumen) {
     lumen.click("Audio settings\u{2026}");
     // The pair is listed under Output and under Cue: the second is the cue.
     let label = "3/4   Out 3 / Out 4";
+    // The window lists the device's outputs once its background look-up
+    // answers (under a busy test run, a few frames later).
+    for _ in 0..200 {
+        if lumen.harness.query_all_by_label(label).count() >= 2 {
+            break;
+        }
+        lumen.frames(1);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
     let cue = lumen
         .harness
         .query_all_by_label(label)

@@ -31,7 +31,7 @@ mod mixer;
 pub use clips::{CLIP_GAIN, ClipMove};
 pub use groups::Place;
 pub use import::{DropInto, Imported, import_place};
-pub use mixer::Refused;
+pub use mixer::{MAX_RETURNS, Refused};
 
 /// Track colours, cycled for new tracks (`theme::CLIP_COLORS`, as `#RRGGBB`).
 fn track_color(index: usize) -> Color {
