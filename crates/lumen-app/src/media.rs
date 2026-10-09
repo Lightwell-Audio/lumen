@@ -29,10 +29,10 @@ pub struct FileInfo {
     pub frames: Option<u64>,
 }
 
-/// The format name shown for `path`, or `None` if Lumen cannot import it.
 /// Every file extension Lumen imports, for file dialogs' filters.
 pub const EXTENSIONS: &[&str] = &["wav", "wave", "aif", "aiff", "flac", "mp3", "ogg"];
 
+/// The format name shown for `path`, or `None` if Lumen cannot import it.
 pub fn format_name(path: &Path) -> Option<&'static str> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     Some(match extension.as_str() {
@@ -154,6 +154,26 @@ impl Library {
             state: State::Ready(audio),
             peaks: Some(peaks),
             job: None,
+        });
+    }
+
+    /// Adds `id` as a file still loading, until `insert_ready` replaces it
+    /// (tests: loads that finish in a chosen order).
+    #[cfg(test)]
+    pub fn insert_loading(&mut self, id: u64, name: &str, rate: u32) {
+        self.items.retain(|i| i.id != id);
+        self.items.push(Item {
+            id,
+            path: PathBuf::from(name),
+            name: name.to_owned(),
+            info: FileInfo::default(),
+            state: State::Loading,
+            peaks: None,
+            job: Some(Job {
+                cancel: Arc::new(AtomicBool::new(false)),
+                progress: Arc::new(AtomicU32::new(0)),
+                rate,
+            }),
         });
     }
 
