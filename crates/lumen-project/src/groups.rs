@@ -14,6 +14,21 @@ use std::sync::Arc;
 
 use crate::model::{Id, Track, TrackKind};
 
+/// Groups go three deep at most (the owner, MT-MIX-3 run 1): a group can be
+/// inside two others, no more. Edits keep to it; files are not rejected
+/// for it (a deeper project made before still opens and plays).
+pub const MAX_NESTING: usize = 3;
+
+/// How deep groups go: 1 for groups with none around them, 0 for none.
+pub fn nesting(tracks: &[Arc<Track>]) -> usize {
+    tracks
+        .iter()
+        .filter(|t| t.kind == TrackKind::Group)
+        .map(|t| depth(tracks, t.id) + 1)
+        .max()
+        .unwrap_or(0)
+}
+
 /// Whether a track of `kind` can be inside a group. Returns and the master
 /// stay at the top (Ableton's rule).
 pub fn can_be_grouped(kind: TrackKind) -> bool {
@@ -196,6 +211,8 @@ mod tests {
         assert_eq!(common_group(&t, &[Id(4), Id(2)]), Some(Id(1)));
         assert_eq!(common_group(&t, &[Id(4), Id(6)]), None);
         assert!(is_inside(&t, Id(5), Id(1)));
+        assert_eq!(nesting(&t), 2, "Hats inside Drums");
+        assert_eq!(nesting(&t[5..]), 0);
         assert!(!is_inside(&t, Id(6), Id(1)));
     }
 

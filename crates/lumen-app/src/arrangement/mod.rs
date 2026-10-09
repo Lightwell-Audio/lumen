@@ -44,8 +44,12 @@ use lumen_project::model::{Clip, Color, Id, Project, Track, TrackKind};
 use crate::document::{Document, Place};
 use crate::motion;
 
-/// Width of the header column.
+/// Width of the header column, unless dragged (MT-MIX-3 run 1: names were
+/// cut short); double-clicking its edge comes back to this.
 pub const HEADER_WIDTH: f32 = 204.0;
+
+/// The widest the header column can be dragged.
+pub const MAX_HEADER_WIDTH: f32 = 480.0;
 
 /// Track heights come in steps of this (owner request): elements drawn by
 /// height later (automation lanes, meters) can rely on whole steps.
@@ -75,12 +79,11 @@ pub(crate) const TITLE: f32 = 15.0;
 /// How far a group's tracks step in, a level (the owner's H1).
 pub(crate) const INDENT: f32 = 12.0;
 
-/// Indents stop deepening past this many levels, so names keep room.
-const MAX_INDENT_LEVELS: usize = 4;
-
 /// The indent of a track `depth` groups deep.
 pub(crate) fn indent(depth: usize) -> f32 {
-    INDENT * depth.min(MAX_INDENT_LEVELS) as f32
+    // Groups go three deep (edits keep to it); an older, deeper project
+    // stops stepping in there, so names keep room.
+    INDENT * depth.min(lumen_project::groups::MAX_NESTING) as f32
 }
 
 const BUTTON: f32 = 19.0;
@@ -153,6 +156,12 @@ pub struct Arrangement {
     /// What the info line should say about the headers under the pointer
     /// (M4 slice 0); the app takes it after drawing.
     pub(crate) info: Option<crate::app::info::Info>,
+    /// Why an edit was refused (M4 slice 3: groups too deep); the app
+    /// shows it as a note.
+    pub(crate) note: Option<&'static str>,
+    /// The header column's width when dragged from the default (saved
+    /// with the project, as panel sizes are).
+    width: Option<f32>,
 }
 
 /// The tallest whole-step height at which `count` tracks fit in `visible`
@@ -483,10 +492,14 @@ impl Arrangement {
     }
 
     /// Ctrl+G: groups the selected tracks and selects the new group.
+    /// Refused (too deep, or nothing to group), it says why in a note.
     pub(crate) fn group_selected(&mut self, doc: &mut Document) {
-        if let Some(group) = doc.group_tracks(&self.selected) {
-            self.selected = vec![group];
-            self.anchor = Some(group);
+        match doc.group_tracks(&self.selected) {
+            Ok(group) => {
+                self.selected = vec![group];
+                self.anchor = Some(group);
+            }
+            Err(refused) => self.note = Some(refused.reason()),
         }
     }
 
@@ -597,8 +610,20 @@ impl Arrangement {
         }
     }
 
+    /// The header column's width.
+    pub fn header_width(&self) -> f32 {
+        self.width.unwrap_or(HEADER_WIDTH)
+    }
+
+    /// Sets the header column's width, between the default and the widest.
+    pub fn set_header_width(&mut self, width: f32) {
+        let width = width.clamp(HEADER_WIDTH, MAX_HEADER_WIDTH).round();
+        self.width = (width != HEADER_WIDTH).then_some(width);
+    }
+
     /// The saved view state, written into a project being saved.
     pub fn save_into(&self, view: &mut lumen_project::model::ViewState) {
+        view.header_width = self.header_width();
         view.top = self.top;
         view.track_heights = self.heights.clone();
         view.expanded = self.expanded.clone();
@@ -616,6 +641,8 @@ impl Arrangement {
                 .collect(),
             expanded: view.expanded.clone(),
             collapsed: view.collapsed.clone(),
+            width: (view.header_width.is_finite() && view.header_width != HEADER_WIDTH)
+                .then(|| view.header_width.clamp(HEADER_WIDTH, MAX_HEADER_WIDTH)),
             ..Self::default()
         }
     }
@@ -700,13 +727,25 @@ mod tests {
         };
         a.expanded.insert(Id(3));
         a.heights.insert(Id(3), 7.0 * STEP);
+        a.set_header_width(300.0);
         let mut view = lumen_project::model::ViewState::default();
         a.save_into(&mut view);
         let b = Arrangement::restore(&view);
         assert_eq!(
-            (b.top, b.expanded, b.heights),
-            (a.top, a.expanded, a.heights)
+            (
+                b.top,
+                b.expanded.clone(),
+                b.heights.clone(),
+                b.header_width()
+            ),
+            (a.top, a.expanded, a.heights, 300.0)
         );
+        // Out of range widths are kept in range.
+        let mut c = Arrangement::default();
+        c.set_header_width(2_000.0);
+        assert_eq!(c.header_width(), MAX_HEADER_WIDTH);
+        c.set_header_width(10.0);
+        assert_eq!(c.header_width(), HEADER_WIDTH);
     }
 
     #[test]

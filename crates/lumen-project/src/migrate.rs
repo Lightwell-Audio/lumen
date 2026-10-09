@@ -19,7 +19,7 @@ pub const FIRST_VERSION: u64 = 1;
 
 /// `MIGRATIONS[i]` upgrades version `FIRST_VERSION + i` to the next one.
 pub const MIGRATIONS: &[Migration] = &[
-    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8,
+    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9,
 ];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
@@ -264,6 +264,19 @@ fn v7_to_v8(mut document: Value) -> Result<Value, String> {
     order.extend((0..tracks.len()).filter(|&i| !placed[i]));
     let mut old: Vec<Option<Value>> = tracks.drain(..).map(Some).collect();
     tracks.extend(order.into_iter().filter_map(|i| old[i].take()));
+    Ok(document)
+}
+
+/// Version 9 (M4 slice 3, MT-MIX-3 run 1) saves the width of the track
+/// header column, 204 points before.
+fn v8_to_v9(mut document: Value) -> Result<Value, String> {
+    let view = document
+        .get_mut("project")
+        .and_then(|p| p.get_mut("view"))
+        .and_then(Value::as_object_mut);
+    if let Some(view) = view {
+        view.entry("header_width").or_insert(Value::from(204.0));
+    }
     Ok(document)
 }
 
@@ -542,6 +555,13 @@ mod tests {
             "the return left"
         );
         assert_eq!(project["view"]["collapsed"], json!([]));
+    }
+
+    #[test]
+    fn v8_to_v9_writes_the_header_width() {
+        let v8 = json!({ "version": 8, "project": { "view": {}, "tracks": [] } });
+        let v9 = upgrade(v8, 8, FIRST_VERSION, MIGRATIONS).unwrap();
+        assert_eq!(v9["project"]["view"]["header_width"], json!(204.0));
     }
 
     #[test]

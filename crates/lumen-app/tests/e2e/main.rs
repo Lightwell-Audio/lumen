@@ -157,6 +157,26 @@ impl Lumen {
         self.frames(1);
     }
 
+    /// Clicks twice at `p`, quickly, after a pause (so it is not counted
+    /// with an earlier double-click).
+    pub fn double_click(&mut self, p: egui::Pos2) {
+        self.frames(40);
+        self.harness.hover_at(p);
+        self.frames(1);
+        for _ in 0..2 {
+            for pressed in [true, false] {
+                self.harness.event(egui::Event::PointerButton {
+                    pos: p,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: Modifiers::NONE,
+                });
+            }
+            self.frames(1);
+        }
+        self.frames(2);
+    }
+
     /// Presses `key` with `modifiers`, then lets the app react.
     pub fn key(&mut self, modifiers: Modifiers, key: Key) {
         self.harness.key_press_modifiers(modifiers, key);

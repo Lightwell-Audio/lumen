@@ -113,6 +113,27 @@ mod tests {
     }
 
     #[test]
+    fn solo_keeps_the_path_through_groups_open() {
+        // MT-MIX-3 run 1: soloing a track inside a group silenced it.
+        let (mut doc, ids) = doc_with(&[TrackKind::Audio; 3]);
+        let outer = doc.group_tracks(&ids[..2]).unwrap();
+        let inner = doc.group_tracks(&ids[..1]).unwrap();
+        let heard = |doc: &Document, id| node(&routing(doc.project()), id).audible;
+        doc.set_solo(&ids[..1], true, true);
+        assert!(heard(&doc, ids[0]), "the soloed track");
+        assert!(
+            heard(&doc, inner) && heard(&doc, outer),
+            "its groups stay open"
+        );
+        assert!(!heard(&doc, ids[1]), "its neighbour in the group is silent");
+        assert!(!heard(&doc, ids[2]), "and the track outside");
+        // A soloed group: everything inside it is heard.
+        doc.set_solo(&[outer], true, true);
+        assert!(heard(&doc, ids[0]) && heard(&doc, ids[1]) && heard(&doc, inner));
+        assert!(!heard(&doc, ids[2]));
+    }
+
+    #[test]
     fn outputs_sends_polarity_trim_and_the_pan_law_reach_the_engine() {
         let (mut doc, ids) = doc_with(&[TrackKind::Group, TrackKind::Return, TrackKind::Audio]);
         let (group, ret, audio) = (ids[0], ids[1], ids[2]);

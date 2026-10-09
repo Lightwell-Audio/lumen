@@ -158,7 +158,7 @@ report: {}",
         // Layout A (owner, slice 5b): the locator strip and the bar ruler
         // on top, the time ruler at the bottom; track headers on the left
         // between their corners; the lanes in the middle.
-        let header = arrangement::HEADER_WIDTH;
+        let header = self.arrangement.header_width();
         let top = rulers::STRIP_HEIGHT + rulers::RULER_HEIGHT;
         let corner = egui::Rect::from_min_size(whole.min, vec2(header, top));
         let time_corner = egui::Rect::from_min_max(
@@ -464,12 +464,65 @@ report: {}",
                 self.run(&ui.ctx().clone(), Command::ImportAudio);
             }
         }
+        // Last, so it sits over the headers; on their side of the edge
+        // only, so a drag at the lanes' left edge stays a clip or locator
+        // drag.
+        self.header_divider(
+            ui,
+            egui::Rect::from_x_y_ranges(corner.right() - 5.0..=corner.right(), whole.y_range()),
+        );
         if let Some(info) = self.arrangement.info.take() {
             self.set_info(info);
+        }
+        if let Some(note) = self.arrangement.note.take() {
+            self.toast = Some((note.into(), std::time::Instant::now()));
         }
         self.lanes
             .panel(ui.ctx(), pos2(canvas.left() + 8.0, canvas.bottom() - 8.0));
         self.toast(ui.ctx(), pos2(full.right() - 12.0, canvas.top() + 10.0));
+    }
+
+    /// The edge between the track headers and the lanes (MT-MIX-3 run 1):
+    /// drag to widen the headers, double-click to go back to the default
+    /// width. It glows in the accent while hovered or dragged, as a track's
+    /// bottom edge does. Not an edit: saved with the project's view.
+    fn header_divider(&mut self, ui: &mut egui::Ui, edge: egui::Rect) {
+        let id = ui.id().with("header divider");
+        let response = ui
+            .interact(edge, id, Sense::click_and_drag())
+            .on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Resize the track headers")
+        });
+        if response.hovered() {
+            use super::info::{Held, Info, Mouse};
+            self.arrangement.info = Some(
+                Info::new("Track headers' edge")
+                    .on(Held::NONE, Mouse::Drag, "widen or narrow")
+                    .on(Held::NONE, Mouse::DoubleClick, "default width"),
+            );
+        }
+        if response.drag_started() {
+            ui.data_mut(|d| d.insert_temp(id, self.arrangement.header_width()));
+        }
+        if response.dragged() {
+            let start: f32 = ui
+                .data(|d| d.get_temp(id))
+                .unwrap_or(arrangement::HEADER_WIDTH);
+            let moved = response.total_drag_delta().map_or(0.0, |d| d.x);
+            self.arrangement.set_header_width(start + moved);
+        }
+        if response.double_clicked() {
+            self.arrangement.set_header_width(arrangement::HEADER_WIDTH);
+        }
+        let glow = motion::hover(
+            ui.ctx(),
+            id.with("glow"),
+            response.hovered() || response.dragged(),
+        );
+        if glow > 0.0 {
+            widgets::draw_edge_glow_vertical(ui.painter(), edge.right(), edge.y_range(), glow);
+        }
     }
 
     /// A banner under the transport when the audio device needs attention:

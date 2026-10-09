@@ -3,7 +3,8 @@
 //! follow it in the list (`lumen_project::groups`), so every edit here sets
 //! parents and a rough order, then puts the list back in that order. An
 //! edit that would make the routing feed back (a group put inside a track
-//! that its own output reaches) is refused and changes nothing.
+//! that its own output reaches), or nest groups more than three deep, is
+//! refused and changes nothing.
 
 use std::sync::Arc;
 
@@ -25,8 +26,9 @@ impl Document {
     /// Ctrl+G: puts `ids` (and what is inside those that are groups) into a
     /// new group where the topmost of them was, inside the group that held
     /// them all. Returns and the master are left out. Returns the new
-    /// group, or `None` when nothing could be grouped.
-    pub fn group_tracks(&mut self, ids: &[Id]) -> Option<Id> {
+    /// group; refused when nothing can be grouped or groups would go too
+    /// deep.
+    pub fn group_tracks(&mut self, ids: &[Id]) -> Result<Id, Refused> {
         let tracks = &self.project().tracks;
         let groupable: Vec<Id> = tracks
             .iter()
@@ -34,7 +36,7 @@ impl Document {
             .map(|t| t.id)
             .collect();
         let members = groups::outermost(tracks, &groupable);
-        let first = *members.first()?;
+        let first = *members.first().ok_or(Refused::Invalid)?;
         let outer = groups::common_group(tracks, &members);
         let number = tracks.iter().filter(|t| t.kind == TrackKind::Group).count() + 1;
         let color = track_color(tracks.len());
@@ -54,7 +56,6 @@ impl Document {
                 .tracks
                 .insert(at.unwrap_or(project.tracks.len()), group.clone());
         })
-        .ok()
         .map(|()| id)
     }
 
@@ -105,8 +106,26 @@ impl Document {
 
     /// Moves `ids` (with what is inside those that are groups, in their
     /// order) to `to`. Returns and the master stay at the top. Refused when
-    /// `to` is inside the tracks moving, or would feed back.
+    /// `to` is inside the tracks moving, would feed back, or would nest
+    /// groups too deep.
     pub fn move_tracks(&mut self, ids: &[Id], to: Place) -> Result<(), Refused> {
+        let (label, change) = self.planned_move(ids, to)?;
+        self.restructure(&label, change)
+    }
+
+    /// Whether [`move_tracks`](Self::move_tracks) would take that move,
+    /// without making it (a drag's drop line greys out when not).
+    pub fn check_move(&self, ids: &[Id], to: Place) -> Result<(), Refused> {
+        let (_, change) = self.planned_move(ids, to)?;
+        self.trial(&change).map(|_| ())
+    }
+
+    /// The step name and the change of a move.
+    fn planned_move(
+        &self,
+        ids: &[Id],
+        to: Place,
+    ) -> Result<(String, impl Fn(&mut Project) + use<>), Refused> {
         let tracks = &self.project().tracks;
         let heads = groups::outermost(tracks, ids);
         let moving = groups::with_contents(tracks, &heads);
@@ -119,7 +138,7 @@ impl Document {
             }
         }
         let label = plural(heads.len(), "Move track", "Move {} tracks");
-        self.restructure(&label, |project| {
+        let change = move |project: &mut Project| {
             let (mut moved, mut rest): (Vec<_>, Vec<_>) = project
                 .tracks
                 .drain(..)
@@ -135,20 +154,34 @@ impl Document {
             let at = to.index.min(rest.len());
             rest.splice(at..at, moved);
             project.tracks = rest;
-        })
+        };
+        Ok((label, change))
     }
 
-    /// Applies a change to the track list as one step named `label`, then
-    /// puts every track back under its group; refused if the routing would
-    /// feed back. `change` runs twice (a trial first), so it must not
-    /// depend on anything but the project.
-    fn restructure(&mut self, label: &str, change: impl Fn(&mut Project)) -> Result<(), Refused> {
+    /// The project after `change`, with every track back under its group;
+    /// refused if the routing would feed back, or if groups would go deeper
+    /// than `MAX_NESTING` (and deeper than they already were: an older
+    /// project nested deeper can still be edited).
+    fn trial(&self, change: &impl Fn(&mut Project)) -> Result<Project, Refused> {
         let mut trial = self.project().clone();
         change(&mut trial);
         groups::normalize(&mut trial.tracks);
         if lumen_project::routing::has_loop(&trial) {
             return Err(Refused::Loop);
         }
+        let deep = groups::nesting(&trial.tracks);
+        if deep > groups::MAX_NESTING && deep > groups::nesting(&self.project().tracks) {
+            return Err(Refused::TooDeep);
+        }
+        Ok(trial)
+    }
+
+    /// Applies a change to the track list as one step named `label`, then
+    /// puts every track back under its group, unless [`trial`](Self::trial)
+    /// refuses it. `change` runs twice (a trial first), so it must not
+    /// depend on anything but the project.
+    fn restructure(&mut self, label: &str, change: impl Fn(&mut Project)) -> Result<(), Refused> {
+        self.trial(&change)?;
         self.history.apply(label, None, |project| {
             change(project);
             groups::normalize(&mut project.tracks);
@@ -277,7 +310,7 @@ mod tests {
         assert_eq!(order(&doc), [drums, kick, inner, snare, bass, ret]);
         assert_eq!(parent(&doc, inner), Some(drums));
         // A return is left out; with nothing else, nothing happens.
-        assert_eq!(doc.group_tracks(&[ret]), None);
+        assert_eq!(doc.group_tracks(&[ret]), Err(Refused::Invalid));
         // Tracks far apart gather under the new group at the first's place.
         let outer = doc.group_tracks(&[kick, bass, ret]).unwrap();
         assert_eq!(parent(&doc, outer), None, "they share no group");
@@ -419,6 +452,40 @@ mod tests {
         assert!(!armed(&doc, bass));
         doc.set_armed(&[drums], false);
         assert!(!armed(&doc, kick));
+    }
+
+    #[test]
+    fn groups_go_three_deep_at_most() {
+        // MT-MIX-3 run 1 (owner): Group > Group > Group > tracks.
+        let (mut doc, [_, kick, snare, bass, _]) = setup();
+        let second = doc.group_tracks(&[kick]).unwrap();
+        let third = doc.group_tracks(&[kick]).unwrap();
+        assert_eq!(groups::nesting(&doc.project().tracks), 3);
+        let before = order(&doc);
+        assert_eq!(doc.group_tracks(&[kick]), Err(Refused::TooDeep));
+        assert_eq!(
+            doc.group_tracks(&[third]),
+            Err(Refused::TooDeep),
+            "wrapping"
+        );
+        assert_eq!(order(&doc), before, "nothing changed");
+        // A group dragged into the third level is refused; a track is not.
+        let group = doc.group_tracks(&[bass]).unwrap();
+        let into_third = Place {
+            index: 4,
+            group: Some(third),
+        };
+        assert_eq!(doc.check_move(&[group], into_third), Err(Refused::TooDeep));
+        assert_eq!(doc.move_tracks(&[group], into_third), Err(Refused::TooDeep));
+        assert_eq!(doc.check_move(&[snare], into_third), Ok(()));
+        // Into the second level, a group with nothing nested is fine.
+        let into_second = Place {
+            index: 2,
+            group: Some(second),
+        };
+        assert_eq!(doc.move_tracks(&[group], into_second), Ok(()));
+        assert_eq!(parent(&doc, group), Some(second));
+        assert!(groups::in_order(&doc.project().tracks));
     }
 
     #[test]

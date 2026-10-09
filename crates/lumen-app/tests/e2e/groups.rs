@@ -289,7 +289,63 @@ fn a_track_in_nested_groups_is_heard_through_them_and_the_outer_mute_silences_it
         heard.iter().fold(0.0f32, |m, s| m.max(s.0.abs()))
     };
     assert!(loudest(&mut lumen) > 0.01, "heard through both groups");
+    // Soloing the track keeps its groups open (MT-MIX-3 run 1: it went
+    // silent).
+    let name = lumen.track_names()[2].clone();
+    lumen.click(&format!("Solo {name}"));
+    assert!(loudest(&mut lumen) > 0.01, "soloed inside its groups");
+    lumen.click(&format!("Solo {name}"));
     lumen.click(&format!("Mute {outer}"));
     assert!(loudest(&mut lumen) < 1e-4, "the outer group's mute");
     lumen.key(Modifiers::NONE, Key::Space);
+}
+
+#[test]
+fn groups_go_three_deep_and_ctrl_g_says_so() {
+    // MT-MIX-3 run 1 (owner): no fourth level.
+    let mut lumen = Lumen::start("group-depth");
+    lumen.key(Modifiers::COMMAND, Key::T);
+    for _ in 0..3 {
+        lumen.key(Modifiers::COMMAND, Key::G);
+    }
+    assert_eq!(lumen.track_names().len(), 4, "three groups and the track");
+    lumen.key(Modifiers::COMMAND, Key::G);
+    assert_eq!(lumen.track_names().len(), 4, "no fourth group");
+    assert_eq!(lumen.app().note(), Some("Groups go three deep at most"));
+    assert_eq!(lumen.app().undo_label(), Some("Group tracks"));
+}
+
+#[test]
+fn the_header_column_is_dragged_wider_and_double_clicked_back() {
+    // MT-MIX-3 run 1 (owner): names were cut short.
+    let mut lumen = Lumen::start("header-width");
+    lumen.key(Modifiers::COMMAND, Key::T);
+    let edge = lumen
+        .harness
+        .get_by_label("Resize the track headers")
+        .rect();
+    let width = |lumen: &Lumen| lumen.app().project_as_saved().view.header_width;
+    assert_eq!(width(&lumen), 204.0);
+    lumen.drag(
+        edge.center(),
+        edge.center() + vec2(100.0, 0.0),
+        Modifiers::NONE,
+    );
+    assert_eq!(width(&lumen), 304.0, "saved with the project's view");
+    let wider = header(&lumen, "Audio 1");
+    assert_eq!(wider.width(), 304.0, "the headers follow");
+    // Not an edit: nothing to undo for it.
+    assert_eq!(lumen.app().undo_label(), Some("Add audio track"));
+    lumen.drag(
+        edge.center() + vec2(100.0, 0.0),
+        edge.center() + vec2(2_000.0, 0.0),
+        Modifiers::NONE,
+    );
+    assert_eq!(width(&lumen), 480.0, "at most 480");
+    let edge = lumen
+        .harness
+        .get_by_label("Resize the track headers")
+        .rect();
+    lumen.double_click(edge.center());
+    assert_eq!(width(&lumen), 204.0, "double-click: back to the default");
 }

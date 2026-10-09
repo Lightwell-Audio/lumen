@@ -31,6 +31,7 @@ mod mixer;
 pub use clips::{CLIP_GAIN, ClipMove};
 pub use groups::Place;
 pub use import::{DropInto, Imported, import_place};
+pub use mixer::Refused;
 
 /// Track colours, cycled for new tracks (`theme::CLIP_COLORS`, as `#RRGGBB`).
 fn track_color(index: usize) -> Color {
@@ -463,10 +464,47 @@ fn plural(n: usize, one: &str, many: &str) -> String {
 }
 
 /// Which tracks are heard: not muted, and, while any track is soloed, only
-/// the soloed ones (groups and returns join this with the mixer, M4).
+/// those on a soloed track's path (M4 slice 3, MT-MIX-3 run 1): the soloed
+/// tracks, what plays into them (a soloed group's tracks), and where they
+/// play out to (the groups a soloed track is in stay open, so it is heard).
+/// Returns and the rest of slice 4's rules come with slice 4.
 pub fn audible(project: &Project) -> impl Fn(&Track) -> bool + use<> {
-    let any_solo = project.tracks.iter().any(|t| t.solo);
-    move |t: &Track| !t.mute && (!any_solo || t.solo)
+    use lumen_project::routing::{Destination, destination};
+    let soloed: std::collections::HashSet<Id> = project
+        .tracks
+        .iter()
+        .filter(|t| t.solo)
+        .map(|t| t.id)
+        .collect();
+    let mut path = std::collections::HashSet::new();
+    if !soloed.is_empty() {
+        let by_id: HashMap<Id, &Track> = project.tracks.iter().map(|t| (t.id, &**t)).collect();
+        // The tracks each output leads through, in order (cycles are
+        // refused by validation; the walk stops after every track anyway).
+        let chain = |track: &Track| {
+            let mut out = Vec::new();
+            let mut at = destination(project, track);
+            while let Destination::Track(id) = at {
+                let Some(next) = by_id.get(&id) else { break };
+                if out.len() > by_id.len() {
+                    break;
+                }
+                out.push(id);
+                at = destination(project, next);
+            }
+            out
+        };
+        for track in &project.tracks {
+            let downstream = chain(track);
+            if soloed.contains(&track.id) {
+                path.insert(track.id);
+                path.extend(downstream);
+            } else if downstream.iter().any(|id| soloed.contains(id)) {
+                path.insert(track.id);
+            }
+        }
+    }
+    move |t: &Track| !t.mute && (soloed.is_empty() || path.contains(&t.id))
 }
 
 fn tempo_map(project: &Project) -> Option<lumen_core::time::TempoMap> {

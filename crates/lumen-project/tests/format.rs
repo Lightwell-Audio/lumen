@@ -300,6 +300,29 @@ fn golden_v8_expected() -> Project {
     project
 }
 
+/// The model the v9 golden file must always load as: v8 with a wider
+/// header column.
+fn golden_v9_expected() -> Project {
+    let mut project = Project {
+        name: "Golden v9".into(),
+        ..golden_v8_expected()
+    };
+    project.view.header_width = 296.0;
+    project
+}
+
+#[test]
+fn golden_v9_file_loads_forever() {
+    let path = fixture("v9/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        // Written once, when version 9 was introduced; never rewritten.
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v9_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v9 golden file must load");
+    assert_eq!(project, golden_v9_expected());
+}
+
 #[test]
 fn golden_v8_file_loads_forever() {
     let path = fixture("v8/golden.lumen");

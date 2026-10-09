@@ -430,6 +430,15 @@ pub fn draw_edge_glow(painter: &Painter, x: egui::Rangef, y: f32, t: f32) {
     painter.hline(x, y, Stroke::new(1.5, accent.gamma_multiply(t)));
 }
 
+/// The same glow along a vertical edge at `x` (the header column's edge).
+pub fn draw_edge_glow_vertical(painter: &Painter, x: f32, y: egui::Rangef, t: f32) {
+    let accent = theme::p().accent;
+    for (width, alpha) in [(6.0, 0.12), (3.0, 0.25)] {
+        painter.vline(x, y, Stroke::new(width, accent.gamma_multiply(alpha * t)));
+    }
+    painter.vline(x, y, Stroke::new(1.5, accent.gamma_multiply(t)));
+}
+
 /// A horizontal gradient from `left` to `right` across `rect`.
 pub fn gradient(painter: &Painter, rect: Rect, left: Color32, right: Color32) {
     let mut mesh = egui::Mesh::default();

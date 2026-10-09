@@ -7,14 +7,16 @@
 //! line steps in to the level the tracks will land at: between two tracks
 //! they join the group of the track below, so under a group's last track
 //! they come after the group; dropped on the middle of a group's header
-//! (folded or not), they go in at its end, and the header lights.
+//! (folded or not), they go in at its end, and the header lights. A drop
+//! that would be refused (groups more than three deep) greys out, with a
+//! no-entry cursor, and says why if let go there.
 
 use eframe::egui::{self, CursorIcon, Key, Rect, Stroke, pos2};
 use lumen_project::groups;
 use lumen_project::model::{Id, TrackKind};
 
 use super::{Arrangement, Row, RowKind};
-use crate::document::{Document, Place};
+use crate::document::{Document, Place, Refused};
 use crate::theme;
 
 /// Within this many points of the list's top or bottom, it scrolls.
@@ -30,8 +32,9 @@ pub(super) struct Drag {
     ids: Vec<Id>,
     /// Those and everything inside them, drawn dimmed.
     moving: Vec<Id>,
-    /// Where they would land.
+    /// Where they would land, and why the move would be refused there.
     drop: Option<DropAt>,
+    refused: Option<Refused>,
 }
 
 /// Where dragged tracks would land.
@@ -80,6 +83,7 @@ impl Arrangement {
             ids,
             moving,
             drop: None,
+            refused: None,
         });
     }
 
@@ -115,7 +119,11 @@ impl Arrangement {
             self.drag = None;
             return;
         }
-        ctx.set_cursor_icon(CursorIcon::Grabbing);
+        ctx.set_cursor_icon(if drag.refused.is_some() {
+            CursorIcon::NotAllowed
+        } else {
+            CursorIcon::Grabbing
+        });
         if let Some(p) = pointer {
             // Scroll when near the top or bottom, faster the closer.
             let near_top = EDGE - (p.y - column.top());
@@ -150,25 +158,23 @@ impl Arrangement {
                     _ => None,
                 })
                 .collect();
-            drag.drop = Some(drop_place(&spots, p.y - column.top() + self.top));
+            let at = drop_place(&spots, p.y - column.top() + self.top);
+            // Checked when the place changes, not every frame.
+            if drag.drop != Some(at) {
+                drag.refused = doc
+                    .check_move(&drag.ids, place(doc, &drag.moving, at))
+                    .err();
+                drag.drop = Some(at);
+            }
         }
         if released {
             if let Some(at) = drag.drop {
-                let tracks = &doc.project().tracks;
-                let rest = tracks.iter().filter(|t| !drag.moving.contains(&t.id));
-                let index = match at.before {
-                    Some(before) => rest.take_while(|t| t.id != before).count(),
-                    None => rest.count(),
-                };
-                // A drop where the tracks already are records nothing; one
-                // that would feed back is refused and changes nothing.
-                let _ = doc.move_tracks(
-                    &drag.ids,
-                    Place {
-                        index,
-                        group: at.group,
-                    },
-                );
+                // A drop where the tracks already are records nothing; a
+                // refused one changes nothing and says why.
+                let to = place(doc, &drag.moving, at);
+                if let Err(refused) = doc.move_tracks(&drag.ids, to) {
+                    self.note = Some(refused.reason());
+                }
             }
             self.drag = None;
         }
@@ -181,7 +187,12 @@ impl Arrangement {
         let Some(at) = self.drag.as_ref().and_then(|d| d.drop) else {
             return;
         };
-        let accent = theme::p().accent;
+        let refused = self.drag.as_ref().is_some_and(|d| d.refused.is_some());
+        let accent = if refused {
+            theme::p().text_disabled
+        } else {
+            theme::p().accent
+        };
         match at.mark {
             Mark::Line(y) => {
                 let y = area.top() + y - self.top;
@@ -212,6 +223,20 @@ impl Arrangement {
                 );
             }
         }
+    }
+}
+
+/// The move a drop at `at` makes: an index among the tracks that stay.
+fn place(doc: &Document, moving: &[Id], at: DropAt) -> Place {
+    let tracks = &doc.project().tracks;
+    let rest = tracks.iter().filter(|t| !moving.contains(&t.id));
+    let index = match at.before {
+        Some(before) => rest.take_while(|t| t.id != before).count(),
+        None => rest.count(),
+    };
+    Place {
+        index,
+        group: at.group,
     }
 }
 

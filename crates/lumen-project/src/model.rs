@@ -144,6 +144,8 @@ pub struct ViewState {
     pub grid: Grid,
     /// Groups folded to hide their tracks (format v8).
     pub collapsed: BTreeSet<Id>,
+    /// Width of the track header column, in points (format v9).
+    pub header_width: f32,
 }
 
 impl Default for ViewState {
@@ -160,6 +162,7 @@ impl Default for ViewState {
             expanded: BTreeSet::new(),
             grid: Grid::default(),
             collapsed: BTreeSet::new(),
+            header_width: 204.0,
         }
     }
 }

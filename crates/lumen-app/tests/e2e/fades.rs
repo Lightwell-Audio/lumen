@@ -55,26 +55,6 @@ fn gain(lumen: &Lumen, id: Id) -> f32 {
     }
 }
 
-/// Clicks twice at `p`, quickly, after a pause (so it is not counted
-/// with an earlier double-click).
-fn double_click(lumen: &mut Lumen, p: Pos2) {
-    lumen.frames(40);
-    lumen.harness.hover_at(p);
-    lumen.frames(1);
-    for _ in 0..2 {
-        for pressed in [true, false] {
-            lumen.harness.event(Event::PointerButton {
-                pos: p,
-                button: PointerButton::Primary,
-                pressed,
-                modifiers: Modifiers::NONE,
-            });
-        }
-        lumen.frames(1);
-    }
-    lumen.frames(2);
-}
-
 #[test]
 fn dragging_a_fade_handle_fades_the_clip_in_one_step() {
     let (mut lumen, id) = with_a_wide_clip("fade-drag");
@@ -169,10 +149,10 @@ fn the_dot_bends_a_fade_freely_and_alt_adds_s_shape() {
     assert!((s.dot[0] - other.dot[0]).abs() < 1e-3 && (s.dot[1] - other.dot[1]).abs() < 1e-3);
 
     let dot = handles(&lumen, id).bend_in.expect("a bend dot");
-    double_click(&mut lumen, dot);
+    lumen.double_click(dot);
     assert!(clip(&lumen, id).fade_in.curve.is_linear(), "straight again");
     let handle = handles(&lumen, id).fade_in;
-    double_click(&mut lumen, handle);
+    lumen.double_click(handle);
     assert!(clip(&lumen, id).fade_in.is_none(), "no fade");
 }
 
@@ -204,7 +184,7 @@ fn the_gain_line_sets_clip_gain_finely_with_shift() {
     );
 
     let line = handles(&lumen, id).gain;
-    double_click(&mut lumen, line);
+    lumen.double_click(line);
     assert_eq!(gain(&lumen, id), 0.0);
 }
 

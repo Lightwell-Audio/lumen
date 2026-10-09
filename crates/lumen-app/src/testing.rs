@@ -266,6 +266,11 @@ impl App {
         self.info.as_ref().map(|i| i.text(&self.keymap))
     }
 
+    /// The short note shown after undo, save, open or a refused edit.
+    pub fn note(&self) -> Option<&str> {
+        self.toast.as_ref().map(|(text, _)| text.as_str())
+    }
+
     /// What Undo would undo.
     pub fn undo_label(&self) -> Option<&str> {
         self.document.history().undo_label()

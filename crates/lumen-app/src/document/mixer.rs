@@ -22,6 +22,19 @@ pub enum Refused {
     Invalid,
     /// The audio would come back round to where it started.
     Loop,
+    /// Groups would go deeper than `groups::MAX_NESTING` (M4 slice 3).
+    TooDeep,
+}
+
+impl Refused {
+    /// Why, in a few words, for a note on screen.
+    pub fn reason(self) -> &'static str {
+        match self {
+            Refused::Invalid => "That cannot go there",
+            Refused::Loop => "That would feed the audio back into itself",
+            Refused::TooDeep => "Groups go three deep at most",
+        }
+    }
 }
 
 impl Document {
