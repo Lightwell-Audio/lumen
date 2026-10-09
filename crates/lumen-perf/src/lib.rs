@@ -150,7 +150,9 @@ pub fn measured_engine_routed_64(engine: &mut Player) {
     for _ in 0..1_000 {
         engine.process(RATE, &mut data, 2, FRAMES);
     }
-    black_box(&data);
+    // Not the same code as `measured_engine_clips_64`, or the linker folds
+    // the two into one symbol and Callgrind finds no routed scenario.
+    black_box((&data, engine.transport().sample));
 }
 
 fn transport_only() -> (lumen_engine::EngineHandle, Player) {
