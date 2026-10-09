@@ -35,8 +35,9 @@ pub struct Lanes {
     /// Files loading for import onto new tracks: library id and where they
     /// were dropped. Each shows as a row below the tracks while it loads.
     pending: Vec<(u64, Ticks)>,
-    /// Where each of those new tracks goes (slice 6e).
-    before: HashMap<u64, Option<Id>>,
+    /// Where each of those new tracks goes (slice 6e), and the drop it
+    /// came in.
+    before: HashMap<u64, (Option<Id>, u64)>,
     /// Files loading for import onto a track (slice 6e), drawn in its lane
     /// while they load. Files dropped together import together, once none
     /// of them is still loading, so they can follow one another.
@@ -212,7 +213,7 @@ impl Lanes {
                 match into {
                     DropInto::NewTracks { before } => {
                         self.pending.push((id, at));
-                        self.before.insert(id, before);
+                        self.before.insert(id, (before, self.drops));
                     }
                     DropInto::Track(track) => self.landing.push(Landing {
                         id,
@@ -253,23 +254,28 @@ impl Lanes {
             self.revision += 1;
         }
 
-        // Loads that finished join the project, in drop order, as one step:
-        // new tracks as each loads; files dropped on a track once all the
-        // files dropped with them have.
+        // Loads that finished join the project as one step, once all the
+        // files dropped with them have, in the order they were dropped (a
+        // short file loads first, and used to come first).
         let mut imported = Vec::new();
         let library = &self.library;
         let before = &mut self.before;
-        self.pending.retain(|&(id, at)| match load(library, id) {
-            Load::Loading => true,
-            Load::Gone => {
-                before.remove(&id);
-                false
+        let drop_of = |before: &HashMap<u64, (Option<Id>, u64)>, id| before.get(&id).map(|b| b.1);
+        let waiting: Vec<Option<u64>> = self
+            .pending
+            .iter()
+            .filter(|&&(id, _)| matches!(load(library, id), Load::Loading))
+            .map(|&(id, _)| drop_of(before, id))
+            .collect();
+        self.pending.retain(|&(id, at)| {
+            if waiting.contains(&drop_of(before, id)) {
+                return true;
             }
-            Load::Ready(file) => {
-                let before = before.remove(&id).flatten();
-                imported.push(file(at, DropInto::NewTracks { before }));
-                false
+            let into = before.remove(&id).and_then(|b| b.0);
+            if let Load::Ready(file) = load(library, id) {
+                imported.push(file(at, DropInto::NewTracks { before: into }));
             }
+            false
         });
         let waiting: Vec<u64> = self
             .landing

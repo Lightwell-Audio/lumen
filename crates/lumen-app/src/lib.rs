@@ -91,6 +91,9 @@ pub struct App {
     toast: Option<(String, Instant)>,
     /// File work in progress (slice 3c): a dialog, a save or an open.
     dialog: Option<std::sync::mpsc::Receiver<FileDialog>>,
+    /// In tests, the answers file dialogs give instead of showing (`None`:
+    /// real dialogs).
+    dialog_answers: Option<std::collections::VecDeque<Vec<PathBuf>>>,
     saving: Option<std::sync::mpsc::Receiver<Result<files::Saved, String>>>,
     opening: Option<std::sync::mpsc::Receiver<Result<files::Opened, String>>>,
     /// What to do once unsaved changes are dealt with.
@@ -306,6 +309,9 @@ impl eframe::App for App {
         self.transport.update();
         self.capture_chord(&ctx);
         self.command_keys(&ctx);
+        if std::mem::take(&mut self.arrangement.import_requested) {
+            self.run(&ctx, commands::Command::ImportAudio);
+        }
         self.poll_files(&ctx);
         self.autosave(&ctx);
         let rate = self.transport.state().sample_rate;
@@ -620,6 +626,7 @@ impl App {
             arrangement: arrangement::Arrangement::default(),
             toast: None,
             dialog: None,
+            dialog_answers: launch.scripted_dialogs.then(Default::default),
             saving: None,
             opening: None,
             prompt: None,

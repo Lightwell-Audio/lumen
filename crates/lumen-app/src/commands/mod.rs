@@ -66,6 +66,7 @@ pub(crate) enum Command {
     OpenProject,
     Save,
     SaveAs,
+    ImportAudio,
     OpenShortcuts,
 }
 
@@ -189,6 +190,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::OpenProject, "file.open", "Open…", Area::File, &[ctrl(Key::O)], "Opens a project."),
     info(Command::Save, "file.save", "Save", Area::File, &[ctrl(Key::S)], "Saves the project."),
     info(Command::SaveAs, "file.save_as", "Save as…", Area::File, &[ctrl_shift(Key::S)], "Saves the project under a new name or place."),
+    info(Command::ImportAudio, "file.import_audio", "Import audio…", Area::File, &[ctrl_shift(Key::I)], "Adds audio files onto the selected audio track at the playhead, or onto new tracks after the selection."),
     info(Command::OpenShortcuts, "file.shortcuts", "Keyboard shortcuts", Area::File, &[], "Shows every shortcut on a keyboard, and changes them."),
 ];
 

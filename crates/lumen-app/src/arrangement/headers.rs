@@ -605,6 +605,10 @@ impl Arrangement {
             doc.delete_tracks(&targets);
             self.selected.clear();
         }
+        if item(ui, "Import audio\u{2026}", Command::ImportAudio) {
+            self.selected = vec![id];
+            self.import_requested = true;
+        }
         if item(ui, "Move up", Command::MoveTracksUp) {
             self.move_selected(doc, -1);
         }

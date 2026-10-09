@@ -432,13 +432,31 @@ report: {}",
                 color,
             );
         } else if self.lanes.is_empty(self.document.project()) {
-            painter.text(
+            let text = painter.text(
                 canvas.center(),
                 egui::Align2::CENTER_CENTER,
                 "Drop audio files here\nWAV, AIFF, FLAC, MP3 or Ogg Vorbis",
                 egui::FontId::proportional(theme::size::BODY),
                 theme::p().text_hint,
             );
+            // Or choose them (M3 review H1: importing was mouse-drag only).
+            let below = egui::Rect::from_min_max(
+                pos2(canvas.left(), text.bottom() + theme::space::M),
+                canvas.max,
+            );
+            let builder = egui::UiBuilder::new()
+                .max_rect(below)
+                .layout(egui::Layout::top_down(egui::Align::Center));
+            let clicked = ui
+                .scope_builder(builder, |ui| {
+                    let keys = self.keymap.keys(Command::ImportAudio);
+                    let button = ui.button("Import audio\u{2026}");
+                    widgets::tip(button, "Choose audio files to add", keys.as_ref(), None).clicked()
+                })
+                .inner;
+            if clicked && self.availability(ui.ctx(), Command::ImportAudio).is_ok() {
+                self.run(&ui.ctx().clone(), Command::ImportAudio);
+            }
         }
         self.lanes
             .panel(ui.ctx(), pos2(canvas.left() + 8.0, canvas.bottom() - 8.0));

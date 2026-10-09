@@ -43,6 +43,7 @@ impl Launch {
             bench_size: None,
             autoplay: None,
             save_as: None,
+            scripted_dialogs: true,
         }
     }
 
@@ -247,6 +248,14 @@ impl App {
     /// What Undo would undo.
     pub fn undo_label(&self) -> Option<&str> {
         self.document.history().undo_label()
+    }
+
+    /// Answers the next file dialog with `paths`, as if the user chose
+    /// them (a dialog with no answer given is cancelled).
+    pub fn answer_next_dialog(&mut self, paths: Vec<PathBuf>) {
+        if let Some(answers) = &mut self.dialog_answers {
+            answers.push_back(paths);
+        }
     }
 
     /// Saves to `path`, as Save does once its dialog has a path.

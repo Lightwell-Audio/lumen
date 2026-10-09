@@ -14,7 +14,7 @@ use crate::widgets::Tip;
 use lumen_core::meter::{Meter, MeterMap};
 use lumen_core::time::{TempoMap, Ticks};
 use lumen_engine::{ClickSound, Command, MetronomeSettings, Region, Timeline, TransportSnapshot};
-use lumen_project::model::{Project, TimeSignature};
+use lumen_project::model::Project;
 
 use crate::audio::{Audio, Choice, Status};
 use crate::icons::{self, Icon};
@@ -460,7 +460,7 @@ impl Transport {
             .add(
                 egui::DragValue::new(&mut numerator)
                     .update_while_editing(false)
-                    .range(1..=99)
+                    .range(1..=crate::document::MAX_BEATS_PER_BAR)
                     .speed(0.1),
             )
             .on_hover_text("Beats per bar");
@@ -487,12 +487,7 @@ impl Transport {
                 project.time_signature.denominator.into(),
             )
         {
-            doc.apply("Change time signature", Some("meter"), |p| {
-                p.time_signature = TimeSignature {
-                    numerator: numerator as u8,
-                    denominator: denominator as u8,
-                };
-            });
+            doc.set_time_signature(numerator, denominator, Some("meter"));
         }
         ui.separator();
 

@@ -30,6 +30,9 @@ pub struct FileInfo {
 }
 
 /// The format name shown for `path`, or `None` if Lumen cannot import it.
+/// Every file extension Lumen imports, for file dialogs' filters.
+pub const EXTENSIONS: &[&str] = &["wav", "wave", "aif", "aiff", "flac", "mp3", "ogg"];
+
 pub fn format_name(path: &Path) -> Option<&'static str> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     Some(match extension.as_str() {
@@ -315,6 +318,14 @@ impl Library {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_dialog_filter_offers_every_format_lumen_imports() {
+        for extension in EXTENSIONS {
+            let file = format!("a.{extension}");
+            assert!(is_audio_file(Path::new(&file)), "{extension}");
+        }
+    }
 
     #[test]
     fn audio_files_are_recognised_by_extension() {

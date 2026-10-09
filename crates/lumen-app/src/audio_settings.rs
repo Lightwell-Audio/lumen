@@ -87,10 +87,7 @@ impl Catalog {
                 let mut details = Vec::new();
                 let list = match audio::backend(&driver) {
                     None => Err(format!("{driver} is not available here")),
-                    Some(_) if driver == "asio" => Ok(audio::listed(
-                        &driver,
-                        audio::backend(&driver).expect("checked"),
-                    )),
+                    Some(make) if driver == "asio" => Ok(audio::listed(&driver, make)),
                     Some(make) => {
                         let devices = make().devices();
                         let list = devices

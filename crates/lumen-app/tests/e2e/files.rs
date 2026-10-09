@@ -110,3 +110,66 @@ fn a_crash_report_from_last_time_is_offered_once() {
     let again = Lumen::start_with(dir, |launch| launch);
     assert!(!again.shows("Dismiss"), "shown once");
 }
+
+/// The M3 review's H1: audio comes in from the keyboard alone. Ctrl+T adds
+/// a track and selects it; Import audio puts the chosen file on it at the
+/// playhead, as one undo step.
+#[test]
+fn audio_imports_from_the_keyboard_onto_the_selected_track() {
+    let mut lumen = Lumen::start("import-keys");
+    let kick = wav(&lumen.dir().join("kick.wav"), 1.0);
+    lumen.key(Modifiers::COMMAND, Key::T);
+    let track = lumen.track_names()[0].clone();
+
+    lumen.app_mut().answer_next_dialog(vec![kick]);
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::I);
+    lumen.wait_for("the file to load", |app| {
+        !app.is_busy() && app.project().tracks[0].clips.len() == 1
+    });
+    assert_eq!(clips(&lumen), [(track, 1)], "on the selected track");
+    let clip = &lumen.app().project().tracks[0].clips[0];
+    assert_eq!(clip.start, lumen.app().playhead(), "at the playhead");
+    assert_eq!(lumen.app().undo_label(), Some("Import kick"));
+
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert_eq!(clips(&lumen)[0].1, 0, "one undo step");
+}
+
+/// With nothing selected, imported files go on new tracks; a cancelled
+/// dialog changes nothing. The empty arrangement offers the command too.
+#[test]
+fn importing_with_nothing_selected_makes_tracks_and_cancelling_does_nothing() {
+    let mut lumen = Lumen::start("import-new");
+    let kick = wav(&lumen.dir().join("kick.wav"), 1.0);
+    let snare = wav(&lumen.dir().join("snare.wav"), 1.0);
+
+    lumen.click("Import audio…");
+    lumen.frames(3);
+    assert!(clips(&lumen).is_empty(), "cancelled: nothing added");
+
+    lumen.app_mut().answer_next_dialog(vec![kick, snare]);
+    lumen.click("Import audio…");
+    lumen.wait_for("the files to load", |app| {
+        !app.is_busy() && app.project().tracks.len() == 2
+    });
+    assert_eq!(
+        lumen.track_names(),
+        ["kick", "snare"],
+        "in the order chosen"
+    );
+    assert!(!lumen.shows("Import audio…"), "the empty state has gone");
+}
+
+/// Files dropped together become tracks in the order they were dropped,
+/// not the order they finish loading (a short file loads first; the cause
+/// of flaky runs, seen in the M3 review).
+#[test]
+fn files_dropped_together_keep_their_order() {
+    let mut lumen = Lumen::start("drop-order");
+    let long = wav(&lumen.dir().join("long.wav"), 30.0);
+    let short = wav(&lumen.dir().join("short.wav"), 0.1);
+    lumen.drop_files(&[long, short]);
+    lumen.wait_for("both files", |app| app.project().tracks.len() == 2);
+    assert_eq!(lumen.track_names(), ["long", "short"]);
+    assert_eq!(lumen.app().undo_label(), Some("Import 2 files"), "one step");
+}

@@ -104,6 +104,7 @@ impl App {
                 let t = &self.document.project().transport;
                 need(t.loop_end > t.loop_start, "There is no loop yet")
             }
+            Command::ImportAudio => need(self.dialog.is_none(), "A file dialog is open"),
             // An open menu or window takes Esc first (MT-APP-14 run 2; the
             // slice 8 accessibility test: Esc deselected a clip instead of
             // closing the shortcuts window).
@@ -258,6 +259,7 @@ impl App {
             Command::OpenProject => self.request(ctx, Next::Open(None)),
             Command::Save => self.save(ctx, false),
             Command::SaveAs => self.save(ctx, true),
+            Command::ImportAudio => self.import_audio(ctx),
         }
         ctx.request_repaint();
     }
