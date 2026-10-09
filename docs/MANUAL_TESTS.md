@@ -1165,3 +1165,42 @@ steps 8 to 12 7c, steps 13 to 19 7d.
 **Run 1 (2026-10-08, owner):** passed ("looks good").
 
 **Last run:** run 1, passed. MT-APP-15 is done.
+
+### MT-APP-16 · The M3 exit flow and the review's fixes (needs a human)
+Run `cargo run --release -p lumen-app`. Have three or four short audio
+files in a folder (any of WAV, AIFF, FLAC, MP3, Ogg). Steps 1 to 4 are
+the milestone's exit flow; steps 5 to 9 cover what the end-of-milestone
+review changed.
+1. **Create and import:** start a New project (Lumen menu). The empty
+   arrangement shows "Drop audio files here" with an **Import audio…**
+   button under it. Press Ctrl+T, then Ctrl+Shift+I: the system's file
+   dialog opens in front of Lumen, offering audio files only. Pick two
+   files: they land one after the other on the new track, at the
+   playhead. Cancel the dialog another time: nothing changes.
+2. **Arrange:** drag a file from Explorer to just below the track: a new
+   track. Drag a clip along, Ctrl+D one, rename one (F2), mute one (0).
+   Open the palette (Ctrl+K), type "128", Enter: the tempo is 128. Press M
+   for a locator; select a clip and press Ctrl+L to loop it.
+3. **Save and reopen:** Ctrl+S and save it somewhere new. Close Lumen,
+   start it again and open the project from Open recent: the tracks,
+   clips, names, mute, tempo, locator, loop and view are as saved, and it
+   plays the same.
+4. Import from the other places too: the Lumen menu (Import audio…), a
+   track's right-click menu (onto that track; onto new tracks after it if
+   it is a MIDI track), and the palette.
+5. **Clips from the keyboard (the owner's choice for H2):** with several
+   clips on two or three tracks, press Ctrl+A, then ←: one clip is
+   selected. → and ← go along its track; ↓ and ↑ go to the nearest clip on
+   the next track with clips. Shift+→ and Shift+↓ add to the selection.
+   Press 0: the chosen clip mutes. Zoom in until a clip is off screen and
+   arrow to it: the view slides to show it.
+6. With a track selected (click its header), ↑ and ↓ still select tracks
+   and ← and → fold and unfold, as before.
+7. **The smooth playhead:** turn Follow on, zoom in a little and play: the
+   playhead and the page turns move evenly, with no stepping or jitter.
+   With a loop on, the wrap back is smooth. Stop: the playhead stops
+   exactly where playback stopped.
+8. **Time signature:** drag "Beats per bar" up: it stops at 64.
+9. Try steps 1, 5 and 7 in the light theme and at 150%.
+
+**Expected:** every step as described.

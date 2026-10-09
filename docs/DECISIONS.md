@@ -85,6 +85,7 @@ irreversible or external) · *Superseded*.
 | Hints and tooltips (2026-10-08) | The owner noted that hints have piled up slice by slice: behaviour should come across without reading much (cursors, handle shapes, motion before text). **A dedicated UX pass**, scheduled when the next milestones are planned; until then new hints stay short. |
 | Split and tools (2026-10-08) | The owner asked to select a clip and drag it to cut it. **Split** is planned in M7 with the rest of the split work, and the drag-to-cut gesture is chosen there from rendered specimens. The tool model (pointer, draw, erase, split, mute, zoom; CLAUDE.md §5) is proposed for M7 with it, for the owner to confirm. |
 | Commands and shortcuts (M3 slice 7, 2026-10-08) | Chosen from interactive specimens: palette **P2 with P3's values** (context names such as "Duplicate 2 clips", commands that cannot run listed dimmed with the reason, a detail strip, typed values becoming actions); keycaps **K5 area light** after asking for more personality than the first round (plain modifiers, the main key outlined with a light in its area's colour); shortcut editor **E2 with E3** (a keyboard map lit by area over the list, plus rebinding from a palette result); **Shift+Tab depends on focus**, F6 and Shift+F6 between panes (ADR-0015). |
+| Clips from the keyboard (M3 review H2, 2026-10-08) | **The arrows follow the selection**, as in Logic and Cubase: with a clip selected ←/→ select the previous or next clip on its track and ↑/↓ the nearest clip on the track above or below, Shift adds; with tracks selected the arrows act on tracks as before (over Alt+←/→ only, and [ and ]). ADR-0033. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
 
@@ -2366,3 +2367,47 @@ Option 3.
 - Screenshots (`tests/shots.rs`, `command_palette`: empty with a recent
   command, a search, an unavailable command, a value and a track, in
   dark at 100% and light at 150%).
+
+### Amendment (2026-10-08, the end-of-milestone review: `docs/audits/2026-10-08-m3.md`)
+- **Import audio… (H1).** Importing was mouse-drag only, so the exit flow
+  could not be done from the keyboard. A File command, Ctrl+Shift+I (Pro
+  Tools' and Logic's; Ableton has none, and Ctrl+I is Insert time), in the
+  app menu, the palette, a track's menu and the empty arrangement. The
+  system dialog runs on its own thread; the chosen files load as dropped
+  files do, at the playhead, onto the selected audio track or the track of
+  the selected clip, else onto new tracks right after the selection
+  (`document::import_place`, which a track's menu reaches by selecting
+  that track). Tests never open a real dialog: `Launch::for_test` answers
+  them from `testing::answer_next_dialog`, or as cancelled.
+- **The arrows follow the selection (H2, the owner's choice, as in Logic
+  and Cubase).** With a clip selected, ←/→ select the clip before or
+  after it on its track and ↑/↓ the nearest clip in time on the closest
+  track above or below that has clips; Shift adds to the selection (two
+  new commands, Shift+←/→). With tracks selected the arrows act on
+  tracks as before. They stay one command per key, as Delete is: the
+  commands keep their ids (saved keymaps hold) and are named for both
+  meanings ("Previous clip or fold track"), and the palette's label says
+  which applies now ("Previous clip on the track", "Fold 2 tracks"). The
+  next arrow goes from the clip the keys last chose (`clip_cursor`) while
+  it is selected, else the first selected clip; with nothing further that
+  way it selects that clip alone, so Ctrl+A then an arrow reaches one
+  clip. The view scrolls the least that shows it (`TimeView::showing`).
+- **Palette ranking.** A name that starts with the query scores more, and
+  one equal to it most: "cut" matched "Next clip or unfold track" by its
+  word starts above "Cut".
+- **Tab order (M3, recorded, not changed).** egui needs side panels
+  declared before the central area and focus follows declaration, so Tab
+  goes transport → browser → detail panel → arrangement. F6 visits the
+  panes in reading order and each pane is in order inside, so the flows
+  work from the keyboard; the order is revisited in the M10
+  accessibility pass.
+
+Evidence: unit tests `import_goes_onto_the_chosen_audio_track_or_new_tracks_after_it`,
+`arrows_step_along_a_track_and_to_the_nearest_clip_above_or_below`,
+`showing_a_span_scrolls_the_least`, `fuzzy_search_prefers_word_starts_and_runs`;
+E2E `audio_imports_from_the_keyboard_onto_the_selected_track`,
+`importing_with_nothing_selected_makes_tracks_and_cancelling_does_nothing`,
+`arrows_move_between_clips_when_a_clip_is_selected`,
+`the_view_follows_a_clip_chosen_with_the_arrows`; the palette's pass test
+now checks the command each top row runs. Screenshots of the empty
+arrangement (both themes, 100% and 200%) and the shortcuts window.

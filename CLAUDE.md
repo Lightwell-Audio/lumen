@@ -390,14 +390,19 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-08: M3 slice 7 done (the command registry, the
-palette, remapping, menus and keys; ADR-0033; MT-APP-15 passed). Slice 8
-(the end-to-end walkthrough, the milestone review and report) is next. The owner's drag-to-cut request is recorded for
-M7 with split (the M3 plan, out of scope).
+**Last updated:** 2026-10-09: M3 slice 8 built (the exit flow, the
+accessibility audit, the end-of-milestone review and every finding fixed
+or recorded). The M3 report is in PROGRESS.md and M4 is proposed in
+`docs/milestones/M4.md`. **Waiting for the owner:** MT-APP-16 (the exit
+flow by hand), approval of M3, and approval of the M4 plan with its three
+questions (solo default, when the UX pass on hints runs, pan law). Do not
+start M4 before that. The owner's drag-to-cut request is recorded for M7
+with split (the M3 plan, out of scope).
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
-- **M3 Arrangement & Project System: in progress.** Slices 1–3 done:
+- **M3 Arrangement & Project System: built, waiting for MT-APP-16 and
+  approval.** Slices 1–3 done:
   - performance gates;
   - design system, motion and typefaces;
   - project model, undo, save/open, autosave and recovery.
@@ -482,7 +487,18 @@ M7 with split (the M3 plan, out of scope).
     - 7d: menus and tooltips from the keymap (`widgets::menu_item`,
       `menu_toggle`, `tip`), ruler and track-name menus, Z, Ctrl+A,
       Ctrl+L, Fit loop, F6 panes (`app/panes.rs`), Shift+Tab by focus.
-    MT-APP-15 passed (2026-10-08). Next: slice 8.
+    MT-APP-15 passed (2026-10-08).
+  - **Slice 8 built** (2026-10-09): E2E `walkthrough` (the exit flow) and
+    `access` (names and Tab order); the smooth playhead (ADR-0028
+    amendment); the review (`docs/audits/2026-10-08-m3.md`) and its fixes
+    (ADR-0033 amendment): Import audio… (Ctrl+Shift+I; tests answer file
+    dialogs, `testing::answer_next_dialog`), the arrows move between clips
+    when a clip is selected (the owner's choice), the time signature
+    through `Document::set_time_signature` (clamped to 64 beats),
+    `transport/`, `widgets/keys.rs` and `lumen-project` `edit/clipboard.rs`
+    split out, files dropped together kept in order. 433 tests, 88 E2E,
+    6 smoke tests pass; frame times in the M3 report. MT-APP-16 waits for
+    the owner.
   - Esc after typing belongs to the text field (`App::typing`): egui
     drops a field's focus on Esc before the app's keys run, so key
     handlers must check `self.typing` as well as `text_edit_focused()`
@@ -553,8 +569,9 @@ M7 with split (the M3 plan, out of scope).
 - **Persisted changes:** every change to what is saved bumps the `.lumen`
   format version, with a migration and a golden fixture. Owner settings
   live in `%APPDATA%\Lumen\settings.json` (versioned).
-- **Edits:** every edit goes through `Document::apply` (one undo step;
-  drags merge into one step).
+- **Edits:** every edit is a named `Document` method that applies through
+  the history (one undo step; drags merge into one step). `Document::apply`
+  is test-only since the M3 review: UI code cannot edit in a closure.
 - **Draw only what is in view.** Deep in, a clip can be hundreds of
   millions of points wide: anything sized by a clip's or range's width
   (dashed lines, repeats, labels) is cut to the visible lanes first. A
