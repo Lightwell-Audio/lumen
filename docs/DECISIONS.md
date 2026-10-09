@@ -47,6 +47,7 @@ irreversible or external) · *Superseded*.
 | [0034](#adr-0034--the-info-line-m4-slice-0) | The info line (M4 slice 0): hover hints leave the pointer for one strip along the bottom of the window, with K5 keycaps and lit modifiers | Accepted 2026-10-09 | No |
 | [0035](#adr-0035--the-mixer-graph-m4-slice-1) | The mixer graph (M4 slice 1): a node per track with a stereo bus, compiled on the UI side into a flat ordered plan, swapped at a block edge with levels carried by id; plans of a new shape crossfade over 5 ms | Accepted 2026-10-09 | No |
 | [0036](#adr-0036--routing-in-the-model-format-v7) | Routing in the model (format v7): a master track kept apart from the tracks, outputs, sends, polarity, trim and the pan law; one routing rule shared by validation, edits and the engine | Accepted 2026-10-09 | No |
+| [0037](#adr-0037--group-tracks-format-v8) | Group tracks (format v8): a group's tracks always follow it in the list; grouping, ungrouping, folding, nested rails, lane bars, arming and deleting a group | Accepted 2026-10-09 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -91,6 +92,7 @@ irreversible or external) · *Superseded*.
 | Clips from the keyboard (M3 review H2, 2026-10-08) | **The arrows follow the selection**, as in Logic and Cubase: with a clip selected ←/→ select the previous or next clip on its track and ↑/↓ the nearest clip on the track above or below, Shift adds; with tracks selected the arrows act on tracks as before (over Alt+←/→ only, and [ and ]). ADR-0033. |
 | M3 close (2026-10-09) | M3 approved after MT-APP-16 passed. The M4 plan (`docs/milestones/M4.md`) waits for approval and its three questions. |
 | M4 plan (2026-10-09) | Approved. **Solo: Ableton's by default** (a click solos only that track, Ctrl+click adds). **The UX pass on hints runs first**, as M4 slice 0. Pan law −3 dB constant power by default (the proposal, recorded as an assumption). |
+| Group tracks (M4 slice 3, 2026-10-09) | Chosen from rendered specimens and asked before building: **H1**, a group's tracks step in 12 pt a level with every enclosing group's colour rail running down beside them (over H2 tree lines and H3 a tinted block); **L1**, a group's lane shows a thin bar per track inside it in that track's colour (over L2 a summed band with a waveform and L3 ghost clips); **deleting a group deletes its tracks** (Ableton; Ungroup keeps them) over moving them up a level; **a group's arm button arms its tracks** (Cubase-style, half a ring when some are armed) over no arm on groups (Ableton). Also proposed and not objected to: the Ableton rules for Ctrl+G, Ctrl+Shift+G, the fold arrow, drops and groups holding no clips (ADR-0037). |
 | Routing in the model (M4 slice 2, 2026-10-09) | Asked before building: **a new send starts at −∞** (over 0 dB) and **post-fader** (over pre-fader); **deleting a return removes its sends** in the same undo step (over asking first); **the pan law is chosen from the mixer panel's menu** and the palette (over a project settings window, M9). |
 | Dropouts (2026-10-09) | Chosen from mockups: **A, recent and in words**: no chip while audio is healthy, "Dropouts ×3" in amber while they happen, fading after 10 s of clean audio, details in the audio panel; over B (a labelled total until reset) and C (an amber status dot). Driver resets no longer count (ADR-0020 update). |
 | Mixer behaviour (M4 slice 1, 2026-10-09) | Asked after the graph was built (the owner: variants first, before building): **centre −3 dB** (a hard-panned side at unity; projects from M3 play 3 dB quieter) over centre unity with +3 dB sides; **balance** panning of stereo tracks over a true stereo pan; **mute silences every send**, pre-fader ones too (Ableton) over pre-fader sends playing on (Pro Tools, Cubase); **post-fader sends after the pan** over before it. All four as built (ADR-0035). |
@@ -2700,3 +2702,102 @@ sends start post-fader and a drag is one step, deleting a return takes its
 sends and undo brings them back, polarity, trim and the pan law); app
 `routing.rs` tests (outputs, sends, polarity, trim and the law reach the
 engine); E2E `a_project_from_before_the_mixer_opens_with_a_master_and_saves_as_v7`.
+
+## ADR-0037 — Group tracks (format v8)
+
+**Status:** Accepted · **Date:** 2026-10-09
+
+### Context
+M4 slice 3 makes group tracks real: the engine already sums a track into
+its group (ADR-0035) and the model already had `parent`, but nothing let
+a user make, nest, fold or leave a group, and the list order said nothing
+about membership (a group's tracks could sit anywhere). The owner chose
+the look and four behaviours from rendered specimens before building
+(owner-decisions table).
+
+### Decision
+- **One order rule** (`lumen_project::groups`): a group's tracks follow it
+  directly, nested ones inside theirs, so a group and everything in it is
+  one run of the list (`span`). Validation rejects a list out of that
+  order, and returns or the master inside a group (`can_be_grouped`, as in
+  Ableton). Edits set parents and a rough order, then `normalize` puts
+  every track back under its group, keeping the order of siblings. Helpers:
+  `depth`, `ancestors` (stops on a cycle), `is_inside`, `with_contents`,
+  `outermost`, `common_group`, `in_order`.
+- **Format v8:** `ViewState::collapsed`, the groups folded to hide their
+  tracks (view state, not an undo step, as track heights are). Migration
+  v7 → v8 puts tracks in group order (the same preorder, written out in the
+  migration so it never changes), takes returns and the master out of
+  groups, and writes an empty `collapsed`. Golden fixture `v8` (a group
+  nested in the drums holding a MIDI track; the drums folded).
+- **Edits** (`document/groups.rs`; one undo step each, tried on a copy
+  first and refused if the routing would feed back, `Refused::Loop`):
+  `group_tracks` (Ctrl+G: the outermost of the selection, returns left out,
+  into a new "Group N" where the topmost was, inside the innermost group
+  that held them all); `ungroup` (Ctrl+Shift+G: a selected group goes, its
+  tracks move up a level in place and become the selection, routing to it
+  falls back to automatic; a selected track inside a group comes out to
+  right after it, "Take track out of group"); `move_tracks` now takes a
+  `Place` (an index among the tracks that stay, and a group) and moves a
+  group with everything inside it. `delete_tracks` takes a group's tracks
+  too (owner); `duplicate_tracks` copies a group with its tracks, fresh
+  ids throughout, right after the original's run; `set_armed` on a group
+  arms its audio and MIDI tracks (owner); `add_track` lands after the
+  chosen track's run, in its group. Imports: `DropInto::NewTracks` gained
+  `group`, so files dropped on a group's lane, or Import audio with a group
+  chosen, make tracks at the end of that group.
+- **Arrangement:** rows skip tracks hidden in a folded group; the GPU row
+  table stays one slot per track (`RowSlot::HIDDEN` for hidden ones), since
+  boxes and waves name their track's index. A group's arrow hides or shows
+  its tracks (Alt+click: every group); Left and Right on a selected group
+  do the same; Up and Down, Shift-click ranges and Fit to height use only
+  the tracks shown; Go to track unfolds the groups around it. Alt+Up and
+  Alt+Down move the selection among the tracks of its group, over a
+  neighbouring group whole. Dragging headers (`reorder.rs`): between two
+  tracks the moved ones join the group of the track below (so below a
+  group's last track they come after it); the middle half of a group's
+  header drops into it, lit; the line steps in to the level they land at.
+- **Look** (`arrangement/nesting.rs`, the owner's H1 and L1): headers step
+  in `INDENT` (12 pt) a level, capped at four levels so names keep room,
+  with each enclosing group's rail at its own indent; a group's name is
+  medium weight and, folded, followed by "· N"; its lane draws a bar per
+  audio or MIDI track inside it where its clips are (bars thin as they
+  crowd, then share rows), only what is in view. A group's arm button is
+  lit when everything inside is armed and shows a lit dot with half a ring
+  when only some is.
+- **Commands:** Group tracks (Ctrl+G), Ungroup (Ctrl+Shift+G), Fold all
+  groups and Unfold all groups (no keys), in the palette and the track
+  menu (Ungroup reads "Take out of group" on a track inside one; a group's
+  menu offers Hide or Show its tracks). `arrangement/menus.rs` now holds the
+  track menus, split from `headers.rs`.
+
+### Consequences
+- Solo across groups is still the plain per-track solo; its rules are
+  slice 4's (a table of cases for the owner first).
+- Opening a v7 project may reorder tracks whose groups were scattered (no
+  project made in the app had any: grouping did not exist).
+- Two or more levels deep, long names are shortened sooner (204 pt
+  headers; KNOWN_ISSUES).
+- **Performance gate:** `project_parse` +1.71% and `project_serialize`
+  +0.33% against the old baseline, of which slice 2 was +0.82% and +0.04%.
+  A probe without the new order check measured +1.67%, so the check costs
+  0.04%; the rest was not traced to more work per track or clip (most
+  likely code generation around the new view field). The baseline was
+  updated from WSL (`perf.sh --update`) on this commit, as an intended
+  change.
+
+### Evidence
+`lumen_project::groups` unit tests (depth, spans, contents, outermost,
+common group, order, normalize with missing parents and cycles);
+migration test (scattered tracks put in order, a return taken out of its
+group, `collapsed` written); golden fixtures v1 to v8 load; validation
+tests (a track apart from its group, a return inside a group);
+`document/groups.rs` tests (grouping in place and nesting, wrapping a
+group, ungrouping a level up with routing falling back, taking tracks out
+in order, moves that take groups whole and enter or leave them, a move
+that would feed back is refused, deleting and duplicating groups, arming
+a group); import tests (into a group at its end); drop and reorder place
+tests; `nesting` tests (bar layout, arm state); E2E `groups` (7 scenarios:
+keys and undo, nesting and taking out, folding saved with the project,
+dragging in and out, arming and deleting, files dropped on a group's lane,
+a tone heard through two groups and silenced by the outer mute).

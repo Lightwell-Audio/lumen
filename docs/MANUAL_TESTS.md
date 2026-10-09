@@ -1280,3 +1280,47 @@ before M4 (keep the original).
    each: every change undoes in one step, as before.
 
 **Expected:** every step as described, no warnings about the file.
+
+### MT-MIX-3 · Group tracks (needs a human)
+Run `cargo run --release -p lumen-app`. Start a new project and drop in
+five or six audio files (drums, bass, anything): one track each.
+1. **Group:** select the first three tracks (click, Shift+click) and press
+   Ctrl+G. A group named "Group 1" appears where the first was, its name a
+   little bolder, and the three tracks step in under it with the group's
+   colour rail running down beside them. Ctrl+Z takes it back in one step;
+   Ctrl+Shift+Z brings it back.
+2. **The group's lane:** it shows a thin bar per track inside, in each
+   track's colour, wherever that track has clips. Play: the group sounds
+   as the three tracks did; mute the group and they all go silent.
+3. **Nest:** select one track inside the group and press Ctrl+G: a second
+   group inside the first, one step further in, with both rails beside
+   its track.
+4. **Fold:** click the group's arrow: its tracks hide, the name reads
+   "Group 1 · 4", and the lane keeps its bars. Click again to show them.
+   Alt+click folds or unfolds every group. With the group selected, Left
+   and Right do the same. Save, close and reopen: the group is still
+   folded.
+5. **Drag in and out:** drag a track outside the group onto the middle of
+   the group's header: the header lights, and the track goes in at the
+   end. Drag a track from inside to between two tracks below the group:
+   the line steps out to the left edge, and it lands outside. Drag the
+   group itself: everything inside moves with it.
+6. **Arm:** click the group's arm button: every track inside arms, and
+   the group's button breathes. Disarm one track: the group's button shows
+   a lit dot with half a ring. Click it again: all armed.
+7. **Ungroup and take out:** select a track inside the group and press
+   Ctrl+Shift+G: it comes out to just below the group. Select the group
+   and press Ctrl+Shift+G: the group goes and its tracks stay, a level up,
+   selected.
+8. **Delete and duplicate:** group two tracks again, then Ctrl+D with the
+   group selected: a copy of the group with copies of its tracks appears
+   below it. Delete the copy: it goes with its tracks, in one undo step.
+9. **Files onto a group:** drag an audio file from Explorer onto the
+   group's lane: the hint says "new track in Group 1" and the file lands
+   on a new track at the end of the group.
+10. **Looks:** check steps 1, 4 and 6 in the light theme and at 150% and
+    200%: rails line up with their groups, nothing overlaps, long names end
+    in "…".
+
+**Expected:** every step as described, each edit undoes in one step, and
+nothing clicks while grouping during playback.

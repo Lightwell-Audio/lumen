@@ -390,7 +390,7 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-09: M4 slice 2 built (below). Before it, M3 slice 8 built (the exit flow, the
+**Last updated:** 2026-10-09: M4 slice 3 built (below). Before it, M3 slice 8 built (the exit flow, the
 accessibility audit, the end-of-milestone review and every finding fixed
 or recorded). MT-APP-16 passed and **M3 is approved** (2026-10-09). The M3
 report is in PROGRESS.md and M4 is proposed in `docs/milestones/M4.md`.
@@ -416,8 +416,18 @@ is built** (format v7, ADR-0036): `Project::master` (apart from
 validation, edits (`document/mixer.rs`, refused when they would feed back)
 and the engine routing. `history::unchanged` destructures projects and
 tracks: add every new persisted field there too (the compiler insists).
-MT-MIX-2 waits for the owner; slice 3 (group tracks) is next, with its
-choices pitched first. The owner's drag-to-cut request is recorded for M7
+MT-MIX-2 waits for the owner. **Slice 3, group tracks, is built**
+(format v8, ADR-0037; owner's H1 nested rails, L1 lane bars, deleting a
+group deletes its tracks, a group's arm arms them): one order rule in
+`lumen_project::groups` (a group's tracks follow it; edits set parents
+then `normalize`), edits in `document/groups.rs` (`group_tracks`,
+`ungroup`, `move_tracks(ids, Place)`), folding in
+`Arrangement::collapsed` (rows skip hidden tracks; the GPU row table
+keeps a slot per track index), the look in `arrangement/nesting.rs`, the
+menus in `arrangement/menus.rs`. The perf baseline was updated (parse
++1.71% over slices 2 and 3; reason in ADR-0037). MT-MIX-3 waits for the
+owner; slice 4 (mute, solo, returns, master, cue) is next, with the solo
+rules as a table of cases for the owner first. The owner's drag-to-cut request is recorded for M7
 with split (the M3 plan, out of scope).
 
 **Status**

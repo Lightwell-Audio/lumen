@@ -276,6 +276,22 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
     (header and lane) while hovered or dragged. A folded track dragged
     taller unfolds; an unfolded one dragged below 4 steps folds;
   - heights glide (`GLIDE`) and are saved with the project.
+- **Group tracks** (M4 slice 3, the owner's H1 and L1, ADR-0037):
+  - a group's tracks step in **12 pt a level** (capped at four levels),
+    and every group they are in keeps its **colour rail** at its own
+    indent, so the rails run down beside the whole group;
+  - a group's name is **medium weight**; folded, it is followed by
+    "· N" (the tracks it hides) in the hint colour;
+  - the group's arrow hides or shows its tracks; its height is still
+    dragged at the bottom edge;
+  - its lane shows a **thin bar per track inside**, in that track's
+    colour, where its clips are: 4 pt bars on a 7 pt pitch, thinning as
+    they crowd and sharing rows below 2 pt;
+  - its arm button is lit and breathes when every track inside is armed;
+    when only some are, a lit dot with **half a ring**, still;
+  - dragging headers: the drop line steps in to the level the tracks
+    will land at; over the middle half of a group's header, the header
+    lights (accent wash and a 2 pt accent frame) instead.
 - **Adding tracks:**
   - a **"+ Add track ▾"** button below the last track opens a menu of
     every type with its shortcut (audio Ctrl+T, MIDI Ctrl+Shift+T, group,
