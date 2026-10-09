@@ -3113,9 +3113,12 @@ waiting on the UI, and must not raise idle CPU (risk R5).
 - Performance (divan, 128 frames at 48 kHz, this machine): 64 routed
   tracks 24 µs before, 31 µs with every node metered and the master's
   loudness measured (1.2% of the block); 200 tracks 89 µs before, 92 µs
-  after. Peak and sum run in eight lanes so they vectorise. The
-  instruction-count gate (`engine_routed_64`) is expected to rise; the
-  baseline is updated from WSL with this reason.
+  after. Peak and sum run in eight lanes so they vectorise. Performance
+  gate (instructions, WSL): `engine_routed_64` +21.8% (every node metered
+  and the master's loudness and true peak measured), `engine_transport`
+  +2.6% (its one node metered), others unchanged; the baseline was
+  updated from WSL (`perf.sh --update`) on this commit, as an intended
+  change.
 - The test routing (`testing::routed`) measures its master, so the
   allocation guard, RTSan and the performance gate cover the loudness tap.
 
