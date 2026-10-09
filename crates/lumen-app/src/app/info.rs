@@ -213,7 +213,12 @@ impl App {
                     }),
             )
             .show(ui, |ui| {
+                // The strip takes exactly its height, whatever it shows: its
+                // contents are drawn in a child that never sizes the panel
+                // (owner: the panels above moved a point when the line
+                // emptied, as over the time ruler's corner).
                 let strip = ui.max_rect();
+                ui.allocate_rect(strip, Sense::hover());
                 let text = shown
                     .as_ref()
                     .map(|i| i.text(&self.keymap))
@@ -228,7 +233,20 @@ impl App {
                 });
                 if let Some(info) = &shown {
                     let held = ui.input(|i| Held::of(i.modifiers));
-                    ui.horizontal_centered(|ui| draw(ui, info, &self.keymap, held));
+                    // A row exactly as tall as a keycap, centred in the
+                    // strip: egui centres a row's items on its tallest one,
+                    // which left the words a little low.
+                    let row_rect = Rect::from_center_size(
+                        strip.center(),
+                        vec2(strip.width(), widgets::caps_height(ui)),
+                    );
+                    let mut row = ui.new_child(
+                        egui::UiBuilder::new()
+                            .max_rect(row_rect)
+                            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                    );
+                    row.set_clip_rect(strip.intersect(ui.clip_rect()));
+                    draw(&mut row, info, &self.keymap, held);
                 }
             });
     }
@@ -244,6 +262,7 @@ fn draw(ui: &mut Ui, info: &Info, keymap: &Keymap, held: Held) {
             .color(palette.text),
     );
     let right = ui.max_rect().right();
+    let middle = ui.max_rect().center().y;
     let separator = RichText::new("\u{00B7}")
         .size(theme::size::CAPTION)
         .color(palette.text_hint);
@@ -297,8 +316,17 @@ fn draw(ui: &mut Ui, info: &Info, keymap: &Keymap, held: Held) {
         if lit {
             ui.painter().set(
                 background,
+                // As tall as the strip less even room above and below, not
+                // as tall as its keycaps' light room, which would touch the
+                // window's edge.
                 Shape::rect_filled(
-                    group.expand2(vec2(4.0, 2.0)),
+                    Rect::from_center_size(
+                        egui::pos2(group.center().x, middle),
+                        vec2(
+                            group.width() + 2.0 * theme::space::XS,
+                            theme::size::INFO_LINE - 2.0 * theme::space::XS,
+                        ),
+                    ),
                     theme::radius::SMALL,
                     palette.accent_muted,
                 ),

@@ -151,6 +151,12 @@ pub fn modifier_caps(ui: &mut Ui, modifiers: &[&str]) -> egui::Response {
     response
 }
 
+/// How tall keycaps are with their light's room: the height of a row of
+/// them, to centre such a row.
+pub fn caps_height(ui: &Ui) -> f32 {
+    lay_out_caps(ui, &[], Some("X")).size.y
+}
+
 /// How wide keycaps for `modifiers` and `key` are, to plan a row.
 pub fn caps_width(ui: &Ui, modifiers: &[&str], key: Option<&str>) -> f32 {
     if modifiers.is_empty() && key.is_none() {

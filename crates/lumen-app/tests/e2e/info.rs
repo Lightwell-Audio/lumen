@@ -98,3 +98,27 @@ fn show_info_line_hides_and_shows_the_strip() {
         "back"
     );
 }
+
+/// Owner, after slice 0: hovering the time ruler's corner (which sets no
+/// info) moved the panels above the info line by a point. The strip keeps
+/// its height whatever it shows.
+#[test]
+fn the_panels_above_stay_put_whether_the_line_is_empty_or_not() {
+    let (mut lumen, _, _) = with_two_clips("info-steady");
+    let detail = |lumen: &mut Lumen, at: Pos2| {
+        lumen.harness.hover_at(at);
+        lumen.frames(4);
+        lumen.harness.get_by_label("Detail panel").rect()
+    };
+    hover_clip(&mut lumen, 0);
+    assert!(!lumen.info().is_empty());
+    let with_info = lumen.harness.get_by_label("Detail panel").rect();
+    let corner = lumen
+        .harness
+        .get_by_label_contains("Time format")
+        .rect()
+        .center();
+    let without = detail(&mut lumen, corner);
+    assert!(lumen.info().is_empty(), "the corner says nothing");
+    assert_eq!(with_info, without);
+}

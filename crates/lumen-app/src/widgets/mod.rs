@@ -16,7 +16,9 @@ use crate::{fonts, icons, motion, theme};
 
 mod keys;
 
-pub use keys::{Keys, Tip, caps_width, keycaps, menu_item, menu_toggle, modifier_caps, tip};
+pub use keys::{
+    Keys, Tip, caps_height, caps_width, keycaps, menu_item, menu_toggle, modifier_caps, tip,
+};
 
 /// A floating window in the design system (DESIGN §5): no system title
 /// bar; our own title row with the title in the display face and, when it

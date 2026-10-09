@@ -467,6 +467,9 @@ impl eframe::App for App {
                     }
                 });
                 ui.label(RichText::new("Select a track or a clip").weak());
+                // Room under the last line, so the panel dragged to its
+                // smallest still keeps it off the info line's edge (owner).
+                ui.add_space(theme::space::S);
             },
         );
         egui::CentralPanel::default().show(ui, |ui| self.arrangement(ui));
