@@ -142,6 +142,11 @@ impl App {
                     "Select a group, or tracks in a group",
                 )
             }
+            Command::SoloTracks | Command::MuteTracks => need(tracks, "Select tracks first"),
+            Command::ClearSolos => need(
+                lumen_project::solo::any_soloed(self.document.project()),
+                "Nothing is soloed",
+            ),
             Command::FoldAllGroups | Command::UnfoldAllGroups => need(
                 self.document
                     .project()
@@ -173,6 +178,7 @@ impl App {
             | Command::FitHeight
             | Command::ToggleDetail
             | Command::ToggleInfoLine
+            | Command::AdditiveSolo
             | Command::OpenPalette
             | Command::OpenShortcuts
             | Command::NextPane
@@ -291,6 +297,32 @@ impl App {
             Command::NextPane => self.cycle_pane(true),
             Command::PreviousPane => self.cycle_pane(false),
             Command::ToggleDetail => self.toggle_detail_requested = true,
+            Command::SoloTracks => {
+                let ids = self.arrangement.selected.clone();
+                let solo = !doc
+                    .project()
+                    .tracks
+                    .iter()
+                    .filter(|t| ids.contains(&t.id))
+                    .all(|t| t.solo);
+                doc.set_solo(&ids, solo, !self.settings.mixing.additive_solo);
+            }
+            Command::MuteTracks => {
+                let ids = self.arrangement.selected.clone();
+                let mute = !doc
+                    .project()
+                    .tracks
+                    .iter()
+                    .filter(|t| ids.contains(&t.id))
+                    .all(|t| t.mute);
+                doc.set_mute(&ids, mute);
+            }
+            Command::ClearSolos => doc.clear_solos(),
+            Command::AdditiveSolo => {
+                let additive = &mut self.settings.mixing.additive_solo;
+                *additive = !*additive;
+                self.settings_changed = Some(std::time::Instant::now());
+            }
             Command::ToggleInfoLine => {
                 let shown = &mut self.settings.appearance.info_line;
                 *shown = !*shown;

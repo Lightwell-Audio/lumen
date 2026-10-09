@@ -14,7 +14,8 @@ use crate::{App, fonts, motion, settings, theme};
 
 impl App {
     /// The product name opens the app menu: appearance (theme, motion, UI
-    /// scale) and audio settings. Preferences proper arrive in M9.
+    /// scale), additive solo and audio settings. Preferences proper arrive
+    /// in M9.
     pub(crate) fn app_menu(&mut self, ui: &mut egui::Ui) {
         let before = self.settings.appearance.clone();
         let menu = ui.menu_button(
@@ -73,6 +74,15 @@ impl App {
                 ui.separator();
                 ui.checkbox(&mut self.settings.appearance.reduce_motion, "Reduce motion")
                     .on_hover_text("Things change in place instead of sliding or fading");
+                ui.separator();
+                ui.label(RichText::new("Mixing").small().weak());
+                if ui
+                    .checkbox(&mut self.settings.mixing.additive_solo, "Additive solo")
+                    .on_hover_text("A click on Solo adds the track; Ctrl+click solos it alone")
+                    .changed()
+                {
+                    self.settings_changed = Some(Instant::now());
+                }
                 ui.separator();
                 if ui.button("Audio settings…").clicked() {
                     self.transport.settings_window.open = true;

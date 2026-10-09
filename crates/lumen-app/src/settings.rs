@@ -78,6 +78,16 @@ impl From<&Metronome> for MetronomeSettings {
     }
 }
 
+/// How mixing controls behave (M4 slice 4): an added section with
+/// defaults, so older files read as before (no version change).
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Mixing {
+    /// A click on Solo adds the track to what is soloed, and Ctrl+click
+    /// solos it alone (the owner's D2: off by default, Ableton's way).
+    pub additive_solo: bool,
+}
+
 /// Theme, motion and UI scale (`docs/DESIGN.md`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -182,6 +192,7 @@ pub struct Settings {
     /// The time ruler's format (M3 slice 5b).
     pub time_format: crate::timefmt::TimeFormat,
     pub commands: Commands,
+    pub mixing: Mixing,
 }
 
 impl Default for Settings {
@@ -195,6 +206,7 @@ impl Default for Settings {
             follow: Follow::default(),
             time_format: crate::timefmt::TimeFormat::default(),
             commands: Commands::default(),
+            mixing: Mixing::default(),
         }
     }
 }
@@ -378,6 +390,9 @@ mod tests {
             commands: Commands {
                 shortcuts: [("edit.duplicate".to_owned(), vec!["Ctrl+Shift+D".to_owned()])].into(),
                 recent: vec!["track.add_audio".into()],
+            },
+            mixing: Mixing {
+                additive_solo: true,
             },
         };
         save(&path, &settings).unwrap();

@@ -31,6 +31,7 @@ mod properties;
 mod rulers;
 mod scrubbing;
 mod shortcuts;
+mod solo;
 mod walkthrough;
 
 use std::path::{Path, PathBuf};

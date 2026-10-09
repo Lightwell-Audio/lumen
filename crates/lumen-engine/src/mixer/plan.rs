@@ -48,7 +48,8 @@ pub struct SendSpec {
 /// The signal path: the node's input (its clips, the outputs of the nodes
 /// routed into it and the sends into it) → trim → polarity → mute →
 /// pre-fader sends → volume → pan → post-fader sends → output. Mute
-/// silences sends too, as in Ableton.
+/// silences sends too, as in Ableton; the output can be silent while the
+/// sends play (a soloed return plays wet only).
 #[derive(Debug, Clone, PartialEq)]
 pub struct NodeSpec {
     /// The track's id; tracks address their audio to it.
@@ -61,8 +62,11 @@ pub struct NodeSpec {
     /// −1 (left) to +1 (right).
     pub pan: f32,
     pub law: PanLaw,
-    /// False when the node is muted, or silenced by another track's solo.
+    /// False when the node's output is muted, or silenced by another
+    /// track's solo.
     pub audible: bool,
+    /// False when its sends are silent too.
+    pub sends_audible: bool,
     pub output: Destination,
     pub sends: Vec<SendSpec>,
 }
@@ -79,6 +83,7 @@ impl NodeSpec {
             pan: 0.0,
             law: PanLaw::Balance,
             audible: true,
+            sends_audible: true,
             output,
             sends: Vec::new(),
         }
@@ -136,8 +141,10 @@ struct Send {
 #[derive(Debug, Clone)]
 struct Node {
     id: u64,
-    /// Trim × polarity × mute.
+    /// Trim × polarity × (output or sends heard).
     pre: Smoothed,
+    /// 1 while the output is heard, 0 while only the sends are.
+    gate: Smoothed,
     /// Volume × pan, per side.
     post: [Smoothed; 2],
     out: Out,
@@ -250,7 +257,7 @@ pub fn compile(routing: &Routing) -> Result<Plan, RoutingError> {
             });
         }
         let sign = if spec.invert { -1.0 } else { 1.0 };
-        let pre = if spec.audible {
+        let pre = if spec.audible || spec.sends_audible {
             finite(spec.trim) * sign
         } else {
             0.0
@@ -260,6 +267,7 @@ pub fn compile(routing: &Routing) -> Result<Plan, RoutingError> {
         nodes.push(Node {
             id: spec.id,
             pre: Smoothed::new(pre),
+            gate: Smoothed::new(if spec.audible { 1.0 } else { 0.0 }),
             post: [Smoothed::new(volume * left), Smoothed::new(volume * right)],
             out,
             first,
@@ -356,6 +364,7 @@ impl Plan {
                     let before = &old.nodes[there as usize];
                     let node = &mut self.nodes[here as usize];
                     node.pre.carry(&before.pre);
+                    node.gate.carry(&before.gate);
                     node.post[0].carry(&before.post[0]);
                     node.post[1].carry(&before.post[1]);
                     let mine = node.first as usize..(node.first + node.count) as usize;
@@ -379,6 +388,7 @@ impl Plan {
     pub(super) fn settle(&mut self) {
         for node in &mut self.nodes {
             node.pre.settle();
+            node.gate.settle();
             node.post.iter_mut().for_each(Smoothed::settle);
         }
         for send in &mut self.sends {
@@ -435,6 +445,16 @@ impl Plan {
                 send.gain.fill(gain, rate, advance);
                 add_scaled(&mut tail[at..at + frames], left, gain);
                 add_scaled(&mut tail[at + CHUNK..at + CHUNK + frames], right, gain);
+            }
+
+            if !(node.gate.settled() && node.gate.value() == 1.0) {
+                if node.gate.settled() {
+                    // Only the sends are heard.
+                    continue;
+                }
+                node.gate.fill(gain, rate, advance);
+                scale(left, gain);
+                scale(right, gain);
             }
 
             match node.out {

@@ -12,10 +12,9 @@ use lumen_project::routing::{self as rules, destination};
 
 /// The routing that plays `project`.
 pub fn routing(project: &Project) -> Routing {
-    let audible = crate::document::audible(project);
+    let heard = lumen_project::solo::hearing(project);
     let nodes = rules::all_tracks(project)
         .map(|track| {
-            let master = track.id == project.master.id;
             // Buses (groups, returns and the master) carry sound their
             // tracks have already panned: centred, they stay at unity, or
             // every group level took another 3 dB off what is inside it
@@ -34,7 +33,8 @@ pub fn routing(project: &Project) -> Routing {
                 } else {
                     project.pan_law
                 },
-                audible: if master { !track.mute } else { audible(track) },
+                audible: heard.of(track.id).output,
+                sends_audible: heard.of(track.id).sends,
                 // Silent sends stay in the routing, so turning one up glides
                 // rather than changing the routing's shape.
                 sends: track
@@ -150,6 +150,26 @@ mod tests {
         doc.set_solo(&[outer], true, true);
         assert!(heard(&doc, ids[0]) && heard(&doc, ids[1]) && heard(&doc, inner));
         assert!(!heard(&doc, ids[2]));
+    }
+
+    #[test]
+    fn a_soloed_return_reaches_the_engine_as_wet_only() {
+        // M4 slice 4, case 8: the sends into a soloed return play, the
+        // sending tracks' own outputs do not.
+        let (mut doc, ids) = doc_with(&[TrackKind::Return, TrackKind::Audio]);
+        doc.set_send(ids[1], ids[0], Level(-6.0)).unwrap();
+        doc.set_solo(&ids[..1], true, true);
+        let wet = routing(doc.project());
+        let track = node(&wet, ids[1]);
+        assert!(!track.audible && track.sends_audible);
+        let ret = node(&wet, ids[0]);
+        assert!(ret.audible && ret.sends_audible);
+        doc.set_mute(&ids[1..], true);
+        let track = node(&routing(doc.project()), ids[1]).clone();
+        assert!(
+            !track.audible && !track.sends_audible,
+            "mute silences sends"
+        );
     }
 
     #[test]

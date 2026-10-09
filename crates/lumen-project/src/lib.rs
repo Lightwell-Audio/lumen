@@ -13,6 +13,7 @@ mod json;
 pub mod migrate;
 pub mod model;
 pub mod routing;
+pub mod solo;
 #[doc(hidden)]
 pub mod testing;
 mod validate;

@@ -172,6 +172,7 @@ impl Transport {
             self.send(Command::SetMetronome(self.metronome));
         }
         self.follow_button(ui, keymap);
+        solo_chip(ui, doc, keymap);
         metronome.context_menu(|ui| {
             let mut changed = false;
             ui.label("Metronome volume");
@@ -358,4 +359,49 @@ pub fn punch_menu(ui: &mut Ui, doc: &mut crate::document::Document) {
             .weak()
             .small(),
     );
+}
+
+/// The solo chip (the owner's D3, M4 slice 4): an "S" that lights while
+/// anything is soloed, with the count when more than one track is; a click
+/// clears every solo. Quiet and inactive while nothing is.
+fn solo_chip(ui: &mut Ui, doc: &mut crate::document::Document, keymap: &Keymap) {
+    let palette = *theme::p();
+    let soloed = doc.project().tracks.iter().filter(|t| t.solo).count();
+    let text = match soloed {
+        0 | 1 => "S".to_owned(),
+        n => format!("S {n}"),
+    };
+    let font = crate::fonts::medium(theme::size::CAPTION);
+    let galley = ui.painter().layout_no_wrap(text, font, palette.text);
+    let height = ui.spacing().interact_size.y;
+    let width = (galley.size().x + 2.0 * theme::space::S).max(height);
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+    let keys = keymap.keys(Run::ClearSolos);
+    let response = if soloed > 0 {
+        crate::widgets::tip(response, "Clear all solos", keys.as_ref(), None)
+    } else {
+        response.on_hover_text("Nothing is soloed")
+    };
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, soloed > 0, "Clear all solos")
+    });
+    let hover = crate::motion::hover(ui.ctx(), response.id.with("hover"), response.hovered());
+    let (fill, ink) = if soloed > 0 {
+        let fill = palette.accent;
+        (fill, theme::text_on(fill))
+    } else {
+        (palette.control.gamma_multiply(0.6), palette.text_hint)
+    };
+    let fill = if soloed > 0 {
+        fill.lerp_to_gamma(palette.text, 0.12 * hover)
+    } else {
+        fill
+    };
+    let rect = rect.shrink2(egui::vec2(0.0, 2.0));
+    ui.painter().rect_filled(rect, theme::radius::SMALL, fill);
+    ui.painter()
+        .galley_with_override_text_color(rect.center() - galley.size() / 2.0, galley, ink);
+    if soloed > 0 && response.clicked() {
+        doc.clear_solos();
+    }
 }

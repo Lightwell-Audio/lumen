@@ -286,6 +286,17 @@ impl Document {
         });
     }
 
+    /// Unsolos every track (the transport's S chip, the palette).
+    pub fn clear_solos(&mut self) {
+        self.history.apply("Clear solos", None, |project| {
+            for track in &mut project.tracks {
+                if track.solo {
+                    Arc::make_mut(track).solo = false;
+                }
+            }
+        });
+    }
+
     /// Arms or disarms tracks. A group stands for every audio and MIDI
     /// track inside it (the owner's choice, M4 slice 3).
     pub fn set_armed(&mut self, ids: &[Id], armed: bool) {
@@ -463,48 +474,12 @@ fn plural(n: usize, one: &str, many: &str) -> String {
     }
 }
 
-/// Which tracks are heard: not muted, and, while any track is soloed, only
-/// those on a soloed track's path (M4 slice 3, MT-MIX-3 run 1): the soloed
-/// tracks, what plays into them (a soloed group's tracks), and where they
-/// play out to (the groups a soloed track is in stay open, so it is heard).
-/// Returns and the rest of slice 4's rules come with slice 4.
+/// Whether a track's own output is heard: not muted, and on a soloed
+/// track's path while anything is soloed (`lumen_project::solo`, the rules
+/// the owner agreed in M4 slice 4).
 pub fn audible(project: &Project) -> impl Fn(&Track) -> bool + use<> {
-    use lumen_project::routing::{Destination, destination};
-    let soloed: std::collections::HashSet<Id> = project
-        .tracks
-        .iter()
-        .filter(|t| t.solo)
-        .map(|t| t.id)
-        .collect();
-    let mut path = std::collections::HashSet::new();
-    if !soloed.is_empty() {
-        let by_id: HashMap<Id, &Track> = project.tracks.iter().map(|t| (t.id, &**t)).collect();
-        // The tracks each output leads through, in order (cycles are
-        // refused by validation; the walk stops after every track anyway).
-        let chain = |track: &Track| {
-            let mut out = Vec::new();
-            let mut at = destination(project, track);
-            while let Destination::Track(id) = at {
-                let Some(next) = by_id.get(&id) else { break };
-                if out.len() > by_id.len() {
-                    break;
-                }
-                out.push(id);
-                at = destination(project, next);
-            }
-            out
-        };
-        for track in &project.tracks {
-            let downstream = chain(track);
-            if soloed.contains(&track.id) {
-                path.insert(track.id);
-                path.extend(downstream);
-            } else if downstream.iter().any(|id| soloed.contains(id)) {
-                path.insert(track.id);
-            }
-        }
-    }
-    move |t: &Track| !t.mute && (soloed.is_empty() || path.contains(&t.id))
+    let heard = lumen_project::solo::hearing(project);
+    move |t: &Track| heard.of(t.id).output
 }
 
 fn tempo_map(project: &Project) -> Option<lumen_core::time::TempoMap> {
@@ -718,6 +693,21 @@ mod tests {
         doc.undo();
         assert_eq!(doc.project().tracks.len(), 4);
         assert_eq!(lumen_project::validate(doc.project()), Ok(()));
+    }
+
+    #[test]
+    fn clear_solos_is_one_step() {
+        let mut doc = Document::new(crate::empty_project());
+        let ids: Vec<Id> = (0..3)
+            .map(|_| doc.add_track(TrackKind::Audio, None))
+            .collect();
+        doc.set_solo(&ids[..2], true, false);
+        doc.clear_solos();
+        assert!(doc.project().tracks.iter().all(|t| !t.solo));
+        assert_eq!(doc.history().undo_label(), Some("Clear solos"));
+        doc.undo();
+        let soloed: Vec<bool> = doc.project().tracks.iter().map(|t| t.solo).collect();
+        assert_eq!(soloed, [true, true, false]);
     }
 
     #[test]

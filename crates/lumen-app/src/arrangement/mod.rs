@@ -162,6 +162,8 @@ pub struct Arrangement {
     /// The header column's width when dragged from the default (saved
     /// with the project, as panel sizes are).
     width: Option<f32>,
+    /// The additive-solo preference (M4 slice 4), set by the app.
+    pub(crate) additive_solo: bool,
 }
 
 /// The tallest whole-step height at which `count` tracks fit in `visible`

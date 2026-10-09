@@ -199,6 +199,7 @@ report: {}",
             ),
         );
         self.time_format_button(ui, time_corner);
+        self.arrangement.additive_solo = self.settings.mixing.additive_solo;
         self.arrangement
             .headers(ui, headers, &mut self.document, &self.lanes, &self.keymap);
 

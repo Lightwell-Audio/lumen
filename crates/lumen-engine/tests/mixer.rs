@@ -193,6 +193,7 @@ fn a_muted_track_is_silent_and_so_are_its_sends() {
     let audio = steady(0.5, 0.5);
     let mut track = to_master(1);
     track.audible = false;
+    track.sends_audible = false;
     track.sends.push(SendSpec {
         to: 60,
         gain: 1.0,
@@ -206,6 +207,32 @@ fn a_muted_track_is_silent_and_so_are_its_sends() {
         2,
     );
     assert!(r.run(5_000, 128).iter().all(|f| f == &[0.0, 0.0]));
+}
+
+#[test]
+fn a_silent_output_can_keep_its_sends_wet_only() {
+    // M4 slice 4: a soloed return plays the sends into it, not the
+    // tracks' own outputs.
+    let audio = steady(0.25, 0.125);
+    let wet = |audible| {
+        let mut track = to_master(1);
+        track.audible = audible;
+        track.sends.push(SendSpec {
+            to: 60,
+            gain: 1.0,
+            pre_fader: false,
+        });
+        Routing {
+            nodes: vec![master(), to_master(60), track],
+        }
+    };
+    let mut r = rig(vec![clip(1, 1, &audio)], wet(false), 2);
+    assert!(close(&r.settled(), &[0.25, 0.125]), "the send alone");
+    // Opening the output glides: no click.
+    r.reroute(&wet(true));
+    let out = r.run(SETTLED, 128);
+    assert!(close(out.last().unwrap(), &[0.5, 0.25]));
+    assert!(steepest(&out) < 0.01, "steepest step {}", steepest(&out));
 }
 
 #[test]
@@ -330,6 +357,7 @@ fn volume_pan_mute_and_polarity_changes_glide_instead_of_stepping() {
                 volume,
                 pan,
                 audible,
+                sends_audible: audible,
                 invert,
                 law: PanLaw::default(),
                 ..to_master(1)

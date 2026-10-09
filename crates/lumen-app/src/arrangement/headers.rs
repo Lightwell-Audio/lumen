@@ -13,7 +13,7 @@ use lumen_project::model::{Id, TrackKind};
 use super::nesting::{self, Arm};
 use super::{Arrangement, BUTTON, FOLD_BELOW, FOLDED, MAX_HEIGHT, RowKind, STEP, snap_height};
 use crate::commands::{Command, Keymap};
-use crate::document::{Document, audible};
+use crate::document::Document;
 use crate::icons::draw_type_icon;
 use crate::lanes::Lanes;
 use crate::widgets::{self, SliderKind, draw_arrow, draw_edge_glow, gradient, value_slider};
@@ -137,7 +137,7 @@ impl Arrangement {
         }
 
         let modifiers = ui.input(|i| i.modifiers);
-        let audible = audible(doc.project());
+        let hearing = lumen_project::solo::hearing(doc.project());
         let mut hot_edge = None;
         // The track each row was laid out for. A header's menu can delete or
         // move tracks partway through drawing them: rows whose track is no
@@ -195,7 +195,8 @@ impl Arrangement {
             };
             let id = EguiId::new(("track header", track.id));
             let selected = self.selected.contains(&track.id);
-            let heard = audible(&track);
+            let hears = hearing.of(track.id);
+            let heard = hears.output;
             let group = track.kind == TrackKind::Group;
             let arm = nesting::arm_state(doc.project(), index);
             let inside = lumen_project::groups::span(&doc.project().tracks, index).len() - 1;
@@ -348,56 +349,81 @@ impl Arrangement {
                 });
             }
 
-            let toggle =
-                |ui: &mut Ui, r: Rect, what: &str, label: &str, on: bool, on_fill: Color32| {
-                    let response =
-                        ui.interact(r, id.with(what), Sense::click())
-                            .on_hover_text(match what {
-                                "mute" => "Mute (0)",
-                                _ => "Solo: click for this track only, Ctrl+click to add it",
-                            });
-                    response.widget_info(|| {
-                        egui::WidgetInfo::selected(
-                            egui::WidgetType::Checkbox,
-                            true,
-                            on,
-                            format!("{} {}", label, track.name),
-                        )
-                    });
-                    let hover =
-                        motion::hover(ui.ctx(), id.with(what).with("hover"), response.hovered());
-                    let fill = if on {
-                        on_fill
-                    } else {
-                        look.fill.lerp_to_gamma(look.hover, hover)
-                    };
-                    let p = ui.painter();
-                    p.rect_filled(r, theme::radius::SMALL, fill);
-                    p.text(
-                        r.center(),
-                        Align2::CENTER_CENTER,
-                        &label[..1],
-                        fonts::medium(theme::size::CAPTION),
-                        if on {
-                            theme::text_on(on_fill)
-                        } else {
-                            look.text
-                        },
-                    );
-                    response.clicked()
+            // M and S: lit when set on this track; a hollow ring when the
+            // track is silenced by another's solo or a muted group (M), or
+            // heard through a soloed group (S) (the owner's choice, slice 4).
+            let additive = self.additive_solo;
+            let toggle = |ui: &mut Ui, r: Rect, button: Toggle, on_fill: Color32| {
+                let (what, label, on, implied) = match button {
+                    Toggle::Mute => ("mute", "Mute", track.mute, hears.silenced),
+                    Toggle::Solo => ("solo", "Solo", track.solo, hears.soloed_through),
                 };
-            if toggle(
-                ui,
-                mute_rect,
-                "mute",
-                "Mute",
-                track.mute,
-                palette.start_marker,
-            ) {
+                let tip = match (button, additive) {
+                    (Toggle::Mute, _) if implied => {
+                        "Mute (0). Silent now: another track is soloed, or a group it plays through is muted"
+                    }
+                    (Toggle::Mute, _) => "Mute (0)",
+                    (Toggle::Solo, _) if implied => "Solo. Heard now through a soloed group",
+                    (Toggle::Solo, false) => {
+                        "Solo: click for this track only, Ctrl+click to add it"
+                    }
+                    (Toggle::Solo, true) => "Solo: click to add this track, Ctrl+click for it only",
+                };
+                let response = ui
+                    .interact(r, id.with(what), Sense::click())
+                    .on_hover_text(tip);
+                response.widget_info(|| {
+                    egui::WidgetInfo::selected(
+                        egui::WidgetType::Checkbox,
+                        true,
+                        on,
+                        match (implied && !on, button) {
+                            (true, Toggle::Mute) => format!("Mute {} (silenced)", track.name),
+                            (true, Toggle::Solo) => {
+                                format!("Solo {} (through its group)", track.name)
+                            }
+                            _ => format!("{} {}", label, track.name),
+                        },
+                    )
+                });
+                let hover =
+                    motion::hover(ui.ctx(), id.with(what).with("hover"), response.hovered());
+                let rest = look.fill.lerp_to_gamma(look.hover, hover);
+                let p = ui.painter();
+                let text = if on {
+                    p.rect_filled(r, theme::radius::SMALL, on_fill);
+                    theme::text_on(on_fill)
+                } else if implied {
+                    // Hollow: the state's colour as a ring, the letter in it.
+                    p.rect_filled(r, theme::radius::SMALL, rest.gamma_multiply(0.5));
+                    p.rect_stroke(
+                        r.shrink(0.75),
+                        theme::radius::SMALL,
+                        Stroke::new(1.5, on_fill),
+                        egui::StrokeKind::Middle,
+                    );
+                    on_fill
+                } else {
+                    p.rect_filled(r, theme::radius::SMALL, rest);
+                    look.text
+                };
+                p.text(
+                    r.center(),
+                    Align2::CENTER_CENTER,
+                    &label[..1],
+                    fonts::medium(theme::size::CAPTION),
+                    text,
+                );
+                response.clicked()
+            };
+            if toggle(ui, mute_rect, Toggle::Mute, palette.start_marker) {
                 doc.set_mute(&self.targets(track.id), !track.mute);
             }
-            if toggle(ui, solo_rect, "solo", "Solo", track.solo, palette.accent) {
-                doc.set_solo(&self.targets(track.id), !track.solo, !modifiers.command);
+            if toggle(ui, solo_rect, Toggle::Solo, palette.accent) {
+                // Ableton's way by default: a click solos this track alone,
+                // Ctrl+click adds it; the additive preference swaps them.
+                let exclusive = modifiers.command == additive;
+                doc.set_solo(&self.targets(track.id), !track.solo, exclusive);
             }
             if arm_button(ui, arm_rect, id, &track.name, arm, look) {
                 doc.set_armed(&self.targets(track.id), !arm.on());
@@ -807,4 +833,11 @@ fn kind_name(kind: TrackKind) -> &'static str {
         TrackKind::Return => "Return track",
         TrackKind::Master => "Master track",
     }
+}
+
+/// The M and S buttons on a header.
+#[derive(Debug, Clone, Copy)]
+enum Toggle {
+    Mute,
+    Solo,
 }
