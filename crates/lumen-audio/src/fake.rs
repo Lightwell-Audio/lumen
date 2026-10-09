@@ -24,6 +24,10 @@ pub struct FakeDevice {
     /// Driver sample positions jump ahead by this many frames once (a
     /// skipped buffer), then reset to 0.
     pub skip_frames: u64,
+    /// The driver sample position a new stream starts at. Some drivers
+    /// (the Focusrite's ASIO) keep counting through a reset, so a reopened
+    /// stream starts far past where the last one stopped.
+    pub start_position: u64,
     pub opens: u32,
     pub buffer_sizes: BufferSizes,
 }
@@ -41,6 +45,7 @@ impl FakeControl {
             phantom: false,
             deliver_every: 1,
             skip_frames: 0,
+            start_position: 0,
             opens: 0,
             buffer_sizes: BufferSizes {
                 min: 32,
@@ -126,7 +131,7 @@ impl Backend for FakeBackend {
             },
             inputs: vec![0.0; inputs * frames as usize],
             outputs: vec![0.0; outputs * frames as usize],
-            position: 0,
+            position: device.start_position,
             polls: 0,
         }))
     }

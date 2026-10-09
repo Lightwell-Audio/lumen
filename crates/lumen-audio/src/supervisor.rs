@@ -11,7 +11,7 @@
 //! last working configuration (spec §6.9).
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -53,6 +53,10 @@ pub struct Status {
     /// Audio that never reached the device: missed buffers, or delivery
     /// slower than real time.
     dropouts: AtomicU64,
+    /// Set when a stream opens: the next block starts the driver position
+    /// count afresh. A reopened stream (a driver reset, a new buffer size)
+    /// may start anywhere, and the gap is a restart, not lost audio.
+    resync: AtomicBool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,6 +127,9 @@ impl AudioCallback for Metered {
         }
         // A driver position past where it should be means it skipped
         // buffers. A position behind it means the stream restarted: resync.
+        if self.status.resync.swap(false, Ordering::Relaxed) {
+            self.expected_position = None;
+        }
         if let Some(position) = block.position {
             if let Some(expected) = self.expected_position
                 && position > expected
@@ -406,6 +413,7 @@ impl<B: Backend> Supervisor<B> {
             .callback
             .take()
             .expect("callback is held while no stream runs");
+        self.status.resync.store(true, Ordering::Relaxed);
         match self.backend.open(config, callback) {
             Ok(stream) => {
                 let info = stream.info();

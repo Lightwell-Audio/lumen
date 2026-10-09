@@ -322,6 +322,35 @@ fn skipped_driver_buffers_count_as_dropouts_and_reset_clears_them() {
 }
 
 #[test]
+fn a_driver_reset_is_not_counted_as_dropouts() {
+    // Owner (M4 slice 1): changing the Focusrite's buffer size added dozens
+    // of dropouts each time. Its ASIO driver keeps counting samples through
+    // the reset, so the reopened stream's position is far ahead of where
+    // the last block ended; that gap is a restart, not lost audio.
+    let control = FakeControl::new();
+    let audio = spawn(&control, fast());
+    audio.configure(config(Some(128)));
+    assert!(matches!(
+        audio.wait_event(WAIT),
+        Some(DeviceEvent::Started(_))
+    ));
+    std::thread::sleep(Duration::from_millis(30));
+    control.set(|d| {
+        d.start_position = 10_000_000;
+        d.reset_pending = true;
+    });
+    assert!(matches!(
+        audio.wait_event(WAIT),
+        Some(DeviceEvent::Reset(_))
+    ));
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(audio.status().dropouts(), 0);
+    // Skipped buffers after the reset still count.
+    control.set(|d| d.skip_frames = 256);
+    wait_for_dropouts(&audio, 2);
+}
+
+#[test]
 fn switching_drivers_moves_the_running_callback_to_the_new_one() {
     let (first, second) = (FakeControl::new(), FakeControl::new());
     let (mut audio, blocks) = system(&first);
