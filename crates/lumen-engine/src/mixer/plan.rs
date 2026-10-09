@@ -9,9 +9,11 @@
 
 use std::collections::BTreeSet;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use lumen_core::pan::PanLaw;
 
+use super::meter::{LoudnessTap, MeterBank, keep};
 use super::smooth::Smoothed;
 use crate::source::Output;
 
@@ -100,6 +102,9 @@ pub struct Routing {
     pub nodes: Vec<NodeSpec>,
     /// Where cued nodes are heard, if anywhere.
     pub cue: Option<CueOut>,
+    /// The node whose loudness and true peak are measured (the master),
+    /// if any (M4 slice 5).
+    pub measure: Option<u64>,
 }
 
 /// The cue bus's output (M4 slice 4): a pair of device channels and a
@@ -170,7 +175,12 @@ struct Node {
     /// The node's sends: `sends[first..first + count]`.
     first: u32,
     count: u32,
+    /// Its slot in the plan's meter bank ([`NO_METER`] when unmetered).
+    meter: u32,
 }
+
+/// The slot of a node that is not metered.
+pub(super) const NO_METER: u32 = u32::MAX;
 
 /// A compiled routing: nodes in processing order, each with a stereo bus.
 pub struct Plan {
@@ -189,6 +199,10 @@ pub struct Plan {
     /// Where the cue bus is heard (its first channel), and how loud.
     cue_channel: Option<u16>,
     cue_volume: Smoothed,
+    /// Where the nodes' levels go, when metered.
+    meters: Option<Arc<MeterBank>>,
+    /// The index of the node whose loudness is measured.
+    measured: Option<u32>,
 }
 
 impl std::fmt::Debug for Plan {
@@ -200,9 +214,19 @@ impl std::fmt::Debug for Plan {
     }
 }
 
-/// Checks `routing` and builds its plan. Allocates; call it off the audio
-/// thread.
+/// Checks `routing` and builds its plan, unmetered. Allocates; call it off
+/// the audio thread.
 pub fn compile(routing: &Routing) -> Result<Plan, RoutingError> {
+    compile_metered(routing, None, |_| NO_METER)
+}
+
+/// [`compile`], with every node's level going to `meters` at the slot
+/// `slot` gives its id.
+pub(super) fn compile_metered(
+    routing: &Routing,
+    meters: Option<Arc<MeterBank>>,
+    slot: impl Fn(u64) -> u32,
+) -> Result<Plan, RoutingError> {
     let specs = &routing.nodes;
     let mut by_id: Vec<(u64, u32)> = specs
         .iter()
@@ -302,6 +326,11 @@ pub fn compile(routing: &Routing) -> Result<Plan, RoutingError> {
             out,
             first,
             count: spec.sends.len() as u32,
+            meter: if meters.is_some() {
+                slot(spec.id)
+            } else {
+                NO_METER
+            },
         });
     }
     let mut by_id: Vec<(u64, u32)> = nodes
@@ -312,6 +341,12 @@ pub fn compile(routing: &Routing) -> Result<Plan, RoutingError> {
     by_id.sort_unstable();
     let cue_channel = routing.cue.map(|c| c.channel);
     cue_channel.hash(&mut hasher);
+    let measured = routing.measure.and_then(|id| {
+        by_id
+            .binary_search_by_key(&id, |&(id, _)| id)
+            .ok()
+            .map(|i| by_id[i].1)
+    });
     Ok(Plan {
         buses: vec![0.0; nodes.len() * BUS],
         nodes,
@@ -325,6 +360,8 @@ pub fn compile(routing: &Routing) -> Result<Plan, RoutingError> {
         },
         cue_channel,
         cue_volume: Smoothed::new(routing.cue.map_or(0.0, |c| finite(c.volume))),
+        meters,
+        measured,
     })
 }
 
@@ -353,6 +390,8 @@ impl Plan {
             cue_bus: Vec::new(),
             cue_channel: None,
             cue_volume: Smoothed::new(0.0),
+            meters: None,
+            measured: None,
         }
     }
 
@@ -451,16 +490,28 @@ impl Plan {
     /// Runs the nodes in order over the first `frames` of their buses,
     /// adding what reaches the device into `out`. With `advance` false (a
     /// tail rendered ahead of a jump), levels are read but do not move.
+    /// With `tap` (the plan the listener hears, not one fading out), every
+    /// node's output is metered and the measured node's loudness taken.
     pub(super) fn process(
         &mut self,
         out: &mut Output<'_>,
         rate: u32,
         ramp: Ramp<'_>,
         advance: bool,
+        tap: Option<&mut LoudnessTap>,
     ) {
         let frames = out.frames();
         let mut gain = [0.0f32; CHUNK];
         let gain = &mut gain[..frames];
+        let mut tap = tap.filter(|_| advance);
+        let meters = if tap.is_some() {
+            self.meters.as_deref()
+        } else {
+            None
+        };
+        let keep = keep(frames, rate);
+        let silent = [0.0f32; CHUNK];
+        let measured = self.measured.map_or(usize::MAX, |m| m as usize);
         for index in 0..self.nodes.len() {
             let node = &mut self.nodes[index];
             // Downstream nodes always come later, so the buses split here.
@@ -482,6 +533,14 @@ impl Plan {
             }
             if node.pre.settled() && node.pre.value() == 0.0 {
                 // Muted and settled: nothing leaves this node.
+                if let Some(meters) = meters {
+                    meters.silence(node.meter, keep);
+                }
+                if index == measured
+                    && let Some(tap) = tap.as_deref_mut()
+                {
+                    tap.record(&silent[..frames], &silent[..frames], rate);
+                }
                 continue;
             }
             node.pre.fill(gain, rate, advance);
@@ -511,11 +570,29 @@ impl Plan {
             if !(node.gate.settled() && node.gate.value() == 1.0) {
                 if node.gate.settled() {
                     // Only the sends are heard.
+                    if let Some(meters) = meters {
+                        meters.silence(node.meter, keep);
+                    }
+                    if index == measured
+                        && let Some(tap) = tap.as_deref_mut()
+                    {
+                        tap.record(&silent[..frames], &silent[..frames], rate);
+                    }
                     continue;
                 }
                 node.gate.fill(gain, rate, advance);
                 scale(left, gain);
                 scale(right, gain);
+            }
+
+            // What the node plays on: after fader, pan and the gate.
+            if let Some(meters) = meters {
+                meters.record(node.meter, [left, right], keep);
+            }
+            if index == measured
+                && let Some(tap) = tap.as_deref_mut()
+            {
+                tap.record(left, right, rate);
             }
 
             match node.out {
@@ -668,6 +745,7 @@ mod tests {
                 node(5, Destination::Node(2)),
             ],
             cue: None,
+            measure: None,
         };
         let plan = compile(&routing).unwrap();
         assert_eq!(order(&plan), [4, 3, 5, 2, 1]);
@@ -681,6 +759,7 @@ mod tests {
                 .chain([node(100, Destination::Hardware(0))])
                 .collect(),
             cue: None,
+            measure: None,
         };
         let a = compile(&routing).unwrap();
         let b = compile(&routing).unwrap();
@@ -700,6 +779,7 @@ mod tests {
         let cycle = Routing {
             nodes: vec![node(1, Destination::Node(2)), node(2, Destination::Node(1))],
             cue: None,
+            measure: None,
         };
         assert_eq!(compile(&cycle).unwrap_err(), RoutingError::Cycle);
         let mut feedback = node(1, Destination::Hardware(0));
@@ -711,6 +791,7 @@ mod tests {
         let routing = Routing {
             nodes: vec![feedback],
             cue: None,
+            measure: None,
         };
         assert_eq!(compile(&routing).unwrap_err(), RoutingError::Cycle);
         // Through a send: a return that feeds the track sending to it.
@@ -723,11 +804,13 @@ mod tests {
         let routing = Routing {
             nodes: vec![track, node(2, Destination::Node(1))],
             cue: None,
+            measure: None,
         };
         assert_eq!(compile(&routing).unwrap_err(), RoutingError::Cycle);
         let unknown = Routing {
             nodes: vec![node(1, Destination::Node(9))],
             cue: None,
+            measure: None,
         };
         assert_eq!(
             compile(&unknown).unwrap_err(),
@@ -739,6 +822,7 @@ mod tests {
                 node(1, Destination::Hardware(0)),
             ],
             cue: None,
+            measure: None,
         };
         assert_eq!(compile(&twice).unwrap_err(), RoutingError::Duplicate(1));
     }
@@ -751,6 +835,7 @@ mod tests {
         let plan = compile(&Routing {
             nodes: vec![spec],
             cue: None,
+            measure: None,
         })
         .unwrap();
         assert_eq!(plan.nodes[0].pre.target(), 0.0);

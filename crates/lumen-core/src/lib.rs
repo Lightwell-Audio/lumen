@@ -3,6 +3,7 @@
 pub mod curve;
 pub mod fade;
 pub mod grid;
+pub mod loudness;
 pub mod meter;
 pub mod pan;
 pub mod product;

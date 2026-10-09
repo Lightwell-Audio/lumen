@@ -121,6 +121,7 @@ fn playing_clips(clips: usize, routed_mix: bool) -> Player {
         Routing {
             nodes: vec![NodeSpec::unity(0, Destination::Hardware(0))],
             cue: None,
+            measure: None,
         }
     };
     assert!(routing.set(&plan).expect("a valid routing"));

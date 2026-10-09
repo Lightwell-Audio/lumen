@@ -43,7 +43,8 @@ fn setup(clips: Vec<Clip>) -> (EngineHandle, ClipsHandle, Player) {
         routing
             .set(&Routing {
                 nodes: vec![unity],
-                cue: None
+                cue: None,
+                measure: None,
             })
             .unwrap()
     );

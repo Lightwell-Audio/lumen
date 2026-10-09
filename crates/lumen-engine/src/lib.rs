@@ -30,8 +30,8 @@ pub use clips::{Clip, ClipAudio, ClipPlayer, ClipShape, ClipsHandle, FadeFrames,
 pub use engine::{Command, Engine, EngineHandle, Region, engine};
 pub use metronome::{ClickSound, MetronomeSettings};
 pub use mixer::{
-    Bus, Buses, CueOut, Destination, Mixer, MixerHandle, NodeSpec, Plan, Routing, RoutingError,
-    SendSpec, TrackSource, compile as compile_routing, mixer,
+    Bus, Buses, CueOut, Destination, Level, Mixer, MixerHandle, NodeSpec, Plan, RMS_SECONDS,
+    Routing, RoutingError, SendSpec, TrackSource, compile as compile_routing, mixer,
 };
 pub use scrub::{MAX_SPEED as MAX_SCRUB_SPEED, ScrubStyle};
 pub use snapshot::TransportSnapshot;

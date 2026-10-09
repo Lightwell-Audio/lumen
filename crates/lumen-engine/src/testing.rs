@@ -11,7 +11,8 @@ pub const MASTER: u64 = 1_000_000;
 /// A production-sized routing: `tracks` tracks (ids `0..tracks`) in eight
 /// groups, each track with a post-fader send to one return and a
 /// pre-fader send to another, everything into the master, at the default
-/// pan law. Each `variant` changes every level; an odd one also moves
+/// pan law, the master's loudness measured (as the app does). Each
+/// `variant` changes every level; an odd one also moves
 /// track 0 out of its group to the master (a new shape, which
 /// crossfades).
 pub fn routed(tracks: u64, variant: u32) -> Routing {
@@ -60,7 +61,11 @@ pub fn routed(tracks: u64, variant: u32) -> Routing {
             ..NodeSpec::unity(i, output)
         });
     }
-    Routing { nodes, cue: None }
+    Routing {
+        nodes,
+        cue: None,
+        measure: Some(MASTER),
+    }
 }
 
 #[cfg(test)]

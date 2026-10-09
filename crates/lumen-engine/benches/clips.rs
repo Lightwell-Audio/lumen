@@ -48,6 +48,7 @@ fn playing(clips: usize, routed_mix: bool) -> Engine<Mixer<ClipPlayer>> {
         Routing {
             nodes: vec![NodeSpec::unity(0, Destination::Hardware(0))],
             cue: None,
+            measure: None,
         }
     };
     assert!(routing.set(&plan).unwrap());

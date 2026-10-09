@@ -101,6 +101,7 @@ irreversible or external) · *Superseded*.
 | Mixer behaviour (M4 slice 1, 2026-10-09) | Asked after the graph was built (the owner: variants first, before building): **centre −3 dB** (a hard-panned side at unity; projects from M3 play 3 dB quieter) over centre unity with +3 dB sides; **balance** panning of stereo tracks over a true stereo pan; **mute silences every send**, pre-fader ones too (Ableton) over pre-fader sends playing on (Pro Tools, Cubase); **post-fader sends after the pan** over before it. All four as built (ADR-0035). |
 | Hints (M4 slice 0, 2026-10-09) | Chosen from interactive specimens: **an info line** along the bottom of the window (C, Ableton's Info View in spirit) over quiet chips (A) and rest-to-reveal (B), **with the K5 keycaps** the palette and menus use (the owner's addition, for consistency), **no chips for held keys** (the cursor and the lit action say it), full width (ADR-0034). |
 | Mute, solo, returns, master and cue (M4 slice 4, 2026-10-09) | The solo rules agreed as a table of 14 cases before building (`docs/milestones/M4.md` §5): solo keeps a soloed track's path open, **mute always beats solo** along the path, returns are solo-safe, **a soloed return plays wet only** (sends into it stay on, their tracks' outputs go silent), the master, metronome and cue are never touched by solo. **D1 A** a group's solo solos the group (its tracks show it hollow); **D2 A** additive solo is a preference (Ctrl+click then replaces); **D3 A** a lit "S" chip in the transport while anything is soloed, a click clears; **D4 A1** returns then the master pinned at the bottom under a divider, a "Returns" caption that folds them, returns lettered A, B, C and never grouped; **D5 C1** Ableton's Solo/Cue switch on the master, cue **pre-fader** to a chosen pair, unavailable with a note when that pair is the main one; **D6** the metronome has its own output (Main, Cue or a pair), never through the master; **D7** palette commands Solo and Mute selected tracks and Clear all solos, no default keys. Chosen from interactive specimens: **sends as K1 "comet" knobs** (a trail of light in the return's colour, brightening to a glowing head; a dot marks pre-fader; hovering a send lights its return and the reverse) over lantern, droplet and plain knobs; **a track silenced by another's solo shows a hollow M and a dimmed name** (hollow S inside a soloed group) over dimming the whole row. Asked while building 4d: **O1**, the cue output chosen in the audio settings beside the main pair, over Ableton's per-pair output configuration (so the metronome's output is Main or Cue); the owner's interface has two outputs, so cue is checked on the four-output test device. MT-MIX-4 runs 1 and 2, from mock-ups: **C4** knobs step up on selected rows, **O1** a "+N ▾" button drawn as "+ Add track ▾", **R2** an unfolded return lists its senders, **L4** its four loudest then "+N more", **S1** silent sends leave that list when let go; **12 returns at most**; the standard +6 dB of an empty return kept. |
+| Mixer panel and meters (M4 slice 5, 2026-10-09) | Chosen from interactive specimens: **S1 console** strips (fader and meter side by side, 76 pt) over S2 light rail and S3 broad; sends **O2**, two knobs then a "+N ▾" list (over a grid of six, or every knob in a taller strip); meter colours **M1 accent by default, M2 track colour as a setting** (over M3 classic green); loudness **L2**, a column beside the master; header meters as well, **H2** inside the volume slider (over H1 at the edge and H3 the colour rail, which already carries arm and nesting). Behaviour, all as recommended: **B1** post-fader after the pan; **B2** peaks fall 20 dB/s, a 1.5 s hold, clip latched until clicked; **B3** a latching wheel; **B4** one fold with the arrangement; **B5** integrated loudness resets on Play from stop; **B6** any output pair; **B7** sections fold away in a short panel; **B8** strips drag to reorder, returns included. ADR-0040. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
 
@@ -3066,3 +3067,69 @@ fader and mute, the metronome on the cue pair).
 5. One commit uses a second author email (`andrewl913@yahoo.com`). Decide whether to rewrite history before publishing. Not done.
 6. Code-signing certificates and release secrets stay outside the repository.
 7. Make the repository public and publish a release only after items 1 to 6. Not done.
+
+## ADR-0040 — The mixer panel and meters (M4 slice 5)
+
+**Status:** In progress · **Date:** 2026-10-09
+
+### Context
+M4 slice 5 adds the Mixer tab, meters on strips and headers, loudness on
+the master, one rule for value controls and output choices. The owner chose
+the look and eight behaviours from interactive specimens before building
+(owner-decisions table, "Mixer panel and meters"). Meters must read
+sample-accurate peaks without the audio thread allocating, locking or
+waiting on the UI, and must not raise idle CPU (risk R5).
+
+### Decision
+- **5a, meters in the engine** (`lumen_engine::mixer::meter`,
+  `lumen_core::loudness`):
+  - every node's output is measured after fader, pan and the solo gate
+    (B1), each chunk, in the plan the listener hears (a plan fading out is
+    not metered, nor a tail rendered ahead of a jump);
+  - readings live in a `MeterBank` of atomics, one slot per node: the peak
+    per side as `f32` bits raised with `fetch_max` and taken by the UI with
+    `swap` (so a slow UI never misses a peak), the smoothed mean square
+    (300 ms, `RMS_SECONDS`) stored by the audio thread and loaded by the UI,
+    and a clip flag set over full scale and taken with `swap`. A muted
+    node, or one whose output is gated while its sends play, records
+    silence and its RMS falls;
+  - `MixerHandle` gives each node id a slot when a routing is set; slots
+    are never reused while a bank lasts (a new node never shows an old
+    one's level), and when it fills a bank twice the routing's size takes
+    over with only the nodes in use. Plans hold the bank in an `Arc`; old
+    banks go back with retired plans and are freed on the UI side;
+  - `Routing::measure` names the node whose loudness is measured (the
+    app's master). Its output is K-weighted (BS.1770-4, coefficients
+    derived for any rate as libebur128 does, and matching the standard's
+    tables at 48 kHz) and summed into 100 ms blocks, sent through a
+    512-block lock-free queue; the UI computes momentary (400 ms),
+    short-term (3 s) and gated integrated loudness (absolute −70 LUFS,
+    relative −10 LU) with `lumen_core::loudness::Loudness`. True peak
+    oversamples four times with a 49-tap Kaiser-windowed sinc (13 taps a
+    phase, every phase summing to one) and is taken like a peak;
+  - RMS is the signal's true RMS: a full-scale sine reads −3.0 dB.
+
+### Consequences
+- Performance (divan, 128 frames at 48 kHz, this machine): 64 routed
+  tracks 24 µs before, 31 µs with every node metered and the master's
+  loudness measured (1.2% of the block); 200 tracks 89 µs before, 92 µs
+  after. Peak and sum run in eight lanes so they vectorise. The
+  instruction-count gate (`engine_routed_64`) is expected to rise; the
+  baseline is updated from WSL with this reason.
+- The test routing (`testing::routed`) measures its master, so the
+  allocation guard, RTSan and the performance gate cover the loudness tap.
+
+### Evidence
+`lumen_core::loudness` tests: EBU Tech 3341 cases 1 to 5 within 0.1 LU,
+other rates (44.1 and 96 kHz), the K-weighting coefficients against
+BS.1770-4's tables, true peak between samples (a quarter-rate sine at 45°
+reads within −0.4 to +0.2 dB of its true peak) and of full-scale tones.
+`mixer::meter` unit tests (peaks held until read, clips latched, slots
+past the end ignored; RMS settles on a sine's −3 dB and falls 29 dB in two
+seconds). Engine `tests/meters.rs`: a 0 dBFS sine reads 0.0 dB peak and
+−3.01 dB RMS; levels after fader and pan; a muted node reads silence; a
+soloed return's senders read silent while it reads the wet signal; an over
+latches the clip until read; the master reads EBU case 1 at −23 LUFS
+(momentary, short-term, integrated) and its true peak at −23 dB; a node
+not routed has no level; banks grow past 64 nodes and keep reading.
+

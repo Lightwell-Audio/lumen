@@ -74,6 +74,8 @@ pub fn routing(project: &Project, cue: &Cue) -> Routing {
             channel: CUE_CHANNEL,
             volume: db_to_gain(cue.volume_db),
         }),
+        // The loudness readout measures what the master plays (slice 5).
+        measure: Some(project.master.id.0),
     }
 }
 

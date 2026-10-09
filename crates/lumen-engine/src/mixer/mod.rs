@@ -15,16 +15,26 @@
 //! differs (outputs or sends changed) crossfades in over 5 ms while the
 //! old one fades out, both fed the same track audio, so rerouting while
 //! playing never clicks. New plans wait while a crossfade runs.
+//!
+//! The plan the listener hears meters every node's output and measures the
+//! loudness of the node the routing names (`meter`); the handle reads
+//! them.
 
+mod meter;
 mod plan;
 mod smooth;
 
+pub use meter::{Level, RMS_SECONDS};
 pub use plan::{
     BUS_CHANNELS, Bus, Buses, CHUNK, CueOut, Destination, NodeSpec, Plan, Routing, RoutingError,
     SendSpec, compile,
 };
 
-use plan::Ramp;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use meter::{LoudnessReader, LoudnessTap, MeterBank};
+use plan::{Ramp, compile_metered};
 
 use crate::source::{Jump, Output, RenderContext, Source};
 use crate::timeline::Timeline;
@@ -44,10 +54,21 @@ pub trait TrackSource: Send {
     fn locate(&mut self, _timeline: &Timeline, _sample_rate: u32, _sample: i64, _jump: Jump) {}
 }
 
-/// UI side: replaces the routing and frees old plans. May allocate.
+/// The smallest meter bank: room for this many nodes before a bigger one.
+const MIN_METERS: usize = 64;
+
+/// UI side: replaces the routing, frees old plans and reads the meters.
+/// May allocate.
 pub struct MixerHandle {
     incoming: rtrb::Producer<Box<Plan>>,
     retired: rtrb::Consumer<Box<Plan>>,
+    /// Where the plans write their levels.
+    meters: Arc<MeterBank>,
+    /// Each node's slot in `meters`. Slots are not reused while the bank
+    /// lasts (a new node never shows an old one's level); when it fills, a
+    /// bigger bank takes only the nodes in use.
+    slots: HashMap<u64, u32>,
+    loudness: LoudnessReader,
 }
 
 impl MixerHandle {
@@ -55,8 +76,42 @@ impl MixerHandle {
     /// when the queue is full (send it again next frame). A routing that
     /// cannot play is refused, and the current one keeps playing.
     pub fn set(&mut self, routing: &Routing) -> Result<bool, RoutingError> {
-        let plan = compile(routing)?;
+        let fresh = routing
+            .nodes
+            .iter()
+            .filter(|n| !self.slots.contains_key(&n.id))
+            .count();
+        if self.slots.len() + fresh > self.meters.capacity() {
+            self.meters = MeterBank::new((routing.nodes.len() * 2).max(MIN_METERS));
+            self.slots.clear();
+        }
+        for node in &routing.nodes {
+            let next = self.slots.len() as u32;
+            self.slots.entry(node.id).or_insert(next);
+        }
+        let slots = &self.slots;
+        let plan = compile_metered(routing, Some(Arc::clone(&self.meters)), |id| {
+            slots.get(&id).copied().unwrap_or(plan::NO_METER)
+        })?;
         Ok(self.incoming.push(Box::new(plan)).is_ok())
+    }
+
+    /// What node `id` played since its level was last taken: peaks and the
+    /// clip since then, and its RMS now. `None` for a node not routed.
+    pub fn take_level(&self, id: u64) -> Option<Level> {
+        self.slots.get(&id).map(|&slot| self.meters.take(slot))
+    }
+
+    /// Hands the mean square of every 100 ms loudness block the measured
+    /// node finished since the last call to `block`, oldest first, for
+    /// `lumen_core::loudness::Loudness`.
+    pub fn take_loudness(&mut self, block: impl FnMut(f32)) {
+        self.loudness.drain(block);
+    }
+
+    /// The measured node's highest true peak since the last call (linear).
+    pub fn take_true_peak(&self) -> f32 {
+        self.loudness.take_true_peak()
     }
 
     /// Frees plans the audio side has replaced. Call regularly.
@@ -79,6 +134,8 @@ pub struct Mixer<T> {
     plan: Box<Plan>,
     /// The plan `plan` replaced, while it fades out.
     swap: Option<Swap>,
+    /// Loudness and true peak of the measured node.
+    loudness: LoudnessTap,
 }
 
 struct Swap {
@@ -93,10 +150,14 @@ struct Swap {
 pub fn mixer<T: TrackSource>(tracks: T) -> (MixerHandle, Mixer<T>) {
     let (incoming_tx, incoming_rx) = rtrb::RingBuffer::new(QUEUE);
     let (retired_tx, retired_rx) = rtrb::RingBuffer::new(QUEUE + 1);
+    let (tap, reader) = meter::loudness();
     (
         MixerHandle {
             incoming: incoming_tx,
             retired: retired_rx,
+            meters: MeterBank::new(MIN_METERS),
+            slots: HashMap::new(),
+            loudness: reader,
         },
         Mixer {
             tracks,
@@ -105,6 +166,7 @@ pub fn mixer<T: TrackSource>(tracks: T) -> (MixerHandle, Mixer<T>) {
             stash: None,
             plan: Box::new(Plan::empty()),
             swap: None,
+            loudness: tap,
         },
     )
 }
@@ -190,7 +252,10 @@ impl<T: TrackSource> Source for Mixer<T> {
             self.tracks.render(&part_cx, &mut self.plan.buses(n));
             let mut part = out.part(done, n);
             match self.swap.as_mut() {
-                None => self.plan.process(&mut part, rate, Ramp::Full, advance),
+                None => {
+                    let tap = Some(&mut self.loudness);
+                    self.plan.process(&mut part, rate, Ramp::Full, advance, tap);
+                }
                 Some(swap) => {
                     if swap.length == 0 {
                         swap.length = (rate / SWAP_PER_SECOND).max(1) as usize;
@@ -205,10 +270,12 @@ impl<T: TrackSource> Source for Mixer<T> {
                         fade_in[k] = x.min(1.0);
                         fade_out[k] = 1.0 - fade_in[k];
                     }
+                    // Only the plan fading in is metered.
                     let ramp_in = Ramp::Fade(&fade_in[..n]);
-                    self.plan.process(&mut part, rate, ramp_in, advance);
+                    let tap = Some(&mut self.loudness);
+                    self.plan.process(&mut part, rate, ramp_in, advance, tap);
                     let ramp_out = Ramp::Fade(&fade_out[..n]);
-                    swap.old.process(&mut part, rate, ramp_out, advance);
+                    swap.old.process(&mut part, rate, ramp_out, advance, None);
                     if advance {
                         swap.done += n;
                     }
