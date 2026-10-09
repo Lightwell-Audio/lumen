@@ -118,6 +118,7 @@ impl App {
                 "Ruler: click to move the playhead",
             )
         });
+        response.context_menu(|ui| self.view_menu(ui));
         if self.drag_ruler(&response, at.canvas) {
             ui.ctx().set_cursor_icon(CursorIcon::ZoomIn);
             return;
@@ -223,6 +224,7 @@ impl App {
         let response = ui
             .interact(at.time, id, Sense::click_and_drag())
             .on_hover_text("Drag to select time on every track; click to move the playhead");
+        response.context_menu(|ui| self.time_format_menu(ui));
         response.widget_info(|| {
             egui::WidgetInfo::labeled(
                 egui::WidgetType::Other,
@@ -369,17 +371,21 @@ impl App {
         );
         egui::Popup::menu(&response)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-            .show(|ui| {
-                for choice in TimeFormat::ALL {
-                    if ui
-                        .add(egui::Button::selectable(format == choice, choice.name()))
-                        .clicked()
-                    {
-                        self.transport.time_format = choice;
-                        ui.close();
-                    }
-                }
-            });
+            .show(|ui| self.time_format_menu(ui));
+    }
+
+    /// The time ruler's formats, from its corner or a right-click on it.
+    fn time_format_menu(&mut self, ui: &mut egui::Ui) {
+        let format = self.transport.time_format;
+        for choice in TimeFormat::ALL {
+            if ui
+                .add(egui::Button::selectable(format == choice, choice.name()))
+                .clicked()
+            {
+                self.transport.time_format = choice;
+                ui.close();
+            }
+        }
     }
 }
 

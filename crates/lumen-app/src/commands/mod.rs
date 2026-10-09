@@ -18,6 +18,7 @@ pub(crate) enum Command {
     PauseContinue,
     GoToStart,
     ToggleFollow,
+    LoopSelection,
     Undo,
     Redo,
     Cut,
@@ -28,6 +29,7 @@ pub(crate) enum Command {
     DeleteTime,
     InsertTime,
     Deselect,
+    SelectAll,
     Rename,
     MuteClips,
     ClipProperties,
@@ -46,8 +48,12 @@ pub(crate) enum Command {
     ZoomBack,
     FitWidth,
     FitHeight,
+    ZoomToSelection,
+    FitLoop,
     ToggleDetail,
     OpenPalette,
+    NextPane,
+    PreviousPane,
     GridNarrower,
     GridWider,
     TripletGrid,
@@ -135,6 +141,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::PauseContinue, "transport.pause_continue", "Stop here / Continue", Area::Transport, &[shift(Key::Space)], "Stops in place, or carries on from the playhead."),
     info(Command::GoToStart, "transport.go_to_start", "Go to start", Area::Transport, &[plain(Key::Home)], "Moves the playhead to the start of the song."),
     info(Command::ToggleFollow, "transport.follow", "Follow playhead", Area::Transport, &[ctrl_shift(Key::F)], "Keeps the playhead in view while playing."),
+    info(Command::LoopSelection, "transport.loop_selection", "Loop selection", Area::Transport, &[ctrl(Key::L)], "Sets the loop to the selected clips or time range and turns it on."),
     info(Command::Undo, "edit.undo", "Undo", Area::Edit, &[ctrl(Key::Z)], "Takes back the last change."),
     info(Command::Redo, "edit.redo", "Redo", Area::Edit, &[ctrl_shift(Key::Z), ctrl(Key::Y)], "Puts back the change just undone."),
     info(Command::Cut, "edit.cut", "Cut", Area::Edit, &[ctrl(Key::X)], "Copies the selected clips or time range, then removes them."),
@@ -145,6 +152,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::DeleteTime, "edit.delete_time", "Delete time", Area::Edit, &[ctrl_shift(Key::Delete)], "Removes the time range, pulling everything after it back."),
     info(Command::InsertTime, "edit.insert_time", "Insert time", Area::Edit, &[ctrl(Key::I)], "Inserts empty time the length of the range, pushing everything after it on."),
     info(Command::Deselect, "edit.deselect", "Deselect", Area::Edit, &[plain(Key::Escape)], "Clears the clip, range or locator selection."),
+    info(Command::SelectAll, "edit.select_all", "Select all", Area::Edit, &[ctrl(Key::A)], "Selects every clip."),
     info(Command::Rename, "edit.rename", "Rename", Area::Edit, &[ctrl(Key::R), plain(Key::F2)], "Renames the selected clip, track or locator."),
     info(Command::MuteClips, "clip.mute", "Mute clip", Area::Clip, &[plain(Key::Num0)], "Mutes the selected clips, or unmutes them."),
     info(Command::ClipProperties, "clip.properties", "Clip properties", Area::Clip, &[alt(Key::Enter)], "Pins the properties card beside the clip."),
@@ -163,8 +171,12 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::ZoomBack, "view.zoom_back", "Zoom back", Area::View, &[plain(Key::X)], "Goes back to the view before the last zoom."),
     info(Command::FitWidth, "view.fit_width", "Fit song to width", Area::View, &[plain(Key::W)], "Fits the whole song to the window's width."),
     info(Command::FitHeight, "view.fit_height", "Fit tracks to height", Area::View, &[plain(Key::H)], "Fits every track into the window's height, or back."),
+    info(Command::ZoomToSelection, "view.zoom_selection", "Zoom to selection", Area::View, &[plain(Key::Z)], "Fits the selected clips or time range to the window."),
+    info(Command::FitLoop, "view.fit_loop", "Fit loop", Area::View, &[], "Fits the loop to the window."),
     info(Command::ToggleDetail, "view.detail_panel", "Show / hide detail panel", Area::View, &[shift(Key::Tab)], "Shows or hides the detail panel."),
     info(Command::OpenPalette, "view.palette", "Command palette", Area::View, &[ctrl(Key::K)], "Finds any command by name, and runs it."),
+    info(Command::NextPane, "view.next_pane", "Next pane", Area::View, &[plain(Key::F6)], "Moves the keyboard to the next pane: browser, arrangement, detail."),
+    info(Command::PreviousPane, "view.previous_pane", "Previous pane", Area::View, &[shift(Key::F6)], "Moves the keyboard to the previous pane."),
     info(Command::GridNarrower, "grid.narrower", "Grid narrower", Area::Grid, &[ctrl(Key::Num1)], "Makes the grid finer."),
     info(Command::GridWider, "grid.wider", "Grid wider", Area::Grid, &[ctrl(Key::Num2)], "Makes the grid coarser."),
     info(Command::TripletGrid, "grid.triplet", "Triplet grid", Area::Grid, &[ctrl(Key::Num3)], "Switches the grid to triplets, or back."),
@@ -212,20 +224,6 @@ impl Command {
 
     pub(crate) fn name(self) -> &'static str {
         self.info().name
-    }
-
-    /// Keys a focused control uses itself (a slider's arrows): with a
-    /// control focused, these go to it rather than run the command.
-    pub(crate) fn yields_to_focus(self) -> bool {
-        matches!(
-            self,
-            Command::SelectTrackAbove
-                | Command::SelectTrackBelow
-                | Command::ExtendSelectionUp
-                | Command::ExtendSelectionDown
-                | Command::FoldTracks
-                | Command::UnfoldTracks
-        )
     }
 }
 

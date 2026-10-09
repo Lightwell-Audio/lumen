@@ -511,6 +511,18 @@ Chosen by the owner from rendered specimens (Ableton's split):
 - **Recording in the palette (E3):** Ctrl+Enter on a row, or a click on
   its keycaps; the strip says "Press the new keys for …" in the accent,
   or the clash in the warning colour with "Enter takes it".
+- **Menus and tooltips:** every shortcut is drawn as K5 keycaps from the
+  keymap, at the right of a menu row (`widgets::menu_item`; toggles use
+  `menu_toggle`, with the selected fill when on) and after a tooltip's
+  name (`widgets::tip`), with any hint on a line of its own in secondary
+  text. Commands without a shortcut show none; a row whose command cannot
+  run now is greyed.
+- **Panes:** F6 and Shift+F6 move the keyboard between the browser, the
+  arrangement and the detail panel; the pane with the keyboard has the
+  2 pt accent ring round it.
+- **Shift+Tab** moves focus back in a text field or an open window, and
+  shows or hides the detail panel everywhere else (the owner's choice,
+  ADR-0015).
 
 ## 8. Key flows
 

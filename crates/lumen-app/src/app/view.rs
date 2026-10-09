@@ -12,7 +12,7 @@ use crate::arrangement::FileDrop;
 use crate::commands::Command;
 use crate::document::DropInto;
 use crate::icons::{self, Icon};
-use crate::{App, arrangement, audio, bench, canvas, lanes, media, motion, ruler, theme};
+use crate::{App, arrangement, audio, bench, canvas, lanes, media, motion, ruler, theme, widgets};
 
 /// A glided position, or the exact one once the glide has settled: the
 /// glide runs in f32, which is pixels off at sample-level zoom.
@@ -75,16 +75,20 @@ report: {}",
         // their place at any width or scale; the transport takes the rest and
         // the status text shortens to fit.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.toggle_value(&mut self.show_detail, "Detail")
-                .on_hover_text("Show or hide the detail panel (Shift+Tab)");
+            let detail = ui.toggle_value(&mut self.show_detail, "Detail");
+            let keys = self.keymap.keys(Command::ToggleDetail);
+            widgets::tip(detail, "Show or hide the detail panel", keys.as_ref(), None);
             ui.toggle_value(&mut self.show_browser, "Browser")
                 .on_hover_text("Show or hide the browser");
-            let keys = self.keymap.text(Command::OpenPalette);
+            let keys = self.keymap.keys(Command::OpenPalette);
             if icons::button(
                 ui,
                 Icon::Search,
                 "Command palette",
-                keys.as_deref(),
+                widgets::Tip {
+                    keys: keys.as_ref(),
+                    hint: None,
+                },
                 self.palette.is_open(),
                 true,
                 "",
@@ -100,7 +104,7 @@ report: {}",
                 ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
                 self.app_menu(ui);
                 ui.separator();
-                self.transport.ui(ui, &mut self.document);
+                self.transport.ui(ui, &mut self.document, &self.keymap);
             });
         });
     }
@@ -130,6 +134,8 @@ report: {}",
 
     pub(crate) fn arrangement(&mut self, ui: &mut egui::Ui) {
         let whole = ui.available_rect_before_wrap();
+        self.panes
+            .anchor(ui, super::panes::Pane::Arrangement, whole);
         let response = ui.allocate_rect(whole, Sense::hover());
         // Layout A (owner, slice 5b): the locator strip and the bar ruler
         // on top, the time ruler at the bottom; track headers on the left
@@ -176,7 +182,7 @@ report: {}",
         );
         self.time_format_button(ui, time_corner);
         self.arrangement
-            .headers(ui, headers, &mut self.document, &self.lanes);
+            .headers(ui, headers, &mut self.document, &self.lanes, &self.keymap);
 
         let painter = ui.painter_at(full);
         painter.rect_filled(full, 0.0, palette.canvas);
@@ -227,7 +233,8 @@ report: {}",
                 view,
             )
         {
-            hover.on_hover_ui_at_pointer(|ui| lanes::file_card(ui, item));
+            let properties = self.keymap.text(Command::ClipProperties);
+            hover.on_hover_ui_at_pointer(|ui| lanes::file_card(ui, item, properties.as_deref()));
         }
 
         // Dropped files land under the pointer (snapped; Alt places them

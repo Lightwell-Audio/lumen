@@ -17,6 +17,7 @@ mod editing;
 mod fades;
 mod files;
 mod grid;
+mod keys;
 mod locators;
 mod looping;
 mod navigation;

@@ -150,6 +150,8 @@ pub struct App {
     shortcuts: app::shortcuts::Shortcuts,
     /// A chord being recorded for a command (the window or the palette).
     rebind: Option<app::shortcuts::Rebind>,
+    /// Where the keyboard is among the panes (F6).
+    panes: app::panes::Panes,
     /// Where the arrangement looks (zoom, scroll, fit, back): slice 4d.
     nav: app::navigate::Nav,
     /// The editing grid and snapping (slice 5a); saved with the project.
@@ -234,7 +236,10 @@ impl eframe::App for App {
 
     /// The detail panel's key (Shift+Tab, spec §5) is taken here, before
     /// egui sees it, so it does not also move keyboard focus backwards.
-    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+    /// Except where moving back is what Shift+Tab is for (the owner's
+    /// choice, ADR-0015): typing in a field, or with the keyboard in an
+    /// open window, it is left to egui.
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         for event in &raw_input.events {
             if let egui::Event::PointerButton { pos, pressed, .. } = event {
                 trace::log(|| {
@@ -255,6 +260,14 @@ impl eframe::App for App {
         }
         // While a chord is recorded, it may be the panel's own.
         if self.rebind.is_some() {
+            return;
+        }
+        let window = self.shortcuts.open
+            || self.transport.settings_window.open
+            || self.show_history
+            || self.prompt.is_some();
+        let focused = ctx.memory(|m| m.focused().is_some());
+        if ctx.text_edit_focused() || (window && focused) {
             return;
         }
         let keymap = &self.keymap;
@@ -416,6 +429,8 @@ impl eframe::App for App {
             self.show_browser,
             &mut self.browser_size,
             |ui| {
+                let rect = ui.max_rect();
+                self.panes.anchor(ui, app::panes::Pane::Browser, rect);
                 ui.label(RichText::new("Browser").font(fonts::display(theme::size::HEADING)));
                 ui.add_space(8.0);
                 ui.label(RichText::new("Devices, samples, projects and your places").weak());
@@ -429,6 +444,8 @@ impl eframe::App for App {
             self.show_detail,
             &mut self.detail_size,
             |ui| {
+                let rect = ui.max_rect();
+                self.panes.anchor(ui, app::panes::Pane::Detail, rect);
                 ui.horizontal(|ui| {
                     for (tab, milestone) in [
                         ("Devices", "Milestone 6"),
@@ -448,7 +465,7 @@ impl eframe::App for App {
             },
         );
         egui::CentralPanel::default().show(ui, |ui| self.arrangement(ui));
-        self.typing = ctx.egui_wants_keyboard_input();
+        self.typing = ctx.text_edit_focused();
 
         // Scheduled after drawing, because buttons are clicked while drawing.
         // Every frame while playing or settling after a command; otherwise
@@ -625,6 +642,7 @@ impl App {
             palette,
             shortcuts: Default::default(),
             rebind: None,
+            panes: Default::default(),
             nav: app::navigate::Nav::default(),
             grid: lumen_core::grid::Grid::default(),
             locators: app::locators::Locators::default(),

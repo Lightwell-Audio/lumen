@@ -14,6 +14,7 @@ use lumen_project::edit::Edge;
 use lumen_project::model::{Clip, ClipContent, Color, Id, Project};
 
 use crate::arrangement::{TITLE, color_from, color_of};
+use crate::commands::Command;
 use crate::widgets::{self, SliderKind};
 use crate::{App, lanes, theme};
 
@@ -268,35 +269,20 @@ impl App {
             name(if muted { "Unmute" } else { "Mute" }),
             name(if locked { "Unlock" } else { "Lock" }),
         );
-        if ui
-            .add(egui::Button::new("Rename").shortcut_text("Ctrl+R"))
-            .clicked()
-        {
-            self.start_clip_rename(first);
-            ui.close();
-        }
+        self.menu_command(ui, Command::Rename, "Rename");
         ui.menu_button("Colour", |ui| {
             if let Some(color) = swatches(ui, current, track) {
                 self.document.recolor_clips(&ids, color);
                 ui.close();
             }
         });
-        if ui.add(egui::Button::new(mute).shortcut_text("0")).clicked() {
-            self.toggle_clip_mute();
-            ui.close();
-        }
+        self.menu_command(ui, Command::MuteClips, &mute);
         if ui.button(lock).clicked() {
             self.toggle_clip_lock();
             ui.close();
         }
         self.fade_menu(ui);
-        if ui
-            .add(egui::Button::new("Properties").shortcut_text("Alt+Enter"))
-            .clicked()
-        {
-            self.open_clip_card(first);
-            ui.close();
-        }
+        self.menu_command(ui, Command::ClipProperties, "Properties");
     }
 
     /// Where clip `id` is drawn, if it is in view.
@@ -411,7 +397,7 @@ impl App {
             });
         self.clip_props.size = Some(shown.response.rect.size());
         // Esc while typing cancels the typing; the next one closes.
-        let typing = self.typing || ctx.egui_wants_keyboard_input();
+        let typing = self.typing || ctx.text_edit_focused();
         if close || (!typing && ctx.input(|i| i.key_pressed(Key::Escape))) {
             self.clip_props = ClipProps::default();
         }

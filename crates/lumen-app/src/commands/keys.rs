@@ -101,6 +101,29 @@ impl Chord {
         parts.join("+")
     }
 
+    /// Whether a focused control uses this chord itself: Space and Enter
+    /// press a button, the arrows, Home, End and the page keys move a
+    /// slider or a list, Tab moves on; without Ctrl or Alt. With a control
+    /// focused, these go to it rather than run a command.
+    pub(crate) fn used_by_controls(self) -> bool {
+        !self.ctrl
+            && !self.alt
+            && matches!(
+                self.key,
+                Key::Space
+                    | Key::Enter
+                    | Key::Tab
+                    | Key::ArrowUp
+                    | Key::ArrowDown
+                    | Key::ArrowLeft
+                    | Key::ArrowRight
+                    | Key::Home
+                    | Key::End
+                    | Key::PageUp
+                    | Key::PageDown
+            )
+    }
+
     /// How a chord is saved: "Ctrl+Shift+Z", with Ctrl for the command key
     /// on every system and egui's key names, which it reads back.
     pub(crate) fn saved(self) -> String {
@@ -161,6 +184,17 @@ impl Keymap {
     /// The chords that run `command`, the one to show first.
     pub(crate) fn chords(&self, command: Command) -> &[Chord] {
         self.chords.get(&command).map_or(&[], Vec::as_slice)
+    }
+
+    /// The shortcut to show for `command` as keycaps, if it has one.
+    pub(crate) fn keys(&self, command: Command) -> Option<crate::widgets::Keys> {
+        let chord = *self.chords(command).first()?;
+        Some(crate::widgets::Keys {
+            modifiers: chord.modifier_names(),
+            key: chord.key_name(),
+            light: command.info().area.light(),
+            text: chord.text(),
+        })
     }
 
     /// The shortcut to show for `command` ("Ctrl+D"), if it has one.
@@ -297,6 +331,16 @@ impl Keymap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_focused_control_keeps_its_own_keys() {
+        assert!(plain(Key::Space).used_by_controls());
+        assert!(shift(Key::ArrowUp).used_by_controls(), "fine steps");
+        assert!(!ctrl(Key::ArrowLeft).used_by_controls(), "locators");
+        assert!(!alt(Key::ArrowUp).used_by_controls(), "moving tracks");
+        assert!(!plain(Key::F6).used_by_controls(), "panes");
+        assert!(!plain(Key::Z).used_by_controls());
+    }
 
     #[test]
     fn every_default_chord_is_saved_and_read_back() {

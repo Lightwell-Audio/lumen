@@ -2180,8 +2180,7 @@ curves, clip properties). ADR-0031 covers the curves.
 
 ## ADR-0033 — Commands and the keymap (M3 slice 7)
 
-**Status:** Accepted · **Date:** 2026-10-08 (7a to 7c; menus, tooltips
-and the remaining keys follow in 7d)
+**Status:** Accepted · **Date:** 2026-10-08 (7a to 7d)
 
 ### Context
 Slice 7 brings the command palette, remappable shortcuts with clash
@@ -2220,8 +2219,10 @@ Option 3.
 - `app/commands.rs`: `availability` says whether a command can run now,
   and why not in a few words (for the palette's dimmed rows); `run` runs
   it, for keys, the palette and menus alike; `command_keys` is the one
-  dispatcher. It skips while a field has the keyboard, leaves arrow keys
-  to a focused control (`yields_to_focus`), runs the command bound to each
+  dispatcher. It skips while a text field has the keyboard, leaves a
+  focused control the keys it uses itself (`Chord::used_by_controls`:
+  Space, Enter, Tab, the arrows, Home, End and the page keys, without Ctrl
+  or Alt; 7d), runs the command bound to each
   chord pressed when it can run, and takes that key from the input so no
   widget also sees it. A key whose command cannot run is left for others.
 - View commands need the lanes' size and the pointer, so they queue a
@@ -2279,6 +2280,36 @@ Option 3.
   default a later version adds).
 - **Presets.** One keymap ships, Ableton's, shown by name in the window;
   the FL-style preset is [L] (CLAUDE.md §7).
+- **Menus and tooltips (7d)** read shortcuts from the keymap, never from
+  text written next to them: `widgets::menu_item` (a label and K5
+  keycaps; accessible as "Rename Ctrl+R", as egui's menu buttons are
+  named), `menu_toggle` (on or off, and the menu stays open), and
+  `widgets::tip` (the name, the keycaps, a hint line). `App::menu_command`
+  is a menu row that runs its command, greyed when it cannot. A menu is
+  sized in egui's first pass from what its rows need; only after it does a
+  row fill the width, or every menu would stretch to the window. Menus
+  that act on what was clicked rather than the selection (a track's
+  header) keep their own actions and show the command's keys.
+- **New commands (7d):** Zoom to selection (Z, a `ViewStep::Fit` of the
+  selection's span), Fit loop, Select all (Ctrl+A), Loop selection
+  (Ctrl+L, the spec's), Next pane and Previous pane (F6, Shift+F6). The
+  bar ruler's right-click menu lists the view commands; the time ruler's
+  the formats; a track's name opens the track's menu (it sat on top of the
+  header and took the right-click).
+- **Panes (7d, `app/panes.rs`).** Each pane has an anchor covering it,
+  named for screen readers ("Arrangement", "Detail panel", "Browser"),
+  that takes the focus and draws the 2 pt accent ring round the pane;
+  Tab goes on into the pane. F6 visits the shown panes in order, starting
+  at the arrangement.
+- **Shift+Tab by focus (7d, ADR-0015, the owner's choice):** the raw-input
+  hook leaves it to egui, which moves focus back, while a text field has
+  the keyboard or a window is open with something in it focused;
+  elsewhere it toggles the detail panel.
+- **A text field, not any focus, stops shortcuts (7d).** egui's
+  `egui_wants_keyboard_input` is true whenever any widget has focus, so
+  once a button was reached with Tab every shortcut stopped. The
+  dispatcher, `App::typing` and the card's Esc now use
+  `text_edit_focused`.
 
 ### Consequences
 - A new command is one row in the table plus its `availability` and
@@ -2308,6 +2339,14 @@ Option 3.
   used from the start. 72 scenarios.
 - Screenshots (`keyboard_shortcuts`: the window, the Ctrl layer, a clash,
   and recording in the palette; dark at 100% and light at 150%).
+- 7d: unit tests `a_focused_control_keeps_its_own_keys`,
+  `f6_cycles_the_shown_panes_and_starts_at_the_arrangement`; E2E (`keys`):
+  Z and X, Ctrl+A with Ctrl+L and Fit loop from the ruler's menu, F6,
+  Shift+Tab except while typing, menus showing a changed key,
+  `shortcuts_still_run_with_a_control_focused` (fails with the old check),
+  a right-click on a track's name. 79 scenarios; the smoke tests pass.
+  Screenshots (`menus_and_tips`: a clip's, the ruler's and a track's
+  menus, the Play tooltip).
 - Screenshots (`tests/shots.rs`, `command_palette`: empty with a recent
   command, a search, an unavailable command, a value and a track, in
   dark at 100% and light at 150%).

@@ -4,9 +4,9 @@
 
 **Current milestone:** 3 — Arrangement & Project System (plan:
 [milestones/M3.md](milestones/M3.md)). Slices 1–6 are done (slice 6, clip
-editing and selection, passed MT-APP-14 in run 4). Next come slice 7
-(command palette, shortcuts, context menus) and slice 8 (walkthrough and
-report).
+editing and selection, passed MT-APP-14 in run 4). Slice 7 (command
+palette, shortcuts, context menus) is built, 7a to 7d; MT-APP-15 is next,
+then slice 8 (walkthrough and report).
 **Previous:** M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
@@ -37,7 +37,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 4 | Tracks and the arrangement view at scale: groundwork (format v3), 4a track headers (ADR-0025, MT-APP-9 passed), architecture audit fixed, 4b clips on the GPU with a frame-time benchmark (ADR-0026, MT-APP-10 passed), 4c waveforms (ADR-0027, MT-APP-11 passed), 4d navigation (ADR-0028, MT-APP-12 passed) | ✅ 2026-10-08 | 4a and audit through `eea085a`; 4b from `397f846` |
 | 5 | Grid, snapping, rulers, scrub, markers, loop: groundwork (format v4), 5a grid and snapping, 5b rulers (layout A), 5c loop and punch, 5d locators, 5e scrubbing | ✅ 2026-10-08 (ADR-0030, MT-APP-13 passed) | `1317d07` groundwork; `c7104a5`, `b3fd9d6`, `d9eab12`, `5fdc6e4`, `b3ccb4b` (5a to 5e); `656a10a`, `efc3012`, `9492652` (MT-APP-13 run 1); `ec5541f` closes it |
 | 6 | Clip editing and selection: groundwork (format v5), 6a selection and moving, 6b time ranges and edits, 6c trim, loop-extend and slip, 6d fades and clip gain (format v6, ADR-0031; MT-APP-14 run 1 passed its steps), 6e clip properties (mute, lock, rename, colour, the pinned card) and drops on a chosen track (ADR-0032) | ✅ 2026-10-08 (ADR-0031, ADR-0032; MT-APP-14 passed in run 4, after the owner's run 2 changes and run 3 fixes) | `f66c647` to `a6a2164`; 6e `6cc6860`; run-2 changes `3127ec7`; run-3 fixes `4e8c779` |
-| 7 | Command palette, shortcuts, context menus | 🔲 | |
+| 7 | Command palette, shortcuts, context menus: 7a the registry and one dispatcher, 7b the palette (P2 with P3's values, K5 keycaps), 7c remapping (E2 keyboard map with E3 in the palette, saved in the settings), 7d menus and tooltips from the keymap, ruler menus, Z, Ctrl+A, Ctrl+L, Fit loop, F6 panes, Shift+Tab by focus (ADR-0033) | 🟡 built; MT-APP-15 to come | `c4c008f` 7a, `9983bf1` 7b, `3d21a26` 7c; 7d with this commit |
 | 8 | End-to-end walkthrough and report | 🔲 | |
 
 ## Milestone 2 slices
@@ -98,7 +98,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 |---|---|---|---|
 | Rulers: bars/beats, minutes:seconds, samples, timecode | M | ✅ 2026-10-08 | 3 | M3 slice 5b, layout A (owner): the bar ruler on top; a time ruler along the bottom in minutes and seconds, samples, or timecode at 24, 25, 29.97 drop-frame or 30 fps (`timefmt.rs`, tested), chosen from its corner and saved in settings; the position display follows it. At the deepest zoom the bar ruler pins the position of its left edge |
 | Adaptive or fixed grid (triplet, dotted, off) with snap-bypass modifier | M | ✅ 2026-10-08 | 3 | M3 slice 5a: `lumen_core::grid`, adaptive in five widths or fixed 8 bars to 1/64, triplet and dotted, snap on or off (Ctrl+1 to Ctrl+5, the grid menu and button); Alt bypasses; snap guide; saved with the project (format v4). Used by the ruler and dropped files now, by clip edits in slice 6 |
-| Anchored zoom, zoom to selection, fit all, fit loop, pan, edge auto-scroll, follow modes. (Ctrl+wheel zoom works in the M1 shell since the 2026-10-06 fix: egui delivers it as a zoom factor, not as scroll.) | M | 🟡 | 3 | M3 slice 4d (ADR-0028): zoom at the pointer to single samples, `+`/`-`, X back, W fit all, H fit heights, Alt+wheel heights, pan, auto-scroll while dragging tracks, Follow page and continuous. Not built yet: zoom to selection (Z) and fit loop. Proposed for slice 7, with the keys and the command palette |
+| Anchored zoom, zoom to selection, fit all, fit loop, pan, edge auto-scroll, follow modes. (Ctrl+wheel zoom works in the M1 shell since the 2026-10-06 fix: egui delivers it as a zoom factor, not as scroll.) | M | 🟡 | 3 | M3 slice 4d (ADR-0028): zoom at the pointer to single samples, `+`/`-`, X back, W fit all, H fit heights, Alt+wheel heights, pan, auto-scroll while dragging tracks, Follow page and continuous. Zoom to selection (Z) and fit loop added in slice 7d (ADR-0033), on the bar ruler's menu with the other view commands |
 | Track types: audio, MIDI/instrument, group, return, master | M | 🟡 All five exist in the project model; audio tracks are created by importing (M3 slice 3). Track headers and adding each type in M3 slice 4; group summing, returns and master in M4 | 3–4 |
 | Per-track name, colour, height, arm, monitor, solo, mute, polarity, I/O routing, inline fader and meter | M | 🟡 Name, type icon, colour, height (drag to resize in 22 pt steps, fold and unfold), arm (glows and breathes), solo and mute in the track header; interim volume and pan sliders in unfolded headers (M3 slice 4a, ADR-0025). Monitor, polarity, routing, real fader and meter with the mixer (M4) | 3–4 |
 | Group tracks: create, drag in, nest, fold, sum, own devices/sends/fader/automation, one-step ungroup, sensible solo/mute/arm | M | 🔲 | 4 |
@@ -178,7 +178,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Trim, crop, delete, ripple delete, insert silence, cut, copy, paste, duplicate clip and range, loop/unloop, reverse, normalize, nudge, move, rename, recolour, mute, lock | M | 🟡 Trim and loop-extend (6c); move and copy (6a); cut, copy, paste, duplicate, delete, delete time (ripple) and insert time (6b); rename, recolour, mute and lock (6e). Crop, unloop into copies, reverse, normalize and clip nudge are not built yet (M7) | 3, 7 |
 | Bounce in place; render selection to new track | M | 🔲 | 7 |
 | Freeze, unfreeze, flatten | M | 🔲 | 7 |
-| Select all / none / invert / in track / to start / to end | M | 🔲 | 3 |
+| Select all / none / invert / in track / to start / to end | M | 🟡 Select all (Ctrl+A) and none (Esc) in M3 7d; invert, in track, to start and to end with the editing tools (M7) | 3 |
 | Slice audio to MIDI or drum map | S | 🔲 | 8 |
 | Group and ungroup clips | L | 🔲 | — |
 | Guarantees: split+join is identity; consolidating unprocessed audio is identical; undo restores exactly | M | 🟡 | 3, 7 | Undo restores exactly by construction (shared snapshots, ADR-0024) and is property-tested; split, join and consolidate in M7 |
@@ -294,17 +294,17 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Export: master and stems; WAV/FLAC; bit depth; dither; offline and real-time; scope; tails; normalize | M | 🔲 |
 | MP3/AAC | L | 🔲 |
 | Preferences: audio, MIDI, plugin paths, file/cache locations, theme, scale, autosave interval, undo depth, track defaults, record settings | M | 🟡 Audio settings window (M2); theme, interface size, Reduce motion and copy-imported-audio in the app menu (M3). The Preferences window in M9 |
-| Shortcut editor with conflict detection; Ableton-compatible default keymap | M | 🔲 |
+| Shortcut editor with conflict detection; Ableton-compatible default keymap | M | 🟡 Built in M3 7c (ADR-0033): the Keyboard shortcuts window (keyboard map by area with modifier layers over the list), clashes with Reassign or Cancel, reset one or all, rebinding from the palette, saved in the settings. MT-APP-15 to come |
 | FL-style keymap preset | L | 🔲 |
 | First-run wizard (audio device, plugin paths) | M | 🔲 |
 | Preferences import/export; localization-ready text | S | 🔲 |
-| Command palette; tooltips with shortcuts; context menus everywhere | M | 🔲 |
+| Command palette; tooltips with shortcuts; context menus everywhere | M | 🟡 Built in M3 7b and 7d (ADR-0033): the palette (fuzzy search, context names, reasons, typed values), every menu and tooltip shortcut drawn from the keymap as keycaps, right-click menus on the rulers and track names added. MT-APP-15 to come |
 | Design system with a crisp vector icon set (spec §5): transport icons (play, pause, stop, record, loop, metronome) in M2, full set with the design system in M3 | M | 🟡 Design system v1 (`docs/DESIGN.md`, `theme.rs`): colour tokens for both themes, type, spacing, shape, widget states, key flows; M2 UI moved onto it (M3 slice 2). Icons grow with each slice's new controls |
 | Motion system: tokens, easing, what animates, reduce-motion; never delays input, no idle redraws; M2 widgets retrofitted (owner request 2026-10-06: fluid, Apple-like feel). Built in M3 with the design system; final polish pass in M10 | M | 🟡 Built (M3 slice 2, `motion.rs`): FAST/BASE/GLIDE tokens, ease-out and critically damped spring, Reduce motion; panels slide, popovers and windows fade, notices and banners animate, transport buttons fade on hover, playhead and start marker glide after a locate, clips fade in. Idle CPU unchanged (0.2%). Owner signed off (MT-APP-7, 2026-10-07); M10 polish |
 | Reset to default, type-in, fine adjust, wheel adjust, parameter right-click menus | M | 🔲 |
 | Drag and drop for files, devices, clips, tracks; status-bar hints | M | 🟡 Files from Explorer, with a live indicator of what will be added (M2). Clips and tracks in M3, devices in M6 |
 | Resizable, collapsible panels with remembered layout; full screen; high-DPI; light and dark | M | 🟡 Resizable panels that slide open and closed; layout saved with each project; dark, light and match-system themes; interface size 100–200% (M3 slices 2–3). Full screen later |
-| Keyboard-only core flows; accessible control names. Open conflict: Shift+Tab is the spec's detail-panel shortcut and also the standard backward-focus key (ADR-0015). | M | 🔲 |
+| Keyboard-only core flows; accessible control names. Shift+Tab settled by the owner (ADR-0015): it moves focus back in a text field or an open window, and toggles the detail panel elsewhere. | M | 🟡 M3 7d: F6 and Shift+F6 move the keyboard between named panes; shortcuts keep working with a control focused (only its own keys stay with it). The accessibility pass and the Narrator check in M10 |
 | Detachable mixer and editor windows; hover help; welcome screen | S | 🔲 |
 | CPU, disk and dropout indicators; Audio On/Off; panic | M | 🟡 CPU (peak per second), dropouts, Audio On/Off and panic done (M2 slice 7). Disk indicator with disk streaming (M9); MIDI all-notes-off joins panic in M5 |
 | Crash report file; logging with "reveal logs" | M | 🟡 Crash reports (owner request, M3 6c): a panic on any thread writes what failed, where, the backtrace, the version, the system and the thread to `%LOCALAPPDATA%\Lumen\Crashes`; the next start offers it (Show report, Dismiss). Logging and "reveal logs" later |

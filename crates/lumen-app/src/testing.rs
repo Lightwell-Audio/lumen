@@ -286,6 +286,16 @@ impl App {
         self.settings.commands.shortcuts.clone()
     }
 
+    /// The pane whose anchor has the keyboard (F6), by name.
+    pub fn focused_pane(&self, ctx: &egui::Context) -> Option<String> {
+        crate::app::panes::focused(ctx).map(|p| format!("{p:?}"))
+    }
+
+    /// Whether the detail panel is shown.
+    pub fn detail_shown(&self) -> bool {
+        self.show_detail
+    }
+
     /// Whether the Keyboard shortcuts window is open.
     pub fn shortcuts_open(&self) -> bool {
         self.shortcuts.open

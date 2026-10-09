@@ -11,6 +11,7 @@ use lumen_project::model::{Id, Marker};
 
 use super::grid::draw_snap_guide;
 use super::rulers::Layout;
+use crate::commands::Command;
 use crate::{App, motion, ruler, theme, widgets};
 
 /// The flags' height, from the strip's top; the brace takes the rest.
@@ -270,26 +271,34 @@ impl App {
             (
                 left,
                 "Previous locator",
-                "Previous locator (Ctrl+Left)",
+                "Previous locator",
+                Command::PreviousLocator,
                 has_previous,
             ),
             (
                 set,
                 "Set locator",
                 if there {
-                    "Remove the locator at the playhead (M)"
+                    "Remove the locator at the playhead"
                 } else {
-                    "Add a locator at the playhead (M)"
+                    "Add a locator at the playhead"
                 },
+                Command::SetLocator,
                 true,
             ),
-            (right, "Next locator", "Next locator (Ctrl+Right)", has_next),
+            (
+                right,
+                "Next locator",
+                "Next locator",
+                Command::NextLocator,
+                has_next,
+            ),
         ];
         painter_label(ui, rect, "Locators");
-        for (i, (r, name, tip, enabled)) in buttons.into_iter().enumerate() {
-            let response = ui
-                .interact(r, ui.id().with(("locator button", i)), Sense::click())
-                .on_hover_text(tip);
+        for (i, (r, name, tip, command, enabled)) in buttons.into_iter().enumerate() {
+            let response = ui.interact(r, ui.id().with(("locator button", i)), Sense::click());
+            let keys = self.keymap.keys(command);
+            let response = widgets::tip(response, tip, keys.as_ref(), None);
             response
                 .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
             let hover = motion::hover(ui.ctx(), response.id.with("hover"), response.hovered());

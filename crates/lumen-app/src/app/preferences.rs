@@ -9,6 +9,7 @@ use eframe::egui::{self, RichText};
 use lumen_core::product::PRODUCT_NAME;
 
 use crate::app::projects::Next;
+use crate::commands::Command;
 use crate::{App, fonts, motion, settings, theme};
 
 impl App {
@@ -20,18 +21,8 @@ impl App {
             RichText::new(PRODUCT_NAME).font(fonts::display(theme::size::WORDMARK)),
             |ui| {
                 let ctx = ui.ctx().clone();
-                if ui
-                    .add(egui::Button::new("New").shortcut_text("Ctrl+N"))
-                    .clicked()
-                {
-                    self.request(&ctx, Next::New);
-                }
-                if ui
-                    .add(egui::Button::new("Open\u{2026}").shortcut_text("Ctrl+O"))
-                    .clicked()
-                {
-                    self.request(&ctx, Next::Open(None));
-                }
+                self.menu_command(ui, Command::NewProject, "New");
+                self.menu_command(ui, Command::OpenProject, "Open\u{2026}");
                 let recent = self.settings.projects.recent.clone();
                 ui.add_enabled_ui(!recent.is_empty(), |ui| {
                     ui.menu_button("Open recent", |ui| {
@@ -46,18 +37,8 @@ impl App {
                         }
                     });
                 });
-                if ui
-                    .add(egui::Button::new("Save").shortcut_text("Ctrl+S"))
-                    .clicked()
-                {
-                    self.save(&ctx, false);
-                }
-                if ui
-                    .add(egui::Button::new("Save as\u{2026}").shortcut_text("Ctrl+Shift+S"))
-                    .clicked()
-                {
-                    self.save(&ctx, true);
-                }
+                self.menu_command(ui, Command::Save, "Save");
+                self.menu_command(ui, Command::SaveAs, "Save as\u{2026}");
                 ui.checkbox(
                     &mut self.settings.projects.copy_imported,
                     "Copy imported audio into the project",
@@ -71,24 +52,8 @@ impl App {
                 let redo = self.document.history().redo_label().map(str::to_owned);
                 let undo_text = undo.map_or("Undo".to_owned(), |l| format!("Undo {l}"));
                 let redo_text = redo.map_or("Redo".to_owned(), |l| format!("Redo {l}"));
-                if ui
-                    .add_enabled(
-                        self.document.history().can_undo(),
-                        egui::Button::new(undo_text).shortcut_text("Ctrl+Z"),
-                    )
-                    .clicked()
-                {
-                    self.undo(false);
-                }
-                if ui
-                    .add_enabled(
-                        self.document.history().can_redo(),
-                        egui::Button::new(redo_text).shortcut_text("Ctrl+Shift+Z"),
-                    )
-                    .clicked()
-                {
-                    self.undo(true);
-                }
+                self.menu_command(ui, Command::Undo, &undo_text);
+                self.menu_command(ui, Command::Redo, &redo_text);
                 if ui.button("History…").clicked() {
                     self.show_history = true;
                     ui.close();
@@ -115,10 +80,7 @@ impl App {
                     self.transport.settings_window.open = true;
                     ui.close();
                 }
-                if ui.button("Keyboard shortcuts…").clicked() {
-                    self.open_shortcuts();
-                    ui.close();
-                }
+                self.menu_command(ui, Command::OpenShortcuts, "Keyboard shortcuts\u{2026}");
             },
         );
         menu.response

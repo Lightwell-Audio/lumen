@@ -39,6 +39,9 @@ pub(crate) enum ViewStep {
     FitHeight,
     /// Select a track and scroll it into view.
     Reveal(lumen_project::model::Id),
+    /// Fit this span of the song to the width (zoom to selection, fit
+    /// loop).
+    Fit(Ticks, Ticks),
 }
 
 /// Where the arrangement looks, how it got there, and where it was.
@@ -148,6 +151,29 @@ impl App {
         true
     }
 
+    /// The view's commands, on the bar ruler's right-click menu: zooming,
+    /// fitting and Follow.
+    pub(crate) fn view_menu(&mut self, ui: &mut egui::Ui) {
+        use crate::commands::Command;
+        for (command, label) in [
+            (Command::ZoomIn, "Zoom in"),
+            (Command::ZoomOut, "Zoom out"),
+            (Command::ZoomBack, "Zoom back"),
+            (Command::ZoomToSelection, "Zoom to selection"),
+            (Command::FitWidth, "Fit song to width"),
+            (Command::FitLoop, "Fit loop"),
+            (Command::FitHeight, "Fit tracks to height"),
+        ] {
+            self.menu_command(ui, command, label);
+        }
+        ui.separator();
+        let following = self.transport.follow != Follow::Off && !self.transport.follow_paused;
+        let keys = self.keymap.keys(Command::ToggleFollow);
+        if crate::widgets::menu_toggle(ui, "Follow playhead", keys.as_ref(), following).clicked() {
+            self.transport.toggle_follow();
+        }
+    }
+
     /// How far the view may zoom and scroll: out to the song (as in
     /// Ableton), in to single samples at the tempo where the view is.
     fn zoom_limits(&self, width: f32) -> Limits {
@@ -241,14 +267,28 @@ impl App {
 
         let steps = std::mem::take(&mut self.nav.steps);
         for step in &steps {
-            if let ViewStep::Reveal(id) = *step {
-                self.arrangement.reveal(
+            match *step {
+                ViewStep::Reveal(id) => self.arrangement.reveal(
                     &ctx,
                     self.document.project(),
                     self.lanes.pending().len(),
                     id,
                     canvas.height(),
-                );
+                ),
+                ViewStep::Fit(start, end) => {
+                    self.nav.remember();
+                    let to = TimeView::fit(
+                        start.as_quarters(),
+                        end.as_quarters(),
+                        canvas.width(),
+                        limits,
+                    );
+                    self.nav.glide_to(to, None, now);
+                    // Looking around pauses Follow, as in Ableton.
+                    self.transport.follow_paused = true;
+                    ctx.request_repaint();
+                }
+                _ => {}
             }
         }
         let ran = |step| steps.contains(&step);

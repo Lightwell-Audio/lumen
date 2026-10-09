@@ -13,16 +13,24 @@ use super::{
     Arrangement, BUTTON, FOLD_BELOW, FOLDED, MAX_HEIGHT, RowKind, STEP, color_from, color_of,
     snap_height,
 };
+use crate::commands::{Command, Keymap};
 use crate::document::{Document, audible};
 use crate::icons::draw_type_icon;
 use crate::lanes::Lanes;
-use crate::widgets::{SliderKind, draw_arrow, draw_edge_glow, gradient, value_slider};
+use crate::widgets::{self, SliderKind, draw_arrow, draw_edge_glow, gradient, value_slider};
 use crate::{fonts, motion, theme};
 
 impl Arrangement {
     /// The header column in `column`, whose top is level with the lanes'
     /// top (below the ruler).
-    pub fn headers(&mut self, ui: &mut Ui, column: Rect, doc: &mut Document, lanes: &Lanes) {
+    pub fn headers(
+        &mut self,
+        ui: &mut Ui,
+        column: Rect,
+        doc: &mut Document,
+        lanes: &Lanes,
+        keymap: &Keymap,
+    ) {
         self.prune(doc.project());
         let ctx = ui.ctx().clone();
         let palette = *theme::p();
@@ -53,7 +61,7 @@ impl Arrangement {
             } else if empty.clicked() {
                 self.selected.clear();
             }
-            empty.context_menu(|ui| self.add_menu(ui, doc, None));
+            empty.context_menu(|ui| self.add_menu(ui, doc, None, keymap));
 
             // "+ Add track ▾": a menu of every track type with its shortcut,
             // and a hint that double-clicking here adds an audio track
@@ -108,7 +116,7 @@ impl Arrangement {
                     .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                     .show(|ui| {
                         ui.set_min_width(button.width());
-                        self.add_menu(ui, doc, self.selected.last().copied());
+                        self.add_menu(ui, doc, self.selected.last().copied(), keymap);
                     });
                 if button.bottom() + 22.0 < column.bottom() {
                     painter.text(
@@ -183,7 +191,7 @@ impl Arrangement {
                 if !self.selected.contains(&track.id) {
                     self.selected = vec![track.id];
                 }
-                self.track_menu(ui, doc, track.id);
+                self.track_menu(ui, doc, track.id, keymap);
             });
             let fill = if selected {
                 palette.selected_row
@@ -285,7 +293,18 @@ impl Arrangement {
                 pos2(rect.left() + 48.0, mid - 10.0),
                 pos2(mute_rect.left() - 6.0, mid + 10.0),
             );
-            self.name(ui, doc, &track, name_rect, heard, id);
+            // The name is on top of the header's background: it gets the
+            // same menu, so a right-click on it opens the track's menu too.
+            if let Some(name) = self.name(ui, doc, &track, name_rect, heard, id) {
+                let keys = keymap.keys(Command::Rename);
+                let name = widgets::tip(name, "Double-click to rename", keys.as_ref(), None);
+                name.context_menu(|ui| {
+                    if !self.selected.contains(&track.id) {
+                        self.selected = vec![track.id];
+                    }
+                    self.track_menu(ui, doc, track.id, keymap);
+                });
+            }
 
             let toggle =
                 |ui: &mut Ui, r: Rect, what: &str, label: &str, on: bool, on_fill: Color32| {
@@ -419,7 +438,8 @@ impl Arrangement {
     }
 
     /// The name, or the rename field. Double-click to rename; Enter or
-    /// clicking away keeps the new name, Esc cancels.
+    /// clicking away keeps the new name, Esc cancels. The name's response,
+    /// for its tooltip and menu.
     fn name(
         &mut self,
         ui: &mut Ui,
@@ -428,7 +448,7 @@ impl Arrangement {
         rect: Rect,
         heard: bool,
         id: EguiId,
-    ) {
+    ) -> Option<egui::Response> {
         let palette = theme::p();
         if let Some((renaming, text)) = &mut self.renaming
             && *renaming == track.id
@@ -451,11 +471,9 @@ impl Arrangement {
                 self.renaming = None;
                 doc.rename_track(track.id, &name);
             }
-            return;
+            return None;
         }
-        let response = ui
-            .interact(rect, id.with("name"), Sense::click())
-            .on_hover_text("Double-click to rename (F2)");
+        let response = ui.interact(rect, id.with("name"), Sense::click());
         response.widget_info(|| {
             egui::WidgetInfo::labeled(
                 egui::WidgetType::Button,
@@ -509,6 +527,7 @@ impl Arrangement {
                 palette.text_hint
             },
         );
+        Some(response)
     }
 
     /// Volume and pan, for an unfolded track. Double-click resets either.
@@ -562,56 +581,35 @@ impl Arrangement {
     }
 
     /// Right-click menu on a track.
-    fn track_menu(&mut self, ui: &mut Ui, doc: &mut Document, id: Id) {
+    fn track_menu(&mut self, ui: &mut Ui, doc: &mut Document, id: Id, keymap: &Keymap) {
         let targets = self.targets(id);
         let many = targets.len() > 1;
-        if ui
-            .add(egui::Button::new("Rename").shortcut_text("F2"))
-            .clicked()
+        let item = |ui: &mut Ui, label: &str, command: Command| {
+            widgets::menu_item(ui, label, keymap.keys(command).as_ref(), true).clicked()
+        };
+        if item(ui, "Rename", Command::Rename)
+            && let Some(track) = doc.project().tracks.iter().find(|t| t.id == id)
         {
-            if let Some(track) = doc.project().tracks.iter().find(|t| t.id == id) {
-                self.renaming = Some((id, track.name.clone()));
-            }
-            ui.close();
+            self.renaming = Some((id, track.name.clone()));
         }
-        if ui
-            .add(
-                egui::Button::new(if many {
-                    "Duplicate tracks"
-                } else {
-                    "Duplicate"
-                })
-                .shortcut_text("Ctrl+D"),
-            )
-            .clicked()
-        {
+        let duplicate = if many {
+            "Duplicate tracks"
+        } else {
+            "Duplicate"
+        };
+        if item(ui, duplicate, Command::Duplicate) {
             self.selected = doc.duplicate_tracks(&targets);
-            ui.close();
         }
-        if ui
-            .add(
-                egui::Button::new(if many { "Delete tracks" } else { "Delete" })
-                    .shortcut_text("Del"),
-            )
-            .clicked()
-        {
+        let delete = if many { "Delete tracks" } else { "Delete" };
+        if item(ui, delete, Command::Delete) {
             doc.delete_tracks(&targets);
             self.selected.clear();
-            ui.close();
         }
-        if ui
-            .add(egui::Button::new("Move up").shortcut_text("Alt+\u{2191}"))
-            .clicked()
-        {
+        if item(ui, "Move up", Command::MoveTracksUp) {
             self.move_selected(doc, -1);
-            ui.close();
         }
-        if ui
-            .add(egui::Button::new("Move down").shortcut_text("Alt+\u{2193}"))
-            .clicked()
-        {
+        if item(ui, "Move down", Command::MoveTracksDown) {
             self.move_selected(doc, 1);
-            ui.close();
         }
         if ui
             .button(if self.expanded.contains(&id) {
@@ -646,27 +644,28 @@ impl Arrangement {
             });
         });
         ui.separator();
-        self.add_menu(ui, doc, Some(id));
+        self.add_menu(ui, doc, Some(id), keymap);
     }
 
     /// "Add … track" entries, adding after `after`.
-    fn add_menu(&mut self, ui: &mut Ui, doc: &mut Document, after: Option<Id>) {
-        for (kind, text, keys) in [
-            (TrackKind::Audio, "Add audio track", "Ctrl+T"),
-            (TrackKind::Midi, "Add MIDI track", "Ctrl+Shift+T"),
-            (TrackKind::Group, "Add group track", ""),
-            (TrackKind::Return, "Add return track", ""),
+    fn add_menu(&mut self, ui: &mut Ui, doc: &mut Document, after: Option<Id>, keymap: &Keymap) {
+        for (kind, text, command) in [
+            (
+                TrackKind::Audio,
+                "Add audio track",
+                Some(Command::AddAudioTrack),
+            ),
+            (
+                TrackKind::Midi,
+                "Add MIDI track",
+                Some(Command::AddMidiTrack),
+            ),
+            (TrackKind::Group, "Add group track", None),
+            (TrackKind::Return, "Add return track", None),
         ] {
-            let button = egui::Button::new(text);
-            // No shortcut, no trailing space in the accessible name.
-            let button = if keys.is_empty() {
-                button
-            } else {
-                button.shortcut_text(keys)
-            };
-            if ui.add(button).clicked() {
+            let keys = command.and_then(|c| keymap.keys(c));
+            if widgets::menu_item(ui, text, keys.as_ref(), true).clicked() {
                 self.selected = vec![doc.add_track(kind, after)];
-                ui.close();
             }
         }
     }

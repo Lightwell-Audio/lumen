@@ -1100,8 +1100,7 @@ findings, both fixed:
 ### MT-APP-15 · Commands, the palette and shortcuts (needs a human)
 Run `cargo run --release -p lumen-app` with a project that has a few
 tracks with clips and a locator or two. Steps 1 to 7 cover 7a and 7b,
-steps 8 to 12 7c; menus, tooltips and the remaining keys are added with
-7d.
+steps 8 to 12 7c, steps 13 to 19 7d.
 1. **Keys as before:** Space, Shift+Space, Home, Ctrl+Z, Ctrl+Shift+Z,
    Ctrl+D, Delete, 0, Alt+Enter, Ctrl+T, Alt+Up, the arrows, `+`, `-`, X,
    W, H, Ctrl+1 to Ctrl+5, M and Ctrl+Left or Right all do what they did.
@@ -1138,6 +1137,28 @@ steps 8 to 12 7c; menus, tooltips and the remaining keys are added with
 11. **From the palette:** search a command, press Ctrl+Enter, press new
     keys: it changes there.
 12. Try steps 8 to 10 in the light theme and at 150%.
+13. **Menus and tooltips:** right-click a clip, a track (its name too) and
+    the bar ruler: every shortcut shows as keycaps at the right, with the
+    area's light. Hover Play, Stop and Follow: the tooltip shows the keys
+    and a hint. Change a shortcut (step 9): the menus and tooltips show
+    the new one.
+14. **The rulers' menus:** right-click the bar ruler: Zoom in, Zoom out,
+    Zoom back, Zoom to selection, Fit song to width, Fit loop, Fit tracks
+    to height and Follow playhead. Right-click the time ruler: the time
+    formats.
+15. **New keys:** select a clip and press Z: it fills the view; X goes
+    back. Ctrl+A selects every clip; Ctrl+L loops them (the brace and the
+    loop button light). Fit loop (palette or ruler menu) shows the loop.
+16. **Panes:** press F6: a blue ring goes round the arrangement; again:
+    the detail panel; again: the browser. Shift+F6 goes back. With a pane
+    ringed, Tab goes on to its controls.
+17. **Shift+Tab:** with nothing being typed, it hides and shows the
+    detail panel. While renaming a track (F2), it moves the cursor back
+    instead, and the panel stays.
+18. **Keys with a control focused:** press Tab until a button has a blue
+    ring: Ctrl+T still adds a track, and Space presses the button rather
+    than playing.
+19. Try steps 13 and 16 in the light theme and at 150%.
 
 **Expected:** every step as described.
 

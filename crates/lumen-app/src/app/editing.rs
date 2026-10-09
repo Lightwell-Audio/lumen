@@ -512,11 +512,10 @@ impl App {
                 }
                 let label = format!("Grid: {}", self.grid_label());
                 ui.menu_button(label, |ui| self.grid_menu(ui));
-                let snap = egui::Button::selectable(self.grid.snap, "Snap to grid")
-                    .shortcut_text("Ctrl+4");
-                if ui.add(snap).clicked() {
+                let keys = self.keymap.keys(Command::SnapToGrid);
+                if widgets::menu_toggle(ui, "Snap to grid", keys.as_ref(), self.grid.snap).clicked()
+                {
                     self.grid.snap = !self.grid.snap;
-                    ui.close();
                 }
             }
         }
@@ -531,11 +530,9 @@ impl App {
             }
             any = true;
             let run = command.command();
-            let button = egui::Button::new(run.name())
-                .shortcut_text(self.keymap.text(run).unwrap_or_default());
-            if ui.add(button).clicked() {
+            let keys = self.keymap.keys(run);
+            if widgets::menu_item(ui, run.name(), keys.as_ref(), true).clicked() {
                 self.edit(command);
-                ui.close();
             }
         }
         any

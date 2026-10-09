@@ -8,6 +8,9 @@
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Key, RichText, Ui};
+
+use crate::commands::{Command as Run, Keymap};
+use crate::widgets::Tip;
 use lumen_core::meter::{Meter, MeterMap};
 use lumen_core::time::{TempoMap, Ticks};
 use lumen_engine::{ClickSound, Command, MetronomeSettings, Region, Timeline, TransportSnapshot};
@@ -182,14 +185,18 @@ impl Transport {
         }
     }
 
-    fn follow_button(&mut self, ui: &mut egui::Ui) {
+    fn follow_button(&mut self, ui: &mut egui::Ui, keymap: &Keymap) {
         use crate::settings::Follow;
         let on = self.follow != Follow::Off;
+        let keys = keymap.keys(Run::ToggleFollow);
         let response = icons::button(
             ui,
             Icon::Follow,
             "Follow playhead",
-            Some("Ctrl+Shift+F; right-click for page or continuous"),
+            Tip {
+                keys: keys.as_ref(),
+                hint: Some("Right-click for page or continuous"),
+            },
             on && !self.follow_paused,
             true,
             "",
@@ -246,16 +253,20 @@ impl Transport {
         self.audio.poll()
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, doc: &mut crate::document::Document) {
+    pub fn ui(&mut self, ui: &mut Ui, doc: &mut crate::document::Document, keymap: &Keymap) {
         let state = self.state();
         let running = matches!(self.audio.status, Status::Running { .. });
         let no_audio = "No audio device is running";
+        let (start, play) = (keymap.keys(Run::GoToStart), keymap.keys(Run::PlayStop));
 
         if icons::button(
             ui,
             Icon::ToStart,
             "Go to start",
-            Some("Home"),
+            Tip {
+                keys: start.as_ref(),
+                hint: None,
+            },
             false,
             true,
             "",
@@ -268,7 +279,10 @@ impl Transport {
             ui,
             Icon::Stop,
             "Stop",
-            Some("Space. Stop twice to return to the start"),
+            Tip {
+                keys: play.as_ref(),
+                hint: Some("Stop twice to return to the start"),
+            },
             false,
             running,
             no_audio,
@@ -279,20 +293,26 @@ impl Transport {
         }
         // Play starts from the start marker, as Space does; while playing the
         // button stops in place. Shift+Space continues from the playhead.
-        let (icon, label, keys) = if state.playing {
-            (Icon::Pause, "Stop here", "Space")
+        let continues = keymap
+            .text(Run::PauseContinue)
+            .map(|k| format!("{k} continues from the playhead"));
+        let (icon, label, hint) = if state.playing {
+            (Icon::Pause, "Stop here", None)
         } else {
             (
                 Icon::Play,
                 "Play from the start marker",
-                "Space; Shift+Space continues from the playhead",
+                continues.as_deref(),
             )
         };
         if icons::button(
             ui,
             icon,
             label,
-            Some(keys),
+            Tip {
+                keys: play.as_ref(),
+                hint,
+            },
             state.playing,
             running,
             no_audio,
@@ -310,7 +330,7 @@ impl Transport {
             ui,
             Icon::Record,
             "Record",
-            Some("F9"),
+            Tip::default(),
             false,
             false,
             "Recording arrives in Milestone 9",
@@ -320,7 +340,10 @@ impl Transport {
             ui,
             Icon::Loop,
             "Loop",
-            Some("right-click for punch in and out"),
+            Tip {
+                keys: None,
+                hint: Some("Right-click for punch in and out"),
+            },
             looped.loop_enabled,
             true,
             "",
@@ -333,7 +356,10 @@ impl Transport {
             ui,
             Icon::Metronome,
             "Metronome",
-            Some("right-click for volume and sound"),
+            Tip {
+                keys: None,
+                hint: Some("Right-click for volume and sound"),
+            },
             self.metronome.enabled,
             true,
             "",
@@ -342,7 +368,7 @@ impl Transport {
             self.metronome.enabled = !self.metronome.enabled;
             self.send(Command::SetMetronome(self.metronome));
         }
-        self.follow_button(ui);
+        self.follow_button(ui, keymap);
         metronome.context_menu(|ui| {
             let mut changed = false;
             ui.label("Metronome volume");

@@ -422,8 +422,9 @@ fn load(library: &Library, id: u64) -> Load<impl FnOnce(Ticks, DropInto) -> Impo
     }
 }
 
-/// The hover card for a clip's file.
-pub fn file_card(ui: &mut egui::Ui, item: &Item) {
+/// The hover card for a clip's file; `properties` is the properties
+/// card's shortcut, if it has one.
+pub fn file_card(ui: &mut egui::Ui, item: &Item, properties: Option<&str>) {
     ui.label(RichText::new(&item.name).strong());
     file_facts(ui, item);
     // Every gesture on a clip, so none stays hidden (owner, after 6c: slip
@@ -438,12 +439,15 @@ pub fn file_card(ui: &mut egui::Ui, item: &Item) {
     ] {
         ui.label(RichText::new(line).small().weak());
     }
-    // The way into the properties card (slice 6e, the owner's P1).
-    ui.label(
-        RichText::new("Alt+Enter: edit its properties")
-            .small()
-            .color(theme::p().accent),
-    );
+    // The way into the properties card (slice 6e, the owner's P1), with
+    // its shortcut as the keymap has it.
+    if let Some(keys) = properties {
+        ui.label(
+            RichText::new(format!("{keys}: edit its properties"))
+                .small()
+                .color(theme::p().accent),
+        );
+    }
 }
 
 /// What a clip's file is: format, rate, channels, length, size, any

@@ -82,9 +82,9 @@ fn every_command_can_be_found_and_run_from_the_palette() {
         } else {
             assert!(lumen.app().palette_open(), "{name} cannot run: stays open");
         }
-        if lumen.app().palette_open() {
-            lumen.key(Modifiers::NONE, Key::Escape);
-        }
+        // Esc closes the palette, or cancels what the command opened (a
+        // rename field takes the next keys otherwise).
+        lumen.key(Modifiers::NONE, Key::Escape);
     }
 }
 

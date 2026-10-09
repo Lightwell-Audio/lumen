@@ -197,12 +197,12 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
 
 /// A transport-bar button showing `icon`. `active` marks a toggle that is on
 /// (or Play while playing). The accessible name is `label`; the tooltip adds
-/// the shortcut.
+/// the shortcut as keycaps and a hint (`tip`).
 pub fn button(
     ui: &mut Ui,
     icon: Icon,
     label: &str,
-    shortcut: Option<&str>,
+    tip: crate::widgets::Tip<'_>,
     active: bool,
     enabled: bool,
     disabled_reason: &str,
@@ -266,15 +266,12 @@ pub fn button(
             });
         }
     }
-    let tip = match shortcut {
-        Some(keys) => format!("{label} ({keys})"),
-        None => label.to_owned(),
-    };
-    if enabled {
-        response.on_hover_text(tip)
+    let label = if enabled {
+        label.to_owned()
     } else {
-        response.on_disabled_hover_text(format!("{tip}. {disabled_reason}"))
-    }
+        format!("{label}. {disabled_reason}")
+    };
+    crate::widgets::tip(response, &label, tip.keys, tip.hint)
 }
 
 /// The close button's size.

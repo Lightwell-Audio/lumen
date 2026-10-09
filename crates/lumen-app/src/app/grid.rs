@@ -6,8 +6,9 @@ use eframe::egui::{self, Align2, FontId, Rect, Sense, Stroke, pos2};
 use lumen_core::grid::{Feel, Size, Step, Width};
 use lumen_core::time::Ticks;
 
+use crate::commands::Command;
 use crate::icons::{self, Icon};
-use crate::{App, motion, ruler, theme};
+use crate::{App, motion, ruler, theme, widgets};
 
 impl App {
     /// `t` snapped to the grid at the current zoom, unless `free` (Alt held)
@@ -40,29 +41,27 @@ impl App {
 
     /// The grid menu: adaptive widths, fixed sizes, triplet, dotted, snap.
     pub(crate) fn grid_menu(&mut self, ui: &mut egui::Ui) {
+        let keys = |command| self.keymap.keys(command);
+        let (narrower, wider, triplet, snap, fixed) = (
+            keys(Command::GridNarrower),
+            keys(Command::GridWider),
+            keys(Command::TripletGrid),
+            keys(Command::SnapToGrid),
+            self.keymap.text(Command::FixedGrid),
+        );
         let grid = &mut self.grid;
-        let item = |ui: &mut egui::Ui, on: bool, text: String, keys: &str| {
-            let button = egui::Button::selectable(on, text);
-            let button = if keys.is_empty() {
-                button
-            } else {
-                button.shortcut_text(keys)
-            };
-            ui.add(button).clicked()
+        let item = |ui: &mut egui::Ui, on: bool, text: &str, keys: Option<&widgets::Keys>| {
+            widgets::menu_toggle(ui, text, keys, on).clicked()
         };
         ui.label(egui::RichText::new("Adaptive grid").weak().small());
+        if widgets::menu_toggle(ui, "Narrower", narrower.as_ref(), false).clicked() {
+            grid.narrower();
+        }
+        if widgets::menu_toggle(ui, "Wider", wider.as_ref(), false).clicked() {
+            grid.wider();
+        }
         for width in Width::all() {
-            let keys = match width {
-                Width::Narrowest => "Ctrl+1 narrower",
-                Width::Widest => "Ctrl+2 wider",
-                _ => "",
-            };
-            if item(
-                ui,
-                !grid.fixed && grid.width == width,
-                width.name().into(),
-                keys,
-            ) {
+            if item(ui, !grid.fixed && grid.width == width, width.name(), None) {
                 grid.fixed = false;
                 grid.width = width;
             }
@@ -70,27 +69,28 @@ impl App {
         ui.separator();
         ui.label(egui::RichText::new("Fixed grid").weak().small());
         for size in Size::all() {
-            if item(ui, grid.fixed && grid.size == size, size.name(), "") {
+            if item(ui, grid.fixed && grid.size == size, &size.name(), None) {
                 grid.fixed = true;
                 grid.size = size;
             }
         }
         ui.separator();
-        if item(ui, grid.feel == Feel::Triplet, "Triplet".into(), "Ctrl+3") {
+        if item(ui, grid.feel == Feel::Triplet, "Triplet", triplet.as_ref()) {
             grid.toggle_triplet();
         }
-        if item(ui, grid.feel == Feel::Dotted, "Dotted".into(), "") {
+        if item(ui, grid.feel == Feel::Dotted, "Dotted", None) {
             grid.feel = if grid.feel == Feel::Dotted {
                 Feel::Straight
             } else {
                 Feel::Dotted
             };
         }
-        if item(ui, grid.snap, "Snap to grid".into(), "Ctrl+4") {
+        if item(ui, grid.snap, "Snap to grid", snap.as_ref()) {
             grid.snap = !grid.snap;
         }
+        let fixed = fixed.map_or_else(String::new, |k| format!("; {k} fixed or adaptive"));
         ui.label(
-            egui::RichText::new("Hold Alt to place freely; Ctrl+5 fixed or adaptive")
+            egui::RichText::new(format!("Hold Alt to place freely{fixed}"))
                 .weak()
                 .small(),
         );
@@ -100,11 +100,14 @@ impl App {
     /// grid menu on click.
     pub(crate) fn grid_button(&mut self, ui: &mut egui::Ui, rect: Rect) {
         let label = self.grid_label();
-        let response = ui
-            .interact(rect, ui.id().with("grid button"), Sense::click())
-            .on_hover_text(
-                "Grid and snapping: the magnet is lit while snapping is on (Ctrl+4). \n                 Ctrl+1 to Ctrl+5; right-click the lanes too",
-            );
+        let response = ui.interact(rect, ui.id().with("grid button"), Sense::click());
+        let keys = self.keymap.keys(Command::SnapToGrid);
+        let response = widgets::tip(
+            response,
+            "Grid and snapping",
+            keys.as_ref(),
+            Some("The magnet is lit while snapping is on. Right-click the lanes for the grid too"),
+        );
         response.widget_info(|| {
             let snap = if self.grid.snap { "" } else { ", snap off" };
             egui::WidgetInfo::labeled(
@@ -158,13 +161,23 @@ impl App {
         // menu, which keeps "Snap to grid" too.
         let target =
             Rect::from_center_size(magnet.center(), egui::vec2(side + 8.0, rect.height() - 4.0));
-        let switch = ui
-            .interact(target, ui.id().with("snap switch"), Sense::click())
-            .on_hover_text(if self.grid.snap {
-                "Snapping is on: click to turn it off (Ctrl+4; hold Alt to place freely)"
-            } else {
-                "Snapping is off: click to turn it on (Ctrl+4)"
-            });
+        let switch = ui.interact(target, ui.id().with("snap switch"), Sense::click());
+        let keys = self.keymap.keys(Command::SnapToGrid);
+        let switch = if self.grid.snap {
+            widgets::tip(
+                switch,
+                "Snapping is on: click to turn it off",
+                keys.as_ref(),
+                Some("Hold Alt to place freely"),
+            )
+        } else {
+            widgets::tip(
+                switch,
+                "Snapping is off: click to turn it on",
+                keys.as_ref(),
+                None,
+            )
+        };
         let snap = self.grid.snap;
         switch.widget_info(|| {
             egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, snap, "Snap to grid")

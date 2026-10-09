@@ -390,11 +390,10 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-08: M3 slice 6 done (MT-APP-14 passed in
-run 4, after fixes for title rows and drops between tracks on Windows).
-Slice 7 (command palette, shortcuts, context menus) is next. The owner's
-drag-to-cut request is recorded for M7 with split (the M3 plan, out of
-scope).
+**Last updated:** 2026-10-08: M3 slice 7 built (7a to 7d: the command
+registry, the palette, remapping, menus and keys; ADR-0033); MT-APP-15
+(steps 1 to 19) is next. The owner's drag-to-cut request is recorded for
+M7 with split (the M3 plan, out of scope).
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
@@ -467,11 +466,32 @@ scope).
     (`widgets::title_row`), and drops between tracks work on Windows,
     where egui gets no pointer during a drag from Explorer (Lumen reads
     the system's cursor; ADR-0032). MT-APP-14 passed in run 4.
-    **Slice 6 is done** (2026-10-08). Next: slice 7.
+    **Slice 6 is done** (2026-10-08).
+  - **Slice 7 built** (ADR-0033; owner's P2 palette with P3's values, K5
+    area-light keycaps, E2 keyboard map with E3 rebinding in the palette,
+    Shift+Tab by focus):
+    - 7a: every key is a `Command` in one table (`commands/`: id, name,
+      area, chords, about) run by one dispatcher (`app/commands.rs`);
+      chords match modifiers exactly; a key acting on the selection is
+      one command (Delete, Duplicate, Rename, Deselect);
+    - 7b: the palette (Ctrl+K, the transport's magnifier;
+      `app/palette.rs`);
+    - 7c: the Keyboard shortcuts window and recording (`app/shortcuts.rs`),
+      changed shortcuts and recent commands saved in the settings'
+      `commands` section (an added field, no version change);
+    - 7d: menus and tooltips from the keymap (`widgets::menu_item`,
+      `menu_toggle`, `tip`), ruler and track-name menus, Z, Ctrl+A,
+      Ctrl+L, Fit loop, F6 panes (`app/panes.rs`), Shift+Tab by focus.
+    Next: MT-APP-15 (steps 1 to 19), then slice 8.
   - Esc after typing belongs to the text field (`App::typing`): egui
     drops a field's focus on Esc before the app's keys run, so key
-    handlers must check `self.typing` as well as
-    `egui_wants_keyboard_input()` (ADR-0032).
+    handlers must check `self.typing` as well as `text_edit_focused()`
+    (ADR-0032). Never use `egui_wants_keyboard_input()` for that: it is
+    true for any focused widget, and stopped every shortcut once a button
+    was reached with Tab (ADR-0033).
+  - New keys are commands: a row in `commands::ALL` (in its area's place)
+    plus arms in `availability` and `run`; menus and tooltips get their
+    keycaps from the keymap, never from written text.
   - Moved, trimmed or deleted clips crossfade over 5 ms while playing
     (owner: dragging a playing clip crackled); E2E scenarios can listen
     to the test device (`app.heard()`).
@@ -484,7 +504,7 @@ scope).
 - Where to look:
   - `docs/PROGRESS.md`: every requirement's status, slice tables and the
     milestone reports;
-  - `docs/DECISIONS.md`: ADR-0001 to ADR-0032, plus the table of owner
+  - `docs/DECISIONS.md`: ADR-0001 to ADR-0033, plus the table of owner
     decisions;
   - `docs/MANUAL_TESTS.md`: hardware tests with every run's results;
   - `docs/KNOWN_ISSUES.md`: problems found and not fixed yet, and where

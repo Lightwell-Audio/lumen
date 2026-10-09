@@ -422,6 +422,64 @@ fn keyboard_shortcuts_looking(appearance: &str, scale: f32) {
     h.run_steps(3);
 }
 
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn menus_and_tips() {
+    for (appearance, scale) in [("dark", 1.0), ("light", 1.5)] {
+        menus_and_tips_looking(appearance, scale);
+    }
+}
+
+fn menus_and_tips_looking(appearance: &str, scale: f32) {
+    use egui_kittest::kittest::Queryable;
+    let dir = TempDir::new("shots-menus");
+    let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1280.0, 720.0));
+    let save = |h: &mut Harness<'static, App>, name: &str| {
+        save(
+            h,
+            &format!("{name}-{appearance}-{}", (scale * 100.0) as u32),
+        );
+    };
+    let right = |h: &mut Harness<'static, App>, p: Pos2| {
+        h.hover_at(p);
+        h.run_steps(1);
+        for pressed in [true, false] {
+            h.event(Event::PointerButton {
+                pos: p,
+                button: eframe::egui::PointerButton::Secondary,
+                pressed,
+                modifiers: Modifiers::NONE,
+            });
+            h.run_steps(1);
+        }
+        h.run_steps(3);
+    };
+    // A clip's menu.
+    let a = clip(&h, 0);
+    click(&mut h, pos(a, 0.5, 0.3));
+    right(&mut h, pos(a, 0.5, 0.3));
+    save(&mut h, "menu-clip");
+    h.key_press(Key::Escape);
+    h.run_steps(3);
+    // The ruler's view menu.
+    let ruler = h.get_by_label("Ruler: click to move the playhead").rect();
+    right(&mut h, ruler.center());
+    save(&mut h, "menu-ruler");
+    h.key_press(Key::Escape);
+    h.run_steps(3);
+    // A track's menu.
+    let header = h.get_by_label("kick: double-click to rename").rect();
+    right(&mut h, header.center());
+    save(&mut h, "menu-track");
+    h.key_press(Key::Escape);
+    h.run_steps(3);
+    // A transport tooltip.
+    let play = h.get_by_label("Play from the start marker").rect();
+    h.hover_at(play.center());
+    h.run_steps(60);
+    save(&mut h, "tip-play");
+}
+
 /// A left click at `p`.
 fn click(h: &mut Harness<'static, App>, p: Pos2) {
     h.hover_at(p);
