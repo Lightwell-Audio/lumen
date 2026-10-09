@@ -436,7 +436,7 @@ impl Arrangement {
             );
             return;
         }
-        let order = self.sender_order(ui, ret.id, &senders);
+        let order = self.sender_order(ret.id, &senders);
         let heard = lumen_project::solo::hearing(&project);
         let mut active = false;
         for (n, sender) in order.iter().take(RETURN_ROWS).enumerate() {
@@ -459,27 +459,25 @@ impl Arrangement {
         }
     }
 
-    /// The senders of return `id` in the order its list shows them: loudest
-    /// first, re-sorted only while no button is held, so a row never jumps
-    /// from under the pointer.
-    fn sender_order<'p>(&mut self, ui: &Ui, id: Id, senders: &[&'p Track]) -> Vec<&'p Track> {
-        let held = ui.input(|i| i.pointer.any_down());
+    /// The senders of return `id` in the order its list shows them:
+    /// loudest first when a sender joins or leaves (or the list is first
+    /// drawn), and otherwise kept as it was. Changing a level never moves a
+    /// row: with two senders of the same name (a duplicated track), a
+    /// re-sort after each change swapped them, and setting one seemed to
+    /// change the other (owner, MT-MIX-4 run 4).
+    fn sender_order<'p>(&mut self, id: Id, senders: &[&'p Track]) -> Vec<&'p Track> {
         let known = self.sender_order.entry(id).or_default();
-        if !held {
+        let same_set =
+            known.len() == senders.len() && senders.iter().all(|t| known.contains(&t.id));
+        if !same_set {
             let mut sorted: Vec<&Track> = senders.to_vec();
             sorted.sort_by(|a, b| level_into(b, id).total_cmp(&level_into(a, id)));
             *known = sorted.iter().map(|t| t.id).collect();
         }
-        let mut order: Vec<&Track> = known
+        known
             .iter()
             .filter_map(|k| senders.iter().find(|t| t.id == *k).copied())
-            .collect();
-        for sender in senders {
-            if !order.iter().any(|t| t.id == sender.id) {
-                order.push(sender);
-            }
-        }
-        order
+            .collect()
     }
 
     /// One sender's row: a bar in its colour, its name, its knob and level.

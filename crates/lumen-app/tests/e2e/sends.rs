@@ -6,7 +6,7 @@
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers, vec2};
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use lumen_core::time::Ticks;
 use lumen_project::model::TrackKind;
 
@@ -352,5 +352,229 @@ fn a_send_turned_off_leaves_the_returns_list_when_let_go() {
     assert!(
         lumen.harness.query_by_label_contains(&into).is_none(),
         "let go: gone"
+    );
+}
+
+#[test]
+fn a_duplicated_tracks_send_is_its_own() {
+    // MT-MIX-4 (owner): changing a send on a duplicated track changed the
+    // original's too.
+    let (mut lumen, track) = with_a_return("send-duplicate");
+    type_into(&mut lumen, &format!("Send {track} to A Return 1"), "-6");
+    lumen
+        .harness
+        .get_by_label_contains(&format!("Track {track},"))
+        .click();
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.key(Modifiers::NONE, Key::ArrowUp);
+    while lumen.app().selected_tracks().first() != Some(&lumen.app().project().tracks[0].id) {
+        lumen.key(Modifiers::NONE, Key::ArrowUp);
+    }
+    lumen.key(Modifiers::COMMAND, Key::D);
+    lumen.frames(30);
+    let tracks = &lumen.app().project().tracks;
+    let (original, copy) = (tracks[0].clone(), tracks[1].clone());
+    assert_ne!(original.id, copy.id);
+    eprintln!(
+        "original {} {:?}\ncopy {} {:?}",
+        original.name, original.sends, copy.name, copy.sends
+    );
+    // The copy is unfolded too: set its send.
+    let copy_label = format!("Send {} to A Return 1", copy.name);
+
+    // Unfold the copy (the lower of the two "Fold tone" arrows).
+    let folds: Vec<_> = lumen
+        .harness
+        .query_all_by_label(&format!("Fold {}", copy.name))
+        .map(|n| n.rect())
+        .collect();
+    let lower = *folds
+        .iter()
+        .max_by(|a, b| a.top().total_cmp(&b.top()))
+        .unwrap();
+    lumen.harness.hover_at(lower.center());
+    lumen.frames(1);
+    for pressed in [true, false] {
+        lumen.harness.event(eframe::egui::Event::PointerButton {
+            pos: lower.center(),
+            button: eframe::egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+    }
+    lumen.frames(40);
+    let knobs: Vec<_> = lumen
+        .harness
+        .query_all_by_label_contains(&copy_label)
+        .map(|n| n.rect())
+        .collect();
+    eprintln!("knobs {knobs:?}");
+    let second = *knobs
+        .iter()
+        .max_by(|a, b| a.top().total_cmp(&b.top()))
+        .unwrap();
+    lumen.harness.hover_at(second.center());
+    lumen.frames(1);
+    lumen.harness.event(eframe::egui::Event::PointerButton {
+        pos: second.center(),
+        button: eframe::egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    lumen.harness.event(eframe::egui::Event::PointerButton {
+        pos: second.center(),
+        button: eframe::egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    lumen.frames(2);
+    lumen.harness.event(eframe::egui::Event::Text("-20".into()));
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.frames(2);
+    let tracks = &lumen.app().project().tracks;
+    let level = |t: &lumen_project::model::Track| t.sends.first().map(|s| s.level.0);
+    eprintln!(
+        "after: original {:?} copy {:?}",
+        level(&tracks[0]),
+        level(&tracks[1])
+    );
+    assert_eq!(level(&tracks[0]), Some(-6.0), "the original keeps its send");
+    assert_eq!(level(&tracks[1]), Some(-20.0));
+}
+
+#[test]
+fn a_duplicated_tracks_send_is_heard_as_its_own() {
+    // MT-MIX-4 (owner): a send change on one of two duplicated tracks was
+    // heard on the other.
+    let (mut lumen, track) = with_a_return("send-duplicate-heard");
+    type_into(&mut lumen, &format!("Send {track} to A Return 1"), "0");
+    lumen.key(Modifiers::NONE, Key::Escape);
+    while lumen.app().selected_tracks().first() != Some(&lumen.app().project().tracks[0].id) {
+        lumen.key(Modifiers::NONE, Key::ArrowUp);
+    }
+    lumen.key(Modifiers::COMMAND, Key::D);
+    lumen.frames(30);
+    lumen.click("Solo Return 1");
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
+    let loudest = |lumen: &mut Lumen| {
+        std::thread::sleep(Duration::from_millis(200));
+        lumen.frames(1);
+        lumen.app_mut().heard();
+        std::thread::sleep(Duration::from_millis(200));
+        lumen.frames(1);
+        let heard = lumen.app_mut().heard();
+        heard.iter().fold(0.0f32, |m, s| m.max(s.0.abs()))
+    };
+    let both = loudest(&mut lumen);
+    // Silence the copy's send only (the lower knob, by double-click).
+    let copy = lumen.app().project().tracks[1].id;
+    let copy_name = lumen.app().project().tracks[1].name.clone();
+    let folds: Vec<_> = lumen
+        .harness
+        .query_all_by_label(&format!("Fold {copy_name}"))
+        .map(|n| n.rect())
+        .collect();
+    let lower = *folds
+        .iter()
+        .max_by(|a, b| a.top().total_cmp(&b.top()))
+        .unwrap();
+    lumen.harness.hover_at(lower.center());
+    lumen.frames(1);
+    for pressed in [true, false] {
+        lumen.harness.event(eframe::egui::Event::PointerButton {
+            pos: lower.center(),
+            button: eframe::egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+    }
+    lumen.frames(40);
+    let knobs: Vec<_> = lumen
+        .harness
+        .query_all_by_label_contains(&format!("Send {copy_name} to A Return 1"))
+        .map(|n| n.rect())
+        .collect();
+    let knob = *knobs
+        .iter()
+        .max_by(|a, b| a.top().total_cmp(&b.top()))
+        .unwrap();
+    lumen.double_click(knob.center());
+    let tracks = &lumen.app().project().tracks;
+    let level = |i: usize| tracks[i].sends.first().map(|s| s.level.0);
+    assert_eq!((level(0), level(1)), (Some(0.0), Some(f32::NEG_INFINITY)));
+    assert_eq!(tracks[1].id, copy);
+    let one = loudest(&mut lumen);
+    eprintln!("both {both}, one {one}");
+    assert!(
+        (one - both / 2.0).abs() < both * 0.05,
+        "both {both}, one {one}"
+    );
+    lumen.key(Modifiers::NONE, Key::Space);
+}
+
+#[test]
+fn turning_a_sender_down_in_a_returns_list_leaves_the_rows_in_place() {
+    // MT-MIX-4 run 4 (owner): with a duplicated track, setting one sender
+    // seemed to change the other: the list re-sorted by level and the two
+    // rows, of the same name, swapped places.
+    let (mut lumen, track) = with_a_return("send-rows-stay");
+    type_into(&mut lumen, &format!("Send {track} to A Return 1"), "-13");
+    lumen.key(Modifiers::NONE, Key::Escape);
+    while lumen.app().selected_tracks().first() != Some(&lumen.app().project().tracks[0].id) {
+        lumen.key(Modifiers::NONE, Key::ArrowUp);
+    }
+    lumen.key(Modifiers::COMMAND, Key::D);
+    lumen.click("Fold Return 1");
+    lumen.frames(40);
+    let rows = |lumen: &Lumen| -> Vec<(f32, String)> {
+        let mut rows: Vec<(f32, String)> = lumen
+            .harness
+            .query_all_by_label_contains("into A Return 1:")
+            .map(|n| {
+                (
+                    n.rect().top(),
+                    n.accesskit_node().label().unwrap_or_default(),
+                )
+            })
+            .collect();
+        rows.sort_by(|a, b| a.0.total_cmp(&b.0));
+        rows
+    };
+    let before = rows(&lumen);
+    assert_eq!(before.len(), 2);
+    // Type a lower level into the top row.
+    let top = before[0].0;
+    let knob = lumen
+        .harness
+        .query_all_by_label_contains("into A Return 1:")
+        .find(|n| n.rect().top() == top)
+        .unwrap()
+        .rect();
+    lumen.harness.hover_at(knob.center());
+    lumen.frames(1);
+    for pressed in [true, false] {
+        lumen.harness.event(eframe::egui::Event::PointerButton {
+            pos: knob.center(),
+            button: eframe::egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+    }
+    lumen.frames(2);
+    lumen.harness.event(eframe::egui::Event::Text("-30".into()));
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.frames(10);
+    let after = rows(&lumen);
+    assert!(
+        after[0].1.contains("30"),
+        "the top row is the one changed: {after:?}"
+    );
+    assert!(
+        after[1].1.contains("13"),
+        "the other is untouched: {after:?}"
     );
 }

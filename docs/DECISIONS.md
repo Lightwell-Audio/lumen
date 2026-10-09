@@ -3007,3 +3007,10 @@ fader and mute, the metronome on the cue pair).
   over the row's own level column.
 - The "+N ▾" and "+N more ▾" lists scroll past ten rows (`LIST_ROWS`).
 
+### Amendment 4: MT-MIX-4 run 4 (2026-10-09)
+- A return's senders are ordered loudest first only when a sender joins
+  or leaves; level changes never move a row (`sender_order`). Re-sorting
+  after each change swapped two senders of the same name (a duplicated
+  track), so one seemed to change the other. Identity was already by id
+  throughout; E2E checks a duplicate's send in the project and by ear.
+

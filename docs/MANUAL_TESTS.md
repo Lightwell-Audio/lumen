@@ -1463,3 +1463,13 @@ knob: it is now a chip above the knob, over everything (`draw_hint` on a
 tooltip layer). (3) "+N more" with many senders ran off the window: both
 "+N" lists scroll past ten rows.
 
+**Run 4 (2026-10-09, owner):** after duplicating a track, setting one's
+send seemed to change the other's. Sends and their knobs were already
+keyed by track and return ids (E2E: the copy's send is its own in the
+project and by ear). The cause was the return's list re-sorting by level
+after each change: the two senders, both named after the original,
+swapped rows, so the row just set showed the other track. The list now
+re-sorts only when a sender joins or leaves (E2E
+`turning_a_sender_down_in_a_returns_list_leaves_the_rows_in_place`
+failed before the fix).
+
