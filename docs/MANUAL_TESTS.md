@@ -1251,10 +1251,16 @@ continuous is best), on headphones.
 5. **Adding and removing:** while playing, drop a new file onto the
    arrangement (a new track): it comes in without a pop. Delete a playing
    track, then undo: it goes and comes back without a click.
-6. **Buffer sizes:** in Audio settings, try 64, 128 and 512 samples while
-   playing all tracks: no dropouts (the counter stays put), and CPU in
-   the transport bar is about what it was before M4.
+6. **Buffer sizes:** in Audio settings, and in the Focusrite's own
+   control panel, try 64, 128 and 512 samples while playing all tracks:
+   no amber "Dropouts" chip appears for the changes themselves, and CPU
+   in the transport bar is about what it was before M4.
 7. **Loop and locate:** loop two bars over all tracks and click around
    the ruler while playing: seamless loop, click-free jumps, as before.
+8. **Dropouts in words:** make the audio drop out on purpose (32 samples
+   with all tracks playing, or a heavy app starting): "⚠ Dropouts ×N"
+   appears after the CPU readout and fades about 10 s after the audio is
+   clean again. Click it: the audio panel says how many in the last
+   minute and since audio started, and what helps. Reset clears it.
 
 **Expected:** every step as described.

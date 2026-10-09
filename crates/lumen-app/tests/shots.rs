@@ -598,3 +598,19 @@ fn info_line() {
         save(&mut h, &name("clip-end"));
     }
 }
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn dropouts() {
+    use egui_kittest::kittest::Queryable;
+    for (appearance, scale) in [("dark", 1.0), ("light", 1.5), ("dark", 2.0)] {
+        let dir = TempDir::new("shot-dropouts");
+        let mut h = lumen_looking(&dir, appearance, scale);
+        h.state_mut().cause_dropouts(3);
+        h.run_steps(30);
+        save(&mut h, &format!("dropouts-chip-{appearance}-{scale}"));
+        h.get_by_label("Audio: Dropouts ×3").click();
+        h.run_steps(10);
+        save(&mut h, &format!("dropouts-panel-{appearance}-{scale}"));
+    }
+}

@@ -191,6 +191,16 @@ pub fn text_on(fill: Color32) -> Color32 {
     }
 }
 
+/// A warning chip's fill and edge (the dropout chip): the warning colour
+/// washed over the bar, so its amber text keeps its contrast.
+pub fn warning_fill() -> Color32 {
+    p().warning.gamma_multiply(0.14)
+}
+
+pub fn warning_edge() -> Color32 {
+    p().warning.gamma_multiply(0.45)
+}
+
 /// Text on light fills: the dark theme's `app` colour, a little deeper.
 pub const TEXT_ON_LIGHT: Color32 = Color32::from_rgb(0x0B, 0x0D, 0x10);
 

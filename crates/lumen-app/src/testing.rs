@@ -123,6 +123,13 @@ impl App {
         self.transport.playhead()
     }
 
+    /// The test device drops `n` buffers, as a real one does under load.
+    pub fn cause_dropouts(&mut self, n: u64) {
+        if let Some(meters) = self.transport.audio.meters() {
+            meters.count_dropouts(n);
+        }
+    }
+
     /// What the test device has played since the last call, as (left,
     /// right) frames: the audio a user would hear.
     pub fn heard(&mut self) -> Vec<(f32, f32)> {

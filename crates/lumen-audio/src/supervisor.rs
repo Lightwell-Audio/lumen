@@ -93,6 +93,11 @@ impl Status {
     pub fn dropouts(&self) -> u64 {
         self.dropouts.load(Ordering::Relaxed)
     }
+    /// Counts `n` dropouts as the device would: for tests of what shows
+    /// them, on devices that cannot be made to drop out on cue.
+    pub fn count_dropouts(&self, n: u64) {
+        self.dropouts.fetch_add(n, Ordering::Relaxed);
+    }
     /// Zeroes the dropout and overload counters (the user's "reset").
     pub fn reset_counters(&self) {
         self.dropouts.store(0, Ordering::Relaxed);

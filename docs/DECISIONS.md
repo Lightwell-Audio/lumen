@@ -90,6 +90,7 @@ irreversible or external) · *Superseded*.
 | Clips from the keyboard (M3 review H2, 2026-10-08) | **The arrows follow the selection**, as in Logic and Cubase: with a clip selected ←/→ select the previous or next clip on its track and ↑/↓ the nearest clip on the track above or below, Shift adds; with tracks selected the arrows act on tracks as before (over Alt+←/→ only, and [ and ]). ADR-0033. |
 | M3 close (2026-10-09) | M3 approved after MT-APP-16 passed. The M4 plan (`docs/milestones/M4.md`) waits for approval and its three questions. |
 | M4 plan (2026-10-09) | Approved. **Solo: Ableton's by default** (a click solos only that track, Ctrl+click adds). **The UX pass on hints runs first**, as M4 slice 0. Pan law −3 dB constant power by default (the proposal, recorded as an assumption). |
+| Dropouts (2026-10-09) | Chosen from mockups: **A, recent and in words**: no chip while audio is healthy, "Dropouts ×3" in amber while they happen, fading after 10 s of clean audio, details in the audio panel; over B (a labelled total until reset) and C (an amber status dot). Driver resets no longer count (ADR-0020 update). |
 | Mixer behaviour (M4 slice 1, 2026-10-09) | Asked after the graph was built (the owner: variants first, before building): **centre −3 dB** (a hard-panned side at unity; projects from M3 play 3 dB quieter) over centre unity with +3 dB sides; **balance** panning of stereo tracks over a true stereo pan; **mute silences every send**, pre-fader ones too (Ableton) over pre-fader sends playing on (Pro Tools, Cubase); **post-fader sends after the pan** over before it. All four as built (ADR-0035). |
 | Hints (M4 slice 0, 2026-10-09) | Chosen from interactive specimens: **an info line** along the bottom of the window (C, Ableton's Info View in spirit) over quiet chips (A) and rest-to-reveal (B), **with the K5 keycaps** the palette and menus use (the owner's addition, for consistency), **no chips for held keys** (the cursor and the lit action say it), full width (ADR-0034). |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
@@ -1240,6 +1241,28 @@ is unchanged. Cost: `engine_transport` +2.4% instructions (about 136 per
 128-frame block; the scenario is mostly click synthesis), an intended
 change; the baseline was updated. Lengthening clicks to 80 ms instead
 cost +57% and was rejected.
+
+### Update 2026-10-09: dropouts told in words, and resets not counted
+The owner saw a bare amber number ("⚠ 72") climb while changing the
+Focusrite's buffer size, and it meant nothing without context.
+- **Resets were counted.** The Focusrite's ASIO driver keeps counting
+  samples through a reset, and the meter counted the gap to the reopened
+  stream's position as skipped buffers (a simulated reset counted 78,122).
+  A stream that opens now sets `Status::resync`; the next block starts the
+  position count afresh. Test `a_driver_reset_is_not_counted_as_dropouts`.
+- **Told in words** (owner's A of three mockups, over a labelled total and
+  an amber status dot): nothing while audio is healthy; "⚠ Dropout" or
+  "⚠ Dropouts ×3" as an amber chip after the CPU readout while they
+  happen, fading out after 10 s of clean audio; clicking it opens the
+  audio panel, which says "3 dropouts in the last minute · 72 since audio
+  started" (or "since you reset") with what they mean and that a larger
+  buffer helps. The mockup's clock time ("since 14:02") became "since
+  audio started": Lumen has no local-time formatting, and it was not worth
+  a dependency. Episodes and the last-minute tally are pure logic in
+  `transport/dropouts.rs`; the chip asks for one repaint when it is due
+  to go, so idle stays idle. E2E `dropouts_show_in_words_and_the_panel_explains_them`
+  (through `testing::cause_dropouts`); screenshots in `tests/shots.rs`
+  (`dropouts`: dark 100%, light 150%, dark 200%).
 
 ---
 

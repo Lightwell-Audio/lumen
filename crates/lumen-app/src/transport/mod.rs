@@ -5,6 +5,7 @@
 //! settings window in `status.rs`. Keys are commands (`crate::commands`).
 
 mod bar;
+mod dropouts;
 mod status;
 
 use std::time::{Duration, Instant};
@@ -49,6 +50,8 @@ pub struct Transport {
     /// CPU load shown: the peak over the last second, refreshed once a second.
     cpu_peak: f32,
     cpu_taken: Option<Instant>,
+    /// Dropouts told as episodes in the bar and counts in the panel.
+    dropouts: dropouts::Dropouts,
     /// The playhead as drawn while playing: smooth, where the engine's
     /// position moves once per audio block (`playhead.rs`).
     clock: crate::playhead::Clock,
@@ -89,6 +92,7 @@ impl Transport {
             settings_window: Default::default(),
             cpu_peak: 0.0,
             cpu_taken: None,
+            dropouts: Default::default(),
             clip_memory: 0,
             clock: Default::default(),
             head: None,
