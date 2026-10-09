@@ -1232,3 +1232,29 @@ clips with fades, a loop and a locator.
 
 **Expected:** every step as described, and the arrangement reads as
 calmer than before.
+
+### MT-MIX-1 · The mixer graph (needs a human, with the audio interface)
+Run `cargo run --release -p lumen-app` with ASIO on the Focusrite, and a
+project with about ten tracks of audio (drums, bass, pads: anything
+continuous is best), on headphones.
+1. **Levels:** play. Centred tracks sound about 3 dB quieter than before
+   M4 (the −3 dB pan law, owner decision); nothing else about the sound
+   changes.
+2. **Pan:** pan one track hard left, then hard right: the other side goes
+   silent, the near side is a little louder than at the centre. Drag pan
+   back and forth quickly: no crackle or zipper noise.
+3. **Volume:** drag a track's volume up and down quickly while playing:
+   smooth, no crackle. Double-click it back to 0 dB: a quick glide, no
+   click.
+4. **Mute and solo:** mute and unmute a track, solo one and then another,
+   in time with the music: each change is a fast fade, never a click.
+5. **Adding and removing:** while playing, drop a new file onto the
+   arrangement (a new track): it comes in without a pop. Delete a playing
+   track, then undo: it goes and comes back without a click.
+6. **Buffer sizes:** in Audio settings, try 64, 128 and 512 samples while
+   playing all tracks: no dropouts (the counter stays put), and CPU in
+   the transport bar is about what it was before M4.
+7. **Loop and locate:** loop two bars over all tracks and click around
+   the ruler while playing: seamless loop, click-free jumps, as before.
+
+**Expected:** every step as described.

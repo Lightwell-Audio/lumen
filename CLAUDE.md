@@ -390,7 +390,7 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-09: M3 slice 8 built (the exit flow, the
+**Last updated:** 2026-10-09: M4 slice 1 built (below). Before it, M3 slice 8 built (the exit flow, the
 accessibility audit, the end-of-milestone review and every finding fixed
 or recorded). MT-APP-16 passed and **M3 is approved** (2026-10-09). The M3
 report is in PROGRESS.md and M4 is proposed in `docs/milestones/M4.md`.
@@ -399,7 +399,16 @@ the UX pass on hints, is built** (2026-10-09, ADR-0034): the owner chose an
 info line along the bottom of the window, with K5 keycaps, over chips by
 the pointer. Hovers call `App::set_info` (`app/info.rs`); only live values
 follow the pointer while dragging (DESIGN.md §2). MT-APP-17 waits for the
-owner; slice 1 (the mixer graph) is next. The owner's drag-to-cut request is recorded for M7
+owner. **Slice 1, the mixer graph in the engine, is built** (2026-10-09,
+ADR-0035): `lumen_engine::mixer` compiles a `Routing` (a node per track:
+trim, polarity, mute, sends, volume, pan law, output) into an ordered plan
+on the UI side; clips play into their track's bus; plans swap at a block
+edge, levels glide over 20 ms, a new shape crossfades over 5 ms. The app
+builds the routing in `routing.rs` and sends it after the clip list. 64
+routed tracks cost about 1% of a 128-frame block. Owner choices: centre
+−3 dB, balance panning, mute silences every send, post-fader sends after
+the pan. MT-MIX-1 waits for the owner; slice 2 (routing in the model,
+format v7) is next. The owner's drag-to-cut request is recorded for M7
 with split (the M3 plan, out of scope).
 
 **Status**
@@ -539,6 +548,9 @@ with split (the M3 plan, out of scope).
 - **macOS CI is paused** (2026-10-07; Actions minutes ran out). CI runs
   Windows and Linux. Check macOS code with the cross-target clippy in
   DEVELOPMENT.md before pushing.
+- Wants variants pitched before a slice is built, for behaviour (what is
+  heard, how controls act) as well as visuals, with a recommendation
+  (owner, M4 slice 1).
 - Judges visuals by eye, and wants personality rather than generic
   choices. Show visual options (typefaces, icons, colours) as rendered
   specimens before downloading assets or building. Ask before downloading

@@ -45,6 +45,7 @@ irreversible or external) · *Superseded*.
 | [0032](#adr-0032--clip-editing-m3-slice-6) | Clip editing (M3 slice 6): the split-clip model, drags redone from where they started, Ableton's overlap rule, clip properties and the pinned card, drops on a chosen track, Esc for the field being typed in | Accepted 2026-10-08 | No |
 | [0033](#adr-0033--commands-and-the-keymap-m3-slice-7) | Commands and the keymap (M3 slice 7): one table of commands, chords matched exactly, one command per key whatever is selected, one dispatcher | Accepted 2026-10-08 (7a) | No |
 | [0034](#adr-0034--the-info-line-m4-slice-0) | The info line (M4 slice 0): hover hints leave the pointer for one strip along the bottom of the window, with K5 keycaps and lit modifiers | Accepted 2026-10-09 | No |
+| [0035](#adr-0035--the-mixer-graph-m4-slice-1) | The mixer graph (M4 slice 1): a node per track with a stereo bus, compiled on the UI side into a flat ordered plan, swapped at a block edge with levels carried by id; plans of a new shape crossfade over 5 ms | Accepted 2026-10-09 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -89,6 +90,7 @@ irreversible or external) · *Superseded*.
 | Clips from the keyboard (M3 review H2, 2026-10-08) | **The arrows follow the selection**, as in Logic and Cubase: with a clip selected ←/→ select the previous or next clip on its track and ↑/↓ the nearest clip on the track above or below, Shift adds; with tracks selected the arrows act on tracks as before (over Alt+←/→ only, and [ and ]). ADR-0033. |
 | M3 close (2026-10-09) | M3 approved after MT-APP-16 passed. The M4 plan (`docs/milestones/M4.md`) waits for approval and its three questions. |
 | M4 plan (2026-10-09) | Approved. **Solo: Ableton's by default** (a click solos only that track, Ctrl+click adds). **The UX pass on hints runs first**, as M4 slice 0. Pan law −3 dB constant power by default (the proposal, recorded as an assumption). |
+| Mixer behaviour (M4 slice 1, 2026-10-09) | Asked after the graph was built (the owner: variants first, before building): **centre −3 dB** (a hard-panned side at unity; projects from M3 play 3 dB quieter) over centre unity with +3 dB sides; **balance** panning of stereo tracks over a true stereo pan; **mute silences every send**, pre-fader ones too (Ableton) over pre-fader sends playing on (Pro Tools, Cubase); **post-fader sends after the pan** over before it. All four as built (ADR-0035). |
 | Hints (M4 slice 0, 2026-10-09) | Chosen from interactive specimens: **an info line** along the bottom of the window (C, Ableton's Info View in spirit) over quiet chips (A) and rest-to-reveal (B), **with the K5 keycaps** the palette and menus use (the owner's addition, for consistency), **no chips for held keys** (the cursor and the lit action say it), full width (ADR-0034). |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
@@ -2494,3 +2496,102 @@ Unit test `info_reads_as_words_and_lights_the_drag_the_keys_choose`; E2E
 and the clip, fade, loop, properties and scrubbing scenarios now reading
 the info line; screenshots (`tests/shots.rs`, `info_line`: a clip, with
 Ctrl held, a clip's end; dark 100%, light 150%, dark 200%).
+
+## ADR-0035 — The mixer graph (M4 slice 1)
+
+**Status:** Accepted · **Date:** 2026-10-09
+
+### Context
+Until M4 the engine played one list of clips into one stereo output, with
+each track's volume, pan, mute and solo baked into its clips' levels
+(ADR-0025). M4 needs groups, returns, sends, the master, device outputs,
+and later meters, sidechains and delay compensation (M4 plan, risks R1
+and R2). The graph must cost well under the quality bar's budget (half of
+2.67 ms at 128 frames, 48 kHz, 64 tracks), change while playing without
+clicks, and never allocate on the audio thread.
+
+### Options
+- **Clips keep their track levels; buses only for groups.** Little
+  change, but sends, polarity and meters need a per-track signal anyway.
+- **A node graph walked on the audio thread** (pull model, each node
+  asking its inputs). Flexible, but recursion and visit marks on the audio
+  thread, and hard to bound.
+- **A flat plan compiled on the UI side** (chosen): nodes in an order
+  where everything that feeds a node comes before it, every buffer
+  allocated up front, run front to back.
+
+### Decision
+- `lumen_engine::mixer`: a [`Routing`] (nodes with id, trim, polarity,
+  volume, pan, pan law, audible, output, sends) is compiled by
+  `compile_routing` into a `Plan`: Kahn's order (ties keep the listed
+  order, so a routing always compiles the same way), indices instead of
+  ids, a stereo bus of 256 frames per node, and a *topology* key over
+  the order, outputs and sends (not levels). Duplicates, unknown targets
+  and cycles (through outputs or sends) are refused with a
+  `RoutingError`; the playing plan stays.
+- Signal path per node: input (its clips, the nodes routed into it, the
+  sends into it) → trim × polarity × mute → pre-fader sends → volume ×
+  pan → post-fader sends → output (another node, a device pair, or
+  nothing). Groups and returns are ordinary nodes that others feed. A
+  device pair the device does not have is silent; a mono device gets the
+  left side.
+- `Mixer<T: TrackSource>` is the engine's `Source`. Each part of a block
+  (at most 256 frames): clear the buses, let the track source (the clip
+  player) add into its tracks' buses by id, run the plan. The clip player
+  no longer pans; a clip whose track is not in the routing is not heard,
+  and fades in when its track appears.
+- Plans arrive through a lock-free queue (the newest wins; skipped ones go
+  straight back) and old ones return to be freed, as clip lists do. A new
+  plan takes over the levels of the nodes and sends it shares with the old
+  one by id; levels glide linearly over 20 ms (`mixer/smooth.rs`, counted
+  in frames, so block size does not matter). A plan of a new shape
+  crossfades over 5 ms: the old plan, fed the same track audio, fades out
+  as the new fades in, and new plans wait until it ends. A transport jump
+  (already crossfaded by the engine) settles every level.
+- Pan laws in `lumen_core::pan` (shared with the interface): −3 dB
+  constant power by default, −4.5 dB, −6 dB linear and 0 dB balance. The
+  hard side plays at unity; panning acts as a balance on stereo material.
+  The master node uses the balance law, so it is not 3 dB down at its
+  centre.
+- The app sends the routing after the clip list and never ahead of it
+  (`lanes.rs`): a deleted track's clips fade out while its node is still
+  there, and a new track's clips wait for their node, then fade in.
+  `routing.rs` derives the routing: every track into a master node (until
+  slice 2 adds the master track, outputs and sends), a track inside a
+  group into that group, mute and solo by the current rule (slice 4
+  replaces it).
+- Owner decisions on what is heard: centre −3 dB, balance panning, mute
+  silences every send, post-fader sends after the pan.
+
+### Consequences
+- M3 projects play 3 dB quieter at the centre (the pan law).
+- Meters (slice 5) read node buses; sidechains and delay compensation
+  (slice 6) add edges and per-node delays to the same plan.
+- `Engine<Mixer<ClipPlayer>>` everywhere; tests build routings with
+  `NodeSpec::unity` and `lumen_engine::testing::routed` (the shape the
+  benchmark and the performance gate measure).
+- Performance gate: `engine_transport` rose 4.07% (about 240 instructions
+  a block: the mixer's queue check and part loop over an empty plan) and
+  `engine_clips_64` 0.78%; the baseline was updated in WSL with this
+  reason, and `engine_routed_64` added.
+
+### Evidence
+- `tests/mixer.rs` (15 golden renders): a group equals the sum of its
+  children (nested too); a group's level applies to its children; a muted
+  track is silent with its sends; a send at 0 dB doubles into a return;
+  pre- and post-fader sends; the −3 dB centre; polarity and trim; device
+  pairs; a missing track; volume, pan, mute and polarity changes glide; a
+  reroute crossfades with a constant sum; a joining track fades in; the
+  same output at block sizes 1, 37, 128, 256, 300 and 1,024 across a glide
+  and a crossfade; plans handed back; a cycle refused while the old
+  routing plays on. The 18 clip golden renders pass unchanged through a
+  one-node routing.
+- `tests/realtime.rs`: 64 routed tracks with plans swapped as fast as a
+  drag, under the allocation guard: no heap operations.
+- Benchmark (`cargo bench -p lumen-engine --bench clips`, Windows, release):
+  routed 16 / 64 / 200 tracks at 128 frames: 7.3 / 25.7 / 81 µs median,
+  1.0% / 3.0% of the 2.67 ms block at 64 / 200 tracks; plain 64 clips
+  15.1 µs.
+- App: `routing.rs` unit tests; E2E `mixing` (pan and mute heard, mixer
+  changes while playing never click); E2E `fades_and_gain_are_heard`
+  updated for the −3 dB centre.

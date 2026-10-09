@@ -6,7 +6,10 @@
 [milestones/M3.md](milestones/M3.md)). **Complete, approved by the owner
 2026-10-09** (MT-APP-16 passed; report below). **M4 (Mixer, Routing & Groups) is approved and started.** Slice 0, the UX
 pass on hints, is built: the info line (ADR-0034); MT-APP-17 waits for the
-owner ([milestones/M4.md](milestones/M4.md)).
+owner. **Slice 1, the mixer graph in the engine, is built** (ADR-0035):
+tracks play through nodes with trim, polarity, mute, sends, volume and
+pan into groups, returns, the master or device pairs; MT-MIX-1 waits for
+the owner ([milestones/M4.md](milestones/M4.md)).
 **Previous:** M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
@@ -18,7 +21,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 1 | Foundations & Architecture | ✅ Complete | Plan and risk register in `docs/milestones/M1.md` |
 | 2 | Audio Engine, Devices & Transport | ✅ Complete, approved 2026-10-07 | Plan: `docs/milestones/M2.md` |
 | 3 | Arrangement & Project System | ✅ Complete, approved 2026-10-09 | Plan: `docs/milestones/M3.md` |
-| 4 | Mixer, Routing & Groups | 🟡 In progress (slice 0) | Plan: `docs/milestones/M4.md` |
+| 4 | Mixer, Routing & Groups | 🟡 In progress (slices 0–1 built) | Plan: `docs/milestones/M4.md` |
 | 5 | MIDI & Piano Roll | 🔲 | |
 | 6 | VST3 Hosting & Device System | 🔲 | |
 | 7 | Automation, Envelopes & Advanced Editing | 🔲 | |
@@ -187,8 +190,8 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
-| Channel strip: input gain, polarity, devices, pre/post sends, fader, pan law, mute, solo, cue, output | M | 🔲 | 4 | Must smooth gain and pan, and fade mute and solo, as the interim clip-level glide does in M3 (ADR-0025) |
-| Returns, groups, master, sidechain from any track, hardware output routing | M | 🔲 | 4 |
+| Channel strip: input gain, polarity, devices, pre/post sends, fader, pan law, mute, solo, cue, output | M | 🟡 In the engine (M4 slice 1, ADR-0035): input trim, polarity, mute, pre- and post-fader sends, volume and pan with four pan laws (−3 dB constant power by default), output to a node or a device pair, all gliding over 20 ms. Track volume, pan and mute reach it from the headers; the rest in the model (slice 2) and the mixer panel (slice 5); cue in slice 4 | 4 |
+| Returns, groups, master, sidechain from any track, hardware output routing | M | 🟡 The engine graph sums groups (nested), returns and a master and routes to device pairs (slice 1); a track in a group plays into it. Master track, outputs and sends in the model (slice 2), grouping (slice 3), sidechain (slice 6) | 4 |
 | Solo keeps soloed paths audible; exclusive-solo option | M | 🔲 | 4 |
 | Automatic plugin delay compensation with indicator | M | 🔲 | 4, 6 |
 | Peak (hold, clip), RMS; master LUFS and true peak | M | 🔲 | 4 |
@@ -277,7 +280,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | MIDI effects; on-screen keyboard | S | 🔲 |
 | MPE, MIDI 2.0 | L | 🔲 |
 | Automation: all parameters, curves, R/W/T/L, clip envelopes, tempo and signature, override, simplification | M | 🔲 |
-| Mixer: fader, pan law, mute, solo, sends, returns, groups, master, routing, sidechain, PDC, meters, cue | M | 🔲 |
+| Mixer: fader, pan law, mute, solo, sends, returns, groups, master, routing, sidechain, PDC, meters, cue | M | 🟡 The engine graph (M4 slice 1, ADR-0035); the rest through M4 |
 | LUFS and true-peak metering; mono-check and dim | S | 🔲 |
 | Reference track | L | 🔲 |
 | Async cached VST3 scanning, custom paths, blocklist, search, favourites, recents | M | 🔲 |
