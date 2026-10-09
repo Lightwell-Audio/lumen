@@ -1204,3 +1204,7 @@ review changed.
 9. Try steps 1, 5 and 7 in the light theme and at 150%.
 
 **Expected:** every step as described.
+
+**Run 1 (2026-10-09, owner):** passed ("everything passed").
+
+**Last run:** run 1, passed. MT-APP-16 is done.

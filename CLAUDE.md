@@ -392,17 +392,16 @@ it first in a new session, and update it at the end of every slice.
 
 **Last updated:** 2026-10-09: M3 slice 8 built (the exit flow, the
 accessibility audit, the end-of-milestone review and every finding fixed
-or recorded). The M3 report is in PROGRESS.md and M4 is proposed in
-`docs/milestones/M4.md`. **Waiting for the owner:** MT-APP-16 (the exit
-flow by hand), approval of M3, and approval of the M4 plan with its three
+or recorded). MT-APP-16 passed and **M3 is approved** (2026-10-09). The M3
+report is in PROGRESS.md and M4 is proposed in `docs/milestones/M4.md`.
+**Waiting for the owner:** approval of the M4 plan with its three
 questions (solo default, when the UX pass on hints runs, pan law). Do not
 start M4 before that. The owner's drag-to-cut request is recorded for M7
 with split (the M3 plan, out of scope).
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
-- **M3 Arrangement & Project System: built, waiting for MT-APP-16 and
-  approval.** Slices 1–3 done:
+- **M3 Arrangement & Project System: complete, approved 2026-10-09.** Slices 1–3 done:
   - performance gates;
   - design system, motion and typefaces;
   - project model, undo, save/open, autosave and recovery.
@@ -497,8 +496,7 @@ with split (the M3 plan, out of scope).
     through `Document::set_time_signature` (clamped to 64 beats),
     `transport/`, `widgets/keys.rs` and `lumen-project` `edit/clipboard.rs`
     split out, files dropped together kept in order. 433 tests, 88 E2E,
-    6 smoke tests pass; frame times in the M3 report. MT-APP-16 waits for
-    the owner.
+    6 smoke tests pass; frame times in the M3 report. MT-APP-16 passed.
   - Esc after typing belongs to the text field (`App::typing`): egui
     drops a field's focus on Esc before the app's keys run, so key
     handlers must check `self.typing` as well as `text_edit_focused()`

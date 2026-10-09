@@ -3,11 +3,9 @@
 ## Status
 
 **Current milestone:** 3 — Arrangement & Project System (plan:
-[milestones/M3.md](milestones/M3.md)). All 8 slices are built; slices
-1–7 passed their manual tests. Slice 8 (the exit flow, the accessibility
-audit, the end-of-milestone review and its fixes) waits for MT-APP-16 and
-the owner's approval of the milestone (report below). M4 is proposed in
-[milestones/M4.md](milestones/M4.md).
+[milestones/M3.md](milestones/M3.md)). **Complete, approved by the owner
+2026-10-09** (MT-APP-16 passed; report below). Next: M4, proposed in
+[milestones/M4.md](milestones/M4.md), waiting for approval.
 **Previous:** M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
@@ -18,7 +16,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 |---|---|---|---|
 | 1 | Foundations & Architecture | ✅ Complete | Plan and risk register in `docs/milestones/M1.md` |
 | 2 | Audio Engine, Devices & Transport | ✅ Complete, approved 2026-10-07 | Plan: `docs/milestones/M2.md` |
-| 3 | Arrangement & Project System | 🟡 Built, waiting for MT-APP-16 and approval (report below) | Plan: `docs/milestones/M3.md` |
+| 3 | Arrangement & Project System | ✅ Complete, approved 2026-10-09 | Plan: `docs/milestones/M3.md` |
 | 4 | Mixer, Routing & Groups | 🔲 | |
 | 5 | MIDI & Piano Roll | 🔲 | |
 | 6 | VST3 Hosting & Device System | 🔲 | |
@@ -39,7 +37,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 5 | Grid, snapping, rulers, scrub, markers, loop: groundwork (format v4), 5a grid and snapping, 5b rulers (layout A), 5c loop and punch, 5d locators, 5e scrubbing | ✅ 2026-10-08 (ADR-0030, MT-APP-13 passed) | `1317d07` groundwork; `c7104a5`, `b3fd9d6`, `d9eab12`, `5fdc6e4`, `b3ccb4b` (5a to 5e); `656a10a`, `efc3012`, `9492652` (MT-APP-13 run 1); `ec5541f` closes it |
 | 6 | Clip editing and selection: groundwork (format v5), 6a selection and moving, 6b time ranges and edits, 6c trim, loop-extend and slip, 6d fades and clip gain (format v6, ADR-0031; MT-APP-14 run 1 passed its steps), 6e clip properties (mute, lock, rename, colour, the pinned card) and drops on a chosen track (ADR-0032) | ✅ 2026-10-08 (ADR-0031, ADR-0032; MT-APP-14 passed in run 4, after the owner's run 2 changes and run 3 fixes) | `f66c647` to `a6a2164`; 6e `6cc6860`; run-2 changes `3127ec7`; run-3 fixes `4e8c779` |
 | 7 | Command palette, shortcuts, context menus: 7a the registry and one dispatcher, 7b the palette (P2 with P3's values, K5 keycaps), 7c remapping (E2 keyboard map with E3 in the palette, saved in the settings), 7d menus and tooltips from the keymap, ruler menus, Z, Ctrl+A, Ctrl+L, Fit loop, F6 panes, Shift+Tab by focus (ADR-0033) | ✅ 2026-10-08 (ADR-0033, MT-APP-15 passed) | `c4c008f` 7a, `9983bf1` 7b, `3d21a26` 7c, `36573a7` 7d |
-| 8 | The exit flow (E2E `walkthrough`), an accessibility audit (E2E `access`), the end-of-milestone review (`docs/audits/2026-10-08-m3.md`) and its fixes: the smooth playhead, Import audio…, clips chosen with the arrows (the owner's choice), the time signature as a method, drop order, three modules split (ADR-0028 and ADR-0033 amendments) | 🟡 Built; MT-APP-16 waits for the owner | `ebf08a8`, `0e6b8f9` review; `273af92`, `5d1bab6`, `29c5870`, `b376107` fixes |
+| 8 | The exit flow (E2E `walkthrough`), an accessibility audit (E2E `access`), the end-of-milestone review (`docs/audits/2026-10-08-m3.md`) and its fixes: the smooth playhead, Import audio…, clips chosen with the arrows (the owner's choice), the time signature as a method, drop order, three modules split (ADR-0028 and ADR-0033 amendments) | ✅ 2026-10-09 (MT-APP-16 passed) | `ebf08a8`, `0e6b8f9` review; `273af92`, `5d1bab6`, `29c5870`, `b376107` fixes |
 
 ## Milestone 2 slices
 
@@ -323,7 +321,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 ## Milestone reports
 
 ### Milestone 3 — report (2026-10-09)
-**Status:** Built; **waiting for the owner's MT-APP-16 run and approval**.
+**Status:** Complete; approved by the owner 2026-10-09 (MT-APP-16 passed).
 All 8 slices are built. Slices 1 to 7 passed their manual tests
 (MT-APP-7 to MT-APP-15). Slice 8 adds the exit flow as an automated test,
 an accessibility audit, the end-of-milestone review and its fixes; its
@@ -379,12 +377,9 @@ in the WSL Linux mirror and for the macOS target; the WSL performance
 gate passes (engine +0.94% at most).
 
 **Verified by hand** (owner, Focusrite USB on ASIO and WASAPI): MT-APP-7
-to MT-APP-15, each recorded with its runs in `docs/MANUAL_TESTS.md`.
+to MT-APP-16, including the real Import audio dialog, each recorded with its runs in `docs/MANUAL_TESTS.md`.
 
 **Not verified:**
-- MT-APP-16 (the exit flow by hand and the review's fixes): waiting for
-  the owner.
-- The real system file dialog for Import audio (tests answer it instead).
 - macOS and Linux by hand (CI and the cross-target clippy only; macOS CI
   is paused). Dropping files on a chosen track may not follow the pointer
   there (KNOWN_ISSUES).
@@ -415,7 +410,7 @@ state.*
 |---|---|
 | Automated | ✅ E2E `walkthrough`: create, add a track, import onto it and below it, drag and duplicate, rename, mute, tempo, a locator and a loop; save, close, reopen: field for field the same project, and the same audio sample for sample |
 | From the keyboard alone | ✅ since the review (Import audio…, the arrows between clips); E2E `audio_imports_from_the_keyboard_onto_the_selected_track`, `arrows_move_between_clips_when_a_clip_is_selected` |
-| By hand | ⏳ MT-APP-16 |
+| By hand | ✅ MT-APP-16 (owner, 2026-10-09) |
 
 **Not done or deferred:**
 - Deferred with owner approval: the waveform peak disk cache and
