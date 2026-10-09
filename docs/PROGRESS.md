@@ -424,7 +424,7 @@ code.
   engine, not a full project.
 - Clip audio is held in memory until M9; large sessions will need streaming.
 - The ASIO SDK agreement is still to be signed (owner action); it gates
-  distribution. Lumen's own licence is decided: closed source (ADR-0012).
+  distribution. Lumen's licence is GPL-3.0-or-later (ADR-0039, supersedes ADR-0012).
 - egui upgrades break every couple of months; the M3 arrangement grows the
   UI surface they can break.
 - Other ASIO drivers may behave differently from the Focusrite's; only the

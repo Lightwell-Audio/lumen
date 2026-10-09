@@ -7,8 +7,9 @@ version = "0.0.1"
 edition = "2024"
 rust-version = "1.99"
 publish = false
-# Lumen is closed source (ADR-0012, decided 2026-10-05). Crates are
-# unpublished, so no `license` field is needed.
+# Lumen is free software under GPL-3.0-or-later (ADR-0039; text in LICENSE).
+# Crates stay unpublished.
+license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
 lumen-core = { path = "crates/lumen-core" }

@@ -2,6 +2,7 @@
 name = "lumen-perf"
 description = "Performance regression gates: deterministic scenarios measured in instructions under Callgrind (ADR-0022)"
 version.workspace = true
+license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true

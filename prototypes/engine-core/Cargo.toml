@@ -2,6 +2,7 @@
 name = "engine-core"
 description = "P-ENGINE prototype: allocation-free, block-size-invariant real-time core"
 version.workspace = true
+license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true

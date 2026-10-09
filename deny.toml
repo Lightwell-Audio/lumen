@@ -77,7 +77,7 @@ crate = "symphonia-bundle-mp3"
 allow = ["MPL-2.0"]
 
 [licenses.private]
-# Workspace crates are unpublished and have no license field until ADR-0012 is decided.
+# Workspace crates are unpublished; their licence comes from the workspace (ADR-0039).
 ignore = true
 
 [bans]

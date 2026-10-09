@@ -32,3 +32,10 @@ done.
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Toolchain setup and everyday commands |
 
 "Lumen" is a working name, defined once in `crates/lumen-core/src/product.rs`.
+
+## Licence
+
+Lumen is free software under the GNU General Public License, version 3 or
+later (see [LICENSE](LICENSE)). Its third-party components are listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Signed, packaged builds are
+sold separately; the source is free (ADR-0039).

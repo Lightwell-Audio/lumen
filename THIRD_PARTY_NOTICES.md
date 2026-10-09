@@ -1,8 +1,8 @@
 # Third-party notices
 
-Lumen is closed source (ADR-0012). It is built on open-source components;
-most use permissive licences (MIT, Apache-2.0, BSD, ISC, Zlib and similar,
-ADR-0013). Before the first release, a complete generated list of every
+Lumen is free software under GPL-3.0-or-later (ADR-0039; see `LICENSE`). It
+is built on open-source components; most use permissive licences (MIT,
+Apache-2.0, BSD, ISC, Zlib and similar, ADR-0013). Before the first release, a complete generated list of every
 component and its licence text will ship with the installer (M10).
 
 This file records the components whose licences need specific action.
@@ -37,7 +37,11 @@ This file records the components whose licences need specific action.
 
 ## Pending owner actions
 
-- **ASIO:** shipping requires the signed Steinberg ASIO SDK licence agreement
-  and the ASIO trademark notice (ADR-0006).
+- **ASIO:** the Steinberg SDK's GPLv3 option may now apply, in place of the
+  signed proprietary agreement (ADR-0006, ADR-0039). The owner must confirm
+  the SDK's current licence text before relying on it, and the ASIO trademark
+  notice is still required. The interface definitions in
+  `crates/lumen-audio/src/asio/ffi.rs` must be checked against the SDK
+  before the source is published.
 - **VST:** the VST trademark notice and VST3 SDK licence compliance are
   needed before release (spec §7, M10).

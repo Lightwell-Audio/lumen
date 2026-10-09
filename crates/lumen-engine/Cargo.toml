@@ -2,6 +2,7 @@
 name = "lumen-engine"
 description = "Real-time engine: transport, timeline and sample-accurate rendering on the audio thread"
 version.workspace = true
+license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true

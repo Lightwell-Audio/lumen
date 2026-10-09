@@ -2,6 +2,7 @@
 name = "asio-probe"
 description = "P-ASIO prototype: native ASIO host in Rust (clean-room ABI, no SDK)"
 version.workspace = true
+license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
