@@ -2192,6 +2192,22 @@ curves, clip properties). ADR-0031 covers the curves.
 - Screenshots (`tests/shots.rs`: `clip_properties` in dark at 100% and
   light at 150%, `file_drops`, `lanes_menus`).
 
+### Update 2026-10-08: dropped files keep their order
+Files dropped together onto new tracks joined the project in the order
+their loads finished, so dropping kick.wav and snare.wav could make the
+snare's track first (found in the M3 review: the E2E fixtures that drop
+two files failed now and then under load). Ableton keeps the dropped
+order. Files for new tracks now join from the front of their queue
+(`Lanes::join_loaded`): each once every file of its own drop and of
+earlier drops has loaded or failed, so a drop is one undo step and a fast
+file waits for a slower one dropped ahead of it, shown as a loading row
+in its place. Files dropped onto a track already waited for their whole
+drop. Unit test
+`files_dropped_together_join_in_drop_order_whatever_order_they_load_in`
+(loads finishing out of order, across two drops); E2E
+`files_dropped_together_keep_their_order`, and the fixtures
+`with_two_clips` assert the dropped order.
+
 ---
 
 ## ADR-0033 — Commands and the keymap (M3 slice 7)

@@ -25,6 +25,8 @@ fn with_two_clips(name: &str) -> (Lumen, Id, Id) {
     // glide to their height: let them settle.
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(40);
+    // In the order they were dropped, whichever loads first.
+    assert_eq!(lumen.track_names(), ["kick", "snare"]);
     let tracks = &lumen.app().project().tracks;
     let (a, b) = (tracks[0].clips[0].id, tracks[1].clips[0].id);
     (lumen, a, b)

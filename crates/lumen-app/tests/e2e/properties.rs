@@ -18,6 +18,8 @@ pub(super) fn with_two_clips(name: &str) -> (Lumen, Id, Id) {
     lumen.drop_files(&[kick, snare]);
     // New tracks glide to their height: let them settle.
     lumen.frames(40);
+    // In the order they were dropped, whichever loads first.
+    assert_eq!(lumen.track_names(), ["kick", "snare"]);
     let tracks = &lumen.app().project().tracks;
     let (a, b) = (tracks[0].clips[0].id, tracks[1].clips[0].id);
     (lumen, a, b)
@@ -220,14 +222,6 @@ fn the_properties_card_edits_a_clip_from_the_keyboard() {
 fn files_dropped_on_a_track_land_on_it_and_between_tracks_make_one_there() {
     let (mut lumen, kick, _) = with_two_clips("clip-drop");
     let tracks = lumen.app().project().tracks.len();
-    // Files dropped together may finish loading in either order.
-    let at = lumen
-        .app()
-        .project()
-        .tracks
-        .iter()
-        .position(|t| t.clips[0].id == kick)
-        .expect("the kick's track");
     let r = rect(&lumen, kick);
 
     // Onto the kick's lane, right of its clip: on that track.
@@ -235,7 +229,7 @@ fn files_dropped_on_a_track_land_on_it_and_between_tracks_make_one_there() {
     lumen.drop_files_at(Pos2::new(r.right() + 150.0, r.center().y), &[hat]);
     let project = lumen.app().project();
     assert_eq!(project.tracks.len(), tracks, "no new track");
-    let names: Vec<&str> = project.tracks[at]
+    let names: Vec<&str> = project.tracks[0]
         .clips
         .iter()
         .map(|c| c.name.as_str())
