@@ -578,3 +578,34 @@ fn turning_a_sender_down_in_a_returns_list_leaves_the_rows_in_place() {
         "the other is untouched: {after:?}"
     );
 }
+
+#[test]
+fn a_slow_drag_turns_a_silent_send_up() {
+    // MT-MIX-4 run 5 (owner): hard to turn a send up from −∞. Each frame
+    // the knob started again from its level, and moves of a few points a
+    // frame were rounded back to silence: 24 points in steps of 3 stayed
+    // at −∞ before the fix.
+    let (mut lumen, track) = with_a_return("send-engage");
+    let label = format!("Send {track} to A Return 1");
+    let knob = lumen.harness.get_by_label_contains(&label).rect();
+    lumen.drag(
+        knob.center(),
+        knob.center() - vec2(0.0, 24.0),
+        Modifiers::NONE,
+    );
+    let level = send(&lumen).map(|s| s.0).expect("a send");
+    assert!(level > -40.0 && level < -25.0, "{level}");
+    // The same from a send silenced by a double-click.
+    lumen.double_click(knob.center());
+    assert_eq!(send(&lumen).map(|s| s.0), Some(f32::NEG_INFINITY));
+    lumen.drag(
+        knob.center(),
+        knob.center() - vec2(0.0, 24.0),
+        Modifiers::NONE,
+    );
+    assert!(
+        send(&lumen).is_some_and(|s| s.0 > -40.0),
+        "{:?}",
+        send(&lumen)
+    );
+}

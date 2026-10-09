@@ -3014,3 +3014,10 @@ fader and mute, the metronome on the cue pair).
   track), so one seemed to change the other. Identity was already by id
   throughout; E2E checks a duplicate's send in the project and by ear.
 
+### Amendment 5: MT-MIX-4 run 5 (2026-10-09)
+- A knob drag keeps its own position on the travel (widget memory) from
+  the press point, instead of the current level plus each frame's
+  movement: below the silence floor a slow drag was rounded back to −∞
+  every frame and never added up. The few points of egui's drag threshold
+  now count too.
+

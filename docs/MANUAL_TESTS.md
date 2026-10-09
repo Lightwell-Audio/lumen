@@ -1473,3 +1473,11 @@ re-sorts only when a sender joins or leaves (E2E
 `turning_a_sender_down_in_a_returns_list_leaves_the_rows_in_place`
 failed before the fix).
 
+**Run 5 (2026-10-09, owner):** hard to turn a send up from −∞. Each frame
+the knob started again from its level plus that frame's movement, and
+below the silence floor (about 7 points of travel) a slow drag was
+rounded back to silence every frame, so only a quick flick got out. A
+drag now keeps its own position from where it was pressed: 16 points up
+from −∞ gives about −42 dB, 32 about −28 dB (E2E
+`a_slow_drag_turns_a_silent_send_up` stayed at −∞ before the fix).
+

@@ -141,9 +141,26 @@ pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> Kno
     let fine = ui.input(|i| i.modifiers.shift);
     let mut at = position(knob.db);
     let before = at;
-    if response.dragged() {
-        let d = response.drag_delta();
-        at += (d.x - d.y) / 160.0 * if fine { 0.1 } else { 1.0 };
+    // A drag keeps its own position on the travel, from where it was
+    // pressed: started again from the level each frame, slow moves below
+    // the silence floor were rounded back to silence every frame and never
+    // added up (owner, MT-MIX-4 run 5: hard to turn up from −∞).
+    let drag_id = id.with("drag");
+    if response.dragged()
+        && let Some(pointer) = ui.input(|i| i.pointer.interact_pos())
+    {
+        let (mut travel, last) = ui
+            .data(|d| d.get_temp::<(f32, egui::Pos2)>(drag_id))
+            .unwrap_or_else(|| {
+                let origin = ui.input(|i| i.pointer.press_origin()).unwrap_or(pointer);
+                (position(knob.db), origin)
+            });
+        let d = pointer - last;
+        travel = (travel + (d.x - d.y) / 160.0 * if fine { 0.1 } else { 1.0 }).clamp(0.0, 1.0);
+        ui.data_mut(|data| data.insert_temp(drag_id, (travel, pointer)));
+        at = travel;
+    } else {
+        ui.data_mut(|data| data.remove::<(f32, egui::Pos2)>(drag_id));
     }
     if response.clicked() {
         response.request_focus();
