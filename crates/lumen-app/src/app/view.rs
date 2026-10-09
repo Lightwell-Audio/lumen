@@ -339,10 +339,11 @@ report: {}",
             state.marker.as_quarters() as f32,
             !state.playing,
         );
+        let playhead = self.transport.playhead().as_quarters();
         let head = motion::glide(
             &ctx,
             egui::Id::new("playhead"),
-            state.ticks.as_quarters() as f32,
+            playhead as f32,
             !state.playing,
         );
         let mx = x_of(settled(marker, state.marker.as_quarters()));
@@ -359,7 +360,7 @@ report: {}",
         }
 
         // Playhead: from the bar ruler through the time ruler.
-        let x = x_of(settled(head, state.ticks.as_quarters()));
+        let x = x_of(settled(head, playhead));
         if (full.left()..=full.right()).contains(&x) {
             painter.line_segment(
                 [pos2(x, ruler.top()), pos2(x, full.bottom())],

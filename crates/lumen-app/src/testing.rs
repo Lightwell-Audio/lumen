@@ -117,6 +117,11 @@ impl App {
         self.transport.state().ticks
     }
 
+    /// Where the playhead is drawn: smoothed while playing (`playhead.rs`).
+    pub fn drawn_playhead(&self) -> Ticks {
+        self.transport.playhead()
+    }
+
     /// What the test device has played since the last call, as (left,
     /// right) frames: the audio a user would hear.
     pub fn heard(&mut self) -> Vec<(f32, f32)> {

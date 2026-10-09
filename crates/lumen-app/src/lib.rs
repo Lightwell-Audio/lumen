@@ -48,6 +48,7 @@ mod media;
 mod motion;
 mod owner;
 mod panels;
+mod playhead;
 mod position;
 mod probe;
 mod ruler;
@@ -295,6 +296,7 @@ impl eframe::App for App {
             self.owner = owner::Owner::of(frame);
         }
         let ctx = ui.ctx().clone();
+        self.transport.advance_playhead(ctx.input(|i| i.time));
         self.follow_file_drag(&ctx);
         if let Some(test) = self.crash_test {
             crash::fail(test);

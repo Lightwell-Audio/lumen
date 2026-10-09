@@ -303,7 +303,7 @@ impl App {
             // Around the pointer when it is over the lanes, else the
             // playhead when it is in view, else the middle.
             let target = self.nav.target();
-            let head = target.x(canvas.left(), self.transport.state().ticks.as_quarters());
+            let head = target.x(canvas.left(), self.transport.playhead().as_quarters());
             let anchor = pointer
                 .filter(|p| canvas.contains(*p))
                 .map(|p| p.x)
@@ -348,7 +348,7 @@ impl App {
         if !state.playing || self.transport.follow_paused || self.nav.glide.is_some() {
             return;
         }
-        let head = state.ticks.as_quarters();
+        let head = self.transport.playhead().as_quarters();
         if let Some(view) = follow_view(
             self.nav.view,
             self.transport.follow,

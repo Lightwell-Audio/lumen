@@ -22,6 +22,25 @@ fn space_plays_and_stops_and_the_playhead_moves() {
 }
 
 #[test]
+fn the_drawn_playhead_keeps_up_while_playing_and_lands_exactly_on_stop() {
+    let mut lumen = Lumen::start("smooth-playhead");
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("the playhead to move", |app| {
+        app.is_playing() && app.playhead() > Ticks::quarters(1)
+    });
+    // Smoothed (owner: Follow was choppy), never left behind: within a
+    // quarter of a second of the engine (half a beat at 120 BPM).
+    let (drawn, engine) = (lumen.app().drawn_playhead(), lumen.app().playhead());
+    assert!(
+        (drawn.as_quarters() - engine.as_quarters()).abs() <= 0.5,
+        "drawn {drawn:?}, engine {engine:?}"
+    );
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("playback to stop", |app| !app.is_playing());
+    assert_eq!(lumen.app().drawn_playhead(), lumen.app().playhead());
+}
+
+#[test]
 fn the_buttons_play_stop_and_return_to_the_start() {
     let mut lumen = Lumen::start("buttons");
     lumen.click("Play from the start marker");

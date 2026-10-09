@@ -1827,6 +1827,22 @@ of 120 fps. Idle: 3 repaints in 3 s.
 - Group folding and dragging tracks into groups come with group tracks
   (M4).
 
+### Amendment (2026-10-08, owner: the followed playhead was choppy)
+The engine publishes its position once per audio block, and blocks do not
+line up with frames (512 samples at 48 kHz is 10.7 ms, a frame 16.7 ms),
+so the playhead, and the view Follow moves with it, stepped by one block
+on one frame and two on the next. Now the drawn playhead runs on the frame
+clock at the sample rate (`playhead.rs`) and leans towards the engine's
+position with a 0.5 s time constant, so the block steps average out. It
+never runs backwards or more than 0.1 s ahead (a stalled device). A jump
+of more than 0.25 s (Play, a locate) starts it again at the engine's
+position, and a loop wrap moves it back by exactly the loop. Stopped, it is
+the engine's position exactly. Only drawing and Follow use it; commands
+(locators, the position field) still read the engine.
+Evidence: unit tests in `playhead` (even steps, which fail on the raw
+position; jumps; loop wraps; stopping; a stalled device); E2E
+`the_drawn_playhead_keeps_up_while_playing_and_lands_exactly_on_stop`.
+
 ---
 
 ## ADR-0029 — End-to-end smoke tests
