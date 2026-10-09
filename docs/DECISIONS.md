@@ -3000,3 +3000,10 @@ fader and mute, the metronome on the cue pair).
 - E2E: four loudest then all from "+N more"; a send turned off leaves
   the list (held, it stays); twelve returns at most (unit test).
 
+### Amendment 3: MT-MIX-4 run 3 (2026-10-09)
+- A knob's live level (while dragged or typed) is a `draw_hint` chip
+  above it on a tooltip layer (`SendKnob::live_value`), only on track
+  headers: beside the knob it ran over the next one, and in lists it drew
+  over the row's own level column.
+- The "+N ▾" and "+N more ▾" lists scroll past ten rows (`LIST_ROWS`).
+

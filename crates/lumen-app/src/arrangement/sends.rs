@@ -32,6 +32,8 @@ const GAP: f32 = 5.0;
 /// A knob in a list (the "+N" list, a return's senders): small enough
 /// that knobs on 22 pt rows never touch.
 const SMALL_KNOB: f32 = 18.0;
+/// The "+N" lists scroll past this many rows.
+const LIST_ROWS: usize = 10;
 /// A return lists this many senders, then "+N more" (the owner's L4).
 pub(super) const RETURN_ROWS: usize = 4;
 
@@ -219,6 +221,7 @@ impl Arrangement {
                 linked: self.hot_return == Some(to.id) && !place.starts_with("return"),
                 selected,
                 name: &name,
+                live_value: place == "header",
             },
         );
         if out.hovered {
@@ -347,50 +350,54 @@ impl Arrangement {
                     );
                 });
                 ui.separator();
-                for to in returns {
-                    let (row, _) =
-                        ui.allocate_exact_size(vec2(236.0, SMALL_KNOB + 4.0), Sense::hover());
-                    let knob = Rect::from_min_size(
-                        pos2(row.left() + 2.0, row.center().y - SMALL_KNOB / 2.0),
-                        vec2(SMALL_KNOB, SMALL_KNOB),
-                    );
-                    let name = format!("Send {} to {} {}", track.name, to.letter, to.name);
-                    self.send_control(
-                        ui,
-                        doc,
-                        &heard,
-                        Knob {
-                            rect: knob,
-                            track,
-                            to,
-                            selected: false,
-                            name,
-                            place: "list",
-                        },
-                    );
-                    let badge_left = knob.right() + 8.0;
-                    let badge = letter_badge(ui, pos2(badge_left, row.center().y), to);
-                    let painter = ui.painter();
-                    painter.text(
-                        pos2(badge.right() + 6.0, row.center().y),
-                        Align2::LEFT_CENTER,
-                        &to.name,
-                        FontId::proportional(theme::size::BODY),
-                        palette.text,
-                    );
-                    let db = track
-                        .sends
-                        .iter()
-                        .find(|s| s.to == to.id)
-                        .map_or(f32::NEG_INFINITY, |s| s.level.0);
-                    painter.text(
-                        pos2(row.right() - 4.0, row.center().y),
-                        Align2::RIGHT_CENTER,
-                        db_text(db.max(-60.0)),
-                        FontId::proportional(theme::size::CAPTION),
-                        palette.text_secondary,
-                    );
-                }
+                egui::ScrollArea::vertical()
+                    .max_height(LIST_ROWS as f32 * (SMALL_KNOB + 4.0))
+                    .show(ui, |ui| {
+                        for to in returns {
+                            let (row, _) = ui
+                                .allocate_exact_size(vec2(236.0, SMALL_KNOB + 4.0), Sense::hover());
+                            let knob = Rect::from_min_size(
+                                pos2(row.left() + 2.0, row.center().y - SMALL_KNOB / 2.0),
+                                vec2(SMALL_KNOB, SMALL_KNOB),
+                            );
+                            let name = format!("Send {} to {} {}", track.name, to.letter, to.name);
+                            self.send_control(
+                                ui,
+                                doc,
+                                &heard,
+                                Knob {
+                                    rect: knob,
+                                    track,
+                                    to,
+                                    selected: false,
+                                    name,
+                                    place: "list",
+                                },
+                            );
+                            let badge_left = knob.right() + 8.0;
+                            let badge = letter_badge(ui, pos2(badge_left, row.center().y), to);
+                            let painter = ui.painter();
+                            painter.text(
+                                pos2(badge.right() + 6.0, row.center().y),
+                                Align2::LEFT_CENTER,
+                                &to.name,
+                                FontId::proportional(theme::size::BODY),
+                                palette.text,
+                            );
+                            let db = track
+                                .sends
+                                .iter()
+                                .find(|s| s.to == to.id)
+                                .map_or(f32::NEG_INFINITY, |s| s.level.0);
+                            painter.text(
+                                pos2(row.right() - 4.0, row.center().y),
+                                Align2::RIGHT_CENTER,
+                                db_text(db.max(-60.0)),
+                                FontId::proportional(theme::size::CAPTION),
+                                palette.text_secondary,
+                            );
+                        }
+                    });
             });
     }
 
@@ -577,11 +584,19 @@ impl Arrangement {
                         .font(fonts::medium(theme::size::BODY)),
                 );
                 ui.separator();
-                for sender in order {
-                    let (row, _) = ui.allocate_exact_size(vec2(236.0, STEP), Sense::hover());
-                    let row = row.shrink2(vec2(4.0, 0.0));
-                    active |= self.sender_row(ui, doc, heard, (sender, to), row, "return list");
-                }
+                // Scrolls past ten rows (MT-MIX-4 run 3: a long list ran off
+                // the window).
+                egui::ScrollArea::vertical()
+                    .max_height(LIST_ROWS as f32 * STEP)
+                    .show(ui, |ui| {
+                        for sender in order {
+                            let (row, _) =
+                                ui.allocate_exact_size(vec2(236.0, STEP), Sense::hover());
+                            let row = row.shrink2(vec2(10.0, 0.0));
+                            active |=
+                                self.sender_row(ui, doc, heard, (sender, to), row, "return list");
+                        }
+                    });
             });
         active
     }

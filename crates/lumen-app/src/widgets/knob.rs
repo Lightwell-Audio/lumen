@@ -71,6 +71,10 @@ pub struct SendKnob<'a> {
     /// On a selected row its ring and letter step up, as every control's
     /// colours do there (the owner's C4, MT-MIX-4 run 1).
     pub selected: bool,
+    /// Shows its level in a chip above it while it moves. Off in lists,
+    /// whose level column already follows (MT-MIX-4 run 3: the two drew
+    /// over each other).
+    pub live_value: bool,
     /// The accessible name: "Send Vocal to A Reverb".
     pub name: &'a str,
 }
@@ -212,17 +216,21 @@ pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> Kno
             Stroke::new(1.5, palette.accent),
         );
     }
-    if response.dragged() || response.has_focus() && out.db.is_some() {
-        // The level, live, beside the knob while it moves.
+    if knob.live_value && (response.dragged() || response.has_focus() && out.db.is_some()) {
+        // The level, live, in a chip above the knob, over everything: beside
+        // it, it ran over the next knob (MT-MIX-4 run 3).
         let text = db_text(level(shown).max(-60.0));
-        let at = rect.right_center() + vec2(4.0, 0.0);
-        ui.painter().text(
-            at,
-            Align2::LEFT_CENTER,
-            text,
+        let layer = egui::LayerId::new(egui::Order::Tooltip, id.with("live value"));
+        let painter = ui.ctx().layer_painter(layer);
+        let bounds = ui.ctx().content_rect();
+        let chip = painter.layout_no_wrap(
+            text.clone(),
             FontId::proportional(theme::size::CAPTION),
             palette.text,
         );
+        let width = chip.size().x + 2.0 * theme::space::XS + 2.0;
+        let at = pos2(rect.center().x - width / 2.0, rect.top() - 11.0);
+        super::draw_hint(&painter, at, &text, bounds);
     }
     out
 }

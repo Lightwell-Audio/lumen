@@ -1455,3 +1455,11 @@ amendment 2); steps 15 and 16 added.
     its pre/post-fader setting is kept for when it is turned up again.
     Add twelve returns: "Add return track" greys out, saying why.
 
+**Run 3 (2026-10-09, owner):** three findings, all fixed. (1) Dragging
+a knob in a return's list drew its live level over the row's level (two
+values, blurred): list knobs no longer draw a live value; their level
+column follows. (2) On a track's header the live level ran over the next
+knob: it is now a chip above the knob, over everything (`draw_hint` on a
+tooltip layer). (3) "+N more" with many senders ran off the window: both
+"+N" lists scroll past ten rows.
+

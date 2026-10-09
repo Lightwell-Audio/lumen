@@ -623,7 +623,7 @@ fn sends() {
     use egui_kittest::kittest::Queryable;
     for (appearance, scale) in [("dark", 1.0), ("light", 1.0), ("dark", 1.5)] {
         let dir = TempDir::new("shots-sends");
-        let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1200.0, 900.0));
+        let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1200.0, 1400.0));
         for _ in 0..10 {
             h.get_by_label("Add track").click();
             h.run_steps(3);
@@ -645,7 +645,7 @@ fn sends() {
         // (returns folded away meanwhile, so the new tracks are in view).
         h.get_by_label("Fold returns").click();
         h.run_steps(10);
-        for n in 0..5 {
+        for n in 0..11 {
             h.key_press_modifiers(Modifiers::COMMAND, Key::T);
             h.run_steps(3);
             let name = h
@@ -663,7 +663,7 @@ fn sends() {
             h.get_by_label_contains(&format!("Send {name} to A "))
                 .click();
             h.run_steps(2);
-            h.event(Event::Text(format!("-{}", 3 + n * 4)));
+            h.event(Event::Text(format!("-{}", 3 + n * 2)));
             h.run_steps(2);
             h.key_press(Key::Enter);
             h.run_steps(2);
@@ -682,6 +682,16 @@ fn sends() {
         h.hover_at(Pos2::new(900.0, 650.0));
         h.run_steps(10);
         save(&mut h, &format!("sends-{appearance}-{scale}"));
+        // A header knob mid-drag: its level in a chip above it.
+        let knob = h.get_by_label_contains("Send kick to A ").rect();
+        h.hover_at(knob.center());
+        h.drag_at(knob.center());
+        h.run_steps(2);
+        h.hover_at(knob.center() - vec2(0.0, 20.0));
+        h.run_steps(2);
+        save(&mut h, &format!("send-dragging-{appearance}-{scale}"));
+        h.drop_at(knob.center() - vec2(0.0, 20.0));
+        h.run_steps(3);
         h.get_by_label_contains("more sends from kick").click();
         h.run_steps(5);
         save(&mut h, &format!("sends-list-{appearance}-{scale}"));
