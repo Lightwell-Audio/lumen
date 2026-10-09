@@ -1344,3 +1344,8 @@ enough); names were cut short in the fixed-width headers (the column is
 now resizable, saved per project, format v9); soloing a track inside a
 group silenced it (solo now keeps its groups open). Steps 11 to 13
 added.
+
+**Run 2 (2026-10-09, owner):** two more findings, both fixed (ADR-0037
+amendment): deleting a track from its right-click menu crashed Lumen;
+tracks in groups played 3 dB quieter a level (buses now stay at unity
+when centred). Then passed: "everything looks good".

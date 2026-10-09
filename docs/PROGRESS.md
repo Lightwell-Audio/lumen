@@ -16,8 +16,9 @@ waits for the owner. **Slice 3, group tracks (format v8), is built**
 (ADR-0037): Ctrl+G and Ctrl+Shift+G, nesting, folding, dragging tracks in
 and out, nested rails and lane bars, arming and deleting a group; MT-MIX-3
 run 1's findings are fixed (three-deep groups, a resizable header column
-saved per project in format v9, solo inside groups); run 2 waits for the
-owner ([milestones/M4.md](milestones/M4.md)).
+saved per project in format v9, solo inside groups), and run 2's (a
+crash deleting from a track's menu, grouped tracks playing quieter);
+**MT-MIX-3 passed** (slice 3 done) ([milestones/M4.md](milestones/M4.md)).
 **Previous:** M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
@@ -29,7 +30,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 1 | Foundations & Architecture | ✅ Complete | Plan and risk register in `docs/milestones/M1.md` |
 | 2 | Audio Engine, Devices & Transport | ✅ Complete, approved 2026-10-07 | Plan: `docs/milestones/M2.md` |
 | 3 | Arrangement & Project System | ✅ Complete, approved 2026-10-09 | Plan: `docs/milestones/M3.md` |
-| 4 | Mixer, Routing & Groups | 🟡 In progress (slices 0–3 built) | Plan: `docs/milestones/M4.md` |
+| 4 | Mixer, Routing & Groups | 🟡 In progress (slices 0–3 built, slice 3 done) | Plan: `docs/milestones/M4.md` |
 | 5 | MIDI & Piano Roll | 🔲 | |
 | 6 | VST3 Hosting & Device System | 🔲 | |
 | 7 | Automation, Envelopes & Advanced Editing | 🔲 | |

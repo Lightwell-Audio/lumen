@@ -429,8 +429,10 @@ menus in `arrangement/menus.rs`. The perf baseline was updated (parse
 findings are fixed (ADR-0037 amendment): groups go three deep at most
 (`groups::MAX_NESTING`, refusals via `Document::trial` and a note), a
 resizable header column saved per project (format v9), and solo keeps a
-soloed track's groups open (`document::audible`). Run 2 waits for the
-owner; slice 4 (mute, solo, returns, master, cue) is next, with the solo
+soloed track's groups open (`document::audible`). Run 2 found a crash
+deleting from a track's menu (header rows now skip tracks gone mid-frame)
+and grouped tracks 3 dB quieter a level (every bus pans with the balance
+law); both fixed. **MT-MIX-3 passed; slice 3 is done.** Next: slice 4 (mute, solo, returns, master, cue) is next, with the solo
 rules as a table of cases for the owner first. The owner's drag-to-cut request is recorded for M7
 with split (the M3 plan, out of scope).
 
