@@ -10,7 +10,7 @@ use eframe::emath::GuiRounding as _;
 use crate::theme;
 
 /// Room under a keycap for its light.
-const KEY_LIGHT_ROOM: f32 = 4.0;
+pub const KEY_LIGHT_ROOM: f32 = 4.0;
 
 /// A shortcut to show (the owner's K5): its modifiers, its key, the light
 /// of its command's area, and how it reads ("Ctrl+D").

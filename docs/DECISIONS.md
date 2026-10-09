@@ -2462,7 +2462,7 @@ the drag they choose.
   none, so a remapped key shows its new chord). Hovers call
   `App::set_info`; the strip, laid out before the lanes, draws the last
   frame's info and asks for one more frame when it changes.
-- Drawn full width under the detail panel, 28 pt (`theme::size::INFO_LINE`):
+- Drawn full width under the detail panel, 32 pt (`theme::size::INFO_LINE`):
   the subject, then the actions separated by dots, stopping with "…" where
   the window ends. Gestures: modifiers as plain caps (`widgets::modifier_caps`),
   a mouse (`Icon::Mouse`), the gesture's word. Commands: K5 keycaps as a
@@ -2485,7 +2485,7 @@ the drag they choose.
 ### Consequences
 - One place to look for how to do something; new interactive things set an
   `Info` (DESIGN.md §2 and §9).
-- The window loses 28 pt of height to the strip (hidden by the command).
+- The window loses 32 pt of height to the strip (hidden by the command).
 - Tests read the info line as words (`testing::info_line`, `info_lit`).
 
 ### Evidence

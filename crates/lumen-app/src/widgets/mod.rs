@@ -17,7 +17,8 @@ use crate::{fonts, icons, motion, theme};
 mod keys;
 
 pub use keys::{
-    Keys, Tip, caps_height, caps_width, keycaps, menu_item, menu_toggle, modifier_caps, tip,
+    KEY_LIGHT_ROOM, Keys, Tip, caps_height, caps_width, keycaps, menu_item, menu_toggle,
+    modifier_caps, tip,
 };
 
 /// A floating window in the design system (DESIGN §5): no system title

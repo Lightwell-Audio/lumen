@@ -46,7 +46,7 @@ restrained and purposeful.
 ├────────────┴─────────────────────────────────────────────────────────┤
 │ Detail panel (bottom, collapsible): Devices · Clip · Mixer           │
 ├──────────────────────────────────────────────────────────────────────┤
-│ Info line: what is under the pointer · its gestures and keys, 28 pt  │
+│ Info line: what is under the pointer · its gestures and keys, 32 pt  │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 

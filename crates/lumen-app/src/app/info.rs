@@ -236,8 +236,11 @@ impl App {
                     // A row exactly as tall as a keycap, centred in the
                     // strip: egui centres a row's items on its tallest one,
                     // which left the words a little low.
+                    // Raised by half the light's room, so each keycap and
+                    // its light are centred as one and the light keeps clear
+                    // of the window's edge (owner: it sat on the border).
                     let row_rect = Rect::from_center_size(
-                        strip.center(),
+                        strip.center() - vec2(0.0, widgets::KEY_LIGHT_ROOM / 2.0),
                         vec2(strip.width(), widgets::caps_height(ui)),
                     );
                     let mut row = ui.new_child(
@@ -262,7 +265,8 @@ fn draw(ui: &mut Ui, info: &Info, keymap: &Keymap, held: Held) {
             .color(palette.text),
     );
     let right = ui.max_rect().right();
-    let middle = ui.max_rect().center().y;
+    // The strip's middle: the row sits half a light's room above it.
+    let middle = ui.max_rect().center().y + widgets::KEY_LIGHT_ROOM / 2.0;
     let separator = RichText::new("\u{00B7}")
         .size(theme::size::CAPTION)
         .color(palette.text_hint);
@@ -281,38 +285,37 @@ fn draw(ui: &mut Ui, info: &Info, keymap: &Keymap, held: Held) {
         ui.add_space(theme::space::XS);
         let lit = lit(action, held);
         let background = ui.painter().add(Shape::Noop);
-        let group = ui
-            .horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = theme::space::XS;
-                let colour = if lit {
-                    palette.text
-                } else {
-                    palette.text_secondary
-                };
-                match action.how {
-                    How::Pointer(held, gesture) => {
-                        widgets::modifier_caps(ui, &held.names());
-                        mouse(ui, colour);
-                        ui.label(
-                            RichText::new(gesture.word())
-                                .size(theme::size::CAPTION)
-                                .color(colour),
-                        );
-                    }
-                    How::Key(command) => {
-                        if let Some(keys) = keymap.keys(command) {
-                            keys.picture(ui);
-                        }
-                    }
-                }
+        // Drawn straight into the row, not in a nested `horizontal`: egui
+        // starts one at a standard row height and grows it downward for the
+        // taller keycaps, which pushed every action low.
+        let left = ui.cursor().left();
+        let colour = if lit {
+            palette.text
+        } else {
+            palette.text_secondary
+        };
+        match action.how {
+            How::Pointer(held, gesture) => {
+                widgets::modifier_caps(ui, &held.names());
+                mouse(ui, colour);
                 ui.label(
-                    RichText::new(&action.verb)
+                    RichText::new(gesture.word())
                         .size(theme::size::CAPTION)
                         .color(colour),
                 );
-            })
-            .response
-            .rect;
+            }
+            How::Key(command) => {
+                if let Some(keys) = keymap.keys(command) {
+                    keys.picture(ui);
+                }
+            }
+        }
+        ui.label(
+            RichText::new(&action.verb)
+                .size(theme::size::CAPTION)
+                .color(colour),
+        );
+        let group = Rect::from_x_y_ranges(left..=ui.min_rect().right(), middle..=middle);
         if lit {
             ui.painter().set(
                 background,
