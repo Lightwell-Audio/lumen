@@ -8,6 +8,7 @@ pub(crate) mod editing;
 pub(crate) mod grid;
 mod handles;
 pub(crate) mod history;
+pub(crate) mod info;
 pub(crate) mod locators;
 pub(crate) mod navigate;
 pub(crate) mod palette;

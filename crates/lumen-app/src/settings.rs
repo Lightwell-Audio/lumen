@@ -87,6 +87,9 @@ pub struct Appearance {
     pub reduce_motion: bool,
     /// 1.0 = 100%.
     pub ui_scale: f32,
+    /// The info line along the bottom of the window (M4 slice 0): an
+    /// added field, on unless turned off.
+    pub info_line: bool,
 }
 
 impl Default for Appearance {
@@ -95,6 +98,7 @@ impl Default for Appearance {
             theme: crate::theme::Appearance::default().key().to_owned(),
             reduce_motion: false,
             ui_scale: 1.0,
+            info_line: true,
         }
     }
 }
@@ -363,6 +367,7 @@ mod tests {
                 theme: "light".into(),
                 reduce_motion: true,
                 ui_scale: 1.5,
+                info_line: false,
             },
             projects: Projects {
                 recent: vec!["C:/Music/Song/Song.lumen".into()],

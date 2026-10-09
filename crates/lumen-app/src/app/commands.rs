@@ -144,6 +144,7 @@ impl App {
             | Command::FitWidth
             | Command::FitHeight
             | Command::ToggleDetail
+            | Command::ToggleInfoLine
             | Command::OpenPalette
             | Command::OpenShortcuts
             | Command::NextPane
@@ -258,6 +259,11 @@ impl App {
             Command::NextPane => self.cycle_pane(true),
             Command::PreviousPane => self.cycle_pane(false),
             Command::ToggleDetail => self.toggle_detail_requested = true,
+            Command::ToggleInfoLine => {
+                let shown = &mut self.settings.appearance.info_line;
+                *shown = !*shown;
+                self.settings_changed = Some(std::time::Instant::now());
+            }
             Command::OpenPalette => self.toggle_palette(),
             Command::OpenShortcuts => self.open_shortcuts(),
             Command::GridNarrower => self.grid.narrower(),

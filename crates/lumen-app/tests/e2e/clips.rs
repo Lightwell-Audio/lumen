@@ -155,10 +155,23 @@ fn clicks_select_and_hovering_names_each_half() {
     let (a, b) = (rect(&lumen, kick), rect(&lumen, snare));
     lumen.harness.hover_at(top_half(a));
     lumen.frames(2);
-    assert_eq!(lumen.app().hint(), Some("drag to move · Ctrl copies"));
+    // M4 slice 0: in the info line, not by the pointer.
+    assert!(
+        lumen.info().starts_with("Clip “kick”: drag to move"),
+        "{}",
+        lumen.info()
+    );
+    assert_eq!(lumen.lit().as_deref(), Some("drag to move"));
+    assert!(lumen.app().hint().is_none(), "nothing floats over the clip");
     lumen.harness.hover_at(bottom_half(a));
     lumen.frames(2);
-    assert_eq!(lumen.app().hint(), Some("drag to select time"));
+    assert!(
+        lumen
+            .info()
+            .starts_with("Clip “kick”, lower half: drag to select time"),
+        "{}",
+        lumen.info()
+    );
 
     let click = |lumen: &mut Lumen, p: Pos2, m: Modifiers| {
         lumen
@@ -471,7 +484,10 @@ fn an_edge_trims_within_the_file_and_shift_loops_it() {
     let end = Pos2::new(r.right() - 2.0, r.center().y);
     lumen.harness.hover_at(end);
     lumen.frames(2);
-    assert_eq!(lumen.app().hint(), Some("drag to trim · Shift loops"));
+    assert_eq!(
+        lumen.info(),
+        "End of “kick”: drag to trim · Shift+drag to loop"
+    );
 
     // A quarter shorter: one step.
     lumen.drag(end, end - vec2(zoom, 0.0), Modifiers::NONE);
@@ -567,9 +583,14 @@ fn holding_ctrl_over_a_clip_tells_how_to_slip() {
         .harness
         .hover_at(Pos2::new(r.center().x, top_half(r).y));
     lumen.frames(2);
+    assert_eq!(lumen.lit().as_deref(), Some("Ctrl+drag to copy"));
+    lumen.harness.event(eframe::egui::Event::ModifiersChanged(
+        Modifiers::COMMAND | Modifiers::ALT,
+    ));
+    lumen.frames(2);
     assert_eq!(
-        lumen.app().hint(),
-        Some("drag to copy · add Alt to slip the audio")
+        lumen.lit().as_deref(),
+        Some("Ctrl+Alt+drag to slip the audio")
     );
 }
 
@@ -600,7 +621,7 @@ fn hovering_a_long_clip_at_the_deepest_zoom_stays_quick() {
         "zooming in took {:?}",
         started.elapsed()
     );
-    assert!(lumen.app().hint().is_some(), "hovering the clip");
+    assert!(lumen.app().info_line().is_some(), "hovering the clip");
 }
 
 /// Owner, after 6c: dragging a clip while it played crackled. Each new

@@ -120,7 +120,7 @@ impl Transport {
                 self.audio.can_switch(),
                 egui::Checkbox::new(&mut on, "Audio on"),
             )
-            .on_hover_text("Turn audio processing on or off. Off releases the device")
+            .on_hover_text("Audio on or off (off frees the device)")
             .changed()
         {
             self.audio.set_on(on);
@@ -182,9 +182,7 @@ impl Transport {
         ui.separator();
         if ui
             .button(RichText::new("Panic: stop and silence everything").color(theme::p().record))
-            .on_hover_text(
-                "Stops playback and silences the metronome, test tone and any sound at once",
-            )
+            .on_hover_text("Silence everything at once")
             .clicked()
         {
             self.send(Command::Panic);

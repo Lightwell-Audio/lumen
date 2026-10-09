@@ -567,3 +567,22 @@ fn wav(path: &std::path::Path, seconds: f32) -> PathBuf {
     std::fs::write(path, out).expect("write the WAV");
     path.to_path_buf()
 }
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn info_line() {
+    for (appearance, scale) in [("dark", 1.0), ("light", 1.5), ("dark", 2.0)] {
+        let dir = TempDir::new("shots-info");
+        let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1200.0, 520.0));
+        let name = |what: &str| format!("info-{what}-{appearance}-{}", (scale * 100.0) as u32);
+        let a = clip(&h, 0);
+        h.hover_at(Pos2::new(a.left() + 20.0, a.top() + 8.0));
+        save(&mut h, &name("clip"));
+        h.event(Event::ModifiersChanged(Modifiers::COMMAND));
+        h.hover_at(Pos2::new(a.left() + 21.0, a.top() + 8.0));
+        save(&mut h, &name("clip-ctrl"));
+        h.event(Event::ModifiersChanged(Modifiers::NONE));
+        h.hover_at(Pos2::new(a.right() - 2.0, a.center().y));
+        save(&mut h, &name("clip-end"));
+    }
+}

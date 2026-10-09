@@ -33,13 +33,13 @@ struct Caps {
 /// Horizontal padding inside a cap, and vertical.
 const CAP_PAD: Vec2 = vec2(6.0, 2.0);
 
-fn lay_out_caps(ui: &Ui, modifiers: &[&str], key: &str) -> Caps {
+fn lay_out_caps(ui: &Ui, modifiers: &[&str], key: Option<&str>) -> Caps {
     let palette = theme::p();
     let font = FontId::proportional(theme::size::CAPTION);
     let caps: Vec<_> = modifiers
         .iter()
         .map(|m| (*m, false))
-        .chain(std::iter::once((key, true)))
+        .chain(key.map(|key| (key, true)))
         .map(|(text, main)| {
             let colour = if main {
                 palette.text
@@ -102,7 +102,7 @@ fn paint_caps(painter: &Painter, ppp: f32, caps: Caps, at: Pos2, light: Color32)
 /// Clickable: the shortcut editor and the palette record a new chord when
 /// a shortcut is clicked.
 pub fn keycaps(ui: &mut Ui, modifiers: &[&str], key: &str, light: Color32) -> egui::Response {
-    let caps = lay_out_caps(ui, modifiers, key);
+    let caps = lay_out_caps(ui, modifiers, Some(key));
     let (rect, response) = ui.allocate_exact_size(caps.size, Sense::click());
     if ui.is_rect_visible(rect) {
         paint_caps(ui.painter(), ui.pixels_per_point(), caps, rect.min, light);
@@ -110,10 +110,50 @@ pub fn keycaps(ui: &mut Ui, modifiers: &[&str], key: &str, light: Color32) -> eg
     response
 }
 
+/// Modifiers alone as plain keycaps ("Ctrl" before a drag, in the info
+/// line), the same size as [`keycaps`] draws them. Draws nothing for none.
+pub fn modifier_caps(ui: &mut Ui, modifiers: &[&str]) -> egui::Response {
+    if modifiers.is_empty() {
+        return ui.allocate_response(Vec2::ZERO, Sense::hover());
+    }
+    let caps = lay_out_caps(ui, modifiers, None);
+    let (rect, response) = ui.allocate_exact_size(caps.size, Sense::hover());
+    if ui.is_rect_visible(rect) {
+        paint_caps(
+            ui.painter(),
+            ui.pixels_per_point(),
+            caps,
+            rect.min + vec2(0.0, KEY_LIGHT_ROOM / 2.0),
+            Color32::TRANSPARENT,
+        );
+    }
+    response
+}
+
+/// How wide keycaps for `modifiers` and `key` are, to plan a row.
+pub fn caps_width(ui: &Ui, modifiers: &[&str], key: Option<&str>) -> f32 {
+    if modifiers.is_empty() && key.is_none() {
+        return 0.0;
+    }
+    lay_out_caps(ui, modifiers, key).size.x
+}
+
 impl Keys {
     /// These keys as keycaps.
     pub fn caps(&self, ui: &mut Ui) -> egui::Response {
         keycaps(ui, &self.modifiers, self.key, self.light)
+    }
+
+    /// These keys as keycaps that only show them (the info line): not a
+    /// control, so nothing to click or name.
+    pub fn picture(&self, ui: &mut Ui) {
+        let caps = lay_out_caps(ui, &self.modifiers, Some(self.key));
+        let (rect, _) = ui.allocate_exact_size(caps.size, Sense::hover());
+        if ui.is_rect_visible(rect) {
+            // The cap, not cap and light, centred on the row's words.
+            let at = rect.min + vec2(0.0, KEY_LIGHT_ROOM / 2.0);
+            paint_caps(ui.painter(), ui.pixels_per_point(), caps, at, self.light);
+        }
     }
 }
 
@@ -153,7 +193,7 @@ fn menu_row(
         FontId::proportional(theme::size::BODY),
         text_colour,
     );
-    let caps = keys.map(|k| lay_out_caps(ui, &k.modifiers, k.key));
+    let caps = keys.map(|k| lay_out_caps(ui, &k.modifiers, Some(k.key)));
     let pad = ui.spacing().button_padding;
     let caps_width = caps
         .as_ref()

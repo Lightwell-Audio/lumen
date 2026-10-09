@@ -44,6 +44,7 @@ irreversible or external) · *Superseded*.
 | [0031](#adr-0031--curves-for-fades-and-envelopes-format-v6) | Curves for fades and envelopes (format v6): a cubic Bézier from silence to full, edited by one free dot with Alt for S-shape, played from tables, drawn on the GPU | Accepted 2026-10-08 | No |
 | [0032](#adr-0032--clip-editing-m3-slice-6) | Clip editing (M3 slice 6): the split-clip model, drags redone from where they started, Ableton's overlap rule, clip properties and the pinned card, drops on a chosen track, Esc for the field being typed in | Accepted 2026-10-08 | No |
 | [0033](#adr-0033--commands-and-the-keymap-m3-slice-7) | Commands and the keymap (M3 slice 7): one table of commands, chords matched exactly, one command per key whatever is selected, one dispatcher | Accepted 2026-10-08 (7a) | No |
+| [0034](#adr-0034--the-info-line-m4-slice-0) | The info line (M4 slice 0): hover hints leave the pointer for one strip along the bottom of the window, with K5 keycaps and lit modifiers | Accepted 2026-10-09 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -88,6 +89,7 @@ irreversible or external) · *Superseded*.
 | Clips from the keyboard (M3 review H2, 2026-10-08) | **The arrows follow the selection**, as in Logic and Cubase: with a clip selected ←/→ select the previous or next clip on its track and ↑/↓ the nearest clip on the track above or below, Shift adds; with tracks selected the arrows act on tracks as before (over Alt+←/→ only, and [ and ]). ADR-0033. |
 | M3 close (2026-10-09) | M3 approved after MT-APP-16 passed. The M4 plan (`docs/milestones/M4.md`) waits for approval and its three questions. |
 | M4 plan (2026-10-09) | Approved. **Solo: Ableton's by default** (a click solos only that track, Ctrl+click adds). **The UX pass on hints runs first**, as M4 slice 0. Pan law −3 dB constant power by default (the proposal, recorded as an assumption). |
+| Hints (M4 slice 0, 2026-10-09) | Chosen from interactive specimens: **an info line** along the bottom of the window (C, Ableton's Info View in spirit) over quiet chips (A) and rest-to-reveal (B), **with the K5 keycaps** the palette and menus use (the owner's addition, for consistency), **no chips for held keys** (the cursor and the lit action say it), full width (ADR-0034). |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
 
@@ -2429,3 +2431,66 @@ E2E `audio_imports_from_the_keyboard_onto_the_selected_track`,
 `the_view_follows_a_clip_chosen_with_the_arrows`; the palette's pass test
 now checks the command each top row runs. Screenshots of the empty
 arrangement (both themes, 100% and 200%) and the shortcuts window.
+
+---
+
+## ADR-0034 — The info line (M4 slice 0)
+
+**Status:** Accepted · **Date:** 2026-10-09
+
+### Context
+The owner found that hints had piled up slice by slice (2026-10-08): every
+clip, handle, the loop brace, the scrub strip and the time ruler showed a
+chip by the pointer saying what a drag does ("drag to move · Ctrl
+copies"), on every hover. The spec asks for status-bar hints (§7) and for
+behaviour to read without much text (§2).
+
+### Options (shown as an interactive specimen)
+- A. Quiet: no hover text; a chip only while a held key changes a drag.
+- B. Rest to reveal: today's chips after the pointer rests 0.8 s.
+- C. An info line: one strip along the bottom names what is under the
+  pointer and what can be done there.
+- A and C together (recommended at first).
+
+### Decision
+**C, with the K5 keycaps** (the owner), and no held-key chips: the cursor
+already changes with the keys (copy, slip, loop) and the info line lights
+the drag they choose.
+- `app/info.rs`: an `Info` is a subject and actions; an action is a mouse
+  gesture (click, double-click, right-click, drag) with modifiers, or a
+  command shown with its shortcut from the keymap (left out while it has
+  none, so a remapped key shows its new chord). Hovers call
+  `App::set_info`; the strip, laid out before the lanes, draws the last
+  frame's info and asks for one more frame when it changes.
+- Drawn full width under the detail panel, 28 pt (`theme::size::INFO_LINE`):
+  the subject, then the actions separated by dots, stopping with "…" where
+  the window ends. Gestures: modifiers as plain caps (`widgets::modifier_caps`),
+  a mouse (`Icon::Mouse`), the gesture's word. Commands: K5 keycaps as a
+  picture (`Keys::picture`: not a control, so nothing unnamed for screen
+  readers). The drag whose modifiers are held exactly is lit in the
+  accent. The strip is one label for screen readers ("Info: Clip “kick”:
+  drag to move · Ctrl+drag to copy · …").
+- "Show info line" (View) hides it; saved in the settings' appearance (an
+  added field, on by default).
+- Removed: every hover chip (clips, clip edges, fade, bend and gain
+  handles, the loop brace, the scrub strip, the time ruler), the arrow
+  marks on chips, and the "Or double-click empty space" caption. Kept by
+  the pointer: live values while dragging and "new track here" during a
+  file drag. The brace's brackets and the scrub strip's washed step stay:
+  they show, rather than say.
+- Added info where nothing was said: empty lanes, the bar ruler, the empty
+  track area. Wordy tooltips and the browser and detail placeholders were
+  shortened.
+
+### Consequences
+- One place to look for how to do something; new interactive things set an
+  `Info` (DESIGN.md §2 and §9).
+- The window loses 28 pt of height to the strip (hidden by the command).
+- Tests read the info line as words (`testing::info_line`, `info_lit`).
+
+### Evidence
+Unit test `info_reads_as_words_and_lights_the_drag_the_keys_choose`; E2E
+`info` (hover, a remapped key shown, the empty track area, Show info line),
+and the clip, fade, loop, properties and scrubbing scenarios now reading
+the info line; screenshots (`tests/shots.rs`, `info_line`: a clip, with
+Ctrl held, a clip's end; dark 100%, light 150%, dark 200%).

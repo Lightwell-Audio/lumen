@@ -4,8 +4,9 @@
 
 **Current milestone:** 3 — Arrangement & Project System (plan:
 [milestones/M3.md](milestones/M3.md)). **Complete, approved by the owner
-2026-10-09** (MT-APP-16 passed; report below). **M4 (Mixer, Routing & Groups) is approved and started** with slice 0, the
-UX pass on hints ([milestones/M4.md](milestones/M4.md)).
+2026-10-09** (MT-APP-16 passed; report below). **M4 (Mixer, Routing & Groups) is approved and started.** Slice 0, the UX
+pass on hints, is built: the info line (ADR-0034); MT-APP-17 waits for the
+owner ([milestones/M4.md](milestones/M4.md)).
 **Previous:** M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked

@@ -16,7 +16,7 @@ use crate::{fonts, icons, motion, theme};
 
 mod keys;
 
-pub use keys::{Keys, Tip, keycaps, menu_item, menu_toggle, tip};
+pub use keys::{Keys, Tip, caps_width, keycaps, menu_item, menu_toggle, modifier_caps, tip};
 
 /// A floating window in the design system (DESIGN §5): no system title
 /// bar; our own title row with the title in the display face and, when it
@@ -444,56 +444,16 @@ pub fn gradient(painter: &Painter, rect: Rect, left: Color32, right: Color32) {
     painter.add(egui::Shape::mesh(mesh));
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn values_read_naturally() {
-        assert_eq!(db_text(0.0), "0.0 dB");
-        assert_eq!(db_text(-3.0), "\u{2212}3.0 dB");
-        assert_eq!(db_text(6.0), "+6.0 dB");
-        assert_eq!(db_text(-60.0), "\u{2212}\u{221E} dB");
-        assert_eq!(pan_text(0.0), "C");
-        assert_eq!(pan_text(-0.3), "L 30");
-        assert_eq!(pan_text(1.0), "R 100");
-    }
-
-    #[test]
-    fn typed_values_are_understood() {
-        let v = SliderKind::Volume;
-        assert_eq!(v.parse("-6"), Some(-6.0));
-        assert_eq!(v.parse("\u{2212}4.5 dB"), Some(-4.5));
-        assert_eq!(v.parse("loud"), None);
-        let p = SliderKind::Pan;
-        assert_eq!(p.parse("c"), Some(0.0));
-        assert_eq!(p.parse("L 30"), Some(-0.3));
-        assert_eq!(p.parse("r100"), Some(1.0));
-        assert_eq!(p.parse("-50"), Some(-0.5));
-    }
-}
-
-/// The mark in front of a hint's words.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HintMark {
-    /// A double arrow: dragging resizes.
-    Resize,
-    /// Four arrows: dragging moves.
-    Move,
-    None,
-}
-
-/// A small chip naming what a drag will do (MT-APP-13 run 1: the owner
-/// could not tell whether a drag would move or resize). Placed with its
-/// left edge at `at.x`, centred on `at.y`, kept inside `bounds`. Returns
-/// where it was drawn.
-pub fn draw_hint(painter: &Painter, at: Pos2, mark: HintMark, text: &str, bounds: Rect) -> Rect {
+/// A small chip by the pointer with a live value while dragging (a fade's
+/// length, a gain; M4 slice 0: what a drag does is said in the info line,
+/// not here). Placed with its left edge at `at.x`, centred on `at.y`, kept
+/// inside `bounds`. Returns where it was drawn.
+pub fn draw_hint(painter: &Painter, at: Pos2, text: &str, bounds: Rect) -> Rect {
     let palette = theme::p();
     let font = FontId::proportional(theme::size::CAPTION);
     let galley = painter.layout_no_wrap(text.to_owned(), font, palette.text);
-    let mark_width = if mark == HintMark::None { 0.0 } else { 12.0 };
     let size = vec2(
-        galley.size().x + mark_width + 2.0 * theme::space::XS + 2.0,
+        galley.size().x + 2.0 * theme::space::XS + 2.0,
         theme::size::CAPTION + 4.0,
     );
     let x = at.x.min(bounds.right() - size.x).max(bounds.left());
@@ -507,35 +467,16 @@ pub fn draw_hint(painter: &Painter, at: Pos2, mark: HintMark, text: &str, bounds
     );
     let left = rect.left() + theme::space::XS;
     let mid = rect.center().y;
-    let stroke = Stroke::new(1.2, palette.accent);
-    let arrow = |from: Pos2, to: Pos2| {
-        painter.line_segment([from, to], stroke);
-        let d = (to - from).normalized() * 2.5;
-        let n = vec2(-d.y, d.x);
-        painter.line_segment([to, to - d + n], stroke);
-        painter.line_segment([to, to - d - n], stroke);
-        painter.line_segment([from, from + d + n], stroke);
-        painter.line_segment([from, from + d - n], stroke);
-    };
-    let centre = pos2(left + 4.5, mid);
-    match mark {
-        HintMark::Resize => arrow(centre - vec2(4.5, 0.0), centre + vec2(4.5, 0.0)),
-        HintMark::Move => {
-            arrow(centre - vec2(4.5, 0.0), centre + vec2(4.5, 0.0));
-            arrow(centre - vec2(0.0, 4.5), centre + vec2(0.0, 4.5));
-        }
-        HintMark::None => {}
-    }
     painter.galley(
-        pos2(left + mark_width, mid - galley.size().y / 2.0),
+        pos2(left, mid - galley.size().y / 2.0),
         galley,
         palette.text,
     );
     rect
 }
 
-/// A quiet caption beside the pointer, saying what a drag will do (the
-/// owner's choice B2), kept inside `bounds`.
+/// A quiet caption beside the pointer, kept inside `bounds`: the tape
+/// speed while scrubbing (the owner's choice B2).
 pub fn draw_caption(painter: &Painter, at: Pos2, text: &str, colour: Color32, bounds: Rect) {
     let galley = painter.layout_no_wrap(
         text.to_owned(),
@@ -564,4 +505,33 @@ pub fn draw_glow_rect(painter: &Painter, rect: Rect, radius: f32) {
         Stroke::new(1.5, accent),
         egui::StrokeKind::Inside,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn values_read_naturally() {
+        assert_eq!(db_text(0.0), "0.0 dB");
+        assert_eq!(db_text(-3.0), "\u{2212}3.0 dB");
+        assert_eq!(db_text(6.0), "+6.0 dB");
+        assert_eq!(db_text(-60.0), "\u{2212}\u{221E} dB");
+        assert_eq!(pan_text(0.0), "C");
+        assert_eq!(pan_text(-0.3), "L 30");
+        assert_eq!(pan_text(1.0), "R 100");
+    }
+
+    #[test]
+    fn typed_values_are_understood() {
+        let v = SliderKind::Volume;
+        assert_eq!(v.parse("-6"), Some(-6.0));
+        assert_eq!(v.parse("\u{2212}4.5 dB"), Some(-4.5));
+        assert_eq!(v.parse("loud"), None);
+        let p = SliderKind::Pan;
+        assert_eq!(p.parse("c"), Some(0.0));
+        assert_eq!(p.parse("L 30"), Some(-0.3));
+        assert_eq!(p.parse("r100"), Some(1.0));
+        assert_eq!(p.parse("-50"), Some(-0.5));
+    }
 }

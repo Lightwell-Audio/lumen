@@ -6,11 +6,12 @@
 
 use std::collections::BTreeSet;
 
-use eframe::egui::{self, CursorIcon, Modifiers, Pos2, Rect, pos2};
+use eframe::egui::{self, CursorIcon, Modifiers, Pos2, Rect};
 use lumen_core::time::Ticks;
 use lumen_project::model::Id;
 
 use super::grid::draw_snap_guide;
+use super::info::{Held, Info, Mouse};
 use super::navigate::ViewStep;
 use crate::arrangement::Arrangement;
 use crate::arrangement::select::{
@@ -204,66 +205,86 @@ impl App {
             return;
         }
         self.arrangement.hover = None;
-        if let Some(p) = response.hover_pos()
-            && let Some(hit) = self.hit(&ctx, p, canvas)
-        {
-            self.arrangement.hover = Some(Hover::from(&hit));
-            let row = match hit.half {
-                Half::Top => hit.rect.top() + 7.0,
-                Half::Bottom => hit.rect.bottom() - 7.0,
-            };
-            if let Some(text) = self.handle_hover(&ctx, &hit) {
-                let at = pos2(p.x + 14.0, p.y - 12.0);
-                widgets::draw_hint(painter, at, widgets::HintMark::None, &text, canvas);
-                self.hint = Some(text);
-                return;
-            }
-            let locked = self
-                .document
-                .project()
-                .tracks
-                .get(hit.track)
-                .and_then(|t| t.clips.iter().find(|c| c.id == hit.clip))
-                .is_some_and(|c| c.locked);
-            use widgets::HintMark;
-            let slip = modifiers.command && modifiers.alt;
-            let (cursor, mark, text) = match (hit.edge, hit.half) {
-                (_, _) if locked => (CursorIcon::NotAllowed, HintMark::None, "locked"),
-                (Some(Edge::End), _) if modifiers.shift => {
-                    (CursorIcon::ResizeEast, HintMark::Resize, "drag to loop")
-                }
-                (Some(Edge::End), _) => (
-                    CursorIcon::ResizeHorizontal,
-                    HintMark::Resize,
-                    "drag to trim · Shift loops",
-                ),
-                (Some(Edge::Start), _) => (
-                    CursorIcon::ResizeHorizontal,
-                    HintMark::Resize,
-                    "drag to trim",
-                ),
-                (None, Half::Top) if slip => (
-                    CursorIcon::ResizeColumn,
-                    HintMark::Resize,
-                    "drag to slip the audio",
-                ),
-                (None, Half::Top) if modifiers.command => (
-                    CursorIcon::Copy,
-                    HintMark::Move,
-                    "drag to copy · add Alt to slip the audio",
-                ),
-                (None, Half::Top) => (
-                    CursorIcon::Grab,
-                    HintMark::Move,
-                    "drag to move · Ctrl copies",
-                ),
-                (None, Half::Bottom) => (CursorIcon::Text, HintMark::Resize, "drag to select time"),
-            };
-            ctx.set_cursor_icon(cursor);
-            // A chip, not a bare caption: clips are busy underneath.
-            widgets::draw_hint(painter, pos2(p.x + 14.0, row), mark, text, canvas);
-            self.hint = Some(text.to_owned());
+        let Some(p) = response.hover_pos() else {
+            return;
+        };
+        let Some(hit) = self.hit(&ctx, p, canvas) else {
+            // Empty lanes (M4 slice 0: what a drag does is in the info line,
+            // not by the pointer).
+            self.set_info(
+                Info::new("Lanes")
+                    .on(Held::NONE, Mouse::Drag, "select clips")
+                    .on(Held::NONE, Mouse::Click, "move the playhead")
+                    .on(Held::NONE, Mouse::RightClick, "menu")
+                    .key(Command::Paste, "paste"),
+            );
+            return;
+        };
+        self.arrangement.hover = Some(Hover::from(&hit));
+        if let Some(info) = self.handle_hover(&ctx, &hit) {
+            self.set_info(info);
+            return;
         }
+        let Some(clip) = self
+            .document
+            .project()
+            .tracks
+            .get(hit.track)
+            .and_then(|t| t.clips.iter().find(|c| c.id == hit.clip))
+        else {
+            return;
+        };
+        let name = format!("\u{201C}{}\u{201D}", clip.name);
+        let slip = modifiers.command && modifiers.alt;
+        // The cursor shows what a drag does now; the info line says it all.
+        let (cursor, info) = match (hit.edge, hit.half) {
+            _ if clip.locked => (
+                CursorIcon::NotAllowed,
+                Info::new(format!("Locked clip {name}")).on(
+                    Held::NONE,
+                    Mouse::RightClick,
+                    "unlock it in the menu",
+                ),
+            ),
+            (Some(Edge::End), _) => (
+                if modifiers.shift {
+                    CursorIcon::ResizeEast
+                } else {
+                    CursorIcon::ResizeHorizontal
+                },
+                Info::new(format!("End of {name}"))
+                    .on(Held::NONE, Mouse::Drag, "trim")
+                    .on(Held::SHIFT, Mouse::Drag, "loop"),
+            ),
+            (Some(Edge::Start), _) => (
+                CursorIcon::ResizeHorizontal,
+                Info::new(format!("Start of {name}")).on(Held::NONE, Mouse::Drag, "trim"),
+            ),
+            (None, Half::Top) => (
+                if slip {
+                    CursorIcon::ResizeColumn
+                } else if modifiers.command {
+                    CursorIcon::Copy
+                } else {
+                    CursorIcon::Grab
+                },
+                Info::new(format!("Clip {name}"))
+                    .on(Held::NONE, Mouse::Drag, "move")
+                    .on(Held::CTRL, Mouse::Drag, "copy")
+                    .on(Held::CTRL_ALT, Mouse::Drag, "slip the audio")
+                    .key(Command::Duplicate, "duplicate")
+                    .key(Command::MuteClips, "mute")
+                    .key(Command::ClipProperties, "properties"),
+            ),
+            (None, Half::Bottom) => (
+                CursorIcon::Text,
+                Info::new(format!("Clip {name}, lower half"))
+                    .on(Held::NONE, Mouse::Drag, "select time")
+                    .key(Command::LoopSelection, "loop the selection"),
+            ),
+        };
+        ctx.set_cursor_icon(cursor);
+        self.set_info(info);
     }
 
     fn hit(

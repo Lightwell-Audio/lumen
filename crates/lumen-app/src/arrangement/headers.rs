@@ -56,6 +56,16 @@ impl Arrangement {
                     "Empty track area: double-click to add an audio track",
                 )
             });
+            if empty.hovered() {
+                use crate::app::info::{Held, Info, Mouse};
+                self.info = Some(
+                    Info::new("Empty track area")
+                        .on(Held::NONE, Mouse::DoubleClick, "add an audio track")
+                        .on(Held::NONE, Mouse::RightClick, "add another kind")
+                        .key(Command::AddAudioTrack, "audio track")
+                        .key(Command::AddMidiTrack, "MIDI track"),
+                );
+            }
             if empty.double_clicked() {
                 self.selected = vec![doc.add_track(TrackKind::Audio, None)];
             } else if empty.clicked() {
@@ -118,15 +128,6 @@ impl Arrangement {
                         ui.set_min_width(button.width());
                         self.add_menu(ui, doc, self.selected.last().copied(), keymap);
                     });
-                if button.bottom() + 22.0 < column.bottom() {
-                    painter.text(
-                        pos2(button.left() + 2.0, button.bottom() + 8.0),
-                        Align2::LEFT_TOP,
-                        "Or double-click empty space",
-                        FontId::proportional(theme::size::CAPTION),
-                        palette.text_hint,
-                    );
-                }
             }
         }
 

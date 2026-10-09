@@ -10,7 +10,7 @@ use lumen_project::model::{Id, Project, TrackKind};
 use super::{Arrangement, RowKind};
 use crate::document::DropInto;
 use crate::theme;
-use crate::widgets::{self, HintMark};
+use crate::widgets;
 
 /// Within this many points of the line between two tracks, files make new
 /// tracks there rather than landing on a track.
@@ -163,13 +163,7 @@ impl Arrangement {
                     Stroke::new(6.0, palette.accent.gamma_multiply(0.15)),
                 );
                 painter.hline(canvas.x_range(), line, Stroke::new(2.0, palette.accent));
-                widgets::draw_hint(
-                    &painter,
-                    pos2(x + 14.0, line),
-                    HintMark::None,
-                    "new track here",
-                    canvas,
-                );
+                widgets::draw_hint(&painter, pos2(x + 14.0, line), "new track here", canvas);
             }
         }
     }

@@ -18,6 +18,7 @@ mod editing;
 mod fades;
 mod files;
 mod grid;
+mod info;
 mod keys;
 mod locators;
 mod looping;
@@ -189,6 +190,16 @@ impl Lumen {
         self.harness.input_mut().hovered_files.clear();
         self.drop_files(paths);
         self.app_mut().set_system_cursor(None);
+    }
+
+    /// What the info line says this frame ("" for nothing).
+    pub fn info(&self) -> String {
+        self.app().info_line().unwrap_or_default()
+    }
+
+    /// The info line's lit action this frame.
+    pub fn lit(&self) -> Option<String> {
+        self.app().info_lit(&self.harness.ctx)
     }
 
     /// Track names, top to bottom.

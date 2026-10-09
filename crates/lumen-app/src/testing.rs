@@ -240,9 +240,23 @@ impl App {
             .map(|r| (r.start, r.end, r.tracks.clone()))
     }
 
-    /// The drag hint drawn by the pointer in the last frame, if any.
+    /// The info line's lit action ("Ctrl+drag to copy"): the drag the
+    /// keys held now choose.
+    pub fn info_lit(&self, ctx: &egui::Context) -> Option<String> {
+        let held = ctx.input(|i| crate::app::info::Held::of(i.modifiers));
+        self.info.as_ref()?.lit_text(&self.keymap, held)
+    }
+
+    /// The live value drawn by the pointer in the last frame while dragging
+    /// (the tape speed), if any.
     pub fn hint(&self) -> Option<&str> {
         self.hint.as_deref()
+    }
+
+    /// What the info line says about what is under the pointer this frame
+    /// (M4 slice 0), as words: "Clip “kick”: drag to move · …".
+    pub fn info_line(&self) -> Option<String> {
+        self.info.as_ref().map(|i| i.text(&self.keymap))
     }
 
     /// What Undo would undo.

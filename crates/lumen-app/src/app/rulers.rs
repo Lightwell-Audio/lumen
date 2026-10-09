@@ -10,6 +10,7 @@ use eframe::egui::{self, Align2, CursorIcon, FontId, Rect, Sense, Stroke, pos2};
 use lumen_core::time::{PPQ, Ticks};
 
 use super::grid::draw_snap_guide;
+use super::info::{Held, Info, Mouse};
 use crate::timefmt::{self, TimeFormat};
 use crate::timeview::TimeView;
 use crate::{App, motion, ruler, theme, trace};
@@ -93,8 +94,8 @@ impl App {
         super::regions::draw_punch(painter, at, &looped);
         self.locator_flags(ui, painter, at);
         if let Some(hint) = brace_hint {
-            let text = super::regions::draw_brace_hint(painter, at, &looped, hint);
-            self.hint = Some(text.to_owned());
+            let info = super::regions::draw_brace_hint(painter, at, &looped, hint);
+            self.set_info(info);
         }
     }
 
@@ -125,6 +126,13 @@ impl App {
         }
         if let Some(pointer) = response.hover_pos() {
             ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+            self.set_info(
+                Info::new("Bar ruler")
+                    .on(Held::NONE, Mouse::Click, "move the playhead")
+                    .on(Held::ALT, Mouse::Click, "off the grid")
+                    .on(Held::NONE, Mouse::Drag, "zoom and scroll")
+                    .on(Held::NONE, Mouse::RightClick, "view"),
+            );
             let free = ui.input(|i| i.modifiers.alt);
             let raw = ruler::ticks_at(at.view.beat_at(at.canvas.left(), pointer.x));
             let target = self.snapped(raw, free);
@@ -265,15 +273,12 @@ impl App {
             self.transport.follow_paused = true;
         }
         if !response.dragged() {
-            let text = "drag to select time on every track · click to jump";
-            crate::widgets::draw_hint(
-                painter,
-                pos2(pointer.x + 12.0, at.time.top() - 11.0),
-                crate::widgets::HintMark::Resize,
-                text,
-                at.canvas,
+            self.set_info(
+                Info::new("Time ruler")
+                    .on(Held::NONE, Mouse::Drag, "select time on every track")
+                    .on(Held::NONE, Mouse::Click, "move the playhead")
+                    .on(Held::NONE, Mouse::RightClick, "time format"),
             );
-            self.hint = Some(text.to_owned());
         }
     }
 

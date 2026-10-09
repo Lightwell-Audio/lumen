@@ -44,10 +44,7 @@ impl App {
                     &mut self.settings.projects.copy_imported,
                     "Copy imported audio into the project",
                 )
-                .on_hover_text(
-                    "When saving, audio from outside the project folder is copied into \
-                     Samples/Imported, so the project keeps working if the originals move",
-                );
+                .on_hover_text("Saving copies outside audio into Samples/Imported");
                 ui.separator();
                 let undo = self.document.history().undo_label().map(str::to_owned);
                 let redo = self.document.history().redo_label().map(str::to_owned);

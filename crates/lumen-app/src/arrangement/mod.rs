@@ -129,6 +129,9 @@ pub struct Arrangement {
     /// The clip the arrow keys last chose (M3 review H2): where the next
     /// arrow goes from while it is selected.
     pub(crate) clip_cursor: Option<Id>,
+    /// What the info line should say about the headers under the pointer
+    /// (M4 slice 0); the app takes it after drawing.
+    pub(crate) info: Option<crate::app::info::Info>,
 }
 
 /// The tallest whole-step height at which `count` tracks fit in `visible`

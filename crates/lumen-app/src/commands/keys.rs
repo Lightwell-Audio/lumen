@@ -71,18 +71,7 @@ impl Chord {
     /// The modifiers held, in the order they are written: "Ctrl", "Shift",
     /// "Alt" (Cmd and Option on macOS).
     pub(crate) fn modifier_names(self) -> Vec<&'static str> {
-        let mac = cfg!(target_os = "macos");
-        let mut names = Vec::new();
-        if self.ctrl {
-            names.push(if mac { "Cmd" } else { "Ctrl" });
-        }
-        if self.shift {
-            names.push("Shift");
-        }
-        if self.alt {
-            names.push(if mac { "Option" } else { "Alt" });
-        }
-        names
+        modifier_names(self.ctrl, self.shift, self.alt)
     }
 
     /// The key's name on a keycap: "D", "Space", "Delete", "Up", "+".
@@ -326,6 +315,23 @@ impl Keymap {
             .filter(|(_, commands)| commands.len() > 1)
             .collect()
     }
+}
+
+/// Modifiers as they are written: "Ctrl", "Shift", "Alt" (Cmd and Option
+/// on macOS), in that order.
+pub(crate) fn modifier_names(ctrl: bool, shift: bool, alt: bool) -> Vec<&'static str> {
+    let mac = cfg!(target_os = "macos");
+    let mut names = Vec::new();
+    if ctrl {
+        names.push(if mac { "Cmd" } else { "Ctrl" });
+    }
+    if shift {
+        names.push("Shift");
+    }
+    if alt {
+        names.push(if mac { "Option" } else { "Alt" });
+    }
+    names
 }
 
 #[cfg(test)]

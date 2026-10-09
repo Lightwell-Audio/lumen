@@ -208,7 +208,7 @@ impl Transport {
                     .fixed_decimals(2)
                     .suffix(" BPM"),
             )
-            .on_hover_text("Tempo: drag, or click and type (20–999 BPM)");
+            .on_hover_text("Tempo, 20–999 BPM");
         tempo.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::DragValue, true, "Tempo"));
         if tempo.changed() {
             // A drag is one undo step (merged until the pointer is released).
@@ -301,9 +301,7 @@ impl Transport {
                     egui::Button::new(RichText::new(format!("{bbt:>7}")).monospace().strong())
                         .frame(false),
                 )
-                .on_hover_text(
-                    "Position (bars.beats.sixteenths). Click to type a position or a time like 1:05",
-                );
+                .on_hover_text("Position: click to type a bar or a time");
             field.widget_info(|| {
                 egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Position {bbt}"))
             });

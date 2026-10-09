@@ -31,11 +31,13 @@ pub enum Icon {
     Lock,
     /// The command palette (M3 slice 7): a magnifier.
     Search,
+    /// A mouse, before a gesture in the info line (M4 slice 0).
+    Mouse,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 12] = [
+    pub const ALL: [Icon; 13] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
@@ -48,6 +50,7 @@ impl Icon {
         Icon::MagnetOff,
         Icon::Lock,
         Icon::Search,
+        Icon::Mouse,
     ];
 }
 
@@ -182,6 +185,16 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
         Icon::Search => vec![
             Shape::circle_stroke(g.p(7.0, 7.0), 4.5 * g.unit, stroke),
             Shape::line_segment([g.p(10.3, 10.3), g.p(13.5, 13.5)], stroke),
+        ],
+        Icon::Mouse => vec![
+            // A rounded body with the buttons' parting line.
+            Shape::rect_stroke(
+                g.rect(4.0, 1.5, 12.0, 14.5),
+                4.0 * g.unit,
+                stroke,
+                egui::StrokeKind::Middle,
+            ),
+            Shape::line_segment([g.p(8.0, 1.5), g.p(8.0, 6.5)], stroke),
         ],
         Icon::Follow => vec![
             Shape::line_segment([g.p(4.0, 2.5), g.p(4.0, 13.5)], stroke),

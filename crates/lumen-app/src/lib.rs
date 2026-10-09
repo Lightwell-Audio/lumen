@@ -165,6 +165,10 @@ pub struct App {
     /// The drag hint drawn this frame, if any (MT-APP-13 run 1); the
     /// end-to-end tests read it.
     hint: Option<String>,
+    /// What the info line shows (M4 slice 0): set by hovers this frame,
+    /// drawn from the frame before.
+    info: Option<app::info::Info>,
+    info_shown: Option<app::info::Info>,
     /// Where the lanes were drawn last frame.
     canvas: egui::Rect,
     /// What Copy and Cut put aside (slice 6b), for Paste.
@@ -426,6 +430,8 @@ impl eframe::App for App {
                 }
             });
         }
+        // Full width under everything else, so declared before the panels.
+        self.draw_info_line(ui);
         // Panels slide open and closed (motion: GLIDE, panels.rs).
         panels::sliding(
             ui,
@@ -438,8 +444,7 @@ impl eframe::App for App {
                 self.panes.anchor(ui, app::panes::Pane::Browser, rect);
                 ui.label(RichText::new("Browser").font(fonts::display(theme::size::HEADING)));
                 ui.add_space(8.0);
-                ui.label(RichText::new("Devices, samples, projects and your places").weak());
-                ui.label(RichText::new(arrives("Milestones 3 and 6")).weak().small());
+                ui.label(RichText::new("Devices, samples and projects will be here").weak());
             },
         );
         panels::sliding(
@@ -461,12 +466,7 @@ impl eframe::App for App {
                             .on_disabled_hover_text(arrives(milestone));
                     }
                 });
-                ui.label(
-                    RichText::new(
-                        "Select a track or clip to see its devices, editor or mixer strip.",
-                    )
-                    .weak(),
-                );
+                ui.label(RichText::new("Select a track or a clip").weak());
             },
         );
         egui::CentralPanel::default().show(ui, |ui| self.arrangement(ui));
@@ -653,6 +653,8 @@ impl App {
             grid: lumen_core::grid::Grid::default(),
             locators: app::locators::Locators::default(),
             hint: None,
+            info: None,
+            info_shown: None,
             canvas: egui::Rect::NOTHING,
             clipboard: None,
             typing: false,

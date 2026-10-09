@@ -224,6 +224,8 @@ pub mod size {
     pub const HEADING: f32 = 16.0;
     /// The "Lumen" wordmark in the transport bar (Unbounded is wide).
     pub const WORDMARK: f32 = 14.0;
+    /// The info line's height along the bottom of the window (M4 slice 0).
+    pub const INFO_LINE: f32 = 28.0;
 }
 
 /// Which theme the user asked for.

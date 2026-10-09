@@ -81,7 +81,11 @@ fn dragging_a_fade_handle_fades_the_clip_in_one_step() {
     let at = handles(&lumen, id);
     lumen.harness.hover_at(at.fade_in);
     lumen.frames(2);
-    assert_eq!(lumen.app().hint(), Some("fade in"));
+    assert!(
+        lumen.info().starts_with("Fade in: drag to set its length"),
+        "{}",
+        lumen.info()
+    );
 
     // A quarter of the way in: a quarter of the clip, unsnapped.
     let to = at.fade_in + vec2(at.wave.width() * 0.25, 0.0);
@@ -127,7 +131,13 @@ fn the_dot_bends_a_fade_freely_and_alt_adds_s_shape() {
     let dot = handles(&lumen, id).bend_in.expect("a bend dot");
     lumen.harness.hover_at(dot);
     lumen.frames(2);
-    assert_eq!(lumen.app().hint(), Some("bend · Alt for S"));
+    assert!(
+        lumen
+            .info()
+            .starts_with("Fade curve: drag to bend · Alt+drag to S-shape"),
+        "{}",
+        lumen.info()
+    );
 
     // Left and up: the dot follows the pointer, and the curve with it.
     let to = dot + vec2(-15.0, -6.0);
@@ -172,7 +182,11 @@ fn the_gain_line_sets_clip_gain_finely_with_shift() {
     let line = handles(&lumen, id).gain;
     lumen.harness.hover_at(line);
     lumen.frames(2);
-    assert_eq!(lumen.app().hint(), Some("gain 0.0 dB"));
+    assert!(
+        lumen.info().starts_with("Clip gain 0.0 dB: drag to change"),
+        "{}",
+        lumen.info()
+    );
 
     lumen.drag(line, line + vec2(0.0, 16.0), Modifiers::NONE);
     let coarse = gain(&lumen, id);

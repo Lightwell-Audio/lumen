@@ -458,6 +458,9 @@ report: {}",
                 self.run(&ui.ctx().clone(), Command::ImportAudio);
             }
         }
+        if let Some(info) = self.arrangement.info.take() {
+            self.set_info(info);
+        }
         self.lanes
             .panel(ui.ctx(), pos2(canvas.left() + 8.0, canvas.bottom() - 8.0));
         self.toast(ui.ctx(), pos2(full.right() - 12.0, canvas.top() + 10.0));

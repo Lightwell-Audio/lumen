@@ -394,8 +394,12 @@ it first in a new session, and update it at the end of every slice.
 accessibility audit, the end-of-milestone review and every finding fixed
 or recorded). MT-APP-16 passed and **M3 is approved** (2026-10-09). The M3
 report is in PROGRESS.md and M4 is proposed in `docs/milestones/M4.md`.
-M4 is approved (Ableton's solo by default, −3 dB pan law) and starts
-with slice 0, the UX pass on hints (owner: now rather than later). The owner's drag-to-cut request is recorded for M7
+M4 is approved (Ableton's solo by default, −3 dB pan law). **Slice 0,
+the UX pass on hints, is built** (2026-10-09, ADR-0034): the owner chose an
+info line along the bottom of the window, with K5 keycaps, over chips by
+the pointer. Hovers call `App::set_info` (`app/info.rs`); only live values
+follow the pointer while dragging (DESIGN.md §2). MT-APP-17 waits for the
+owner; slice 1 (the mixer graph) is next. The owner's drag-to-cut request is recorded for M7
 with split (the M3 plan, out of scope).
 
 **Status**

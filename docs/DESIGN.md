@@ -45,8 +45,27 @@ restrained and purposeful.
 │ 220 pt)    │                                                         │
 ├────────────┴─────────────────────────────────────────────────────────┤
 │ Detail panel (bottom, collapsible): Devices · Clip · Mixer           │
+├──────────────────────────────────────────────────────────────────────┤
+│ Info line: what is under the pointer · its gestures and keys, 28 pt  │
 └──────────────────────────────────────────────────────────────────────┘
 ```
+
+**Text is the last resort (M4 slice 0, the owner's UX pass on hints).**
+Behaviour comes across first through the cursor, handle shapes,
+highlights and motion. Words go in three places only:
+- **The info line** along the bottom of the window (`app/info.rs`, ADR-0034):
+  what is under the pointer, then what can be done there, each gesture with
+  a mouse and its modifiers as plain keycaps, each command with its
+  shortcut as K5 keycaps from the keymap. Held modifiers light the drag
+  they choose. New interactive things set an `Info` when hovered; nothing
+  else describes a drag.
+- **Live values by the pointer, only while dragging** (a fade's length, a
+  gain, the tape speed, "new track here"): feedback, not instructions
+  (`widgets::draw_hint`).
+- **Tooltips** on controls after the pointer rests: the control's name and
+  its keys, in a few words, with the detail left to the info line.
+Permanent captions are avoided: an empty state says what to do in one line
+or offers the button that does it.
 
 - **Minimum window:** 960 × 540 pt, where the whole transport bar fits.
   Window sizes are in points, so the minimum holds at any UI scale.
@@ -564,3 +583,5 @@ Each flow lists its steps, its keyboard path and its feedback. Flows marked
 6. Motion follows §6. With Reduce motion on, it still works and simply does
    not travel.
 7. Every control has an accessible name.
+7a. Hovering anything that can be dragged or clicked sets the info line
+   (§2); nothing floats over content to explain it.

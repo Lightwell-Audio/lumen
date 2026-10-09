@@ -10,7 +10,9 @@ use lumen_core::time::Ticks;
 use lumen_engine::{MAX_SCRUB_SPEED, ScrubStyle};
 
 use super::grid::draw_snap_guide;
+use super::info::{Held, Info, Mouse};
 use super::rulers::{BRACE_BAND, Layout};
+use crate::commands::Command;
 use crate::{App, ruler, theme, trace, widgets};
 
 /// What a scrub drag last sent.
@@ -140,28 +142,30 @@ impl App {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
         let target = self.snapped(raw, free);
         // What a drag would do (MT-APP-13 run 1, the owner's choice B2):
-        // the step it would play, washed, and a quiet hint beside it.
-        let hint = if playing {
-            "click or drag to jump"
-        } else if free {
-            "drag to scrub like tape"
+        // the step it would play, washed; the words are in the info line
+        // (M4 slice 0).
+        let info = Info::new("Scrub strip").on(Held::NONE, Mouse::Click, "jump");
+        let info = if playing {
+            info.on(Held::NONE, Mouse::Drag, "jump along")
         } else {
-            let (start, end) = self.grid_cell(raw);
-            painter.rect_filled(
-                Rect::from_x_y_ranges(x(start)..=x(end), zone.y_range()),
-                0.0,
-                palette.accent_muted.gamma_multiply(0.6),
-            );
-            "drag to listen · Alt tape"
+            if !free {
+                let (start, end) = self.grid_cell(raw);
+                painter.rect_filled(
+                    Rect::from_x_y_ranges(x(start)..=x(end), zone.y_range()),
+                    0.0,
+                    palette.accent_muted.gamma_multiply(0.6),
+                );
+            }
+            info.on(Held::NONE, Mouse::Drag, "listen to each step").on(
+                Held::ALT,
+                Mouse::Drag,
+                "scrub like tape",
+            )
         };
-        widgets::draw_caption(
-            painter,
-            pos2(pointer.x + 12.0, row),
-            hint,
-            palette.text_hint,
-            at.strip,
+        self.set_info(
+            info.on(Held::NONE, Mouse::RightClick, "add a locator")
+                .key(Command::SetLocator, "locator at the playhead"),
         );
-        self.hint = Some(hint.to_owned());
         draw_snap_guide(painter, x(target), at.guides());
         if response.clicked() {
             trace::log(|| format!("scrub strip: locate {target:?}"));
