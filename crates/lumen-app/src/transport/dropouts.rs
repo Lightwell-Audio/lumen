@@ -1,26 +1,22 @@
 //! Dropouts as the transport bar tells them (owner's A, 2026-10-09): nothing
 //! while audio is healthy; "Dropout" or "Dropouts ×3" in amber when they
-//! happen, gone after [`QUIET`] of clean audio; the counts and what they
-//! mean in the audio panel.
+//! happen, and the same warning with what it means in the audio panel; both
+//! gone after [`QUIET`] of clean audio (owner: the panel's warning stayed
+//! long after). The running total stays in the panel's meters.
 //!
 //! The device layer only counts (`lumen_audio::Status::dropouts`); this
-//! turns the count into episodes and a last-minute tally. Kept pure, with
-//! the time passed in, so it is tested.
+//! turns the count into episodes. Kept pure, with the time passed in, so it
+//! is tested.
 
-use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-/// The chip goes once audio has been clean for this long.
+/// The warnings go once audio has been clean for this long.
 pub const QUIET: Duration = Duration::from_secs(10);
-/// The panel's "in the last minute".
-const WINDOW: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Default)]
 pub struct Dropouts {
     /// The device's count at the last update.
     count: u64,
-    /// When dropouts arrived, and how many, over the last minute.
-    recent: VecDeque<(Instant, u64)>,
     /// Dropouts in the current episode: since audio was last clean for
     /// [`QUIET`].
     episode: u64,
@@ -34,7 +30,6 @@ impl Dropouts {
     pub fn update(&mut self, count: u64, now: Instant) {
         if count < self.count {
             // Reset in the audio panel.
-            self.recent.clear();
             self.episode = 0;
             self.last = None;
             self.reset = true;
@@ -45,16 +40,8 @@ impl Dropouts {
             }
             self.episode += new;
             self.last = Some(now);
-            self.recent.push_back((now, new));
         }
         self.count = count;
-        while self
-            .recent
-            .front()
-            .is_some_and(|&(at, _)| now.duration_since(at) > WINDOW)
-        {
-            self.recent.pop_front();
-        }
     }
 
     /// The user reset the counts.
@@ -74,10 +61,6 @@ impl Dropouts {
         QUIET.checked_sub(now.duration_since(last))
     }
 
-    pub fn last_minute(&self) -> u64 {
-        self.recent.iter().map(|&(_, n)| n).sum()
-    }
-
     pub fn total(&self) -> u64 {
         self.count
     }
@@ -92,28 +75,18 @@ pub fn chip(episode: u64) -> String {
     }
 }
 
-/// The panel's line: "3 dropouts in the last minute · 72 since audio
-/// started"; `None` when there have been none.
-pub fn summary(dropouts: &Dropouts) -> Option<String> {
+/// The panel's warning while the chip shows: "3 dropouts just now · 72
+/// since audio started"; `None` once audio has been clean for [`QUIET`].
+pub fn summary(dropouts: &Dropouts, now: Instant) -> Option<String> {
+    let episode = dropouts.showing(now)?;
     let total = dropouts.total();
-    if total == 0 {
-        return None;
-    }
-    let plural = |n: u64| if n == 1 { "dropout" } else { "dropouts" };
+    let plural = if episode == 1 { "dropout" } else { "dropouts" };
     let since = if dropouts.was_reset() {
         "since you reset"
     } else {
         "since audio started"
     };
-    let recent = dropouts.last_minute();
-    Some(if recent == 0 {
-        format!("{total} {} {since}", plural(total))
-    } else {
-        format!(
-            "{recent} {} in the last minute · {total} {since}",
-            plural(recent)
-        )
-    })
+    Some(format!("{episode} {plural} just now · {total} {since}"))
 }
 
 #[cfg(test)]
@@ -126,7 +99,7 @@ mod tests {
         let mut d = Dropouts::default();
         d.update(0, now);
         assert_eq!(d.showing(now), None);
-        assert_eq!(summary(&d), None);
+        assert_eq!(summary(&d, now), None);
     }
 
     #[test]
@@ -149,21 +122,18 @@ mod tests {
     }
 
     #[test]
-    fn the_panel_counts_the_last_minute_and_the_total() {
+    fn the_panels_warning_goes_with_the_chip() {
         let t0 = Instant::now();
         let mut d = Dropouts::default();
         d.update(70, t0);
         let t1 = t0 + Duration::from_secs(90);
         d.update(72, t1);
         assert_eq!(
-            summary(&d).as_deref(),
-            Some("2 dropouts in the last minute · 72 since audio started")
+            summary(&d, t1).as_deref(),
+            Some("2 dropouts just now · 72 since audio started")
         );
-        d.update(72, t1 + Duration::from_secs(61));
-        assert_eq!(
-            summary(&d).as_deref(),
-            Some("72 dropouts since audio started")
-        );
+        // Owner: it stayed long after the audio was clean again.
+        assert_eq!(summary(&d, t1 + QUIET), None);
     }
 
     #[test]
@@ -173,11 +143,12 @@ mod tests {
         d.update(5, t0);
         d.update(0, t0);
         assert_eq!(d.showing(t0), None);
-        assert_eq!(summary(&d), None);
-        d.update(1, t0 + Duration::from_secs(1));
+        assert_eq!(summary(&d, t0), None);
+        let t1 = t0 + Duration::from_secs(1);
+        d.update(1, t1);
         assert_eq!(
-            summary(&d).as_deref(),
-            Some("1 dropout in the last minute · 1 since you reset")
+            summary(&d, t1).as_deref(),
+            Some("1 dropout just now · 1 since you reset")
         );
     }
 }

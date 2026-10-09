@@ -134,7 +134,9 @@ pub struct Block<'a> {
     pub outputs: &'a mut [f32],
     pub input_channels: usize,
     pub output_channels: usize,
-    /// The driver's running sample position, when it reports one.
+    /// The driver's running sample position, when it reports one. `None`
+    /// also marks a discontinuity (the driver resynced): the next position
+    /// starts the dropout count afresh.
     pub position: Option<u64>,
 }
 

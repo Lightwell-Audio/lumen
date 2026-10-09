@@ -182,7 +182,7 @@ impl Transport {
             self.send(Command::TestTone(self.test_tone));
         }
         ui.separator();
-        if let Some(summary) = dropouts::summary(&self.dropouts) {
+        if let Some(summary) = dropouts::summary(&self.dropouts, Instant::now()) {
             ui.label(RichText::new(format!("⚠ {summary}")).color(theme::p().warning));
             ui.add(egui::Label::new(RichText::new(DROPOUT_HELP).small()).wrap());
             ui.separator();
@@ -201,8 +201,17 @@ impl Transport {
                         .on_hover_text("Buffers that took longer to process than they last");
                     ui.label(meters.overloads().to_string());
                     ui.end_row();
-                    ui.label("Dropouts").on_hover_text(DROPOUT_HELP);
-                    ui.label(meters.dropouts().to_string());
+                    // Which check found them: the driver's position
+                    // skipping, or audio arriving slower than real time.
+                    let total = meters.dropouts();
+                    let slow = meters.slow_dropouts().min(total);
+                    let causes = format!(
+                        "{DROPOUT_HELP}\n\n{} skipped by the driver, {slow} from audio \
+                         arriving slower than real time",
+                        total - slow
+                    );
+                    ui.label("Dropouts").on_hover_text(causes.as_str());
+                    ui.label(total.to_string()).on_hover_text(causes);
                     ui.end_row();
                     ui.label("Clip audio in memory");
                     ui.label(format!("{:.0} MB", self.clip_memory as f64 / 1_048_576.0));

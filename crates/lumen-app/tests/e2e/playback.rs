@@ -84,11 +84,11 @@ fn dropouts_show_in_words_and_the_panel_explains_them() {
     assert!(lumen.shows("Audio: Dropouts ×3"));
     lumen.click("Audio: Dropouts ×3");
     assert!(
-        lumen.shows("⚠ 3 dropouts in the last minute · 3 since audio started"),
+        lumen.shows("⚠ 3 dropouts just now · 3 since audio started"),
         "the panel says how many and since when"
     );
     // Reset clears the chip and the panel's line.
     lumen.click("Reset overload and dropout counts");
     lumen.frames(3);
-    assert!(!lumen.shows("⚠ 3 dropouts in the last minute · 3 since audio started"));
+    assert!(!lumen.shows("⚠ 3 dropouts just now · 3 since audio started"));
 }

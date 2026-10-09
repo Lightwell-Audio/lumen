@@ -1263,6 +1263,17 @@ Focusrite's buffer size, and it meant nothing without context.
   to go, so idle stays idle. E2E `dropouts_show_in_words_and_the_panel_explains_them`
   (through `testing::cause_dropouts`); screenshots in `tests/shots.rs`
   (`dropouts`: dark 100%, light 150%, dark 200%).
+- **Second run (owner):** the panel's warning ("344 dropouts since audio
+  started") stayed long after the audio was clean. The panel now warns
+  only while the chip shows ("3 dropouts just now · 344 since audio
+  started"), and the total stays a plain number among the meters; the
+  last-minute tally went. Its tooltip tells the two checks apart (buffers
+  the driver skipped, audio slower than real time; `Status::slow_dropouts`).
+  ASIO resync requests were acknowledged but ignored: a driver that
+  resyncs jumps its sample position, which counted as skipped buffers (a
+  simulated resync counted 19,533). The block after a resync now reports
+  no position, and a block without one restarts the count. Test
+  `a_driver_resync_is_not_counted_as_dropouts`.
 
 ---
 

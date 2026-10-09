@@ -1260,7 +1260,9 @@ continuous is best), on headphones.
 8. **Dropouts in words:** make the audio drop out on purpose (32 samples
    with all tracks playing, or a heavy app starting): "⚠ Dropouts ×N"
    appears after the CPU readout and fades about 10 s after the audio is
-   clean again. Click it: the audio panel says how many in the last
-   minute and since audio started, and what helps. Reset clears it.
+   clean again; while it shows, the audio panel says how many just now
+   and since audio started, and what helps, and both go together. Hover
+   the Dropouts count among the meters: it says how many the driver
+   skipped and how many arrived late. Reset clears them.
 
 **Expected:** every step as described.

@@ -28,6 +28,9 @@ pub struct FakeDevice {
     /// (the Focusrite's ASIO) keep counting through a reset, so a reopened
     /// stream starts far past where the last one stopped.
     pub start_position: u64,
+    /// The next block reports no position and later ones jump this far
+    /// ahead: a driver that lost sync and resynced (ASIO's resync request).
+    pub resync_jump: Option<u64>,
     pub opens: u32,
     pub buffer_sizes: BufferSizes,
 }
@@ -46,6 +49,7 @@ impl FakeControl {
             deliver_every: 1,
             skip_frames: 0,
             start_position: 0,
+            resync_jump: None,
             opens: 0,
             buffer_sizes: BufferSizes {
                 min: 32,
@@ -153,7 +157,7 @@ impl Stream for FakeStream {
     }
 
     fn poll(&mut self) -> Option<StreamEvent> {
-        let (present, reset, stalled, every, skip) = {
+        let (present, reset, stalled, every, skip, resync) = {
             let mut device = self.control.0.lock().expect("fake device lock");
             let reset = std::mem::take(&mut device.reset_pending);
             let skip = std::mem::take(&mut device.skip_frames);
@@ -163,9 +167,10 @@ impl Stream for FakeStream {
                 device.stalled,
                 device.deliver_every.max(1),
                 skip,
+                device.resync_jump.take(),
             )
         };
-        self.position += skip;
+        self.position += skip + resync.unwrap_or(0);
         self.polls += 1;
         if !self.polls.is_multiple_of(every) {
             return None;
@@ -186,7 +191,7 @@ impl Stream for FakeStream {
                 outputs: &mut self.outputs,
                 input_channels: self.info.input_channels,
                 output_channels: self.info.output_channels,
-                position: Some(self.position),
+                position: resync.is_none().then_some(self.position),
             };
             callback.process(&mut block);
             self.position += u64::from(self.info.buffer_frames);
