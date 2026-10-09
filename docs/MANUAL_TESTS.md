@@ -1266,3 +1266,17 @@ continuous is best), on headphones.
    skipped and how many arrived late. Reset clears them.
 
 **Expected:** every step as described.
+
+### MT-MIX-2 · Projects from before the mixer (needs a human)
+Run `cargo run --release -p lumen-app`. Use a copy of a project saved
+before M4 (keep the original).
+1. **Opens:** open the copy. It looks as before, with the same tracks; no
+   master track appears yet (slice 4 shows it).
+2. **Plays:** play it: everything is heard, centred tracks 3 dB quieter
+   than before (the −3 dB pan law).
+3. **Saves and reopens:** change something small, save, close Lumen, and
+   open the project again: it opens unchanged, and plays the same.
+4. **Undo still works:** change volume, pan and mute on a track, then undo
+   each: every change undoes in one step, as before.
+
+**Expected:** every step as described, no warnings about the file.

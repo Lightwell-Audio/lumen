@@ -46,6 +46,7 @@ irreversible or external) · *Superseded*.
 | [0033](#adr-0033--commands-and-the-keymap-m3-slice-7) | Commands and the keymap (M3 slice 7): one table of commands, chords matched exactly, one command per key whatever is selected, one dispatcher | Accepted 2026-10-08 (7a) | No |
 | [0034](#adr-0034--the-info-line-m4-slice-0) | The info line (M4 slice 0): hover hints leave the pointer for one strip along the bottom of the window, with K5 keycaps and lit modifiers | Accepted 2026-10-09 | No |
 | [0035](#adr-0035--the-mixer-graph-m4-slice-1) | The mixer graph (M4 slice 1): a node per track with a stereo bus, compiled on the UI side into a flat ordered plan, swapped at a block edge with levels carried by id; plans of a new shape crossfade over 5 ms | Accepted 2026-10-09 | No |
+| [0036](#adr-0036--routing-in-the-model-format-v7) | Routing in the model (format v7): a master track kept apart from the tracks, outputs, sends, polarity, trim and the pan law; one routing rule shared by validation, edits and the engine | Accepted 2026-10-09 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -2630,3 +2631,72 @@ clicks, and never allocate on the audio thread.
 - App: `routing.rs` unit tests; E2E `mixing` (pan and mute heard, mixer
   changes while playing never click); E2E `fades_and_gain_are_heard`
   updated for the −3 dB centre.
+
+## ADR-0036 — Routing in the model (format v7)
+
+**Status:** Accepted · **Date:** 2026-10-09
+
+### Context
+The mixer graph (ADR-0035) plays whatever routing the app derives, but the
+project could only say "this track is in that group". M4 needs the master
+track, outputs, sends, polarity, input trim and the pan law saved,
+undoable and safe (risk R4: no edit may make the audio feed back).
+
+### Decision
+- **Format v7.** `Project::master` holds the one master track, apart from
+  `tracks` (which never holds a master), so each view chooses where to show
+  it (Ableton keeps it at the bottom; slice 4). `Project::pan_law`
+  (`lumen_core::pan::PanLaw`, now serializable). Each track gains `output`
+  (`auto`, `master`, `{"track": id}` a group or return, `{"device": n}` a
+  pair of device outputs), `sends` (to a return, a `level` in dB written as
+  a number or `"-inf"`, `pre_fader`), `invert` and `trim_db`. New fields are
+  written only when set.
+- **Migration v6 → v7:** a master already among the tracks (the golden
+  fixtures have one) moves out to `master`, losing any `parent`; otherwise
+  a master is made with the next free id (the highest `"id"` anywhere, plus
+  one). Defaults are written on every track; the pan law is −3 dB constant
+  power (owner, M4). Golden fixture `tests/fixtures/v7` (a return with a
+  pre- and a post-fader send, one silent; a track straight to the master
+  from inside its group; polarity; trim; the master at −2 dB out of the
+  second pair; the linear law).
+- **One routing rule:** `lumen_project::routing::destination` (automatic is
+  the track's group when it is in one, otherwise the master; the master's
+  automatic is the first device pair), `feeds` and `has_loop`. Validation
+  rejects outputs that are not a group or return, sends that are not to a
+  return, a second send to the same return, a master that is not a master,
+  and any loop. The app's `routing.rs` builds the engine routing from the
+  same rule; silent sends stay in it at zero gain, so turning one up glides
+  instead of reshaping the routing.
+- **Edits** (`document/mixer.rs`): `set_output`, `set_send` (made silent and
+  post-fader, the owner's choice; up to +6 dB; a drag is one step),
+  `set_send_pre_fader`, `set_invert`, `set_trim` (±24 dB), `set_pan_law`.
+  Each tries the change on a copy first and is refused (`Refused::Loop`,
+  `Refused::Invalid`) if it would feed back or the target cannot take
+  audio. `set_volume` and `set_pan` reach the master. Deleting tracks sets
+  outputs to them back to automatic and removes sends to them (owner: a
+  deleted return takes its sends), in the same step. The master is never
+  deleted or added. The edits wait for their controls (slices 4 and 5)
+  under an `expect(dead_code)` that names them.
+- **The history's change check** (`history::unchanged`) compared fields by
+  hand and did not know the new ones, so routing edits recorded nothing. It
+  now destructures `Project` and `Track`, so a new field fails to compile
+  until it is compared.
+- A new project's master has id 0; other ids count on from 1.
+
+### Consequences
+- The arrangement still shows only `tracks`; the master appears in slice 4.
+- Opening an M3 project migrates it (3 dB quieter at the centre, as in
+  slice 1); saving writes version 7.
+- Performance gate: `project_parse` +0.82% (the loop check),
+  `project_serialize` +0.04%; under the threshold, baseline unchanged.
+
+### Evidence
+Migration unit tests (a master made with the next free id, a master moved
+out of the tracks); golden fixtures v1 to v7 load; validation test for
+outputs, sends and the master; routing tests (automatic outputs, loops
+through outputs, groups and sends); history test `routing_changes_are_edits`;
+`document/mixer.rs` tests (outputs and undo, refused loops change nothing,
+sends start post-fader and a drag is one step, deleting a return takes its
+sends and undo brings them back, polarity, trim and the pan law); app
+`routing.rs` tests (outputs, sends, polarity, trim and the law reach the
+engine); E2E `a_project_from_before_the_mixer_opens_with_a_master_and_saves_as_v7`.

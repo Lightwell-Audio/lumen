@@ -390,7 +390,7 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-09: M4 slice 1 built (below). Before it, M3 slice 8 built (the exit flow, the
+**Last updated:** 2026-10-09: M4 slice 2 built (below). Before it, M3 slice 8 built (the exit flow, the
 accessibility audit, the end-of-milestone review and every finding fixed
 or recorded). MT-APP-16 passed and **M3 is approved** (2026-10-09). The M3
 report is in PROGRESS.md and M4 is proposed in `docs/milestones/M4.md`.
@@ -407,8 +407,17 @@ edge, levels glide over 20 ms, a new shape crossfades over 5 ms. The app
 builds the routing in `routing.rs` and sends it after the clip list. 64
 routed tracks cost about 1% of a 128-frame block. Owner choices: centre
 −3 dB, balance panning, mute silences every send, post-fader sends after
-the pan. MT-MIX-1 waits for the owner; slice 2 (routing in the model,
-format v7) is next. The owner's drag-to-cut request is recorded for M7
+the pan. MT-MIX-1 waits for the owner. The dropout readout became the
+owner's A (a chip in words that fades; ADR-0020 update); the Focusrite's
+count still needs testing (KNOWN_ISSUES). **Slice 2, routing in the model,
+is built** (format v7, ADR-0036): `Project::master` (apart from
+`tracks`), `pan_law`, and per track `output`, `sends`, `invert`,
+`trim_db`; one rule in `lumen_project::routing` (destination, loops) for
+validation, edits (`document/mixer.rs`, refused when they would feed back)
+and the engine routing. `history::unchanged` destructures projects and
+tracks: add every new persisted field there too (the compiler insists).
+MT-MIX-2 waits for the owner; slice 3 (group tracks) is next, with its
+choices pitched first. The owner's drag-to-cut request is recorded for M7
 with split (the M3 plan, out of scope).
 
 **Status**
