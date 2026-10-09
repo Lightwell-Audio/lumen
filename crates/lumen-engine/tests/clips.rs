@@ -39,7 +39,14 @@ fn setup(clips: Vec<Clip>) -> (EngineHandle, ClipsHandle, Player) {
     clips_handle.set(clips).unwrap();
     let (mut routing, source) = mixer(player);
     let unity = NodeSpec::unity(0, Destination::Hardware(0));
-    assert!(routing.set(&Routing { nodes: vec![unity] }).unwrap());
+    assert!(
+        routing
+            .set(&Routing {
+                nodes: vec![unity],
+                cue: None
+            })
+            .unwrap()
+    );
     let (handle, engine) = engine(Timeline::default(), source, RATE);
     (handle, clips_handle, engine)
 }

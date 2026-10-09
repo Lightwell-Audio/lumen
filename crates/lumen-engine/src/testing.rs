@@ -60,7 +60,7 @@ pub fn routed(tracks: u64, variant: u32) -> Routing {
             ..NodeSpec::unity(i, output)
         });
     }
-    Routing { nodes }
+    Routing { nodes, cue: None }
 }
 
 #[cfg(test)]

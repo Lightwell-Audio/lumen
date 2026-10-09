@@ -4,6 +4,7 @@
 
 pub(crate) mod clip_card;
 mod commands;
+mod cue;
 pub(crate) mod editing;
 pub(crate) mod grid;
 mod handles;

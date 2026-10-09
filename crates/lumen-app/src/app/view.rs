@@ -204,8 +204,10 @@ report: {}",
         );
         self.time_format_button(ui, time_corner);
         self.arrangement.additive_solo = self.settings.mixing.additive_solo;
+        self.lend_cue_controls();
         self.arrangement
             .headers(ui, headers, &mut self.document, &self.lanes, &self.keymap);
+        self.take_cue_controls();
 
         let painter = ui.painter_at(full);
         painter.rect_filled(full, 0.0, palette.canvas);

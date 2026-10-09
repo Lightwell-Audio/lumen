@@ -5,13 +5,30 @@
 //! master, a group or return, or a device pair). Kept pure, so the
 //! translation is tested, as `lanes::engine_clips` is.
 
+use std::collections::BTreeSet;
+
 use lumen_core::pan::PanLaw;
-use lumen_engine::{Destination, NodeSpec, Routing, SendSpec};
-use lumen_project::model::{Project, Track, TrackKind};
+use lumen_engine::{CueOut, Destination, NodeSpec, Routing, SendSpec};
+use lumen_project::model::{Id, Project, Track, TrackKind};
 use lumen_project::routing::{self as rules, destination};
 
-/// The routing that plays `project`.
-pub fn routing(project: &Project) -> Routing {
+/// What is cued and how loud (M4 slice 4, the owner's C1): session state,
+/// not part of the project.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Cue {
+    /// The master's switch is on Cue and a cue pair is open.
+    pub on: bool,
+    pub volume_db: f32,
+    /// The tracks cued with their headphone buttons.
+    pub tracks: BTreeSet<Id>,
+}
+
+/// The cue pair's first channel as the engine sees it: after the main
+/// pair (the owner's O1).
+const CUE_CHANNEL: u16 = crate::settings::CUE_CHANNEL;
+
+/// The routing that plays `project`, with `cue`.
+pub fn routing(project: &Project, cue: &Cue) -> Routing {
     let heard = lumen_project::solo::hearing(project);
     let nodes = rules::all_tracks(project)
         .map(|track| {
@@ -35,6 +52,7 @@ pub fn routing(project: &Project) -> Routing {
                 },
                 audible: heard.of(track.id).output,
                 sends_audible: heard.of(track.id).sends,
+                cue: cue.on && cue.tracks.contains(&track.id),
                 // Silent sends stay in the routing, so turning one up glides
                 // rather than changing the routing's shape.
                 sends: track
@@ -50,7 +68,13 @@ pub fn routing(project: &Project) -> Routing {
             }
         })
         .collect();
-    Routing { nodes }
+    Routing {
+        nodes,
+        cue: cue.on.then(|| CueOut {
+            channel: CUE_CHANNEL,
+            volume: db_to_gain(cue.volume_db),
+        }),
+    }
 }
 
 fn output(project: &Project, track: &Track) -> Destination {
@@ -92,7 +116,7 @@ mod tests {
         doc.set_volume(ids[0], -6.0);
         doc.set_pan(ids[0], -0.5);
         let master = doc.project().master.id;
-        let routing = routing(doc.project());
+        let routing = routing(doc.project(), &Cue::default());
         lumen_engine::compile_routing(&routing).unwrap();
         assert_eq!(node(&routing, master).output, Destination::Hardware(0));
         assert_eq!(node(&routing, master).law, PanLaw::Balance);
@@ -107,7 +131,7 @@ mod tests {
     fn mute_and_solo_decide_what_is_heard() {
         let (mut doc, ids) = doc_with(&[TrackKind::Audio; 3]);
         let heard = |doc: &Document| {
-            let routing = routing(doc.project());
+            let routing = routing(doc.project(), &Cue::default());
             ids.iter()
                 .map(|&id| node(&routing, id).audible)
                 .collect::<Vec<_>>()
@@ -123,7 +147,7 @@ mod tests {
     fn buses_are_unity_when_centred_and_tracks_follow_the_pan_law() {
         // Owner, after MT-MIX-3 run 1: tracks in groups played quieter.
         let (doc, ids) = doc_with(&[TrackKind::Audio, TrackKind::Group, TrackKind::Return]);
-        let routing = routing(doc.project());
+        let routing = routing(doc.project(), &Cue::default());
         assert_eq!(node(&routing, ids[0]).law, PanLaw::ConstantPower);
         for bus in [ids[1], ids[2], doc.project().master.id] {
             assert_eq!(node(&routing, bus).law, PanLaw::Balance);
@@ -137,7 +161,7 @@ mod tests {
         let (mut doc, ids) = doc_with(&[TrackKind::Audio; 3]);
         let outer = doc.group_tracks(&ids[..2]).unwrap();
         let inner = doc.group_tracks(&ids[..1]).unwrap();
-        let heard = |doc: &Document, id| node(&routing(doc.project()), id).audible;
+        let heard = |doc: &Document, id| node(&routing(doc.project(), &Cue::default()), id).audible;
         doc.set_solo(&ids[..1], true, true);
         assert!(heard(&doc, ids[0]), "the soloed track");
         assert!(
@@ -153,19 +177,40 @@ mod tests {
     }
 
     #[test]
+    fn cued_tracks_reach_the_engine_only_while_the_cue_is_on() {
+        let (mut doc, ids) = doc_with(&[TrackKind::Audio, TrackKind::Audio]);
+        doc.set_mute(&ids[..1], true);
+        let mut cue = Cue {
+            on: true,
+            volume_db: -6.0,
+            tracks: [ids[0]].into(),
+        };
+        let cued = routing(doc.project(), &cue);
+        let out = cued.cue.expect("a cue bus");
+        assert_eq!(out.channel, 2, "after the main pair");
+        assert!((out.volume - db_to_gain(-6.0)).abs() < 1e-6);
+        assert!(node(&cued, ids[0]).cue, "cued, muted or not");
+        assert!(!node(&cued, ids[1]).cue);
+        lumen_engine::compile_routing(&cued).unwrap();
+        cue.on = false;
+        let off = routing(doc.project(), &cue);
+        assert!(off.cue.is_none() && !node(&off, ids[0]).cue);
+    }
+
+    #[test]
     fn a_soloed_return_reaches_the_engine_as_wet_only() {
         // M4 slice 4, case 8: the sends into a soloed return play, the
         // sending tracks' own outputs do not.
         let (mut doc, ids) = doc_with(&[TrackKind::Return, TrackKind::Audio]);
         doc.set_send(ids[1], ids[0], Level(-6.0)).unwrap();
         doc.set_solo(&ids[..1], true, true);
-        let wet = routing(doc.project());
+        let wet = routing(doc.project(), &Cue::default());
         let track = node(&wet, ids[1]);
         assert!(!track.audible && track.sends_audible);
         let ret = node(&wet, ids[0]);
         assert!(ret.audible && ret.sends_audible);
         doc.set_mute(&ids[1..], true);
-        let track = node(&routing(doc.project()), ids[1]).clone();
+        let track = node(&routing(doc.project(), &Cue::default()), ids[1]).clone();
         assert!(
             !track.audible && !track.sends_audible,
             "mute silences sends"
@@ -184,7 +229,7 @@ mod tests {
         doc.set_trim(audio, 6.0);
         doc.set_pan_law(PanLaw::Linear);
         doc.set_output(master, Output::Device(1)).unwrap();
-        let routing = routing(doc.project());
+        let routing = routing(doc.project(), &Cue::default());
         lumen_engine::compile_routing(&routing).unwrap();
         let track = node(&routing, audio);
         assert_eq!(track.output, Destination::Node(group.0));
@@ -207,7 +252,7 @@ mod tests {
         });
         doc.set_output(ids[2], Output::Master).unwrap();
         let master = doc.project().master.id;
-        let routing = routing(doc.project());
+        let routing = routing(doc.project(), &Cue::default());
         lumen_engine::compile_routing(&routing).unwrap();
         assert_eq!(node(&routing, ids[0]).output, Destination::Node(master.0));
         assert_eq!(node(&routing, ids[1]).output, Destination::Node(ids[0].0));
@@ -218,7 +263,7 @@ mod tests {
     fn a_silent_send_stays_in_the_routing_at_zero_gain() {
         let (mut doc, ids) = doc_with(&[TrackKind::Return, TrackKind::Audio]);
         doc.set_send(ids[1], ids[0], Level::SILENT).unwrap();
-        let routing = routing(doc.project());
+        let routing = routing(doc.project(), &Cue::default());
         assert_eq!(node(&routing, ids[1]).sends[0].gain, 0.0);
     }
 }

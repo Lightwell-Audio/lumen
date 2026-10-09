@@ -33,6 +33,8 @@ pub struct FakeDevice {
     pub resync_jump: Option<u64>,
     pub opens: u32,
     pub buffer_sizes: BufferSizes,
+    /// Output channels the device has (4: a main and a cue pair).
+    pub outputs: usize,
 }
 
 /// Shared handle the test uses to script the device.
@@ -51,6 +53,7 @@ impl FakeControl {
             start_position: 0,
             resync_jump: None,
             opens: 0,
+            outputs: 4,
             buffer_sizes: BufferSizes {
                 min: 32,
                 max: 2048,
@@ -91,7 +94,7 @@ impl Backend for FakeBackend {
             id: fake_device_id(),
             name: "Fake device".into(),
             input_channels: vec!["In 1".into(), "In 2".into()],
-            output_channels: vec!["Out 1".into(), "Out 2".into()],
+            output_channels: (1..=device.outputs).map(|n| format!("Out {n}")).collect(),
             sample_rates: vec![44_100, 48_000],
             current_sample_rate: Some(48_000),
             buffer_sizes: Some(device.buffer_sizes),

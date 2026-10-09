@@ -20,8 +20,8 @@ mod plan;
 mod smooth;
 
 pub use plan::{
-    BUS_CHANNELS, Bus, Buses, CHUNK, Destination, NodeSpec, Plan, Routing, RoutingError, SendSpec,
-    compile,
+    BUS_CHANNELS, Bus, Buses, CHUNK, CueOut, Destination, NodeSpec, Plan, Routing, RoutingError,
+    SendSpec, compile,
 };
 
 use plan::Ramp;

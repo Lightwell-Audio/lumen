@@ -67,6 +67,9 @@ pub struct NodeSpec {
     pub audible: bool,
     /// False when its sends are silent too.
     pub sends_audible: bool,
+    /// Cued (M4 slice 4): heard on the cue bus after trim and polarity,
+    /// before mute and the fader, whatever mute and solo say.
+    pub cue: bool,
     pub output: Destination,
     pub sends: Vec<SendSpec>,
 }
@@ -84,6 +87,7 @@ impl NodeSpec {
             law: PanLaw::Balance,
             audible: true,
             sends_audible: true,
+            cue: false,
             output,
             sends: Vec::new(),
         }
@@ -94,6 +98,19 @@ impl NodeSpec {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Routing {
     pub nodes: Vec<NodeSpec>,
+    /// Where cued nodes are heard, if anywhere.
+    pub cue: Option<CueOut>,
+}
+
+/// The cue bus's output (M4 slice 4): a pair of device channels and a
+/// level. Cued nodes add to it before their fader, for listening on
+/// headphones while the main output plays on.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CueOut {
+    /// The pair's first channel (0 is channel 1).
+    pub channel: u16,
+    /// Linear gain.
+    pub volume: f32,
 }
 
 /// Why a routing cannot be played.
@@ -145,6 +162,8 @@ struct Node {
     pre: Smoothed,
     /// 1 while the output is heard, 0 while only the sends are.
     gate: Smoothed,
+    /// Trim × polarity while cued, else 0.
+    cue: Smoothed,
     /// Volume × pan, per side.
     post: [Smoothed; 2],
     out: Out,
@@ -165,6 +184,11 @@ pub struct Plan {
     /// Identifies the routing's shape (order, outputs and sends, not
     /// levels): a plan with another shape crossfades in.
     pub(super) topology: u64,
+    /// The cue bus: `CHUNK` frames a side, as a node's.
+    cue_bus: Vec<f32>,
+    /// Where the cue bus is heard (its first channel), and how loud.
+    cue_channel: Option<u16>,
+    cue_volume: Smoothed,
 }
 
 impl std::fmt::Debug for Plan {
@@ -264,9 +288,15 @@ pub fn compile(routing: &Routing) -> Result<Plan, RoutingError> {
         };
         let volume = finite(spec.volume);
         let [left, right] = spec.law.gains(spec.pan);
+        let cue = if spec.cue && routing.cue.is_some() {
+            finite(spec.trim) * sign
+        } else {
+            0.0
+        };
         nodes.push(Node {
             id: spec.id,
             pre: Smoothed::new(pre),
+            cue: Smoothed::new(cue),
             gate: Smoothed::new(if spec.audible { 1.0 } else { 0.0 }),
             post: [Smoothed::new(volume * left), Smoothed::new(volume * right)],
             out,
@@ -280,12 +310,21 @@ pub fn compile(routing: &Routing) -> Result<Plan, RoutingError> {
         .map(|(i, n)| (n.id, i as u32))
         .collect();
     by_id.sort_unstable();
+    let cue_channel = routing.cue.map(|c| c.channel);
+    cue_channel.hash(&mut hasher);
     Ok(Plan {
         buses: vec![0.0; nodes.len() * BUS],
         nodes,
         sends,
         by_id,
         topology: hasher.finish(),
+        cue_bus: if cue_channel.is_some() {
+            vec![0.0; BUS]
+        } else {
+            Vec::new()
+        },
+        cue_channel,
+        cue_volume: Smoothed::new(routing.cue.map_or(0.0, |c| finite(c.volume))),
     })
 }
 
@@ -311,6 +350,9 @@ impl Plan {
             by_id: Vec::new(),
             buses: Vec::new(),
             topology: 0,
+            cue_bus: Vec::new(),
+            cue_channel: None,
+            cue_volume: Smoothed::new(0.0),
         }
     }
 
@@ -319,6 +361,10 @@ impl Plan {
         for bus in self.buses.as_chunks_mut::<BUS>().0 {
             bus[..frames].fill(0.0);
             bus[CHUNK..CHUNK + frames].fill(0.0);
+        }
+        if let Some(cue) = self.cue_bus.as_chunks_mut::<BUS>().0.first_mut() {
+            cue[..frames].fill(0.0);
+            cue[CHUNK..CHUNK + frames].fill(0.0);
         }
     }
 
@@ -355,6 +401,9 @@ impl Plan {
     /// also has, so they glide to their new values. Real-time safe: one
     /// merge over two sorted lists, and a short search per send.
     pub(super) fn carry(&mut self, old: &Plan) {
+        if old.cue_channel.is_some() {
+            self.cue_volume.carry(&old.cue_volume);
+        }
         let (mut i, mut j) = (0, 0);
         while let (Some(&(a, here)), Some(&(b, there))) = (self.by_id.get(i), old.by_id.get(j)) {
             match a.cmp(&b) {
@@ -365,6 +414,7 @@ impl Plan {
                     let node = &mut self.nodes[here as usize];
                     node.pre.carry(&before.pre);
                     node.gate.carry(&before.gate);
+                    node.cue.carry(&before.cue);
                     node.post[0].carry(&before.post[0]);
                     node.post[1].carry(&before.post[1]);
                     let mine = node.first as usize..(node.first + node.count) as usize;
@@ -389,11 +439,13 @@ impl Plan {
         for node in &mut self.nodes {
             node.pre.settle();
             node.gate.settle();
+            node.cue.settle();
             node.post.iter_mut().for_each(Smoothed::settle);
         }
         for send in &mut self.sends {
             send.gain.settle();
         }
+        self.cue_volume.settle();
     }
 
     /// Runs the nodes in order over the first `frames` of their buses,
@@ -419,6 +471,15 @@ impl Plan {
             // Where node `to`'s bus starts in `tail`.
             let target = |to: u32| (to as usize - index - 1) * BUS;
 
+            // Cued: heard on the cue bus before mute and the fader.
+            if !(node.cue.settled() && node.cue.value() == 0.0)
+                && let Some(cue) = self.cue_bus.as_chunks_mut::<BUS>().0.first_mut()
+            {
+                node.cue.fill(gain, rate, advance);
+                let (cue_left, cue_right) = cue.split_at_mut(CHUNK);
+                add_scaled(&mut cue_left[..frames], left, gain);
+                add_scaled(&mut cue_right[..frames], right, gain);
+            }
             if node.pre.settled() && node.pre.value() == 0.0 {
                 // Muted and settled: nothing leaves this node.
                 continue;
@@ -477,6 +538,33 @@ impl Plan {
                     }
                 }
                 Out::None => {}
+            }
+        }
+        self.cue_out(out, rate, ramp, advance);
+    }
+
+    /// Writes the cue bus to its pair of device channels at the cue level.
+    fn cue_out(&mut self, out: &mut Output<'_>, rate: u32, ramp: Ramp<'_>, advance: bool) {
+        let Some(first) = self.cue_channel.map(usize::from) else {
+            return;
+        };
+        let Some(cue) = self.cue_bus.as_chunks_mut::<BUS>().0.first_mut() else {
+            return;
+        };
+        let frames = out.frames();
+        let mut gain = [0.0f32; CHUNK];
+        let gain = &mut gain[..frames];
+        self.cue_volume.fill(gain, rate, advance);
+        let (left, right) = cue.split_at_mut(CHUNK);
+        for (side, samples) in [(0, &mut left[..frames]), (1, &mut right[..frames])] {
+            if first + side >= out.channels() {
+                break;
+            }
+            scale(samples, gain);
+            let device = out.channel(first + side);
+            match ramp {
+                Ramp::Full => add(device, samples),
+                Ramp::Fade(fade) => add_scaled(device, samples, fade),
             }
         }
     }
@@ -579,6 +667,7 @@ mod tests {
                 track,
                 node(5, Destination::Node(2)),
             ],
+            cue: None,
         };
         let plan = compile(&routing).unwrap();
         assert_eq!(order(&plan), [4, 3, 5, 2, 1]);
@@ -591,6 +680,7 @@ mod tests {
                 .map(|i| node(i, Destination::Node(100)))
                 .chain([node(100, Destination::Hardware(0))])
                 .collect(),
+            cue: None,
         };
         let a = compile(&routing).unwrap();
         let b = compile(&routing).unwrap();
@@ -609,6 +699,7 @@ mod tests {
     fn loops_unknown_targets_and_duplicates_are_refused() {
         let cycle = Routing {
             nodes: vec![node(1, Destination::Node(2)), node(2, Destination::Node(1))],
+            cue: None,
         };
         assert_eq!(compile(&cycle).unwrap_err(), RoutingError::Cycle);
         let mut feedback = node(1, Destination::Hardware(0));
@@ -619,6 +710,7 @@ mod tests {
         });
         let routing = Routing {
             nodes: vec![feedback],
+            cue: None,
         };
         assert_eq!(compile(&routing).unwrap_err(), RoutingError::Cycle);
         // Through a send: a return that feeds the track sending to it.
@@ -630,10 +722,12 @@ mod tests {
         });
         let routing = Routing {
             nodes: vec![track, node(2, Destination::Node(1))],
+            cue: None,
         };
         assert_eq!(compile(&routing).unwrap_err(), RoutingError::Cycle);
         let unknown = Routing {
             nodes: vec![node(1, Destination::Node(9))],
+            cue: None,
         };
         assert_eq!(
             compile(&unknown).unwrap_err(),
@@ -644,6 +738,7 @@ mod tests {
                 node(1, Destination::Hardware(0)),
                 node(1, Destination::Hardware(0)),
             ],
+            cue: None,
         };
         assert_eq!(compile(&twice).unwrap_err(), RoutingError::Duplicate(1));
     }
@@ -653,7 +748,11 @@ mod tests {
         let mut spec = node(1, Destination::Hardware(0));
         spec.volume = f32::NAN;
         spec.trim = f32::INFINITY;
-        let plan = compile(&Routing { nodes: vec![spec] }).unwrap();
+        let plan = compile(&Routing {
+            nodes: vec![spec],
+            cue: None,
+        })
+        .unwrap();
         assert_eq!(plan.nodes[0].pre.target(), 0.0);
         assert_eq!(plan.nodes[0].post[0].target(), 0.0);
     }

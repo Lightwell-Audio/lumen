@@ -310,6 +310,7 @@ impl Window {
                             buffer_frames: None,
                             input_channels: Vec::new(),
                             output_channels: vec![0, 1],
+                            cue_channels: Vec::new(),
                         }));
                         self.driver = None;
                     }
@@ -525,12 +526,60 @@ impl Window {
                     let channels = channels_of(pair, output_names);
                     let on = current.output_channels == channels;
                     if ui.radio(on, label).clicked() && !on {
+                        // A cue on the new main pair would be the same
+                        // outputs: it goes.
+                        let cue = if current.cue_channels == channels {
+                            Vec::new()
+                        } else {
+                            current.cue_channels.clone()
+                        };
                         actions.push(Action::Apply(AudioSettings {
                             output_channels: channels,
+                            cue_channels: cue,
                             ..current.clone()
                         }));
                     }
                 }
+            });
+        });
+        // The cue pair (M4 slice 4, the owner's O1): headphones, for cued
+        // tracks and, if chosen, the metronome. Any stereo pair but the
+        // main one.
+        let cue_pairs: Vec<(usize, String)> = pairs(output_names, "Out")
+            .into_iter()
+            .filter(|(pair, _)| {
+                let channels = channels_of(*pair, output_names);
+                channels.len() == 2 && channels != current.output_channels
+            })
+            .collect();
+        ui.add_space(6.0);
+        row(ui, "Cue", |ui| {
+            ui.vertical(|ui| {
+                let none = current.cue_channels.is_empty();
+                if ui.radio(none, "None").clicked() && !none {
+                    actions.push(Action::Apply(AudioSettings {
+                        cue_channels: Vec::new(),
+                        ..current.clone()
+                    }));
+                }
+                for (pair, label) in &cue_pairs {
+                    let channels = channels_of(*pair, output_names);
+                    let on = current.cue_channels == channels;
+                    if ui.radio(on, label).clicked() && !on {
+                        actions.push(Action::Apply(AudioSettings {
+                            cue_channels: channels,
+                            ..current.clone()
+                        }));
+                    }
+                }
+                hint(
+                    ui,
+                    if cue_pairs.is_empty() {
+                        "This device has no second pair of outputs for a cue"
+                    } else {
+                        "For headphones: tracks cued from the master's Solo/Cue switch, and the metronome if set to Cue"
+                    },
+                );
             });
         });
         if chosen == "asio" && !info.input_channels.is_empty() {

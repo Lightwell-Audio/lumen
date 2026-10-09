@@ -134,6 +134,8 @@ struct Resolved {
     buffer_frames: Option<u32>,
     input_channels: Vec<usize>,
     output_channels: Vec<usize>,
+    /// The cue pair, opened after the main pair (empty: none).
+    cue_channels: Vec<usize>,
     /// Something the user should know (the saved device was missing).
     notice: Option<String>,
 }
@@ -149,17 +151,24 @@ impl Resolved {
             buffer_frames: None,
             input_channels: Vec::new(),
             output_channels: vec![0, 1],
+            cue_channels: Vec::new(),
             notice: None,
         }
     }
 
+    /// The stream to open: the main pair, then the cue pair, so the cue is
+    /// always on the third and fourth channels the engine sees.
     fn config(&self) -> StreamConfig {
+        let cue = self
+            .cue_channels
+            .iter()
+            .filter(|c| !self.output_channels.contains(c));
         StreamConfig {
             device: self.id.clone(),
             sample_rate: self.sample_rate,
             buffer_frames: self.buffer_frames,
             input_channels: self.input_channels.clone(),
-            output_channels: self.output_channels.clone(),
+            output_channels: self.output_channels.iter().chain(cue).copied().collect(),
         }
     }
 }
@@ -201,6 +210,7 @@ fn find_saved(saved: &AudioSettings) -> Option<Resolved> {
         buffer_frames: saved.buffer_frames,
         input_channels: saved.input_channels.clone(),
         output_channels: saved.output_channels.clone(),
+        cue_channels: saved.cue_channels.clone(),
         ..Resolved::found(&saved.driver, make, id, name)
     })
 }
@@ -258,11 +268,21 @@ fn listen(tap: &mut rtrb::Producer<f32>, outputs: &[f32], channels: usize, frame
     if channels == 0 {
         return;
     }
-    let Ok(chunk) = tap.write_chunk_uninit(2 * frames) else {
+    let Ok(chunk) = tap.write_chunk_uninit(4 * frames) else {
         return;
     };
+    // The main pair, then the cue pair (silent when there is none).
     let right = usize::from(channels > 1) * frames;
-    chunk.fill_from_iter((0..frames).flat_map(|i| [outputs[i], outputs[right + i]]));
+    let at = |channel: usize, i: usize| {
+        if channel < channels {
+            outputs[channel * frames + i]
+        } else {
+            0.0
+        }
+    };
+    chunk.fill_from_iter(
+        (0..frames).flat_map(|i| [outputs[i], outputs[right + i], at(2, i), at(3, i)]),
+    );
 }
 
 pub struct Audio {
@@ -285,6 +305,8 @@ pub struct Audio {
     pub device: String,
     /// What "Audio on" opens again.
     config: Option<StreamConfig>,
+    /// The cue pair within `config`'s outputs (after the main pair).
+    cue_channels: Vec<usize>,
     /// The device's latencies and block size, once running.
     pub info: Option<StreamInfo>,
     /// The last device error, to tell "busy" apart from other failures.
@@ -312,6 +334,7 @@ struct Previous {
     driver: String,
     device: String,
     config: StreamConfig,
+    cue_channels: Vec<usize>,
     info: Option<StreamInfo>,
     status: Status,
 }
@@ -348,6 +371,7 @@ impl Audio {
             driver: String::new(),
             device: String::new(),
             config: None,
+            cue_channels: Vec::new(),
             info: None,
             last_error: None,
             pending: None,
@@ -386,6 +410,7 @@ impl Audio {
         }
         self.driver = found.driver;
         self.device = found.name;
+        self.cue_channels = found.cue_channels;
         self.config = Some(config);
         self.info = None;
         self.last_error = None;
@@ -407,6 +432,7 @@ impl Audio {
                     driver: self.driver.clone(),
                     device: self.device.clone(),
                     config,
+                    cue_channels: self.cue_channels.clone(),
                     info: self.info.clone(),
                     status: self.status.clone(),
                 });
@@ -429,8 +455,26 @@ impl Audio {
             sample_rate: config.sample_rate,
             buffer_frames: config.buffer_frames,
             input_channels: config.input_channels.clone(),
-            output_channels: config.output_channels.clone(),
+            output_channels: self.main_channels(config),
+            cue_channels: self.cue_channels.clone(),
         })
+    }
+
+    /// The main pair: the opened outputs before the cue pair.
+    fn main_channels(&self, config: &StreamConfig) -> Vec<usize> {
+        let main = config
+            .output_channels
+            .len()
+            .saturating_sub(self.cue_channels.len());
+        config.output_channels[..main.max(1).min(config.output_channels.len())].to_vec()
+    }
+
+    /// Whether a cue pair is open: chosen in the audio settings and running
+    /// as the third and fourth channels.
+    pub fn cue_ready(&self) -> bool {
+        !self.cue_channels.is_empty()
+            && matches!(self.status, Status::Running { .. })
+            && self.info.as_ref().is_some_and(|i| i.output_channels >= 4)
     }
 
     /// CPU load, overloads and dropouts, when a device was found.
@@ -495,6 +539,7 @@ impl Audio {
         if previous.driver == self.driver {
             // The supervisor already reopened it.
             self.config = Some(previous.config);
+            self.cue_channels = previous.cue_channels;
             self.info = previous.info;
             self.status = previous.status;
         } else if let Some(make) = backend(&previous.driver) {
@@ -507,7 +552,10 @@ impl Audio {
                 sample_rate: previous.config.sample_rate,
                 buffer_frames: previous.config.buffer_frames,
                 input_channels: previous.config.input_channels.clone(),
-                output_channels: previous.config.output_channels.clone(),
+                output_channels: previous.config.output_channels
+                    [..previous.config.output_channels.len() - previous.cue_channels.len()]
+                    .to_vec(),
+                cue_channels: previous.cue_channels.clone(),
                 notice: None,
             };
             let notice = self.notice.take();

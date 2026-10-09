@@ -352,12 +352,14 @@ impl eframe::App for App {
                 &mut self.document,
             );
         }
+        let cue = self.cue();
         self.lanes.update(
             rate,
             &ctx,
             &mut self.document,
             &mut self.transport.audio.clips,
             &mut self.transport.audio.mixer,
+            &cue,
         );
         self.sync_document(&ctx);
         self.transport.clip_memory = self.lanes.library.memory();

@@ -327,6 +327,24 @@ pub fn close_button(ui: &mut Ui) -> Response {
     response.on_hover_text("Close (Esc)")
 }
 
+/// Headphones, about 11 pt, for a cue button (M4 slice 4): a band over
+/// two ear cups.
+pub fn draw_headphones(painter: &Painter, center: Pos2, color: Color32) {
+    let stroke = Stroke::new(1.4, color);
+    let r = 4.6;
+    let band: Vec<Pos2> = (0..=12)
+        .map(|i| {
+            let a = std::f32::consts::PI * (1.0 + i as f32 / 12.0);
+            center + vec2(a.cos() * r, a.sin() * r + 1.0)
+        })
+        .collect();
+    painter.add(egui::Shape::line(band, stroke));
+    for x in [-r, r] {
+        let cup = Rect::from_center_size(center + vec2(x, 3.2), vec2(2.6, 4.4));
+        painter.rect_filled(cup, 1.0, color);
+    }
+}
+
 /// A 14 pt icon for the track type: a waveform for audio, keys for MIDI,
 /// stacked bars for a group, a return arrow for a return.
 pub fn draw_type_icon(painter: &Painter, center: Pos2, kind: TrackKind, color: Color32) {

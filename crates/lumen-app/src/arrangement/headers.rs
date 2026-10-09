@@ -398,12 +398,23 @@ impl Arrangement {
             // track is silenced by another's solo or a muted group (M), or
             // heard through a soloed group (S) (the owner's choice, slice 4).
             let additive = self.additive_solo;
+            // On Cue (the master's switch), the S button cues the track to
+            // the headphones instead (the owner's C1).
+            let cueing = self.cue.cueing();
+            let cued = self.cued.contains(&track.id);
             let toggle = |ui: &mut Ui, r: Rect, button: Toggle, on_fill: Color32| {
                 let (what, label, on, implied) = match button {
                     Toggle::Mute => ("mute", "Mute", track.mute, hears.silenced),
                     Toggle::Solo => ("solo", "Solo", track.solo, hears.soloed_through),
+                    Toggle::Cue => ("cue", "Cue", cued, false),
                 };
                 let tip = match (button, additive) {
+                    (Toggle::Cue, false) => {
+                        "Cue to the headphones, before the fader: click for this track only, Ctrl+click to add it"
+                    }
+                    (Toggle::Cue, true) => {
+                        "Cue to the headphones, before the fader: click to add this track, Ctrl+click for it only"
+                    }
                     (Toggle::Mute, _) if implied => {
                         "Mute (0). Silent now: another track is soloed, or a group it plays through is muted"
                     }
@@ -452,22 +463,40 @@ impl Arrangement {
                     p.rect_filled(r, theme::radius::SMALL, rest);
                     look.text
                 };
-                p.text(
-                    r.center(),
-                    Align2::CENTER_CENTER,
-                    &label[..1],
-                    fonts::medium(theme::size::CAPTION),
-                    text,
-                );
+                if button == Toggle::Cue {
+                    crate::icons::draw_headphones(p, r.center(), text);
+                } else {
+                    p.text(
+                        r.center(),
+                        Align2::CENTER_CENTER,
+                        &label[..1],
+                        fonts::medium(theme::size::CAPTION),
+                        text,
+                    );
+                }
                 response.clicked()
             };
             if toggle(ui, mute_rect, Toggle::Mute, palette.start_marker) {
                 doc.set_mute(&self.targets(track.id), !track.mute);
             }
-            if toggle(ui, solo_rect, Toggle::Solo, palette.accent) {
-                // Ableton's way by default: a click solos this track alone,
-                // Ctrl+click adds it; the additive preference swaps them.
-                let exclusive = modifiers.command == additive;
+            // Ableton's way by default: a click solos (or cues) this track
+            // alone, Ctrl+click adds it; the additive preference swaps them.
+            let exclusive = modifiers.command == additive;
+            if cueing {
+                if toggle(ui, solo_rect, Toggle::Cue, palette.accent) {
+                    let targets = self.targets(track.id);
+                    if exclusive {
+                        self.cued.retain(|id| targets.contains(id));
+                    }
+                    for id in targets {
+                        if cued {
+                            self.cued.remove(&id);
+                        } else {
+                            self.cued.insert(id);
+                        }
+                    }
+                }
+            } else if toggle(ui, solo_rect, Toggle::Solo, palette.accent) {
                 doc.set_solo(&self.targets(track.id), !track.solo, exclusive);
             }
             // Returns record nothing: no arm button.
@@ -905,9 +934,10 @@ fn kind_name(kind: TrackKind) -> &'static str {
     }
 }
 
-/// The M and S buttons on a header.
-#[derive(Debug, Clone, Copy)]
+/// The M and S buttons on a header; S is a headphone button on Cue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Toggle {
     Mute,
     Solo,
+    Cue,
 }

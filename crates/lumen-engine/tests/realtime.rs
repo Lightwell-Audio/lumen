@@ -145,6 +145,22 @@ fn routed_clips_metronome_and_tone_never_touch_the_heap() {
             })
             .collect()
     };
+    // With a cue bus on channels 3 and 4, a few tracks cued (M4 slice 4).
+    let routed = |tracks: u64, variant: u32| {
+        let mut r = routed(tracks, variant);
+        r.cue = Some(lumen_engine::CueOut {
+            channel: 2,
+            volume: 0.8,
+        });
+        for node in r
+            .nodes
+            .iter_mut()
+            .filter(|n| n.id % 9 == u64::from(variant) % 9)
+        {
+            node.cue = true;
+        }
+        r
+    };
     let (mut clips_handle, player) = clip_player();
     // 64 tracks in groups, with sends to two returns (M4 slice 1).
     let (mut routing, source) = mixer(player);
@@ -158,6 +174,7 @@ fn routed_clips_metronome_and_tone_never_touch_the_heap() {
             enabled: true,
             volume: 0.5,
             sound: lumen_engine::ClickSound::Wood,
+            channel: 2,
         }))
         .unwrap();
     handle.send(Command::TestTone(true)).unwrap();
@@ -168,7 +185,7 @@ fn routed_clips_metronome_and_tone_never_touch_the_heap() {
             true,
         )))
         .unwrap();
-    let mut data = vec![0.0; 2 * 128];
+    let mut data = vec![0.0; 4 * 128];
     for block in 0..3_000_i64 {
         // Now and then, and as fast as a drag (moved clips crossfade).
         let dragging = (1_000..1_400).contains(&block) && block % 6 == 0;
@@ -184,7 +201,7 @@ fn routed_clips_metronome_and_tone_never_touch_the_heap() {
         if block % 700 == 350 {
             handle.send(Command::Locate(Ticks::quarters(3))).unwrap();
         }
-        let ((), heap) = count_rt_violations(|| engine.process(48_000, &mut data, 2, 128));
+        let ((), heap) = count_rt_violations(|| engine.process(48_000, &mut data, 4, 128));
         assert_eq!(heap, 0, "heap operation in process() at block {block}");
         clips_handle.collect_garbage();
         routing.collect_garbage();

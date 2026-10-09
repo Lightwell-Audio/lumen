@@ -114,6 +114,22 @@ enum RowKind {
     Master,
 }
 
+/// The cue's settings as the headers use them (slice 4): the master's
+/// Solo/Cue switch, whether a cue pair is open, and the cue level.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct CueControls {
+    pub mode: bool,
+    pub ready: bool,
+    pub volume_db: f32,
+}
+
+impl CueControls {
+    /// The S buttons are headphone buttons now.
+    pub fn cueing(self) -> bool {
+        self.mode && self.ready
+    }
+}
+
 /// Where a row is drawn: the scrolling tracks, or the area pinned at the
 /// bottom (the returns, then the master).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,6 +216,10 @@ pub struct Arrangement {
     /// Tracks that show sends (audio, MIDI and groups, while the project
     /// has returns): they unfold a step taller.
     with_sends: BTreeSet<Id>,
+    /// Tracks cued with their headphone buttons (slice 4): session state.
+    pub(crate) cued: BTreeSet<Id>,
+    /// The cue's settings, lent by the app while the headers draw.
+    pub(crate) cue: CueControls,
     /// The additive-solo preference (M4 slice 4), set by the app.
     pub(crate) additive_solo: bool,
 }

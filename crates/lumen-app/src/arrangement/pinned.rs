@@ -367,6 +367,70 @@ impl Arrangement {
         }
     }
 
+    /// The Solo/Cue switch at the master's right (the owner's C1). On Cue,
+    /// the tracks' S buttons cue them to the headphones. Without a cue pair
+    /// (Audio settings) it is quiet and says why when clicked.
+    fn cue_switch(&mut self, ui: &mut Ui, rect: Rect, mid: f32) {
+        let palette = *theme::p();
+        let switch = Rect::from_min_size(
+            pos2(rect.right() - 10.0 - 46.0, mid - 9.0),
+            vec2(46.0, 18.0),
+        );
+        let ready = self.cue.ready;
+        let on = self.cue.mode && ready;
+        let response = ui
+            .interact(switch, ui.id().with("solo cue switch"), Sense::click())
+            .on_hover_text(if ready {
+                "Solo or Cue: on Cue, the tracks' S buttons send them to the headphones, before the fader"
+            } else {
+                "Cue needs a second pair of outputs: choose a Cue output in Audio settings"
+            });
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(
+                egui::WidgetType::Checkbox,
+                ready,
+                on,
+                "Solo/Cue switch: Cue",
+            )
+        });
+        if response.clicked() {
+            if ready {
+                self.cue.mode = !self.cue.mode;
+            } else {
+                self.note =
+                    Some("Choose a Cue output in Audio settings first: a second pair of outputs");
+            }
+        }
+        let hover = motion::hover(ui.ctx(), ui.id().with("solo cue hover"), response.hovered());
+        let look = theme::controls(false);
+        let (fill, ink) = if on {
+            (palette.accent, theme::text_on(palette.accent))
+        } else if ready {
+            (look.fill.lerp_to_gamma(look.hover, hover), look.text)
+        } else {
+            (look.fill.gamma_multiply(0.6), palette.text_disabled)
+        };
+        let painter = ui.painter();
+        painter.rect_filled(switch, theme::radius::SMALL, fill);
+        if on {
+            crate::icons::draw_headphones(
+                painter,
+                pos2(switch.left() + 11.0, switch.center().y),
+                ink,
+            );
+        }
+        painter.text(
+            pos2(
+                switch.center().x + if on { 5.0 } else { 0.0 },
+                switch.center().y,
+            ),
+            Align2::CENTER_CENTER,
+            if on { "Cue" } else { "Solo" },
+            fonts::medium(theme::size::CAPTION),
+            ink,
+        );
+    }
+
     /// The master's header: its rail and name, the fold arrow, and volume
     /// and pan when unfolded. The Solo/Cue switch joins it with the cue
     /// (slice 4d).
@@ -440,8 +504,38 @@ impl Arrangement {
         name.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Label, true, "Master track")
         });
+        self.cue_switch(ui, rect, mid);
         if rect.height() >= FOLDED + 22.0 {
             self.mixer_row(ui, doc, &master, rect, id, look);
+        }
+        // The cue level, under volume and pan, while a cue pair is open.
+        if self.cue.ready && rect.height() >= FOLDED + 2.0 * super::STEP {
+            let y = rect.top() + FOLDED + super::STEP + super::STEP / 2.0;
+            let label = Rect::from_min_max(
+                pos2(rect.left() + 30.0, y - 10.0),
+                pos2(rect.left() + 64.0, y + 10.0),
+            );
+            painter.text(
+                label.left_center(),
+                Align2::LEFT_CENTER,
+                "Cue",
+                FontId::proportional(theme::size::CAPTION),
+                palette.text_secondary,
+            );
+            let slider = Rect::from_min_max(
+                pos2(label.right(), y - 10.0),
+                pos2(rect.right() - 8.0, y + 10.0),
+            );
+            let db = crate::widgets::value_slider(
+                ui,
+                slider,
+                id.with("cue volume"),
+                self.cue.volume_db,
+                crate::widgets::SliderKind::Volume,
+                "Cue volume",
+                look,
+            );
+            self.cue.volume_db = db;
         }
         painter.hline(
             rect.x_range(),

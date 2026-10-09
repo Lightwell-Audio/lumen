@@ -120,6 +120,7 @@ fn playing_clips(clips: usize, routed_mix: bool) -> Player {
     } else {
         Routing {
             nodes: vec![NodeSpec::unity(0, Destination::Hardware(0))],
+            cue: None,
         }
     };
     assert!(routing.set(&plan).expect("a valid routing"));
@@ -164,6 +165,7 @@ fn transport_only() -> (lumen_engine::EngineHandle, Player) {
             enabled: true,
             volume: 0.5,
             sound: ClickSound::Wood,
+            channel: 0,
         }))
         .expect("room for a command");
     // Two quarters at 120 BPM: 48,000 samples, so 2,000 blocks wrap it

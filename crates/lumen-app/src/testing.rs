@@ -133,19 +133,38 @@ impl App {
     /// What the test device has played since the last call, as (left,
     /// right) frames: the audio a user would hear.
     pub fn heard(&mut self) -> Vec<(f32, f32)> {
+        self.heard_frames()
+            .into_iter()
+            .map(|[l, r, ..]| (l, r))
+            .collect()
+    }
+
+    /// What the test device has played since the last call, frame by
+    /// frame: the main pair's left and right, then the cue pair's (M4
+    /// slice 4; silent without a cue pair).
+    pub fn heard_all(&mut self) -> Vec<[f32; 4]> {
+        self.heard_frames()
+    }
+
+    /// A cue pair is open (chosen in the audio settings and running).
+    pub fn cue_ready(&self) -> bool {
+        self.transport.audio.cue_ready()
+    }
+
+    /// The metronome's output as the settings hold it: `main` or `cue`.
+    pub fn saved_metronome_output(&self) -> &str {
+        &self.settings.metronome.output
+    }
+
+    fn heard_frames(&mut self) -> Vec<[f32; 4]> {
         let Some(heard) = self.transport.audio.heard.as_mut() else {
             return Vec::new();
         };
-        let Ok(chunk) = heard.read_chunk(heard.slots()) else {
+        let Ok(chunk) = heard.read_chunk(heard.slots() / 4 * 4) else {
             return Vec::new();
         };
         let samples: Vec<f32> = chunk.into_iter().collect();
-        samples
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|&[l, r]| (l, r))
-            .collect()
+        samples.as_chunks::<4>().0.to_vec()
     }
 
     /// Background work is in progress: a save, an open, or files loading.

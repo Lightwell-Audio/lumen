@@ -161,7 +161,7 @@ impl Transport {
             "Metronome",
             Tip {
                 keys: None,
-                hint: Some("Right-click for volume and sound"),
+                hint: Some("Right-click for volume, sound and output"),
             },
             self.metronome.enabled,
             true,
@@ -188,6 +188,26 @@ impl Transport {
                     .radio_value(&mut self.metronome.sound, sound, sound.name())
                     .changed();
             }
+            // Its own output, never through the master (the owner's D6):
+            // the main pair, or the cue pair for the headphones.
+            ui.separator();
+            ui.label("Output");
+            let cue = crate::settings::CUE_CHANNEL;
+            changed |= ui
+                .radio_value(&mut self.metronome.channel, 0, "Main")
+                .changed();
+            let ready = self.audio.cue_ready();
+            changed |= ui
+                .add_enabled(
+                    ready,
+                    egui::RadioButton::new(self.metronome.channel == cue, "Cue"),
+                )
+                .on_disabled_hover_text("Choose a Cue output in Audio settings first")
+                .clicked()
+                && {
+                    self.metronome.channel = cue;
+                    true
+                };
             if changed {
                 self.send(Command::SetMetronome(self.metronome));
             }

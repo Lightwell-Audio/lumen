@@ -7,8 +7,9 @@ use std::sync::Arc;
 use lumen_core::pan::PanLaw;
 use lumen_core::time::Ticks;
 use lumen_engine::{
-    Clip, ClipAudio, ClipPlayer, ClipsHandle, Command, Destination, Engine, EngineHandle, Mixer,
-    MixerHandle, NodeSpec, Routing, RoutingError, SendSpec, Timeline, clip_player, engine, mixer,
+    Clip, ClipAudio, ClipPlayer, ClipsHandle, Command, CueOut, Destination, Engine, EngineHandle,
+    Mixer, MixerHandle, NodeSpec, Routing, RoutingError, SendSpec, Timeline, clip_player, engine,
+    mixer,
 };
 
 const RATE: u32 = 48_000;
@@ -129,6 +130,7 @@ fn a_group_equals_the_sum_of_its_children() {
     let clips = vec![clip(1, 1, &a), clip(2, 2, &b)];
     let flat = Routing {
         nodes: vec![master(), to_master(1), to_master(2)],
+        cue: None,
     };
     let grouped = Routing {
         nodes: vec![
@@ -137,6 +139,7 @@ fn a_group_equals_the_sum_of_its_children() {
             NodeSpec::unity(1, Destination::Node(50)),
             NodeSpec::unity(2, Destination::Node(50)),
         ],
+        cue: None,
     };
     // Nested: a group inside a group.
     let nested = Routing {
@@ -147,6 +150,7 @@ fn a_group_equals_the_sum_of_its_children() {
             NodeSpec::unity(1, Destination::Node(51)),
             NodeSpec::unity(2, Destination::Node(50)),
         ],
+        cue: None,
     };
     let want = rig(clips.clone(), flat, 2).run(5_000, 128);
     for routing in [grouped, nested] {
@@ -158,6 +162,7 @@ fn a_group_equals_the_sum_of_its_children() {
         vec![clip(1, 1, &a)],
         Routing {
             nodes: vec![master(), to_master(1)],
+            cue: None,
         },
         2,
     )
@@ -182,6 +187,7 @@ fn a_group_level_applies_to_all_its_children() {
                 NodeSpec::unity(1, Destination::Node(50)),
                 NodeSpec::unity(2, Destination::Node(50)),
             ],
+            cue: None,
         },
         2,
     );
@@ -203,6 +209,7 @@ fn a_muted_track_is_silent_and_so_are_its_sends() {
         vec![clip(1, 1, &audio)],
         Routing {
             nodes: vec![master(), to_master(60), track],
+            cue: None,
         },
         2,
     );
@@ -224,6 +231,7 @@ fn a_silent_output_can_keep_its_sends_wet_only() {
         });
         Routing {
             nodes: vec![master(), to_master(60), track],
+            cue: None,
         }
     };
     let mut r = rig(vec![clip(1, 1, &audio)], wet(false), 2);
@@ -248,6 +256,7 @@ fn a_send_at_0_db_doubles_into_a_return() {
         vec![clip(1, 1, &audio)],
         Routing {
             nodes: vec![master(), to_master(60), track],
+            cue: None,
         },
         2,
     );
@@ -270,6 +279,7 @@ fn pre_fader_sends_ignore_the_fader_and_post_fader_sends_follow_it() {
             vec![clip(1, 1, &audio)],
             Routing {
                 nodes: vec![master(), to_master(60), track],
+                cue: None,
             },
             2,
         );
@@ -289,6 +299,7 @@ fn the_default_pan_law_drops_the_centre_by_3_db() {
         vec![clip(1, 1, &audio)],
         Routing {
             nodes: vec![master(), track],
+            cue: None,
         },
         2,
     );
@@ -306,6 +317,7 @@ fn polarity_inverts_and_trim_scales() {
         vec![clip(1, 1, &audio)],
         Routing {
             nodes: vec![master(), track],
+            cue: None,
         },
         2,
     );
@@ -322,6 +334,7 @@ fn tracks_reach_the_device_output_pair_they_are_routed_to() {
             NodeSpec::unity(2, Destination::Hardware(1)),
             NodeSpec::unity(3, Destination::Hardware(7)),
         ],
+        cue: None,
     };
     let clips = vec![clip(1, 1, &audio), clip(2, 2, &audio), clip(3, 3, &audio)];
     let mut four = rig(clips.clone(), routing.clone(), 4);
@@ -339,6 +352,7 @@ fn a_track_missing_from_the_routing_is_not_heard() {
         vec![clip(1, 1, &audio), clip(2, 9, &audio)],
         Routing {
             nodes: vec![master(), to_master(1)],
+            cue: None,
         },
         2,
     );
@@ -363,6 +377,7 @@ fn volume_pan_mute_and_polarity_changes_glide_instead_of_stepping() {
                 ..to_master(1)
             },
         ],
+        cue: None,
     };
     let mut r = rig(vec![clip(1, 1, &audio)], routing(1.0, 0.0, true, false), 2);
     let mut out = r.run(1_000, 128);
@@ -394,6 +409,7 @@ fn rerouting_while_playing_crossfades() {
     let audio = steady(0.5, 0.5);
     let pair = |pair| Routing {
         nodes: vec![NodeSpec::unity(1, Destination::Hardware(pair))],
+        cue: None,
     };
     let mut r = rig(vec![clip(1, 1, &audio)], pair(0), 4);
     let mut out = r.run(1_000, 128);
@@ -420,12 +436,14 @@ fn a_track_that_joins_the_routing_while_playing_fades_in() {
         vec![clip(1, 1, &audio)],
         Routing {
             nodes: vec![master()],
+            cue: None,
         },
         2,
     );
     let mut out = r.run(1_000, 128);
     r.reroute(&Routing {
         nodes: vec![master(), to_master(1)],
+        cue: None,
     });
     out.extend(r.run(3_000, 128));
     assert!(close(out.last().unwrap(), &[0.5, 0.5]));
@@ -467,6 +485,7 @@ fn replaced_plans_come_back_to_be_freed() {
             volume,
             ..NodeSpec::unity(1, Destination::Hardware(0))
         }],
+        cue: None,
     };
     let mut r = rig(vec![clip(1, 1, &audio)], routing(1.0), 2);
     r.run(256, 128);
@@ -487,14 +506,65 @@ fn a_routing_that_cannot_play_is_refused_and_the_old_one_plays_on() {
         vec![clip(1, 1, &audio)],
         Routing {
             nodes: vec![master(), to_master(1)],
+            cue: None,
         },
         2,
     );
     let looped = Routing {
         nodes: vec![NodeSpec::unity(MASTER, Destination::Node(1)), to_master(1)],
+        cue: None,
     };
     assert_eq!(r.routing.set(&looped), Err(RoutingError::Cycle));
     assert!(close(&r.settled(), &[0.5, 0.5]));
     let _ = &r.clips;
     let _ = &r.transport;
+}
+
+#[test]
+fn a_cued_track_is_heard_on_the_cue_pair_before_its_fader_and_mute() {
+    // M4 slice 4 (the owner's C1): cue is pre-fader, on its own pair, and
+    // never touched by mute or solo.
+    let audio = steady(0.5, 0.25);
+    let cued = |volume: f32, audible: bool, cue_volume: f32| {
+        let mut track = to_master(1);
+        track.volume = volume;
+        track.audible = audible;
+        track.sends_audible = audible;
+        track.cue = true;
+        Routing {
+            nodes: vec![master(), track],
+            cue: Some(CueOut {
+                channel: 2,
+                volume: cue_volume,
+            }),
+        }
+    };
+    let mut r = rig(vec![clip(1, 1, &audio)], cued(0.5, true, 1.0), 4);
+    let frame = r.settled();
+    assert!(
+        close(&frame[..2], &[0.5 * 0.5, 0.25 * 0.5]),
+        "main: through the fader, {frame:?}"
+    );
+    assert!(
+        close(&frame[2..], &[0.5, 0.25]),
+        "cue: before the fader, {frame:?}"
+    );
+    // Muted (or silenced by a solo): the cue plays on.
+    r.reroute(&cued(0.5, false, 1.0));
+    let frame = r.settled();
+    assert!(close(&frame[..2], &[0.0, 0.0]));
+    assert!(close(&frame[2..], &[0.5, 0.25]));
+    // The cue level, gliding.
+    r.reroute(&cued(0.5, false, 0.5));
+    let out = r.run(SETTLED, 128);
+    assert!(close(&out.last().unwrap()[2..], &[0.25, 0.125]));
+    assert!(steepest(&out) < 0.01);
+    // Not cued: the cue pair is silent.
+    let mut quiet = cued(0.5, true, 1.0);
+    quiet.nodes[1].cue = false;
+    r.reroute(&quiet);
+    assert!(close(&r.settled()[2..], &[0.0, 0.0]));
+    // A device without the cue pair simply does not hear it.
+    let mut two = rig(vec![clip(1, 1, &audio)], cued(1.0, true, 1.0), 2);
+    assert_eq!(two.settled().len(), 2);
 }

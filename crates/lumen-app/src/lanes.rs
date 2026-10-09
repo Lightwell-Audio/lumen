@@ -49,8 +49,8 @@ pub struct Lanes {
     built: Option<u64>,
     /// The engine's clip list needs rebuilding.
     dirty: bool,
-    /// The project state the engine's routing was built from.
-    routed: Option<u64>,
+    /// The project state and cue the engine's routing was built from.
+    routed: Option<(u64, crate::routing::Cue)>,
     /// A message about files that could not be added.
     notice: Option<String>,
     /// When each clip was first drawn (egui time), for its fade-in.
@@ -243,6 +243,7 @@ impl Lanes {
         doc: &mut Document,
         clips: &mut ClipsHandle,
         mixer: &mut MixerHandle,
+        cue: &crate::routing::Cue,
     ) {
         self.rate = rate;
         if self.library.update(rate, ctx) {
@@ -272,9 +273,10 @@ impl Lanes {
         // The routing follows the clips, never ahead of them: a deleted
         // track's clips fade out while its node is still there, and a new
         // track's clips wait for their node, then fade in.
-        if !self.dirty && self.routed != Some(doc.state()) {
-            match mixer.set(&crate::routing::routing(doc.project())) {
-                Ok(true) => self.routed = Some(doc.state()),
+        let wanted = (doc.state(), cue.clone());
+        if !self.dirty && self.routed.as_ref() != Some(&wanted) {
+            match mixer.set(&crate::routing::routing(doc.project(), cue)) {
+                Ok(true) => self.routed = Some(wanted),
                 // The queue is full: the engine has not caught up.
                 Ok(false) => {}
                 // `routing` never builds one the engine refuses; if it
@@ -282,7 +284,7 @@ impl Lanes {
                 Err(e) => {
                     debug_assert!(false, "routing refused: {e}");
                     eprintln!("routing refused: {e}");
-                    self.routed = Some(doc.state());
+                    self.routed = Some(wanted);
                 }
             }
         }
