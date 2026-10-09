@@ -93,7 +93,8 @@ pub(crate) struct Row {
 }
 
 /// Where `query` matches `text` as a subsequence, ignoring case: a score
-/// (consecutive letters and starts of words count more) and the matched
+/// (consecutive letters and starts of words count more; a text that starts
+/// with the query more still, and the whole text most) and the matched
 /// characters' indices. `None` when it does not match.
 pub(crate) fn fuzzy(query: &str, text: &str) -> Option<(i32, Vec<usize>)> {
     let query: Vec<char> = query.trim().to_lowercase().chars().collect();
@@ -113,7 +114,16 @@ pub(crate) fn fuzzy(query: &str, text: &str) -> Option<(i32, Vec<usize>)> {
             q += 1;
         }
     }
-    (q == query.len()).then_some((score, matched))
+    if q < query.len() {
+        return None;
+    }
+    if text.starts_with(&query) {
+        score += 10;
+        if text.len() == query.len() {
+            score += 10;
+        }
+    }
+    Some((score, matched))
 }
 
 /// Values in the query: a tempo and a bar for a number ("128", "128 bpm",
@@ -221,6 +231,28 @@ impl App {
             }
             Command::ClipProperties => {
                 first_clip.map(|n| format!("Properties of \u{201C}{n}\u{201D}"))
+            }
+            // The arrows follow the selection (M3 review H2).
+            Command::FoldTracks if !clips.is_empty() => Some("Previous clip on the track".into()),
+            Command::UnfoldTracks if !clips.is_empty() => Some("Next clip on the track".into()),
+            Command::SelectTrackAbove if !clips.is_empty() => Some("Select the clip above".into()),
+            Command::SelectTrackBelow if !clips.is_empty() => Some("Select the clip below".into()),
+            Command::ExtendSelectionUp if !clips.is_empty() => {
+                Some("Add the clip above to the selection".into())
+            }
+            Command::ExtendSelectionDown if !clips.is_empty() => {
+                Some("Add the clip below to the selection".into())
+            }
+            Command::FoldTracks | Command::UnfoldTracks if !tracks.is_empty() => {
+                let verb = if command == Command::FoldTracks {
+                    "Fold"
+                } else {
+                    "Unfold"
+                };
+                Some(format!(
+                    "{verb} {}",
+                    count(tracks.len(), "track", "tracks", first_track)
+                ))
             }
             Command::MoveTracksUp | Command::MoveTracksDown if !tracks.is_empty() => {
                 let way = if command == Command::MoveTracksUp {
@@ -718,6 +750,10 @@ mod tests {
         assert_eq!(fuzzy("  ", "Anything"), Some((0, Vec::new())));
         let (_, at) = fuzzy("AT", "Add audio track").expect("ignores case");
         assert_eq!(at, [0, 10]);
+        // The command named exactly so beats word starts elsewhere.
+        let (cut, _) = fuzzy("cut", "Cut").expect("matches");
+        let (initials, _) = fuzzy("cut", "Next clip or unfold track").expect("matches");
+        assert!(cut > initials);
     }
 
     #[test]

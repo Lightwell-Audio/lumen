@@ -9,6 +9,7 @@ use lumen_project::model::TrackKind;
 use super::editing::Edit;
 use super::navigate::ViewStep;
 use super::projects::Next;
+use crate::arrangement::select::ClipStep;
 use crate::commands::{Chord, Command};
 use crate::{App, widgets};
 
@@ -116,11 +117,14 @@ impl App {
                 clip || tracks || locator,
                 "Select a clip, a track or a locator",
             ),
-            Command::MuteClips | Command::ClipProperties => need(clip, "Select a clip first"),
-            Command::MoveTracksUp
-            | Command::MoveTracksDown
-            | Command::FoldTracks
-            | Command::UnfoldTracks => need(tracks, "Select tracks first"),
+            Command::MuteClips
+            | Command::ClipProperties
+            | Command::AddPreviousClip
+            | Command::AddNextClip => need(clip, "Select a clip first"),
+            Command::MoveTracksUp | Command::MoveTracksDown => need(tracks, "Select tracks first"),
+            Command::FoldTracks | Command::UnfoldTracks => {
+                need(tracks || clip, "Select a clip or tracks first")
+            }
             Command::SelectTrackAbove
             | Command::SelectTrackBelow
             | Command::ExtendSelectionUp
@@ -163,6 +167,7 @@ impl App {
     /// Callers check [`App::availability`] first.
     pub(crate) fn run(&mut self, ctx: &egui::Context, command: Command) {
         let clips = self.clips_chosen();
+        let clip = !self.arrangement.clips.is_empty();
         let doc = &mut self.document;
         match command {
             Command::PlayStop => self.transport.play_stop(),
@@ -207,6 +212,16 @@ impl App {
             Command::AddMidiTrack => self.arrangement.add_track(doc, TrackKind::Midi),
             Command::MoveTracksUp => self.arrangement.move_selected(doc, -1),
             Command::MoveTracksDown => self.arrangement.move_selected(doc, 1),
+            // The arrows follow the selection (the owner's choice for H2):
+            // clips when a clip is selected, tracks otherwise.
+            Command::SelectTrackAbove if clip => self.step_clips(ClipStep::Above, false),
+            Command::SelectTrackBelow if clip => self.step_clips(ClipStep::Below, false),
+            Command::ExtendSelectionUp if clip => self.step_clips(ClipStep::Above, true),
+            Command::ExtendSelectionDown if clip => self.step_clips(ClipStep::Below, true),
+            Command::FoldTracks if clip => self.step_clips(ClipStep::Previous, false),
+            Command::UnfoldTracks if clip => self.step_clips(ClipStep::Next, false),
+            Command::AddPreviousClip => self.step_clips(ClipStep::Previous, true),
+            Command::AddNextClip => self.step_clips(ClipStep::Next, true),
             Command::SelectTrackAbove => self.arrangement.step_selection(doc, -1, false),
             Command::SelectTrackBelow => self.arrangement.step_selection(doc, 1, false),
             Command::ExtendSelectionUp => self.arrangement.step_selection(doc, -1, true),
@@ -236,6 +251,7 @@ impl App {
             Command::SelectAll => {
                 let all = self.document.project().tracks.iter().flat_map(|t| &t.clips);
                 self.arrangement.clips = all.map(|c| c.id).collect();
+                self.arrangement.clip_cursor = None;
                 self.arrangement.range = None;
                 self.arrangement.selected.clear();
             }

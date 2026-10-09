@@ -171,3 +171,77 @@ fn a_right_click_on_a_track_name_opens_its_menu() {
     );
     assert!(lumen.shows("Move up Alt+Up"));
 }
+
+/// The M3 review's H2, in the owner's choice: with a clip selected the
+/// arrows move between clips (as in Logic and Cubase), Shift adds to the
+/// selection, and the view follows; with tracks selected they act on
+/// tracks as before. Ctrl+A then an arrow reaches a single clip.
+#[test]
+fn arrows_move_between_clips_when_a_clip_is_selected() {
+    use super::wav;
+    let mut lumen = Lumen::start("clip-arrows");
+    let files: Vec<_> = ["a", "b", "c"]
+        .iter()
+        .map(|n| wav(&lumen.dir().join(format!("{n}.wav")), 1.0))
+        .collect();
+    // Track 1: a and b one after the other; track 2: c. All by keys.
+    lumen.key(Modifiers::COMMAND, Key::T);
+    lumen.app_mut().answer_next_dialog(files[..2].to_vec());
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::I);
+    lumen.wait_for("a and b", |app| app.project().tracks[0].clips.len() == 2);
+    lumen.key(Modifiers::COMMAND, Key::T);
+    lumen.app_mut().answer_next_dialog(files[2..].to_vec());
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::I);
+    lumen.wait_for("c", |app| app.project().tracks[1].clips.len() == 1);
+    let id =
+        |lumen: &Lumen, track: usize, i: usize| lumen.app().project().tracks[track].clips[i].id;
+    let (a, b, c) = (id(&lumen, 0, 0), id(&lumen, 0, 1), id(&lumen, 1, 0));
+
+    // Tracks selected: ↑ selects the track above, as before.
+    lumen.key(Modifiers::NONE, Key::ArrowUp);
+    assert_eq!(lumen.app().selected_tracks().len(), 1);
+    assert!(lumen.app().selected_clips().is_empty());
+
+    lumen.key(Modifiers::COMMAND, Key::A);
+    lumen.key(Modifiers::NONE, Key::ArrowLeft);
+    assert_eq!(lumen.app().selected_clips(), [a], "the first clip alone");
+    lumen.key(Modifiers::NONE, Key::ArrowRight);
+    assert_eq!(lumen.app().selected_clips(), [b]);
+    lumen.key(Modifiers::NONE, Key::ArrowDown);
+    assert_eq!(lumen.app().selected_clips(), [c], "the nearest clip below");
+    lumen.key(Modifiers::NONE, Key::ArrowUp);
+    assert_eq!(lumen.app().selected_clips(), [a], "a lies under c's start");
+    lumen.key(Modifiers::SHIFT, Key::ArrowRight);
+    let mut both = lumen.app().selected_clips();
+    both.sort();
+    let mut expected = vec![a, b];
+    expected.sort();
+    assert_eq!(both, expected, "Shift adds to the selection");
+
+    // The selected clip is what clip commands act on: 0 mutes it.
+    lumen.key(Modifiers::NONE, Key::ArrowLeft);
+    lumen.key(Modifiers::NONE, Key::Num0);
+    assert!(lumen.app().project().tracks[0].clips[0].muted);
+    assert!(!lumen.app().project().tracks[0].clips[1].muted);
+}
+
+/// A clip chosen from the keyboard far off screen scrolls into view.
+#[test]
+fn the_view_follows_a_clip_chosen_with_the_arrows() {
+    let (mut lumen, kick, snare) = with_two_clips("clip-arrows-view");
+    select(&mut lumen, kick);
+    // Look far to the right, past both clips.
+    let mut view = lumen.app().view();
+    view.left = 400.0;
+    lumen.app_mut().set_view(view);
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::ArrowDown);
+    lumen.wait_for("the view to glide", |app| app.view().left < 400.0);
+    lumen.frames(60);
+    assert_eq!(lumen.app().selected_clips(), [snare]);
+    let ctx = lumen.harness.ctx.clone();
+    assert!(
+        lumen.app().clip_rect(&ctx, snare).is_some(),
+        "the chosen clip is on screen"
+    );
+}

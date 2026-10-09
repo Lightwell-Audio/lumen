@@ -277,6 +277,15 @@ impl App {
             .collect()
     }
 
+    /// The name of the command the palette's top row runs, if it is a
+    /// command (its label may say what it acts on instead).
+    pub fn palette_first_command(&self, ctx: &egui::Context) -> Option<&'static str> {
+        match self.palette_rows(ctx).first()?.entry {
+            crate::app::palette::Entry::Command(command) => Some(command.name()),
+            _ => None,
+        }
+    }
+
     /// The name of every command in the palette's table.
     pub fn command_names() -> Vec<&'static str> {
         crate::commands::ALL.iter().map(|info| info.name).collect()

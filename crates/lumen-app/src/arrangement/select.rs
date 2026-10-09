@@ -27,6 +27,67 @@ pub const EDGE_ZONE: f32 = 6.0;
 
 pub use lumen_project::edit::Edge;
 
+/// Where an arrow key takes the clip selection (M3 review H2; the owner's
+/// choice: the arrows follow the selection, as in Logic and Cubase).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClipStep {
+    /// The clip before, on the same track.
+    Previous,
+    /// The clip after, on the same track.
+    Next,
+    /// The nearest clip in time on the closest track above that has clips.
+    Above,
+    /// The same, below.
+    Below,
+}
+
+/// The clip `step` reaches from clip `from`, if there is one.
+pub fn clip_step(project: &Project, from: Id, step: ClipStep) -> Option<Id> {
+    let (row, clip) = project
+        .tracks
+        .iter()
+        .enumerate()
+        .find_map(|(i, t)| t.clips.iter().find(|c| c.id == from).map(|c| (i, c)))?;
+    let by_time = |t: usize| {
+        let mut clips: Vec<_> = project.tracks[t].clips.iter().collect();
+        clips.sort_by_key(|c| (c.start, c.id));
+        clips
+    };
+    match step {
+        ClipStep::Previous | ClipStep::Next => {
+            let clips = by_time(row);
+            let at = clips.iter().position(|c| c.id == from)?;
+            let to = if step == ClipStep::Next {
+                at + 1
+            } else {
+                at.checked_sub(1)?
+            };
+            clips.get(to).map(|c| c.id)
+        }
+        ClipStep::Above | ClipStep::Below => {
+            let has_clips = |t: &usize| !project.tracks[*t].clips.is_empty();
+            let row = if step == ClipStep::Above {
+                (0..row).rev().find(has_clips)
+            } else {
+                (row + 1..project.tracks.len()).find(has_clips)
+            }?;
+            // Nearest to where the clip starts: one under it first.
+            let at = clip.start;
+            let distance = |c: &&Arc<lumen_project::model::Clip>| {
+                let end = c.start + c.length;
+                if at < c.start {
+                    c.start - at
+                } else if at >= end {
+                    at - end + Ticks(1)
+                } else {
+                    Ticks::ZERO
+                }
+            };
+            by_time(row).into_iter().min_by_key(distance).map(|c| c.id)
+        }
+    }
+}
+
 /// The side of `rect` that `x` is close enough to trim, if any.
 pub fn edge_at(rect: Rect, x: f32) -> Option<Edge> {
     let zone = EDGE_ZONE.min(rect.width() / 4.0);
@@ -413,6 +474,56 @@ mod tests {
         assert_eq!(half_at(tall, 41.0), Half::Bottom);
         let short = Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 18.0));
         assert_eq!(split_y(short), 9.0, "too short for 11 each: halve it");
+    }
+
+    #[test]
+    fn arrows_step_along_a_track_and_to_the_nearest_clip_above_or_below() {
+        use ClipStep::{Above, Below, Next, Previous};
+        use TrackKind::Audio;
+        let mut p = project(&[Audio, Audio, Audio, Audio]);
+        // Clips (id: start..end in quarters) per track; track 2 is empty.
+        let layout: [&[(u64, i64, i64)]; 4] = [
+            &[(11, 0, 4), (12, 8, 12)],
+            &[(22, 6, 10), (21, 0, 2), (23, 16, 20)],
+            &[],
+            &[(41, 3, 5), (42, 7, 9)],
+        ];
+        for (t, clips) in layout.iter().enumerate() {
+            let track = std::sync::Arc::make_mut(&mut p.tracks[t]);
+            for &(id, start, end) in *clips {
+                track.clips.push(Arc::new(lumen_project::model::Clip {
+                    id: Id(id),
+                    name: format!("C{id}"),
+                    start: Ticks::quarters(start),
+                    length: Ticks::quarters(end - start),
+                    muted: false,
+                    color: None,
+                    locked: false,
+                    fade_in: Default::default(),
+                    fade_out: Default::default(),
+                    loop_length: None,
+                    content: ClipContent::Midi { notes: vec![] },
+                }));
+            }
+        }
+        let step = |from, s| clip_step(&p, Id(from), s).map(|id| id.0);
+        // Along a track, in time order whatever the stored order.
+        assert_eq!(step(21, Next), Some(22));
+        assert_eq!(step(22, Previous), Some(21));
+        assert_eq!(step(23, Next), None, "the last stays");
+        assert_eq!(step(21, Previous), None, "the first stays");
+        // Down from 22 (starts at 6): track 2 is empty, so track 3, where
+        // 42 (7..9) is nearer than 41 (3..5).
+        assert_eq!(step(22, Below), Some(42));
+        // Up from 12 (starts at 8): 22 (6..10) lies under its start.
+        assert_eq!(step(12, Below), Some(22));
+        assert_eq!(
+            step(41, Above),
+            Some(21),
+            "3 is 1 after 21's end, 3 before 22"
+        );
+        assert_eq!(step(11, Above), None, "nothing above the top track");
+        assert_eq!(step(99, Next), None, "a clip that has gone");
     }
 
     fn project(kinds: &[TrackKind]) -> Project {

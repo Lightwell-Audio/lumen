@@ -16,6 +16,9 @@ const FIT_MARGIN: f64 = 0.02;
 const MIN_SONG: f64 = 128.0;
 /// Room after the song: the view reaches this fraction past its end.
 const ROOM: f64 = 0.1;
+/// Room kept between a span scrolled into view and the view's edge, as a
+/// fraction of the view's width.
+const SHOW_MARGIN: f64 = 0.05;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TimeView {
@@ -130,6 +133,26 @@ impl TimeView {
         }
     }
 
+    /// Scrolled the least, at the same zoom, to show beats `from..to` (a
+    /// clip chosen from the keyboard) with a little room. A span wider than
+    /// the view shows from its start.
+    pub fn showing(self, from: f64, to: f64, limits: Limits) -> Self {
+        let width = f64::from(limits.width) / self.zoom;
+        let margin = width * SHOW_MARGIN;
+        let left = if from < self.left + margin || to - from > width - 2.0 * margin {
+            from - margin
+        } else if to > self.left + width - margin {
+            to + margin - width
+        } else {
+            return self;
+        };
+        let last = limits.last_left(self.zoom).max(self.left);
+        Self {
+            left: left.min(last).max(0.0),
+            ..self
+        }
+    }
+
     /// Between `self` (at 0) and `to` (at 1), keeping the beat at `anchor`
     /// still when given: zoom moves geometrically, so a glide feels even.
     pub fn between(self, to: Self, t: f64, anchor: Option<f32>) -> Self {
@@ -151,6 +174,25 @@ impl TimeView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn showing_a_span_scrolls_the_least() {
+        // 10 points a beat across 1000 points: beats 0 to 100 in view.
+        let limits = Limits::new(1000.0, 1000.0, 24_000.0);
+        let view = TimeView {
+            left: 0.0,
+            zoom: 10.0,
+        };
+        assert_eq!(view.showing(20.0, 30.0, limits), view, "already in view");
+        let right = view.showing(120.0, 130.0, limits);
+        assert_eq!(right.zoom, 10.0);
+        assert!((right.left - 35.0).abs() < 1e-9, "its end 5% in: {right:?}");
+        let back = right.showing(10.0, 20.0, limits);
+        assert!((back.left - 5.0).abs() < 1e-9, "its start 5% in: {back:?}");
+        let wide = view.showing(200.0, 500.0, limits);
+        assert!((wide.left - 195.0).abs() < 1e-9, "wider: from its start");
+        assert_eq!(view.showing(1.0, 2.0, limits).left, 0.0, "never before 0");
+    }
 
     const WIDE: Limits = Limits {
         min: MIN_ZOOM,

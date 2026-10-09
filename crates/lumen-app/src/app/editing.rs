@@ -11,8 +11,11 @@ use lumen_core::time::Ticks;
 use lumen_project::model::Id;
 
 use super::grid::draw_snap_guide;
+use super::navigate::ViewStep;
 use crate::arrangement::Arrangement;
-use crate::arrangement::select::{Edge, Gesture, Half, Hover, TimeRange, drag_moves};
+use crate::arrangement::select::{
+    ClipStep, Edge, Gesture, Half, Hover, TimeRange, clip_step, drag_moves,
+};
 use crate::commands::Command;
 use lumen_project::edit;
 
@@ -66,6 +69,36 @@ fn clips_start(project: &lumen_project::model::Project, clips: &[Id]) -> Option<
 }
 
 impl App {
+    /// Moves the clip selection with an arrow key (M3 review H2): from the
+    /// clip the keys last chose, while it is selected, else the first
+    /// selected clip; `extend` adds the clip reached instead of selecting
+    /// it alone. With nothing further that way, the clip it starts from is
+    /// selected alone (so Ctrl+A then an arrow reaches one clip). The view
+    /// follows it.
+    pub(crate) fn step_clips(&mut self, step: ClipStep, extend: bool) {
+        let chosen = &self.arrangement.clips;
+        let Some(from) = self
+            .arrangement
+            .clip_cursor
+            .filter(|id| chosen.contains(id))
+            .or_else(|| self.first_selected_clip())
+        else {
+            return;
+        };
+        let to = match clip_step(self.document.project(), from, step) {
+            Some(to) => to,
+            None if !extend => from,
+            None => return,
+        };
+        if !extend {
+            self.arrangement.clips.clear();
+        }
+        self.arrangement.range = None;
+        self.arrangement.clips.insert(to);
+        self.arrangement.clip_cursor = Some(to);
+        self.nav.steps.push(ViewStep::ShowClip(to));
+    }
+
     /// Clip selection, moving, copying, marquees and time ranges, from the
     /// lanes' `response` (click and drag). Draws the snap guide and the
     /// hint; the selection itself is drawn with the lanes.

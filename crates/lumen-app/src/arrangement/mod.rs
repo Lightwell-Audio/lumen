@@ -126,6 +126,9 @@ pub struct Arrangement {
     /// Import audio was chosen in a track's menu: the app runs it next
     /// frame, onto that track (now the selection).
     pub(crate) import_requested: bool,
+    /// The clip the arrow keys last chose (M3 review H2): where the next
+    /// arrow goes from while it is selected.
+    pub(crate) clip_cursor: Option<Id>,
 }
 
 /// The tallest whole-step height at which `count` tracks fit in `visible`
@@ -278,11 +281,25 @@ impl Arrangement {
         id: Id,
         visible: f32,
     ) {
+        if project.tracks.iter().any(|t| t.id == id) {
+            self.selected = vec![id];
+            self.anchor = Some(id);
+            self.scroll_to_track(ctx, project, pending, id, visible);
+        }
+    }
+
+    /// Scrolls just enough to show track `id` in the `visible` height.
+    pub fn scroll_to_track(
+        &mut self,
+        ctx: &egui::Context,
+        project: &Project,
+        pending: usize,
+        id: Id,
+        visible: f32,
+    ) {
         let Some(index) = project.tracks.iter().position(|t| t.id == id) else {
             return;
         };
-        self.selected = vec![id];
-        self.anchor = Some(id);
         let rows = self.rows(ctx, project, pending);
         if let Some(row) = rows.iter().find(|r| r.kind == RowKind::Track(index)) {
             if row.y < self.top {

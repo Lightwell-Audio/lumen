@@ -61,11 +61,13 @@ fn every_command_can_be_found_and_run_from_the_palette() {
     let dialogs = ["Open…", "Save", "Save as…", "New project"];
     for name in App::command_names() {
         search(&mut lumen, name);
-        let (first, ready) = rows(&lumen).first().cloned().expect("a row");
-        let plain = lumen.app().palette_shows(&lumen.harness.ctx.clone());
-        assert!(
-            first == name || first.starts_with(name.split(' ').next().unwrap_or(name)),
-            "{name}: first row is {first:?}, rows {plain:?}"
+        let ready = rows(&lumen).first().expect("a row").1;
+        let ctx = lumen.harness.ctx.clone();
+        assert_eq!(
+            lumen.app().palette_first_command(&ctx),
+            Some(name),
+            "{name} comes first; rows {:?}",
+            lumen.app().palette_shows(&ctx)
         );
         if dialogs.contains(&name) {
             lumen.key(Modifiers::NONE, Key::Escape);
