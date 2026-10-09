@@ -297,7 +297,10 @@ mod tests {
             frames: 48_000,
             size_bytes: 192_044,
             at: Ticks::ZERO,
-            into: crate::document::DropInto::NewTracks { before: None },
+            into: crate::document::DropInto::NewTracks {
+                before: None,
+                group: None,
+            },
         }]);
         doc
     }

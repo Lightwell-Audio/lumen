@@ -6,6 +6,7 @@
 //! Older versions are upgraded by [`migrate`]; newer ones are refused.
 
 pub mod edit;
+pub mod groups;
 pub mod history;
 mod io;
 mod json;

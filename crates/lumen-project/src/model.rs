@@ -142,6 +142,8 @@ pub struct ViewState {
     pub expanded: BTreeSet<Id>,
     /// The editing grid and snapping (format v4).
     pub grid: Grid,
+    /// Groups folded to hide their tracks (format v8).
+    pub collapsed: BTreeSet<Id>,
 }
 
 impl Default for ViewState {
@@ -157,6 +159,7 @@ impl Default for ViewState {
             track_heights: BTreeMap::new(),
             expanded: BTreeSet::new(),
             grid: Grid::default(),
+            collapsed: BTreeSet::new(),
         }
     }
 }

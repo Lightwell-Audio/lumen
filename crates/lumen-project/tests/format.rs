@@ -277,6 +277,41 @@ fn golden_v7_expected() -> Project {
     project
 }
 
+/// The model the v8 golden file must always load as: v7 with a group
+/// nested in the drums (holding a MIDI track), and the drums folded.
+fn golden_v8_expected() -> Project {
+    let mut project = Project {
+        name: "Golden v8".into(),
+        ..golden_v7_expected()
+    };
+    let hats = Id(0x60);
+    let group = Track {
+        parent: Some(Id(1)),
+        ..Track::new(hats, "Hats", TrackKind::Group, Color(0x5A8E8E))
+    };
+    let open_hat = Track {
+        parent: Some(hats),
+        gain_db: -1.5,
+        ..Track::new(Id(0x61), "Open hat", TrackKind::Midi, Color(0x5A8E8E))
+    };
+    project.tracks.insert(2, Arc::new(group));
+    project.tracks.insert(3, Arc::new(open_hat));
+    project.view.collapsed.insert(Id(1));
+    project
+}
+
+#[test]
+fn golden_v8_file_loads_forever() {
+    let path = fixture("v8/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        // Written once, when version 8 was introduced; never rewritten.
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v8_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v8 golden file must load");
+    assert_eq!(project, golden_v8_expected());
+}
+
 #[test]
 fn golden_v7_file_loads_forever() {
     let path = fixture("v7/golden.lumen");
@@ -474,11 +509,17 @@ fn inconsistent_projects_are_rejected_precisely() {
     Arc::make_mut(&mut cycle.tracks[1]).kind = TrackKind::Group;
     let mut missing_media = golden_v1_expected();
     missing_media.media.clear();
+    let mut apart = golden_v1_expected();
+    apart.tracks.swap(1, 2); // the bass between the drums and the kick
+    let mut grouped_return = golden_v1_expected();
+    Arc::make_mut(&mut grouped_return.tracks[1]).kind = TrackKind::Return;
 
     for (project, expected) in [
         (bad_pitch, "out of range"),
         (cycle, "cycle"),
         (missing_media, "missing media"),
+        (apart, "not right under it"),
+        (grouped_return, "inside a group"),
     ] {
         // Saving refuses, so such a file is never written...
         let Err(SaveError::Invalid(message)) = to_bytes(&project) else {

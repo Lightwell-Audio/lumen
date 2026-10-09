@@ -14,7 +14,7 @@ use std::sync::Arc;
 use eframe::egui::{self, Align2, Color32, FontId, Painter, Pos2, Rect, Stroke, pos2, vec2};
 use lumen_core::time::Ticks;
 use lumen_media::Peaks;
-use lumen_project::model::{Clip, ClipContent, Project};
+use lumen_project::model::{Clip, ClipContent, Project, TrackKind};
 use lumen_render::{BoxInstance, RowSlot, WaveInstance, WaveStyle, beats, rgba};
 
 use super::handles::{ClipHandles, draw_handles};
@@ -183,36 +183,43 @@ impl Arrangement {
             } else if track.solo {
                 painter.rect_filled(lane, 0.0, palette.accent.gamma_multiply(0.06));
             }
+            if track.kind == TrackKind::Group {
+                super::nesting::draw_group_lane(painter, lane, canvas, project, index, time);
+            }
         }
 
         // Clip bodies, on the GPU.
         self.refresh_boxes(ctx, doc.state(), project, lanes);
         let ppp = ctx.pixels_per_point();
-        let slots = rows
-            .iter()
-            .filter_map(|row| match row.kind {
-                RowKind::Track(index) => Some(RowSlot::new(
-                    row.y * ppp,
-                    row.height * ppp,
-                    if audible(&project.tracks[index]) {
-                        1.0
-                    } else {
-                        DIMMED
-                    },
-                )),
-                RowKind::Pending(_) => None,
-            })
-            .collect();
-        // Deep zoom: the visible samples of waves past the peaks' detail.
+        // One slot per track, by its index (boxes and waves name their
+        // track's index); tracks hidden in a folded group draw nothing.
+        let mut slots = vec![RowSlot::HIDDEN; project.tracks.len()];
+        for row in &rows {
+            if let RowKind::Track(index) = row.kind {
+                let alpha = if audible(&project.tracks[index]) {
+                    1.0
+                } else {
+                    DIMMED
+                };
+                slots[index] = RowSlot::new(row.y * ppp, row.height * ppp, alpha);
+            }
+        }
+        // Deep zoom: the visible samples of waves past the peaks' detail,
+        // between the first and last tracks in view.
         let top = self.top;
-        let shown = |r: &&Row| r.y - top < canvas.height() && r.y + r.height - top > 0.0;
-        let visible = match (
-            rows.iter().position(|r| shown(&r)),
-            rows.iter().rposition(|r| shown(&r)),
-        ) {
-            (Some(a), Some(b)) => a as u32..b as u32 + 1,
-            _ => 0..0,
-        };
+        let shown = |r: &Row| r.y - top < canvas.height() && r.y + r.height - top > 0.0;
+        let indices = rows
+            .iter()
+            .filter(|r| shown(r))
+            .filter_map(|r| match r.kind {
+                RowKind::Track(index) => Some(index as u32),
+                RowKind::Pending(_) => None,
+            });
+        let visible = indices
+            .clone()
+            .min()
+            .zip(indices.max())
+            .map_or(0..0, |(a, b)| a..b + 1);
         let left_px = f64::from(canvas.left() * ppp);
         let strips = self.gpu.strips.update(
             &self.gpu.geometry,
@@ -348,7 +355,7 @@ impl Arrangement {
             }
         }
         // The drop line of a track drag continues across the lanes.
-        self.draw_drop_line(painter, canvas);
+        self.draw_drop_line(painter, canvas, false);
         self.draw_selection(painter, canvas, project, &rows, time);
     }
 

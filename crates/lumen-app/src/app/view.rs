@@ -296,7 +296,13 @@ report: {}",
                 self.arrangement
                     .file_drop(ui.ctx(), self.document.project(), pending, canvas, p.y)
             }
-            None => (DropInto::NewTracks { before: None }, canvas.top()),
+            None => (
+                DropInto::NewTracks {
+                    before: None,
+                    group: None,
+                },
+                canvas.top(),
+            ),
         };
         self.drop_into = into;
         if !dragging.is_empty() && pointer.is_some() {

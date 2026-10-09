@@ -2,12 +2,19 @@
 //! Ableton-style request): an accent line shows where they will land, the
 //! list scrolls when the pointer nears its top or bottom edge, and the drop
 //! is one undo step (`Document::move_tracks`). Esc cancels.
+//!
+//! With groups (M4 slice 3): a group moves with everything inside it. The
+//! line steps in to the level the tracks will land at: between two tracks
+//! they join the group of the track below, so under a group's last track
+//! they come after the group; dropped on the middle of a group's header
+//! (folded or not), they go in at its end, and the header lights.
 
 use eframe::egui::{self, CursorIcon, Key, Rect, Stroke, pos2};
-use lumen_project::model::Id;
+use lumen_project::groups;
+use lumen_project::model::{Id, TrackKind};
 
 use super::{Arrangement, Row, RowKind};
-use crate::document::Document;
+use crate::document::{Document, Place};
 use crate::theme;
 
 /// Within this many points of the list's top or bottom, it scrolls.
@@ -18,11 +25,45 @@ const SPEED: f32 = 900.0;
 /// A drag of tracks in progress.
 #[derive(Debug, Clone)]
 pub(super) struct Drag {
-    /// The tracks moving, in project order.
+    /// The tracks moving, in project order: the selection's outermost
+    /// tracks (groups bring what is inside them).
     ids: Vec<Id>,
-    /// Where they would land: an index among the other tracks, and the y
-    /// of the line (content points).
-    drop: Option<(usize, f32)>,
+    /// Those and everything inside them, drawn dimmed.
+    moving: Vec<Id>,
+    /// Where they would land.
+    drop: Option<DropAt>,
+}
+
+/// Where dragged tracks would land.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct DropAt {
+    /// Before this track (`None`: at the end of the list or of `group`).
+    before: Option<Id>,
+    /// Inside this group (`None`: at the top).
+    group: Option<Id>,
+    /// The line, or the group header lit instead.
+    mark: Mark,
+    /// How many groups deep they land, for the line's indent.
+    level: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Mark {
+    /// A line at this y (content points).
+    Line(f32),
+    /// The row of the group they go into: its top and height.
+    Onto(f32, f32),
+}
+
+/// A visible track's row, as the drop sees it.
+#[derive(Debug, Clone, Copy)]
+struct Spot {
+    id: Id,
+    top: f32,
+    height: f32,
+    group: bool,
+    parent: Option<Id>,
+    depth: usize,
 }
 
 impl Arrangement {
@@ -33,18 +74,18 @@ impl Arrangement {
             self.selected = vec![id];
             self.anchor = Some(id);
         }
-        let ids = project
-            .tracks
-            .iter()
-            .filter(|t| self.selected.contains(&t.id))
-            .map(|t| t.id)
-            .collect();
-        self.drag = Some(Drag { ids, drop: None });
+        let ids = groups::outermost(&project.tracks, &self.selected);
+        let moving = groups::with_contents(&project.tracks, &ids);
+        self.drag = Some(Drag {
+            ids,
+            moving,
+            drop: None,
+        });
     }
 
     /// Whether `id` is being dragged (its header is drawn dimmed).
     pub(super) fn is_dragged(&self, id: Id) -> bool {
-        self.drag.as_ref().is_some_and(|d| d.ids.contains(&id))
+        self.drag.as_ref().is_some_and(|d| d.moving.contains(&id))
     }
 
     /// Follows a drag each frame: the drop place, auto-scroll near the
@@ -91,105 +132,223 @@ impl Arrangement {
                 self.top = (self.top + push / EDGE * SPEED * dt).clamp(0.0, max);
                 ctx.request_repaint();
             }
-            let places: Vec<(f32, f32, bool)> = rows
+            let tracks = &doc.project().tracks;
+            let spots: Vec<Spot> = rows
                 .iter()
                 .filter_map(|r| match r.kind {
-                    RowKind::Track(i) => {
-                        let id = doc.project().tracks[i].id;
-                        Some((r.y, r.height, drag.ids.contains(&id)))
+                    RowKind::Track(i) if !drag.moving.contains(&tracks[i].id) => {
+                        let t = &tracks[i];
+                        Some(Spot {
+                            id: t.id,
+                            top: r.y,
+                            height: r.height,
+                            group: t.kind == TrackKind::Group,
+                            parent: t.parent,
+                            depth: groups::depth(tracks, t.id),
+                        })
                     }
-                    RowKind::Pending(_) => None,
+                    _ => None,
                 })
                 .collect();
-            drag.drop = Some(drop_place(&places, p.y - column.top() + self.top));
+            drag.drop = Some(drop_place(&spots, p.y - column.top() + self.top));
         }
         if released {
-            if let Some((index, _)) = drag.drop
-                && moves(doc, &drag.ids, index)
-            {
-                doc.move_tracks(&drag.ids, index);
+            if let Some(at) = drag.drop {
+                let tracks = &doc.project().tracks;
+                let rest = tracks.iter().filter(|t| !drag.moving.contains(&t.id));
+                let index = match at.before {
+                    Some(before) => rest.take_while(|t| t.id != before).count(),
+                    None => rest.count(),
+                };
+                // A drop where the tracks already are records nothing; one
+                // that would feed back is refused and changes nothing.
+                let _ = doc.move_tracks(
+                    &drag.ids,
+                    Place {
+                        index,
+                        group: at.group,
+                    },
+                );
             }
             self.drag = None;
         }
     }
 
-    /// The drop line across `area` (the headers, then the lanes).
-    pub(super) fn draw_drop_line(&self, painter: &egui::Painter, area: Rect) {
-        let Some((_, y)) = self.drag.as_ref().and_then(|d| d.drop) else {
+    /// The drop line across `area` (the headers, then the lanes), stepped
+    /// in to its level when `indented` (the headers); or the group the
+    /// tracks go into, lit.
+    pub(super) fn draw_drop_line(&self, painter: &egui::Painter, area: Rect, indented: bool) {
+        let Some(at) = self.drag.as_ref().and_then(|d| d.drop) else {
             return;
         };
-        let y = area.top() + y - self.top;
-        if (area.top()..=area.bottom()).contains(&y) {
-            painter.line_segment(
-                [pos2(area.left(), y), pos2(area.right(), y)],
-                Stroke::new(2.0, theme::p().accent),
-            );
+        let accent = theme::p().accent;
+        match at.mark {
+            Mark::Line(y) => {
+                let y = area.top() + y - self.top;
+                let left = area.left()
+                    + if indented {
+                        super::indent(at.level)
+                    } else {
+                        0.0
+                    };
+                if (area.top()..=area.bottom()).contains(&y) {
+                    painter.line_segment(
+                        [pos2(left, y), pos2(area.right(), y)],
+                        Stroke::new(2.0, accent),
+                    );
+                }
+            }
+            Mark::Onto(top, height) => {
+                let rect = Rect::from_min_size(
+                    pos2(area.left(), area.top() + top - self.top),
+                    egui::vec2(area.width(), height),
+                );
+                painter.rect_filled(rect, 0.0, accent.gamma_multiply(0.10));
+                painter.rect_stroke(
+                    rect.shrink(1.0),
+                    0.0,
+                    Stroke::new(2.0, accent),
+                    egui::StrokeKind::Inside,
+                );
+            }
         }
     }
 }
 
-/// Where tracks dragged to content y `y` land, given every track row's
-/// `(top, height, moving)`: the index among the tracks that are not moving,
-/// and the y of the line. A row's upper half drops above it, its lower half
-/// below.
-fn drop_place(rows: &[(f32, f32, bool)], y: f32) -> (usize, f32) {
-    let mut index = 0;
-    let mut line = 0.0;
-    for &(top, height, moving) in rows {
-        if moving {
-            continue;
+/// Where tracks dragged to content y `y` land, given every visible row of
+/// the tracks that are not moving, from the top. A track's upper half drops
+/// above it and its lower half below; a group's middle half drops into it.
+/// Between two tracks, the moved ones join the group of the track below.
+fn drop_place(rows: &[Spot], y: f32) -> DropAt {
+    let between = |line: f32, below: Option<&Spot>| DropAt {
+        before: below.map(|r| r.id),
+        group: below.and_then(|r| r.parent),
+        mark: Mark::Line(line),
+        level: below.map_or(0, |r| r.depth),
+    };
+    for (i, row) in rows.iter().enumerate() {
+        let (above, below) = if row.group {
+            (row.height / 4.0, row.height * 3.0 / 4.0)
+        } else {
+            (row.height / 2.0, row.height / 2.0)
+        };
+        if y < row.top + above {
+            return between(row.top, Some(row));
         }
-        if y < top + height / 2.0 {
-            return (index, top);
+        if y < row.top + below {
+            return DropAt {
+                before: None,
+                group: Some(row.id),
+                mark: Mark::Onto(row.top, row.height),
+                level: row.depth + 1,
+            };
         }
-        index += 1;
-        line = top + height;
+        if i + 1 == rows.len() || y < rows[i + 1].top {
+            return between(row.top + row.height, rows.get(i + 1));
+        }
     }
-    (index, line)
-}
-
-/// Whether moving `ids` to `index` changes the order at all.
-fn moves(doc: &Document, ids: &[Id], index: usize) -> bool {
-    let tracks = &doc.project().tracks;
-    let rest: Vec<Id> = tracks
-        .iter()
-        .map(|t| t.id)
-        .filter(|id| !ids.contains(id))
-        .collect();
-    let mut after = rest;
-    let at = index.min(after.len());
-    after.splice(at..at, ids.iter().copied());
-    after.iter().zip(tracks.iter()).any(|(a, t)| *a != t.id)
+    between(0.0, None)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // Three 44-point rows; the middle one is being dragged.
-    const ROWS: [(f32, f32, bool); 3] =
-        [(0.0, 44.0, false), (44.0, 44.0, true), (88.0, 44.0, false)];
+    fn row(id: u64, top: f32, group: bool, parent: Option<u64>) -> Spot {
+        Spot {
+            id: Id(id),
+            top,
+            height: 44.0,
+            group,
+            parent: parent.map(Id),
+            depth: usize::from(parent.is_some()),
+        }
+    }
 
-    #[test]
-    fn the_drop_lands_by_row_halves_and_skips_the_dragged_rows() {
-        assert_eq!(drop_place(&ROWS, 10.0), (0, 0.0), "upper half of the first");
-        assert_eq!(drop_place(&ROWS, 30.0), (1, 88.0), "lower half: after it");
-        // Over the dragged row itself: it does not count.
-        assert_eq!(drop_place(&ROWS, 60.0), (1, 88.0));
-        assert_eq!(drop_place(&ROWS, 120.0), (2, 132.0), "past the last");
-        assert_eq!(drop_place(&ROWS, -50.0), (0, 0.0), "above the list");
+    fn line(before: Option<u64>, group: Option<u64>, y: f32, level: usize) -> DropAt {
+        DropAt {
+            before: before.map(Id),
+            group: group.map(Id),
+            mark: Mark::Line(y),
+            level,
+        }
     }
 
     #[test]
-    fn a_drop_where_the_tracks_already_are_is_not_a_move() {
-        let mut doc = Document::new(crate::empty_project());
-        let a = doc.add_track(lumen_project::model::TrackKind::Audio, None);
-        let b = doc.add_track(lumen_project::model::TrackKind::Audio, None);
-        let c = doc.add_track(lumen_project::model::TrackKind::Audio, None);
-        // b sits at index 1 among a and c: dropping it there changes nothing.
-        assert!(!moves(&doc, &[b], 1));
-        assert!(moves(&doc, &[b], 0));
-        assert!(moves(&doc, &[a], 2));
-        assert!(!moves(&doc, &[c], 2));
+    fn the_drop_lands_by_row_halves() {
+        // Two 44-point rows (a dragged one between them is left out).
+        let rows = [row(1, 0.0, false, None), row(3, 88.0, false, None)];
+        assert_eq!(
+            drop_place(&rows, 10.0),
+            line(Some(1), None, 0.0, 0),
+            "upper half"
+        );
+        assert_eq!(
+            drop_place(&rows, 30.0),
+            line(Some(3), None, 44.0, 0),
+            "lower half"
+        );
+        assert_eq!(
+            drop_place(&rows, 60.0),
+            line(Some(3), None, 44.0, 0),
+            "the gap"
+        );
+        assert_eq!(
+            drop_place(&rows, 120.0),
+            line(None, None, 132.0, 0),
+            "past the last"
+        );
+        assert_eq!(
+            drop_place(&rows, -50.0),
+            line(Some(1), None, 0.0, 0),
+            "above"
+        );
+        assert_eq!(drop_place(&[], 10.0), line(None, None, 0.0, 0));
+    }
+
+    #[test]
+    fn the_drop_enters_and_leaves_groups() {
+        // Drums (a group) holding Kick and Snare, then Bass.
+        let rows = [
+            row(1, 0.0, true, None),
+            row(2, 44.0, false, Some(1)),
+            row(3, 88.0, false, Some(1)),
+            row(4, 132.0, false, None),
+        ];
+        assert_eq!(
+            drop_place(&rows, 5.0),
+            line(Some(1), None, 0.0, 0),
+            "above the group"
+        );
+        let onto = drop_place(&rows, 22.0);
+        assert_eq!(
+            (onto.before, onto.group),
+            (None, Some(Id(1))),
+            "onto its header"
+        );
+        assert_eq!(onto.mark, Mark::Onto(0.0, 44.0));
+        assert_eq!(
+            drop_place(&rows, 40.0),
+            line(Some(2), Some(1), 44.0, 1),
+            "first inside"
+        );
+        assert_eq!(
+            drop_place(&rows, 70.0),
+            line(Some(3), Some(1), 88.0, 1),
+            "between"
+        );
+        assert_eq!(
+            drop_place(&rows, 120.0),
+            line(Some(4), None, 132.0, 0),
+            "under the last track inside: after the group"
+        );
+        // A folded group: its tracks hidden, the next row is after it.
+        let folded = [row(1, 0.0, true, None), row(4, 44.0, false, None)];
+        assert_eq!(drop_place(&folded, 40.0), line(Some(4), None, 44.0, 0));
+        assert_eq!(
+            drop_place(&folded, 20.0).group,
+            Some(Id(1)),
+            "into the folded group"
+        );
     }
 }

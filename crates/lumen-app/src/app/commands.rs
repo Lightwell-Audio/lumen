@@ -122,6 +122,34 @@ impl App {
             | Command::AddPreviousClip
             | Command::AddNextClip => need(clip, "Select a clip first"),
             Command::MoveTracksUp | Command::MoveTracksDown => need(tracks, "Select tracks first"),
+            Command::GroupTracks => need(
+                self.arrangement.selected.iter().any(|id| {
+                    self.document
+                        .project()
+                        .tracks
+                        .iter()
+                        .any(|t| t.id == *id && lumen_project::groups::can_be_grouped(t.kind))
+                }),
+                "Select audio, MIDI or group tracks first",
+            ),
+            Command::Ungroup => {
+                need(
+                    self.arrangement.selected.iter().any(|id| {
+                        self.document.project().tracks.iter().any(|t| {
+                            t.id == *id && (t.kind == TrackKind::Group || t.parent.is_some())
+                        })
+                    }),
+                    "Select a group, or tracks in a group",
+                )
+            }
+            Command::FoldAllGroups | Command::UnfoldAllGroups => need(
+                self.document
+                    .project()
+                    .tracks
+                    .iter()
+                    .any(|t| t.kind == TrackKind::Group),
+                "There are no group tracks yet",
+            ),
             Command::FoldTracks | Command::UnfoldTracks => {
                 need(tracks || clip, "Select a clip or tracks first")
             }
@@ -211,6 +239,10 @@ impl App {
             }
             Command::AddAudioTrack => self.arrangement.add_track(doc, TrackKind::Audio),
             Command::AddMidiTrack => self.arrangement.add_track(doc, TrackKind::Midi),
+            Command::GroupTracks => self.arrangement.group_selected(doc),
+            Command::Ungroup => self.arrangement.ungroup_selected(doc),
+            Command::FoldAllGroups => self.arrangement.collapse_all(doc.project(), true),
+            Command::UnfoldAllGroups => self.arrangement.collapse_all(doc.project(), false),
             Command::MoveTracksUp => self.arrangement.move_selected(doc, -1),
             Command::MoveTracksDown => self.arrangement.move_selected(doc, 1),
             // The arrows follow the selection (the owner's choice for H2):
@@ -227,8 +259,8 @@ impl App {
             Command::SelectTrackBelow => self.arrangement.step_selection(doc, 1, false),
             Command::ExtendSelectionUp => self.arrangement.step_selection(doc, -1, true),
             Command::ExtendSelectionDown => self.arrangement.step_selection(doc, 1, true),
-            Command::FoldTracks => self.arrangement.fold_selected(true),
-            Command::UnfoldTracks => self.arrangement.fold_selected(false),
+            Command::FoldTracks => self.arrangement.fold_selected(doc.project(), true),
+            Command::UnfoldTracks => self.arrangement.fold_selected(doc.project(), false),
             Command::ZoomIn => self.nav.steps.push(ViewStep::ZoomIn),
             Command::ZoomOut => self.nav.steps.push(ViewStep::ZoomOut),
             Command::ZoomBack => self.nav.steps.push(ViewStep::Back),

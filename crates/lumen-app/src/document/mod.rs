@@ -18,6 +18,7 @@ use lumen_project::model::{Color, Id, Marker, Project, TimeSignature, Track, Tra
 pub const MAX_BEATS_PER_BAR: u32 = 64;
 
 mod clips;
+mod groups;
 mod import;
 #[cfg_attr(
     not(test),
@@ -28,6 +29,7 @@ mod import;
 )]
 mod mixer;
 pub use clips::{CLIP_GAIN, ClipMove};
+pub use groups::Place;
 pub use import::{DropInto, Imported, import_place};
 
 /// Track colours, cycled for new tracks (`theme::CLIP_COLORS`, as `#RRGGBB`).
@@ -170,8 +172,9 @@ impl Document {
 
 /// Track operations (M3 slice 4a), called from the track headers.
 impl Document {
-    /// Adds an empty track of `kind` after `after` (or at the end), named
-    /// "Audio 3", "MIDI 1" and so on. Returns its id.
+    /// Adds an empty track of `kind` after `after` and what is inside it
+    /// (or at the end), in `after`'s group, named "Audio 3", "MIDI 1" and
+    /// so on. Returns its id.
     pub fn add_track(&mut self, kind: TrackKind, after: Option<Id>) -> Id {
         let id = self.fresh_id();
         let (word, label) = match kind {
@@ -184,58 +187,60 @@ impl Document {
         };
         self.history.apply(label, None, |project| {
             let number = project.tracks.iter().filter(|t| t.kind == kind).count() + 1;
-            let index = after
-                .and_then(|a| project.tracks.iter().position(|t| t.id == a))
-                .map_or(project.tracks.len(), |i| i + 1);
+            let after = after.and_then(|a| project.tracks.iter().position(|t| t.id == a));
+            let index = after.map_or(project.tracks.len(), |i| {
+                lumen_project::groups::span(&project.tracks, i).end
+            });
+            let parent = after
+                .and_then(|i| project.tracks[i].parent)
+                .filter(|_| lumen_project::groups::can_be_grouped(kind));
             let color = track_color(project.tracks.len());
             project.tracks.insert(
                 index,
-                Arc::new(Track::new(id, format!("{word} {number}"), kind, color)),
+                Arc::new(Track {
+                    parent,
+                    ..Track::new(id, format!("{word} {number}"), kind, color)
+                }),
             );
+            lumen_project::groups::normalize(&mut project.tracks);
         });
         id
     }
 
-    /// Deletes tracks. Their clips go with them; their media stays in the
-    /// project (the media pool, M9). Tracks inside a deleted group move to
-    /// the top level; outputs to deleted tracks go back to automatic, and
-    /// sends to them go (M4 slice 2). The master is never deleted.
+    /// Deletes tracks, and everything inside the groups among them (as in
+    /// Ableton; ungrouping keeps a group's tracks). Their clips go with
+    /// them; their media stays in the project (the media pool, M9).
+    /// Outputs to deleted tracks go back to automatic, and sends to them go
+    /// (M4 slice 2). The master is never deleted.
     pub fn delete_tracks(&mut self, ids: &[Id]) {
+        let ids = lumen_project::groups::with_contents(&self.project().tracks, ids);
         let label = plural(ids.len(), "Delete track", "Delete {} tracks");
         self.history.apply(&label, None, |project| {
             project.tracks.retain(|t| !ids.contains(&t.id));
-            for track in &mut project.tracks {
-                if track.parent.is_some_and(|p| ids.contains(&p)) {
-                    Arc::make_mut(track).parent = None;
-                }
-            }
-            mixer::forget_routes_to(project, ids);
+            mixer::forget_routes_to(project, &ids);
         });
     }
 
     /// Duplicates tracks with their clips (new ids), each placed right
-    /// after its original. Returns the new tracks' ids.
+    /// after its original; a group comes with everything inside it.
+    /// Returns the copies' ids (the groups', not what is inside them).
     pub fn duplicate_tracks(&mut self, ids: &[Id]) -> Vec<Id> {
-        let mut copies = Vec::new();
-        for &id in ids {
-            let Some(track) = self.project().tracks.iter().find(|t| t.id == id) else {
-                continue;
-            };
-            let mut copy = (**track).clone();
-            copy.id = self.fresh_id();
-            for clip in &mut copy.clips {
-                let mut c = (**clip).clone();
-                c.id = self.fresh_id();
-                *clip = Arc::new(c);
-            }
-            copies.push((id, copy));
-        }
-        let new_ids: Vec<Id> = copies.iter().map(|(_, c)| c.id).collect();
-        let label = plural(copies.len(), "Duplicate track", "Duplicate {} tracks");
+        let heads = lumen_project::groups::outermost(&self.project().tracks, ids);
+        let tracks = self.project().tracks.clone();
+        let runs = groups::copy_runs(&tracks, &heads, || self.fresh_id());
+        let new_ids: Vec<Id> = runs
+            .iter()
+            .filter_map(|(_, run)| run.first())
+            .map(|t| t.id)
+            .collect();
+        let label = plural(runs.len(), "Duplicate track", "Duplicate {} tracks");
         self.history.apply(&label, None, |project| {
-            for (original, copy) in copies {
+            for (original, run) in runs {
                 if let Some(i) = project.tracks.iter().position(|t| t.id == original) {
-                    project.tracks.insert(i + 1, Arc::new(copy));
+                    let end = lumen_project::groups::span(&project.tracks, i).end;
+                    project
+                        .tracks
+                        .splice(end..end, run.into_iter().map(Arc::new));
                 }
             }
         });
@@ -280,9 +285,20 @@ impl Document {
         });
     }
 
+    /// Arms or disarms tracks. A group stands for every audio and MIDI
+    /// track inside it (the owner's choice, M4 slice 3).
     pub fn set_armed(&mut self, ids: &[Id], armed: bool) {
         let label = if armed { "Arm for recording" } else { "Disarm" };
-        self.edit_tracks(label, ids, |t| t.armed = armed);
+        let tracks = &self.project().tracks;
+        let ids: Vec<Id> = lumen_project::groups::with_contents(tracks, ids)
+            .into_iter()
+            .filter(|id| {
+                tracks
+                    .iter()
+                    .any(|t| t.id == *id && t.kind != TrackKind::Group)
+            })
+            .collect();
+        self.edit_tracks(label, &ids, |t| t.armed = armed);
     }
 
     /// Track volume in dB (−60 to +6), the master's too. A drag merges
@@ -307,19 +323,6 @@ impl Document {
                     Arc::make_mut(t).pan = pan;
                 }
             });
-    }
-
-    /// Moves `ids` (kept in their current order) so the first lands at
-    /// `index` among the remaining tracks.
-    pub fn move_tracks(&mut self, ids: &[Id], index: usize) {
-        let label = plural(ids.len(), "Move track", "Move {} tracks");
-        self.history.apply(&label, None, |project| {
-            let (moving, mut rest): (Vec<_>, Vec<_>) =
-                project.tracks.drain(..).partition(|t| ids.contains(&t.id));
-            let at = index.min(rest.len());
-            rest.splice(at..at, moving);
-            project.tracks = rest;
-        });
     }
 
     /// Sets the loop brace, as one step named `label` (`merge` joins the
@@ -521,7 +524,10 @@ mod tests {
             frames: 96_000,
             size_bytes: 384_044,
             at,
-            into: DropInto::NewTracks { before: None },
+            into: DropInto::NewTracks {
+                before: None,
+                group: None,
+            },
         }
     }
 
@@ -648,7 +654,14 @@ mod tests {
             "blank names change nothing"
         );
 
-        doc.move_tracks(&[m], 0);
+        doc.move_tracks(
+            &[m],
+            Place {
+                index: 0,
+                group: None,
+            },
+        )
+        .unwrap();
         assert_eq!(doc.project().tracks[0].id, m);
         let copies = doc.duplicate_tracks(&[m]);
         assert_eq!(doc.project().tracks[1].id, copies[0]);
@@ -723,16 +736,45 @@ mod tests {
     }
 
     #[test]
-    fn deleting_a_group_frees_its_children() {
+    fn deleting_a_group_takes_its_tracks() {
+        // The owner's choice (M4 slice 3), as in Ableton; Ungroup keeps them.
         let mut doc = Document::new(crate::empty_project());
         let group = doc.add_track(TrackKind::Group, None);
-        let child = doc.add_track(TrackKind::Audio, None);
+        let other = doc.add_track(TrackKind::Audio, None);
+        let child = doc.add_track(TrackKind::Audio, Some(group));
         doc.apply("Group", None, |p| {
             Arc::make_mut(&mut p.tracks[1]).parent = Some(group);
         });
+        assert_eq!(doc.project().tracks[1].id, child);
         doc.delete_tracks(&[group]);
-        assert_eq!(doc.project().tracks[0].id, child);
-        assert_eq!(doc.project().tracks[0].parent, None);
+        assert_eq!(doc.project().tracks.len(), 1);
+        assert_eq!(doc.project().tracks[0].id, other);
+        assert_eq!(lumen_project::validate(doc.project()), Ok(()));
+    }
+
+    #[test]
+    fn a_track_added_after_one_in_a_group_joins_it() {
+        let mut doc = Document::new(crate::empty_project());
+        let kick = doc.add_track(TrackKind::Audio, None);
+        let bass = doc.add_track(TrackKind::Audio, None);
+        let drums = doc.group_tracks(&[kick]).unwrap();
+        let snare = doc.add_track(TrackKind::Audio, Some(kick));
+        // After the group itself: after everything in it, outside.
+        let keys = doc.add_track(TrackKind::Midi, Some(drums));
+        let ret = doc.add_track(TrackKind::Return, Some(snare));
+        let order: Vec<Id> = doc.project().tracks.iter().map(|t| t.id).collect();
+        assert_eq!(order, [drums, kick, snare, ret, keys, bass]);
+        let parent = |id| {
+            doc.project()
+                .tracks
+                .iter()
+                .find(|t| t.id == id)
+                .unwrap()
+                .parent
+        };
+        assert_eq!(parent(snare), Some(drums));
+        assert_eq!(parent(keys), None);
+        assert_eq!(parent(ret), None, "returns stay at the top");
         assert_eq!(lumen_project::validate(doc.project()), Ok(()));
     }
 

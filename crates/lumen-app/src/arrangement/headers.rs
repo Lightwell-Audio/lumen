@@ -1,23 +1,28 @@
 //! The track header column (M3 slice 4a): rail, fold arrow, type icon,
 //! name, M S and the record-arm button; the unfolded volume and pan row;
-//! resizing; the track and add-track menus. Design: DESIGN §7a, ADR-0025.
+//! resizing. Design: DESIGN §7a, ADR-0025. Groups step their tracks in
+//! (`nesting`, M4 slice 3); the menus are in `menus`.
 
 use eframe::egui::{
     self, Align2, Color32, CursorIcon, FontId, Id as EguiId, Key, Rect, Sense, Stroke, Ui, pos2,
     vec2,
 };
 use eframe::emath::GuiRounding as _;
-use lumen_project::model::{Id, TrackKind};
+use lumen_project::model::TrackKind;
 
-use super::{
-    Arrangement, BUTTON, FOLD_BELOW, FOLDED, MAX_HEIGHT, RowKind, STEP, color_from, color_of,
-    snap_height,
-};
+use super::nesting::{self, Arm};
+use super::{Arrangement, BUTTON, FOLD_BELOW, FOLDED, MAX_HEIGHT, RowKind, STEP, snap_height};
 use crate::commands::{Command, Keymap};
 use crate::document::{Document, audible};
 use crate::icons::draw_type_icon;
 use crate::lanes::Lanes;
 use crate::widgets::{self, SliderKind, draw_arrow, draw_edge_glow, gradient, value_slider};
+
+/// A header's content: the arrow, type icon and name, from its left (after
+/// the rail and any indent).
+const ARROW_X: f32 = 16.0;
+const ICON_X: f32 = 34.0;
+const NAME_X: f32 = 48.0;
 use crate::{fonts, motion, theme};
 
 impl Arrangement {
@@ -170,6 +175,10 @@ impl Arrangement {
             let id = EguiId::new(("track header", track.id));
             let selected = self.selected.contains(&track.id);
             let heard = audible(&track);
+            let group = track.kind == TrackKind::Group;
+            let arm = nesting::arm_state(doc.project(), index);
+            let inside = lumen_project::groups::span(&doc.project().tracks, index).len() - 1;
+            let collapsed = self.collapsed.contains(&track.id);
 
             // Background: click to select, right-click for the menu.
             // Click to select; drag to move (the selection, or this track).
@@ -179,7 +188,7 @@ impl Arrangement {
                     egui::WidgetType::SelectableLabel,
                     true,
                     selected,
-                    track_description(&track),
+                    group_description(&track, inside, collapsed),
                 )
             });
             if background.clicked() {
@@ -201,50 +210,61 @@ impl Arrangement {
             };
             let look = theme::controls(selected);
             painter.rect_filled(rect, 0.0, fill);
-            // The rail: the track colour, or red with a glow into the
-            // header while armed.
-            let rail = Rect::from_min_size(rect.min, vec2(4.0, rect.height()));
-            if track.armed {
+            // The rails: the groups it is in, then its own, the track
+            // colour, or red with a glow into the header while armed.
+            let left = nesting::draw_rails(&painter, rect, doc.project(), &track, arm.on());
+            if arm.on() {
                 gradient(
                     &painter,
-                    Rect::from_min_size(rect.min, vec2(28.0, rect.height())),
+                    Rect::from_min_size(pos2(left, rect.top()), vec2(28.0, rect.height())),
                     palette.record.gamma_multiply(0.30),
                     Color32::TRANSPARENT,
                 );
-                painter.rect_filled(rail, 0.0, palette.record);
-            } else {
-                painter.rect_filled(rail, 0.0, color_of(track.color));
             }
 
-            // Top row: fold arrow, name, M S ●.
+            // Top row: fold arrow, name, M S ●. A group's arrow hides or
+            // shows its tracks (Alt+click: every group's); a track's
+            // unfolds it.
             let mid = rect.top() + FOLDED / 2.0;
-            let unfolded = motion::glide(
-                &ctx,
-                id.with("fold"),
-                if self.expanded.contains(&track.id) {
-                    1.0
-                } else {
-                    0.0
-                },
-                true,
-            );
-            let arrow = Rect::from_center_size(pos2(rect.left() + 16.0, mid), vec2(16.0, 18.0));
+            let open = if group {
+                !collapsed
+            } else {
+                self.expanded.contains(&track.id)
+            };
+            let unfolded = motion::glide(&ctx, id.with("fold"), if open { 1.0 } else { 0.0 }, true);
+            let arrow = Rect::from_center_size(pos2(left + ARROW_X, mid), vec2(16.0, 18.0));
             let fold = ui
                 .interact(arrow, id.with("fold button"), Sense::click())
-                .on_hover_text(if self.expanded.contains(&track.id) {
-                    "Fold the track"
-                } else {
-                    "Unfold the track (volume and pan; more detail in the lane)"
+                .on_hover_text(match (group, open) {
+                    (true, true) => "Hide the group's tracks (Alt+click: every group's)",
+                    (true, false) => "Show the group's tracks (Alt+click: every group's)",
+                    (false, true) => "Fold the track",
+                    (false, false) => "Unfold the track (volume and pan; more detail in the lane)",
                 });
             fold.widget_info(|| {
-                egui::WidgetInfo::labeled(
-                    egui::WidgetType::Button,
-                    true,
-                    format!("Fold {}", track.name),
-                )
+                if group {
+                    egui::WidgetInfo::selected(
+                        egui::WidgetType::Checkbox,
+                        true,
+                        collapsed,
+                        format!("Fold group {}", track.name),
+                    )
+                } else {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        true,
+                        format!("Fold {}", track.name),
+                    )
+                }
             });
             if fold.clicked() {
-                self.toggle_fold(track.id);
+                if !group {
+                    self.toggle_fold(track.id);
+                } else if modifiers.alt {
+                    self.collapse_all(doc.project(), !collapsed);
+                } else {
+                    self.toggle_collapsed(doc.project(), track.id);
+                }
             }
             draw_arrow(
                 &painter,
@@ -274,7 +294,7 @@ impl Arrangement {
             // The track type, then the name, with room after the arrow.
             draw_type_icon(
                 &painter,
-                pos2(rect.left() + 34.0, mid),
+                pos2(left + ICON_X, mid),
                 track.kind,
                 if heard {
                     palette.text_secondary
@@ -282,8 +302,7 @@ impl Arrangement {
                     palette.text_hint
                 },
             );
-            let kind_hover =
-                Rect::from_center_size(pos2(rect.left() + 34.0, mid), vec2(16.0, 16.0));
+            let kind_hover = Rect::from_center_size(pos2(left + ICON_X, mid), vec2(16.0, 16.0));
             let kind = ui
                 .interact(kind_hover, id.with("kind"), Sense::hover())
                 .on_hover_text(kind_name(track.kind));
@@ -291,12 +310,13 @@ impl Arrangement {
                 egui::WidgetInfo::labeled(egui::WidgetType::Label, true, kind_name(track.kind))
             });
             let name_rect = Rect::from_min_max(
-                pos2(rect.left() + 48.0, mid - 10.0),
+                pos2(left + NAME_X, mid - 10.0),
                 pos2(mute_rect.left() - 6.0, mid + 10.0),
             );
             // The name is on top of the header's background: it gets the
             // same menu, so a right-click on it opens the track's menu too.
-            if let Some(name) = self.name(ui, doc, &track, name_rect, heard, id) {
+            let count = (group && collapsed).then_some(inside);
+            if let Some(name) = self.name(ui, doc, &track, name_rect, (heard, count), id) {
                 let keys = keymap.keys(Command::Rename);
                 let name = widgets::tip(name, "Double-click to rename", keys.as_ref(), None);
                 name.context_menu(|ui| {
@@ -358,8 +378,8 @@ impl Arrangement {
             if toggle(ui, solo_rect, "solo", "Solo", track.solo, palette.accent) {
                 doc.set_solo(&self.targets(track.id), !track.solo, !modifiers.command);
             }
-            if arm_button(ui, arm_rect, id, &track.name, track.armed, look) {
-                doc.set_armed(&self.targets(track.id), !track.armed);
+            if arm_button(ui, arm_rect, id, &track.name, arm, look) {
+                doc.set_armed(&self.targets(track.id), !arm.on());
             }
 
             // Unfolded: volume and pan on a second row.
@@ -435,7 +455,7 @@ impl Arrangement {
             }
         }
         self.follow_drag(ui, column, &rows, content, doc);
-        self.draw_drop_line(&painter, column);
+        self.draw_drop_line(&painter, column, true);
     }
 
     /// The name, or the rename field. Double-click to rename; Enter or
@@ -447,10 +467,31 @@ impl Arrangement {
         doc: &mut Document,
         track: &lumen_project::model::Track,
         rect: Rect,
-        heard: bool,
+        (heard, count): (bool, Option<usize>),
         id: EguiId,
     ) -> Option<egui::Response> {
         let palette = theme::p();
+        // A group's name is a step bolder (the owner's H1 specimen).
+        let font = if track.kind == TrackKind::Group {
+            fonts::medium(theme::size::BODY)
+        } else {
+            FontId::proportional(theme::size::BODY)
+        };
+        // A folded group says how many tracks it hides, after its name.
+        let (rect, count) = match count {
+            Some(n) => {
+                let count = painter_count(ui, n);
+                let width = count.size().x + 6.0;
+                (
+                    Rect::from_min_max(
+                        rect.min,
+                        pos2((rect.right() - width).max(rect.left()), rect.bottom()),
+                    ),
+                    Some((count, width)),
+                )
+            }
+            None => (rect, None),
+        };
         if let Some((renaming, text)) = &mut self.renaming
             && *renaming == track.id
         {
@@ -491,7 +532,7 @@ impl Arrangement {
         let painter = ui.painter().clone();
         let galley = painter.layout(
             track.name.clone(),
-            FontId::proportional(theme::size::BODY),
+            font.clone(),
             if heard {
                 palette.text
             } else {
@@ -504,11 +545,8 @@ impl Arrangement {
             let mut name = track.name.clone();
             while !name.is_empty() {
                 name.pop();
-                let g = painter.layout_no_wrap(
-                    format!("{name}\u{2026}"),
-                    FontId::proportional(theme::size::BODY),
-                    palette.text,
-                );
+                let g =
+                    painter.layout_no_wrap(format!("{name}\u{2026}"), font.clone(), palette.text);
                 if g.size().x <= rect.width() {
                     break;
                 }
@@ -517,17 +555,21 @@ impl Arrangement {
         } else {
             track.name.clone()
         };
-        painter.text(
+        let drawn = painter.text(
             pos2(rect.left(), rect.center().y),
             Align2::LEFT_CENTER,
             text,
-            FontId::proportional(theme::size::BODY),
+            font,
             if heard {
                 palette.text
             } else {
                 palette.text_hint
             },
         );
+        if let Some((count, _)) = count {
+            let at = pos2(drawn.right() + 6.0, rect.center().y - count.size().y / 2.0);
+            painter.galley(at, count, palette.text_hint);
+        }
         Some(response)
     }
 
@@ -580,111 +622,29 @@ impl Arrangement {
             doc.set_pan(track.id, pan);
         }
     }
-
-    /// Right-click menu on a track.
-    fn track_menu(&mut self, ui: &mut Ui, doc: &mut Document, id: Id, keymap: &Keymap) {
-        let targets = self.targets(id);
-        let many = targets.len() > 1;
-        let item = |ui: &mut Ui, label: &str, command: Command| {
-            widgets::menu_item(ui, label, keymap.keys(command).as_ref(), true).clicked()
-        };
-        if item(ui, "Rename", Command::Rename)
-            && let Some(track) = doc.project().tracks.iter().find(|t| t.id == id)
-        {
-            self.renaming = Some((id, track.name.clone()));
-        }
-        let duplicate = if many {
-            "Duplicate tracks"
-        } else {
-            "Duplicate"
-        };
-        if item(ui, duplicate, Command::Duplicate) {
-            self.selected = doc.duplicate_tracks(&targets);
-        }
-        let delete = if many { "Delete tracks" } else { "Delete" };
-        if item(ui, delete, Command::Delete) {
-            doc.delete_tracks(&targets);
-            self.selected.clear();
-        }
-        if item(ui, "Import audio\u{2026}", Command::ImportAudio) {
-            self.selected = vec![id];
-            self.import_requested = true;
-        }
-        if item(ui, "Move up", Command::MoveTracksUp) {
-            self.move_selected(doc, -1);
-        }
-        if item(ui, "Move down", Command::MoveTracksDown) {
-            self.move_selected(doc, 1);
-        }
-        if ui
-            .button(if self.expanded.contains(&id) {
-                "Fold"
-            } else {
-                "Unfold"
-            })
-            .clicked()
-        {
-            self.toggle_fold(id);
-            ui.close();
-        }
-        ui.menu_button("Colour", |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.set_max_width(6.0 * 26.0);
-                for c in theme::CLIP_COLORS {
-                    let (r, response) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
-                    ui.painter().rect_filled(r, theme::radius::SMALL, c);
-                    if response.hovered() {
-                        ui.painter().rect_stroke(
-                            r,
-                            theme::radius::SMALL,
-                            Stroke::new(1.5, theme::p().text),
-                            egui::StrokeKind::Outside,
-                        );
-                    }
-                    if response.clicked() {
-                        doc.recolor_tracks(&targets, color_from(c));
-                        ui.close();
-                    }
-                }
-            });
-        });
-        ui.separator();
-        self.add_menu(ui, doc, Some(id), keymap);
-    }
-
-    /// "Add … track" entries, adding after `after`.
-    fn add_menu(&mut self, ui: &mut Ui, doc: &mut Document, after: Option<Id>, keymap: &Keymap) {
-        for (kind, text, command) in [
-            (
-                TrackKind::Audio,
-                "Add audio track",
-                Some(Command::AddAudioTrack),
-            ),
-            (
-                TrackKind::Midi,
-                "Add MIDI track",
-                Some(Command::AddMidiTrack),
-            ),
-            (TrackKind::Group, "Add group track", None),
-            (TrackKind::Return, "Add return track", None),
-        ] {
-            let keys = command.and_then(|c| keymap.keys(c));
-            if widgets::menu_item(ui, text, keys.as_ref(), true).clicked() {
-                self.selected = vec![doc.add_track(kind, after)];
-            }
-        }
-    }
 }
 
-/// The record-arm button: round, with a red dot that lights when armed.
+/// "· 4": how many tracks a folded group hides.
+fn painter_count(ui: &Ui, n: usize) -> std::sync::Arc<egui::Galley> {
+    ui.painter().layout_no_wrap(
+        format!("\u{00B7} {n}"),
+        FontId::proportional(theme::size::BODY),
+        theme::p().text_hint,
+    )
+}
+
+/// The record-arm button: round, with a red dot that lights when armed. A
+/// group's lights when everything inside it is armed, and shows half a ring
+/// when only some is.
 fn arm_button(
     ui: &mut Ui,
     rect: Rect,
     id: EguiId,
     name: &str,
-    armed: bool,
+    arm: Arm,
     look: theme::Controls,
 ) -> bool {
+    let armed = arm.on();
     let palette = theme::p();
     let response = ui
         .interact(rect, id.with("arm"), Sense::click())
@@ -731,13 +691,33 @@ fn arm_button(
         p.circle_filled(center, 4.5, palette.record);
     } else {
         p.circle_filled(center, radius, look.fill.lerp_to_gamma(look.hover, hover));
-        p.circle_filled(
-            center,
-            4.5,
-            palette.record.gamma_multiply(0.45 + 0.25 * hover),
-        );
+        if arm == Arm::Partly {
+            // Some of the group armed: a lit dot and half a ring, still.
+            p.add(egui::Shape::line(
+                half_ring(center, radius + 1.0),
+                Stroke::new(1.5, palette.record.gamma_multiply(0.6)),
+            ));
+            p.circle_filled(center, 4.5, palette.record);
+        } else {
+            p.circle_filled(
+                center,
+                4.5,
+                palette.record.gamma_multiply(0.45 + 0.25 * hover),
+            );
+        }
     }
     response.clicked()
+}
+
+/// The right half of a ring around `center`.
+fn half_ring(center: egui::Pos2, radius: f32) -> Vec<egui::Pos2> {
+    use std::f32::consts::PI;
+    (0..=16)
+        .map(|i| {
+            let a = -PI / 2.0 + PI * i as f32 / 16.0;
+            pos2(center.x + radius * a.cos(), center.y + radius * a.sin())
+        })
+        .collect()
 }
 
 /// Seconds per breath of the armed ring.
@@ -749,6 +729,27 @@ const ARM_GLOW: f32 = 4.0;
 /// The space between M, S and the arm button; wider than the glow, so it
 /// never touches S.
 const BUTTON_GAP: f32 = 8.0;
+
+/// What a screen reader says for a header; a group adds how many tracks
+/// it holds and whether they are hidden: "Track Drums, Group track, 3
+/// tracks inside, folded".
+fn group_description(
+    track: &lumen_project::model::Track,
+    inside: usize,
+    collapsed: bool,
+) -> String {
+    let mut text = track_description(track);
+    if track.kind == TrackKind::Group {
+        text.push_str(&format!(
+            ", {inside} track{} inside",
+            if inside == 1 { "" } else { "s" }
+        ));
+        if collapsed {
+            text.push_str(", folded");
+        }
+    }
+    text
+}
 
 /// What a screen reader says for a track header: "Track Kick, Audio
 /// track, muted, armed for recording".

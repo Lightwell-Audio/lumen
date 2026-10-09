@@ -175,10 +175,10 @@ fn files_dropped_together_keep_their_order() {
 }
 
 #[test]
-fn a_project_from_before_the_mixer_opens_with_a_master_and_saves_as_v7() {
+fn a_project_from_before_the_mixer_opens_with_a_master_and_saves_as_current() {
     // M4 slice 2: format v7 routes tracks. A version 6 project (the golden
     // fixture) opens with its master moved out of the tracks, plays, and
-    // saves as version 7.
+    // saves in the current version.
     let dir = lumen_project::testing::TempDir::new("e2e-v6-to-v7");
     let folder = dir.path().join("Old");
     std::fs::create_dir_all(folder.join("Samples")).unwrap();
@@ -209,6 +209,10 @@ fn a_project_from_before_the_mixer_opens_with_a_master_and_saves_as_v7() {
     lumen.app_mut().save_to(path.clone());
     lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
     let saved = std::fs::read_to_string(&path).unwrap();
-    assert!(saved.contains("\"version\": 7"), "saved as version 7");
+    let version = lumen_project::migrate::CURRENT_VERSION;
+    assert!(
+        saved.contains(&format!("\"version\": {version}")),
+        "saved as version {version}"
+    );
     assert!(saved.contains("\"master\": {"), "with its master");
 }

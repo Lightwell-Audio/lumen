@@ -15,11 +15,18 @@
 //! M7). Dragging a track's bottom edge resizes it: a folded track dragged
 //! taller unfolds, and an unfolded one dragged small folds. Heights glide
 //! (motion: GLIDE) and are saved with the project, but are not undo steps.
+//!
+//! Groups (M4 slice 3, the owner's H1): a group's tracks follow it, stepped
+//! in by [`INDENT`] a level, with the colour rail of every group they are
+//! in running down beside them. A group's arrow hides or shows its tracks
+//! (`collapsed`, saved with the project); its height is still dragged.
 
 mod clips;
 mod drop;
 pub mod handles;
 mod headers;
+mod menus;
+mod nesting;
 mod reorder;
 mod samples;
 pub mod select;
@@ -29,11 +36,12 @@ pub use drop::FileDrop;
 pub use samples::Update as StripUpdate;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use eframe::egui::{self, Color32, Id as EguiId, Modifiers};
 use lumen_project::model::{Clip, Color, Id, Project, Track, TrackKind};
 
-use crate::document::Document;
+use crate::document::{Document, Place};
 use crate::motion;
 
 /// Width of the header column.
@@ -64,6 +72,17 @@ fn snap_height(height: f32) -> f32 {
 /// The clip title bar.
 pub(crate) const TITLE: f32 = 15.0;
 
+/// How far a group's tracks step in, a level (the owner's H1).
+pub(crate) const INDENT: f32 = 12.0;
+
+/// Indents stop deepening past this many levels, so names keep room.
+const MAX_INDENT_LEVELS: usize = 4;
+
+/// The indent of a track `depth` groups deep.
+pub(crate) fn indent(depth: usize) -> f32 {
+    INDENT * depth.min(MAX_INDENT_LEVELS) as f32
+}
+
 const BUTTON: f32 = 19.0;
 
 /// One row of the arrangement, in content coordinates.
@@ -92,6 +111,8 @@ pub struct Arrangement {
     pub heights: BTreeMap<Id, f32>,
     /// Unfolded tracks.
     pub expanded: BTreeSet<Id>,
+    /// Groups folded to hide their tracks (slice M4 3).
+    pub collapsed: BTreeSet<Id>,
     /// Selected tracks, in the order they were selected.
     pub selected: Vec<Id>,
     /// Where a Shift-click range starts.
@@ -168,11 +189,30 @@ impl Arrangement {
         }
     }
 
-    /// Every row with its position; heights glide to their targets.
+    /// Whether track `id` is hidden in a folded group.
+    fn hidden(&self, project: &Project, id: Id) -> bool {
+        !self.collapsed.is_empty()
+            && lumen_project::groups::ancestors(&project.tracks, id)
+                .any(|g| self.collapsed.contains(&g))
+    }
+
+    /// The tracks shown, in order: those not hidden in a folded group.
+    pub(crate) fn visible<'p>(&self, project: &'p Project) -> impl Iterator<Item = &'p Arc<Track>> {
+        project
+            .tracks
+            .iter()
+            .filter(move |t| !self.hidden(project, t.id))
+    }
+
+    /// Every row with its position; heights glide to their targets. Tracks
+    /// hidden in a folded group have no row.
     fn rows(&self, ctx: &egui::Context, project: &Project, pending: usize) -> Vec<Row> {
         let mut rows = Vec::with_capacity(project.tracks.len() + pending);
         let mut y = 0.0;
         for (i, track) in project.tracks.iter().enumerate() {
+            if self.hidden(project, track.id) {
+                continue;
+            }
             let height = motion::glide(
                 ctx,
                 EguiId::new(("track height", track.id)),
@@ -207,6 +247,7 @@ impl Arrangement {
         self.selected.retain(exists);
         self.heights.retain(|id, _| exists(id));
         self.expanded.retain(exists);
+        self.collapsed.retain(exists);
         if self.renaming.as_ref().is_some_and(|(id, _)| !exists(id)) {
             self.renaming = None;
         }
@@ -256,9 +297,10 @@ impl Arrangement {
             return;
         }
         self.fitted = Some((self.heights.clone(), self.expanded.clone(), self.top));
-        let count = project.tracks.len().max(1) as f32;
+        let shown: Vec<Id> = self.visible(project).map(|t| t.id).collect();
+        let count = shown.len().max(1) as f32;
         let each = fit_height(visible, count);
-        for track in &project.tracks {
+        for track in project.tracks.iter().filter(|t| shown.contains(&t.id)) {
             if each >= UNFOLDED {
                 self.expanded.insert(track.id);
                 self.heights.insert(track.id, each);
@@ -287,6 +329,9 @@ impl Arrangement {
         if project.tracks.iter().any(|t| t.id == id) {
             self.selected = vec![id];
             self.anchor = Some(id);
+            for group in lumen_project::groups::ancestors(&project.tracks, id) {
+                self.collapsed.remove(&group);
+            }
             self.scroll_to_track(ctx, project, pending, id, visible);
         }
     }
@@ -331,10 +376,11 @@ impl Arrangement {
         } else if modifiers.shift
             && let Some(anchor) = self.anchor
         {
-            let index = |id: Id| project.tracks.iter().position(|t| t.id == id);
+            let shown: Vec<Id> = self.visible(project).map(|t| t.id).collect();
+            let index = |id: Id| shown.iter().position(|t| *t == id);
             if let (Some(a), Some(b)) = (index(anchor), index(id)) {
                 let (lo, hi) = (a.min(b), a.max(b));
-                self.selected = project.tracks[lo..=hi].iter().map(|t| t.id).collect();
+                self.selected = shown[lo..=hi].to_vec();
             }
         } else {
             self.selected = vec![id];
@@ -378,33 +424,91 @@ impl Arrangement {
         }
     }
 
-    /// Moves the selected tracks one place up (`-1`) or down (`1`).
+    /// Moves the selected tracks one place up (`-1`) or down (`1`) among
+    /// the tracks of their group, over a neighbouring group whole; they
+    /// stay in their group (dragging or Ctrl+Shift+G takes them out).
     pub(crate) fn move_selected(&mut self, doc: &mut Document, by: isize) {
         let tracks = &doc.project().tracks;
-        let positions: Vec<usize> = tracks
-            .iter()
-            .enumerate()
-            .filter(|(_, t)| self.selected.contains(&t.id))
-            .map(|(i, _)| i)
-            .collect();
-        let (Some(&first), Some(&last)) = (positions.first(), positions.last()) else {
+        let ids = lumen_project::groups::outermost(tracks, &self.selected);
+        let Some(first) = ids
+            .first()
+            .and_then(|id| tracks.iter().find(|t| t.id == *id))
+        else {
             return;
         };
-        let target = if by < 0 {
-            first.checked_sub(1)
-        } else {
-            (last + 1 < tracks.len()).then_some(first + 1)
+        let group = first.parent;
+        let moving = lumen_project::groups::with_contents(tracks, &ids);
+        // The other tracks of the same group, in order.
+        let siblings: Vec<Id> = tracks
+            .iter()
+            .filter(|t| t.parent == group && !moving.contains(&t.id))
+            .map(|t| t.id)
+            .collect();
+        let position = |id: Id| tracks.iter().position(|t| t.id == id).unwrap_or(0);
+        let first_at = position(first.id);
+        // Siblings above the moving tracks, before the move.
+        let above = siblings.iter().filter(|&&s| position(s) < first_at).count();
+        let wanted = above
+            .checked_add_signed(by)
+            .filter(|&n| n <= siblings.len());
+        let Some(wanted) = wanted else {
+            return;
         };
-        if let Some(index) = target {
-            let ids: Vec<Id> = positions.iter().map(|&i| tracks[i].id).collect();
-            doc.move_tracks(&ids, index);
+        if wanted == above {
+            return;
         }
+        // Before the sibling now at `wanted`, or after the group's last.
+        let rest: Vec<Id> = tracks
+            .iter()
+            .filter(|t| !moving.contains(&t.id))
+            .map(|t| t.id)
+            .collect();
+        let index = match siblings.get(wanted) {
+            Some(&before) => rest.iter().position(|&r| r == before).unwrap_or(rest.len()),
+            None => {
+                let last = siblings[wanted - 1];
+                let end = lumen_project::groups::span(tracks, position(last)).end;
+                rest.iter()
+                    .position(|&r| position(r) >= end)
+                    .unwrap_or(rest.len())
+            }
+        };
+        let _ = doc.move_tracks(&ids, Place { index, group });
     }
 
     /// Adds a track of `kind` after the selection and selects it.
     pub(crate) fn add_track(&mut self, doc: &mut Document, kind: TrackKind) {
         let after = self.selected.last().copied();
         self.selected = vec![doc.add_track(kind, after)];
+    }
+
+    /// Ctrl+G: groups the selected tracks and selects the new group.
+    pub(crate) fn group_selected(&mut self, doc: &mut Document) {
+        if let Some(group) = doc.group_tracks(&self.selected) {
+            self.selected = vec![group];
+            self.anchor = Some(group);
+        }
+    }
+
+    /// Ctrl+Shift+G: removes the selected groups (their tracks become the
+    /// selection), or takes the selected tracks out of their groups.
+    pub(crate) fn ungroup_selected(&mut self, doc: &mut Document) {
+        let project = doc.project();
+        let inside: Vec<Id> = project
+            .tracks
+            .iter()
+            .filter(|t| t.parent.is_some_and(|p| self.selected.contains(&p)))
+            .filter(|t| {
+                project
+                    .tracks
+                    .iter()
+                    .any(|g| Some(g.id) == t.parent && g.kind == TrackKind::Group)
+            })
+            .map(|t| t.id)
+            .collect();
+        if doc.ungroup(&self.selected).is_ok() && !inside.is_empty() {
+            self.selected = inside;
+        }
     }
 
     /// Duplicates the selected tracks and selects the copies.
@@ -434,18 +538,56 @@ impl Arrangement {
     /// Selects the track `by` places from the last selected one (or the
     /// first or last track), or adds it to the selection when `extend`.
     pub(crate) fn step_selection(&mut self, doc: &Document, by: isize, extend: bool) {
-        let tracks: Vec<Id> = doc.project().tracks.iter().map(|t| t.id).collect();
+        let tracks: Vec<Id> = self.visible(doc.project()).map(|t| t.id).collect();
         self.step_through(&tracks, by, extend);
     }
 
-    /// Folds (`fold`) or unfolds the selected tracks.
-    pub(crate) fn fold_selected(&mut self, fold: bool) {
+    /// Folds (`fold`) or unfolds the selected tracks; selected groups
+    /// hide or show their tracks instead (as their arrow does).
+    pub(crate) fn fold_selected(&mut self, project: &Project, fold: bool) {
+        for &id in &self.selected {
+            let group = project
+                .tracks
+                .iter()
+                .any(|t| t.id == id && t.kind == TrackKind::Group);
+            match (group, fold) {
+                (true, true) => self.collapsed.insert(id),
+                (true, false) => self.collapsed.remove(&id),
+                (false, true) => self.expanded.remove(&id),
+                (false, false) => self.expanded.insert(id),
+            };
+        }
+        // Selected tracks now hidden leave the selection.
+        self.forget_hidden(project);
+    }
+
+    /// Takes tracks hidden in folded groups out of the selection.
+    fn forget_hidden(&mut self, project: &Project) {
+        let selected = std::mem::take(&mut self.selected);
+        self.selected = selected
+            .into_iter()
+            .filter(|&id| !self.hidden(project, id))
+            .collect();
+    }
+
+    /// Hides or shows group `id`'s tracks (its arrow).
+    pub(crate) fn toggle_collapsed(&mut self, project: &Project, id: Id) {
+        if !self.collapsed.remove(&id) {
+            self.collapsed.insert(id);
+            self.selected
+                .retain(|&s| !lumen_project::groups::is_inside(&project.tracks, s, id));
+        }
+    }
+
+    /// Folds every group (`fold`) or unfolds them all (Alt+click on a
+    /// group's arrow, and the palette).
+    pub(crate) fn collapse_all(&mut self, project: &Project, fold: bool) {
         if fold {
-            for id in &self.selected {
-                self.expanded.remove(id);
-            }
+            let groups = project.tracks.iter().filter(|t| t.kind == TrackKind::Group);
+            self.collapsed = groups.map(|t| t.id).collect();
+            self.forget_hidden(project);
         } else {
-            self.expanded.extend(self.selected.iter().copied());
+            self.collapsed.clear();
         }
     }
 
@@ -460,6 +602,7 @@ impl Arrangement {
         view.top = self.top;
         view.track_heights = self.heights.clone();
         view.expanded = self.expanded.clone();
+        view.collapsed = self.collapsed.clone();
     }
 
     /// Restores the view state of an opened project.
@@ -472,6 +615,7 @@ impl Arrangement {
                 .map(|(id, h)| (*id, snap_height(h.clamp(FOLD_BELOW, MAX_HEIGHT))))
                 .collect(),
             expanded: view.expanded.clone(),
+            collapsed: view.collapsed.clone(),
             ..Self::default()
         }
     }

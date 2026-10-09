@@ -38,7 +38,7 @@ pub struct Lanes {
     pending: Vec<(u64, Ticks)>,
     /// Where each of those new tracks goes (slice 6e), and the drop it
     /// came in.
-    before: HashMap<u64, (Option<Id>, u64)>,
+    before: HashMap<u64, (DropInto, u64)>,
     /// Files loading for import onto a track (slice 6e), drawn in its lane
     /// while they load. Files dropped together import together, once none
     /// of them is still loading, so they can follow one another.
@@ -206,9 +206,9 @@ impl Lanes {
                 let id = doc.fresh_id().0;
                 self.library.import_as(id, path, rate, ctx);
                 match into {
-                    DropInto::NewTracks { before } => {
+                    DropInto::NewTracks { .. } => {
                         self.pending.push((id, at));
-                        self.before.insert(id, (before, self.drops));
+                        self.before.insert(id, (into, self.drops));
                     }
                     DropInto::Track(track) => self.landing.push(Landing {
                         id,
@@ -312,9 +312,15 @@ impl Lanes {
             .take_while(|(id, _)| loading.is_none_or(|drop| drop_of(id) < drop))
             .count();
         for (id, at) in self.pending.drain(..ended) {
-            let into = before.remove(&id).and_then(|b| b.0);
+            let into = before.remove(&id).map_or(
+                DropInto::NewTracks {
+                    before: None,
+                    group: None,
+                },
+                |b| b.0,
+            );
             if let Load::Ready(file) = load(library, id) {
-                imported.push(file(at, DropInto::NewTracks { before: into }));
+                imported.push(file(at, into));
             }
         }
         let waiting: Vec<u64> = self
@@ -544,7 +550,10 @@ mod tests {
                 frames: 96_000,
                 size_bytes: 0,
                 at: Ticks::ZERO,
-                into: DropInto::NewTracks { before: None },
+                into: DropInto::NewTracks {
+                    before: None,
+                    group: None,
+                },
             })
             .collect();
         doc.import(files);
@@ -656,7 +665,16 @@ mod tests {
             let drop = if i < 2 { 1 } else { 2 };
             lanes.library.insert_loading(id, name, 48_000);
             lanes.pending.push((id, Ticks::ZERO));
-            lanes.before.insert(id, (None, drop));
+            lanes.before.insert(
+                id,
+                (
+                    DropInto::NewTracks {
+                        before: None,
+                        group: None,
+                    },
+                    drop,
+                ),
+            );
         }
         let channels = vec![vec![0.5; 96_000]; 2];
         let peaks = Arc::new(

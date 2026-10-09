@@ -18,6 +18,7 @@ mod editing;
 mod fades;
 mod files;
 mod grid;
+mod groups;
 mod info;
 mod keys;
 mod locators;

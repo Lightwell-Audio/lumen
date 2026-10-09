@@ -72,6 +72,9 @@ pub fn validate(project: &Project) -> Result<(), String> {
         }
         routing(track, &kinds).map_err(|e| format!("{}: {e}", at()))?;
         if let Some(parent) = track.parent {
+            if !crate::groups::can_be_grouped(track.kind) {
+                return Err(format!("{}: a return or master inside a group", at()));
+            }
             match kinds.get(&parent) {
                 Some(TrackKind::Group) => {}
                 Some(_) => return Err(format!("{}: parent is not a group track", at())),
@@ -156,6 +159,9 @@ pub fn validate(project: &Project) -> Result<(), String> {
             }
             current = parent;
         }
+    }
+    if !crate::groups::in_order(&project.tracks) {
+        return Err("a group's tracks are not right under it".into());
     }
     if crate::routing::has_loop(project) {
         return Err("the routing feeds back into itself".into());

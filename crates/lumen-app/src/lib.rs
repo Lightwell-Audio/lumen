@@ -611,7 +611,10 @@ impl App {
             lanes.add_files(
                 vec![path],
                 Ticks::ZERO,
-                document::DropInto::NewTracks { before: None },
+                document::DropInto::NewTracks {
+                    before: None,
+                    group: None,
+                },
                 transport.state().sample_rate,
                 &cc.egui_ctx,
                 &mut document,
@@ -624,7 +627,10 @@ impl App {
             transport,
             lanes,
             drop_target: Ticks::ZERO,
-            drop_into: document::DropInto::NewTracks { before: None },
+            drop_into: document::DropInto::NewTracks {
+                before: None,
+                group: None,
+            },
             drag_pointer: None,
             system_cursor: None,
             settings: saved,
