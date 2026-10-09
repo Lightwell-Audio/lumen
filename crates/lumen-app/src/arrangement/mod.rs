@@ -35,6 +35,7 @@ mod pinned;
 mod reorder;
 mod samples;
 pub mod select;
+mod sends;
 mod waves;
 
 pub use drop::FileDrop;
@@ -192,6 +193,13 @@ pub struct Arrangement {
     returns_top: f32,
     /// The pinned area's height when its divider drag began.
     sizing_returns: Option<f32>,
+    /// The return whose sends and header light together (one hovered
+    /// last frame), and the one hovered this frame.
+    hot_return: Option<Id>,
+    hot_return_next: Option<Id>,
+    /// Tracks that show sends (audio, MIDI and groups, while the project
+    /// has returns): they unfold a step taller.
+    with_sends: BTreeSet<Id>,
     /// The additive-solo preference (M4 slice 4), set by the app.
     pub(crate) additive_solo: bool,
 }
@@ -224,7 +232,14 @@ impl Arrangement {
     /// The height a track is drawn at (before the glide).
     fn target_height(&self, id: Id) -> f32 {
         if self.expanded.contains(&id) {
-            self.heights.get(&id).copied().unwrap_or(UNFOLDED)
+            // A track with sends to show opens a step taller, so the
+            // knobs have their own row (slice 4).
+            let unfolded = if self.with_sends.contains(&id) {
+                UNFOLDED + STEP
+            } else {
+                UNFOLDED
+            };
+            self.heights.get(&id).copied().unwrap_or(unfolded)
         } else {
             FOLDED
         }
@@ -372,6 +387,13 @@ impl Arrangement {
         self.heights.retain(|id, _| exists(id));
         self.expanded.retain(exists);
         self.collapsed.retain(exists);
+        let returns = project.tracks.iter().any(|t| t.kind == TrackKind::Return);
+        self.with_sends = project
+            .tracks
+            .iter()
+            .filter(|t| returns && sends::has_sends(t.kind))
+            .map(|t| t.id)
+            .collect();
         if self.renaming.as_ref().is_some_and(|(id, _)| !exists(id)) {
             self.renaming = None;
         }

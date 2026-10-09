@@ -44,6 +44,8 @@ impl Arrangement {
         let painter = ui.painter_at(column);
         painter.rect_filled(column, 0.0, palette.header);
         self.view_height = column.height();
+        // A send and its return light together: what was hovered last frame.
+        self.hot_return = self.hot_return_next.take();
         let rows = self.rows(&ctx, doc.project(), lanes.pending().len());
         let content = self.content_height(&ctx, doc.project(), &rows);
         // The scrolling tracks end where the pinned returns and master
@@ -475,9 +477,30 @@ impl Arrangement {
                 doc.set_armed(&self.targets(track.id), !arm.on());
             }
 
-            // Unfolded: volume and pan on a second row.
+            // Unfolded: volume and pan on a second row, then the sends.
             if row.height >= FOLDED + 22.0 {
                 self.mixer_row(ui, doc, &track, rect, id, look);
+            }
+            if row.height >= super::sends::SENDS_FROM && super::sends::has_sends(track.kind) {
+                self.sends_row(ui, doc, &track, rect, id, hears);
+            }
+            // A return lights with the sends that feed it, and the other
+            // way round (the owner's K1).
+            if track.kind == TrackKind::Return {
+                if background.hovered() {
+                    self.hot_return_next = Some(track.id);
+                }
+                let hot = motion::hover(&ctx, id.with("linked"), self.hot_return == Some(track.id));
+                if hot > 0.0 {
+                    let color = super::color_of(track.color);
+                    painter.rect_filled(rect, 0.0, color.gamma_multiply(0.10 * hot));
+                    painter.rect_stroke(
+                        rect.shrink(0.5),
+                        0.0,
+                        Stroke::new(1.0, color.gamma_multiply(0.7 * hot)),
+                        egui::StrokeKind::Inside,
+                    );
+                }
             }
 
             // Bottom edge: drag to resize.

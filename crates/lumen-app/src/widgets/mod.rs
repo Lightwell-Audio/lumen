@@ -15,6 +15,7 @@ use eframe::emath::GuiRounding as _;
 use crate::{fonts, icons, motion, theme};
 
 mod keys;
+pub mod knob;
 
 pub use keys::{
     KEY_LIGHT_ROOM, Keys, Tip, caps_height, caps_width, keycaps, menu_item, menu_toggle,

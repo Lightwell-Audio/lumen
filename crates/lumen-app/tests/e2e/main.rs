@@ -31,6 +31,7 @@ mod properties;
 mod returns;
 mod rulers;
 mod scrubbing;
+mod sends;
 mod shortcuts;
 mod solo;
 mod walkthrough;
