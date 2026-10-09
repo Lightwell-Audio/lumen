@@ -7,8 +7,12 @@
 //! signal gets its own gain from the law, so panning left turns the right
 //! side down rather than folding it into the left.
 
-/// How a pan position becomes left and right gains.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+use serde::{Deserialize, Serialize};
+
+/// How a pan position becomes left and right gains. Saved per project
+/// (format v7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PanLaw {
     /// −3 dB at the centre, constant power: the level stays even across
     /// the sweep. The default (owner, M4 plan).

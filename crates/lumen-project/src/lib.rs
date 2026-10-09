@@ -11,6 +11,7 @@ mod io;
 mod json;
 pub mod migrate;
 pub mod model;
+pub mod routing;
 #[doc(hidden)]
 pub mod testing;
 mod validate;

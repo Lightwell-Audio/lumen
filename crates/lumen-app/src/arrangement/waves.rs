@@ -145,17 +145,6 @@ mod tests {
         let mut project = crate::empty_project();
         project.tempo = tempo;
         project.tracks.push(Arc::new(Track {
-            id: Id(1),
-            name: "A".into(),
-            kind: TrackKind::Audio,
-            color: Color(0x4C7A9E),
-            parent: None,
-            gain_db: 0.0,
-            pan: 0.0,
-            mute: false,
-            solo: false,
-            armed: false,
-            devices: Vec::new(),
             clips: vec![Arc::new(Clip {
                 id: Id(2),
                 name: "C".into(),
@@ -173,6 +162,7 @@ mod tests {
                     gain_db: 0.0,
                 },
             })],
+            ..Track::new(Id(1), "A", TrackKind::Audio, Color(0x4C7A9E))
         }));
         project
     }

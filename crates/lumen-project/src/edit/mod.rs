@@ -440,18 +440,8 @@ mod tests {
         };
         let track = |id: u64, clips: Vec<Arc<Clip>>| {
             Arc::new(Track {
-                id: Id(id),
-                name: format!("t{id}"),
-                kind: TrackKind::Audio,
-                color: Color(0),
-                parent: None,
-                gain_db: 0.0,
-                pan: 0.0,
-                mute: false,
-                solo: false,
-                armed: false,
-                devices: vec![],
                 clips,
+                ..Track::new(Id(id), format!("t{id}"), TrackKind::Audio, Color(0))
             })
         };
         project.tracks = vec![

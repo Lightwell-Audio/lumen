@@ -7,11 +7,12 @@ use std::sync::Arc;
 
 use lumen_core::fade::{Fade, FadeShape};
 use lumen_core::grid::{Feel, Grid, Size};
+use lumen_core::pan::PanLaw;
 use lumen_core::time::{PPQ, TempoPoint, Ticks};
 use lumen_project::migrate::CURRENT_VERSION;
 use lumen_project::model::{
-    Clip, ClipContent, Color, Device, Id, Media, Note, PluginRef, Project, TimeSignature, Track,
-    TrackKind,
+    Clip, ClipContent, Color, Device, Id, Level, Media, Note, Output, PluginRef, Project, Send,
+    TimeSignature, Track, TrackKind,
 };
 use lumen_project::model::{Marker, TransportState, ViewState};
 use lumen_project::testing::{TempDir, small_project, synthetic};
@@ -24,20 +25,7 @@ use serde_json::Value;
 /// The model the v1 golden file must always load as. Never change either:
 /// when the format moves on, this test proves old projects still open.
 fn golden_v1_expected() -> Project {
-    let track = |id, name: &str, kind, color| Track {
-        id: Id(id),
-        name: name.into(),
-        kind,
-        color: Color(color),
-        parent: None,
-        gain_db: 0.0,
-        pan: 0.0,
-        mute: false,
-        solo: false,
-        armed: false,
-        devices: vec![],
-        clips: vec![],
-    };
+    let track = |id, name: &str, kind, color| Track::new(Id(id), name, kind, Color(color));
     let mut kick = track(2, "Kick", TrackKind::Audio, 0xC0504D);
     kick.parent = Some(Id(1));
     kick.gain_db = -3.0;
@@ -98,6 +86,9 @@ fn golden_v1_expected() -> Project {
         },
     })];
     Project {
+        // The v7 migration moves the master out of the tracks.
+        master: Arc::new(track(4, "Master", TrackKind::Master, 0x808080)),
+        pan_law: PanLaw::ConstantPower,
         name: "Golden v1".into(),
         sample_rate: 48_000,
         tempo: vec![
@@ -118,7 +109,6 @@ fn golden_v1_expected() -> Project {
             Arc::new(track(1, "Drums", TrackKind::Group, 0xC0504D)),
             Arc::new(kick),
             Arc::new(bass),
-            Arc::new(track(4, "Master", TrackKind::Master, 0x808080)),
         ],
         media: vec![Media {
             id: Id(0x30),
@@ -249,6 +239,54 @@ fn golden_v6_expected() -> Project {
     });
     clip.fade_out.curve = Curve::SLOW;
     project
+}
+
+/// The model the v7 golden file must always load as: v6 routed. A return
+/// track that the kick sends to before its fader and the bass after it,
+/// a track straight to the master from inside the group, polarity, trim,
+/// the master at −2 dB out of the second pair, and the linear pan law.
+fn golden_v7_expected() -> Project {
+    let mut project = Project {
+        name: "Golden v7".into(),
+        pan_law: PanLaw::Linear,
+        ..golden_v6_expected()
+    };
+    let reverb = Id(0x50);
+    project.tracks.push(Arc::new(Track {
+        gain_db: -4.0,
+        ..Track::new(reverb, "Reverb", TrackKind::Return, Color(0x7A6FB0))
+    }));
+    let kick = Arc::make_mut(&mut project.tracks[1]);
+    kick.sends.push(Send {
+        to: reverb,
+        level: Level(-12.0),
+        pre_fader: true,
+    });
+    kick.invert = true;
+    kick.trim_db = 3.5;
+    kick.output = Output::Master;
+    let bass = Arc::make_mut(&mut project.tracks[2]);
+    bass.sends.push(Send {
+        to: reverb,
+        level: Level::SILENT,
+        pre_fader: false,
+    });
+    let master = Arc::make_mut(&mut project.master);
+    master.gain_db = -2.0;
+    master.output = Output::Device(1);
+    project
+}
+
+#[test]
+fn golden_v7_file_loads_forever() {
+    let path = fixture("v7/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        // Written once, when version 7 was introduced; never rewritten.
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v7_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v7 golden file must load");
+    assert_eq!(project, golden_v7_expected());
 }
 
 #[test]

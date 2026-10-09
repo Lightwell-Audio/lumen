@@ -218,6 +218,12 @@ pub(crate) fn empty_project() -> Project {
             denominator: 4,
         },
         tracks: Vec::new(),
+        // Id 0: a new project's other ids count on from 1 (`fresh_id`);
+        // older projects got the next free id when they were migrated.
+        master: std::sync::Arc::new(lumen_project::model::Track::master(
+            lumen_project::model::Id(0),
+        )),
+        pan_law: Default::default(),
         media: Vec::new(),
         markers: Vec::new(),
         transport: Default::default(),

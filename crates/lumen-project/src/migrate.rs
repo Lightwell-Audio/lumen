@@ -18,7 +18,7 @@ pub type Migration = fn(Value) -> Result<Value, String>;
 pub const FIRST_VERSION: u64 = 1;
 
 /// `MIGRATIONS[i]` upgrades version `FIRST_VERSION + i` to the next one.
-pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6];
+pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
 /// state (`view`). Version 1 files get the defaults written out.
@@ -149,6 +149,90 @@ fn v5_to_v6(mut document: Value) -> Result<Value, String> {
         }
     }
     Ok(document)
+}
+
+/// Version 7 (M4 slice 2) routes tracks: a master track in every project
+/// (kept apart from `tracks`), each track's output, sends, polarity and
+/// input trim, and the project's pan law. A master track already among the
+/// tracks moves out to `master`; otherwise one is made with the next free
+/// id. The defaults are written out on every track. The pan law is −3 dB
+/// constant power (owner, M4): projects from before play 3 dB quieter at
+/// the centre.
+fn v6_to_v7(mut document: Value) -> Result<Value, String> {
+    let next_id = highest_id(&document)? + 1;
+    let project = document
+        .get_mut("project")
+        .and_then(Value::as_object_mut)
+        .ok_or("missing project")?;
+    project.insert("pan_law".into(), Value::from("constant_power"));
+    let tracks = project
+        .get_mut("tracks")
+        .and_then(Value::as_array_mut)
+        .ok_or("missing tracks")?;
+    let found = tracks
+        .iter()
+        .position(|t| t.get("kind").and_then(Value::as_str) == Some("master"));
+    let mut master = match found {
+        Some(index) => tracks.remove(index),
+        // Version 7's own words, frozen.
+        None => serde_json::json!({
+            "id": format!("{next_id:016x}"),
+            "name": "Master",
+            "kind": "master",
+            "color": "#8A8F99",
+            "gain_db": 0.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "armed": false,
+            "devices": [],
+            "clips": [],
+        }),
+    };
+    if let Some(master) = master.as_object_mut() {
+        master.remove("parent");
+    }
+    for track in tracks.iter_mut().chain(std::iter::once(&mut master)) {
+        let Some(track) = track.as_object_mut() else {
+            return Err("a track is not an object".into());
+        };
+        track.entry("output").or_insert(Value::from("auto"));
+        track.entry("sends").or_insert(Value::Array(Vec::new()));
+        track.entry("invert").or_insert(Value::Bool(false));
+        track.entry("trim_db").or_insert(Value::from(0.0));
+    }
+    project.insert("master".into(), master);
+    Ok(document)
+}
+
+/// The highest id written anywhere in `document` (every `"id"` field).
+fn highest_id(document: &Value) -> Result<u64, String> {
+    fn walk(value: &Value, highest: &mut u64) -> Result<(), String> {
+        match value {
+            Value::Object(map) => {
+                for (key, value) in map {
+                    if key == "id"
+                        && let Value::String(text) = value
+                    {
+                        let id = u64::from_str_radix(text, 16)
+                            .map_err(|_| format!("invalid id {text:?}"))?;
+                        *highest = (*highest).max(id);
+                    }
+                    walk(value, highest)?;
+                }
+            }
+            Value::Array(items) => {
+                for item in items {
+                    walk(item, highest)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    let mut highest = 0;
+    walk(document, &mut highest)?;
+    Ok(highest)
 }
 
 /// The version this build writes.
@@ -340,5 +424,44 @@ mod tests {
             "fade_in": { "length": 1, "shape": "wobbly" }
         }]}]}});
         assert!(upgrade(bad, 5, FIRST_VERSION, &MIGRATIONS[..5]).is_err());
+    }
+
+    #[test]
+    fn v6_to_v7_adds_a_master_with_the_next_free_id_and_routing_defaults() {
+        let v6 = json!({ "version": 6, "project": {
+            "name": "x",
+            "tracks": [
+                { "id": "0000000000000003", "kind": "audio", "clips": [
+                    { "id": "00000000000000a0" }
+                ] },
+            ],
+            "markers": [{ "id": "00000000000000b0" }],
+        } });
+        let v7 = upgrade(v6, 6, FIRST_VERSION, MIGRATIONS).unwrap();
+        let project = &v7["project"];
+        assert_eq!(project["pan_law"], "constant_power");
+        assert_eq!(project["master"]["id"], "00000000000000b1");
+        assert_eq!(project["master"]["kind"], "master");
+        let track = &project["tracks"][0];
+        assert_eq!(track["output"], "auto");
+        assert_eq!(track["sends"], json!([]));
+        assert_eq!(
+            (&track["invert"], &track["trim_db"]),
+            (&json!(false), &json!(0.0))
+        );
+    }
+
+    #[test]
+    fn v6_to_v7_moves_a_master_track_out_of_the_tracks() {
+        let v6 = json!({ "version": 6, "project": { "tracks": [
+            { "id": "0000000000000001", "kind": "audio" },
+            { "id": "0000000000000002", "kind": "master", "name": "Main", "parent": "0000000000000009" },
+        ] } });
+        let v7 = upgrade(v6, 6, FIRST_VERSION, MIGRATIONS).unwrap();
+        let project = &v7["project"];
+        assert_eq!(project["tracks"].as_array().unwrap().len(), 1);
+        assert_eq!(project["master"]["id"], "0000000000000002");
+        assert_eq!(project["master"]["name"], "Main");
+        assert!(project["master"].get("parent").is_none());
     }
 }

@@ -532,20 +532,12 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(i, &kind)| {
-                std::sync::Arc::new(Track {
-                    id: Id(i as u64 + 1),
-                    name: format!("T{i}"),
+                std::sync::Arc::new(Track::new(
+                    Id(i as u64 + 1),
+                    format!("T{i}"),
                     kind,
-                    color: lumen_project::model::Color(0),
-                    parent: None,
-                    gain_db: 0.0,
-                    pan: 0.0,
-                    mute: false,
-                    solo: false,
-                    armed: false,
-                    devices: vec![],
-                    clips: vec![],
-                })
+                    lumen_project::model::Color(0),
+                ))
             })
             .collect();
         project

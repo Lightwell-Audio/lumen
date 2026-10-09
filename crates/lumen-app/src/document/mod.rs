@@ -19,6 +19,14 @@ pub const MAX_BEATS_PER_BAR: u32 = 64;
 
 mod clips;
 mod import;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the routing edits are called by the track headers and the mixer panel                   (M4 slices 4 and 5); until then only their tests call them"
+    )
+)]
+mod mixer;
 pub use clips::{CLIP_GAIN, ClipMove};
 pub use import::{DropInto, Imported, import_place};
 
@@ -171,7 +179,8 @@ impl Document {
             TrackKind::Midi => ("MIDI", "Add MIDI track"),
             TrackKind::Group => ("Group", "Add group track"),
             TrackKind::Return => ("Return", "Add return track"),
-            TrackKind::Master => ("Master", "Add master track"),
+            // One master per project, kept apart from the tracks.
+            TrackKind::Master => return self.project().master.id,
         };
         self.history.apply(label, None, |project| {
             let number = project.tracks.iter().filter(|t| t.kind == kind).count() + 1;
@@ -181,20 +190,7 @@ impl Document {
             let color = track_color(project.tracks.len());
             project.tracks.insert(
                 index,
-                Arc::new(Track {
-                    id,
-                    name: format!("{word} {number}"),
-                    kind,
-                    color,
-                    parent: None,
-                    gain_db: 0.0,
-                    pan: 0.0,
-                    mute: false,
-                    solo: false,
-                    armed: false,
-                    devices: vec![],
-                    clips: vec![],
-                }),
+                Arc::new(Track::new(id, format!("{word} {number}"), kind, color)),
             );
         });
         id
@@ -202,7 +198,8 @@ impl Document {
 
     /// Deletes tracks. Their clips go with them; their media stays in the
     /// project (the media pool, M9). Tracks inside a deleted group move to
-    /// the top level.
+    /// the top level; outputs to deleted tracks go back to automatic, and
+    /// sends to them go (M4 slice 2). The master is never deleted.
     pub fn delete_tracks(&mut self, ids: &[Id]) {
         let label = plural(ids.len(), "Delete track", "Delete {} tracks");
         self.history.apply(&label, None, |project| {
@@ -212,6 +209,7 @@ impl Document {
                     Arc::make_mut(track).parent = None;
                 }
             }
+            mixer::forget_routes_to(project, ids);
         });
     }
 
@@ -287,25 +285,25 @@ impl Document {
         self.edit_tracks(label, ids, |t| t.armed = armed);
     }
 
-    /// Track volume in dB (−60 to +6). A drag merges into one undo step per
-    /// track.
+    /// Track volume in dB (−60 to +6), the master's too. A drag merges
+    /// into one undo step per track.
     pub fn set_volume(&mut self, id: Id, db: f32) {
         let db = db.clamp(-60.0, 6.0);
         self.history
             .apply("Change volume", Some(&format!("volume {:x}", id.0)), |p| {
-                if let Some(t) = p.tracks.iter_mut().find(|t| t.id == id) {
+                if let Some(t) = mixer::tracks_mut(p).find(|t| t.id == id) {
                     Arc::make_mut(t).gain_db = db;
                 }
             });
     }
 
-    /// Track pan, −1 (left) to +1 (right). A drag merges into one undo step
-    /// per track.
+    /// Track pan, −1 (left) to +1 (right), the master's too. A drag merges
+    /// into one undo step per track.
     pub fn set_pan(&mut self, id: Id, pan: f32) {
         let pan = pan.clamp(-1.0, 1.0);
         self.history
             .apply("Change pan", Some(&format!("pan {:x}", id.0)), |p| {
-                if let Some(t) = p.tracks.iter_mut().find(|t| t.id == id) {
+                if let Some(t) = mixer::tracks_mut(p).find(|t| t.id == id) {
                     Arc::make_mut(t).pan = pan;
                 }
             });
@@ -497,7 +495,7 @@ fn next_marker_name(markers: &[Marker]) -> String {
 }
 
 fn highest_id(project: &Project) -> u64 {
-    let tracks = project.tracks.iter().flat_map(|t| {
+    let tracks = lumen_project::routing::all_tracks(project).flat_map(|t| {
         std::iter::once(t.id.0)
             .chain(t.devices.iter().map(|d| d.id.0))
             .chain(t.clips.iter().map(|c| c.id.0))

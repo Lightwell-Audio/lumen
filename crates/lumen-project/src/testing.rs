@@ -157,20 +157,21 @@ pub fn synthetic(
                 .collect()
         };
         all_tracks.push(Arc::new(Track {
-            id: track_id,
-            name: format!("Track {index}"),
-            kind,
-            color: Color(PALETTE[index % PALETTE.len()]),
             parent: (1..=4).contains(&index).then_some(group),
             gain_db: -(rng.below(120) as f32) / 10.0,
             pan: (rng.below(201) as f32 - 100.0) / 100.0,
             mute: rng.below(8) == 0,
-            solo: false,
-            armed: false,
             devices,
             clips,
+            ..Track::new(
+                track_id,
+                format!("Track {index}"),
+                kind,
+                Color(PALETTE[index % PALETTE.len()]),
+            )
         }));
     }
+    let master = Arc::new(Track::master(id()));
     Project {
         name: format!("Synthetic {seed}"),
         sample_rate: 48_000,
@@ -189,6 +190,8 @@ pub fn synthetic(
             denominator: 4,
         },
         tracks: all_tracks,
+        master,
+        pan_law: Default::default(),
         media,
         markers: Vec::new(),
         transport: Default::default(),
