@@ -52,6 +52,12 @@ pub fn sliding(
             .default_size(*size)
             .show(ui, add_contents);
         *size = extent(response.response.rect);
+        // egui draws the resize edge; it gets a name here, for screen
+        // readers (slice 8).
+        let name = format!("Resize the {id} panel");
+        ctx.accesskit_node_builder(Id::new(id).with("__resize"), |node| {
+            node.set_label(name);
+        });
         return;
     }
     // Sliding: a separate panel id, so the partial sizes are never

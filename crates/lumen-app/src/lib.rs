@@ -262,10 +262,7 @@ impl eframe::App for App {
         if self.rebind.is_some() {
             return;
         }
-        let window = self.shortcuts.open
-            || self.transport.settings_window.open
-            || self.show_history
-            || self.prompt.is_some();
+        let window = self.window_open();
         let focused = ctx.memory(|m| m.focused().is_some());
         if ctx.text_edit_focused() || (window && focused) {
             return;

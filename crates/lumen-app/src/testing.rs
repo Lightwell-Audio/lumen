@@ -286,6 +286,12 @@ impl App {
         self.settings.commands.shortcuts.clone()
     }
 
+    /// The project as Save writes it: the document with the view stamped
+    /// in (zoom, scroll, panels, grid, track heights).
+    pub fn project_as_saved(&self) -> Project {
+        self.stamped()
+    }
+
     /// The pane whose anchor has the keyboard (F6), by name.
     pub fn focused_pane(&self, ctx: &egui::Context) -> Option<String> {
         crate::app::panes::focused(ctx).map(|p| format!("{p:?}"))
