@@ -393,48 +393,7 @@ impl eframe::App for App {
         if let Some(e) = self.settings_writer.failure() {
             self.transport.audio.notice = Some(format!("Could not save settings: {e}"));
         }
-        if let Some(path) = self.save_as.clone()
-            && !self.lanes.is_loading()
-            && !self.document.project().tracks.is_empty()
-        {
-            if self.saving.is_none() && self.document.is_dirty() {
-                self.start_save(files::project_file_for(&path));
-            } else if self.saving.is_none() {
-                println!(
-                    "saved {}",
-                    self.document.path.as_deref().unwrap_or(&path).display()
-                );
-                self.save_as = None;
-                // A deliberate close by a test mode: no unsaved-changes prompt.
-                self.quitting = true;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            }
-        }
-        if let Some(every) = self.autoplay {
-            // Toggle play and stop every `every`, as Space would.
-            let elapsed = self.started.elapsed();
-            let due = every * self.autoplay_count;
-            if elapsed >= due {
-                self.autoplay_count += 1;
-                trace::log(|| format!("autoplay: toggle {}", self.autoplay_count));
-                self.transport.play_stop();
-            } else {
-                ctx.request_repaint_after(due - elapsed);
-            }
-        }
-        if trace::enabled() {
-            let state = self.transport.state();
-            if self.traced != Some(state.playing) {
-                trace::log(|| {
-                    format!(
-                        "frame: shows {} at sample {}",
-                        if state.playing { "PLAYING" } else { "STOPPED" },
-                        state.sample
-                    )
-                });
-                self.traced = Some(state.playing);
-            }
-        }
+        self.test_modes_before(&ctx);
         if ctx.system_theme() != self.system_theme {
             self.apply_appearance(&ctx);
         }
@@ -543,77 +502,15 @@ impl eframe::App for App {
             ctx.request_repaint_after(Duration::from_secs(1));
         }
 
-        if let Some(path) = &self.screenshot {
-            let image = ctx.input(|i| {
-                i.events.iter().find_map(|e| match e {
-                    egui::Event::Screenshot { image, .. } => Some(Arc::clone(image)),
-                    _ => None,
-                })
-            });
-            if let Some(image) = image {
-                match save_png(path, &image) {
-                    Ok(()) => println!("screenshot saved to {}", path.display()),
-                    Err(e) => eprintln!("screenshot: {e}"),
-                }
-                // A deliberate close by a test mode: no unsaved-changes prompt.
-                self.quitting = true;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            }
-        }
-        // A screenshot shows the settled state: it waits while a project
-        // opens or files load (at most 30 s, so a stuck load cannot hang a
-        // test run).
-        let settling = self.screenshot.is_some()
-            && (self.opening.is_some() || self.lanes.library.is_loading())
-            && self.started.elapsed() < Duration::from_secs(30);
-        if let Some(frames) = self.smoke_test_frames.as_mut() {
-            if !settling {
-                *frames = frames.saturating_sub(1);
-            }
-            if *frames == 0 && self.screenshot.is_some() {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
-                self.smoke_test_frames = None;
-            } else if *frames == 0 {
-                println!(
-                    "smoke test: {} frames rendered; first frame within {:.0} ms of start",
-                    SMOKE_FRAMES,
-                    FIRST_FRAME_MS.get().copied().unwrap_or(f64::NAN)
-                );
-                // A deliberate close by a test mode: no unsaved-changes prompt.
-                self.quitting = true;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            } else {
-                ctx.request_repaint();
-            }
-        }
-        FIRST_FRAME_MS.get_or_init(|| self.started.elapsed().as_secs_f64() * 1e3);
+        self.test_modes_after(&ctx);
     }
 }
 
-const SMOKE_FRAMES: u32 = 30;
 /// The detail panel's tab row and margins, above and around its content.
 const DETAIL_CHROME: f32 = 48.0;
 /// The arrangement's least height beside the detail panel: its rulers, a
 /// folded track and the master's row.
 const ARRANGEMENT_MIN: f32 = 180.0;
-static FIRST_FRAME_MS: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
-
-fn save_png(path: &std::path::Path, image: &egui::ColorImage) -> Result<(), String> {
-    let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
-    let [w, h] = image.size;
-    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), w as u32, h as u32);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    let bytes: Vec<u8> = image
-        .pixels
-        .iter()
-        .flat_map(|c| c.to_srgba_unmultiplied())
-        .collect();
-    encoder
-        .write_header()
-        .and_then(|mut writer| writer.write_image_data(&bytes))
-        .map_err(|e| e.to_string())
-}
 
 impl App {
     /// Starts Lumen as `launch` says: from the command line, or a test.
@@ -735,7 +632,7 @@ impl App {
             meters_at: None,
             menu_for: app::editing::MenuFor::default(),
             clip_props: app::clip_card::ClipProps::default(),
-            smoke_test_frames: launch.smoke_test.then_some(SMOKE_FRAMES),
+            smoke_test_frames: launch.smoke_test.then_some(app::test_modes::SMOKE_FRAMES),
             screenshot: launch.screenshot,
             started,
             autoplay: launch.autoplay,
