@@ -14,8 +14,7 @@ use eframe::egui::{
     vec2,
 };
 use eframe::emath::GuiRounding as _;
-use lumen_project::model::{Id, Output, Project, Track, TrackKind};
-use lumen_project::routing::{self as rules, Destination};
+use lumen_project::model::{Track, TrackKind};
 use lumen_project::solo::Heard;
 
 use super::sends::{Knob, returns};
@@ -125,20 +124,6 @@ pub(super) struct StripLook<'a> {
     pub keymap: &'a Keymap,
 }
 
-/// Where `track` plays to, in words: a group's or return's name, "Master",
-/// or a pair of outputs ("1/2").
-fn destination_text(project: &Project, track: &Track) -> String {
-    match rules::destination(project, track) {
-        Destination::Track(id) if id == project.master.id => "Master".into(),
-        Destination::Track(id) => project
-            .tracks
-            .iter()
-            .find(|t| t.id == id)
-            .map_or_else(|| "Master".into(), |t| t.name.clone()),
-        Destination::Device(pair) => format!("{}/{}", 2 * pair + 1, 2 * pair + 2),
-    }
-}
-
 /// What a screen reader says for a strip: "Mixer strip: Kick, Audio track,
 /// muted" (the header says "Track Kick, …").
 fn strip_description(track: &Track) -> String {
@@ -147,14 +132,18 @@ fn strip_description(track: &Track) -> String {
     format!("Mixer strip: {rest}")
 }
 
-/// Whether sending track `id` to `output` would feed the audio back into
-/// itself: such choices are never offered (risk R4).
-fn would_loop(project: &Project, id: Id, output: Output) -> bool {
-    let mut trial = project.clone();
-    if let Some(track) = trial.tracks.iter_mut().find(|t| t.id == id) {
-        std::sync::Arc::make_mut(track).output = output;
-    }
-    rules::has_loop(&trial)
+/// Where a strip's levels are drawn, and how.
+struct Levels {
+    rect: Rect,
+    /// The strip's inner span.
+    x: Rangef,
+    /// Where the section starts.
+    y: f32,
+    /// The fader's travel.
+    travel_height: f32,
+    id: EguiId,
+    controls: theme::Controls,
+    heard: bool,
 }
 
 impl Arrangement {
@@ -290,88 +279,20 @@ impl Arrangement {
         }
         y += ROW + GAP;
 
-        // The fader, its scale and the meter (the owner's S1).
-        let travel = Rangef::new(
-            y + TRAVEL_PAD,
-            y + TRAVEL_PAD + look.sections.travel(rect.height()),
-        );
-        let fader_x = rect.left() + INSET + fader::CAP.x / 2.0 - 2.0;
-        if let Some(db) = fader::fader(
+        y = self.strip_levels(
             ui,
-            (fader_x, travel),
-            id.with("fader"),
-            track.gain_db,
-            &format!("{} fader in the mixer", track.name),
-            controls,
-        ) {
-            doc.set_volume(track.id, db);
-        }
-        let meter_rect =
-            Rect::from_x_y_ranges(rect.right() - INSET - 12.0..=rect.right() - INSET, travel);
-        meter::scale(&painter, meter_rect.left() - 4.0, travel, &MARKS);
-        let reading = self.meters.reading(track.id.0);
-        let base = if self.track_colour_meters {
-            theme::wave(color_of(track.color))
-        } else {
-            palette.accent
-        };
-        meter::vertical(&painter, meter_rect, 2.0, &reading, base, heard);
-        // The clip light, over the meter: lit until clicked.
-        let clip = Rect::from_x_y_ranges(meter_rect.x_range(), travel.min - 9.0..=travel.min - 4.0);
-        painter.rect_filled(
-            clip,
-            1.5,
-            if reading.clipped {
-                palette.record
-            } else {
-                controls.fill
+            doc,
+            &track,
+            Levels {
+                rect,
+                x,
+                y,
+                travel_height: look.sections.travel(rect.height()),
+                id,
+                controls,
+                heard,
             },
         );
-        self.clear_clip_on_click(ui, clip.expand(3.0), &track, id.with("clip"));
-        y = travel.max + TRAVEL_PAD + GAP;
-
-        // The volume typed in, and the peak held.
-        let half = (x.span() - GAP) / 2.0;
-        let volume = Rect::from_x_y_ranges(x.min..=x.min + half, y..=y + ROW);
-        let db = widgets::value_field(
-            ui,
-            volume,
-            id.with("volume"),
-            track.gain_db,
-            SliderKind::Volume,
-            &format!("{} volume in the mixer", track.name),
-        );
-        if db != track.gain_db {
-            doc.set_volume(track.id, db);
-        }
-        let peak = Rect::from_x_y_ranges(x.max - half..=x.max, y..=y + ROW);
-        let hold = reading.hold_db();
-        painter.rect_filled(
-            peak,
-            theme::radius::SMALL,
-            if reading.clipped {
-                palette.record
-            } else {
-                palette.raised
-            },
-        );
-        painter.text(
-            peak.center(),
-            Align2::CENTER_CENTER,
-            if hold > FLOOR_DB {
-                widgets::readout_db(hold)
-            } else {
-                "\u{2014}".into()
-            },
-            FontId::monospace(theme::size::CAPTION),
-            if reading.clipped {
-                theme::text_on(palette.record)
-            } else {
-                palette.text_secondary
-            },
-        );
-        self.clear_clip_on_click(ui, peak, &track, id.with("peak"));
-        y += ROW + GAP;
 
         // M, S and arm, centred.
         let ppp = ui.ctx().pixels_per_point();
@@ -429,6 +350,102 @@ impl Arrangement {
         if self.is_dragged(track.id) {
             painter.rect_filled(rect, 0.0, palette.header.gamma_multiply(0.6));
         }
+    }
+
+    /// The fader beside its scale and meter, the clip light, then the
+    /// volume typed in and the peak held (the owner's S1), from `y`.
+    /// Returns where the next row starts.
+    fn strip_levels(&mut self, ui: &mut Ui, doc: &mut Document, track: &Track, at: Levels) -> f32 {
+        let Levels {
+            rect,
+            x,
+            mut y,
+            travel_height,
+            id,
+            controls,
+            heard,
+        } = at;
+        let palette = *theme::p();
+        let painter = ui.painter_at(rect);
+        // The fader, its scale and the meter (the owner's S1).
+        let travel = Rangef::new(y + TRAVEL_PAD, y + TRAVEL_PAD + travel_height);
+        let fader_x = rect.left() + INSET + fader::CAP.x / 2.0 - 2.0;
+        if let Some(db) = fader::fader(
+            ui,
+            (fader_x, travel),
+            id.with("fader"),
+            track.gain_db,
+            &format!("{} fader in the mixer", track.name),
+            controls,
+        ) {
+            doc.set_volume(track.id, db);
+        }
+        let meter_rect =
+            Rect::from_x_y_ranges(rect.right() - INSET - 12.0..=rect.right() - INSET, travel);
+        meter::scale(&painter, meter_rect.left() - 4.0, travel, &MARKS);
+        let reading = self.meters.reading(track.id.0);
+        let base = if self.track_colour_meters {
+            theme::wave(color_of(track.color))
+        } else {
+            palette.accent
+        };
+        meter::vertical(&painter, meter_rect, 2.0, &reading, base, heard);
+        // The clip light, over the meter: lit until clicked.
+        let clip = Rect::from_x_y_ranges(meter_rect.x_range(), travel.min - 9.0..=travel.min - 4.0);
+        painter.rect_filled(
+            clip,
+            1.5,
+            if reading.clipped {
+                palette.record
+            } else {
+                controls.fill
+            },
+        );
+        self.clear_clip_on_click(ui, clip.expand(3.0), track, id.with("clip"));
+        y = travel.max + TRAVEL_PAD + GAP;
+
+        // The volume typed in, and the peak held.
+        let half = (x.span() - GAP) / 2.0;
+        let volume = Rect::from_x_y_ranges(x.min..=x.min + half, y..=y + ROW);
+        let db = widgets::value_field(
+            ui,
+            volume,
+            id.with("volume"),
+            track.gain_db,
+            SliderKind::Volume,
+            &format!("{} volume in the mixer", track.name),
+        );
+        if db != track.gain_db {
+            doc.set_volume(track.id, db);
+        }
+        let peak = Rect::from_x_y_ranges(x.max - half..=x.max, y..=y + ROW);
+        let hold = reading.hold_db();
+        painter.rect_filled(
+            peak,
+            theme::radius::SMALL,
+            if reading.clipped {
+                palette.record
+            } else {
+                palette.raised
+            },
+        );
+        painter.text(
+            peak.center(),
+            Align2::CENTER_CENTER,
+            if hold > FLOOR_DB {
+                widgets::readout_db(hold)
+            } else {
+                "\u{2014}".into()
+            },
+            FontId::monospace(theme::size::CAPTION),
+            if reading.clipped {
+                theme::text_on(palette.record)
+            } else {
+                palette.text_secondary
+            },
+        );
+        self.clear_clip_on_click(ui, peak, track, id.with("peak"));
+        y + ROW + GAP
     }
 
     /// The colour chip, a group's fold arrow, a return's letter, and the
@@ -517,166 +534,6 @@ impl Arrangement {
         }
         if let Some(name) = self.name(ui, doc, track, name_rect, (heard, None), (id, true)) {
             name.on_hover_text(&track.name);
-        }
-    }
-
-    /// Where the track plays to; a click opens the choices.
-    fn output_button(
-        &mut self,
-        ui: &mut Ui,
-        doc: &mut Document,
-        track: &Track,
-        row: Rect,
-        id: EguiId,
-    ) {
-        let palette = *theme::p();
-        let text = destination_text(doc.project(), track);
-        let response = ui
-            .interact(row, id.with("output"), Sense::click())
-            .on_hover_text("Where this track plays to");
-        response.widget_info(|| {
-            egui::WidgetInfo::labeled(
-                egui::WidgetType::ComboBox,
-                true,
-                format!("{} output in the mixer: {text}", track.name),
-            )
-        });
-        let hover = motion::hover(ui.ctx(), id.with("output hover"), response.hovered());
-        let painter = ui.painter();
-        painter.rect_filled(
-            row,
-            theme::radius::SMALL,
-            palette.control.lerp_to_gamma(palette.control_hover, hover),
-        );
-        let font = FontId::proportional(theme::size::CAPTION);
-        let shown = if painter
-            .layout_no_wrap(text.clone(), font.clone(), Color32::WHITE)
-            .size()
-            .x
-            > row.width() - 20.0
-        {
-            super::sends::shorten(painter, &text, font.clone(), row.width() - 20.0)
-        } else {
-            text
-        };
-        painter.text(
-            pos2(row.left() + 5.0, row.center().y),
-            Align2::LEFT_CENTER,
-            shown,
-            font,
-            palette.text_secondary,
-        );
-        widgets::draw_arrow(
-            painter,
-            pos2(row.right() - 8.0, row.center().y),
-            1.0,
-            palette.text_hint,
-        );
-        egui::Popup::menu(&response)
-            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-            .show(|ui| {
-                ui.set_min_width(160.0);
-                self.output_menu(ui, doc, track);
-            });
-    }
-
-    /// The choices of where `track` plays to: inside Lumen, the master and
-    /// the groups that would not feed back; then the device's output pairs
-    /// (the owner's B6), the main pair marked, the cue pair greyed.
-    fn output_menu(&mut self, ui: &mut Ui, doc: &mut Document, track: &Track) {
-        let palette = *theme::p();
-        let project = doc.project().clone();
-        let current = rules::destination(&project, track);
-        let master = track.kind == TrackKind::Master;
-        let heading = |ui: &mut Ui, text: &str| {
-            ui.label(egui::RichText::new(text).small().color(palette.text_hint));
-        };
-        let mut picked = None;
-        let mut choose = |ui: &mut Ui, label: &str, on: bool, output: Output, tip: &str| {
-            let item = ui.selectable_label(on, label);
-            let item = if tip.is_empty() {
-                item
-            } else {
-                item.on_hover_text(tip)
-            };
-            if item.clicked() {
-                picked = Some(output);
-                ui.close();
-            }
-        };
-        if !master {
-            heading(ui, "Inside Lumen");
-            choose(
-                ui,
-                "Master",
-                current == Destination::Track(project.master.id),
-                Output::Master,
-                "",
-            );
-            for target in project.tracks.iter().filter(|t| {
-                t.kind == TrackKind::Group
-                    && t.id != track.id
-                    && !would_loop(&project, track.id, Output::Track(t.id))
-            }) {
-                choose(
-                    ui,
-                    &target.name,
-                    current == Destination::Track(target.id),
-                    Output::Track(target.id),
-                    "",
-                );
-            }
-            ui.separator();
-        }
-        heading(ui, "Audio outputs");
-        // The device's outputs are looked up while a menu wants them.
-        self.outputs.wanted = true;
-        if let Some(status) = &self.outputs.status {
-            ui.label(egui::RichText::new(status).small().color(palette.text_hint));
-        }
-        let skips = if master { "" } else { "Skips the master" };
-        for (pair, names) in self.outputs.pairs.clone() {
-            let single = !names.contains('\u{00B7}');
-            let label = if single {
-                format!("{}", 2 * pair + 1)
-            } else {
-                format!("{}/{}", 2 * pair + 1, 2 * pair + 2)
-            };
-            let main = self.outputs.main == Some(pair);
-            if self.outputs.cue == Some(pair) {
-                ui.add_enabled(
-                    false,
-                    egui::Button::selectable(false, format!("{label} Cue")),
-                )
-                .on_disabled_hover_text(
-                    "Used for cue: choose another Cue output in Audio settings to use it here",
-                );
-                continue;
-            }
-            let on = match track.output {
-                Output::Device(p) => p == pair,
-                Output::Auto => master && main,
-                _ => false,
-            };
-            let text = if main { format!("{label} Main") } else { label };
-            // The master on the main pair follows it, whichever pair the
-            // audio settings make main.
-            let output = if master && main {
-                Output::Auto
-            } else {
-                Output::Device(pair)
-            };
-            let tip = if skips.is_empty() {
-                names
-            } else {
-                format!("{names} \u{00B7} {skips}")
-            };
-            choose(ui, &text, on, output, &tip);
-        }
-        if let Some(output) = picked
-            && let Err(refused) = doc.set_output(track.id, output)
-        {
-            self.note = Some(refused.reason());
         }
     }
 

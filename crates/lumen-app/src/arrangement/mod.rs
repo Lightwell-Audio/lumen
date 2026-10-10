@@ -41,6 +41,7 @@ mod samples;
 pub mod select;
 mod sends;
 mod strip;
+mod strip_output;
 pub(crate) mod strips;
 mod tracks;
 mod waves;
