@@ -19,6 +19,7 @@ mod clips;
 mod declick;
 mod engine;
 mod metronome;
+mod midi;
 mod mixer;
 mod playhead;
 mod scrub;
@@ -30,12 +31,16 @@ mod timeline;
 pub use clips::{Clip, ClipAudio, ClipPlayer, ClipShape, ClipsHandle, FadeFrames, clip_player};
 pub use engine::{Command, Engine, EngineHandle, Region, engine};
 pub use metronome::{ClickSound, MetronomeSettings};
+pub use midi::{
+    InstrumentSpec, MidiClip, MidiControl, MidiHandle, MidiNote, MidiOut, MidiPlayer, MidiTrack,
+    Target, control_list, midi_player, note_list,
+};
 pub use mixer::{
-    Bus, Buses, Compensation, CueOut, Destination, Device, Level, MAX_DEVICE_LATENCY, Mixer,
-    MixerHandle, NodeSpec, Plan, RMS_SECONDS, Routing, RoutingError, SendSpec, SidechainSpec, Tap,
-    TrackSource, compile as compile_routing, mixer,
+    Bus, Buses, Compensation, CueOut, Destination, Device, Layered, Level, MAX_DEVICE_LATENCY,
+    Mixer, MixerHandle, NodeSpec, Plan, RMS_SECONDS, Routing, RoutingError, SendSpec,
+    SidechainSpec, Tap, TrackSource, compile as compile_routing, mixer,
 };
 pub use scrub::{MAX_SPEED as MAX_SCRUB_SPEED, ScrubStyle};
 pub use snapshot::TransportSnapshot;
-pub use source::{Jump, Output, RenderContext, Source};
+pub use source::{Jump, Mode, Output, RenderContext, Source};
 pub use timeline::Timeline;

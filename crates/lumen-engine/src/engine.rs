@@ -44,7 +44,7 @@ use crate::metronome::{self, Metronome, MetronomeSettings, TestTone};
 use crate::playhead::Playhead;
 use crate::scrub::{ScrubStyle, Scrubber};
 use crate::snapshot::{Shared, TransportSnapshot};
-use crate::source::{Jump, Output, RenderContext, Source};
+use crate::source::{Jump, Mode, Output, RenderContext, Source};
 use crate::timeline::Timeline;
 
 const COMMAND_CAPACITY: usize = 256;
@@ -99,8 +99,7 @@ pub enum Command {
     /// Fade the scrub out.
     EndScrub,
     /// Stop at once and silence everything: playback, the metronome, the
-    /// test tone, scrubbing and any fade in progress. (MIDI all-notes-off joins it in
-    /// M5.)
+    /// test tone, scrubbing and any fade in progress. MIDI notes are cut too (M5 slice 1).
     Panic,
 }
 
@@ -176,6 +175,9 @@ pub struct Engine<S> {
     metronome: Metronome,
     test_tone: TestTone,
     scrub: Scrubber,
+    /// Frames processed since the engine was made: the device clock MIDI
+    /// out is timed against (`RenderContext::stream`).
+    stream: u64,
 }
 
 /// Creates the engine pair. Allocates, so call it off the audio thread.
@@ -212,6 +214,7 @@ pub fn engine<S: Source>(
         metronome: Metronome::default(),
         test_tone: TestTone::default(),
         scrub: Scrubber::default(),
+        stream: 0,
     };
     engine.publish();
     let handle = EngineHandle {
@@ -270,6 +273,18 @@ impl<S: Source> Engine<S> {
                     channels,
                     frames,
                 );
+            } else if self.source.ringing() {
+                // An instrument still rings, or a note-off waits to go out.
+                let cx = RenderContext {
+                    timeline: &self.timeline,
+                    sample_rate: rate,
+                    start: self.position,
+                    tail: false,
+                    mode: Mode::Ring,
+                    stream: self.stream,
+                };
+                let mut out = Output::new(data, frames, 0, frames, channels);
+                self.source.render(&cx, &mut out);
             } else {
                 // Meters fall to rest while nothing plays.
                 self.source.idle(rate, frames);
@@ -282,6 +297,7 @@ impl<S: Source> Engine<S> {
                 .ring_out(data, frames, channels, frames, rate);
         }
         self.test_tone.render(data, frames, channels, frames, rate);
+        self.stream += frames as u64;
         self.publish();
     }
 
@@ -306,6 +322,8 @@ impl<S: Source> Engine<S> {
                 sample_rate: self.sample_rate,
                 start: self.ahead,
                 tail: false,
+                mode: Mode::Play,
+                stream: self.stream + offset as u64 + self.lookahead.max(0) as u64,
             };
             let mut out = Output::new(data, frames, offset, n, channels);
             self.source.render(&cx, &mut out);
@@ -421,6 +439,7 @@ impl<S: Source> Engine<S> {
         self.capture_tail(channels);
         self.playing = false;
         self.ahead = self.position;
+        self.source.stopped();
     }
 
     /// Places the stopped transport at `sample`.
@@ -444,6 +463,8 @@ impl<S: Source> Engine<S> {
             sample_rate: self.sample_rate,
             start: self.ahead,
             tail: true,
+            mode: Mode::Play,
+            stream: 0,
         };
         let mut out = Output::new(buffer, MAX_FADE, 0, frames, channels);
         self.source.render(&cx, &mut out);
@@ -525,6 +546,7 @@ impl<S: Source> Engine<S> {
                     self.metronome.silence();
                     self.test_tone.silence();
                     self.scrub.silence();
+                    self.source.panic();
                 }
             }
         }

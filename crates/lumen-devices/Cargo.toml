@@ -1,0 +1,14 @@
+[package]
+name = "lumen-devices"
+description = "Lumen's built-in devices: real-time-safe DSP on lumen-core only (instruments now, effects in M8)"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+lumen-core.workspace = true
+
+[lints]
+workspace = true

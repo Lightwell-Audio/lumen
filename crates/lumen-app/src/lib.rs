@@ -51,6 +51,7 @@ mod light;
 mod media;
 mod meters;
 mod midi;
+mod midi_play;
 mod midi_settings;
 mod motion;
 mod owner;
@@ -389,8 +390,11 @@ impl eframe::App for App {
             rate,
             &ctx,
             &mut self.document,
-            &mut self.transport.audio.clips,
-            &mut self.transport.audio.mixer,
+            lanes::Handles {
+                clips: &mut self.transport.audio.clips,
+                midi: &mut self.transport.audio.midi,
+                mixer: &mut self.transport.audio.mixer,
+            },
             &cue,
         );
         self.sync_document(&ctx);

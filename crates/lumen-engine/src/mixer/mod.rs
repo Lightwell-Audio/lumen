@@ -53,7 +53,7 @@ use meter::{LoudnessReader, LoudnessTap, MeterBank};
 use plan::Ramp;
 
 use crate::declick::fade_frames;
-use crate::source::{Jump, Output, RenderContext, Source};
+use crate::source::{Jump, Mode, Output, RenderContext, Source};
 use crate::timeline::Timeline;
 
 const QUEUE: usize = 4;
@@ -73,6 +73,52 @@ pub trait TrackSource: Send {
     /// A block passed without rendering, as [`Source::idle`]: take what
     /// the UI sent meanwhile, so its queues never fill while stopped.
     fn idle(&mut self) {}
+
+    /// Playback stopped or paused, as [`Source::stopped`].
+    fn stopped(&mut self) {}
+
+    /// Panic, as [`Source::panic`].
+    fn panic(&mut self) {}
+
+    /// Something still rings or waits to be sent, as [`Source::ringing`].
+    fn ringing(&self) -> bool {
+        false
+    }
+}
+
+/// Two track sources played together into the same buses: the audio
+/// clips and the MIDI instruments (M5 slice 1).
+pub struct Layered<A, B>(pub A, pub B);
+
+impl<A: TrackSource, B: TrackSource> TrackSource for Layered<A, B> {
+    fn render(&mut self, cx: &RenderContext<'_>, buses: &mut Buses<'_>) {
+        self.0.render(cx, buses);
+        self.1.render(cx, buses);
+    }
+
+    fn locate(&mut self, timeline: &Timeline, sample_rate: u32, sample: i64, jump: Jump) {
+        self.0.locate(timeline, sample_rate, sample, jump);
+        self.1.locate(timeline, sample_rate, sample, jump);
+    }
+
+    fn idle(&mut self) {
+        self.0.idle();
+        self.1.idle();
+    }
+
+    fn stopped(&mut self) {
+        self.0.stopped();
+        self.1.stopped();
+    }
+
+    fn panic(&mut self) {
+        self.0.panic();
+        self.1.panic();
+    }
+
+    fn ringing(&self) -> bool {
+        self.0.ringing() || self.1.ringing()
+    }
 }
 
 /// The smallest meter bank: room for this many nodes before a bigger one.
@@ -311,6 +357,7 @@ impl<T: TrackSource> Source for Mixer<T> {
             let n = CHUNK.min(frames - done);
             let part_cx = RenderContext {
                 start: cx.start + done as i64,
+                stream: cx.stream + done as u64,
                 ..*cx
             };
             self.plan.clear(n);
@@ -389,6 +436,8 @@ impl<T: TrackSource> Source for Mixer<T> {
                 sample_rate,
                 start: self.cursor,
                 tail: true,
+                mode: Mode::Play,
+                stream: 0,
             };
             let length = fade_frames(sample_rate).min(CHUNK);
             if let Some(mut tail) = self.plan.input_tail(length) {
@@ -417,5 +466,17 @@ impl<T: TrackSource> Source for Mixer<T> {
 
     fn latency(&self) -> u32 {
         self.plan.latency()
+    }
+
+    fn stopped(&mut self) {
+        self.tracks.stopped();
+    }
+
+    fn panic(&mut self) {
+        self.tracks.panic();
+    }
+
+    fn ringing(&self) -> bool {
+        self.tracks.ringing()
     }
 }

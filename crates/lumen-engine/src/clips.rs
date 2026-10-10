@@ -40,7 +40,7 @@ use lumen_core::curve::Curve;
 use lumen_core::time::Ticks;
 
 use crate::mixer::{BUS_CHANNELS, Buses, TrackSource};
-use crate::source::{Jump, RenderContext};
+use crate::source::{Jump, Mode, RenderContext};
 use crate::timeline::Timeline;
 
 /// Clip edge fades: 2 ms.
@@ -581,6 +581,10 @@ impl ClipPlayer {
 
 impl TrackSource for ClipPlayer {
     fn render(&mut self, cx: &RenderContext<'_>, out: &mut Buses<'_>) {
+        if cx.mode == Mode::Ring {
+            // Stopped, and only instrument tails ring.
+            return;
+        }
         if !cx.tail {
             self.take_new(true);
         }

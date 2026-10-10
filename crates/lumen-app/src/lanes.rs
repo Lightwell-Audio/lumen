@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use eframe::egui::{self, Pos2, RichText};
 use lumen_core::time::Ticks;
-use lumen_engine::{Clip, ClipsHandle, MixerHandle};
+use lumen_engine::{Clip, ClipsHandle, MidiHandle, MixerHandle};
 use lumen_project::model::{ClipContent, Id, Project};
 
 use crate::document::{Document, DropInto, Imported};
@@ -27,6 +27,13 @@ pub struct Landing {
     pub at: Ticks,
     pub track: Id,
     drop: u64,
+}
+
+/// The handles that replace what the engine plays.
+pub struct Handles<'a> {
+    pub clips: &'a mut ClipsHandle,
+    pub midi: &'a mut MidiHandle,
+    pub mixer: &'a mut MixerHandle,
 }
 
 #[derive(Default)]
@@ -49,6 +56,11 @@ pub struct Lanes {
     built: Option<u64>,
     /// The engine's clip list needs rebuilding.
     dirty: bool,
+    /// The project state the engine's MIDI tracks were built from, and
+    /// whether they need sending again (M5 slice 1).
+    midi_built: Option<u64>,
+    midi_dirty: bool,
+    midi_cache: crate::midi_play::Cache,
     /// The project state, cue and devices the engine's routing was built
     /// from.
     routed: Option<(u64, crate::routing::Cue, crate::routing::Devices)>,
@@ -244,10 +256,10 @@ impl Lanes {
         rate: u32,
         ctx: &egui::Context,
         doc: &mut Document,
-        clips: &mut ClipsHandle,
-        mixer: &mut MixerHandle,
+        engine: Handles<'_>,
         cue: &crate::routing::Cue,
     ) {
+        let Handles { clips, midi, mixer } = engine;
         self.rate = rate;
         if self.library.update(rate, ctx) {
             self.dirty = true;
@@ -272,6 +284,11 @@ impl Lanes {
             let list = self.engine_clips(doc.project(), rate);
             self.dirty = clips.set(list).is_err();
             self.built = Some(doc.state());
+        }
+        if self.midi_dirty || self.midi_built != Some(doc.state()) {
+            let tracks = crate::midi_play::engine_midi(doc.project(), &mut self.midi_cache);
+            self.midi_dirty = midi.set(tracks).is_err();
+            self.midi_built = Some(doc.state());
         }
         // The routing follows the clips, never ahead of them: a deleted
         // track's clips fade out while its node is still there, and a new

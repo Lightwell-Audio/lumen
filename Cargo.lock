@@ -2162,6 +2162,7 @@ dependencies = [
  "egui_kittest",
  "lumen-audio",
  "lumen-core",
+ "lumen-devices",
  "lumen-engine",
  "lumen-media",
  "lumen-midi",
@@ -2196,12 +2197,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumen-devices"
+version = "0.0.1"
+dependencies = [
+ "lumen-core",
+]
+
+[[package]]
 name = "lumen-engine"
 version = "0.0.1"
 dependencies = [
  "divan",
  "lumen-audio",
  "lumen-core",
+ "lumen-devices",
  "lumen-rt",
  "rtrb",
 ]

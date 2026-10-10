@@ -11,7 +11,10 @@ use lumen_audio::{
     Status as Meters, StreamConfig, StreamInfo, Timing,
 };
 use lumen_core::product::PRODUCT_NAME;
-use lumen_engine::{ClipsHandle, EngineHandle, MixerHandle, Timeline, clip_player, engine, mixer};
+use lumen_engine::{
+    ClipsHandle, EngineHandle, Layered, MidiHandle, MixerHandle, Timeline, clip_player, engine,
+    midi_player, mixer,
+};
 
 use crate::settings::AudioSettings;
 
@@ -294,6 +297,8 @@ pub struct Audio {
     pub engine: EngineHandle,
     /// Replaces the clips the engine plays.
     pub clips: ClipsHandle,
+    /// Replaces the MIDI tracks it plays (M5).
+    pub midi: MidiHandle,
     /// Replaces the routing they play through (M4).
     pub mixer: MixerHandle,
     /// What the test device played, left and right frame by frame, for the
@@ -351,7 +356,8 @@ impl Audio {
     /// in [`Status`].
     pub fn start(choice: &Choice, timeline: Timeline) -> Self {
         let (clips, player) = clip_player();
-        let (mixer, source) = mixer(player);
+        let (midi, midi_play) = midi_player();
+        let (mixer, source) = mixer(Layered(player, midi_play));
         let (engine_handle, mut engine) = engine(timeline, source, 48_000);
         let testing = matches!(choice, Choice::Named { driver, .. } if driver == TEST_DRIVER);
         let (mut tap, heard) = if testing {
@@ -372,6 +378,7 @@ impl Audio {
             parked: Some(callback),
             engine: engine_handle,
             clips,
+            midi,
             mixer,
             heard,
             status: Status::Off(String::new()),
@@ -740,6 +747,7 @@ impl Audio {
         }
         self.engine.collect_garbage();
         self.clips.collect_garbage();
+        self.midi.collect_garbage();
         self.mixer.collect_garbage();
         changed
     }
