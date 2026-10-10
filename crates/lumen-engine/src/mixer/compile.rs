@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use super::delay::{LineKey, Lines};
 use super::meter::MeterBank;
-use super::plan::{BUS, Dev, NO_METER, NO_SIDE, Node, Out, Plan, Send, TapOut};
+use super::plan::{BUS, CHUNK, Dev, NO_METER, NO_SIDE, Node, Out, Plan, Send, TapOut};
 use super::smooth::Smoothed;
 use super::spec::{Compensation, Destination, Routing, RoutingError, Tap};
 
@@ -287,6 +287,7 @@ pub(super) fn compile_metered(
         devices,
         taps,
         lines,
+        scratch: Box::new([0.0; 2 * CHUNK]),
         by_id,
         topology: hasher.finish(),
         cue_bus: if cue_channel.is_some() {

@@ -106,6 +106,10 @@ pub struct Plan {
     pub(super) taps: Vec<TapOut>,
     /// Delay lines: compensation and latent devices.
     pub(super) lines: Lines,
+    /// Where a path is delayed on its way out (`Lines::through`): both
+    /// sides, `CHUNK` frames each. Held here rather than zeroed on the
+    /// stack every block.
+    pub(super) scratch: Box<[f32; 2 * CHUNK]>,
     /// `(id, index)` sorted by id: where tracks find their bus.
     pub(super) by_id: Vec<(u64, u32)>,
     /// Every node's bus, `BUS` samples each: left then right, `CHUNK`
@@ -159,6 +163,7 @@ impl Plan {
             devices: Vec::new(),
             taps: Vec::new(),
             lines: Lines::default(),
+            scratch: Box::new([0.0; 2 * CHUNK]),
             by_id: Vec::new(),
             buses: Vec::new(),
             sides: Vec::new(),
@@ -346,7 +351,6 @@ impl Plan {
         let frames = out.frames();
         let mut gain = [0.0f32; CHUNK];
         let gain = &mut gain[..frames];
-        let mut scratch = [0.0f32; 2 * CHUNK];
         let mut tap = tap.filter(|_| advance);
         let meters = if tap.is_some() {
             self.meters.as_deref()
@@ -383,7 +387,7 @@ impl Plan {
                 node.cue.fill(gain, rate, advance);
                 let (cue_left, cue_right) = cue.split_at_mut(CHUNK);
                 if lined_cue {
-                    let (a, b) = scratch.split_at_mut(CHUNK);
+                    let (a, b) = self.scratch.split_at_mut(CHUNK);
                     let (a, b) = (&mut a[..frames], &mut b[..frames]);
                     a.copy_from_slice(left);
                     b.copy_from_slice(right);
@@ -416,7 +420,15 @@ impl Plan {
             let taps = &self.taps[node.first_tap as usize..(node.first_tap + node.taps) as usize];
             if node.split {
                 let (lines, sides) = (&mut self.lines, &mut self.sides);
-                send_taps(taps, Tap::PreFx, lines, sides, left, right, &mut scratch);
+                send_taps(
+                    taps,
+                    Tap::PreFx,
+                    lines,
+                    sides,
+                    left,
+                    right,
+                    &mut self.scratch,
+                );
                 let devices =
                     node.first_device as usize..(node.first_device + node.devices) as usize;
                 for device in &self.devices[devices] {
@@ -428,7 +440,15 @@ impl Plan {
                     self.lines.run(device.line, left, right);
                 }
                 let (lines, sides) = (&mut self.lines, &mut self.sides);
-                send_taps(taps, Tap::PostFx, lines, sides, left, right, &mut scratch);
+                send_taps(
+                    taps,
+                    Tap::PostFx,
+                    lines,
+                    sides,
+                    left,
+                    right,
+                    &mut self.scratch,
+                );
                 // Mute, after the devices.
                 if !(node.heard.settled() && node.heard.value() == 1.0) {
                     node.heard.fill(gain, rate, advance);
@@ -441,7 +461,9 @@ impl Plan {
             for send in self.sends[sends.clone()].iter_mut().filter(|s| s.pre_fader) {
                 let at = target(send.to);
                 send.gain.fill(gain, rate, advance);
-                let (l, r) = self.lines.through(send.line, left, right, &mut scratch);
+                let (l, r) = self
+                    .lines
+                    .through(send.line, left, right, &mut self.scratch);
                 add_scaled(&mut tail[at..at + frames], l, gain);
                 add_scaled(&mut tail[at + CHUNK..at + CHUNK + frames], r, gain);
             }
@@ -454,7 +476,9 @@ impl Plan {
             for send in self.sends[sends].iter_mut().filter(|s| !s.pre_fader) {
                 let at = target(send.to);
                 send.gain.fill(gain, rate, advance);
-                let (l, r) = self.lines.through(send.line, left, right, &mut scratch);
+                let (l, r) = self
+                    .lines
+                    .through(send.line, left, right, &mut self.scratch);
                 add_scaled(&mut tail[at..at + frames], l, gain);
                 add_scaled(&mut tail[at + CHUNK..at + CHUNK + frames], r, gain);
             }
@@ -485,7 +509,7 @@ impl Plan {
                     sides,
                     left,
                     right,
-                    &mut scratch,
+                    &mut self.scratch,
                 );
             }
 
@@ -502,12 +526,16 @@ impl Plan {
             match node.out {
                 Out::Node(to) => {
                     let at = target(to);
-                    let (l, r) = self.lines.through(node.out_line, left, right, &mut scratch);
+                    let (l, r) = self
+                        .lines
+                        .through(node.out_line, left, right, &mut self.scratch);
                     add(&mut tail[at..at + frames], l);
                     add(&mut tail[at + CHUNK..at + CHUNK + frames], r);
                 }
                 Out::Hardware(pair) => {
-                    let (l, r) = self.lines.through(node.out_line, left, right, &mut scratch);
+                    let (l, r) = self
+                        .lines
+                        .through(node.out_line, left, right, &mut self.scratch);
                     let first = usize::from(pair) * 2;
                     for (side, samples) in [(0, l), (1, r)] {
                         if first + side >= out.channels() {
