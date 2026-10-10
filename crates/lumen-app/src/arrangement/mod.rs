@@ -29,6 +29,7 @@ mod buttons;
 mod clips;
 mod drop;
 pub mod handles;
+mod header_row;
 mod headers;
 mod levels;
 mod menus;
