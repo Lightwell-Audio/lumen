@@ -778,6 +778,11 @@ escapes and quotes several times.
   never kill the owner's Lumen.
 - **Before every commit:** `cargo fmt`, workspace clippy with
   `-D warnings`, and tests.
+- **Pull requests never link the session:** the title, body, comments and
+  commit messages of a PR contain no link to the Claude session (no
+  `claude.ai/code/session_…` URL, no `Claude-Session:` trailer). The owner's
+  instruction overrides the default attribution footer for these lines. Check
+  a PR body for the URL before creating or editing it.
 - **At the end of every slice** (owner rule, ADR-0029): the E2E suite
   (`cargo test -p lumen-app --test e2e`) and the real-binary smoke tests
   (`cargo test -p lumen-app --test smoke -- --ignored`) pass, and the
