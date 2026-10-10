@@ -201,9 +201,52 @@ impl Lumen {
         self.frames(2);
     }
 
-    /// Presses `key` with `modifiers`, then lets the app react.
+    /// Presses `key` with `modifiers`, then lets the app react. The
+    /// clipboard chords arrive as the real window sends them (see
+    /// [`clipboard_event`]), with an empty system clipboard.
     pub fn key(&mut self, modifiers: Modifiers, key: Key) {
-        self.harness.key_press_modifiers(modifiers, key);
+        let Some(event) = clipboard_event(modifiers, key) else {
+            self.harness.key_press_modifiers(modifiers, key);
+            self.frames(3);
+            return;
+        };
+        self.harness.event(egui::Event::ModifiersChanged(modifiers));
+        self.harness.step();
+        if let Some(event) = event {
+            self.harness.event(event);
+            self.harness.step();
+        }
+        self.harness.event(egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: false,
+            repeat: false,
+            modifiers,
+        });
+        self.harness.step();
+        self.harness
+            .event(egui::Event::ModifiersChanged(Modifiers::NONE));
+        self.frames(3);
+    }
+
+    /// Ctrl+V as the window sends it when the system clipboard holds
+    /// `text`: a Paste event, then V's release.
+    pub fn paste_with_text_on_the_clipboard(&mut self, text: &str) {
+        self.harness
+            .event(egui::Event::ModifiersChanged(Modifiers::COMMAND));
+        self.harness.step();
+        self.harness.event(egui::Event::Paste(text.into()));
+        self.harness.step();
+        self.harness.event(egui::Event::Key {
+            key: Key::V,
+            physical_key: None,
+            pressed: false,
+            repeat: false,
+            modifiers: Modifiers::COMMAND,
+        });
+        self.harness.step();
+        self.harness
+            .event(egui::Event::ModifiersChanged(Modifiers::NONE));
         self.frames(3);
     }
 
@@ -305,4 +348,28 @@ pub fn wav_at(path: &Path, seconds: f32, peak: f32) -> PathBuf {
     out.extend(data);
     std::fs::write(path, out).expect("write the test WAV");
     path.to_path_buf()
+}
+
+/// What egui-winit sends for a clipboard chord's press instead of the key
+/// (egui-winit 0.36 `is_cut_command` and friends): `Some(event)`, or
+/// `Some(None)` for Ctrl+V with no text on the system clipboard, which
+/// sends nothing; `None` for any other chord, which arrives as a key. Only
+/// the release comes through as a key.
+fn clipboard_event(modifiers: Modifiers, key: Key) -> Option<Option<egui::Event>> {
+    let windows = cfg!(target_os = "windows");
+    let cut =
+        (modifiers.command && key == Key::X) || (windows && modifiers.shift && key == Key::Delete);
+    let copy =
+        (modifiers.command && key == Key::C) || (windows && modifiers.ctrl && key == Key::Insert);
+    let paste =
+        (modifiers.command && key == Key::V) || (windows && modifiers.shift && key == Key::Insert);
+    if cut {
+        Some(Some(egui::Event::Cut))
+    } else if copy {
+        Some(Some(egui::Event::Copy))
+    } else if paste {
+        Some(None)
+    } else {
+        None
+    }
 }

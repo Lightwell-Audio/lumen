@@ -3,6 +3,7 @@
 //! M1).
 
 pub(crate) mod clip_card;
+pub(crate) mod clipboard_keys;
 mod commands;
 mod cue;
 pub(crate) mod editing;

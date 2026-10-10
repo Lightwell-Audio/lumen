@@ -665,7 +665,9 @@ fn dragging_a_playing_clip_does_not_click() {
 }
 
 /// Owner, after slice 7: a clip copied, then pasted onto another track
-/// (with keys, or from the lanes' menu) did not land there.
+/// (with keys, or from the lanes' menu) did not land there; and Ctrl+C and
+/// Ctrl+V did nothing at all in the real window (`Lumen::key` sends them
+/// as the window does).
 #[test]
 fn a_copied_clip_pastes_onto_the_track_clicked() {
     let (mut lumen, kick, snare) = with_two_clips("paste-other-track");
@@ -695,4 +697,13 @@ fn a_copied_clip_pastes_onto_the_track_clicked() {
         starts(&lumen, 1),
         [(0, BAR / 2), (2 * BAR, BAR / 2), (4 * BAR, BAR / 2)]
     );
+
+    // Ctrl+V with text on the system clipboard (the window sends a Paste
+    // event then): the clip again, on the snare's track at bar 7.
+    let spot = Pos2::new(s.left() + 24.0 * zoom + 2.0, s.center().y);
+    lumen.drag(spot, spot, Modifiers::NONE);
+    lumen.paste_with_text_on_the_clipboard("some text from elsewhere");
+    assert_eq!(starts(&lumen, 1).len(), 4);
+    assert_eq!(starts(&lumen, 1)[3], (6 * BAR, BAR / 2));
+    assert_eq!(starts(&lumen, 0).len(), 1);
 }

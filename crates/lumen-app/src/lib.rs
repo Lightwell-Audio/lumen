@@ -181,6 +181,9 @@ pub struct App {
     /// takes its focus away on Esc before the app's keys run, so that Esc
     /// is the field's (it cancels), not a clip or track key (slice 6e).
     typing: bool,
+    /// Clipboard chords egui-winit turned into events, being put back as
+    /// keys (`app/clipboard_keys.rs`).
+    clipboard_keys: app::clipboard_keys::Pending,
     /// When the meters last moved on (M4 slice 5).
     meters_at: Option<Instant>,
     /// What the lanes' right-click menu is for (owner's A, MT-APP-14 run 2).
@@ -328,6 +331,7 @@ impl eframe::App for App {
         self.drive_bench(&ctx);
         self.hint = None;
         self.transport.update();
+        self.restore_clipboard_keys(&ctx);
         self.capture_chord(&ctx);
         self.command_keys(&ctx);
         if std::mem::take(&mut self.arrangement.import_requested) {
@@ -727,6 +731,7 @@ impl App {
             canvas: egui::Rect::NOTHING,
             clipboard: None,
             typing: false,
+            clipboard_keys: Default::default(),
             meters_at: None,
             menu_for: app::editing::MenuFor::default(),
             clip_props: app::clip_card::ClipProps::default(),
