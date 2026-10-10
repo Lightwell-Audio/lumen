@@ -390,7 +390,21 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-10: **the M4 review's fixes are done on
+**Last updated:** 2026-10-10: **M4.5, a polish pass, is approved and
+under way** on `m4.5-polish` (plan `docs/milestones/M4.5.md`). The owner
+merged the M4 review fixes (PR #3; CI did not run because of GitHub
+billing, so the full suite was run locally first), then asked for an
+interface audit (`docs/audits/2026-10-10-design.md`). Every proposal was
+chosen from interactive mock-ups (an artifact; the owner-decisions table,
+"Interface audit"); the slider handle is the owner's own variant (a solid
+line that opens into ticks near its value). M4.5 runs before M5 so the
+piano roll inherits the new widgets, and is recorded as a mid milestone
+when finished. Six slices: bugs (value field fill, a `well` token, the
+scroll clamp, the shots harness), shared widgets and sizes, chrome,
+Martian Mono (ask before downloading), motion, close. Next: slice 1.
+`tests/shots.rs` renders mixed themes when run in parallel (the theme is
+process-global): run it with `--test-threads=1`.
+Before it, 2026-10-10: **the M4 review's fixes are done on
 `m4-review`** (`docs/audits/2026-10-10-m4.md`, Status table). Changes:
 - the five oversized app modules split: `arrangement/rows.rs`,
   `tracks.rs`, `header_row.rs`, `strip_output.rs`, `selection_look.rs`
@@ -539,8 +553,9 @@ escapes and quotes several times.
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
+- **M4.5 Polish pass: approved 2026-10-10, slice 1 next.**
 - **M4 Mixer, Routing & Groups: complete 2026-10-10**; the review's fixes
-  are on `m4-review`.
+  are merged (PR #3).
 - **M3 Arrangement & Project System: complete, approved 2026-10-09.** Slices 1–3 done:
   - performance gates;
   - design system, motion and typefaces;
