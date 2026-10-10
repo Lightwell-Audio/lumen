@@ -1485,3 +1485,64 @@ from −∞ gives about −42 dB, 32 about −28 dB (E2E
 four-output interface is still to be tried by hand (KNOWN_ISSUES); cue is
 checked by E2E on the four-output test device.
 
+
+### MT-MIX-5 · The mixer panel and meters (needs a human)
+Run `cargo run --release -p lumen-app`. Start a new project, drop in four
+audio files (drums, bass, a vocal, anything loud), group the first two
+(Ctrl+G) and add two return tracks ("+ Add track ▾").
+1. **Header meters (H2):** play. Each unfolded track's level runs along
+   the bottom of its volume slider, under the value that sets it: a faint
+   peak behind a solid level, a small tick holding the highest peak for a
+   moment. Folded tracks show it as a thin line along the header's bottom
+   edge. Below −6 dB it is blue, then amber, then red past 0 dB.
+2. **Stopping:** stop. Every meter falls and comes to rest within about
+   three seconds; nothing keeps moving. Task Manager shows Lumen's CPU
+   back near idle.
+3. **Clip lights:** push a loud track's volume to +6 dB and play until it
+   clips: a red mark lights at the end of its meter and stays after you
+   stop. Click it: it clears. Make two tracks clip, then Alt+click one
+   mark: both clear. Clip again and run "Clear clip lights" from Ctrl+K.
+4. **The Mixer tab:** open the detail panel (Shift+Tab, or the Detail
+   button). The Mixer tab shows a strip per track in the arrangement's
+   order, the returns after a gap, and the master pinned at the right with
+   the loudness column. Fold the group in the arrangement: its tracks'
+   strips go too; unfold it from its strip's arrow: they come back in both.
+5. **A strip:** on one strip, drag the fader (Shift for fine; double-click
+   for 0 dB), click the value under it and type -12, Enter. Drag pan, flip
+   Ø, drag the trim. Turn send A up on its knob; with more than two
+   returns, "+N ▾" lists them all. Click M and S: the header shows the
+   same. Each change undoes in one step (Ctrl+Z).
+6. **The wheel (B3):** rest the pointer on a fader and turn the wheel: a
+   dB a notch (Shift: a tenth), and Ctrl+Z undoes the whole turn. Start
+   scrolling the track list with the pointer away from the headers, then
+   move it over a volume slider while still scrolling: the list keeps
+   scrolling and the volume does not change. Rest a moment, then wheel on
+   the slider: now it changes.
+7. **Outputs:** click a strip's output ("Master ▾"). It lists the master
+   and the groups (never a group into itself), then the Focusrite's
+   outputs: "1/2 Main". Route a track into the group from here.
+8. **Reordering (B8):** drag a strip by its name or meter to another
+   place: the track moves in the arrangement too. Drop it on the middle of
+   the group's strip: it goes into the group. Drag return B before return
+   A: their letters swap.
+9. **Loudness (L2):** play a song for a minute. The column shows the
+   integrated loudness large, a short-term bar with a line for the
+   momentary loudness, the −14 LUFS band and the last minute's history,
+   then M, S and TP. Pause and continue (Shift+Space): integrated keeps
+   counting. Stop and play (Space): it starts again. Click Reset: it starts
+   again.
+10. **Pan law:** right-click the mixer's empty area: the four pan laws,
+    −3 dB chosen; pick −6 dB, linear: centred tracks get quieter. Ctrl+Z
+    returns it.
+11. **Panel size:** drag the detail panel taller and shorter. Short, the
+    strips drop their sends, then trim, then the output, but keep the
+    fader and meter; it never gets so tall that the arrangement loses its
+    rulers. Save, close and reopen: the panel's size comes back.
+12. **Meter colours:** tick "Meters in track colours" in the Lumen menu:
+    meters take their track's colour (still amber and red near the top).
+13. **Looks:** check steps 1, 4 and 9 in the light theme and at 150% and
+    200%.
+
+**Expected:** every step as described; nothing clicks or drops out while
+metering, dragging strips or turning the wheel; undo restores each change
+in one step.

@@ -3070,7 +3070,7 @@ fader and mute, the metronome on the cue pair).
 
 ## ADR-0040 — The mixer panel and meters (M4 slice 5)
 
-**Status:** In progress · **Date:** 2026-10-09
+**Status:** Accepted · **Date:** 2026-10-09
 
 ### Context
 M4 slice 5 adds the Mixer tab, meters on strips and headers, loudness on
@@ -3199,6 +3199,13 @@ waiting on the UI, and must not raise idle CPU (risk R5).
   change.
 - The test routing (`testing::routed`) measures its master, so the
   allocation guard, RTSan and the performance gate cover the loudness tap.
+- Frame times (`--stress --bench-frames`, a release-like build, the
+  200-track project with the Mixer tab open): p99 2.4 ms zooming, 3.1 ms
+  scrolling tracks, 3.2 ms scrolling time (1.5 to 1.8 ms before slice 5),
+  well inside the 120 fps target; idle 3 repaints in 3 s, as before.
+- The detail panel is now at least a strip tall (with every section
+  folded) and at most the window less 180 pt of arrangement; the Mixer tab
+  is its only working tab until Devices (M6) and Clip (M5).
 
 ### Evidence
 `lumen_core::loudness` tests: EBU Tech 3341 cases 1 to 5 within 0.1 LU,

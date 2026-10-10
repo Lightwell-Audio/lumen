@@ -390,7 +390,7 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-09: M4 slice 4 built (below). Before it, M3 slice 8 built (the exit flow, the
+**Last updated:** 2026-10-09: M4 slice 5 built (below). Before it, M3 slice 8 built (the exit flow, the
 accessibility audit, the end-of-milestone review and every finding fixed
 or recorded). MT-APP-16 passed and **M3 is approved** (2026-10-09). The M3
 report is in PROGRESS.md and M4 is proposed in `docs/milestones/M4.md`.
@@ -452,13 +452,38 @@ returns (`mixer::MAX_RETURNS`); a knob drag keeps its own travel in
 widget memory (slow drags from −∞ were lost); a knob's live value is a
 chip above it, none in lists; senders re-sort only when one joins or
 leaves. The owner keeps the standard +6 dB of an empty return. **MT-MIX-4
-passed; slice 4 is done** (2026-10-09). Next: slice 5 (the mixer panel
-and meters), with specimens first; it also owns the wheel on value
-controls and output choices (KNOWN_ISSUES). The owner asks for mock-ups
-before any visual change, bug fixes included, and checks findings fast:
-run the full suite before every push (a push once went out with two
-failing E2E tests). The owner's drag-to-cut request is recorded for M7
-with split (the M3 plan, out of scope).
+passed; slice 4 is done** (2026-10-09). **Slice 5, the mixer panel and
+meters, is built** (ADR-0040; chosen from interactive specimens, an
+artifact: S1 console strips, O2 sends (two knobs then "+N"), M1 accent
+meters with M2 track colours as a setting, L2 loudness column, H2 meters
+inside the headers' volume sliders, and B1–B8 as recommended, recorded in
+M4.md and the owner-decisions table). In parts: 5a meters in the engine
+(`mixer/meter.rs`: a lock-free bank, peaks taken with swaps, 300 ms RMS,
+clips; `lumen_core::loudness`: K-weighting, gated LUFS, 4x true peak;
+`Routing::measure` names the master; `Source::idle` lets RMS fall while
+stopped); 5b header meters (`meters.rs` ballistics, `arrangement/
+levels.rs`; integrated loudness resets on Play from stop via
+`Transport::played_from_stop`); 5c the Mixer tab (`arrangement/strips.rs`,
+`strip.rs`, `buttons.rs` shared M/S; `widgets/fader.rs`, `meter.rs`;
+strip controls are named "… in the mixer"; the mixer draws after the
+arrangement for Tab order); strips drag to reorder (B8, `reorder.rs`
+`in_mixer`) and the pan law menu; 5d the latching wheel (`widgets/
+wheel.rs`: route first thing each frame, controls take notches; wheel
+gestures stay one undo step); 5e output pairs (`Output::Device(p)` is the
+device's pair; `routing::Outputs`; `Audio::want_pairs` reopens the stream
+with the pairs the project uses). Found and fixed: saved panel sizes never
+came back (egui sizes a panel by its contents; the detail panel now
+claims its area and has a min and max). Frame times with the mixer on the
+200-track stress project p99 2.4 to 3.2 ms (was 1.5 to 1.8), idle 3
+repaints in 3 s as before; engine perf baseline updated for meters
+(+21.8% routed). MT-MIX-5 waits for the owner. Next: slice 6 (sidechain
+and delay compensation foundations). The owner asks for mock-ups before
+any visual change, bug fixes included, and checks findings fast: run the
+full suite before every push (a push once went out with two failing E2E
+tests). The owner's drag-to-cut request is recorded for M7 with split
+(the M3 plan, out of scope). Editing from scripts: write Python edits to
+a file with raw strings (`r'''…'''`); inline heredocs broke on `\u{…}`
+escapes and quotes several times.
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
