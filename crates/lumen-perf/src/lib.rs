@@ -19,7 +19,7 @@ use lumen_core::time::{TempoMap, TempoPoint, Ticks};
 use lumen_engine::testing::{latent, routed};
 use lumen_engine::{
     ClickSound, Clip, ClipAudio, ClipPlayer, Command, Destination, Engine, MetronomeSettings,
-    Mixer, NodeSpec, Region, Routing, Timeline, clip_player, engine, mixer,
+    Mixer, MixerHandle, NodeSpec, Region, Routing, Timeline, clip_player, engine, mixer,
 };
 use lumen_project::model::Project;
 use lumen_project::testing::synthetic;
@@ -38,6 +38,10 @@ pub const SCENARIOS: &[(&str, &str)] = &[
     (
         "engine_latent_64",
         "1,000 blocks of 128 frames: the routed mix with delay compensation and a sidechain",
+    ),
+    (
+        "engine_latent_swaps_64",
+        "1,000 blocks of 128 frames: the compensated mix with new levels every block (a fader drag)",
     ),
     (
         "engine_transport",
@@ -71,6 +75,17 @@ pub fn run(name: &str) -> bool {
         "engine_latent_64" => {
             let mut engine = playing_clips(64, Mix::Latent);
             measured_engine_latent_64(&mut engine);
+        }
+        "engine_latent_swaps_64" => {
+            let (mut routing, mut engine) = playing_clips_routed(64, Mix::Latent);
+            // Two plans with the same shape and different levels
+            // (`latent`'s variants 0 and 6), compiled outside the measure.
+            let plans = [latent(64, 0), latent(64, 6)];
+            for block in 0..1_000 {
+                assert!(routing.set(&plans[block % 2]).expect("a valid routing"));
+                measured_engine_latent_swaps_64(&mut engine);
+                routing.collect_garbage();
+            }
         }
         "engine_transport" => {
             let (handle, mut engine) = transport_only();
@@ -111,6 +126,11 @@ enum Mix {
 
 /// `clips` clips playing, mixed as `mix`.
 fn playing_clips(clips: usize, mix: Mix) -> Player {
+    playing_clips_routed(clips, mix).1
+}
+
+/// As [`playing_clips`], with the handle that sends it new routings.
+fn playing_clips_routed(clips: usize, mix: Mix) -> (MixerHandle, Player) {
     let routed_mix = mix != Mix::Direct;
     let audio = Arc::new(ClipAudio {
         sample_rate: RATE,
@@ -151,7 +171,7 @@ fn playing_clips(clips: usize, mix: Mix) -> Player {
     for _ in 0..10 {
         engine.process(RATE, &mut data, 2, FRAMES);
     }
-    engine
+    (routing, engine)
 }
 
 #[unsafe(no_mangle)]
@@ -185,6 +205,16 @@ pub fn measured_engine_latent_64(engine: &mut Player) {
     }
     // Distinct from the other scenarios, so the linker keeps it apart.
     black_box((&data, engine.transport().ticks));
+}
+
+/// One block that takes a new plan, as during a fader drag. Called once
+/// per block: Callgrind adds up every call.
+#[unsafe(no_mangle)]
+#[inline(never)]
+pub fn measured_engine_latent_swaps_64(engine: &mut Player) {
+    let mut data = [0.0; 2 * FRAMES];
+    engine.process(RATE, &mut data, 2, FRAMES);
+    black_box((&data, engine.transport().playing));
 }
 
 fn transport_only() -> (lumen_engine::EngineHandle, Player) {
@@ -280,6 +310,7 @@ mod tests {
             "engine_clips_64",
             "engine_routed_64",
             "engine_latent_64",
+            "engine_latent_swaps_64",
             "engine_transport",
             "tempo_conversions",
         ] {
