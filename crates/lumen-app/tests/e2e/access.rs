@@ -106,8 +106,10 @@ fn every_control_in_every_m3_view_has_a_name() {
     lumen.key(Modifiers::NONE, Key::Escape);
 
     lumen.click("Lumen");
-    lumen.click("Audio settings\u{2026}");
+    lumen.click("Audio and MIDI settings\u{2026}");
     check(&lumen, "audio settings", &mut problems);
+    lumen.click("MIDI tab");
+    check(&lumen, "MIDI settings", &mut problems);
     lumen.key(Modifiers::NONE, Key::Escape);
 
     lumen.click("Lumen");

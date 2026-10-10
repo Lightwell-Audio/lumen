@@ -126,7 +126,12 @@ pub fn validate(project: &Project) -> Result<(), String> {
                         return Err(format!("{}: negative media offset", at()));
                     }
                 }
-                ClipContent::Midi { notes } => {
+                ClipContent::Midi { notes, events } => {
+                    for (n, event) in events.iter().enumerate() {
+                        if event.at < Ticks::ZERO || !event.kind.in_range() {
+                            return Err(format!("{}: event {n} is out of range", at()));
+                        }
+                    }
                     for (n, note) in notes.iter().enumerate() {
                         if note.pitch() > 127
                             || !(1..=127).contains(&note.velocity())

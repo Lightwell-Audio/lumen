@@ -26,6 +26,8 @@ pub enum Action {
     ControlPanel,
     TestTone(bool),
     DismissNotice,
+    /// Something on the MIDI page.
+    Midi(crate::midi::Action),
 }
 
 /// A driver's devices as (id, name), or why they could not be listed.
@@ -136,6 +138,8 @@ pub struct Window {
     /// The driver whose devices are shown (may differ from the one in use
     /// until a device is chosen).
     driver: Option<String>,
+    /// The page shown: the audio device (0) or MIDI (1).
+    pub page: usize,
     /// The notice shown last, kept while it fades out.
     last_notice: Option<String>,
 }
@@ -169,7 +173,7 @@ impl Window {
 const WINDOW_WIDTH: f32 = 440.0;
 
 /// A section heading with even spacing above and below.
-fn section(ui: &mut Ui, title: &str) {
+pub(crate) fn section(ui: &mut Ui, title: &str) {
     ui.add_space(theme::space::M);
     ui.label(RichText::new(title).font(crate::fonts::medium(theme::size::BODY)));
     ui.add_space(theme::space::XS);
@@ -203,7 +207,7 @@ fn dot(ui: &mut Ui, color: egui::Color32) {
 
 /// Warning text that wraps within the space left (minus `reserve` for a
 /// button beside it), so a long driver message never widens the window.
-fn warning(ui: &mut Ui, text: &str, reserve: f32) -> egui::Response {
+pub(crate) fn warning(ui: &mut Ui, text: &str, reserve: f32) -> egui::Response {
     let width = (ui.available_width() - reserve).max(120.0);
     ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
         ui.set_max_width(width);
@@ -212,7 +216,7 @@ fn warning(ui: &mut Ui, text: &str, reserve: f32) -> egui::Response {
     .inner
 }
 
-fn hint(ui: &mut Ui, text: &str) {
+pub(crate) fn hint(ui: &mut Ui, text: &str) {
     ui.label(RichText::new(text).small().weak());
 }
 
@@ -248,16 +252,51 @@ fn channels_of(pair: usize, names: &[String]) -> Vec<usize> {
 }
 
 impl Window {
-    pub fn show(&mut self, ctx: &egui::Context, audio: &Audio, test_tone: bool) -> Vec<Action> {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        audio: &Audio,
+        midi: &crate::midi::Midi,
+        test_tone: bool,
+    ) -> Vec<Action> {
         let mut actions = Vec::new();
         if !self.open {
             return actions;
         }
         self.catalog.poll();
         let top_centre = egui::pos2(ctx.content_rect().center().x, 72.0);
-        let close = crate::widgets::Dialog::new("audio settings", "Audio settings", WINDOW_WIDTH)
-            .at(top_centre, egui::Align2::CENTER_TOP)
-            .show(ctx, |ui| self.contents(ui, audio, test_tone, &mut actions));
+        let close =
+            crate::widgets::Dialog::new("audio settings", "Audio and MIDI settings", WINDOW_WIDTH)
+                .at(top_centre, egui::Align2::CENTER_TOP)
+                .show(ctx, |ui| {
+                    let pages = [
+                        widgets::Tab {
+                            label: "Audio",
+                            disabled_because: None,
+                            tip: "Audio device, latency and test tone",
+                        },
+                        widgets::Tab {
+                            label: "MIDI",
+                            disabled_because: None,
+                            tip: "MIDI inputs and outputs",
+                        },
+                    ];
+                    if let Some(page) =
+                        widgets::tabs(ui, egui::Id::new("settings pages"), self.page, &pages)
+                    {
+                        self.page = page;
+                    }
+                    if self.page == 1 {
+                        let mut asked = Vec::new();
+                        crate::midi_settings::page(ui, midi, &mut asked);
+                        actions.extend(asked.into_iter().map(Action::Midi));
+                        // New devices appear while the window is open.
+                        ui.ctx()
+                            .request_repaint_after(std::time::Duration::from_millis(300));
+                    } else {
+                        self.contents(ui, audio, test_tone, &mut actions);
+                    }
+                });
         let open = !close;
         self.open = open;
         actions

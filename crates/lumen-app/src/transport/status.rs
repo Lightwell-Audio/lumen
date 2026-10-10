@@ -97,10 +97,19 @@ impl Transport {
 
     /// The audio panel: device, Audio On/Off, test tone, meters, panic.
     /// The audio settings window, when open; carries out what it asks.
-    pub fn windows(&mut self, ctx: &egui::Context) {
+    pub fn windows(
+        &mut self,
+        ctx: &egui::Context,
+        midi: &crate::midi::Midi,
+    ) -> Vec<crate::midi::Action> {
         use crate::audio_settings::Action;
-        for action in self.settings_window.show(ctx, &self.audio, self.test_tone) {
+        let mut asked = Vec::new();
+        for action in self
+            .settings_window
+            .show(ctx, &self.audio, midi, self.test_tone)
+        {
             match action {
+                Action::Midi(action) => asked.push(action),
                 Action::Apply(settings) => {
                     crate::trace::log(|| format!("audio: apply {settings:?}"));
                     self.audio.apply(settings);
@@ -114,6 +123,7 @@ impl Transport {
                 }
             }
         }
+        asked
     }
 
     fn audio_panel(&mut self, ui: &mut Ui, project: &Project) {
@@ -166,7 +176,7 @@ impl Transport {
             self.audio.set_on(on);
         }
         if ui
-            .button("Audio settings…")
+            .button("Audio and MIDI settings…")
             .on_hover_text("Choose the driver, device, sample rate, buffer and channels")
             .clicked()
         {

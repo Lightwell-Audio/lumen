@@ -17,7 +17,7 @@ fn main() {
         .iter()
         .flat_map(|t| &t.clips)
         .map(|c| match &c.content {
-            ClipContent::Midi { notes } => notes.len(),
+            ClipContent::Midi { notes, .. } => notes.len(),
             ClipContent::Audio { .. } => 0,
         })
         .sum();

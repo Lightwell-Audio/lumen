@@ -298,7 +298,7 @@ mod tests {
                         fade_in: Default::default(),
                         fade_out: Default::default(),
                         loop_length: None,
-                        content: ClipContent::Midi { notes: vec![] },
+                        content: ClipContent::midi(),
                     });
                     Arc::make_mut(&mut project.tracks[i]).clips.push(clip);
                 }

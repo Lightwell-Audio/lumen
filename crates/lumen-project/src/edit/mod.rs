@@ -17,7 +17,9 @@ use std::sync::Arc;
 
 use lumen_core::time::{TempoMap, Ticks};
 
-use crate::model::{Clip, ClipContent, Id, Note, Project};
+#[cfg(test)]
+use crate::model::EventKind;
+use crate::model::{Clip, ClipContent, ClipEvent, Id, Note, Project};
 
 mod clipboard;
 
@@ -50,7 +52,7 @@ pub fn slice(project: &Project, tempo: &TempoMap, clip: &Clip, a: Ticks, b: Tick
                 *offset += tempo.sample_at(start, rate) - tempo.sample_at(clip.start, rate);
             }
         }
-        ClipContent::Midi { notes } => {
+        ClipContent::Midi { notes, events } => {
             *notes = notes
                 .iter()
                 .filter_map(|n| {
@@ -62,6 +64,7 @@ pub fn slice(project: &Project, tempo: &TempoMap, clip: &Clip, a: Ticks, b: Tick
                         .then(|| Note(from - cut, to - from, n.pitch(), n.velocity()))
                 })
                 .collect();
+            shift_events(events, cut, part.length);
         }
     }
     if start != clip.start {
@@ -211,7 +214,10 @@ pub fn trim(
                         - tempo.sample_at(clip.start, rate))
                     .max(0);
                 }
-                ClipContent::Midi { notes } => shift_notes(notes, moved, c.length),
+                ClipContent::Midi { notes, events } => {
+                    shift_notes(notes, moved, c.length);
+                    shift_events(events, moved, c.length);
+                }
             }
         }
         Edge::End => {
@@ -229,8 +235,9 @@ pub fn trim(
                 new_end = new_end.min(latest.max(clip.start + MIN_LENGTH));
             }
             c.length = new_end - clip.start;
-            if let ClipContent::Midi { notes } = &mut c.content {
+            if let ClipContent::Midi { notes, events } = &mut c.content {
                 shift_notes(notes, Ticks::ZERO, c.length);
+                shift_events(events, Ticks::ZERO, c.length);
             }
         }
     }
@@ -258,6 +265,17 @@ fn shift_notes(notes: &mut Vec<Note>, by: Ticks, length: Ticks) {
         .collect();
 }
 
+/// Events `by` earlier in a clip now `length` long: those outside it go.
+fn shift_events(events: &mut Vec<ClipEvent>, by: Ticks, length: Ticks) {
+    *events = events
+        .iter()
+        .filter_map(|e| {
+            let at = e.at - by;
+            (at >= Ticks::ZERO && at < length).then_some(ClipEvent { at, ..*e })
+        })
+        .collect();
+}
+
 /// `clip` with its content slid `by` (later when positive) inside it,
 /// the clip itself staying put (Ctrl+Alt+drag). Audio slides no further
 /// than the file allows.
@@ -278,7 +296,10 @@ pub fn slip(project: &Project, tempo: &TempoMap, clip: &Clip, by: Ticks) -> Clip
             };
             *offset = (*offset - moved).clamp(0, last.max(0));
         }
-        ClipContent::Midi { notes } => shift_notes(notes, Ticks::ZERO - by, clip.length),
+        ClipContent::Midi { notes, events } => {
+            shift_notes(notes, Ticks::ZERO - by, clip.length);
+            shift_events(events, Ticks::ZERO - by, clip.length);
+        }
     }
     c
 }
@@ -503,12 +524,26 @@ mod tests {
         let mut clip = (*p.tracks[1].clips[0]).clone();
         clip.content = ClipContent::Midi {
             notes: vec![Note(q(1), q(1), 60, 100), Note(q(5), q(2), 62, 90)],
+            events: vec![
+                ClipEvent {
+                    at: q(1),
+                    kind: EventKind::Pressure { value: 10 },
+                },
+                ClipEvent {
+                    at: q(5),
+                    kind: EventKind::Pressure { value: 20 },
+                },
+            ],
         };
         let part = slice(&p, &tempo_of(&p), &clip, q(4), q(6)).unwrap();
         assert_eq!(
             part.content,
             ClipContent::Midi {
-                notes: vec![Note(q(1), q(1), 62, 90)]
+                notes: vec![Note(q(1), q(1), 62, 90)],
+                events: vec![ClipEvent {
+                    at: q(1),
+                    kind: EventKind::Pressure { value: 20 },
+                }],
             }
         );
     }

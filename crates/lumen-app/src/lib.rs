@@ -50,6 +50,8 @@ mod launch;
 mod light;
 mod media;
 mod meters;
+mod midi;
+mod midi_settings;
 mod motion;
 mod owner;
 mod panels;
@@ -123,6 +125,8 @@ pub struct App {
     /// The leftover being recovered (its open is in progress).
     recovering: Option<autosave::Leftover>,
     transport: Transport,
+    /// MIDI ports and the user's switches for them (M5 slice 0).
+    midi: midi::Midi,
     /// Audio clips on the simple timeline (M2 slice 6).
     lanes: lanes::Lanes,
     /// Where dropped files go: under the pointer, snapped, or the playhead.
@@ -411,7 +415,19 @@ impl eframe::App for App {
         self.crash_banner(ui);
         self.file_banner(ui);
         self.recovery_banner(ui);
-        self.transport.windows(&ctx);
+        for action in self.transport.windows(&ctx, &self.midi) {
+            self.midi.apply(&action);
+            if let midi::Action::Use(id, using) = &action {
+                midi::Midi::remember(&mut self.settings.midi, id, *using);
+                self.settings_changed = Some(Instant::now());
+            }
+        }
+        if self.midi.poll() {
+            ctx.request_repaint();
+        }
+        if let Some(notice) = self.midi.notices.pop() {
+            self.transport.audio.notice = Some(notice);
+        }
         self.history_window(&ctx);
         self.prompt_window(&ctx);
         self.shortcuts_window(&ctx);
@@ -618,8 +634,10 @@ impl App {
         let saved_appearance = saved.appearance.clone();
         let keymap = commands::Keymap::from_saved(&saved.commands.shortcuts);
         let palette = app::palette::Palette::with_recent(&saved.commands.recent);
+        let midi = midi::Midi::start(launch.midi, &saved.midi);
         let mut app = App {
             transport,
+            midi,
             lanes,
             drop_target: Ticks::ZERO,
             drop_into: document::DropInto::NewTracks {

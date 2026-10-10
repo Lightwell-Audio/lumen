@@ -20,6 +20,7 @@ pub const FIRST_VERSION: u64 = 1;
 /// `MIGRATIONS[i]` upgrades version `FIRST_VERSION + i` to the next one.
 pub const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10,
+    v10_to_v11,
 ];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
@@ -291,6 +292,13 @@ fn v9_to_v10(mut document: Value) -> Result<Value, String> {
     if let Some(view) = view {
         view.entry("returns_folded").or_insert(Value::from(false));
     }
+    Ok(document)
+}
+
+/// v11 (M5 slice 0): MIDI clips may carry controller, pitch-bend,
+/// pressure and program events beside their notes. They are written only
+/// when present, so nothing in an older file changes.
+fn v10_to_v11(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
@@ -584,6 +592,14 @@ mod tests {
         let v10 = upgrade(v9, 9, FIRST_VERSION, MIGRATIONS).unwrap();
         assert_eq!(v10["project"]["view"]["returns_folded"], json!(false));
         assert!(v10["project"]["view"].get("returns_height").is_none());
+    }
+
+    #[test]
+    fn v10_to_v11_leaves_midi_clips_as_they_were() {
+        let clip = json!({ "type": "midi", "notes": [[0, 352_800, 60, 100]] });
+        let v10 = json!({ "version": 10, "project": { "tracks": [{ "clips": [{ "content": clip.clone() }] }] } });
+        let v11 = upgrade(v10, 10, FIRST_VERSION, MIGRATIONS).unwrap();
+        assert_eq!(v11["project"]["tracks"][0]["clips"][0]["content"], clip);
     }
 
     #[test]

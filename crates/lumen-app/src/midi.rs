@@ -1,0 +1,208 @@
+//! MIDI for the app: the device layer (`lumen-midi`) with the user's
+//! switches, saved in the settings. Listing and opening ports happens on
+//! the layer's own thread; the UI reads a snapshot (M5 slice 0, ADR-0044).
+
+use std::collections::HashMap;
+use std::time::Duration;
+
+use lumen_core::product::PRODUCT_NAME;
+use lumen_midi::fake::FakeControl;
+use lumen_midi::{Direction, MidiSystem, PortEvent, PortId, PortState, Use};
+
+use crate::settings;
+
+/// Where MIDI ports come from.
+#[derive(Clone)]
+pub enum Source {
+    /// The operating system's MIDI.
+    System,
+    /// No MIDI at all (`--midi off`).
+    Off,
+    /// A scripted driver, for tests (`--midi test:fake` starts an empty one).
+    Test(FakeControl),
+}
+
+impl Source {
+    /// Parses `--midi`.
+    pub fn parse(arg: &str) -> Result<Self, String> {
+        match arg {
+            "system" => Ok(Source::System),
+            "off" => Ok(Source::Off),
+            "test:fake" => Ok(Source::Test(FakeControl::new())),
+            _ => Err(format!(
+                "--midi takes system, off or test:fake, not {arg:?}"
+            )),
+        }
+    }
+}
+
+/// What the settings window asks for.
+pub enum Action {
+    Use(PortId, Use),
+    Rescan,
+}
+
+pub struct Midi {
+    system: Option<MidiSystem>,
+    /// Plugging and failures worth telling the user, newest last.
+    pub notices: Vec<String>,
+}
+
+fn direction_key(direction: Direction) -> &'static str {
+    match direction {
+        Direction::Input => "input",
+        Direction::Output => "output",
+    }
+}
+
+impl Midi {
+    pub fn start(source: Source, saved: &settings::Midi) -> Self {
+        let uses: HashMap<PortId, Use> = saved
+            .ports
+            .iter()
+            .filter_map(|p| {
+                let direction = match p.direction.as_str() {
+                    "input" => Direction::Input,
+                    "output" => Direction::Output,
+                    _ => return None,
+                };
+                let id = PortId {
+                    direction,
+                    name: p.name.clone(),
+                };
+                Some((
+                    id,
+                    Use {
+                        track: p.track,
+                        remote: p.remote,
+                    },
+                ))
+            })
+            .collect();
+        let system = match source {
+            Source::Off => None,
+            Source::System => Some(MidiSystem::start(
+                || {
+                    lumen_midi::midir_host::MidirHost::new(PRODUCT_NAME)
+                        .map(|h| Box::new(h) as Box<dyn lumen_midi::Backend>)
+                },
+                uses,
+                lumen_midi::system::POLL,
+            )),
+            Source::Test(fake) => {
+                let backend = fake.backend();
+                Some(MidiSystem::start(
+                    move || Ok(Box::new(backend)),
+                    uses,
+                    Duration::from_millis(20),
+                ))
+            }
+        };
+        Self {
+            system,
+            notices: Vec::new(),
+        }
+    }
+
+    /// The ports present now, inputs first.
+    pub fn ports(&self) -> Vec<PortState> {
+        let mut ports = self
+            .system
+            .as_ref()
+            .map(MidiSystem::ports)
+            .unwrap_or_default();
+        ports.sort_by(|a, b| a.info.id.cmp(&b.info.id));
+        ports
+    }
+
+    /// Why MIDI is not available, if it is not.
+    pub fn unavailable(&self) -> Option<String> {
+        match &self.system {
+            None => Some("MIDI is switched off for this run".into()),
+            Some(s) => s.unavailable(),
+        }
+    }
+
+    /// Plugging and unplugging since the last call, as notices. True when
+    /// the ports changed (the window should redraw).
+    pub fn poll(&mut self) -> bool {
+        let Some(system) = &self.system else {
+            return false;
+        };
+        let events = system.events();
+        let changed = !events.is_empty();
+        for event in events {
+            if let PortEvent::Failed(id, why) = event {
+                self.notices
+                    .push(format!("MIDI {} could not open: {why}", id.name));
+            }
+        }
+        changed
+    }
+
+    pub fn apply(&self, action: &Action) {
+        let Some(system) = &self.system else { return };
+        match action {
+            Action::Use(id, using) => system.set_use(id.clone(), *using),
+            Action::Rescan => system.rescan(),
+        }
+    }
+
+    /// Folds a port's new switches into what is saved. Ports that are
+    /// switched off everywhere are forgotten.
+    pub fn remember(saved: &mut settings::Midi, id: &PortId, using: Use) {
+        let key = direction_key(id.direction);
+        saved
+            .ports
+            .retain(|p| !(p.direction == key && p.name == id.name));
+        if using.any() {
+            saved.ports.push(settings::MidiPort {
+                direction: key.into(),
+                name: id.name.clone(),
+                track: using.track,
+                remote: using.remote,
+            });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn switches_are_remembered_by_port_and_forgotten_when_off() {
+        let id = PortId {
+            direction: Direction::Input,
+            name: "Keys".into(),
+        };
+        let mut saved = settings::Midi::default();
+        Midi::remember(
+            &mut saved,
+            &id,
+            Use {
+                track: true,
+                remote: false,
+            },
+        );
+        Midi::remember(
+            &mut saved,
+            &id,
+            Use {
+                track: true,
+                remote: true,
+            },
+        );
+        assert_eq!(saved.ports.len(), 1);
+        assert!(saved.ports[0].remote);
+        Midi::remember(&mut saved, &id, Use::default());
+        assert!(saved.ports.is_empty());
+    }
+
+    #[test]
+    fn the_flag_names_its_sources() {
+        assert!(matches!(Source::parse("off"), Ok(Source::Off)));
+        assert!(matches!(Source::parse("test:fake"), Ok(Source::Test(_))));
+        assert!(Source::parse("jack").is_err());
+    }
+}

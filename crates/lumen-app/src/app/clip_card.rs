@@ -585,7 +585,7 @@ impl App {
             }
         } else {
             row(ui, "State", |ui| self.card_toggles(ui, clip));
-            if let ClipContent::Midi { notes } = &clip.content {
+            if let ClipContent::Midi { notes, .. } = &clip.content {
                 ui.separator();
                 ui.label(
                     RichText::new(format!("MIDI clip · {} notes", notes.len()))
@@ -635,7 +635,7 @@ mod tests {
             fade_in: Fade::default(),
             fade_out: Fade::default(),
             loop_length: None,
-            content: ClipContent::Midi { notes: vec![] },
+            content: ClipContent::midi(),
         }
     }
 

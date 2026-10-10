@@ -47,6 +47,7 @@ accesskit = "0.24"
 accesskit_winit = "0.32"
 lumen-render = { path = "crates/lumen-render" }
 lumen-audio = { path = "crates/lumen-audio" }
+lumen-midi = { path = "crates/lumen-midi" }
 lumen-project = { path = "crates/lumen-project" }
 lumen-engine = { path = "crates/lumen-engine" }
 lumen-media = { path = "crates/lumen-media" }

@@ -150,6 +150,7 @@ pub fn synthetic(
                                         )
                                     })
                                     .collect(),
+                                events: Vec::new(),
                             },
                         },
                     })

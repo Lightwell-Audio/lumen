@@ -28,6 +28,7 @@ mod light;
 mod locators;
 mod looping;
 mod meters;
+mod midi;
 mod mixer;
 mod mixing;
 mod motion;

@@ -655,7 +655,7 @@ report: {}",
                     {
                         self.transport.audio.set_on(true);
                     }
-                    if ui.button("Audio settings…").clicked() {
+                    if ui.button("Audio and MIDI settings…").clicked() {
                         self.transport.settings_window.open = true;
                     }
                 });

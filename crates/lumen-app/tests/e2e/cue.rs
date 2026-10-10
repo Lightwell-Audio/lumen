@@ -28,7 +28,7 @@ fn loudest(lumen: &mut Lumen) -> (f32, f32) {
 /// Chooses the test device's outputs 3 and 4 as the cue pair.
 fn choose_cue_pair(lumen: &mut Lumen) {
     lumen.click("Lumen");
-    lumen.click("Audio settings\u{2026}");
+    lumen.click("Audio and MIDI settings\u{2026}");
     // The pair is listed under Output and under Cue: the second is the cue.
     let label = "3/4   Out 3 / Out 4";
     // The window lists the device's outputs once its background look-up

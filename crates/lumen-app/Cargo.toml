@@ -17,6 +17,7 @@ lumen-audio.workspace = true
 lumen-core.workspace = true
 lumen-engine.workspace = true
 lumen-media.workspace = true
+lumen-midi.workspace = true
 lumen-project.workspace = true
 lumen-render.workspace = true
 lumen-rt.workspace = true

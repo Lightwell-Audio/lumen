@@ -208,6 +208,27 @@ pub struct Commands {
     pub recent: Vec<String>,
 }
 
+/// What the user switched on for one MIDI port (M5 slice 0). Ports are
+/// found by direction and name, and stay remembered while unplugged.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MidiPort {
+    /// `input` or `output`.
+    pub direction: String,
+    pub name: String,
+    #[serde(default)]
+    pub track: bool,
+    #[serde(default)]
+    pub remote: bool,
+}
+
+/// The MIDI page of the settings: an added field with a default, so older
+/// files read as before (no version change).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Midi {
+    pub ports: Vec<MidiPort>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -221,6 +242,7 @@ pub struct Settings {
     pub time_format: crate::timefmt::TimeFormat,
     pub commands: Commands,
     pub mixing: Mixing,
+    pub midi: Midi,
 }
 
 impl Default for Settings {
@@ -235,6 +257,7 @@ impl Default for Settings {
             time_format: crate::timefmt::TimeFormat::default(),
             commands: Commands::default(),
             mixing: Mixing::default(),
+            midi: Midi::default(),
         }
     }
 }
@@ -426,6 +449,14 @@ mod tests {
                 cue_mode: true,
                 cue_volume_db: -6.0,
                 track_colour_meters: true,
+            },
+            midi: Midi {
+                ports: vec![MidiPort {
+                    direction: "input".into(),
+                    name: "Keys".into(),
+                    track: true,
+                    remote: true,
+                }],
             },
         };
         save(&path, &settings).unwrap();

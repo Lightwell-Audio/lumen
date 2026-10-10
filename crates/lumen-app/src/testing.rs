@@ -26,6 +26,7 @@ impl Launch {
             settings_warning: None,
             settings_path: None,
             audio: audio::Choice::test_device(),
+            midi: crate::midi::Source::Test(lumen_midi::fake::FakeControl::new()),
             autosave_dir: Some(dir.join("autosave")),
             autosave_after: None,
             crash_dir: Some(dir.join("crashes")),
@@ -51,6 +52,13 @@ impl Launch {
     /// Opens `project` at start, as `lumen song.lumen` does.
     pub fn opening(mut self, project: PathBuf) -> Self {
         self.open = Some(project);
+        self
+    }
+
+    /// Starts with MIDI ports from `fake`, which the test plugs and
+    /// unplugs.
+    pub fn with_midi(mut self, fake: lumen_midi::fake::FakeControl) -> Self {
+        self.midi = crate::midi::Source::Test(fake);
         self
     }
 
@@ -222,6 +230,19 @@ impl App {
     /// The metronome's output as the settings hold it: `main` or `cue`.
     pub fn saved_metronome_output(&self) -> &str {
         &self.settings.metronome.output
+    }
+
+    /// The MIDI switches the settings hold: (direction, name, track, remote).
+    pub fn saved_midi_ports(&self) -> Vec<(String, String, bool, bool)> {
+        let mut ports: Vec<_> = self
+            .settings
+            .midi
+            .ports
+            .iter()
+            .map(|p| (p.direction.clone(), p.name.clone(), p.track, p.remote))
+            .collect();
+        ports.sort();
+        ports
     }
 
     fn heard_frames(&mut self) -> Vec<[f32; 4]> {

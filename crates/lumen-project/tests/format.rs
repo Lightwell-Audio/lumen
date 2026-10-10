@@ -11,8 +11,8 @@ use lumen_core::pan::PanLaw;
 use lumen_core::time::{PPQ, TempoPoint, Ticks};
 use lumen_project::migrate::CURRENT_VERSION;
 use lumen_project::model::{
-    Clip, ClipContent, Color, Device, Id, Level, Media, Note, Output, PluginRef, Project, Send,
-    TimeSignature, Track, TrackKind,
+    Clip, ClipContent, ClipEvent, Color, Device, EventKind, Id, Level, Media, Note, Output,
+    PluginRef, Project, Send, TimeSignature, Track, TrackKind,
 };
 use lumen_project::model::{Marker, TransportState, ViewState};
 use lumen_project::testing::{TempDir, small_project, synthetic};
@@ -83,6 +83,7 @@ fn golden_v1_expected() -> Project {
                 Note(Ticks::ZERO, Ticks(PPQ / 4), 36, 100),
                 Note(Ticks(PPQ / 3), Ticks(PPQ / 4), 43, 90),
             ],
+            events: Vec::new(),
         },
     })];
     Project {
@@ -323,6 +324,66 @@ fn golden_v10_expected() -> Project {
     project
 }
 
+/// The model the v11 golden file must always load as: v10 with the drum
+/// MIDI clip carrying a controller, pitch bend, pressure and a program change.
+fn golden_v11_expected() -> Project {
+    let mut project = Project {
+        name: "Golden v11".into(),
+        ..golden_v10_expected()
+    };
+    let track = project
+        .tracks
+        .iter_mut()
+        .find(|t| {
+            t.clips
+                .iter()
+                .any(|c| matches!(c.content, ClipContent::Midi { .. }))
+        })
+        .expect("the golden project has a MIDI clip");
+    for clip in &mut Arc::make_mut(track).clips {
+        if let ClipContent::Midi { events, .. } = &mut Arc::make_mut(clip).content {
+            let at = |t| Ticks(PPQ * t / 4);
+            *events = vec![
+                ClipEvent {
+                    at: at(0),
+                    kind: EventKind::Program {
+                        program: 5,
+                        bank: Some(130),
+                    },
+                },
+                ClipEvent {
+                    at: at(1),
+                    kind: EventKind::Controller {
+                        number: 64,
+                        value: 127,
+                    },
+                },
+                ClipEvent {
+                    at: at(2),
+                    kind: EventKind::PitchBend { value: -2048 },
+                },
+                ClipEvent {
+                    at: at(3),
+                    kind: EventKind::Pressure { value: 90 },
+                },
+            ];
+        }
+    }
+    project
+}
+
+#[test]
+fn golden_v11_file_loads_forever() {
+    let path = fixture("v11/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        // Written once, when version 11 was introduced; never rewritten.
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v11_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v11 golden file must load");
+    assert_eq!(project, golden_v11_expected());
+}
+
 #[test]
 fn golden_v10_file_loads_forever() {
     let path = fixture("v10/golden.lumen");
@@ -546,7 +607,7 @@ fn random_damage_never_panics() {
 #[test]
 fn inconsistent_projects_are_rejected_precisely() {
     let mut bad_pitch = golden_v1_expected();
-    if let ClipContent::Midi { notes } =
+    if let ClipContent::Midi { notes, .. } =
         &mut Arc::make_mut(&mut Arc::make_mut(&mut bad_pitch.tracks[2]).clips[0]).content
     {
         notes[0].2 = 200;

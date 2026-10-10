@@ -409,7 +409,68 @@ pub enum ClipContent {
     },
     Midi {
         notes: Vec<Note>,
+        /// Controllers, pitch bend, pressure and program changes (format
+        /// v11), in time order. Written only when there are some.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        events: Vec<ClipEvent>,
     },
+}
+
+impl ClipContent {
+    /// An empty MIDI clip's content.
+    pub fn midi() -> Self {
+        ClipContent::Midi {
+            notes: Vec::new(),
+            events: Vec::new(),
+        }
+    }
+}
+
+/// A non-note MIDI event in a clip, at `at` ticks from the clip's start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClipEvent {
+    pub at: Ticks,
+    #[serde(flatten)]
+    pub kind: EventKind,
+}
+
+/// What a [`ClipEvent`] says. Values use the MIDI ranges: 7-bit for
+/// controllers and pressure, 14-bit centred on 0 for pitch bend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EventKind {
+    Controller {
+        number: u8,
+        value: u8,
+    },
+    /// −8192 to 8191, 0 is centre.
+    PitchBend {
+        value: i16,
+    },
+    /// Channel pressure (aftertouch).
+    Pressure {
+        value: u8,
+    },
+    /// A program change, with the bank (MSB << 7 | LSB) when one is given.
+    Program {
+        program: u8,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bank: Option<u16>,
+    },
+}
+
+impl EventKind {
+    /// Whether the numbers are inside MIDI's ranges.
+    pub fn in_range(self) -> bool {
+        match self {
+            EventKind::Controller { number, value } => number < 128 && value < 128,
+            EventKind::PitchBend { value } => (-8192..=8191).contains(&value),
+            EventKind::Pressure { value } => value < 128,
+            EventKind::Program { program, bank } => {
+                program < 128 && bank.is_none_or(|b| b < 128 * 128)
+            }
+        }
+    }
 }
 
 /// A note, written as `[start, length, pitch, velocity]` to keep large clips
