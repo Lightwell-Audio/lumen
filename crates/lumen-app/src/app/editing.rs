@@ -587,7 +587,7 @@ impl App {
                         let (at, track) = self
                             .arrangement
                             .menu_spot
-                            .unwrap_or((self.transport.state().ticks, None));
+                            .unwrap_or((self.transport.position(), None));
                         let track = track
                             .and_then(|t| project.tracks.iter().position(|x| x.id == t))
                             .unwrap_or(clipboard.from_track);
@@ -669,7 +669,7 @@ impl App {
                 let (at, track) = match &range {
                     Some(r) => (r.start, r.tracks.first().and_then(|&t| index_of(t))),
                     None => (
-                        self.transport.state().ticks,
+                        self.transport.position(),
                         self.arrangement
                             .selected
                             .first()

@@ -5,7 +5,6 @@
 //! the dry and wet paths only add up exactly when delay compensation lines
 //! them up. Then save, reopen, and hear the same mix.
 
-use std::f32::consts::FRAC_1_SQRT_2;
 use std::time::Duration;
 
 use eframe::egui::{Event, Key, Modifiers};
@@ -25,11 +24,11 @@ const VOCAL: f32 = 4_000.0;
 /// The synthetic reverb's latency: 10 ms.
 const REVERB_LATENCY: u32 = 480;
 
-/// What a centred track plays of tones at these peaks, dry or through a
-/// send (each track pans by the −3 dB law; buses, returns and the master
-/// at the centre pass at unity).
+/// What centred tracks play of tones at these peaks, dry or through a
+/// send: stereo tracks, buses, returns and the master at the centre pass
+/// at unity.
 fn centred(peaks: &[f32]) -> f32 {
-    peaks.iter().sum::<f32>() / 32_768.0 * FRAC_1_SQRT_2
+    peaks.iter().sum::<f32>() / 32_768.0
 }
 
 /// The loudest left sample over a stretch, after letting changes glide.

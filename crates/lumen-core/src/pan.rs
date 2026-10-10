@@ -15,7 +15,8 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum PanLaw {
     /// −3 dB at the centre, constant power: the level stays even across
-    /// the sweep. The default (owner, M4 plan).
+    /// the sweep. The default for mono tracks (owner, M4 plan); stereo
+    /// material balances (owner's B, after M4 slice 7).
     #[default]
     ConstantPower,
     /// −4.5 dB at the centre: halfway between constant power and linear.

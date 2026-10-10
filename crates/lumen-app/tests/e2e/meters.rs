@@ -15,9 +15,6 @@ fn tone_db() -> f32 {
     20.0 * (3_000.0f32 / 32_768.0).log10()
 }
 
-/// The default pan law's centre: 3 dB down.
-const CENTRE_DB: f32 = -3.01;
-
 /// Unfolds `track`'s header and waits for its volume slider.
 fn unfold(lumen: &mut Lumen, track: &str) {
     lumen.click(&format!("Fold {track}"));
@@ -65,8 +62,9 @@ fn a_playing_tracks_level_shows_and_comes_to_rest_when_stopped() {
     let master = lumen.app().project().master.id;
     play(&mut lumen);
     listen(&mut lumen, 400);
-    // After the fader and the pan law: the tone, 3 dB down.
-    let want = tone_db() + CENTRE_DB;
+    // After the fader and the pan: a stereo track at the centre keeps the
+    // tone's level.
+    let want = tone_db();
     let shown = lumen.app().meter(track);
     assert!((shown.peak_db - want).abs() < 0.3, "{shown:?}, want {want}");
     assert!(shown.rms_db < shown.peak_db && shown.rms_db > want - 4.0);
@@ -150,8 +148,8 @@ fn integrated_loudness_starts_again_on_play_from_stop() {
         momentary.is_finite() && integrated.is_finite(),
         "{momentary} {integrated}"
     );
-    // The quiet tone, 3 dB down per side: well below full scale.
-    assert!(true_peak < tone_db() + CENTRE_DB + 1.0, "{true_peak}");
+    // The quiet tone: well below full scale.
+    assert!(true_peak < tone_db() + 1.0, "{true_peak}");
 
     // Pause and continue (Shift+Space): integrated keeps counting.
     lumen.key(Modifiers::SHIFT, Key::Space);
@@ -203,11 +201,12 @@ fn reference_tone(path: &std::path::Path, dbfs: f64, seconds: f64) -> std::path:
     path.to_path_buf()
 }
 
-/// Owner, after slice 7: the loudness seemed low. The EBU Tech 3341
-/// reference tone (stereo 1 kHz at −23 dBFS) reads −23 LUFS at the master
-/// less the pan law's centre: a centred track plays its file 3 dB down.
+/// Owner, after slice 7: the loudness seemed low (a −3 dB centre on
+/// stereo tracks; the owner's B keeps their level). The EBU Tech 3341
+/// reference tone (stereo 1 kHz at −23 dBFS) on a centred track reads
+/// −23 LUFS and −23 dBTP at the master.
 #[test]
-fn the_loudness_column_reads_the_reference_tone_less_the_pan_law() {
+fn the_loudness_column_reads_the_reference_tone_at_minus_23() {
     let mut lumen = Lumen::start("meters-reference");
     let file = reference_tone(&lumen.dir().join("ref.wav"), -23.0, 30.0);
     lumen.drop_files(&[file]);
@@ -215,7 +214,7 @@ fn the_loudness_column_reads_the_reference_tone_less_the_pan_law() {
     play(&mut lumen);
     listen(&mut lumen, 3_000);
     let (momentary, _, integrated, true_peak) = lumen.app().loudness();
-    let want = -23.0 + f64::from(CENTRE_DB);
+    let want = -23.0;
     assert!((momentary - want).abs() < 0.1, "momentary {momentary}");
     assert!((integrated - want).abs() < 0.1, "integrated {integrated}");
     assert!(

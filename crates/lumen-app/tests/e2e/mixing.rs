@@ -59,10 +59,10 @@ fn near(got: f32, want: f32) -> bool {
 #[test]
 fn a_tracks_pan_and_mute_are_heard_through_the_mixer() {
     let (mut lumen, track) = playing("mixer-pan-mute");
-    // Centred: 3 dB down on each side (the default pan law).
-    let centre = TONE * std::f32::consts::FRAC_1_SQRT_2;
+    // Centred, a stereo track keeps its level on both sides (the owner's
+    // B, after M4 slice 7; the pan law is for mono tracks).
     let (left, right) = levels(&mut lumen, 150);
-    assert!(near(left, centre) && near(right, centre), "{left} {right}");
+    assert!(near(left, TONE) && near(right, TONE), "{left} {right}");
 
     // Pan hard left: the left side at full level, the right silent.
     let pan = lumen
@@ -127,4 +127,55 @@ fn mixer_changes_while_playing_never_click() {
         .map(|w| (w[1].0 - w[0].0).abs().max((w[1].1 - w[0].1).abs()))
         .fold(0.0, f32::max);
     assert!(steepest < TONE * 0.065, "a click: a step of {steepest}");
+}
+
+/// A mono WAV of the test tone (as `wav`, one channel).
+fn mono_wav(path: &std::path::Path, seconds: f32) -> std::path::PathBuf {
+    let frames = (seconds * 48_000.0) as usize;
+    let data: Vec<u8> = (0..frames)
+        .flat_map(|i| (((i as f32 * 0.05).sin() * 3_000.0) as i16).to_le_bytes())
+        .collect();
+    let mut out = Vec::new();
+    out.extend(b"RIFF");
+    out.extend((36 + data.len() as u32).to_le_bytes());
+    out.extend(b"WAVEfmt ");
+    out.extend(16_u32.to_le_bytes());
+    out.extend(1_u16.to_le_bytes());
+    out.extend(1_u16.to_le_bytes());
+    out.extend(48_000_u32.to_le_bytes());
+    out.extend((48_000_u32 * 2).to_le_bytes());
+    out.extend(2_u16.to_le_bytes());
+    out.extend(16_u16.to_le_bytes());
+    out.extend(b"data");
+    out.extend((data.len() as u32).to_le_bytes());
+    out.extend(data);
+    std::fs::write(path, out).expect("write the mono WAV");
+    path.to_path_buf()
+}
+
+/// The owner's B (after M4 slice 7): the pan law is for mono material. A
+/// mono file centred plays 3 dB down per side by default, and follows the
+/// project's law; a stereo file beside it keeps its level.
+#[test]
+fn a_mono_track_follows_the_pan_law_and_a_stereo_one_keeps_its_level() {
+    let mut lumen = Lumen::start("mixer-mono-law");
+    let mono = mono_wav(&lumen.dir().join("mono.wav"), 20.0);
+    lumen.drop_files(&[mono]);
+    lumen.frames(5);
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
+    let centre = TONE * std::f32::consts::FRAC_1_SQRT_2;
+    let (left, right) = levels(&mut lumen, 150);
+    assert!(near(left, centre) && near(right, centre), "{left} {right}");
+
+    // At 0 dB, balance: both sides at the file's level.
+    lumen.key(Modifiers::COMMAND, Key::K);
+    lumen
+        .harness
+        .event(eframe::egui::Event::Text("Pan law: 0 dB".into()));
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::Enter);
+    let (left, right) = levels(&mut lumen, 150);
+    assert!(near(left, TONE) && near(right, TONE), "{left} {right}");
+    lumen.key(Modifiers::NONE, Key::Space);
 }

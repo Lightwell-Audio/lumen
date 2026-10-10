@@ -57,6 +57,9 @@ pub struct Transport {
     /// position moves once per audio block (`playhead.rs`).
     clock: crate::playhead::Clock,
     head: Option<Ticks>,
+    /// A locate sent, and where the engine's playhead was then: until the
+    /// engine reports a move, [`Self::position`] is the locate's target.
+    located: Option<(Ticks, Ticks)>,
     /// Playback started from stop since the app last looked: integrated
     /// loudness starts again (the owner's B5; Continue keeps it).
     pub played_from_stop: bool,
@@ -103,6 +106,7 @@ impl Transport {
             clip_memory: 0,
             clock: Default::default(),
             head: None,
+            located: None,
             played_from_stop: false,
             info: None,
         }
@@ -192,7 +196,20 @@ impl Transport {
     }
 
     pub fn locate(&mut self, at: Ticks) {
+        self.located = Some((at, self.state().ticks));
         self.send(Command::Locate(at));
+    }
+
+    /// Where the playhead is, counting a locate the audio thread has not
+    /// played a block since: what edits at the playhead use (a paste right
+    /// after a click on the lanes landed at the old place, owner after M4
+    /// slice 7).
+    pub fn position(&self) -> Ticks {
+        let ticks = self.state().ticks;
+        match self.located {
+            Some((at, before)) if ticks == before => at,
+            _ => ticks,
+        }
     }
 
     /// Scrubs at `at` while stopped (slice 5e); the engine ignores it while
@@ -254,6 +271,12 @@ impl Transport {
     /// Per-frame work: device events and pending timeline swaps. Returns
     /// true if something visible changed.
     pub fn update(&mut self) -> bool {
+        if self
+            .located
+            .is_some_and(|(_, before)| self.state().ticks != before)
+        {
+            self.located = None;
+        }
         if self.timeline_pending {
             self.timeline_pending = self
                 .audio

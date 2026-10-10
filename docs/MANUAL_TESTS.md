@@ -1237,9 +1237,10 @@ calmer than before.
 Run `cargo run --release -p lumen-app` with ASIO on the Focusrite, and a
 project with about ten tracks of audio (drums, bass, pads: anything
 continuous is best), on headphones.
-1. **Levels:** play. Centred tracks sound about 3 dB quieter than before
-   M4 (the −3 dB pan law, owner decision); nothing else about the sound
-   changes.
+1. **Levels:** play. Centred stereo tracks sound as loud as before M4;
+   tracks of mono files sound about 3 dB quieter (the −3 dB pan law applies
+   to mono tracks only, the owner's B after slice 7); nothing else about
+   the sound changes.
 2. **Pan:** pan one track hard left, then hard right: the other side goes
    silent, the near side is a little louder than at the centre. Drag pan
    back and forth quickly: no crackle or zipper noise.
@@ -1272,8 +1273,9 @@ Run `cargo run --release -p lumen-app`. Use a copy of a project saved
 before M4 (keep the original).
 1. **Opens:** open the copy. It looks as before, with the same tracks; no
    master track appears yet (slice 4 shows it).
-2. **Plays:** play it: everything is heard, centred tracks 3 dB quieter
-   than before (the −3 dB pan law).
+2. **Plays:** play it: everything is heard, stereo tracks as loud as
+   before, tracks of mono files 3 dB quieter (the −3 dB pan law, for mono
+   tracks).
 3. **Saves and reopens:** change something small, save, close Lumen, and
    open the project again: it opens unchanged, and plays the same.
 4. **Undo still works:** change volume, pan and mute on a track, then undo
@@ -1531,9 +1533,10 @@ audio files (drums, bass, a vocal, anything loud), group the first two
    then M, S and TP. Pause and continue (Shift+Space): integrated keeps
    counting. Stop and play (Space): it starts again. Click Reset: it starts
    again.
-10. **Pan law:** right-click the mixer's empty area: the four pan laws,
-    −3 dB chosen; pick −6 dB, linear: centred tracks get quieter. Ctrl+Z
-    returns it.
+10. **Pan law:** right-click the mixer's empty area: "Pan law (mono
+    tracks)" and the four laws, −3 dB chosen; pick −6 dB, linear: centred
+    tracks of mono files get quieter, stereo tracks stay as they are.
+    Ctrl+Z returns it.
 11. **Panel size:** drag the detail panel taller and shorter. Short, the
     strips drop their sends, then trim, then the output, but keep the
     fader and meter; it never gets so tall that the arrangement loses its
@@ -1642,3 +1645,27 @@ or any melodic file.
 **Expected:** each step sounds as described, with no clicks when soloing,
 muting or clearing; the reopened project matches; step 9 has no blip;
 step 10 has no banner.
+
+### MT-MIX-8 · Clipboard keys and the pan law for mono (needs a human)
+Fixes after MT-MIX-7 was written (ADR-0042). Run
+`cargo run --release -p lumen-app`.
+1. **Ctrl+C and Ctrl+V:** two audio tracks with a clip on the first. Click
+   the clip, press Ctrl+C. Click the second track's empty lane at bar 3,
+   press Ctrl+V: the copy lands there. Try it with text on the Windows
+   clipboard (copy a word in Notepad first) and with nothing copied
+   elsewhere: both work.
+2. **Ctrl+X:** click the copy, Ctrl+X: it goes; Ctrl+V puts it back at the
+   playhead.
+3. **Right-click Paste:** right-click an empty lane at bar 5 on the
+   second track, Paste: the clip lands there; the playhead does not move.
+4. **Delete time (Ctrl+Shift+Delete):** drag a time range on a clip's
+   lower half, press Ctrl+Shift+Delete: the time goes and what follows
+   moves back.
+5. **Typing still pastes text:** rename a track (double-click its name),
+   Ctrl+V pastes the clipboard's text into the name, not a clip.
+6. **Loudness:** play a mastered song file (a stereo file whose loudness
+   you know, for example from another DAW or a loudness meter): the
+   integrated LUFS matches it within a few tenths. A mono file plays 3 dB
+   down per side at the centre.
+
+**Expected:** as described.

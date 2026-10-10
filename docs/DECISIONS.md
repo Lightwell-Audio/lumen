@@ -101,6 +101,7 @@ irreversible or external) · *Superseded*.
 | Routing in the model (M4 slice 2, 2026-10-09) | Asked before building: **a new send starts at −∞** (over 0 dB) and **post-fader** (over pre-fader); **deleting a return removes its sends** in the same undo step (over asking first); **the pan law is chosen from the mixer panel's menu** and the palette (over a project settings window, M9). |
 | Dropouts (2026-10-09) | Chosen from mockups: **A, recent and in words**: no chip while audio is healthy, "Dropouts ×3" in amber while they happen, fading after 10 s of clean audio, details in the audio panel; over B (a labelled total until reset) and C (an amber status dot). Driver resets no longer count (ADR-0020 update). |
 | Mixer behaviour (M4 slice 1, 2026-10-09) | Asked after the graph was built (the owner: variants first, before building): **centre −3 dB** (a hard-panned side at unity; projects from M3 play 3 dB quieter) over centre unity with +3 dB sides; **balance** panning of stereo tracks over a true stereo pan; **mute silences every send**, pre-fader ones too (Ableton) over pre-fader sends playing on (Pro Tools, Cubase); **post-fader sends after the pan** over before it. All four as built (ADR-0035). |
+| Pan law for stereo (after M4 slice 7, 2026-10-10) | **B**: stereo material keeps its level at the centre (balance), as in Ableton, Logic and Pro Tools; the project's pan law (−3 dB by default) applies only to tracks whose clips are all mono files. Chosen over keeping −3 dB on every track (every file played and measured 3 dB under its own level) and a 0 dB default. Projects from before play stereo tracks 3 dB louder. ADR-0042. |
 | Hints (M4 slice 0, 2026-10-09) | Chosen from interactive specimens: **an info line** along the bottom of the window (C, Ableton's Info View in spirit) over quiet chips (A) and rest-to-reveal (B), **with the K5 keycaps** the palette and menus use (the owner's addition, for consistency), **no chips for held keys** (the cursor and the lit action say it), full width (ADR-0034). |
 | Mute, solo, returns, master and cue (M4 slice 4, 2026-10-09) | The solo rules agreed as a table of 14 cases before building (`docs/milestones/M4.md` §5): solo keeps a soloed track's path open, **mute always beats solo** along the path, returns are solo-safe, **a soloed return plays wet only** (sends into it stay on, their tracks' outputs go silent), the master, metronome and cue are never touched by solo. **D1 A** a group's solo solos the group (its tracks show it hollow); **D2 A** additive solo is a preference (Ctrl+click then replaces); **D3 A** a lit "S" chip in the transport while anything is soloed, a click clears; **D4 A1** returns then the master pinned at the bottom under a divider, a "Returns" caption that folds them, returns lettered A, B, C and never grouped; **D5 C1** Ableton's Solo/Cue switch on the master, cue **pre-fader** to a chosen pair, unavailable with a note when that pair is the main one; **D6** the metronome has its own output (Main, Cue or a pair), never through the master; **D7** palette commands Solo and Mute selected tracks and Clear all solos, no default keys. Chosen from interactive specimens: **sends as K1 "comet" knobs** (a trail of light in the return's colour, brightening to a glowing head; a dot marks pre-fader; hovering a send lights its return and the reverse) over lantern, droplet and plain knobs; **a track silenced by another's solo shows a hollow M and a dimmed name** (hollow S inside a soloed group) over dimming the whole row. Asked while building 4d: **O1**, the cue output chosen in the audio settings beside the main pair, over Ableton's per-pair output configuration (so the metronome's output is Main or Cue); the owner's interface has two outputs, so cue is checked on the four-output test device. MT-MIX-4 runs 1 and 2, from mock-ups: **C4** knobs step up on selected rows, **O1** a "+N ▾" button drawn as "+ Add track ▾", **R2** an unfolded return lists its senders, **L4** its four loudest then "+N more", **S1** silent sends leave that list when let go; **12 returns at most**; the standard +6 dB of an empty return kept. |
 | Mixer panel and meters (M4 slice 5, 2026-10-09) | Chosen from interactive specimens: **S1 console** strips (fader and meter side by side, 76 pt) over S2 light rail and S3 broad; sends **O2**, two knobs then a "+N ▾" list (over a grid of six, or every knob in a taller strip); meter colours **M1 accent by default, M2 track colour as a setting** (over M3 classic green); loudness **L2**, a column beside the master; header meters as well, **H2** inside the volume slider (over H1 at the edge and H3 the colour rail, which already carries arm and nesting). Behaviour, all as recommended: **B1** post-fader after the pan; **B2** peaks fall 20 dB/s, a 1.5 s hold, clip latched until clicked; **B3** a latching wheel; **B4** one fold with the arrangement; **B5** integrated loudness resets on Play from stop; **B6** any output pair; **B7** sections fold away in a short panel; **B8** strips drag to reorder, returns included. ADR-0040. |
@@ -3507,3 +3508,32 @@ for the known issues to be fixed where they can be now.
   E2E `the_loudness_column_reads_the_reference_tone_less_the_pan_law`.
   Whether stereo material should keep its level at the centre is the
   owner's choice (pending).
+- **The pan law for stereo: the owner's B (2026-10-10).** Only mono
+  material pans by the project's law: a track whose clips are all mono
+  files (`routing::plays_mono`). Every other track (stereo, mixed, MIDI,
+  empty) balances, so stereo keeps its level at the centre, as groups,
+  returns and the master already did. Nothing saved changes: projects
+  from before play their stereo tracks 3 dB louder. The pan law's menu
+  caption reads "Pan law (mono tracks)" and its commands say so. The EBU
+  reference tone now reads −23.0 LUFS and −23.0 dBTP through the app.
+  Tests: `routing` (mono, stereo, mixed and empty tracks), E2E
+  `a_mono_track_follows_the_pan_law_and_a_stereo_one_keeps_its_level`,
+  `the_loudness_column_reads_the_reference_tone_at_minus_23`; the level
+  expectations of the cue, mixing, groups, meters, fades and walkthrough
+  scenarios updated for stereo at unity.
+- **Ctrl+C, Ctrl+X and Ctrl+V did nothing in the real window.** egui-winit
+  turns the clipboard chords into `Copy`, `Cut` and `Paste` events and
+  drops the key press; Ctrl+V sends nothing at all when the system
+  clipboard holds no text, and on Windows Shift+Delete chords become Cut,
+  Ctrl+Shift+Delete (Delete time) included. Only releases arrive as keys.
+  The E2E tests pressed keys the window never sends, so they passed.
+  `app/clipboard_keys.rs` puts the presses back before anything reads
+  the keys, outside text fields (which keep the events): Copy as C, Paste
+  as V, Cut as X; a Cut with Shift waits for its key's release; a V
+  released with no Paste seen is pressed then. `Lumen::key` now sends
+  these chords as the window does (without the fix, the three clipboard
+  scenarios fail).
+- **A paste right after a click landed at the old playhead** (one run in
+  four of the new test): the playhead is what the audio thread last
+  reported. `Transport::position` counts a locate the engine has not
+  played a block since; edits at the playhead use it.

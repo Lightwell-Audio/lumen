@@ -245,9 +245,9 @@ fn fades_and_gain_are_heard() {
     lumen.key(Modifiers::NONE, Key::Space);
     let heard = lumen.app_mut().heard();
     let loudest = |frames: &[(f32, f32)]| frames.iter().map(|s| s.0.abs()).fold(0.0, f32::max);
-    // The test tone peaks at about 0.0916; a centred track plays 3 dB
-    // down (the default pan law, M4).
-    let full = 0.0916 * 10f32.powf(db / 20.0) * std::f32::consts::FRAC_1_SQRT_2;
+    // The test tone peaks at about 0.0916; a centred stereo track keeps
+    // its level.
+    let full = 0.0916 * 10f32.powf(db / 20.0);
     let start = loudest(&heard[..fade_frames / 4]);
     let after = loudest(&heard[fade_frames + 100..fade_frames + 4_000]);
     assert!(start < full * 0.3, "quiet at first: {start} of {full}");

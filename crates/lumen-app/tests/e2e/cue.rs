@@ -86,11 +86,11 @@ fn a_cued_track_plays_on_the_cue_pair_before_its_fader_and_its_mute() {
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
     let (main, cue) = loudest(&mut lumen);
-    let centre = TONE * std::f32::consts::FRAC_1_SQRT_2;
-    assert!((main - centre).abs() < centre * 0.1, "main {main}");
+    // A stereo track at the centre keeps its level (the owner's B).
+    assert!((main - TONE).abs() < TONE * 0.1, "main {main}");
     assert!(
         (cue - TONE).abs() < TONE * 0.1,
-        "cue before the pan law: {cue}"
+        "cue before the fader: {cue}"
     );
     // Muted: gone from the main pair, still in the headphones.
     lumen.click(&format!("Mute {track}"));

@@ -81,29 +81,47 @@ pub struct Devices {
     pub latent: BTreeMap<Id, u32>,
 }
 
+/// Whether `track` plays mono material: an audio track whose clips are all
+/// mono files. Its pan follows the project's pan law; every other track
+/// balances (unity at the centre).
+fn plays_mono(project: &Project, track: &Track) -> bool {
+    use lumen_project::model::ClipContent;
+    if track.kind != TrackKind::Audio || track.clips.is_empty() {
+        return false;
+    }
+    track.clips.iter().all(|clip| match clip.content {
+        ClipContent::Audio { media, .. } => project
+            .media
+            .iter()
+            .find(|m| m.id == media)
+            .is_some_and(|m| m.channels == 1),
+        ClipContent::Midi { .. } => false,
+    })
+}
+
 /// The routing that plays `project`, with `cue` and `devices`.
 pub fn routing(project: &Project, cue: &Cue, devices: &Devices) -> Routing {
     let heard = lumen_project::solo::hearing(project);
     let nodes = rules::all_tracks(project)
         .map(|track| {
-            // Buses (groups, returns and the master) carry sound their
-            // tracks have already panned: centred, they stay at unity, or
-            // every group level took another 3 dB off what is inside it
-            // (owner, after MT-MIX-3 run 1).
-            let bus = matches!(
-                track.kind,
-                TrackKind::Group | TrackKind::Return | TrackKind::Master
-            );
+            // Only mono material pans by the project's law; stereo keeps
+            // its level at the centre, as in Ableton, Logic and Pro Tools
+            // (the owner's B, after M4 slice 7: a −3 dB centre on stereo
+            // tracks made every file play and measure 3 dB under its own
+            // level). Buses (groups, returns and the master) carry sound
+            // their tracks have already panned (owner, after MT-MIX-3 run
+            // 1), so they balance too.
+            let law = if plays_mono(project, track) {
+                project.pan_law
+            } else {
+                PanLaw::Balance
+            };
             NodeSpec {
                 trim: db_to_gain(track.trim_db),
                 invert: track.invert,
                 volume: db_to_gain(track.gain_db),
                 pan: track.pan,
-                law: if bus {
-                    PanLaw::Balance
-                } else {
-                    project.pan_law
-                },
+                law,
                 audible: heard.of(track.id).output,
                 sends_audible: heard.of(track.id).sends,
                 cue: cue.on && cue.tracks.contains(&track.id),
@@ -230,7 +248,7 @@ mod tests {
         let track = node(&routing, ids[0]);
         assert_eq!(track.output, Destination::Node(master.0));
         assert!((track.volume - 10f32.powf(-6.0 / 20.0)).abs() < 1e-6);
-        assert_eq!((track.pan, track.law), (-0.5, PanLaw::ConstantPower));
+        assert_eq!((track.pan, track.law), (-0.5, PanLaw::Balance));
         assert!(track.audible);
     }
 
@@ -250,12 +268,46 @@ mod tests {
         assert_eq!(heard(&doc), [false, false, true], "only the soloed track");
     }
 
+    /// Puts a clip of a file with `channels` on track `id`.
+    fn with_file(doc: &mut Document, id: Id, channels: u16) {
+        let media = doc.fresh_id();
+        doc.import(vec![crate::document::Imported {
+            media,
+            path: format!("C:/audio/{}.wav", media.0).into(),
+            name: "file".into(),
+            sample_rate: 48_000,
+            channels,
+            frames: 48_000,
+            size_bytes: 192_044,
+            at: lumen_core::time::Ticks::ZERO,
+            into: crate::document::DropInto::Track(id),
+        }]);
+    }
+
     #[test]
-    fn buses_are_unity_when_centred_and_tracks_follow_the_pan_law() {
+    fn only_mono_tracks_follow_the_pan_law_and_stereo_keeps_its_level() {
+        // The owner's B (after M4 slice 7): a −3 dB centre on stereo
+        // tracks played every file 3 dB under its own level.
+        let (mut doc, ids) = doc_with(&[TrackKind::Audio; 4]);
+        with_file(&mut doc, ids[0], 1);
+        with_file(&mut doc, ids[1], 2);
+        with_file(&mut doc, ids[2], 1);
+        with_file(&mut doc, ids[2], 2);
+        let law = |doc: &Document, id| node(&routing(doc.project(), &Cue::default()), id).law;
+        assert_eq!(law(&doc, ids[0]), PanLaw::ConstantPower, "mono");
+        assert_eq!(law(&doc, ids[1]), PanLaw::Balance, "stereo");
+        assert_eq!(law(&doc, ids[2]), PanLaw::Balance, "mono and stereo");
+        assert_eq!(law(&doc, ids[3]), PanLaw::Balance, "empty");
+        doc.set_pan_law(PanLaw::Linear);
+        assert_eq!(law(&doc, ids[0]), PanLaw::Linear);
+        assert_eq!(law(&doc, ids[1]), PanLaw::Balance);
+    }
+
+    #[test]
+    fn buses_are_unity_when_centred() {
         // Owner, after MT-MIX-3 run 1: tracks in groups played quieter.
         let (doc, ids) = doc_with(&[TrackKind::Audio, TrackKind::Group, TrackKind::Return]);
         let routing = routing(doc.project(), &Cue::default());
-        assert_eq!(node(&routing, ids[0]).law, PanLaw::ConstantPower);
         for bus in [ids[1], ids[2], doc.project().master.id] {
             assert_eq!(node(&routing, bus).law, PanLaw::Balance);
             assert_eq!(PanLaw::Balance.gains(0.0), [1.0, 1.0]);
@@ -356,7 +408,7 @@ mod tests {
         assert!((send.gain - 10f32.powf(-6.0 / 20.0)).abs() < 1e-6);
         assert!(track.invert);
         assert!((track.trim - 10f32.powf(6.0 / 20.0)).abs() < 1e-5);
-        assert_eq!(track.law, PanLaw::Linear);
+        assert_eq!(track.law, PanLaw::Balance, "an empty track is not mono");
         assert_eq!(node(&routing, ret).output, Destination::Node(master.0));
         assert_eq!(node(&routing, master).output, Destination::Hardware(1));
     }

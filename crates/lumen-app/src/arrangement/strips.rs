@@ -162,7 +162,7 @@ impl Arrangement {
         use crate::commands::Command;
         use lumen_core::pan::PanLaw;
         ui.label(
-            egui::RichText::new("Pan law")
+            egui::RichText::new("Pan law (mono tracks)")
                 .small()
                 .color(theme::p().text_hint),
         );
