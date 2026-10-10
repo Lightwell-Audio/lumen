@@ -52,6 +52,7 @@ irreversible or external) · *Superseded*.
 | [0039](#adr-0039--lumens-licence-gpl-30-or-later-supersedes-adr-0012) | Lumen's licence: GPL-3.0-or-later, sold packaged binaries (supersedes ADR-0012) | Accepted 2026-10-09 | Yes (owner items) |
 | [0041](#adr-0041--sidechains-and-delay-compensation-m4-slice-6) | Sidechains and delay compensation: devices and taps in the graph, delay lines, read ahead, the D1 readout | Accepted 2026-10-10 | No |
 | [0042](#adr-0042--the-m4-exit-walkthrough-and-known-issues-m4-slice-7) | The M4 exit walkthrough; edits taken while stopped; session locks for autosaves; submenu names; the pipeline cache off the UI thread | Accepted 2026-10-10 | No |
+| [0043](#adr-0043--the-light-layer-and-the-mark) | The light layer (five levels of light) and the mark (Dawn in Sunrise): the playhead beam, meter heads, the mark as a master meter, the window icon | Accepted 2026-10-10 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -108,7 +109,7 @@ irreversible or external) · *Superseded*.
 | Sidechains and delay compensation (M4 slice 6, 2026-10-10) | Behaviour asked before building: **read ahead** (what is heard lines up with the playhead; live input in M11 gets a reduced-latency monitoring option) over delaying everything and moving the drawn playhead; sidechain taps **Ableton's three** (Pre FX, Post FX by default, Post Mixer; FX taps ignore mute) over post-fader only; **sidechains saved with the first device** that uses them (format v11 then) over saving them now. The readout from rendered mock-ups: **D1**, only while there is compensation, at the end of the device line, the path in the info line, always in the audio panel (over D2 always shown and D3 folded into the latency). ADR-0041. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
-| Logo (2026-10-10) | Chosen from rendered specimens (four marks, then six colourways; the identity canvas, a Design artifact): **D, Dawn, in Sunrise**: a sun rising over a horizon, its reflection breaking into a waveform; an amber sun (`#FFC46B`) over blue water (the accent, `#4FA3FF`), on a 64 grid (sun radius 16 on the horizon, three reflections; at 40 px and under, 4-wide strokes and two reflections). The "Lumen" wordmark stays Unbounded. Proposed with it and **not yet decided**: the mark in the transport bar as a meter (the sun rises with the master's level and turns red while recording) and the light layer (`theme::light`: Unlit, Ember, Lit, Beam, Flare). The app icon and file icon (M9) use this mark. |
+| Logo and light (2026-10-10) | Chosen from rendered specimens on the identity canvas (a Design artifact): four marks, then six colourways. **D, Dawn, in Sunrise**: a sun rising over a horizon, its reflection breaking into a waveform; an amber sun (`#FFC46B`) over water in the accent. **The light layer holds** (five levels: Unlit, Ember, Lit, Beam, Flare, and five rules), and **the mark is a meter** (the sun rises with the master's level, red while recording), with every proposed use of light: the playhead beam, Play's beam, meter heads, the mark above an empty arrangement. ADR-0043. A guitarist-first direction was pitched and set aside by the owner. |
 
 ---
 
@@ -3568,3 +3569,57 @@ for the known issues to be fixed where they can be now.
   Ableton's does. A 44.1 kHz tone with samples at 0 dBFS and its waveform
   at +3 dB reads +3.0 dB (E2E
   `full_scale_reads_zero_and_a_converted_file_shows_its_true_peak`).
+
+---
+
+## ADR-0043 — The light layer and the mark
+
+**Status:** Accepted 2026-10-10.
+
+### Context
+The owner asked to cement the design system and to give Lumen a logo that
+indulges the theme of light, in the interface too. Options were shown on
+an identity canvas (a private Design artifact): four marks (Aperture,
+Beam, Corner, Dawn), six colourways of Dawn, the light rules and levels,
+the window with light applied, the tokens and the component library. The
+owner chose Dawn in Sunrise and approved the light layer, the mark as a
+meter and every proposed use of light. Lumen already glowed in places
+(the S3 selection, edges, fade curves, the comet knobs, the armed ring),
+each with its own values.
+
+### Decision
+- **Five levels of light** in `light.rs` (DESIGN.md §6a): Unlit; Ember
+  (`EMBER_WASH`, a hover wash); `LIT` (the S3 glow: 1.5 pt line, halo
+  1.5 pt at 28% and 3 pt at 12% past it); `BEAM` (2 pt accent line with a
+  1 pt `core`, halo 3 pt at 22%, casting 56 pt at 9%); `FLARE` (record
+  red, halo 2.5 pt at 45% and 6 pt at 18%). Helpers draw them along lines,
+  rects, curves and as cast light. On the light theme halos are halved and
+  the core is the accent. The existing glows (`draw_glow_rect`, the edge
+  glows, fade curves, the clip-half wash) now use them; their look moved
+  slightly to the shared values (edge halos 1.5 pt wider).
+- **New uses:** the playhead while playing is a beam with a `core` cap that
+  casts light on the lanes (stopped, it is unlit as before); Play while
+  playing gets the beam's halo and a `core` icon; every RMS bar has a
+  `BEAM` head in its zone's colour; clip lights flare.
+- **The mark** (`widgets/mark.rs`, DESIGN.md §6b): Dawn on a 64 grid,
+  painted with egui shapes (the sun's gradient as six discs). In the
+  transport bar it is a meter of the master's RMS (−48 to 0 dB), resting
+  with the sun peeking over the horizon; recording will turn it red in
+  M9. Above an empty arrangement it is half risen, and fully risen while
+  addable files are dragged over.
+- **New tokens:** `core`, `sun` and `sun_core` in both palettes.
+- **Window icon** (`brand.rs`): the mark on a dark rounded square, drawn
+  as 128 px RGBA from the same geometry with 4×4 samples per pixel, so no
+  image files or decoders are added. The installer's app and file icons
+  stay in M9 (owner, 2026-10-07) and will use this drawing.
+
+### Consequences
+- Every new glow picks a level; a one-off glow is a design-review finding.
+- The mark draws a frame only when the meters do, so idle stays idle.
+- The cast is two gradient quads per frame while playing: no measurable
+  frame cost.
+- Tests: unit tests for the levels, the mark's rise and the icon's pixels;
+  E2E `light::the_mark_rises_with_the_master_and_settles_when_stopped`;
+  `shots::light_layer` renders the empty, playing and mixer states in both
+  themes. MT-APP-18 is for the owner.
+

@@ -390,11 +390,18 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-10: **the logo** (owner): **Dawn in Sunrise** (an
-amber sun over blue water; owner-decisions table). The identity canvas (a
-private Design artifact) also proposes a light layer (`theme::light`) and
-the mark as a level meter, waiting for the owner; nothing is built yet. A
-guitarist-first direction was pitched and dropped by the owner. Before it, 2026-10-10: **macOS CI is back** (owner) on
+**Last updated:** 2026-10-10: **the light layer and the mark are built**
+on `claude/keen-einstein-2fjiuy` (ADR-0043, DESIGN.md §6a and §6b; the
+owner approved them on the identity canvas, a private Design artifact,
+and chose the logo, Dawn in Sunrise). `light.rs` holds the five levels
+(Unlit, Ember, `LIT`, `BEAM`, `FLARE`): **every glow is one of them,
+never a one-off**; new tokens `core`, `sun`, `sun_core`. The playhead is a
+beam while playing, Play lights, meters have heads, clip lights flare.
+`widgets/mark.rs` draws the mark: a meter of the master in the transport
+bar (red when recording arrives in M9), half risen over an empty
+arrangement. `brand.rs` draws the window icon as pixels (installer icons
+stay M9). E2E `light`, shots `light_layer`. MT-APP-18 waits for the owner.
+A guitarist-first direction was pitched and set aside by the owner. Before it, 2026-10-10: **macOS CI is back** (owner) on
 `claude/busy-pascal-pbswo9`: `macos-latest` (Apple silicon) is in the test
 matrix again, and a new push to a pull request cancels its superseded run.
 Its first run failed 20 E2E tests, both kinds fixed: chords are written

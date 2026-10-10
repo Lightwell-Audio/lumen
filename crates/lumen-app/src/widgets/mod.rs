@@ -12,11 +12,12 @@ use eframe::egui::{
 
 use eframe::emath::GuiRounding as _;
 
-use crate::{fonts, icons, motion, theme};
+use crate::{fonts, icons, light, motion, theme};
 
 pub mod fader;
 mod keys;
 pub mod knob;
+pub mod mark;
 pub mod meter;
 pub mod wheel;
 
@@ -568,22 +569,15 @@ pub fn draw_arrow(painter: &Painter, center: Pos2, t: f32, color: Color32) {
     ));
 }
 
-/// The glowing accent line on a track's resize handle (`t` fades it).
+/// The glowing accent line on a track's resize handle (`t` fades it): the
+/// [`light::LIT`] level.
 pub fn draw_edge_glow(painter: &Painter, x: egui::Rangef, y: f32, t: f32) {
-    let accent = theme::p().accent;
-    for (width, alpha) in [(6.0, 0.12), (3.0, 0.25)] {
-        painter.hline(x, y, Stroke::new(width, accent.gamma_multiply(alpha * t)));
-    }
-    painter.hline(x, y, Stroke::new(1.5, accent.gamma_multiply(t)));
+    light::hline(painter, light::LIT, x, y, theme::p().accent, t);
 }
 
 /// The same glow along a vertical edge at `x` (the header column's edge).
 pub fn draw_edge_glow_vertical(painter: &Painter, x: f32, y: egui::Rangef, t: f32) {
-    let accent = theme::p().accent;
-    for (width, alpha) in [(6.0, 0.12), (3.0, 0.25)] {
-        painter.vline(x, y, Stroke::new(width, accent.gamma_multiply(alpha * t)));
-    }
-    painter.vline(x, y, Stroke::new(1.5, accent.gamma_multiply(t)));
+    light::vline(painter, light::LIT, x, y, theme::p().accent, t);
 }
 
 /// A horizontal gradient from `left` to `right` across `rect`.
@@ -647,23 +641,9 @@ pub fn draw_caption(painter: &Painter, at: Pos2, text: &str, colour: Color32, bo
 }
 
 /// The selection glow around a clip (the owner's choice S3, like the
-/// record arm's): a crisp accent line with two soft layers outside it.
+/// record arm's): the [`light::LIT`] level.
 pub fn draw_glow_rect(painter: &Painter, rect: Rect, radius: f32) {
-    let accent = theme::p().accent;
-    for (grow, width, alpha) in [(3.0, 4.0, 0.12), (1.5, 2.5, 0.28)] {
-        painter.rect_stroke(
-            rect.expand(grow),
-            radius + grow,
-            Stroke::new(width, accent.gamma_multiply(alpha)),
-            egui::StrokeKind::Middle,
-        );
-    }
-    painter.rect_stroke(
-        rect,
-        radius,
-        Stroke::new(1.5, accent),
-        egui::StrokeKind::Inside,
-    );
+    light::rect(painter, light::LIT, rect, radius, theme::p().accent);
 }
 
 #[cfg(test)]

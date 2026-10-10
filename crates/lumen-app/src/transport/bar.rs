@@ -108,7 +108,7 @@ impl Transport {
                 continues.as_deref(),
             )
         };
-        if icons::button(
+        let play_button = icons::button(
             ui,
             icon,
             label,
@@ -119,9 +119,11 @@ impl Transport {
             state.playing,
             running,
             no_audio,
-        )
-        .clicked()
-        {
+        );
+        if state.playing {
+            icons::beam(ui, play_button.rect, icon);
+        }
+        if play_button.clicked() {
             let command = if state.playing {
                 Command::Pause
             } else {

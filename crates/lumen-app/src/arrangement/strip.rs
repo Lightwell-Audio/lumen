@@ -23,7 +23,7 @@ use crate::commands::Keymap;
 use crate::document::Document;
 use crate::meters::FLOOR_DB;
 use crate::widgets::{self, SliderKind, fader, meter};
-use crate::{fonts, motion, theme};
+use crate::{fonts, light, motion, theme};
 
 /// A strip's width: wide enough for a track name of about eleven characters
 /// (the owner's S1, widened after MT-MIX-5).
@@ -392,6 +392,10 @@ impl Arrangement {
         meter::vertical(&painter, meter_rect, 2.0, &reading, base, heard);
         // The clip light, over the meter: lit until clicked.
         let clip = Rect::from_x_y_ranges(meter_rect.x_range(), travel.min - 9.0..=travel.min - 4.0);
+        if reading.clipped {
+            // A clip light needs you: it flares (ADR-0043).
+            light::halo_around(&painter, light::FLARE, clip, 1.5, palette.record);
+        }
         painter.rect_filled(
             clip,
             1.5,
