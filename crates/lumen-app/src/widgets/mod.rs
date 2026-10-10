@@ -281,22 +281,38 @@ pub fn value_slider(
     name: &str,
     look: theme::Controls,
 ) -> f32 {
-    value_slider_lifted(ui, rect, id, value, kind, name, look, 0.0)
+    value_slider_styled(
+        ui,
+        rect,
+        id,
+        value,
+        kind,
+        name,
+        SliderStyle { look, lift: 0.0 },
+    )
 }
 
-/// `value_slider` with its value text raised `lift` points, for a slider
-/// that draws something along its bottom (a header's level meter).
-#[allow(clippy::too_many_arguments)]
-pub fn value_slider_lifted(
+/// How a [`value_slider_styled`] is drawn.
+#[derive(Clone, Copy)]
+pub struct SliderStyle {
+    /// Its colours, from [`theme::controls`].
+    pub look: theme::Controls,
+    /// Points the value text is raised, for a slider that draws something
+    /// along its bottom (a header's level meter).
+    pub lift: f32,
+}
+
+/// [`value_slider`] drawn with `style`.
+pub fn value_slider_styled(
     ui: &mut Ui,
     rect: Rect,
     id: EguiId,
     value: f32,
     kind: SliderKind,
     name: &str,
-    look: theme::Controls,
-    lift: f32,
+    style: SliderStyle,
 ) -> f32 {
+    let SliderStyle { look, lift } = style;
     let palette = *theme::p();
     let (lo, hi) = kind.range();
     let typing_id = id.with("typing");

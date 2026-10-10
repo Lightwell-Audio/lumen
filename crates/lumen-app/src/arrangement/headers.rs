@@ -674,15 +674,17 @@ impl Arrangement {
             pos2(left, center_y - 10.0),
             pos2(pan_rect.left() - 6.0, center_y + 10.0),
         );
-        let db = widgets::value_slider_lifted(
+        let db = widgets::value_slider_styled(
             ui,
             volume_rect,
             id.with("volume"),
             track.gain_db,
             SliderKind::Volume,
             &format!("Volume {}", track.name),
-            look,
-            METER_LIFT,
+            widgets::SliderStyle {
+                look,
+                lift: METER_LIFT,
+            },
         );
         if db != track.gain_db {
             doc.set_volume(track.id, db);
