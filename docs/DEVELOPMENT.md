@@ -138,6 +138,17 @@ LUMEN_TRACE=1 lumen --autoplay-ms 3000
 On this machine (2026-10-06), every play and stop reaches the screen 14–19
 ms after the command (28 toggles each on WASAPI and on ASIO).
 
+## Trying delay compensation (M4 slice 6)
+
+Nothing adds latency until devices arrive (M6). `--test-latency <ms>`
+puts the engine's synthetic latent device (a pure delay) on the first
+track, so delay compensation and its readout can be tried by hand
+(MT-MIX-6). Tests do the same with `testing::set_test_latency`.
+
+```powershell
+cargo run --release -p lumen-app -- --test-latency 50
+```
+
 ## Everyday commands
 
 ```bash

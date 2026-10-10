@@ -1560,3 +1560,43 @@ fits a typed "−16.3" at 96 pt and 150% (checked by screenshot). Checked
 without audio: the header's level bars did not draw on the silent test
 device, so (2) needs a re-check with a track playing. **Run 2 waits for
 the owner.**
+
+
+### MT-MIX-6 · Delay compensation and its readout (needs a human, with the audio interface)
+Nothing in Lumen adds latency until devices arrive (M6), so this test
+puts the engine's synthetic latent device on the first track with a
+developer flag. Run
+`cargo run --release -p lumen-app -- --test-latency 50`
+(50 ms on the first track). Start a new project and drop the same drum
+loop on two tracks (two files, or the same file twice), so the first
+track is the latent one.
+1. **The readout (D1):** before dropping files, the device line ends
+   with the round trip as before, nothing more. Once the first track
+   exists, it ends with "· 50.0 ms compensation", a step brighter.
+   Hover it: the info line along the bottom reads "Delay compensation
+   50.0 ms · longest path: <first track>".
+2. **The audio panel:** click the device line. Under the device, a
+   Latency group: output, round trip, and "Delay compensation 50.0 ms ·
+   2400 samples" (at 48 kHz), then "Longest path: <first track>".
+3. **In time (read ahead):** turn the metronome on and play. The two
+   tracks sound as one (no flam, no echo), and both are in time with the
+   metronome and the playhead: the kick lands on the click and on the
+   grid line as the playhead crosses it. Mute the second track and
+   unmute it: no flam appears.
+4. **Pressing Play:** the playhead waits about 50 ms at the start before
+   it moves; nothing is lost from the start of the song.
+5. **Loop:** set a one-bar loop over the loop and play: every wrap is
+   seamless and on the click, as without the flag.
+6. **Jumps:** click on the ruler while playing, a few times: each jump is
+   clean (no click) and the audio after it is in time again at once.
+7. **Polarity check (optional):** flip the second track's polarity (Ø on
+   its strip). The two tracks cancel to silence while playing, which they
+   only do if they are lined up to the sample.
+8. **Without the flag:** quit and start Lumen normally: the readout is
+   gone, playback starts at once, everything sounds as before.
+9. **Looks:** check step 1 in the light theme and at 150%. In a narrow
+   window the device's name shortens before the compensation does.
+
+**Expected:** as described; nothing clicks while starting, looping or
+jumping with compensation on; the latent track never drifts from the
+others.

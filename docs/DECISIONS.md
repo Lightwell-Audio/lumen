@@ -3359,6 +3359,17 @@ compensation").
   sidechain) measures it, and the allocation guard and RTSan check the
   same routing while latencies change, loops wrap, and playback locates,
   pauses and stops (`tests/realtime.rs`).
+- Measured (performance gate, instructions, WSL): `engine_latent_64`
+  1.33 G against 0.82 G for the same mix without latency (+61%: lines on
+  most paths, since a latent master and eighth of the tracks put every
+  other path and group input through a line). That is about 0.15 ms of a
+  2.67 ms block on this machine. Projects without latency: `engine_routed_64`
+  +0.55%, `engine_transport` +0.67%, `engine_clips_64` +0.02%. Two fixes
+  kept them there: without latency the engine leaves the `Playhead`
+  alone, and the plan holds its delay scratch rather than zeroing 2 KB
+  on the stack every block (`engine_transport` was +3.16% before them).
+  The baseline was updated from WSL for the new scenario, as an intended
+  change.
 - Plans whose shapes differ still crossfade over 5 ms. A plan's shape now
   includes its devices, sidechains and line lengths.
 - Scrubbing renders through the delay lines, so with latency the scrub is

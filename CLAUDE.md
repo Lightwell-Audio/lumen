@@ -390,7 +390,7 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-10: mixer fixes after MT-MIX-5 run 1, approved from mock-ups (ADR-0040 amendment): strips 96 pt wide, the header's value text clear of its level bars, whole-dB peak readouts from 10 dB up; MT-MIX-5 run 2 waits for the owner (header meter to re-check with audio). Before it, 2026-10-09: M4 slice 5 built (below). Before it, M3 slice 8 built (the exit flow, the
+**Last updated:** 2026-10-10: **M4 slice 6 built** (sidechains and delay compensation, ADR-0041; below). MT-MIX-6 waits for the owner. Before it, 2026-10-10: mixer fixes after MT-MIX-5 run 1, approved from mock-ups (ADR-0040 amendment): strips 96 pt wide, the header's value text clear of its level bars, whole-dB peak readouts from 10 dB up; MT-MIX-5 run 2 waits for the owner (header meter to re-check with audio). Before it, 2026-10-09: M4 slice 5 built (below). Before it, M3 slice 8 built (the exit flow, the
 accessibility audit, the end-of-milestone review and every finding fixed
 or recorded). MT-APP-16 passed and **M3 is approved** (2026-10-09). The M3
 report is in PROGRESS.md and M4 is proposed in `docs/milestones/M4.md`.
@@ -476,8 +476,28 @@ came back (egui sizes a panel by its contents; the detail panel now
 claims its area and has a min and max). Frame times with the mixer on the
 200-track stress project p99 2.4 to 3.2 ms (was 1.5 to 1.8), idle 3
 repaints in 3 s as before; engine perf baseline updated for meters
-(+21.8% routed). MT-MIX-5 waits for the owner. Next: slice 6 (sidechain
-and delay compensation foundations). The owner asks for mock-ups before
+(+21.8% routed). MT-MIX-5 waits for the owner. **Slice 6, sidechains and
+delay compensation, is built** (ADR-0041; the owner chose read ahead,
+Ableton's three taps, saving sidechains with the first device that uses
+them (no format change now), and the D1 readout from mock-ups).
+`lumen_engine::mixer` is now `spec.rs` (routing types: `Device`,
+`SidechainSpec`, `Tap`), `compile.rs` (order, loops, compensation: every
+early path and a late-waiting node's own input go through a line),
+`plan.rs` (runs it; mute comes after devices and taps only where a node
+has them, so plain routings cost what they did), `delay.rs` (lines
+carried across plans by key). The engine renders ahead by
+`Source::latency` (`Engine::ahead`); the playhead follows through
+`playhead.rs` only while latent; latent jumps blend at the tracks' inputs
+in `Mixer::locate`. A latency change while playing skips or repeats the
+difference, without a step (the pitch said "no gap"; corrected in the
+ADR). The only device is the synthetic delay: `testing::set_test_latency`,
+`--test-latency <ms>` (first track), `routing::Devices` in `Lanes`.
+Readout: `transport/compensation.rs`; the bar is drawn before the info
+line, so E2E checks a bar hover by its "Info: …" node, not `info()`. Perf
+gate: new `engine_latent_64`; keep the non-latent path free of per-block
+work (the transport gate caught +3%). The E2E walkthrough is flaky on
+Linux from before this slice (KNOWN_ISSUES). MT-MIX-6 waits for the
+owner. Next: slice 7 (walkthrough, review and report). The owner asks for mock-ups before
 any visual change, bug fixes included, and checks findings fast: run the
 full suite before every push (a push once went out with two failing E2E
 tests). The owner's drag-to-cut request is recorded for M7 with split

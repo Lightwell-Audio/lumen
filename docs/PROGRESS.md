@@ -34,7 +34,13 @@ M2 as a setting, L2, H2 and B1–B8 from interactive specimens): meters and
 loudness measured on the audio thread, meters inside the headers' volume
 sliders, the Mixer tab with strips, a loudness column and output pairs,
 strips dragged to reorder, the pan law menu, and the latching wheel on
-every value control; MT-MIX-5 waits for the owner.
+every value control; MT-MIX-5 waits for the owner. **Slice 6,
+sidechains and delay compensation, is built** (ADR-0041; the owner chose
+read ahead, Ableton's three sidechain taps, saving sidechains with the
+first device, and the D1 readout from mock-ups): devices with latency
+and sidechains in the engine graph, delay lines that line up every path,
+the engine rendering ahead of the playhead, and the readout in the
+transport bar; MT-MIX-6 waits for the owner.
 **Previous:** M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
@@ -216,9 +222,9 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
 | Channel strip: input gain, polarity, devices, pre/post sends, fader, pan law, mute, solo, cue, output | M | 🟡 In the engine (M4 slice 1, ADR-0035): input trim, polarity, mute, pre- and post-fader sends, volume and pan with four pan laws (−3 dB constant power by default), output to a node or a device pair, all gliding over 20 ms. Saved and undoable in the model (slice 2, format v7, ADR-0036). Slice 4 (ADR-0038): sends set from comet knobs on the headers (pre/post from their menu), mute and solo by the agreed rules, cue before the fader to a second output pair. Slice 5 (ADR-0040): the strip itself in the Mixer tab (the owner's S1: output, polarity, trim, two send knobs then "+N", pan, a fader beside its meter, typed volume, held peak, M S arm), the pan law from the mixer's menu and the palette; devices with M6 | 4 |
-| Returns, groups, master, sidechain from any track, hardware output routing | M | 🟡 The engine graph sums groups (nested), returns and a master and routes to device pairs (slice 1); a track in a group plays into it. A master track in every project, outputs and sends in the model, loops refused (slice 2, ADR-0036); grouping built (slice 3, ADR-0037); returns and the master pinned at the bottom of the arrangement with sends on the headers (slice 4, ADR-0038). Output choices on the strips, any of the device's pairs, which Lumen then opens (slice 5, B6, ADR-0040); sidechain (slice 6) | 4 |
+| Returns, groups, master, sidechain from any track, hardware output routing | M | 🟡 The engine graph sums groups (nested), returns and a master and routes to device pairs (slice 1); a track in a group plays into it. A master track in every project, outputs and sends in the model, loops refused (slice 2, ADR-0036); grouping built (slice 3, ADR-0037); returns and the master pinned at the bottom of the arrangement with sends on the headers (slice 4, ADR-0038). Output choices on the strips, any of the device's pairs, which Lumen then opens (slice 5, B6, ADR-0040); sidechains from any track in the engine graph at Ableton's three taps, compensated (slice 6, ADR-0041), chosen in the UI when a device has a sidechain input (M6, M8) | 4 |
 | Solo keeps soloed paths audible; exclusive-solo option | M | 🟡 Built (M4 slice 4, ADR-0038): the owner's 14 cases as one pure function (`lumen_project::solo`) and its tests: a soloed path stays open, mute beats solo, returns are solo-safe, a soloed return plays wet only. Exclusive by default (Ableton), additive as a preference; hollow M and S show why a track is silent or heard; the transport's S chip clears every solo. MT-MIX-4 passed | 4 |
-| Automatic plugin delay compensation with indicator | M | 🔲 | 4, 6 |
+| Automatic plugin delay compensation with indicator | M | 🟡 Built in the engine (M4 slice 6, ADR-0041): every node reports its devices' latency; parallel paths, sends and sidechains line up sample for sample through delay lines; the engine renders ahead so what is heard lines up with the playhead; the transport shows the compensation while there is some (the owner's D1). Tested with the synthetic latent device; real latency arrives with VST3 (M6). MT-MIX-6 waits for the owner | 4, 6 |
 | Peak (hold, clip), RMS; master LUFS and true peak | M | 🟡 Built (M4 slice 5, ADR-0040): every node metered after fader and pan on the audio thread (lock-free), peaks falling 20 dB/s with a 1.5 s hold, clips latched until clicked, a 300 ms RMS; the master's momentary, short-term and gated integrated LUFS (BS.1770-4, EBU Tech 3341 cases 1–5 within 0.1 LU) and 4× true peak in the loudness column. MT-MIX-5 waits for the owner | 4 |
 | Dockable mixer panel; inline fader, pan and meter on track headers | M | 🟡 Built (M4 slice 5, ADR-0040): the Mixer tab of the detail panel (strips in the arrangement's order and folding, returns after, the master pinned with the loudness column, strips dragged to reorder, sections folding in a short panel); meters inside the headers' volume sliders. Detachable mixer windows are S (M10). MT-MIX-5 waits for the owner | 4 |
 | Routing matrix; master mono-check and dim | S | 🔲 | 4 |
@@ -305,7 +311,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | MIDI effects; on-screen keyboard | S | 🔲 |
 | MPE, MIDI 2.0 | L | 🔲 |
 | Automation: all parameters, curves, R/W/T/L, clip envelopes, tempo and signature, override, simplification | M | 🔲 |
-| Mixer: fader, pan law, mute, solo, sends, returns, groups, master, routing, sidechain, PDC, meters, cue | M | 🟡 The engine graph (M4 slice 1, ADR-0035); routing in the model (slice 2); groups (slice 3); mute, solo, sends, returns, the master and cue (slice 4, ADR-0038); the Mixer tab, meters, the pan law and output pairs (slice 5, ADR-0040); sidechain and PDC in slice 6 |
+| Mixer: fader, pan law, mute, solo, sends, returns, groups, master, routing, sidechain, PDC, meters, cue | M | 🟡 The engine graph (M4 slice 1, ADR-0035); routing in the model (slice 2); groups (slice 3); mute, solo, sends, returns, the master and cue (slice 4, ADR-0038); the Mixer tab, meters, the pan law and output pairs (slice 5, ADR-0040); sidechains and delay compensation in the engine with the transport's readout (slice 6, ADR-0041) |
 | LUFS and true-peak metering; mono-check and dim | S | 🟡 LUFS (momentary, short-term, integrated) and true peak on the master (M4 slice 5, ADR-0040); mono-check and dim later |
 | Reference track | L | 🔲 |
 | Async cached VST3 scanning, custom paths, blocklist, search, favourites, recents | M | 🔲 |
