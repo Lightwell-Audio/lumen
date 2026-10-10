@@ -48,14 +48,14 @@ pub(super) const SENDS_FROM: f32 = FOLDED + 3.0 * STEP;
 
 /// A return, as its sends show it.
 #[derive(Debug, Clone)]
-struct Return {
-    id: Id,
-    letter: String,
-    name: String,
-    color: Color32,
+pub(super) struct Return {
+    pub(super) id: Id,
+    pub(super) letter: String,
+    pub(super) name: String,
+    pub(super) color: Color32,
 }
 
-fn returns(project: &Project) -> Vec<Return> {
+pub(super) fn returns(project: &Project) -> Vec<Return> {
     project
         .tracks
         .iter()
@@ -106,15 +106,15 @@ fn level_into(track: &Track, to: Id) -> f32 {
 }
 
 /// One send's knob: where it is, what it shows, what it is called.
-struct Knob<'a> {
-    rect: Rect,
-    track: &'a Track,
-    to: &'a Return,
-    selected: bool,
-    name: String,
-    /// Where it is drawn ("header", "list", "return", "return list"): each
-    /// place's knobs are their own widgets.
-    place: &'static str,
+pub(super) struct Knob<'a> {
+    pub(super) rect: Rect,
+    pub(super) track: &'a Track,
+    pub(super) to: &'a Return,
+    pub(super) selected: bool,
+    pub(super) name: String,
+    /// Where it is drawn ("header", "list", "return", "return list",
+    /// "strip"): each place's knobs are their own widgets.
+    pub(super) place: &'static str,
 }
 
 /// The "+N ▾" button, drawn as "+ Add track ▾" is.
@@ -190,7 +190,7 @@ fn plus_button(ui: &mut Ui, plus: Plus) -> egui::Response {
 impl Arrangement {
     /// Draws a send knob and applies what the user does with it. Returns
     /// whether it is being set right now.
-    fn send_control(
+    pub(super) fn send_control(
         &mut self,
         ui: &mut Ui,
         doc: &mut Document,
@@ -300,7 +300,7 @@ impl Arrangement {
                 track,
                 &returns,
                 (shown, pos2(x, center_y)),
-                selected,
+                (selected, false),
             );
         }
     }
@@ -309,17 +309,23 @@ impl Arrangement {
     /// the list it opens: every send of the track, knob, letter, name and
     /// level. A dot in a return's colour before the number when a hidden
     /// send is turned up.
-    fn more_sends(
+    pub(super) fn more_sends(
         &mut self,
         ui: &mut Ui,
         doc: &mut Document,
         track: &Track,
         returns: &[Return],
         (shown, at): (usize, egui::Pos2),
-        selected: bool,
+        (selected, in_strip): (bool, bool),
     ) {
         let palette = *theme::p();
         let hidden = returns.len() - shown;
+        // Headers and strips each have their own button and list.
+        let (place, list, suffix) = if in_strip {
+            ("strip", "strip list", " in the mixer")
+        } else {
+            ("header", "list", "")
+        };
         let lit = returns[shown..].iter().find(|r| {
             track
                 .sends
@@ -329,9 +335,9 @@ impl Arrangement {
         let response = plus_button(
             ui,
             Plus {
-                id: EguiId::new(("more sends", track.id)),
+                id: EguiId::new(("more sends", track.id, place)),
                 text: format!("+{hidden}"),
-                name: format!("{hidden} more sends from {}", track.name),
+                name: format!("{hidden} more sends from {}{suffix}", track.name),
                 tip: "Every send of this track",
                 selected,
                 dot: lit.map(|r| r.color),
@@ -364,7 +370,8 @@ impl Arrangement {
                                 pos2(row.left() + 2.0, row.center().y - SMALL_KNOB / 2.0),
                                 vec2(SMALL_KNOB, SMALL_KNOB),
                             );
-                            let name = format!("Send {} to {} {}", track.name, to.letter, to.name);
+                            let name =
+                                format!("Send {} to {} {}{suffix}", track.name, to.letter, to.name);
                             self.send_control(
                                 ui,
                                 doc,
@@ -375,7 +382,7 @@ impl Arrangement {
                                     to,
                                     selected: false,
                                     name,
-                                    place: "list",
+                                    place: list,
                                 },
                             );
                             let badge_left = knob.right() + 8.0;
@@ -624,7 +631,7 @@ fn letter_badge(ui: &Ui, at: egui::Pos2, to: &Return) -> Rect {
 }
 
 /// `text` cut to fit `width`, ending in "…".
-fn shorten(painter: &egui::Painter, text: &str, font: FontId, width: f32) -> String {
+pub(super) fn shorten(painter: &egui::Painter, text: &str, font: FontId, width: f32) -> String {
     let mut cut = text.to_owned();
     while !cut.is_empty() {
         cut.pop();

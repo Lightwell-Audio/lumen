@@ -370,7 +370,7 @@ impl Arrangement {
     /// The Solo/Cue switch at the master's right (the owner's C1). On Cue,
     /// the tracks' S buttons cue them to the headphones. Without a cue pair
     /// (Audio settings) it is quiet and says why when clicked.
-    fn cue_switch(&mut self, ui: &mut Ui, rect: Rect, mid: f32) {
+    pub(super) fn cue_switch(&mut self, ui: &mut Ui, rect: Rect, mid: f32, place: &str) {
         let palette = *theme::p();
         let switch = Rect::from_min_size(
             pos2(rect.right() - 10.0 - 46.0, mid - 9.0),
@@ -379,7 +379,7 @@ impl Arrangement {
         let ready = self.cue.ready;
         let on = self.cue.mode && ready;
         let response = ui
-            .interact(switch, ui.id().with("solo cue switch"), Sense::click())
+            .interact(switch, ui.id().with(("solo cue switch", place)), Sense::click())
             .on_hover_text(if ready {
                 "Solo or Cue: on Cue, the tracks' S buttons send them to the headphones, before the fader"
             } else {
@@ -390,7 +390,7 @@ impl Arrangement {
                 egui::WidgetType::Checkbox,
                 ready,
                 on,
-                "Solo/Cue switch: Cue",
+                format!("Solo/Cue switch: Cue{place}"),
             )
         });
         if response.clicked() {
@@ -401,7 +401,11 @@ impl Arrangement {
                     Some("Choose a Cue output in Audio settings first: a second pair of outputs");
             }
         }
-        let hover = motion::hover(ui.ctx(), ui.id().with("solo cue hover"), response.hovered());
+        let hover = motion::hover(
+            ui.ctx(),
+            ui.id().with(("solo cue hover", place)),
+            response.hovered(),
+        );
         let look = theme::controls(false);
         let (fill, ink) = if on {
             (palette.accent, theme::text_on(palette.accent))
@@ -504,7 +508,7 @@ impl Arrangement {
         name.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Label, true, "Master track")
         });
-        self.cue_switch(ui, rect, mid);
+        self.cue_switch(ui, rect, mid, "");
         if rect.height() >= FOLDED + 22.0 {
             self.mixer_row(ui, doc, &master, rect, id, look);
         } else {

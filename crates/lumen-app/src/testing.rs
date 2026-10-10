@@ -167,6 +167,17 @@ impl App {
         }
     }
 
+    /// The detail panel's height, in points.
+    pub fn detail_size(&self) -> f32 {
+        self.detail_size
+    }
+
+    /// Sets the detail panel's height, as opening a project with that
+    /// layout saved does (the panel takes it on the next frame).
+    pub fn set_detail_size(&mut self, size: f32) {
+        self.detail_size = size;
+    }
+
     /// Some meter is still moving, so the app keeps drawing frames.
     pub fn meters_moving(&self) -> bool {
         self.arrangement.meters.moving()

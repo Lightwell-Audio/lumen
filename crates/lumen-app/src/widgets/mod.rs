@@ -14,8 +14,10 @@ use eframe::emath::GuiRounding as _;
 
 use crate::{fonts, icons, motion, theme};
 
+pub mod fader;
 mod keys;
 pub mod knob;
+pub mod meter;
 
 pub use keys::{
     KEY_LIGHT_ROOM, Keys, Tip, caps_height, caps_width, keycaps, menu_item, menu_toggle,
@@ -186,6 +188,9 @@ pub enum SliderKind {
     /// A length in milliseconds, 0 to `max_ms`, filled from the left;
     /// resets to 0 (a fade's length, slice 6e).
     Millis { max_ms: f32 },
+    /// A channel's input trim (M4 slice 5): −24 to +24 dB, filled from the
+    /// centre; resets to 0 dB.
+    Trim,
 }
 
 impl SliderKind {
@@ -195,12 +200,13 @@ impl SliderKind {
             SliderKind::Pan => (-1.0, 1.0),
             SliderKind::ClipGain => (-60.0, 12.0),
             SliderKind::Millis { max_ms } => (0.0, max_ms.max(0.0)),
+            SliderKind::Trim => (-24.0, 24.0),
         }
     }
 
     pub fn text(self, value: f32) -> String {
         match self {
-            SliderKind::Volume | SliderKind::ClipGain => db_text(value),
+            SliderKind::Volume | SliderKind::ClipGain | SliderKind::Trim => db_text(value),
             SliderKind::Pan => pan_text(value),
             SliderKind::Millis { .. } => ms_text(value),
         }
@@ -210,7 +216,7 @@ impl SliderKind {
     pub fn parse(self, text: &str) -> Option<f32> {
         let text = text.trim().replace('\u{2212}', "-").to_ascii_uppercase();
         match self {
-            SliderKind::Volume | SliderKind::ClipGain => {
+            SliderKind::Volume | SliderKind::ClipGain | SliderKind::Trim => {
                 text.trim_end_matches("DB").trim().parse().ok()
             }
             SliderKind::Millis { .. } => {
@@ -296,6 +302,9 @@ pub fn value_slider(
             SliderKind::Millis { .. } => {
                 "Length: drag (Shift for fine), double-click for none, or click and type 40 ms or 1.2 s"
             }
+            SliderKind::Trim => {
+                "Input trim: drag (Shift for fine), double-click for 0 dB, or click and type"
+            }
         });
     response.widget_info(|| {
         egui::WidgetInfo::slider(
@@ -370,11 +379,11 @@ pub fn value_slider(
                 Stroke::new(2.0, palette.start_marker),
             );
         }
-        SliderKind::Pan => {
+        SliderKind::Pan | SliderKind::Trim => {
             let center = rect.center().x;
             let x = x_at(out);
             // Grey at the centre, the accent at the edges (owner request).
-            let strength = out.abs().powf(1.2);
+            let strength = (out / hi).abs().powf(1.2);
             let fill = look.press.lerp_to_gamma(palette.accent, strength);
             p.rect_filled(
                 Rect::from_x_y_ranges(center.min(x)..=center.max(x), rect.y_range()),
@@ -406,6 +415,78 @@ pub fn value_slider(
             egui::StrokeKind::Inside,
         );
     }
+    out
+}
+
+/// A value shown as text in a field (a strip's volume under its fader, M4
+/// slice 5): click to type (Enter applies, Esc cancels), double-click to
+/// reset. Returns the value.
+pub fn value_field(
+    ui: &mut Ui,
+    rect: Rect,
+    id: EguiId,
+    value: f32,
+    kind: SliderKind,
+    name: &str,
+) -> f32 {
+    let palette = *theme::p();
+    let (lo, hi) = kind.range();
+    let typing_id = id.with("typing");
+    if let Some(mut text) = ui.data(|d| d.get_temp::<String>(typing_id)) {
+        let edit = ui.put(
+            rect,
+            egui::TextEdit::singleline(&mut text)
+                .id(id.with("edit"))
+                .font(FontId::monospace(theme::size::CAPTION))
+                .horizontal_align(egui::Align::Center)
+                .margin(vec2(2.0, 2.0)),
+        );
+        if !edit.has_focus() && !edit.lost_focus() {
+            edit.request_focus();
+        }
+        let cancel = ui.input(|i| i.key_pressed(Key::Escape));
+        if cancel || edit.lost_focus() {
+            ui.data_mut(|d| d.remove::<String>(typing_id));
+            if !cancel && let Some(v) = kind.parse(&text) {
+                return v.clamp(lo, hi);
+            }
+        } else {
+            ui.data_mut(|d| d.insert_temp(typing_id, text));
+        }
+        return value;
+    }
+    let response = ui
+        .interact(rect, id, Sense::click())
+        .on_hover_cursor(egui::CursorIcon::Text)
+        .on_hover_text("Click and type a value; double-click to reset");
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::TextEdit,
+            true,
+            format!("{name}: {}", kind.text(value)),
+        )
+    });
+    let mut out = value;
+    if response.double_clicked() {
+        ui.data_mut(|d| d.remove::<String>(typing_id));
+        out = 0.0;
+    } else if response.clicked() {
+        ui.data_mut(|d| d.insert_temp(typing_id, kind.text(value).replace(" dB", "")));
+    }
+    let hover = motion::hover(ui.ctx(), id.with("hover"), response.hovered());
+    let p = ui.painter();
+    p.rect_filled(
+        rect,
+        theme::radius::SMALL,
+        palette.raised.lerp_to_gamma(palette.control, hover),
+    );
+    p.text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        kind.text(out).replace(" dB", ""),
+        FontId::monospace(theme::size::CAPTION),
+        palette.text,
+    );
     out
 }
 

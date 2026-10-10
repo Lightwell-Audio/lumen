@@ -35,19 +35,9 @@ fn x_at(span: Rangef, db: f32) -> f32 {
 
 /// One side's bar from the floor up to `db`, in its zones' colours.
 fn bar(painter: &Painter, span: Rangef, ys: Rangef, db: f32, base: Color32, alpha: f32) {
-    if db <= FLOOR_DB {
-        return;
-    }
-    let mut from = FLOOR_DB;
-    for to in [theme::METER_WARN_DB, 0.0, TOP_DB] {
-        if db <= from {
-            break;
-        }
-        let top = db.min(to);
-        let color = theme::meter((from + top) / 2.0, base).gamma_multiply(alpha);
-        let rect = Rect::from_x_y_ranges(x_at(span, from)..=x_at(span, top), ys);
-        painter.rect_filled(rect, 0.0, color);
-        from = to;
+    for (from, to, color) in crate::widgets::meter::zones(db, base) {
+        let rect = Rect::from_x_y_ranges(x_at(span, from)..=x_at(span, to), ys);
+        painter.rect_filled(rect, 0.0, color.gamma_multiply(alpha));
     }
 }
 

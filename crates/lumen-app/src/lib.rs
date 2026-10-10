@@ -450,7 +450,7 @@ impl eframe::App for App {
         panels::sliding(
             ui,
             "browser",
-            panels::Side::Left,
+            (panels::Side::Left, egui::Rangef::new(96.0, f32::INFINITY)),
             self.show_browser,
             &mut self.browser_size,
             |ui| {
@@ -461,32 +461,54 @@ impl eframe::App for App {
                 ui.label(RichText::new("Devices, samples and projects will be here").weak());
             },
         );
+        // The detail panel: the Mixer tab (M4 slice 5); Devices and Clip
+        // arrive with their milestones. Never shorter than a strip. Its
+        // content is drawn after the arrangement, so Tab reaches it in
+        // reading order.
+        let mut detail_size = self.detail_size;
+        let mut detail_content = None;
+        let detail_min = arrangement::strips::min_height() + DETAIL_CHROME;
+        // Never so tall that the arrangement loses its rulers and a track.
+        let detail_max = ui.available_rect_before_wrap().height() - ARRANGEMENT_MIN;
         panels::sliding(
             ui,
             "detail",
-            panels::Side::Bottom,
+            (
+                panels::Side::Bottom,
+                egui::Rangef::new(detail_min, detail_max),
+            ),
             self.show_detail,
-            &mut self.detail_size,
+            &mut detail_size,
             |ui| {
                 let rect = ui.max_rect();
                 self.panes.anchor(ui, app::panes::Pane::Detail, rect);
                 ui.horizontal(|ui| {
-                    for (tab, milestone) in [
-                        ("Devices", "Milestone 6"),
-                        ("Clip", "Milestone 5"),
-                        ("Mixer", "Milestone 4"),
-                    ] {
+                    for (tab, milestone) in [("Devices", "Milestone 6"), ("Clip", "Milestone 5")] {
                         ui.add_enabled(false, egui::Button::new(tab))
                             .on_disabled_hover_text(arrives(milestone));
                     }
+                    let mixer = egui::Button::new(RichText::new("Mixer").color(theme::p().accent))
+                        .fill(theme::p().accent_muted);
+                    ui.add(mixer).on_hover_text("Every track's channel strip");
                 });
-                ui.label(RichText::new("Select a track or a clip").weak());
-                // Room under the last line, so the panel dragged to its
-                // smallest still keeps it off the info line's edge (owner).
-                ui.add_space(theme::space::S);
+                // Claimed without interaction: egui sizes the panel by what
+                // its contents take, so an unclaimed area snapped it back to
+                // its smallest after every change.
+                let content = ui.available_rect_before_wrap();
+                ui.advance_cursor_after_rect(content);
+                detail_content = Some(content);
             },
         );
+        self.detail_size = detail_size;
         egui::CentralPanel::default().show(ui, |ui| self.arrangement(ui));
+        if let Some(content) = detail_content {
+            self.lend_cue_controls();
+            let mut mixer = ui.new_child(egui::UiBuilder::new().max_rect(content));
+            mixer.set_clip_rect(content.intersect(ui.clip_rect()));
+            self.arrangement
+                .mixer_panel(&mut mixer, &mut self.document, &self.keymap);
+            self.take_cue_controls();
+        }
         self.typing = ctx.text_edit_focused();
 
         // Scheduled after drawing, because buttons are clicked while drawing.
@@ -547,6 +569,11 @@ impl eframe::App for App {
 }
 
 const SMOKE_FRAMES: u32 = 30;
+/// The detail panel's tab row and margins, above and around its content.
+const DETAIL_CHROME: f32 = 48.0;
+/// The arrangement's least height beside the detail panel: its rulers, a
+/// folded track and the master's row.
+const ARRANGEMENT_MIN: f32 = 180.0;
 static FIRST_FRAME_MS: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
 
 fn save_png(path: &std::path::Path, image: &egui::ColorImage) -> Result<(), String> {

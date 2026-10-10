@@ -134,7 +134,13 @@ pub struct Meters {
     tracks: HashMap<u64, Ballistics>,
     loudness: Loudness,
     true_peak: f32,
+    /// Short-term loudness after every 100 ms block, newest last (the
+    /// loudness column's history).
+    history: std::collections::VecDeque<f64>,
 }
+
+/// Short-term readings kept for the history: a minute of 100 ms blocks.
+pub const HISTORY: usize = 600;
 
 impl Default for Meters {
     fn default() -> Self {
@@ -142,6 +148,7 @@ impl Default for Meters {
             tracks: HashMap::new(),
             loudness: Loudness::new(),
             true_peak: f32::NEG_INFINITY,
+            history: std::collections::VecDeque::with_capacity(HISTORY),
         }
     }
 }
@@ -157,8 +164,14 @@ impl Meters {
             let level = mixer.take_level(id).filter(|_| running);
             self.tracks.entry(id).or_default().step(level, dt);
         }
-        let loudness = &mut self.loudness;
-        mixer.take_loudness(|block| loudness.push(block));
+        let (loudness, history) = (&mut self.loudness, &mut self.history);
+        mixer.take_loudness(|block| {
+            loudness.push(block);
+            if history.len() == HISTORY {
+                history.pop_front();
+            }
+            history.push_back(loudness.short_term());
+        });
         self.true_peak = self.true_peak.max(db(mixer.take_true_peak()));
     }
 
@@ -197,6 +210,11 @@ impl Meters {
     pub fn reset_loudness(&mut self) {
         self.loudness.reset();
         self.true_peak = f32::NEG_INFINITY;
+    }
+
+    /// Short-term loudness, a reading per 100 ms, oldest first.
+    pub fn history(&self) -> impl ExactSizeIterator<Item = f64> + '_ {
+        self.history.iter().copied()
     }
 
     pub fn loudness(&self) -> LoudnessReading {

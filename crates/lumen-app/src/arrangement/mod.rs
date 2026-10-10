@@ -25,6 +25,7 @@
 //! bottom, under a divider (`pinned`): rows carry the [`Zone`] they are
 //! drawn in, and each zone clips its own.
 
+mod buttons;
 mod clips;
 mod drop;
 pub mod handles;
@@ -37,6 +38,8 @@ mod reorder;
 mod samples;
 pub mod select;
 mod sends;
+mod strip;
+pub(crate) mod strips;
 mod waves;
 
 pub use drop::FileDrop;
@@ -158,6 +161,9 @@ pub struct Arrangement {
     anchor: Option<Id>,
     /// The track being renamed, with the text so far.
     renaming: Option<(Id, String)>,
+    /// The rename field is on the track's mixer strip, not its header
+    /// (a double-click or the menu on the strip, M4 slice 5).
+    renaming_in_strip: bool,
     /// The track being resized and its height when the drag began.
     resizing: Option<(Id, f32)>,
     /// The track whose bottom edge glows (hovered or dragged), and how
@@ -779,6 +785,7 @@ impl Arrangement {
             && let Some(track) = doc.project().tracks.iter().find(|t| t.id == id)
         {
             self.renaming = Some((id, track.name.clone()));
+            self.renaming_in_strip = false;
         }
     }
 

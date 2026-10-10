@@ -497,6 +497,45 @@ Chosen from interactive specimens:
 - Meters draw frames only while a level moves and come to rest when it
   stops, so a silent project idles.
 
+### The Mixer tab (M4 slice 5, owner's choices, ADR-0040)
+
+- **Layout:** the detail panel's Mixer tab (Devices and Clip arrive with
+  their milestones). Strips follow the arrangement's order, skipping
+  tracks hidden in folded groups (one fold for both views, B4); the
+  returns after a 10 pt gap; the master pinned at the right after a
+  `border_strong` line, and the loudness column (L2, 108 pt) beside it.
+  The strips scroll sideways; only those in view are drawn. With no
+  tracks: "No tracks to mix yet: add one with + Add track or Ctrl+T".
+- **Strip (S1 console, 76 pt):** `header` fill (`raised` for returns and
+  the master, `selected_row` when selected, controls stepping up as on
+  headers). From the top: a 3 pt rail per group the track is in (and its
+  own when it is a group), outermost first; a 3 × 14 pt colour chip, a
+  group's fold arrow, a return's letter badge and the name (double-click
+  renames it on the strip); the output (a menu: Master and the groups that
+  would not feed back); Ø and input trim (±24 dB, filled from the centre;
+  the master shows its Solo/Cue switch there); the sends (O2: the first
+  two returns' knobs, 22 pt, then "+N ▾" listing them all); pan; the fader
+  (`widgets::fader`: a 4 pt groove and a 22 × 12 pt cap with a `text` line,
+  on the send knobs' taper, 0 dB at three quarters of the travel, stopping
+  at −60 dB) beside the scale (monospace marks, 0 in `text_secondary`) and
+  the stereo meter (two 5 pt bars, 2 pt apart, with the clip light, 5 pt,
+  above); the volume typed in (`widgets::value_field`) and the peak held
+  (`record` when clipped; a click clears it); M, S and arm, 20 pt, centred.
+- **A short panel (B7)** folds the sends away first, then trim and
+  polarity, then the output; the rest always shows, with a travel of at
+  least 64 pt. The panel is never shorter than that strip, and never so
+  tall that the arrangement keeps less than 180 pt.
+- **Loudness column (L2):** "Loudness", the integrated value in 20 pt
+  monospace with "LUFS integrated" under it; a 12 pt short-term bar (the
+  accent, the warning colour above −9 LUFS) with the momentary as a 2 pt
+  `text` line and the −14 LUFS ± 1 band in the accent at 14%; the last
+  minute's short-term loudness as a line beside it; M, S and TP (TP in the
+  warning colour above −1 dBTP); "↺ Reset". Silence reads "—".
+- **Names:** every strip control ends "in the mixer" ("Mute Kick in the
+  mixer", "Kick fader in the mixer: −3.0 dB"), so it never shares a name
+  with its header's twin; a strip itself is "Mixer strip: Kick, Audio
+  track".
+
 ## 7b. Navigation (M3 slice 4d, ADR-0028)
 
 - **Zoom** glides (`GLIDE`) for keys and fits; the wheel and pinch follow

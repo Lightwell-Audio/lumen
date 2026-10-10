@@ -3124,6 +3124,29 @@ waiting on the UI, and must not raise idle CPU (risk R5).
   and "Meters in track colours" (the M2 setting, `Mixing::
   track_colour_meters`, an added settings field), in the Mixer area.
 
+- **5c, the Mixer tab** (`arrangement/strips.rs`, `strip.rs`, `buttons.rs`;
+  `widgets/fader.rs`, `widgets/meter.rs`; the owner's S1, O2, L2, B4 and
+  B7): the strips are another view of the arrangement (`impl Arrangement`),
+  so selection, folding, cue, the return hover link and the send knobs are
+  shared, not copied. The M and S buttons moved out of the header loop
+  into `Arrangement::mute_solo`, used by both. The fader shares the send
+  knob's taper and stops at −60 dB (a track's volume is saved as a number;
+  `set_volume` clamps it). The output menu lists Master and the groups,
+  leaving out any that would feed back (tried on a copy, `routing::
+  has_loop`); device pairs come in 5e. A rename started on a strip edits on
+  the strip (`renaming_in_strip`). The mixer is drawn after the
+  arrangement, into the area the detail panel reserved, so Tab reaches it
+  in reading order. The detail panel is never shorter than a strip with
+  every section folded, nor so tall that the arrangement keeps less than
+  180 pt.
+- **Found and fixed on the way:** saved panel sizes never came back.
+  egui keeps a panel's size by its id and sizes it by what its contents
+  take: the detail panel's few contents snapped it to its smallest after
+  every change, and a project's saved size was overwritten by egui's
+  memory. The detail panel's content area is now claimed (without
+  interaction), and `panels::sliding` applies a size the app changes from
+  outside (a project opening) once.
+
 ### Consequences
 - Performance (divan, 128 frames at 48 kHz, this machine): 64 routed
   tracks 24 µs before, 31 µs with every node metered and the master's
@@ -3158,5 +3181,11 @@ E2E `meters`: a playing track's level shows after fader and pan law on it
 and the master, and peaks and hold come to rest when stopped; clip lights
 stay until clicked, one by one or all from the palette; integrated
 loudness keeps counting through Pause and Continue and starts again on
-Play from stop.
+Play from stop. `strip` (a short panel folds sends, then trim, then the
+output), `fader` (the knobs' taper), `meter` (a bar's zones). E2E `mixer`:
+strips follow the arrangement with returns after and the master pinned,
+one fold for both views, a click selects; every strip control (fader,
+typed volume, pan, polarity, trim, send, mute, solo, rename) sets its
+track in one undo step; the output menu routes into a group and never
+offers a group as its own output; the loudness column resets.
 

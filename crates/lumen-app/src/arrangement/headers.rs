@@ -250,6 +250,7 @@ impl Arrangement {
                     self.selected = vec![track.id];
                 }
                 self.track_menu(ui, doc, track.id, keymap);
+                self.renaming_in_strip = false;
             });
             let fill = if selected {
                 palette.selected_row
@@ -385,7 +386,7 @@ impl Arrangement {
             // The name is on top of the header's background: it gets the
             // same menu, so a right-click on it opens the track's menu too.
             let count = (group && collapsed).then_some(inside);
-            if let Some(name) = self.name(ui, doc, &track, name_rect, (heard, count), id) {
+            if let Some(name) = self.name(ui, doc, &track, name_rect, (heard, count), (id, false)) {
                 let keys = keymap.keys(Command::Rename);
                 let name = widgets::tip(name, "Double-click to rename", keys.as_ref(), None);
                 name.context_menu(|ui| {
@@ -393,114 +394,18 @@ impl Arrangement {
                         self.selected = vec![track.id];
                     }
                     self.track_menu(ui, doc, track.id, keymap);
+                    self.renaming_in_strip = false;
                 });
             }
 
-            // M and S: lit when set on this track; a hollow ring when the
-            // track is silenced by another's solo or a muted group (M), or
-            // heard through a soloed group (S) (the owner's choice, slice 4).
-            let additive = self.additive_solo;
-            // On Cue (the master's switch), the S button cues the track to
-            // the headphones instead (the owner's C1).
-            let cueing = self.cue.cueing();
-            let cued = self.cued.contains(&track.id);
-            let toggle = |ui: &mut Ui, r: Rect, button: Toggle, on_fill: Color32| {
-                let (what, label, on, implied) = match button {
-                    Toggle::Mute => ("mute", "Mute", track.mute, hears.silenced),
-                    Toggle::Solo => ("solo", "Solo", track.solo, hears.soloed_through),
-                    Toggle::Cue => ("cue", "Cue", cued, false),
-                };
-                let tip = match (button, additive) {
-                    (Toggle::Cue, false) => {
-                        "Cue to the headphones, before the fader: click for this track only, Ctrl+click to add it"
-                    }
-                    (Toggle::Cue, true) => {
-                        "Cue to the headphones, before the fader: click to add this track, Ctrl+click for it only"
-                    }
-                    (Toggle::Mute, _) if implied => {
-                        "Mute (0). Silent now: another track is soloed, or a group it plays through is muted"
-                    }
-                    (Toggle::Mute, _) => "Mute (0)",
-                    (Toggle::Solo, _) if implied => "Solo. Heard now through a soloed group",
-                    (Toggle::Solo, false) => {
-                        "Solo: click for this track only, Ctrl+click to add it"
-                    }
-                    (Toggle::Solo, true) => "Solo: click to add this track, Ctrl+click for it only",
-                };
-                let response = ui
-                    .interact(r, id.with(what), Sense::click())
-                    .on_hover_text(tip);
-                response.widget_info(|| {
-                    egui::WidgetInfo::selected(
-                        egui::WidgetType::Checkbox,
-                        true,
-                        on,
-                        match (implied && !on, button) {
-                            (true, Toggle::Mute) => format!("Mute {} (silenced)", track.name),
-                            (true, Toggle::Solo) => {
-                                format!("Solo {} (through its group)", track.name)
-                            }
-                            _ => format!("{} {}", label, track.name),
-                        },
-                    )
-                });
-                let hover =
-                    motion::hover(ui.ctx(), id.with(what).with("hover"), response.hovered());
-                let rest = look.fill.lerp_to_gamma(look.hover, hover);
-                let p = ui.painter();
-                let text = if on {
-                    p.rect_filled(r, theme::radius::SMALL, on_fill);
-                    theme::text_on(on_fill)
-                } else if implied {
-                    // Hollow: the state's colour as a ring, the letter in it.
-                    p.rect_filled(r, theme::radius::SMALL, rest.gamma_multiply(0.5));
-                    p.rect_stroke(
-                        r.shrink(0.75),
-                        theme::radius::SMALL,
-                        Stroke::new(1.5, on_fill),
-                        egui::StrokeKind::Middle,
-                    );
-                    on_fill
-                } else {
-                    p.rect_filled(r, theme::radius::SMALL, rest);
-                    look.text
-                };
-                if button == Toggle::Cue {
-                    crate::icons::draw_headphones(p, r.center(), text);
-                } else {
-                    p.text(
-                        r.center(),
-                        Align2::CENTER_CENTER,
-                        &label[..1],
-                        fonts::medium(theme::size::CAPTION),
-                        text,
-                    );
-                }
-                response.clicked()
-            };
-            if toggle(ui, mute_rect, Toggle::Mute, palette.start_marker) {
-                doc.set_mute(&self.targets(track.id), !track.mute);
-            }
-            // Ableton's way by default: a click solos (or cues) this track
-            // alone, Ctrl+click adds it; the additive preference swaps them.
-            let exclusive = modifiers.command == additive;
-            if cueing {
-                if toggle(ui, solo_rect, Toggle::Cue, palette.accent) {
-                    let targets = self.targets(track.id);
-                    if exclusive {
-                        self.cued.retain(|id| targets.contains(id));
-                    }
-                    for id in targets {
-                        if cued {
-                            self.cued.remove(&id);
-                        } else {
-                            self.cued.insert(id);
-                        }
-                    }
-                }
-            } else if toggle(ui, solo_rect, Toggle::Solo, palette.accent) {
-                doc.set_solo(&self.targets(track.id), !track.solo, exclusive);
-            }
+            self.mute_solo(
+                ui,
+                doc,
+                &track,
+                hears,
+                (mute_rect, solo_rect),
+                (id, look, ""),
+            );
             // Returns record nothing: no arm button.
             if track.kind != TrackKind::Return
                 && arm_button(ui, arm_rect, id, &track.name, arm, look)
@@ -624,14 +529,14 @@ impl Arrangement {
     /// The name, or the rename field. Double-click to rename; Enter or
     /// clicking away keeps the new name, Esc cancels. The name's response,
     /// for its tooltip and menu.
-    fn name(
+    pub(super) fn name(
         &mut self,
         ui: &mut Ui,
         doc: &mut Document,
         track: &lumen_project::model::Track,
         rect: Rect,
         (heard, count): (bool, Option<usize>),
-        id: EguiId,
+        (id, in_strip): (EguiId, bool),
     ) -> Option<egui::Response> {
         let palette = theme::p();
         // A group's name is a step bolder (the owner's H1 specimen).
@@ -657,6 +562,7 @@ impl Arrangement {
         };
         if let Some((renaming, text)) = &mut self.renaming
             && *renaming == track.id
+            && self.renaming_in_strip == in_strip
         {
             let edit_id = id.with("rename");
             let response = ui.put(
@@ -683,11 +589,16 @@ impl Arrangement {
             egui::WidgetInfo::labeled(
                 egui::WidgetType::Button,
                 true,
-                format!("{}: double-click to rename", track.name),
+                format!(
+                    "{}{}: double-click to rename",
+                    track.name,
+                    if in_strip { " in the mixer" } else { "" }
+                ),
             )
         });
         if response.double_clicked() {
             self.renaming = Some((track.id, track.name.clone()));
+            self.renaming_in_strip = in_strip;
         } else if response.clicked() {
             let modifiers = ui.input(|i| i.modifiers);
             self.click_select(doc.project(), track.id, modifiers);
@@ -801,7 +712,7 @@ fn painter_count(ui: &Ui, n: usize) -> std::sync::Arc<egui::Galley> {
 /// The record-arm button: round, with a red dot that lights when armed. A
 /// group's lights when everything inside it is armed, and shows half a ring
 /// when only some is.
-fn arm_button(
+pub(super) fn arm_button(
     ui: &mut Ui,
     rect: Rect,
     id: EguiId,
@@ -944,12 +855,4 @@ fn kind_name(kind: TrackKind) -> &'static str {
         TrackKind::Return => "Return track",
         TrackKind::Master => "Master track",
     }
-}
-
-/// The M and S buttons on a header; S is a headphone button on Cue.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Toggle {
-    Mute,
-    Solo,
-    Cue,
 }

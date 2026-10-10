@@ -25,6 +25,7 @@ mod keys;
 mod locators;
 mod looping;
 mod meters;
+mod mixer;
 mod mixing;
 mod navigation;
 mod palette;

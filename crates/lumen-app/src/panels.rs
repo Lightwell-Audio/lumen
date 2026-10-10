@@ -18,11 +18,13 @@ pub enum Side {
 }
 
 /// A resizable panel on `side`. `size` is its full size (width or height),
-/// kept up to date while it is fully open, and used while it slides.
+/// kept up to date while it is fully open, and used while it slides. It
+/// stays within `range` (the smallest wins when the window is too small for
+/// both ends).
 pub fn sliding(
     ui: &mut Ui,
     id: &str,
-    side: Side,
+    (side, range): (Side, egui::Rangef),
     open: bool,
     size: &mut f32,
     add_contents: impl FnOnce(&mut Ui),
@@ -37,6 +39,7 @@ pub fn sliding(
     if shown <= 0.0 {
         return;
     }
+    let (min, max) = (range.min, range.max.max(range.min));
     let make = |id: Id| match side {
         Side::Left => egui::Panel::left(id),
         Side::Bottom => egui::Panel::bottom(id),
@@ -47,11 +50,22 @@ pub fn sliding(
     };
     if shown >= 1.0 {
         // Fully open: the real, resizable panel, whose size egui remembers.
-        let response = make(Id::new(id))
+        // When `size` changed from outside since the last frame (a project
+        // opened with its saved layout), that size is applied once: egui's
+        // memory won before, and saved panel sizes never came back (found
+        // in M4 slice 5).
+        let given = Id::new(id).with("given");
+        let last: Option<f32> = ctx.data(|d| d.get_temp(given));
+        let mut panel = make(Id::new(id))
             .resizable(true)
-            .default_size(*size)
-            .show(ui, add_contents);
+            .default_size(size.clamp(min, max))
+            .size_range(min..=max);
+        if last.is_some_and(|last| (last - *size).abs() > 0.5) {
+            panel = panel.exact_size(size.clamp(min, max));
+        }
+        let response = panel.show(ui, add_contents);
         *size = extent(response.response.rect);
+        ctx.data_mut(|d| d.insert_temp(given, *size));
         // egui draws the resize edge; it gets a name here, for screen
         // readers (slice 8).
         let name = format!("Resize the {id} panel");
@@ -62,7 +76,7 @@ pub fn sliding(
     }
     // Sliding: a separate panel id, so the partial sizes are never
     // remembered as the panel's size.
-    let full = *size;
+    let full = size.clamp(min, max);
     make(Id::new(id).with("sliding"))
         .resizable(false)
         .exact_size(full * shown)
