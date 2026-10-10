@@ -55,6 +55,9 @@ use lumen_app::{App, Launch};
 const SIZE: egui::Vec2 = egui::vec2(1600.0, 900.0);
 /// How long a test waits for background work (audio start, loads, saves).
 const PATIENCE: Duration = Duration::from_secs(30);
+/// The test device's sample rate unless a test chooses another: what
+/// [`Lumen::listen`] counts its settling time in.
+const TEST_RATE: u32 = 48_000;
 
 /// A running Lumen.
 pub struct Lumen {
@@ -106,27 +109,31 @@ impl Lumen {
         self.harness.run_steps(frames);
     }
 
-    /// Lets audio play for `settle` (past any glide), then listens until at
-    /// least `frames` frames have played: main left and right, then the cue
-    /// pair's. It waits for frames, not for a fixed time: on a busy CI
-    /// machine the test device once played 768 frames in 150 ms.
+    /// Lets `settle` of audio play (past any glide), then listens until at
+    /// least `frames` more frames have played: main left and right, then
+    /// the cue pair's. Both are counted in frames the test device played,
+    /// never in time: it plays a block per poll, so on a busy CI machine it
+    /// once played 768 frames in 150 ms, and on macOS fewer (its sleeps run
+    /// long), so levels were measured while still gliding.
     pub fn listen(&mut self, settle: Duration, frames: usize) -> Vec<[f32; 4]> {
-        std::thread::sleep(settle);
+        // What has played so far came before the change being listened for.
         self.frames(1);
         self.app_mut().heard_all();
+        let settle = (settle.as_secs_f64() * f64::from(TEST_RATE)).ceil() as usize;
         let started = Instant::now();
         let mut heard = Vec::new();
-        while heard.len() < frames {
+        while heard.len() < settle + frames {
             assert!(
                 started.elapsed() < PATIENCE,
-                "heard {} of {frames} frames",
-                heard.len()
+                "heard {} of {} frames",
+                heard.len(),
+                settle + frames
             );
             std::thread::sleep(Duration::from_millis(10));
             self.frames(1);
             heard.extend(self.app_mut().heard_all());
         }
-        heard
+        heard.split_off(settle)
     }
 
     /// Runs frames until `done` holds, sleeping a little between them so
@@ -371,6 +378,16 @@ pub fn wav_at(path: &Path, seconds: f32, peak: f32) -> PathBuf {
     out.extend(data);
     std::fs::write(path, out).expect("write the test WAV");
     path.to_path_buf()
+}
+
+/// `text` with its chords written as this system writes them: Cmd for
+/// Ctrl and Option for Alt on macOS (the app's `modifier_names`).
+pub fn keys(text: &str) -> String {
+    if cfg!(target_os = "macos") {
+        text.replace("Ctrl+", "Cmd+").replace("Alt+", "Option+")
+    } else {
+        text.to_owned()
+    }
 }
 
 /// What egui-winit sends for a clipboard chord's press instead of the key

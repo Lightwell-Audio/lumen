@@ -92,8 +92,11 @@ fn another_tracks_solo_silences_a_track_shows_why_and_the_chip_clears_it() {
 #[test]
 fn mute_beats_solo_and_a_soloed_group_shows_its_tracks_soloed_through_it() {
     let (mut lumen, [tone, _, _]) = playing("solo-group");
-    // The tone's track into a group, then solo the group.
+    // The tone's track into a group, then solo the group. Space toggles by
+    // what the audio thread last reported, so the next Space plays only
+    // once the stop has been heard.
     lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("playback to stop", |app| !app.is_playing());
     // The new tracks were added last: the tone's track is two up.
     lumen.key(Modifiers::NONE, Key::ArrowUp);
     lumen.key(Modifiers::NONE, Key::ArrowUp);

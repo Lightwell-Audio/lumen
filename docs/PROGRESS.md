@@ -88,7 +88,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Safe mode without plugins | M | 🔲 | 6 | |
 | Automated tests: core logic, editing, serialization and migration, audio (golden renders) | M | 🟡 | all | Unit and integration tests per crate; an end-to-end suite that drives the whole app (CI), and real-binary smoke tests run at the end of every slice (ADR-0029, 2026-10-08). Golden renders with export (M9) |
 | Benchmarks with regression gates in CI | M | ✅ | 1–3 | divan wall-clock benchmarks (smoke-run in CI), plus instruction-count gates under Callgrind that fail CI above +2% (M3 slice 1, ADR-0022). Each milestone adds its hot paths |
-| CI on Windows, macOS, Linux | M | ⚠️ | 1 | First run green on 2026-10-06 (run 37396217369): Windows MSVC, macOS, Linux, rustfmt, cargo-deny, VST3 self-test. **macOS paused 2026-10-07** (owner: Actions minutes ran out); Windows and Linux run, macOS is checked by cross-target clippy until it returns |
+| CI on Windows, macOS, Linux | M | ✅ | 1 | First run green on 2026-10-06 (run 37396217369): Windows MSVC, macOS, Linux, rustfmt, cargo-deny, VST3 self-test. macOS was paused from 2026-10-07 (Actions minutes ran out) and is **back since 2026-10-10** (owner): every job green on all three systems in run 38070627268, after fixing 20 E2E tests that only failed on macOS |
 | Test plugin simulating good and bad behaviour; real-plugin compatibility matrix | M | 🟡 | 1, 6 | Misbehaving test module (scan stage) + `docs/PLUGIN_COMPATIBILITY.md` (scan stage only) |
 | Real-time correctness enforced by tests | M | 🟡 | 1–2 | `lumen-rt` allocation guard (ADR-0010) |
 | High-DPI, 100–200% scaling, light and dark themes, keyboard-navigable, accessible names, colour-blind-safe | M | 🟡 | 3, 10 | Dark, light and match-system themes; interface size 100–200% in the app menu; colour-blind-safe accent; contrast tested for both themes (M3 slice 2, `docs/DESIGN.md`). M3 slice 8: every control in the main window, palette, shortcuts window, clip card, clip menu, audio settings and history has an accessible name, and Tab walks the transport left to right, then the panes (E2E `access`). The full accessibility pass and the Narrator check in M10 |
@@ -484,8 +484,8 @@ to MT-APP-16, including the real Import audio dialog, each recorded with its run
 
 **Not verified:**
 - macOS and Linux by hand (CI and the cross-target clippy only; macOS CI
-  is paused). Dropping files on a chosen track may not follow the pointer
-  there (KNOWN_ISSUES).
+  was paused from 2026-10-07 to 2026-10-10). Dropping files on a chosen
+  track may not follow the pointer there (KNOWN_ISSUES).
 - Screen readers (the Narrator check was deferred by the owner; names and
   focus order are tested).
 - A mid-range machine and long sessions (M10).

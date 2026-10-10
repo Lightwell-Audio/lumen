@@ -151,16 +151,19 @@ fn integrated_loudness_starts_again_on_play_from_stop() {
     // The quiet tone: well below full scale.
     assert!(true_peak < tone_db() + 1.0, "{true_peak}");
 
-    // Pause and continue (Shift+Space): integrated keeps counting.
+    // Pause and continue (Shift+Space): integrated keeps counting. Each
+    // key toggles by what the audio thread last reported, so each waits
+    // for the one before to be heard.
     lumen.key(Modifiers::SHIFT, Key::Space);
-    lumen.frames(3);
+    lumen.wait_for("the pause", |app| !app.is_playing());
     lumen.key(Modifiers::SHIFT, Key::Space);
-    lumen.frames(3);
+    lumen.wait_for("playback to continue", |app| app.is_playing());
     assert!(lumen.app().loudness().2.is_finite());
 
     // Stop, then Play: it starts again.
     lumen.key(Modifiers::NONE, Key::Space);
     listen(&mut lumen, 200);
+    lumen.wait_for("playback to stop", |app| !app.is_playing());
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.frames(2);
     assert!(

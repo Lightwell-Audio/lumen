@@ -7,7 +7,7 @@ use egui_kittest::kittest::Queryable;
 use lumen_core::time::Ticks;
 use lumen_project::model::Id;
 
-use super::{Lumen, wav};
+use super::{Lumen, keys, wav};
 
 const BAR: i64 = Ticks::quarters(4).0;
 
@@ -279,12 +279,12 @@ fn each_right_click_gets_the_menu_for_what_it_landed_on() {
     let a = rect(&lumen, kick);
     // A clip: clip edits and properties; no grid, no time edits.
     lumen.right_click(top_half(a));
-    assert!(lumen.shows("Rename Ctrl+R") && lumen.shows("Cut Ctrl+X"));
-    assert!(!lumen.shows("Delete time Ctrl+Shift+Delete"));
+    assert!(lumen.shows(&keys("Rename Ctrl+R")) && lumen.shows(&keys("Cut Ctrl+X")));
+    assert!(!lumen.shows(&keys("Delete time Ctrl+Shift+Delete")));
     assert!(!lumen.shows("Narrowest"));
     // Esc closes the menu and keeps the selection.
     lumen.key(Modifiers::NONE, Key::Escape);
-    assert!(!lumen.shows("Rename Ctrl+R"), "closed");
+    assert!(!lumen.shows(&keys("Rename Ctrl+R")), "closed");
     assert_eq!(lumen.app().selected_clips(), [kick]);
     let away = Pos2::new(a.right() + 300.0, a.bottom() + 120.0);
 
@@ -300,7 +300,7 @@ fn each_right_click_gets_the_menu_for_what_it_landed_on() {
             .count()
     };
     assert_eq!(grids(&lumen), 2);
-    assert!(!lumen.shows("Cut Ctrl+X") && !lumen.shows("Paste Ctrl+V"));
+    assert!(!lumen.shows(&keys("Cut Ctrl+X")) && !lumen.shows(&keys("Paste Ctrl+V")));
     // A click elsewhere closes it.
     lumen.drag(away, away, Modifiers::NONE);
     assert_eq!(grids(&lumen), 1);
@@ -310,8 +310,8 @@ fn each_right_click_gets_the_menu_for_what_it_landed_on() {
     select_range(&mut lumen, kick, snare, 1.0, 4.0);
     let inside = Pos2::new(a.center().x, a.bottom() - 5.0);
     lumen.right_click(inside);
-    assert!(lumen.shows("Delete time Ctrl+Shift+Delete"));
-    assert!(!lumen.shows("Rename Ctrl+R"));
+    assert!(lumen.shows(&keys("Delete time Ctrl+Shift+Delete")));
+    assert!(!lumen.shows(&keys("Rename Ctrl+R")));
 }
 
 /// Owner, MT-APP-14 run 2: a click anywhere on the lanes moves the
@@ -412,7 +412,7 @@ fn the_lanes_menu_edits_what_was_right_clicked() {
         [kick],
         "selected by the right-click"
     );
-    lumen.click("Duplicate Ctrl+D");
+    lumen.click(&keys("Duplicate Ctrl+D"));
     assert_eq!(starts(&lumen, 0).len(), 2);
 }
 
@@ -567,15 +567,12 @@ fn holding_ctrl_over_a_clip_tells_how_to_slip() {
         .harness
         .hover_at(Pos2::new(r.center().x, top_half(r).y));
     lumen.frames(2);
-    assert_eq!(lumen.lit().as_deref(), Some("Ctrl+drag to copy"));
+    assert_eq!(lumen.lit(), Some(keys("Ctrl+drag to copy")));
     lumen.harness.event(eframe::egui::Event::ModifiersChanged(
         Modifiers::COMMAND | Modifiers::ALT,
     ));
     lumen.frames(2);
-    assert_eq!(
-        lumen.lit().as_deref(),
-        Some("Ctrl+Alt+drag to slip the audio")
-    );
+    assert_eq!(lumen.lit(), Some(keys("Ctrl+Alt+drag to slip the audio")));
 }
 
 /// Owner, after 6c: zooming all the way into a long clip crashed ("memory
@@ -691,7 +688,7 @@ fn a_copied_clip_pastes_onto_the_track_clicked() {
     // The lanes' menu: a right-click on the snare's lane at bar 5, Paste.
     let spot = Pos2::new(s.left() + 16.0 * zoom + 2.0, s.center().y);
     lumen.right_click(spot);
-    lumen.click("Paste Ctrl+V");
+    lumen.click(&keys("Paste Ctrl+V"));
     assert_eq!(starts(&lumen, 0), [(0, BAR / 2)]);
     assert_eq!(
         starts(&lumen, 1),
