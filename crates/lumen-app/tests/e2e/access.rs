@@ -280,6 +280,25 @@ fn switches_and_segmented_choices_work_by_name() {
 }
 
 #[test]
+fn a_menus_segmented_controls_line_up_with_its_labels() {
+    // M4.5 slice 6, the design sweep: switches, segmented controls and
+    // captions sat at a menu's very edge, a little left of its rows'
+    // labels. They now come in as far as the labels do.
+    let mut lumen = Lumen::start("menu-inset");
+    lumen.click("Lumen");
+    lumen.frames(30);
+    // A segment sits 2 pt inside its control (`space::XXS`); in a menu the
+    // control itself comes in as well, by the rows' padding.
+    let row = lumen.harness.get_by_label("Additive solo").rect();
+    let dark = lumen.harness.get_by_label("Dark").rect();
+    let inset = dark.left() - row.left();
+    assert!(
+        inset > 2.0 + 0.5,
+        "the theme's choices start {inset} in from the row: only their own inset"
+    );
+}
+
+#[test]
 fn a_closing_menu_asks_for_the_frames_its_fade_needs() {
     // Owner, MT-POL-2: menus vanished instead of fading. The frame that
     // closed one asked for no next frame, so an idle window drew the next

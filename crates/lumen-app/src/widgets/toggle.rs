@@ -15,9 +15,20 @@ const TRACK: egui::Vec2 = vec2(30.0, 16.0);
 /// Room between the knob and the track's edge.
 const KNOB_INSET: f32 = 2.0;
 
+/// How far a control in a menu sits in from its edges: as far as the menu's
+/// rows put their labels and keycaps (`button_padding`), so switches,
+/// segmented controls and captions line up with them. Nothing elsewhere.
+pub(super) fn menu_inset(ui: &Ui) -> f32 {
+    if egui::containers::menu::is_in_menu(ui) {
+        ui.spacing().button_padding.x
+    } else {
+        0.0
+    }
+}
+
 /// A switch named `label`, with the label at the left and the switch at
 /// the right of a row as wide as there is room for (in a menu, the menu's
-/// width). The whole row toggles `on`; the knob glides across (`GLIDE`)
+/// width, in from its edges as its rows' labels and keycaps are). The whole row toggles `on`; the knob glides across (`GLIDE`)
 /// and lights with the accent when on. `enabled` false greys it out.
 pub fn switch(ui: &mut Ui, on: &mut bool, label: &str, enabled: bool) -> egui::Response {
     let palette = theme::p();
@@ -36,7 +47,8 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str, enabled: bool) -> egui::R
     } else {
         theme::space::M
     };
-    let needed = galley.size().x + gap + TRACK.x;
+    let side = menu_inset(ui);
+    let needed = galley.size().x + gap + TRACK.x + 2.0 * side;
     let width = if ui.is_sizing_pass() || label.is_empty() {
         needed
     } else {
@@ -70,12 +82,13 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str, enabled: bool) -> egui::R
         true,
     );
     let painter = ui.painter();
+    let inner = rect.shrink2(vec2(side, 0.0));
     painter.galley(
-        pos2(rect.left(), rect.center().y - galley.size().y / 2.0),
+        pos2(inner.left(), inner.center().y - galley.size().y / 2.0),
         galley,
         text,
     );
-    let track = Align2::RIGHT_CENTER.anchor_size(rect.right_center(), TRACK);
+    let track = Align2::RIGHT_CENTER.anchor_size(inner.right_center(), TRACK);
     let controls = theme::controls(false);
     let off = controls.press.lerp_to_gamma(controls.hover, hover * 0.5);
     let fill = off.lerp_to_gamma(palette.accent_muted, travel);
@@ -97,6 +110,18 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str, enabled: bool) -> egui::R
         );
     }
     response
+}
+
+/// A small heading over a group of controls in a menu (Theme, Mixing,
+/// Fade in): quiet, and in line with the menu's labels.
+pub fn menu_caption(ui: &mut Ui, text: &str) {
+    let side = menu_inset(ui);
+    egui::Frame::NONE
+        .inner_margin(egui::Margin {
+            left: side.round() as i8,
+            ..egui::Margin::ZERO
+        })
+        .show(ui, |ui| ui.label(egui::RichText::new(text).small().weak()));
 }
 
 /// One choice in a list of them, as a row as wide as there is room for:
@@ -221,7 +246,9 @@ pub fn segmented<T: PartialEq + Copy>(
     let height = theme::size::CONTROL_SMALL;
     let widths: Vec<f32> = galleys.iter().map(|g| g.size().x + 2.0 * pad).collect();
     let total = widths.iter().sum::<f32>() + 2.0 * inset;
-    let (rect, _) = ui.allocate_exact_size(vec2(total, height), Sense::hover());
+    let side = menu_inset(ui);
+    let (row, _) = ui.allocate_exact_size(vec2(total + side, height), Sense::hover());
+    let rect = Rect::from_min_size(pos2(row.left() + side, row.top()), vec2(total, height));
     let mut picked = None;
     let mut x = rect.left() + inset;
     let mut segments = Vec::with_capacity(choices.len());

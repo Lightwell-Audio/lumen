@@ -68,14 +68,14 @@ impl App {
                 ui.close();
             }
             ui.separator();
-            ui.label(RichText::new("Theme").small().weak());
+            widgets::menu_caption(ui, "Theme");
             let chosen = theme::Appearance::from_key(&self.settings.appearance.theme);
             let themes = theme::Appearance::ALL.map(|a| widgets::Choice::new(a, a.name()));
             if let Some(picked) = widgets::segmented(ui, ui.id().with("theme"), chosen, &themes) {
                 self.settings.appearance.theme = picked.key().to_owned();
             }
             ui.separator();
-            ui.label(RichText::new("Interface size").small().weak());
+            widgets::menu_caption(ui, "Interface size");
             let scale = self.settings.appearance.scale();
             let labels = settings::UI_SCALES.map(|s| format!("{:.0}%", s * 100.0));
             let sizes: Vec<_> = settings::UI_SCALES
@@ -95,7 +95,7 @@ impl App {
             )
             .on_hover_text("Things change in place instead of sliding or fading");
             ui.separator();
-            ui.label(RichText::new("Mixing").small().weak());
+            widgets::menu_caption(ui, "Mixing");
             if widgets::switch(
                 ui,
                 &mut self.settings.mixing.additive_solo,

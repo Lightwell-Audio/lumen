@@ -228,6 +228,20 @@ impl Arrangement {
                 }
             });
             self.mixer_offset = output.state.offset.x;
+            // Strips cut by an edge fade into the ground there, rather than
+            // ending as a stray rail (the interface audit's U2).
+            let ground = palette.canvas;
+            let edge = theme::space::L;
+            let painter = ui.painter_at(strips);
+            if self.mixer_offset > 0.5 {
+                let rect = Rect::from_min_size(strips.min, vec2(edge, strips.height()));
+                widgets::gradient(&painter, rect, ground, ground.gamma_multiply(0.0));
+            }
+            if self.mixer_offset + strips.width() < width - 0.5 {
+                let rect =
+                    Rect::from_min_max(pos2(strips.right() - edge, strips.top()), strips.max);
+                widgets::gradient(&painter, rect, ground.gamma_multiply(0.0), ground);
+            }
             let bar = widgets::ScrollBar {
                 area: strips,
                 axis: widgets::Axis::Horizontal,

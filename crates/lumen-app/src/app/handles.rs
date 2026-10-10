@@ -269,7 +269,7 @@ impl App {
                 (Edge::Start, "Fade in", current[0]),
                 (Edge::End, "Fade out", current[1]),
             ] {
-                ui.label(egui::RichText::new(label).weak().small());
+                widgets::menu_caption(ui, label);
                 let names = FadeShape::ALL.map(|s| format!("{label}: {}", s.name()));
                 let shapes: Vec<_> = FadeShape::ALL
                     .iter()

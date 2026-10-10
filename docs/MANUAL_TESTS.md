@@ -1861,3 +1861,25 @@ Slice 5 of M4.5: findings M1, M4, M2, M3, U2 and M5. Run
 
 **Expected:** as described, in both themes.
 
+
+### MT-POL-6 · The close (needs a human)
+Slice 6 of M4.5: what the design sweep (`shots::polish_sweep`, both
+themes at 100%, 150% and 200%) changed. Run
+`cargo run --release -p lumen-app`.
+1. **Menus line up:** open the Lumen menu. "Copy imported audio into the
+   project", "Theme", the Dark / Light / Match system choices, "Interface
+   size", "Reduce motion", "Mixing" and the two switches under it start
+   where "New" and "History…" start, and each switch ends where the
+   keycaps end. Before, they sat about 1.5 pt further left and the
+   switches about 2.5 pt further right (before and after shown in chat).
+   The menu is as tall as before.
+2. **Other menus:** right-click the metronome: "Sound" and "Output" are
+   small grey captions, in line with their choices. Right-click Follow:
+   "Follow the playhead" the same. A clip's menu, Fades: "Fade in" and
+   "Fade out" the same.
+3. **Mixer edges:** add tracks until the mixer scrolls (about 12). Scroll
+   it partway: the strip cut at the left edge fades into the background,
+   and the one cut by the master's divider fades out before it. At either
+   end only the far edge fades. Check both themes.
+
+**Expected:** as described.

@@ -423,8 +423,21 @@ has `clipped`), `widgets::scroll_bar`, the palette's sliding highlight
 (`motion::glide_over`), lit states cross-fading, `widgets::paint_gone`
 for closing windows. E2E that acts right after adding, moving or folding
 tracks must let rows settle (`frames(30)`); the harness clock moves 1/60 s
-a frame. MT-POL-5 waits; release frame times still to measure. Next:
-slice 6 (close). E2E must not flip process-wide
+a frame. MT-POL-5 waits. **Slice 6 (close) is built**: E2E `access` and
+the walkthroughs re-run; the design sweep (`shots::polish_sweep`, both
+themes at 100/150/200%) found menu switches, segmented controls and
+captions off the label line (they now inset themselves inside a menu,
+`toggle::menu_inset`; captions are `widgets::menu_caption`) and the
+audit's mixer edge fades unbuilt (built in `strips.rs`). The frame
+benchmark counts idle from 1.5 s after the last driven frame (the scroll
+bar's fade had read as 146 idle repaints). Frame times p99 1.5–1.7 ms at
+1600 × 900, 3.3–3.6 ms at 3440 × 1380, idle 3 in 3 s. The M4.5 report is
+in PROGRESS.md; MT-POL-6 waits. The pinned clip card covering windows
+opened after it is in KNOWN_ISSUES, to pitch. **M5 is proposed** in
+`docs/milestones/M5.md` with five owner choices (C1 what plays MIDI
+before VST3, C2 where the piano roll opens, C3 the computer keyboard, C4
+replace or overdub, C5 quantize defaults). Next: the owner's MT-POL-5,
+MT-POL-6 and MT-APP-18, merge `m4.5-polish`, then M5 once approved. E2E must not flip process-wide
 settings (theme, Reduce motion): tests run side by side.
 `tests/shots.rs` renders mixed themes when run in parallel (the theme is
 process-global): run it with `--test-threads=1`.
@@ -607,8 +620,8 @@ escapes and quotes several times.
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
-- **M4.5 Polish pass: approved 2026-10-10; slices 1–4 done, slice 5
-  built (MT-POL-5 waits).**
+- **M4.5 Polish pass: built 2026-10-10; slices 1–4 done, slices 5 and 6
+  built (MT-POL-5 and MT-POL-6 wait).** M5 proposed (`docs/milestones/M5.md`).
 - **M4 Mixer, Routing & Groups: complete 2026-10-10**; the review's fixes
   are merged (PR #3).
 - **M3 Arrangement & Project System: complete, approved 2026-10-09.** Slices 1–3 done:

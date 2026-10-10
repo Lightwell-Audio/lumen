@@ -37,7 +37,7 @@ pub use menu::Menu;
 pub(crate) use menu::note_change;
 pub use scroll_bar::{Axis, ScrollBar, scroll_bar};
 pub use signature::time_signature;
-pub use toggle::{Choice, Tab, choice_row, segmented, switch, tabs, toggle_button};
+pub use toggle::{Choice, Tab, choice_row, menu_caption, segmented, switch, tabs, toggle_button};
 
 /// A floating window in the design system (DESIGN §5): no system title
 /// bar; our own title row with the title in the display face and, when it

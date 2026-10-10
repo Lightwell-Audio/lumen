@@ -40,7 +40,7 @@ impl Transport {
             self.toggle_follow();
         }
         widgets::Menu::context(&response).show(|ui| {
-            ui.label("Follow the playhead");
+            widgets::menu_caption(ui, "Follow the playhead");
             let modes = [Follow::Page, Follow::Continuous, Follow::Off]
                 .map(|mode| widgets::Choice::new(mode, mode.name()));
             if let Some(mode) = widgets::segmented(ui, ui.id().with("follow"), self.follow, &modes)
@@ -202,7 +202,7 @@ impl Transport {
                     changed = true;
                 }
                 ui.separator();
-                ui.label("Sound");
+                widgets::menu_caption(ui, "Sound");
                 let sounds = ClickSound::ALL.map(|s| widgets::Choice::new(s, s.name()));
                 if let Some(sound) =
                     widgets::segmented(ui, ui.id().with("sound"), self.metronome.sound, &sounds)
@@ -213,7 +213,7 @@ impl Transport {
                 // Its own output, never through the master (the owner's D6):
                 // the main pair, or the cue pair for the headphones.
                 ui.separator();
-                ui.label("Output");
+                widgets::menu_caption(ui, "Output");
                 let cue = crate::settings::CUE_CHANNEL;
                 let ready = self.audio.cue_ready();
                 let outputs = [

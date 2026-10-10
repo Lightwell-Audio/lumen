@@ -19,8 +19,10 @@ const FRAMES: usize = 600;
 const WARM_UP: usize = 120;
 /// How long the idle phase measures.
 const IDLE: Duration = Duration::from_secs(3);
-/// Idle is measured from this long after the last driven frame.
-const SETTLE: Duration = Duration::from_millis(100);
+/// Idle is measured from this long after the last driven frame: once what
+/// the scrolling started has finished (M4.5: the scroll bar lingers 0.8 s,
+/// then fades; with vsync off its fade alone was 30 to 140 frames).
+const SETTLE: Duration = Duration::from_millis(1500);
 /// The floor: 60 fps.
 const FLOOR_MS: f64 = 1000.0 / 60.0;
 

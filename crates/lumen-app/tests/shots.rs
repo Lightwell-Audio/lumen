@@ -54,9 +54,20 @@ fn lumen_looking_sized(
 
 /// A window in `appearance` with no files yet.
 fn bare(dir: &TempDir, appearance: &str, size: eframe::egui::Vec2) -> Harness<'static, App> {
+    bare_scaled(dir, appearance, 1.0, size)
+}
+
+/// [`bare`] at `scale`.
+fn bare_scaled(
+    dir: &TempDir,
+    appearance: &str,
+    scale: f32,
+    size: eframe::egui::Vec2,
+) -> Harness<'static, App> {
     let launch = Launch::for_test(dir.path()).appearing(appearance);
     let mut h = Harness::builder()
         .with_size(size)
+        .with_pixels_per_point(scale)
         .with_theme(if appearance == "light" {
             eframe::egui::Theme::Light
         } else {
@@ -842,5 +853,81 @@ fn delay_compensation_readout() {
         h.get_by_label_contains("Audio: ").click();
         h.run_steps(5);
         save(&mut h, &format!("compensation-panel-{appearance}-{scale}"));
+    }
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn polish_sweep() {
+    // M4.5 slice 6: every view the polish pass changed, in both themes at
+    // 100%, 150% and 200% (the lumen-design checklist, item 9).
+    use egui_kittest::kittest::Queryable;
+    for appearance in ["dark", "light"] {
+        for scale in [1.0, 1.5, 2.0] {
+            let name =
+                |view: &str| format!("polish-{view}-{appearance}-{}", (scale * 100.0) as u32);
+            // Empty states: the lanes, the browser and the mixer's ghost.
+            let dir = TempDir::new("shots-polish-empty");
+            let mut h = bare_scaled(&dir, appearance, scale, vec2(1280.0, 760.0));
+            h.run_steps(40);
+            save(&mut h, &name("empty"));
+            drop(h);
+            // Headers, strips, tabs and the transport with tracks.
+            let dir = TempDir::new("shots-polish");
+            let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1280.0, 760.0));
+            h.run_steps(40);
+            let a = clip(&h, 0);
+            click(&mut h, pos(a, 0.5, 0.3));
+            h.hover_at(pos2(640.0, 700.0));
+            h.run_steps(30);
+            save(&mut h, &name("tracks"));
+            // The app menu's switches and segmented choices.
+            let lumen = h.get_by_label("Lumen").rect();
+            click(&mut h, lumen.center());
+            h.run_steps(30);
+            save(&mut h, &name("menu-app"));
+            h.key_press(Key::Escape);
+            h.run_steps(30);
+            // The clip card.
+            h.key_press_modifiers(Modifiers::ALT, Key::Enter);
+            h.run_steps(30);
+            save(&mut h, &name("card"));
+            h.key_press(Key::Escape);
+            h.run_steps(30);
+            // Audio settings: choice rows and the test tone's switch.
+            let lumen = h.get_by_label("Lumen").rect();
+            click(&mut h, lumen.center());
+            h.run_steps(30);
+            h.get_by_label("Audio settings\u{2026}").click();
+            h.run_steps(30);
+            save(&mut h, &name("audio"));
+        }
+    }
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn mixer_edges() {
+    // M4.5 slice 6, the audit's U2: strips cut by the mixer's edges fade
+    // into the ground there.
+    for appearance in ["dark", "light"] {
+        let dir = TempDir::new("shots-mixer-edges");
+        let mut h = lumen_looking_sized(&dir, appearance, 1.0, vec2(1000.0, 760.0));
+        for _ in 0..12 {
+            h.key_press_modifiers(Modifiers::COMMAND, Key::T);
+            h.run_steps(3);
+        }
+        h.run_steps(40);
+        save(&mut h, &format!("edges-start-{appearance}"));
+        h.hover_at(pos2(500.0, 520.0));
+        h.run_steps(2);
+        h.event(Event::MouseWheel {
+            unit: eframe::egui::MouseWheelUnit::Point,
+            delta: vec2(-150.0, 0.0),
+            phase: eframe::egui::TouchPhase::Move,
+            modifiers: Modifiers::NONE,
+        });
+        h.run_steps(40);
+        save(&mut h, &format!("edges-middle-{appearance}"));
     }
 }

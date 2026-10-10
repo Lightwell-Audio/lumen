@@ -91,6 +91,10 @@ or offers the button that does it.
   at once, with the fade. Every menu is a `widgets::Menu`
   (`Menu::below`, `Menu::context`, `.keeping_open()` for a context menu
   with settings).
+- **Everything in a menu lines up** (M4.5 slice 6): switches, segmented
+  controls and captions (`widgets::menu_caption`) come in from the menu's
+  edges as far as its rows' labels and keycaps do (`button_padding`); the
+  widgets do it themselves when they are in a menu.
 
 ## 3. Colour
 
@@ -246,7 +250,9 @@ not travel.
   - (M4.5) **scroll bars** on the arrangement's tracks and the mixer's
     strips: shown while scrolling or with the pointer near the edge, fading
     in over `FAST` and out over `BASE` 0.8 s later; draggable
-    (`widgets::scroll_bar`);
+    (`widgets::scroll_bar`). A strip cut by the mixer's edge fades into
+    `canvas` over `space::L` there, so a part-scrolled strip never ends as
+    a stray rail;
   - (M4.5) the palette's chosen-row fill slides between rows (`FAST`);
     menu highlights follow the pointer directly and do not slide;
   - (M4.5) lit buttons (M, S, cue, loop, metronome, follow) cross-fade on
