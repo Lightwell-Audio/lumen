@@ -202,14 +202,17 @@ impl App {
         surface.configure(&device, &config);
         // Vello's shaders compile at start-up; a pipeline cache (Vulkan) reuses them.
         let cache_path = std::env::temp_dir().join("lumen-vello-pipeline.cache");
-        let (cache, cache_state) = lumen_render::open_pipeline_cache(&device, &cache_path);
+        let (cache, cache_state) =
+            lumen_render::open_pipeline_cache(&device, std::fs::read(&cache_path).ok());
         let init_started = Instant::now();
         let mut renderer = Renderer::new(&device, config.format, cache.clone())?;
         println!(
             "renderer init: {:.0} ms (pipeline cache: {cache_state:?})",
             init_started.elapsed().as_secs_f64() * 1e3
         );
-        lumen_render::save_pipeline_cache(cache.as_ref(), &cache_path);
+        if let Some(data) = lumen_render::pipeline_cache_data(cache.as_ref()) {
+            let _ = std::fs::write(&cache_path, data);
+        }
         let clips = renderer.add_layer(&device, &demo::clip_instances());
         let notes = renderer.add_layer(&device, &demo::note_instances());
         self.gfx = Some(Gfx {

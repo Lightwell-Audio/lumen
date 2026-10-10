@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use lumen_core::fade::Fade;
 use lumen_core::grid::Grid;
+use lumen_core::pan::PanLaw;
 use lumen_core::time::{TempoPoint, Ticks};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -64,7 +65,14 @@ pub struct Project {
     pub sample_rate: u32,
     pub tempo: Vec<TempoPoint>,
     pub time_signature: TimeSignature,
+    /// The arrangement's tracks, in order. Never holds the master.
     pub tracks: Vec<Arc<Track>>,
+    /// Where every track ends up (format v7): one per project, kept apart
+    /// from `tracks` so the arrangement chooses where to show it.
+    pub master: Arc<Track>,
+    /// How pan positions become left and right gains (format v7).
+    #[serde(default)]
+    pub pan_law: PanLaw,
     #[serde(default)]
     pub media: Vec<Media>,
     /// Named locators, in time order (format v4). Part of undo.
@@ -134,6 +142,16 @@ pub struct ViewState {
     pub expanded: BTreeSet<Id>,
     /// The editing grid and snapping (format v4).
     pub grid: Grid,
+    /// Groups folded to hide their tracks (format v8).
+    pub collapsed: BTreeSet<Id>,
+    /// Width of the track header column, in points (format v9).
+    pub header_width: f32,
+    /// Height of the area pinned at the bottom (returns and the master),
+    /// in points, when dragged from its natural size (format v10).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub returns_height: Option<f32>,
+    /// Returns folded away in that area, leaving the master (format v10).
+    pub returns_folded: bool,
 }
 
 impl Default for ViewState {
@@ -149,6 +167,10 @@ impl Default for ViewState {
             track_heights: BTreeMap::new(),
             expanded: BTreeSet::new(),
             grid: Grid::default(),
+            collapsed: BTreeSet::new(),
+            header_width: 204.0,
+            returns_height: None,
+            returns_folded: false,
         }
     }
 }
@@ -180,6 +202,19 @@ pub struct Track {
     pub parent: Option<Id>,
     pub gain_db: f32,
     pub pan: f32,
+    // Format v7 (M4 slice 2). Written only when set.
+    /// Where its audio goes.
+    #[serde(default, skip_serializing_if = "Output::is_auto")]
+    pub output: Output,
+    /// Sends to return tracks. A return with no send here gets nothing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sends: Vec<Send>,
+    /// Polarity inverted.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub invert: bool,
+    /// Input trim in dB, before everything else on the track.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub trim_db: f32,
     #[serde(default)]
     pub mute: bool,
     #[serde(default)]
@@ -191,6 +226,123 @@ pub struct Track {
     pub devices: Vec<Device>,
     #[serde(default)]
     pub clips: Vec<Arc<Clip>>,
+}
+
+impl Track {
+    /// An empty track at unity, centred, routed automatically.
+    pub fn new(id: Id, name: impl Into<String>, kind: TrackKind, color: Color) -> Self {
+        Self {
+            id,
+            name: name.into(),
+            kind,
+            color,
+            parent: None,
+            gain_db: 0.0,
+            pan: 0.0,
+            output: Output::Auto,
+            sends: Vec::new(),
+            invert: false,
+            trim_db: 0.0,
+            mute: false,
+            solo: false,
+            armed: false,
+            devices: Vec::new(),
+            clips: Vec::new(),
+        }
+    }
+
+    /// A project's master track.
+    pub fn master(id: Id) -> Self {
+        Self::new(id, "Master", TrackKind::Master, MASTER_COLOR)
+    }
+
+    /// The send to `to`, if there is one.
+    pub fn send_to(&self, to: Id) -> Option<&Send> {
+        self.sends.iter().find(|s| s.to == to)
+    }
+}
+
+/// The master track's colour: a quiet grey, apart from the track palette.
+pub const MASTER_COLOR: Color = Color(0x8A8F99);
+
+/// Where a track's audio goes (format v7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Output {
+    /// Its group when it is in one, otherwise the master. For the master,
+    /// the device's first pair of outputs.
+    #[default]
+    Auto,
+    /// The master, even from inside a group.
+    Master,
+    /// A group or return track.
+    Track(Id),
+    /// A pair of device outputs: 0 is outputs 1 and 2.
+    Device(u16),
+}
+
+impl Output {
+    pub fn is_auto(&self) -> bool {
+        *self == Output::Auto
+    }
+}
+
+/// A send into a return track (format v7).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Send {
+    pub to: Id,
+    pub level: Level,
+    /// Taken before the track's volume and pan; otherwise after (the
+    /// default, owner's choice).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pre_fader: bool,
+}
+
+/// A level in dB that may be silent: written as a number, or `"-inf"`.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct Level(pub f32);
+
+impl Level {
+    pub const SILENT: Level = Level(f32::NEG_INFINITY);
+
+    pub fn is_silent(self) -> bool {
+        self.0 == f32::NEG_INFINITY
+    }
+
+    /// Linear gain: 0 when silent.
+    pub fn gain(self) -> f32 {
+        if self.is_silent() {
+            0.0
+        } else {
+            10f32.powf(self.0 / 20.0)
+        }
+    }
+}
+
+impl Serialize for Level {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        if self.is_silent() {
+            s.serialize_str("-inf")
+        } else {
+            s.serialize_f32(self.0)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Level {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Written {
+            Db(f32),
+            Text(String),
+        }
+        match Written::deserialize(d)? {
+            Written::Db(db) => Ok(Level(db)),
+            Written::Text(text) if text == "-inf" => Ok(Level::SILENT),
+            Written::Text(text) => Err(serde::de::Error::custom(format!("invalid level {text:?}"))),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -314,4 +466,8 @@ mod base64_bytes {
 
 fn is_false(b: &bool) -> bool {
     !*b
+}
+
+fn is_zero(x: &f32) -> bool {
+    *x == 0.0
 }

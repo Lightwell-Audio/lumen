@@ -390,14 +390,157 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-08: M3 slice 7 done (the command registry, the
-palette, remapping, menus and keys; ADR-0033; MT-APP-15 passed). Slice 8
-(the end-to-end walkthrough, the milestone review and report) is next. The owner's drag-to-cut request is recorded for
-M7 with split (the M3 plan, out of scope).
+**Last updated:** 2026-10-10: **M4 is complete and merged into `main`.**
+Every manual test passed (MT-APP-17 and MT-MIX-1 to 8, owner), including
+the Focusrite's dropout count. The report is in PROGRESS.md. The review,
+`docs/audits/2026-10-10-m4.md`, found no High issues. The owner asked for
+its fixes on a new branch from `main` after the merge, in the audit's
+order:
+- records and docs;
+- M3: a plan swap copies every delay line on the audio thread. Swap
+  same-length lines, and add swaps to `engine_latent_64`;
+- M1, M2: split `arrangement/mod.rs`, `strip.rs`, `headers.rs`, `lib.rs`
+  and `clips.rs`, and turn `value_slider_lifted`'s arguments into a
+  struct;
+- M4: extend the access E2E to M4's views;
+- L1–L8.
+
+Then propose M5. The WSL scripts test `origin/main` unless run with
+`env LUMEN_REF=<branch>`. Before it, 2026-10-10: **M4 slice 7 under way** (ADR-0042). The
+exit walkthrough is E2E `walkthrough_mix` (drum group and vocal through a
+return with the synthetic latent device; solo and mute heard at every
+step; save and reopen) and MT-MIX-7. It found a bug, fixed: stopped, the
+engine took no clip lists or routings (`Source::idle` only let meters
+fall), so after four edits `lanes.dirty` stuck and Play started on stale
+routings; `Mixer::idle` and `TrackSource::idle` now take them. Known
+issues fixed: session locks (`<session>.lock`) so a second Lumen skips a
+running session's autosave; `widgets::submenu` (names without the
+arrow; use it for every submenu); `canvas::PipelineCache` reads and
+writes the cache off the UI thread; the M3 walkthrough's Linux flake (the
+Stop's block). E2E levels after a change: measure until two stretches
+agree (`walkthrough_mix::hears`), never one fixed wait. Next: the owner's
+manual tests (MT-APP-17, MT-MIX-1, 2, 5, 6, 7, and the Focusrite dropout
+count, due before the review), then the `lumen-review` review and the M4
+report. Before it, 2026-10-10: **M4 slice 6 built** (sidechains and delay compensation, ADR-0041; below). MT-MIX-6 waits for the owner. Before it, 2026-10-10: mixer fixes after MT-MIX-5 run 1, approved from mock-ups (ADR-0040 amendment): strips 96 pt wide, the header's value text clear of its level bars, whole-dB peak readouts from 10 dB up; MT-MIX-5 run 2 waits for the owner (header meter to re-check with audio). Before it, 2026-10-09: M4 slice 5 built (below). Before it, M3 slice 8 built (the exit flow, the
+accessibility audit, the end-of-milestone review and every finding fixed
+or recorded). MT-APP-16 passed and **M3 is approved** (2026-10-09). The M3
+report is in PROGRESS.md and M4 is proposed in `docs/milestones/M4.md`.
+M4 is approved (Ableton's solo by default, −3 dB pan law). **Slice 0,
+the UX pass on hints, is built** (2026-10-09, ADR-0034): the owner chose an
+info line along the bottom of the window, with K5 keycaps, over chips by
+the pointer. Hovers call `App::set_info` (`app/info.rs`); only live values
+follow the pointer while dragging (DESIGN.md §2). MT-APP-17 waits for the
+owner. **Slice 1, the mixer graph in the engine, is built** (2026-10-09,
+ADR-0035): `lumen_engine::mixer` compiles a `Routing` (a node per track:
+trim, polarity, mute, sends, volume, pan law, output) into an ordered plan
+on the UI side; clips play into their track's bus; plans swap at a block
+edge, levels glide over 20 ms, a new shape crossfades over 5 ms. The app
+builds the routing in `routing.rs` and sends it after the clip list. 64
+routed tracks cost about 1% of a 128-frame block. Owner choices: centre
+−3 dB, balance panning, mute silences every send, post-fader sends after
+the pan. MT-MIX-1 waits for the owner. The dropout readout became the
+owner's A (a chip in words that fades; ADR-0020 update); the Focusrite's
+count still needs testing (KNOWN_ISSUES). **Slice 2, routing in the model,
+is built** (format v7, ADR-0036): `Project::master` (apart from
+`tracks`), `pan_law`, and per track `output`, `sends`, `invert`,
+`trim_db`; one rule in `lumen_project::routing` (destination, loops) for
+validation, edits (`document/mixer.rs`, refused when they would feed back)
+and the engine routing. `history::unchanged` destructures projects and
+tracks: add every new persisted field there too (the compiler insists).
+MT-MIX-2 waits for the owner. **Slice 3, group tracks, is built**
+(format v8, ADR-0037; owner's H1 nested rails, L1 lane bars, deleting a
+group deletes its tracks, a group's arm arms them): one order rule in
+`lumen_project::groups` (a group's tracks follow it; edits set parents
+then `normalize`), edits in `document/groups.rs` (`group_tracks`,
+`ungroup`, `move_tracks(ids, Place)`), folding in
+`Arrangement::collapsed` (rows skip hidden tracks; the GPU row table
+keeps a slot per track index), the look in `arrangement/nesting.rs`, the
+menus in `arrangement/menus.rs`. The perf baseline was updated (parse
++1.71% over slices 2 and 3; reason in ADR-0037). MT-MIX-3 run 1's
+findings are fixed (ADR-0037 amendment): groups go three deep at most
+(`groups::MAX_NESTING`, refusals via `Document::trial` and a note), a
+resizable header column saved per project (format v9), and solo keeps a
+soloed track's groups open (`document::audible`). Run 2 found a crash
+deleting from a track's menu (header rows now skip tracks gone mid-frame)
+and grouped tracks 3 dB quieter a level (every bus pans with the balance
+law); both fixed. **MT-MIX-3 passed; slice 3 is done.** **Slice 4, mute, solo, returns,
+master and cue, is built** (format v10, ADR-0038; the owner agreed 14
+solo cases and chose D1–D7, A1, K1 comet knobs, hollow M, and O1 for the
+cue outputs): the rules are one pure function, `lumen_project::solo`
+(its tests are the cases); the engine gates a node's output apart from
+its sends (wet-only returns) and has a pre-fader cue bus
+(`Routing::cue`, channels 3/4: the stream opens the main pair then the
+cue pair); rows carry a `Zone` and returns and the master are pinned at
+the bottom (`arrangement/pinned.rs`; returns keep any list order);
+`widgets/knob.rs` and `arrangement/sends.rs` are the comet sends (tracks
+with sends unfold five steps); `app/cue.rs` lends the cue settings to the
+headers. The owner's Focusrite has two outputs: cue is verified on the
+four-output test device (`App::heard_all`). MT-MIX-4 runs 1–5 (ADR-0038
+amendments): knobs step up on selected rows (C4); a "+N ▾" list of every
+send (O1); an unfolded return lists its four loudest senders, then
+"+N more" (R2, L4), silent ones leaving when let go (S1); at most 12
+returns (`mixer::MAX_RETURNS`); a knob drag keeps its own travel in
+widget memory (slow drags from −∞ were lost); a knob's live value is a
+chip above it, none in lists; senders re-sort only when one joins or
+leaves. The owner keeps the standard +6 dB of an empty return. **MT-MIX-4
+passed; slice 4 is done** (2026-10-09). **Slice 5, the mixer panel and
+meters, is built** (ADR-0040; chosen from interactive specimens, an
+artifact: S1 console strips, O2 sends (two knobs then "+N"), M1 accent
+meters with M2 track colours as a setting, L2 loudness column, H2 meters
+inside the headers' volume sliders, and B1–B8 as recommended, recorded in
+M4.md and the owner-decisions table). In parts: 5a meters in the engine
+(`mixer/meter.rs`: a lock-free bank, peaks taken with swaps, 300 ms RMS,
+clips; `lumen_core::loudness`: K-weighting, gated LUFS, 4x true peak;
+`Routing::measure` names the master; `Source::idle` lets RMS fall while
+stopped); 5b header meters (`meters.rs` ballistics, `arrangement/
+levels.rs`; integrated loudness resets on Play from stop via
+`Transport::played_from_stop`); 5c the Mixer tab (`arrangement/strips.rs`,
+`strip.rs`, `buttons.rs` shared M/S; `widgets/fader.rs`, `meter.rs`;
+strip controls are named "… in the mixer"; the mixer draws after the
+arrangement for Tab order); strips drag to reorder (B8, `reorder.rs`
+`in_mixer`) and the pan law menu; 5d the latching wheel (`widgets/
+wheel.rs`: route first thing each frame, controls take notches; wheel
+gestures stay one undo step); 5e output pairs (`Output::Device(p)` is the
+device's pair; `routing::Outputs`; `Audio::want_pairs` reopens the stream
+with the pairs the project uses). Found and fixed: saved panel sizes never
+came back (egui sizes a panel by its contents; the detail panel now
+claims its area and has a min and max). Frame times with the mixer on the
+200-track stress project p99 2.4 to 3.2 ms (was 1.5 to 1.8), idle 3
+repaints in 3 s as before; engine perf baseline updated for meters
+(+21.8% routed). MT-MIX-5 waits for the owner. **Slice 6, sidechains and
+delay compensation, is built** (ADR-0041; the owner chose read ahead,
+Ableton's three taps, saving sidechains with the first device that uses
+them (no format change now), and the D1 readout from mock-ups).
+`lumen_engine::mixer` is now `spec.rs` (routing types: `Device`,
+`SidechainSpec`, `Tap`), `compile.rs` (order, loops, compensation: every
+early path and a late-waiting node's own input go through a line),
+`plan.rs` (runs it; mute comes after devices and taps only where a node
+has them, so plain routings cost what they did), `delay.rs` (lines
+carried across plans by key). The engine renders ahead by
+`Source::latency` (`Engine::ahead`); the playhead follows through
+`playhead.rs` only while latent; latent jumps blend at the tracks' inputs
+in `Mixer::locate`. A latency change while playing skips or repeats the
+difference, without a step (the pitch said "no gap"; corrected in the
+ADR). The only device is the synthetic delay: `testing::set_test_latency`,
+`--test-latency <ms>` (first track), `routing::Devices` in `Lanes`.
+Readout: `transport/compensation.rs`; the bar is drawn before the info
+line, so E2E checks a bar hover by its "Info: …" node, not `info()`. Perf
+gate: new `engine_latent_64`; keep the non-latent path free of per-block
+work (the transport gate caught +3%). The E2E walkthrough is flaky on
+Linux from before this slice (KNOWN_ISSUES). MT-MIX-6 waits for the
+owner. Next: slice 7 (walkthrough, review and report). The owner asks for mock-ups before
+any visual change, bug fixes included, and checks findings fast: run the
+full suite before every push (a push once went out with two failing E2E
+tests). The owner's drag-to-cut request is recorded for M7 with split
+(the M3 plan, out of scope). Editing from scripts: write Python edits to
+a file with raw strings (`r'''…'''`); inline heredocs broke on `\u{…}`
+escapes and quotes several times.
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
-- **M3 Arrangement & Project System: in progress.** Slices 1–3 done:
+- **M4 Mixer, Routing & Groups: complete 2026-10-10**; the review's fixes
+  follow on their own branch.
+- **M3 Arrangement & Project System: complete, approved 2026-10-09.** Slices 1–3 done:
   - performance gates;
   - design system, motion and typefaces;
   - project model, undo, save/open, autosave and recovery.
@@ -482,7 +625,17 @@ M7 with split (the M3 plan, out of scope).
     - 7d: menus and tooltips from the keymap (`widgets::menu_item`,
       `menu_toggle`, `tip`), ruler and track-name menus, Z, Ctrl+A,
       Ctrl+L, Fit loop, F6 panes (`app/panes.rs`), Shift+Tab by focus.
-    MT-APP-15 passed (2026-10-08). Next: slice 8.
+    MT-APP-15 passed (2026-10-08).
+  - **Slice 8 built** (2026-10-09): E2E `walkthrough` (the exit flow) and
+    `access` (names and Tab order); the smooth playhead (ADR-0028
+    amendment); the review (`docs/audits/2026-10-08-m3.md`) and its fixes
+    (ADR-0033 amendment): Import audio… (Ctrl+Shift+I; tests answer file
+    dialogs, `testing::answer_next_dialog`), the arrows move between clips
+    when a clip is selected (the owner's choice), the time signature
+    through `Document::set_time_signature` (clamped to 64 beats),
+    `transport/`, `widgets/keys.rs` and `lumen-project` `edit/clipboard.rs`
+    split out, files dropped together kept in order. 433 tests, 88 E2E,
+    6 smoke tests pass; frame times in the M3 report. MT-APP-16 passed.
   - Esc after typing belongs to the text field (`App::typing`): egui
     drops a field's focus on Esc before the app's keys run, so key
     handlers must check `self.typing` as well as `text_edit_focused()`
@@ -522,6 +675,9 @@ M7 with split (the M3 plan, out of scope).
 - **macOS CI is paused** (2026-10-07; Actions minutes ran out). CI runs
   Windows and Linux. Check macOS code with the cross-target clippy in
   DEVELOPMENT.md before pushing.
+- Wants variants pitched before a slice is built, for behaviour (what is
+  heard, how controls act) as well as visuals, with a recommendation
+  (owner, M4 slice 1).
 - Judges visuals by eye, and wants personality rather than generic
   choices. Show visual options (typefaces, icons, colours) as rendered
   specimens before downloading assets or building. Ask before downloading
@@ -553,8 +709,9 @@ M7 with split (the M3 plan, out of scope).
 - **Persisted changes:** every change to what is saved bumps the `.lumen`
   format version, with a migration and a golden fixture. Owner settings
   live in `%APPDATA%\Lumen\settings.json` (versioned).
-- **Edits:** every edit goes through `Document::apply` (one undo step;
-  drags merge into one step).
+- **Edits:** every edit is a named `Document` method that applies through
+  the history (one undo step; drags merge into one step). `Document::apply`
+  is test-only since the M3 review: UI code cannot edit in a closure.
 - **Draw only what is in view.** Deep in, a clip can be hundreds of
   millions of points wide: anything sized by a clip's or range's width
   (dashed lines, repeats, labels) is cut to the visible lanes first. A

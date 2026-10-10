@@ -42,6 +42,7 @@ impl Launch {
             bench: None,
             bench_size: None,
             autoplay: None,
+            test_latency: None,
             save_as: None,
             scripted_dialogs: true,
         }
@@ -81,7 +82,7 @@ impl Launch {
 /// renders with wgpu, as `run` does for the real window.
 pub fn install_renderer(cc: &eframe::CreationContext<'_>) -> Result<(), String> {
     match cc.wgpu_render_state.as_ref() {
-        Some(state) => crate::canvas::install(state).map_err(|e| format!("renderer: {e}")),
+        Some(state) => crate::canvas::install(state, None).map_err(|e| format!("renderer: {e}")),
         None => Ok(()),
     }
 }
@@ -89,6 +90,15 @@ pub fn install_renderer(cc: &eframe::CreationContext<'_>) -> Result<(), String> 
 /// Where a project called `name` is saved in `dir` (its own folder).
 pub fn project_file(dir: &Path, name: &str) -> PathBuf {
     files::project_file_for(&dir.join(name))
+}
+
+/// What a meter shows (`App::meter`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MeterShown {
+    pub peak_db: f32,
+    pub rms_db: f32,
+    pub hold_db: f32,
+    pub clipped: bool,
 }
 
 /// The extension of project files (and autosaves).
@@ -123,22 +133,100 @@ impl App {
         self.transport.playhead()
     }
 
+    /// The test device drops `n` buffers, as a real one does under load.
+    pub fn cause_dropouts(&mut self, n: u64) {
+        if let Some(meters) = self.transport.audio.meters() {
+            meters.count_dropouts(n);
+        }
+    }
+
+    /// Puts the engine's synthetic latent device on track `id`, adding
+    /// `frames` of latency (0 takes it off), as a device with latency will
+    /// be from M6: what delay compensation is tested with (M4 slice 6).
+    pub fn set_test_latency(&mut self, id: Id, frames: u32) {
+        let latent = &mut self.lanes.devices.latent;
+        if frames == 0 {
+            latent.remove(&id);
+        } else {
+            latent.insert(id, frames);
+        }
+    }
+
+    /// The delay compensation the engine was last sent, in frames.
+    pub fn compensation(&self) -> u32 {
+        self.transport.audio.mixer.compensation().frames
+    }
+
     /// What the test device has played since the last call, as (left,
     /// right) frames: the audio a user would hear.
     pub fn heard(&mut self) -> Vec<(f32, f32)> {
+        self.heard_frames()
+            .into_iter()
+            .map(|[l, r, ..]| (l, r))
+            .collect()
+    }
+
+    /// What the test device has played since the last call, frame by
+    /// frame: the main pair's left and right, then the cue pair's (M4
+    /// slice 4; silent without a cue pair).
+    pub fn heard_all(&mut self) -> Vec<[f32; 4]> {
+        self.heard_frames()
+    }
+
+    /// What track `id`'s meter shows (M4 slice 5): the louder side's
+    /// peak, RMS and hold line in dB, and the clip light.
+    pub fn meter(&self, id: Id) -> MeterShown {
+        let reading = self.arrangement.meters.reading(id.0);
+        MeterShown {
+            peak_db: reading.peak[0].max(reading.peak[1]),
+            rms_db: reading.rms[0].max(reading.rms[1]),
+            hold_db: reading.hold_db(),
+            clipped: reading.clipped,
+        }
+    }
+
+    /// The detail panel's height, in points.
+    pub fn detail_size(&self) -> f32 {
+        self.detail_size
+    }
+
+    /// Sets the detail panel's height, as opening a project with that
+    /// layout saved does (the panel takes it on the next frame).
+    pub fn set_detail_size(&mut self, size: f32) {
+        self.detail_size = size;
+    }
+
+    /// Some meter is still moving, so the app keeps drawing frames.
+    pub fn meters_moving(&self) -> bool {
+        self.arrangement.meters.moving()
+    }
+
+    /// The master's loudness as shown: momentary, short-term and
+    /// integrated LUFS, and the true peak in dBTP.
+    pub fn loudness(&self) -> (f64, f64, f64, f32) {
+        let l = self.arrangement.meters.loudness();
+        (l.momentary, l.short_term, l.integrated, l.true_peak)
+    }
+
+    /// A cue pair is open (chosen in the audio settings and running).
+    pub fn cue_ready(&self) -> bool {
+        self.transport.audio.cue_ready()
+    }
+
+    /// The metronome's output as the settings hold it: `main` or `cue`.
+    pub fn saved_metronome_output(&self) -> &str {
+        &self.settings.metronome.output
+    }
+
+    fn heard_frames(&mut self) -> Vec<[f32; 4]> {
         let Some(heard) = self.transport.audio.heard.as_mut() else {
             return Vec::new();
         };
-        let Ok(chunk) = heard.read_chunk(heard.slots()) else {
+        let Ok(chunk) = heard.read_chunk(heard.slots() / 4 * 4) else {
             return Vec::new();
         };
         let samples: Vec<f32> = chunk.into_iter().collect();
-        samples
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|&[l, r]| (l, r))
-            .collect()
+        samples.as_chunks::<4>().0.to_vec()
     }
 
     /// Background work is in progress: a save, an open, or files loading.
@@ -240,9 +328,28 @@ impl App {
             .map(|r| (r.start, r.end, r.tracks.clone()))
     }
 
-    /// The drag hint drawn by the pointer in the last frame, if any.
+    /// The info line's lit action ("Ctrl+drag to copy"): the drag the
+    /// keys held now choose.
+    pub fn info_lit(&self, ctx: &egui::Context) -> Option<String> {
+        let held = ctx.input(|i| crate::app::info::Held::of(i.modifiers));
+        self.info.as_ref()?.lit_text(&self.keymap, held)
+    }
+
+    /// The live value drawn by the pointer in the last frame while dragging
+    /// (the tape speed), if any.
     pub fn hint(&self) -> Option<&str> {
         self.hint.as_deref()
+    }
+
+    /// What the info line says about what is under the pointer this frame
+    /// (M4 slice 0), as words: "Clip “kick”: drag to move · …".
+    pub fn info_line(&self) -> Option<String> {
+        self.info.as_ref().map(|i| i.text(&self.keymap))
+    }
+
+    /// The short note shown after undo, save, open or a refused edit.
+    pub fn note(&self) -> Option<&str> {
+        self.toast.as_ref().map(|(text, _)| text.as_str())
     }
 
     /// What Undo would undo.
@@ -275,6 +382,15 @@ impl App {
             .into_iter()
             .map(|row| (row.label, row.ready.is_ok()))
             .collect()
+    }
+
+    /// The name of the command the palette's top row runs, if it is a
+    /// command (its label may say what it acts on instead).
+    pub fn palette_first_command(&self, ctx: &egui::Context) -> Option<&'static str> {
+        match self.palette_rows(ctx).first()?.entry {
+            crate::app::palette::Entry::Command(command) => Some(command.name()),
+            _ => None,
+        }
     }
 
     /// The name of every command in the palette's table.

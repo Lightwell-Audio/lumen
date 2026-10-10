@@ -2,12 +2,14 @@
 
 ## Status
 
-**Current milestone:** 3 — Arrangement & Project System (plan:
-[milestones/M3.md](milestones/M3.md)). Slices 1–6 are done (slice 6, clip
-editing and selection, passed MT-APP-14 in run 4). Slice 7 (command
-palette, shortcuts, context menus) is done (MT-APP-15 passed). Slice 8
-(walkthrough and report) is next.
-**Previous:** M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
+**Current milestone:** 4 — Mixer, Routing & Groups (plan:
+[milestones/M4.md](milestones/M4.md)). **Complete 2026-10-10**: all eight
+slices built, and every manual test passed (MT-APP-17, MT-MIX-1 to
+MT-MIX-8, including the Focusrite's dropout count). The end-of-milestone
+review (`docs/audits/2026-10-10-m4.md`) found no High issues. Four Medium
+and eight Low findings are fixed on a follow-up branch. The report is
+below; M4 merges into `main` now.
+**Previous:** M3 complete and approved 2026-10-09; M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
 
@@ -17,8 +19,8 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 |---|---|---|---|
 | 1 | Foundations & Architecture | ✅ Complete | Plan and risk register in `docs/milestones/M1.md` |
 | 2 | Audio Engine, Devices & Transport | ✅ Complete, approved 2026-10-07 | Plan: `docs/milestones/M2.md` |
-| 3 | Arrangement & Project System | 🟡 In progress (slices 1–5 of 8 done; slice 6 built) | Plan: `docs/milestones/M3.md` |
-| 4 | Mixer, Routing & Groups | 🔲 | |
+| 3 | Arrangement & Project System | ✅ Complete, approved 2026-10-09 | Plan: `docs/milestones/M3.md` |
+| 4 | Mixer, Routing & Groups | ✅ Complete 2026-10-10 (review fixes follow on their own branch) | Plan: `docs/milestones/M4.md` |
 | 5 | MIDI & Piano Roll | 🔲 | |
 | 6 | VST3 Hosting & Device System | 🔲 | |
 | 7 | Automation, Envelopes & Advanced Editing | 🔲 | |
@@ -38,7 +40,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 5 | Grid, snapping, rulers, scrub, markers, loop: groundwork (format v4), 5a grid and snapping, 5b rulers (layout A), 5c loop and punch, 5d locators, 5e scrubbing | ✅ 2026-10-08 (ADR-0030, MT-APP-13 passed) | `1317d07` groundwork; `c7104a5`, `b3fd9d6`, `d9eab12`, `5fdc6e4`, `b3ccb4b` (5a to 5e); `656a10a`, `efc3012`, `9492652` (MT-APP-13 run 1); `ec5541f` closes it |
 | 6 | Clip editing and selection: groundwork (format v5), 6a selection and moving, 6b time ranges and edits, 6c trim, loop-extend and slip, 6d fades and clip gain (format v6, ADR-0031; MT-APP-14 run 1 passed its steps), 6e clip properties (mute, lock, rename, colour, the pinned card) and drops on a chosen track (ADR-0032) | ✅ 2026-10-08 (ADR-0031, ADR-0032; MT-APP-14 passed in run 4, after the owner's run 2 changes and run 3 fixes) | `f66c647` to `a6a2164`; 6e `6cc6860`; run-2 changes `3127ec7`; run-3 fixes `4e8c779` |
 | 7 | Command palette, shortcuts, context menus: 7a the registry and one dispatcher, 7b the palette (P2 with P3's values, K5 keycaps), 7c remapping (E2 keyboard map with E3 in the palette, saved in the settings), 7d menus and tooltips from the keymap, ruler menus, Z, Ctrl+A, Ctrl+L, Fit loop, F6 panes, Shift+Tab by focus (ADR-0033) | ✅ 2026-10-08 (ADR-0033, MT-APP-15 passed) | `c4c008f` 7a, `9983bf1` 7b, `3d21a26` 7c, `36573a7` 7d |
-| 8 | End-to-end walkthrough and report | 🔲 | |
+| 8 | The exit flow (E2E `walkthrough`), an accessibility audit (E2E `access`), the end-of-milestone review (`docs/audits/2026-10-08-m3.md`) and its fixes: the smooth playhead, Import audio…, clips chosen with the arrows (the owner's choice), the time signature as a method, drop order, three modules split (ADR-0028 and ADR-0033 amendments) | ✅ 2026-10-09 (MT-APP-16 passed) | `ebf08a8`, `0e6b8f9` review; `273af92`, `5d1bab6`, `29c5870`, `b376107` fixes |
 
 ## Milestone 2 slices
 
@@ -77,7 +79,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | No buffering beyond the driver | M | 🔲 | 2 | ADR-0003 |
 | Sample-accurate playback, MIDI, automation, loops, editing | M | 🟡 | 2–7 | Time base done (`lumen_core::time`, ADR-0009): every sample addressable at 999 BPM / 192 kHz. Transport and loops sample-accurate for every block size (`lumen-engine`, slice 3). MIDI, automation, editing later |
 | Offline render equals real-time and is repeatable | M | 🔲 | 2, 9 | P-ENGINE block-size invariance |
-| UI 60 fps minimum, 120 fps target at 200 tracks / 20,000 clips / 100,000 notes | M | 🟡 | 3, 10 | Clips: met. With clips on the GPU (M3 slice 4b, ADR-0026), the stress project scrolls and zooms at p99 ≤ 2.3 ms at 3440 × 1380 (Ryzen 7 7700X, RTX 4070), measured by `--bench-frames`. With waveforms on every audio clip (4c, ADR-0027): p99 ≤ 2.3 ms at 3440 × 1380, unchanged. Notes (M5) still to measure; mid-range hardware in M10 |
+| UI 60 fps minimum, 120 fps target at 200 tracks / 20,000 clips / 100,000 notes | M | 🟡 | 3, 10 | Clips: met. With clips on the GPU (M3 slice 4b, ADR-0026), the stress project scrolls and zooms at p99 ≤ 2.3 ms at 3440 × 1380 (Ryzen 7 7700X, RTX 4070), measured by `--bench-frames`. With waveforms on every audio clip (4c, ADR-0027): p99 ≤ 2.3 ms at 3440 × 1380, unchanged. At the M3 close (rulers, handles, the grid through clips): p99 ≤ 2.3 ms at 1600 × 900 and 3.3–4.2 ms at 3440 × 1380, inside the 8.3 ms of 120 fps. Notes (M5) still to measure; mid-range hardware in M10 |
 | Near-zero idle CPU | M | 🟡 | 3, 10 | 0.0–0.2% measured with audio running (M2 MT-APP-4; M3 slice 2 with the motion system). Animations repaint only while moving. Re-measured at scale in M3 slice 4b: 3 repaints in 3 s idle with the stress project (the once-a-second device check); M10 |
 | Cold start under 2 s; scanning and loading never block the UI | M | 🟡 | 3, 6, 10 | First frame 394 ms warm / 1,110 ms cold (M1 shell). Audio files, project open and save, file dialogs and ASIO driver checks all run in the background (M2, M3). Plugin scanning in M6 |
 | Autosave, crash recovery, atomic saves, backups | M | ✅ | 3 | Atomic save and rolling backups (`lumen-project`). Autosave a minute after unsaved changes, to the local app data folder; a recovery banner after a crash; tested by killing the process (M3 slice 3d) |
@@ -89,7 +91,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | CI on Windows, macOS, Linux | M | ⚠️ | 1 | First run green on 2026-10-06 (run 37396217369): Windows MSVC, macOS, Linux, rustfmt, cargo-deny, VST3 self-test. **macOS paused 2026-10-07** (owner: Actions minutes ran out); Windows and Linux run, macOS is checked by cross-target clippy until it returns |
 | Test plugin simulating good and bad behaviour; real-plugin compatibility matrix | M | 🟡 | 1, 6 | Misbehaving test module (scan stage) + `docs/PLUGIN_COMPATIBILITY.md` (scan stage only) |
 | Real-time correctness enforced by tests | M | 🟡 | 1–2 | `lumen-rt` allocation guard (ADR-0010) |
-| High-DPI, 100–200% scaling, light and dark themes, keyboard-navigable, accessible names, colour-blind-safe | M | 🟡 | 3, 10 | Dark, light and match-system themes; interface size 100–200% in the app menu; colour-blind-safe accent; contrast tested for both themes (M3 slice 2, `docs/DESIGN.md`). Keyboard navigation of the new views and the full accessibility pass in M3 slice 8 and M10 |
+| High-DPI, 100–200% scaling, light and dark themes, keyboard-navigable, accessible names, colour-blind-safe | M | 🟡 | 3, 10 | Dark, light and match-system themes; interface size 100–200% in the app menu; colour-blind-safe accent; contrast tested for both themes (M3 slice 2, `docs/DESIGN.md`). M3 slice 8: every control in the main window, palette, shortcuts window, clip card, clip menu, audio settings and history has an accessible name, and Tab walks the transport left to right, then the panes (E2E `access`). The full accessibility pass and the Narrator check in M10 |
 | No telemetry by default; opt-in only | M | ✅ | — | Nothing collects data. Re-verify each milestone. |
 
 ## §6.1 Arrangement and tracks
@@ -99,12 +101,12 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Rulers: bars/beats, minutes:seconds, samples, timecode | M | ✅ 2026-10-08 | 3 | M3 slice 5b, layout A (owner): the bar ruler on top; a time ruler along the bottom in minutes and seconds, samples, or timecode at 24, 25, 29.97 drop-frame or 30 fps (`timefmt.rs`, tested), chosen from its corner and saved in settings; the position display follows it. At the deepest zoom the bar ruler pins the position of its left edge |
 | Adaptive or fixed grid (triplet, dotted, off) with snap-bypass modifier | M | ✅ 2026-10-08 | 3 | M3 slice 5a: `lumen_core::grid`, adaptive in five widths or fixed 8 bars to 1/64, triplet and dotted, snap on or off (Ctrl+1 to Ctrl+5, the grid menu and button); Alt bypasses; snap guide; saved with the project (format v4). Used by the ruler and dropped files now, by clip edits in slice 6 |
 | Anchored zoom, zoom to selection, fit all, fit loop, pan, edge auto-scroll, follow modes. (Ctrl+wheel zoom works in the M1 shell since the 2026-10-06 fix: egui delivers it as a zoom factor, not as scroll.) | M | 🟡 | 3 | M3 slice 4d (ADR-0028): zoom at the pointer to single samples, `+`/`-`, X back, W fit all, H fit heights, Alt+wheel heights, pan, auto-scroll while dragging tracks, Follow page and continuous. Zoom to selection (Z) and fit loop added in slice 7d (ADR-0033), on the bar ruler's menu with the other view commands |
-| Track types: audio, MIDI/instrument, group, return, master | M | 🟡 All five exist in the project model; audio tracks are created by importing (M3 slice 3). Track headers and adding each type in M3 slice 4; group summing, returns and master in M4 | 3–4 |
-| Per-track name, colour, height, arm, monitor, solo, mute, polarity, I/O routing, inline fader and meter | M | 🟡 Name, type icon, colour, height (drag to resize in 22 pt steps, fold and unfold), arm (glows and breathes), solo and mute in the track header; interim volume and pan sliders in unfolded headers (M3 slice 4a, ADR-0025). Monitor, polarity, routing, real fader and meter with the mixer (M4) | 3–4 |
-| Group tracks: create, drag in, nest, fold, sum, own devices/sends/fader/automation, one-step ungroup, sensible solo/mute/arm | M | 🔲 | 4 |
+| Track types: audio, MIDI/instrument, group, return, master | M | 🟡 All five exist in the project model and the arrangement. Groups sum their tracks (M4 slices 1 and 3); returns and the master are pinned at the bottom of the arrangement, returns lettered A, B, C with sends from every audio, MIDI and group track (M4 slice 4, ADR-0038). Every kind has a channel strip in the Mixer tab (slice 5, ADR-0040) | 3–4 |
+| Per-track name, colour, height, arm, monitor, solo, mute, polarity, I/O routing, inline fader and meter | M | 🟡 Name, type icon, colour, height (drag to resize in 22 pt steps, fold and unfold), arm (glows and breathes), solo and mute in the track header; volume and pan sliders in unfolded headers (M3 slice 4a, ADR-0025) with the level inside the volume slider (the owner's H2, M4 slice 5, ADR-0040); polarity, output routing and a fader on the track's strip in the Mixer tab (slice 5). Monitor and input routing with recording (M9) | 3–4 |
+| Group tracks: create, drag in, nest, fold, sum, own devices/sends/fader/automation, one-step ungroup, sensible solo/mute/arm | M | 🟡 M4 slice 3 (format v8, ADR-0037): Ctrl+G and Ctrl+Shift+G (one step each), nesting three deep at most, folding (saved), dragging tracks in and out, groups summing their tracks (slice 1), mute, a group's arm arming its tracks, deleting and duplicating a group with its tracks. Solo across groups and returns by the agreed rules, a soloed group showing its tracks with a hollow S, and a group's sends on its header (slice 4, ADR-0038); a group's devices with M6, automation in M7 | 4 |
 | Linked editing across selected tracks | S | 🔲 | 4 |
 | Clips: move, copy-drag, trim, slip, fades, gain handle, loop-extend, rename, recolour, mute, lock | M | 🟡 M3 6a: move across tracks and Ctrl+copy-drag by the top half (snapped, one undo step, kinds respected, locked clips stay). 6c: trim edges (within the file), Shift loop-extend, Ctrl+Alt slip, and Ableton's overlap rule (a clip put down cuts away what it covers). 6d: fade handles with a free bend dot and Alt for S-shape (owner's F3 and C3; curves in format v6, ADR-0031), presets in the menu, a clip gain line (G1), heard and drawn alike; moved clips crossfade while playing. 6e (ADR-0032): 0 mutes (grey, the owner's M1), lock from the menu or card (padlock and clamps, K3; locked clips can still be muted, renamed and recoloured), Ctrl+R or F2 renames in the title bar, clips take their own colour, and the properties card (P1) sets all of it, gain and fades from the keyboard | 3 |
-| Selection: clip, marquee, time range with cut/copy/duplicate/delete/split/consolidate | M | 🟡 Clip and marquee selection and time ranges across tracks (M3 6a); cut, copy, paste, duplicate and delete on clips and ranges (6b). Split and consolidate in M7 | 3, 7 |
+| Selection: clip, marquee, time range with cut/copy/duplicate/delete/split/consolidate | M | 🟡 Clip and marquee selection and time ranges across tracks (M3 6a); cut, copy, paste, duplicate and delete on clips and ranges (6b). From the keyboard (M3 review H2, the owner's choice): with a clip selected the arrows move between clips (←/→ along its track, ↑/↓ to the nearest clip above or below), Shift adds. Split and consolidate in M7 | 3, 7 |
 | Loop and punch regions, markers and locators, tempo and time-signature lanes | M | 🟡 Engine side of loop and punch done (slice 3); loop brace and punch (M3 5c) and named locators (M3 5d) done; tempo and time-signature lanes later in M3 | 2–3 |
 | Track height presets, collapse, hide, reorder by drag, multi-select | M | 🟡 Fold and unfold, resize by dragging or Alt+wheel, H fits every track, multi-select (Ctrl, Shift), move with Alt+arrows and the menu (4a), reorder by drag with auto-scroll (4d). Hide and height presets later | 3 |
 | Track templates, delay offset, lock, overview strip | S | 🔲 | 3, 9 |
@@ -113,7 +115,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
-| Import by drag and drop with sample-rate handling and optional copy into project | M | 🟡 Drag and drop from Explorer and automatic rate conversion done (M2 slice 6, ADR-0019), with a supported-file indicator while dragging. Imported audio is copied into `Samples/Imported` on save (setting, on by default; M3 slice 3c). Dropped on an audio track's lane, files land on that track at the pointer, one after another; between tracks they make new tracks there (M3 6e) | 3 |
+| Import by drag and drop with sample-rate handling and optional copy into project | M | 🟡 Drag and drop from Explorer and automatic rate conversion done (M2 slice 6, ADR-0019), with a supported-file indicator while dragging. Imported audio is copied into `Samples/Imported` on save (setting, on by default; M3 slice 3c). Dropped on an audio track's lane, files land on that track at the pointer, one after another; between tracks they make new tracks there (M3 6e). **Import audio…** (Ctrl+Shift+I; the app menu, the palette, a track's menu and the empty arrangement) opens the system dialog and imports at the playhead onto the selected audio track or new tracks (M3 review H1). Files dropped together keep their order, and later drops never overtake earlier ones (`6ea0681`) | 3 |
 | Drop files onto a specific track; dropping between tracks or below them creates a track (owner request, MT-MEDIA-1, 2026-10-06) | M | ✅ Done in M3 6e (`arrangement/drop.rs`): over an audio track's lane, files land on it at the pointer; between tracks, below the last one or over another kind of track, they make new tracks there. MT-APP-14 run 3 found drops between tracks were never offered on Windows (no pointer during a drag from Explorer); fixed by reading the system's cursor (ADR-0032); passed in run 4. macOS and Linux: KNOWN_ISSUES | 3 |
 | Clip hover card with file details (format, rate, channels, length, size, path) | S | ✅ 2026-10-08 Basic card in M2 slice 6 (owner request, MT-MEDIA-1); in M3 6e it pins open as the clip's properties card (Alt+Enter; the owner's P1) | 3 |
 | Glitch-free playback, seamless loops, instant seeking | M | 🟡 Clips play sample-exactly from memory, with click-free crossfaded loops and locates (slice 6; golden renders; MT-MEDIA-1 passes by ear). Large sessions need disk streaming (M9) | 2 |
@@ -187,12 +189,12 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
-| Channel strip: input gain, polarity, devices, pre/post sends, fader, pan law, mute, solo, cue, output | M | 🔲 | 4 | Must smooth gain and pan, and fade mute and solo, as the interim clip-level glide does in M3 (ADR-0025) |
-| Returns, groups, master, sidechain from any track, hardware output routing | M | 🔲 | 4 |
-| Solo keeps soloed paths audible; exclusive-solo option | M | 🔲 | 4 |
-| Automatic plugin delay compensation with indicator | M | 🔲 | 4, 6 |
-| Peak (hold, clip), RMS; master LUFS and true peak | M | 🔲 | 4 |
-| Dockable mixer panel; inline fader, pan and meter on track headers | M | 🔲 | 4 |
+| Channel strip: input gain, polarity, devices, pre/post sends, fader, pan law, mute, solo, cue, output | M | 🟡 In the engine (M4 slice 1, ADR-0035): input trim, polarity, mute, pre- and post-fader sends, volume and pan with four pan laws (−3 dB constant power by default), output to a node or a device pair, all gliding over 20 ms. Saved and undoable in the model (slice 2, format v7, ADR-0036). Slice 4 (ADR-0038): sends set from comet knobs on the headers (pre/post from their menu), mute and solo by the agreed rules, cue before the fader to a second output pair. Slice 5 (ADR-0040): the strip itself in the Mixer tab (the owner's S1: output, polarity, trim, two send knobs then "+N", pan, a fader beside its meter, typed volume, held peak, M S arm), the pan law from the mixer's menu and the palette; devices with M6 | 4 |
+| Returns, groups, master, sidechain from any track, hardware output routing | M | 🟡 The engine graph sums groups (nested), returns and a master and routes to device pairs (slice 1); a track in a group plays into it. A master track in every project, outputs and sends in the model, loops refused (slice 2, ADR-0036); grouping built (slice 3, ADR-0037); returns and the master pinned at the bottom of the arrangement with sends on the headers (slice 4, ADR-0038). Output choices on the strips, any of the device's pairs, which Lumen then opens (slice 5, B6, ADR-0040); sidechains from any track in the engine graph at Ableton's three taps, compensated (slice 6, ADR-0041), chosen in the UI when a device has a sidechain input (M6, M8) | 4 |
+| Solo keeps soloed paths audible; exclusive-solo option | M | ✅ Built (M4 slice 4, ADR-0038): the owner's 14 cases as one pure function (`lumen_project::solo`) and its tests: a soloed path stays open, mute beats solo, returns are solo-safe, a soloed return plays wet only. Exclusive by default (Ableton), additive as a preference; hollow M and S show why a track is silent or heard; the transport's S chip clears every solo. MT-MIX-4 passed | 4 |
+| Automatic plugin delay compensation with indicator | M | 🟡 Built in the engine (M4 slice 6, ADR-0041): every node reports its devices' latency; parallel paths, sends and sidechains line up sample for sample through delay lines; the engine renders ahead so what is heard lines up with the playhead; the transport shows the compensation while there is some (the owner's D1). Tested with the synthetic latent device; real latency arrives with VST3 (M6). MT-MIX-6 passed | 4, 6 |
+| Peak (hold, clip), RMS; master LUFS and true peak | M | ✅ Built (M4 slice 5, ADR-0040): every node metered after fader and pan on the audio thread (lock-free), peaks falling 20 dB/s with a 1.5 s hold, clips latched until clicked, a 300 ms RMS; the master's momentary, short-term and gated integrated LUFS (BS.1770-4, EBU Tech 3341 cases 1–5 within 0.1 LU) and 4× true peak in the loudness column. MT-MIX-5 passed | 4 |
+| Dockable mixer panel; inline fader, pan and meter on track headers | M | ✅ Built (M4 slice 5, ADR-0040): the Mixer tab of the detail panel (strips in the arrangement's order and folding, returns after, the master pinned with the loudness column, strips dragged to reorder, sections folding in a short panel); meters inside the headers' volume sliders. Detachable mixer windows are S (M10). MT-MIX-5 passed | 4 |
 | Routing matrix; master mono-check and dim | S | 🔲 | 4 |
 | Reference-track A/B | L | 🔲 | — |
 
@@ -246,7 +248,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 |---|---|---|
 | Transport: play, stop, record, loop, return to start, go to start/end, previous/next marker. **Owner request:** transport controls use vector icons, not text (M2). | M | 🟡 Engine transport done (slice 3, ADR-0017). Transport bar with vector icons, Space / Shift+Space / Home, go to start, stop, play/pause and loop in the app (slice 4, ADR-0018). Record in M9; markers and go to end in M3 |
 | Tempo 20–999 BPM and time signature with change maps; tap tempo | M | 🟡 Tempo and time-signature maps with changes (`lumen-core`), swapped into the engine live (slice 3). Tap tempo and the UI later |
-| Metronome: accent, volume, sound, count-in, pre-roll, record-only, output routing | M | 🟡 On/off, accented downbeat, volume and two synthesized sounds, sample-accurate (M2 slice 7, ADR-0020). Count-in, pre-roll and record-only with recording (M9); output routing with the mixer (M4); settings saved with preferences (M9) |
+| Metronome: accent, volume, sound, count-in, pre-roll, record-only, output routing | M | 🟡 On/off, accented downbeat, volume and two synthesized sounds, sample-accurate (M2 slice 7, ADR-0020). Output routing: Main or Cue from its menu, never through the master (M4 slice 4, ADR-0038). Count-in, pre-roll and record-only with recording (M9) |
 | Loop region, punch in/out, auto-punch | M | 🟡 Sample-accurate loop wrap and punch-region reporting in the engine (M2 slice 3). M3 slice 5c: the loop brace is edited on the strip (draw, move, resize, snapped; click toggles), undoable; punch in and out at the loop's edges, as in Ableton, from the loop menus. Recording through punch in M9 |
 | Markers with names and navigation | M | ✅ 2026-10-08 M3 slice 5d: named locators on the strip, set or removed at the playhead (M, Set), jumped between (Ctrl+Left/Right, ◂ ▸, click a flag), dragged (snapped), renamed (double-click, F2), deleted; undoable, saved (format v4) |
 | Multiple time formats; editable position field | M | 🟡 Time formats in M3 5b (`timefmt.rs`: bars and beats, minutes and seconds, samples, timecode), and a Go to position field in the transport bar |
@@ -277,8 +279,8 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | MIDI effects; on-screen keyboard | S | 🔲 |
 | MPE, MIDI 2.0 | L | 🔲 |
 | Automation: all parameters, curves, R/W/T/L, clip envelopes, tempo and signature, override, simplification | M | 🔲 |
-| Mixer: fader, pan law, mute, solo, sends, returns, groups, master, routing, sidechain, PDC, meters, cue | M | 🔲 |
-| LUFS and true-peak metering; mono-check and dim | S | 🔲 |
+| Mixer: fader, pan law, mute, solo, sends, returns, groups, master, routing, sidechain, PDC, meters, cue | M | 🟡 The engine graph (M4 slice 1, ADR-0035); routing in the model (slice 2); groups (slice 3); mute, solo, sends, returns, the master and cue (slice 4, ADR-0038); the Mixer tab, meters, the pan law and output pairs (slice 5, ADR-0040); sidechains and delay compensation in the engine with the transport's readout (slice 6, ADR-0041) |
+| LUFS and true-peak metering; mono-check and dim | S | 🟡 LUFS (momentary, short-term, integrated) and true peak on the master (M4 slice 5, ADR-0040); mono-check and dim later |
 | Reference track | L | 🔲 |
 | Async cached VST3 scanning, custom paths, blocklist, search, favourites, recents | M | 🔲 |
 | Instruments and effects; multi-out; sidechain; bypass; presets; state; automation; generic UI; floating editors with DPI and focus | M | 🔲 |
@@ -301,10 +303,10 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Command palette; tooltips with shortcuts; context menus everywhere | M | 🟡 Built in M3 7b and 7d (ADR-0033): the palette (fuzzy search, context names, reasons, typed values), every menu and tooltip shortcut drawn from the keymap as keycaps, right-click menus on the rulers and track names added. MT-APP-15 passed |
 | Design system with a crisp vector icon set (spec §5): transport icons (play, pause, stop, record, loop, metronome) in M2, full set with the design system in M3 | M | 🟡 Design system v1 (`docs/DESIGN.md`, `theme.rs`): colour tokens for both themes, type, spacing, shape, widget states, key flows; M2 UI moved onto it (M3 slice 2). Icons grow with each slice's new controls |
 | Motion system: tokens, easing, what animates, reduce-motion; never delays input, no idle redraws; M2 widgets retrofitted (owner request 2026-10-06: fluid, Apple-like feel). Built in M3 with the design system; final polish pass in M10 | M | 🟡 Built (M3 slice 2, `motion.rs`): FAST/BASE/GLIDE tokens, ease-out and critically damped spring, Reduce motion; panels slide, popovers and windows fade, notices and banners animate, transport buttons fade on hover, playhead and start marker glide after a locate, clips fade in. Idle CPU unchanged (0.2%). Owner signed off (MT-APP-7, 2026-10-07); M10 polish |
-| Reset to default, type-in, fine adjust, wheel adjust, parameter right-click menus | M | 🔲 |
+| Reset to default, type-in, fine adjust, wheel adjust, parameter right-click menus | M | 🟡 Value controls reset on double-click, take typed values, Shift for fine, arrow keys (M3); the latching wheel on every slider, knob, fader and field (the owner's B3, M4 slice 5, ADR-0040); a send's menu switches pre and post fader. Parameter menus for automation and MIDI mapping with M5 and M7 |
 | Drag and drop for files, devices, clips, tracks; status-bar hints | M | 🟡 Files from Explorer, with a live indicator of what will be added (M2). Clips and tracks in M3, devices in M6 |
 | Resizable, collapsible panels with remembered layout; full screen; high-DPI; light and dark | M | 🟡 Resizable panels that slide open and closed; layout saved with each project; dark, light and match-system themes; interface size 100–200% (M3 slices 2–3). Full screen later |
-| Keyboard-only core flows; accessible control names. Shift+Tab settled by the owner (ADR-0015): it moves focus back in a text field or an open window, and toggles the detail panel elsewhere. | M | 🟡 M3 7d: F6 and Shift+F6 move the keyboard between named panes; shortcuts keep working with a control focused (only its own keys stay with it). The accessibility pass and the Narrator check in M10 |
+| Keyboard-only core flows; accessible control names. Shift+Tab settled by the owner (ADR-0015): it moves focus back in a text field or an open window, and toggles the detail panel elsewhere. | M | 🟡 M3 7d: F6 and Shift+F6 move the keyboard between named panes; shortcuts keep working with a control focused (only its own keys stay with it). M3 slice 8 and its review: the exit flow works from the keyboard alone (Import audio…, clips chosen with the arrows); Tab order is transport, browser, detail, arrangement (egui's panel order, recorded in ADR-0033), and F6 goes in reading order. The accessibility pass and the Narrator check in M10 |
 | Detachable mixer and editor windows; hover help; welcome screen | S | 🔲 |
 | CPU, disk and dropout indicators; Audio On/Off; panic | M | 🟡 CPU (peak per second), dropouts, Audio On/Off and panic done (M2 slice 7). Disk indicator with disk streaming (M9); MIDI all-notes-off joins panic in M5 |
 | Crash report file; logging with "reveal logs" | M | 🟡 Crash reports (owner request, M3 6c): a panic on any thread writes what failed, where, the backtrace, the version, the system and the thread to `%LOCALAPPDATA%\Lumen\Crashes`; the next start offers it (Show report, Dismiss). Logging and "reveal logs" later |
@@ -320,6 +322,227 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 ---
 
 ## Milestone reports
+
+### Milestone 4 — report (2026-10-10)
+**Status:** Complete 2026-10-10. All eight slices are built, and every
+manual test passed (MT-APP-17 and MT-MIX-1 to MT-MIX-8, owner). The
+review, `docs/audits/2026-10-10-m4.md`, found no High issues. Its four
+Medium and eight Low findings are fixed on a follow-up branch, after this
+merge, at the owner's request.
+
+**Shipped:** 65 commits on `m4` (ADR-0034 to ADR-0042, formats v7 to v10).
+- **The info line** (slice 0, ADR-0034): hints along the bottom of the
+  window with K5 keycaps. Only live values follow the pointer.
+- **The mixer graph in the engine** (slice 1, ADR-0035): a node per
+  track with trim, polarity, mute, sends, volume, pan and output, compiled
+  into a plan off the audio thread. Plans swap at a block edge, levels
+  glide over 20 ms, and a new shape crossfades over 5 ms.
+- **Routing in the model** (slice 2, format v7, ADR-0036): a master track
+  in every project, outputs, sends, polarity, trim and the pan law. One
+  rule for destinations and loops serves validation, edits and the engine.
+- **Group tracks** (slice 3, formats v8 and v9, ADR-0037): Ctrl+G and
+  Ctrl+Shift+G, nesting up to three deep, folding, dragging tracks in and
+  out, nested rails and lane bars, and a resizable header column.
+- **Mute, solo, returns, master and cue** (slice 4, format v10,
+  ADR-0038): the owner's 14 solo cases as one pure function. Returns and
+  the master are pinned at the bottom, with comet send knobs and a
+  return's loudest senders. A pre-fader cue goes to a second output pair.
+- **The mixer panel and meters** (slice 5, ADR-0040): meters and
+  loudness are measured on the audio thread (peak with hold, clips, RMS,
+  gated LUFS and 4× true peak, checked against EBU Tech 3341). Meters sit
+  inside the headers' volume sliders. The Mixer tab has console strips, a
+  loudness column, output pairs, strips dragged to reorder, the pan law
+  menu and the latching wheel.
+- **Sidechains and delay compensation** (slice 6, ADR-0041): devices and
+  Ableton's three sidechain taps in the graph, delay lines that line up
+  every path, the engine rendering ahead of the playhead, and the D1
+  readout in the transport bar.
+- **The exit flow** (slice 7, ADR-0042): E2E `walkthrough_mix` and
+  MT-MIX-7. It found that edits made while stopped never reached the
+  engine (fixed). Session locks stop a second Lumen from offering a
+  running session's autosave. The pan law now applies to mono tracks
+  only. Clipboard keys work in the real window.
+
+**Automated tests:** 661 in the workspace, including 144 end-to-end
+scenarios, all passing, plus 6 real-binary smoke tests. clippy
+(`-D warnings`) and rustfmt are clean on Windows, in the WSL Linux mirror
+and for the macOS target. The WSL performance gate passes with every
+scenario at ±0.00% against the baseline, which was updated with reasons
+in slices 1, 5 and 6.
+
+**Verified by hand** (owner, Focusrite USB on ASIO and WASAPI): MT-APP-17
+and MT-MIX-1 to MT-MIX-8, including the dropout count on the Focusrite.
+
+**Not verified:**
+- The cue bus on real hardware: the owner's interface has one output
+  pair. It is checked on the four-output test device (KNOWN_ISSUES).
+- Delay compensation with real plugin latency (M6). Only the synthetic
+  latent device exists.
+- macOS and Linux by hand, and screen readers (Narrator deferred). Names
+  and Tab order are tested.
+
+**Key measurements** (Ryzen 7 7700X, RTX 4070):
+
+| What | Result | Bar |
+|---|---|---|
+| 64 routed tracks in 8 groups, two sends each | about 1% of a 128-frame block at 48 kHz | under 50% |
+| Frame time with the Mixer tab open, stress project (200 tracks, 20,000 clips), p99 | 2.4–3.2 ms (1.5–1.8 ms without the mixer) | 16.7 ms (60 fps); 8.3 ms target |
+| Idle repaints, stress project | 3 in 3 s, as in M3 | near-zero idle CPU |
+| Performance gate (instructions, WSL) | `engine_routed_64` and `engine_latent_64` added; every scenario ±0.00% at the close | +2% fails CI |
+
+**Exit criterion:** *a multi-track project can be routed through groups,
+returns and the master bus, with predictable solo and mute behaviour.*
+
+| Step | Status |
+|---|---|
+| Automated | ✅ E2E `walkthrough_mix`: a drum group and a vocal through a latent return. Solo and mute are heard at every step, then the project is saved and reopened |
+| By hand | ✅ MT-MIX-7 (owner, 2026-10-10) |
+
+**Not done or deferred** (as planned in M4.md §6):
+- Plugins and plugin latency → M6. The built-in compressor, reverb and
+  delay → M8.
+- Automation of mixer controls and the override state → M7.
+- Recording, input monitoring and input meters → M9.
+- Routing matrix, mono-check and dim [S], detachable mixer windows [S]
+  → M10.
+- Recorded for later (KNOWN_ISSUES): header drag for returns, sends
+  between returns, scrubbing heard late under delay compensation, a
+  crowded transport bar at 150%, and browser audition through the cue.
+
+**Risks:**
+- A plan swap copies every delay line on the audio thread (review M3).
+  Nothing can trigger it before M6, and it is fixed on the review branch.
+- The frame budget keeps growing: the mixer added about 1 ms at p99. M5's
+  piano roll is the next large draw.
+- Four app modules passed the 800-line limit during M4 (review M1). They
+  are split before M5 builds on them.
+- The ASIO SDK agreement is still to be signed (owner action, before any
+  distribution).
+
+**Proposed next:** the review's fixes on their own branch. Then M5, MIDI
+and the piano roll, planned in `docs/milestones/M5.md` for the owner's
+approval.
+
+### Milestone 3 — report (2026-10-09)
+**Status:** Complete; approved by the owner 2026-10-09 (MT-APP-16 passed).
+All 8 slices are built. Slices 1 to 7 passed their manual tests
+(MT-APP-7 to MT-APP-15). Slice 8 adds the exit flow as an automated test,
+an accessibility audit, the end-of-milestone review and its fixes; its
+manual test, MT-APP-16, is the exit flow by hand.
+
+**Shipped:** 93 commits on `m3-slice-7` and `m3-slice-8` (from `03e2228`).
+- **Performance gates** (slice 1, ADR-0022): five instruction-count
+  scenarios under Callgrind fail CI at +2%.
+- **Design system and motion** (slice 2, ADR-0023, `docs/DESIGN.md`):
+  semantic tokens with dark, light and match-system themes; interface size
+  100–200%; Inter and Unbounded; springs and fades with Reduce motion; the
+  M2 UI retrofitted.
+- **Project model, undo and files** (slice 3, ADR-0024): undo by shared
+  snapshots (property-tested), new, open, save, save as, open recent,
+  project folders with imported audio copied in, autosave and crash
+  recovery. Format v2 to v6, each with a migration and a golden fixture.
+- **Tracks and the arrangement at scale** (slice 4, ADR-0025 to 0028):
+  the owner-chosen track headers, folding and resizing in 22 pt steps,
+  clip bodies and waveforms on the GPU, zoom to single samples, Ableton's
+  navigation keys, Follow, dragging tracks to reorder. A smooth playhead
+  while playing (the owner found Follow choppy; ADR-0028 amendment).
+- **Grid, rulers, loop, locators and scrubbing** (slice 5, ADR-0030):
+  adaptive and fixed grids with triplets, ruler layout A with a time ruler
+  in three formats, the loop brace and punch as undoable edits, named
+  locators, Ableton-style and tape scrubbing.
+- **Clip editing** (slice 6, ADR-0031, ADR-0032): the split-clip model
+  (move from the top half, time ranges from the bottom, marquees in empty
+  lanes), cut, copy, paste, duplicate, delete, delete and insert time,
+  trim, loop-extend, slip, fades on free curves, clip gain, mute, lock,
+  rename, colour, the pinned properties card, files dropped on a chosen
+  track or between tracks, 5 ms crossfades when playing clips change.
+- **Commands** (slice 7, ADR-0033): one table of 56 commands run by one
+  dispatcher; the command palette with context names, reasons and typed
+  values; remappable shortcuts with clash handling and a keyboard map;
+  menus and tooltips drawn from the keymap; F6 between panes.
+- **Exit flow and review** (slice 8): the exit flow as an E2E test, every
+  control named for screen readers, and the review's fixes: Import
+  audio… (Ctrl+Shift+I), clips chosen with the arrows (the owner's
+  choice), the time signature as an undoable method clamped to what a
+  project can hold (a 65–99/x meter used to save a song that would not
+  open), files dropped together kept in order (the flaky E2E runs), and
+  three oversized modules split.
+- An end-to-end suite (ADR-0029) that drives the whole app headless in CI
+  through its accessibility tree, and real-binary smoke tests.
+
+**Automated tests:** 434 in the workspace, all passing, plus 6 real-binary
+smoke tests (passing) and 10 screenshot renders run on demand. By crate:
+`lumen-app` 231 (143 unit, 88 end-to-end), `lumen-engine` 55 (with the
+allocation-guard tests), `lumen-project` 50, `lumen-core` 30,
+`lumen-audio` 25, `lumen-media` 12, `lumen-rt` 9, `lumen-render` 9, and 13
+in tools and the M1 prototypes. clippy (`-D warnings`) and rustfmt are clean on Windows,
+in the WSL Linux mirror and for the macOS target; the WSL performance
+gate passes (engine +0.94% at most).
+
+**Verified by hand** (owner, Focusrite USB on ASIO and WASAPI): MT-APP-7
+to MT-APP-16, including the real Import audio dialog, each recorded with its runs in `docs/MANUAL_TESTS.md`.
+
+**Not verified:**
+- macOS and Linux by hand (CI and the cross-target clippy only; macOS CI
+  is paused). Dropping files on a chosen track may not follow the pointer
+  there (KNOWN_ISSUES).
+- Screen readers (the Narrator check was deferred by the owner; names and
+  focus order are tested).
+- A mid-range machine and long sessions (M10).
+
+**Key measurements** (Ryzen 7 7700X, RTX 4070; details in the ADRs):
+
+| What | Result | Bar |
+|---|---|---|
+| Arrangement frame time, stress project (200 tracks, 20,000 clips, waveforms), p99 scroll time / scroll tracks / zoom | 1600 × 900: 2.2 / 2.0 / 2.3 ms; 3440 × 1380: 3.3–3.7 / 3.8–4.2 / 3.2–3.4 ms | 16.7 ms (60 fps); 8.3 ms target |
+| Same at the slice 4 close, 3440 × 1380 | 2.3–3.1 / 2.8–2.9 / 2.2–2.6 ms | — |
+| Idle repaints, stress project | 3 in 3 s (the once-a-second device check); one hover card fading in when the pointer rests on a clip | near-zero idle CPU |
+| First egui baseline before clips moved to the GPU | 13.4 ms p99 zooming | — |
+| Waveform peaks, 5-minute stereo file | 21 ms of a 100–140 ms load | backgrounded |
+| Performance gate (instructions, WSL) | engine 64 clips +0.94%, transport +0.35%, project serialize +0.55%, parse −0.23% against the baseline | +2% fails CI |
+
+The frame time grew by about 0.6–0.9 ms at p99 since slice 4 (rulers,
+the scrub strip, handles, the grid through clip bodies); still under half
+of the 120 fps budget.
+
+**Exit criterion (ROADMAP):** *Create → add track → import audio →
+arrange clips → edit → save → close → reopen, with the same project
+state.*
+
+| Step | Status |
+|---|---|
+| Automated | ✅ E2E `walkthrough`: create, add a track, import onto it and below it, drag and duplicate, rename, mute, tempo, a locator and a loop; save, close, reopen: field for field the same project, and the same audio sample for sample |
+| From the keyboard alone | ✅ since the review (Import audio…, the arrows between clips); E2E `audio_imports_from_the_keyboard_onto_the_selected_track`, `arrows_move_between_clips_when_a_clip_is_selected` |
+| By hand | ✅ MT-APP-16 (owner, 2026-10-09) |
+
+**Not done or deferred:**
+- Deferred with owner approval: the waveform peak disk cache and
+  relinking missing media → M9; app and file icons and file association
+  → M9; the drag-to-cut gesture and the tool model → M7 with split; group
+  summing, sends and routing → M4; a UX pass on hints and tooltips →
+  scheduled when the next milestones are planned.
+- Recorded for later (KNOWN_ISSUES): a second instance offering to recover
+  a running one's autosave (single instance, M9); audio clips not
+  following tempo (warp); submenu names read with their arrow, the Tab
+  order of the panes, the cramped shortcuts window at 200% in the
+  smallest window, a hint under the pinned card, and the pipeline cache
+  read on the UI thread (M10).
+- Undo depth is fixed at 10,000 steps until Preferences (M9).
+
+**Risks:**
+- egui: Tab order follows panel declaration, file drags give no pointer
+  on Windows (worked around), and upgrades break often. The arrangement's
+  dense drawing is on our own GPU path, which limits the exposure.
+- The frame budget is used a little more with each slice; the gate is by
+  hand (`--bench-frames`) because CI has no GPU. M4's inline meters and
+  M5's notes are the next big draws.
+- The engine still mixes every clip into one stereo bus; M4 replaces that
+  with a routing graph, the largest engine change since M2.
+- The ASIO SDK agreement is still to be signed (owner action, before any
+  distribution).
+
+**Proposed next:** M4, Mixer, Routing & Groups, planned in
+`docs/milestones/M4.md` (a proposal for the owner's approval).
 
 ### Milestone 2 — report (2026-10-06)
 **Status:** Complete; approved by the owner 2026-10-07. All 8 slices are done, and

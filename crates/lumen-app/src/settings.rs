@@ -34,6 +34,10 @@ pub struct AudioSettings {
     pub input_channels: Vec<usize>,
     #[serde(default = "stereo")]
     pub output_channels: Vec<usize>,
+    /// The cue pair (M4 slice 4, the owner's O1): opened after the main
+    /// pair. Empty: no cue. An added field, no version change.
+    #[serde(default)]
+    pub cue_channels: Vec<usize>,
 }
 
 fn stereo() -> Vec<usize> {
@@ -47,7 +51,13 @@ pub struct Metronome {
     pub volume: f32,
     /// `Beep` or `Wood`.
     pub sound: String,
+    /// `main` or `cue` (M4 slice 4: an added field, main by default).
+    pub output: String,
 }
+
+/// The cue pair's first channel: the main pair comes first, then the cue
+/// pair (the owner's O1).
+pub const CUE_CHANNEL: u16 = 2;
 
 impl Default for Metronome {
     fn default() -> Self {
@@ -61,6 +71,12 @@ impl From<MetronomeSettings> for Metronome {
             enabled: m.enabled,
             volume: m.volume,
             sound: m.sound.name().to_owned(),
+            output: if m.channel == CUE_CHANNEL {
+                "cue"
+            } else {
+                "main"
+            }
+            .to_owned(),
         }
     }
 }
@@ -74,8 +90,30 @@ impl From<&Metronome> for MetronomeSettings {
                 .into_iter()
                 .find(|s| s.name() == m.sound)
                 .unwrap_or_default(),
+            // On a device without a cue pair, the engine plays it on the
+            // main pair.
+            channel: if m.output == "cue" { CUE_CHANNEL } else { 0 },
         }
     }
+}
+
+/// How mixing controls behave (M4 slice 4): an added section with
+/// defaults, so older files read as before (no version change).
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Mixing {
+    /// A click on Solo adds the track to what is soloed, and Ctrl+click
+    /// solos it alone (the owner's D2: off by default, Ableton's way).
+    pub additive_solo: bool,
+    /// The master's Solo/Cue switch is on Cue: the S buttons cue tracks to
+    /// the cue pair (the owner's C1).
+    pub cue_mode: bool,
+    /// The cue bus's level, in dB.
+    pub cue_volume_db: f32,
+    /// Meters in their track's colour rather than the accent (the owner's
+    /// M2, a setting; M1, the accent, by default). M4 slice 5, an added
+    /// field.
+    pub track_colour_meters: bool,
 }
 
 /// Theme, motion and UI scale (`docs/DESIGN.md`).
@@ -87,6 +125,9 @@ pub struct Appearance {
     pub reduce_motion: bool,
     /// 1.0 = 100%.
     pub ui_scale: f32,
+    /// The info line along the bottom of the window (M4 slice 0): an
+    /// added field, on unless turned off.
+    pub info_line: bool,
 }
 
 impl Default for Appearance {
@@ -95,6 +136,7 @@ impl Default for Appearance {
             theme: crate::theme::Appearance::default().key().to_owned(),
             reduce_motion: false,
             ui_scale: 1.0,
+            info_line: true,
         }
     }
 }
@@ -178,6 +220,7 @@ pub struct Settings {
     /// The time ruler's format (M3 slice 5b).
     pub time_format: crate::timefmt::TimeFormat,
     pub commands: Commands,
+    pub mixing: Mixing,
 }
 
 impl Default for Settings {
@@ -191,6 +234,7 @@ impl Default for Settings {
             follow: Follow::default(),
             time_format: crate::timefmt::TimeFormat::default(),
             commands: Commands::default(),
+            mixing: Mixing::default(),
         }
     }
 }
@@ -353,16 +397,19 @@ mod tests {
                 buffer_frames: Some(128),
                 input_channels: vec![0, 1],
                 output_channels: vec![0, 1],
+                cue_channels: vec![2, 3],
             }),
             metronome: Metronome {
                 enabled: true,
                 volume: 0.3,
                 sound: "Wood".into(),
+                output: "cue".into(),
             },
             appearance: Appearance {
                 theme: "light".into(),
                 reduce_motion: true,
                 ui_scale: 1.5,
+                info_line: false,
             },
             projects: Projects {
                 recent: vec!["C:/Music/Song/Song.lumen".into()],
@@ -373,6 +420,12 @@ mod tests {
             commands: Commands {
                 shortcuts: [("edit.duplicate".to_owned(), vec!["Ctrl+Shift+D".to_owned()])].into(),
                 recent: vec!["track.add_audio".into()],
+            },
+            mixing: Mixing {
+                additive_solo: true,
+                cue_mode: true,
+                cue_volume_db: -6.0,
+                track_colour_meters: true,
             },
         };
         save(&path, &settings).unwrap();

@@ -55,33 +55,17 @@ fn gain(lumen: &Lumen, id: Id) -> f32 {
     }
 }
 
-/// Clicks twice at `p`, quickly, after a pause (so it is not counted
-/// with an earlier double-click).
-fn double_click(lumen: &mut Lumen, p: Pos2) {
-    lumen.frames(40);
-    lumen.harness.hover_at(p);
-    lumen.frames(1);
-    for _ in 0..2 {
-        for pressed in [true, false] {
-            lumen.harness.event(Event::PointerButton {
-                pos: p,
-                button: PointerButton::Primary,
-                pressed,
-                modifiers: Modifiers::NONE,
-            });
-        }
-        lumen.frames(1);
-    }
-    lumen.frames(2);
-}
-
 #[test]
 fn dragging_a_fade_handle_fades_the_clip_in_one_step() {
     let (mut lumen, id) = with_a_wide_clip("fade-drag");
     let at = handles(&lumen, id);
     lumen.harness.hover_at(at.fade_in);
     lumen.frames(2);
-    assert_eq!(lumen.app().hint(), Some("fade in"));
+    assert!(
+        lumen.info().starts_with("Fade in: drag to set its length"),
+        "{}",
+        lumen.info()
+    );
 
     // A quarter of the way in: a quarter of the clip, unsnapped.
     let to = at.fade_in + vec2(at.wave.width() * 0.25, 0.0);
@@ -127,7 +111,13 @@ fn the_dot_bends_a_fade_freely_and_alt_adds_s_shape() {
     let dot = handles(&lumen, id).bend_in.expect("a bend dot");
     lumen.harness.hover_at(dot);
     lumen.frames(2);
-    assert_eq!(lumen.app().hint(), Some("bend · Alt for S"));
+    assert!(
+        lumen
+            .info()
+            .starts_with("Fade curve: drag to bend · Alt+drag to S-shape"),
+        "{}",
+        lumen.info()
+    );
 
     // Left and up: the dot follows the pointer, and the curve with it.
     let to = dot + vec2(-15.0, -6.0);
@@ -159,10 +149,10 @@ fn the_dot_bends_a_fade_freely_and_alt_adds_s_shape() {
     assert!((s.dot[0] - other.dot[0]).abs() < 1e-3 && (s.dot[1] - other.dot[1]).abs() < 1e-3);
 
     let dot = handles(&lumen, id).bend_in.expect("a bend dot");
-    double_click(&mut lumen, dot);
+    lumen.double_click(dot);
     assert!(clip(&lumen, id).fade_in.curve.is_linear(), "straight again");
     let handle = handles(&lumen, id).fade_in;
-    double_click(&mut lumen, handle);
+    lumen.double_click(handle);
     assert!(clip(&lumen, id).fade_in.is_none(), "no fade");
 }
 
@@ -172,7 +162,11 @@ fn the_gain_line_sets_clip_gain_finely_with_shift() {
     let line = handles(&lumen, id).gain;
     lumen.harness.hover_at(line);
     lumen.frames(2);
-    assert_eq!(lumen.app().hint(), Some("gain 0.0 dB"));
+    assert!(
+        lumen.info().starts_with("Clip gain 0.0 dB: drag to change"),
+        "{}",
+        lumen.info()
+    );
 
     lumen.drag(line, line + vec2(0.0, 16.0), Modifiers::NONE);
     let coarse = gain(&lumen, id);
@@ -190,7 +184,7 @@ fn the_gain_line_sets_clip_gain_finely_with_shift() {
     );
 
     let line = handles(&lumen, id).gain;
-    double_click(&mut lumen, line);
+    lumen.double_click(line);
     assert_eq!(gain(&lumen, id), 0.0);
 }
 
@@ -216,9 +210,9 @@ fn every_fade_shape_is_in_the_right_click_menu() {
         lumen.frames(1);
     }
     lumen.frames(2);
-    // One Fades submenu (owner's A, MT-APP-14 run 2); a submenu's name ends
-    // with its arrow ("Fades ⏵").
-    lumen.harness.get_by_label_contains("Fades").click();
+    // One Fades submenu (owner's A, MT-APP-14 run 2), named without the
+    // arrow it shows (`widgets::submenu`), as screen readers should hear it.
+    lumen.harness.get_by_label("Fades").click();
     lumen.frames(3);
     lumen.click("Fade out: S-curve");
     assert_eq!(clip(&lumen, id).fade_out.curve, FadeShape::SCurve.curve());
@@ -251,7 +245,8 @@ fn fades_and_gain_are_heard() {
     lumen.key(Modifiers::NONE, Key::Space);
     let heard = lumen.app_mut().heard();
     let loudest = |frames: &[(f32, f32)]| frames.iter().map(|s| s.0.abs()).fold(0.0, f32::max);
-    // The test tone peaks at about 0.0916.
+    // The test tone peaks at about 0.0916; a centred stereo track keeps
+    // its level.
     let full = 0.0916 * 10f32.powf(db / 20.0);
     let start = loudest(&heard[..fade_frames / 4]);
     let after = loudest(&heard[fade_frames + 100..fade_frames + 4_000]);

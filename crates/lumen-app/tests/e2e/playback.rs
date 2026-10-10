@@ -70,3 +70,25 @@ fn metronome_loop_and_follow_toggle() {
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::F);
     assert!(!lumen.is_on(follow));
 }
+
+#[test]
+fn dropouts_show_in_words_and_the_panel_explains_them() {
+    // Owner (2026-10-09): a bare amber number meant nothing. Healthy audio
+    // shows no chip; dropouts show "Dropouts ×3", which opens the panel.
+    let mut lumen = Lumen::start("dropouts");
+    lumen.wait_for("audio", |app| app.audio_running());
+    lumen.frames(2);
+    assert!(!lumen.shows("Audio: Dropout"));
+    lumen.app_mut().cause_dropouts(3);
+    lumen.frames(3);
+    assert!(lumen.shows("Audio: Dropouts ×3"));
+    lumen.click("Audio: Dropouts ×3");
+    assert!(
+        lumen.shows("⚠ 3 dropouts just now · 3 since audio started"),
+        "the panel says how many and since when"
+    );
+    // Reset clears the chip and the panel's line.
+    lumen.click("Reset overload and dropout counts");
+    lumen.frames(3);
+    assert!(!lumen.shows("⚠ 3 dropouts just now · 3 since audio started"));
+}

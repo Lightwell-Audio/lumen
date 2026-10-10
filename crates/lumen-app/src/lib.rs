@@ -20,7 +20,9 @@
 //!                                frame-time benchmark: scroll and zoom it with
 //!                                vsync off, report, exit (status 3 below 60 fps);
 //!                                --bench-size 3440x1400 sets the window
-//! lumen --smoke-test             render a few frames, report start-up time, exit
+//! lumen --test-latency 12.4      the engine's synthetic latent device on the
+//!                                first track, to try delay compensation
+//! lumen --smoke-test            render a few frames, report start-up time, exit
 //! lumen --screenshot out.png     render, save a screenshot, exit
 //! lumen --audio test:fake --settings s.json --autosave-dir dir
 //!                                isolated from the user (tests): the silent
@@ -45,12 +47,14 @@ mod icons;
 mod lanes;
 mod launch;
 mod media;
+mod meters;
 mod motion;
 mod owner;
 mod panels;
 mod playhead;
 mod position;
 mod probe;
+mod routing;
 mod ruler;
 mod settings;
 pub mod testing;
@@ -165,6 +169,10 @@ pub struct App {
     /// The drag hint drawn this frame, if any (MT-APP-13 run 1); the
     /// end-to-end tests read it.
     hint: Option<String>,
+    /// What the info line shows (M4 slice 0): set by hovers this frame,
+    /// drawn from the frame before.
+    info: Option<app::info::Info>,
+    info_shown: Option<app::info::Info>,
     /// Where the lanes were drawn last frame.
     canvas: egui::Rect,
     /// What Copy and Cut put aside (slice 6b), for Paste.
@@ -173,6 +181,11 @@ pub struct App {
     /// takes its focus away on Esc before the app's keys run, so that Esc
     /// is the field's (it cancels), not a clip or track key (slice 6e).
     typing: bool,
+    /// Clipboard chords egui-winit turned into events, being put back as
+    /// keys (`app/clipboard_keys.rs`).
+    clipboard_keys: app::clipboard_keys::Pending,
+    /// When the meters last moved on (M4 slice 5).
+    meters_at: Option<Instant>,
     /// What the lanes' right-click menu is for (owner's A, MT-APP-14 run 2).
     menu_for: app::editing::MenuFor,
     /// The clip being renamed and the pinned properties card (slice 6e).
@@ -184,6 +197,9 @@ pub struct App {
     /// `--autoplay-ms`: toggle play and stop this often (latency tests).
     autoplay: Option<Duration>,
     autoplay_count: u32,
+    /// `--test-latency <ms>`: the synthetic latent device on the first
+    /// track.
+    test_latency: Option<f64>,
     /// `--save-as <path>` (tests): save once imports are done, then close.
     save_as: Option<PathBuf>,
     /// Playing or not, as last traced, to log only changes.
@@ -213,6 +229,12 @@ pub(crate) fn empty_project() -> Project {
             denominator: 4,
         },
         tracks: Vec::new(),
+        // Id 0: a new project's other ids count on from 1 (`fresh_id`);
+        // older projects got the next free id when they were migrated.
+        master: std::sync::Arc::new(lumen_project::model::Track::master(
+            lumen_project::model::Id(0),
+        )),
+        pan_law: Default::default(),
         media: Vec::new(),
         markers: Vec::new(),
         transport: Default::default(),
@@ -299,6 +321,8 @@ impl eframe::App for App {
             self.owner = owner::Owner::of(frame);
         }
         let ctx = ui.ctx().clone();
+        // Before anything scrolls: whose this frame's wheel is (M4 slice 5).
+        widgets::wheel::route(&ctx);
         self.transport.advance_playhead(ctx.input(|i| i.time));
         self.follow_file_drag(&ctx);
         if let Some(test) = self.crash_test {
@@ -307,6 +331,7 @@ impl eframe::App for App {
         self.drive_bench(&ctx);
         self.hint = None;
         self.transport.update();
+        self.restore_clipboard_keys(&ctx);
         self.capture_chord(&ctx);
         self.command_keys(&ctx);
         if std::mem::take(&mut self.arrangement.import_requested) {
@@ -341,13 +366,28 @@ impl eframe::App for App {
                 &mut self.document,
             );
         }
+        if let Some(ms) = self.test_latency
+            && let Some(first) = self.document.project().tracks.first()
+        {
+            let frames = (ms * f64::from(rate) / 1e3).round() as u32;
+            let latent = &mut self.lanes.devices.latent;
+            if latent.len() != 1 || latent.get(&first.id) != Some(&frames) {
+                latent.clear();
+                latent.insert(first.id, frames);
+            }
+        }
+        let cue = self.cue();
         self.lanes.update(
             rate,
             &ctx,
             &mut self.document,
             &mut self.transport.audio.clips,
+            &mut self.transport.audio.mixer,
+            &cue,
         );
         self.sync_document(&ctx);
+        let meters_moving = self.update_meters();
+        self.update_outputs(&ctx);
         self.transport.clip_memory = self.lanes.library.memory();
         self.save_settings_when_settled(&ctx);
         if let Some(e) = self.settings_writer.failure() {
@@ -426,11 +466,13 @@ impl eframe::App for App {
                 }
             });
         }
+        // Full width under everything else, so declared before the panels.
+        self.draw_info_line(ui);
         // Panels slide open and closed (motion: GLIDE, panels.rs).
         panels::sliding(
             ui,
             "browser",
-            panels::Side::Left,
+            (panels::Side::Left, egui::Rangef::new(96.0, f32::INFINITY)),
             self.show_browser,
             &mut self.browser_size,
             |ui| {
@@ -438,44 +480,64 @@ impl eframe::App for App {
                 self.panes.anchor(ui, app::panes::Pane::Browser, rect);
                 ui.label(RichText::new("Browser").font(fonts::display(theme::size::HEADING)));
                 ui.add_space(8.0);
-                ui.label(RichText::new("Devices, samples, projects and your places").weak());
-                ui.label(RichText::new(arrives("Milestones 3 and 6")).weak().small());
+                ui.label(RichText::new("Devices, samples and projects will be here").weak());
             },
         );
+        // The detail panel: the Mixer tab (M4 slice 5); Devices and Clip
+        // arrive with their milestones. Never shorter than a strip. Its
+        // content is drawn after the arrangement, so Tab reaches it in
+        // reading order.
+        let mut detail_size = self.detail_size;
+        let mut detail_content = None;
+        let detail_min = arrangement::strips::min_height() + DETAIL_CHROME;
+        // Never so tall that the arrangement loses its rulers and a track.
+        let detail_max = ui.available_rect_before_wrap().height() - ARRANGEMENT_MIN;
         panels::sliding(
             ui,
             "detail",
-            panels::Side::Bottom,
+            (
+                panels::Side::Bottom,
+                egui::Rangef::new(detail_min, detail_max),
+            ),
             self.show_detail,
-            &mut self.detail_size,
+            &mut detail_size,
             |ui| {
                 let rect = ui.max_rect();
                 self.panes.anchor(ui, app::panes::Pane::Detail, rect);
                 ui.horizontal(|ui| {
-                    for (tab, milestone) in [
-                        ("Devices", "Milestone 6"),
-                        ("Clip", "Milestone 5"),
-                        ("Mixer", "Milestone 4"),
-                    ] {
+                    for (tab, milestone) in [("Devices", "Milestone 6"), ("Clip", "Milestone 5")] {
                         ui.add_enabled(false, egui::Button::new(tab))
                             .on_disabled_hover_text(arrives(milestone));
                     }
+                    let mixer = egui::Button::new(RichText::new("Mixer").color(theme::p().accent))
+                        .fill(theme::p().accent_muted);
+                    ui.add(mixer).on_hover_text("Every track's channel strip");
                 });
-                ui.label(
-                    RichText::new(
-                        "Select a track or clip to see its devices, editor or mixer strip.",
-                    )
-                    .weak(),
-                );
+                // Claimed without interaction: egui sizes the panel by what
+                // its contents take, so an unclaimed area snapped it back to
+                // its smallest after every change.
+                let content = ui.available_rect_before_wrap();
+                ui.advance_cursor_after_rect(content);
+                detail_content = Some(content);
             },
         );
+        self.detail_size = detail_size;
         egui::CentralPanel::default().show(ui, |ui| self.arrangement(ui));
+        if let Some(content) = detail_content {
+            self.lend_cue_controls();
+            let mut mixer = ui.new_child(egui::UiBuilder::new().max_rect(content));
+            mixer.set_clip_rect(content.intersect(ui.clip_rect()));
+            self.arrangement
+                .mixer_panel(&mut mixer, &mut self.document, &self.keymap);
+            self.take_cue_controls();
+        }
         self.typing = ctx.text_edit_focused();
 
         // Scheduled after drawing, because buttons are clicked while drawing.
         // Every frame while playing or settling after a command; otherwise
         // once a second for device events, so idle CPU stays near zero.
-        if self.transport.animating() {
+        // Meters draw until they come to rest (risk R5).
+        if self.transport.animating() || meters_moving {
             ctx.request_repaint();
         } else {
             ctx.request_repaint_after(Duration::from_secs(1));
@@ -529,6 +591,11 @@ impl eframe::App for App {
 }
 
 const SMOKE_FRAMES: u32 = 30;
+/// The detail panel's tab row and margins, above and around its content.
+const DETAIL_CHROME: f32 = 48.0;
+/// The arrangement's least height beside the detail panel: its rulers, a
+/// folded track and the master's row.
+const ARRANGEMENT_MIN: f32 = 180.0;
 static FIRST_FRAME_MS: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
 
 fn save_png(path: &std::path::Path, image: &egui::ColorImage) -> Result<(), String> {
@@ -600,7 +667,10 @@ impl App {
             lanes.add_files(
                 vec![path],
                 Ticks::ZERO,
-                document::DropInto::NewTracks { before: None },
+                document::DropInto::NewTracks {
+                    before: None,
+                    group: None,
+                },
                 transport.state().sample_rate,
                 &cc.egui_ctx,
                 &mut document,
@@ -613,7 +683,10 @@ impl App {
             transport,
             lanes,
             drop_target: Ticks::ZERO,
-            drop_into: document::DropInto::NewTracks { before: None },
+            drop_into: document::DropInto::NewTracks {
+                before: None,
+                group: None,
+            },
             drag_pointer: None,
             system_cursor: None,
             settings: saved,
@@ -653,9 +726,13 @@ impl App {
             grid: lumen_core::grid::Grid::default(),
             locators: app::locators::Locators::default(),
             hint: None,
+            info: None,
+            info_shown: None,
             canvas: egui::Rect::NOTHING,
             clipboard: None,
             typing: false,
+            clipboard_keys: Default::default(),
+            meters_at: None,
             menu_for: app::editing::MenuFor::default(),
             clip_props: app::clip_card::ClipProps::default(),
             smoke_test_frames: launch.smoke_test.then_some(SMOKE_FRAMES),
@@ -663,6 +740,7 @@ impl App {
             started,
             autoplay: launch.autoplay,
             autoplay_count: 1,
+            test_latency: launch.test_latency,
             save_as: launch.save_as,
             traced: None,
             appearance_override: false,
@@ -746,12 +824,13 @@ pub fn run() -> eframe::Result {
             descriptor
         });
     }
+    let pipelines = canvas::PipelineCache::prefetch();
     eframe::run_native(
         PRODUCT_NAME,
         options,
         Box::new(move |cc| {
             if let Some(state) = cc.wgpu_render_state.as_ref() {
-                canvas::install(state).map_err(|e| format!("renderer: {e}"))?;
+                canvas::install(state, pipelines).map_err(|e| format!("renderer: {e}"))?;
             }
             Ok(Box::new(App::new(cc, launch)))
         }),

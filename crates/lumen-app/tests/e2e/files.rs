@@ -173,3 +173,46 @@ fn files_dropped_together_keep_their_order() {
     assert_eq!(lumen.track_names(), ["long", "short"]);
     assert_eq!(lumen.app().undo_label(), Some("Import 2 files"), "one step");
 }
+
+#[test]
+fn a_project_from_before_the_mixer_opens_with_a_master_and_saves_as_current() {
+    // M4 slice 2: format v7 routes tracks. A version 6 project (the golden
+    // fixture) opens with its master moved out of the tracks, plays, and
+    // saves in the current version.
+    let dir = lumen_project::testing::TempDir::new("e2e-v6-to-v7");
+    let folder = dir.path().join("Old");
+    std::fs::create_dir_all(folder.join("Samples")).unwrap();
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../lumen-project/tests/fixtures/v6/golden.lumen");
+    let path = folder.join(format!("Old.{PROJECT_EXTENSION}"));
+    std::fs::copy(fixture, &path).unwrap();
+    wav(&folder.join("Samples/kick.wav"), 1.0);
+
+    let mut lumen = Lumen::start_with(dir, |launch| launch.opening(path.clone()));
+    lumen.wait_for("the project to open", |app| !app.is_busy());
+    lumen.frames(5);
+    let project = lumen.app().project();
+    assert_eq!(project.master.name, "Master");
+    assert!(
+        project
+            .tracks
+            .iter()
+            .all(|t| t.kind != lumen_project::model::TrackKind::Master),
+        "the master is no longer among the tracks"
+    );
+    assert_eq!(lumen.track_names().len(), project.tracks.len());
+
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("playback", |app| app.is_playing());
+    lumen.key(Modifiers::NONE, Key::Space);
+
+    lumen.app_mut().save_to(path.clone());
+    lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
+    let saved = std::fs::read_to_string(&path).unwrap();
+    let version = lumen_project::migrate::CURRENT_VERSION;
+    assert!(
+        saved.contains(&format!("\"version\": {version}")),
+        "saved as version {version}"
+    );
+    assert!(saved.contains("\"master\": {"), "with its master");
+}

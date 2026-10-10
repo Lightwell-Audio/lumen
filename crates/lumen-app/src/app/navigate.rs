@@ -39,6 +39,8 @@ pub(crate) enum ViewStep {
     FitHeight,
     /// Select a track and scroll it into view.
     Reveal(lumen_project::model::Id),
+    /// Scroll a clip into view, both ways (M3 review H2).
+    ShowClip(lumen_project::model::Id),
     /// Fit this span of the song to the width (zoom to selection, fit
     /// loop).
     Fit(Ticks, Ticks),
@@ -275,6 +277,33 @@ impl App {
                     id,
                     canvas.height(),
                 ),
+                ViewStep::ShowClip(id) => {
+                    let project = self.document.project();
+                    let Some((track, clip)) = project
+                        .tracks
+                        .iter()
+                        .find_map(|t| t.clips.iter().find(|c| c.id == id).map(|c| (t.id, c)))
+                    else {
+                        continue;
+                    };
+                    let (from, to) = (clip.start, clip.start + clip.length);
+                    self.arrangement.scroll_to_track(
+                        &ctx,
+                        project,
+                        self.lanes.pending().len(),
+                        track,
+                        canvas.height(),
+                    );
+                    let to = self
+                        .nav
+                        .view
+                        .showing(from.as_quarters(), to.as_quarters(), limits);
+                    if to != self.nav.view {
+                        self.nav.glide_to(to, None, now);
+                        self.transport.follow_paused = true;
+                        ctx.request_repaint();
+                    }
+                }
                 ViewStep::Fit(start, end) => {
                     self.nav.remember();
                     let to = TimeView::fit(
@@ -325,8 +354,12 @@ impl App {
             self.nav.glide_to(previous, None, now);
         }
         if fit_height {
+            // Into the height above the pinned returns and master.
+            let room = self
+                .arrangement
+                .main_height(&ctx, self.document.project(), canvas.height());
             self.arrangement
-                .toggle_fit_heights(self.document.project(), canvas.height());
+                .toggle_fit_heights(self.document.project(), room);
         }
         if zoom_in || zoom_out || fit_width || back {
             // Looking around pauses Follow, as in Ableton.

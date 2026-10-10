@@ -125,7 +125,7 @@ fn hovering_the_brace_says_what_a_drag_will_do() {
     let hover = |lumen: &mut Lumen, x: f32| {
         lumen.harness.hover_at(Pos2::new(x, y));
         lumen.frames(2);
-        lumen.app().hint().map(str::to_owned)
+        lumen.info().split(':').next().map(str::to_owned)
     };
     // The default loop is bars 1 to 4 (quarters 0 to 16).
     let start = x_of(&lumen, band.left(), 0.0);
@@ -139,14 +139,9 @@ fn hovering_the_brace_says_what_a_drag_will_do() {
         Some("Loop start")
     );
     assert_eq!(hover(&mut lumen, end - 7.0).as_deref(), Some("Loop end"));
-    assert_eq!(
-        hover(&mut lumen, middle).as_deref(),
-        Some("Move loop · click: on or off")
-    );
-    assert_eq!(
-        hover(&mut lumen, after).as_deref(),
-        Some("Drag to draw a loop")
-    );
+    assert_eq!(hover(&mut lumen, middle).as_deref(), Some("Loop"));
+    assert_eq!(hover(&mut lumen, after).as_deref(), Some("Loop band"));
+    assert!(lumen.info().contains("drag to draw a loop"));
 
     // 7 points inside the start edge still resizes.
     lumen.click("Grid: 1/8");

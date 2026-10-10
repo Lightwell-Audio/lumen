@@ -11,7 +11,7 @@
 //! last working configuration (spec §6.9).
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -53,6 +53,13 @@ pub struct Status {
     /// Audio that never reached the device: missed buffers, or delivery
     /// slower than real time.
     dropouts: AtomicU64,
+    /// The part of `dropouts` from delivery slower than real time (the
+    /// rest are buffers the driver skipped), to tell the two apart.
+    slow: AtomicU64,
+    /// Set when a stream opens: the next block starts the driver position
+    /// count afresh. A reopened stream (a driver reset, a new buffer size)
+    /// may start anywhere, and the gap is a restart, not lost audio.
+    resync: AtomicBool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,9 +96,20 @@ impl Status {
     pub fn dropouts(&self) -> u64 {
         self.dropouts.load(Ordering::Relaxed)
     }
+    /// The part of [`Self::dropouts`] from audio delivered slower than
+    /// real time; the rest are buffers the driver's position skipped.
+    pub fn slow_dropouts(&self) -> u64 {
+        self.slow.load(Ordering::Relaxed)
+    }
+    /// Counts `n` dropouts as the device would: for tests of what shows
+    /// them, on devices that cannot be made to drop out on cue.
+    pub fn count_dropouts(&self, n: u64) {
+        self.dropouts.fetch_add(n, Ordering::Relaxed);
+    }
     /// Zeroes the dropout and overload counters (the user's "reset").
     pub fn reset_counters(&self) {
         self.dropouts.store(0, Ordering::Relaxed);
+        self.slow.store(0, Ordering::Relaxed);
         self.overloads.store(0, Ordering::Relaxed);
     }
     fn set_state(&self, state: State) {
@@ -123,6 +141,10 @@ impl AudioCallback for Metered {
         }
         // A driver position past where it should be means it skipped
         // buffers. A position behind it means the stream restarted: resync.
+        // A block without one (a driver resync) starts the count afresh.
+        if self.status.resync.swap(false, Ordering::Relaxed) || block.position.is_none() {
+            self.expected_position = None;
+        }
         if let Some(position) = block.position {
             if let Some(expected) = self.expected_position
                 && position > expected
@@ -406,6 +428,7 @@ impl<B: Backend> Supervisor<B> {
             .callback
             .take()
             .expect("callback is held while no stream runs");
+        self.status.resync.store(true, Ordering::Relaxed);
         match self.backend.open(config, callback) {
             Ok(stream) => {
                 let info = stream.info();
@@ -502,6 +525,7 @@ impl<B: Backend> Supervisor<B> {
             if missing > 2.0 * block {
                 let lost = ((expected - delivered) / block).ceil() as u64;
                 self.status.dropouts.fetch_add(lost, Ordering::Relaxed);
+                self.status.slow.fetch_add(lost, Ordering::Relaxed);
             }
         }
         self.window = Some((now, frames, false));

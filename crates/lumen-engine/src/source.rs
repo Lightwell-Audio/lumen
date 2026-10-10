@@ -39,6 +39,18 @@ impl<'a> Output<'a> {
         self.channels
     }
 
+    /// `frames` frames of this part from its frame `from`.
+    pub(crate) fn part(&mut self, from: usize, frames: usize) -> Output<'_> {
+        debug_assert!(from + frames <= self.frames);
+        Output::new(
+            self.data,
+            self.stride,
+            self.offset + from,
+            frames,
+            self.channels,
+        )
+    }
+
     /// The frames of `channel` this part covers. Already zeroed; sources add
     /// to them.
     pub fn channel(&mut self, channel: usize) -> &mut [f32] {
@@ -84,8 +96,22 @@ pub trait Source: Send {
     fn render(&mut self, cx: &RenderContext<'_>, out: &mut Output<'_>);
 
     /// Playback starts or jumps to `sample`, for the reason given. Sources
-    /// reposition here. The engine already crossfades every jump.
+    /// reposition here. The engine crossfades every jump while
+    /// [`Source::latency`] is 0; a latent source crossfades its own.
     fn locate(&mut self, _timeline: &Timeline, _sample_rate: u32, _sample: i64, _jump: Jump) {}
+
+    /// A block of `frames` passed without rendering (stopped, not
+    /// scrubbing): what measures levels lets them fall (M4 slice 5).
+    fn idle(&mut self, _sample_rate: u32, _frames: usize) {}
+
+    /// Frames the source's output trails the timeline it renders: delay
+    /// compensation (M4 slice 6). The engine renders this far ahead of the
+    /// playhead, so what is heard lines up with it, and leaves crossfading
+    /// jumps to the source while it is not 0. Read at the start of every
+    /// block and when playback starts.
+    fn latency(&self) -> u32 {
+        0
+    }
 }
 
 /// Silence.

@@ -286,6 +286,8 @@ fn a_driver_delivering_slower_than_real_time_counts_dropouts() {
         Some(DeviceEvent::Started(_))
     ));
     wait_for_dropouts(&audio, 1);
+    // Told apart from skipped buffers.
+    assert_eq!(audio.status().slow_dropouts(), audio.status().dropouts());
 }
 
 #[test]
@@ -317,8 +319,57 @@ fn skipped_driver_buffers_count_as_dropouts_and_reset_clears_them() {
     wait_for_dropouts(&audio, 2);
     std::thread::sleep(Duration::from_millis(30));
     assert_eq!(audio.status().dropouts(), 2);
+    assert_eq!(audio.status().slow_dropouts(), 0);
     audio.status().reset_counters();
     assert_eq!(audio.status().dropouts(), 0);
+}
+
+#[test]
+fn a_driver_reset_is_not_counted_as_dropouts() {
+    // Owner (M4 slice 1): changing the Focusrite's buffer size added dozens
+    // of dropouts each time. Its ASIO driver keeps counting samples through
+    // the reset, so the reopened stream's position is far ahead of where
+    // the last block ended; that gap is a restart, not lost audio.
+    let control = FakeControl::new();
+    let audio = spawn(&control, fast());
+    audio.configure(config(Some(128)));
+    assert!(matches!(
+        audio.wait_event(WAIT),
+        Some(DeviceEvent::Started(_))
+    ));
+    std::thread::sleep(Duration::from_millis(30));
+    control.set(|d| {
+        d.start_position = 10_000_000;
+        d.reset_pending = true;
+    });
+    assert!(matches!(
+        audio.wait_event(WAIT),
+        Some(DeviceEvent::Reset(_))
+    ));
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(audio.status().dropouts(), 0);
+    // Skipped buffers after the reset still count.
+    control.set(|d| d.skip_frames = 256);
+    wait_for_dropouts(&audio, 2);
+}
+
+#[test]
+fn a_driver_resync_is_not_counted_as_dropouts() {
+    // ASIO drivers ask the host to resync when their sample position jumps
+    // (the block after reports none): a discontinuity, not lost audio.
+    let control = FakeControl::new();
+    let audio = spawn(&control, fast());
+    audio.configure(config(Some(256)));
+    assert!(matches!(
+        audio.wait_event(WAIT),
+        Some(DeviceEvent::Started(_))
+    ));
+    std::thread::sleep(Duration::from_millis(30));
+    control.set(|d| d.resync_jump = Some(5_000_000));
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(audio.status().dropouts(), 0);
+    control.set(|d| d.skip_frames = 512);
+    wait_for_dropouts(&audio, 2);
 }
 
 #[test]

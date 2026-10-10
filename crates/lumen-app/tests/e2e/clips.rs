@@ -155,10 +155,23 @@ fn clicks_select_and_hovering_names_each_half() {
     let (a, b) = (rect(&lumen, kick), rect(&lumen, snare));
     lumen.harness.hover_at(top_half(a));
     lumen.frames(2);
-    assert_eq!(lumen.app().hint(), Some("drag to move · Ctrl copies"));
+    // M4 slice 0: in the info line, not by the pointer.
+    assert!(
+        lumen.info().starts_with("Clip “kick”: drag to move"),
+        "{}",
+        lumen.info()
+    );
+    assert_eq!(lumen.lit().as_deref(), Some("drag to move"));
+    assert!(lumen.app().hint().is_none(), "nothing floats over the clip");
     lumen.harness.hover_at(bottom_half(a));
     lumen.frames(2);
-    assert_eq!(lumen.app().hint(), Some("drag to select time"));
+    assert!(
+        lumen
+            .info()
+            .starts_with("Clip “kick”, lower half: drag to select time"),
+        "{}",
+        lumen.info()
+    );
 
     let click = |lumen: &mut Lumen, p: Pos2, m: Modifiers| {
         lumen
@@ -258,22 +271,6 @@ fn a_range_on_two_tracks_cuts_and_pastes_as_one_step_each() {
     assert_eq!((a, tracks.len()), (Ticks(2 * BAR), 2));
 }
 
-/// Right-clicks at `p`.
-fn right_click(lumen: &mut Lumen, p: Pos2) {
-    lumen.harness.hover_at(p);
-    lumen.frames(1);
-    for pressed in [true, false] {
-        lumen.harness.event(eframe::egui::Event::PointerButton {
-            pos: p,
-            button: eframe::egui::PointerButton::Secondary,
-            pressed,
-            modifiers: Modifiers::NONE,
-        });
-        lumen.frames(1);
-    }
-    lumen.frames(2);
-}
-
 /// Owner, MT-APP-14 run 2: the menu had grown to 33 rows. Its choice A:
 /// each right-click gets the menu for what it landed on.
 #[test]
@@ -281,7 +278,7 @@ fn each_right_click_gets_the_menu_for_what_it_landed_on() {
     let (mut lumen, kick, snare) = with_two_clips("menus");
     let a = rect(&lumen, kick);
     // A clip: clip edits and properties; no grid, no time edits.
-    right_click(&mut lumen, top_half(a));
+    lumen.right_click(top_half(a));
     assert!(lumen.shows("Rename Ctrl+R") && lumen.shows("Cut Ctrl+X"));
     assert!(!lumen.shows("Delete time Ctrl+Shift+Delete"));
     assert!(!lumen.shows("Narrowest"));
@@ -294,7 +291,7 @@ fn each_right_click_gets_the_menu_for_what_it_landed_on() {
     // Empty lanes: the grid, in a submenu; Paste only once there is
     // something to paste.
     let empty = Pos2::new(a.right() + 300.0, a.center().y);
-    right_click(&mut lumen, empty);
+    lumen.right_click(empty);
     // The ruler's grid button has the same name: the menu adds a second.
     let grids = |lumen: &Lumen| {
         lumen
@@ -312,7 +309,7 @@ fn each_right_click_gets_the_menu_for_what_it_landed_on() {
     // From a beat in (the left edge would trim), snapped to bar 1.
     select_range(&mut lumen, kick, snare, 1.0, 4.0);
     let inside = Pos2::new(a.center().x, a.bottom() - 5.0);
-    right_click(&mut lumen, inside);
+    lumen.right_click(inside);
     assert!(lumen.shows("Delete time Ctrl+Shift+Delete"));
     assert!(!lumen.shows("Rename Ctrl+R"));
 }
@@ -471,7 +468,10 @@ fn an_edge_trims_within_the_file_and_shift_loops_it() {
     let end = Pos2::new(r.right() - 2.0, r.center().y);
     lumen.harness.hover_at(end);
     lumen.frames(2);
-    assert_eq!(lumen.app().hint(), Some("drag to trim · Shift loops"));
+    assert_eq!(
+        lumen.info(),
+        "End of “kick”: drag to trim · Shift+drag to loop"
+    );
 
     // A quarter shorter: one step.
     lumen.drag(end, end - vec2(zoom, 0.0), Modifiers::NONE);
@@ -567,9 +567,14 @@ fn holding_ctrl_over_a_clip_tells_how_to_slip() {
         .harness
         .hover_at(Pos2::new(r.center().x, top_half(r).y));
     lumen.frames(2);
+    assert_eq!(lumen.lit().as_deref(), Some("Ctrl+drag to copy"));
+    lumen.harness.event(eframe::egui::Event::ModifiersChanged(
+        Modifiers::COMMAND | Modifiers::ALT,
+    ));
+    lumen.frames(2);
     assert_eq!(
-        lumen.app().hint(),
-        Some("drag to copy · add Alt to slip the audio")
+        lumen.lit().as_deref(),
+        Some("Ctrl+Alt+drag to slip the audio")
     );
 }
 
@@ -600,7 +605,7 @@ fn hovering_a_long_clip_at_the_deepest_zoom_stays_quick() {
         "zooming in took {:?}",
         started.elapsed()
     );
-    assert!(lumen.app().hint().is_some(), "hovering the clip");
+    assert!(lumen.app().info_line().is_some(), "hovering the clip");
 }
 
 /// Owner, after 6c: dragging a clip while it played crackled. Each new
@@ -657,4 +662,48 @@ fn dragging_a_playing_clip_does_not_click() {
         .map(|w| (w[1].0 - w[0].0).abs().max((w[1].1 - w[0].1).abs()))
         .fold(0.0, f32::max);
     assert!(steepest < 0.006, "a click: a step of {steepest}");
+}
+
+/// Owner, after slice 7: a clip copied, then pasted onto another track
+/// (with keys, or from the lanes' menu) did not land there; and Ctrl+C and
+/// Ctrl+V did nothing at all in the real window (`Lumen::key` sends them
+/// as the window does).
+#[test]
+fn a_copied_clip_pastes_onto_the_track_clicked() {
+    let (mut lumen, kick, snare) = with_two_clips("paste-other-track");
+    let p = top_half(rect(&lumen, kick));
+    lumen.drag(p, p, Modifiers::NONE);
+    lumen.key(Modifiers::COMMAND, Key::C);
+    // A click on the snare's empty lane at bar 3 (two bars right of the
+    // clips' start), then Ctrl+V.
+    let zoom = lumen.app().view().zoom as f32;
+    let s = rect(&lumen, snare);
+    let spot = Pos2::new(s.left() + 8.0 * zoom + 2.0, s.center().y);
+    lumen.drag(spot, spot, Modifiers::NONE);
+    lumen.key(Modifiers::COMMAND, Key::V);
+    assert_eq!(
+        starts(&lumen, 0),
+        [(0, BAR / 2)],
+        "the kick's track as it was"
+    );
+    assert_eq!(starts(&lumen, 1), [(0, BAR / 2), (2 * BAR, BAR / 2)]);
+
+    // The lanes' menu: a right-click on the snare's lane at bar 5, Paste.
+    let spot = Pos2::new(s.left() + 16.0 * zoom + 2.0, s.center().y);
+    lumen.right_click(spot);
+    lumen.click("Paste Ctrl+V");
+    assert_eq!(starts(&lumen, 0), [(0, BAR / 2)]);
+    assert_eq!(
+        starts(&lumen, 1),
+        [(0, BAR / 2), (2 * BAR, BAR / 2), (4 * BAR, BAR / 2)]
+    );
+
+    // Ctrl+V with text on the system clipboard (the window sends a Paste
+    // event then): the clip again, on the snare's track at bar 7.
+    let spot = Pos2::new(s.left() + 24.0 * zoom + 2.0, s.center().y);
+    lumen.drag(spot, spot, Modifiers::NONE);
+    lumen.paste_with_text_on_the_clipboard("some text from elsewhere");
+    assert_eq!(starts(&lumen, 1).len(), 4);
+    assert_eq!(starts(&lumen, 1)[3], (6 * BAR, BAR / 2));
+    assert_eq!(starts(&lumen, 0).len(), 1);
 }

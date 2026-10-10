@@ -6,13 +6,17 @@
 
 use std::collections::BTreeSet;
 
-use eframe::egui::{self, CursorIcon, Modifiers, Pos2, Rect, pos2};
+use eframe::egui::{self, CursorIcon, Modifiers, Pos2, Rect};
 use lumen_core::time::Ticks;
 use lumen_project::model::Id;
 
 use super::grid::draw_snap_guide;
+use super::info::{Held, Info, Mouse};
+use super::navigate::ViewStep;
 use crate::arrangement::Arrangement;
-use crate::arrangement::select::{Edge, Gesture, Half, Hover, TimeRange, drag_moves};
+use crate::arrangement::select::{
+    ClipStep, Edge, Gesture, Half, Hover, TimeRange, clip_step, drag_moves,
+};
 use crate::commands::Command;
 use lumen_project::edit;
 
@@ -66,6 +70,36 @@ fn clips_start(project: &lumen_project::model::Project, clips: &[Id]) -> Option<
 }
 
 impl App {
+    /// Moves the clip selection with an arrow key (M3 review H2): from the
+    /// clip the keys last chose, while it is selected, else the first
+    /// selected clip; `extend` adds the clip reached instead of selecting
+    /// it alone. With nothing further that way, the clip it starts from is
+    /// selected alone (so Ctrl+A then an arrow reaches one clip). The view
+    /// follows it.
+    pub(crate) fn step_clips(&mut self, step: ClipStep, extend: bool) {
+        let chosen = &self.arrangement.clips;
+        let Some(from) = self
+            .arrangement
+            .clip_cursor
+            .filter(|id| chosen.contains(id))
+            .or_else(|| self.first_selected_clip())
+        else {
+            return;
+        };
+        let to = match clip_step(self.document.project(), from, step) {
+            Some(to) => to,
+            None if !extend => from,
+            None => return,
+        };
+        if !extend {
+            self.arrangement.clips.clear();
+        }
+        self.arrangement.range = None;
+        self.arrangement.clips.insert(to);
+        self.arrangement.clip_cursor = Some(to);
+        self.nav.steps.push(ViewStep::ShowClip(to));
+    }
+
     /// Clip selection, moving, copying, marquees and time ranges, from the
     /// lanes' `response` (click and drag). Draws the snap guide and the
     /// hint; the selection itself is drawn with the lanes.
@@ -141,6 +175,10 @@ impl App {
                 let target = self.snapped(self.ticks_at(canvas, p.x), modifiers.alt);
                 self.transport.locate(target.max(Ticks::ZERO));
                 self.transport.follow_paused = true;
+                // The clicked track is where Paste lands now; the headers'
+                // selection gives way to it.
+                self.arrangement.insert = self.lane_track(&ctx, canvas, p);
+                self.arrangement.selected.clear();
             }
         }
 
@@ -161,6 +199,9 @@ impl App {
                 }
                 MenuFor::Clips
             } else {
+                let at = self.snapped(self.ticks_at(canvas, p.x), modifiers.alt);
+                self.arrangement.menu_spot =
+                    Some((at.max(Ticks::ZERO), self.lane_track(&ctx, canvas, p)));
                 MenuFor::Lanes
             };
         }
@@ -171,66 +212,86 @@ impl App {
             return;
         }
         self.arrangement.hover = None;
-        if let Some(p) = response.hover_pos()
-            && let Some(hit) = self.hit(&ctx, p, canvas)
-        {
-            self.arrangement.hover = Some(Hover::from(&hit));
-            let row = match hit.half {
-                Half::Top => hit.rect.top() + 7.0,
-                Half::Bottom => hit.rect.bottom() - 7.0,
-            };
-            if let Some(text) = self.handle_hover(&ctx, &hit) {
-                let at = pos2(p.x + 14.0, p.y - 12.0);
-                widgets::draw_hint(painter, at, widgets::HintMark::None, &text, canvas);
-                self.hint = Some(text);
-                return;
-            }
-            let locked = self
-                .document
-                .project()
-                .tracks
-                .get(hit.track)
-                .and_then(|t| t.clips.iter().find(|c| c.id == hit.clip))
-                .is_some_and(|c| c.locked);
-            use widgets::HintMark;
-            let slip = modifiers.command && modifiers.alt;
-            let (cursor, mark, text) = match (hit.edge, hit.half) {
-                (_, _) if locked => (CursorIcon::NotAllowed, HintMark::None, "locked"),
-                (Some(Edge::End), _) if modifiers.shift => {
-                    (CursorIcon::ResizeEast, HintMark::Resize, "drag to loop")
-                }
-                (Some(Edge::End), _) => (
-                    CursorIcon::ResizeHorizontal,
-                    HintMark::Resize,
-                    "drag to trim · Shift loops",
-                ),
-                (Some(Edge::Start), _) => (
-                    CursorIcon::ResizeHorizontal,
-                    HintMark::Resize,
-                    "drag to trim",
-                ),
-                (None, Half::Top) if slip => (
-                    CursorIcon::ResizeColumn,
-                    HintMark::Resize,
-                    "drag to slip the audio",
-                ),
-                (None, Half::Top) if modifiers.command => (
-                    CursorIcon::Copy,
-                    HintMark::Move,
-                    "drag to copy · add Alt to slip the audio",
-                ),
-                (None, Half::Top) => (
-                    CursorIcon::Grab,
-                    HintMark::Move,
-                    "drag to move · Ctrl copies",
-                ),
-                (None, Half::Bottom) => (CursorIcon::Text, HintMark::Resize, "drag to select time"),
-            };
-            ctx.set_cursor_icon(cursor);
-            // A chip, not a bare caption: clips are busy underneath.
-            widgets::draw_hint(painter, pos2(p.x + 14.0, row), mark, text, canvas);
-            self.hint = Some(text.to_owned());
+        let Some(p) = response.hover_pos() else {
+            return;
+        };
+        let Some(hit) = self.hit(&ctx, p, canvas) else {
+            // Empty lanes (M4 slice 0: what a drag does is in the info line,
+            // not by the pointer).
+            self.set_info(
+                Info::new("Lanes")
+                    .on(Held::NONE, Mouse::Drag, "select clips")
+                    .on(Held::NONE, Mouse::Click, "move the playhead")
+                    .on(Held::NONE, Mouse::RightClick, "menu")
+                    .key(Command::Paste, "paste"),
+            );
+            return;
+        };
+        self.arrangement.hover = Some(Hover::from(&hit));
+        if let Some(info) = self.handle_hover(&ctx, &hit) {
+            self.set_info(info);
+            return;
         }
+        let Some(clip) = self
+            .document
+            .project()
+            .tracks
+            .get(hit.track)
+            .and_then(|t| t.clips.iter().find(|c| c.id == hit.clip))
+        else {
+            return;
+        };
+        let name = format!("\u{201C}{}\u{201D}", clip.name);
+        let slip = modifiers.command && modifiers.alt;
+        // The cursor shows what a drag does now; the info line says it all.
+        let (cursor, info) = match (hit.edge, hit.half) {
+            _ if clip.locked => (
+                CursorIcon::NotAllowed,
+                Info::new(format!("Locked clip {name}")).on(
+                    Held::NONE,
+                    Mouse::RightClick,
+                    "unlock it in the menu",
+                ),
+            ),
+            (Some(Edge::End), _) => (
+                if modifiers.shift {
+                    CursorIcon::ResizeEast
+                } else {
+                    CursorIcon::ResizeHorizontal
+                },
+                Info::new(format!("End of {name}"))
+                    .on(Held::NONE, Mouse::Drag, "trim")
+                    .on(Held::SHIFT, Mouse::Drag, "loop"),
+            ),
+            (Some(Edge::Start), _) => (
+                CursorIcon::ResizeHorizontal,
+                Info::new(format!("Start of {name}")).on(Held::NONE, Mouse::Drag, "trim"),
+            ),
+            (None, Half::Top) => (
+                if slip {
+                    CursorIcon::ResizeColumn
+                } else if modifiers.command {
+                    CursorIcon::Copy
+                } else {
+                    CursorIcon::Grab
+                },
+                Info::new(format!("Clip {name}"))
+                    .on(Held::NONE, Mouse::Drag, "move")
+                    .on(Held::CTRL, Mouse::Drag, "copy")
+                    .on(Held::CTRL_ALT, Mouse::Drag, "slip the audio")
+                    .key(Command::Duplicate, "duplicate")
+                    .key(Command::MuteClips, "mute")
+                    .key(Command::ClipProperties, "properties"),
+            ),
+            (None, Half::Bottom) => (
+                CursorIcon::Text,
+                Info::new(format!("Clip {name}, lower half"))
+                    .on(Held::NONE, Mouse::Drag, "select time")
+                    .key(Command::LoopSelection, "loop the selection"),
+            ),
+        };
+        ctx.set_cursor_icon(cursor);
+        self.set_info(info);
     }
 
     fn hit(
@@ -262,6 +323,14 @@ impl App {
             .and_then(|i| project.tracks.get(i))
             .map(|t| t.id);
         (range.start..range.end).contains(&at) && track.is_some_and(|t| range.tracks.contains(&t))
+    }
+
+    /// The track whose lane is at `p`, if any.
+    fn lane_track(&self, ctx: &egui::Context, canvas: Rect, p: Pos2) -> Option<Id> {
+        let project = self.document.project();
+        let pending = self.lanes.pending().len();
+        self.arrangement
+            .track_at(ctx, project, pending, p.y - canvas.top())
     }
 
     fn ticks_at(&self, canvas: Rect, x: f32) -> Ticks {
@@ -507,11 +576,27 @@ impl App {
                 self.edit_items(ui, &[DeleteTime, InsertTime]);
             }
             MenuFor::Lanes => {
-                if self.edit_items(ui, &[Edit::Paste]) {
+                if self.can_edit(Edit::Paste) {
+                    // Where the lanes were right-clicked, not the playhead.
+                    let run = Edit::Paste.command();
+                    let keys = self.keymap.keys(run);
+                    if widgets::menu_item(ui, run.name(), keys.as_ref(), true).clicked()
+                        && let Some(clipboard) = self.clipboard.clone()
+                    {
+                        let project = self.document.project();
+                        let (at, track) = self
+                            .arrangement
+                            .menu_spot
+                            .unwrap_or((self.transport.position(), None));
+                        let track = track
+                            .and_then(|t| project.tracks.iter().position(|x| x.id == t))
+                            .unwrap_or(clipboard.from_track);
+                        self.paste(&clipboard, at, track, "Paste");
+                    }
                     ui.separator();
                 }
                 let label = format!("Grid: {}", self.grid_label());
-                ui.menu_button(label, |ui| self.grid_menu(ui));
+                widgets::submenu(ui, label, |ui| self.grid_menu(ui));
                 let keys = self.keymap.keys(Command::SnapToGrid);
                 if widgets::menu_toggle(ui, "Snap to grid", keys.as_ref(), self.grid.snap).clicked()
                 {
@@ -579,12 +664,18 @@ impl App {
                     return;
                 };
                 // Into the range if there is one; otherwise at the playhead,
-                // on the first selected track or where it was copied from.
+                // on the first selected track, the track last clicked in the
+                // lanes, or where it was copied from.
                 let (at, track) = match &range {
                     Some(r) => (r.start, r.tracks.first().and_then(|&t| index_of(t))),
                     None => (
-                        self.transport.state().ticks,
-                        self.arrangement.selected.first().and_then(|&t| index_of(t)),
+                        self.transport.position(),
+                        self.arrangement
+                            .selected
+                            .first()
+                            .copied()
+                            .or(self.arrangement.insert)
+                            .and_then(index_of),
                     ),
                 };
                 let track = track.unwrap_or(clipboard.from_track);

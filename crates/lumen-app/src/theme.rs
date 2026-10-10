@@ -179,6 +179,26 @@ pub fn wave(track: Color32) -> Color32 {
     }
 }
 
+/// Meters (M4 slice 5): above this level a meter turns the warning colour.
+pub const METER_WARN_DB: f32 = -6.0;
+/// How strongly a meter's peak shows behind its RMS.
+pub const METER_PEAK_ALPHA: f32 = 0.4;
+
+/// A meter's colour at `db`: `base` (the accent, or the track's colour with
+/// the owner's M2 setting) up to [`METER_WARN_DB`], the warning colour up to
+/// full scale, record above it. Clipping is also shown by the clip light's
+/// place and shape, never by colour alone.
+pub fn meter(db: f32, base: Color32) -> Color32 {
+    let c = p();
+    if db > 0.0 {
+        c.record
+    } else if db > METER_WARN_DB {
+        c.warning
+    } else {
+        base
+    }
+}
+
 /// Text on a filled control (a lit button): near-black on light fills,
 /// white on dark ones, whatever the theme.
 pub fn text_on(fill: Color32) -> Color32 {
@@ -189,6 +209,16 @@ pub fn text_on(fill: Color32) -> Color32 {
     } else {
         Color32::WHITE
     }
+}
+
+/// A warning chip's fill and edge (the dropout chip): the warning colour
+/// washed over the bar, so its amber text keeps its contrast.
+pub fn warning_fill() -> Color32 {
+    p().warning.gamma_multiply(0.14)
+}
+
+pub fn warning_edge() -> Color32 {
+    p().warning.gamma_multiply(0.45)
 }
 
 /// Text on light fills: the dark theme's `app` colour, a little deeper.
@@ -224,6 +254,8 @@ pub mod size {
     pub const HEADING: f32 = 16.0;
     /// The "Lumen" wordmark in the transport bar (Unbounded is wide).
     pub const WORDMARK: f32 = 14.0;
+    /// The info line's height along the bottom of the window (M4 slice 0).
+    pub const INFO_LINE: f32 = 32.0;
 }
 
 /// Which theme the user asked for.

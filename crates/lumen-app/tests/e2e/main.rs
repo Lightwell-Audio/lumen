@@ -14,21 +14,32 @@
 mod access;
 mod clips;
 mod commands;
+mod compensation;
+mod cue;
 mod editing;
 mod fades;
 mod files;
 mod grid;
+mod groups;
+mod info;
 mod keys;
 mod locators;
 mod looping;
+mod meters;
+mod mixer;
+mod mixing;
 mod navigation;
 mod palette;
 mod playback;
 mod properties;
+mod returns;
 mod rulers;
 mod scrubbing;
+mod sends;
 mod shortcuts;
+mod solo;
 mod walkthrough;
+mod walkthrough_mix;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -154,9 +165,88 @@ impl Lumen {
         self.frames(1);
     }
 
-    /// Presses `key` with `modifiers`, then lets the app react.
+    /// Right-clicks at `p`, then lets the app react (a menu opens).
+    pub fn right_click(&mut self, p: egui::Pos2) {
+        self.harness.hover_at(p);
+        self.frames(1);
+        for pressed in [true, false] {
+            self.harness.event(egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: Modifiers::NONE,
+            });
+            self.frames(1);
+        }
+        self.frames(2);
+    }
+
+    /// Clicks twice at `p`, quickly, after a pause (so it is not counted
+    /// with an earlier double-click).
+    pub fn double_click(&mut self, p: egui::Pos2) {
+        self.frames(40);
+        self.harness.hover_at(p);
+        self.frames(1);
+        for _ in 0..2 {
+            for pressed in [true, false] {
+                self.harness.event(egui::Event::PointerButton {
+                    pos: p,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: Modifiers::NONE,
+                });
+            }
+            self.frames(1);
+        }
+        self.frames(2);
+    }
+
+    /// Presses `key` with `modifiers`, then lets the app react. The
+    /// clipboard chords arrive as the real window sends them (see
+    /// [`clipboard_event`]), with an empty system clipboard.
     pub fn key(&mut self, modifiers: Modifiers, key: Key) {
-        self.harness.key_press_modifiers(modifiers, key);
+        let Some(event) = clipboard_event(modifiers, key) else {
+            self.harness.key_press_modifiers(modifiers, key);
+            self.frames(3);
+            return;
+        };
+        self.harness.event(egui::Event::ModifiersChanged(modifiers));
+        self.harness.step();
+        if let Some(event) = event {
+            self.harness.event(event);
+            self.harness.step();
+        }
+        self.harness.event(egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: false,
+            repeat: false,
+            modifiers,
+        });
+        self.harness.step();
+        self.harness
+            .event(egui::Event::ModifiersChanged(Modifiers::NONE));
+        self.frames(3);
+    }
+
+    /// Ctrl+V as the window sends it when the system clipboard holds
+    /// `text`: a Paste event, then V's release.
+    pub fn paste_with_text_on_the_clipboard(&mut self, text: &str) {
+        self.harness
+            .event(egui::Event::ModifiersChanged(Modifiers::COMMAND));
+        self.harness.step();
+        self.harness.event(egui::Event::Paste(text.into()));
+        self.harness.step();
+        self.harness.event(egui::Event::Key {
+            key: Key::V,
+            physical_key: None,
+            pressed: false,
+            repeat: false,
+            modifiers: Modifiers::COMMAND,
+        });
+        self.harness.step();
+        self.harness
+            .event(egui::Event::ModifiersChanged(Modifiers::NONE));
         self.frames(3);
     }
 
@@ -191,6 +281,16 @@ impl Lumen {
         self.app_mut().set_system_cursor(None);
     }
 
+    /// What the info line says this frame ("" for nothing).
+    pub fn info(&self) -> String {
+        self.app().info_line().unwrap_or_default()
+    }
+
+    /// The info line's lit action this frame.
+    pub fn lit(&self) -> Option<String> {
+        self.app().info_lit(&self.harness.ctx)
+    }
+
     /// Track names, top to bottom.
     pub fn track_names(&self) -> Vec<String> {
         self.app()
@@ -218,11 +318,16 @@ impl egui::DroppedFile for Dropped {
 
 /// A stereo WAV of `seconds` of a quiet tone at 48 kHz, written to `path`.
 pub fn wav(path: &Path, seconds: f32) -> PathBuf {
+    wav_at(path, seconds, 3_000.0)
+}
+
+/// [`wav`] with its peak at `peak` (of 32,767).
+pub fn wav_at(path: &Path, seconds: f32, peak: f32) -> PathBuf {
     let rate = 48_000_u32;
     let frames = (seconds * rate as f32) as usize;
     let data: Vec<u8> = (0..frames)
         .flat_map(|i| {
-            let v = ((i as f32 * 0.05).sin() * 3_000.0) as i16;
+            let v = ((i as f32 * 0.05).sin() * peak) as i16;
             let [a, b] = v.to_le_bytes();
             [a, b, a, b]
         })
@@ -243,4 +348,28 @@ pub fn wav(path: &Path, seconds: f32) -> PathBuf {
     out.extend(data);
     std::fs::write(path, out).expect("write the test WAV");
     path.to_path_buf()
+}
+
+/// What egui-winit sends for a clipboard chord's press instead of the key
+/// (egui-winit 0.36 `is_cut_command` and friends): `Some(event)`, or
+/// `Some(None)` for Ctrl+V with no text on the system clipboard, which
+/// sends nothing; `None` for any other chord, which arrives as a key. Only
+/// the release comes through as a key.
+fn clipboard_event(modifiers: Modifiers, key: Key) -> Option<Option<egui::Event>> {
+    let windows = cfg!(target_os = "windows");
+    let cut =
+        (modifiers.command && key == Key::X) || (windows && modifiers.shift && key == Key::Delete);
+    let copy =
+        (modifiers.command && key == Key::C) || (windows && modifiers.ctrl && key == Key::Insert);
+    let paste =
+        (modifiers.command && key == Key::V) || (windows && modifiers.shift && key == Key::Insert);
+    if cut {
+        Some(Some(egui::Event::Cut))
+    } else if copy {
+        Some(Some(egui::Event::Copy))
+    } else if paste {
+        Some(None)
+    } else {
+        None
+    }
 }

@@ -263,7 +263,10 @@ mod tests {
                 frames: 4_800,
                 size_bytes: std::fs::metadata(path).map_or(0, |m| m.len()),
                 at: Ticks::ZERO,
-                into: crate::document::DropInto::NewTracks { before: None },
+                into: crate::document::DropInto::NewTracks {
+                    before: None,
+                    group: None,
+                },
             })
             .collect();
         doc.import(imported);

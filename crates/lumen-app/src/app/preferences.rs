@@ -10,11 +10,12 @@ use lumen_core::product::PRODUCT_NAME;
 
 use crate::app::projects::Next;
 use crate::commands::Command;
-use crate::{App, fonts, motion, settings, theme};
+use crate::{App, fonts, motion, settings, theme, widgets};
 
 impl App {
     /// The product name opens the app menu: appearance (theme, motion, UI
-    /// scale) and audio settings. Preferences proper arrive in M9.
+    /// scale), additive solo and audio settings. Preferences proper arrive
+    /// in M9.
     pub(crate) fn app_menu(&mut self, ui: &mut egui::Ui) {
         let before = self.settings.appearance.clone();
         let menu = ui.menu_button(
@@ -25,7 +26,7 @@ impl App {
                 self.menu_command(ui, Command::OpenProject, "Open\u{2026}");
                 let recent = self.settings.projects.recent.clone();
                 ui.add_enabled_ui(!recent.is_empty(), |ui| {
-                    ui.menu_button("Open recent", |ui| {
+                    widgets::submenu(ui, "Open recent", |ui| {
                         for path in recent {
                             let label = Path::new(&path)
                                 .file_stem()
@@ -44,10 +45,7 @@ impl App {
                     &mut self.settings.projects.copy_imported,
                     "Copy imported audio into the project",
                 )
-                .on_hover_text(
-                    "When saving, audio from outside the project folder is copied into \
-                     Samples/Imported, so the project keeps working if the originals move",
-                );
+                .on_hover_text("Saving copies outside audio into Samples/Imported");
                 ui.separator();
                 let undo = self.document.history().undo_label().map(str::to_owned);
                 let redo = self.document.history().redo_label().map(str::to_owned);
@@ -76,6 +74,25 @@ impl App {
                 ui.separator();
                 ui.checkbox(&mut self.settings.appearance.reduce_motion, "Reduce motion")
                     .on_hover_text("Things change in place instead of sliding or fading");
+                ui.separator();
+                ui.label(RichText::new("Mixing").small().weak());
+                if ui
+                    .checkbox(&mut self.settings.mixing.additive_solo, "Additive solo")
+                    .on_hover_text("A click on Solo adds the track; Ctrl+click solos it alone")
+                    .changed()
+                {
+                    self.settings_changed = Some(Instant::now());
+                }
+                if ui
+                    .checkbox(
+                        &mut self.settings.mixing.track_colour_meters,
+                        "Meters in track colours",
+                    )
+                    .on_hover_text("Meters take their track's colour instead of the accent")
+                    .changed()
+                {
+                    self.settings_changed = Some(Instant::now());
+                }
                 ui.separator();
                 if ui.button("Audio settings…").clicked() {
                     self.transport.settings_window.open = true;

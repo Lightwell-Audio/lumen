@@ -41,6 +41,10 @@ pub struct MetronomeSettings {
     /// Linear gain, 0.0–1.0.
     pub volume: f32,
     pub sound: ClickSound,
+    /// The first device channel it plays on (M4 slice 4): 0 for the main
+    /// pair, the cue pair's first channel for the cue. A pair the device
+    /// does not have falls back to the main one.
+    pub channel: u16,
 }
 
 impl Default for MetronomeSettings {
@@ -49,6 +53,7 @@ impl Default for MetronomeSettings {
             enabled: false,
             volume: 0.5,
             sound: ClickSound::Beep,
+            channel: 0,
         }
     }
 }
@@ -160,12 +165,14 @@ impl Metronome {
         count: usize,
         rate: f32,
     ) {
+        let first = usize::from(self.settings.channel);
+        let first = if first + 2 <= channels { first } else { 0 };
         for frame in offset..offset + count {
             if !self.voice.active() {
                 return;
             }
             let value = self.voice.next(rate);
-            for channel in 0..channels.min(2) {
+            for channel in first..(first + 2).min(channels) {
                 data[channel * stride + frame] += value;
             }
         }

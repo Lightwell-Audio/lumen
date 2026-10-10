@@ -23,9 +23,10 @@ short form: the rules, and the checks that keep them.
    versioned too.
 3. **Every edit is one undo step.** Project changes go through a named,
    tested `Document` method (`set_volume`, `move_tracks`, ...) that calls
-   `Document::apply(label, merge, edit)`. Drags pass a merge key so a whole
-   gesture is one step. Never edit the project from UI code with an inline
-   closure.
+   `self.history.apply(label, merge, edit)`. Drags pass a merge key so a
+   whole gesture is one step. Never edit the project from UI code with an
+   inline closure (`Document::apply` is test-only, for setting up a
+   project).
 4. **Disk work runs off the UI thread**: saves, opens, autosave, settings,
    media decoding, file dialogs. The UI polls a channel each frame.
 5. **Errors are values, not panics.** `expect` and `unwrap` are only for

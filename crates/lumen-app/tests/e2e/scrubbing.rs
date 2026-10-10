@@ -108,12 +108,12 @@ fn the_strip_hints_what_a_drag_will_do() {
     let p = at(&lumen, 5.3);
     lumen.harness.hover_at(p);
     lumen.frames(2);
-    assert_eq!(lumen.app().hint(), Some("drag to listen · Alt tape"));
+    assert_eq!(lumen.lit().as_deref(), Some("drag to listen to each step"));
     lumen
         .harness
         .event(eframe::egui::Event::ModifiersChanged(Modifiers::ALT));
     lumen.frames(2);
-    assert_eq!(lumen.app().hint(), Some("drag to scrub like tape"));
+    assert_eq!(lumen.lit().as_deref(), Some("Alt+drag to scrub like tape"));
     scrub(&mut lumen, 5.3, 9.0, Modifiers::ALT, |lumen| {
         let hint = lumen.app().hint().unwrap_or_default();
         assert!(hint.starts_with("tape ") && hint.ends_with('×'), "{hint}");

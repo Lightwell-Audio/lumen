@@ -17,6 +17,7 @@ fn metronome(timeline: Timeline, volume: f32, sound: ClickSound) -> (EngineHandl
             enabled: true,
             volume,
             sound,
+            channel: 0,
         }))
         .unwrap();
     (handle, engine)
@@ -175,4 +176,39 @@ fn panic_silences_everything_at_once() {
     let after = run(&mut engine, 1_024, 256);
     assert_eq!(peak(&after), 0.0);
     assert!(!handle.transport().playing);
+}
+
+#[test]
+fn the_metronome_plays_on_the_cue_pair_when_asked_and_the_main_one_otherwise() {
+    // M4 slice 4 (the owner's D6): Main or Cue; never through the master.
+    let (mut handle, mut player) = engine(Timeline::default(), (), RATE);
+    handle
+        .send(Command::SetMetronome(MetronomeSettings {
+            enabled: true,
+            volume: 0.5,
+            sound: ClickSound::Beep,
+            channel: 2,
+        }))
+        .unwrap();
+    handle.send(Command::Play).unwrap();
+    let frames = 4_800;
+    let mut data = vec![0.0; 4 * frames];
+    player.process(RATE, &mut data, 4, frames);
+    let channel = |c: usize| peak(&data[c * frames..(c + 1) * frames]);
+    assert!(channel(2) > 0.1 && channel(3) > 0.1, "on the cue pair");
+    assert_eq!((channel(0), channel(1)), (0.0, 0.0), "not on the main pair");
+    // A device with only the main pair: it falls back there.
+    let (mut handle, mut player) = engine(Timeline::default(), (), RATE);
+    handle
+        .send(Command::SetMetronome(MetronomeSettings {
+            enabled: true,
+            volume: 0.5,
+            sound: ClickSound::Beep,
+            channel: 2,
+        }))
+        .unwrap();
+    handle.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 2 * frames];
+    player.process(RATE, &mut data, 2, frames);
+    assert!(peak(&data[..frames]) > 0.1);
 }

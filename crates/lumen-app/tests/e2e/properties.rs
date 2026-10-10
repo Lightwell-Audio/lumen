@@ -113,7 +113,11 @@ fn a_clip_locked_from_the_menu_stays_put_but_can_be_muted() {
     assert_eq!(clip(&lumen, kick).start, start);
     lumen.harness.hover_at(from);
     lumen.frames(2);
-    assert_eq!(lumen.app().hint(), Some("locked"));
+    assert!(
+        lumen.info().starts_with("Locked clip “kick”"),
+        "{}",
+        lumen.info()
+    );
     select(&mut lumen, kick);
     lumen.key(Modifiers::NONE, Key::Delete);
     assert_eq!(clip(&lumen, kick).start, start, "still there");

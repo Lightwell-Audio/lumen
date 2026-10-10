@@ -37,6 +37,9 @@ static CALLBACKS: AsioCallbacks = AsioCallbacks {
 /// The running stream's state, owned by the driver thread while active.
 static ACTIVE: AtomicPtr<StreamState> = AtomicPtr::new(ptr::null_mut());
 static RESET_REQUESTED: AtomicBool = AtomicBool::new(false);
+/// The driver lost sync (its sample position jumps): the next block reports
+/// no position, so the jump is not counted as dropouts.
+static RESYNC_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 struct Channel {
     buffers: [*mut c_void; 2],
@@ -117,15 +120,18 @@ unsafe extern "C" fn asio_message(selector: i32, value: i32, _m: *mut c_void, _o
             RESET_REQUESTED.store(true, Ordering::Release);
             1
         }
-        ffi::K_ASIO_RESYNC_REQUEST
-        | ffi::K_ASIO_LATENCIES_CHANGED
-        | ffi::K_ASIO_SUPPORTS_TIME_INFO => 1,
+        ffi::K_ASIO_RESYNC_REQUEST => {
+            RESYNC_REQUESTED.store(true, Ordering::Release);
+            1
+        }
+        ffi::K_ASIO_LATENCIES_CHANGED | ffi::K_ASIO_SUPPORTS_TIME_INFO => 1,
         _ => 0,
     }
 }
 
 /// The audio callback body. Real-time code.
 fn process(state: &mut StreamState, index: i32, position: Option<u64>) {
+    let position = position.filter(|_| !RESYNC_REQUESTED.swap(false, Ordering::AcqRel));
     let half = (index & 1) as usize;
     let frames = state.frames;
     for (i, channel) in state.inputs.iter().enumerate() {
@@ -523,6 +529,7 @@ impl Prepared {
             epoch,
         }));
         RESET_REQUESTED.store(false, Ordering::Release);
+        RESYNC_REQUESTED.store(false, Ordering::Release);
         ACTIVE.store(state, Ordering::Release);
         let started = self.driver.start().is_ok();
         Box::new(AsioStream {

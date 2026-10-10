@@ -15,29 +15,51 @@
 //! M7). Dragging a track's bottom edge resizes it: a folded track dragged
 //! taller unfolds, and an unfolded one dragged small folds. Heights glide
 //! (motion: GLIDE) and are saved with the project, but are not undo steps.
+//!
+//! Groups (M4 slice 3, the owner's H1): a group's tracks follow it, stepped
+//! in by [`INDENT`] a level, with the colour rail of every group they are
+//! in running down beside them. A group's arrow hides or shows its tracks
+//! (`collapsed`, saved with the project); its height is still dragged.
+//!
+//! Returns and the master (M4 slice 4, the owner's A1) are pinned at the
+//! bottom, under a divider (`pinned`): rows carry the [`Zone`] they are
+//! drawn in, and each zone clips its own.
 
+mod buttons;
 mod clips;
 mod drop;
 pub mod handles;
 mod headers;
+mod levels;
+mod menus;
+mod nesting;
+mod pinned;
 mod reorder;
 mod samples;
 pub mod select;
+mod sends;
+mod strip;
+pub(crate) mod strips;
 mod waves;
 
 pub use drop::FileDrop;
 pub use samples::Update as StripUpdate;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use eframe::egui::{self, Color32, Id as EguiId, Modifiers};
 use lumen_project::model::{Clip, Color, Id, Project, Track, TrackKind};
 
-use crate::document::Document;
+use crate::document::{Document, Place};
 use crate::motion;
 
-/// Width of the header column.
+/// Width of the header column, unless dragged (MT-MIX-3 run 1: names were
+/// cut short); double-clicking its edge comes back to this.
 pub const HEADER_WIDTH: f32 = 204.0;
+
+/// The widest the header column can be dragged.
+pub const MAX_HEADER_WIDTH: f32 = 480.0;
 
 /// Track heights come in steps of this (owner request): elements drawn by
 /// height later (automation lanes, meters) can rely on whole steps.
@@ -64,14 +86,26 @@ fn snap_height(height: f32) -> f32 {
 /// The clip title bar.
 pub(crate) const TITLE: f32 = 15.0;
 
+/// How far a group's tracks step in, a level (the owner's H1).
+pub(crate) const INDENT: f32 = 12.0;
+
+/// The indent of a track `depth` groups deep.
+pub(crate) fn indent(depth: usize) -> f32 {
+    // Groups go three deep (edits keep to it); an older, deeper project
+    // stops stepping in there, so names keep room.
+    INDENT * depth.min(lumen_project::groups::MAX_NESTING) as f32
+}
+
 const BUTTON: f32 = 19.0;
 
-/// One row of the arrangement, in content coordinates.
+/// One row of the arrangement, in content coordinates (on screen at the
+/// lanes' top + `y` − the scroll), drawn inside its zone.
 #[derive(Debug, Clone, Copy)]
 struct Row {
     kind: RowKind,
     y: f32,
     height: f32,
+    zone: Zone,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -80,6 +114,33 @@ enum RowKind {
     Track(usize),
     /// Index into the files loading for import.
     Pending(usize),
+    /// The master track (`Project::master`).
+    Master,
+}
+
+/// The cue's settings as the headers use them (slice 4): the master's
+/// Solo/Cue switch, whether a cue pair is open, and the cue level.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct CueControls {
+    pub mode: bool,
+    pub ready: bool,
+    pub volume_db: f32,
+}
+
+impl CueControls {
+    /// The S buttons are headphone buttons now.
+    pub fn cueing(self) -> bool {
+        self.mode && self.ready
+    }
+}
+
+/// Where a row is drawn: the scrolling tracks, or the area pinned at the
+/// bottom (the returns, then the master).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Zone {
+    Main,
+    Returns,
+    Master,
 }
 
 /// The arrangement's view state: vertical scroll, heights, folding,
@@ -92,12 +153,17 @@ pub struct Arrangement {
     pub heights: BTreeMap<Id, f32>,
     /// Unfolded tracks.
     pub expanded: BTreeSet<Id>,
+    /// Groups folded to hide their tracks (slice M4 3).
+    pub collapsed: BTreeSet<Id>,
     /// Selected tracks, in the order they were selected.
     pub selected: Vec<Id>,
     /// Where a Shift-click range starts.
     anchor: Option<Id>,
     /// The track being renamed, with the text so far.
     renaming: Option<(Id, String)>,
+    /// The rename field is on the track's mixer strip, not its header
+    /// (a double-click or the menu on the strip, M4 slice 5).
+    renaming_in_strip: bool,
     /// The track being resized and its height when the drag began.
     resizing: Option<(Id, f32)>,
     /// The track whose bottom edge glows (hovered or dragged), and how
@@ -126,6 +192,88 @@ pub struct Arrangement {
     /// Import audio was chosen in a track's menu: the app runs it next
     /// frame, onto that track (now the selection).
     pub(crate) import_requested: bool,
+    /// The clip the arrow keys last chose (M3 review H2): where the next
+    /// arrow goes from while it is selected.
+    pub(crate) clip_cursor: Option<Id>,
+    /// The track last clicked in the lanes, on a clip or empty: Paste
+    /// lands there (at the playhead) unless tracks are selected, as
+    /// Ableton's insert point sits on a track (owner, after M4 slice 7).
+    pub(crate) insert: Option<Id>,
+    /// Where the lanes were right-clicked, for the menu's Paste: the time
+    /// (snapped) and the track there.
+    pub(crate) menu_spot: Option<(lumen_core::time::Ticks, Option<Id>)>,
+    /// What the info line should say about the headers under the pointer
+    /// (M4 slice 0); the app takes it after drawing.
+    pub(crate) info: Option<crate::app::info::Info>,
+    /// Why an edit was refused (M4 slice 3: groups too deep); the app
+    /// shows it as a note.
+    pub(crate) note: Option<&'static str>,
+    /// The header column's width when dragged from the default (saved
+    /// with the project, as panel sizes are).
+    width: Option<f32>,
+    /// The lanes' height, set by the headers each frame: the pinned area
+    /// sits at its bottom.
+    view_height: f32,
+    /// The pinned area's height when dragged (saved; `None` fits it to its
+    /// rows).
+    returns_size: Option<f32>,
+    /// The returns folded away under their caption (saved).
+    pub(crate) returns_folded: bool,
+    /// How far the returns are scrolled inside the pinned area.
+    returns_top: f32,
+    /// The pinned area's height when its divider drag began.
+    sizing_returns: Option<f32>,
+    /// The return whose sends and header light together (one hovered
+    /// last frame), and the one hovered this frame.
+    hot_return: Option<Id>,
+    hot_return_next: Option<Id>,
+    /// Tracks that show sends (audio, MIDI and groups, while the project
+    /// has returns): they unfold a step taller.
+    with_sends: BTreeSet<Id>,
+    /// The rows each return's senders take: it unfolds tall enough for
+    /// them.
+    senders: BTreeMap<Id, usize>,
+    /// The send (track, return) whose knob in a return's list is being set:
+    /// it keeps its row while silent until let go (the owner's S1). Taken
+    /// from the frame before; `held_next` collects this frame's.
+    held_send: Option<(Id, Id)>,
+    held_next: Option<(Id, Id)>,
+    /// The order each return lists its senders in, loudest first.
+    sender_order: BTreeMap<Id, Vec<Id>>,
+    /// Tracks cued with their headphone buttons (slice 4): session state.
+    pub(crate) cued: BTreeSet<Id>,
+    /// The cue's settings, lent by the app while the headers draw.
+    pub(crate) cue: CueControls,
+    /// The additive-solo preference (M4 slice 4), set by the app.
+    pub(crate) additive_solo: bool,
+    /// Every track's meter and the master's loudness (M4 slice 5), moved
+    /// on by the app each frame.
+    pub(crate) meters: crate::meters::Meters,
+    /// Meters in track colours (the owner's M2 setting), set by the app.
+    pub(crate) track_colour_meters: bool,
+    /// The device's outputs, as the strips' output menus offer them (M4
+    /// slice 5), lent by the app.
+    pub(crate) outputs: OutputChoices,
+    /// How far the mixer's strips are scrolled, and how hard a strip drag
+    /// near their edge pushes them (-1 to 1).
+    mixer_offset: f32,
+    mixer_push: f32,
+}
+
+/// The device's output pairs, as the strips' output menus offer them (the
+/// owner's B6).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct OutputChoices {
+    /// Each pair (0 is outputs 1 and 2) with its channels' names; empty
+    /// until they are looked up.
+    pub pairs: Vec<(u16, String)>,
+    /// The main pair and the cue pair, as device pairs.
+    pub main: Option<u16>,
+    pub cue: Option<u16>,
+    /// Still looking the device's outputs up, or why they are not known.
+    pub status: Option<String>,
+    /// A menu asked for them: the app looks them up.
+    pub wanted: bool,
 }
 
 /// The tallest whole-step height at which `count` tracks fit in `visible`
@@ -156,17 +304,52 @@ impl Arrangement {
     /// The height a track is drawn at (before the glide).
     fn target_height(&self, id: Id) -> f32 {
         if self.expanded.contains(&id) {
-            self.heights.get(&id).copied().unwrap_or(UNFOLDED)
+            // A track with sends to show opens a step taller, so the
+            // knobs have their own row (slice 4).
+            let unfolded = if self.with_sends.contains(&id) {
+                UNFOLDED + STEP
+            } else if let Some(&rows) = self.senders.get(&id) {
+                // A return opens tall enough to list what sends to it
+                // (MT-MIX-4 runs 1 and 2, the owner's R2 and L4).
+                (UNFOLDED + rows.saturating_sub(1) as f32 * STEP).min(MAX_HEIGHT)
+            } else {
+                UNFOLDED
+            };
+            self.heights.get(&id).copied().unwrap_or(unfolded)
         } else {
             FOLDED
         }
     }
 
-    /// Every row with its position; heights glide to their targets.
+    /// Whether track `id` is hidden in a folded group.
+    fn hidden(&self, project: &Project, id: Id) -> bool {
+        !self.collapsed.is_empty()
+            && lumen_project::groups::ancestors(&project.tracks, id)
+                .any(|g| self.collapsed.contains(&g))
+    }
+
+    /// The tracks shown, in order: those not hidden in a folded group,
+    /// then the returns unless folded away (they are drawn at the bottom).
+    pub(crate) fn visible<'p>(&self, project: &'p Project) -> impl Iterator<Item = &'p Arc<Track>> {
+        let returns = |t: &&Arc<Track>| t.kind == TrackKind::Return;
+        let tracks = project
+            .tracks
+            .iter()
+            .filter(move |t| !returns(t) && !self.hidden(project, t.id));
+        let folded = self.returns_folded;
+        tracks.chain(project.tracks.iter().filter(move |t| !folded && returns(t)))
+    }
+
+    /// Every row with its position; heights glide to their targets. Tracks
+    /// hidden in a folded group have no row. The scrolling tracks come
+    /// first, then the pinned returns and the master.
     fn rows(&self, ctx: &egui::Context, project: &Project, pending: usize) -> Vec<Row> {
-        let mut rows = Vec::with_capacity(project.tracks.len() + pending);
+        let mut rows = Vec::with_capacity(project.tracks.len() + pending + 1);
         let mut y = 0.0;
         for (i, track) in project.tracks.iter().enumerate() {
+            if track.kind == TrackKind::Return || self.hidden(project, track.id) {
+                continue;
+            }
             let height = motion::glide(
                 ctx,
                 EguiId::new(("track height", track.id)),
@@ -177,6 +360,7 @@ impl Arrangement {
                 kind: RowKind::Track(i),
                 y,
                 height,
+                zone: Zone::Main,
             });
             y += height;
         }
@@ -185,22 +369,117 @@ impl Arrangement {
                 kind: RowKind::Pending(i),
                 y,
                 height: FOLDED,
+                zone: Zone::Main,
             });
             y += FOLDED;
         }
+        // The pinned area, placed so that `lanes' top + y − scroll` lands
+        // in it whatever the scroll.
+        let zones = self.zones(ctx, project);
+        let mut y = self.top + zones.returns.0 - self.returns_top;
+        for (i, track) in project.tracks.iter().enumerate() {
+            if track.kind != TrackKind::Return || self.returns_folded {
+                continue;
+            }
+            let height = motion::glide(
+                ctx,
+                EguiId::new(("track height", track.id)),
+                self.target_height(track.id),
+                true,
+            );
+            rows.push(Row {
+                kind: RowKind::Track(i),
+                y,
+                height,
+                zone: Zone::Returns,
+            });
+            y += height;
+        }
+        rows.push(Row {
+            kind: RowKind::Master,
+            y: self.top + zones.master.0,
+            height: zones.master.1 - zones.master.0,
+            zone: Zone::Master,
+        });
         rows
     }
 
-    fn content_height(rows: &[Row]) -> f32 {
-        rows.last().map_or(0.0, |r| r.y + r.height)
+    /// The bottom of the scrolling tracks, in content coordinates.
+    fn main_bottom(rows: &[Row]) -> f32 {
+        rows.iter()
+            .rfind(|r| r.zone == Zone::Main)
+            .map_or(0.0, |r| r.y + r.height)
+    }
+
+    /// Height of everything, for scrolling: the scrolling tracks and the
+    /// pinned area under them.
+    fn content_height(&self, ctx: &egui::Context, project: &Project, rows: &[Row]) -> f32 {
+        Self::main_bottom(rows) + (self.view_height - self.zones(ctx, project).main).max(0.0)
+    }
+
+    /// The height left to the scrolling tracks in lanes `height` tall.
+    pub(crate) fn main_height(&self, ctx: &egui::Context, project: &Project, height: f32) -> f32 {
+        let pinned = (self.view_height - self.zones(ctx, project).main).max(0.0);
+        (height - pinned).max(FOLDED)
+    }
+
+    /// The zone a point `y` below the lanes' top falls in (`None`: the
+    /// divider or the caption).
+    fn zone_at(&self, ctx: &egui::Context, project: &Project, y: f32) -> Option<Zone> {
+        let zones = self.zones(ctx, project);
+        if y < zones.main {
+            Some(Zone::Main)
+        } else if (zones.returns.0..zones.returns.1).contains(&y) {
+            Some(Zone::Returns)
+        } else if y >= zones.master.0 {
+            Some(Zone::Master)
+        } else {
+            None
+        }
+    }
+
+    /// The span a zone covers on screen, given the lanes' top and bottom.
+    fn zone_span(
+        &self,
+        ctx: &egui::Context,
+        project: &Project,
+        zone: Zone,
+        lanes: egui::Rangef,
+    ) -> egui::Rangef {
+        let zones = self.zones(ctx, project);
+        let at = |y: f32| (lanes.min + y).min(lanes.max);
+        match zone {
+            Zone::Main => egui::Rangef::new(lanes.min, at(zones.main)),
+            Zone::Returns => egui::Rangef::new(at(zones.returns.0), at(zones.returns.1)),
+            Zone::Master => egui::Rangef::new(at(zones.master.0), at(zones.master.1)),
+        }
     }
 
     /// Forgets selected, resized or unfolded tracks that no longer exist.
     fn prune(&mut self, project: &Project) {
-        let exists = |id: &Id| project.tracks.iter().any(|t| t.id == *id);
+        let exists =
+            |id: &Id| *id == project.master.id || project.tracks.iter().any(|t| t.id == *id);
         self.selected.retain(exists);
         self.heights.retain(|id, _| exists(id));
         self.expanded.retain(exists);
+        self.collapsed.retain(exists);
+        let returns = project.tracks.iter().any(|t| t.kind == TrackKind::Return);
+        self.with_sends = project
+            .tracks
+            .iter()
+            .filter(|t| returns && sends::has_sends(t.kind))
+            .map(|t| t.id)
+            .collect();
+        self.senders = project
+            .tracks
+            .iter()
+            .filter(|t| t.kind == TrackKind::Return)
+            .map(|t| {
+                let count = sends::senders(project, t.id, self.held_send).len();
+                (t.id, sends::sender_rows(count))
+            })
+            .collect();
+        self.sender_order.retain(|id, _| exists(id));
         if self.renaming.as_ref().is_some_and(|(id, _)| !exists(id)) {
             self.renaming = None;
         }
@@ -214,13 +493,15 @@ impl Arrangement {
         pending: usize,
         y: f32,
     ) -> Option<Id> {
+        let zone = self.zone_at(ctx, project, y)?;
         let y = y + self.top;
         self.rows(ctx, project, pending)
             .iter()
+            .filter(|r| r.zone == zone)
             .find(|r| (r.y..r.y + r.height).contains(&y))
             .and_then(|r| match r.kind {
                 RowKind::Track(i) => project.tracks.get(i).map(|t| t.id),
-                RowKind::Pending(_) => None,
+                RowKind::Pending(_) | RowKind::Master => None,
             })
     }
 
@@ -250,9 +531,10 @@ impl Arrangement {
             return;
         }
         self.fitted = Some((self.heights.clone(), self.expanded.clone(), self.top));
-        let count = project.tracks.len().max(1) as f32;
+        let shown: Vec<Id> = self.visible(project).map(|t| t.id).collect();
+        let count = shown.len().max(1) as f32;
         let each = fit_height(visible, count);
-        for track in &project.tracks {
+        for track in project.tracks.iter().filter(|t| shown.contains(&t.id)) {
             if each >= UNFOLDED {
                 self.expanded.insert(track.id);
                 self.heights.insert(track.id, each);
@@ -278,13 +560,34 @@ impl Arrangement {
         id: Id,
         visible: f32,
     ) {
+        if project.tracks.iter().any(|t| t.id == id) {
+            self.selected = vec![id];
+            self.anchor = Some(id);
+            for group in lumen_project::groups::ancestors(&project.tracks, id) {
+                self.collapsed.remove(&group);
+            }
+            self.scroll_to_track(ctx, project, pending, id, visible);
+        }
+    }
+
+    /// Scrolls just enough to show track `id` in the `visible` height.
+    pub fn scroll_to_track(
+        &mut self,
+        ctx: &egui::Context,
+        project: &Project,
+        pending: usize,
+        id: Id,
+        visible: f32,
+    ) {
         let Some(index) = project.tracks.iter().position(|t| t.id == id) else {
             return;
         };
-        self.selected = vec![id];
-        self.anchor = Some(id);
         let rows = self.rows(ctx, project, pending);
-        if let Some(row) = rows.iter().find(|r| r.kind == RowKind::Track(index)) {
+        let visible = visible - (self.view_height - self.zones(ctx, project).main).max(0.0);
+        if let Some(row) = rows
+            .iter()
+            .find(|r| r.kind == RowKind::Track(index) && r.zone == Zone::Main)
+        {
             if row.y < self.top {
                 self.top = row.y;
             } else if row.y + row.height > self.top + visible {
@@ -295,7 +598,7 @@ impl Arrangement {
 
     /// Height of everything, for scrolling.
     pub fn height_of_content(&self, ctx: &egui::Context, project: &Project, pending: usize) -> f32 {
-        Self::content_height(&self.rows(ctx, project, pending))
+        self.content_height(ctx, project, &self.rows(ctx, project, pending))
     }
 
     /// Selects `id` the way a click does: alone, toggled with Ctrl, or as a
@@ -311,10 +614,11 @@ impl Arrangement {
         } else if modifiers.shift
             && let Some(anchor) = self.anchor
         {
-            let index = |id: Id| project.tracks.iter().position(|t| t.id == id);
+            let shown: Vec<Id> = self.visible(project).map(|t| t.id).collect();
+            let index = |id: Id| shown.iter().position(|t| *t == id);
             if let (Some(a), Some(b)) = (index(anchor), index(id)) {
                 let (lo, hi) = (a.min(b), a.max(b));
-                self.selected = project.tracks[lo..=hi].iter().map(|t| t.id).collect();
+                self.selected = shown[lo..=hi].to_vec();
             }
         } else {
             self.selected = vec![id];
@@ -358,39 +662,142 @@ impl Arrangement {
         }
     }
 
-    /// Moves the selected tracks one place up (`-1`) or down (`1`).
+    /// Moves the selected tracks one place up (`-1`) or down (`1`) among
+    /// the tracks of their group, over a neighbouring group whole; they
+    /// stay in their group (dragging or Ctrl+Shift+G takes them out).
     pub(crate) fn move_selected(&mut self, doc: &mut Document, by: isize) {
         let tracks = &doc.project().tracks;
-        let positions: Vec<usize> = tracks
-            .iter()
-            .enumerate()
-            .filter(|(_, t)| self.selected.contains(&t.id))
-            .map(|(i, _)| i)
-            .collect();
-        let (Some(&first), Some(&last)) = (positions.first(), positions.last()) else {
+        let ids = lumen_project::groups::outermost(tracks, &self.selected);
+        let Some(first) = ids
+            .first()
+            .and_then(|id| tracks.iter().find(|t| t.id == *id))
+        else {
             return;
         };
-        let target = if by < 0 {
-            first.checked_sub(1)
-        } else {
-            (last + 1 < tracks.len()).then_some(first + 1)
+        let group = first.parent;
+        let moving = lumen_project::groups::with_contents(tracks, &ids);
+        // The other tracks of the same group, in order.
+        let siblings: Vec<Id> = tracks
+            .iter()
+            .filter(|t| t.parent == group && !moving.contains(&t.id))
+            .map(|t| t.id)
+            .collect();
+        let position = |id: Id| tracks.iter().position(|t| t.id == id).unwrap_or(0);
+        let first_at = position(first.id);
+        // Siblings above the moving tracks, before the move.
+        let above = siblings.iter().filter(|&&s| position(s) < first_at).count();
+        let wanted = above
+            .checked_add_signed(by)
+            .filter(|&n| n <= siblings.len());
+        let Some(wanted) = wanted else {
+            return;
         };
-        if let Some(index) = target {
-            let ids: Vec<Id> = positions.iter().map(|&i| tracks[i].id).collect();
-            doc.move_tracks(&ids, index);
+        if wanted == above {
+            return;
+        }
+        // Before the sibling now at `wanted`, or after the group's last.
+        let rest: Vec<Id> = tracks
+            .iter()
+            .filter(|t| !moving.contains(&t.id))
+            .map(|t| t.id)
+            .collect();
+        let index = match siblings.get(wanted) {
+            Some(&before) => rest.iter().position(|&r| r == before).unwrap_or(rest.len()),
+            None => {
+                let last = siblings[wanted - 1];
+                let end = lumen_project::groups::span(tracks, position(last)).end;
+                rest.iter()
+                    .position(|&r| position(r) >= end)
+                    .unwrap_or(rest.len())
+            }
+        };
+        let _ = doc.move_tracks(&ids, Place { index, group });
+    }
+
+    /// Adds a track of `kind` after the selection and selects it. A
+    /// return goes after the last return (they are drawn pinned at the
+    /// bottom) and shows the returns if they were folded away.
+    pub(crate) fn add_track(&mut self, doc: &mut Document, kind: TrackKind) {
+        if kind == TrackKind::Return && doc.returns_full() {
+            self.note = Some(crate::document::Refused::TooManyReturns.reason());
+            return;
+        }
+        let after = if kind == TrackKind::Return {
+            let tracks = &doc.project().tracks;
+            tracks
+                .iter()
+                .rev()
+                .find(|t| t.kind == TrackKind::Return)
+                .or(tracks.last())
+                .map(|t| t.id)
+        } else {
+            self.selected.last().copied().filter(|id| {
+                doc.project()
+                    .tracks
+                    .iter()
+                    .any(|t| t.id == *id && t.kind != TrackKind::Return)
+            })
+        };
+        if kind == TrackKind::Return {
+            self.returns_folded = false;
+        }
+        self.selected = vec![doc.add_track(kind, after)];
+    }
+
+    /// Ctrl+G: groups the selected tracks and selects the new group.
+    /// Refused (too deep, or nothing to group), it says why in a note.
+    pub(crate) fn group_selected(&mut self, doc: &mut Document) {
+        match doc.group_tracks(&self.selected) {
+            Ok(group) => {
+                self.selected = vec![group];
+                self.anchor = Some(group);
+            }
+            Err(refused) => self.note = Some(refused.reason()),
         }
     }
 
-    /// Adds a track of `kind` after the selection and selects it.
-    pub(crate) fn add_track(&mut self, doc: &mut Document, kind: TrackKind) {
-        let after = self.selected.last().copied();
-        self.selected = vec![doc.add_track(kind, after)];
+    /// Ctrl+Shift+G: removes the selected groups (their tracks become the
+    /// selection), or takes the selected tracks out of their groups.
+    pub(crate) fn ungroup_selected(&mut self, doc: &mut Document) {
+        let project = doc.project();
+        let inside: Vec<Id> = project
+            .tracks
+            .iter()
+            .filter(|t| t.parent.is_some_and(|p| self.selected.contains(&p)))
+            .filter(|t| {
+                project
+                    .tracks
+                    .iter()
+                    .any(|g| Some(g.id) == t.parent && g.kind == TrackKind::Group)
+            })
+            .map(|t| t.id)
+            .collect();
+        if doc.ungroup(&self.selected).is_ok() && !inside.is_empty() {
+            self.selected = inside;
+        }
     }
 
     /// Duplicates the selected tracks and selects the copies.
     pub(crate) fn duplicate_selected(&mut self, doc: &mut Document) {
-        if !self.selected.is_empty() {
-            self.selected = doc.duplicate_tracks(&self.selected);
+        if self.selected.is_empty() {
+            return;
+        }
+        let copies = doc.duplicate_tracks(&self.selected);
+        let returns = |ids: &[Id]| {
+            let tracks = &doc.project().tracks;
+            ids.iter()
+                .filter(|id| {
+                    tracks
+                        .iter()
+                        .any(|t| t.id == **id && t.kind == TrackKind::Return)
+                })
+                .count()
+        };
+        if copies.len() < self.selected.len() && returns(&self.selected) > 0 {
+            self.note = Some(crate::document::Refused::TooManyReturns.reason());
+        }
+        if !copies.is_empty() {
+            self.selected = copies;
         }
     }
 
@@ -408,24 +815,63 @@ impl Arrangement {
             && let Some(track) = doc.project().tracks.iter().find(|t| t.id == id)
         {
             self.renaming = Some((id, track.name.clone()));
+            self.renaming_in_strip = false;
         }
     }
 
     /// Selects the track `by` places from the last selected one (or the
     /// first or last track), or adds it to the selection when `extend`.
     pub(crate) fn step_selection(&mut self, doc: &Document, by: isize, extend: bool) {
-        let tracks: Vec<Id> = doc.project().tracks.iter().map(|t| t.id).collect();
+        let tracks: Vec<Id> = self.visible(doc.project()).map(|t| t.id).collect();
         self.step_through(&tracks, by, extend);
     }
 
-    /// Folds (`fold`) or unfolds the selected tracks.
-    pub(crate) fn fold_selected(&mut self, fold: bool) {
+    /// Folds (`fold`) or unfolds the selected tracks; selected groups
+    /// hide or show their tracks instead (as their arrow does).
+    pub(crate) fn fold_selected(&mut self, project: &Project, fold: bool) {
+        for &id in &self.selected {
+            let group = project
+                .tracks
+                .iter()
+                .any(|t| t.id == id && t.kind == TrackKind::Group);
+            match (group, fold) {
+                (true, true) => self.collapsed.insert(id),
+                (true, false) => self.collapsed.remove(&id),
+                (false, true) => self.expanded.remove(&id),
+                (false, false) => self.expanded.insert(id),
+            };
+        }
+        // Selected tracks now hidden leave the selection.
+        self.forget_hidden(project);
+    }
+
+    /// Takes tracks hidden in folded groups out of the selection.
+    fn forget_hidden(&mut self, project: &Project) {
+        let selected = std::mem::take(&mut self.selected);
+        self.selected = selected
+            .into_iter()
+            .filter(|&id| !self.hidden(project, id))
+            .collect();
+    }
+
+    /// Hides or shows group `id`'s tracks (its arrow).
+    pub(crate) fn toggle_collapsed(&mut self, project: &Project, id: Id) {
+        if !self.collapsed.remove(&id) {
+            self.collapsed.insert(id);
+            self.selected
+                .retain(|&s| !lumen_project::groups::is_inside(&project.tracks, s, id));
+        }
+    }
+
+    /// Folds every group (`fold`) or unfolds them all (Alt+click on a
+    /// group's arrow, and the palette).
+    pub(crate) fn collapse_all(&mut self, project: &Project, fold: bool) {
         if fold {
-            for id in &self.selected {
-                self.expanded.remove(id);
-            }
+            let groups = project.tracks.iter().filter(|t| t.kind == TrackKind::Group);
+            self.collapsed = groups.map(|t| t.id).collect();
+            self.forget_hidden(project);
         } else {
-            self.expanded.extend(self.selected.iter().copied());
+            self.collapsed.clear();
         }
     }
 
@@ -435,11 +881,26 @@ impl Arrangement {
         }
     }
 
+    /// The header column's width.
+    pub fn header_width(&self) -> f32 {
+        self.width.unwrap_or(HEADER_WIDTH)
+    }
+
+    /// Sets the header column's width, between the default and the widest.
+    pub fn set_header_width(&mut self, width: f32) {
+        let width = width.clamp(HEADER_WIDTH, MAX_HEADER_WIDTH).round();
+        self.width = (width != HEADER_WIDTH).then_some(width);
+    }
+
     /// The saved view state, written into a project being saved.
     pub fn save_into(&self, view: &mut lumen_project::model::ViewState) {
+        view.header_width = self.header_width();
         view.top = self.top;
         view.track_heights = self.heights.clone();
         view.expanded = self.expanded.clone();
+        view.collapsed = self.collapsed.clone();
+        view.returns_height = self.returns_size;
+        view.returns_folded = self.returns_folded;
     }
 
     /// Restores the view state of an opened project.
@@ -452,6 +913,14 @@ impl Arrangement {
                 .map(|(id, h)| (*id, snap_height(h.clamp(FOLD_BELOW, MAX_HEIGHT))))
                 .collect(),
             expanded: view.expanded.clone(),
+            collapsed: view.collapsed.clone(),
+            width: (view.header_width.is_finite() && view.header_width != HEADER_WIDTH)
+                .then(|| view.header_width.clamp(HEADER_WIDTH, MAX_HEADER_WIDTH)),
+            returns_size: view
+                .returns_height
+                .filter(|h| h.is_finite())
+                .map(|h| h.max(0.0)),
+            returns_folded: view.returns_folded,
             ..Self::default()
         }
     }
@@ -536,13 +1005,85 @@ mod tests {
         };
         a.expanded.insert(Id(3));
         a.heights.insert(Id(3), 7.0 * STEP);
+        a.set_header_width(300.0);
         let mut view = lumen_project::model::ViewState::default();
         a.save_into(&mut view);
         let b = Arrangement::restore(&view);
         assert_eq!(
-            (b.top, b.expanded, b.heights),
-            (a.top, a.expanded, a.heights)
+            (
+                b.top,
+                b.expanded.clone(),
+                b.heights.clone(),
+                b.header_width()
+            ),
+            (a.top, a.expanded, a.heights, 300.0)
         );
+        // The pinned area's height and fold (format v10).
+        let mut d = Arrangement {
+            returns_size: Some(110.0),
+            returns_folded: true,
+            ..Arrangement::default()
+        };
+        d.save_into(&mut view);
+        assert_eq!(
+            (view.returns_height, view.returns_folded),
+            (Some(110.0), true)
+        );
+        let e = Arrangement::restore(&view);
+        assert_eq!((e.returns_size, e.returns_folded), (Some(110.0), true));
+        d.returns_size = None;
+        d.save_into(&mut view);
+        assert_eq!(view.returns_height, None, "natural size is not written");
+        // Out of range widths are kept in range.
+        let mut c = Arrangement::default();
+        c.set_header_width(2_000.0);
+        assert_eq!(c.header_width(), MAX_HEADER_WIDTH);
+        c.set_header_width(10.0);
+        assert_eq!(c.header_width(), HEADER_WIDTH);
+    }
+
+    #[test]
+    fn returns_come_after_the_tracks_and_new_ones_after_the_last_return() {
+        let mut doc = Document::new(crate::empty_project());
+        let mut a = Arrangement::default();
+        a.add_track(&mut doc, TrackKind::Audio);
+        a.add_track(&mut doc, TrackKind::Return);
+        let first_return = a.selected[0];
+        a.add_track(&mut doc, TrackKind::Audio);
+        a.add_track(&mut doc, TrackKind::Return);
+        let second_return = a.selected[0];
+        // A track added with a return selected goes among the tracks.
+        a.add_track(&mut doc, TrackKind::Midi);
+        let kinds = |a: &Arrangement, doc: &Document| -> Vec<TrackKind> {
+            a.visible(doc.project()).map(|t| t.kind).collect()
+        };
+        assert_eq!(
+            kinds(&a, &doc),
+            [
+                TrackKind::Audio,
+                TrackKind::Audio,
+                TrackKind::Midi,
+                TrackKind::Return,
+                TrackKind::Return
+            ]
+        );
+        let returns: Vec<Id> = doc
+            .project()
+            .tracks
+            .iter()
+            .filter(|t| t.kind == TrackKind::Return)
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(returns, [first_return, second_return]);
+        assert_eq!(
+            pinned::letter_of(doc.project(), second_return).as_deref(),
+            Some("B")
+        );
+        // Folded away, they are skipped by the arrow keys too.
+        a.returns_folded = true;
+        assert_eq!(kinds(&a, &doc).len(), 3);
+        a.add_track(&mut doc, TrackKind::Return);
+        assert!(!a.returns_folded, "adding a return shows them");
     }
 
     #[test]

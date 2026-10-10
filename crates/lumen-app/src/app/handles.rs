@@ -13,9 +13,10 @@ use lumen_core::time::Ticks;
 use lumen_project::edit;
 use lumen_project::model::{Clip, ClipContent, Id};
 
+use super::info::{Held, Info, Mouse};
 use crate::arrangement::handles::{ClipHandles, Handle, bend, db_per_point};
 use crate::arrangement::select::{ClipHit, Edge, Gesture, Half, Hover};
-use crate::widgets::{self, HintMark};
+use crate::widgets;
 use crate::{App, ruler};
 
 /// Gain moves a tenth as far with Shift held.
@@ -163,16 +164,32 @@ impl App {
         });
         if !text.is_empty() {
             let at = pos2(p.x + 14.0, p.y - 12.0);
-            widgets::draw_hint(painter, at, HintMark::None, &text, canvas);
+            widgets::draw_hint(painter, at, &text, canvas);
         }
     }
 
-    /// The pointer is over a handle: its cursor and a short hint.
-    pub(super) fn handle_hover(&self, ctx: &egui::Context, hit: &ClipHit) -> Option<String> {
-        let (cursor, text) = match hit.handle? {
-            Handle::Fade(Edge::Start) => (CursorIcon::ResizeHorizontal, "fade in".to_owned()),
-            Handle::Fade(Edge::End) => (CursorIcon::ResizeHorizontal, "fade out".to_owned()),
-            Handle::Bend(_) => (CursorIcon::Move, "bend · Alt for S".to_owned()),
+    /// The pointer is over a handle: its cursor, and what it does for the
+    /// info line (M4 slice 0).
+    pub(super) fn handle_hover(&self, ctx: &egui::Context, hit: &ClipHit) -> Option<Info> {
+        let (cursor, info) = match hit.handle? {
+            Handle::Fade(edge) => (
+                CursorIcon::ResizeHorizontal,
+                Info::new(if edge == Edge::Start {
+                    "Fade in"
+                } else {
+                    "Fade out"
+                })
+                .on(Held::NONE, Mouse::Drag, "set its length")
+                .on(Held::NONE, Mouse::DoubleClick, "remove it")
+                .on(Held::NONE, Mouse::RightClick, "preset shapes"),
+            ),
+            Handle::Bend(_) => (
+                CursorIcon::Move,
+                Info::new("Fade curve")
+                    .on(Held::NONE, Mouse::Drag, "bend")
+                    .on(Held::ALT, Mouse::Drag, "S-shape")
+                    .on(Held::NONE, Mouse::DoubleClick, "straighten"),
+            ),
             Handle::Gain => {
                 let db = match self.clip(hit.clip)?.content {
                     ClipContent::Audio { gain_db, .. } => gain_db,
@@ -180,12 +197,15 @@ impl App {
                 };
                 (
                     CursorIcon::ResizeVertical,
-                    format!("gain {}", widgets::db_text(db)),
+                    Info::new(format!("Clip gain {}", widgets::db_text(db)))
+                        .on(Held::NONE, Mouse::Drag, "change")
+                        .on(Held::SHIFT, Mouse::Drag, "fine")
+                        .on(Held::NONE, Mouse::DoubleClick, "0 dB"),
                 )
             }
         };
         ctx.set_cursor_icon(cursor);
-        Some(text)
+        Some(info)
     }
 
     /// A double-click on a handle resets it: no fade, a straight fade, or
@@ -244,7 +264,7 @@ impl App {
             FadeShape::of(&first.fade_in.curve),
             FadeShape::of(&first.fade_out.curve),
         ];
-        ui.menu_button("Fades", |ui| {
+        widgets::submenu(ui, "Fades", |ui| {
             for (edge, label, now) in [
                 (Edge::Start, "Fade in", current[0]),
                 (Edge::End, "Fade out", current[1]),

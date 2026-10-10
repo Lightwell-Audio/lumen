@@ -105,10 +105,71 @@ fn scrubbing_never_touches_the_heap() {
 }
 
 #[test]
-fn clips_metronome_and_tone_never_touch_the_heap() {
+fn delay_compensation_never_touches_the_heap() {
     use std::sync::Arc;
 
-    use lumen_engine::{Clip, ClipAudio, clip_player};
+    use lumen_engine::testing::latent;
+    use lumen_engine::{Clip, ClipAudio, clip_player, mixer};
+
+    assert!(guard_is_active(), "guarded allocator not installed");
+    let audio = Arc::new(ClipAudio {
+        sample_rate: 48_000,
+        channels: vec![vec![0.1; 96_000], vec![0.1; 96_000]],
+    });
+    let clips: Vec<Clip> = (0..64)
+        .map(|i| Clip {
+            id: i,
+            start: Ticks(i as i64 * 997),
+            offset: 0,
+            length: 96_000,
+            gain: 0.5,
+            track: i,
+            audio: Arc::clone(&audio),
+            shape: Default::default(),
+        })
+        .collect();
+    let (mut clips_handle, player) = clip_player();
+    let (mut routing, source) = mixer(player);
+    let (mut handle, mut engine) = engine(Timeline::default(), source, 48_000);
+    clips_handle.set(clips).unwrap();
+    assert!(routing.set(&latent(64, 0)).unwrap());
+    handle
+        .send(Command::SetLoop(Region::new(
+            Ticks::ZERO,
+            Ticks::quarters(2),
+            true,
+        )))
+        .unwrap();
+    handle.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 2 * 128];
+    for block in 0..3_000_i64 {
+        // Latencies change while playing: plans of a new shape carry what
+        // is in flight in their delay lines, and the engine follows.
+        if block % 200 == 100 {
+            let _ = routing.set(&latent(64, (block / 200) as u32));
+        }
+        match block % 700 {
+            350 => handle.send(Command::Locate(Ticks::quarters(1))).unwrap(),
+            500 => handle.send(Command::Pause).unwrap(),
+            520 => handle.send(Command::Continue).unwrap(),
+            600 => handle.send(Command::Stop).unwrap(),
+            610 => handle.send(Command::Play).unwrap(),
+            _ => {}
+        }
+        let ((), heap) = count_rt_violations(|| engine.process(48_000, &mut data, 2, 128));
+        assert_eq!(heap, 0, "heap operation in process() at block {block}");
+        let _ = handle.transport();
+        routing.collect_garbage();
+        handle.collect_garbage();
+    }
+}
+
+#[test]
+fn routed_clips_metronome_and_tone_never_touch_the_heap() {
+    use std::sync::Arc;
+
+    use lumen_engine::testing::routed;
+    use lumen_engine::{Clip, ClipAudio, clip_player, mixer};
 
     assert!(guard_is_active(), "guarded allocator not installed");
     let audio = Arc::new(ClipAudio {
@@ -123,7 +184,7 @@ fn clips_metronome_and_tone_never_touch_the_heap() {
                 offset: 0,
                 length: 96_000,
                 gain: 0.5,
-                pan: 0.0,
+                track: i as u64,
                 audio: Arc::clone(&audio),
                 // A third fade in and out along curves (read from tables).
                 shape: if i % 3 == 0 {
@@ -144,9 +205,28 @@ fn clips_metronome_and_tone_never_touch_the_heap() {
             })
             .collect()
     };
+    // With a cue bus on channels 3 and 4, a few tracks cued (M4 slice 4).
+    let routed = |tracks: u64, variant: u32| {
+        let mut r = routed(tracks, variant);
+        r.cue = Some(lumen_engine::CueOut {
+            channel: 2,
+            volume: 0.8,
+        });
+        for node in r
+            .nodes
+            .iter_mut()
+            .filter(|n| n.id % 9 == u64::from(variant) % 9)
+        {
+            node.cue = true;
+        }
+        r
+    };
     let (mut clips_handle, player) = clip_player();
-    let (mut handle, mut engine) = engine(Timeline::default(), player, 48_000);
+    // 64 tracks in groups, with sends to two returns (M4 slice 1).
+    let (mut routing, source) = mixer(player);
+    let (mut handle, mut engine) = engine(Timeline::default(), source, 48_000);
     clips_handle.set(clips(0)).unwrap();
+    assert!(routing.set(&routed(64, 0)).unwrap());
     handle.send(Command::Play).unwrap();
     // The metronome and the test tone run on the audio thread too.
     handle
@@ -154,6 +234,7 @@ fn clips_metronome_and_tone_never_touch_the_heap() {
             enabled: true,
             volume: 0.5,
             sound: lumen_engine::ClickSound::Wood,
+            channel: 2,
         }))
         .unwrap();
     handle.send(Command::TestTone(true)).unwrap();
@@ -164,7 +245,7 @@ fn clips_metronome_and_tone_never_touch_the_heap() {
             true,
         )))
         .unwrap();
-    let mut data = vec![0.0; 2 * 128];
+    let mut data = vec![0.0; 4 * 128];
     for block in 0..3_000_i64 {
         // Now and then, and as fast as a drag (moved clips crossfade).
         let dragging = (1_000..1_400).contains(&block) && block % 6 == 0;
@@ -172,12 +253,29 @@ fn clips_metronome_and_tone_never_touch_the_heap() {
             // Built and sent from the UI side, outside the real-time section.
             let _ = clips_handle.set(clips(block));
         }
+        // Levels change as fast as a fader drag; every other one reroutes
+        // a track, which crossfades between plans.
+        if (1_500..2_000).contains(&block) && block % 6 == 0 {
+            let _ = routing.set(&routed(64, (block / 6) as u32));
+        }
         if block % 700 == 350 {
             handle.send(Command::Locate(Ticks::quarters(3))).unwrap();
         }
-        let ((), heap) = count_rt_violations(|| engine.process(48_000, &mut data, 2, 128));
+        // Stopped for a while, with edits arriving: taken while idle (M4
+        // slice 7).
+        match block {
+            2_200 => handle.send(Command::Stop).unwrap(),
+            2_600 => handle.send(Command::Play).unwrap(),
+            2_201..2_600 if block % 10 == 0 => {
+                let _ = clips_handle.set(clips(block));
+                let _ = routing.set(&routed(64, (block / 10) as u32));
+            }
+            _ => {}
+        }
+        let ((), heap) = count_rt_violations(|| engine.process(48_000, &mut data, 4, 128));
         assert_eq!(heap, 0, "heap operation in process() at block {block}");
         clips_handle.collect_garbage();
+        routing.collect_garbage();
         handle.collect_garbage();
     }
 }

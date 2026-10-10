@@ -7,10 +7,10 @@
 use eframe::egui::{self, Painter, Rect, Stroke, pos2, vec2};
 use lumen_project::model::{Id, Project, TrackKind};
 
-use super::{Arrangement, RowKind};
+use super::{Arrangement, RowKind, Zone};
 use crate::document::DropInto;
 use crate::theme;
-use crate::widgets::{self, HintMark};
+use crate::widgets;
 
 /// Within this many points of the line between two tracks, files make new
 /// tracks there rather than landing on a track.
@@ -28,25 +28,75 @@ pub struct FileDrop<'a> {
     pub label: &'a str,
 }
 
-/// Where files dragged to content y `y` go, given every track row's
-/// `(id, top, height, audio)` from the top: the destination, and the y of
-/// the line where new tracks would go.
-fn drop_place(rows: &[(Id, f32, f32, bool)], y: f32) -> (DropInto, f32) {
-    for (i, &(id, top, height, audio)) in rows.iter().enumerate() {
-        let bottom = top + height;
-        let next = rows.get(i + 1).map(|r| r.0);
-        if y < top + BETWEEN {
-            return (DropInto::NewTracks { before: Some(id) }, top);
+/// A track's row, as file drops see it.
+#[derive(Debug, Clone, Copy)]
+struct DropRow {
+    id: Id,
+    top: f32,
+    height: f32,
+    kind: TrackKind,
+    /// Its group.
+    parent: Option<Id>,
+    /// How many groups it is inside.
+    depth: usize,
+}
+
+/// Where files dragged to content y `y` go, given every visible track row
+/// from the top: the destination, and the y of the line where new tracks
+/// would go. Near the line between two tracks, new tracks join the group of
+/// the track below (so below a group's last track they come after the
+/// group); over a group's lane, they go at the end of that group.
+fn drop_place(rows: &[DropRow], y: f32) -> (DropInto, f32) {
+    for (i, row) in rows.iter().enumerate() {
+        let bottom = row.top + row.height;
+        let next = rows.get(i + 1);
+        let between = |below: Option<&DropRow>| DropInto::NewTracks {
+            before: below.map(|r| r.id),
+            group: below.and_then(|r| r.parent),
+        };
+        if y < row.top + BETWEEN {
+            return (between(Some(row)), row.top);
         }
-        if y < bottom - BETWEEN && audio {
-            return (DropInto::Track(id), top);
+        if y < bottom - BETWEEN {
+            return match row.kind {
+                TrackKind::Audio => (DropInto::Track(row.id), row.top),
+                TrackKind::Group => {
+                    // Under the group's last visible track.
+                    let inside = rows[i + 1..]
+                        .iter()
+                        .take_while(|r| r.depth > row.depth)
+                        .last()
+                        .unwrap_or(row);
+                    let after = rows[i + 1..].iter().find(|r| r.depth <= row.depth);
+                    (
+                        DropInto::NewTracks {
+                            before: after.map(|r| r.id),
+                            group: Some(row.id),
+                        },
+                        inside.top + inside.height,
+                    )
+                }
+                _ => (
+                    DropInto::NewTracks {
+                        before: next.map(|r| r.id),
+                        group: row.parent,
+                    },
+                    bottom,
+                ),
+            };
         }
         if y < bottom {
-            return (DropInto::NewTracks { before: next }, bottom);
+            return (between(next), bottom);
         }
     }
-    let end = rows.last().map_or(0.0, |r| r.1 + r.2);
-    (DropInto::NewTracks { before: None }, end)
+    let end = rows.last().map_or(0.0, |r| r.top + r.height);
+    (
+        DropInto::NewTracks {
+            before: None,
+            group: None,
+        },
+        end,
+    )
 }
 
 impl Arrangement {
@@ -60,15 +110,24 @@ impl Arrangement {
         canvas: Rect,
         y: f32,
     ) -> (DropInto, f32) {
-        let rows: Vec<(Id, f32, f32, bool)> = self
+        // Files land among the scrolling tracks, never on the returns.
+        let rows: Vec<DropRow> = self
             .rows(ctx, project, pending)
             .iter()
+            .filter(|r| r.zone == Zone::Main)
             .filter_map(|r| match r.kind {
                 RowKind::Track(i) => {
                     let t = &project.tracks[i];
-                    Some((t.id, r.y, r.height, t.kind == TrackKind::Audio))
+                    Some(DropRow {
+                        id: t.id,
+                        top: r.y,
+                        height: r.height,
+                        kind: t.kind,
+                        parent: t.parent,
+                        depth: lumen_project::groups::depth(&project.tracks, t.id),
+                    })
                 }
-                RowKind::Pending(_) => None,
+                RowKind::Pending(_) | RowKind::Master => None,
             })
             .collect();
         let (into, line) = drop_place(&rows, y - canvas.top() + self.top);
@@ -156,20 +215,20 @@ impl Arrangement {
                     palette.text,
                 );
             }
-            DropInto::NewTracks { .. } => {
+            DropInto::NewTracks { group, .. } => {
                 painter.hline(
                     canvas.x_range(),
                     line,
                     Stroke::new(6.0, palette.accent.gamma_multiply(0.15)),
                 );
                 painter.hline(canvas.x_range(), line, Stroke::new(2.0, palette.accent));
-                widgets::draw_hint(
-                    &painter,
-                    pos2(x + 14.0, line),
-                    HintMark::None,
-                    "new track here",
-                    canvas,
-                );
+                let hint = group
+                    .and_then(|g| project.tracks.iter().find(|t| t.id == g))
+                    .map_or_else(
+                        || "new track here".to_owned(),
+                        |g| format!("new track in {}", g.name),
+                    );
+                widgets::draw_hint(&painter, pos2(x + 14.0, line), &hint, canvas);
             }
         }
     }
@@ -179,31 +238,70 @@ impl Arrangement {
 mod tests {
     use super::*;
 
-    // An audio track, a MIDI track and another audio track, 44 points each.
-    const ROWS: [(Id, f32, f32, bool); 3] = [
-        (Id(1), 0.0, 44.0, true),
-        (Id(2), 44.0, 44.0, false),
-        (Id(3), 88.0, 44.0, true),
-    ];
+    fn row(id: u64, top: f32, kind: TrackKind, parent: Option<u64>) -> DropRow {
+        DropRow {
+            id: Id(id),
+            top,
+            height: 44.0,
+            kind,
+            parent: parent.map(Id),
+            depth: usize::from(parent.is_some()),
+        }
+    }
+
+    /// An audio track, a MIDI track and another audio track, 44 points each.
+    fn rows() -> [DropRow; 3] {
+        [
+            row(1, 0.0, TrackKind::Audio, None),
+            row(2, 44.0, TrackKind::Midi, None),
+            row(3, 88.0, TrackKind::Audio, None),
+        ]
+    }
+
+    fn new(before: Option<u64>, group: Option<u64>) -> DropInto {
+        DropInto::NewTracks {
+            before: before.map(Id),
+            group: group.map(Id),
+        }
+    }
 
     #[test]
     fn files_land_on_audio_lanes_and_make_tracks_between_them() {
-        let new = |before| DropInto::NewTracks { before };
-        assert_eq!(drop_place(&ROWS, 20.0), (DropInto::Track(Id(1)), 0.0));
-        assert_eq!(drop_place(&ROWS, 110.0), (DropInto::Track(Id(3)), 88.0));
+        let rows = rows();
+        assert_eq!(drop_place(&rows, 20.0), (DropInto::Track(Id(1)), 0.0));
+        assert_eq!(drop_place(&rows, 110.0), (DropInto::Track(Id(3)), 88.0));
         // Near a line between tracks: new tracks there.
-        assert_eq!(drop_place(&ROWS, 40.0), (new(Some(Id(2))), 44.0));
-        assert_eq!(drop_place(&ROWS, 47.0), (new(Some(Id(2))), 44.0));
+        assert_eq!(drop_place(&rows, 40.0), (new(Some(2), None), 44.0));
+        assert_eq!(drop_place(&rows, 47.0), (new(Some(2), None), 44.0));
         assert_eq!(
-            drop_place(&ROWS, 2.0),
-            (new(Some(Id(1))), 0.0),
+            drop_place(&rows, 2.0),
+            (new(Some(1), None), 0.0),
             "above the first"
         );
         // Over a MIDI track: a new track below it.
-        assert_eq!(drop_place(&ROWS, 66.0), (new(Some(Id(3))), 88.0));
+        assert_eq!(drop_place(&rows, 66.0), (new(Some(3), None), 88.0));
         // Below the last, or with no tracks: at the end.
-        assert_eq!(drop_place(&ROWS, 128.0), (new(None), 132.0));
-        assert_eq!(drop_place(&ROWS, 400.0), (new(None), 132.0));
-        assert_eq!(drop_place(&[], 10.0), (new(None), 0.0));
+        assert_eq!(drop_place(&rows, 128.0), (new(None, None), 132.0));
+        assert_eq!(drop_place(&rows, 400.0), (new(None, None), 132.0));
+        assert_eq!(drop_place(&[], 10.0), (new(None, None), 0.0));
+    }
+
+    #[test]
+    fn files_go_into_groups_by_where_they_are_dropped() {
+        // Drums (a group) holding Keys (MIDI) and Kick, then Bass.
+        let rows = [
+            row(1, 0.0, TrackKind::Group, None),
+            row(2, 44.0, TrackKind::Midi, Some(1)),
+            row(3, 88.0, TrackKind::Audio, Some(1)),
+            row(4, 132.0, TrackKind::Audio, None),
+        ];
+        // Over the group's lane: at its end, the line under its last track.
+        assert_eq!(drop_place(&rows, 20.0), (new(Some(4), Some(1)), 132.0));
+        // Under the group header: inside, first.
+        assert_eq!(drop_place(&rows, 42.0), (new(Some(2), Some(1)), 44.0));
+        // Over the MIDI track inside: inside, below it.
+        assert_eq!(drop_place(&rows, 66.0), (new(Some(3), Some(1)), 88.0));
+        // Under the group's last track: after the group.
+        assert_eq!(drop_place(&rows, 130.0), (new(Some(4), None), 132.0));
     }
 }

@@ -31,8 +31,12 @@ pub struct Imported {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DropInto {
     /// Each file on a new audio track, before the track `before` (after
-    /// the last one when `None`).
-    NewTracks { before: Option<Id> },
+    /// the last one when `None`), inside `group` (M4 slice 3; `None`: at the
+    /// top). A place outside the group moves to the end of the group.
+    NewTracks {
+        before: Option<Id>,
+        group: Option<Id>,
+    },
     /// Onto an audio track, one after another, cutting away what they
     /// cover (Ableton's overlap rule).
     Track(Id),
@@ -40,17 +44,28 @@ pub enum DropInto {
 
 /// Where Import audio puts files (M3 review H1): onto the chosen audio
 /// track, the last selected track or the track of a selected clip; when
-/// that is not an audio track, on new tracks right after it; with nothing
+/// that is not an audio track, on new tracks right after it (and what is
+/// inside it), in its group, or inside it when it is a group; with nothing
 /// chosen, on new tracks at the end. `chosen` is the last selected track,
 /// or the track of the first selected clip.
 pub fn import_place(project: &Project, chosen: Option<Id>) -> DropInto {
     let Some(i) = chosen.and_then(|id| project.tracks.iter().position(|t| t.id == id)) else {
-        return DropInto::NewTracks { before: None };
+        return DropInto::NewTracks {
+            before: None,
+            group: None,
+        };
     };
-    match project.tracks[i].kind {
-        TrackKind::Audio => DropInto::Track(project.tracks[i].id),
-        _ => DropInto::NewTracks {
-            before: project.tracks.get(i + 1).map(|t| t.id),
+    let track = &project.tracks[i];
+    let end = lumen_project::groups::span(&project.tracks, i).end;
+    match track.kind {
+        TrackKind::Audio => DropInto::Track(track.id),
+        kind => DropInto::NewTracks {
+            before: project.tracks.get(end).map(|t| t.id),
+            group: if kind == TrackKind::Group {
+                Some(track.id)
+            } else {
+                track.parent
+            },
         },
     }
 }
@@ -131,31 +146,28 @@ impl Document {
                     continue;
                 }
                 let color = track_color(project.tracks.len());
-                let new_track = Arc::new(Track {
-                    id: track,
-                    name: file.name,
-                    kind: TrackKind::Audio,
-                    color,
-                    parent: None,
-                    gain_db: 0.0,
-                    pan: 0.0,
-                    mute: false,
-                    solo: false,
-                    armed: false,
-                    devices: vec![],
-                    clips: vec![new_clip],
-                });
-                let before = match file.into {
-                    DropInto::NewTracks { before: Some(id) } => {
-                        project.tracks.iter().position(|t| t.id == id)
-                    }
-                    _ => None,
+                let (before, group) = match file.into {
+                    DropInto::NewTracks { before, group } => (before, group),
+                    DropInto::Track(_) => (None, None),
                 };
+                let group = group.filter(|g| {
+                    project
+                        .tracks
+                        .iter()
+                        .any(|t| t.id == *g && t.kind == TrackKind::Group)
+                });
+                let new_track = Arc::new(Track {
+                    clips: vec![new_clip],
+                    parent: group,
+                    ..Track::new(track, file.name, TrackKind::Audio, color)
+                });
+                let before = before.and_then(|id| project.tracks.iter().position(|t| t.id == id));
                 match before {
                     Some(i) => project.tracks.insert(i, new_track),
                     None => project.tracks.push(new_track),
                 }
             }
+            lumen_project::groups::normalize(&mut project.tracks);
             lumen_project::edit::overwrite(project, &placed, &mut clips::fresh_ids(next));
         });
     }
@@ -176,10 +188,16 @@ mod tests {
         assert_eq!(import_place(project, Some(audio)), DropInto::Track(audio));
         assert_eq!(
             import_place(project, Some(midi)),
-            DropInto::NewTracks { before: Some(last) },
+            DropInto::NewTracks {
+                before: Some(last),
+                group: None
+            },
             "right after the MIDI track"
         );
-        let end = DropInto::NewTracks { before: None };
+        let end = DropInto::NewTracks {
+            before: None,
+            group: None,
+        };
         assert_eq!(import_place(project, None), end, "nothing chosen");
         assert_eq!(import_place(project, Some(Id(9_999))), end, "a track gone");
         doc.delete_tracks(&[last]);
@@ -233,7 +251,10 @@ mod tests {
             ..file(ids[3], "Pad", Ticks::ZERO)
         }]);
         doc.import(vec![Imported {
-            into: DropInto::NewTracks { before: Some(keys) },
+            into: DropInto::NewTracks {
+                before: Some(keys),
+                group: None,
+            },
             ..file(ids[4], "Bass", Ticks::ZERO)
         }]);
         let names: Vec<&str> = doc
@@ -245,6 +266,50 @@ mod tests {
         assert_eq!(names[0], "Kick");
         assert_eq!(names[1], "Bass", "before the MIDI track");
         assert_eq!(names[3], "Pad", "a MIDI track takes no audio");
+        assert_eq!(lumen_project::validate(doc.project()), Ok(()));
+    }
+
+    #[test]
+    fn files_go_into_groups_at_the_end_or_where_they_were_dropped() {
+        let mut doc = Document::new(crate::empty_project());
+        let kick = doc.add_track(TrackKind::Audio, None);
+        let keys = doc.add_track(TrackKind::Midi, None);
+        let bass = doc.add_track(TrackKind::Audio, None);
+        let drums = doc.group_tracks(&[kick, keys]).unwrap();
+        // Import audio with the group chosen: inside it, after its tracks.
+        let into = import_place(doc.project(), Some(drums));
+        assert_eq!(
+            into,
+            DropInto::NewTracks {
+                before: Some(bass),
+                group: Some(drums)
+            }
+        );
+        // With the MIDI track inside it chosen: the same place.
+        assert_eq!(import_place(doc.project(), Some(keys)), into);
+        let media: Vec<Id> = (0..2).map(|_| doc.fresh_id()).collect();
+        doc.import(vec![Imported {
+            into,
+            ..file(media[0], "Hat", Ticks::ZERO)
+        }]);
+        // Dropped on the group's lane: at the end of the group too.
+        doc.import(vec![Imported {
+            into: DropInto::NewTracks {
+                before: None,
+                group: Some(drums),
+            },
+            ..file(media[1], "Clap", Ticks::ZERO)
+        }]);
+        let tracks = &doc.project().tracks;
+        let names: Vec<&str> = tracks.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["Group 1", "Audio 1", "MIDI 1", "Hat", "Clap", "Audio 2"]
+        );
+        assert_eq!(
+            (tracks[3].parent, tracks[4].parent),
+            (Some(drums), Some(drums))
+        );
         assert_eq!(lumen_project::validate(doc.project()), Ok(()));
     }
 }

@@ -8,8 +8,10 @@ use eframe::egui::{self, CursorIcon, Rect, Sense, Stroke, pos2};
 use lumen_core::time::Ticks;
 
 use super::grid::draw_snap_guide;
+use super::info::{Held, Info, Mouse};
 use super::rulers::Layout;
-use crate::{App, ruler, theme, transport, widgets};
+use crate::commands::Command;
+use crate::{App, ruler, theme, transport};
 
 /// Within this many points of an edge, a drag resizes (at most a third of
 /// the brace, so a short loop can still be moved). Widened from 5 after
@@ -60,14 +62,13 @@ pub(crate) fn dragged(
 
 impl App {
     /// The loop brace's interaction, on the strip's bottom band. Returns
-    /// what a drag holds or would hold, and where the pointer is, for
-    /// [`draw_brace_hint`].
+    /// what a drag holds or would hold, for [`draw_brace_hint`].
     pub(crate) fn loop_brace(
         &mut self,
         ui: &mut egui::Ui,
         painter: &egui::Painter,
         at: &Layout,
-    ) -> Option<(Grab, f32)> {
+    ) -> Option<Grab> {
         let band = Rect::from_x_y_ranges(
             at.strip.x_range(),
             at.strip.bottom() - super::rulers::BRACE_BAND..=at.strip.bottom(),
@@ -115,7 +116,7 @@ impl App {
                 Grab::Move => CursorIcon::Grab,
                 Grab::New => CursorIcon::Crosshair,
             });
-            hint = Some((grab, p.x));
+            hint = Some(grab);
         }
         // What was grabbed is decided where the button went down: egui
         // reports a drag only after the pointer has moved a few points,
@@ -144,7 +145,7 @@ impl App {
                 Grab::Move => CursorIcon::Grabbing,
                 Grab::New => CursorIcon::Crosshair,
             });
-            hint = Some((drag.grab, p.x));
+            hint = Some(drag.grab);
             let free = ui.input(|i| i.modifiers.alt);
             if let Some((start, end)) = dragged(&drag, ticks_at(p.x), |t| self.snapped(t, free)) {
                 let (label, enabled) = match drag.grab {
@@ -187,8 +188,8 @@ pub(crate) fn draw_brace_hint(
     painter: &egui::Painter,
     at: &Layout,
     state: &lumen_project::model::TransportState,
-    (grab, pointer): (Grab, f32),
-) -> &'static str {
+    grab: Grab,
+) -> Info {
     let palette = theme::p();
     let x = |t: Ticks| at.view.x(at.canvas.left(), t.as_quarters());
     let (a, b) = (x(state.loop_start), x(state.loop_end));
@@ -199,25 +200,33 @@ pub(crate) fn draw_brace_hint(
         painter.line_segment([pos2(edge, top), pos2(edge, bottom)], stroke);
         painter.line_segment([pos2(edge, top), pos2(edge + inward, top)], stroke);
     };
-    let (mark, text) = match grab {
-        Grab::Start => {
-            bracket(a, 5.0);
-            (widgets::HintMark::Resize, "Loop start")
-        }
-        Grab::End => {
-            bracket(b, -5.0);
-            (widgets::HintMark::Resize, "Loop end")
+    // The brace shows what a drag takes (the owner's A1); the words are in
+    // the info line (M4 slice 0).
+    match grab {
+        Grab::Start | Grab::End => {
+            let start = grab == Grab::Start;
+            if start {
+                bracket(a, 5.0);
+            } else {
+                bracket(b, -5.0);
+            }
+            Info::new(if start { "Loop start" } else { "Loop end" })
+                .on(Held::NONE, Mouse::Drag, "move it")
+                .on(Held::ALT, Mouse::Drag, "off the grid")
         }
         Grab::Move => {
             let brace = Rect::from_x_y_ranges(a..=b, bottom - 7.0..=bottom).intersect(at.strip);
             painter.rect_filled(brace, 0.0, palette.accent.gamma_multiply(0.35));
-            (widgets::HintMark::Move, "Move loop · click: on or off")
+            Info::new("Loop")
+                .on(Held::NONE, Mouse::Drag, "move")
+                .on(Held::NONE, Mouse::Click, "turn on or off")
+                .on(Held::NONE, Mouse::RightClick, "loop and punch")
+                .key(Command::FitLoop, "fit to the window")
         }
-        Grab::New => (widgets::HintMark::None, "Drag to draw a loop"),
-    };
-    let row = at.strip.top() + (at.strip.height() - super::rulers::BRACE_BAND) / 2.0;
-    widgets::draw_hint(painter, pos2(pointer + 12.0, row), mark, text, at.strip);
-    text
+        Grab::New => Info::new("Loop band")
+            .on(Held::NONE, Mouse::Drag, "draw a loop")
+            .key(Command::LoopSelection, "loop the selection"),
+    }
 }
 
 /// Punch in and out: record-coloured posts at the loop's edges.

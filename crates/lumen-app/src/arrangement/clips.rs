@@ -14,13 +14,13 @@ use std::sync::Arc;
 use eframe::egui::{self, Align2, Color32, FontId, Painter, Pos2, Rect, Stroke, pos2, vec2};
 use lumen_core::time::Ticks;
 use lumen_media::Peaks;
-use lumen_project::model::{Clip, ClipContent, Project};
+use lumen_project::model::{Clip, ClipContent, Project, TrackKind};
 use lumen_render::{BoxInstance, RowSlot, WaveInstance, WaveStyle, beats, rgba};
 
 use super::handles::{ClipHandles, draw_handles};
 use super::samples::{Geometry, Pixels, Strips};
 use super::waves::{Source, wave_instances};
-use super::{Arrangement, Row, RowKind, TITLE, clip_color, color_of, select};
+use super::{Arrangement, Row, RowKind, TITLE, Zone, clip_color, color_of, select};
 use crate::canvas::{self, ClipFrame};
 use crate::document::{Document, audible};
 use crate::lanes::{Landing, Lanes};
@@ -147,7 +147,17 @@ impl Arrangement {
         let palette = *theme::p();
         let project = doc.project();
         let audible = audible(project);
-        let rows = self.rows(ctx, project, lanes.pending().len());
+        // The returns and master pinned at the bottom (slice 4) draw their
+        // own lanes; everything below works in the scrolling tracks' zone.
+        let all = self.rows(ctx, project, lanes.pending().len());
+        self.pinned_lanes(ctx, painter, canvas, project, &all);
+        let canvas = Rect::from_x_y_ranges(
+            canvas.x_range(),
+            self.zone_span(ctx, project, Zone::Main, canvas.y_range()),
+        );
+        let clipped = painter.with_clip_rect(canvas.intersect(painter.clip_rect()));
+        let painter = &clipped;
+        let rows: Vec<Row> = all.into_iter().filter(|r| r.zone == Zone::Main).collect();
         let top = self.top;
         let lane_of = |row: &Row| {
             let lane = Rect::from_min_size(
@@ -183,36 +193,43 @@ impl Arrangement {
             } else if track.solo {
                 painter.rect_filled(lane, 0.0, palette.accent.gamma_multiply(0.06));
             }
+            if track.kind == TrackKind::Group {
+                super::nesting::draw_group_lane(painter, lane, canvas, project, index, time);
+            }
         }
 
         // Clip bodies, on the GPU.
         self.refresh_boxes(ctx, doc.state(), project, lanes);
         let ppp = ctx.pixels_per_point();
-        let slots = rows
-            .iter()
-            .filter_map(|row| match row.kind {
-                RowKind::Track(index) => Some(RowSlot::new(
-                    row.y * ppp,
-                    row.height * ppp,
-                    if audible(&project.tracks[index]) {
-                        1.0
-                    } else {
-                        DIMMED
-                    },
-                )),
-                RowKind::Pending(_) => None,
-            })
-            .collect();
-        // Deep zoom: the visible samples of waves past the peaks' detail.
+        // One slot per track, by its index (boxes and waves name their
+        // track's index); tracks hidden in a folded group draw nothing.
+        let mut slots = vec![RowSlot::HIDDEN; project.tracks.len()];
+        for row in &rows {
+            if let RowKind::Track(index) = row.kind {
+                let alpha = if audible(&project.tracks[index]) {
+                    1.0
+                } else {
+                    DIMMED
+                };
+                slots[index] = RowSlot::new(row.y * ppp, row.height * ppp, alpha);
+            }
+        }
+        // Deep zoom: the visible samples of waves past the peaks' detail,
+        // between the first and last tracks in view.
         let top = self.top;
-        let shown = |r: &&Row| r.y - top < canvas.height() && r.y + r.height - top > 0.0;
-        let visible = match (
-            rows.iter().position(|r| shown(&r)),
-            rows.iter().rposition(|r| shown(&r)),
-        ) {
-            (Some(a), Some(b)) => a as u32..b as u32 + 1,
-            _ => 0..0,
-        };
+        let shown = |r: &Row| r.y - top < canvas.height() && r.y + r.height - top > 0.0;
+        let indices = rows
+            .iter()
+            .filter(|r| shown(r))
+            .filter_map(|r| match r.kind {
+                RowKind::Track(index) => Some(index as u32),
+                RowKind::Pending(_) | RowKind::Master => None,
+            });
+        let visible = indices
+            .clone()
+            .min()
+            .zip(indices.max())
+            .map_or(0..0, |(a, b)| a..b + 1);
         let left_px = f64::from(canvas.left() * ppp);
         let strips = self.gpu.strips.update(
             &self.gpu.geometry,
@@ -334,6 +351,7 @@ impl Arrangement {
                     draw_body(painter, rect, &look);
                     draw_name(painter, rect, lane, &look);
                 }
+                RowKind::Master => {}
             }
             painter.hline(
                 canvas.x_range(),
@@ -348,7 +366,7 @@ impl Arrangement {
             }
         }
         // The drop line of a track drag continues across the lanes.
-        self.draw_drop_line(painter, canvas);
+        self.draw_drop_line(painter, canvas, false);
         self.draw_selection(painter, canvas, project, &rows, time);
     }
 
@@ -590,8 +608,9 @@ impl Arrangement {
         lanes: &'a Lanes,
         time: TimeView,
     ) -> Option<&'a Item> {
+        let zone = self.zone_at(ctx, project, pointer.y - canvas.top())?;
         let rows = self.rows(ctx, project, lanes.pending().len());
-        let row = rows.iter().find(|r| {
+        let row = rows.iter().filter(|r| r.zone == zone).find(|r| {
             let y = canvas.top() + r.y - self.top;
             (y..y + r.height).contains(&pointer.y)
         })?;
@@ -613,6 +632,7 @@ impl Arrangement {
                     .then(|| lanes.library.get(id))
                     .flatten()
             }
+            RowKind::Master => None,
         }
     }
 }

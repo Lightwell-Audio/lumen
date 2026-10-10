@@ -10,11 +10,14 @@
 //! through a lock-free queue, and the old one goes back to be freed on the
 //! UI side. The audio thread never allocates or frees.
 //!
-//! Levels glide. Each clip's level (gain and pan) is carried from one list
-//! to the next by clip id and moves toward its new value at a fixed rate,
-//! so volume and pan drags, mute and solo never step or click. A clip that
-//! appears partway through (its audio finished loading during playback)
-//! fades in. The M4 mixer takes this over with per-track smoothing.
+//! Each clip plays into its track's bus; the mixer does the rest (M4,
+//! ADR-0035).
+//!
+//! Levels glide. Each clip's gain is carried from one list to the next by
+//! clip id and moves toward its new value at a fixed rate, so clip gain
+//! drags and clip mutes never step or click. A clip that appears partway
+//! through (its audio finished loading during playback, or its track
+//! joined the routing late) fades in.
 //!
 //! A clip can fade in and out along any [`Curve`] and repeat its content
 //! (loop-extend, M3 slice 6). Each repeat gets the 2 ms edge fades, so the
@@ -36,7 +39,8 @@ use std::collections::HashMap;
 use lumen_core::curve::Curve;
 use lumen_core::time::Ticks;
 
-use crate::source::{Jump, Output, RenderContext, Source};
+use crate::mixer::{BUS_CHANNELS, Buses, TrackSource};
+use crate::source::{Jump, RenderContext};
 use crate::timeline::Timeline;
 
 /// Clip edge fades: 2 ms.
@@ -75,18 +79,17 @@ pub struct Clip {
     /// Identity across clip lists (the project's clip id), so a clip's
     /// level glides from list to list.
     pub id: u64,
+    /// The track it plays on: the id of its node in the routing.
+    pub track: u64,
     /// Timeline position of the clip's first sample.
     pub start: Ticks,
     /// First frame of the audio played at the clip start.
     pub offset: i64,
     /// Frames played, repeats included.
     pub length: i64,
-    /// Linear gain; 0 for a clip that is muted or cannot be heard, which
-    /// stays in the list so it fades out and back in.
+    /// Linear gain; 0 for a muted clip, which stays in the list so it
+    /// fades out and back in.
     pub gain: f32,
-    /// Stereo balance, -1 (left) to +1 (right); 0 leaves both sides at
-    /// unity. The track pan of M3; pan laws arrive with the mixer (M4).
-    pub pan: f32,
     /// Plays only while the device runs at `audio.sample_rate`; otherwise
     /// the clip is silent until the app converts it again.
     pub audio: Arc<ClipAudio>,
@@ -157,10 +160,10 @@ impl ClipShape {
 /// rate changes, and cheap at clip counts like these.
 struct ClipSet {
     clips: Vec<Clip>,
-    /// The level each clip's left and right sides play at now. NaN until
-    /// the clip is first heard: then it starts at its target, or from
-    /// silence if it appears partway through.
-    levels: Vec<[f32; 2]>,
+    /// The level each clip plays at now. NaN until the clip is first
+    /// heard: then it starts at its target, or from silence if it appears
+    /// partway through.
+    levels: Vec<f32>,
     /// `(id, index)` sorted by id, to carry levels into the next list.
     by_id: Vec<(u64, u32)>,
     /// Per clip, set when the list arrives: in the new list, the clip moved
@@ -198,7 +201,7 @@ impl ClipSet {
             .map(|c| Fades([table(&c.shape.fade_in), table(&c.shape.fade_out)]))
             .collect();
         Self {
-            levels: vec![[f32::NAN; 2]; clips.len()],
+            levels: vec![f32::NAN; clips.len()],
             swapped: vec![false; clips.len()],
             fades,
             clips,
@@ -318,20 +321,6 @@ fn fade_length(rate: u32) -> u32 {
     (rate / FADE_PER_SECOND).max(1)
 }
 
-/// Balance gain for `output` of `outputs`: unity at the centre, the far
-/// side fading to silence as the pan moves away from it.
-fn balance(pan: f32, output: usize, outputs: usize) -> f32 {
-    if outputs < 2 {
-        return 1.0;
-    }
-    let pan = pan.clamp(-1.0, 1.0);
-    if output == 0 {
-        (1.0 - pan).min(1.0)
-    } else {
-        (1.0 + pan).min(1.0)
-    }
-}
-
 /// The block being rendered.
 struct Block {
     /// Timeline samples of the first frame and one past the last.
@@ -339,7 +328,6 @@ struct Block {
     to: i64,
     /// Edge fade length, in frames.
     edge: i64,
-    outputs: usize,
     /// How far a level moves in one frame.
     glide: f32,
 }
@@ -384,17 +372,17 @@ impl Ramp {
     }
 }
 
-/// Plays `clip` at its kept level into this block of `out`, faded by
-/// `ramp`. A tail (rendered ahead of a jump) reads the level but does not
-/// move it.
+/// Plays `clip` at its kept level into its track's bus in `buses`, faded
+/// by `ramp`. A tail (rendered ahead of a jump) reads the level but does
+/// not move it.
 fn play(
     clip: &Clip,
     fades: &Fades,
-    kept: &mut [f32; 2],
+    kept: &mut f32,
     cx: &RenderContext<'_>,
     block: &Block,
     ramp: Ramp,
-    out: &mut Output<'_>,
+    buses: &mut Buses<'_>,
 ) {
     let rate = cx.sample_rate;
     if clip.audio.sample_rate != rate || clip.length <= 0 {
@@ -402,7 +390,13 @@ fn play(
     }
     let mut scratch = *kept;
     let level = if cx.tail { &mut scratch } else { kept };
-    let goals = targets(clip, block.outputs);
+    let Some(mut bus) = buses.track(clip.track) else {
+        // Its track is not in the routing: not heard, so it fades in if
+        // the track joins while it plays.
+        *level = f32::NAN;
+        return;
+    };
+    let goal = clip.gain;
     let start = cx.timeline.sample_at(clip.start, rate);
     let end = start + clip.length;
     let (a, mut b) = (block.from.max(start), block.to.min(end));
@@ -411,15 +405,15 @@ fn play(
     }
     if a >= b {
         // Silent in this block: nothing to glide from.
-        *level = goals;
+        *level = goal;
         return;
     }
-    if level[0].is_nan() {
+    if level.is_nan() {
         // First heard. At its start the edge fade covers it; partway
         // through, it fades in.
-        *level = if a == start { goals } else { [0.0; 2] };
+        *level = if a == start { goal } else { 0.0 };
     }
-    if goals == [0.0; 2] && *level == [0.0; 2] {
+    if goal == 0.0 && *level == 0.0 {
         return;
     }
     let sources = clip.audio.channels.len();
@@ -430,12 +424,12 @@ fn play(
         fades,
     };
     let mix = if clip.shape.plain() { mix } else { mix_shaped };
-    for output in 0..block.outputs {
+    let mut gain = *level;
+    for side in 0..BUS_CHANNELS {
         // Mono plays on both sides; extra channels are ignored.
-        let samples = &clip.audio.channels[output.min(sources - 1)];
-        let target = out.channel(output);
-        let goal = goals[output];
-        let mut gain = level[output];
+        let samples = &clip.audio.channels[side.min(sources - 1)];
+        let target = bus.channel(side);
+        gain = *level;
         let mut t = a;
         // Gliding or crossfading: a new gain every frame until both settle.
         while t < b && (gain != goal || ramp.active(t)) {
@@ -449,8 +443,8 @@ fn play(
         }
         // Steady: the common case, kept as tight as before.
         mix(target, samples, clip, at, t..b, gain);
-        level[output] = gain;
     }
+    *level = gain;
 }
 
 /// Where a clip sits in the block being rendered.
@@ -521,11 +515,6 @@ fn mix_shaped(
     }
 }
 
-/// The level a clip's left and right sides should reach.
-fn targets(clip: &Clip, outputs: usize) -> [f32; 2] {
-    [0, 1].map(|output| clip.gain * balance(clip.pan, output, outputs))
-}
-
 /// The edge fade for frame `pos` of a clip `length` frames long.
 fn edge_gain(pos: i64, length: i64, edge: i64) -> f32 {
     let edge = edge.min(length / 2).max(1);
@@ -590,8 +579,8 @@ impl ClipPlayer {
     }
 }
 
-impl Source for ClipPlayer {
-    fn render(&mut self, cx: &RenderContext<'_>, out: &mut Output<'_>) {
+impl TrackSource for ClipPlayer {
+    fn render(&mut self, cx: &RenderContext<'_>, out: &mut Buses<'_>) {
         if !cx.tail {
             self.take_new(true);
         }
@@ -601,7 +590,6 @@ impl Source for ClipPlayer {
             from: cx.start,
             to: cx.start + frames,
             edge: i64::from(fade_length(rate)),
-            outputs: out.channels().min(2),
             glide: GLIDE_PER_SECOND / rate as f32,
         };
         let crossfade = self.swap.as_mut().map(|swap| {
@@ -643,6 +631,11 @@ impl Source for ClipPlayer {
         self.finish_swap(false);
     }
 
+    fn idle(&mut self) {
+        self.finish_swap(true);
+        self.take_new(false);
+    }
+
     fn locate(&mut self, _: &Timeline, _: u32, _: i64, _: Jump) {
         // A jump is crossfaded by the engine: a crossfade between lists ends
         // here, and levels start at their targets rather than gliding.
@@ -650,7 +643,7 @@ impl Source for ClipPlayer {
         self.take_new(false);
         let set = &mut *self.current;
         for (clip, level) in set.clips.iter().zip(set.levels.iter_mut()) {
-            *level = targets(clip, 2);
+            *level = clip.gain;
         }
     }
 }
@@ -668,13 +661,5 @@ mod tests {
         // Short clips use half their length.
         assert_eq!(edge_gain(1, 4, 10), 1.0);
         assert_eq!(edge_gain(0, 4, 10), 0.5);
-    }
-
-    #[test]
-    fn balance_is_unity_at_the_centre_and_silences_the_far_side() {
-        assert_eq!((balance(0.0, 0, 2), balance(0.0, 1, 2)), (1.0, 1.0));
-        assert_eq!((balance(-1.0, 0, 2), balance(-1.0, 1, 2)), (1.0, 0.0));
-        assert_eq!((balance(0.5, 0, 2), balance(0.5, 1, 2)), (0.5, 1.0));
-        assert_eq!(balance(1.0, 0, 1), 1.0, "mono output ignores the pan");
     }
 }

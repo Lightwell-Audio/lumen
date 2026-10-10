@@ -7,7 +7,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use crate::model::Project;
+use crate::model::{Project, Track};
 
 /// Steps kept by default; the oldest are dropped beyond this.
 pub const DEFAULT_LIMIT: usize = 10_000;
@@ -171,34 +171,84 @@ impl History {
 /// Fast equality for the edit check: tracks and clips that are the same
 /// `Arc` are not compared field by field.
 fn unchanged(a: &Project, b: &Project) -> bool {
-    a.name == b.name
-        && a.sample_rate == b.sample_rate
-        && a.tempo == b.tempo
-        && a.time_signature == b.time_signature
-        && a.media == b.media
-        && a.markers == b.markers
-        && a.transport == b.transport
-        && a.view == b.view
-        && a.tracks.len() == b.tracks.len()
-        && a.tracks.iter().zip(&b.tracks).all(|(x, y)| {
-            Arc::ptr_eq(x, y)
-                || (x.id == y.id
-                    && x.name == y.name
-                    && x.kind == y.kind
-                    && x.color == y.color
-                    && x.parent == y.parent
-                    && x.gain_db.to_bits() == y.gain_db.to_bits()
-                    && x.pan.to_bits() == y.pan.to_bits()
-                    && x.mute == y.mute
-                    && x.solo == y.solo
-                    && x.armed == y.armed
-                    && x.devices == y.devices
-                    && x.clips.len() == y.clips.len()
-                    && x.clips
-                        .iter()
-                        .zip(&y.clips)
-                        .all(|(c, d)| Arc::ptr_eq(c, d) || c == d))
-        })
+    // Destructured, so a new field cannot be forgotten here (one was: the
+    // routing fields of format v7 made edits look like no change).
+    let Project {
+        name,
+        sample_rate,
+        tempo,
+        time_signature,
+        tracks,
+        master,
+        pan_law,
+        media,
+        markers,
+        transport,
+        view,
+    } = a;
+    *name == b.name
+        && *sample_rate == b.sample_rate
+        && *tempo == b.tempo
+        && *time_signature == b.time_signature
+        && *pan_law == b.pan_law
+        && *media == b.media
+        && *markers == b.markers
+        && *transport == b.transport
+        && *view == b.view
+        && same_track(master, &b.master)
+        && tracks.len() == b.tracks.len()
+        && tracks.iter().zip(&b.tracks).all(|(x, y)| same_track(x, y))
+}
+
+/// Whether two tracks are the same to the bit (floats by their bits, so a
+/// change from 0.0 to −0.0 still counts and NaN equals itself).
+fn same_track(x: &Arc<Track>, y: &Arc<Track>) -> bool {
+    if Arc::ptr_eq(x, y) {
+        return true;
+    }
+    let Track {
+        id,
+        name,
+        kind,
+        color,
+        parent,
+        gain_db,
+        pan,
+        output,
+        sends,
+        invert,
+        trim_db,
+        mute,
+        solo,
+        armed,
+        devices,
+        clips,
+    } = &**x;
+    let bits = |a: f32, b: f32| a.to_bits() == b.to_bits();
+    *id == y.id
+        && *name == y.name
+        && *kind == y.kind
+        && *color == y.color
+        && *parent == y.parent
+        && bits(*gain_db, y.gain_db)
+        && bits(*pan, y.pan)
+        && *output == y.output
+        && sends.len() == y.sends.len()
+        && sends
+            .iter()
+            .zip(&y.sends)
+            .all(|(s, t)| s.to == t.to && s.pre_fader == t.pre_fader && bits(s.level.0, t.level.0))
+        && *invert == y.invert
+        && bits(*trim_db, y.trim_db)
+        && *mute == y.mute
+        && *solo == y.solo
+        && *armed == y.armed
+        && *devices == y.devices
+        && clips.len() == y.clips.len()
+        && clips
+            .iter()
+            .zip(&y.clips)
+            .all(|(c, d)| Arc::ptr_eq(c, d) || c == d)
 }
 
 #[cfg(test)]
@@ -215,20 +265,12 @@ mod tests {
         };
         match rng.below(6) {
             0 => {
-                project.tracks.push(Arc::new(Track {
-                    id: id(),
-                    name: format!("Track {}", rng.below(100)),
-                    kind: TrackKind::Midi,
-                    color: Color(0x4C7A9E),
-                    parent: None,
-                    gain_db: 0.0,
-                    pan: 0.0,
-                    mute: false,
-                    solo: false,
-                    armed: false,
-                    devices: vec![],
-                    clips: vec![],
-                }));
+                project.tracks.push(Arc::new(Track::new(
+                    id(),
+                    format!("Track {}", rng.below(100)),
+                    TrackKind::Midi,
+                    Color(0x4C7A9E),
+                )));
             }
             1 if project.tracks.len() > 1 => {
                 let i = rng.below(project.tracks.len() as u64) as usize;
@@ -325,6 +367,34 @@ mod tests {
             assert_eq!(history.project(), &start, "seed {seed}");
             while history.redo().is_some() {}
             assert_eq!(history.project(), &end, "seed {seed}");
+        }
+    }
+
+    #[test]
+    fn routing_changes_are_edits() {
+        // Format v7's fields once looked unchanged to the history, so the
+        // edits recorded nothing.
+        use crate::model::{Level, Output, Send};
+        type Change = fn(&mut Project);
+        let changes: [Change; 6] = [
+            |p| p.pan_law = lumen_core::pan::PanLaw::Linear,
+            |p| Arc::make_mut(&mut p.master).gain_db = -1.0,
+            |p| Arc::make_mut(&mut p.tracks[2]).output = Output::Master,
+            |p| Arc::make_mut(&mut p.tracks[2]).invert = true,
+            |p| Arc::make_mut(&mut p.tracks[2]).trim_db = 2.0,
+            |p| {
+                let to = p.tracks[1].id;
+                Arc::make_mut(&mut p.tracks[2]).sends.push(Send {
+                    to,
+                    level: Level::SILENT,
+                    pre_fader: false,
+                })
+            },
+        ];
+        for change in changes {
+            let mut history = History::new(small_project(2));
+            assert!(history.apply("change", None, change));
+            assert!(history.can_undo());
         }
     }
 

@@ -1,9 +1,9 @@
 //! Design-system controls shared across the app (audit M2): the value
 //! slider (drag, Shift for fine, double-click to reset, click and type,
 //! arrow keys), floating dialogs and their title row, the fold arrow,
-//! gradients and the accent glow line, and shortcuts drawn as keycaps in
-//! menus and tooltips (M3 slice 7). The track headers use them now; the
-//! mixer (M4) and devices reuse them.
+//! gradients and the accent glow line; shortcuts drawn as keycaps in
+//! menus and tooltips are in `keys.rs` (M3 slice 7). The track headers use
+//! them now; the mixer (M4) and devices reuse them.
 
 use eframe::egui::{
     self, Align2, Color32, FontId, Id as EguiId, Key, Painter, Pos2, Rect, Sense, Stroke, Ui, Vec2,
@@ -13,6 +13,17 @@ use eframe::egui::{
 use eframe::emath::GuiRounding as _;
 
 use crate::{fonts, icons, motion, theme};
+
+pub mod fader;
+mod keys;
+pub mod knob;
+pub mod meter;
+pub mod wheel;
+
+pub use keys::{
+    KEY_LIGHT_ROOM, Keys, Tip, caps_height, caps_width, keycaps, menu_item, menu_toggle,
+    modifier_caps, submenu, tip,
+};
 
 /// A floating window in the design system (DESIGN §5): no system title
 /// bar; our own title row with the title in the display face and, when it
@@ -147,6 +158,18 @@ pub fn db_text(db: f32) -> String {
     }
 }
 
+/// A peak readout in a few characters, without " dB": "−3.0", "−12", "+6.0".
+/// From ten dB up the decimal goes, so the number fits a strip's readout
+/// box (the owner's report on overflowing meter numbers). Only for a level
+/// above the floor.
+pub fn readout_db(db: f32) -> String {
+    if db.abs() >= 9.95 {
+        format!("{db:+.0}").replace('-', "\u{2212}")
+    } else {
+        db_text(db).replace(" dB", "")
+    }
+}
+
 /// "0 ms", "125 ms", "1.25 s".
 pub fn ms_text(ms: f32) -> String {
     if ms < 999.5 {
@@ -178,6 +201,9 @@ pub enum SliderKind {
     /// A length in milliseconds, 0 to `max_ms`, filled from the left;
     /// resets to 0 (a fade's length, slice 6e).
     Millis { max_ms: f32 },
+    /// A channel's input trim (M4 slice 5): −24 to +24 dB, filled from the
+    /// centre; resets to 0 dB.
+    Trim,
 }
 
 impl SliderKind {
@@ -187,12 +213,23 @@ impl SliderKind {
             SliderKind::Pan => (-1.0, 1.0),
             SliderKind::ClipGain => (-60.0, 12.0),
             SliderKind::Millis { max_ms } => (0.0, max_ms.max(0.0)),
+            SliderKind::Trim => (-24.0, 24.0),
+        }
+    }
+
+    /// What a notch of the wheel changes (Shift: a tenth of it): a dB on
+    /// levels, 5% on pan, a hundredth of a length.
+    pub fn wheel_step(self) -> f32 {
+        match self {
+            SliderKind::Volume | SliderKind::ClipGain | SliderKind::Trim => 1.0,
+            SliderKind::Pan => 0.05,
+            SliderKind::Millis { max_ms } => (max_ms / 100.0).max(1.0),
         }
     }
 
     pub fn text(self, value: f32) -> String {
         match self {
-            SliderKind::Volume | SliderKind::ClipGain => db_text(value),
+            SliderKind::Volume | SliderKind::ClipGain | SliderKind::Trim => db_text(value),
             SliderKind::Pan => pan_text(value),
             SliderKind::Millis { .. } => ms_text(value),
         }
@@ -202,7 +239,7 @@ impl SliderKind {
     pub fn parse(self, text: &str) -> Option<f32> {
         let text = text.trim().replace('\u{2212}', "-").to_ascii_uppercase();
         match self {
-            SliderKind::Volume | SliderKind::ClipGain => {
+            SliderKind::Volume | SliderKind::ClipGain | SliderKind::Trim => {
                 text.trim_end_matches("DB").trim().parse().ok()
             }
             SliderKind::Millis { .. } => {
@@ -244,6 +281,22 @@ pub fn value_slider(
     name: &str,
     look: theme::Controls,
 ) -> f32 {
+    value_slider_lifted(ui, rect, id, value, kind, name, look, 0.0)
+}
+
+/// `value_slider` with its value text raised `lift` points, for a slider
+/// that draws something along its bottom (a header's level meter).
+#[allow(clippy::too_many_arguments)]
+pub fn value_slider_lifted(
+    ui: &mut Ui,
+    rect: Rect,
+    id: EguiId,
+    value: f32,
+    kind: SliderKind,
+    name: &str,
+    look: theme::Controls,
+    lift: f32,
+) -> f32 {
     let palette = *theme::p();
     let (lo, hi) = kind.range();
     let typing_id = id.with("typing");
@@ -277,16 +330,19 @@ pub fn value_slider(
         .interact(rect, id, Sense::click_and_drag())
         .on_hover_text(match kind {
             SliderKind::Volume => {
-                "Volume: drag (Shift for fine), double-click for 0 dB, or click and type"
+                "Volume: drag or wheel (Shift for fine), double-click for 0 dB, or click and type"
             }
             SliderKind::Pan => {
-                "Pan: drag (Shift for fine), double-click to centre, or click and type L 30 or R 30"
+                "Pan: drag or wheel (Shift for fine), double-click to centre, or click and type L 30 or R 30"
             }
             SliderKind::ClipGain => {
                 "Gain: drag (Shift for fine), double-click for 0 dB, or click and type"
             }
             SliderKind::Millis { .. } => {
                 "Length: drag (Shift for fine), double-click for none, or click and type 40 ms or 1.2 s"
+            }
+            SliderKind::Trim => {
+                "Input trim: drag (Shift for fine), double-click for 0 dB, or click and type"
             }
         });
     response.widget_info(|| {
@@ -336,6 +392,11 @@ pub fn value_slider(
             ui.data_mut(|d| d.insert_temp(typing_id, text));
         }
     }
+    // The wheel, when its gesture started here (the owner's B3).
+    let notches = wheel::steps(ui, id, rect);
+    if notches != 0.0 {
+        out += notches * kind.wheel_step() * if fine { 0.1 } else { 1.0 };
+    }
     let out = out.clamp(lo, hi);
 
     // Drawing.
@@ -362,11 +423,11 @@ pub fn value_slider(
                 Stroke::new(2.0, palette.start_marker),
             );
         }
-        SliderKind::Pan => {
+        SliderKind::Pan | SliderKind::Trim => {
             let center = rect.center().x;
             let x = x_at(out);
             // Grey at the centre, the accent at the edges (owner request).
-            let strength = out.abs().powf(1.2);
+            let strength = (out / hi).abs().powf(1.2);
             let fill = look.press.lerp_to_gamma(palette.accent, strength);
             p.rect_filled(
                 Rect::from_x_y_ranges(center.min(x)..=center.max(x), rect.y_range()),
@@ -384,7 +445,7 @@ pub fn value_slider(
         }
     }
     p.text(
-        rect.center(),
+        rect.center() - vec2(0.0, lift),
         Align2::CENTER_CENTER,
         kind.text(out),
         FontId::proportional(theme::size::CAPTION),
@@ -398,6 +459,83 @@ pub fn value_slider(
             egui::StrokeKind::Inside,
         );
     }
+    out
+}
+
+/// A value shown as text in a field (a strip's volume under its fader, M4
+/// slice 5): click to type (Enter applies, Esc cancels), double-click to
+/// reset. Returns the value.
+pub fn value_field(
+    ui: &mut Ui,
+    rect: Rect,
+    id: EguiId,
+    value: f32,
+    kind: SliderKind,
+    name: &str,
+) -> f32 {
+    let palette = *theme::p();
+    let (lo, hi) = kind.range();
+    let typing_id = id.with("typing");
+    if let Some(mut text) = ui.data(|d| d.get_temp::<String>(typing_id)) {
+        let edit = ui.put(
+            rect,
+            egui::TextEdit::singleline(&mut text)
+                .id(id.with("edit"))
+                .font(FontId::monospace(theme::size::CAPTION))
+                .horizontal_align(egui::Align::Center)
+                .margin(vec2(2.0, 2.0)),
+        );
+        if !edit.has_focus() && !edit.lost_focus() {
+            edit.request_focus();
+        }
+        let cancel = ui.input(|i| i.key_pressed(Key::Escape));
+        if cancel || edit.lost_focus() {
+            ui.data_mut(|d| d.remove::<String>(typing_id));
+            if !cancel && let Some(v) = kind.parse(&text) {
+                return v.clamp(lo, hi);
+            }
+        } else {
+            ui.data_mut(|d| d.insert_temp(typing_id, text));
+        }
+        return value;
+    }
+    let response = ui
+        .interact(rect, id, Sense::click())
+        .on_hover_cursor(egui::CursorIcon::Text)
+        .on_hover_text("Click and type a value; double-click to reset");
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::TextEdit,
+            true,
+            format!("{name}: {}", kind.text(value)),
+        )
+    });
+    let mut out = value;
+    let notches = wheel::steps(ui, id, rect);
+    if notches != 0.0 {
+        let fine = ui.input(|i| i.modifiers.shift);
+        out = (out + notches * kind.wheel_step() * if fine { 0.1 } else { 1.0 }).clamp(lo, hi);
+    }
+    if response.double_clicked() {
+        ui.data_mut(|d| d.remove::<String>(typing_id));
+        out = 0.0;
+    } else if response.clicked() {
+        ui.data_mut(|d| d.insert_temp(typing_id, kind.text(value).replace(" dB", "")));
+    }
+    let hover = motion::hover(ui.ctx(), id.with("hover"), response.hovered());
+    let p = ui.painter();
+    p.rect_filled(
+        rect,
+        theme::radius::SMALL,
+        palette.raised.lerp_to_gamma(palette.control, hover),
+    );
+    p.text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        kind.text(out).replace(" dB", ""),
+        FontId::monospace(theme::size::CAPTION),
+        palette.text,
+    );
     out
 }
 
@@ -423,6 +561,15 @@ pub fn draw_edge_glow(painter: &Painter, x: egui::Rangef, y: f32, t: f32) {
     painter.hline(x, y, Stroke::new(1.5, accent.gamma_multiply(t)));
 }
 
+/// The same glow along a vertical edge at `x` (the header column's edge).
+pub fn draw_edge_glow_vertical(painter: &Painter, x: f32, y: egui::Rangef, t: f32) {
+    let accent = theme::p().accent;
+    for (width, alpha) in [(6.0, 0.12), (3.0, 0.25)] {
+        painter.vline(x, y, Stroke::new(width, accent.gamma_multiply(alpha * t)));
+    }
+    painter.vline(x, y, Stroke::new(1.5, accent.gamma_multiply(t)));
+}
+
 /// A horizontal gradient from `left` to `right` across `rect`.
 pub fn gradient(painter: &Painter, rect: Rect, left: Color32, right: Color32) {
     let mut mesh = egui::Mesh::default();
@@ -440,56 +587,16 @@ pub fn gradient(painter: &Painter, rect: Rect, left: Color32, right: Color32) {
     painter.add(egui::Shape::mesh(mesh));
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn values_read_naturally() {
-        assert_eq!(db_text(0.0), "0.0 dB");
-        assert_eq!(db_text(-3.0), "\u{2212}3.0 dB");
-        assert_eq!(db_text(6.0), "+6.0 dB");
-        assert_eq!(db_text(-60.0), "\u{2212}\u{221E} dB");
-        assert_eq!(pan_text(0.0), "C");
-        assert_eq!(pan_text(-0.3), "L 30");
-        assert_eq!(pan_text(1.0), "R 100");
-    }
-
-    #[test]
-    fn typed_values_are_understood() {
-        let v = SliderKind::Volume;
-        assert_eq!(v.parse("-6"), Some(-6.0));
-        assert_eq!(v.parse("\u{2212}4.5 dB"), Some(-4.5));
-        assert_eq!(v.parse("loud"), None);
-        let p = SliderKind::Pan;
-        assert_eq!(p.parse("c"), Some(0.0));
-        assert_eq!(p.parse("L 30"), Some(-0.3));
-        assert_eq!(p.parse("r100"), Some(1.0));
-        assert_eq!(p.parse("-50"), Some(-0.5));
-    }
-}
-
-/// The mark in front of a hint's words.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HintMark {
-    /// A double arrow: dragging resizes.
-    Resize,
-    /// Four arrows: dragging moves.
-    Move,
-    None,
-}
-
-/// A small chip naming what a drag will do (MT-APP-13 run 1: the owner
-/// could not tell whether a drag would move or resize). Placed with its
-/// left edge at `at.x`, centred on `at.y`, kept inside `bounds`. Returns
-/// where it was drawn.
-pub fn draw_hint(painter: &Painter, at: Pos2, mark: HintMark, text: &str, bounds: Rect) -> Rect {
+/// A small chip by the pointer with a live value while dragging (a fade's
+/// length, a gain; M4 slice 0: what a drag does is said in the info line,
+/// not here). Placed with its left edge at `at.x`, centred on `at.y`, kept
+/// inside `bounds`. Returns where it was drawn.
+pub fn draw_hint(painter: &Painter, at: Pos2, text: &str, bounds: Rect) -> Rect {
     let palette = theme::p();
     let font = FontId::proportional(theme::size::CAPTION);
     let galley = painter.layout_no_wrap(text.to_owned(), font, palette.text);
-    let mark_width = if mark == HintMark::None { 0.0 } else { 12.0 };
     let size = vec2(
-        galley.size().x + mark_width + 2.0 * theme::space::XS + 2.0,
+        galley.size().x + 2.0 * theme::space::XS + 2.0,
         theme::size::CAPTION + 4.0,
     );
     let x = at.x.min(bounds.right() - size.x).max(bounds.left());
@@ -503,35 +610,16 @@ pub fn draw_hint(painter: &Painter, at: Pos2, mark: HintMark, text: &str, bounds
     );
     let left = rect.left() + theme::space::XS;
     let mid = rect.center().y;
-    let stroke = Stroke::new(1.2, palette.accent);
-    let arrow = |from: Pos2, to: Pos2| {
-        painter.line_segment([from, to], stroke);
-        let d = (to - from).normalized() * 2.5;
-        let n = vec2(-d.y, d.x);
-        painter.line_segment([to, to - d + n], stroke);
-        painter.line_segment([to, to - d - n], stroke);
-        painter.line_segment([from, from + d + n], stroke);
-        painter.line_segment([from, from + d - n], stroke);
-    };
-    let centre = pos2(left + 4.5, mid);
-    match mark {
-        HintMark::Resize => arrow(centre - vec2(4.5, 0.0), centre + vec2(4.5, 0.0)),
-        HintMark::Move => {
-            arrow(centre - vec2(4.5, 0.0), centre + vec2(4.5, 0.0));
-            arrow(centre - vec2(0.0, 4.5), centre + vec2(0.0, 4.5));
-        }
-        HintMark::None => {}
-    }
     painter.galley(
-        pos2(left + mark_width, mid - galley.size().y / 2.0),
+        pos2(left, mid - galley.size().y / 2.0),
         galley,
         palette.text,
     );
     rect
 }
 
-/// A quiet caption beside the pointer, saying what a drag will do (the
-/// owner's choice B2), kept inside `bounds`.
+/// A quiet caption beside the pointer, kept inside `bounds`: the tape
+/// speed while scrubbing (the owner's choice B2).
 pub fn draw_caption(painter: &Painter, at: Pos2, text: &str, colour: Color32, bounds: Rect) {
     let galley = painter.layout_no_wrap(
         text.to_owned(),
@@ -562,238 +650,41 @@ pub fn draw_glow_rect(painter: &Painter, rect: Rect, radius: f32) {
     );
 }
 
-/// Room under a keycap for its light.
-const KEY_LIGHT_ROOM: f32 = 4.0;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// A shortcut to show (the owner's K5): its modifiers, its key, the light
-/// of its command's area, and how it reads ("Ctrl+D").
-#[derive(Debug, Clone, PartialEq)]
-pub struct Keys {
-    pub modifiers: Vec<&'static str>,
-    pub key: &'static str,
-    pub light: Color32,
-    pub text: String,
-}
-
-/// Keycaps laid out: each cap's text, whether it is the main key, and the
-/// whole size.
-struct Caps {
-    caps: Vec<(std::sync::Arc<egui::Galley>, bool)>,
-    cap_height: f32,
-    size: Vec2,
-}
-
-/// Horizontal padding inside a cap, and vertical.
-const CAP_PAD: Vec2 = vec2(6.0, 2.0);
-
-fn lay_out_caps(ui: &Ui, modifiers: &[&str], key: &str) -> Caps {
-    let palette = theme::p();
-    let font = FontId::proportional(theme::size::CAPTION);
-    let caps: Vec<_> = modifiers
-        .iter()
-        .map(|m| (*m, false))
-        .chain(std::iter::once((key, true)))
-        .map(|(text, main)| {
-            let colour = if main {
-                palette.text
-            } else {
-                palette.text_secondary
-            };
-            let galley = ui
-                .painter()
-                .layout_no_wrap(text.to_owned(), font.clone(), colour);
-            (galley, main)
-        })
-        .collect();
-    let cap_height = caps.iter().map(|(g, _)| g.size().y).fold(0.0, f32::max) + 2.0 * CAP_PAD.y;
-    let width = caps
-        .iter()
-        .map(|(g, _)| g.size().x + 2.0 * CAP_PAD.x)
-        .sum::<f32>()
-        + theme::space::XS * (caps.len() - 1) as f32;
-    Caps {
-        caps,
-        cap_height,
-        size: vec2(width, cap_height + KEY_LIGHT_ROOM),
+    #[test]
+    fn values_read_naturally() {
+        assert_eq!(db_text(0.0), "0.0 dB");
+        assert_eq!(db_text(-3.0), "\u{2212}3.0 dB");
+        assert_eq!(db_text(6.0), "+6.0 dB");
+        assert_eq!(db_text(-60.0), "\u{2212}\u{221E} dB");
+        assert_eq!(pan_text(0.0), "C");
+        assert_eq!(pan_text(-0.3), "L 30");
+        assert_eq!(pan_text(1.0), "R 100");
     }
-}
 
-fn paint_caps(painter: &Painter, ppp: f32, caps: Caps, at: Pos2, light: Color32) {
-    let palette = theme::p();
-    let mut x = at.x;
-    for (galley, main) in caps.caps {
-        let cap = Rect::from_min_size(
-            pos2(x, at.y),
-            vec2(galley.size().x + 2.0 * CAP_PAD.x, caps.cap_height),
-        )
-        .round_to_pixels(ppp);
-        if main {
-            painter.rect_stroke(
-                cap,
-                theme::radius::SMALL,
-                Stroke::new(1.0, palette.border_strong),
-                egui::StrokeKind::Inside,
-            );
-            let bar = Rect::from_min_max(
-                pos2(cap.left() + 3.0, cap.bottom() + 2.0),
-                pos2(cap.right() - 3.0, cap.bottom() + 4.0),
-            )
-            .round_to_pixels(ppp);
-            painter.rect_filled(bar.expand(1.5), 2.0, light.gamma_multiply(0.3));
-            painter.rect_filled(bar, 1.0, light);
-        } else {
-            painter.rect_filled(cap, theme::radius::SMALL, palette.control);
-        }
-        painter.galley(cap.center() - galley.size() / 2.0, galley, palette.text);
-        x = cap.right() + theme::space::XS;
+    #[test]
+    fn readouts_fit_a_strip_box() {
+        assert_eq!(readout_db(-3.0), "\u{2212}3.0");
+        assert_eq!(readout_db(6.0), "+6.0");
+        assert_eq!(readout_db(-9.9), "\u{2212}9.9");
+        assert_eq!(readout_db(-12.3), "\u{2212}12");
+        assert_eq!(readout_db(9.96), "+10");
+        assert_eq!(readout_db(-48.0), "\u{2212}48");
     }
-}
 
-/// A shortcut drawn as keycaps (the owner's K5, slice 7): each modifier a
-/// plain small cap, the key outlined, with a short light under it in
-/// `light`, the colour of its command's area. Allocates its own size.
-/// Clickable: the shortcut editor and the palette record a new chord when
-/// a shortcut is clicked.
-pub fn keycaps(ui: &mut Ui, modifiers: &[&str], key: &str, light: Color32) -> egui::Response {
-    let caps = lay_out_caps(ui, modifiers, key);
-    let (rect, response) = ui.allocate_exact_size(caps.size, Sense::click());
-    if ui.is_rect_visible(rect) {
-        paint_caps(ui.painter(), ui.pixels_per_point(), caps, rect.min, light);
-    }
-    response
-}
-
-impl Keys {
-    /// These keys as keycaps.
-    pub fn caps(&self, ui: &mut Ui) -> egui::Response {
-        keycaps(ui, &self.modifiers, self.key, self.light)
-    }
-}
-
-/// A menu row: `label` at the left and the shortcut's keycaps at the right
-/// (K5). Its accessible name is the label and the shortcut ("Add audio
-/// track Ctrl+T"), as egui's menu buttons name theirs. Greyed when not
-/// `enabled`.
-pub fn menu_item(ui: &mut Ui, label: &str, keys: Option<&Keys>, enabled: bool) -> egui::Response {
-    menu_row(ui, label, keys, enabled, None)
-}
-
-/// A [`menu_item`] that is on or off (Snap to grid, Triplet): when on, it
-/// has the selected fill, as egui's selectable items do. A click leaves
-/// the menu open, so several can be set.
-pub fn menu_toggle(ui: &mut Ui, label: &str, keys: Option<&Keys>, on: bool) -> egui::Response {
-    menu_row(ui, label, keys, true, Some(on))
-}
-
-/// A menu row; `toggle` is whether a toggle is on (`None` for an item,
-/// which closes the menu when clicked).
-fn menu_row(
-    ui: &mut Ui,
-    label: &str,
-    keys: Option<&Keys>,
-    enabled: bool,
-    toggle: Option<bool>,
-) -> egui::Response {
-    let on = toggle == Some(true);
-    let palette = theme::p();
-    let text_colour = if enabled {
-        palette.text
-    } else {
-        palette.text_disabled
-    };
-    let galley = ui.painter().layout_no_wrap(
-        label.to_owned(),
-        FontId::proportional(theme::size::BODY),
-        text_colour,
-    );
-    let caps = keys.map(|k| lay_out_caps(ui, &k.modifiers, k.key));
-    let pad = ui.spacing().button_padding;
-    let caps_width = caps
-        .as_ref()
-        .map_or(0.0, |c| c.size.x + 2.0 * theme::space::M);
-    let height = galley.size().y.max(caps.as_ref().map_or(0.0, |c| c.size.y)) + 2.0 * pad.y;
-    // A menu is sized in a first pass from what its rows need; only after
-    // that does a row fill the menu's width, so the keycaps line up at its
-    // right edge without stretching the menu.
-    let needed = galley.size().x + caps_width + 2.0 * pad.x;
-    let width = if ui.is_sizing_pass() {
-        needed
-    } else {
-        needed.max(ui.available_width())
-    };
-    let sense = if enabled {
-        Sense::click()
-    } else {
-        Sense::hover()
-    };
-    let (rect, response) = ui.allocate_exact_size(vec2(width, height), sense);
-    let name = match keys {
-        Some(k) => format!("{label} {}", k.text),
-        None => label.to_owned(),
-    };
-    response
-        .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, on, &name));
-    if ui.is_rect_visible(rect) {
-        let painter = ui.painter();
-        if on {
-            painter.rect_filled(rect, theme::radius::SMALL, palette.accent_muted);
-        }
-        if enabled && (response.hovered() || response.has_focus()) {
-            painter.rect_filled(
-                rect,
-                theme::radius::SMALL,
-                ui.visuals().widgets.hovered.weak_bg_fill,
-            );
-        }
-        painter.galley(
-            pos2(rect.left() + pad.x, rect.center().y - galley.size().y / 2.0),
-            galley,
-            text_colour,
-        );
-        if let (Some(caps), Some(k)) = (caps, keys) {
-            let at = pos2(
-                rect.right() - pad.x - caps.size.x,
-                rect.center().y - caps.size.y / 2.0,
-            );
-            paint_caps(painter, ui.pixels_per_point(), caps, at, k.light);
-        }
-    }
-    if response.clicked() && toggle.is_none() {
-        ui.close();
-    }
-    response
-}
-
-/// What a button's tooltip adds to its name: its shortcut as keycaps and a
-/// hint ("Right-click for punch in and out").
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Tip<'a> {
-    pub keys: Option<&'a Keys>,
-    pub hint: Option<&'a str>,
-}
-
-/// A tooltip naming what `response` does, with its shortcut as keycaps and
-/// a `hint` under it ("Right-click for punch in and out").
-pub fn tip(
-    response: egui::Response,
-    label: &str,
-    keys: Option<&Keys>,
-    hint: Option<&str>,
-) -> egui::Response {
-    let show = |ui: &mut Ui| {
-        ui.horizontal(|ui| {
-            ui.label(label);
-            if let Some(keys) = keys {
-                keys.caps(ui);
-            }
-        });
-        if let Some(hint) = hint {
-            ui.label(egui::RichText::new(hint).color(theme::p().text_secondary));
-        }
-    };
-    if response.enabled() {
-        response.on_hover_ui(show)
-    } else {
-        response.on_disabled_hover_ui(show)
+    #[test]
+    fn typed_values_are_understood() {
+        let v = SliderKind::Volume;
+        assert_eq!(v.parse("-6"), Some(-6.0));
+        assert_eq!(v.parse("\u{2212}4.5 dB"), Some(-4.5));
+        assert_eq!(v.parse("loud"), None);
+        let p = SliderKind::Pan;
+        assert_eq!(p.parse("c"), Some(0.0));
+        assert_eq!(p.parse("L 30"), Some(-0.3));
+        assert_eq!(p.parse("r100"), Some(1.0));
+        assert_eq!(p.parse("-50"), Some(-0.5));
     }
 }

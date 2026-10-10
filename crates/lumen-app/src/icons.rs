@@ -31,11 +31,13 @@ pub enum Icon {
     Lock,
     /// The command palette (M3 slice 7): a magnifier.
     Search,
+    /// A mouse, before a gesture in the info line (M4 slice 0).
+    Mouse,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 12] = [
+    pub const ALL: [Icon; 13] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
@@ -48,6 +50,7 @@ impl Icon {
         Icon::MagnetOff,
         Icon::Lock,
         Icon::Search,
+        Icon::Mouse,
     ];
 }
 
@@ -183,6 +186,16 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             Shape::circle_stroke(g.p(7.0, 7.0), 4.5 * g.unit, stroke),
             Shape::line_segment([g.p(10.3, 10.3), g.p(13.5, 13.5)], stroke),
         ],
+        Icon::Mouse => vec![
+            // A rounded body with the buttons' parting line.
+            Shape::rect_stroke(
+                g.rect(4.0, 1.5, 12.0, 14.5),
+                4.0 * g.unit,
+                stroke,
+                egui::StrokeKind::Middle,
+            ),
+            Shape::line_segment([g.p(8.0, 1.5), g.p(8.0, 6.5)], stroke),
+        ],
         Icon::Follow => vec![
             Shape::line_segment([g.p(4.0, 2.5), g.p(4.0, 13.5)], stroke),
             Shape::line_segment([g.p(6.5, 8.0), g.p(11.5, 8.0)], stroke),
@@ -312,6 +325,24 @@ pub fn close_button(ui: &mut Ui) -> Response {
             .line_segment([x.right_top(), x.left_bottom()], stroke);
     }
     response.on_hover_text("Close (Esc)")
+}
+
+/// Headphones, about 11 pt, for a cue button (M4 slice 4): a band over
+/// two ear cups.
+pub fn draw_headphones(painter: &Painter, center: Pos2, color: Color32) {
+    let stroke = Stroke::new(1.4, color);
+    let r = 4.6;
+    let band: Vec<Pos2> = (0..=12)
+        .map(|i| {
+            let a = std::f32::consts::PI * (1.0 + i as f32 / 12.0);
+            center + vec2(a.cos() * r, a.sin() * r + 1.0)
+        })
+        .collect();
+    painter.add(egui::Shape::line(band, stroke));
+    for x in [-r, r] {
+        let cup = Rect::from_center_size(center + vec2(x, 3.2), vec2(2.6, 4.4));
+        painter.rect_filled(cup, 1.0, color);
+    }
 }
 
 /// A 14 pt icon for the track type: a waveform for audio, keys for MIDI,

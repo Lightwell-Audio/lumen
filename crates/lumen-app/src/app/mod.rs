@@ -3,12 +3,16 @@
 //! M1).
 
 pub(crate) mod clip_card;
+pub(crate) mod clipboard_keys;
 mod commands;
+mod cue;
 pub(crate) mod editing;
 pub(crate) mod grid;
 mod handles;
 pub(crate) mod history;
+pub(crate) mod info;
 pub(crate) mod locators;
+mod mixer;
 pub(crate) mod navigate;
 pub(crate) mod palette;
 pub(crate) mod panes;

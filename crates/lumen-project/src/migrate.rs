@@ -18,7 +18,9 @@ pub type Migration = fn(Value) -> Result<Value, String>;
 pub const FIRST_VERSION: u64 = 1;
 
 /// `MIGRATIONS[i]` upgrades version `FIRST_VERSION + i` to the next one.
-pub const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6];
+pub const MIGRATIONS: &[Migration] = &[
+    v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10,
+];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
 /// state (`view`). Version 1 files get the defaults written out.
@@ -149,6 +151,177 @@ fn v5_to_v6(mut document: Value) -> Result<Value, String> {
         }
     }
     Ok(document)
+}
+
+/// Version 7 (M4 slice 2) routes tracks: a master track in every project
+/// (kept apart from `tracks`), each track's output, sends, polarity and
+/// input trim, and the project's pan law. A master track already among the
+/// tracks moves out to `master`; otherwise one is made with the next free
+/// id. The defaults are written out on every track. The pan law is −3 dB
+/// constant power (owner, M4): projects from before play 3 dB quieter at
+/// the centre.
+fn v6_to_v7(mut document: Value) -> Result<Value, String> {
+    let next_id = highest_id(&document)? + 1;
+    let project = document
+        .get_mut("project")
+        .and_then(Value::as_object_mut)
+        .ok_or("missing project")?;
+    project.insert("pan_law".into(), Value::from("constant_power"));
+    let tracks = project
+        .get_mut("tracks")
+        .and_then(Value::as_array_mut)
+        .ok_or("missing tracks")?;
+    let found = tracks
+        .iter()
+        .position(|t| t.get("kind").and_then(Value::as_str) == Some("master"));
+    let mut master = match found {
+        Some(index) => tracks.remove(index),
+        // Version 7's own words, frozen.
+        None => serde_json::json!({
+            "id": format!("{next_id:016x}"),
+            "name": "Master",
+            "kind": "master",
+            "color": "#8A8F99",
+            "gain_db": 0.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false,
+            "armed": false,
+            "devices": [],
+            "clips": [],
+        }),
+    };
+    if let Some(master) = master.as_object_mut() {
+        master.remove("parent");
+    }
+    for track in tracks.iter_mut().chain(std::iter::once(&mut master)) {
+        let Some(track) = track.as_object_mut() else {
+            return Err("a track is not an object".into());
+        };
+        track.entry("output").or_insert(Value::from("auto"));
+        track.entry("sends").or_insert(Value::Array(Vec::new()));
+        track.entry("invert").or_insert(Value::Bool(false));
+        track.entry("trim_db").or_insert(Value::from(0.0));
+    }
+    project.insert("master".into(), master);
+    Ok(document)
+}
+
+/// Version 8 (M4 slice 3) keeps a group's tracks right under it, nested
+/// ones inside theirs, and saves which groups are folded (`collapsed`, none
+/// at first). Tracks are put in that order, keeping the order of tracks
+/// that share a group; returns leave their groups (Ableton's rule).
+fn v7_to_v8(mut document: Value) -> Result<Value, String> {
+    let project = document
+        .get_mut("project")
+        .and_then(Value::as_object_mut)
+        .ok_or("missing project")?;
+    if let Some(view) = project.get_mut("view").and_then(Value::as_object_mut) {
+        view.entry("collapsed").or_insert(Value::Array(Vec::new()));
+    }
+    let tracks = project
+        .get_mut("tracks")
+        .and_then(Value::as_array_mut)
+        .ok_or("missing tracks")?;
+    let text = |t: &Value, key: &str| t.get(key).and_then(Value::as_str).map(str::to_owned);
+    for track in tracks.iter_mut() {
+        let kind = text(track, "kind");
+        if !matches!(kind.as_deref(), Some("audio" | "midi" | "group"))
+            && let Some(track) = track.as_object_mut()
+        {
+            track.remove("parent");
+        }
+    }
+    let groups: Vec<String> = tracks
+        .iter()
+        .filter(|t| text(t, "kind").as_deref() == Some("group"))
+        .filter_map(|t| text(t, "id"))
+        .collect();
+    // Each track's group, when that is a group in this project.
+    let parents: Vec<Option<String>> = tracks
+        .iter()
+        .map(|t| text(t, "parent").filter(|p| groups.contains(p)))
+        .collect();
+    let mut order = Vec::with_capacity(tracks.len());
+    let mut placed = vec![false; tracks.len()];
+    let mut stack: Vec<usize> = (0..tracks.len())
+        .rev()
+        .filter(|&i| parents[i].is_none())
+        .collect();
+    while let Some(i) = stack.pop() {
+        if std::mem::replace(&mut placed[i], true) {
+            continue;
+        }
+        order.push(i);
+        let id = text(&tracks[i], "id");
+        stack.extend(
+            (0..tracks.len())
+                .rev()
+                .filter(|&j| parents[j].is_some() && parents[j] == id),
+        );
+    }
+    // Tracks in a nesting cycle stay at the end, for validation to reject.
+    order.extend((0..tracks.len()).filter(|&i| !placed[i]));
+    let mut old: Vec<Option<Value>> = tracks.drain(..).map(Some).collect();
+    tracks.extend(order.into_iter().filter_map(|i| old[i].take()));
+    Ok(document)
+}
+
+/// Version 9 (M4 slice 3, MT-MIX-3 run 1) saves the width of the track
+/// header column, 204 points before.
+fn v8_to_v9(mut document: Value) -> Result<Value, String> {
+    let view = document
+        .get_mut("project")
+        .and_then(|p| p.get_mut("view"))
+        .and_then(Value::as_object_mut);
+    if let Some(view) = view {
+        view.entry("header_width").or_insert(Value::from(204.0));
+    }
+    Ok(document)
+}
+
+/// v10 (M4 slice 4): returns and the master pinned at the bottom of the
+/// arrangement, the area's height (absent: its natural size) and whether
+/// the returns are folded away.
+fn v9_to_v10(mut document: Value) -> Result<Value, String> {
+    let view = document
+        .get_mut("project")
+        .and_then(|p| p.get_mut("view"))
+        .and_then(Value::as_object_mut);
+    if let Some(view) = view {
+        view.entry("returns_folded").or_insert(Value::from(false));
+    }
+    Ok(document)
+}
+
+/// The highest id written anywhere in `document` (every `"id"` field).
+fn highest_id(document: &Value) -> Result<u64, String> {
+    fn walk(value: &Value, highest: &mut u64) -> Result<(), String> {
+        match value {
+            Value::Object(map) => {
+                for (key, value) in map {
+                    if key == "id"
+                        && let Value::String(text) = value
+                    {
+                        let id = u64::from_str_radix(text, 16)
+                            .map_err(|_| format!("invalid id {text:?}"))?;
+                        *highest = (*highest).max(id);
+                    }
+                    walk(value, highest)?;
+                }
+            }
+            Value::Array(items) => {
+                for item in items {
+                    walk(item, highest)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    let mut highest = 0;
+    walk(document, &mut highest)?;
+    Ok(highest)
 }
 
 /// The version this build writes.
@@ -340,5 +513,90 @@ mod tests {
             "fade_in": { "length": 1, "shape": "wobbly" }
         }]}]}});
         assert!(upgrade(bad, 5, FIRST_VERSION, &MIGRATIONS[..5]).is_err());
+    }
+
+    #[test]
+    fn v6_to_v7_adds_a_master_with_the_next_free_id_and_routing_defaults() {
+        let v6 = json!({ "version": 6, "project": {
+            "name": "x",
+            "tracks": [
+                { "id": "0000000000000003", "kind": "audio", "clips": [
+                    { "id": "00000000000000a0" }
+                ] },
+            ],
+            "markers": [{ "id": "00000000000000b0" }],
+        } });
+        let v7 = upgrade(v6, 6, FIRST_VERSION, MIGRATIONS).unwrap();
+        let project = &v7["project"];
+        assert_eq!(project["pan_law"], "constant_power");
+        assert_eq!(project["master"]["id"], "00000000000000b1");
+        assert_eq!(project["master"]["kind"], "master");
+        let track = &project["tracks"][0];
+        assert_eq!(track["output"], "auto");
+        assert_eq!(track["sends"], json!([]));
+        assert_eq!(
+            (&track["invert"], &track["trim_db"]),
+            (&json!(false), &json!(0.0))
+        );
+    }
+
+    #[test]
+    fn v7_to_v8_puts_tracks_under_their_groups_and_returns_out_of_them() {
+        let id = |n: u64| Value::from(format!("{n:016x}"));
+        let v7 = json!({ "version": 7, "project": { "view": {}, "tracks": [
+            { "id": id(1), "kind": "audio", "parent": id(3) },
+            { "id": id(2), "kind": "audio" },
+            { "id": id(3), "kind": "group" },
+            { "id": id(4), "kind": "return", "parent": id(3) },
+            { "id": id(5), "kind": "midi", "parent": id(3) },
+            { "id": id(6), "kind": "group", "parent": id(3) },
+            { "id": id(7), "kind": "audio", "parent": id(6) },
+        ] } });
+        let v8 = upgrade(v7, 7, FIRST_VERSION, MIGRATIONS).unwrap();
+        let project = &v8["project"];
+        let order: Vec<&Value> = project["tracks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| &t["id"])
+            .collect();
+        assert_eq!(
+            order,
+            [&id(2), &id(3), &id(1), &id(5), &id(6), &id(7), &id(4)]
+        );
+        assert!(
+            project["tracks"][6].get("parent").is_none(),
+            "the return left"
+        );
+        assert_eq!(project["view"]["collapsed"], json!([]));
+    }
+
+    #[test]
+    fn v8_to_v9_writes_the_header_width() {
+        let v8 = json!({ "version": 8, "project": { "view": {}, "tracks": [] } });
+        let v9 = upgrade(v8, 8, FIRST_VERSION, MIGRATIONS).unwrap();
+        assert_eq!(v9["project"]["view"]["header_width"], json!(204.0));
+    }
+
+    #[test]
+    fn v9_to_v10_writes_the_returns_area_unfolded_at_its_natural_size() {
+        let v9 = json!({ "version": 9, "project": { "view": {}, "tracks": [] } });
+        let v10 = upgrade(v9, 9, FIRST_VERSION, MIGRATIONS).unwrap();
+        assert_eq!(v10["project"]["view"]["returns_folded"], json!(false));
+        assert!(v10["project"]["view"].get("returns_height").is_none());
+    }
+
+    #[test]
+    fn v6_to_v7_moves_a_master_track_out_of_the_tracks() {
+        let v6 = json!({ "version": 6, "project": { "tracks": [
+            { "id": "0000000000000001", "kind": "audio" },
+            { "id": "0000000000000002", "kind": "master", "name": "Main", "parent": "0000000000000009" },
+        ] } });
+        let v7 = upgrade(v6, 6, FIRST_VERSION, MIGRATIONS).unwrap();
+        let project = &v7["project"];
+        assert_eq!(project["tracks"].as_array().unwrap().len(), 1);
+        assert_eq!(project["master"]["id"], "0000000000000002");
+        assert_eq!(project["master"]["name"], "Main");
+        assert!(project["master"].get("parent").is_none());
     }
 }

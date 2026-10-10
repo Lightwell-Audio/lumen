@@ -1165,3 +1165,520 @@ steps 8 to 12 7c, steps 13 to 19 7d.
 **Run 1 (2026-10-08, owner):** passed ("looks good").
 
 **Last run:** run 1, passed. MT-APP-15 is done.
+
+### MT-APP-16 · The M3 exit flow and the review's fixes (needs a human)
+Run `cargo run --release -p lumen-app`. Have three or four short audio
+files in a folder (any of WAV, AIFF, FLAC, MP3, Ogg). Steps 1 to 4 are
+the milestone's exit flow; steps 5 to 9 cover what the end-of-milestone
+review changed.
+1. **Create and import:** start a New project (Lumen menu). The empty
+   arrangement shows "Drop audio files here" with an **Import audio…**
+   button under it. Press Ctrl+T, then Ctrl+Shift+I: the system's file
+   dialog opens in front of Lumen, offering audio files only. Pick two
+   files: they land one after the other on the new track, at the
+   playhead. Cancel the dialog another time: nothing changes.
+2. **Arrange:** drag a file from Explorer to just below the track: a new
+   track. Drag a clip along, Ctrl+D one, rename one (F2), mute one (0).
+   Open the palette (Ctrl+K), type "128", Enter: the tempo is 128. Press M
+   for a locator; select a clip and press Ctrl+L to loop it.
+3. **Save and reopen:** Ctrl+S and save it somewhere new. Close Lumen,
+   start it again and open the project from Open recent: the tracks,
+   clips, names, mute, tempo, locator, loop and view are as saved, and it
+   plays the same.
+4. Import from the other places too: the Lumen menu (Import audio…), a
+   track's right-click menu (onto that track; onto new tracks after it if
+   it is a MIDI track), and the palette.
+5. **Clips from the keyboard (the owner's choice for H2):** with several
+   clips on two or three tracks, press Ctrl+A, then ←: one clip is
+   selected. → and ← go along its track; ↓ and ↑ go to the nearest clip on
+   the next track with clips. Shift+→ and Shift+↓ add to the selection.
+   Press 0: the chosen clip mutes. Zoom in until a clip is off screen and
+   arrow to it: the view slides to show it.
+6. With a track selected (click its header), ↑ and ↓ still select tracks
+   and ← and → fold and unfold, as before.
+7. **The smooth playhead:** turn Follow on, zoom in a little and play: the
+   playhead and the page turns move evenly, with no stepping or jitter.
+   With a loop on, the wrap back is smooth. Stop: the playhead stops
+   exactly where playback stopped.
+8. **Time signature:** drag "Beats per bar" up: it stops at 64.
+9. Try steps 1, 5 and 7 in the light theme and at 150%.
+
+**Expected:** every step as described.
+
+**Run 1 (2026-10-09, owner):** passed ("everything passed").
+
+**Last run:** run 1, passed. MT-APP-16 is done.
+
+### MT-APP-17 · The info line (needs a human)
+Run `cargo run --release -p lumen-app` with a project that has a few
+clips with fades, a loop and a locator.
+1. **Nothing floats:** hover a clip's top and bottom halves, its edges,
+   its fade and gain handles, the loop brace, the scrub strip and both
+   rulers. No chip appears by the pointer; the cursor changes, and the
+   info line along the bottom names the thing and what you can do there.
+2. **Keys light up:** hover a clip's top half and hold Ctrl: "Ctrl drag
+   copy" lights and the cursor shows a copy; add Alt: "slip the audio"
+   lights instead. On a clip's end, Shift lights "drag loop".
+3. **Keycaps match:** shortcuts in the line look like the palette's and the
+   menus' (outlined key, coloured light). Change Duplicate's shortcut in
+   Keyboard shortcuts: the info line shows the new keys.
+4. **Values still follow the pointer while dragging:** drag a fade (its
+   length), the gain line (dB), and Alt-drag the scrub strip (tape speed).
+5. **Narrow window:** make the window narrow: the line stops with "…"
+   instead of overlapping.
+6. **Show info line** (palette): hides the strip; again brings it back; it
+   stays as set after restarting Lumen.
+7. Try steps 1 to 3 in the light theme and at 150%.
+
+**Expected:** every step as described, and the arrangement reads as
+calmer than before.
+
+**Passed (2026-10-10, owner):** the owner reported every step passing at the end of M4.
+
+### MT-MIX-1 · The mixer graph (needs a human, with the audio interface)
+Run `cargo run --release -p lumen-app` with ASIO on the Focusrite, and a
+project with about ten tracks of audio (drums, bass, pads: anything
+continuous is best), on headphones.
+1. **Levels:** play. Centred stereo tracks sound as loud as before M4;
+   tracks of mono files sound about 3 dB quieter (the −3 dB pan law applies
+   to mono tracks only, the owner's B after slice 7); nothing else about
+   the sound changes.
+2. **Pan:** pan one track hard left, then hard right: the other side goes
+   silent, the near side is a little louder than at the centre. Drag pan
+   back and forth quickly: no crackle or zipper noise.
+3. **Volume:** drag a track's volume up and down quickly while playing:
+   smooth, no crackle. Double-click it back to 0 dB: a quick glide, no
+   click.
+4. **Mute and solo:** mute and unmute a track, solo one and then another,
+   in time with the music: each change is a fast fade, never a click.
+5. **Adding and removing:** while playing, drop a new file onto the
+   arrangement (a new track): it comes in without a pop. Delete a playing
+   track, then undo: it goes and comes back without a click.
+6. **Buffer sizes:** in Audio settings, and in the Focusrite's own
+   control panel, try 64, 128 and 512 samples while playing all tracks:
+   no amber "Dropouts" chip appears for the changes themselves, and CPU
+   in the transport bar is about what it was before M4.
+7. **Loop and locate:** loop two bars over all tracks and click around
+   the ruler while playing: seamless loop, click-free jumps, as before.
+8. **Dropouts in words:** make the audio drop out on purpose (32 samples
+   with all tracks playing, or a heavy app starting): "⚠ Dropouts ×N"
+   appears after the CPU readout and fades about 10 s after the audio is
+   clean again; while it shows, the audio panel says how many just now
+   and since audio started, and what helps, and both go together. Hover
+   the Dropouts count among the meters: it says how many the driver
+   skipped and how many arrived late. Reset clears them.
+
+**Expected:** every step as described.
+
+**Passed (2026-10-10, owner):** the owner reported every step passing at the end of M4. The dropout count on the Focusrite (ASIO) is confirmed: the KNOWN_ISSUES entry is closed.
+
+### MT-MIX-2 · Projects from before the mixer (needs a human)
+Run `cargo run --release -p lumen-app`. Use a copy of a project saved
+before M4 (keep the original).
+1. **Opens:** open the copy. It looks as before, with the same tracks; no
+   master track appears yet (slice 4 shows it).
+2. **Plays:** play it: everything is heard, stereo tracks as loud as
+   before, tracks of mono files 3 dB quieter (the −3 dB pan law, for mono
+   tracks).
+3. **Saves and reopens:** change something small, save, close Lumen, and
+   open the project again: it opens unchanged, and plays the same.
+4. **Undo still works:** change volume, pan and mute on a track, then undo
+   each: every change undoes in one step, as before.
+
+**Expected:** every step as described, no warnings about the file.
+
+**Passed (2026-10-10, owner):** the owner reported every step passing at the end of M4.
+
+### MT-MIX-3 · Group tracks (needs a human)
+Run `cargo run --release -p lumen-app`. Start a new project and drop in
+five or six audio files (drums, bass, anything): one track each.
+1. **Group:** select the first three tracks (click, Shift+click) and press
+   Ctrl+G. A group named "Group 1" appears where the first was, its name a
+   little bolder, and the three tracks step in under it with the group's
+   colour rail running down beside them. Ctrl+Z takes it back in one step;
+   Ctrl+Shift+Z brings it back.
+2. **The group's lane:** it shows a thin bar per track inside, in each
+   track's colour, wherever that track has clips. Play: the group sounds
+   as the three tracks did; mute the group and they all go silent.
+3. **Nest:** select one track inside the group and press Ctrl+G: a second
+   group inside the first, one step further in, with both rails beside
+   its track.
+4. **Fold:** click the group's arrow: its tracks hide, the name reads
+   "Group 1 · 4", and the lane keeps its bars. Click again to show them.
+   Alt+click folds or unfolds every group. With the group selected, Left
+   and Right do the same. Save, close and reopen: the group is still
+   folded.
+5. **Drag in and out:** drag a track outside the group onto the middle of
+   the group's header: the header lights, and the track goes in at the
+   end. Drag a track from inside to between two tracks below the group:
+   the line steps out to the left edge, and it lands outside. Drag the
+   group itself: everything inside moves with it.
+6. **Arm:** click the group's arm button: every track inside arms, and
+   the group's button breathes. Disarm one track: the group's button shows
+   a lit dot with half a ring. Click it again: all armed.
+7. **Ungroup and take out:** select a track inside the group and press
+   Ctrl+Shift+G: it comes out to just below the group. Select the group
+   and press Ctrl+Shift+G: the group goes and its tracks stay, a level up,
+   selected.
+8. **Delete and duplicate:** group two tracks again, then Ctrl+D with the
+   group selected: a copy of the group with copies of its tracks appears
+   below it. Delete the copy: it goes with its tracks, in one undo step.
+9. **Files onto a group:** drag an audio file from Explorer onto the
+   group's lane: the hint says "new track in Group 1" and the file lands
+   on a new track at the end of the group.
+10. **Looks:** check steps 1, 4 and 6 in the light theme and at 150% and
+    200%: rails line up with their groups, nothing overlaps, long names end
+    in "…".
+11. **Three deep** (run 1): with a track inside three nested groups,
+    select it and press Ctrl+G: nothing changes and a note says "Groups go
+    three deep at most". Drag a group onto the innermost group's header:
+    the frame and cursor turn grey (no entry), and letting go leaves it
+    where it was, with the same note.
+12. **Solo inside a group** (run 1): play, and solo a track inside a
+    nested group: it is heard (alone); the other tracks in its group are
+    silent. Solo the group itself: everything inside it is heard.
+13. **Header width** (run 1): drag the edge between the track headers and
+    the lanes to the right: the headers widen (up to about twice), long
+    names show in full, the edge glows while dragged. Save, close and
+    reopen: the width is kept. Double-click the edge: back to the narrow
+    default.
+
+**Expected:** every step as described, each edit undoes in one step, and
+nothing clicks while grouping during playback.
+
+**Run 1 (2026-10-09, owner):** three findings, all fixed (ADR-0037
+amendment): nesting went on without limit (the owner: three deep is
+enough); names were cut short in the fixed-width headers (the column is
+now resizable, saved per project, format v9); soloing a track inside a
+group silenced it (solo now keeps its groups open). Steps 11 to 13
+added.
+
+**Run 2 (2026-10-09, owner):** two more findings, both fixed (ADR-0037
+amendment): deleting a track from its right-click menu crashed Lumen;
+tracks in groups played 3 dB quieter a level (buses now stay at unity
+when centred). Then passed: "everything looks good".
+
+### MT-MIX-4 · Mute, solo, returns, master and cue (needs a human)
+Run `cargo run --release -p lumen-app`. Start a new project, drop in four
+audio files (drums, bass, a vocal, anything) and group the first two
+(Ctrl+G).
+1. **Solo and the hollow M:** play, and click S on the bass. Only the bass
+   is heard. The other tracks' M buttons show a hollow ring and their
+   names dim: silent, but not muted by you. The transport shows a lit
+   "S" chip. Ctrl+click S on the vocal: both are heard, the chip reads
+   "S 2". Click the chip: every solo clears, in one undo step.
+2. **Solo a group:** click S on the group. Its tracks show a hollow S
+   (heard through the group) and play; the others are silent. Mute one
+   track inside: it goes silent although the group is soloed (mute beats
+   solo).
+3. **Returns at the bottom:** open "+ Add track ▾" and add two return
+   tracks. They appear under a divider at the bottom, lettered A and B in
+   their colours, with the master last; they stay put while the tracks
+   above scroll. Click the "Returns" caption: they fold away (the master
+   stays); click again. Drag the divider up and down: the area resizes and
+   the returns scroll inside it; double-click it for its natural size.
+   Save, close and reopen: the size and fold are kept.
+4. **Sends (comet knobs):** unfold the vocal (its arrow). Under volume and
+   pan sit two knobs, A and B, in the returns' colours. Drag A upwards:
+   a trail of light grows round the ring to a glowing head; the level
+   shows beside it while dragging. Hover the knob: the A return's header
+   lights up; hover the A return: the knob lights. Double-click the knob:
+   silent. Right-click it: Pre-fader puts a small dot at the top. Click
+   it and type -12, Enter: the send is at −12 dB.
+5. **Soloed return, wet only:** turn the vocal's send to A up and solo
+   return A. You hear only what the vocal sends there (until M8's reverb,
+   the return plays it unchanged), not the vocal itself; the vocal's M is
+   hollow. Mute the vocal: the send goes too.
+6. **Master:** unfold the master: volume and pan work as on a track.
+7. **Additive solo:** in the Lumen menu tick "Additive solo" (or run it
+   from Ctrl+K). Now a click on S adds the track and Ctrl+click solos it
+   alone. Untick it again.
+8. **Palette:** select a track, Ctrl+K "Solo selected tracks", then "Mute
+   selected tracks", then "Clear all solos": each acts and undoes in one
+   step.
+9. **Cue (no second output pair):** your Focusrite has only outputs 1/2,
+   so the master's Solo/Cue switch is grey; clicking it says to choose a
+   Cue output in Audio settings, and Audio settings › Cue says this device
+   has no second pair. (Cue itself is checked by the E2E tests on the
+   four-output test device; on a four-output interface: choose Cue 3/4,
+   switch to Cue, click a track's headphone button, and it plays in the
+   headphones before its fader while the speakers play on.)
+10. **Metronome:** right-click the metronome: Output Main is chosen, Cue
+    is grey without a cue pair. Clicks play on 1/2 and are never in the
+    master (turning the master down leaves them as loud).
+11. **Looks:** check steps 1, 3 and 4 in the light theme and at 150% and
+    200%: letters, knobs and the hollow rings line up; nothing overlaps.
+
+**Expected:** every step as described; solo, mute and send edits undo in
+one step; nothing clicks while soloing, muting or turning sends during
+playback.
+
+**Run 1 (2026-10-09, owner):** four findings. (1) Sending to a return
+makes the track louder: expected while returns hold no effect (the return
+plays a copy of what is sent; a 0 dB send adds +6 dB), as in every DAW;
+explained, waiting for the owner to confirm it was not louder at −∞. (2)
+The send knobs are hard to read on a selected (blue) row. (3) With many
+returns, the sends past "+N" cannot be reached. (4) A return should show
+which tracks send to it. Mock-ups for 2 to 4 shown before building (the
+owner asked for mocks for every visual change); the owner chose C4 (after
+a second round of ideas), O1 with a redrawn button, and R2. The owner
+confirmed (1) also happened at the knob's lowest: the bottom stored
+−80 dB instead of silence (fixed; inaudible, but not off). A louder track
+with a send at the bottom was not reproduced (E2E measures the same level
+before sending and at the bottom); a pre-fader send ignores the track's
+fader, which can sound louder than the fader says. Fixed and built
+(ADR-0038 amendment); steps 12 to 14 added.
+12. **Knobs on a selected track** (run 1): select an unfolded track with
+    sends: the knobs' rings and letters stay clear on the blue row, in
+    both themes.
+13. **Many returns** (run 1): add returns until the header shows "+N ▾"
+    after its knobs (drawn like "+ Add track ▾"). Click it: "Sends from …"
+    lists every return with its knob, letter, name and level; set one
+    there. A dot before the number shows when a hidden send is up.
+14. **Who sends to a return** (run 1): unfold a return: under volume and
+    pan, every track that sends to it is listed, in its colour, with its
+    send knob and level; turn one there. With nothing sending: "No tracks
+    send here yet". Turn a send to the bottom: it reads −∞ and the track
+    is exactly as loud as with no send.
+
+**Run 2 (2026-10-09, owner):** five findings. (1) A return's sender list
+does not fit many senders; (2) its knobs touch each other (20 pt knobs
+with hover rings on 22 pt rows, every one ringed while the return is
+hovered); (3) senders turned off stay listed; (4) cap returns at 12
+(built: the menu greys the item, Ctrl+D copies no return past twelve, a
+note says why); (5) a 0 dB send to an empty return still makes the track
+louder: explained again (+6 dB, the return plays a copy until it holds an
+effect, as in every DAW), options offered. Mock-ups for 1 to 3 shown
+before building. The owner chose L4 (the four loudest senders, then
+"+N more ▾" for all of them) and S1 (a send turned off leaves the list
+when let go), and kept the standard behaviour for (5). Built (ADR-0038
+amendment 2); steps 15 and 16 added.
+15. **Many senders** (run 2): send six tracks into one return at
+    different levels and unfold it: the four loudest are listed, then
+    "+2 more ▾", which opens all six, loudest first, each with its knob.
+    The knobs do not touch. While you drag a knob the rows keep still.
+16. **Senders turned off** (run 2): turn a sender down to the bottom from
+    the return's list: its row stays while you hold it and goes when you
+    let go. Double-click a send knob on the track: it leaves the list too;
+    its pre/post-fader setting is kept for when it is turned up again.
+    Add twelve returns: "Add return track" greys out, saying why.
+
+**Run 3 (2026-10-09, owner):** three findings, all fixed. (1) Dragging
+a knob in a return's list drew its live level over the row's level (two
+values, blurred): list knobs no longer draw a live value; their level
+column follows. (2) On a track's header the live level ran over the next
+knob: it is now a chip above the knob, over everything (`draw_hint` on a
+tooltip layer). (3) "+N more" with many senders ran off the window: both
+"+N" lists scroll past ten rows.
+
+**Run 4 (2026-10-09, owner):** after duplicating a track, setting one's
+send seemed to change the other's. Sends and their knobs were already
+keyed by track and return ids (E2E: the copy's send is its own in the
+project and by ear). The cause was the return's list re-sorting by level
+after each change: the two senders, both named after the original,
+swapped rows, so the row just set showed the other track. The list now
+re-sorts only when a sender joins or leaves (E2E
+`turning_a_sender_down_in_a_returns_list_leaves_the_rows_in_place`
+failed before the fix).
+
+**Run 5 (2026-10-09, owner):** hard to turn a send up from −∞. Each frame
+the knob started again from its level plus that frame's movement, and
+below the silence floor (about 7 points of travel) a slow drag was
+rounded back to silence every frame, so only a quick flick got out. A
+drag now keeps its own position from where it was pressed: 16 points up
+from −∞ gives about −42 dB, 32 about −28 dB (E2E
+`a_slow_drag_turns_a_silent_send_up` stayed at −∞ before the fix).
+
+**Passed (2026-10-09, owner):** "looks good now". Step 9's cue on a
+four-output interface is still to be tried by hand (KNOWN_ISSUES); cue is
+checked by E2E on the four-output test device.
+
+
+### MT-MIX-5 · The mixer panel and meters (needs a human)
+Run `cargo run --release -p lumen-app`. Start a new project, drop in four
+audio files (drums, bass, a vocal, anything loud), group the first two
+(Ctrl+G) and add two return tracks ("+ Add track ▾").
+1. **Header meters (H2):** play. Each unfolded track's level runs along
+   the bottom of its volume slider, under the value that sets it: a faint
+   peak behind a solid level, a small tick holding the highest peak for a
+   moment. Folded tracks show it as a thin line along the header's bottom
+   edge. Below −6 dB it is blue, then amber, then red past 0 dB.
+2. **Stopping:** stop. Every meter falls and comes to rest within about
+   three seconds; nothing keeps moving. Task Manager shows Lumen's CPU
+   back near idle.
+3. **Clip lights:** push a loud track's volume to +6 dB and play until it
+   clips: a red mark lights at the end of its meter and stays after you
+   stop. Click it: it clears. Make two tracks clip, then Alt+click one
+   mark: both clear. Clip again and run "Clear clip lights" from Ctrl+K.
+4. **The Mixer tab:** open the detail panel (Shift+Tab, or the Detail
+   button). The Mixer tab shows a strip per track in the arrangement's
+   order, the returns after a gap, and the master pinned at the right with
+   the loudness column. Fold the group in the arrangement: its tracks'
+   strips go too; unfold it from its strip's arrow: they come back in both.
+5. **A strip:** on one strip, drag the fader (Shift for fine; double-click
+   for 0 dB), click the value under it and type -12, Enter. Drag pan, flip
+   Ø, drag the trim. Turn send A up on its knob; with more than two
+   returns, "+N ▾" lists them all. Click M and S: the header shows the
+   same. Each change undoes in one step (Ctrl+Z).
+6. **The wheel (B3):** rest the pointer on a fader and turn the wheel: a
+   dB a notch (Shift: a tenth), and Ctrl+Z undoes the whole turn. Start
+   scrolling the track list with the pointer away from the headers, then
+   move it over a volume slider while still scrolling: the list keeps
+   scrolling and the volume does not change. Rest a moment, then wheel on
+   the slider: now it changes.
+7. **Outputs:** click a strip's output ("Master ▾"). It lists the master
+   and the groups (never a group into itself), then the Focusrite's
+   outputs: "1/2 Main". Route a track into the group from here.
+8. **Reordering (B8):** drag a strip by its name or meter to another
+   place: the track moves in the arrangement too. Drop it on the middle of
+   the group's strip: it goes into the group. Drag return B before return
+   A: their letters swap.
+9. **Loudness (L2):** play a song for a minute. The column shows the
+   integrated loudness large, a short-term bar with a line for the
+   momentary loudness, the −14 LUFS band and the last minute's history,
+   then M, S and TP. Pause and continue (Shift+Space): integrated keeps
+   counting. Stop and play (Space): it starts again. Click Reset: it starts
+   again.
+10. **Pan law:** right-click the mixer's empty area: "Pan law (mono
+    tracks)" and the four laws, −3 dB chosen; pick −6 dB, linear: centred
+    tracks of mono files get quieter, stereo tracks stay as they are.
+    Ctrl+Z returns it.
+11. **Panel size:** drag the detail panel taller and shorter. Short, the
+    strips drop their sends, then trim, then the output, but keep the
+    fader and meter; it never gets so tall that the arrangement loses its
+    rulers. Save, close and reopen: the panel's size comes back.
+12. **Meter colours:** tick "Meters in track colours" in the Lumen menu:
+    meters take their track's colour (still amber and red near the top).
+13. **Looks:** check steps 1, 4 and 9 in the light theme and at 150% and
+    200%.
+
+**Expected:** every step as described; nothing clicks or drops out while
+metering, dragging strips or turning the wheel; undo restores each change
+in one step.
+
+**Run 1 (2026-10-10, owner, in progress):** three findings, mock-ups
+first (the owner's rule): (1) strips are too narrow, so track names are
+nearly always cut off ("Heavy …", "Retu…"); (2) on a header, the level
+inside the volume slider runs right against the value's text; (3) the
+volume and peak values overflow their fields past two digits ("−16.3").
+**Fixes (2026-10-10, ADR-0040 amendment, mock-ups approved by the owner):**
+(1) strips are 96 pt wide, so about eleven characters of a name show; (2)
+the header's value text rises 3 pt clear of the level bars; (3) peak
+readouts from 10 dB up drop the decimal ("−12"), and the volume field
+fits a typed "−16.3" at 96 pt and 150% (checked by screenshot). Checked
+without audio: the header's level bars did not draw on the silent test
+device, so (2) needs a re-check with a track playing. **Run 2 waits for
+the owner.**
+
+**Run 2: passed (2026-10-10, owner),** including the header's level bars with a track playing.
+
+### MT-MIX-6 · Delay compensation and its readout (needs a human, with the audio interface)
+Nothing in Lumen adds latency until devices arrive (M6), so this test
+puts the engine's synthetic latent device on the first track with a
+developer flag. Run
+`cargo run --release -p lumen-app -- --test-latency 50`
+(50 ms on the first track). Start a new project and drop the same drum
+loop on two tracks (two files, or the same file twice), so the first
+track is the latent one.
+1. **The readout (D1):** before dropping files, the device line ends
+   with the round trip as before, nothing more. Once the first track
+   exists, it ends with "· 50.0 ms compensation", a step brighter.
+   Hover it: the info line along the bottom reads "Delay compensation
+   50.0 ms · longest path: <first track>".
+2. **The audio panel:** click the device line. Under the device, a
+   Latency group: output, round trip, and "Delay compensation 50.0 ms ·
+   2400 samples" (at 48 kHz), then "Longest path: <first track>".
+3. **In time (read ahead):** turn the metronome on and play. The two
+   tracks sound as one (no flam, no echo), and both are in time with the
+   metronome and the playhead: the kick lands on the click and on the
+   grid line as the playhead crosses it. Mute the second track and
+   unmute it: no flam appears.
+4. **Pressing Play:** the playhead waits about 50 ms at the start before
+   it moves; nothing is lost from the start of the song.
+5. **Loop:** set a one-bar loop over the loop and play: every wrap is
+   seamless and on the click, as without the flag.
+6. **Jumps:** click on the ruler while playing, a few times: each jump is
+   clean (no click) and the audio after it is in time again at once.
+7. **Polarity check (optional):** flip the second track's polarity (Ø on
+   its strip). The two tracks cancel to silence while playing, which they
+   only do if they are lined up to the sample.
+8. **Without the flag:** quit and start Lumen normally: the readout is
+   gone, playback starts at once, everything sounds as before.
+9. **Looks:** check step 1 in the light theme and at 150%. In a narrow
+   window the device's name shortens before the compensation does.
+
+**Expected:** as described; nothing clicks while starting, looping or
+jumping with compensation on; the latent track never drifts from the
+others.
+
+**Passed (2026-10-10, owner):** the owner reported every step passing at the end of M4.
+
+### MT-MIX-7 · The M4 exit walkthrough (needs a human, with the audio interface)
+The milestone's exit criterion by hand (ADR-0042), with two fixes from
+this slice. Run `cargo run --release -p lumen-app`. You need a drum loop
+split into two files (kick and snare, or any two drum sounds) and a vocal
+or any melodic file.
+1. **Build the mix:** a new project; drop the kick, snare and vocal files
+   together on the lanes (three tracks). Select kick and snare (click the
+   kick's name, Shift+Down) and press Ctrl+G: a group with both inside.
+   Add a return track ("+ Add track ▾", Add return track).
+2. **Sends:** open the Mixer tab (Shift+Tab if the panel is closed). On
+   the group's strip, turn its send to Return 1 up to about 0 dB. Unfold
+   the vocal's header and turn its send knob up too. Play: everything is
+   heard, a little louder than before the sends (the return adds a copy).
+3. **Solo the drums:** click S on the group. The drums play with their
+   share of the return; the vocal is silent, and its M is hollow
+   (silenced). The kick and snare show a hollow S (soloed through the
+   group).
+4. **Mute inside a soloed group:** click M on the kick: it goes, its share
+   of the return too. The snare plays on.
+5. **Add a solo:** Ctrl+click S on the vocal: snare and vocal play.
+6. **The return alone:** click S on Return 1: only the wet copies play
+   (snare and vocal through the return), quieter than before.
+7. **Back to the mix:** click the transport's S chip to clear the solos,
+   unmute the kick: the whole mix again. Mute Return 1: dry only.
+8. **Save and reopen:** Ctrl+S, close Lumen, start it again and open the
+   project: the group, sends, return and mutes are as you left them, and
+   it sounds the same.
+9. **Edits while stopped are heard from the first note** (a bug fixed in
+   this slice): stop. Without playing, make five or more edits (move a
+   clip, mute and unmute something), then mute the vocal and press Play
+   from the start. The vocal is silent from the very first beat: no blip
+   of it before the mute takes.
+10. **Two Lumens and autosave** (fixed in this slice): with Lumen open,
+    make an edit and wait a little over a minute (the autosave). Start a
+    second Lumen from another PowerShell window with the same command.
+    The second shows no "did not close normally" banner for the first's
+    session. Close the second, then close the first normally.
+
+**Expected:** each step sounds as described, with no clicks when soloing,
+muting or clearing; the reopened project matches; step 9 has no blip;
+step 10 has no banner.
+
+**Passed (2026-10-10, owner):** the owner reported every step passing at the end of M4.
+
+### MT-MIX-8 · Clipboard keys and the pan law for mono (needs a human)
+Fixes after MT-MIX-7 was written (ADR-0042). Run
+`cargo run --release -p lumen-app`.
+1. **Ctrl+C and Ctrl+V:** two audio tracks with a clip on the first. Click
+   the clip, press Ctrl+C. Click the second track's empty lane at bar 3,
+   press Ctrl+V: the copy lands there. Try it with text on the Windows
+   clipboard (copy a word in Notepad first) and with nothing copied
+   elsewhere: both work.
+2. **Ctrl+X:** click the copy, Ctrl+X: it goes; Ctrl+V puts it back at the
+   playhead.
+3. **Right-click Paste:** right-click an empty lane at bar 5 on the
+   second track, Paste: the clip lands there; the playhead does not move.
+4. **Delete time (Ctrl+Shift+Delete):** drag a time range on a clip's
+   lower half, press Ctrl+Shift+Delete: the time goes and what follows
+   moves back.
+5. **Typing still pastes text:** rename a track (double-click its name),
+   Ctrl+V pastes the clipboard's text into the name, not a clip.
+6. **Loudness:** play a mastered song file (a stereo file whose loudness
+   you know, for example from another DAW or a loudness meter): the
+   integrated LUFS matches it within a few tenths. A mono file plays 3 dB
+   down per side at the centre.
+
+**Expected:** as described.
+
+**Passed (2026-10-10, owner):** the owner reported every step passing at the end of M4.

@@ -270,7 +270,7 @@ impl App {
             name(if locked { "Unlock" } else { "Lock" }),
         );
         self.menu_command(ui, Command::Rename, "Rename");
-        ui.menu_button("Colour", |ui| {
+        widgets::submenu(ui, "Colour", |ui| {
             if let Some(color) = swatches(ui, current, track) {
                 self.document.recolor_clips(&ids, color);
                 ui.close();

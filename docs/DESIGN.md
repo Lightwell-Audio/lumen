@@ -45,8 +45,27 @@ restrained and purposeful.
 │ 220 pt)    │                                                         │
 ├────────────┴─────────────────────────────────────────────────────────┤
 │ Detail panel (bottom, collapsible): Devices · Clip · Mixer           │
+├──────────────────────────────────────────────────────────────────────┤
+│ Info line: what is under the pointer · its gestures and keys, 32 pt  │
 └──────────────────────────────────────────────────────────────────────┘
 ```
+
+**Text is the last resort (M4 slice 0, the owner's UX pass on hints).**
+Behaviour comes across first through the cursor, handle shapes,
+highlights and motion. Words go in three places only:
+- **The info line** along the bottom of the window (`app/info.rs`, ADR-0034):
+  what is under the pointer, then what can be done there, each gesture with
+  a mouse and its modifiers as plain keycaps, each command with its
+  shortcut as K5 keycaps from the keymap. Held modifiers light the drag
+  they choose. New interactive things set an `Info` when hovered; nothing
+  else describes a drag.
+- **Live values by the pointer, only while dragging** (a fade's length, a
+  gain, the tape speed, "new track here"): feedback, not instructions
+  (`widgets::draw_hint`).
+- **Tooltips** on controls after the pointer rests: the control's name and
+  its keys, in a few words, with the detail left to the info line.
+Permanent captions are avoided: an empty state says what to do in one line
+or offers the button that does it.
 
 - **Minimum window:** 960 × 540 pt, where the whole transport bar fits.
   Window sizes are in points, so the minimum holds at any UI scale.
@@ -257,6 +276,29 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
     (header and lane) while hovered or dragged. A folded track dragged
     taller unfolds; an unfolded one dragged below 4 steps folds;
   - heights glide (`GLIDE`) and are saved with the project.
+- **Group tracks** (M4 slice 3, the owner's H1 and L1, ADR-0037):
+  - groups go **three deep at most**; a refused Ctrl+G or drop says why
+    in a note, and a drop there greys its line with a no-entry cursor;
+  - a group's tracks step in **12 pt a level** (three levels at most),
+    and every group they are in keeps its **colour rail** at its own
+    indent, so the rails run down beside the whole group;
+  - a group's name is **medium weight**; folded, it is followed by
+    "· N" (the tracks it hides) in the hint colour;
+  - the group's arrow hides or shows its tracks; its height is still
+    dragged at the bottom edge;
+  - its lane shows a **thin bar per track inside**, in that track's
+    colour, where its clips are: 4 pt bars on a 7 pt pitch, thinning as
+    they crowd and sharing rows below 2 pt;
+  - its arm button is lit and breathes when every track inside is armed;
+    when only some are, a lit dot with **half a ring**, still;
+  - dragging headers: the drop line steps in to the level the tracks
+    will land at; over the middle half of a group's header, the header
+    lights (accent wash and a 2 pt accent frame) instead.
+- **The header column** (MT-MIX-3 run 1): 204 pt wide by default, dragged
+  wider at its edge with the lanes up to 480 pt (the edge glows like a
+  track's bottom edge), double-click to go back; saved with the project.
+  Controls stay at the right; the name and the volume slider take the
+  room.
 - **Adding tracks:**
   - a **"+ Add track ▾"** button below the last track opens a menu of
     every type with its shortcut (audio Ctrl+T, MIDI Ctrl+Shift+T, group,
@@ -377,6 +419,132 @@ half selects a time range, empty lanes draw a marquee.
   two tracks, below the last, or over a track of another kind, a 2 pt
   `accent` line (over 6 pt at 15%) marks where new tracks go, with the
   chip "new track here".
+
+### Mute, solo, returns, master and cue (M4 slice 4, owner's choices)
+
+Chosen from interactive specimens (ADR-0038):
+- **Why a track is silent or heard.** A track silenced by another's solo,
+  or by a muted group it plays through, shows a **hollow M** (a 1.5 pt
+  ring in the M's lit colour, the letter in it, on a half-strength fill)
+  and its name and type icon dim. A track heard because its group is
+  soloed shows a **hollow S** in the accent. Lit buttons mean the user set
+  them on that track.
+- **The S chip** in the transport, after Follow: quiet grey "S" while
+  nothing is soloed, the accent with "S" (or "S 2", "S 3") while anything
+  is; a click clears every solo.
+- **Returns and the master (A1):** pinned at the bottom under a 7 pt
+  divider (`raised`, strong edges, a 28 × 2 pt grip; it glows with the
+  accent while hovered or dragged, as edges do), then a 22 pt "Returns"
+  caption with a fold arrow and the count, the returns, and the master's
+  row with a grey rail. The area takes at most 60% of the lanes' height;
+  its lanes have a quieter ground (`canvas` at 70%). A return's name
+  follows a 16 pt **letter badge** in its colour (text by `text_on`); no
+  arm button on returns or the master.
+- **Send knobs (K1 "comet"):** 24 pt knobs, 5 pt apart, under volume and
+  pan on unfolded audio, MIDI and group tracks (such tracks unfold five
+  steps tall). A 270° ring in `control`; the level a trail in the
+  return's colour, from 18% to full strength and thickening towards a
+  glowing head (two soft circles, a white core, a colour centre); the
+  return's letter in the middle (`text` when sending, `text_hint` when
+  silent); a 1.6 pt dot at the top for pre-fader; the level beside it in
+  caption size while it moves; at 40% strength while the send is not
+  heard. Hovering a knob lights its return's header (10% wash, 1 pt frame
+  in its colour) and hovering a return rings its knobs.
+  - **On a selected row (C4, MT-MIX-4 run 1):** the ring is a quarter of
+    the way from the control colour to the text colour, and a silent
+    knob's letter is `text_secondary`, so the knobs stay clear of the
+    row in both themes.
+  - **"+N ▾" (O1):** past the header's width, a 20 pt button drawn as
+    "+ Add track ▾" is (control fill, 6 pt corners, the filled arrow, an
+    accent edge on hover and while open), with a dot in a return's colour
+    before the number while a hidden send is up. It opens "Sends from …":
+    a 20 pt knob, the letter badge, the name and the level per return.
+  - **A return's senders (R2, L4, S1):** an unfolded return lists, from
+    its third step, the tracks sending to it: a 4 × 14 pt bar in the
+    track's colour, its name, an 18 pt knob (no hover ring there) and the
+    level, the four loudest first, then "+N more ▾" opening "Sends into …"
+    with them all. A send at −∞ leaves the list when let go. It unfolds
+    tall enough (a step a row). "No tracks send here yet" when none do.
+- **Cue (C1):** the master's **Solo/Cue switch** (46 × 18 pt at the
+  header's right): "Solo" in control colours, the accent with headphones
+  and "Cue" when on, greyed (`text_disabled`) without a cue pair. On Cue,
+  the S buttons draw **headphones** (`icons::draw_headphones`) and light
+  with the accent. The master's unfolded row adds a "Cue" level slider
+  while a cue pair is open.
+
+### Meters (M4 slice 5, owner's choices, ADR-0040)
+
+Chosen from interactive specimens:
+- **Colours (M1, M2 a setting):** a level is `accent` up to −6 dB
+  (`theme::METER_WARN_DB`), `warning` up to full scale, `record` above it
+  (`theme::meter`). "Meters in track colours" (app menu, palette) swaps the
+  accent for the track's colour (`theme::wave`). The peak is drawn at 40%
+  (`METER_PEAK_ALPHA`) behind the solid RMS; the hold is a 1.5 pt tick in
+  `text` (`record` above 0 dB).
+- **Ballistics (B2):** a peak jumps up at once and falls 20 dB a second;
+  the hold stays 1.5 s on the highest peak, then falls 30 dB a second; the
+  RMS is a 300 ms average; below −60 dB is silence. A clip stays lit until
+  clicked (Alt+click clears every one; "Clear clip lights" in the
+  palette). Levels are read after fader, pan and the solo gate (B1).
+- **On track headers (H2):** an unfolded track's level runs along the
+  bottom of its volume slider on the slider's own scale (−60 to +6 dB):
+  two 2 pt bars (left over right), 2 pt above the slider's bottom, with the
+  hold tick across them. A folded track has no slider: a hairline (two
+  1.5 pt bars) along the header, 6 pt above its bottom edge (clear of the
+  resize edge), from the name's left to 8 pt from the right. A clip lights
+  a red mark at the right end (3 × 14 pt in the slider, 4 pt on the
+  hairline), and hovering it sets the info line.
+- Meters draw frames only while a level moves and come to rest when it
+  stops, so a silent project idles.
+
+### The Mixer tab (M4 slice 5, owner's choices, ADR-0040)
+
+- **Layout:** the detail panel's Mixer tab (Devices and Clip arrive with
+  their milestones). Strips follow the arrangement's order, skipping
+  tracks hidden in folded groups (one fold for both views, B4); the
+  returns after a 10 pt gap; the master pinned at the right after a
+  `border_strong` line, and the loudness column (L2, 108 pt) beside it.
+  The strips scroll sideways; only those in view are drawn. With no
+  tracks: "No tracks to mix yet: add one with + Add track or Ctrl+T".
+- **Strip (S1 console, 96 pt):** `header` fill (`raised` for returns and
+  the master, `selected_row` when selected, controls stepping up as on
+  headers). From the top: a 3 pt rail per group the track is in (and its
+  own when it is a group), outermost first; a 3 × 14 pt colour chip, a
+  group's fold arrow, a return's letter badge and the name (double-click
+  renames it on the strip); the output (a menu: "Inside Lumen", the master
+  and the groups that would not feed back, then "Audio outputs", every
+  pair of the device as "1/2", "3/4"…, the main pair marked "Main", the cue
+  pair greyed "Cue" with why, each pair's channel names and "Skips the
+  master" on hover; "Looking up the outputs…" until known); Ø and input trim (±24 dB, filled from the centre;
+  the master shows its Solo/Cue switch there); the sends (O2: the first
+  two returns' knobs, 22 pt, then "+N ▾" listing them all); pan; the fader
+  (`widgets::fader`: a 4 pt groove and a 22 × 12 pt cap with a `text` line,
+  on the send knobs' taper, 0 dB at three quarters of the travel, stopping
+  at −60 dB) beside the scale (monospace marks, 0 in `text_secondary`) and
+  the stereo meter (two 5 pt bars, 2 pt apart, with the clip light, 5 pt,
+  above); the volume typed in (`widgets::value_field`) and the peak held
+  (`record` when clipped; a click clears it); M, S and arm, 20 pt, centred.
+- **A short panel (B7)** folds the sends away first, then trim and
+  polarity, then the output; the rest always shows, with a travel of at
+  least 64 pt. The panel is never shorter than that strip, and never so
+  tall that the arrangement keeps less than 180 pt.
+- **Loudness column (L2):** "Loudness", the integrated value in 20 pt
+  monospace with "LUFS integrated" under it; a 12 pt short-term bar (the
+  accent, the warning colour above −9 LUFS) with the momentary as a 2 pt
+  `text` line and the −14 LUFS ± 1 band in the accent at 14%; the last
+  minute's short-term loudness as a line beside it; M, S and TP (TP in the
+  warning colour above −1 dBTP); "↺ Reset". Silence reads "—".
+- **The wheel (the owner's B3, every value control):** a wheel gesture
+  that starts on a slider, knob, fader or value field sets it, a notch a
+  step (1 dB, 5% of pan, a tenth with Shift; a send turned up from
+  silence starts at −60 dB), and the whole gesture is one undo step. A
+  gesture that started scrolling keeps scrolling over controls until the
+  wheel rests (0.3 s). Ctrl and Alt keep the wheel for zoom and track
+  heights (`widgets::wheel`).
+- **Names:** every strip control ends "in the mixer" ("Mute Kick in the
+  mixer", "Kick fader in the mixer: −3.0 dB"), so it never shares a name
+  with its header's twin; a strip itself is "Mixer strip: Kick, Audio
+  track".
 
 ## 7b. Navigation (M3 slice 4d, ADR-0028)
 
@@ -524,6 +692,13 @@ Chosen by the owner from rendered specimens (Ableton's split):
   shows or hides the detail panel everywhere else (the owner's choice,
   ADR-0015).
 
+**Keycap alignment (owner, 2026-10-09).** Keycaps keep the light's room
+above them as well as below, so any layout that centres them centres the
+caps and the light hangs below. In a menu row the highlight reaches a
+little past the row, so the label and the keycaps sit equally far in from
+its edges; on a highlighted row the key's outline and the modifier caps
+step up (`theme::controls(true)`), or they vanish into the highlight.
+
 ## 8. Key flows
 
 Each flow lists its steps, its keyboard path and its feedback. Flows marked
@@ -564,3 +739,5 @@ Each flow lists its steps, its keyboard path and its feedback. Flows marked
 6. Motion follows §6. With Reduce motion on, it still works and simply does
    not travel.
 7. Every control has an accessible name.
+7a. Hovering anything that can be dragged or clicked sets the info line
+   (§2); nothing floats over content to explain it.

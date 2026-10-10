@@ -16,9 +16,10 @@ use std::hint::black_box;
 use std::sync::Arc;
 
 use lumen_core::time::{TempoMap, TempoPoint, Ticks};
+use lumen_engine::testing::{latent, routed};
 use lumen_engine::{
-    ClickSound, Clip, ClipAudio, ClipPlayer, Command, Engine, MetronomeSettings, Region, Timeline,
-    clip_player, engine,
+    ClickSound, Clip, ClipAudio, ClipPlayer, Command, Destination, Engine, MetronomeSettings,
+    Mixer, NodeSpec, Region, Routing, Timeline, clip_player, engine, mixer,
 };
 use lumen_project::model::Project;
 use lumen_project::testing::synthetic;
@@ -29,6 +30,14 @@ pub const SCENARIOS: &[(&str, &str)] = &[
     (
         "engine_clips_64",
         "1,000 blocks of 128 frames with 64 stereo clips sounding",
+    ),
+    (
+        "engine_routed_64",
+        "1,000 blocks of 128 frames: 64 tracks in 8 groups, each with two sends",
+    ),
+    (
+        "engine_latent_64",
+        "1,000 blocks of 128 frames: the routed mix with delay compensation and a sidechain",
     ),
     (
         "engine_transport",
@@ -52,8 +61,16 @@ pub const SCENARIOS: &[(&str, &str)] = &[
 pub fn run(name: &str) -> bool {
     match name {
         "engine_clips_64" => {
-            let mut engine = playing_clips(64);
+            let mut engine = playing_clips(64, Mix::Direct);
             measured_engine_clips_64(&mut engine);
+        }
+        "engine_routed_64" => {
+            let mut engine = playing_clips(64, Mix::Routed);
+            measured_engine_routed_64(&mut engine);
+        }
+        "engine_latent_64" => {
+            let mut engine = playing_clips(64, Mix::Latent);
+            measured_engine_latent_64(&mut engine);
         }
         "engine_transport" => {
             let (handle, mut engine) = transport_only();
@@ -79,7 +96,22 @@ pub fn run(name: &str) -> bool {
 const RATE: u32 = 48_000;
 const FRAMES: usize = 128;
 
-fn playing_clips(clips: usize) -> Engine<ClipPlayer> {
+type Player = Engine<Mixer<ClipPlayer>>;
+
+/// How the clips of a scenario are mixed.
+#[derive(Clone, Copy, PartialEq)]
+enum Mix {
+    /// All on one track, straight to the device.
+    Direct,
+    /// Each on its own track in [`routed`].
+    Routed,
+    /// Each on its own track in [`latent`].
+    Latent,
+}
+
+/// `clips` clips playing, mixed as `mix`.
+fn playing_clips(clips: usize, mix: Mix) -> Player {
+    let routed_mix = mix != Mix::Direct;
     let audio = Arc::new(ClipAudio {
         sample_rate: RATE,
         channels: vec![vec![0.1; 480_000], vec![-0.1; 480_000]],
@@ -94,14 +126,25 @@ fn playing_clips(clips: usize) -> Engine<ClipPlayer> {
                     offset: 0,
                     length: 480_000,
                     gain: 0.5,
-                    pan: 0.0,
+                    track: if routed_mix { i as u64 } else { 0 },
                     audio: Arc::clone(&audio),
                     shape: Default::default(),
                 })
                 .collect(),
         )
         .expect("room for one clip list");
-    let (mut transport, mut engine) = engine(Timeline::default(), player, RATE);
+    let (mut routing, source) = mixer(player);
+    let plan = match mix {
+        Mix::Routed => routed(clips as u64, 0),
+        Mix::Latent => latent(clips as u64, 0),
+        Mix::Direct => Routing {
+            nodes: vec![NodeSpec::unity(0, Destination::Hardware(0))],
+            cue: None,
+            measure: None,
+        },
+    };
+    assert!(routing.set(&plan).expect("a valid routing"));
+    let (mut transport, mut engine) = engine(Timeline::default(), source, RATE);
     transport.send(Command::Play).expect("room for a command");
     let mut data = vec![0.0; 2 * FRAMES];
     // Past the fade-in, into steady playback.
@@ -113,7 +156,7 @@ fn playing_clips(clips: usize) -> Engine<ClipPlayer> {
 
 #[unsafe(no_mangle)]
 #[inline(never)]
-pub fn measured_engine_clips_64(engine: &mut Engine<ClipPlayer>) {
+pub fn measured_engine_clips_64(engine: &mut Player) {
     let mut data = vec![0.0; 2 * FRAMES];
     for _ in 0..1_000 {
         engine.process(RATE, &mut data, 2, FRAMES);
@@ -121,14 +164,39 @@ pub fn measured_engine_clips_64(engine: &mut Engine<ClipPlayer>) {
     black_box(&data);
 }
 
-fn transport_only() -> (lumen_engine::EngineHandle, Engine<ClipPlayer>) {
+#[unsafe(no_mangle)]
+#[inline(never)]
+pub fn measured_engine_routed_64(engine: &mut Player) {
+    let mut data = vec![0.0; 2 * FRAMES];
+    for _ in 0..1_000 {
+        engine.process(RATE, &mut data, 2, FRAMES);
+    }
+    // Not the same code as `measured_engine_clips_64`, or the linker folds
+    // the two into one symbol and Callgrind finds no routed scenario.
+    black_box((&data, engine.transport().sample));
+}
+
+#[unsafe(no_mangle)]
+#[inline(never)]
+pub fn measured_engine_latent_64(engine: &mut Player) {
+    let mut data = vec![0.0; 2 * FRAMES];
+    for _ in 0..1_000 {
+        engine.process(RATE, &mut data, 2, FRAMES);
+    }
+    // Distinct from the other scenarios, so the linker keeps it apart.
+    black_box((&data, engine.transport().ticks));
+}
+
+fn transport_only() -> (lumen_engine::EngineHandle, Player) {
     let (_clips, player) = clip_player();
-    let (mut handle, engine) = engine(Timeline::default(), player, RATE);
+    let (_routing, source) = mixer(player);
+    let (mut handle, engine) = engine(Timeline::default(), source, RATE);
     handle
         .send(Command::SetMetronome(MetronomeSettings {
             enabled: true,
             volume: 0.5,
             sound: ClickSound::Wood,
+            channel: 0,
         }))
         .expect("room for a command");
     // Two quarters at 120 BPM: 48,000 samples, so 2,000 blocks wrap it
@@ -146,10 +214,7 @@ fn transport_only() -> (lumen_engine::EngineHandle, Engine<ClipPlayer>) {
 
 #[unsafe(no_mangle)]
 #[inline(never)]
-pub fn measured_engine_transport(
-    mut handle: lumen_engine::EngineHandle,
-    engine: &mut Engine<ClipPlayer>,
-) {
+pub fn measured_engine_transport(mut handle: lumen_engine::EngineHandle, engine: &mut Player) {
     let mut data = vec![0.0; 2 * FRAMES];
     for block in 0..2_000 {
         if block % 500 == 250 {
@@ -211,7 +276,13 @@ mod tests {
     fn every_listed_scenario_runs() {
         // The project scenarios are slow in debug builds; run the cheap ones
         // here, and check the names of the rest resolve.
-        for name in ["engine_clips_64", "engine_transport", "tempo_conversions"] {
+        for name in [
+            "engine_clips_64",
+            "engine_routed_64",
+            "engine_latent_64",
+            "engine_transport",
+            "tempo_conversions",
+        ] {
             assert!(run(name), "{name}");
         }
         assert!(!run("no_such_scenario"));

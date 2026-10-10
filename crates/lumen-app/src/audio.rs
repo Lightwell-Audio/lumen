@@ -11,7 +11,7 @@ use lumen_audio::{
     Status as Meters, StreamConfig, StreamInfo, Timing,
 };
 use lumen_core::product::PRODUCT_NAME;
-use lumen_engine::{ClipsHandle, EngineHandle, Timeline, clip_player, engine};
+use lumen_engine::{ClipsHandle, EngineHandle, MixerHandle, Timeline, clip_player, engine, mixer};
 
 use crate::settings::AudioSettings;
 
@@ -134,6 +134,8 @@ struct Resolved {
     buffer_frames: Option<u32>,
     input_channels: Vec<usize>,
     output_channels: Vec<usize>,
+    /// The cue pair, opened after the main pair (empty: none).
+    cue_channels: Vec<usize>,
     /// Something the user should know (the saved device was missing).
     notice: Option<String>,
 }
@@ -149,17 +151,24 @@ impl Resolved {
             buffer_frames: None,
             input_channels: Vec::new(),
             output_channels: vec![0, 1],
+            cue_channels: Vec::new(),
             notice: None,
         }
     }
 
+    /// The stream to open: the main pair, then the cue pair, so the cue is
+    /// always on the third and fourth channels the engine sees.
     fn config(&self) -> StreamConfig {
+        let cue = self
+            .cue_channels
+            .iter()
+            .filter(|c| !self.output_channels.contains(c));
         StreamConfig {
             device: self.id.clone(),
             sample_rate: self.sample_rate,
             buffer_frames: self.buffer_frames,
             input_channels: self.input_channels.clone(),
-            output_channels: self.output_channels.clone(),
+            output_channels: self.output_channels.iter().chain(cue).copied().collect(),
         }
     }
 }
@@ -201,6 +210,7 @@ fn find_saved(saved: &AudioSettings) -> Option<Resolved> {
         buffer_frames: saved.buffer_frames,
         input_channels: saved.input_channels.clone(),
         output_channels: saved.output_channels.clone(),
+        cue_channels: saved.cue_channels.clone(),
         ..Resolved::found(&saved.driver, make, id, name)
     })
 }
@@ -258,11 +268,21 @@ fn listen(tap: &mut rtrb::Producer<f32>, outputs: &[f32], channels: usize, frame
     if channels == 0 {
         return;
     }
-    let Ok(chunk) = tap.write_chunk_uninit(2 * frames) else {
+    let Ok(chunk) = tap.write_chunk_uninit(4 * frames) else {
         return;
     };
+    // The main pair, then the cue pair (silent when there is none).
     let right = usize::from(channels > 1) * frames;
-    chunk.fill_from_iter((0..frames).flat_map(|i| [outputs[i], outputs[right + i]]));
+    let at = |channel: usize, i: usize| {
+        if channel < channels {
+            outputs[channel * frames + i]
+        } else {
+            0.0
+        }
+    };
+    chunk.fill_from_iter(
+        (0..frames).flat_map(|i| [outputs[i], outputs[right + i], at(2, i), at(3, i)]),
+    );
 }
 
 pub struct Audio {
@@ -274,6 +294,8 @@ pub struct Audio {
     pub engine: EngineHandle,
     /// Replaces the clips the engine plays.
     pub clips: ClipsHandle,
+    /// Replaces the routing they play through (M4).
+    pub mixer: MixerHandle,
     /// What the test device played, left and right frame by frame, for the
     /// end-to-end tests to listen to (`testing`). Real devices have none.
     pub(crate) heard: Option<rtrb::Consumer<f32>>,
@@ -283,6 +305,14 @@ pub struct Audio {
     pub device: String,
     /// What "Audio on" opens again.
     config: Option<StreamConfig>,
+    /// The cue pair within `config`'s outputs (after the main pair).
+    cue_channels: Vec<usize>,
+    /// Further device outputs, after the cue pair: pairs something in the
+    /// project plays to (M4 slice 5, the owner's B6).
+    extra_channels: Vec<usize>,
+    /// Further outputs being opened now, and ones the device refused.
+    trying_extra: Option<Vec<usize>>,
+    refused_extra: Option<Vec<usize>>,
     /// The device's latencies and block size, once running.
     pub info: Option<StreamInfo>,
     /// The last device error, to tell "busy" apart from other failures.
@@ -310,6 +340,8 @@ struct Previous {
     driver: String,
     device: String,
     config: StreamConfig,
+    cue_channels: Vec<usize>,
+    extra_channels: Vec<usize>,
     info: Option<StreamInfo>,
     status: Status,
 }
@@ -319,7 +351,8 @@ impl Audio {
     /// in [`Status`].
     pub fn start(choice: &Choice, timeline: Timeline) -> Self {
         let (clips, player) = clip_player();
-        let (engine_handle, mut engine) = engine(timeline, player, 48_000);
+        let (mixer, source) = mixer(player);
+        let (engine_handle, mut engine) = engine(timeline, source, 48_000);
         let testing = matches!(choice, Choice::Named { driver, .. } if driver == TEST_DRIVER);
         let (mut tap, heard) = if testing {
             let (tap, heard) = rtrb::RingBuffer::new(HEARD);
@@ -339,11 +372,16 @@ impl Audio {
             parked: Some(callback),
             engine: engine_handle,
             clips,
+            mixer,
             heard,
             status: Status::Off(String::new()),
             driver: String::new(),
             device: String::new(),
             config: None,
+            cue_channels: Vec::new(),
+            extra_channels: Vec::new(),
+            trying_extra: None,
+            refused_extra: None,
             info: None,
             last_error: None,
             pending: None,
@@ -382,6 +420,8 @@ impl Audio {
         }
         self.driver = found.driver;
         self.device = found.name;
+        self.cue_channels = found.cue_channels;
+        self.extra_channels = Vec::new();
         self.config = Some(config);
         self.info = None;
         self.last_error = None;
@@ -403,6 +443,8 @@ impl Audio {
                     driver: self.driver.clone(),
                     device: self.device.clone(),
                     config,
+                    cue_channels: self.cue_channels.clone(),
+                    extra_channels: self.extra_channels.clone(),
                     info: self.info.clone(),
                     status: self.status.clone(),
                 });
@@ -425,8 +467,96 @@ impl Audio {
             sample_rate: config.sample_rate,
             buffer_frames: config.buffer_frames,
             input_channels: config.input_channels.clone(),
-            output_channels: config.output_channels.clone(),
+            output_channels: self.main_channels(config),
+            cue_channels: self.cue_channels.clone(),
         })
+    }
+
+    /// The main pair: the opened outputs before the cue pair (and any
+    /// further pairs).
+    fn main_channels(&self, config: &StreamConfig) -> Vec<usize> {
+        let main = config
+            .output_channels
+            .len()
+            .saturating_sub(self.cue_channels.len() + self.extra_channels.len());
+        config.output_channels[..main.max(1).min(config.output_channels.len())].to_vec()
+    }
+
+    /// Where the device's output pairs sit in the stream: the main pair,
+    /// the cue pair, then the further pairs open for the project.
+    pub fn outputs(&self) -> crate::routing::Outputs {
+        let pair = |channels: &[usize]| channels.first().map(|&c| (c / 2) as u16);
+        crate::routing::Outputs {
+            main: self
+                .config
+                .as_ref()
+                .and_then(|config| pair(&self.main_channels(config))),
+            cue: pair(&self.cue_channels),
+            extra: self
+                .extra_channels
+                .chunks(2)
+                .filter_map(|c| c.first().map(|&c| (c / 2) as u16))
+                .collect(),
+        }
+    }
+
+    /// The driver and the device in use, while one is.
+    pub fn device_key(&self) -> Option<(&str, &str)> {
+        let config = self.config.as_ref()?;
+        Some((self.driver.as_str(), config.device.id.as_str()))
+    }
+
+    /// Opens `pairs` of the device's outputs (it has `outputs` channels)
+    /// after the main and cue pairs, so tracks can play to them; reopens
+    /// the stream only when that set changes. Pairs the device does not
+    /// have, the main and the cue pair are left out.
+    pub fn want_pairs(&mut self, pairs: &std::collections::BTreeSet<u16>, outputs: usize) {
+        let (Some(config), Some(system)) = (self.config.as_ref(), &self.system) else {
+            return;
+        };
+        if !matches!(self.status, Status::Running { .. }) {
+            return;
+        }
+        let main = self.main_channels(config);
+        let taken = |c: usize| main.contains(&c) || self.cue_channels.contains(&c);
+        let extra: Vec<usize> = pairs
+            .iter()
+            .flat_map(|&p| [usize::from(p) * 2, usize::from(p) * 2 + 1])
+            .filter(|&c| c < outputs && !taken(c))
+            .collect();
+        if extra == self.extra_channels || self.refused_extra.as_ref() == Some(&extra) {
+            return;
+        }
+        // Back to this setup if the device will not open them.
+        self.previous = Some(Previous {
+            driver: self.driver.clone(),
+            device: self.device.clone(),
+            config: config.clone(),
+            cue_channels: self.cue_channels.clone(),
+            extra_channels: self.extra_channels.clone(),
+            info: self.info.clone(),
+            status: self.status.clone(),
+        });
+        self.trying_extra = Some(extra.clone());
+        let mut config = config.clone();
+        config.output_channels = main
+            .iter()
+            .chain(&self.cue_channels)
+            .chain(&extra)
+            .copied()
+            .collect();
+        system.configure(config.clone());
+        self.config = Some(config);
+        self.extra_channels = extra;
+        self.status = Status::Starting;
+    }
+
+    /// Whether a cue pair is open: chosen in the audio settings and running
+    /// as the third and fourth channels.
+    pub fn cue_ready(&self) -> bool {
+        !self.cue_channels.is_empty()
+            && matches!(self.status, Status::Running { .. })
+            && self.info.as_ref().is_some_and(|i| i.output_channels >= 4)
     }
 
     /// CPU load, overloads and dropouts, when a device was found.
@@ -491,6 +621,8 @@ impl Audio {
         if previous.driver == self.driver {
             // The supervisor already reopened it.
             self.config = Some(previous.config);
+            self.cue_channels = previous.cue_channels;
+            self.extra_channels = previous.extra_channels;
             self.info = previous.info;
             self.status = previous.status;
         } else if let Some(make) = backend(&previous.driver) {
@@ -503,7 +635,10 @@ impl Audio {
                 sample_rate: previous.config.sample_rate,
                 buffer_frames: previous.config.buffer_frames,
                 input_channels: previous.config.input_channels.clone(),
-                output_channels: previous.config.output_channels.clone(),
+                output_channels: previous.config.output_channels
+                    [..previous.config.output_channels.len() - previous.cue_channels.len()]
+                    .to_vec(),
+                cue_channels: previous.cue_channels.clone(),
                 notice: None,
             };
             let notice = self.notice.take();
@@ -569,6 +704,7 @@ impl Audio {
                     self.info = Some(info);
                     self.last_error = None;
                     self.previous = None;
+                    self.trying_extra = None;
                     if let Some(settings) = self.pending.take() {
                         self.confirmed = Some(settings);
                     }
@@ -579,6 +715,9 @@ impl Audio {
                 }
                 DeviceEvent::ConfigFailed { error, reverted } => {
                     self.pending = None;
+                    // Further outputs the device would not open are not
+                    // asked for again.
+                    self.refused_extra = self.trying_extra.take();
                     let can_restore = self.previous.is_some();
                     if reverted || can_restore {
                         // Back to the setup that worked, saying why.
@@ -601,6 +740,7 @@ impl Audio {
         }
         self.engine.collect_garbage();
         self.clips.collect_garbage();
+        self.mixer.collect_garbage();
         changed
     }
 }

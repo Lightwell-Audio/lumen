@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 use lumen_core::time::{TempoMap, Ticks};
 
-use crate::model::{ClipContent, Id, Project, TrackKind};
+use crate::model::{ClipContent, Id, Output, Project, Track, TrackKind};
 
 pub fn validate(project: &Project) -> Result<(), String> {
     if !(8_000..=384_000).contains(&project.sample_rate) {
@@ -32,17 +32,20 @@ pub fn validate(project: &Project) -> Result<(), String> {
         return Err("two media entries share an id".into());
     }
     let kinds: HashMap<Id, TrackKind> = project.tracks.iter().map(|t| (t.id, t.kind)).collect();
-    if kinds.len() != project.tracks.len() {
+    if kinds.len() != project.tracks.len() || kinds.contains_key(&project.master.id) {
         return Err("two tracks share an id".into());
     }
-    if project
-        .tracks
-        .iter()
-        .filter(|t| t.kind == TrackKind::Master)
-        .count()
-        > 1
+    if project.tracks.iter().any(|t| t.kind == TrackKind::Master) {
+        return Err("a master track among the tracks".into());
+    }
+    let master = &project.master;
+    if master.kind != TrackKind::Master
+        || master.parent.is_some()
+        || !master.clips.is_empty()
+        || !master.sends.is_empty()
+        || matches!(master.output, Output::Master | Output::Track(_))
     {
-        return Err("more than one master track".into());
+        return Err("the master track is not a master".into());
     }
 
     let mut ids = HashSet::new();
@@ -57,16 +60,21 @@ pub fn validate(project: &Project) -> Result<(), String> {
             ));
         }
     }
-    for track in &project.tracks {
+    for track in crate::routing::all_tracks(project) {
         let at = || format!("track {:?}", track.name);
         // JSON cannot represent NaN or infinity; they must never reach a file.
         if !track.gain_db.is_finite()
             || !track.pan.is_finite()
             || !(-1.0..=1.0).contains(&track.pan)
+            || !track.trim_db.is_finite()
         {
             return Err(format!("{}: gain or pan is not a valid number", at()));
         }
+        routing(track, &kinds).map_err(|e| format!("{}: {e}", at()))?;
         if let Some(parent) = track.parent {
+            if !crate::groups::can_be_grouped(track.kind) {
+                return Err(format!("{}: a return or master inside a group", at()));
+            }
             match kinds.get(&parent) {
                 Some(TrackKind::Group) => {}
                 Some(_) => return Err(format!("{}: parent is not a group track", at())),
@@ -152,6 +160,39 @@ pub fn validate(project: &Project) -> Result<(), String> {
             current = parent;
         }
     }
+    if !crate::groups::in_order(&project.tracks) {
+        return Err("a group's tracks are not right under it".into());
+    }
+    if crate::routing::has_loop(project) {
+        return Err("the routing feeds back into itself".into());
+    }
+    Ok(())
+}
+
+/// A track's output and sends go to tracks that can take them.
+fn routing(track: &Track, kinds: &HashMap<Id, TrackKind>) -> Result<(), String> {
+    if let Output::Track(to) = track.output {
+        match kinds.get(&to) {
+            _ if to == track.id => return Err("its output is itself".into()),
+            Some(TrackKind::Group | TrackKind::Return) => {}
+            Some(_) => return Err("its output is not a group or return".into()),
+            None => return Err("its output track does not exist".into()),
+        }
+    }
+    for (index, send) in track.sends.iter().enumerate() {
+        match kinds.get(&send.to) {
+            _ if send.to == track.id => return Err(format!("send {index} goes to itself")),
+            Some(TrackKind::Return) => {}
+            Some(_) => return Err(format!("send {index} is not to a return track")),
+            None => return Err(format!("send {index} goes to a missing track")),
+        }
+        if !(send.level.is_silent() || send.level.0.is_finite()) {
+            return Err(format!("send {index}: level is not a valid number"));
+        }
+        if track.sends[..index].iter().any(|s| s.to == send.to) {
+            return Err(format!("send {index}: a second send to the same return"));
+        }
+    }
     Ok(())
 }
 
@@ -160,7 +201,58 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::model::{Level, Send};
     use crate::testing::small_project;
+
+    #[test]
+    fn outputs_and_sends_must_go_where_audio_can_go() {
+        let project = small_project(3);
+        assert_eq!(validate(&project), Ok(()));
+        let group = project.tracks[0].id;
+        let midi = project.tracks[1].id;
+        let check = |edit: &dyn Fn(&mut Project)| {
+            let mut p = project.clone();
+            edit(&mut p);
+            validate(&p)
+        };
+        let set = |i: usize, output: Output| {
+            move |p: &mut Project| Arc::make_mut(&mut p.tracks[i]).output = output
+        };
+        assert_eq!(check(&set(5, Output::Track(group))), Ok(()));
+        assert!(
+            check(&set(5, Output::Track(midi)))
+                .unwrap_err()
+                .contains("not a group")
+        );
+        assert!(
+            check(&set(5, Output::Track(Id(999))))
+                .unwrap_err()
+                .contains("does not exist")
+        );
+        // A track in the group routed back into its own group's output loop.
+        assert!(
+            check(&set(0, Output::Track(group)))
+                .unwrap_err()
+                .contains("itself")
+        );
+        let send = |to| {
+            move |p: &mut Project| {
+                Arc::make_mut(&mut p.tracks[5]).sends.push(Send {
+                    to,
+                    level: Level::SILENT,
+                    pre_fader: false,
+                })
+            }
+        };
+        assert!(check(&send(group)).unwrap_err().contains("not to a return"));
+        let master_out = |p: &mut Project| Arc::make_mut(&mut p.master).output = Output::Master;
+        assert!(check(&master_out).unwrap_err().contains("not a master"));
+        let master_in_tracks = |p: &mut Project| {
+            let master = p.master.clone();
+            p.tracks.push(master);
+        };
+        assert!(check(&master_in_tracks).is_err());
+    }
 
     fn with_first_clip(edit: impl FnOnce(&mut crate::model::Clip)) -> Result<(), String> {
         let mut project = small_project(3);

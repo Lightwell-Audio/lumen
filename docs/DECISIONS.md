@@ -44,7 +44,14 @@ irreversible or external) · *Superseded*.
 | [0031](#adr-0031--curves-for-fades-and-envelopes-format-v6) | Curves for fades and envelopes (format v6): a cubic Bézier from silence to full, edited by one free dot with Alt for S-shape, played from tables, drawn on the GPU | Accepted 2026-10-08 | No |
 | [0032](#adr-0032--clip-editing-m3-slice-6) | Clip editing (M3 slice 6): the split-clip model, drags redone from where they started, Ableton's overlap rule, clip properties and the pinned card, drops on a chosen track, Esc for the field being typed in | Accepted 2026-10-08 | No |
 | [0033](#adr-0033--commands-and-the-keymap-m3-slice-7) | Commands and the keymap (M3 slice 7): one table of commands, chords matched exactly, one command per key whatever is selected, one dispatcher | Accepted 2026-10-08 (7a) | No |
+| [0034](#adr-0034--the-info-line-m4-slice-0) | The info line (M4 slice 0): hover hints leave the pointer for one strip along the bottom of the window, with K5 keycaps and lit modifiers | Accepted 2026-10-09 | No |
+| [0035](#adr-0035--the-mixer-graph-m4-slice-1) | The mixer graph (M4 slice 1): a node per track with a stereo bus, compiled on the UI side into a flat ordered plan, swapped at a block edge with levels carried by id; plans of a new shape crossfade over 5 ms | Accepted 2026-10-09 | No |
+| [0036](#adr-0036--routing-in-the-model-format-v7) | Routing in the model (format v7): a master track kept apart from the tracks, outputs, sends, polarity, trim and the pan law; one routing rule shared by validation, edits and the engine | Accepted 2026-10-09 | No |
+| [0037](#adr-0037--group-tracks-format-v8) | Group tracks (format v8): a group's tracks always follow it in the list; grouping, ungrouping, folding, nested rails, lane bars, arming and deleting a group | Accepted 2026-10-09 | No |
+| [0038](#adr-0038--mute-solo-returns-master-and-cue-m4-slice-4-format-v10) | Mute, solo, returns, master and cue (format v10) | Accepted 2026-10-09 | No |
 | [0039](#adr-0039--lumens-licence-gpl-30-or-later-supersedes-adr-0012) | Lumen's licence: GPL-3.0-or-later, sold packaged binaries (supersedes ADR-0012) | Accepted 2026-10-09 | Yes (owner items) |
+| [0041](#adr-0041--sidechains-and-delay-compensation-m4-slice-6) | Sidechains and delay compensation: devices and taps in the graph, delay lines, read ahead, the D1 readout | Accepted 2026-10-10 | No |
+| [0042](#adr-0042--the-m4-exit-walkthrough-and-known-issues-m4-slice-7) | The M4 exit walkthrough; edits taken while stopped; session locks for autosaves; submenu names; the pipeline cache off the UI thread | Accepted 2026-10-10 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -86,6 +93,19 @@ irreversible or external) · *Superseded*.
 | Hints and tooltips (2026-10-08) | The owner noted that hints have piled up slice by slice: behaviour should come across without reading much (cursors, handle shapes, motion before text). **A dedicated UX pass**, scheduled when the next milestones are planned; until then new hints stay short. |
 | Split and tools (2026-10-08) | The owner asked to select a clip and drag it to cut it. **Split** is planned in M7 with the rest of the split work, and the drag-to-cut gesture is chosen there from rendered specimens. The tool model (pointer, draw, erase, split, mute, zoom; CLAUDE.md §5) is proposed for M7 with it, for the owner to confirm. |
 | Commands and shortcuts (M3 slice 7, 2026-10-08) | Chosen from interactive specimens: palette **P2 with P3's values** (context names such as "Duplicate 2 clips", commands that cannot run listed dimmed with the reason, a detail strip, typed values becoming actions); keycaps **K5 area light** after asking for more personality than the first round (plain modifiers, the main key outlined with a light in its area's colour); shortcut editor **E2 with E3** (a keyboard map lit by area over the list, plus rebinding from a palette result); **Shift+Tab depends on focus**, F6 and Shift+F6 between panes (ADR-0015). |
+| Clips from the keyboard (M3 review H2, 2026-10-08) | **The arrows follow the selection**, as in Logic and Cubase: with a clip selected ←/→ select the previous or next clip on its track and ↑/↓ the nearest clip on the track above or below, Shift adds; with tracks selected the arrows act on tracks as before (over Alt+←/→ only, and [ and ]). ADR-0033. |
+| M3 close (2026-10-09) | M3 approved after MT-APP-16 passed. The M4 plan (`docs/milestones/M4.md`) waits for approval and its three questions. |
+| M4 plan (2026-10-09) | Approved. **Solo: Ableton's by default** (a click solos only that track, Ctrl+click adds). **The UX pass on hints runs first**, as M4 slice 0. Pan law −3 dB constant power by default (the proposal, recorded as an assumption). |
+| Group tracks (M4 slice 3, 2026-10-09) | Chosen from rendered specimens and asked before building: **H1**, a group's tracks step in 12 pt a level with every enclosing group's colour rail running down beside them (over H2 tree lines and H3 a tinted block); **L1**, a group's lane shows a thin bar per track inside it in that track's colour (over L2 a summed band with a waveform and L3 ghost clips); **deleting a group deletes its tracks** (Ableton; Ungroup keeps them) over moving them up a level; **a group's arm button arms its tracks** (Cubase-style, half a ring when some are armed) over no arm on groups (Ableton). Also proposed and not objected to: the Ableton rules for Ctrl+G, Ctrl+Shift+G, the fold arrow, drops and groups holding no clips (ADR-0037). |
+| Group tracks, MT-MIX-3 run 1 (2026-10-09) | The owner's findings: **groups go three deep at most** (Group › Group › Group › tracks; "needing more than that probably doesn't do much"), refused with a note; **the track header column is resizable**, its width **saved per project** (over app-wide), 204 to 480 pt; soloing a track in a group must not silence it (a bug, fixed). ADR-0037 amendment. |
+| Routing in the model (M4 slice 2, 2026-10-09) | Asked before building: **a new send starts at −∞** (over 0 dB) and **post-fader** (over pre-fader); **deleting a return removes its sends** in the same undo step (over asking first); **the pan law is chosen from the mixer panel's menu** and the palette (over a project settings window, M9). |
+| Dropouts (2026-10-09) | Chosen from mockups: **A, recent and in words**: no chip while audio is healthy, "Dropouts ×3" in amber while they happen, fading after 10 s of clean audio, details in the audio panel; over B (a labelled total until reset) and C (an amber status dot). Driver resets no longer count (ADR-0020 update). |
+| Mixer behaviour (M4 slice 1, 2026-10-09) | Asked after the graph was built (the owner: variants first, before building): **centre −3 dB** (a hard-panned side at unity; projects from M3 play 3 dB quieter) over centre unity with +3 dB sides; **balance** panning of stereo tracks over a true stereo pan; **mute silences every send**, pre-fader ones too (Ableton) over pre-fader sends playing on (Pro Tools, Cubase); **post-fader sends after the pan** over before it. All four as built (ADR-0035). |
+| Pan law for stereo (after M4 slice 7, 2026-10-10) | **B**: stereo material keeps its level at the centre (balance), as in Ableton, Logic and Pro Tools; the project's pan law (−3 dB by default) applies only to tracks whose clips are all mono files. Chosen over keeping −3 dB on every track (every file played and measured 3 dB under its own level) and a 0 dB default. Projects from before play stereo tracks 3 dB louder. ADR-0042. |
+| Hints (M4 slice 0, 2026-10-09) | Chosen from interactive specimens: **an info line** along the bottom of the window (C, Ableton's Info View in spirit) over quiet chips (A) and rest-to-reveal (B), **with the K5 keycaps** the palette and menus use (the owner's addition, for consistency), **no chips for held keys** (the cursor and the lit action say it), full width (ADR-0034). |
+| Mute, solo, returns, master and cue (M4 slice 4, 2026-10-09) | The solo rules agreed as a table of 14 cases before building (`docs/milestones/M4.md` §5): solo keeps a soloed track's path open, **mute always beats solo** along the path, returns are solo-safe, **a soloed return plays wet only** (sends into it stay on, their tracks' outputs go silent), the master, metronome and cue are never touched by solo. **D1 A** a group's solo solos the group (its tracks show it hollow); **D2 A** additive solo is a preference (Ctrl+click then replaces); **D3 A** a lit "S" chip in the transport while anything is soloed, a click clears; **D4 A1** returns then the master pinned at the bottom under a divider, a "Returns" caption that folds them, returns lettered A, B, C and never grouped; **D5 C1** Ableton's Solo/Cue switch on the master, cue **pre-fader** to a chosen pair, unavailable with a note when that pair is the main one; **D6** the metronome has its own output (Main, Cue or a pair), never through the master; **D7** palette commands Solo and Mute selected tracks and Clear all solos, no default keys. Chosen from interactive specimens: **sends as K1 "comet" knobs** (a trail of light in the return's colour, brightening to a glowing head; a dot marks pre-fader; hovering a send lights its return and the reverse) over lantern, droplet and plain knobs; **a track silenced by another's solo shows a hollow M and a dimmed name** (hollow S inside a soloed group) over dimming the whole row. Asked while building 4d: **O1**, the cue output chosen in the audio settings beside the main pair, over Ableton's per-pair output configuration (so the metronome's output is Main or Cue); the owner's interface has two outputs, so cue is checked on the four-output test device. MT-MIX-4 runs 1 and 2, from mock-ups: **C4** knobs step up on selected rows, **O1** a "+N ▾" button drawn as "+ Add track ▾", **R2** an unfolded return lists its senders, **L4** its four loudest then "+N more", **S1** silent sends leave that list when let go; **12 returns at most**; the standard +6 dB of an empty return kept. |
+| Mixer panel and meters (M4 slice 5, 2026-10-09) | Chosen from interactive specimens: **S1 console** strips (fader and meter side by side, 76 pt) over S2 light rail and S3 broad; sends **O2**, two knobs then a "+N ▾" list (over a grid of six, or every knob in a taller strip); meter colours **M1 accent by default, M2 track colour as a setting** (over M3 classic green); loudness **L2**, a column beside the master; header meters as well, **H2** inside the volume slider (over H1 at the edge and H3 the colour rail, which already carries arm and nesting). Behaviour, all as recommended: **B1** post-fader after the pan; **B2** peaks fall 20 dB/s, a 1.5 s hold, clip latched until clicked; **B3** a latching wheel; **B4** one fold with the arrangement; **B5** integrated loudness resets on Play from stop; **B6** any output pair; **B7** sections fold away in a short panel; **B8** strips drag to reorder, returns included. ADR-0040. |
+| Sidechains and delay compensation (M4 slice 6, 2026-10-10) | Behaviour asked before building: **read ahead** (what is heard lines up with the playhead; live input in M11 gets a reduced-latency monitoring option) over delaying everything and moving the drawn playhead; sidechain taps **Ableton's three** (Pre FX, Post FX by default, Post Mixer; FX taps ignore mute) over post-fader only; **sidechains saved with the first device** that uses them (format v11 then) over saving them now. The readout from rendered mock-ups: **D1**, only while there is compensation, at the end of the device line, the path in the info line, always in the audio panel (over D2 always shown and D3 folded into the latency). ADR-0041. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
 
@@ -1234,6 +1254,39 @@ is unchanged. Cost: `engine_transport` +2.4% instructions (about 136 per
 128-frame block; the scenario is mostly click synthesis), an intended
 change; the baseline was updated. Lengthening clicks to 80 ms instead
 cost +57% and was rejected.
+
+### Update 2026-10-09: dropouts told in words, and resets not counted
+The owner saw a bare amber number ("⚠ 72") climb while changing the
+Focusrite's buffer size, and it meant nothing without context.
+- **Resets were counted.** The Focusrite's ASIO driver keeps counting
+  samples through a reset, and the meter counted the gap to the reopened
+  stream's position as skipped buffers (a simulated reset counted 78,122).
+  A stream that opens now sets `Status::resync`; the next block starts the
+  position count afresh. Test `a_driver_reset_is_not_counted_as_dropouts`.
+- **Told in words** (owner's A of three mockups, over a labelled total and
+  an amber status dot): nothing while audio is healthy; "⚠ Dropout" or
+  "⚠ Dropouts ×3" as an amber chip after the CPU readout while they
+  happen, fading out after 10 s of clean audio; clicking it opens the
+  audio panel, which says "3 dropouts in the last minute · 72 since audio
+  started" (or "since you reset") with what they mean and that a larger
+  buffer helps. The mockup's clock time ("since 14:02") became "since
+  audio started": Lumen has no local-time formatting, and it was not worth
+  a dependency. Episodes and the last-minute tally are pure logic in
+  `transport/dropouts.rs`; the chip asks for one repaint when it is due
+  to go, so idle stays idle. E2E `dropouts_show_in_words_and_the_panel_explains_them`
+  (through `testing::cause_dropouts`); screenshots in `tests/shots.rs`
+  (`dropouts`: dark 100%, light 150%, dark 200%).
+- **Second run (owner):** the panel's warning ("344 dropouts since audio
+  started") stayed long after the audio was clean. The panel now warns
+  only while the chip shows ("3 dropouts just now · 344 since audio
+  started"), and the total stays a plain number among the meters; the
+  last-minute tally went. Its tooltip tells the two checks apart (buffers
+  the driver skipped, audio slower than real time; `Status::slow_dropouts`).
+  ASIO resync requests were acknowledged but ignored: a driver that
+  resyncs jumps its sample position, which counted as skipped buffers (a
+  simulated resync counted 19,533). The block after a resync now reports
+  no position, and a block without one restarts the count. Test
+  `a_driver_resync_is_not_counted_as_dropouts`.
 
 ---
 
@@ -2384,6 +2437,598 @@ Option 3.
   command, a search, an unavailable command, a value and a track, in
   dark at 100% and light at 150%).
 
+### Amendment (2026-10-08, the end-of-milestone review: `docs/audits/2026-10-08-m3.md`)
+- **Import audio… (H1).** Importing was mouse-drag only, so the exit flow
+  could not be done from the keyboard. A File command, Ctrl+Shift+I (Pro
+  Tools' and Logic's; Ableton has none, and Ctrl+I is Insert time), in the
+  app menu, the palette, a track's menu and the empty arrangement. The
+  system dialog runs on its own thread; the chosen files load as dropped
+  files do, at the playhead, onto the selected audio track or the track of
+  the selected clip, else onto new tracks right after the selection
+  (`document::import_place`, which a track's menu reaches by selecting
+  that track). Tests never open a real dialog: `Launch::for_test` answers
+  them from `testing::answer_next_dialog`, or as cancelled.
+- **The arrows follow the selection (H2, the owner's choice, as in Logic
+  and Cubase).** With a clip selected, ←/→ select the clip before or
+  after it on its track and ↑/↓ the nearest clip in time on the closest
+  track above or below that has clips; Shift adds to the selection (two
+  new commands, Shift+←/→). With tracks selected the arrows act on
+  tracks as before. They stay one command per key, as Delete is: the
+  commands keep their ids (saved keymaps hold) and are named for both
+  meanings ("Previous clip or fold track"), and the palette's label says
+  which applies now ("Previous clip on the track", "Fold 2 tracks"). The
+  next arrow goes from the clip the keys last chose (`clip_cursor`) while
+  it is selected, else the first selected clip; with nothing further that
+  way it selects that clip alone, so Ctrl+A then an arrow reaches one
+  clip. The view scrolls the least that shows it (`TimeView::showing`).
+- **Palette ranking.** A name that starts with the query scores more, and
+  one equal to it most: "cut" matched "Next clip or unfold track" by its
+  word starts above "Cut".
+- **Tab order (M3, recorded, not changed).** egui needs side panels
+  declared before the central area and focus follows declaration, so Tab
+  goes transport → browser → detail panel → arrangement. F6 visits the
+  panes in reading order and each pane is in order inside, so the flows
+  work from the keyboard; the order is revisited in the M10
+  accessibility pass.
+
+Evidence: unit tests `import_goes_onto_the_chosen_audio_track_or_new_tracks_after_it`,
+`arrows_step_along_a_track_and_to_the_nearest_clip_above_or_below`,
+`showing_a_span_scrolls_the_least`, `fuzzy_search_prefers_word_starts_and_runs`;
+E2E `audio_imports_from_the_keyboard_onto_the_selected_track`,
+`importing_with_nothing_selected_makes_tracks_and_cancelling_does_nothing`,
+`arrows_move_between_clips_when_a_clip_is_selected`,
+`the_view_follows_a_clip_chosen_with_the_arrows`; the palette's pass test
+now checks the command each top row runs. Screenshots of the empty
+arrangement (both themes, 100% and 200%) and the shortcuts window.
+
+---
+
+## ADR-0034 — The info line (M4 slice 0)
+
+**Status:** Accepted · **Date:** 2026-10-09
+
+### Context
+The owner found that hints had piled up slice by slice (2026-10-08): every
+clip, handle, the loop brace, the scrub strip and the time ruler showed a
+chip by the pointer saying what a drag does ("drag to move · Ctrl
+copies"), on every hover. The spec asks for status-bar hints (§7) and for
+behaviour to read without much text (§2).
+
+### Options (shown as an interactive specimen)
+- A. Quiet: no hover text; a chip only while a held key changes a drag.
+- B. Rest to reveal: today's chips after the pointer rests 0.8 s.
+- C. An info line: one strip along the bottom names what is under the
+  pointer and what can be done there.
+- A and C together (recommended at first).
+
+### Decision
+**C, with the K5 keycaps** (the owner), and no held-key chips: the cursor
+already changes with the keys (copy, slip, loop) and the info line lights
+the drag they choose.
+- `app/info.rs`: an `Info` is a subject and actions; an action is a mouse
+  gesture (click, double-click, right-click, drag) with modifiers, or a
+  command shown with its shortcut from the keymap (left out while it has
+  none, so a remapped key shows its new chord). Hovers call
+  `App::set_info`; the strip, laid out before the lanes, draws the last
+  frame's info and asks for one more frame when it changes.
+- Drawn full width under the detail panel, 32 pt (`theme::size::INFO_LINE`):
+  the subject, then the actions separated by dots, stopping with "…" where
+  the window ends. Gestures: modifiers as plain caps (`widgets::modifier_caps`),
+  a mouse (`Icon::Mouse`), the gesture's word. Commands: K5 keycaps as a
+  picture (`Keys::picture`: not a control, so nothing unnamed for screen
+  readers). The drag whose modifiers are held exactly is lit in the
+  accent. The strip is one label for screen readers ("Info: Clip “kick”:
+  drag to move · Ctrl+drag to copy · …").
+- "Show info line" (View) hides it; saved in the settings' appearance (an
+  added field, on by default).
+- Removed: every hover chip (clips, clip edges, fade, bend and gain
+  handles, the loop brace, the scrub strip, the time ruler), the arrow
+  marks on chips, and the "Or double-click empty space" caption. Kept by
+  the pointer: live values while dragging and "new track here" during a
+  file drag. The brace's brackets and the scrub strip's washed step stay:
+  they show, rather than say.
+- Added info where nothing was said: empty lanes, the bar ruler, the empty
+  track area. Wordy tooltips and the browser and detail placeholders were
+  shortened.
+
+### Consequences
+- One place to look for how to do something; new interactive things set an
+  `Info` (DESIGN.md §2 and §9).
+- The window loses 32 pt of height to the strip (hidden by the command).
+- Tests read the info line as words (`testing::info_line`, `info_lit`).
+
+### Evidence
+Unit test `info_reads_as_words_and_lights_the_drag_the_keys_choose`; E2E
+`info` (hover, a remapped key shown, the empty track area, Show info line),
+and the clip, fade, loop, properties and scrubbing scenarios now reading
+the info line; screenshots (`tests/shots.rs`, `info_line`: a clip, with
+Ctrl held, a clip's end; dark 100%, light 150%, dark 200%).
+
+## ADR-0035 — The mixer graph (M4 slice 1)
+
+**Status:** Accepted · **Date:** 2026-10-09
+
+### Context
+Until M4 the engine played one list of clips into one stereo output, with
+each track's volume, pan, mute and solo baked into its clips' levels
+(ADR-0025). M4 needs groups, returns, sends, the master, device outputs,
+and later meters, sidechains and delay compensation (M4 plan, risks R1
+and R2). The graph must cost well under the quality bar's budget (half of
+2.67 ms at 128 frames, 48 kHz, 64 tracks), change while playing without
+clicks, and never allocate on the audio thread.
+
+### Options
+- **Clips keep their track levels; buses only for groups.** Little
+  change, but sends, polarity and meters need a per-track signal anyway.
+- **A node graph walked on the audio thread** (pull model, each node
+  asking its inputs). Flexible, but recursion and visit marks on the audio
+  thread, and hard to bound.
+- **A flat plan compiled on the UI side** (chosen): nodes in an order
+  where everything that feeds a node comes before it, every buffer
+  allocated up front, run front to back.
+
+### Decision
+- `lumen_engine::mixer`: a [`Routing`] (nodes with id, trim, polarity,
+  volume, pan, pan law, audible, output, sends) is compiled by
+  `compile_routing` into a `Plan`: Kahn's order (ties keep the listed
+  order, so a routing always compiles the same way), indices instead of
+  ids, a stereo bus of 256 frames per node, and a *topology* key over
+  the order, outputs and sends (not levels). Duplicates, unknown targets
+  and cycles (through outputs or sends) are refused with a
+  `RoutingError`; the playing plan stays.
+- Signal path per node: input (its clips, the nodes routed into it, the
+  sends into it) → trim × polarity × mute → pre-fader sends → volume ×
+  pan → post-fader sends → output (another node, a device pair, or
+  nothing). Groups and returns are ordinary nodes that others feed. A
+  device pair the device does not have is silent; a mono device gets the
+  left side.
+- `Mixer<T: TrackSource>` is the engine's `Source`. Each part of a block
+  (at most 256 frames): clear the buses, let the track source (the clip
+  player) add into its tracks' buses by id, run the plan. The clip player
+  no longer pans; a clip whose track is not in the routing is not heard,
+  and fades in when its track appears.
+- Plans arrive through a lock-free queue (the newest wins; skipped ones go
+  straight back) and old ones return to be freed, as clip lists do. A new
+  plan takes over the levels of the nodes and sends it shares with the old
+  one by id; levels glide linearly over 20 ms (`mixer/smooth.rs`, counted
+  in frames, so block size does not matter). A plan of a new shape
+  crossfades over 5 ms: the old plan, fed the same track audio, fades out
+  as the new fades in, and new plans wait until it ends. A transport jump
+  (already crossfaded by the engine) settles every level.
+- Pan laws in `lumen_core::pan` (shared with the interface): −3 dB
+  constant power by default, −4.5 dB, −6 dB linear and 0 dB balance. The
+  hard side plays at unity; panning acts as a balance on stereo material.
+  The master node uses the balance law, so it is not 3 dB down at its
+  centre.
+- The app sends the routing after the clip list and never ahead of it
+  (`lanes.rs`): a deleted track's clips fade out while its node is still
+  there, and a new track's clips wait for their node, then fade in.
+  `routing.rs` derives the routing: every track into a master node (until
+  slice 2 adds the master track, outputs and sends), a track inside a
+  group into that group, mute and solo by the current rule (slice 4
+  replaces it).
+- Owner decisions on what is heard: centre −3 dB, balance panning, mute
+  silences every send, post-fader sends after the pan.
+
+### Consequences
+- M3 projects play 3 dB quieter at the centre (the pan law).
+- Meters (slice 5) read node buses; sidechains and delay compensation
+  (slice 6) add edges and per-node delays to the same plan.
+- `Engine<Mixer<ClipPlayer>>` everywhere; tests build routings with
+  `NodeSpec::unity` and `lumen_engine::testing::routed` (the shape the
+  benchmark and the performance gate measure).
+- Performance gate: `engine_transport` rose 4.07% (about 240 instructions
+  a block: the mixer's queue check and part loop over an empty plan) and
+  `engine_clips_64` 0.78%; the baseline was updated in WSL with this
+  reason, and `engine_routed_64` added.
+
+### Evidence
+- `tests/mixer.rs` (15 golden renders): a group equals the sum of its
+  children (nested too); a group's level applies to its children; a muted
+  track is silent with its sends; a send at 0 dB doubles into a return;
+  pre- and post-fader sends; the −3 dB centre; polarity and trim; device
+  pairs; a missing track; volume, pan, mute and polarity changes glide; a
+  reroute crossfades with a constant sum; a joining track fades in; the
+  same output at block sizes 1, 37, 128, 256, 300 and 1,024 across a glide
+  and a crossfade; plans handed back; a cycle refused while the old
+  routing plays on. The 18 clip golden renders pass unchanged through a
+  one-node routing.
+- `tests/realtime.rs`: 64 routed tracks with plans swapped as fast as a
+  drag, under the allocation guard: no heap operations.
+- Benchmark (`cargo bench -p lumen-engine --bench clips`, Windows, release):
+  routed 16 / 64 / 200 tracks at 128 frames: 7.3 / 25.7 / 81 µs median,
+  1.0% / 3.0% of the 2.67 ms block at 64 / 200 tracks; plain 64 clips
+  15.1 µs.
+- App: `routing.rs` unit tests; E2E `mixing` (pan and mute heard, mixer
+  changes while playing never click); E2E `fades_and_gain_are_heard`
+  updated for the −3 dB centre.
+
+## ADR-0036 — Routing in the model (format v7)
+
+**Status:** Accepted · **Date:** 2026-10-09
+
+### Context
+The mixer graph (ADR-0035) plays whatever routing the app derives, but the
+project could only say "this track is in that group". M4 needs the master
+track, outputs, sends, polarity, input trim and the pan law saved,
+undoable and safe (risk R4: no edit may make the audio feed back).
+
+### Decision
+- **Format v7.** `Project::master` holds the one master track, apart from
+  `tracks` (which never holds a master), so each view chooses where to show
+  it (Ableton keeps it at the bottom; slice 4). `Project::pan_law`
+  (`lumen_core::pan::PanLaw`, now serializable). Each track gains `output`
+  (`auto`, `master`, `{"track": id}` a group or return, `{"device": n}` a
+  pair of device outputs), `sends` (to a return, a `level` in dB written as
+  a number or `"-inf"`, `pre_fader`), `invert` and `trim_db`. New fields are
+  written only when set.
+- **Migration v6 → v7:** a master already among the tracks (the golden
+  fixtures have one) moves out to `master`, losing any `parent`; otherwise
+  a master is made with the next free id (the highest `"id"` anywhere, plus
+  one). Defaults are written on every track; the pan law is −3 dB constant
+  power (owner, M4). Golden fixture `tests/fixtures/v7` (a return with a
+  pre- and a post-fader send, one silent; a track straight to the master
+  from inside its group; polarity; trim; the master at −2 dB out of the
+  second pair; the linear law).
+- **One routing rule:** `lumen_project::routing::destination` (automatic is
+  the track's group when it is in one, otherwise the master; the master's
+  automatic is the first device pair), `feeds` and `has_loop`. Validation
+  rejects outputs that are not a group or return, sends that are not to a
+  return, a second send to the same return, a master that is not a master,
+  and any loop. The app's `routing.rs` builds the engine routing from the
+  same rule; silent sends stay in it at zero gain, so turning one up glides
+  instead of reshaping the routing.
+- **Edits** (`document/mixer.rs`): `set_output`, `set_send` (made silent and
+  post-fader, the owner's choice; up to +6 dB; a drag is one step),
+  `set_send_pre_fader`, `set_invert`, `set_trim` (±24 dB), `set_pan_law`.
+  Each tries the change on a copy first and is refused (`Refused::Loop`,
+  `Refused::Invalid`) if it would feed back or the target cannot take
+  audio. `set_volume` and `set_pan` reach the master. Deleting tracks sets
+  outputs to them back to automatic and removes sends to them (owner: a
+  deleted return takes its sends), in the same step. The master is never
+  deleted or added. The edits wait for their controls (slices 4 and 5)
+  under an `expect(dead_code)` that names them.
+- **The history's change check** (`history::unchanged`) compared fields by
+  hand and did not know the new ones, so routing edits recorded nothing. It
+  now destructures `Project` and `Track`, so a new field fails to compile
+  until it is compared.
+- A new project's master has id 0; other ids count on from 1.
+
+### Consequences
+- The arrangement still shows only `tracks`; the master appears in slice 4.
+- Opening an M3 project migrates it (3 dB quieter at the centre, as in
+  slice 1); saving writes version 7.
+- Performance gate: `project_parse` +0.82% (the loop check),
+  `project_serialize` +0.04%; under the threshold, baseline unchanged.
+
+### Evidence
+Migration unit tests (a master made with the next free id, a master moved
+out of the tracks); golden fixtures v1 to v7 load; validation test for
+outputs, sends and the master; routing tests (automatic outputs, loops
+through outputs, groups and sends); history test `routing_changes_are_edits`;
+`document/mixer.rs` tests (outputs and undo, refused loops change nothing,
+sends start post-fader and a drag is one step, deleting a return takes its
+sends and undo brings them back, polarity, trim and the pan law); app
+`routing.rs` tests (outputs, sends, polarity, trim and the law reach the
+engine); E2E `a_project_from_before_the_mixer_opens_with_a_master_and_saves_as_v7`.
+
+## ADR-0037 — Group tracks (format v8)
+
+**Status:** Accepted · **Date:** 2026-10-09
+
+### Context
+M4 slice 3 makes group tracks real: the engine already sums a track into
+its group (ADR-0035) and the model already had `parent`, but nothing let
+a user make, nest, fold or leave a group, and the list order said nothing
+about membership (a group's tracks could sit anywhere). The owner chose
+the look and four behaviours from rendered specimens before building
+(owner-decisions table).
+
+### Decision
+- **One order rule** (`lumen_project::groups`): a group's tracks follow it
+  directly, nested ones inside theirs, so a group and everything in it is
+  one run of the list (`span`). Validation rejects a list out of that
+  order, and returns or the master inside a group (`can_be_grouped`, as in
+  Ableton). Edits set parents and a rough order, then `normalize` puts
+  every track back under its group, keeping the order of siblings. Helpers:
+  `depth`, `ancestors` (stops on a cycle), `is_inside`, `with_contents`,
+  `outermost`, `common_group`, `in_order`.
+- **Format v8:** `ViewState::collapsed`, the groups folded to hide their
+  tracks (view state, not an undo step, as track heights are). Migration
+  v7 → v8 puts tracks in group order (the same preorder, written out in the
+  migration so it never changes), takes returns and the master out of
+  groups, and writes an empty `collapsed`. Golden fixture `v8` (a group
+  nested in the drums holding a MIDI track; the drums folded).
+- **Edits** (`document/groups.rs`; one undo step each, tried on a copy
+  first and refused if the routing would feed back, `Refused::Loop`):
+  `group_tracks` (Ctrl+G: the outermost of the selection, returns left out,
+  into a new "Group N" where the topmost was, inside the innermost group
+  that held them all); `ungroup` (Ctrl+Shift+G: a selected group goes, its
+  tracks move up a level in place and become the selection, routing to it
+  falls back to automatic; a selected track inside a group comes out to
+  right after it, "Take track out of group"); `move_tracks` now takes a
+  `Place` (an index among the tracks that stay, and a group) and moves a
+  group with everything inside it. `delete_tracks` takes a group's tracks
+  too (owner); `duplicate_tracks` copies a group with its tracks, fresh
+  ids throughout, right after the original's run; `set_armed` on a group
+  arms its audio and MIDI tracks (owner); `add_track` lands after the
+  chosen track's run, in its group. Imports: `DropInto::NewTracks` gained
+  `group`, so files dropped on a group's lane, or Import audio with a group
+  chosen, make tracks at the end of that group.
+- **Arrangement:** rows skip tracks hidden in a folded group; the GPU row
+  table stays one slot per track (`RowSlot::HIDDEN` for hidden ones), since
+  boxes and waves name their track's index. A group's arrow hides or shows
+  its tracks (Alt+click: every group); Left and Right on a selected group
+  do the same; Up and Down, Shift-click ranges and Fit to height use only
+  the tracks shown; Go to track unfolds the groups around it. Alt+Up and
+  Alt+Down move the selection among the tracks of its group, over a
+  neighbouring group whole. Dragging headers (`reorder.rs`): between two
+  tracks the moved ones join the group of the track below (so below a
+  group's last track they come after it); the middle half of a group's
+  header drops into it, lit; the line steps in to the level they land at.
+- **Look** (`arrangement/nesting.rs`, the owner's H1 and L1): headers step
+  in `INDENT` (12 pt) a level, capped at four levels so names keep room,
+  with each enclosing group's rail at its own indent; a group's name is
+  medium weight and, folded, followed by "· N"; its lane draws a bar per
+  audio or MIDI track inside it where its clips are (bars thin as they
+  crowd, then share rows), only what is in view. A group's arm button is
+  lit when everything inside is armed and shows a lit dot with half a ring
+  when only some is.
+- **Commands:** Group tracks (Ctrl+G), Ungroup (Ctrl+Shift+G), Fold all
+  groups and Unfold all groups (no keys), in the palette and the track
+  menu (Ungroup reads "Take out of group" on a track inside one; a group's
+  menu offers Hide or Show its tracks). `arrangement/menus.rs` now holds the
+  track menus, split from `headers.rs`.
+
+### Consequences
+- Solo across groups is still the plain per-track solo; its rules are
+  slice 4's (a table of cases for the owner first).
+- Opening a v7 project may reorder tracks whose groups were scattered (no
+  project made in the app had any: grouping did not exist).
+- Two or more levels deep, long names are shortened sooner (204 pt
+  headers; KNOWN_ISSUES).
+- **Performance gate:** `project_parse` +1.71% and `project_serialize`
+  +0.33% against the old baseline, of which slice 2 was +0.82% and +0.04%.
+  A probe without the new order check measured +1.67%, so the check costs
+  0.04%; the rest was not traced to more work per track or clip (most
+  likely code generation around the new view field). The baseline was
+  updated from WSL (`perf.sh --update`) on this commit, as an intended
+  change.
+
+### Evidence
+`lumen_project::groups` unit tests (depth, spans, contents, outermost,
+common group, order, normalize with missing parents and cycles);
+migration test (scattered tracks put in order, a return taken out of its
+group, `collapsed` written); golden fixtures v1 to v8 load; validation
+tests (a track apart from its group, a return inside a group);
+`document/groups.rs` tests (grouping in place and nesting, wrapping a
+group, ungrouping a level up with routing falling back, taking tracks out
+in order, moves that take groups whole and enter or leave them, a move
+that would feed back is refused, deleting and duplicating groups, arming
+a group); import tests (into a group at its end); drop and reorder place
+tests; `nesting` tests (bar layout, arm state); E2E `groups` (7 scenarios:
+keys and undo, nesting and taking out, folding saved with the project,
+dragging in and out, arming and deleting, files dropped on a group's lane,
+a tone heard through two groups and silenced by the outer mute).
+
+### Amendment (2026-10-09, MT-MIX-3 run 1)
+- **Solo inside groups** (bug: soloing a track in a group silenced it,
+  because its group was not soloed and every unsoloed track was cut).
+  `document::audible` now hears, while anything is soloed, the soloed
+  tracks, what plays into them (a soloed group's tracks), and where their
+  output leads (their groups, by `routing::destination`), so the path
+  stays open; others in the same group stay silent. Returns, solo-safe and
+  the rest are slice 4's table of cases. Tests: `routing.rs`
+  `solo_keeps_the_path_through_groups_open`; E2E `groups` (a soloed track
+  inside two groups is heard).
+- **Groups go three deep at most** (owner): `groups::MAX_NESTING` and
+  `groups::nesting`. Every group edit runs through one trial
+  (`Document::trial`), refused with `Refused::TooDeep` when groups would go
+  deeper than three and deeper than before (an older, deeper project still
+  opens and edits; files are never rejected for it). `group_tracks` returns
+  a `Result`; a refusal shows a note ("Groups go three deep at most",
+  `Arrangement::note` turned into the toast). `check_move` lets a header
+  drag grey its drop line and show a no-entry cursor where the drop would
+  be refused (checked when the place changes, not every frame). Indents
+  stop at three levels.
+- **A resizable header column** (owner; format v9, `ViewState::header_width`,
+  migration v8 → v9 writes 204, golden fixture `v9` at 296): drag the edge
+  between the headers and the lanes (`app/view.rs` `header_divider`, on the
+  headers' side of the edge so a drag at the lanes' left edge stays a clip
+  or locator drag), 204 to 480 pt, double-click back to 204; the edge glows
+  like a track's bottom edge (`widgets::draw_edge_glow_vertical`). Saved
+  with the project's view, not an undo step, as panel sizes are. Header
+  contents already followed the column's width. The known issue about
+  short names is closed.
+- Performance gate unchanged (`project_parse` −0.04%).
+- **Deleting a track from its right-click menu crashed Lumen** (owner,
+  after run 1). The header column lays out its rows at the start of a
+  frame, and a header's menu deletes tracks partway through drawing them;
+  later rows (and the dimming of dragged tracks) still indexed the old
+  list. `headers.rs` now remembers the track each row was laid out for and
+  skips rows whose track is no longer in its place for the rest of that
+  frame, and a drag does not follow stale rows. E2E
+  `deleting_any_kind_of_track_from_its_menu_or_by_key_never_crashes`
+  (audio, MIDI, group with a track inside, and return; from the menu and
+  by key; undo restores all) failed with the crash before the fix.
+- **Tracks in groups played quieter** (owner, after run 1): groups and
+  returns took the project's pan law (−3 dB at the centre by default), so
+  each group level took another 3 dB off what was inside it (−6 dB two
+  groups deep), and sends lost 3 dB at their return. Only the master was
+  at unity (ADR-0035). Now every bus (group, return, master) pans with the
+  balance law, unity when centred: the owner's −3 dB centre applies once,
+  at the track that pans the sound. Tests: `routing.rs`
+  `buses_are_unity_when_centred_and_tracks_follow_the_pan_law`; E2E
+  `groups` (a tone through two groups plays as loud as the track alone;
+  half as loud before the fix).
+
+## ADR-0038 — Mute, solo, returns, master and cue (M4 slice 4, format v10)
+
+**Status:** Accepted · **Date:** 2026-10-09
+
+### Context
+Slices 1 to 3 built the mixer graph, routing in the model and group
+tracks, but solo only kept a soloed track's groups open, returns and the
+master were invisible or mixed in with the tracks, sends had no control,
+and there was no cue or metronome routing (deferred from M2). The plan
+asked for the solo rules as a table of cases agreed with the owner before
+building (risk R3). The owner agreed the 14 cases and chose D1 to D7, then
+the A1 layout, K1 comet knobs and the hollow-M look from interactive
+specimens, and O1 for the cue outputs (owner-decisions table).
+
+### Decision
+- **4a, the solo rules as one pure function** (`lumen_project::solo`):
+  `hearing(project)` says per track whether its output and its sends are
+  heard, whether it is silenced without being muted (hollow M) and whether
+  it is heard through a soloed group (hollow S). A soloed path stays open
+  (the soloed tracks, what plays into them and where they play out to);
+  returns are solo-safe unless a return is soloed; a soloed return plays
+  wet only (the sends into it stay on, the senders' outputs go silent);
+  mute beats solo along the whole path, sends included; the master is
+  never silenced by solo. The 14 cases are its tests. The engine gates a
+  node's output apart from its sends (`NodeSpec::sends_audible`, a gliding
+  output gate), so wet-only plays without clicks. Additive solo is a
+  setting (`Mixing::additive_solo`, D2); the transport's S chip (count when
+  more than one) and the palette's "Clear all solos" clear every solo in
+  one step; palette commands "Solo selected tracks" and "Mute selected
+  tracks" (a new Mixer area of commands, no default keys, D7).
+- **4b, returns and the master pinned at the bottom** (`arrangement/
+  pinned.rs`, the owner's A1): rows carry a zone (main, returns, master)
+  and each zone clips its drawing and its pointer, so the tracks scroll
+  under the pinned area. Returns keep any place in the project's list (no
+  order rule in the file): the arrangement draws them pinned in list
+  order, lettered A, B, C (then AA) in their colour, without an arm
+  button, never dragged; a new return goes after the last. A "Returns"
+  caption folds them; the master's row comes last (fold arrow, volume and
+  pan). The divider resizes the area up to 60% of the lanes (the returns
+  scroll inside it when it is smaller; double-click for its natural size,
+  as the header column's edge). **Format v10:** `ViewState::returns_height`
+  (absent at the natural size) and `returns_folded`; migration v9 → v10
+  writes the fold; golden fixture `v10` (110 points, folded). H fits the
+  tracks into the height above the pinned area.
+- **4c, sends as comet knobs** (`widgets/knob.rs`, `arrangement/sends.rs`,
+  the owner's K1): a knob per return on an unfolded audio, MIDI or group
+  track, in the return's colour and letter; the level is a trail of light
+  that brightens to a glowing head, dimmed when the send is not heard; a
+  dot marks pre-fader. A 270° travel with 0 dB at three quarters and +6 dB
+  at the top (`48·log10(p/0.75)`), silence below −60 dB. Drag (Shift
+  fine), double-click for silence, click and type, arrow keys, and a menu
+  for pre- or post-fader; a drag is one undo step. Hovering a send lights
+  its return's header, and the reverse (one frame behind). Tracks with
+  sends to show unfold a step taller (five steps), so the knobs have
+  their own row under volume and pan.
+- **4d, cue and the metronome's output** (the owner's C1 with O1): the
+  audio settings choose a Cue output pair beside the main one
+  (`AudioSettings::cue_channels`, an added field); the stream opens the
+  main pair then the cue pair, so the engine always finds the cue on
+  channels 3 and 4. The engine's cue bus takes each cued node after trim
+  and polarity, before mute and the fader, whatever solo says, and writes
+  it to that pair at the cue level (`Routing::cue`, `NodeSpec::cue`; the
+  level glides; a device without the pair does not hear it). The master's
+  Solo/Cue switch (greyed without a cue pair; a click says to choose one in
+  Audio settings) turns the S buttons into headphone buttons (Ableton's
+  click and Ctrl+click), and its unfolded row gains the cue level. What is
+  cued is session state (`Arrangement::cued`); the switch and level are
+  settings (`Mixing::cue_mode`, `cue_volume_db`). The metronome plays on
+  Main or Cue (`MetronomeSettings::channel`, settings `metronome.output`),
+  never through the master, falling back to the main pair. The test device
+  has four outputs; the E2E tap records both pairs (`App::heard_all`).
+
+### Consequences
+- Track headers are taller when unfolded in projects with returns (110
+  points instead of 88); saved heights are unchanged.
+- A master output to a device pair other than the first would now land on
+  the cue pair when one is chosen; no control offers such outputs until
+  the mixer panel (slice 5), which defines output choices with the cue in
+  mind.
+- Known issues recorded: no wheel adjustment on sliders and knobs yet
+  (slice 5), returns not reorderable by drag, "+N" for knobs past the
+  header's width.
+- Performance gate: `engine_routed_64` −5.6% (the gated output path
+  compiled leaner), `engine_transport` +1.6% (the metronome's pair),
+  others unchanged; baseline updated from WSL. Frame times on the stress
+  project p99 1.5 to 1.8 ms; idle 3 repaints in 3 s, as before.
+
+### Evidence
+`solo.rs` tests (cases 1 to 13 and a group sending to a soloed return);
+engine `mixer` tests (wet only with a gliding gate; a cued track before
+its fader and mute, the cue level gliding, silence without the pair) and
+`metronome` (Main, Cue, fallback); the allocation guard with a cue bus and
+the metronome on the cue pair (`realtime`); `routing.rs` (wet only and
+cue reach the engine); arrangement unit tests (returns after the tracks,
+letters, the saved view); knob taper and typed levels; migration v9 →
+v10 and the v10 golden fixture. E2E: `solo` (silenced tracks say so, the
+chip clears, Ctrl+click adds, mute beats a group's solo, palette and
+additive solo), `returns` (pinned under the divider, folding, the divider
+and its saved size, the master's volume), `sends` (drag, silence,
+pre-fader and undo; a typed level; a soloed return heard wet only), `cue`
+(the switch explains itself, a cued track on the cue pair before its
+fader and mute, the metronome on the cue pair).
+
+### Amendment: MT-MIX-4 run 1 (2026-10-09)
+- **The knob's bottom was not silence:** `knob::level` took the floor as
+  position 0, so the bottom of the travel stored about −80 dB. The floor
+  is now the position of −60 dB (`knob::floor`); E2E
+  `a_send_at_the_bottom_is_silent_and_leaves_the_level_alone` stored
+  −80.7 dB before the fix. A louder track with the send at the bottom was
+  not reproduced (the same E2E measures the level before sending and at
+  the bottom).
+- **C4** (the owner, after two rounds of mock-ups): knobs take the row's
+  selection; on a selected row the ring is a quarter of the way to the
+  text colour (`SendKnob::selected`).
+- **O1, drawn as "+ Add track ▾":** knobs past the header's width are
+  reached from a "+N ▾" button opening every send of the track
+  (`sends::more_sends`, an egui menu popup).
+- **R2:** an unfolded return lists its senders with their knobs
+  (`sends::senders_rows`), unfolding a step taller per sender
+  (`Arrangement::senders`). Knob widgets are named by place (header, list,
+  return) so the same send can show twice.
+- E2E: the "+N" list sets the tenth return's send; a return lists its
+  sender and sets it there. `tests/shots.rs` `sends` renders the selected
+  row, the list and a return's senders in both themes and at 150%.
+
+### Amendment 2: MT-MIX-4 run 2 (2026-10-09)
+- **A project holds 12 return tracks at most** (the owner; letters A to
+  L): `mixer::MAX_RETURNS`, `Document::returns_full`; the add menu greys
+  the item with the reason, adding is refused with a note, and duplicating
+  copies no return past the cap.
+- **L4:** an unfolded return lists its four loudest senders
+  (`sends::RETURN_ROWS`), then "+N more ▾" (the same button as on track
+  headers, `sends::plus_button`) opening "Sends into …" with every sender.
+  The order re-sorts only while no button is held, so rows never move
+  under the pointer. List knobs are 18 pt without the hover ring (they
+  touched before: 20 pt knobs with rings on 22 pt rows).
+- **S1:** a silent send is not listed on its return, except while its
+  knob there is being set (`Arrangement::held_send`); it goes when let
+  go. The send stays on the track at −∞, pre- or post-fader as it was.
+- **Kept:** an empty return plays an unchanged copy of what is sent, so a
+  0 dB send adds +6 dB, as in every DAW (the owner chose the standard
+  behaviour).
+- E2E: four loudest then all from "+N more"; a send turned off leaves
+  the list (held, it stays); twelve returns at most (unit test).
+
+### Amendment 3: MT-MIX-4 run 3 (2026-10-09)
+- A knob's live level (while dragged or typed) is a `draw_hint` chip
+  above it on a tooltip layer (`SendKnob::live_value`), only on track
+  headers: beside the knob it ran over the next one, and in lists it drew
+  over the row's own level column.
+- The "+N ▾" and "+N more ▾" lists scroll past ten rows (`LIST_ROWS`).
+
+### Amendment 4: MT-MIX-4 run 4 (2026-10-09)
+- A return's senders are ordered loudest first only when a sender joins
+  or leaves; level changes never move a row (`sender_order`). Re-sorting
+  after each change swapped two senders of the same name (a duplicated
+  track), so one seemed to change the other. Identity was already by id
+  throughout; E2E checks a duplicate's send in the project and by ear.
+
+### Amendment 5: MT-MIX-4 run 5 (2026-10-09)
+- A knob drag keeps its own position on the travel (widget memory) from
+  the press point, instead of the current level plus each frame's
+  movement: below the silence floor a slow drag was rounded back to −∞
+  every frame and never added up. The few points of egui's drag threshold
+  now count too.
+
+
 ---
 
 ## ADR-0039 — Lumen's licence: GPL-3.0-or-later (supersedes ADR-0012)
@@ -2426,3 +3071,479 @@ Option 3.
 5. One commit uses a second author email (`andrewl913@yahoo.com`). Decide whether to rewrite history before publishing. Not done.
 6. Code-signing certificates and release secrets stay outside the repository.
 7. Make the repository public and publish a release only after items 1 to 6. Not done.
+
+## ADR-0040 — The mixer panel and meters (M4 slice 5)
+
+**Status:** Accepted · **Date:** 2026-10-09
+
+### Context
+M4 slice 5 adds the Mixer tab, meters on strips and headers, loudness on
+the master, one rule for value controls and output choices. The owner chose
+the look and eight behaviours from interactive specimens before building
+(owner-decisions table, "Mixer panel and meters"). Meters must read
+sample-accurate peaks without the audio thread allocating, locking or
+waiting on the UI, and must not raise idle CPU (risk R5).
+
+### Decision
+- **5a, meters in the engine** (`lumen_engine::mixer::meter`,
+  `lumen_core::loudness`):
+  - every node's output is measured after fader, pan and the solo gate
+    (B1), each chunk, in the plan the listener hears (a plan fading out is
+    not metered, nor a tail rendered ahead of a jump);
+  - readings live in a `MeterBank` of atomics, one slot per node: the peak
+    per side as `f32` bits raised with `fetch_max` and taken by the UI with
+    `swap` (so a slow UI never misses a peak), the smoothed mean square
+    (300 ms, `RMS_SECONDS`) stored by the audio thread and loaded by the UI,
+    and a clip flag set over full scale and taken with `swap`. A muted
+    node, or one whose output is gated while its sends play, records
+    silence and its RMS falls;
+  - `MixerHandle` gives each node id a slot when a routing is set; slots
+    are never reused while a bank lasts (a new node never shows an old
+    one's level), and when it fills a bank twice the routing's size takes
+    over with only the nodes in use. Plans hold the bank in an `Arc`; old
+    banks go back with retired plans and are freed on the UI side;
+  - `Routing::measure` names the node whose loudness is measured (the
+    app's master). Its output is K-weighted (BS.1770-4, coefficients
+    derived for any rate as libebur128 does, and matching the standard's
+    tables at 48 kHz) and summed into 100 ms blocks, sent through a
+    512-block lock-free queue; the UI computes momentary (400 ms),
+    short-term (3 s) and gated integrated loudness (absolute −70 LUFS,
+    relative −10 LU) with `lumen_core::loudness::Loudness`. True peak
+    oversamples four times with a 49-tap Kaiser-windowed sinc (13 taps a
+    phase, every phase summing to one) and is taken like a peak;
+  - RMS is the signal's true RMS: a full-scale sine reads −3.0 dB.
+  - While stopped the engine renders nothing; it calls `Source::idle`, and
+    the mixer lets every node's RMS fall as in silence (a load and a store
+    per side), so meters come to rest.
+- **5b, meters on the headers** (`meters.rs`, `arrangement/levels.rs`,
+  `app/mixer.rs`; the owner's H2 and B2): each frame the app takes every
+  track's level and moves its meter on (peaks fall 20 dB/s, a 1.5 s hold,
+  clips latched until cleared), keeps the master's loudness windows and
+  true peak, and resets integrated loudness and true peak when playback
+  starts from stop (B5: `Transport::played_from_stop`, set by Space and
+  the play button; Continue keeps it). `Loudness` only gates 400 ms blocks
+  made wholly after a reset. While the device is not running, meters fall
+  to rest. The frame loop keeps drawing while a meter moves and returns to
+  its idle once-a-second poll when all rest. Commands: "Clear clip lights"
+  and "Meters in track colours" (the M2 setting, `Mixing::
+  track_colour_meters`, an added settings field), in the Mixer area.
+
+- **5c, the Mixer tab** (`arrangement/strips.rs`, `strip.rs`, `buttons.rs`;
+  `widgets/fader.rs`, `widgets/meter.rs`; the owner's S1, O2, L2, B4 and
+  B7): the strips are another view of the arrangement (`impl Arrangement`),
+  so selection, folding, cue, the return hover link and the send knobs are
+  shared, not copied. The M and S buttons moved out of the header loop
+  into `Arrangement::mute_solo`, used by both. The fader shares the send
+  knob's taper and stops at −60 dB (a track's volume is saved as a number;
+  `set_volume` clamps it). The output menu lists Master and the groups,
+  leaving out any that would feed back (tried on a copy, `routing::
+  has_loop`); device pairs come in 5e. A rename started on a strip edits on
+  the strip (`renaming_in_strip`). The mixer is drawn after the
+  arrangement, into the area the detail panel reserved, so Tab reaches it
+  in reading order. The detail panel is never shorter than a strip with
+  every section folded, nor so tall that the arrangement keeps less than
+  180 pt.
+- **Strips drag (the owner's B8):** a strip's background drags its track
+  as a header does (`Arrangement::start_drag(.., in_mixer)`; the drag
+  remembers where it started so headers and strips each follow their own),
+  along x with the headers' drop rule (`reorder::drop_place`): between
+  strips the moved ones join the group of the strip to the right, the
+  middle half of a group's strip drops into it; returns move among returns
+  only (their letters follow their place). Near the strips' edges the
+  strips scroll.
+- **The pan law** (the owner's slice 2 answer): the mixer's empty area has
+  a right-click menu (the four laws, Clear clip lights), and the palette
+  has a command per law; one undo step each (`set_pan_law`).
+- **5d, the wheel on value controls** (`widgets/wheel.rs`, the owner's
+  B3, closing the KNOWN_ISSUES row): value controls register where they
+  are each frame; first thing next frame (before the arrangement or a
+  scroll area reads the wheel) `wheel::route` gives the gesture to the
+  control under the pointer if the gesture starts there, taking the scroll
+  out of the input, or leaves it scrolling; a gesture is wheel events
+  closer than 0.3 s, and a control's ends when the pointer leaves it.
+  Controls take whole notches (40 points of scroll) as they draw:
+  `value_slider` and `value_field` by their kind's `wheel_step` (1 dB, 5%
+  pan, a hundredth of a length), the knob and the fader a dB (Shift a
+  tenth; a send up from silence starts at −60 dB, set as a level since the
+  knob's travel reads its floor as silence). The app does not end an undo
+  gesture while the wheel holds a control (`wheel::adjusting`), so a
+  wheel turn is one step, as a drag is.
+- **5e, output pairs (the owner's B6, closing the KNOWN_ISSUES row on
+  outputs landing on the cue):** `Output::Device(p)` now means the
+  device's pair `p` (as the model always said), not the stream's. The
+  stream opens the main pair, the cue pair, then every further pair the
+  project plays to (`Audio::want_pairs`, reopening the stream only when
+  that set changes; a set the device refuses falls back to the setup that
+  worked and is not asked for again). `routing::Outputs` says where each
+  device pair sits in the stream (main 0, cue 1, then the rest), and the
+  routing sends a track to its pair there, or nowhere while that pair is
+  not open; the master's Auto is the main pair, whichever pair that is. It
+  rides in the routing's session data (`Cue::outputs`), so a reopened
+  stream re-routes. The strips' output menus list the device's pairs with
+  their channel names, looked up in the background only when a menu or the
+  project needs them (`audio_settings::Window::output_names`, an ASIO
+  driver in a helper process as the settings window does).
+- **Found and fixed on the way:** saved panel sizes never came back.
+  egui keeps a panel's size by its id and sizes it by what its contents
+  take: the detail panel's few contents snapped it to its smallest after
+  every change, and a project's saved size was overwritten by egui's
+  memory. The detail panel's content area is now claimed (without
+  interaction), and `panels::sliding` applies a size the app changes from
+  outside (a project opening) once.
+
+### Consequences
+- Performance (divan, 128 frames at 48 kHz, this machine): 64 routed
+  tracks 24 µs before, 31 µs with every node metered and the master's
+  loudness measured (1.2% of the block); 200 tracks 89 µs before, 92 µs
+  after. Peak and sum run in eight lanes so they vectorise. Performance
+  gate (instructions, WSL): `engine_routed_64` +21.8% (every node metered
+  and the master's loudness and true peak measured), `engine_transport`
+  +2.6% (its one node metered), others unchanged; the baseline was
+  updated from WSL (`perf.sh --update`) on this commit, as an intended
+  change.
+- The test routing (`testing::routed`) measures its master, so the
+  allocation guard, RTSan and the performance gate cover the loudness tap.
+- Frame times (`--stress --bench-frames`, a release-like build, the
+  200-track project with the Mixer tab open): p99 2.4 ms zooming, 3.1 ms
+  scrolling tracks, 3.2 ms scrolling time (1.5 to 1.8 ms before slice 5),
+  well inside the 120 fps target; idle 3 repaints in 3 s, as before.
+- The detail panel is now at least a strip tall (with every section
+  folded) and at most the window less 180 pt of arrangement; the Mixer tab
+  is its only working tab until Devices (M6) and Clip (M5).
+
+### Evidence
+`lumen_core::loudness` tests: EBU Tech 3341 cases 1 to 5 within 0.1 LU,
+other rates (44.1 and 96 kHz), the K-weighting coefficients against
+BS.1770-4's tables, true peak between samples (a quarter-rate sine at 45°
+reads within −0.4 to +0.2 dB of its true peak) and of full-scale tones.
+`mixer::meter` unit tests (peaks held until read, clips latched, slots
+past the end ignored; RMS settles on a sine's −3 dB and falls 29 dB in two
+seconds). Engine `tests/meters.rs`: a 0 dBFS sine reads 0.0 dB peak and
+−3.01 dB RMS; levels after fader and pan; a muted node reads silence; a
+soloed return's senders read silent while it reads the wet signal; an over
+latches the clip until read; the master reads EBU case 1 at −23 LUFS
+(momentary, short-term, integrated) and its true peak at −23 dB; a node
+not routed has no level; banks grow past 64 nodes and keep reading;
+stopped meters fall about 29 dB in two seconds without rendering, then to
+silence. App `meters` unit tests (peaks fall 20 dB/s, the hold stays then
+falls, clips stay until cleared, meters come to rest, an unrouted track
+reads silence); `levels` (the meter shares the volume slider's scale).
+E2E `meters`: a playing track's level shows after fader and pan law on it
+and the master, and peaks and hold come to rest when stopped; clip lights
+stay until clicked, one by one or all from the palette; integrated
+loudness keeps counting through Pause and Continue and starts again on
+Play from stop. `strip` (a short panel folds sends, then trim, then the
+output), `fader` (the knobs' taper), `meter` (a bar's zones). E2E `mixer`:
+strips follow the arrangement with returns after and the master pinned,
+one fold for both views, a click selects; every strip control (fader,
+typed volume, pan, polarity, trim, send, mute, solo, rename) sets its
+track in one undo step; the output menu routes into a group and never
+offers a group as its own output; the loudness column resets; a strip
+dragged onto a group's strip goes in, returns reorder among themselves
+and never move among tracks; the pan law from the mixer's menu and the
+palette; the wheel sets a fader, pan and a send it starts on, one undo
+step a gesture; a track sent to outputs 3/4 from its strip plays only
+there on the four-output test device. `routing` tests: device pairs play
+where the stream opened them (main, cue, then the rest; silent until
+open; the master's Auto on the main pair). `wheel` unit tests: a gesture that starts on a control
+adjusts it; one that started scrolling keeps scrolling over it, and after
+a rest a new gesture on it adjusts it.
+
+### Amendment (2026-10-10, owner's report on the mixer and header meters)
+
+The owner found three layout faults after MT-MIX-5, and approved the fixes
+from a rendered mock-up:
+
+- **Strips are 96 pt, not 76 pt** (`strip::WIDTH`). At 76 pt a track name
+  kept about seven characters; at 96 pt it keeps about eleven. Longer names
+  still truncate with an ellipsis and keep their full name on hover.
+- **The header volume's value sits 3 pt higher** (`headers::METER_LIFT`,
+  through `widgets::value_slider_lifted`). The level bars along its bottom
+  no longer touch the text. Other volume sliders (the cue) keep their
+  centred text.
+- **Peak readouts drop the decimal from 10 dB up** (`widgets::readout_db`,
+  used by a strip's peak box and the master's true peak): "−12", where
+  "−12.3" overflowed its box. Below 10 dB, one decimal, as before.
+
+The strip's peak box is now wider too (half of the wider strip). The volume
+field under the fader needed no change: a typed "−16.3" fits it at 96 pt and
+150% (checked in the screenshot). Screenshot scenario:
+`shots::mixer_strips_and_header_levels`.
+
+
+## ADR-0041 — Sidechains and delay compensation (M4 slice 6)
+
+**Status:** Accepted · **Date:** 2026-10-10
+
+### Context
+Spec §6.7 asks for automatic plugin delay compensation across the whole
+project, with an indicator, and for sidechains from any track. Nothing in
+Lumen adds latency until devices arrive (VST3 in M6, the built-in
+compressor and limiter in M8), but the graph from slice 1 has to carry
+both before then, or M6 rebuilds it (M4 risk R6). The owner chose the
+behaviour before building (owner-decisions table, "Sidechains and delay
+compensation").
+
+### Decision
+- **The graph** (`lumen_engine::mixer`; `spec.rs` holds the routing types,
+  `compile.rs` compiles them, `plan.rs` runs the plan, `delay.rs` holds the
+  delay lines):
+  - a node has **devices** (`Device`) between polarity and mute, each
+    reporting its latency. Until real devices exist the only one is the
+    synthetic `Device::Delay { frames, listen }`: a pure delay that can add
+    the node's sidechain input to what it delays, as a compressor's listen
+    button does, so tests can hear a sidechain;
+  - a node takes **sidechains** (`SidechainSpec { from, tap }`) into a
+    second bus. The taps are Ableton's three (owner): **Pre FX** (after
+    trim and polarity, before the devices), **Post FX** (the default, after
+    the devices, before mute and the fader) and **Post Mixer** (after
+    mute, fader and pan). Pre and Post FX ignore mute, so a muted ghost
+    kick still keys; Post Mixer follows it. A node with devices or taps
+    applies mute after them; others keep mute folded into the input gain,
+    so routings without devices cost what they did;
+  - sidechain edges join the compile order and the loop check: a group can
+    listen to its own track, but a track cannot listen to its group.
+- **Compensation** (`compile.rs`): each node's input arrives at the latest
+  of everything feeding it (an output or send after its source's devices,
+  a Pre FX sidechain before them). Every earlier path goes through a delay
+  line as long as the difference: outputs, sends, sidechains, and what the
+  tracks play into a node that waits for a late sidechain (an input line).
+  All device outputs and the cue bus line up to the latest of them: the
+  routing's `Compensation { frames, path }`, where `path` lists the
+  latent nodes on the longest path. Lines are allocated when the plan is
+  compiled. A new plan takes over the contents of the lines it shares
+  with the old one, by key (`LineKey`), so a reroute while playing keeps
+  what is in flight. A node whose paths pass through lines keeps running
+  while silent, so its lines drain rather than stop with audio still in
+  them.
+- **Read ahead** (owner): `Source::latency` reports the compensation, and
+  the engine renders the timeline that far ahead of the playhead
+  (`Engine::ahead`). What is heard lines up with the playhead, the grid
+  and the metronome. The playhead follows the render position that far
+  behind, jumps included (`playhead.rs`): a loop wrap is rendered early
+  and heard when the playhead wraps. Playback starts with a pre-roll the
+  length of the compensation, during which the playhead shows where play
+  started and the metronome stays silent.
+- **Jumps while latent** (locates, loop wraps, tempo changes) are
+  crossfaded by the mixer where the tracks play into their buses: 2 ms
+  from what they would have played next. The engine's crossfade at the
+  output would come before the jump is heard. Without latency the engine
+  crossfades as before; nothing changes for projects without devices.
+  Playback from stop empties the delay lines and fades the tracks in.
+- **A latency change while playing** (a device added, removed or changing
+  its latency) keeps the playhead going and moves the render position to
+  stay ahead of it. The audio skips or repeats the difference: new delay
+  lines start silent, and the input fades into them, so the gap comes and
+  goes without a step. This is a correction to the pitch, which said "no
+  gap". A gap of the difference cannot be avoided without rendering that
+  stretch twice, and other hosts behave the same. It happens only when
+  latency changes during playback.
+- **The readout** (owner's D1, from rendered mock-ups): nothing while no
+  device adds latency; then the audio status ends with "12.4 ms
+  compensation", brighter than the rest of the device line. Hovering it
+  puts "Delay compensation 12.4 ms · longest path: Kick → Master" in the
+  info line. The audio panel always has a Latency group (output, round
+  trip, delay compensation in ms and samples) and the longest path while
+  there is one (`transport/compensation.rs`). The owner preferred D1 to a
+  readout that is always shown (D2) and to folding compensation into the
+  latency figure (D3).
+- **Saving sidechains waits for the first device that uses them** (owner):
+  no format change now. The project gets sidechain sources (format v11,
+  with a migration) with the compressor or VST3.
+- Until then the app adds the synthetic device for tests and trials only:
+  `testing::set_test_latency` and `--test-latency <ms>` (on the first
+  track), through `routing::Devices`.
+
+### Consequences
+- A latent node costs a ring-buffer swap per sample per line it uses. The
+  perf gate's new `engine_latent_64` scenario (`testing::latent`: the routed
+  mix with latent devices on every eighth track and the master, and a
+  sidechain) measures it, and the allocation guard and RTSan check the
+  same routing while latencies change, loops wrap, and playback locates,
+  pauses and stops (`tests/realtime.rs`).
+- Measured (performance gate, instructions, WSL): `engine_latent_64`
+  1.33 G against 0.82 G for the same mix without latency (+61%: lines on
+  most paths, since a latent master and eighth of the tracks put every
+  other path and group input through a line). That is about 0.15 ms of a
+  2.67 ms block on this machine. Projects without latency: `engine_routed_64`
+  +0.55%, `engine_transport` +0.67%, `engine_clips_64` +0.02%. Two fixes
+  kept them there: without latency the engine leaves the `Playhead`
+  alone, and the plan holds its delay scratch rather than zeroing 2 KB
+  on the stack every block (`engine_transport` was +3.16% before them).
+  The baseline was updated from WSL for the new scenario, as an intended
+  change.
+- Plans whose shapes differ still crossfade over 5 ms. A plan's shape now
+  includes its devices, sidechains and line lengths.
+- Scrubbing renders through the delay lines, so with latency the scrub is
+  heard that much later, and the loop-scrub's own envelope does not line
+  up with the restarts it hides. Recorded in KNOWN_ISSUES for M6, when
+  latency first exists outside tests.
+- Meters show a node's level when it is processed, up to the compensation
+  ahead of what is heard (milliseconds at most).
+
+### Evidence
+`mixer::delay` tests (a line delays by its length at any block size; a
+new plan carries what is in flight, longer or shorter). `mixer::compile`
+tests (sidechain sources come first; sidechains that loop, name a
+missing node or feed themselves are refused; the same routing compiles the
+same way, and devices and sidechains change its shape; no lines and no
+compensation without latency; compensation follows the longest path, with
+its latent nodes; a Pre FX sidechain leaves before the devices).
+`playhead` tests. Engine `tests/compensation.rs`: what is heard lines up
+with the playhead after a pre-roll that shows the start; parallel paths
+(a latent track or a latent group against a straight one, upside down)
+cancel exactly; sends meet at a return in line; a sidechain lines up
+with the input it keys, Pre and Post FX; Pre and Post FX ignore mute and
+Post Mixer follows it; loops stay in line with the playhead; a locate is
+heard when the playhead jumps; a latency change while playing keeps the
+playhead going without a step, and what is heard lines up again after
+it. Without the lines the alignment tests fail; without read-ahead the
+playhead tests fail (both checked by breaking them on purpose). App
+`routing` (a latent device reaches the engine and is compensated),
+`transport::compensation` (nothing until there is latency; the info line
+names the path). E2E `compensation`: the readout appears only with a
+latent track, its hover names the path, the panel shows ms, samples and
+the path; two tracks of the same tone, one latent and one upside down,
+cancel while playing and after the device is taken off (and do not
+without compensation).
+
+## ADR-0042 — The M4 exit walkthrough and known issues (M4 slice 7)
+
+**Status:** Accepted 2026-10-10.
+
+### Context
+Slice 7 closes M4: the exit criterion as an E2E scenario and a manual
+test, the end-of-milestone review and the report. The owner also asked
+for the known issues to be fixed where they can be now.
+
+### Decision
+- **The exit walkthrough** (E2E `walkthrough_mix`): three recordings of
+  one tone at three levels (kick, snare, vocal; in phase, so levels add
+  and each source is told apart by its size); the drums grouped with
+  Ctrl+G; a return carrying the synthetic latent device (480 frames)
+  standing in for the reverb (a plugin in M6, the built-in one in M8);
+  the group's send set from its mixer strip and the vocal's from its
+  header, both at 0 dB. Heard at every step, as levels once settled: the
+  whole mix (dry plus as much again through the return, which only adds
+  up exactly while delay compensation lines the paths up); the drum group
+  soloed (the return stays open, the vocal and its send go); the kick
+  muted inside the soloed group (its send goes too); the vocal's solo
+  added with Ctrl+click; the return soloed alone (wet only); solos cleared
+  and the return muted (dry only). Saved and reopened: the same tracks,
+  sends and master, and the same mix.
+- **Taken while stopped (a bug the walkthrough found).** Stopped, the
+  engine took nothing from its clip and routing queues (its idle path
+  only let meters fall). After four edits the clip queue was full, the
+  app held back every routing after it (routings follow clip lists), and
+  Play started on stale mutes, solos and sends, which glided in after a
+  frame; the compensation readout stayed stale meanwhile. `Mixer::idle`
+  and `TrackSource::idle` (the clip player) now take what arrives while
+  stopped; nothing plays, so nothing crossfades, and a latency change
+  while stopped only moves the read-ahead (as before).
+- **A running session's autosave is not offered to another Lumen**
+  (KNOWN_ISSUES, M3 4c). A session holds an exclusive lock on
+  `<session>.lock` in the autosave folder, taken on the autosave thread
+  before its first autosave is written and released (and the file
+  deleted) when the autosave is cleared or the session closes. Recovery
+  skips sessions whose lock is held (a shared try-lock fails). The system
+  frees the lock when a process ends however it ends, so a crashed
+  session's autosave is offered as before; sessions from older versions
+  have no lock file and are offered as before. Discard deletes the lock
+  file with the rest. Single instance itself stays in M9.
+- **Submenus are named without egui's arrow**: `widgets::submenu`
+  replaces `ui.menu_button` inside menus (Colour, Fades, Grid, Open
+  recent); the arrow is drawn, and screen readers hear "Fades".
+- **The GPU pipeline cache never waits on the disk on the UI thread**
+  (KNOWN_ISSUES, M3 review L3): `canvas::PipelineCache::prefetch` reads
+  the file on its own thread from `run()`, before eframe opens the window
+  and the GPU (which take far longer), and `install` writes it back on a
+  thread. Devices without pipeline caching (DX12, Metal) do no disk work
+  for it. `lumen-render` takes and gives bytes; it no longer touches
+  files. Tests pass no cache, so they never touch the user's.
+- **The M3 walkthrough's flake on Linux**: the two takes are always the
+  same length; in some runs the Stop lands in the audio block before, so
+  that block holds the stop's fade in one take and full sound in the
+  other (worst difference: the tone's full peak, frames 33,832 onwards).
+  The comparison stops 2,048 frames before the end of the shorter take.
+
+### Consequences
+- Edits made while stopped reach the engine as they are made, so Play
+  starts on exactly what the project says.
+- A lock file sits beside each autosave while a session runs.
+- The known issues left are hardware checks, later features, or visual
+  changes scheduled for M10 that want mock-ups first (KNOWN_ISSUES).
+
+### Evidence
+- Engine `tests/mixer.rs`
+  `while_stopped_every_clip_list_and_routing_is_taken_and_play_starts_on_the_last`
+  (fails at the fifth list without the fix); `tests/realtime.rs` adds a
+  stopped stretch with lists and routings arriving, under the allocation
+  guard.
+- App `routing` test: a latent device on a return is compensated.
+- `autosave` tests: a running session is not offered to another, and is
+  once it ends; a normal close releases the lock and its file; a
+  recovered session is locked again by its next autosave.
+- E2E `fades` finds the submenu by its exact name "Fades".
+- WSL mirror: the M3 walkthrough failed 5 of 14 runs before, passes 12 of
+  12 after.
+- E2E `walkthrough_mix` passes; without the idle fix it timed out
+  waiting for the compensation.
+
+### Found by the owner after the walkthrough (2026-10-10)
+- **A clip copied to another track pasted back onto its own.** Paste went
+  to the first selected track, or else where the clip was copied from;
+  clicking a clip clears the track selection, and a click on another
+  track's empty lane only moved the playhead. Now a plain click in the
+  lanes (on a clip or empty) makes that track the insert track
+  (`Arrangement::insert`) and clears the headers' selection, so Ctrl+V
+  pastes there at the playhead (a header clicked afterwards wins again).
+  The lanes' menu pastes where it was right-clicked, time and track
+  (`Arrangement::menu_spot`), without moving the playhead. E2E
+  `a_copied_clip_pastes_onto_the_track_clicked` (keys and menu).
+- **"The loudness seems low."** The measurement is right: the EBU
+  reference tone (stereo 1 kHz at −23 dBFS) reads −23.0 LUFS through the
+  engine at unity, and −26.0 LUFS momentary and integrated, −26.0 dBTP,
+  through the app, where a centred track takes the default −3 dB pan law
+  (ADR-0035). So every file plays and measures 3 dB under its own level.
+  E2E `the_loudness_column_reads_the_reference_tone_less_the_pan_law`.
+  Whether stereo material should keep its level at the centre is the
+  owner's choice (pending).
+- **The pan law for stereo: the owner's B (2026-10-10).** Only mono
+  material pans by the project's law: a track whose clips are all mono
+  files (`routing::plays_mono`). Every other track (stereo, mixed, MIDI,
+  empty) balances, so stereo keeps its level at the centre, as groups,
+  returns and the master already did. Nothing saved changes: projects
+  from before play their stereo tracks 3 dB louder. The pan law's menu
+  caption reads "Pan law (mono tracks)" and its commands say so. The EBU
+  reference tone now reads −23.0 LUFS and −23.0 dBTP through the app.
+  Tests: `routing` (mono, stereo, mixed and empty tracks), E2E
+  `a_mono_track_follows_the_pan_law_and_a_stereo_one_keeps_its_level`,
+  `the_loudness_column_reads_the_reference_tone_at_minus_23`; the level
+  expectations of the cue, mixing, groups, meters, fades and walkthrough
+  scenarios updated for stereo at unity.
+- **Ctrl+C, Ctrl+X and Ctrl+V did nothing in the real window.** egui-winit
+  turns the clipboard chords into `Copy`, `Cut` and `Paste` events and
+  drops the key press; Ctrl+V sends nothing at all when the system
+  clipboard holds no text, and on Windows Shift+Delete chords become Cut,
+  Ctrl+Shift+Delete (Delete time) included. Only releases arrive as keys.
+  The E2E tests pressed keys the window never sends, so they passed.
+  `app/clipboard_keys.rs` puts the presses back before anything reads
+  the keys, outside text fields (which keep the events): Copy as C, Paste
+  as V, Cut as X; a Cut with Shift waits for its key's release; a V
+  released with no Paste seen is pressed then. `Lumen::key` now sends
+  these chords as the window does (without the fix, the three clipboard
+  scenarios fail).
+- **A paste right after a click landed at the old playhead** (one run in
+  four of the new test): the playhead is what the audio thread last
+  reported. `Transport::position` counts a locate the engine has not
+  played a block since; edits at the playhead use it.
+- **"The meters clip around +1.1 dB" after the pan law change.** No gain
+  is added: a full-scale 48 kHz file reads 0.0 dB on its track and the
+  master. Files at another rate are converted to the device's on import,
+  and the new samples land between the old ones, where a loud master's
+  waveform goes over full scale (its true peak, commonly +0.5 to +1.5
+  dBTP); MP3 and Ogg decode to floating point and keep their overs too.
+  At −3 dB those overs were hidden; at unity the meter shows them, as
+  Ableton's does. A 44.1 kHz tone with samples at 0 dBFS and its waveform
+  at +3 dB reads +3.0 dB (E2E
+  `full_scale_reads_zero_and_a_converted_file_shows_its_true_peak`).
