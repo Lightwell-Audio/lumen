@@ -49,9 +49,20 @@ fn lay_out_caps(ui: &Ui, modifiers: &[&str], key: Option<&str>) -> Caps {
             } else {
                 palette.text_secondary
             };
-            let galley = ui
-                .painter()
-                .layout_no_wrap(text.to_owned(), font.clone(), colour);
+            // Centred in their row as labels are (egui lays a label out with
+            // its row's alignment, a plain galley at the bottom), so a cap's
+            // letters sit on the same pixel row as the words beside them
+            // (owner: at 100% they sat a pixel high in the info line).
+            let job = egui::text::LayoutJob::single_section(
+                text.to_owned(),
+                egui::TextFormat {
+                    font_id: font.clone(),
+                    color: colour,
+                    valign: egui::Align::Center,
+                    ..Default::default()
+                },
+            );
+            let galley = ui.painter().layout_job(job);
             (galley, main)
         })
         .collect();
