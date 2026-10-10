@@ -114,13 +114,24 @@ fn mixer_changes_while_playing_never_click() {
     let heard = lumen.app_mut().heard();
     assert!(lumen.app().is_playing());
     assert!(heard.len() > 2_000, "heard {} frames", heard.len());
-    // The tone moves by at most TONE × 0.05 a frame; a stepped level change
-    // would jump by far more.
+    // A sine at level `a` moves by at most a × 0.05 a frame. The volume
+    // drag raises the level above the file's (by how much depends on the
+    // machine's frame timing: macOS CI went past +2 dB), so the bound
+    // follows the loudest level heard. A stepped level change would jump
+    // by a large share of the level, far more than this.
+    let loudest = heard
+        .iter()
+        .map(|&(l, r)| l.abs().max(r.abs()))
+        .fold(0.0, f32::max);
+    assert!(loudest > TONE * 0.5, "heard {loudest}, want the tone");
     let steepest = heard
         .windows(2)
         .map(|w| (w[1].0 - w[0].0).abs().max((w[1].1 - w[0].1).abs()))
         .fold(0.0, f32::max);
-    assert!(steepest < TONE * 0.065, "a click: a step of {steepest}");
+    assert!(
+        steepest < loudest * 0.065,
+        "a click: a step of {steepest} at a level of {loudest}"
+    );
 }
 
 /// A mono WAV of the test tone (as `wav`, one channel).
