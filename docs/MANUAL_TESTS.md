@@ -1799,3 +1799,30 @@ Slice 4 of M4.5: finding S1. Run `cargo run --release -p lumen-app`.
 **Expected:** as described.
 
 **Passed (2026-10-10, owner).**
+
+### MT-POL-5 · Motion (needs a human)
+Slice 5 of M4.5: findings M1, M4, M2, M3, U2 and M5. Run
+`cargo run --release -p lumen-app`.
+1. **Clips glide (M1):** drag a clip along its track: it steps from grid
+   line to grid line smoothly instead of jumping. Ctrl+Z: it glides back,
+   and it is washed in the accent for a moment (M4). Ctrl+Shift+Z: the
+   same, forward. Duplicate (Ctrl+D) and nudge-like edits glide too.
+2. **Rows (M2, M3):** add a track (Ctrl+T): it grows in. Delete one: the
+   rows below glide up. Drag a track to another place: the rows glide to
+   their new places. Group a few tracks and fold the group: they glide
+   shut into it; unfold: they grow back.
+3. **Scroll bars (U2):** with 20 or more tracks, scroll the tracks: a thin
+   bar appears at the right of the lanes and fades away a moment after you
+   stop. Move the pointer to the right edge: it comes back; drag it. In
+   the mixer with many strips, scroll sideways: the same bar along the
+   bottom.
+4. **Highlights and lit states (M5):** Ctrl+K, press ↓ several times: the
+   highlight slides. Click M, S, loop, metronome: they light and go out
+   with a short cross-fade. Open Audio settings and close it (✕ or Esc): it
+   fades out.
+5. **Reduce motion** (Lumen menu): everything above still works, without
+   travelling or fading.
+6. **Calm when idle:** with nothing moving, Task Manager shows Lumen near
+   0% CPU, as before.
+
+**Expected:** as described, in both themes.

@@ -525,6 +525,8 @@ impl eframe::App for App {
                 .mixer_panel(&mut mixer, &mut self.document, &self.keymap);
             self.take_cue_controls();
         }
+        // Windows that closed fade out (M4.5).
+        widgets::paint_gone(&ctx);
         self.typing = ctx.text_edit_focused();
 
         // Scheduled after drawing, because buttons are clicked while drawing.

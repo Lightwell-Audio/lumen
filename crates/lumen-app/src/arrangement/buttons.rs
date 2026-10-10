@@ -84,10 +84,12 @@ impl Arrangement {
             });
             let hover = motion::hover(ui.ctx(), id.with(what).with("hover"), response.hovered());
             let rest = look.fill.lerp_to_gamma(look.hover, hover);
+            // Lighting up and going out cross-fade (`FAST`, M4.5).
+            let lit = motion::hover(ui.ctx(), id.with(what).with("lit"), on);
             let p = ui.painter();
-            let text = if on {
-                p.rect_filled(r, theme::radius::SMALL, on_fill);
-                theme::text_on(on_fill)
+            let text = if lit > 0.0 && (on || !implied) {
+                p.rect_filled(r, theme::radius::SMALL, rest.lerp_to_gamma(on_fill, lit));
+                look.text.lerp_to_gamma(theme::text_on(on_fill), lit)
             } else if implied {
                 // Hollow: the state's colour as a ring, the letter in it.
                 p.rect_filled(r, theme::radius::SMALL, rest.gamma_multiply(0.5));

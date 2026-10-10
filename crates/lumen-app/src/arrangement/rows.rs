@@ -273,6 +273,30 @@ impl Arrangement {
         self.top = 0.0;
     }
 
+    /// The scrolling tracks' area within lanes `canvas`, and the height of
+    /// what scrolls in it (for the scroll bar, M4.5).
+    pub fn scroll_extent(
+        &self,
+        ctx: &egui::Context,
+        project: &Project,
+        pending: usize,
+        canvas: egui::Rect,
+    ) -> (egui::Rect, f32) {
+        let main = self.zone_span(ctx, project, Zone::Main, canvas.y_range());
+        let area = egui::Rect::from_x_y_ranges(canvas.x_range(), main);
+        // The furthest scroll leaves a folded row in view, as the wheel does.
+        let content = self.height_of_content(ctx, project, pending) + FOLDED;
+        (
+            area,
+            content.max(canvas.height()) - (canvas.height() - area.height()),
+        )
+    }
+
+    /// Scrolls to `top` points, within the content.
+    pub fn scroll_to(&mut self, top: f32, content: f32, visible: f32) {
+        self.top = top.clamp(0.0, max_top(content, visible));
+    }
+
     /// Scrolls vertically by `delta` points, within the content.
     pub fn scroll(&mut self, delta: f32, content: f32, visible: f32) {
         self.top = (self.top - delta).clamp(0.0, max_top(content, visible));

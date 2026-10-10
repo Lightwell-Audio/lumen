@@ -416,7 +416,15 @@ and the mixer's ghost strip ("Add track in the mixer"), the clip card's
 swatches and `lanes::shorten_middle`, `widgets::time_signature`,
 `SliderKind::Percent`. MT-POL-3 passed. **Slice 4 is built**: Martian
 Mono (downloaded with the owner's approval) is the monospace, at width
-87.5 (`fonts.rs`). MT-POL-4 waits for the owner. Next: slice 5 (motion). E2E must not flip process-wide
+87.5 (`fonts.rs`). MT-POL-4 passed. **Slice 5 is built**: clip glides
+and the undo wash (`arrangement/glide.rs`, `Document::session`), rows
+that grow in, glide and fold shut (`arrangement/row_glide.rs`; `Row`
+has `clipped`), `widgets::scroll_bar`, the palette's sliding highlight
+(`motion::glide_over`), lit states cross-fading, `widgets::paint_gone`
+for closing windows. E2E that acts right after adding, moving or folding
+tracks must let rows settle (`frames(30)`); the harness clock moves 1/60 s
+a frame. MT-POL-5 waits; release frame times still to measure. Next:
+slice 6 (close). E2E must not flip process-wide
 settings (theme, Reduce motion): tests run side by side.
 `tests/shots.rs` renders mixed themes when run in parallel (the theme is
 process-global): run it with `--test-threads=1`.
@@ -569,8 +577,8 @@ escapes and quotes several times.
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
-- **M4.5 Polish pass: approved 2026-10-10; slices 1–3 done, slice 4
-  built (MT-POL-4 waits).**
+- **M4.5 Polish pass: approved 2026-10-10; slices 1–4 done, slice 5
+  built (MT-POL-5 waits).**
 - **M4 Mixer, Routing & Groups: complete 2026-10-10**; the review's fixes
   are merged (PR #3).
 - **M3 Arrangement & Project System: complete, approved 2026-10-09.** Slices 1–3 done:

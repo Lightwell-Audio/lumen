@@ -233,20 +233,26 @@ pub fn button(
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
         let c = theme::p();
-        // Hover and press fade in and out (motion: FAST); active is a state,
-        // shown at once.
+        // Hover and press fade in and out (motion: FAST), and so does being
+        // lit (M4.5).
         let hot = enabled && (response.hovered() || response.has_focus());
+        let lit = crate::motion::hover(ui.ctx(), response.id.with("lit"), active);
         let hover = crate::motion::hover(ui.ctx(), response.id.with("hover"), hot);
         let press = crate::motion::hover(
             ui.ctx(),
             response.id.with("press"),
             enabled && response.is_pointer_button_down_on(),
         );
-        if active {
-            painter.rect_filled(rect, theme::radius::SMALL, c.accent_muted);
-        } else if hover > 0.0 {
+        if hover > 0.0 && lit < 1.0 {
             let fill = c.control_hover.lerp_to_gamma(c.control_press, press);
             painter.rect_filled(rect, theme::radius::SMALL, fill.gamma_multiply(hover));
+        }
+        if lit > 0.0 {
+            painter.rect_filled(
+                rect,
+                theme::radius::SMALL,
+                c.accent_muted.gamma_multiply(lit),
+            );
         }
         if response.has_focus() {
             painter.rect_stroke(
@@ -256,11 +262,10 @@ pub fn button(
                 egui::StrokeKind::Inside,
             );
         }
-        let color = match (enabled, active, icon) {
-            (false, _, _) => c.text_disabled,
-            (true, _, Icon::Record) => c.record,
-            (true, true, _) => c.accent,
-            (true, false, _) => c.text,
+        let color = match (enabled, icon) {
+            (false, _) => c.text_disabled,
+            (true, Icon::Record) => c.record,
+            (true, _) => c.text.lerp_to_gamma(c.accent, lit),
         };
         for shape in shapes(icon, rect.shrink(4.0), color) {
             painter.add(shape);

@@ -194,10 +194,15 @@ impl Arrangement {
                 }
                 return;
             }
+            // Lumen's own bar, as on the arrangement (M4.5, U2): egui's
+            // stays hidden.
             let mut area = egui::ScrollArea::horizontal()
                 .id_salt("mixer strips")
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
                 .auto_shrink([false, false]);
-            if self.mixer_push != 0.0 {
+            if let Some(to) = self.mixer_scroll_to.take() {
+                area = area.horizontal_scroll_offset(to);
+            } else if self.mixer_push != 0.0 {
                 // A strip drag near an edge scrolls, faster the closer.
                 let dt = ui.input(|i| i.stable_dt.min(0.1));
                 let to = (self.mixer_offset + self.mixer_push * DRAG_SCROLL * dt)
@@ -222,6 +227,16 @@ impl Arrangement {
                 }
             });
             self.mixer_offset = output.state.offset.x;
+            let bar = widgets::ScrollBar {
+                area: strips,
+                axis: widgets::Axis::Horizontal,
+                content: width,
+                offset: self.mixer_offset,
+            };
+            if let Some(to) = widgets::scroll_bar(ui, ui.id().with("mixer scroll bar"), bar) {
+                self.mixer_scroll_to = Some(to);
+                ui.ctx().request_repaint();
+            }
         });
         self.follow_strips_drag(ui, doc, &on_screen, strips);
         self.strip(ui, doc, None, master, &look);

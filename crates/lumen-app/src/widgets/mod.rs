@@ -15,22 +15,26 @@ use eframe::emath::GuiRounding as _;
 use crate::{fonts, icons, motion, theme};
 
 mod empty;
+mod fade_out;
 pub mod fader;
 mod keys;
 pub mod knob;
 mod menu;
 pub mod meter;
+mod scroll_bar;
 mod signature;
 mod toggle;
 pub mod wheel;
 
 pub use empty::{Action as EmptyAction, EmptyState, empty_state};
+pub use fade_out::paint_gone;
 pub use keys::{
     KEY_LIGHT_ROOM, Keys, Tip, caps_height, caps_width, keycaps, menu_item, menu_toggle,
     modifier_caps, submenu, tip,
 };
 pub use menu::Menu;
 pub(crate) use menu::note_change;
+pub use scroll_bar::{Axis, ScrollBar, scroll_bar};
 pub use signature::time_signature;
 pub use toggle::{Choice, Tab, choice_row, segmented, switch, tabs, toggle_button};
 
@@ -80,8 +84,9 @@ impl<'a> Dialog<'a> {
     /// Shows the dialog; true when the user asked to close it.
     pub fn show(self, ctx: &egui::Context, contents: impl FnOnce(&mut Ui)) -> bool {
         let mut close = false;
-        egui::Window::new(self.title)
-            .id(EguiId::new(("dialog", self.id)))
+        let id = EguiId::new(("dialog", self.id));
+        let shown = egui::Window::new(self.title)
+            .id(id)
             .title_bar(false)
             .collapsible(false)
             .resizable(false)
@@ -94,6 +99,13 @@ impl<'a> Dialog<'a> {
             });
         if self.closable && ctx.input(|i| i.key_pressed(Key::Escape)) {
             close = true;
+        }
+        // Remembered as drawn, to fade out when it closes (M4.5).
+        if let Some(shown) = shown {
+            fade_out::remember(ctx, id, shown.response.layer_id);
+        }
+        if close {
+            ctx.request_repaint();
         }
         close
     }

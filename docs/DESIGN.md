@@ -230,7 +230,26 @@ not travel.
   - hover and press fills on transport buttons;
   - the playhead and start marker moving after a locate while stopped;
   - clips appearing after an import (fade);
-  - the progress fill of a loading clip.
+  - the progress fill of a loading clip;
+  - (M4.5) **clips moving to a new place**: undo, redo and commands glide
+    them (`GLIDE`), a drag's snapped steps over `FAST`; only the drawing
+    travels: the audio changes at once and clicks go by where a clip is
+    (`arrangement/glide.rs`). Moves to another track jump rows;
+  - (M4.5) **what undo or redo changed**: an accent wash on those clips,
+    fading over 600 ms;
+  - (M4.5) **rows**: a new track grows in from no height; reordered and
+    deleted tracks' rows glide to their places; a folding group's tracks
+    glide shut, clipped to their shrinking rows (`arrangement/row_glide.rs`);
+  - (M4.5) **scroll bars** on the arrangement's tracks and the mixer's
+    strips: shown while scrolling or with the pointer near the edge, fading
+    in over `FAST` and out over `BASE` 0.8 s later; draggable
+    (`widgets::scroll_bar`);
+  - (M4.5) the palette's chosen-row fill slides between rows (`FAST`);
+    menu highlights follow the pointer directly and do not slide;
+  - (M4.5) lit buttons (M, S, cue, loop, metronome, follow) cross-fade on
+    and off over `FAST`;
+  - (M4.5) windows fade out (`BASE`, ease-in, 4 pt up) when they close, as
+    a picture of their last frame (`widgets::paint_gone`).
 - **The one deliberate loop:** a record-armed track's ring breathes (2.4 s)
   so an armed track is never missed (owner's choice, M3 slice 4). It
   requests frames only while a track is armed, and Reduce motion holds it

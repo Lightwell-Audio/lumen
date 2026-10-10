@@ -259,6 +259,24 @@ report: {}",
         });
         self.clip_editing(ui, &hover, canvas, &painter);
         widgets::Menu::context(&hover).show(|ui| self.lanes_menu(ui));
+        // Where the tracks are scrolled: a bar that shows while scrolling
+        // or near the right edge (M4.5, U2).
+        let pending = self.lanes.pending().len();
+        let (area, content) =
+            self.arrangement
+                .scroll_extent(ui.ctx(), self.document.project(), pending, canvas);
+        let bar = widgets::ScrollBar {
+            area,
+            axis: widgets::Axis::Vertical,
+            content,
+            offset: self.arrangement.top,
+        };
+        if let Some(top) = widgets::scroll_bar(ui, ui.id().with("tracks scroll bar"), bar) {
+            let all =
+                self.arrangement
+                    .height_of_content(ui.ctx(), self.document.project(), pending);
+            self.arrangement.scroll_to(top, all, canvas.height());
+        }
         self.arrangement.pinned_controls(ui, pinned, &self.document);
         // Clip properties (slice 6e): renaming in the title bar, and the
         // pinned card, which takes the hover card's place.

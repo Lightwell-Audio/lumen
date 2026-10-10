@@ -299,6 +299,8 @@ pub struct Arrangement {
     /// near their edge pushes them (-1 to 1).
     mixer_offset: f32,
     mixer_push: f32,
+    /// Where the mixer's scroll bar was dragged to, for the next frame.
+    mixer_scroll_to: Option<f32>,
 }
 
 /// The device's output pairs, as the strips' output menus offer them (the

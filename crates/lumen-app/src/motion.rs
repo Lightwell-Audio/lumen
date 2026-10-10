@@ -92,8 +92,14 @@ struct Glide {
 /// playhead: it glides after a locate while stopped, and tracks the audio
 /// exactly while playing).
 pub fn glide(ctx: &egui::Context, id: Id, target: f32, animate: bool) -> f32 {
+    glide_over(ctx, id, target, animate, GLIDE)
+}
+
+/// [`glide`] over `duration` seconds (before Reduce motion): `FAST` for a
+/// highlight following the arrow keys.
+pub fn glide_over(ctx: &egui::Context, id: Id, target: f32, animate: bool, duration: f32) -> f32 {
     let now = ctx.input(|i| i.time);
-    let duration = time(GLIDE);
+    let duration = time(duration);
     let previous: Option<Glide> = ctx.data(|d| d.get_temp(id));
     let state = match previous {
         Some(g) if animate && duration > 0.0 && g.to != target => Glide {
