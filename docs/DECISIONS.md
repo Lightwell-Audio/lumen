@@ -3407,6 +3407,26 @@ the path; two tracks of the same tone, one latent and one upside down,
 cancel while playing and after the device is taken off (and do not
 without compensation).
 
+### Amendment (2026-10-10, M4 review finding M3)
+Every new plan copied all of the old plan's delay lines on the audio
+thread, sample by sample, with a modulo per sample. A new plan arrives
+with each step of a fader drag, so the cost grew with the total
+compensation. A project heavy with lookahead plugins (M6) could have
+dropped out while editing. Now, when the old plan will not play again (no
+crossfade, so every plan of the same shape) and both lay out their lines
+alike, the new plan swaps buffers with it (`Lines::take_over`). Lines that
+change length are still copied, during the 5 ms crossfade of a new shape.
+
+Measured by the new gate scenario `engine_latent_swaps_64` (the
+compensated mix with a new plan every block): 1.777 G instructions before
+the fix, 1.565 G after. A steady block costs 1.327 G per 1,000. What a
+swap still costs is mostly the 20 ms level glides it starts, which is the
+work a fader move asks for. Baseline updated for the new scenario; the
+others moved by under 0.2%. Evidence: unit test
+`a_plan_of_the_same_lines_takes_them_over_without_a_copy`; the
+allocation-guard test `delay_compensation_never_touches_the_heap` swaps
+plans of the same shape (its variants 0 and 6).
+
 ## ADR-0042 — The M4 exit walkthrough and known issues (M4 slice 7)
 
 **Status:** Accepted 2026-10-10.
