@@ -261,6 +261,17 @@ fn routed_clips_metronome_and_tone_never_touch_the_heap() {
         if block % 700 == 350 {
             handle.send(Command::Locate(Ticks::quarters(3))).unwrap();
         }
+        // Stopped for a while, with edits arriving: taken while idle (M4
+        // slice 7).
+        match block {
+            2_200 => handle.send(Command::Stop).unwrap(),
+            2_600 => handle.send(Command::Play).unwrap(),
+            2_201..2_600 if block % 10 == 0 => {
+                let _ = clips_handle.set(clips(block));
+                let _ = routing.set(&routed(64, (block / 10) as u32));
+            }
+            _ => {}
+        }
         let ((), heap) = count_rt_violations(|| engine.process(48_000, &mut data, 4, 128));
         assert_eq!(heap, 0, "heap operation in process() at block {block}");
         clips_handle.collect_garbage();

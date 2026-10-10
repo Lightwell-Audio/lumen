@@ -193,6 +193,17 @@ mod tests {
         assert_eq!(plan.compensation().path, [(ids[0].0, 240)]);
     }
 
+    #[test]
+    fn a_latent_device_on_a_return_is_compensated() {
+        let (mut doc, ids) = doc_with(&[TrackKind::Audio, TrackKind::Return]);
+        doc.set_send(ids[0], ids[1], Level(0.0)).unwrap();
+        let mut devices = Devices::default();
+        devices.latent.insert(ids[1], 480);
+        let routing = super::routing(doc.project(), &Cue::default(), &devices);
+        let plan = lumen_engine::compile_routing(&routing).unwrap();
+        assert_eq!(plan.compensation().frames, 480);
+    }
+
     fn doc_with(kinds: &[TrackKind]) -> (Document, Vec<Id>) {
         let mut doc = Document::new(crate::empty_project());
         for &kind in kinds {

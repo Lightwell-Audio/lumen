@@ -631,6 +631,11 @@ impl TrackSource for ClipPlayer {
         self.finish_swap(false);
     }
 
+    fn idle(&mut self) {
+        self.finish_swap(true);
+        self.take_new(false);
+    }
+
     fn locate(&mut self, _: &Timeline, _: u32, _: i64, _: Jump) {
         // A jump is crossfaded by the engine: a crossfade between lists ends
         // here, and levels start at their targets rather than gliding.

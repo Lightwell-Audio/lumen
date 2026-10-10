@@ -518,6 +518,48 @@ fn replaced_plans_come_back_to_be_freed() {
 }
 
 #[test]
+fn while_stopped_every_clip_list_and_routing_is_taken_and_play_starts_on_the_last() {
+    // Found by the M4 exit walkthrough: stopped, the engine took nothing,
+    // so after four edits the queues were full, the UI held back every
+    // routing after them, and playback started on stale ones.
+    let audio = steady(0.5, 0.5);
+    let routing = |volume| Routing {
+        nodes: vec![
+            NodeSpec {
+                volume,
+                ..to_master(1)
+            },
+            master(),
+        ],
+        cue: None,
+        measure: None,
+    };
+    let mut r = rig(vec![clip(1, 1, &audio)], routing(1.0), 2);
+    r.transport.send(Command::Stop).unwrap();
+    r.run(256, 128);
+    for step in 0..12 {
+        let gain = 1.0 - step as f32 * 0.05;
+        let clips = vec![Clip {
+            gain,
+            ..clip(1, 1, &audio)
+        }];
+        assert!(r.clips.set(clips).is_ok(), "clip list {step} was taken");
+        r.clips.collect_garbage();
+        assert!(r.routing.set(&routing(0.5)).unwrap(), "routing {step}");
+        r.routing.collect_garbage();
+        r.run(128, 128);
+    }
+    // Play: the newest list and routing from the first frame, no glide.
+    r.transport.send(Command::Play).unwrap();
+    let first = r.run(1_000, 128);
+    // The clip at 0.5, its gain 0.45 and the track at half volume (the
+    // balance law leaves the centre at unity).
+    let want = 0.5 * 0.45 * 0.5;
+    assert!(close(&first[999], &[want, want]), "{:?}", first[999]);
+    assert!(close(&r.settled(), &[want, want]));
+}
+
+#[test]
 fn a_routing_that_cannot_play_is_refused_and_the_old_one_plays_on() {
     let audio = steady(0.5, 0.5);
     let mut r = rig(

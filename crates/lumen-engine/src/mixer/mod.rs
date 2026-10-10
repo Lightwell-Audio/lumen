@@ -69,6 +69,10 @@ pub trait TrackSource: Send {
 
     /// Playback starts or jumps, as [`Source::locate`].
     fn locate(&mut self, _timeline: &Timeline, _sample_rate: u32, _sample: i64, _jump: Jump) {}
+
+    /// A block passed without rendering, as [`Source::idle`]: take what
+    /// the UI sent meanwhile, so its queues never fill while stopped.
+    fn idle(&mut self) {}
 }
 
 /// The smallest meter bank: room for this many nodes before a bigger one.
@@ -363,6 +367,13 @@ impl<T: TrackSource> Source for Mixer<T> {
     }
 
     fn idle(&mut self, sample_rate: u32, frames: usize) {
+        // Routings and clip lists sent while stopped are taken as they
+        // come: a full queue would hold the UI's next ones back until Play,
+        // and playback would start on stale ones (found by the M4 exit
+        // walkthrough). Nothing plays, so nothing crossfades.
+        self.finish_swap(true);
+        self.take_new(false);
+        self.tracks.idle();
         self.plan.idle_meters(sample_rate, frames);
     }
 
