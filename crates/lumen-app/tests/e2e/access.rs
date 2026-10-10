@@ -249,14 +249,19 @@ fn switches_and_segmented_choices_work_by_name() {
     // pointer leaves it, and a command closes it at once.
     let mut lumen = Lumen::start("switches");
     lumen.click("Lumen");
-    assert!(!lumen.is_on("Reduce motion"));
-    lumen.click("Reduce motion");
-    assert!(lumen.is_on("Reduce motion"), "a click switches it on");
-    assert!(lumen.shows("Additive solo"), "and the menu stays open");
-    assert!(lumen.is_on("Dark") && !lumen.is_on("Light"));
-    lumen.click("Light");
+    assert!(!lumen.is_on("Meters in track colours"));
+    lumen.click("Meters in track colours");
     assert!(
-        lumen.is_on("Light") && !lumen.is_on("Dark"),
+        lumen.is_on("Meters in track colours"),
+        "a click switches it on"
+    );
+    assert!(lumen.shows("Additive solo"), "and the menu stays open");
+    // Not the theme or Reduce motion: they are process-wide, and would reach
+    // the tests running beside this one.
+    assert!(lumen.is_on("100%") && !lumen.is_on("125%"));
+    lumen.click("125%");
+    assert!(
+        lumen.is_on("125%") && !lumen.is_on("100%"),
         "one choice at a time"
     );
     // The pointer leaves: after a moment, it fades away.
