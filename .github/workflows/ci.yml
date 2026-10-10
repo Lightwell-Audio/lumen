@@ -32,13 +32,16 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
+      # mesa-vulkan-drivers is lavapipe, a software Vulkan device, so GPU
+      # tests run here; they skip OpenGL (llvmpipe), which reads the
+      # waveform atlas back wrong (KNOWN_ISSUES).
       - name: Install Linux system libraries
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev \
             libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev libasound2-dev \
-            libfontconfig1-dev
+            libfontconfig1-dev mesa-vulkan-drivers
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2

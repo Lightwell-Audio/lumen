@@ -106,6 +106,29 @@ impl Lumen {
         self.harness.run_steps(frames);
     }
 
+    /// Lets audio play for `settle` (past any glide), then listens until at
+    /// least `frames` frames have played: main left and right, then the cue
+    /// pair's. It waits for frames, not for a fixed time: on a busy CI
+    /// machine the test device once played 768 frames in 150 ms.
+    pub fn listen(&mut self, settle: Duration, frames: usize) -> Vec<[f32; 4]> {
+        std::thread::sleep(settle);
+        self.frames(1);
+        self.app_mut().heard_all();
+        let started = Instant::now();
+        let mut heard = Vec::new();
+        while heard.len() < frames {
+            assert!(
+                started.elapsed() < PATIENCE,
+                "heard {} of {frames} frames",
+                heard.len()
+            );
+            std::thread::sleep(Duration::from_millis(10));
+            self.frames(1);
+            heard.extend(self.app_mut().heard_all());
+        }
+        heard
+    }
+
     /// Runs frames until `done` holds, sleeping a little between them so
     /// background work (audio, loading, saving) moves on. Panics, saying
     /// what it waited for, if it takes longer than [`PATIENCE`].

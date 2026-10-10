@@ -33,14 +33,8 @@ fn centred(peaks: &[f32]) -> f32 {
 
 /// The loudest left sample over a stretch, after letting changes glide.
 fn loudest(lumen: &mut Lumen) -> f32 {
-    std::thread::sleep(Duration::from_millis(150));
-    lumen.frames(1);
-    lumen.app_mut().heard();
-    std::thread::sleep(Duration::from_millis(150));
-    lumen.frames(1);
-    let heard = lumen.app_mut().heard();
-    assert!(heard.len() > 1_000, "heard {} frames", heard.len());
-    heard.iter().fold(0.0f32, |m, s| m.max(s.0.abs()))
+    let heard = lumen.listen(Duration::from_millis(150), 1_000);
+    heard.iter().fold(0.0f32, |m, f| m.max(f[0].abs()))
 }
 
 /// Checks the level heard once it has settled: two stretches in a row

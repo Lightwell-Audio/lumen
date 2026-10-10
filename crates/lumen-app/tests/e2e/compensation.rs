@@ -102,30 +102,19 @@ fn a_latent_track_stays_in_time_with_the_others() {
 
     lumen.key(eframe::egui::Modifiers::NONE, eframe::egui::Key::Space);
     lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
-    std::thread::sleep(Duration::from_millis(100));
-    lumen.frames(1);
-    lumen.app_mut().heard();
-    std::thread::sleep(Duration::from_millis(200));
-    lumen.frames(1);
-    let heard = lumen.app_mut().heard();
-    assert!(heard.len() > 1_000, "heard {} frames", heard.len());
+    let heard = lumen.listen(Duration::from_millis(100), 2_000);
     let loudest = heard
         .iter()
-        .fold(0.0f32, |m, &(l, r)| m.max(l.abs()).max(r.abs()));
+        .fold(0.0f32, |m, f| m.max(f[0].abs()).max(f[1].abs()));
     assert!(loudest < 1e-4, "the tracks drifted apart: {loudest}");
 
     // Taken off while playing, the device's latency goes and the tracks
     // still cancel once the change has passed.
     lumen.app_mut().set_test_latency(ids[0], 0);
     lumen.wait_for("the routing", |app| app.compensation() == 0);
-    std::thread::sleep(Duration::from_millis(100));
-    lumen.frames(1);
-    lumen.app_mut().heard();
-    std::thread::sleep(Duration::from_millis(200));
-    lumen.frames(1);
-    let heard = lumen.app_mut().heard();
+    let heard = lumen.listen(Duration::from_millis(100), 2_000);
     let loudest = heard
         .iter()
-        .fold(0.0f32, |m, &(l, r)| m.max(l.abs()).max(r.abs()));
+        .fold(0.0f32, |m, f| m.max(f[0].abs()).max(f[1].abs()));
     assert!(loudest < 1e-4, "after the change: {loudest}");
 }

@@ -18,14 +18,8 @@ const TONE: f32 = 3_000.0 / 32_768.0;
 /// Lets audio play past any glide, then the loudest main and cue samples
 /// (left) of the next stretch.
 fn loudest(lumen: &mut Lumen) -> (f32, f32) {
-    std::thread::sleep(Duration::from_millis(150));
-    lumen.frames(1);
-    lumen.app_mut().heard_all();
-    std::thread::sleep(Duration::from_millis(150));
-    lumen.frames(1);
-    // Read once: main and cue together.
-    let heard = lumen.app_mut().heard_all();
-    assert!(heard.len() > 1_000, "heard {} frames", heard.len());
+    // Main and cue together.
+    let heard = lumen.listen(Duration::from_millis(150), 1_000);
     heard.iter().fold((0.0f32, 0.0f32), |(m, c), f| {
         (m.max(f[0].abs()), c.max(f[2].abs()))
     })
