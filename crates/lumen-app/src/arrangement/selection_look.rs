@@ -10,9 +10,9 @@ use lumen_project::model::Project;
 use super::clips::{CLAMP, INSET, span};
 use super::handles::{ClipHandles, draw_handles};
 use super::{Arrangement, Row, RowKind, TITLE, select};
-use crate::theme;
 use crate::timeview::TimeView;
 use crate::widgets::draw_glow_rect;
+use crate::{light, theme};
 
 impl Arrangement {
     /// The selection, in the owner's choices: selected clips glow (S3),
@@ -180,7 +180,7 @@ impl Arrangement {
                         select::Half::Top => rect.with_max_y(split),
                         select::Half::Bottom => rect.with_min_y(split),
                     };
-                    painter.rect_filled(wash, 0.0, palette.text.gamma_multiply(0.08));
+                    painter.rect_filled(wash, 0.0, palette.text.gamma_multiply(light::EMBER_WASH));
                     painter.add(egui::Shape::dashed_line(
                         &[pos2(rect.left(), split), pos2(rect.right(), split)],
                         Stroke::new(1.0, palette.text.gamma_multiply(0.35)),

@@ -9,7 +9,7 @@ use lumen_app::testing::project_file;
 use lumen_core::time::Ticks;
 use lumen_project::model::Id;
 
-use super::{Lumen, wav};
+use super::{Lumen, keys, wav};
 
 fn clip_rect(lumen: &Lumen, id: Id) -> eframe::egui::Rect {
     let ctx = lumen.harness.ctx.clone();
@@ -62,7 +62,7 @@ fn create_add_import_arrange_edit_save_close_and_reopen_the_same_song() {
 
     // Add a track from the menu.
     lumen.click("Add track");
-    lumen.click("Add audio track Ctrl+T");
+    lumen.click(&keys("Add audio track Ctrl+T"));
     assert_eq!(lumen.track_names(), ["Audio 1"]);
     // New tracks grow in and moved rows glide (M4.5): let them settle.
     lumen.frames(30);

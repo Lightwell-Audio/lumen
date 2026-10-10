@@ -66,6 +66,7 @@ fn ghost_strip(ui: &mut Ui, area: Rect, keymap: &Keymap) -> bool {
     let keys = keymap.keys(Command::AddAudioTrack);
     let state = widgets::EmptyState {
         icon: Some(plus),
+        icon_size: theme::space::L,
         title: "Add track",
         hint: "",
         action: None,

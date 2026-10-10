@@ -287,14 +287,8 @@ fn a_track_in_nested_groups_is_heard_through_them_and_the_outer_mute_silences_it
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
     let loudest = |lumen: &mut Lumen| {
-        std::thread::sleep(Duration::from_millis(150));
-        lumen.frames(1);
-        lumen.app_mut().heard();
-        std::thread::sleep(Duration::from_millis(150));
-        lumen.frames(1);
-        let heard = lumen.app_mut().heard();
-        assert!(heard.len() > 1_000, "heard {} frames", heard.len());
-        heard.iter().fold(0.0f32, |m, s| m.max(s.0.abs()))
+        let heard = lumen.listen(Duration::from_millis(150), 1_000);
+        heard.iter().fold(0.0f32, |m, f| m.max(f[0].abs()))
     };
     // As loud as the track alone (a stereo track at the centre keeps its
     // level) and nothing more from the groups, which stay at unity (owner,

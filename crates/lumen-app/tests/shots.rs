@@ -48,16 +48,41 @@ fn lumen_looking_sized(
             App::new(cc, launch)
         });
     h.run_steps(10);
+    drop_files(&mut h, dir, 1.5);
+    h
+}
+
+/// A window in `appearance` with no files yet.
+fn bare(dir: &TempDir, appearance: &str, size: eframe::egui::Vec2) -> Harness<'static, App> {
+    let launch = Launch::for_test(dir.path()).appearing(appearance);
+    let mut h = Harness::builder()
+        .with_size(size)
+        .with_theme(if appearance == "light" {
+            eframe::egui::Theme::Light
+        } else {
+            eframe::egui::Theme::Dark
+        })
+        .with_step_dt(1.0 / 60.0)
+        .wgpu()
+        .build_eframe(|cc| {
+            lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+            App::new(cc, launch)
+        });
+    h.run_steps(10);
+    h
+}
+
+/// Drops three tones `seconds` long on new tracks.
+fn drop_files(h: &mut Harness<'static, App>, dir: &TempDir, seconds: f32) {
     let files: Vec<PathBuf> = ["kick", "snare", "bass"]
         .iter()
-        .map(|name| wav(&dir.path().join(format!("{name}.wav")), 1.5))
+        .map(|name| wav(&dir.path().join(format!("{name}.wav")), seconds))
         .collect();
     h.input_mut().dropped_files = files
         .into_iter()
         .map(|p| std::sync::Arc::new(Dropped(p)) as eframe::egui::DroppedFileHandle)
         .collect();
     h.run_steps(60);
-    h
 }
 
 fn clip(h: &Harness<'static, App>, track: usize) -> Rect {
@@ -541,6 +566,30 @@ fn smallest_window_at_200() {
     h.run_steps(6);
     save(&mut h, "card");
     let _ = h.query_by_label("Lumen");
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn light_layer() {
+    use egui_kittest::kittest::Queryable;
+    for appearance in ["dark", "light"] {
+        let dir = TempDir::new("shots-light");
+        let mut h = bare(&dir, appearance, vec2(1200.0, 640.0));
+        save(&mut h, &format!("light-empty-{appearance}"));
+        drop_files(&mut h, &dir, 8.0);
+        h.key_press(Key::Space);
+        for _ in 0..40 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            h.run_steps(1);
+        }
+        save(&mut h, &format!("light-playing-{appearance}"));
+        h.get_by_label("Detail").click();
+        for _ in 0..20 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            h.run_steps(1);
+        }
+        save(&mut h, &format!("light-mixer-{appearance}"));
+    }
 }
 
 /// A left click at `p`.

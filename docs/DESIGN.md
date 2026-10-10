@@ -128,6 +128,9 @@ Windows** are in the app menu (click **Lumen** at the left of the transport bar)
 | `clip_body` | `#262A31` | `#FFFFFF` | Clip body (the title bar and waveform carry the track colour) |
 | `well` | `#141619` | `#D6DAE0` | Inset wells: fader grooves, meter and loudness backgrounds; below every surface in both themes (M4.5) |
 | `shadow` | black at 38% | black at 14% | The one shadow, under windows and popovers |
+| `core` | `#FFFFFF` | `#1F6FD1` | The centre of a light (§6a); on light the accent: light on paper is ink |
+| `sun` | `#FFC46B` | `#CC9D56` | The mark's sun, at its rim (§6b); never in the interface |
+| `sun_core` | `#FFFFFF` | `#806236` | The mark's sun, at its centre |
 
 Text on a filled control (a lit button) is chosen by the fill's brightness:
 near-black (`#0B0D10`) on light fills, white on dark ones (`theme::text_on`).
@@ -262,6 +265,72 @@ not travel.
   - anything on the audio thread.
 - **Costs:** an animation requests frames only while it runs. When the last
   one settles, the app returns to its idle repaint rate.
+
+## 6a. Light (ADR-0043, approved from the identity canvas)
+
+The theme of the product is light. It is one layer over the tokens, in
+`light.rs`, and **every glow is one of its levels, never a one-off.**
+
+**Rules**
+1. **Light means alive.** Only what is on, playing, chosen or under the
+   hand gives light. Chrome never glows.
+2. **Light has a source.** A core (white in the dark), the colour in the
+   halo, falling off outward, as the comet knob's head does.
+3. **One colour of light:** the accent. Record red is the only other, and
+   means recording or a clip. Amber warns and never glows.
+4. **Light follows sound.** Meters, the mark and the lanes under the
+   playhead brighten with the level, and nothing else does.
+5. **Dark is calm.** Nothing glows while nothing changes; the armed ring
+   is the one light that breathes (§6).
+
+On the light theme halos are halved (`light::strength`) and the core is
+the accent.
+
+| Level | Token | Recipe | Used for |
+|---|---|---|---|
+| 0 · Unlit | — | no light | chrome, labels, controls at rest, a stopped playhead |
+| 1 · Ember | `EMBER_WASH` | `text` at 8% over what is hovered | under the hand: the half of a clip you would grab |
+| 2 · Lit | `LIT` | 1.5 pt line; halo 1.5 pt at 28%, 3 pt at 12% past it | chosen: selected clips (S3), edges and fade curves being handled |
+| 3 · Beam | `BEAM` | 2 pt accent line, 1 pt `core` inside, halo 3 pt at 22%, casting 56 pt at 9% at its centre | sounding now: the playhead while playing, Play while playing, meter heads |
+| 4 · Flare | `FLARE` | record red; halo 2.5 pt at 45%, 6 pt at 18% | needs you: clip lights, the record arm |
+
+Helpers: `light::hline`, `vline`, `rect`, `halo_around`, `polyline`,
+`cast` and `cap` (the playhead's cap). `widgets::draw_glow_rect` and
+`draw_edge_glow` are `LIT`.
+
+**Where it is used**
+- **The playhead** is unlit while stopped (a 1 pt accent line). Playing,
+  it is a beam: its cap turns `core` with a halo, and it casts light on
+  the lanes it passes.
+- **Play** while playing: the button's icon in `core`, with the beam's
+  halo around the button.
+- **Meter heads:** the top of every RMS bar (strips, header sliders,
+  hairlines) has a `BEAM` head in its zone's colour, so a level reads as
+  light rising.
+- **Clip lights** flare.
+- **The mark** (§6b) in the transport bar is a meter of the master, and
+  above an empty arrangement it rises when files are dragged over.
+
+## 6b. The mark (the owner's Dawn in Sunrise, ADR-0043)
+
+A sun rising over a horizon, its reflection breaking into a waveform: an
+amber sun (`sun`, `sun_core`) over water in the accent. Drawn on a 64 grid
+(`widgets/mark.rs`): sun radius 16 on the horizon at y 32, white at its
+centre and amber at its rim, cut by the horizon; a horizon from 5 to 59,
+2.6 wide, white in the middle and water-coloured at the ends; three
+reflections, 22, 14 and 7 long, at 85, 60 and 30%. At 40 pt and under the
+strokes are 4 wide and the third reflection goes.
+
+- **A meter where it can be.** In the transport bar (22 pt, before the
+  "Lumen" wordmark) its sun rises with the master's RMS (silence below
+  −48 dB, fully risen at 0 dB) and its light grows with it; at rest it
+  peeks over the horizon. Recording turns the sun red (M9).
+- **Empty arrangement:** the mark, 48 pt, half risen above "Drop audio
+  files here"; fully risen while files that can be added are dragged over.
+- **Window icon:** the mark at 72% of a dark rounded square (corner 22.5%,
+  `#1F2228` to `#0E0F12`), drawn as pixels by `brand.rs`. The installer's
+  app and file icons (M9) come from the same geometry.
+- The wordmark stays Unbounded at 560, never redrawn.
 
 ## 7. Core widgets
 

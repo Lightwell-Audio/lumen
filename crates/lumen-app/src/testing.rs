@@ -201,6 +201,12 @@ impl App {
         self.arrangement.meters.moving()
     }
 
+    /// How the transport's mark is lit (ADR-0043): how far its sun has
+    /// risen (0 to 1) and whether it is red for recording.
+    pub fn mark(&self) -> (f32, bool) {
+        (self.mark.rise, self.mark.recording)
+    }
+
     /// The master's loudness as shown: momentary, short-term and
     /// integrated LUFS, and the true peak in dBTP.
     pub fn loudness(&self) -> (f64, f64, f64, f32) {

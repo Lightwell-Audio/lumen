@@ -4,8 +4,8 @@
 
 use eframe::egui::{Event, Key, Modifiers};
 
-use super::Lumen;
 use super::properties::with_two_clips;
+use super::{Lumen, keys};
 
 /// Opens the Keyboard shortcuts window from the palette and searches its
 /// list for `query`.
@@ -28,7 +28,10 @@ fn a_shortcut_recorded_in_the_window_runs_and_is_kept() {
     open_and_search(&mut lumen, "fit song");
     lumen.click("Change Fit song to width shortcut W");
     lumen.key(Modifiers::ALT, Key::W);
-    assert_eq!(lumen.app().shortcuts_of("Fit song to width"), ["Alt+W"]);
+    assert_eq!(
+        lumen.app().shortcuts_of("Fit song to width"),
+        [keys("Alt+W")]
+    );
     assert_eq!(
         lumen.app().saved_shortcuts()["view.fit_width"],
         ["Alt+W"],
@@ -64,15 +67,22 @@ fn a_clash_is_reassigned_or_cancelled_and_reset_restores() {
 
     lumen.click("Change Fit song to width shortcut W");
     lumen.key(Modifiers::COMMAND, Key::D);
-    assert!(lumen.shows("Ctrl+D is used by Duplicate."));
-    assert_eq!(lumen.app().shortcuts_of("Duplicate"), ["Ctrl+D"], "not yet");
+    assert!(lumen.shows(&keys("Ctrl+D is used by Duplicate.")));
+    assert_eq!(
+        lumen.app().shortcuts_of("Duplicate"),
+        [keys("Ctrl+D")],
+        "not yet"
+    );
     lumen.click("Reassign");
-    assert_eq!(lumen.app().shortcuts_of("Fit song to width"), ["Ctrl+D"]);
+    assert_eq!(
+        lumen.app().shortcuts_of("Fit song to width"),
+        [keys("Ctrl+D")]
+    );
     assert!(lumen.app().shortcuts_of("Duplicate").is_empty());
 
     // Reset all puts both back, and nothing is left to save.
     lumen.click("Reset all");
-    assert_eq!(lumen.app().shortcuts_of("Duplicate"), ["Ctrl+D"]);
+    assert_eq!(lumen.app().shortcuts_of("Duplicate"), [keys("Ctrl+D")]);
     assert_eq!(lumen.app().shortcuts_of("Fit song to width"), ["W"]);
     assert!(lumen.app().saved_shortcuts().is_empty());
 }
@@ -96,6 +106,9 @@ fn saved_shortcuts_are_used_from_the_start() {
     let lumen = Lumen::start_with(dir, |launch| {
         launch.with_saved_shortcut("view.fit_width", &["Alt+W"])
     });
-    assert_eq!(lumen.app().shortcuts_of("Fit song to width"), ["Alt+W"]);
+    assert_eq!(
+        lumen.app().shortcuts_of("Fit song to width"),
+        [keys("Alt+W")]
+    );
     assert_eq!(lumen.app().shortcuts_of("Play / Stop"), ["Space"]);
 }

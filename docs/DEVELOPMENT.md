@@ -75,10 +75,10 @@ export CARGO_TARGET_DIR="$(cygpath -w "$USERPROFILE")\lumen-target"
 
 ## Checking macOS code from Windows
 
-**macOS CI is paused** (owner, 2026-10-07), so run this before pushing any
-code that is compiled differently on macOS. Platform-specific code (the
-cpal audio backend, for example) can be type-checked for macOS without a
-Mac:
+CI tests macOS (Apple silicon) on every pull request. A CI cycle is slow,
+so run this before pushing any code that is compiled differently on macOS.
+Platform-specific code (the cpal audio backend, for example) can be
+type-checked for macOS without a Mac:
 
 ```bash
 rustup target add aarch64-apple-darwin
@@ -186,7 +186,9 @@ cargo test -p lumen-app --test smoke -- --ignored             # the real binary,
 - **Listening:** the test device keeps what it plays. `app.heard()`
   returns the frames played since the last call (the fake device runs at
   about a quarter of real time), so a scenario can check for clicks, as
-  `dragging_a_playing_clip_does_not_click` does.
+  `dragging_a_playing_clip_does_not_click` does. To hear a level, use
+  `lumen.listen(settle, frames)`: it waits for the frames, not for a
+  time (a busy CI machine played 768 frames in 150 ms).
 - **The smoke tests** (`crates/lumen-app/tests/smoke.rs`) run `lumen`
   itself: start and draw, import, save, reopen with a screenshot that must
   not be blank, the quality-bar project, and the light theme at 200%. A
@@ -266,7 +268,8 @@ and assert the size of its uniform struct against `shaders::NAME_UNIFORM`.
 
 ## Frame-time benchmark (ADR-0026)
 
-CI has no GPU, so the arrangement's frame times are measured on the
+CI has no GPU (the Linux job has lavapipe, a software Vulkan device, for
+GPU unit tests only), so the arrangement's frame times are measured on the
 development machine. Before closing a slice that changes the arrangement,
 run:
 

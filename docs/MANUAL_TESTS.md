@@ -1683,6 +1683,40 @@ Fixes after MT-MIX-7 was written (ADR-0042). Run
 
 **Passed (2026-10-10, owner):** the owner reported every step passing at the end of M4.
 
+### MT-APP-18 · Light and the mark (needs a human)
+The light layer and the logo (ADR-0043, DESIGN.md §6a and §6b). Run
+`cargo run --release -p lumen-app`.
+1. **Window icon:** the taskbar and Alt+Tab show the Dawn mark (an amber
+   sun over blue water on a dark rounded square), not the default icon.
+2. **The mark at rest:** with nothing playing, the mark before "Lumen" in
+   the transport bar shows the sun just peeking over the horizon, dimmed.
+3. **Empty arrangement:** File › New. Above "Drop audio files here" the
+   mark sits half risen. Drag an audio file from Explorer over the lanes:
+   the mark rises fully above "Drop to add 1 audio file". Drag a text file
+   instead: it stays half risen.
+4. **The mark as a meter:** drop a song and play it. The sun rises and
+   falls with the master, fully risen near full scale, and settles when
+   you stop. It never flickers between frames.
+5. **The playhead:** stopped, it is a thin blue line. Playing, it becomes
+   a beam: a white core, a soft halo, a white cap, and a faint band of
+   light on the lanes it passes. Stop: it is a thin line again.
+6. **Play:** while playing, the Play button's icon is white with a soft
+   blue halo around the button.
+7. **Meter heads:** open the Mixer (Detail). Each playing meter has a thin
+   white line with a soft glow at the top of its level, in amber and red
+   zones too. The header sliders' level bars end in a short bright tick.
+8. **Clip lights:** push a track past 0 dB: its clip light glows red in
+   the header and on the strip; click it to clear.
+9. **Existing glows:** select a clip (accent glow), hover a track's bottom
+   edge and a clip's fade: they glow as before, the edges slightly softer
+   and wider.
+10. **Light theme:** repeat 2, 5 and 7 in the light theme: the glows are
+    softer, the core is blue rather than white, the sun is a deeper amber.
+11. **At 150% and 200%:** the mark stays crisp and centred in the
+    transport bar, with nothing overlapping at the minimum window size.
+
+**Expected:** as described; no glow appears on anything at rest.
+
 ## Milestone 4.5 — Polish pass
 
 ### MT-POL-1 · The audit's bugs (needs a human)
@@ -1826,3 +1860,4 @@ Slice 5 of M4.5: findings M1, M4, M2, M3, U2 and M5. Run
    0% CPU, as before.
 
 **Expected:** as described, in both themes.
+

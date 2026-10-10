@@ -101,14 +101,8 @@ fn a_soloed_return_plays_only_what_is_sent_to_it() {
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
     let loudest = |lumen: &mut Lumen| {
-        std::thread::sleep(Duration::from_millis(150));
-        lumen.frames(1);
-        lumen.app_mut().heard();
-        std::thread::sleep(Duration::from_millis(150));
-        lumen.frames(1);
-        let heard = lumen.app_mut().heard();
-        assert!(heard.len() > 1_000, "heard {} frames", heard.len());
-        heard.iter().fold(0.0f32, |m, s| m.max(s.0.abs()))
+        let heard = lumen.listen(Duration::from_millis(150), 1_000);
+        heard.iter().fold(0.0f32, |m, f| m.max(f[0].abs()))
     };
     let both = loudest(&mut lumen);
     // Soloing the return: the send alone, about half of dry plus wet.
@@ -134,13 +128,8 @@ fn a_send_at_the_bottom_is_silent_and_leaves_the_level_alone() {
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
     let loudest = |lumen: &mut Lumen| {
-        std::thread::sleep(Duration::from_millis(150));
-        lumen.frames(1);
-        lumen.app_mut().heard();
-        std::thread::sleep(Duration::from_millis(150));
-        lumen.frames(1);
-        let heard = lumen.app_mut().heard();
-        heard.iter().fold(0.0f32, |m, s| m.max(s.0.abs()))
+        let heard = lumen.listen(Duration::from_millis(150), 1_000);
+        heard.iter().fold(0.0f32, |m, f| m.max(f[0].abs()))
     };
     let before = loudest(&mut lumen);
     let label = format!("Send {track} to A Return 1");
@@ -460,13 +449,8 @@ fn a_duplicated_tracks_send_is_heard_as_its_own() {
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
     let loudest = |lumen: &mut Lumen| {
-        std::thread::sleep(Duration::from_millis(200));
-        lumen.frames(1);
-        lumen.app_mut().heard();
-        std::thread::sleep(Duration::from_millis(200));
-        lumen.frames(1);
-        let heard = lumen.app_mut().heard();
-        heard.iter().fold(0.0f32, |m, s| m.max(s.0.abs()))
+        let heard = lumen.listen(Duration::from_millis(200), 1_000);
+        heard.iter().fold(0.0f32, |m, f| m.max(f[0].abs()))
     };
     let both = loudest(&mut lumen);
     // Silence the copy's send only (the lower knob, by double-click).

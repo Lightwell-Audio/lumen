@@ -428,8 +428,38 @@ slice 6 (close). E2E must not flip process-wide
 settings (theme, Reduce motion): tests run side by side.
 `tests/shots.rs` renders mixed themes when run in parallel (the theme is
 process-global): run it with `--test-threads=1`.
-Before it, 2026-10-10: **the M4 review's fixes are done on
-`m4-review`** (`docs/audits/2026-10-10-m4.md`, Status table). Changes:
+`origin/main` (PRs #4 to #6: CI fixes, macOS CI back, the light layer
+and the mark) is merged into `m4.5-polish`; the empty arrangement's
+empty state shows the mark, half risen, as its icon (`EmptyState::icon_size`).
+Before it, 2026-10-10: **the light layer and the mark are built**
+on `claude/keen-einstein-2fjiuy` (ADR-0043, DESIGN.md §6a and §6b; the
+owner approved them on the identity canvas, a private Design artifact,
+and chose the logo, Dawn in Sunrise). `light.rs` holds the five levels
+(Unlit, Ember, `LIT`, `BEAM`, `FLARE`): **every glow is one of them,
+never a one-off**; new tokens `core`, `sun`, `sun_core`. The playhead is a
+beam while playing, Play lights, meters have heads, clip lights flare.
+`widgets/mark.rs` draws the mark: a meter of the master in the transport
+bar (red when recording arrives in M9), half risen over an empty
+arrangement. `brand.rs` draws the window icon as pixels (installer icons
+stay M9). E2E `light`, shots `light_layer`. MT-APP-18 waits for the owner.
+A guitarist-first direction was pitched and set aside by the owner. Before it, 2026-10-10: **macOS CI is back** (owner) on
+`claude/busy-pascal-pbswo9`: `macos-latest` (Apple silicon) is in the test
+matrix again, and a new push to a pull request cancels its superseded run.
+Its first run failed 20 E2E tests, both kinds fixed: chords are written
+Cmd and Option on macOS (write E2E text with chords through `keys("Ctrl+D
+…")` in `tests/e2e/main.rs`), and `Lumen::listen` settled for a wall-clock
+time while the test device plays a block per 10 ms poll, so slow sleeps
+measured levels mid-glide; it now counts the settle in frames played. CI
+tests run with `--no-fail-fast`. CI is green on all three systems (run
+38070627268). Before it, 2026-10-10: **CI fixes** on
+`claude/gallant-newton-feg0a0`. `main` was red in Tests on both systems:
+- Linux: the waveform atlas test ran on OpenGL (llvmpipe), which reads
+  negative peaks back as 0. It now asks for Vulkan, DX12 or Metal, and the
+  Linux job installs lavapipe (`mesa-vulkan-drivers`) so it runs;
+- Windows: an E2E listener heard 768 frames in a fixed 150 ms. Every level
+  check now uses `Lumen::listen(settle, frames)`, which waits for frames.
+Both follow-ups are in KNOWN_ISSUES. Before it, 2026-10-10: **the M4
+review's fixes are done on `m4-review`** (`docs/audits/2026-10-10-m4.md`, Status table). Changes:
 - the five oversized app modules split: `arrangement/rows.rs`,
   `tracks.rs`, `header_row.rs`, `strip_output.rs`, `selection_look.rs`
   and `app/test_modes.rs`;
@@ -713,9 +743,10 @@ escapes and quotes several times.
   `cargo run --release -p lumen-app` from the repository root, never an
   `.exe` path.
 - Checks CI on GitHub themselves: push, don't watch or poll it.
-- **macOS CI is paused** (2026-10-07; Actions minutes ran out). CI runs
-  Windows and Linux. Check macOS code with the cross-target clippy in
-  DEVELOPMENT.md before pushing.
+- **macOS CI is back** (owner, 2026-10-10; paused from 2026-10-07 when
+  Actions minutes ran out). CI runs Windows, macOS and Linux. Still check
+  macOS-specific code with the cross-target clippy in DEVELOPMENT.md
+  before pushing.
 - Wants variants pitched before a slice is built, for behaviour (what is
   heard, how controls act) as well as visuals, with a recommendation
   (owner, M4 slice 1).

@@ -37,6 +37,7 @@ mod audio;
 mod audio_settings;
 mod autosave;
 mod bench;
+mod brand;
 mod canvas;
 mod commands;
 mod crash;
@@ -46,6 +47,7 @@ mod fonts;
 mod icons;
 mod lanes;
 mod launch;
+mod light;
 mod media;
 mod meters;
 mod motion;
@@ -186,6 +188,8 @@ pub struct App {
     clipboard_keys: app::clipboard_keys::Pending,
     /// When the meters last moved on (M4 slice 5).
     meters_at: Option<Instant>,
+    /// How the transport's mark was last lit (ADR-0043).
+    mark: widgets::mark::Look,
     /// What the lanes' right-click menu is for (owner's A, MT-APP-14 run 2).
     menu_for: app::editing::MenuFor,
     /// The clip being renamed and the pinned properties card (slice 6e).
@@ -456,6 +460,7 @@ impl eframe::App for App {
                         let square = egui::Rect::from_center_size(at, egui::vec2(16.0, 16.0));
                         p.extend(icons::shapes(icons::Icon::Search, square, colour));
                     }),
+                    icon_size: theme::space::L,
                     title: "Nothing to browse yet",
                     hint: "Devices, samples and projects arrive in Milestone 6",
                     action: None,
@@ -667,6 +672,7 @@ impl App {
             typing: false,
             clipboard_keys: Default::default(),
             meters_at: None,
+            mark: widgets::mark::Look::REST,
             menu_for: app::editing::MenuFor::default(),
             clip_props: app::clip_card::ClipProps::default(),
             smoke_test_frames: launch.smoke_test.then_some(app::test_modes::SMOKE_FRAMES),
@@ -734,7 +740,8 @@ pub fn run() -> eframe::Result {
         viewport: egui::ViewportBuilder::default()
             .with_title(display_name())
             .with_inner_size([1600.0, 900.0])
-            .with_min_inner_size([960.0, 540.0]),
+            .with_min_inner_size([960.0, 540.0])
+            .with_icon(brand::window_icon()),
         ..Default::default()
     };
     // The benchmark measures how fast frames can be drawn, not the display's

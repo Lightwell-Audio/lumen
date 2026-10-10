@@ -5,8 +5,8 @@
 use eframe::egui::{Event, Key, Modifiers, Pos2};
 use egui_kittest::kittest::Queryable;
 
-use super::Lumen;
 use super::properties::with_two_clips;
+use super::{Lumen, keys};
 
 /// Hovers the top half of clip `index` on track `track`.
 fn hover_clip(lumen: &mut Lumen, track: usize) {
@@ -28,7 +28,7 @@ fn the_info_line_names_what_is_under_the_pointer_with_its_keys() {
         info.starts_with("Clip \u{201C}kick\u{201D}: drag to move"),
         "{info}"
     );
-    assert!(info.contains("Ctrl+D duplicate"), "{info}");
+    assert!(info.contains(&keys("Ctrl+D duplicate")), "{info}");
     assert!(
         lumen
             .harness
@@ -47,11 +47,15 @@ fn the_info_line_names_what_is_under_the_pointer_with_its_keys() {
     lumen.click("Search shortcuts");
     lumen.harness.event(Event::Text("duplicate".into()));
     lumen.frames(2);
-    lumen.click("Change Duplicate shortcut Ctrl+D");
+    lumen.click(&keys("Change Duplicate shortcut Ctrl+D"));
     lumen.key(Modifiers::ALT, Key::D);
     lumen.key(Modifiers::NONE, Key::Escape);
     hover_clip(&mut lumen, 0);
-    assert!(lumen.info().contains("Alt+D duplicate"), "{}", lumen.info());
+    assert!(
+        lumen.info().contains(&keys("Alt+D duplicate")),
+        "{}",
+        lumen.info()
+    );
 }
 
 #[test]

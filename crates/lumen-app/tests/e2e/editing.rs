@@ -4,7 +4,7 @@ use eframe::egui::{Event, Key, Modifiers};
 
 use egui_kittest::kittest::Queryable;
 
-use super::Lumen;
+use super::{Lumen, keys};
 
 #[test]
 fn tracks_are_added_from_the_menu_and_the_keyboard() {
@@ -14,7 +14,7 @@ fn tracks_are_added_from_the_menu_and_the_keyboard() {
 
     lumen.click("Add track");
     // Menu items are named with their shortcut, as a screen reader says them.
-    lumen.click("Add audio track Ctrl+T");
+    lumen.click(&keys("Add audio track Ctrl+T"));
     lumen.key(Modifiers::COMMAND, Key::T);
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::T);
     let kinds: Vec<_> = lumen

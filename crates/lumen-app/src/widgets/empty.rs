@@ -11,6 +11,9 @@ use crate::{fonts, theme};
 pub struct EmptyState<'a> {
     /// Draws a small icon centred at a point, in a colour.
     pub icon: Option<fn(&Painter, Pos2, egui::Color32)>,
+    /// The icon's height: `theme::space::L` for a small icon, more for the
+    /// mark above an empty arrangement.
+    pub icon_size: f32,
     pub title: &'a str,
     pub hint: &'a str,
     /// The button that fills the area: its label, its shortcut and what it
@@ -42,7 +45,7 @@ pub fn empty_state(ui: &mut Ui, rect: Rect, state: &EmptyState<'_>) -> bool {
         wrap,
     );
     let icon_room = if state.icon.is_some() {
-        theme::space::L + theme::space::S
+        state.icon_size + theme::space::S
     } else {
         0.0
     };
@@ -57,7 +60,7 @@ pub fn empty_state(ui: &mut Ui, rect: Rect, state: &EmptyState<'_>) -> bool {
     if let Some(icon) = state.icon {
         icon(
             &painter,
-            pos2(rect.center().x, y + theme::space::L / 2.0),
+            pos2(rect.center().x, y + state.icon_size / 2.0),
             palette.text_hint,
         );
         y += icon_room;

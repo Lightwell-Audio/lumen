@@ -66,6 +66,20 @@ pub fn vertical(
                 );
             }
         }
+        // The head: the level is light rising (ADR-0043).
+        let rms = reading.rms[side];
+        if rms > FLOOR_DB {
+            let y = y_at(rect.y_range(), rms);
+            let color = theme::meter(rms, base);
+            crate::light::hline(
+                painter,
+                crate::light::BEAM,
+                bar.x_range(),
+                y,
+                color,
+                strength,
+            );
+        }
         let hold = reading.hold[side];
         if hold > FLOOR_DB {
             let y = y_at(rect.y_range(), hold).round();
