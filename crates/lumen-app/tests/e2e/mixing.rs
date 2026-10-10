@@ -40,15 +40,9 @@ fn playing(name: &str) -> (Lumen, String) {
 /// Lets `ms` of audio play (past any glide), then returns the loudest
 /// left and right samples of the next `ms`.
 fn levels(lumen: &mut Lumen, ms: u64) -> (f32, f32) {
-    std::thread::sleep(Duration::from_millis(ms));
-    lumen.frames(1);
-    lumen.app_mut().heard();
-    std::thread::sleep(Duration::from_millis(ms));
-    lumen.frames(1);
-    let heard = lumen.app_mut().heard();
-    assert!(heard.len() > 1_000, "heard {} frames", heard.len());
-    heard.iter().fold((0.0f32, 0.0f32), |(l, r), s| {
-        (l.max(s.0.abs()), r.max(s.1.abs()))
+    let heard = lumen.listen(Duration::from_millis(ms), 1_000);
+    heard.iter().fold((0.0f32, 0.0f32), |(l, r), f| {
+        (l.max(f[0].abs()), r.max(f[1].abs()))
     })
 }
 

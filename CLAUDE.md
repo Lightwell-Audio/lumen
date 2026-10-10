@@ -390,8 +390,15 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-10: **the M4 review's fixes are done on
-`m4-review`** (`docs/audits/2026-10-10-m4.md`, Status table). Changes:
+**Last updated:** 2026-10-10: **CI fixes** on
+`claude/gallant-newton-feg0a0`. `main` was red in Tests on both systems:
+- Linux: the waveform atlas test ran on OpenGL (llvmpipe), which reads
+  negative peaks back as 0. It now asks for Vulkan, DX12 or Metal, and the
+  Linux job installs lavapipe (`mesa-vulkan-drivers`) so it runs;
+- Windows: an E2E listener heard 768 frames in a fixed 150 ms. Every level
+  check now uses `Lumen::listen(settle, frames)`, which waits for frames.
+Both follow-ups are in KNOWN_ISSUES. Before it, 2026-10-10: **the M4
+review's fixes are done on `m4-review`** (`docs/audits/2026-10-10-m4.md`, Status table). Changes:
 - the five oversized app modules split: `arrangement/rows.rs`,
   `tracks.rs`, `header_row.rs`, `strip_output.rs`, `selection_look.rs`
   and `app/test_modes.rs`;

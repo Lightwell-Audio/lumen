@@ -393,13 +393,7 @@ fn a_track_plays_straight_to_another_pair_of_outputs() {
     // The stream reopens with outputs 3 and 4; the tone plays there only.
     lumen.wait_for("the audio to restart", lumen_app::App::audio_running);
     lumen.key(Modifiers::NONE, Key::Space);
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    lumen.frames(1);
-    lumen.app_mut().heard_all();
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    lumen.frames(1);
-    let heard = lumen.app_mut().heard_all();
-    assert!(heard.len() > 1_000, "heard {} frames", heard.len());
+    let heard = lumen.listen(std::time::Duration::from_millis(300), 1_000);
     let loudest = |c: usize| heard.iter().fold(0.0f32, |m, f| m.max(f[c].abs()));
     assert!(loudest(0) < 1e-4 && loudest(1) < 1e-4, "main is silent");
     assert!(

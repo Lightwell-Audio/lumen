@@ -568,8 +568,14 @@ mod tests {
     use super::*;
 
     /// A GPU device, or `None` where there is none (some CI machines).
+    /// Vulkan, DX12 or Metal only: on OpenGL (Mesa's llvmpipe on the Linux
+    /// runners) the atlas's negative peaks come back as 0, with or without
+    /// growing, so a read-back cannot check what these tests check.
     fn gpu() -> Option<(wgpu::Device, wgpu::Queue)> {
-        let instance = wgpu::Instance::default();
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .ok()?;
