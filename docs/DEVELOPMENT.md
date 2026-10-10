@@ -206,7 +206,8 @@ cargo test -p lumen-app --test smoke -- --ignored             # the real binary,
   states a `--screenshot` cannot reach, rendered headless with the GPU
   (clips, waveforms and grid included) to PNG files. Ignored in CI; add a
   function for each new state worth checking.
-  `$env:SHOTS = "<folder>"; cargo test -p lumen-app --test shots -- --ignored`
+  `$env:SHOTS = "<folder>"; cargo test -p lumen-app --test shots -- --ignored --test-threads=1`
+  (one at a time: the theme is process-wide, so parallel shots mix themes)
 
 ## Test flags for files and recovery (M3 slice 3)
 

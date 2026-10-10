@@ -46,8 +46,11 @@ impl Arrangement {
         self.hot_return = self.hot_return_next.take();
         // A send being set in a return's list keeps its row (S1).
         self.held_send = self.held_next.take();
-        let rows = self.rows(&ctx, doc.project(), lanes.pending().len());
+        let mut rows = self.rows(&ctx, doc.project(), lanes.pending().len());
         let content = self.content_height(&ctx, doc.project(), &rows);
+        if self.keep_in_content(content, column.height()) {
+            rows = self.rows(&ctx, doc.project(), lanes.pending().len());
+        }
         // The scrolling tracks end where the pinned returns and master
         // begin (slice 4).
         let main = self.zone_span(&ctx, doc.project(), Zone::Main, column.y_range());

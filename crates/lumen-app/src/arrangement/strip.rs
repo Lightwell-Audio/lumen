@@ -414,6 +414,7 @@ impl Arrangement {
             track.gain_db,
             SliderKind::Volume,
             &format!("{} volume in the mixer", track.name),
+            controls,
         );
         if db != track.gain_db {
             doc.set_volume(track.id, db);
@@ -426,7 +427,7 @@ impl Arrangement {
             if reading.clipped {
                 palette.record
             } else {
-                palette.raised
+                controls.fill
             },
         );
         painter.text(

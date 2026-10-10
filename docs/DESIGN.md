@@ -118,6 +118,7 @@ Windows** are in the app menu (click **Lumen** at the left of the transport bar)
 | `selected_row` | `#223449` | `#DBE7F8` | A selected track header |
 | `selected_control` | `#434D5E` | `#FFFFFF` | Controls on a selected row |
 | `clip_body` | `#262A31` | `#FFFFFF` | Clip body (the title bar and waveform carry the track colour) |
+| `well` | `#141619` | `#D6DAE0` | Inset wells: fader grooves, meter and loudness backgrounds; below every surface in both themes (M4.5) |
 | `shadow` | black at 38% | black at 14% | The one shadow, under windows and popovers |
 
 Text on a filled control (a lit button) is chosen by the fill's brightness:

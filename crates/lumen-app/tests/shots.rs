@@ -1,9 +1,10 @@
 //! Renders states a `--screenshot` cannot reach (hovers, drags, selections)
 //! to PNG files, for checking the look by eye. Not a test of behaviour: it
-//! is ignored, and runs on demand with a GPU:
+//! is ignored, and runs on demand with a GPU, one test at a time (the
+//! theme is process-wide, so tests run side by side render mixed themes):
 //!
 //! ```text
-//! SHOTS=<folder> cargo test -p lumen-app --test shots -- --ignored
+//! SHOTS=<folder> cargo test -p lumen-app --test shots -- --ignored --test-threads=1
 //! ```
 
 use std::path::PathBuf;
@@ -18,9 +19,10 @@ fn lumen(dir: &TempDir) -> Harness<'static, App> {
     lumen_looking(dir, "dark", 1.0)
 }
 
-/// [`lumen`] in `appearance`, at `scale`.
+/// [`lumen`] in `appearance`, at `scale`: tall enough for the tracks with
+/// the mixer open (at 420 points the dropped files found no lanes).
 fn lumen_looking(dir: &TempDir, appearance: &str, scale: f32) -> Harness<'static, App> {
-    lumen_looking_sized(dir, appearance, scale, vec2(1200.0, 420.0))
+    lumen_looking_sized(dir, appearance, scale, vec2(1280.0, 760.0))
 }
 
 /// [`lumen_looking`] in a window of `size`.

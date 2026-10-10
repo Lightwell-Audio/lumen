@@ -308,7 +308,7 @@ impl Arrangement {
             ys.max - t * ys.span()
         };
         let bar = Rect::from_x_y_ranges(left..=left + 12.0, ys);
-        painter.rect_filled(bar, 2.0, palette.app);
+        painter.rect_filled(bar, 2.0, palette.well);
         let band = Rect::from_x_y_ranges(bar.x_range().expand(3.0), at(TARGET.1)..=at(TARGET.0));
         painter.rect_filled(band, 0.0, palette.accent.gamma_multiply(0.14));
         if meters_heard(reading.short_term) {

@@ -54,6 +54,10 @@ pub struct Palette {
     /// Clip body: dark, so the track-coloured title bar and waveform carry
     /// the colour (owner's choice, slice 4).
     pub clip_body: Color32,
+    /// Inset wells: fader grooves and meter backgrounds. Darker than every
+    /// surface they sit on, in both themes (the interface audit's T2: `app`
+    /// was lighter than the strips in the light theme).
+    pub well: Color32,
     pub shadow: Color32,
 }
 
@@ -84,6 +88,7 @@ pub const DARK: Palette = Palette {
     selected_row: Color32::from_rgb(0x22, 0x34, 0x49),
     selected_control: Color32::from_rgb(0x43, 0x4D, 0x5E),
     clip_body: Color32::from_rgb(0x26, 0x2A, 0x31),
+    well: Color32::from_rgb(0x14, 0x16, 0x19),
     shadow: Color32::from_black_alpha(96),
 };
 
@@ -114,6 +119,7 @@ pub const LIGHT: Palette = Palette {
     selected_row: Color32::from_rgb(0xDB, 0xE7, 0xF8),
     selected_control: Color32::from_rgb(0xFF, 0xFF, 0xFF),
     clip_body: Color32::from_rgb(0xFF, 0xFF, 0xFF),
+    well: Color32::from_rgb(0xD6, 0xDA, 0xE0),
     shadow: Color32::from_black_alpha(36),
 };
 
@@ -483,6 +489,25 @@ mod tests {
                 "{name} letters"
             );
             assert!(contrast(c.text, c.selected_row) >= 7.0, "{name} names");
+        }
+    }
+
+    #[test]
+    fn wells_sit_below_every_surface_they_are_drawn_on() {
+        fn luma(c: Color32) -> u32 {
+            u32::from(c.r()) * 2126 + u32::from(c.g()) * 7152 + u32::from(c.b()) * 722
+        }
+        for (name, c) in [("dark", DARK), ("light", LIGHT)] {
+            for surface in [c.app, c.header, c.raised, c.selected_row] {
+                assert!(
+                    luma(c.well) < luma(surface),
+                    "{name}: well above {surface:?}"
+                );
+            }
+            // Visible on the strips in the light theme, where it was lost.
+            if name == "light" {
+                assert!(contrast(c.well, c.header) >= 1.15, "light well on header");
+            }
         }
     }
 

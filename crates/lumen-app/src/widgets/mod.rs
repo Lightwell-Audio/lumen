@@ -480,7 +480,8 @@ pub fn value_slider_styled(
 
 /// A value shown as text in a field (a strip's volume under its fader, M4
 /// slice 5): click to type (Enter applies, Esc cancels), double-click to
-/// reset. Returns the value.
+/// reset. Its fill follows the surface under it (`controls`). Returns the
+/// value.
 pub fn value_field(
     ui: &mut Ui,
     rect: Rect,
@@ -488,6 +489,7 @@ pub fn value_field(
     value: f32,
     kind: SliderKind,
     name: &str,
+    controls: theme::Controls,
 ) -> f32 {
     let palette = *theme::p();
     let (lo, hi) = kind.range();
@@ -543,7 +545,7 @@ pub fn value_field(
     p.rect_filled(
         rect,
         theme::radius::SMALL,
-        palette.raised.lerp_to_gamma(palette.control, hover),
+        controls.fill.lerp_to_gamma(controls.hover, hover),
     );
     p.text(
         rect.center(),

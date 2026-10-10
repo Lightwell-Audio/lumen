@@ -1682,3 +1682,24 @@ Fixes after MT-MIX-7 was written (ADR-0042). Run
 **Expected:** as described.
 
 **Passed (2026-10-10, owner):** the owner reported every step passing at the end of M4.
+
+## Milestone 4.5 — Polish pass
+
+### MT-POL-1 · The audit's bugs (needs a human)
+Slice 1 of M4.5 (`docs/milestones/M4.5.md`): findings T1, T2 and U1 of
+`docs/audits/2026-10-10-design.md`. Run `cargo run --release -p lumen-app`.
+1. **Fields on every strip (T1):** open a project with a return (or add
+   one: + Add track ▾, Return track). In the Mixer tab, the volume and
+   peak fields under the faders have the same grey fill on track strips,
+   on the return and on the master. Hover one: it lightens. Select a track:
+   its fields step up with the other controls.
+2. **Wells in the light theme (T2):** Lumen menu → Light. Fader grooves,
+   meter backgrounds and the loudness bar are darker than the strip under
+   them, so you can see where each meter is with the transport stopped.
+   Back to Dark: they look as before, a touch deeper.
+3. **Scroll stays on the tracks (U1):** add about 20 tracks and scroll to
+   the bottom. Select the last ten and delete them: the remaining tracks
+   slide into view; no empty lanes with tracks hidden above. Group five
+   tracks (Ctrl+G), scroll down, fold the group: the same.
+
+**Expected:** as described.

@@ -52,7 +52,7 @@ pub fn vertical(
     for side in 0..2 {
         let left = rect.left() + side as f32 * (width + gap);
         let bar = Rect::from_x_y_ranges(left..=left + width, rect.y_range());
-        painter.rect_filled(bar, 1.0, palette.app);
+        painter.rect_filled(bar, 1.0, palette.well);
         for (db, alpha) in [
             (reading.peak[side], theme::METER_PEAK_ALPHA),
             (reading.rms[side], 1.0),

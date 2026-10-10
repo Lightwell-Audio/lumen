@@ -264,7 +264,18 @@ impl Arrangement {
 
     /// Scrolls vertically by `delta` points, within the content.
     pub fn scroll(&mut self, delta: f32, content: f32, visible: f32) {
-        self.top = (self.top - delta).clamp(0.0, (content - visible + FOLDED).max(0.0));
+        self.top = (self.top - delta).clamp(0.0, max_top(content, visible));
+    }
+
+    /// Keeps the scroll within the content: after a project opens, a group
+    /// folds or tracks are deleted, it could stay past the content and hide
+    /// tracks above an empty view (the interface audit's U1). True when it
+    /// moved.
+    pub(super) fn keep_in_content(&mut self, content: f32, visible: f32) -> bool {
+        let top = self.top.clamp(0.0, max_top(content, visible));
+        let moved = top != self.top;
+        self.top = top;
+        moved
     }
 
     /// Selects track `id` alone and scrolls just enough to show it in the
@@ -317,4 +328,9 @@ impl Arrangement {
     pub fn height_of_content(&self, ctx: &egui::Context, project: &Project, pending: usize) -> f32 {
         self.content_height(ctx, project, &self.rows(ctx, project, pending))
     }
+}
+
+/// The furthest the tracks scroll: the last one stays a folded row in view.
+fn max_top(content: f32, visible: f32) -> f32 {
+    (content - visible + FOLDED).max(0.0)
 }

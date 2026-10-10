@@ -33,6 +33,17 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 10 | Hardening, Performance & Release | 🔲 | |
 | S | Stretch goals (unscheduled; pulled into a milestone only with owner approval) | 🔲 | VST3 scanning and hosting on macOS and Linux |
 
+## Milestone 4.5 slices
+
+| # | Slice | Status | Commits |
+|---|---|---|---|
+| 1 | The audit's bugs: value fields follow the surface (T1), a `well` token for grooves and meters (T2), the scroll kept on the tracks (U1), the shots harness (a taller window, one thread) | 🟡 Built 2026-10-10, MT-POL-1 waits for the owner | |
+| 2 | Shared widgets and sizes (S4, S2, S3, T3) | 🔲 | |
+| 3 | Chrome (T4, T5, S5, S6, S7) | 🔲 | |
+| 4 | Numbers in Martian Mono (S1) | 🔲 | |
+| 5 | Motion (M1, M4, M2, M3, U2, M5) | 🔲 | |
+| 6 | Close: checks, report | 🔲 | |
+
 ## Milestone 3 slices
 
 | # | Slice | Status | Commits |
