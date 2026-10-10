@@ -7,8 +7,8 @@
 slices built, and every manual test passed (MT-APP-17, MT-MIX-1 to
 MT-MIX-8, including the Focusrite's dropout count). The end-of-milestone
 review (`docs/audits/2026-10-10-m4.md`) found no High issues. Four Medium
-and eight Low findings are fixed on a follow-up branch. The report is
-below; M4 merges into `main` now.
+and eight Low findings are fixed on `m4-review` (the audit's Status
+table). The report is below.
 **Previous:** M3 complete and approved 2026-10-09; M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
@@ -20,7 +20,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 1 | Foundations & Architecture | ✅ Complete | Plan and risk register in `docs/milestones/M1.md` |
 | 2 | Audio Engine, Devices & Transport | ✅ Complete, approved 2026-10-07 | Plan: `docs/milestones/M2.md` |
 | 3 | Arrangement & Project System | ✅ Complete, approved 2026-10-09 | Plan: `docs/milestones/M3.md` |
-| 4 | Mixer, Routing & Groups | ✅ Complete 2026-10-10 (review fixes follow on their own branch) | Plan: `docs/milestones/M4.md` |
+| 4 | Mixer, Routing & Groups | ✅ Complete 2026-10-10 (review fixed on `m4-review`) | Plan: `docs/milestones/M4.md` |
 | 5 | MIDI & Piano Roll | 🔲 | |
 | 6 | VST3 Hosting & Device System | 🔲 | |
 | 7 | Automation, Envelopes & Advanced Editing | 🔲 | |
