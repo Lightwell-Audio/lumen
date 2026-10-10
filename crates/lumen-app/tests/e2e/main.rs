@@ -39,6 +39,7 @@ mod sends;
 mod shortcuts;
 mod solo;
 mod walkthrough;
+mod walkthrough_mix;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
