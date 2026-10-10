@@ -1,6 +1,6 @@
 //! Accessibility (M3 slice 8): every control a user can reach has a name a
 //! screen reader can say, in the main window and in every window and menu
-//! M3 added. A control without one is a test failure, listed by role and
+//! M3 added, and in M4's mixer, sends, returns and menus (M4 review). A control without one is a test failure, listed by role and
 //! place so it can be found.
 
 use eframe::egui::accesskit::{Action, Role};
@@ -118,6 +118,67 @@ fn every_control_in_every_m3_view_has_a_name() {
         problems.is_empty(),
         "unnamed controls:\n{}",
         problems.join("\n")
+    );
+}
+
+/// M4's views (review finding M4): the Mixer tab with a group, a return
+/// and the master; tracks unfolded to their sends and a return to its
+/// senders; every track selected (controls step up); a strip's output
+/// menu and the mixer's pan-law menu.
+#[test]
+fn every_control_in_every_m4_view_has_a_name() {
+    let mut lumen = Lumen::start("access-m4");
+    for _ in 0..3 {
+        lumen.key(Modifiers::COMMAND, Key::T);
+    }
+    lumen.key(Modifiers::NONE, Key::ArrowUp);
+    lumen.key(Modifiers::SHIFT, Key::ArrowUp);
+    lumen.key(Modifiers::COMMAND, Key::G);
+    lumen.click("Add track");
+    lumen.click("Add return track");
+    lumen.app_mut().set_detail_size(480.0);
+    lumen.frames(3);
+    let mut problems = Vec::new();
+    let strips = lumen
+        .harness
+        .query_all(by().predicate(|n| n.label().is_some_and(|l| l.starts_with("Mixer strip"))))
+        .count();
+    assert!(strips >= 5, "the mixer shows its strips: {strips}");
+    check(&lumen, "mixer", &mut problems);
+
+    lumen.click("Fold Audio 3");
+    lumen.click("Fold Return 1");
+    check(&lumen, "sends and senders unfolded", &mut problems);
+
+    lumen.key(Modifiers::COMMAND, Key::A);
+    lumen.frames(2);
+    check(&lumen, "every track selected", &mut problems);
+    lumen.key(Modifiers::NONE, Key::Escape);
+
+    lumen.click("Audio 3 output in the mixer: Master");
+    check(&lumen, "output menu", &mut problems);
+    lumen.key(Modifiers::NONE, Key::Escape);
+
+    let master = lumen
+        .harness
+        .get_by_label_contains("Mixer strip: Master,")
+        .rect();
+    lumen.right_click(eframe::egui::pos2(master.left() - 60.0, master.center().y));
+    assert!(
+        lumen.shows("\u{2212}6 dB, linear"),
+        "the pan law menu is open"
+    );
+    check(&lumen, "pan law menu", &mut problems);
+    lumen.key(Modifiers::NONE, Key::Escape);
+
+    assert!(
+        problems.is_empty(),
+        "unnamed controls:
+{}",
+        problems.join(
+            "
+"
+        )
     );
 }
 

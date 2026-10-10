@@ -256,10 +256,11 @@ impl<T> Mixer<T> {
         {
             self.retire(std::mem::replace(&mut new, newer));
         }
-        new.carry(&self.plan);
+        let reshaped = new.topology != self.plan.topology;
+        // The old plan plays on only while a new shape crossfades in.
+        new.carry(&mut self.plan, !(fade && reshaped));
         // A new plan has no input tail to blend from.
         self.blend = None;
-        let reshaped = new.topology != self.plan.topology;
         let relatent = new.latency() != self.plan.latency();
         let old = std::mem::replace(&mut self.plan, new);
         if fade && reshaped {

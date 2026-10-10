@@ -161,13 +161,17 @@ Licences: SIL Open Font License, see `THIRD_PARTY_NOTICES.md`.
 
 | Style | Face | Size (pt) | Use |
 |---|---|---|---|
+| `scale` | Inter or Hack | 10 | Meter scales, knob values (M4) |
 | `caption` | Inter | 11 | Hints, secondary facts, sample counts |
 | `body` | Inter | 13 | Labels, values, menu items, buttons |
 | section heading | Inter medium | 13 | "Device", "Format" in windows |
 | `wordmark` | Unbounded | 14 | "Lumen" in the transport bar |
 | `title` | Unbounded | 15 | Window titles |
 | `heading` | Unbounded | 16 | Panel titles (Browser) |
-| `mono` | Hack | 13 | Position, tempo, CPU: anything that changes while you read it | Sentence case for every label ("Audio settings", not
+| `mono` | Hack | 13 | Position, tempo, CPU: anything that changes while you read it |
+| `readout` | Hack | 20 | The master's integrated loudness in the mixer (M4) |
+
+Sentence case for every label ("Audio settings", not
 "Audio Settings").
 
 ## 5. Spacing and shape

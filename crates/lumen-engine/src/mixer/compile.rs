@@ -482,6 +482,12 @@ mod tests {
             tap: Tap::PreFx,
         });
         assert_ne!(compile(&ducked).unwrap().topology, a.topology);
+        // The perf gate's fader drag swaps two plans of one shape.
+        let (drag_a, drag_b) = (
+            compile(&crate::testing::latent(64, 0)).unwrap(),
+            compile(&crate::testing::latent(64, 6)).unwrap(),
+        );
+        assert_eq!(drag_a.topology, drag_b.topology);
     }
 
     #[test]

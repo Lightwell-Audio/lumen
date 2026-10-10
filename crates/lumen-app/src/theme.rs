@@ -248,10 +248,16 @@ pub mod radius {
 
 /// Type sizes (`DESIGN.md` §4).
 pub mod size {
+    /// Numbers on meter scales and knob values, a step under `CAPTION`
+    /// (M4 slice 5).
+    pub const SCALE: f32 = 10.0;
     pub const CAPTION: f32 = 11.0;
     pub const BODY: f32 = 13.0;
     pub const TITLE: f32 = 15.0;
     pub const HEADING: f32 = 16.0;
+    /// The loudness column's integrated LUFS, the one figure read from
+    /// across the room (M4 slice 5, the owner's L2).
+    pub const READOUT: f32 = 20.0;
     /// The "Lumen" wordmark in the transport bar (Unbounded is wide).
     pub const WORDMARK: f32 = 14.0;
     /// The info line's height along the bottom of the window (M4 slice 0).

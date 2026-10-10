@@ -114,6 +114,28 @@ impl Lines {
         self.data.fill(0.0);
     }
 
+    /// Takes over `old`'s lines whole when both plans hold the same lines
+    /// in the same places (a plan that changes only levels): the buffers
+    /// swap and nothing is copied. Otherwise as [`Lines::carry`]. `old` is
+    /// left with this plan's silent buffer, so only for a plan that will
+    /// not play again. Real-time safe: a comparison per line and a swap.
+    pub fn take_over(&mut self, old: &mut Lines) {
+        let same = self.data.len() == old.data.len()
+            && self.lines.len() == old.lines.len()
+            && self
+                .lines
+                .iter()
+                .zip(&old.lines)
+                .all(|(a, b)| a.key == b.key && a.start == b.start && a.frames == b.frames);
+        if !same {
+            return self.carry(old);
+        }
+        std::mem::swap(&mut self.data, &mut old.data);
+        for (line, from) in self.lines.iter_mut().zip(&old.lines) {
+            line.write = from.write;
+        }
+    }
+
     /// Takes over the contents of `old`'s lines with the same keys: the
     /// newest frames, as many as both hold (a longer line starts with
     /// silence before them). Real-time safe: one merge over two sorted
@@ -246,6 +268,34 @@ mod tests {
         let (mut left, mut right) = (ramp(from, frames), ramp(from, frames));
         lines.run(line, &mut left, &mut right);
         left
+    }
+
+    #[test]
+    fn a_plan_of_the_same_lines_takes_them_over_without_a_copy() {
+        let mut old = Lines::default();
+        let line = old.add(KEY, 4);
+        old.finish();
+        let (mut left, mut right) = (ramp(0, 10), ramp(0, 10));
+        old.run(line, &mut left, &mut right);
+        let held = old.data.as_ptr();
+
+        let mut new = Lines::default();
+        let line = new.add(KEY, 4);
+        new.finish();
+        new.take_over(&mut old);
+        assert_eq!(new.data.as_ptr(), held, "the buffer moved, not copied");
+        let (mut left, mut right) = (ramp(10, 6), ramp(10, 6));
+        new.run(line, &mut left, &mut right);
+        assert_eq!(left, ramp(6, 6), "the stream carries on");
+
+        // Another length: copied as `carry` does.
+        let mut longer = Lines::default();
+        let line = longer.add(KEY, 6);
+        longer.finish();
+        longer.take_over(&mut new);
+        let (mut left, mut right) = (ramp(16, 8), ramp(16, 8));
+        longer.run(line, &mut left, &mut right);
+        assert_eq!(left, [0.0, 0.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0]);
     }
 
     #[test]

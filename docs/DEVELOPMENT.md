@@ -107,6 +107,14 @@ repository, so **commit locally first**. The scripts live in
 $env:WSL_UTF8 = "1"; wsl.exe -d Ubuntu -u root -- bash "/mnt/c/Users/<you>/lumen-wsl/clippy.sh"
 ```
 
+The scripts reset the clone to `origin/main`. To check a branch, commit
+it first (the clone fetches this repository), then name it with `env LUMEN_REF=<branch>`; without it
+they test `main` and pass whatever the branch holds:
+
+```powershell
+$env:WSL_UTF8 = "1"; wsl.exe -d Ubuntu -u root -- env LUMEN_REF=m4-review bash "/mnt/c/Users/<you>/lumen-wsl/perf.sh"
+```
+
 Run `clippy.sh` before pushing any platform-specific (`cfg(windows)`)
 code: Windows-only code is dead code elsewhere, and `-D warnings` fails on
 it.

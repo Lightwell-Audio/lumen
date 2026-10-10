@@ -21,6 +21,9 @@ pub const BASE: f32 = 0.18;
 pub const NOTE: std::time::Duration = std::time::Duration::from_millis(1400);
 /// Things moving to a new place (the playhead after a locate).
 pub const GLIDE: f32 = 0.22;
+/// Frame interval for the armed ring's slow breathing (about 30 fps): it
+/// moves too slowly to need the display's full rate.
+pub const BREATH_FRAME: std::time::Duration = std::time::Duration::from_millis(33);
 
 static REDUCED: AtomicBool = AtomicBool::new(false);
 

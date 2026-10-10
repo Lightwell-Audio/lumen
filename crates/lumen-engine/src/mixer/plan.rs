@@ -270,11 +270,18 @@ impl Plan {
     /// also has, so they glide to their new values, and what is in flight
     /// in the delay lines they share. Real-time safe: merges over sorted
     /// lists, a short search per send, and a copy per delay line.
-    pub(super) fn carry(&mut self, old: &Plan) {
+    ///
+    /// With `retiring`, `old` will not play again, so delay lines laid out
+    /// alike are taken over without a copy ([`Lines::take_over`]).
+    pub(super) fn carry(&mut self, old: &mut Plan, retiring: bool) {
         if old.cue_channel.is_some() {
             self.cue_volume.carry(&old.cue_volume);
         }
-        self.lines.carry(&old.lines);
+        if retiring {
+            self.lines.take_over(&mut old.lines);
+        } else {
+            self.lines.carry(&old.lines);
+        }
         let (mut i, mut j) = (0, 0);
         while let (Some(&(a, here)), Some(&(b, there))) = (self.by_id.get(i), old.by_id.get(j)) {
             match a.cmp(&b) {
