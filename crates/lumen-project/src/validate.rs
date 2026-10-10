@@ -81,6 +81,14 @@ pub fn validate(project: &Project) -> Result<(), String> {
                 None => return Err(format!("{}: parent track does not exist", at())),
             }
         }
+        if let Some(out) = &track.midi_to {
+            if track.kind != TrackKind::Midi {
+                return Err(format!("{}: MIDI To on a track that is not MIDI", at()));
+            }
+            if out.channel > 15 || out.port.is_empty() {
+                return Err(format!("{}: MIDI To names no port or a bad channel", at()));
+            }
+        }
         for device in &track.devices {
             if !ids.insert(device.id) {
                 return Err(format!(
@@ -88,6 +96,17 @@ pub fn validate(project: &Project) -> Result<(), String> {
                     at(),
                     device.id.0
                 ));
+            }
+            if device.is_synth() {
+                if track.kind != TrackKind::Midi {
+                    return Err(format!("{}: a synth on a track that is not MIDI", at()));
+                }
+                if !device
+                    .preset()
+                    .is_some_and(|p| !p.is_empty() && p.len() <= 32)
+                {
+                    return Err(format!("{}: the synth's preset is unreadable", at()));
+                }
             }
         }
         for (index, clip) in track.clips.iter().enumerate() {

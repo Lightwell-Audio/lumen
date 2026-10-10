@@ -2,9 +2,11 @@
 //! the "Add … track" entries. Grouping joins them in M4 slice 3.
 
 use eframe::egui::{self, Sense, Stroke, Ui, vec2};
-use lumen_project::model::{Id, TrackKind};
+use lumen_devices::Preset;
+use lumen_project::model::{Id, MidiTo, TrackKind};
 
 use super::{Arrangement, color_from};
+use crate::app::hardware::MenuPorts;
 use crate::commands::{Command, Keymap};
 use crate::document::Document;
 use crate::{theme, widgets};
@@ -92,6 +94,7 @@ impl Arrangement {
             self.toggle_fold(id);
             ui.close();
         }
+        self.midi_menus(ui, doc, id, &targets);
         widgets::submenu(ui, "Colour", |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.set_max_width(6.0 * 26.0);
@@ -115,6 +118,79 @@ impl Arrangement {
         });
         ui.separator();
         self.add_menu(ui, doc, Some(id), keymap);
+    }
+
+    /// What plays a MIDI track (M5 slice 1): its instrument, or a MIDI
+    /// output port and channel. Only on MIDI tracks; applies to every
+    /// selected MIDI track.
+    fn midi_menus(&mut self, ui: &mut Ui, doc: &mut Document, id: Id, targets: &[Id]) {
+        let project = doc.project();
+        let Some(track) = project
+            .tracks
+            .iter()
+            .find(|t| t.id == id && t.kind == TrackKind::Midi)
+        else {
+            return;
+        };
+        let midi: Vec<Id> = project
+            .tracks
+            .iter()
+            .filter(|t| t.kind == TrackKind::Midi && targets.contains(&t.id))
+            .map(|t| t.id)
+            .collect();
+        let preset = track
+            .instrument()
+            .map(|d| d.preset().and_then(Preset::from_id).unwrap_or_default());
+        let to = track.midi_to.clone();
+        let ports = MenuPorts::of(ui.ctx());
+        widgets::submenu(ui, "Instrument", |ui| {
+            for p in Preset::ALL {
+                if widgets::menu_toggle(ui, p.name(), None, to.is_none() && preset == Some(p))
+                    .clicked()
+                {
+                    doc.set_instrument(&midi, Some(p));
+                    ui.close();
+                }
+            }
+            ui.separator();
+            if widgets::menu_toggle(ui, "None", None, preset.is_none()).clicked() {
+                doc.set_instrument(&midi, None);
+                ui.close();
+            }
+        });
+        widgets::submenu(ui, "MIDI To", |ui| {
+            if widgets::menu_toggle(ui, "Instrument", None, to.is_none()).clicked() {
+                doc.set_midi_to(&midi, None);
+                ui.close();
+            }
+            ui.separator();
+            if ports.0.is_empty() {
+                widgets::menu_item(ui, "No MIDI outputs", None, false);
+            }
+            for port in &ports.0 {
+                let label = if port.present {
+                    port.label.clone()
+                } else {
+                    format!("{} (not connected)", port.label)
+                };
+                widgets::submenu(ui, label, |ui| {
+                    for channel in 0..16_u8 {
+                        let chosen = to
+                            .as_ref()
+                            .is_some_and(|t| t.port == port.id && t.channel == channel);
+                        let name = format!("Channel {}", channel + 1);
+                        if widgets::menu_toggle(ui, &name, None, chosen).clicked() {
+                            let out = MidiTo {
+                                port: port.id.clone(),
+                                channel,
+                            };
+                            doc.set_midi_to(&midi, Some(out));
+                            ui.close();
+                        }
+                    }
+                });
+            }
+        });
     }
 
     /// "Add … track" entries, adding after `after`.

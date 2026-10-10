@@ -12,7 +12,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use lumen_core::midi::Msg;
-use lumen_engine::{MidiClip, MidiControl, MidiNote, MidiTrack, Target, control_list, note_list};
+use lumen_devices::{Preset, Synth, synth};
+use lumen_engine::{
+    InstrumentSpec, MidiClip, MidiControl, MidiNote, MidiTrack, Target, control_list, note_list,
+};
 use lumen_project::model::{self, ClipContent, EventKind, Id, Project, TrackKind};
 
 /// A clip's translated lists, kept while the clip itself is unchanged.
@@ -106,19 +109,84 @@ fn control(event: &model::ClipEvent) -> Vec<MidiControl> {
     }
 }
 
+/// The MIDI outputs the engine's port numbers stand for, by name. Names are
+/// only ever added, so a number keeps its port for the whole run; the
+/// sender looks them up when it sends.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct PortTable {
+    names: Vec<String>,
+}
+
+impl PortTable {
+    /// The number for `name`, adding it the first time.
+    pub fn index(&mut self, name: &str) -> u16 {
+        let at = self
+            .names
+            .iter()
+            .position(|n| n == name)
+            .unwrap_or_else(|| {
+                self.names.push(name.to_owned());
+                self.names.len() - 1
+            });
+        at.min(usize::from(u16::MAX)) as u16
+    }
+
+    pub fn names(&self) -> &[String] {
+        &self.names
+    }
+}
+
+/// The names of the MIDI outputs the project's tracks send to.
+pub fn used_ports(project: &Project) -> std::collections::BTreeSet<String> {
+    project
+        .tracks
+        .iter()
+        .filter_map(|t| t.midi_to.as_ref().map(|o| o.port.clone()))
+        .collect()
+}
+
+/// The instrument a track's synth device asks for. A preset this version
+/// does not know (a project from a later one) plays as the default sound.
+fn instrument(track: &model::Track) -> Option<InstrumentSpec> {
+    let device = track.instrument()?;
+    let preset = device
+        .preset()
+        .and_then(Preset::from_id)
+        .unwrap_or_default();
+    Some(InstrumentSpec {
+        kind: synth::KIND,
+        preset: preset.number(),
+        instrument: Box::new(Synth::new(preset)),
+    })
+}
+
 /// What the engine plays: every MIDI track's unmuted clips, in start
-/// order, to the track's instrument.
-pub fn engine_midi(project: &Project, cache: &mut Cache) -> Vec<MidiTrack> {
+/// order, to the track's instrument or its MIDI output. A track sent to an
+/// output that is muted (or silenced by another track's solo) plays
+/// nothing, so it sends nothing and lets go of what it sounded; one sent to
+/// the instrument leaves muting to the mixer, which silences the audio.
+pub fn engine_midi(project: &Project, ports: &mut PortTable, cache: &mut Cache) -> Vec<MidiTrack> {
     cache.retain(project);
+    let heard = lumen_project::solo::hearing(project);
     let mut tracks = Vec::new();
     for track in &project.tracks {
         if track.kind != TrackKind::Midi {
             continue;
         }
+        let (target, silent) = match &track.midi_to {
+            Some(out) => (
+                Target::Port {
+                    port: ports.index(&out.port),
+                    channel: out.channel,
+                },
+                !heard.of(track.id).output,
+            ),
+            None => (Target::Instrument, false),
+        };
         let clips = track
             .clips
             .iter()
-            .filter(|c| !c.muted && matches!(c.content, ClipContent::Midi { .. }))
+            .filter(|c| !silent && !c.muted && matches!(c.content, ClipContent::Midi { .. }))
             .filter(|c| c.length.0 > 0)
             .map(|clip| {
                 let (notes, controls) = cache.lists(clip);
@@ -132,7 +200,7 @@ pub fn engine_midi(project: &Project, cache: &mut Cache) -> Vec<MidiTrack> {
                 }
             })
             .collect();
-        tracks.push(MidiTrack::new(track.id.0, Target::Instrument, None, clips));
+        tracks.push(MidiTrack::new(track.id.0, target, instrument(track), clips));
     }
     tracks
 }
@@ -193,7 +261,7 @@ mod tests {
         );
         clip.loop_length = Some(q(4));
         let (project, track) = project_with(clip);
-        let tracks = engine_midi(&project, &mut Cache::default());
+        let tracks = engine_midi(&project, &mut PortTable::default(), &mut Cache::default());
         assert_eq!(tracks.len(), 1);
         let t = &tracks[0];
         assert_eq!(t.id, track.0);
@@ -230,7 +298,7 @@ mod tests {
         let mut muted = midi_clip(vec![Note(Ticks::ZERO, Ticks::quarters(1), 60, 100)], vec![]);
         muted.muted = true;
         let (project, _) = project_with(muted);
-        let tracks = engine_midi(&project, &mut Cache::default());
+        let tracks = engine_midi(&project, &mut PortTable::default(), &mut Cache::default());
         assert!(
             tracks[0].clips.is_empty(),
             "the track stays, so its notes are released"
@@ -238,7 +306,14 @@ mod tests {
 
         let mut doc = Document::new(crate::empty_project());
         doc.add_track(TrackKind::Audio, None);
-        assert!(engine_midi(doc.project(), &mut Cache::default()).is_empty());
+        assert!(
+            engine_midi(
+                doc.project(),
+                &mut PortTable::default(),
+                &mut Cache::default()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
@@ -246,8 +321,8 @@ mod tests {
         let clip = midi_clip(vec![Note(Ticks::ZERO, Ticks::quarters(1), 60, 100)], vec![]);
         let (project, _) = project_with(clip);
         let mut cache = Cache::default();
-        let a = engine_midi(&project, &mut cache);
-        let b = engine_midi(&project, &mut cache);
+        let a = engine_midi(&project, &mut PortTable::default(), &mut cache);
+        let b = engine_midi(&project, &mut PortTable::default(), &mut cache);
         assert!(Arc::ptr_eq(&a[0].clips[0].notes, &b[0].clips[0].notes));
     }
 }

@@ -11,7 +11,7 @@ use lumen_core::pan::PanLaw;
 use lumen_core::time::{PPQ, TempoPoint, Ticks};
 use lumen_project::migrate::CURRENT_VERSION;
 use lumen_project::model::{
-    Clip, ClipContent, ClipEvent, Color, Device, EventKind, Id, Level, Media, Note, Output,
+    Clip, ClipContent, ClipEvent, Color, Device, EventKind, Id, Level, Media, MidiTo, Note, Output,
     PluginRef, Project, Send, TimeSignature, Track, TrackKind,
 };
 use lumen_project::model::{Marker, TransportState, ViewState};
@@ -372,6 +372,41 @@ fn golden_v11_expected() -> Project {
     project
 }
 
+/// The model the v12 golden file must always load as: v11 with the Bass
+/// track given the synth (on its preset Keys) and a MIDI output.
+fn golden_v12_expected() -> Project {
+    let mut project = Project {
+        name: "Golden v12".into(),
+        ..golden_v11_expected()
+    };
+    let bass = project
+        .tracks
+        .iter_mut()
+        .find(|t| t.name == "Bass")
+        .expect("the golden project has a Bass track");
+    let bass = Arc::make_mut(bass);
+    bass.devices.push(Device::synth(Id(0x12), "keys"));
+    bass.midi_to = Some(MidiTo {
+        port: "Microsoft GS Wavetable Synth".into(),
+        channel: 9,
+    });
+    project
+}
+
+#[test]
+fn golden_v12_file_loads_forever() {
+    let path = fixture("v12/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        // Written once, when version 12 was introduced; never rewritten.
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v12_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v12 golden file must load");
+    assert_eq!(project, golden_v12_expected());
+    let bass = project.tracks.iter().find(|t| t.name == "Bass").unwrap();
+    assert_eq!(bass.instrument().and_then(Device::preset), Some("keys"));
+}
+
 #[test]
 fn golden_v11_file_loads_forever() {
     let path = fixture("v11/golden.lumen");
@@ -696,4 +731,43 @@ fn media_inside_the_project_moves_with_it() {
         locate_media(empty.path(), &media),
         MediaLocation::Missing { .. }
     ));
+}
+
+#[test]
+fn midi_outputs_and_synths_belong_on_midi_tracks_and_are_checked() {
+    let good = golden_v12_expected();
+    assert!(from_bytes(&to_bytes(&good).unwrap()).is_ok());
+    let audio = good
+        .tracks
+        .iter()
+        .position(|t| t.kind == TrackKind::Audio)
+        .unwrap();
+    let bass = good.tracks.iter().position(|t| t.name == "Bass").unwrap();
+    let refused = |edit: &dyn Fn(&mut Project)| {
+        let mut project = good.clone();
+        edit(&mut project);
+        to_bytes(&project).map_or(true, |bytes| from_bytes(&bytes).is_err())
+    };
+    assert!(refused(&|p| Arc::make_mut(&mut p.tracks[audio])
+        .devices
+        .push(Device::synth(Id(0x99), "poly"))));
+    assert!(refused(&|p| Arc::make_mut(&mut p.tracks[audio]).midi_to =
+        Some(MidiTo {
+            port: "X".into(),
+            channel: 0
+        })));
+    assert!(refused(&|p| Arc::make_mut(&mut p.tracks[bass])
+        .midi_to
+        .as_mut()
+        .unwrap()
+        .channel = 16));
+    assert!(refused(&|p| Arc::make_mut(&mut p.tracks[bass])
+        .midi_to
+        .as_mut()
+        .unwrap()
+        .port
+        .clear()));
+    assert!(refused(&|p| Arc::make_mut(&mut p.tracks[bass]).devices
+        [1]
+    .state = vec![0xFF, 0xFE]));
 }

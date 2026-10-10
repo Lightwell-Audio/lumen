@@ -224,6 +224,11 @@ pub struct Track {
     pub armed: bool,
     #[serde(default)]
     pub devices: Vec<Device>,
+    /// Where a MIDI track plays its notes instead of its instrument (format
+    /// v12): a MIDI output port and channel. Written only when set; the
+    /// instrument stays on the track for switching back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub midi_to: Option<MidiTo>,
     #[serde(default)]
     pub clips: Vec<Arc<Clip>>,
 }
@@ -247,8 +252,14 @@ impl Track {
             solo: false,
             armed: false,
             devices: Vec::new(),
+            midi_to: None,
             clips: Vec::new(),
         }
+    }
+
+    /// The track's instrument: its first built-in synth (format v12).
+    pub fn instrument(&self) -> Option<&Device> {
+        self.devices.iter().find(|d| d.is_synth())
     }
 
     /// A project's master track.
@@ -345,6 +356,19 @@ impl<'de> Deserialize<'de> for Level {
     }
 }
 
+/// A MIDI output (format v12): a port by the name the system gave it, and a
+/// channel from 0 (shown as 1) to 15. The port may be unplugged: the name is
+/// kept so the track finds the device again when it returns.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MidiTo {
+    pub port: String,
+    pub channel: u8,
+}
+
+/// The stable name of the built-in synth in `PluginRef::Builtin` (format
+/// v12). Never the product name, and never changed.
+pub const SYNTH: &str = "synth";
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Device {
     pub id: Id,
@@ -354,6 +378,31 @@ pub struct Device {
     /// Opaque state blob from the plugin, stored as base64.
     #[serde(with = "base64_bytes", default, skip_serializing_if = "Vec::is_empty")]
     pub state: Vec<u8>,
+}
+
+impl Device {
+    /// The built-in synth with a preset (`"poly"`, `"keys"`, ...). For a
+    /// built-in device `state` is its own state; the synth's is its
+    /// preset's stable name as text.
+    pub fn synth(id: Id, preset: &str) -> Self {
+        Self {
+            id,
+            plugin: PluginRef::Builtin { name: SYNTH.into() },
+            bypass: false,
+            state: preset.as_bytes().to_vec(),
+        }
+    }
+
+    pub fn is_synth(&self) -> bool {
+        matches!(&self.plugin, PluginRef::Builtin { name } if name == SYNTH)
+    }
+
+    /// The preset of a synth: its stable name, if the state is readable.
+    pub fn preset(&self) -> Option<&str> {
+        self.is_synth()
+            .then(|| std::str::from_utf8(&self.state).ok())
+            .flatten()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

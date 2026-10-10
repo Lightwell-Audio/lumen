@@ -61,6 +61,9 @@ pub struct Transport {
     /// Playback started from stop since the app last looked: integrated
     /// loudness starts again (the owner's B5; Continue keeps it).
     pub played_from_stop: bool,
+    /// Panic was pressed: the app also silences MIDI outputs directly (the
+    /// engine may not be running to do it).
+    pub panic_midi: bool,
     /// What the info line should say about the bar this frame, for the
     /// app to take (the delay compensation readout).
     pub(crate) info: Option<crate::app::info::Info>,
@@ -106,6 +109,7 @@ impl Transport {
             head: None,
             located: None,
             played_from_stop: false,
+            panic_midi: false,
             info: None,
         }
     }
@@ -165,6 +169,12 @@ impl Transport {
         self.settle();
         // A full queue means the engine is not running; the UI shows why.
         let _ = self.audio.engine.send(command);
+    }
+
+    /// Stops and silences everything, MIDI notes included.
+    pub fn panic(&mut self) {
+        self.send(Command::Panic);
+        self.panic_midi = true;
     }
 
     pub fn play_stop(&mut self) {

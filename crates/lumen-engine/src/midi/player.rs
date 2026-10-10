@@ -222,7 +222,7 @@ impl MidiPlayer {
                     Target::Instrument => {
                         if same_kind && let Some(spec) = before.instrument.as_mut() {
                             let events = std::mem::take(&mut before.state.events);
-                            spec.instrument.render(&events, &mut [], &mut []);
+                            spec.instrument.render(0, &events, &mut [], &mut []);
                             before.state.events = events;
                         }
                     }
@@ -253,6 +253,21 @@ impl MidiPlayer {
             for track in &mut new.tracks {
                 track.dirty = false;
             }
+        }
+    }
+}
+
+impl MidiPlayer {
+    /// Tells the sender to forget what it has not sent yet, if any track
+    /// goes to hardware.
+    fn flush_hardware(&mut self) {
+        let ports = self
+            .current
+            .tracks
+            .iter()
+            .any(|t| matches!(t.target, Target::Port { .. }));
+        if ports {
+            self.out.push(MidiOut::Flush);
         }
     }
 }
@@ -290,9 +305,9 @@ fn run_track(
     match track.target {
         Target::Port { .. } => {
             out.forward(track, cx.stream);
-            render_instrument(track, id, frames, buses, false);
+            render_instrument(track, id, (frames, cx.sample_rate), buses, false);
         }
-        Target::Instrument => render_instrument(track, id, frames, buses, true),
+        Target::Instrument => render_instrument(track, id, (frames, cx.sample_rate), buses, true),
     }
 }
 
@@ -301,7 +316,7 @@ fn run_track(
 fn render_instrument(
     track: &mut MidiTrack,
     id: u64,
-    frames: usize,
+    (frames, cx_rate): (usize, u32),
     buses: &mut Buses<'_>,
     events: bool,
 ) {
@@ -312,7 +327,7 @@ fn render_instrument(
         let mut left = [0.0f32; CHUNK];
         let mut right = [0.0f32; CHUNK];
         spec.instrument
-            .render(queued, &mut left[..frames], &mut right[..frames]);
+            .render(cx_rate, queued, &mut left[..frames], &mut right[..frames]);
         if let Some(mut bus) = buses.track(id) {
             for (side, samples) in [(0, &left), (1, &right)] {
                 for (to, from) in bus.channel(side).iter_mut().zip(samples) {
@@ -366,7 +381,7 @@ impl TrackSource for MidiPlayer {
     }
 
     fn stopped(&mut self) {
-        self.out.push(MidiOut::Flush);
+        self.flush_hardware();
         for track in &mut self.current.tracks {
             let channel = track.channel();
             track.state.release_all(channel);
@@ -374,7 +389,7 @@ impl TrackSource for MidiPlayer {
     }
 
     fn panic(&mut self) {
-        self.out.push(MidiOut::Flush);
+        self.flush_hardware();
         let clock = self.clock;
         let mut seen = [u16::MAX; 32];
         let mut count = 0;

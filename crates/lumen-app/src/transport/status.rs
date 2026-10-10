@@ -245,7 +245,7 @@ impl Transport {
             .on_hover_text("Silence everything at once")
             .clicked()
         {
-            self.send(Command::Panic);
+            self.panic();
             self.test_tone = false;
         }
     }

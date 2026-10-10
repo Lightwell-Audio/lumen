@@ -51,6 +51,7 @@ mod light;
 mod media;
 mod meters;
 mod midi;
+mod midi_out;
 mod midi_play;
 mod midi_settings;
 mod motion;
@@ -128,6 +129,12 @@ pub struct App {
     transport: Transport,
     /// MIDI ports and the user's switches for them (M5 slice 0).
     midi: midi::Midi,
+    /// Times MIDI to hardware outputs; starts with the first one a track names.
+    midi_out: Option<midi_out::Output>,
+    /// Counts changes to the MIDI ports, and what the used outputs were last
+    /// checked against (project state, port changes).
+    midi_ports_seen: u64,
+    midi_checked: Option<(u64, u64)>,
     /// Audio clips on the simple timeline (M2 slice 6).
     lanes: lanes::Lanes,
     /// Where dropped files go: under the pointer, snapped, or the playhead.
@@ -427,11 +434,13 @@ impl eframe::App for App {
             }
         }
         if self.midi.poll() {
+            self.midi_ports_seen += 1;
             ctx.request_repaint();
         }
         if let Some(notice) = self.midi.notices.pop() {
             self.transport.audio.notice = Some(notice);
         }
+        self.update_midi_hardware(&ctx);
         self.history_window(&ctx);
         self.prompt_window(&ctx);
         self.shortcuts_window(&ctx);
@@ -642,6 +651,9 @@ impl App {
         let mut app = App {
             transport,
             midi,
+            midi_out: None,
+            midi_ports_seen: 0,
+            midi_checked: None,
             lanes,
             drop_target: Ticks::ZERO,
             drop_into: document::DropInto::NewTracks {

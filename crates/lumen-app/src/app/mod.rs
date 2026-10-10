@@ -9,6 +9,7 @@ mod cue;
 pub(crate) mod editing;
 pub(crate) mod grid;
 mod handles;
+pub(crate) mod hardware;
 pub(crate) mod history;
 pub(crate) mod info;
 pub(crate) mod locators;

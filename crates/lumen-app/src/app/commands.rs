@@ -5,6 +5,7 @@
 use eframe::egui;
 use lumen_core::pan::PanLaw;
 use lumen_core::time::Ticks;
+use lumen_devices::Preset;
 use lumen_project::model::TrackKind;
 
 use super::editing::Edit;
@@ -60,6 +61,17 @@ impl App {
         if !self.arrangement.selected.is_empty() || self.clips_chosen() {
             self.locators.selected = None;
         }
+    }
+
+    /// The selected tracks that are MIDI tracks.
+    pub(crate) fn selected_midi_tracks(&self) -> Vec<lumen_project::model::Id> {
+        let selected = &self.arrangement.selected;
+        let tracks = &self.document.project().tracks;
+        tracks
+            .iter()
+            .filter(|t| t.kind == TrackKind::Midi && selected.contains(&t.id))
+            .map(|t| t.id)
+            .collect()
     }
 
     /// Whether `command` can run now; if not, why, in a few words.
@@ -143,6 +155,15 @@ impl App {
                     "Select a group, or tracks in a group",
                 )
             }
+            Command::InstrumentPoly
+            | Command::InstrumentKeys
+            | Command::InstrumentBass
+            | Command::InstrumentPluck
+            | Command::InstrumentPad
+            | Command::MidiToInstrument => need(
+                !self.selected_midi_tracks().is_empty(),
+                "Select a MIDI track first",
+            ),
             Command::SoloTracks | Command::MuteTracks => need(tracks, "Select tracks first"),
             Command::ClearSolos => need(
                 lumen_project::solo::any_soloed(self.document.project()),
@@ -173,6 +194,7 @@ impl App {
             Command::PlayStop
             | Command::PauseContinue
             | Command::GoToStart
+            | Command::Panic
             | Command::ToggleFollow
             | Command::AddAudioTrack
             | Command::AddMidiTrack
@@ -218,6 +240,16 @@ impl App {
             Command::PlayStop => self.transport.play_stop(),
             Command::PauseContinue => self.transport.pause_continue(),
             Command::GoToStart => self.transport.locate(Ticks::ZERO),
+            Command::Panic => self.panic(),
+            Command::InstrumentPoly => self.choose_instrument(Preset::Poly),
+            Command::InstrumentKeys => self.choose_instrument(Preset::Keys),
+            Command::InstrumentBass => self.choose_instrument(Preset::Bass),
+            Command::InstrumentPluck => self.choose_instrument(Preset::Pluck),
+            Command::InstrumentPad => self.choose_instrument(Preset::Pad),
+            Command::MidiToInstrument => {
+                let ids = self.selected_midi_tracks();
+                self.document.set_midi_to(&ids, None);
+            }
             Command::ToggleFollow => self.transport.toggle_follow(),
             Command::Undo => self.undo(false),
             Command::Redo => self.undo(true),

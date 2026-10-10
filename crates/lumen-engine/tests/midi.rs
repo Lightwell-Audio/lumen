@@ -26,7 +26,7 @@ struct Probe {
 }
 
 impl Instrument for Probe {
-    fn render(&mut self, events: &[Event], left: &mut [f32], right: &mut [f32]) {
+    fn render(&mut self, _rate: u32, events: &[Event], left: &mut [f32], right: &mut [f32]) {
         for e in events {
             let at = (e.offset as usize).min(left.len().saturating_sub(1));
             match e.msg.kind() {
@@ -727,4 +727,123 @@ fn every_note_on_has_its_off_through_loops_jumps_stops_and_edits() {
     assert!(ons(&sent) > 100);
     assert_eq!(ons(&sent), offs(&sent), "every note-on has its note-off");
     assert_eq!(rig.engine.source().tracks().1.dropped(), 0);
+}
+
+fn synth_rig(volume: f32, audible: bool) -> (Rig, Timeline) {
+    let q = Ticks::quarters;
+    let log = Log::default();
+    let synth = InstrumentSpec {
+        kind: lumen_devices::synth::KIND,
+        preset: 0,
+        instrument: Box::new(lumen_devices::Synth::new(lumen_devices::Preset::Poly)),
+    };
+    let track = MidiTrack::new(
+        TRACK,
+        Target::Instrument,
+        Some(synth),
+        vec![clip(
+            1,
+            Ticks::ZERO,
+            q(8),
+            vec![note(q(1) + Ticks(77), q(1), 60)],
+        )],
+    );
+    let timeline = Timeline::default();
+    let mut rig = rig(timeline.clone(), 48_000, vec![track], &log);
+    rig.routing
+        .set(&Routing {
+            nodes: vec![
+                NodeSpec::unity(MASTER, Destination::Hardware(0)),
+                NodeSpec {
+                    volume,
+                    audible,
+                    ..NodeSpec::unity(TRACK, Destination::Node(MASTER))
+                },
+            ],
+            cue: None,
+            measure: None,
+        })
+        .unwrap();
+    (rig, timeline)
+}
+
+#[test]
+fn the_synth_plays_into_the_track_bus_from_its_exact_sample_and_the_mixer_applies() {
+    let (mut loud, timeline) = synth_rig(1.0, true);
+    loud.play();
+    let start = timeline.sample_at(Ticks::quarters(1) + Ticks(77), 48_000) as usize;
+    let out = loud.run(start + 24_000, 100);
+    let first = out.iter().position(|v| v.abs() > 0.0).expect("it sounds");
+    assert_eq!(first, start, "the first sample of sound is the note's");
+    let peak = |x: &[f32]| x.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+    let loud_peak = peak(&out[start..]);
+    assert!(loud_peak > 0.05 && loud_peak < 1.0, "{loud_peak}");
+
+    let (mut half, _) = synth_rig(0.5, true);
+    half.play();
+    let out = half.run(start + 24_000, 100);
+    assert!((peak(&out[start..]) - loud_peak * 0.5).abs() < 1e-4);
+
+    // Muted: the instrument keeps receiving notes, the mixer silences it.
+    let (mut muted, _) = synth_rig(1.0, false);
+    muted.play();
+    let out = muted.run(start + 24_000, 100);
+    assert!(out.iter().all(|v| *v == 0.0));
+    assert_eq!(muted.engine.source().tracks().1.held(TRACK), 1);
+}
+
+#[test]
+fn stopping_lets_the_synth_ring_out_its_release_and_then_goes_quiet() {
+    let (mut rig, timeline) = synth_rig(1.0, true);
+    rig.play();
+    let start = timeline.sample_at(Ticks::quarters(1) + Ticks(77), 48_000) as usize;
+    rig.run(start + 6_000, 128);
+    rig.transport.send(Command::Stop).unwrap();
+    let after = rig.run(4_800, 128);
+    let rms = |x: &[f32]| (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt();
+    assert!(rms(&after[..480]) > 0.001, "the release tail rings");
+    assert!(rms(&after[4_000..]) < rms(&after[..480]), "and fades");
+    rig.run(48_000, 128);
+    assert!(
+        !lumen_engine::Source::ringing(rig.engine.source()),
+        "silent and idle again"
+    );
+}
+
+#[test]
+fn an_edit_elsewhere_does_not_cut_the_synth_that_is_sounding() {
+    let (mut rig, timeline) = synth_rig(1.0, true);
+    rig.play();
+    let start = timeline.sample_at(Ticks::quarters(1) + Ticks(77), 48_000) as usize;
+    rig.run(start + 3_000, 128);
+    let q = Ticks::quarters;
+    // The same track again, with a fresh synth inside: the sounding one
+    // carries over, and so does the note.
+    let fresh = MidiTrack::new(
+        TRACK,
+        Target::Instrument,
+        Some(InstrumentSpec {
+            kind: lumen_devices::synth::KIND,
+            preset: 0,
+            instrument: Box::new(lumen_devices::Synth::new(lumen_devices::Preset::Poly)),
+        }),
+        vec![clip(
+            1,
+            Ticks::ZERO,
+            q(8),
+            vec![note(q(1) + Ticks(77), q(1), 60)],
+        )],
+    );
+    rig.midi.set(vec![fresh]).ok().unwrap();
+    let out = rig.run(2_000, 128);
+    let steepest = out
+        .windows(2)
+        .map(|w| (w[1] - w[0]).abs())
+        .fold(0.0, f32::max);
+    assert!(
+        steepest < 0.05,
+        "no step where the lists swapped: {steepest}"
+    );
+    assert!(out[..500].iter().any(|v| v.abs() > 0.01), "still sounding");
+    assert_eq!(rig.engine.source().tracks().1.held(TRACK), 1);
 }

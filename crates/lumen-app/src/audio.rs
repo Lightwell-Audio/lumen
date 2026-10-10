@@ -16,6 +16,7 @@ use lumen_engine::{
     midi_player, mixer,
 };
 
+use crate::midi_out::StreamClock;
 use crate::settings::AudioSettings;
 
 /// What the test device's tap holds: 40 seconds of the fake device's
@@ -299,6 +300,8 @@ pub struct Audio {
     pub clips: ClipsHandle,
     /// Replaces the MIDI tracks it plays (M5).
     pub midi: MidiHandle,
+    /// Where the stream is and when, for timing MIDI to hardware.
+    pub clock: Arc<StreamClock>,
     /// Replaces the routing they play through (M4).
     pub mixer: MixerHandle,
     /// What the test device played, left and right frame by frame, for the
@@ -366,8 +369,14 @@ impl Audio {
         } else {
             (None, None)
         };
+        let clock = StreamClock::new();
+        let stream = Arc::clone(&clock);
+        let mut processed = 0_u64;
         let callback: Box<dyn AudioCallback> = Box::new(move |block: &mut Block<'_>| {
             let (rate, channels, frames) = (block.sample_rate, block.output_channels, block.frames);
+            // MIDI to hardware is timed against this clock (midi_out.rs).
+            stream.publish(processed, rate);
+            processed += frames as u64;
             engine.process(rate, block.outputs, channels, frames);
             if let Some(tap) = &mut tap {
                 listen(tap, block.outputs, channels, frames);
@@ -379,6 +388,7 @@ impl Audio {
             engine: engine_handle,
             clips,
             midi,
+            clock,
             mixer,
             heard,
             status: Status::Off(String::new()),

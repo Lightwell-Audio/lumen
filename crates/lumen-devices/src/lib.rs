@@ -7,5 +7,7 @@
 //! which run on the UI side.
 
 pub mod instrument;
+pub mod synth;
 
 pub use instrument::Instrument;
+pub use synth::{Preset, Synth};

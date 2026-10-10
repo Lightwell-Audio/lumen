@@ -61,6 +61,8 @@ pub struct Lanes {
     midi_built: Option<u64>,
     midi_dirty: bool,
     midi_cache: crate::midi_play::Cache,
+    /// The MIDI outputs tracks name, by the numbers the engine uses.
+    pub(crate) midi_ports: crate::midi_play::PortTable,
     /// The project state, cue and devices the engine's routing was built
     /// from.
     routed: Option<(u64, crate::routing::Cue, crate::routing::Devices)>,
@@ -286,7 +288,11 @@ impl Lanes {
             self.built = Some(doc.state());
         }
         if self.midi_dirty || self.midi_built != Some(doc.state()) {
-            let tracks = crate::midi_play::engine_midi(doc.project(), &mut self.midi_cache);
+            let tracks = crate::midi_play::engine_midi(
+                doc.project(),
+                &mut self.midi_ports,
+                &mut self.midi_cache,
+            );
             self.midi_dirty = midi.set(tracks).is_err();
             self.midi_built = Some(doc.state());
         }

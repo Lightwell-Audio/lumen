@@ -20,7 +20,7 @@ pub const FIRST_VERSION: u64 = 1;
 /// `MIGRATIONS[i]` upgrades version `FIRST_VERSION + i` to the next one.
 pub const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10,
-    v10_to_v11,
+    v10_to_v11, v11_to_v12,
 ];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
@@ -299,6 +299,16 @@ fn v9_to_v10(mut document: Value) -> Result<Value, String> {
 /// pressure and program events beside their notes. They are written only
 /// when present, so nothing in an older file changes.
 fn v10_to_v11(document: Value) -> Result<Value, String> {
+    Ok(document)
+}
+
+/// v12 (M5 slice 1): a MIDI track may play its notes to a MIDI output
+/// (`midi_to`) instead of its instrument, and the instrument is a built-in
+/// device on the track (`{"format": "builtin", "name": "synth"}`, its preset
+/// in `state`). Both are written only when set. MIDI tracks in older files
+/// have no instrument and stay silent until one is chosen: they could hold
+/// no notes before v11, so nothing that sounded goes quiet.
+fn v11_to_v12(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 

@@ -115,6 +115,35 @@ impl Midi {
         ports
     }
 
+    /// A handle that sends from other threads, if MIDI is on.
+    pub fn sender(&self) -> Option<lumen_midi::MidiSender> {
+        self.system.as_ref().map(MidiSystem::sender)
+    }
+
+    /// Sends All Notes Off and All Sound Off on every channel of the named
+    /// outputs (those that are open). The engine does the same when it
+    /// runs; this covers it not running.
+    pub fn panic(&self, names: &[String]) {
+        let Some(system) = &self.system else { return };
+        for name in names {
+            let id = PortId {
+                direction: Direction::Output,
+                name: name.clone(),
+            };
+            for channel in 0..16 {
+                for number in [
+                    lumen_core::midi::cc::ALL_NOTES_OFF,
+                    lumen_core::midi::cc::ALL_SOUND_OFF,
+                ] {
+                    let msg = lumen_core::midi::Msg::controller(channel, number, 0);
+                    if let Some(short) = lumen_midi::Short::from_bytes(msg.bytes()) {
+                        system.send(id.clone(), short);
+                    }
+                }
+            }
+        }
+    }
+
     /// Why MIDI is not available, if it is not.
     pub fn unavailable(&self) -> Option<String> {
         match &self.system {

@@ -222,6 +222,7 @@ fn same_track(x: &Arc<Track>, y: &Arc<Track>) -> bool {
         solo,
         armed,
         devices,
+        midi_to,
         clips,
     } = &**x;
     let bits = |a: f32, b: f32| a.to_bits() == b.to_bits();
@@ -244,6 +245,7 @@ fn same_track(x: &Arc<Track>, y: &Arc<Track>) -> bool {
         && *solo == y.solo
         && *armed == y.armed
         && *devices == y.devices
+        && *midi_to == y.midi_to
         && clips.len() == y.clips.len()
         && clips
             .iter()
@@ -376,8 +378,14 @@ mod tests {
         // edits recorded nothing.
         use crate::model::{Level, Output, Send};
         type Change = fn(&mut Project);
-        let changes: [Change; 6] = [
+        let changes: [Change; 7] = [
             |p| p.pan_law = lumen_core::pan::PanLaw::Linear,
+            |p| {
+                Arc::make_mut(&mut p.tracks[2]).midi_to = Some(crate::model::MidiTo {
+                    port: "Port".into(),
+                    channel: 3,
+                });
+            },
             |p| Arc::make_mut(&mut p.master).gain_db = -1.0,
             |p| Arc::make_mut(&mut p.tracks[2]).output = Output::Master,
             |p| Arc::make_mut(&mut p.tracks[2]).invert = true,

@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use lumen_core::time::Ticks;
 use lumen_project::History;
-use lumen_project::model::{Color, Id, Marker, Project, TimeSignature, Track, TrackKind};
+use lumen_project::model::{Color, Device, Id, Marker, Project, TimeSignature, Track, TrackKind};
 
 /// The most beats a bar may have (`lumen_project::validate`).
 pub const MAX_BEATS_PER_BAR: u32 = 64;
@@ -20,6 +20,7 @@ pub const MAX_BEATS_PER_BAR: u32 = 64;
 mod clips;
 mod groups;
 mod import;
+mod instrument;
 mod mixer;
 pub use clips::{CLIP_GAIN, ClipMove};
 pub use groups::Place;
@@ -197,6 +198,8 @@ impl Document {
                 .find(|t| t.kind == TrackKind::Return)
                 .map_or(self.project().master.id, |t| t.id);
         }
+        // A MIDI track starts with the synth on Poly (format v12).
+        let synth = (kind == TrackKind::Midi).then(|| self.fresh_id());
         self.history.apply(label, None, |project| {
             let number = project.tracks.iter().filter(|t| t.kind == kind).count() + 1;
             let after = after.and_then(|a| project.tracks.iter().position(|t| t.id == a));
@@ -211,6 +214,10 @@ impl Document {
                 index,
                 Arc::new(Track {
                     parent,
+                    devices: synth
+                        .map(|d| Device::synth(d, instrument::DEFAULT_PRESET.id()))
+                        .into_iter()
+                        .collect(),
                     ..Track::new(id, format!("{word} {number}"), kind, color)
                 }),
             );

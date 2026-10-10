@@ -297,7 +297,7 @@ fn midi_never_touches_the_heap() {
         phase: f32,
     }
     impl Instrument for Counter {
-        fn render(&mut self, events: &[Event], left: &mut [f32], right: &mut [f32]) {
+        fn render(&mut self, _rate: u32, events: &[Event], left: &mut [f32], right: &mut [f32]) {
             let mut next = 0;
             for i in 0..left.len() {
                 while next < events.len() && events[next].offset as usize <= i {

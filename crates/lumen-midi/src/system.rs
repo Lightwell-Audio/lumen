@@ -138,9 +138,40 @@ impl MidiSystem {
         let _ = self.commands.send(Command::Send(id, message));
     }
 
+    /// A handle that sends from other threads (a sender that times
+    /// messages against the audio clock).
+    pub fn sender(&self) -> MidiSender {
+        MidiSender {
+            commands: self.commands.clone(),
+            shared: Arc::clone(&self.shared),
+        }
+    }
+
     /// The stream of messages from every open input, once.
     pub fn take_input(&mut self) -> Option<rtrb::Consumer<Timed>> {
         self.input.take()
+    }
+}
+
+/// Sends to outputs from any thread; see [`MidiSystem::sender`].
+#[derive(Clone)]
+pub struct MidiSender {
+    commands: Sender<Command>,
+    shared: Arc<Mutex<Shared>>,
+}
+
+impl MidiSender {
+    /// Sends a message to an output that is open for tracks.
+    pub fn send(&self, id: PortId, message: Short) {
+        let _ = self.commands.send(Command::Send(id, message));
+    }
+
+    /// Whether the port is plugged in and open now.
+    pub fn is_open(&self, id: &PortId) -> bool {
+        lock(&self.shared)
+            .ports
+            .iter()
+            .any(|p| p.info.id == *id && p.open)
     }
 }
 
