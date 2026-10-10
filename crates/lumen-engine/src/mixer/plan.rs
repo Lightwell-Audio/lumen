@@ -1,182 +1,98 @@
-//! The routing a project describes ([`Routing`]) and the flat processing
-//! plan the audio thread runs ([`Plan`]).
-//!
-//! A [`Routing`] lists nodes (tracks, groups, returns, the master) with
-//! their levels, sends and output. [`compile`] checks it, orders the nodes
-//! so that every node comes after everything that feeds it, and allocates
-//! every buffer the plan needs. It runs on the UI side; on the audio
-//! thread a plan only reads and writes what it already holds.
+//! The flat processing plan the audio thread runs ([`Plan`]), compiled
+//! from a routing by [`super::compile`]. On the audio thread a plan only
+//! reads and writes what it already holds.
 
-use std::collections::BTreeSet;
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use lumen_core::pan::PanLaw;
-
+use super::delay::{LineId, Lines, NO_LINE};
 use super::meter::{LoudnessTap, MeterBank, keep};
 use super::smooth::Smoothed;
+use super::spec::Compensation;
+pub use super::spec::Tap;
 use crate::source::Output;
 
 /// Frames a plan processes at a time; longer blocks are split.
 pub const CHUNK: usize = 256;
 /// Channels on every bus: stereo.
 pub const BUS_CHANNELS: usize = 2;
-const BUS: usize = CHUNK * BUS_CHANNELS;
-
-/// Where a node's output goes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Destination {
-    /// Another node's input (a group, a return, the master).
-    Node(u64),
-    /// A pair of device outputs: pair 0 is channels 1 and 2. A pair the
-    /// device does not have is silent.
-    Hardware(u16),
-    /// Nowhere.
-    None,
-}
-
-/// A send from a node into another node (a return).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct SendSpec {
-    pub to: u64,
-    /// Linear gain.
-    pub gain: f32,
-    /// Taken before the node's volume and pan; otherwise after them.
-    pub pre_fader: bool,
-}
-
-/// One node of the routing: a track, a group, a return or the master.
-///
-/// The signal path: the node's input (its clips, the outputs of the nodes
-/// routed into it and the sends into it) → trim → polarity → mute →
-/// pre-fader sends → volume → pan → post-fader sends → output. Mute
-/// silences sends too, as in Ableton; the output can be silent while the
-/// sends play (a soloed return plays wet only).
-#[derive(Debug, Clone, PartialEq)]
-pub struct NodeSpec {
-    /// The track's id; tracks address their audio to it.
-    pub id: u64,
-    /// Linear input gain.
-    pub trim: f32,
-    pub invert: bool,
-    /// Linear gain.
-    pub volume: f32,
-    /// −1 (left) to +1 (right).
-    pub pan: f32,
-    pub law: PanLaw,
-    /// False when the node's output is muted, or silenced by another
-    /// track's solo.
-    pub audible: bool,
-    /// False when its sends are silent too.
-    pub sends_audible: bool,
-    /// Cued (M4 slice 4): heard on the cue bus after trim and polarity,
-    /// before mute and the fader, whatever mute and solo say.
-    pub cue: bool,
-    pub output: Destination,
-    pub sends: Vec<SendSpec>,
-}
-
-impl NodeSpec {
-    /// A node at unity, centred with the balance law (unity at the
-    /// centre), heard, and routed to `output`.
-    pub fn unity(id: u64, output: Destination) -> Self {
-        Self {
-            id,
-            trim: 1.0,
-            invert: false,
-            volume: 1.0,
-            pan: 0.0,
-            law: PanLaw::Balance,
-            audible: true,
-            sends_audible: true,
-            cue: false,
-            output,
-            sends: Vec::new(),
-        }
-    }
-}
-
-/// The whole routing, in any order.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct Routing {
-    pub nodes: Vec<NodeSpec>,
-    /// Where cued nodes are heard, if anywhere.
-    pub cue: Option<CueOut>,
-    /// The node whose loudness and true peak are measured (the master),
-    /// if any (M4 slice 5).
-    pub measure: Option<u64>,
-}
-
-/// The cue bus's output (M4 slice 4): a pair of device channels and a
-/// level. Cued nodes add to it before their fader, for listening on
-/// headphones while the main output plays on.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CueOut {
-    /// The pair's first channel (0 is channel 1).
-    pub channel: u16,
-    /// Linear gain.
-    pub volume: f32,
-}
-
-/// Why a routing cannot be played.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RoutingError {
-    /// Two nodes share an id.
-    Duplicate(u64),
-    /// An output or send names a node that is not there.
-    Unknown { from: u64, to: u64 },
-    /// The nodes feed each other in a loop (through outputs or sends).
-    Cycle,
-}
-
-impl std::fmt::Display for RoutingError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Duplicate(id) => write!(f, "two nodes have the id {id}"),
-            Self::Unknown { from, to } => {
-                write!(f, "node {from} feeds node {to}, which is missing")
-            }
-            Self::Cycle => write!(f, "the routing feeds back into itself"),
-        }
-    }
-}
-
-impl std::error::Error for RoutingError {}
+pub(super) const BUS: usize = CHUNK * BUS_CHANNELS;
 
 /// Where a compiled node's output goes: an index into the plan's nodes.
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Out {
+pub(super) enum Out {
     Node(u32),
     Hardware(u16),
     None,
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Send {
+pub(super) struct Send {
     /// Index into the plan's nodes, always after the sending node.
-    to: u32,
-    to_id: u64,
-    pre_fader: bool,
-    gain: Smoothed,
+    pub to: u32,
+    pub to_id: u64,
+    pub pre_fader: bool,
+    pub gain: Smoothed,
+    pub line: LineId,
 }
 
+/// A compiled device: for now the synthetic delay (its line).
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Dev {
+    pub line: LineId,
+    /// Adds the node's sidechain input before delaying.
+    pub listen: bool,
+}
+
+/// A sidechain leaving a node.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct TapOut {
+    /// The receiving node's sidechain bus.
+    pub to: u32,
+    pub tap: Tap,
+    pub line: LineId,
+}
+
+/// A node without a sidechain bus.
+pub(super) const NO_SIDE: u32 = u32::MAX;
+
 #[derive(Debug, Clone)]
-struct Node {
-    id: u64,
-    /// Trim × polarity × (output or sends heard).
-    pre: Smoothed,
+pub(super) struct Node {
+    pub id: u64,
+    /// Delays what the tracks play into the node, when it waits for a
+    /// later input.
+    pub input_line: LineId,
+    /// Trim × polarity, and when not `split`, × (output or sends heard).
+    pub pre: Smoothed,
+    /// The node has devices or sidechains taken from it, so mute comes
+    /// after them (`heard`) rather than in `pre`.
+    pub split: bool,
+    /// 1 while the output or sends are heard; used when `split`.
+    pub heard: Smoothed,
     /// 1 while the output is heard, 0 while only the sends are.
-    gate: Smoothed,
+    pub gate: Smoothed,
     /// Trim × polarity while cued, else 0.
-    cue: Smoothed,
+    pub cue: Smoothed,
+    pub cue_line: LineId,
     /// Volume × pan, per side.
-    post: [Smoothed; 2],
-    out: Out,
+    pub post: [Smoothed; 2],
+    pub out: Out,
+    pub out_line: LineId,
     /// The node's sends: `sends[first..first + count]`.
-    first: u32,
-    count: u32,
+    pub first: u32,
+    pub count: u32,
+    /// Its devices: `devices[first_device..first_device + devices]`.
+    pub first_device: u32,
+    pub devices: u32,
+    /// The sidechains it feeds: `taps[first_tap..first_tap + taps]`.
+    pub first_tap: u32,
+    pub taps: u32,
+    /// Its sidechain bus, or [`NO_SIDE`].
+    pub side: u32,
+    /// Something of it passes through a delay line, which must keep
+    /// running (and draining) while the node is silent.
+    pub lined: bool,
     /// Its slot in the plan's meter bank ([`NO_METER`] when unmetered).
-    meter: u32,
+    pub meter: u32,
 }
 
 /// The slot of a node that is not metered.
@@ -184,25 +100,36 @@ pub(super) const NO_METER: u32 = u32::MAX;
 
 /// A compiled routing: nodes in processing order, each with a stereo bus.
 pub struct Plan {
-    nodes: Vec<Node>,
-    sends: Vec<Send>,
+    pub(super) nodes: Vec<Node>,
+    pub(super) sends: Vec<Send>,
+    pub(super) devices: Vec<Dev>,
+    pub(super) taps: Vec<TapOut>,
+    /// Delay lines: compensation and latent devices.
+    pub(super) lines: Lines,
     /// `(id, index)` sorted by id: where tracks find their bus.
-    by_id: Vec<(u64, u32)>,
+    pub(super) by_id: Vec<(u64, u32)>,
     /// Every node's bus, `BUS` samples each: left then right, `CHUNK`
     /// frames per side.
-    buses: Vec<f32>,
-    /// Identifies the routing's shape (order, outputs and sends, not
-    /// levels): a plan with another shape crossfades in.
+    pub(super) buses: Vec<f32>,
+    /// Sidechain buses, laid out as `buses`.
+    pub(super) sides: Vec<f32>,
+    /// What the tracks would have played after a jump, laid out as
+    /// `buses`, to blend from (only in a latent plan).
+    pub(super) input_tail: Vec<f32>,
+    /// Identifies the routing's shape (order, outputs, sends, devices,
+    /// sidechains and delay lines, not levels): a plan with another shape
+    /// crossfades in.
     pub(super) topology: u64,
     /// The cue bus: `CHUNK` frames a side, as a node's.
-    cue_bus: Vec<f32>,
+    pub(super) cue_bus: Vec<f32>,
     /// Where the cue bus is heard (its first channel), and how loud.
-    cue_channel: Option<u16>,
-    cue_volume: Smoothed,
+    pub(super) cue_channel: Option<u16>,
+    pub(super) cue_volume: Smoothed,
     /// Where the nodes' levels go, when metered.
-    meters: Option<Arc<MeterBank>>,
+    pub(super) meters: Option<Arc<MeterBank>>,
     /// The index of the node whose loudness is measured.
-    measured: Option<u32>,
+    pub(super) measured: Option<u32>,
+    pub(super) compensation: Compensation,
 }
 
 impl std::fmt::Debug for Plan {
@@ -210,164 +137,9 @@ impl std::fmt::Debug for Plan {
         f.debug_struct("Plan")
             .field("nodes", &self.nodes.len())
             .field("topology", &self.topology)
+            .field("compensation", &self.compensation.frames)
             .finish()
     }
-}
-
-/// Checks `routing` and builds its plan, unmetered. Allocates; call it off
-/// the audio thread.
-pub fn compile(routing: &Routing) -> Result<Plan, RoutingError> {
-    compile_metered(routing, None, |_| NO_METER)
-}
-
-/// [`compile`], with every node's level going to `meters` at the slot
-/// `slot` gives its id.
-pub(super) fn compile_metered(
-    routing: &Routing,
-    meters: Option<Arc<MeterBank>>,
-    slot: impl Fn(u64) -> u32,
-) -> Result<Plan, RoutingError> {
-    let specs = &routing.nodes;
-    let mut by_id: Vec<(u64, u32)> = specs
-        .iter()
-        .enumerate()
-        .map(|(i, n)| (n.id, i as u32))
-        .collect();
-    by_id.sort_unstable();
-    if let Some(w) = by_id.windows(2).find(|w| w[0].0 == w[1].0) {
-        return Err(RoutingError::Duplicate(w[0].0));
-    }
-    let index_of = |from: u64, to: u64| -> Result<usize, RoutingError> {
-        by_id
-            .binary_search_by_key(&to, |&(id, _)| id)
-            .map(|i| by_id[i].1 as usize)
-            .map_err(|_| RoutingError::Unknown { from, to })
-    };
-
-    // Edges from each node to the nodes it feeds.
-    let mut feeds: Vec<Vec<usize>> = vec![Vec::new(); specs.len()];
-    let mut incoming = vec![0usize; specs.len()];
-    for (i, spec) in specs.iter().enumerate() {
-        let outputs = match spec.output {
-            Destination::Node(to) => Some(to),
-            _ => None,
-        };
-        for to in outputs.into_iter().chain(spec.sends.iter().map(|s| s.to)) {
-            let j = index_of(spec.id, to)?;
-            if j == i {
-                return Err(RoutingError::Cycle);
-            }
-            feeds[i].push(j);
-            incoming[j] += 1;
-        }
-    }
-
-    // Kahn's order; among ready nodes, the earliest listed goes first, so
-    // the same routing always compiles to the same plan.
-    let mut ready: BTreeSet<usize> = (0..specs.len()).filter(|&i| incoming[i] == 0).collect();
-    let mut order = Vec::with_capacity(specs.len());
-    while let Some(i) = ready.pop_first() {
-        order.push(i);
-        for &j in &feeds[i] {
-            incoming[j] -= 1;
-            if incoming[j] == 0 {
-                ready.insert(j);
-            }
-        }
-    }
-    if order.len() < specs.len() {
-        return Err(RoutingError::Cycle);
-    }
-
-    let mut position = vec![0u32; specs.len()];
-    for (at, &i) in order.iter().enumerate() {
-        position[i] = at as u32;
-    }
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    let mut nodes = Vec::with_capacity(specs.len());
-    let mut sends = Vec::new();
-    for &i in &order {
-        let spec = &specs[i];
-        let out = match spec.output {
-            Destination::Node(to) => Out::Node(position[index_of(spec.id, to)?]),
-            Destination::Hardware(pair) => Out::Hardware(pair),
-            Destination::None => Out::None,
-        };
-        (spec.id, spec.output).hash(&mut hasher);
-        let first = sends.len() as u32;
-        for send in &spec.sends {
-            (send.to, send.pre_fader).hash(&mut hasher);
-            sends.push(Send {
-                to: position[index_of(spec.id, send.to)?],
-                to_id: send.to,
-                pre_fader: send.pre_fader,
-                gain: Smoothed::new(finite(send.gain)),
-            });
-        }
-        let sign = if spec.invert { -1.0 } else { 1.0 };
-        let pre = if spec.audible || spec.sends_audible {
-            finite(spec.trim) * sign
-        } else {
-            0.0
-        };
-        let volume = finite(spec.volume);
-        let [left, right] = spec.law.gains(spec.pan);
-        let cue = if spec.cue && routing.cue.is_some() {
-            finite(spec.trim) * sign
-        } else {
-            0.0
-        };
-        nodes.push(Node {
-            id: spec.id,
-            pre: Smoothed::new(pre),
-            cue: Smoothed::new(cue),
-            gate: Smoothed::new(if spec.audible { 1.0 } else { 0.0 }),
-            post: [Smoothed::new(volume * left), Smoothed::new(volume * right)],
-            out,
-            first,
-            count: spec.sends.len() as u32,
-            meter: if meters.is_some() {
-                slot(spec.id)
-            } else {
-                NO_METER
-            },
-        });
-    }
-    let mut by_id: Vec<(u64, u32)> = nodes
-        .iter()
-        .enumerate()
-        .map(|(i, n)| (n.id, i as u32))
-        .collect();
-    by_id.sort_unstable();
-    let cue_channel = routing.cue.map(|c| c.channel);
-    cue_channel.hash(&mut hasher);
-    let measured = routing.measure.and_then(|id| {
-        by_id
-            .binary_search_by_key(&id, |&(id, _)| id)
-            .ok()
-            .map(|i| by_id[i].1)
-    });
-    Ok(Plan {
-        buses: vec![0.0; nodes.len() * BUS],
-        nodes,
-        sends,
-        by_id,
-        topology: hasher.finish(),
-        cue_bus: if cue_channel.is_some() {
-            vec![0.0; BUS]
-        } else {
-            Vec::new()
-        },
-        cue_channel,
-        cue_volume: Smoothed::new(routing.cue.map_or(0.0, |c| finite(c.volume))),
-        meters,
-        measured,
-    })
-}
-
-/// A gain the audio thread can use: NaN and infinities become silence.
-fn finite(gain: f32) -> f32 {
-    if gain.is_finite() { gain } else { 0.0 }
 }
 
 /// What a plan writes its device outputs with.
@@ -384,27 +156,46 @@ impl Plan {
         Self {
             nodes: Vec::new(),
             sends: Vec::new(),
+            devices: Vec::new(),
+            taps: Vec::new(),
+            lines: Lines::default(),
             by_id: Vec::new(),
             buses: Vec::new(),
+            sides: Vec::new(),
+            input_tail: Vec::new(),
             topology: 0,
             cue_bus: Vec::new(),
             cue_channel: None,
             cue_volume: Smoothed::new(0.0),
             meters: None,
             measured: None,
+            compensation: Compensation::default(),
         }
+    }
+
+    /// The delay compensation this plan applies.
+    pub fn compensation(&self) -> &Compensation {
+        &self.compensation
+    }
+
+    /// Frames the device outputs trail what the tracks play.
+    pub(super) fn latency(&self) -> u32 {
+        self.compensation.frames
     }
 
     /// Zeroes the first `frames` of every bus.
     pub(super) fn clear(&mut self, frames: usize) {
-        for bus in self.buses.as_chunks_mut::<BUS>().0 {
-            bus[..frames].fill(0.0);
-            bus[CHUNK..CHUNK + frames].fill(0.0);
+        for buses in [&mut self.buses, &mut self.sides, &mut self.cue_bus] {
+            for bus in buses.as_chunks_mut::<BUS>().0 {
+                bus[..frames].fill(0.0);
+                bus[CHUNK..CHUNK + frames].fill(0.0);
+            }
         }
-        if let Some(cue) = self.cue_bus.as_chunks_mut::<BUS>().0.first_mut() {
-            cue[..frames].fill(0.0);
-            cue[CHUNK..CHUNK + frames].fill(0.0);
-        }
+    }
+
+    /// Silences every delay line: playback starts. Real-time safe.
+    pub(super) fn clear_lines(&mut self) {
+        self.lines.clear();
     }
 
     pub(super) fn buses(&mut self, frames: usize) -> Buses<'_> {
@@ -412,6 +203,40 @@ impl Plan {
             by_id: &self.by_id,
             data: &mut self.buses,
             frames,
+        }
+    }
+
+    /// The tracks' buses for what they would have played after a jump,
+    /// zeroed: `None` unless the plan is latent.
+    pub(super) fn input_tail(&mut self, frames: usize) -> Option<Buses<'_>> {
+        if self.input_tail.is_empty() {
+            return None;
+        }
+        self.input_tail.fill(0.0);
+        Some(Buses {
+            by_id: &self.by_id,
+            data: &mut self.input_tail,
+            frames,
+        })
+    }
+
+    /// Blends `frames` of the input tail, from its frame `done` of
+    /// `length`, out of every bus as the new input comes in. Real-time
+    /// safe.
+    pub(super) fn blend_inputs(&mut self, done: usize, frames: usize, length: usize) {
+        if self.input_tail.is_empty() {
+            return;
+        }
+        let tails = self.input_tail.as_chunks::<BUS>().0;
+        for (bus, tail) in self.buses.as_chunks_mut::<BUS>().0.iter_mut().zip(tails) {
+            for side in [0, CHUNK] {
+                for k in 0..frames {
+                    let x = (((done + k) as f32 + 0.5) / length as f32).min(1.0);
+                    let at = done + k;
+                    let old = if at < CHUNK { tail[side + at] } else { 0.0 };
+                    bus[side + k] = bus[side + k] * x + old * (1.0 - x);
+                }
+            }
         }
     }
 
@@ -437,12 +262,14 @@ impl Plan {
     }
 
     /// Takes over the current levels of the nodes and sends that `old`
-    /// also has, so they glide to their new values. Real-time safe: one
-    /// merge over two sorted lists, and a short search per send.
+    /// also has, so they glide to their new values, and what is in flight
+    /// in the delay lines they share. Real-time safe: merges over sorted
+    /// lists, a short search per send, and a copy per delay line.
     pub(super) fn carry(&mut self, old: &Plan) {
         if old.cue_channel.is_some() {
             self.cue_volume.carry(&old.cue_volume);
         }
+        self.lines.carry(&old.lines);
         let (mut i, mut j) = (0, 0);
         while let (Some(&(a, here)), Some(&(b, there))) = (self.by_id.get(i), old.by_id.get(j)) {
             match a.cmp(&b) {
@@ -452,6 +279,7 @@ impl Plan {
                     let before = &old.nodes[there as usize];
                     let node = &mut self.nodes[here as usize];
                     node.pre.carry(&before.pre);
+                    node.heard.carry(&before.heard);
                     node.gate.carry(&before.gate);
                     node.cue.carry(&before.cue);
                     node.post[0].carry(&before.post[0]);
@@ -489,6 +317,7 @@ impl Plan {
     pub(super) fn settle(&mut self) {
         for node in &mut self.nodes {
             node.pre.settle();
+            node.heard.settle();
             node.gate.settle();
             node.cue.settle();
             node.post.iter_mut().for_each(Smoothed::settle);
@@ -501,9 +330,11 @@ impl Plan {
 
     /// Runs the nodes in order over the first `frames` of their buses,
     /// adding what reaches the device into `out`. With `advance` false (a
-    /// tail rendered ahead of a jump), levels are read but do not move.
-    /// With `tap` (the plan the listener hears, not one fading out), every
-    /// node's output is metered and the measured node's loudness taken.
+    /// tail rendered ahead of a jump), levels are read but do not move;
+    /// delay lines do move, which only matters to a latent plan's stop
+    /// (and playback clears them when it starts). With `tap` (the plan the
+    /// listener hears, not one fading out), every node's output is metered
+    /// and the measured node's loudness taken.
     pub(super) fn process(
         &mut self,
         out: &mut Output<'_>,
@@ -515,6 +346,7 @@ impl Plan {
         let frames = out.frames();
         let mut gain = [0.0f32; CHUNK];
         let gain = &mut gain[..frames];
+        let mut scratch = [0.0f32; 2 * CHUNK];
         let mut tap = tap.filter(|_| advance);
         let meters = if tap.is_some() {
             self.meters.as_deref()
@@ -524,6 +356,15 @@ impl Plan {
         let keep = keep(frames, rate);
         let silent = [0.0f32; CHUNK];
         let measured = self.measured.map_or(usize::MAX, |m| m as usize);
+        // Before any node adds to another's bus, the buses hold only what
+        // the tracks played.
+        for (node, bus) in self.nodes.iter().zip(self.buses.as_chunks_mut::<BUS>().0) {
+            if node.input_line != NO_LINE {
+                let (left, right) = bus.split_at_mut(CHUNK);
+                self.lines
+                    .run(node.input_line, &mut left[..frames], &mut right[..frames]);
+            }
+        }
         for index in 0..self.nodes.len() {
             let node = &mut self.nodes[index];
             // Downstream nodes always come later, so the buses split here.
@@ -535,15 +376,28 @@ impl Plan {
             let target = |to: u32| (to as usize - index - 1) * BUS;
 
             // Cued: heard on the cue bus before mute and the fader.
-            if !(node.cue.settled() && node.cue.value() == 0.0)
+            let lined_cue = node.cue_line != NO_LINE;
+            if (lined_cue || !(node.cue.settled() && node.cue.value() == 0.0))
                 && let Some(cue) = self.cue_bus.as_chunks_mut::<BUS>().0.first_mut()
             {
                 node.cue.fill(gain, rate, advance);
                 let (cue_left, cue_right) = cue.split_at_mut(CHUNK);
-                add_scaled(&mut cue_left[..frames], left, gain);
-                add_scaled(&mut cue_right[..frames], right, gain);
+                if lined_cue {
+                    let (a, b) = scratch.split_at_mut(CHUNK);
+                    let (a, b) = (&mut a[..frames], &mut b[..frames]);
+                    a.copy_from_slice(left);
+                    b.copy_from_slice(right);
+                    scale(a, gain);
+                    scale(b, gain);
+                    self.lines.run(node.cue_line, a, b);
+                    add(&mut cue_left[..frames], a);
+                    add(&mut cue_right[..frames], b);
+                } else {
+                    add_scaled(&mut cue_left[..frames], left, gain);
+                    add_scaled(&mut cue_right[..frames], right, gain);
+                }
             }
-            if node.pre.settled() && node.pre.value() == 0.0 {
+            if !node.lined && node.pre.settled() && node.pre.value() == 0.0 {
                 // Muted and settled: nothing leaves this node.
                 if let Some(meters) = meters {
                     meters.silence(node.meter, keep);
@@ -559,12 +413,37 @@ impl Plan {
             scale(left, gain);
             scale(right, gain);
 
+            let taps = &self.taps[node.first_tap as usize..(node.first_tap + node.taps) as usize];
+            if node.split {
+                let (lines, sides) = (&mut self.lines, &mut self.sides);
+                send_taps(taps, Tap::PreFx, lines, sides, left, right, &mut scratch);
+                let devices =
+                    node.first_device as usize..(node.first_device + node.devices) as usize;
+                for device in &self.devices[devices] {
+                    if device.listen && node.side != NO_SIDE {
+                        let side = &self.sides[node.side as usize * BUS..][..BUS];
+                        add(left, &side[..frames]);
+                        add(right, &side[CHUNK..CHUNK + frames]);
+                    }
+                    self.lines.run(device.line, left, right);
+                }
+                let (lines, sides) = (&mut self.lines, &mut self.sides);
+                send_taps(taps, Tap::PostFx, lines, sides, left, right, &mut scratch);
+                // Mute, after the devices.
+                if !(node.heard.settled() && node.heard.value() == 1.0) {
+                    node.heard.fill(gain, rate, advance);
+                    scale(left, gain);
+                    scale(right, gain);
+                }
+            }
+
             let sends = node.first as usize..(node.first + node.count) as usize;
             for send in self.sends[sends.clone()].iter_mut().filter(|s| s.pre_fader) {
                 let at = target(send.to);
                 send.gain.fill(gain, rate, advance);
-                add_scaled(&mut tail[at..at + frames], left, gain);
-                add_scaled(&mut tail[at + CHUNK..at + CHUNK + frames], right, gain);
+                let (l, r) = self.lines.through(send.line, left, right, &mut scratch);
+                add_scaled(&mut tail[at..at + frames], l, gain);
+                add_scaled(&mut tail[at + CHUNK..at + CHUNK + frames], r, gain);
             }
 
             node.post[0].fill(gain, rate, advance);
@@ -575,12 +454,13 @@ impl Plan {
             for send in self.sends[sends].iter_mut().filter(|s| !s.pre_fader) {
                 let at = target(send.to);
                 send.gain.fill(gain, rate, advance);
-                add_scaled(&mut tail[at..at + frames], left, gain);
-                add_scaled(&mut tail[at + CHUNK..at + CHUNK + frames], right, gain);
+                let (l, r) = self.lines.through(send.line, left, right, &mut scratch);
+                add_scaled(&mut tail[at..at + frames], l, gain);
+                add_scaled(&mut tail[at + CHUNK..at + CHUNK + frames], r, gain);
             }
 
             if !(node.gate.settled() && node.gate.value() == 1.0) {
-                if node.gate.settled() {
+                if node.gate.settled() && !node.lined {
                     // Only the sends are heard.
                     if let Some(meters) = meters {
                         meters.silence(node.meter, keep);
@@ -596,6 +476,18 @@ impl Plan {
                 scale(left, gain);
                 scale(right, gain);
             }
+            if node.split {
+                let (lines, sides) = (&mut self.lines, &mut self.sides);
+                send_taps(
+                    taps,
+                    Tap::PostMixer,
+                    lines,
+                    sides,
+                    left,
+                    right,
+                    &mut scratch,
+                );
+            }
 
             // What the node plays on: after fader, pan and the gate.
             if let Some(meters) = meters {
@@ -610,12 +502,14 @@ impl Plan {
             match node.out {
                 Out::Node(to) => {
                     let at = target(to);
-                    add(&mut tail[at..at + frames], left);
-                    add(&mut tail[at + CHUNK..at + CHUNK + frames], right);
+                    let (l, r) = self.lines.through(node.out_line, left, right, &mut scratch);
+                    add(&mut tail[at..at + frames], l);
+                    add(&mut tail[at + CHUNK..at + CHUNK + frames], r);
                 }
                 Out::Hardware(pair) => {
+                    let (l, r) = self.lines.through(node.out_line, left, right, &mut scratch);
                     let first = usize::from(pair) * 2;
-                    for (side, samples) in [(0, &*left), (1, &*right)] {
+                    for (side, samples) in [(0, l), (1, r)] {
                         if first + side >= out.channels() {
                             break;
                         }
@@ -656,6 +550,25 @@ impl Plan {
                 Ramp::Fade(fade) => add_scaled(device, samples, fade),
             }
         }
+    }
+}
+
+/// Adds `left` and `right`, through their lines, to the sidechain buses
+/// of the taps taken at `which`.
+fn send_taps(
+    taps: &[TapOut],
+    which: Tap,
+    lines: &mut Lines,
+    sides: &mut [f32],
+    left: &[f32],
+    right: &[f32],
+    scratch: &mut [f32; 2 * CHUNK],
+) {
+    for tap in taps.iter().filter(|t| t.tap == which) {
+        let (l, r) = lines.through(tap.line, left, right, scratch);
+        let side = &mut sides[tap.to as usize * BUS..][..BUS];
+        add(&mut side[..l.len()], l);
+        add(&mut side[CHUNK..CHUNK + r.len()], r);
     }
 }
 
@@ -723,134 +636,5 @@ impl Bus<'_> {
     pub fn channel(&mut self, side: usize) -> &mut [f32] {
         let start = side.min(1) * CHUNK;
         &mut self.data[start..start + self.frames]
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn node(id: u64, output: Destination) -> NodeSpec {
-        NodeSpec::unity(id, output)
-    }
-
-    fn order(plan: &Plan) -> Vec<u64> {
-        plan.nodes.iter().map(|n| n.id).collect()
-    }
-
-    #[test]
-    fn nodes_come_after_everything_that_feeds_them() {
-        // The master listed first, a group before its children, a return
-        // fed by a send from a track listed after it.
-        let mut track = node(4, Destination::Node(2));
-        track.sends.push(SendSpec {
-            to: 3,
-            gain: 1.0,
-            pre_fader: false,
-        });
-        let routing = Routing {
-            nodes: vec![
-                node(1, Destination::Hardware(0)),
-                node(2, Destination::Node(1)),
-                node(3, Destination::Node(1)),
-                track,
-                node(5, Destination::Node(2)),
-            ],
-            cue: None,
-            measure: None,
-        };
-        let plan = compile(&routing).unwrap();
-        assert_eq!(order(&plan), [4, 3, 5, 2, 1]);
-    }
-
-    #[test]
-    fn the_same_routing_compiles_the_same_way() {
-        let routing = Routing {
-            nodes: (0..20)
-                .map(|i| node(i, Destination::Node(100)))
-                .chain([node(100, Destination::Hardware(0))])
-                .collect(),
-            cue: None,
-            measure: None,
-        };
-        let a = compile(&routing).unwrap();
-        let b = compile(&routing).unwrap();
-        assert_eq!(order(&a), order(&b));
-        assert_eq!(a.topology, b.topology);
-        // Levels do not change the shape; outputs do.
-        let mut louder = routing.clone();
-        louder.nodes[3].volume = 0.5;
-        assert_eq!(compile(&louder).unwrap().topology, a.topology);
-        let mut elsewhere = routing.clone();
-        elsewhere.nodes[3].output = Destination::Hardware(1);
-        assert_ne!(compile(&elsewhere).unwrap().topology, a.topology);
-    }
-
-    #[test]
-    fn loops_unknown_targets_and_duplicates_are_refused() {
-        let cycle = Routing {
-            nodes: vec![node(1, Destination::Node(2)), node(2, Destination::Node(1))],
-            cue: None,
-            measure: None,
-        };
-        assert_eq!(compile(&cycle).unwrap_err(), RoutingError::Cycle);
-        let mut feedback = node(1, Destination::Hardware(0));
-        feedback.sends.push(SendSpec {
-            to: 1,
-            gain: 1.0,
-            pre_fader: true,
-        });
-        let routing = Routing {
-            nodes: vec![feedback],
-            cue: None,
-            measure: None,
-        };
-        assert_eq!(compile(&routing).unwrap_err(), RoutingError::Cycle);
-        // Through a send: a return that feeds the track sending to it.
-        let mut track = node(1, Destination::Hardware(0));
-        track.sends.push(SendSpec {
-            to: 2,
-            gain: 1.0,
-            pre_fader: false,
-        });
-        let routing = Routing {
-            nodes: vec![track, node(2, Destination::Node(1))],
-            cue: None,
-            measure: None,
-        };
-        assert_eq!(compile(&routing).unwrap_err(), RoutingError::Cycle);
-        let unknown = Routing {
-            nodes: vec![node(1, Destination::Node(9))],
-            cue: None,
-            measure: None,
-        };
-        assert_eq!(
-            compile(&unknown).unwrap_err(),
-            RoutingError::Unknown { from: 1, to: 9 }
-        );
-        let twice = Routing {
-            nodes: vec![
-                node(1, Destination::Hardware(0)),
-                node(1, Destination::Hardware(0)),
-            ],
-            cue: None,
-            measure: None,
-        };
-        assert_eq!(compile(&twice).unwrap_err(), RoutingError::Duplicate(1));
-    }
-
-    #[test]
-    fn bad_gains_become_silence() {
-        let mut spec = node(1, Destination::Hardware(0));
-        spec.volume = f32::NAN;
-        spec.trim = f32::INFINITY;
-        let plan = compile(&Routing {
-            nodes: vec![spec],
-            cue: None,
-            measure: None,
-        })
-        .unwrap();
-        assert_eq!(plan.nodes[0].pre.target(), 0.0);
-        assert_eq!(plan.nodes[0].post[0].target(), 0.0);
     }
 }

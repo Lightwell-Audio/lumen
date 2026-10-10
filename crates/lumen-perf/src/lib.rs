@@ -16,7 +16,7 @@ use std::hint::black_box;
 use std::sync::Arc;
 
 use lumen_core::time::{TempoMap, TempoPoint, Ticks};
-use lumen_engine::testing::routed;
+use lumen_engine::testing::{latent, routed};
 use lumen_engine::{
     ClickSound, Clip, ClipAudio, ClipPlayer, Command, Destination, Engine, MetronomeSettings,
     Mixer, NodeSpec, Region, Routing, Timeline, clip_player, engine, mixer,
@@ -34,6 +34,10 @@ pub const SCENARIOS: &[(&str, &str)] = &[
     (
         "engine_routed_64",
         "1,000 blocks of 128 frames: 64 tracks in 8 groups, each with two sends",
+    ),
+    (
+        "engine_latent_64",
+        "1,000 blocks of 128 frames: the routed mix with delay compensation and a sidechain",
     ),
     (
         "engine_transport",
@@ -57,12 +61,16 @@ pub const SCENARIOS: &[(&str, &str)] = &[
 pub fn run(name: &str) -> bool {
     match name {
         "engine_clips_64" => {
-            let mut engine = playing_clips(64, false);
+            let mut engine = playing_clips(64, Mix::Direct);
             measured_engine_clips_64(&mut engine);
         }
         "engine_routed_64" => {
-            let mut engine = playing_clips(64, true);
+            let mut engine = playing_clips(64, Mix::Routed);
             measured_engine_routed_64(&mut engine);
+        }
+        "engine_latent_64" => {
+            let mut engine = playing_clips(64, Mix::Latent);
+            measured_engine_latent_64(&mut engine);
         }
         "engine_transport" => {
             let (handle, mut engine) = transport_only();
@@ -90,9 +98,20 @@ const FRAMES: usize = 128;
 
 type Player = Engine<Mixer<ClipPlayer>>;
 
-/// `clips` clips playing: each on its own track in the routed mix, or all
-/// on one track straight to the device.
-fn playing_clips(clips: usize, routed_mix: bool) -> Player {
+/// How the clips of a scenario are mixed.
+#[derive(Clone, Copy, PartialEq)]
+enum Mix {
+    /// All on one track, straight to the device.
+    Direct,
+    /// Each on its own track in [`routed`].
+    Routed,
+    /// Each on its own track in [`latent`].
+    Latent,
+}
+
+/// `clips` clips playing, mixed as `mix`.
+fn playing_clips(clips: usize, mix: Mix) -> Player {
+    let routed_mix = mix != Mix::Direct;
     let audio = Arc::new(ClipAudio {
         sample_rate: RATE,
         channels: vec![vec![0.1; 480_000], vec![-0.1; 480_000]],
@@ -115,14 +134,14 @@ fn playing_clips(clips: usize, routed_mix: bool) -> Player {
         )
         .expect("room for one clip list");
     let (mut routing, source) = mixer(player);
-    let plan = if routed_mix {
-        routed(clips as u64, 0)
-    } else {
-        Routing {
+    let plan = match mix {
+        Mix::Routed => routed(clips as u64, 0),
+        Mix::Latent => latent(clips as u64, 0),
+        Mix::Direct => Routing {
             nodes: vec![NodeSpec::unity(0, Destination::Hardware(0))],
             cue: None,
             measure: None,
-        }
+        },
     };
     assert!(routing.set(&plan).expect("a valid routing"));
     let (mut transport, mut engine) = engine(Timeline::default(), source, RATE);
@@ -155,6 +174,17 @@ pub fn measured_engine_routed_64(engine: &mut Player) {
     // Not the same code as `measured_engine_clips_64`, or the linker folds
     // the two into one symbol and Callgrind finds no routed scenario.
     black_box((&data, engine.transport().sample));
+}
+
+#[unsafe(no_mangle)]
+#[inline(never)]
+pub fn measured_engine_latent_64(engine: &mut Player) {
+    let mut data = vec![0.0; 2 * FRAMES];
+    for _ in 0..1_000 {
+        engine.process(RATE, &mut data, 2, FRAMES);
+    }
+    // Distinct from the other scenarios, so the linker keeps it apart.
+    black_box((&data, engine.transport().ticks));
 }
 
 fn transport_only() -> (lumen_engine::EngineHandle, Player) {
@@ -249,6 +279,7 @@ mod tests {
         for name in [
             "engine_clips_64",
             "engine_routed_64",
+            "engine_latent_64",
             "engine_transport",
             "tempo_conversions",
         ] {

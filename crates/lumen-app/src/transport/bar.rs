@@ -278,7 +278,7 @@ impl Transport {
 
         self.position_field(ui, state);
         ui.separator();
-        self.status(ui);
+        self.status(ui, doc.project());
     }
 
     fn position_field(&mut self, ui: &mut Ui, state: TransportSnapshot) {

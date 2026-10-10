@@ -5,6 +5,7 @@
 //! settings window in `status.rs`. Keys are commands (`crate::commands`).
 
 mod bar;
+mod compensation;
 mod dropouts;
 mod status;
 
@@ -59,6 +60,9 @@ pub struct Transport {
     /// Playback started from stop since the app last looked: integrated
     /// loudness starts again (the owner's B5; Continue keeps it).
     pub played_from_stop: bool,
+    /// What the info line should say about the bar this frame, for the
+    /// app to take (the delay compensation readout).
+    pub(crate) info: Option<crate::app::info::Info>,
 }
 
 fn timeline_of(project: &Project) -> Timeline {
@@ -100,6 +104,7 @@ impl Transport {
             clock: Default::default(),
             head: None,
             played_from_stop: false,
+            info: None,
         }
     }
 

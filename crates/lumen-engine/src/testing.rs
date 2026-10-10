@@ -3,7 +3,7 @@
 
 use lumen_core::pan::PanLaw;
 
-use crate::mixer::{Destination, NodeSpec, Routing, SendSpec};
+use crate::mixer::{Destination, Device, NodeSpec, Routing, SendSpec, SidechainSpec, Tap};
 
 /// The master's id in [`routed`].
 pub const MASTER: u64 = 1_000_000;
@@ -68,6 +68,35 @@ pub fn routed(tracks: u64, variant: u32) -> Routing {
     }
 }
 
+/// [`routed`] with delay compensation at work (M4 slice 6): every eighth
+/// track and the master have a latent device (the synthetic delay), whose
+/// latency each `variant` changes, and track 1 listens to track 0 through
+/// a sidechain.
+pub fn latent(tracks: u64, variant: u32) -> Routing {
+    let mut routing = routed(tracks, variant);
+    let delay = |frames: u32| Device::Delay {
+        frames,
+        listen: false,
+    };
+    for node in &mut routing.nodes {
+        if node.id == MASTER {
+            node.devices.push(delay(128));
+        } else if node.id < tracks && node.id % 8 == 4 {
+            node.devices.push(delay(64 + 32 * (variant % 3)));
+        } else if node.id == 1 {
+            node.devices.push(Device::Delay {
+                frames: 0,
+                listen: true,
+            });
+            node.sidechains.push(SidechainSpec {
+                from: 0,
+                tap: Tap::PostFx,
+            });
+        }
+    }
+    routing
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -76,6 +105,8 @@ mod tests {
     fn every_variant_compiles() {
         for variant in 0..4 {
             crate::mixer::compile(&routed(64, variant)).unwrap();
+            let plan = crate::mixer::compile(&latent(64, variant)).unwrap();
+            assert!(plan.compensation().frames > 128);
         }
     }
 }

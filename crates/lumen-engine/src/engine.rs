@@ -23,6 +23,16 @@
 //!
 //! Every jump is click-free (`declick`): a 2 ms crossfade on locates and
 //! loop wraps, a fade-in on play and a fade-out on stop and pause.
+//!
+//! **Read ahead** (M4 slice 6, ADR-0041): when the source is latent (delay
+//! compensation), the engine renders the timeline that far ahead of the
+//! playhead, so what is heard lines up with the playhead and the
+//! metronome. The playhead follows the render position (`ahead`) that far
+//! behind, jumps included (`Playhead`); the source crossfades its own
+//! jumps then, since a crossfade at the output would come before the jump
+//! is heard. A change of latency while playing keeps the playhead going
+//! and moves the render position, which skips or repeats the difference,
+//! crossfaded.
 
 use std::sync::Arc;
 
@@ -31,6 +41,7 @@ use lumen_rt::DenormalGuard;
 
 use crate::declick::{Declick, MAX_FADE, fade_frames};
 use crate::metronome::{self, Metronome, MetronomeSettings, TestTone};
+use crate::playhead::Playhead;
 use crate::scrub::{ScrubStyle, Scrubber};
 use crate::snapshot::{Shared, TransportSnapshot};
 use crate::source::{Jump, Output, RenderContext, Source};
@@ -145,8 +156,15 @@ pub struct Engine<S> {
     shared: Arc<Shared>,
     sample_rate: u32,
     playing: bool,
-    /// Timeline sample of the next frame to play.
+    /// The playhead: the timeline sample heard next.
     position: i64,
+    /// The timeline sample the source renders next: the playhead plus
+    /// `lookahead`, wrapped into the loop.
+    ahead: i64,
+    /// Frames the source's output trails what it renders.
+    lookahead: i64,
+    /// Where the playhead is while the source renders ahead.
+    playhead: Playhead,
     /// Where Play started (or the last locate): Stop returns here.
     play_marker: Ticks,
     loop_region: Region,
@@ -182,6 +200,9 @@ pub fn engine<S: Source>(
         sample_rate: sample_rate.max(1),
         playing: false,
         position: 0,
+        ahead: 0,
+        lookahead: 0,
+        playhead: Playhead::default(),
         play_marker: Ticks::ZERO,
         loop_region: Region::default(),
         punch: Region::default(),
@@ -225,9 +246,16 @@ impl<S: Source> Engine<S> {
         self.swap_timeline(channels);
         if sample_rate != self.sample_rate && sample_rate > 0 {
             let at = self.ticks_now();
+            let ahead = self.timeline.ticks_at(self.ahead, self.sample_rate);
+            let old_rate = self.sample_rate;
+            let timeline = &self.timeline;
+            let convert = |s| timeline.sample_at(timeline.ticks_at(s, old_rate), sample_rate);
+            self.playhead
+                .reposition(timeline.sample_at(at, sample_rate), convert);
             self.sample_rate = sample_rate;
-            self.reposition(at);
+            self.reposition(at, ahead);
         }
+        self.follow_latency(channels);
         self.apply_commands(channels);
         let rate = self.sample_rate;
         if self.playing {
@@ -261,45 +289,129 @@ impl<S: Source> Engine<S> {
         let mut offset = 0;
         while offset < frames {
             let mut n = frames - offset;
-            if let Some((_, end)) = self.loop_samples
-                && self.position < end
-            {
-                n = n.min((end - self.position) as usize);
+            // The render position wraps at the loop end if it is before it.
+            let wraps = self.loop_samples.filter(|&(_, end)| self.ahead < end);
+            if let Some((_, end)) = wraps {
+                n = n.min((end - self.ahead) as usize);
+            }
+            // The playhead moves on smoothly up to the next jump heard.
+            if let Some(until) = self.playhead.until_jump() {
+                n = n.min(until.max(1) as usize);
             }
             let cx = RenderContext {
                 timeline: &self.timeline,
                 sample_rate: self.sample_rate,
-                start: self.position,
+                start: self.ahead,
                 tail: false,
             };
             let mut out = Output::new(data, frames, offset, n, channels);
             self.source.render(&cx, &mut out);
             self.declick.apply(data, frames, channels, offset, n);
-            // After the crossfade, so a click on a loop start keeps its attack.
-            self.metronome.render(
-                &self.timeline,
-                self.sample_rate,
-                self.position,
-                data,
-                metronome::Window {
-                    stride: frames,
-                    channels,
-                    offset,
-                    count: n,
-                },
-            );
-            self.position += n as i64;
+            // After the crossfade, so a click on a loop start keeps its
+            // attack; none before the start is heard.
+            if !self.playhead.prerolling() {
+                self.metronome.render(
+                    &self.timeline,
+                    self.sample_rate,
+                    self.position,
+                    data,
+                    metronome::Window {
+                        stride: frames,
+                        channels,
+                        offset,
+                        count: n,
+                    },
+                );
+            }
+            self.ahead += n as i64;
+            self.playhead.advance(n as i64);
             offset += n;
-            if let Some((start, end)) = self.loop_samples
-                && self.position == end
+            if let Some((start, end)) = wraps
+                && self.ahead == end
             {
                 // Crossfade what would follow the loop end into the loop start.
-                self.capture_tail(channels);
-                self.position = start;
-                self.locate_source(Jump::LoopWrap);
-                self.declick.fade_in(fade_frames(self.sample_rate));
+                self.declicked(channels, |engine| {
+                    engine.ahead = start;
+                    engine.locate_source(Jump::LoopWrap);
+                });
             }
+            self.position = self.playhead.position();
         }
+    }
+
+    /// Moves the render position with `jump`, crossfaded: here while the
+    /// source is not latent, by the source otherwise. Only while playing.
+    fn declicked(&mut self, channels: usize, jump: impl FnOnce(&mut Self)) {
+        let here = self.lookahead == 0;
+        if here {
+            self.capture_tail(channels);
+        }
+        jump(self);
+        if here {
+            self.declick.fade_in(fade_frames(self.sample_rate));
+        }
+        self.playhead.jump(self.ahead);
+    }
+
+    /// Follows a change in the source's latency. While playing, the
+    /// playhead carries on and the render position moves to stay ahead of
+    /// it by the new amount (wrapped into the loop), crossfaded.
+    fn follow_latency(&mut self, channels: usize) {
+        let lookahead = i64::from(self.source.latency());
+        if lookahead == self.lookahead {
+            return;
+        }
+        if !self.playing {
+            self.lookahead = lookahead;
+            return;
+        }
+        let playhead = self.position;
+        let mut ahead = playhead + lookahead;
+        if let Some((start, end)) = self.loop_samples
+            && playhead < end
+            && ahead >= end
+        {
+            ahead = start + (ahead - end) % (end - start);
+        }
+        // Crossfaded by whichever side is not latent after the change.
+        if lookahead == 0 {
+            self.capture_tail(channels);
+        }
+        self.lookahead = lookahead;
+        self.playhead.resync(playhead, lookahead);
+        self.ahead = ahead;
+        self.locate_source(Jump::Locate);
+        if lookahead == 0 {
+            self.declick.fade_in(fade_frames(self.sample_rate));
+        }
+        self.playhead.jump(ahead);
+        self.position = self.playhead.position();
+    }
+
+    /// Playback starts rendering at `self.ahead`.
+    fn start(&mut self) {
+        self.playing = true;
+        self.locate_source(Jump::Play);
+        // Read after the source's locate, which takes up a waiting
+        // routing.
+        self.lookahead = i64::from(self.source.latency());
+        self.playhead.start(self.ahead, self.lookahead);
+        self.position = self.playhead.position();
+        self.declick.fade_in(fade_frames(self.sample_rate));
+    }
+
+    /// Stops where the playhead is: playback continues from what was
+    /// heard.
+    fn halt(&mut self, channels: usize) {
+        self.capture_tail(channels);
+        self.playing = false;
+        self.ahead = self.position;
+    }
+
+    /// Places the stopped transport at `sample`.
+    fn place(&mut self, sample: i64) {
+        self.position = sample;
+        self.ahead = sample;
     }
 
     /// Renders what would follow the current position into the declick
@@ -315,7 +427,7 @@ impl<S: Source> Engine<S> {
         let cx = RenderContext {
             timeline: &self.timeline,
             sample_rate: self.sample_rate,
-            start: self.position,
+            start: self.ahead,
             tail: true,
         };
         let mut out = Output::new(buffer, MAX_FADE, 0, frames, channels);
@@ -333,34 +445,38 @@ impl<S: Source> Engine<S> {
                 Command::Play | Command::Continue => {
                     if !self.playing {
                         self.scrub.end();
-                        if command == Command::Play {
-                            self.position = self.sample_at(self.play_marker);
-                        }
-                        self.playing = true;
-                        self.locate_source(Jump::Play);
-                        self.declick.fade_in(fade_frames(self.sample_rate));
+                        self.ahead = if command == Command::Play {
+                            self.sample_at(self.play_marker)
+                        } else {
+                            self.position
+                        };
+                        self.start();
                     }
                 }
                 Command::Pause => {
-                    self.capture_tail(channels);
-                    self.playing = false;
+                    if self.playing {
+                        self.halt(channels);
+                    }
                 }
                 Command::Stop => {
                     if self.playing {
-                        self.capture_tail(channels);
-                        self.playing = false;
+                        self.halt(channels);
                     } else {
                         self.play_marker = Ticks::ZERO;
-                        self.position = 0;
+                        self.place(0);
                     }
                 }
                 Command::Locate(at) => {
-                    self.capture_tail(channels);
                     self.play_marker = at;
-                    self.position = self.sample_at(at);
+                    let sample = self.sample_at(at);
                     if self.playing {
-                        self.locate_source(Jump::Locate);
-                        self.declick.fade_in(fade_frames(self.sample_rate));
+                        self.declicked(channels, |engine| {
+                            engine.ahead = sample;
+                            engine.locate_source(Jump::Locate);
+                        });
+                        self.position = self.playhead.position();
+                    } else {
+                        self.place(sample);
                     }
                 }
                 Command::SetLoop(region) => {
@@ -375,7 +491,7 @@ impl<S: Source> Engine<S> {
                     if !self.playing {
                         let at = at.max(Ticks::ZERO);
                         self.play_marker = at;
-                        self.position = self.sample_at(at);
+                        self.place(self.sample_at(at));
                         let end = match style {
                             ScrubStyle::Loop { length } => self.sample_at(at + length),
                             ScrubStyle::Tape => self.position,
@@ -389,6 +505,7 @@ impl<S: Source> Engine<S> {
                 Command::TestTone(on) => self.test_tone.on = on,
                 Command::Panic => {
                     self.playing = false;
+                    self.ahead = self.position;
                     self.declick.clear();
                     self.metronome.silence();
                     self.test_tone.silence();
@@ -407,16 +524,23 @@ impl<S: Source> Engine<S> {
             return;
         };
         let at = self.ticks_now();
-        // If the playhead moves (a tempo change before it), crossfade from
-        // what the old timeline would have played, as every jump does.
-        if incoming.sample_at(at, self.sample_rate) != self.position {
+        let ahead = self.timeline.ticks_at(self.ahead, self.sample_rate);
+        // If the render position moves (a tempo change before it),
+        // crossfade from what the old timeline would have played, as every
+        // jump does.
+        let rate = self.sample_rate;
+        if self.lookahead == 0 && incoming.sample_at(ahead, rate) != self.ahead {
             self.capture_tail(channels);
         }
+        let timeline = &self.timeline;
+        let convert = |s| incoming.sample_at(timeline.ticks_at(s, rate), rate);
+        self.playhead
+            .reposition(incoming.sample_at(at, rate), convert);
         let old = std::mem::replace(&mut self.timeline, incoming);
         if let Err(rtrb::PushError::Full(old)) = self.retired.push(old) {
             self.stash = Some(old);
         }
-        self.reposition(at);
+        self.reposition(at, ahead);
     }
 
     fn retry_stash(&mut self) {
@@ -427,17 +551,22 @@ impl<S: Source> Engine<S> {
         }
     }
 
-    /// After a tempo or rate change: same musical position, new samples.
-    /// When that is the same sample (an unchanged timeline, or a tempo
-    /// change after the playhead), the audio carries on untouched.
-    fn reposition(&mut self, at: Ticks) {
-        let position = self.sample_at(at);
-        let moved = position != self.position;
-        self.position = position;
+    /// After a tempo or rate change: the playhead at `at` and the render
+    /// position at `ahead`, the same musical positions in new samples.
+    /// When the render position is the same sample (an unchanged timeline,
+    /// or a tempo change after it), the audio carries on untouched. Call
+    /// after `Playhead::reposition`.
+    fn reposition(&mut self, at: Ticks, ahead: Ticks) {
+        self.position = self.sample_at(at);
+        let ahead = self.sample_at(ahead);
+        let moved = ahead != self.ahead;
+        self.ahead = ahead;
         self.refresh_regions();
         if self.playing && moved {
             self.locate_source(Jump::Reposition);
-            self.declick.fade_in(fade_frames(self.sample_rate));
+            if self.lookahead == 0 {
+                self.declick.fade_in(fade_frames(self.sample_rate));
+            }
         }
     }
 
@@ -455,7 +584,7 @@ impl<S: Source> Engine<S> {
 
     fn locate_source(&mut self, jump: Jump) {
         self.source
-            .locate(&self.timeline, self.sample_rate, self.position, jump);
+            .locate(&self.timeline, self.sample_rate, self.ahead, jump);
     }
 
     fn sample_at(&self, t: Ticks) -> i64 {
@@ -467,10 +596,16 @@ impl<S: Source> Engine<S> {
     }
 
     fn snapshot(&self) -> TransportSnapshot {
+        // While pre-rolling, the playhead shows where playback started.
+        let shown = if self.playing {
+            self.playhead.shown()
+        } else {
+            self.position
+        };
         TransportSnapshot {
             playing: self.playing,
-            sample: self.position,
-            ticks: self.ticks_now(),
+            sample: shown,
+            ticks: self.timeline.ticks_at(shown, self.sample_rate),
             marker: self.play_marker,
             sample_rate: self.sample_rate,
             punching: self.playing

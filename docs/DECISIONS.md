@@ -50,6 +50,7 @@ irreversible or external) · *Superseded*.
 | [0037](#adr-0037--group-tracks-format-v8) | Group tracks (format v8): a group's tracks always follow it in the list; grouping, ungrouping, folding, nested rails, lane bars, arming and deleting a group | Accepted 2026-10-09 | No |
 | [0038](#adr-0038--mute-solo-returns-master-and-cue-m4-slice-4-format-v10) | Mute, solo, returns, master and cue (format v10) | Accepted 2026-10-09 | No |
 | [0039](#adr-0039--lumens-licence-gpl-30-or-later-supersedes-adr-0012) | Lumen's licence: GPL-3.0-or-later, sold packaged binaries (supersedes ADR-0012) | Accepted 2026-10-09 | Yes (owner items) |
+| [0041](#adr-0041--sidechains-and-delay-compensation-m4-slice-6) | Sidechains and delay compensation: devices and taps in the graph, delay lines, read ahead, the D1 readout | Accepted 2026-10-10 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -102,6 +103,7 @@ irreversible or external) · *Superseded*.
 | Hints (M4 slice 0, 2026-10-09) | Chosen from interactive specimens: **an info line** along the bottom of the window (C, Ableton's Info View in spirit) over quiet chips (A) and rest-to-reveal (B), **with the K5 keycaps** the palette and menus use (the owner's addition, for consistency), **no chips for held keys** (the cursor and the lit action say it), full width (ADR-0034). |
 | Mute, solo, returns, master and cue (M4 slice 4, 2026-10-09) | The solo rules agreed as a table of 14 cases before building (`docs/milestones/M4.md` §5): solo keeps a soloed track's path open, **mute always beats solo** along the path, returns are solo-safe, **a soloed return plays wet only** (sends into it stay on, their tracks' outputs go silent), the master, metronome and cue are never touched by solo. **D1 A** a group's solo solos the group (its tracks show it hollow); **D2 A** additive solo is a preference (Ctrl+click then replaces); **D3 A** a lit "S" chip in the transport while anything is soloed, a click clears; **D4 A1** returns then the master pinned at the bottom under a divider, a "Returns" caption that folds them, returns lettered A, B, C and never grouped; **D5 C1** Ableton's Solo/Cue switch on the master, cue **pre-fader** to a chosen pair, unavailable with a note when that pair is the main one; **D6** the metronome has its own output (Main, Cue or a pair), never through the master; **D7** palette commands Solo and Mute selected tracks and Clear all solos, no default keys. Chosen from interactive specimens: **sends as K1 "comet" knobs** (a trail of light in the return's colour, brightening to a glowing head; a dot marks pre-fader; hovering a send lights its return and the reverse) over lantern, droplet and plain knobs; **a track silenced by another's solo shows a hollow M and a dimmed name** (hollow S inside a soloed group) over dimming the whole row. Asked while building 4d: **O1**, the cue output chosen in the audio settings beside the main pair, over Ableton's per-pair output configuration (so the metronome's output is Main or Cue); the owner's interface has two outputs, so cue is checked on the four-output test device. MT-MIX-4 runs 1 and 2, from mock-ups: **C4** knobs step up on selected rows, **O1** a "+N ▾" button drawn as "+ Add track ▾", **R2** an unfolded return lists its senders, **L4** its four loudest then "+N more", **S1** silent sends leave that list when let go; **12 returns at most**; the standard +6 dB of an empty return kept. |
 | Mixer panel and meters (M4 slice 5, 2026-10-09) | Chosen from interactive specimens: **S1 console** strips (fader and meter side by side, 76 pt) over S2 light rail and S3 broad; sends **O2**, two knobs then a "+N ▾" list (over a grid of six, or every knob in a taller strip); meter colours **M1 accent by default, M2 track colour as a setting** (over M3 classic green); loudness **L2**, a column beside the master; header meters as well, **H2** inside the volume slider (over H1 at the edge and H3 the colour rail, which already carries arm and nesting). Behaviour, all as recommended: **B1** post-fader after the pan; **B2** peaks fall 20 dB/s, a 1.5 s hold, clip latched until clicked; **B3** a latching wheel; **B4** one fold with the arrangement; **B5** integrated loudness resets on Play from stop; **B6** any output pair; **B7** sections fold away in a short panel; **B8** strips drag to reorder, returns included. ADR-0040. |
+| Sidechains and delay compensation (M4 slice 6, 2026-10-10) | Behaviour asked before building: **read ahead** (what is heard lines up with the playhead; live input in M11 gets a reduced-latency monitoring option) over delaying everything and moving the drawn playhead; sidechain taps **Ableton's three** (Pre FX, Post FX by default, Post Mixer; FX taps ignore mute) over post-fader only; **sidechains saved with the first device** that uses them (format v11 then) over saving them now. The readout from rendered mock-ups: **D1**, only while there is compensation, at the end of the device line, the path in the info line, always in the audio panel (over D2 always shown and D3 folded into the latency). ADR-0041. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
 
@@ -3265,3 +3267,129 @@ The strip's peak box is now wider too (half of the wider strip). The volume
 field under the fader needed no change: a typed "−16.3" fits it at 96 pt and
 150% (checked in the screenshot). Screenshot scenario:
 `shots::mixer_strips_and_header_levels`.
+
+
+## ADR-0041 — Sidechains and delay compensation (M4 slice 6)
+
+**Status:** Accepted · **Date:** 2026-10-10
+
+### Context
+Spec §6.7 asks for automatic plugin delay compensation across the whole
+project, with an indicator, and for sidechains from any track. Nothing in
+Lumen adds latency until devices arrive (VST3 in M6, the built-in
+compressor and limiter in M8), but the graph from slice 1 has to carry
+both before then, or M6 rebuilds it (M4 risk R6). The owner chose the
+behaviour before building (owner-decisions table, "Sidechains and delay
+compensation").
+
+### Decision
+- **The graph** (`lumen_engine::mixer`; `spec.rs` holds the routing types,
+  `compile.rs` compiles them, `plan.rs` runs the plan, `delay.rs` holds the
+  delay lines):
+  - a node has **devices** (`Device`) between polarity and mute, each
+    reporting its latency. Until real devices exist the only one is the
+    synthetic `Device::Delay { frames, listen }`: a pure delay that can add
+    the node's sidechain input to what it delays, as a compressor's listen
+    button does, so tests can hear a sidechain;
+  - a node takes **sidechains** (`SidechainSpec { from, tap }`) into a
+    second bus. The taps are Ableton's three (owner): **Pre FX** (after
+    trim and polarity, before the devices), **Post FX** (the default, after
+    the devices, before mute and the fader) and **Post Mixer** (after
+    mute, fader and pan). Pre and Post FX ignore mute, so a muted ghost
+    kick still keys; Post Mixer follows it. A node with devices or taps
+    applies mute after them; others keep mute folded into the input gain,
+    so routings without devices cost what they did;
+  - sidechain edges join the compile order and the loop check: a group can
+    listen to its own track, but a track cannot listen to its group.
+- **Compensation** (`compile.rs`): each node's input arrives at the latest
+  of everything feeding it (an output or send after its source's devices,
+  a Pre FX sidechain before them). Every earlier path goes through a delay
+  line as long as the difference: outputs, sends, sidechains, and what the
+  tracks play into a node that waits for a late sidechain (an input line).
+  All device outputs and the cue bus line up to the latest of them: the
+  routing's `Compensation { frames, path }`, where `path` lists the
+  latent nodes on the longest path. Lines are allocated when the plan is
+  compiled. A new plan takes over the contents of the lines it shares
+  with the old one, by key (`LineKey`), so a reroute while playing keeps
+  what is in flight. A node whose paths pass through lines keeps running
+  while silent, so its lines drain rather than stop with audio still in
+  them.
+- **Read ahead** (owner): `Source::latency` reports the compensation, and
+  the engine renders the timeline that far ahead of the playhead
+  (`Engine::ahead`). What is heard lines up with the playhead, the grid
+  and the metronome. The playhead follows the render position that far
+  behind, jumps included (`playhead.rs`): a loop wrap is rendered early
+  and heard when the playhead wraps. Playback starts with a pre-roll the
+  length of the compensation, during which the playhead shows where play
+  started and the metronome stays silent.
+- **Jumps while latent** (locates, loop wraps, tempo changes) are
+  crossfaded by the mixer where the tracks play into their buses: 2 ms
+  from what they would have played next. The engine's crossfade at the
+  output would come before the jump is heard. Without latency the engine
+  crossfades as before; nothing changes for projects without devices.
+  Playback from stop empties the delay lines and fades the tracks in.
+- **A latency change while playing** (a device added, removed or changing
+  its latency) keeps the playhead going and moves the render position to
+  stay ahead of it. The audio skips or repeats the difference: new delay
+  lines start silent, and the input fades into them, so the gap comes and
+  goes without a step. This is a correction to the pitch, which said "no
+  gap". A gap of the difference cannot be avoided without rendering that
+  stretch twice, and other hosts behave the same. It happens only when
+  latency changes during playback.
+- **The readout** (owner's D1, from rendered mock-ups): nothing while no
+  device adds latency; then the audio status ends with "12.4 ms
+  compensation", brighter than the rest of the device line. Hovering it
+  puts "Delay compensation 12.4 ms · longest path: Kick → Master" in the
+  info line. The audio panel always has a Latency group (output, round
+  trip, delay compensation in ms and samples) and the longest path while
+  there is one (`transport/compensation.rs`). The owner preferred D1 to a
+  readout that is always shown (D2) and to folding compensation into the
+  latency figure (D3).
+- **Saving sidechains waits for the first device that uses them** (owner):
+  no format change now. The project gets sidechain sources (format v11,
+  with a migration) with the compressor or VST3.
+- Until then the app adds the synthetic device for tests and trials only:
+  `testing::set_test_latency` and `--test-latency <ms>` (on the first
+  track), through `routing::Devices`.
+
+### Consequences
+- A latent node costs a ring-buffer swap per sample per line it uses. The
+  perf gate's new `engine_latent_64` scenario (`testing::latent`: the routed
+  mix with latent devices on every eighth track and the master, and a
+  sidechain) measures it, and the allocation guard and RTSan check the
+  same routing while latencies change, loops wrap, and playback locates,
+  pauses and stops (`tests/realtime.rs`).
+- Plans whose shapes differ still crossfade over 5 ms. A plan's shape now
+  includes its devices, sidechains and line lengths.
+- Scrubbing renders through the delay lines, so with latency the scrub is
+  heard that much later, and the loop-scrub's own envelope does not line
+  up with the restarts it hides. Recorded in KNOWN_ISSUES for M6, when
+  latency first exists outside tests.
+- Meters show a node's level when it is processed, up to the compensation
+  ahead of what is heard (milliseconds at most).
+
+### Evidence
+`mixer::delay` tests (a line delays by its length at any block size; a
+new plan carries what is in flight, longer or shorter). `mixer::compile`
+tests (sidechain sources come first; sidechains that loop, name a
+missing node or feed themselves are refused; the same routing compiles the
+same way, and devices and sidechains change its shape; no lines and no
+compensation without latency; compensation follows the longest path, with
+its latent nodes; a Pre FX sidechain leaves before the devices).
+`playhead` tests. Engine `tests/compensation.rs`: what is heard lines up
+with the playhead after a pre-roll that shows the start; parallel paths
+(a latent track or a latent group against a straight one, upside down)
+cancel exactly; sends meet at a return in line; a sidechain lines up
+with the input it keys, Pre and Post FX; Pre and Post FX ignore mute and
+Post Mixer follows it; loops stay in line with the playhead; a locate is
+heard when the playhead jumps; a latency change while playing keeps the
+playhead going without a step, and what is heard lines up again after
+it. Without the lines the alignment tests fail; without read-ahead the
+playhead tests fail (both checked by breaking them on purpose). App
+`routing` (a latent device reaches the engine and is compensated),
+`transport::compensation` (nothing until there is latency; the info line
+names the path). E2E `compensation`: the readout appears only with a
+latent track, its hover names the path, the panel shows ms, samples and
+the path; two tracks of the same tone, one latent and one upside down,
+cancel while playing and after the device is taken off (and do not
+without compensation).

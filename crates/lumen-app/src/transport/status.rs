@@ -6,12 +6,14 @@ use std::time::{Duration, Instant};
 use eframe::egui::{self, RichText, Ui};
 
 use lumen_engine::Command;
+use lumen_project::model::Project;
 
+use crate::app::info::{Held, Info, Mouse};
 use crate::audio::Status;
 use crate::theme;
 
 use super::Transport;
-use super::dropouts;
+use super::{compensation, dropouts};
 
 /// What dropouts mean, and what helps.
 const DROPOUT_HELP: &str =
@@ -114,7 +116,7 @@ impl Transport {
         }
     }
 
-    fn audio_panel(&mut self, ui: &mut Ui) {
+    fn audio_panel(&mut self, ui: &mut Ui, project: &Project) {
         ui.set_min_width(280.0);
         // Long lines (the dropout help, notices) wrap rather than widen it.
         ui.set_max_width(300.0);
@@ -122,6 +124,7 @@ impl Transport {
             Status::Running { device, detail } => {
                 ui.label(RichText::new(device).strong());
                 ui.label(RichText::new(detail).small());
+                self.latency(ui, project);
             }
             Status::Starting => {
                 ui.label("Starting audio…");
@@ -241,7 +244,53 @@ impl Transport {
         }
     }
 
-    pub(super) fn status(&mut self, ui: &mut Ui) {
+    /// The panel's Latency rows: the device's, then delay compensation
+    /// (D1: always here, even at 0) and the path that sets it.
+    fn latency(&self, ui: &mut Ui, project: &Project) {
+        let rate = self.state().sample_rate;
+        let found = self.audio.mixer.compensation();
+        let frames = found.frames;
+        ui.separator();
+        ui.label(RichText::new("Latency").small().strong());
+        egui::Grid::new("audio latency")
+            .num_columns(2)
+            .show(ui, |ui| {
+                if let Some(info) = &self.audio.info {
+                    ui.label("Output");
+                    ui.label(format!(
+                        "{:.1} ms",
+                        compensation::ms(info.output_latency, info.sample_rate)
+                    ));
+                    ui.end_row();
+                    // As the device line shows it.
+                    ui.label("Round trip");
+                    ui.label(format!("{:.1} ms", info.round_trip_ms()));
+                    ui.end_row();
+                }
+                ui.label("Delay compensation").on_hover_text(
+                    "How far the outputs trail the tracks, so devices that add latency stay \
+                     in time. The playhead allows for it.",
+                );
+                ui.label(format!(
+                    "{:.1} ms · {frames} samples",
+                    compensation::ms(frames, rate)
+                ));
+                ui.end_row();
+            });
+        let path = compensation::path(project, found);
+        if !path.is_empty() {
+            ui.add(
+                egui::Label::new(
+                    RichText::new(format!("Longest path: {path}"))
+                        .small()
+                        .color(theme::p().text_secondary),
+                )
+                .wrap(),
+            );
+        }
+    }
+
+    pub(super) fn status(&mut self, ui: &mut Ui, project: &Project) {
         if let Some(meters) = self.audio.meters() {
             self.dropouts.update(meters.dropouts(), Instant::now());
         }
@@ -289,28 +338,90 @@ impl Transport {
             format!("{text}\n\n{tip}\n\n{memory}")
         };
         let tip = format!("{tip}\n\nClick for the audio panel");
+        // Delay compensation ends the device line while there is some
+        // (D1), a step brighter than the rest.
+        let rate = self.state().sample_rate;
+        let found = self.audio.mixer.compensation().clone();
+        let extra = match self.audio.status {
+            Status::Running { .. } => compensation::readout(found.frames, rate),
+            _ => None,
+        };
         let (rect, response) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::click());
         ui.painter().circle_filled(rect.center(), 4.0, dot);
         if response.hovered() {
             ui.painter()
                 .circle_stroke(rect.center(), 6.0, egui::Stroke::new(1.0, theme::p().text));
         }
-        response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Audio: {text}"))
+        let name = match &extra {
+            Some(extra) => format!("Audio: {text} · {extra}"),
+            None => format!("Audio: {text}"),
+        };
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+        // In a narrow bar the device's details shorten first, so the
+        // compensation stays readable.
+        let tail = extra.as_ref().map(|extra| {
+            let mut tail = egui::text::LayoutJob::default();
+            let small = egui::TextStyle::Small.resolve(ui.style());
+            let section = |colour| egui::TextFormat::simple(small.clone(), colour);
+            tail.append(" · ", 0.0, section(theme::p().text_hint));
+            tail.append(extra, 0.0, section(theme::p().text));
+            ui.fonts_mut(|fonts| fonts.layout_job(tail))
         });
         let label = ui
-            .add(
-                egui::Label::new(RichText::new(text).small().color(color))
-                    .truncate()
-                    .sense(egui::Sense::click()),
-            )
+            .scope(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                // The bar is cut off before the panel toggles: what shows
+                // is up to there.
+                let shown = ui
+                    .available_width()
+                    .min(ui.clip_rect().right() - ui.cursor().min.x)
+                    .max(0.0);
+                let tail_width = tail.as_ref().map_or(0.0, |t| t.size().x);
+                // The device keeps at least its ellipsis.
+                let room = (shown - tail_width).max(2.0 * theme::space::M);
+                let device = ui
+                    .scope(|ui| {
+                        ui.set_max_width(room);
+                        ui.add(
+                            egui::Label::new(RichText::new(text).small().color(color))
+                                .truncate()
+                                .sense(egui::Sense::click()),
+                        )
+                    })
+                    .inner;
+                match tail {
+                    Some(tail) => {
+                        let left = ui.clip_rect().right() - ui.cursor().min.x;
+                        let compensation = ui
+                            .scope(|ui| {
+                                ui.set_max_width(left.max(0.0));
+                                ui.add(
+                                    egui::Label::new(tail)
+                                        .truncate()
+                                        .sense(egui::Sense::click()),
+                                )
+                            })
+                            .inner;
+                        device.union(compensation)
+                    }
+                    None => device,
+                }
+            })
+            .inner
             .on_hover_text(tip.as_str());
+        if extra.is_some() && label.hovered() {
+            self.info = Some(Info::new(compensation::about(project, &found, rate)).on(
+                Held::NONE,
+                Mouse::Click,
+                "open the audio panel",
+            ));
+        }
         let mut response = response.on_hover_text(tip).union(label);
         if let Some(chip) = chip {
             response = response.union(chip);
         }
         egui::Popup::menu(&response)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-            .show(|ui| self.audio_panel(ui));
+            .show(|ui| self.audio_panel(ui, project));
     }
 }

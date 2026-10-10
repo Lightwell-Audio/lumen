@@ -19,23 +19,40 @@
 //! The plan the listener hears meters every node's output and measures the
 //! loudness of the node the routing names (`meter`); the handle reads
 //! them.
+//!
+//! **Delay compensation** (M4 slice 6, ADR-0041): each node reports the
+//! latency of its devices, and the plan delays every path that would
+//! arrive early (`delay`), so parallel paths line up sample for sample,
+//! sends and sidechains included. The mixer reports the total as its
+//! [`Source::latency`], and the engine renders that far ahead of the
+//! playhead. While latent, the mixer declicks jumps where the tracks play
+//! into their buses, so the crossfade is heard when the jump is: the
+//! engine's crossfade at the output would come too early.
 
+mod compile;
+mod delay;
 mod meter;
 mod plan;
 mod smooth;
+mod spec;
 
+pub use compile::compile;
+pub use delay::MAX_DEVICE_LATENCY;
 pub use meter::{Level, RMS_SECONDS};
-pub use plan::{
-    BUS_CHANNELS, Bus, Buses, CHUNK, CueOut, Destination, NodeSpec, Plan, Routing, RoutingError,
-    SendSpec, compile,
+pub use plan::{BUS_CHANNELS, Bus, Buses, CHUNK, Plan};
+pub use spec::{
+    Compensation, CueOut, Destination, Device, NodeSpec, Routing, RoutingError, SendSpec,
+    SidechainSpec, Tap,
 };
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use compile::compile_metered;
 use meter::{LoudnessReader, LoudnessTap, MeterBank};
-use plan::{Ramp, compile_metered};
+use plan::Ramp;
 
+use crate::declick::fade_frames;
 use crate::source::{Jump, Output, RenderContext, Source};
 use crate::timeline::Timeline;
 
@@ -69,6 +86,8 @@ pub struct MixerHandle {
     /// bigger bank takes only the nodes in use.
     slots: HashMap<u64, u32>,
     loudness: LoudnessReader,
+    /// The compensation of the last routing sent.
+    compensation: Compensation,
 }
 
 impl MixerHandle {
@@ -93,7 +112,19 @@ impl MixerHandle {
         let plan = compile_metered(routing, Some(Arc::clone(&self.meters)), |id| {
             slots.get(&id).copied().unwrap_or(plan::NO_METER)
         })?;
-        Ok(self.incoming.push(Box::new(plan)).is_ok())
+        let compensation = plan.compensation().clone();
+        let sent = self.incoming.push(Box::new(plan)).is_ok();
+        if sent {
+            self.compensation = compensation;
+        }
+        Ok(sent)
+    }
+
+    /// The delay compensation of the last routing sent: how far the
+    /// device outputs trail the tracks, and the latent nodes on the
+    /// longest path.
+    pub fn compensation(&self) -> &Compensation {
+        &self.compensation
     }
 
     /// What node `id` played since its level was last taken: peaks and the
@@ -136,6 +167,24 @@ pub struct Mixer<T> {
     swap: Option<Swap>,
     /// Loudness and true peak of the measured node.
     loudness: LoudnessTap,
+    /// The timeline sample the tracks play next.
+    cursor: i64,
+    /// A jump being blended where the tracks play in (latent plans only).
+    blend: Option<Blend>,
+}
+
+/// Frames blended so far of `length` (0 until the first block sets it
+/// from the device rate).
+struct Blend {
+    done: usize,
+    length: usize,
+}
+
+impl Blend {
+    /// A blend from what the plan's input tail holds.
+    fn new() -> Self {
+        Self { done: 0, length: 0 }
+    }
 }
 
 struct Swap {
@@ -158,6 +207,7 @@ pub fn mixer<T: TrackSource>(tracks: T) -> (MixerHandle, Mixer<T>) {
             meters: MeterBank::new(MIN_METERS),
             slots: HashMap::new(),
             loudness: reader,
+            compensation: Compensation::default(),
         },
         Mixer {
             tracks,
@@ -167,6 +217,8 @@ pub fn mixer<T: TrackSource>(tracks: T) -> (MixerHandle, Mixer<T>) {
             plan: Box::new(Plan::empty()),
             swap: None,
             loudness: tap,
+            cursor: 0,
+            blend: None,
         },
     )
 }
@@ -201,7 +253,10 @@ impl<T> Mixer<T> {
             self.retire(std::mem::replace(&mut new, newer));
         }
         new.carry(&self.plan);
+        // A new plan has no input tail to blend from.
+        self.blend = None;
         let reshaped = new.topology != self.plan.topology;
+        let relatent = new.latency() != self.plan.latency();
         let old = std::mem::replace(&mut self.plan, new);
         if fade && reshaped {
             self.swap = Some(Swap {
@@ -209,6 +264,11 @@ impl<T> Mixer<T> {
                 done: 0,
                 length: 0,
             });
+            // New delay lines start silent: what the tracks play fades
+            // into them, so it comes out of them without a step.
+            if relatent && self.plan.input_tail(0).is_some() {
+                self.blend = Some(Blend::new());
+            }
         } else {
             self.retire(old);
         }
@@ -250,6 +310,22 @@ impl<T: TrackSource> Source for Mixer<T> {
             };
             self.plan.clear(n);
             self.tracks.render(&part_cx, &mut self.plan.buses(n));
+            if let Some(swap) = self.swap.as_mut() {
+                swap.old.clear(n);
+                swap.old.copy_inputs(&self.plan, n);
+            }
+            // Only the plan the jump or the new latency belongs to blends.
+            if advance {
+                if let Some(blend) = self.blend.as_mut() {
+                    if blend.length == 0 {
+                        blend.length = fade_frames(rate).min(CHUNK);
+                    }
+                    self.plan.blend_inputs(blend.done, n, blend.length);
+                    blend.done += n;
+                }
+                self.blend.take_if(|b| b.done >= b.length);
+                self.cursor = part_cx.start + n as i64;
+            }
             let mut part = out.part(done, n);
             match self.swap.as_mut() {
                 None => {
@@ -260,8 +336,6 @@ impl<T: TrackSource> Source for Mixer<T> {
                     if swap.length == 0 {
                         swap.length = (rate / SWAP_PER_SECOND).max(1) as usize;
                     }
-                    swap.old.clear(n);
-                    swap.old.copy_inputs(&self.plan, n);
                     // In and out always add up to one.
                     let mut fade_in = [0.0f32; CHUNK];
                     let mut fade_out = [0.0f32; CHUNK];
@@ -293,11 +367,43 @@ impl<T: TrackSource> Source for Mixer<T> {
     }
 
     fn locate(&mut self, timeline: &Timeline, sample_rate: u32, sample: i64, jump: Jump) {
-        // The engine crossfades every jump: a plan crossfade ends here,
-        // and levels start at their targets rather than gliding.
-        self.finish_swap(true);
-        self.take_new(false);
-        self.plan.settle();
+        self.blend = None;
+        if jump != Jump::Play && self.plan.latency() > 0 {
+            // Latent: the engine's crossfade would come before the jump is
+            // heard. Blend where the tracks play in instead, from what they
+            // would have played next; a plan crossfade carries on.
+            let cx = RenderContext {
+                timeline,
+                sample_rate,
+                start: self.cursor,
+                tail: true,
+            };
+            let length = fade_frames(sample_rate).min(CHUNK);
+            if let Some(mut tail) = self.plan.input_tail(length) {
+                self.tracks.render(&cx, &mut tail);
+                self.blend = Some(Blend::new());
+            }
+        } else {
+            // The engine crossfades the jump: a plan crossfade ends here,
+            // and levels start at their targets rather than gliding.
+            self.finish_swap(true);
+            self.take_new(false);
+            self.plan.settle();
+            self.blend = None;
+            if self.plan.latency() > 0 {
+                // Playback starts: the delay lines forget what played
+                // before, and the tracks fade in from silence.
+                self.plan.clear_lines();
+                if self.plan.input_tail(0).is_some() {
+                    self.blend = Some(Blend::new());
+                }
+            }
+        }
         self.tracks.locate(timeline, sample_rate, sample, jump);
+        self.cursor = sample;
+    }
+
+    fn latency(&self) -> u32 {
+        self.plan.latency()
     }
 }

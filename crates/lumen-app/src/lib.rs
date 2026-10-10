@@ -20,7 +20,9 @@
 //!                                frame-time benchmark: scroll and zoom it with
 //!                                vsync off, report, exit (status 3 below 60 fps);
 //!                                --bench-size 3440x1400 sets the window
-//! lumen --smoke-test             render a few frames, report start-up time, exit
+//! lumen --test-latency 12.4      the engine's synthetic latent device on the
+//!                                first track, to try delay compensation
+//! lumen --smoke-test            render a few frames, report start-up time, exit
 //! lumen --screenshot out.png     render, save a screenshot, exit
 //! lumen --audio test:fake --settings s.json --autosave-dir dir
 //!                                isolated from the user (tests): the silent
@@ -192,6 +194,9 @@ pub struct App {
     /// `--autoplay-ms`: toggle play and stop this often (latency tests).
     autoplay: Option<Duration>,
     autoplay_count: u32,
+    /// `--test-latency <ms>`: the synthetic latent device on the first
+    /// track.
+    test_latency: Option<f64>,
     /// `--save-as <path>` (tests): save once imports are done, then close.
     save_as: Option<PathBuf>,
     /// Playing or not, as last traced, to log only changes.
@@ -356,6 +361,16 @@ impl eframe::App for App {
                 &ctx,
                 &mut self.document,
             );
+        }
+        if let Some(ms) = self.test_latency
+            && let Some(first) = self.document.project().tracks.first()
+        {
+            let frames = (ms * f64::from(rate) / 1e3).round() as u32;
+            let latent = &mut self.lanes.devices.latent;
+            if latent.len() != 1 || latent.get(&first.id) != Some(&frames) {
+                latent.clear();
+                latent.insert(first.id, frames);
+            }
         }
         let cue = self.cue();
         self.lanes.update(
@@ -720,6 +735,7 @@ impl App {
             started,
             autoplay: launch.autoplay,
             autoplay_count: 1,
+            test_latency: launch.test_latency,
             save_as: launch.save_as,
             traced: None,
             appearance_override: false,

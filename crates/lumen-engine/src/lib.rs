@@ -20,6 +20,7 @@ mod declick;
 mod engine;
 mod metronome;
 mod mixer;
+mod playhead;
 mod scrub;
 mod snapshot;
 mod source;
@@ -30,8 +31,9 @@ pub use clips::{Clip, ClipAudio, ClipPlayer, ClipShape, ClipsHandle, FadeFrames,
 pub use engine::{Command, Engine, EngineHandle, Region, engine};
 pub use metronome::{ClickSound, MetronomeSettings};
 pub use mixer::{
-    Bus, Buses, CueOut, Destination, Level, Mixer, MixerHandle, NodeSpec, Plan, RMS_SECONDS,
-    Routing, RoutingError, SendSpec, TrackSource, compile as compile_routing, mixer,
+    Bus, Buses, Compensation, CueOut, Destination, Device, Level, MAX_DEVICE_LATENCY, Mixer,
+    MixerHandle, NodeSpec, Plan, RMS_SECONDS, Routing, RoutingError, SendSpec, SidechainSpec, Tap,
+    TrackSource, compile as compile_routing, mixer,
 };
 pub use scrub::{MAX_SPEED as MAX_SCRUB_SPEED, ScrubStyle};
 pub use snapshot::TransportSnapshot;

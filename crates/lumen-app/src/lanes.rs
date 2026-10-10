@@ -49,8 +49,11 @@ pub struct Lanes {
     built: Option<u64>,
     /// The engine's clip list needs rebuilding.
     dirty: bool,
-    /// The project state and cue the engine's routing was built from.
-    routed: Option<(u64, crate::routing::Cue)>,
+    /// The project state, cue and devices the engine's routing was built
+    /// from.
+    routed: Option<(u64, crate::routing::Cue, crate::routing::Devices)>,
+    /// Devices on tracks, until devices join the project (M6).
+    pub(crate) devices: crate::routing::Devices,
     /// A message about files that could not be added.
     notice: Option<String>,
     /// When each clip was first drawn (egui time), for its fade-in.
@@ -273,9 +276,9 @@ impl Lanes {
         // The routing follows the clips, never ahead of them: a deleted
         // track's clips fade out while its node is still there, and a new
         // track's clips wait for their node, then fade in.
-        let wanted = (doc.state(), cue.clone());
+        let wanted = (doc.state(), cue.clone(), self.devices.clone());
         if !self.dirty && self.routed.as_ref() != Some(&wanted) {
-            match mixer.set(&crate::routing::routing(doc.project(), cue)) {
+            match mixer.set(&crate::routing::routing(doc.project(), cue, &self.devices)) {
                 Ok(true) => self.routed = Some(wanted),
                 // The queue is full: the engine has not caught up.
                 Ok(false) => {}

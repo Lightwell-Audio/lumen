@@ -42,6 +42,7 @@ impl Launch {
             bench: None,
             bench_size: None,
             autoplay: None,
+            test_latency: None,
             save_as: None,
             scripted_dialogs: true,
         }
@@ -137,6 +138,23 @@ impl App {
         if let Some(meters) = self.transport.audio.meters() {
             meters.count_dropouts(n);
         }
+    }
+
+    /// Puts the engine's synthetic latent device on track `id`, adding
+    /// `frames` of latency (0 takes it off), as a device with latency will
+    /// be from M6: what delay compensation is tested with (M4 slice 6).
+    pub fn set_test_latency(&mut self, id: Id, frames: u32) {
+        let latent = &mut self.lanes.devices.latent;
+        if frames == 0 {
+            latent.remove(&id);
+        } else {
+            latent.insert(id, frames);
+        }
+    }
+
+    /// The delay compensation the engine was last sent, in frames.
+    pub fn compensation(&self) -> u32 {
+        self.transport.audio.mixer.compensation().frames
     }
 
     /// What the test device has played since the last call, as (left,

@@ -95,6 +95,9 @@ report: {}",
             ui.separator();
             self.transport.ui(ui, &mut self.document, &self.keymap);
         });
+        if let Some(info) = self.transport.info.take() {
+            self.set_info(info);
+        }
         let toggles = ui.scope_builder(row(right), |ui| {
             ui.separator();
             let keys = self.keymap.keys(Command::OpenPalette);

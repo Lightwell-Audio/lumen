@@ -14,6 +14,7 @@
 mod access;
 mod clips;
 mod commands;
+mod compensation;
 mod cue;
 mod editing;
 mod fades;

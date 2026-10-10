@@ -47,6 +47,10 @@ pub struct Launch {
     pub(crate) bench_size: Option<(f32, f32)>,
     /// `--autoplay-ms`: toggle play and stop this often (latency tests).
     pub(crate) autoplay: Option<Duration>,
+    /// `--test-latency <ms>`: the engine's synthetic latent device on the
+    /// first track, to try delay compensation before devices exist (M4
+    /// slice 6).
+    pub(crate) test_latency: Option<f64>,
     /// `--save-as` (tests): save once imports are done, then close.
     pub(crate) save_as: Option<PathBuf>,
     /// Tests: file dialogs are answered by the test, never shown.
@@ -129,6 +133,9 @@ impl Launch {
             autoplay: value("--autoplay-ms")
                 .and_then(|ms| ms.parse().ok())
                 .map(Duration::from_millis),
+            test_latency: value("--test-latency")
+                .and_then(|ms| ms.parse().ok())
+                .filter(|ms: &f64| ms.is_finite() && *ms > 0.0),
             save_as: value("--save-as").map(PathBuf::from),
             scripted_dialogs: false,
         }

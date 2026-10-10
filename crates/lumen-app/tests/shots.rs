@@ -741,3 +741,32 @@ fn mixer_strips_and_header_levels() {
         save(&mut h, &format!("volume-{appearance}-{scale}"));
     }
 }
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn delay_compensation_readout() {
+    // M4 slice 6, the owner's D1: the readout at the end of the device
+    // line, its path in the info line, and the audio panel's Latency rows.
+    use egui_kittest::kittest::Queryable;
+    for (appearance, scale) in [("dark", 1.0), ("light", 1.0), ("dark", 1.5)] {
+        let dir = TempDir::new("shots-compensation");
+        let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1600.0, 900.0));
+        let kick = h.state().project().tracks[0].id;
+        h.state_mut().set_test_latency(kick, 595);
+        for _ in 0..200 {
+            if h.state().compensation() == 595 {
+                break;
+            }
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        h.run_steps(5);
+        let status = h.get_by_label_contains("Audio: ").rect();
+        h.hover_at(Pos2::new(status.right() + 120.0, status.center().y));
+        h.run_steps(5);
+        save(&mut h, &format!("compensation-{appearance}-{scale}"));
+        h.get_by_label_contains("Audio: ").click();
+        h.run_steps(5);
+        save(&mut h, &format!("compensation-panel-{appearance}-{scale}"));
+    }
+}

@@ -5,10 +5,10 @@
 //! master, a group or return, or a device pair). Kept pure, so the
 //! translation is tested, as `lanes::engine_clips` is.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use lumen_core::pan::PanLaw;
-use lumen_engine::{CueOut, Destination, NodeSpec, Routing, SendSpec};
+use lumen_engine::{CueOut, Destination, Device, NodeSpec, Routing, SendSpec};
 use lumen_project::model::{Id, Output, Project, Track, TrackKind};
 use lumen_project::routing::{self as rules, destination};
 
@@ -71,8 +71,18 @@ pub fn device_pairs(project: &Project) -> BTreeSet<u16> {
 /// pair (the owner's O1).
 const CUE_CHANNEL: u16 = crate::settings::CUE_CHANNEL;
 
-/// The routing that plays `project`, with `cue`.
-pub fn routing(project: &Project, cue: &Cue) -> Routing {
+/// Devices on tracks, until devices join the project (VST3 in M6, the
+/// built-in ones in M8). For now only the engine's synthetic latent
+/// device, which end-to-end tests put on tracks to see delay compensation
+/// at work (`testing`, M4 slice 6).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Devices {
+    /// Frames of latency on each track that has some.
+    pub latent: BTreeMap<Id, u32>,
+}
+
+/// The routing that plays `project`, with `cue` and `devices`.
+pub fn routing(project: &Project, cue: &Cue, devices: &Devices) -> Routing {
     let heard = lumen_project::solo::hearing(project);
     let nodes = rules::all_tracks(project)
         .map(|track| {
@@ -108,6 +118,16 @@ pub fn routing(project: &Project, cue: &Cue) -> Routing {
                         pre_fader: send.pre_fader,
                     })
                     .collect(),
+                devices: devices
+                    .latent
+                    .get(&track.id)
+                    .map(|&frames| {
+                        vec![Device::Delay {
+                            frames,
+                            listen: false,
+                        }]
+                    })
+                    .unwrap_or_default(),
                 ..NodeSpec::unity(track.id.0, output(project, track, &cue.outputs))
             }
         })
@@ -148,6 +168,30 @@ mod tests {
 
     use super::*;
     use crate::document::Document;
+
+    fn routing(project: &Project, cue: &Cue) -> Routing {
+        super::routing(project, cue, &Devices::default())
+    }
+
+    #[test]
+    fn a_latent_device_reaches_the_engine_and_is_compensated() {
+        let (mut doc, ids) = doc_with(&[TrackKind::Audio, TrackKind::Audio]);
+        doc.set_volume(ids[0], 0.0);
+        let mut devices = Devices::default();
+        devices.latent.insert(ids[0], 240);
+        let routing = super::routing(doc.project(), &Cue::default(), &devices);
+        assert_eq!(
+            node(&routing, ids[0]).devices,
+            [Device::Delay {
+                frames: 240,
+                listen: false
+            }]
+        );
+        assert!(node(&routing, ids[1]).devices.is_empty());
+        let plan = lumen_engine::compile_routing(&routing).unwrap();
+        assert_eq!(plan.compensation().frames, 240);
+        assert_eq!(plan.compensation().path, [(ids[0].0, 240)]);
+    }
 
     fn doc_with(kinds: &[TrackKind]) -> (Document, Vec<Id>) {
         let mut doc = Document::new(crate::empty_project());
