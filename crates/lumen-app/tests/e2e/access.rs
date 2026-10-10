@@ -273,3 +273,30 @@ fn switches_and_segmented_choices_work_by_name() {
     lumen.click("History\u{2026}");
     assert!(!lumen.shows("Additive solo"));
 }
+
+#[test]
+fn a_closing_menu_asks_for_the_frames_its_fade_needs() {
+    // Owner, MT-POL-2: menus vanished instead of fading. The frame that
+    // closed one asked for no next frame, so an idle window drew the next
+    // one only after the fade was over.
+    let mut lumen = Lumen::start("menu-fade");
+    lumen.click("Lumen");
+    lumen.frames(30);
+    lumen.harness.get_by_label("History\u{2026}").click();
+    // The frame that closes it is the first without its controls (from
+    // then on only its picture fades): that frame must ask for the next.
+    let mut closing_frame_asked = None;
+    for _ in 0..5 {
+        lumen.harness.step();
+        if !lumen.shows("Additive solo") {
+            let causes = lumen.harness.ctx.repaint_causes();
+            closing_frame_asked = Some(causes.iter().any(|c| c.file.ends_with("menu.rs")));
+            break;
+        }
+    }
+    assert_eq!(
+        closing_frame_asked,
+        Some(true),
+        "the fade's next frame is asked for"
+    );
+}

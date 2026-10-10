@@ -1744,3 +1744,9 @@ Slice 2 of M4.5: findings S2, S3, S4 and T3. Run
    clip card still fit.
 
 **Expected:** as described.
+
+**Run 1 (2026-10-10, owner):** menus did not fade; they disappeared.
+The frame that started a fade asked for no next frame, so an idle window
+drew the next one only after the fade was over (the harness steps every
+frame, so the shots showed it). Fixed: a fade's first frame asks for the
+next; E2E `a_closing_menu_asks_for_the_frames_its_fade_needs`.

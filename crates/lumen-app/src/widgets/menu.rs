@@ -112,6 +112,10 @@ impl<'r> Menu<'r> {
         let begin_closing = |state: &mut State| {
             if fade_time > 0.0 {
                 state.closing.get_or_insert(now);
+                // The fade's first frame: an idle window would otherwise
+                // draw the next one only after it was over (owner,
+                // MT-POL-2: menus vanished).
+                ctx.request_repaint();
             } else {
                 *state = State::default();
             }
