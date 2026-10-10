@@ -265,8 +265,9 @@ fn draw(ui: &mut Ui, info: &Info, keymap: &Keymap, held: Held) {
             .color(palette.text),
     );
     let right = ui.max_rect().right();
-    // The strip's middle: the row sits half a light's room above it.
-    let middle = ui.max_rect().center().y + widgets::KEY_LIGHT_ROOM / 2.0;
+    // The row's middle, where its words and caps are centred (half a
+    // light's room above the strip's).
+    let middle = ui.max_rect().center().y;
     let separator = RichText::new("\u{00B7}")
         .size(theme::size::CAPTION)
         .color(palette.text_hint);
@@ -296,7 +297,12 @@ fn draw(ui: &mut Ui, info: &Info, keymap: &Keymap, held: Held) {
         };
         match action.how {
             How::Pointer(held, gesture) => {
-                widgets::modifier_caps(ui, &held.names());
+                // None held allocates nothing: an empty allocation still
+                // takes the row's spacing, which left a gap before the mouse
+                // (the lit "drag move" sat off centre in its highlight).
+                if held != Held::NONE {
+                    widgets::modifier_caps(ui, &held.names());
+                }
                 mouse(ui, colour);
                 ui.label(
                     RichText::new(gesture.word())
@@ -319,15 +325,18 @@ fn draw(ui: &mut Ui, info: &Info, keymap: &Keymap, held: Held) {
         if lit {
             ui.painter().set(
                 background,
-                // As tall as the strip less even room above and below, not
-                // as tall as its keycaps' light room, which would touch the
-                // window's edge.
+                // Centred on the words it lights, with the strip's room
+                // above it and the same below them: centred on the strip
+                // instead, the words sat high in it. Never as tall as the
+                // keycaps' light room, which would touch the window's edge.
                 Shape::rect_filled(
                     Rect::from_center_size(
                         egui::pos2(group.center().x, middle),
                         vec2(
                             group.width() + 2.0 * theme::space::XS,
-                            theme::size::INFO_LINE - 2.0 * theme::space::XS,
+                            theme::size::INFO_LINE
+                                - 2.0 * theme::space::XS
+                                - widgets::KEY_LIGHT_ROOM,
                         ),
                     ),
                     theme::radius::SMALL,
