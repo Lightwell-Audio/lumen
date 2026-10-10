@@ -52,6 +52,7 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str, enabled: bool) -> egui::R
     if response.clicked() {
         *on = !*on;
         response.mark_changed();
+        super::note_change(ui);
     }
     let state = *on;
     response.widget_info(|| {
@@ -118,6 +119,9 @@ pub fn choice_row(ui: &mut Ui, label: &str, on: bool) -> egui::Response {
     };
     let (rect, response) =
         ui.allocate_exact_size(vec2(width, theme::size::CONTROL), Sense::click());
+    if response.clicked() && !on {
+        super::note_change(ui);
+    }
     response
         .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, on, label));
     if !ui.is_rect_visible(rect) {
@@ -251,6 +255,7 @@ pub fn segmented<T: PartialEq + Copy>(
         });
         if response.clicked() && !chosen {
             picked = Some(choice.value);
+            super::note_change(ui);
         }
         segments.push((segment, response, chosen));
     }

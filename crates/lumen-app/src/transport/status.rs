@@ -416,8 +416,6 @@ impl Transport {
         if let Some(chip) = chip {
             response = response.union(chip);
         }
-        egui::Popup::menu(&response)
-            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-            .show(|ui| self.audio_panel(ui, project));
+        widgets::Menu::below(&response).show(|ui| self.audio_panel(ui, project));
     }
 }

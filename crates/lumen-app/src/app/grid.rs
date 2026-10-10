@@ -195,9 +195,7 @@ impl App {
         if switch.clicked() {
             self.grid.snap = !self.grid.snap;
         }
-        egui::Popup::menu(&response)
-            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-            .show(|ui| self.grid_menu(ui));
+        widgets::Menu::below(&response).show(|ui| self.grid_menu(ui));
     }
 }
 

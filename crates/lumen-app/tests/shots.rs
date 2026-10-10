@@ -499,8 +499,15 @@ fn menus_and_tips_looking(appearance: &str, scale: f32) {
     click(&mut h, lumen.center());
     h.run_steps(30);
     save(&mut h, "menu-app");
-    h.key_press(Key::Escape);
-    h.run_steps(3);
+    // A change keeps it open; leaving it fades it (the owner's C).
+    let additive = h.get_by_label("Additive solo").rect();
+    click(&mut h, additive.center());
+    h.run_steps(20);
+    save(&mut h, "menu-app-changed");
+    h.hover_at(pos2(900.0, 600.0));
+    h.run_steps(24 + 4);
+    save(&mut h, "menu-app-fading");
+    h.run_steps(30);
     // The metronome's menu.
     let metronome = h.get_by_label("Metronome").rect();
     right(&mut h, metronome.center());

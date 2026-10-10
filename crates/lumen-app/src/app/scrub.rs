@@ -55,7 +55,7 @@ impl App {
             let t = self.snapped(t, free);
             ui.data_mut(|d| d.insert_temp(menu_at, t));
         }
-        response.context_menu(|ui| {
+        widgets::Menu::context(&response).show(|ui| {
             let t: Ticks = ui.data(|d| d.get_temp(menu_at)).unwrap_or_default();
             if ui.button("Add locator here").clicked() {
                 let id = self.document.add_marker(t, None);

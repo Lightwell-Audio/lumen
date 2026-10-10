@@ -218,7 +218,7 @@ pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> Kno
     if response.double_clicked() {
         out.db = Some(f32::NEG_INFINITY);
     }
-    response.context_menu(|ui| {
+    super::Menu::context(&response).show(|ui| {
         let taps = [
             super::Choice::new(true, "Pre-fader").tip("Taken before the track's volume and pan"),
             super::Choice::new(false, "Post-fader").tip("Taken after the track's volume and pan"),

@@ -17,6 +17,7 @@ use crate::{fonts, icons, motion, theme};
 pub mod fader;
 mod keys;
 pub mod knob;
+mod menu;
 pub mod meter;
 mod toggle;
 pub mod wheel;
@@ -25,6 +26,8 @@ pub use keys::{
     KEY_LIGHT_ROOM, Keys, Tip, caps_height, caps_width, keycaps, menu_item, menu_toggle,
     modifier_caps, submenu, tip,
 };
+pub use menu::Menu;
+pub(crate) use menu::note_change;
 pub use toggle::{Choice, choice_row, segmented, switch};
 
 /// A floating window in the design system (DESIGN §5): no system title

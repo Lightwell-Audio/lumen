@@ -11,7 +11,7 @@ use super::grid::draw_snap_guide;
 use super::info::{Held, Info, Mouse};
 use super::rulers::Layout;
 use crate::commands::Command;
-use crate::{App, ruler, theme, transport};
+use crate::{App, ruler, theme, transport, widgets};
 
 /// Within this many points of an edge, a drag resizes (at most a third of
 /// the brace, so a short loop can still be moved). Widened from 5 after
@@ -176,7 +176,7 @@ impl App {
         {
             self.document.set_loop_enabled(!looped.loop_enabled);
         }
-        response.context_menu(|ui| transport::punch_menu(ui, &mut self.document));
+        widgets::Menu::context(&response).show(|ui| transport::punch_menu(ui, &mut self.document));
         hint
     }
 }

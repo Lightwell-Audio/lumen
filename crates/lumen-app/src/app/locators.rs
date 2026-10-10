@@ -197,7 +197,7 @@ impl App {
                 self.transport.follow_paused = false;
             }
             let id_now = marker.id;
-            response.context_menu(|ui| {
+            widgets::Menu::context(&response).show(|ui| {
                 if ui.button("Rename").clicked() {
                     self.locators.renaming = Some((id_now, marker.name.clone()));
                     ui.close();

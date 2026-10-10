@@ -90,12 +90,10 @@ impl Arrangement {
             1.0,
             palette.text_hint,
         );
-        egui::Popup::menu(&response)
-            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-            .show(|ui| {
-                ui.set_min_width(160.0);
-                self.output_menu(ui, doc, track);
-            });
+        widgets::Menu::below(&response).show(|ui| {
+            ui.set_min_width(160.0);
+            self.output_menu(ui, doc, track);
+        });
     }
 
     /// The choices of where `track` plays to: inside Lumen, the master and

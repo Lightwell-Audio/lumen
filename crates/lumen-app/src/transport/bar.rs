@@ -39,7 +39,7 @@ impl Transport {
         if response.clicked() {
             self.toggle_follow();
         }
-        response.context_menu(|ui| {
+        widgets::Menu::context(&response).show(|ui| {
             ui.label("Follow the playhead");
             let modes = [Follow::Page, Follow::Continuous, Follow::Off]
                 .map(|mode| widgets::Choice::new(mode, mode.name()));
@@ -154,7 +154,7 @@ impl Transport {
         if loop_button.clicked() {
             doc.set_loop_enabled(!looped.loop_enabled);
         }
-        loop_button.context_menu(|ui| punch_menu(ui, doc));
+        widgets::Menu::context(&loop_button).show(|ui| punch_menu(ui, doc));
         let metronome = icons::button(
             ui,
             Icon::Metronome,
@@ -173,49 +173,51 @@ impl Transport {
         }
         self.follow_button(ui, keymap);
         solo_chip(ui, doc, keymap);
-        metronome.context_menu(|ui| {
-            let mut changed = false;
-            ui.label("Metronome volume");
-            let mut percent = (self.metronome.volume * 100.0).round();
-            changed |= ui
-                .add(egui::Slider::new(&mut percent, 0.0..=100.0).suffix("%"))
-                .changed();
-            self.metronome.volume = percent / 100.0;
-            ui.separator();
-            ui.label("Sound");
-            let sounds = ClickSound::ALL.map(|s| widgets::Choice::new(s, s.name()));
-            if let Some(sound) =
-                widgets::segmented(ui, ui.id().with("sound"), self.metronome.sound, &sounds)
-            {
-                self.metronome.sound = sound;
-                changed = true;
-            }
-            // Its own output, never through the master (the owner's D6):
-            // the main pair, or the cue pair for the headphones.
-            ui.separator();
-            ui.label("Output");
-            let cue = crate::settings::CUE_CHANNEL;
-            let ready = self.audio.cue_ready();
-            let outputs = [
-                widgets::Choice::new(0, "Main"),
-                widgets::Choice::new(cue, "Cue")
-                    .enabled(ready)
-                    .tip(if ready {
-                        "The cue pair, for headphones"
-                    } else {
-                        "Choose a Cue output in Audio settings first"
-                    }),
-            ];
-            if let Some(channel) =
-                widgets::segmented(ui, ui.id().with("output"), self.metronome.channel, &outputs)
-            {
-                self.metronome.channel = channel;
-                changed = true;
-            }
-            if changed {
-                self.send(Command::SetMetronome(self.metronome));
-            }
-        });
+        widgets::Menu::context(&metronome)
+            .keeping_open()
+            .show(|ui| {
+                let mut changed = false;
+                ui.label("Metronome volume");
+                let mut percent = (self.metronome.volume * 100.0).round();
+                changed |= ui
+                    .add(egui::Slider::new(&mut percent, 0.0..=100.0).suffix("%"))
+                    .changed();
+                self.metronome.volume = percent / 100.0;
+                ui.separator();
+                ui.label("Sound");
+                let sounds = ClickSound::ALL.map(|s| widgets::Choice::new(s, s.name()));
+                if let Some(sound) =
+                    widgets::segmented(ui, ui.id().with("sound"), self.metronome.sound, &sounds)
+                {
+                    self.metronome.sound = sound;
+                    changed = true;
+                }
+                // Its own output, never through the master (the owner's D6):
+                // the main pair, or the cue pair for the headphones.
+                ui.separator();
+                ui.label("Output");
+                let cue = crate::settings::CUE_CHANNEL;
+                let ready = self.audio.cue_ready();
+                let outputs = [
+                    widgets::Choice::new(0, "Main"),
+                    widgets::Choice::new(cue, "Cue")
+                        .enabled(ready)
+                        .tip(if ready {
+                            "The cue pair, for headphones"
+                        } else {
+                            "Choose a Cue output in Audio settings first"
+                        }),
+                ];
+                if let Some(channel) =
+                    widgets::segmented(ui, ui.id().with("output"), self.metronome.channel, &outputs)
+                {
+                    self.metronome.channel = channel;
+                    changed = true;
+                }
+                if changed {
+                    self.send(Command::SetMetronome(self.metronome));
+                }
+            });
         ui.separator();
 
         // Tempo.

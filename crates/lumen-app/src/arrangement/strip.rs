@@ -193,7 +193,7 @@ impl Arrangement {
             self.start_drag(doc.project(), track.id, true);
         }
         if track.kind != TrackKind::Master {
-            background.context_menu(|ui| {
+            widgets::Menu::context(&background).show(|ui| {
                 if !self.selected.contains(&track.id) {
                     self.selected = vec![track.id];
                 }

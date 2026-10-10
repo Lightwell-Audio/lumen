@@ -251,7 +251,7 @@ report: {}",
             )
         });
         self.clip_editing(ui, &hover, canvas, &painter);
-        hover.context_menu(|ui| self.lanes_menu(ui));
+        widgets::Menu::context(&hover).show(|ui| self.lanes_menu(ui));
         self.arrangement.pinned_controls(ui, pinned, &self.document);
         // Clip properties (slice 6e): renaming in the title bar, and the
         // pinned card, which takes the hover card's place.

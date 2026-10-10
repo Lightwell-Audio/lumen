@@ -107,7 +107,7 @@ impl Arrangement {
                 "pan law and clip lights",
             ));
         }
-        background.context_menu(|ui| self.mixer_menu(ui, doc, keymap));
+        widgets::Menu::context(&background).show(|ui| self.mixer_menu(ui, doc, keymap));
 
         // Where every strip is on screen, for a drag's drop place.
         let mut on_screen: Vec<(usize, Rangef)> = Vec::with_capacity(placed.len());

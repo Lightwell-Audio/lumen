@@ -221,7 +221,7 @@ impl Arrangement {
         } else if empty.clicked() {
             self.selected.clear();
         }
-        empty.context_menu(|ui| self.add_menu(ui, doc, None, keymap));
+        widgets::Menu::context(&empty).show(|ui| self.add_menu(ui, doc, None, keymap));
 
         // "+ Add track ▾": a menu of every track type with its shortcut,
         // and a hint that double-clicking here adds an audio track
@@ -268,12 +268,10 @@ impl Arrangement {
                 1.0,
                 palette.text_secondary,
             );
-            egui::Popup::menu(&response)
-                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                .show(|ui| {
-                    ui.set_min_width(button.width());
-                    self.add_menu(ui, doc, self.selected.last().copied(), keymap);
-                });
+            widgets::Menu::below(&response).show(|ui| {
+                ui.set_min_width(button.width());
+                self.add_menu(ui, doc, self.selected.last().copied(), keymap);
+            });
         }
     }
 

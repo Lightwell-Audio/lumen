@@ -4,7 +4,7 @@
 //! place so it can be found.
 
 use eframe::egui::accesskit::{Action, Role};
-use eframe::egui::{Event, Key, Modifiers, PointerButton};
+use eframe::egui::{self, Event, Key, Modifiers, PointerButton};
 use egui_kittest::kittest::{NodeT, Queryable, by};
 
 use super::Lumen;
@@ -245,18 +245,31 @@ fn tab_walks_the_window_in_reading_order() {
 fn switches_and_segmented_choices_work_by_name() {
     // M4.5 slice 2: the app menu's on/off settings are switches (named as
     // checkboxes) and its small choices segmented controls (radio buttons).
-    // A click closes the menu, as egui's menus do.
+    // The owner's C: the menu stays open through changes, fades once the
+    // pointer leaves it, and a command closes it at once.
     let mut lumen = Lumen::start("switches");
     lumen.click("Lumen");
     assert!(!lumen.is_on("Reduce motion"));
     lumen.click("Reduce motion");
-    lumen.click("Lumen");
     assert!(lumen.is_on("Reduce motion"), "a click switches it on");
+    assert!(lumen.shows("Additive solo"), "and the menu stays open");
     assert!(lumen.is_on("Dark") && !lumen.is_on("Light"));
     lumen.click("Light");
-    lumen.click("Lumen");
     assert!(
         lumen.is_on("Light") && !lumen.is_on("Dark"),
         "one choice at a time"
     );
+    // The pointer leaves: after a moment, it fades away.
+    lumen.harness.hover_at(egui::pos2(900.0, 500.0));
+    lumen.frames(10);
+    assert!(lumen.shows("Additive solo"), "not at once");
+    lumen.frames(60);
+    assert!(
+        !lumen.shows("Additive solo"),
+        "gone after the pause and fade"
+    );
+    // A command closes it straight away: its fading picture has no controls.
+    lumen.click("Lumen");
+    lumen.click("History\u{2026}");
+    assert!(!lumen.shows("Additive solo"));
 }

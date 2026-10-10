@@ -1722,16 +1722,22 @@ Slice 2 of M4.5: findings S2, S3, S4 and T3. Run
    every number comes back.
 3. **Switches and choices (T3):** open the Lumen menu. "Copy imported
    audio", "Reduce motion", "Additive solo" and "Meters in track colours"
-   are switches: click one (the menu closes, as menus do), reopen it, and
-   it is on, its knob at the right in the accent. Theme and Interface size
-   are segmented: click Light, reopen, then 125%; the chosen one is lit. Right-click the metronome: Sound and Output are
+   are switches: click one, the menu stays open and its knob glides over
+   and lights. Theme and Interface size are segmented: click Light, then
+   125%, and the thumb slides to each. Right-click the metronome: Sound and Output are
    segmented, and Cue is greyed with why on hover until a cue pair is set.
    Right-click Follow: Page, Continuous and Off. Right-click a send knob:
    Pre-fader and Post-fader. A clip's menu, Fades: Linear, Slow, Fast and
    S-curve for each end. Audio settings: the channel pairs are rows, the
    chosen one lit; Test tone is a switch. Each works from the keyboard
    (Tab to it, Space or Enter).
-4. **Sizes (S4):** M, S and arm are the same size on headers and strips
+4. **Menus close gently (your C):** with the Lumen menu open and a switch
+   flipped, move the pointer off the menu: after a moment it fades away.
+   Flip one, move off and quickly back on: it stays. Open it again and
+   press Esc, or click elsewhere, or choose History…: it closes at once,
+   fading. Right-click a clip and choose Rename: that menu fades too. Turn
+   on Reduce motion: menus close without fading.
+5. **Sizes (S4):** M, S and arm are the same size on headers and strips
    (20 pt); send knobs on a mixer strip are as large as on a header (24 pt);
    buttons, fields and combos in windows are a touch taller (24 pt). Check
    both themes at 100%, 150% and 200%: nothing overlaps, and the mixer and

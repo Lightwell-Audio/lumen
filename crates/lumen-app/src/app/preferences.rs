@@ -18,109 +18,113 @@ impl App {
     /// in M9.
     pub(crate) fn app_menu(&mut self, ui: &mut egui::Ui) {
         let before = self.settings.appearance.clone();
-        let menu = ui.menu_button(
-            RichText::new(PRODUCT_NAME).font(fonts::display(theme::size::WORDMARK)),
-            |ui| {
-                let ctx = ui.ctx().clone();
-                self.menu_command(ui, Command::NewProject, "New");
-                self.menu_command(ui, Command::OpenProject, "Open\u{2026}");
-                let recent = self.settings.projects.recent.clone();
-                ui.add_enabled_ui(!recent.is_empty(), |ui| {
-                    widgets::submenu(ui, "Open recent", |ui| {
-                        for path in recent {
-                            let label = Path::new(&path)
-                                .file_stem()
-                                .map_or_else(|| path.clone(), |s| s.to_string_lossy().into_owned());
-                            if ui.button(label).on_hover_text(&path).clicked() {
-                                self.request(&ctx, Next::Open(Some(PathBuf::from(&path))));
-                                ui.close();
-                            }
-                        }
-                    });
-                });
-                self.menu_command(ui, Command::Save, "Save");
-                self.menu_command(ui, Command::SaveAs, "Save as\u{2026}");
-                self.menu_command(ui, Command::ImportAudio, "Import audio\u{2026}");
-                widgets::switch(
-                    ui,
-                    &mut self.settings.projects.copy_imported,
-                    "Copy imported audio into the project",
-                    true,
+        // Lit while its menu shows, as egui's menu buttons are.
+        let open = widgets::Menu::is_open_for(ui.ctx(), ui.next_auto_id());
+        let button = ui
+            .add(
+                egui::Button::new(
+                    RichText::new(PRODUCT_NAME).font(fonts::display(theme::size::WORDMARK)),
                 )
-                .on_hover_text("Saving copies outside audio into Samples/Imported");
-                ui.separator();
-                let undo = self.document.history().undo_label().map(str::to_owned);
-                let redo = self.document.history().redo_label().map(str::to_owned);
-                let undo_text = undo.map_or("Undo".to_owned(), |l| format!("Undo {l}"));
-                let redo_text = redo.map_or("Redo".to_owned(), |l| format!("Redo {l}"));
-                self.menu_command(ui, Command::Undo, &undo_text);
-                self.menu_command(ui, Command::Redo, &redo_text);
-                if ui.button("History…").clicked() {
-                    self.show_history = true;
-                    ui.close();
-                }
-                ui.separator();
-                ui.label(RichText::new("Theme").small().weak());
-                let chosen = theme::Appearance::from_key(&self.settings.appearance.theme);
-                let themes = theme::Appearance::ALL.map(|a| widgets::Choice::new(a, a.name()));
-                if let Some(picked) = widgets::segmented(ui, ui.id().with("theme"), chosen, &themes)
-                {
-                    self.settings.appearance.theme = picked.key().to_owned();
-                }
-                ui.separator();
-                ui.label(RichText::new("Interface size").small().weak());
-                let scale = self.settings.appearance.scale();
-                let labels = settings::UI_SCALES.map(|s| format!("{:.0}%", s * 100.0));
-                let sizes: Vec<_> = settings::UI_SCALES
-                    .iter()
-                    .zip(&labels)
-                    .map(|(s, label)| widgets::Choice::new(*s, label))
-                    .collect();
-                if let Some(picked) = widgets::segmented(ui, ui.id().with("scale"), scale, &sizes) {
-                    self.settings.appearance.ui_scale = picked;
-                }
-                ui.separator();
-                widgets::switch(
-                    ui,
-                    &mut self.settings.appearance.reduce_motion,
-                    "Reduce motion",
-                    true,
-                )
-                .on_hover_text("Things change in place instead of sliding or fading");
-                ui.separator();
-                ui.label(RichText::new("Mixing").small().weak());
-                if widgets::switch(
-                    ui,
-                    &mut self.settings.mixing.additive_solo,
-                    "Additive solo",
-                    true,
-                )
-                .on_hover_text("A click on Solo adds the track; Ctrl+click solos it alone")
-                .changed()
-                {
-                    self.settings_changed = Some(Instant::now());
-                }
-                if widgets::switch(
-                    ui,
-                    &mut self.settings.mixing.track_colour_meters,
-                    "Meters in track colours",
-                    true,
-                )
-                .on_hover_text("Meters take their track's colour instead of the accent")
-                .changed()
-                {
-                    self.settings_changed = Some(Instant::now());
-                }
-                ui.separator();
-                if ui.button("Audio settings…").clicked() {
-                    self.transport.settings_window.open = true;
-                    ui.close();
-                }
-                self.menu_command(ui, Command::OpenShortcuts, "Keyboard shortcuts\u{2026}");
-            },
-        );
-        menu.response
+                .selected(open),
+            )
             .on_hover_text("Appearance, interface size and audio settings");
+        widgets::Menu::below(&button).show(|ui| {
+            let ctx = ui.ctx().clone();
+            self.menu_command(ui, Command::NewProject, "New");
+            self.menu_command(ui, Command::OpenProject, "Open\u{2026}");
+            let recent = self.settings.projects.recent.clone();
+            ui.add_enabled_ui(!recent.is_empty(), |ui| {
+                widgets::submenu(ui, "Open recent", |ui| {
+                    for path in recent {
+                        let label = Path::new(&path)
+                            .file_stem()
+                            .map_or_else(|| path.clone(), |s| s.to_string_lossy().into_owned());
+                        if ui.button(label).on_hover_text(&path).clicked() {
+                            self.request(&ctx, Next::Open(Some(PathBuf::from(&path))));
+                            ui.close();
+                        }
+                    }
+                });
+            });
+            self.menu_command(ui, Command::Save, "Save");
+            self.menu_command(ui, Command::SaveAs, "Save as\u{2026}");
+            self.menu_command(ui, Command::ImportAudio, "Import audio\u{2026}");
+            widgets::switch(
+                ui,
+                &mut self.settings.projects.copy_imported,
+                "Copy imported audio into the project",
+                true,
+            )
+            .on_hover_text("Saving copies outside audio into Samples/Imported");
+            ui.separator();
+            let undo = self.document.history().undo_label().map(str::to_owned);
+            let redo = self.document.history().redo_label().map(str::to_owned);
+            let undo_text = undo.map_or("Undo".to_owned(), |l| format!("Undo {l}"));
+            let redo_text = redo.map_or("Redo".to_owned(), |l| format!("Redo {l}"));
+            self.menu_command(ui, Command::Undo, &undo_text);
+            self.menu_command(ui, Command::Redo, &redo_text);
+            if ui.button("History…").clicked() {
+                self.show_history = true;
+                ui.close();
+            }
+            ui.separator();
+            ui.label(RichText::new("Theme").small().weak());
+            let chosen = theme::Appearance::from_key(&self.settings.appearance.theme);
+            let themes = theme::Appearance::ALL.map(|a| widgets::Choice::new(a, a.name()));
+            if let Some(picked) = widgets::segmented(ui, ui.id().with("theme"), chosen, &themes) {
+                self.settings.appearance.theme = picked.key().to_owned();
+            }
+            ui.separator();
+            ui.label(RichText::new("Interface size").small().weak());
+            let scale = self.settings.appearance.scale();
+            let labels = settings::UI_SCALES.map(|s| format!("{:.0}%", s * 100.0));
+            let sizes: Vec<_> = settings::UI_SCALES
+                .iter()
+                .zip(&labels)
+                .map(|(s, label)| widgets::Choice::new(*s, label))
+                .collect();
+            if let Some(picked) = widgets::segmented(ui, ui.id().with("scale"), scale, &sizes) {
+                self.settings.appearance.ui_scale = picked;
+            }
+            ui.separator();
+            widgets::switch(
+                ui,
+                &mut self.settings.appearance.reduce_motion,
+                "Reduce motion",
+                true,
+            )
+            .on_hover_text("Things change in place instead of sliding or fading");
+            ui.separator();
+            ui.label(RichText::new("Mixing").small().weak());
+            if widgets::switch(
+                ui,
+                &mut self.settings.mixing.additive_solo,
+                "Additive solo",
+                true,
+            )
+            .on_hover_text("A click on Solo adds the track; Ctrl+click solos it alone")
+            .changed()
+            {
+                self.settings_changed = Some(Instant::now());
+            }
+            if widgets::switch(
+                ui,
+                &mut self.settings.mixing.track_colour_meters,
+                "Meters in track colours",
+                true,
+            )
+            .on_hover_text("Meters take their track's colour instead of the accent")
+            .changed()
+            {
+                self.settings_changed = Some(Instant::now());
+            }
+            ui.separator();
+            if ui.button("Audio settings…").clicked() {
+                self.transport.settings_window.open = true;
+                ui.close();
+            }
+            self.menu_command(ui, Command::OpenShortcuts, "Keyboard shortcuts\u{2026}");
+        });
         if self.settings.appearance != before {
             self.appearance_override = false;
             self.saved_appearance = self.settings.appearance.clone();

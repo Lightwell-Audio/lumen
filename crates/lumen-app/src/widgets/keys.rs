@@ -309,8 +309,12 @@ fn menu_row(
             );
         }
     }
-    if response.clicked() && toggle.is_none() {
-        ui.close();
+    if response.clicked() {
+        if toggle.is_none() {
+            ui.close();
+        } else {
+            super::note_change(ui);
+        }
     }
     response
 }

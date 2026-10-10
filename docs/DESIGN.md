@@ -83,6 +83,14 @@ or offers the button that does it.
   answered by its buttons.
 - Popovers (the audio panel, menus) open under the control that opened them,
   with a small gap.
+- **Menus with settings in them** (the owner's C, M4.5): a switch,
+  segmented choice or menu toggle leaves the menu open, so a change can be
+  followed by another. Once something has changed and the pointer leaves
+  the menu (8 pt of slack), it waits 0.4 s and fades; coming back cancels
+  it. Esc, a click elsewhere and commands (New, Audio settings…) close it
+  at once, with the fade. Every menu is a `widgets::Menu`
+  (`Menu::below`, `Menu::context`, `.keeping_open()` for a context menu
+  with settings).
 
 ## 3. Colour
 
@@ -212,6 +220,9 @@ not travel.
 - **What animates:**
   - panels opening and closing (slide);
   - popovers and windows (fade, egui's built-in, at `BASE`);
+  - menus closing: every menu fades out (`BASE`, ease-in, drifting 4 pt up)
+    instead of vanishing; the fading menu is a picture of its last frame,
+    which nothing can click, focus or read out (`widgets::Menu`, M4.5);
   - notices and banners appearing (fade and a 6 pt drop);
   - hover and press fills on transport buttons;
   - the playhead and start marker moving after a locate while stopped;
