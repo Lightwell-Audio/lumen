@@ -51,6 +51,7 @@ irreversible or external) · *Superseded*.
 | [0038](#adr-0038--mute-solo-returns-master-and-cue-m4-slice-4-format-v10) | Mute, solo, returns, master and cue (format v10) | Accepted 2026-10-09 | No |
 | [0039](#adr-0039--lumens-licence-gpl-30-or-later-supersedes-adr-0012) | Lumen's licence: GPL-3.0-or-later, sold packaged binaries (supersedes ADR-0012) | Accepted 2026-10-09 | Yes (owner items) |
 | [0041](#adr-0041--sidechains-and-delay-compensation-m4-slice-6) | Sidechains and delay compensation: devices and taps in the graph, delay lines, read ahead, the D1 readout | Accepted 2026-10-10 | No |
+| [0042](#adr-0042--the-m4-exit-walkthrough-and-known-issues-m4-slice-7) | The M4 exit walkthrough; edits taken while stopped; session locks for autosaves; submenu names; the pipeline cache off the UI thread | Accepted 2026-10-10 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -3404,3 +3405,85 @@ latent track, its hover names the path, the panel shows ms, samples and
 the path; two tracks of the same tone, one latent and one upside down,
 cancel while playing and after the device is taken off (and do not
 without compensation).
+
+## ADR-0042 — The M4 exit walkthrough and known issues (M4 slice 7)
+
+**Status:** Accepted 2026-10-10.
+
+### Context
+Slice 7 closes M4: the exit criterion as an E2E scenario and a manual
+test, the end-of-milestone review and the report. The owner also asked
+for the known issues to be fixed where they can be now.
+
+### Decision
+- **The exit walkthrough** (E2E `walkthrough_mix`): three recordings of
+  one tone at three levels (kick, snare, vocal; in phase, so levels add
+  and each source is told apart by its size); the drums grouped with
+  Ctrl+G; a return carrying the synthetic latent device (480 frames)
+  standing in for the reverb (a plugin in M6, the built-in one in M8);
+  the group's send set from its mixer strip and the vocal's from its
+  header, both at 0 dB. Heard at every step, as levels once settled: the
+  whole mix (dry plus as much again through the return, which only adds
+  up exactly while delay compensation lines the paths up); the drum group
+  soloed (the return stays open, the vocal and its send go); the kick
+  muted inside the soloed group (its send goes too); the vocal's solo
+  added with Ctrl+click; the return soloed alone (wet only); solos cleared
+  and the return muted (dry only). Saved and reopened: the same tracks,
+  sends and master, and the same mix.
+- **Taken while stopped (a bug the walkthrough found).** Stopped, the
+  engine took nothing from its clip and routing queues (its idle path
+  only let meters fall). After four edits the clip queue was full, the
+  app held back every routing after it (routings follow clip lists), and
+  Play started on stale mutes, solos and sends, which glided in after a
+  frame; the compensation readout stayed stale meanwhile. `Mixer::idle`
+  and `TrackSource::idle` (the clip player) now take what arrives while
+  stopped; nothing plays, so nothing crossfades, and a latency change
+  while stopped only moves the read-ahead (as before).
+- **A running session's autosave is not offered to another Lumen**
+  (KNOWN_ISSUES, M3 4c). A session holds an exclusive lock on
+  `<session>.lock` in the autosave folder, taken on the autosave thread
+  before its first autosave is written and released (and the file
+  deleted) when the autosave is cleared or the session closes. Recovery
+  skips sessions whose lock is held (a shared try-lock fails). The system
+  frees the lock when a process ends however it ends, so a crashed
+  session's autosave is offered as before; sessions from older versions
+  have no lock file and are offered as before. Discard deletes the lock
+  file with the rest. Single instance itself stays in M9.
+- **Submenus are named without egui's arrow**: `widgets::submenu`
+  replaces `ui.menu_button` inside menus (Colour, Fades, Grid, Open
+  recent); the arrow is drawn, and screen readers hear "Fades".
+- **The GPU pipeline cache never waits on the disk on the UI thread**
+  (KNOWN_ISSUES, M3 review L3): `canvas::PipelineCache::prefetch` reads
+  the file on its own thread from `run()`, before eframe opens the window
+  and the GPU (which take far longer), and `install` writes it back on a
+  thread. Devices without pipeline caching (DX12, Metal) do no disk work
+  for it. `lumen-render` takes and gives bytes; it no longer touches
+  files. Tests pass no cache, so they never touch the user's.
+- **The M3 walkthrough's flake on Linux**: the two takes are always the
+  same length; in some runs the Stop lands in the audio block before, so
+  that block holds the stop's fade in one take and full sound in the
+  other (worst difference: the tone's full peak, frames 33,832 onwards).
+  The comparison stops 2,048 frames before the end of the shorter take.
+
+### Consequences
+- Edits made while stopped reach the engine as they are made, so Play
+  starts on exactly what the project says.
+- A lock file sits beside each autosave while a session runs.
+- The known issues left are hardware checks, later features, or visual
+  changes scheduled for M10 that want mock-ups first (KNOWN_ISSUES).
+
+### Evidence
+- Engine `tests/mixer.rs`
+  `while_stopped_every_clip_list_and_routing_is_taken_and_play_starts_on_the_last`
+  (fails at the fifth list without the fix); `tests/realtime.rs` adds a
+  stopped stretch with lists and routings arriving, under the allocation
+  guard.
+- App `routing` test: a latent device on a return is compensated.
+- `autosave` tests: a running session is not offered to another, and is
+  once it ends; a normal close releases the lock and its file; a
+  recovered session is locked again by its next autosave.
+- E2E `fades` finds the submenu by its exact name "Fades".
+- WSL mirror: the M3 walkthrough failed 5 of 14 runs before, passes 12 of
+  12 after.
+- E2E `walkthrough_mix` passes; without the idle fix it timed out
+  waiting for the compensation.

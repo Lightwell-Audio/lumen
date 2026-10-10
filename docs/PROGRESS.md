@@ -40,7 +40,17 @@ read ahead, Ableton's three sidechain taps, saving sidechains with the
 first device, and the D1 readout from mock-ups): devices with latency
 and sidechains in the engine graph, delay lines that line up every path,
 the engine rendering ahead of the playhead, and the readout in the
-transport bar; MT-MIX-6 waits for the owner.
+transport bar; MT-MIX-6 waits for the owner. **Slice 7, walkthrough,
+review and report, is under way** (ADR-0042): the exit walkthrough is an
+E2E scenario (a drum group and a vocal through a latent return, solo and
+mute across them, heard at every step, saved and reopened) and MT-MIX-7;
+it found and fixed a bug (stopped, the engine took no clip lists or
+routings, so after four edits Play started on stale mutes, solos and
+sends). Known issues fixed: a second Lumen no longer offers a running
+session's autosave (session locks), submenus are named without their
+arrow, the GPU pipeline cache never waits on the disk on the UI thread,
+and the M3 walkthrough's Linux flake. The review and the M4 report come
+after the owner's manual tests.
 **Previous:** M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
@@ -52,7 +62,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 1 | Foundations & Architecture | ✅ Complete | Plan and risk register in `docs/milestones/M1.md` |
 | 2 | Audio Engine, Devices & Transport | ✅ Complete, approved 2026-10-07 | Plan: `docs/milestones/M2.md` |
 | 3 | Arrangement & Project System | ✅ Complete, approved 2026-10-09 | Plan: `docs/milestones/M3.md` |
-| 4 | Mixer, Routing & Groups | 🟡 In progress (slices 0–4 built; slices 3 and 4 done) | Plan: `docs/milestones/M4.md` |
+| 4 | Mixer, Routing & Groups | 🟡 In progress (slices 0–6 built, 7 under way; slices 3 and 4 done) | Plan: `docs/milestones/M4.md` |
 | 5 | MIDI & Piano Roll | 🔲 | |
 | 6 | VST3 Hosting & Device System | 🔲 | |
 | 7 | Automation, Envelopes & Advanced Editing | 🔲 | |

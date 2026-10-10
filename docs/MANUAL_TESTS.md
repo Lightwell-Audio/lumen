@@ -1600,3 +1600,45 @@ track is the latent one.
 **Expected:** as described; nothing clicks while starting, looping or
 jumping with compensation on; the latent track never drifts from the
 others.
+
+### MT-MIX-7 · The M4 exit walkthrough (needs a human, with the audio interface)
+The milestone's exit criterion by hand (ADR-0042), with two fixes from
+this slice. Run `cargo run --release -p lumen-app`. You need a drum loop
+split into two files (kick and snare, or any two drum sounds) and a vocal
+or any melodic file.
+1. **Build the mix:** a new project; drop the kick, snare and vocal files
+   together on the lanes (three tracks). Select kick and snare (click the
+   kick's name, Shift+Down) and press Ctrl+G: a group with both inside.
+   Add a return track ("+ Add track ▾", Add return track).
+2. **Sends:** open the Mixer tab (Shift+Tab if the panel is closed). On
+   the group's strip, turn its send to Return 1 up to about 0 dB. Unfold
+   the vocal's header and turn its send knob up too. Play: everything is
+   heard, a little louder than before the sends (the return adds a copy).
+3. **Solo the drums:** click S on the group. The drums play with their
+   share of the return; the vocal is silent, and its M is hollow
+   (silenced). The kick and snare show a hollow S (soloed through the
+   group).
+4. **Mute inside a soloed group:** click M on the kick: it goes, its share
+   of the return too. The snare plays on.
+5. **Add a solo:** Ctrl+click S on the vocal: snare and vocal play.
+6. **The return alone:** click S on Return 1: only the wet copies play
+   (snare and vocal through the return), quieter than before.
+7. **Back to the mix:** click the transport's S chip to clear the solos,
+   unmute the kick: the whole mix again. Mute Return 1: dry only.
+8. **Save and reopen:** Ctrl+S, close Lumen, start it again and open the
+   project: the group, sends, return and mutes are as you left them, and
+   it sounds the same.
+9. **Edits while stopped are heard from the first note** (a bug fixed in
+   this slice): stop. Without playing, make five or more edits (move a
+   clip, mute and unmute something), then mute the vocal and press Play
+   from the start. The vocal is silent from the very first beat: no blip
+   of it before the mute takes.
+10. **Two Lumens and autosave** (fixed in this slice): with Lumen open,
+    make an edit and wait a little over a minute (the autosave). Start a
+    second Lumen from another PowerShell window with the same command.
+    The second shows no "did not close normally" banner for the first's
+    session. Close the second, then close the first normally.
+
+**Expected:** each step sounds as described, with no clicks when soloing,
+muting or clearing; the reopened project matches; step 9 has no blip;
+step 10 has no banner.
