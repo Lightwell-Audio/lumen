@@ -286,6 +286,9 @@ impl<S: Source> Engine<S> {
     }
 
     fn render(&mut self, data: &mut [f32], channels: usize, frames: usize) {
+        // Without latency the playhead is the render position, and the
+        // `Playhead` is left alone (the transport gate counts every step).
+        let latent = self.lookahead != 0;
         let mut offset = 0;
         while offset < frames {
             let mut n = frames - offset;
@@ -295,7 +298,7 @@ impl<S: Source> Engine<S> {
                 n = n.min((end - self.ahead) as usize);
             }
             // The playhead moves on smoothly up to the next jump heard.
-            if let Some(until) = self.playhead.until_jump() {
+            if latent && let Some(until) = self.playhead.until_jump() {
                 n = n.min(until.max(1) as usize);
             }
             let cx = RenderContext {
@@ -309,7 +312,7 @@ impl<S: Source> Engine<S> {
             self.declick.apply(data, frames, channels, offset, n);
             // After the crossfade, so a click on a loop start keeps its
             // attack; none before the start is heard.
-            if !self.playhead.prerolling() {
+            if !(latent && self.playhead.prerolling()) {
                 self.metronome.render(
                     &self.timeline,
                     self.sample_rate,
@@ -324,7 +327,9 @@ impl<S: Source> Engine<S> {
                 );
             }
             self.ahead += n as i64;
-            self.playhead.advance(n as i64);
+            if latent {
+                self.playhead.advance(n as i64);
+            }
             offset += n;
             if let Some((start, end)) = wraps
                 && self.ahead == end
@@ -335,7 +340,16 @@ impl<S: Source> Engine<S> {
                     engine.locate_source(Jump::LoopWrap);
                 });
             }
-            self.position = self.playhead.position();
+            self.position = self.heard();
+        }
+    }
+
+    /// The playhead while playing: the render position, or behind it.
+    fn heard(&self) -> i64 {
+        if self.lookahead == 0 {
+            self.ahead
+        } else {
+            self.playhead.position()
         }
     }
 
@@ -349,8 +363,9 @@ impl<S: Source> Engine<S> {
         jump(self);
         if here {
             self.declick.fade_in(fade_frames(self.sample_rate));
+        } else {
+            self.playhead.jump(self.ahead);
         }
-        self.playhead.jump(self.ahead);
     }
 
     /// Follows a change in the source's latency. While playing, the
@@ -474,7 +489,7 @@ impl<S: Source> Engine<S> {
                             engine.ahead = sample;
                             engine.locate_source(Jump::Locate);
                         });
-                        self.position = self.playhead.position();
+                        self.position = self.heard();
                     } else {
                         self.place(sample);
                     }
@@ -597,7 +612,7 @@ impl<S: Source> Engine<S> {
 
     fn snapshot(&self) -> TransportSnapshot {
         // While pre-rolling, the playhead shows where playback started.
-        let shown = if self.playing {
+        let shown = if self.playing && self.lookahead != 0 {
             self.playhead.shown()
         } else {
             self.position
