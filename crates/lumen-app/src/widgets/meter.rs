@@ -92,7 +92,7 @@ pub fn scale(painter: &Painter, x: f32, ys: Rangef, marks: &[f32]) {
             egui::pos2(x, y_at(ys, db)),
             Align2::RIGHT_CENTER,
             text,
-            FontId::monospace(theme::size::CAPTION - 1.0),
+            FontId::monospace(theme::size::SCALE),
             if db == 0.0 {
                 palette.text_secondary
             } else {

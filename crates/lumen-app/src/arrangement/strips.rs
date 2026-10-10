@@ -285,7 +285,7 @@ impl Arrangement {
             pos2(left, y),
             Align2::LEFT_CENTER,
             lufs(reading.integrated),
-            FontId::monospace(20.0),
+            FontId::monospace(theme::size::READOUT),
             palette.text,
         );
         y += 16.0;
@@ -336,7 +336,7 @@ impl Arrangement {
                 pos2(bar.right() + 5.0, at(mark)),
                 Align2::LEFT_CENTER,
                 format!("{mark:.0}").replace('-', "\u{2212}"),
-                FontId::monospace(theme::size::CAPTION - 1.0),
+                FontId::monospace(theme::size::SCALE),
                 if mark == -14.0 {
                     palette.accent
                 } else {
@@ -386,7 +386,7 @@ impl Arrangement {
                 pos2(left, y),
                 Align2::LEFT_CENTER,
                 label,
-                FontId::monospace(theme::size::CAPTION - 1.0),
+                FontId::monospace(theme::size::SCALE),
                 palette.text_hint,
             );
             painter.text(

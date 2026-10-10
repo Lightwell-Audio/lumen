@@ -11,6 +11,7 @@ use super::Arrangement;
 use crate::document::Document;
 use crate::widgets;
 use crate::{motion, theme};
+use lumen_core::product::PRODUCT_NAME;
 
 /// Where `track` plays to, in words: a group's or return's name, "Master",
 /// or a pair of outputs ("1/2").
@@ -122,7 +123,7 @@ impl Arrangement {
             }
         };
         if !master {
-            heading(ui, "Inside Lumen");
+            heading(ui, &format!("Inside {PRODUCT_NAME}"));
             choose(
                 ui,
                 "Master",

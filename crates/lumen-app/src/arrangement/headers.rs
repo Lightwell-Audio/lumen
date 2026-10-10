@@ -498,8 +498,7 @@ pub(super) fn arm_button(
             0.5
         } else {
             let t = ui.input(|i| i.time) as f32;
-            ui.ctx()
-                .request_repaint_after(std::time::Duration::from_millis(33));
+            ui.ctx().request_repaint_after(motion::BREATH_FRAME);
             0.5 - 0.5 * (t * std::f32::consts::TAU / ARM_BREATH).cos()
         };
         for (spread, alpha) in [(ARM_GLOW, 0.10), (ARM_GLOW * 0.7, 0.18)] {

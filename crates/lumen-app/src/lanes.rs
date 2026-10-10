@@ -508,7 +508,10 @@ pub fn file_facts(ui: &mut egui::Ui, item: &Item) {
     if let Some(seconds) = info.seconds {
         facts.push(crate::position::format_time(seconds));
     }
-    facts.push(format!("{:.1} MB", info.size_bytes as f64 / 1_048_576.0));
+    // The size arrives with the load.
+    if info.size_bytes > 0 {
+        facts.push(format!("{:.1} MB", info.size_bytes as f64 / 1_048_576.0));
+    }
     ui.label(facts.join(" · "));
     match &item.state {
         State::Ready(audio) if Some(audio.sample_rate) != info.sample_rate => {

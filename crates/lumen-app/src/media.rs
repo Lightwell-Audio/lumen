@@ -79,6 +79,9 @@ struct Done {
     rate: u32,
     /// The file's own rate, channels and length (frames, seconds).
     source: Option<(u32, usize, u64, f64)>,
+    /// The file's size on disk, read here rather than on the UI thread
+    /// (M4 review L8: a stat on a network path can stall a frame).
+    size_bytes: u64,
     result: Result<lumen_media::Audio, MediaError>,
     peaks: Option<Peaks>,
 }
@@ -120,7 +123,6 @@ impl Library {
         );
         let info = FileInfo {
             format: format_name(&path).unwrap_or("?").to_owned(),
-            size_bytes: std::fs::metadata(&path).map_or(0, |m| m.len()),
             ..FileInfo::default()
         };
         self.items.push(Item {
@@ -206,6 +208,7 @@ impl Library {
                         ctx.request_repaint();
                     }
                 };
+                let size_bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
                 // Decode and convert separately, to keep the file's own details.
                 let decoded = lumen_media::decode(&path, &cancel, &mut |p| report(p * 0.8));
                 let source = decoded
@@ -231,6 +234,7 @@ impl Library {
                     id,
                     rate,
                     source,
+                    size_bytes,
                     result,
                     peaks,
                 });
@@ -253,6 +257,7 @@ impl Library {
                 continue;
             }
             item.job = None;
+            item.info.size_bytes = done.size_bytes;
             if let Some((rate, channels, frames, seconds)) = done.source {
                 item.info.sample_rate = Some(rate);
                 item.info.channels = Some(channels);

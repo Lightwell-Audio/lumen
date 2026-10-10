@@ -353,7 +353,7 @@ fn draw(painter: &egui::Painter, rect: Rect, knob: &SendKnob<'_>, at: f32, hot: 
         center,
         Align2::CENTER_CENTER,
         knob.letter,
-        fonts::medium(theme::size::CAPTION - 1.0),
+        fonts::medium(theme::size::SCALE),
         ink,
     );
     if knob.pre_fader {
