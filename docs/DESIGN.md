@@ -163,22 +163,25 @@ Two faces, chosen by the owner from side-by-side specimens (2026-10-07):
 - **Unbounded** for personality: the "Lumen" wordmark, window titles and
   panel titles, at weight 560. It is wide, so it is set a step smaller than a
   narrow face would be, and only on short titles, never on body text.
-- **Hack** (egui's bundled monospace) for numbers that must not jitter.
+- **Martian Mono** for numbers that must not jitter (M4.5, the owner's
+  choice from specimens over Geist, JetBrains and IBM Plex Mono): square
+  and wide like Unbounded, set at width 87.5 (`wdth`) so readouts keep
+  their room. egui's Hack stays behind it as a fallback.
 
 egui's bundled fonts stay behind Inter as fallbacks for symbols (⚠, ⟳).
 Licences: SIL Open Font License, see `THIRD_PARTY_NOTICES.md`.
 
 | Style | Face | Size (pt) | Use |
 |---|---|---|---|
-| `scale` | Inter or Hack | 10 | Meter scales, knob values (M4) |
+| `scale` | Inter or Martian Mono | 10 | Meter scales, knob values (M4) |
 | `caption` | Inter | 11 | Hints, secondary facts, sample counts |
 | `body` | Inter | 13 | Labels, values, menu items, buttons |
 | section heading | Inter medium | 13 | "Device", "Format" in windows |
 | `wordmark` | Unbounded | 14 | "Lumen" in the transport bar |
 | `title` | Unbounded | 15 | Window titles |
 | `heading` | Unbounded | 16 | Panel titles (Browser) |
-| `mono` | Hack | 13 | Position, tempo, CPU: anything that changes while you read it |
-| `readout` | Hack | 20 | The master's integrated loudness in the mixer (M4) |
+| `mono` | Martian Mono | 13 | Position, tempo, CPU: anything that changes while you read it |
+| `readout` | Martian Mono | 20 | The master's integrated loudness in the mixer (M4) |
 
 Sentence case for every label ("Audio settings", not
 "Audio Settings").

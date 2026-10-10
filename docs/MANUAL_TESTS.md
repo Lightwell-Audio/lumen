@@ -1782,3 +1782,18 @@ Run `cargo run --release -p lumen-app`.
    50%. Move off the menu: it fades away.
 
 **Expected:** as described, in both themes.
+
+**Passed (2026-10-10, owner):** "looks good".
+
+### MT-POL-4 · Numbers in Martian Mono (needs a human)
+Slice 4 of M4.5: finding S1. Run `cargo run --release -p lumen-app`.
+1. The position (1.1.1 0:00.000), tempo, CPU, the time ruler, the grid
+   size, every meter scale and fader readout, and the loudness figure are
+   in Martian Mono: square, slightly wide, plain zeros. Play: the position
+   counts without jittering sideways.
+2. At 100%, 150% and 200% (Lumen menu → Interface size): readouts fit
+   their boxes (the strip's "−10.9", the loudness "−14.2"), and the
+   transport bar still fits a 960 × 540 window as before.
+3. Both themes.
+
+**Expected:** as described.
