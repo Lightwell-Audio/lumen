@@ -1883,3 +1883,24 @@ themes at 100%, 150% and 200%) changed. Run
    end only the far edge fades. Check both themes.
 
 **Expected:** as described.
+
+### MT-MIDI-1 · MIDI devices (needs a human and a MIDI device)
+Slice 0 of M5. Needs a USB MIDI keyboard or controller, or a virtual port
+such as loopMIDI. Run `cargo run --release -p lumen-app`.
+1. Open the Lumen menu, **Audio and MIDI settings…**, then the **MIDI**
+   tab. Your device is listed under Inputs (and Outputs, if it has one),
+   with a grey dot and both switches off.
+2. Switch **Track** on for the input: the dot lights. Close and reopen
+   Lumen: the switch is still on and the dot lights without another click.
+3. Unplug the device: it leaves the list within a second or two, the
+   window stays responsive. Plug it back in: it returns, lit again.
+4. With another program holding the device open (Windows' WinMM allows one
+   program per input), switch Track on: the dot warns and the row says
+   "Could not open: …". Close the other program and switch Track off and
+   on: it opens.
+5. Remote is a separate switch (outputs have only Track).
+6. Notes are not heard or recorded yet (slices 1, 2 and 6).
+
+**Expected:** as described. Record what your device is called, and whether
+WinMM shows it once or twice.
+

@@ -28,7 +28,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 3 | Arrangement & Project System | ✅ Complete, approved 2026-10-09 | Plan: `docs/milestones/M3.md` |
 | 4 | Mixer, Routing & Groups | ✅ Complete 2026-10-10 (review fixes merged, PR #3) | Plan: `docs/milestones/M4.md` |
 | 4.5 | Polish pass (mid milestone: the interface audit's fixes) | 🟡 Built 2026-10-10; MT-POL-5 and 6 wait | Plan: `docs/milestones/M4.5.md`; audit: `docs/audits/2026-10-10-design.md` |
-| 5 | MIDI & Piano Roll | 🔲 Proposed | Plan: `docs/milestones/M5.md` |
+| 5 | MIDI & Piano Roll | 🟡 Approved 2026-10-10; slice 0 built | Plan: `docs/milestones/M5.md` |
 | 6 | VST3 Hosting & Device System | 🔲 | |
 | 7 | Automation, Envelopes & Advanced Editing | 🔲 | |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | |
@@ -246,7 +246,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Test tone, CPU load, dropout counter, Audio On/Off | M | ✅ All four in the audio panel (M2 slice 7, ADR-0020); test tone also in the audio settings window (slice 8) | 2 |
 | ASIO control panel; driver resets and rate/buffer changes without losing the session; busy/missing messages | M | ✅ Control panel button; resets (MT-AUDIO-2); busy, lost and failed banners with Try again / Audio settings; missing saved device falls back with a notice; a device that fails to start returns to the previous one. MT-APP-6 passes | 2 |
 | Runtime changes never crash; restore a working configuration; persisted settings | M | ✅ Driver and device switches at run time move the engine to a fresh control thread; refused changes revert with the reason; settings saved atomically once a setup works. MT-APP-6 passes | 2 |
-| MIDI devices: enable toggles, hot-plug, per-track MIDI From/To, virtual ports | M | 🔲 | 5 |
+| MIDI devices: enable toggles, hot-plug, per-track MIDI From/To, virtual ports | M | 🟡 Device layer and the MIDI page of the settings are built (M5 slice 0, ADR-0044): inputs and outputs listed, Track and Remote switches saved, hot-plug and replug, opened off the UI thread, a busy port says so. Per-track From/To in slices 1 and 2; virtual ports are not built (WinMM has none; recorded in KNOWN_ISSUES) | 5 |
 
 ## §6.10 Projects, media and export
 

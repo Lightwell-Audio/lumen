@@ -390,7 +390,20 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-10: **M4.5, a polish pass, is approved and
+**Last updated:** 2026-10-10: **M5 (MIDI and the piano roll) is approved and
+under way** on `m5-midi` (plan `docs/milestones/M5.md`; owner choices: C1 a
+small built-in synth plus MIDI out, C2 the detail panel's Clip tab *and* a
+way to pop the piano roll out into its own window, C3 Ableton's keyboard
+layout as a transport mode, C4 replace with an overdub switch, C5 the
+current grid). **Slice 0 is built** (ADR-0044): `crates/lumen-midi` (midir;
+`MidiSystem` worker thread, fake backend), `app/midi.rs` and
+`midi_settings.rs` (the MIDI tab of "Audio and MIDI settings", saved in
+`settings.midi`), and **format v11** (`ClipContent::Midi { notes, events }`,
+`ClipEvent`/`EventKind`; use `ClipContent::midi()` for an empty clip; edits
+cut events like notes). E2E `midi`; `--midi off|test:fake`;
+`Launch::with_midi(FakeControl)`. MT-MIDI-1 waits for the owner (needs a
+MIDI device). Next: slice 1 (the event path and the built-in synth).
+Before it, 2026-10-10: **M4.5, a polish pass, is approved and
 under way** on `m4.5-polish` (plan `docs/milestones/M4.5.md`). The owner
 merged the M4 review fixes (PR #3; CI did not run because of GitHub
 billing, so the full suite was run locally first), then asked for an

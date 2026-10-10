@@ -3625,3 +3625,45 @@ each with its own values.
   `shots::light_layer` renders the empty, playing and mixer states in both
   themes. MT-APP-18 is for the owner.
 
+## ADR-0044 — MIDI devices and clip events
+
+**Status:** Accepted 2026-10-10 (M5 slice 0).
+
+### Context
+M5 needs MIDI in and out, and the model has to hold more than notes
+(controllers, pitch bend, pressure, program changes) before the piano
+roll and recording are built on it.
+
+### Decision
+- **`lumen-midi`**, a stand-alone crate (like `lumen-audio`), on **midir**
+  (MIT; WinMM on Windows, CoreMIDI, ALSA). A `Backend` trait with the real
+  midir backend and a scriptable fake. `MidiSystem` runs a worker thread:
+  it polls the driver every 500 ms, reports ports added and removed,
+  opens an input when either of its switches (Track, Remote) is on and an
+  output when Track is, drops connections for ports that vanish, and opens
+  them again on replug. A port that will not open is marked failed and
+  tried again only when the user switches it or the device is replugged,
+  so a busy port is not retried in a loop. The UI sees a snapshot and an
+  event channel and never waits on a driver (risk R5).
+- Messages from every open input go into one queue (`rtrb`) as `Timed`
+  values: the input's slot, the driver's microsecond stamp, up to three
+  bytes. System exclusive is not carried yet.
+- **Settings:** `midi.ports` in the settings file, found by direction and
+  name, remembered while unplugged; an added field, no settings version
+  change. The window is now "Audio and MIDI settings" with two tabs.
+- **Format v11:** `ClipContent::Midi` gains `events`, a list of
+  `ClipEvent { at, kind }` with kinds Controller, PitchBend, Pressure and
+  Program (with an optional bank), written only when present. The
+  migration changes nothing in a file; a frozen golden fixture holds all
+  four kinds. Splits, trims, loop-extends and slips cut events as they cut
+  notes. Validation refuses out-of-range values.
+
+### Consequences
+- Old projects open unchanged; notes keep their compact form.
+- The device layer has ten unit tests on the fake, and E2E drives the
+  settings page through it (hot-plug, switches, saved state, a busy port).
+- Not built: virtual ports (WinMM cannot create them; a loopback driver
+  such as loopMIDI is the Windows answer), system exclusive, and the
+  engine side of MIDI (slice 1).
+- midir is MIT, so no licensing decision is needed.
+
