@@ -244,10 +244,29 @@ pub struct Arrangement {
     pub(crate) meters: crate::meters::Meters,
     /// Meters in track colours (the owner's M2 setting), set by the app.
     pub(crate) track_colour_meters: bool,
+    /// The device's outputs, as the strips' output menus offer them (M4
+    /// slice 5), lent by the app.
+    pub(crate) outputs: OutputChoices,
     /// How far the mixer's strips are scrolled, and how hard a strip drag
     /// near their edge pushes them (-1 to 1).
     mixer_offset: f32,
     mixer_push: f32,
+}
+
+/// The device's output pairs, as the strips' output menus offer them (the
+/// owner's B6).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct OutputChoices {
+    /// Each pair (0 is outputs 1 and 2) with its channels' names; empty
+    /// until they are looked up.
+    pub pairs: Vec<(u16, String)>,
+    /// The main pair and the cue pair, as device pairs.
+    pub main: Option<u16>,
+    pub cue: Option<u16>,
+    /// Still looking the device's outputs up, or why they are not known.
+    pub status: Option<String>,
+    /// A menu asked for them: the app looks them up.
+    pub wanted: bool,
 }
 
 /// The tallest whole-step height at which `count` tracks fit in `visible`

@@ -368,6 +368,7 @@ impl eframe::App for App {
         );
         self.sync_document(&ctx);
         let meters_moving = self.update_meters();
+        self.update_outputs(&ctx);
         self.transport.clip_memory = self.lanes.library.memory();
         self.save_settings_when_settled(&ctx);
         if let Some(e) = self.settings_writer.failure() {

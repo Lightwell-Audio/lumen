@@ -4,9 +4,12 @@
 
 use std::time::Instant;
 
+use eframe::egui;
+
 use lumen_project::routing as rules;
 
 use crate::App;
+use crate::arrangement::OutputChoices;
 
 impl App {
     /// Moves every meter on with what the engine measured since the last
@@ -31,5 +34,45 @@ impl App {
         meters.update(&mut self.transport.audio.mixer, &ids, dt, running);
         self.arrangement.track_colour_meters = self.settings.mixing.track_colour_meters;
         self.arrangement.meters.moving()
+    }
+
+    /// Opens the device's output pairs the project plays to (the owner's
+    /// B6), and lends the strips the device's outputs for their menus. The
+    /// device's channel names are looked up only once something needs them.
+    pub(crate) fn update_outputs(&mut self, ctx: &egui::Context) {
+        let pairs = crate::routing::device_pairs(self.document.project());
+        let wanted = self.arrangement.outputs.wanted || !pairs.is_empty();
+        let key = self
+            .transport
+            .audio
+            .device_key()
+            .map(|(driver, id)| (driver.to_owned(), id.to_owned()));
+        let names = match (&key, wanted) {
+            (Some((driver, id)), true) => {
+                self.transport.settings_window.output_names(driver, id, ctx)
+            }
+            _ => None,
+        };
+        let layout = self.transport.audio.outputs();
+        let mut choices = OutputChoices {
+            main: layout.main,
+            cue: layout.cue,
+            wanted: false,
+            ..OutputChoices::default()
+        };
+        match names {
+            Some(Ok(names)) => {
+                self.transport.audio.want_pairs(&pairs, names.len());
+                choices.pairs = names
+                    .chunks(2)
+                    .enumerate()
+                    .map(|(p, chunk)| (p as u16, chunk.join(" \u{00B7} ")))
+                    .collect();
+            }
+            Some(Err(why)) => choices.status = Some(why),
+            None if wanted => choices.status = Some("Looking up the outputs\u{2026}".into()),
+            None => {}
+        }
+        self.arrangement.outputs = choices;
     }
 }

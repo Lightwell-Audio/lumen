@@ -143,6 +143,28 @@ pub struct Window {
 /// Width of the label column, so every section lines up.
 const LABEL_WIDTH: f32 = 96.0;
 
+impl Window {
+    /// The output channel names of `driver`'s device `id`, looked up in the
+    /// background the first time (an ASIO driver in a helper process, as
+    /// the window does). `None` while looking.
+    pub fn output_names(
+        &mut self,
+        driver: &str,
+        id: &str,
+        ctx: &egui::Context,
+    ) -> Option<Result<Vec<String>, String>> {
+        self.catalog.poll();
+        if driver != "asio" {
+            self.catalog.list(driver, ctx);
+        }
+        self.catalog.details(driver, id, ctx).map(|d| {
+            d.as_ref()
+                .map(|i| i.output_channels.clone())
+                .map_err(Clone::clone)
+        })
+    }
+}
+
 /// Fixed, so a notice or a long device name never resizes the window.
 const WINDOW_WIDTH: f32 = 440.0;
 

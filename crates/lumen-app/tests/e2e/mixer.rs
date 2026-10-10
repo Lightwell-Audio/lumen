@@ -369,3 +369,41 @@ fn the_wheel_sets_a_control_its_gesture_starts_on() {
     let level = track(&lumen, "Audio 3").sends[0].level.0;
     assert!((level + 59.0).abs() < 0.01, "{level}");
 }
+
+#[test]
+fn a_track_plays_straight_to_another_pair_of_outputs() {
+    // The owner's B6, on the four-output test device (no cue pair chosen).
+    let mut lumen = Lumen::start("mixer-device-outputs");
+    let file = super::wav(&lumen.dir().join("tone.wav"), 20.0);
+    lumen.drop_files(&[file]);
+    lumen.frames(5);
+    tall_mixer(&mut lumen);
+    let name = lumen.track_names()[0].clone();
+    lumen.click(&format!("{name} output in the mixer: Master"));
+    for _ in 0..200 {
+        if lumen.shows("3/4") {
+            break;
+        }
+        lumen.frames(1);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(lumen.shows("1/2 Main"), "the main pair is marked");
+    lumen.click("3/4");
+    assert_eq!(lumen.app().project().tracks[0].output, Output::Device(1));
+    // The stream reopens with outputs 3 and 4; the tone plays there only.
+    lumen.wait_for("the audio to restart", lumen_app::App::audio_running);
+    lumen.key(Modifiers::NONE, Key::Space);
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    lumen.frames(1);
+    lumen.app_mut().heard_all();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    lumen.frames(1);
+    let heard = lumen.app_mut().heard_all();
+    assert!(heard.len() > 1_000, "heard {} frames", heard.len());
+    let loudest = |c: usize| heard.iter().fold(0.0f32, |m, f| m.max(f[c].abs()));
+    assert!(loudest(0) < 1e-4 && loudest(1) < 1e-4, "main is silent");
+    assert!(
+        loudest(2) > 0.01 && loudest(3) > 0.01,
+        "outputs 3/4 play it"
+    );
+}

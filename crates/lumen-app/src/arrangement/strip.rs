@@ -579,40 +579,103 @@ impl Arrangement {
             });
     }
 
-    /// The choices of where `track` plays to. Groups that would feed back
-    /// are left out; the device's pairs come with M4 slice 5e.
+    /// The choices of where `track` plays to: inside Lumen, the master and
+    /// the groups that would not feed back; then the device's output pairs
+    /// (the owner's B6), the main pair marked, the cue pair greyed.
     fn output_menu(&mut self, ui: &mut Ui, doc: &mut Document, track: &Track) {
+        let palette = *theme::p();
         let project = doc.project().clone();
         let current = rules::destination(&project, track);
-        let mut choose = |ui: &mut Ui, label: &str, on: bool, output: Output| {
-            if ui.selectable_label(on, label).clicked() {
-                if let Err(refused) = doc.set_output(track.id, output) {
-                    self.note = Some(refused.reason());
-                }
+        let master = track.kind == TrackKind::Master;
+        let heading = |ui: &mut Ui, text: &str| {
+            ui.label(egui::RichText::new(text).small().color(palette.text_hint));
+        };
+        let mut picked = None;
+        let mut choose = |ui: &mut Ui, label: &str, on: bool, output: Output, tip: &str| {
+            let item = ui.selectable_label(on, label);
+            let item = if tip.is_empty() {
+                item
+            } else {
+                item.on_hover_text(tip)
+            };
+            if item.clicked() {
+                picked = Some(output);
                 ui.close();
             }
         };
-        if track.kind == TrackKind::Master {
-            choose(ui, "1/2", true, Output::Auto);
-            return;
-        }
-        choose(
-            ui,
-            "Master",
-            current == Destination::Track(project.master.id),
-            Output::Master,
-        );
-        for target in project.tracks.iter().filter(|t| {
-            t.kind == TrackKind::Group
-                && t.id != track.id
-                && !would_loop(&project, track.id, Output::Track(t.id))
-        }) {
+        if !master {
+            heading(ui, "Inside Lumen");
             choose(
                 ui,
-                &target.name,
-                current == Destination::Track(target.id),
-                Output::Track(target.id),
+                "Master",
+                current == Destination::Track(project.master.id),
+                Output::Master,
+                "",
             );
+            for target in project.tracks.iter().filter(|t| {
+                t.kind == TrackKind::Group
+                    && t.id != track.id
+                    && !would_loop(&project, track.id, Output::Track(t.id))
+            }) {
+                choose(
+                    ui,
+                    &target.name,
+                    current == Destination::Track(target.id),
+                    Output::Track(target.id),
+                    "",
+                );
+            }
+            ui.separator();
+        }
+        heading(ui, "Audio outputs");
+        // The device's outputs are looked up while a menu wants them.
+        self.outputs.wanted = true;
+        if let Some(status) = &self.outputs.status {
+            ui.label(egui::RichText::new(status).small().color(palette.text_hint));
+        }
+        let skips = if master { "" } else { "Skips the master" };
+        for (pair, names) in self.outputs.pairs.clone() {
+            let single = !names.contains('\u{00B7}');
+            let label = if single {
+                format!("{}", 2 * pair + 1)
+            } else {
+                format!("{}/{}", 2 * pair + 1, 2 * pair + 2)
+            };
+            let main = self.outputs.main == Some(pair);
+            if self.outputs.cue == Some(pair) {
+                ui.add_enabled(
+                    false,
+                    egui::Button::selectable(false, format!("{label} Cue")),
+                )
+                .on_disabled_hover_text(
+                    "Used for cue: choose another Cue output in Audio settings to use it here",
+                );
+                continue;
+            }
+            let on = match track.output {
+                Output::Device(p) => p == pair,
+                Output::Auto => master && main,
+                _ => false,
+            };
+            let text = if main { format!("{label} Main") } else { label };
+            // The master on the main pair follows it, whichever pair the
+            // audio settings make main.
+            let output = if master && main {
+                Output::Auto
+            } else {
+                Output::Device(pair)
+            };
+            let tip = if skips.is_empty() {
+                names
+            } else {
+                format!("{names} \u{00B7} {skips}")
+            };
+            choose(ui, &text, on, output, &tip);
+        }
+        if let Some(output) = picked
+            && let Err(refused) = doc.set_output(track.id, output)
+        {
+            self.note = Some(refused.reason());
         }
     }
 

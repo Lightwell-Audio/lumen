@@ -3164,6 +3164,21 @@ waiting on the UI, and must not raise idle CPU (risk R5).
   knob's travel reads its floor as silence). The app does not end an undo
   gesture while the wheel holds a control (`wheel::adjusting`), so a
   wheel turn is one step, as a drag is.
+- **5e, output pairs (the owner's B6, closing the KNOWN_ISSUES row on
+  outputs landing on the cue):** `Output::Device(p)` now means the
+  device's pair `p` (as the model always said), not the stream's. The
+  stream opens the main pair, the cue pair, then every further pair the
+  project plays to (`Audio::want_pairs`, reopening the stream only when
+  that set changes; a set the device refuses falls back to the setup that
+  worked and is not asked for again). `routing::Outputs` says where each
+  device pair sits in the stream (main 0, cue 1, then the rest), and the
+  routing sends a track to its pair there, or nowhere while that pair is
+  not open; the master's Auto is the main pair, whichever pair that is. It
+  rides in the routing's session data (`Cue::outputs`), so a reopened
+  stream re-routes. The strips' output menus list the device's pairs with
+  their channel names, looked up in the background only when a menu or the
+  project needs them (`audio_settings::Window::output_names`, an ASIO
+  driver in a helper process as the settings window does).
 - **Found and fixed on the way:** saved panel sizes never came back.
   egui keeps a panel's size by its id and sizes it by what its contents
   take: the detail panel's few contents snapped it to its smallest after
@@ -3216,7 +3231,10 @@ offers a group as its own output; the loudness column resets; a strip
 dragged onto a group's strip goes in, returns reorder among themselves
 and never move among tracks; the pan law from the mixer's menu and the
 palette; the wheel sets a fader, pan and a send it starts on, one undo
-step a gesture. `wheel` unit tests: a gesture that starts on a control
+step a gesture; a track sent to outputs 3/4 from its strip plays only
+there on the four-output test device. `routing` tests: device pairs play
+where the stream opened them (main, cue, then the rest; silent until
+open; the master's Auto on the main pair). `wheel` unit tests: a gesture that starts on a control
 adjusts it; one that started scrolling keeps scrolling over it, and after
 a rest a new gesture on it adjusts it.
 

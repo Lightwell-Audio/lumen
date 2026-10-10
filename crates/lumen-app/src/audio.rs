@@ -307,6 +307,12 @@ pub struct Audio {
     config: Option<StreamConfig>,
     /// The cue pair within `config`'s outputs (after the main pair).
     cue_channels: Vec<usize>,
+    /// Further device outputs, after the cue pair: pairs something in the
+    /// project plays to (M4 slice 5, the owner's B6).
+    extra_channels: Vec<usize>,
+    /// Further outputs being opened now, and ones the device refused.
+    trying_extra: Option<Vec<usize>>,
+    refused_extra: Option<Vec<usize>>,
     /// The device's latencies and block size, once running.
     pub info: Option<StreamInfo>,
     /// The last device error, to tell "busy" apart from other failures.
@@ -335,6 +341,7 @@ struct Previous {
     device: String,
     config: StreamConfig,
     cue_channels: Vec<usize>,
+    extra_channels: Vec<usize>,
     info: Option<StreamInfo>,
     status: Status,
 }
@@ -372,6 +379,9 @@ impl Audio {
             device: String::new(),
             config: None,
             cue_channels: Vec::new(),
+            extra_channels: Vec::new(),
+            trying_extra: None,
+            refused_extra: None,
             info: None,
             last_error: None,
             pending: None,
@@ -411,6 +421,7 @@ impl Audio {
         self.driver = found.driver;
         self.device = found.name;
         self.cue_channels = found.cue_channels;
+        self.extra_channels = Vec::new();
         self.config = Some(config);
         self.info = None;
         self.last_error = None;
@@ -433,6 +444,7 @@ impl Audio {
                     device: self.device.clone(),
                     config,
                     cue_channels: self.cue_channels.clone(),
+                    extra_channels: self.extra_channels.clone(),
                     info: self.info.clone(),
                     status: self.status.clone(),
                 });
@@ -460,13 +472,83 @@ impl Audio {
         })
     }
 
-    /// The main pair: the opened outputs before the cue pair.
+    /// The main pair: the opened outputs before the cue pair (and any
+    /// further pairs).
     fn main_channels(&self, config: &StreamConfig) -> Vec<usize> {
         let main = config
             .output_channels
             .len()
-            .saturating_sub(self.cue_channels.len());
+            .saturating_sub(self.cue_channels.len() + self.extra_channels.len());
         config.output_channels[..main.max(1).min(config.output_channels.len())].to_vec()
+    }
+
+    /// Where the device's output pairs sit in the stream: the main pair,
+    /// the cue pair, then the further pairs open for the project.
+    pub fn outputs(&self) -> crate::routing::Outputs {
+        let pair = |channels: &[usize]| channels.first().map(|&c| (c / 2) as u16);
+        crate::routing::Outputs {
+            main: self
+                .config
+                .as_ref()
+                .and_then(|config| pair(&self.main_channels(config))),
+            cue: pair(&self.cue_channels),
+            extra: self
+                .extra_channels
+                .chunks(2)
+                .filter_map(|c| c.first().map(|&c| (c / 2) as u16))
+                .collect(),
+        }
+    }
+
+    /// The driver and the device in use, while one is.
+    pub fn device_key(&self) -> Option<(&str, &str)> {
+        let config = self.config.as_ref()?;
+        Some((self.driver.as_str(), config.device.id.as_str()))
+    }
+
+    /// Opens `pairs` of the device's outputs (it has `outputs` channels)
+    /// after the main and cue pairs, so tracks can play to them; reopens
+    /// the stream only when that set changes. Pairs the device does not
+    /// have, the main and the cue pair are left out.
+    pub fn want_pairs(&mut self, pairs: &std::collections::BTreeSet<u16>, outputs: usize) {
+        let (Some(config), Some(system)) = (self.config.as_ref(), &self.system) else {
+            return;
+        };
+        if !matches!(self.status, Status::Running { .. }) {
+            return;
+        }
+        let main = self.main_channels(config);
+        let taken = |c: usize| main.contains(&c) || self.cue_channels.contains(&c);
+        let extra: Vec<usize> = pairs
+            .iter()
+            .flat_map(|&p| [usize::from(p) * 2, usize::from(p) * 2 + 1])
+            .filter(|&c| c < outputs && !taken(c))
+            .collect();
+        if extra == self.extra_channels || self.refused_extra.as_ref() == Some(&extra) {
+            return;
+        }
+        // Back to this setup if the device will not open them.
+        self.previous = Some(Previous {
+            driver: self.driver.clone(),
+            device: self.device.clone(),
+            config: config.clone(),
+            cue_channels: self.cue_channels.clone(),
+            extra_channels: self.extra_channels.clone(),
+            info: self.info.clone(),
+            status: self.status.clone(),
+        });
+        self.trying_extra = Some(extra.clone());
+        let mut config = config.clone();
+        config.output_channels = main
+            .iter()
+            .chain(&self.cue_channels)
+            .chain(&extra)
+            .copied()
+            .collect();
+        system.configure(config.clone());
+        self.config = Some(config);
+        self.extra_channels = extra;
+        self.status = Status::Starting;
     }
 
     /// Whether a cue pair is open: chosen in the audio settings and running
@@ -540,6 +622,7 @@ impl Audio {
             // The supervisor already reopened it.
             self.config = Some(previous.config);
             self.cue_channels = previous.cue_channels;
+            self.extra_channels = previous.extra_channels;
             self.info = previous.info;
             self.status = previous.status;
         } else if let Some(make) = backend(&previous.driver) {
@@ -621,6 +704,7 @@ impl Audio {
                     self.info = Some(info);
                     self.last_error = None;
                     self.previous = None;
+                    self.trying_extra = None;
                     if let Some(settings) = self.pending.take() {
                         self.confirmed = Some(settings);
                     }
@@ -631,6 +715,9 @@ impl Audio {
                 }
                 DeviceEvent::ConfigFailed { error, reverted } => {
                     self.pending = None;
+                    // Further outputs the device would not open are not
+                    // asked for again.
+                    self.refused_extra = self.trying_extra.take();
                     let can_restore = self.previous.is_some();
                     if reverted || can_restore {
                         // Back to the setup that worked, saying why.

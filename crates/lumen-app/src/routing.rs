@@ -9,11 +9,12 @@ use std::collections::BTreeSet;
 
 use lumen_core::pan::PanLaw;
 use lumen_engine::{CueOut, Destination, NodeSpec, Routing, SendSpec};
-use lumen_project::model::{Id, Project, Track, TrackKind};
+use lumen_project::model::{Id, Output, Project, Track, TrackKind};
 use lumen_project::routing::{self as rules, destination};
 
-/// What is cued and how loud (M4 slice 4, the owner's C1): session state,
-/// not part of the project.
+/// What is cued and how loud (M4 slice 4, the owner's C1), and where the
+/// device's outputs are open (slice 5): session state, not part of the
+/// project.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Cue {
     /// The master's switch is on Cue and a cue pair is open.
@@ -21,6 +22,49 @@ pub struct Cue {
     pub volume_db: f32,
     /// The tracks cued with their headphone buttons.
     pub tracks: BTreeSet<Id>,
+    /// Where the device's output pairs sit in the stream.
+    pub outputs: Outputs,
+}
+
+/// Where the device's output pairs sit among the stream's channels (M4
+/// slice 5, the owner's B6): the main pair first, the cue pair next, then
+/// every other pair something plays to. A track sent to a device pair that
+/// is not open (yet) is silent until it is.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Outputs {
+    /// The main pair's device pair (0 is outputs 1 and 2).
+    pub main: Option<u16>,
+    pub cue: Option<u16>,
+    /// Further device pairs, in the order they follow.
+    pub extra: Vec<u16>,
+}
+
+impl Outputs {
+    /// The stream pair device pair `pair` plays on, when it is open: the
+    /// main pair is 0, the cue pair 1, further ones after them.
+    pub fn stream_pair(&self, pair: u16) -> Option<u16> {
+        if self.main == Some(pair) {
+            return Some(0);
+        }
+        if self.cue == Some(pair) {
+            return Some(1);
+        }
+        let after = 1 + u16::from(self.cue.is_some());
+        self.extra
+            .iter()
+            .position(|&p| p == pair)
+            .map(|k| after + k as u16)
+    }
+}
+
+/// The device pairs `project` sends tracks (or the master) to.
+pub fn device_pairs(project: &Project) -> BTreeSet<u16> {
+    rules::all_tracks(project)
+        .filter_map(|t| match t.output {
+            Output::Device(pair) => Some(pair),
+            _ => None,
+        })
+        .collect()
 }
 
 /// The cue pair's first channel as the engine sees it: after the main
@@ -64,7 +108,7 @@ pub fn routing(project: &Project, cue: &Cue) -> Routing {
                         pre_fader: send.pre_fader,
                     })
                     .collect(),
-                ..NodeSpec::unity(track.id.0, output(project, track))
+                ..NodeSpec::unity(track.id.0, output(project, track, &cue.outputs))
             }
         })
         .collect();
@@ -79,10 +123,16 @@ pub fn routing(project: &Project, cue: &Cue) -> Routing {
     }
 }
 
-fn output(project: &Project, track: &Track) -> Destination {
+fn output(project: &Project, track: &Track, outputs: &Outputs) -> Destination {
+    // The master's Auto is the main pair, whichever device pair that is.
+    if track.kind == TrackKind::Master && track.output == Output::Auto {
+        return Destination::Hardware(0);
+    }
     match destination(project, track) {
         rules::Destination::Track(id) => Destination::Node(id.0),
-        rules::Destination::Device(pair) => Destination::Hardware(pair),
+        rules::Destination::Device(pair) => outputs
+            .stream_pair(pair)
+            .map_or(Destination::None, Destination::Hardware),
     }
 }
 
@@ -186,6 +236,7 @@ mod tests {
             on: true,
             volume_db: -6.0,
             tracks: [ids[0]].into(),
+            outputs: Outputs::default(),
         };
         let cued = routing(doc.project(), &cue);
         let out = cued.cue.expect("a cue bus");
@@ -231,7 +282,16 @@ mod tests {
         doc.set_trim(audio, 6.0);
         doc.set_pan_law(PanLaw::Linear);
         doc.set_output(master, Output::Device(1)).unwrap();
-        let routing = routing(doc.project(), &Cue::default());
+        // Outputs 3 and 4 open after the main pair.
+        let open = Cue {
+            outputs: Outputs {
+                main: Some(0),
+                cue: None,
+                extra: vec![1],
+            },
+            ..Cue::default()
+        };
+        let routing = routing(doc.project(), &open);
         lumen_engine::compile_routing(&routing).unwrap();
         let track = node(&routing, audio);
         assert_eq!(track.output, Destination::Node(group.0));
@@ -244,6 +304,49 @@ mod tests {
         assert_eq!(track.law, PanLaw::Linear);
         assert_eq!(node(&routing, ret).output, Destination::Node(master.0));
         assert_eq!(node(&routing, master).output, Destination::Hardware(1));
+    }
+
+    #[test]
+    fn device_pairs_play_where_the_stream_opened_them() {
+        // The owner's B6: main, then cue, then further pairs in order.
+        let outputs = Outputs {
+            main: Some(0),
+            cue: Some(1),
+            extra: vec![3, 2],
+        };
+        assert_eq!(outputs.stream_pair(0), Some(0));
+        assert_eq!(outputs.stream_pair(1), Some(1), "the cue pair");
+        assert_eq!(outputs.stream_pair(3), Some(2));
+        assert_eq!(outputs.stream_pair(2), Some(3));
+        assert_eq!(outputs.stream_pair(5), None, "not open");
+        let no_cue = Outputs {
+            main: Some(2),
+            cue: None,
+            extra: vec![0],
+        };
+        assert_eq!(no_cue.stream_pair(2), Some(0), "main on outputs 5/6");
+        assert_eq!(no_cue.stream_pair(0), Some(1));
+
+        let (mut doc, ids) = doc_with(&[TrackKind::Audio, TrackKind::Audio]);
+        doc.set_output(ids[0], Output::Device(3)).unwrap();
+        doc.set_output(ids[1], Output::Device(5)).unwrap();
+        assert_eq!(device_pairs(doc.project()), [3, 5].into());
+        let routing = routing(
+            doc.project(),
+            &Cue {
+                outputs,
+                ..Cue::default()
+            },
+        );
+        assert_eq!(node(&routing, ids[0]).output, Destination::Hardware(2));
+        assert_eq!(
+            node(&routing, ids[1]).output,
+            Destination::None,
+            "silent until open"
+        );
+        // The master's Auto is the main pair, whichever it is.
+        let master = doc.project().master.id;
+        assert_eq!(node(&routing, master).output, Destination::Hardware(0));
     }
 
     #[test]

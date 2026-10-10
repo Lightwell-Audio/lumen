@@ -511,8 +511,11 @@ Chosen from interactive specimens:
   headers). From the top: a 3 pt rail per group the track is in (and its
   own when it is a group), outermost first; a 3 × 14 pt colour chip, a
   group's fold arrow, a return's letter badge and the name (double-click
-  renames it on the strip); the output (a menu: Master and the groups that
-  would not feed back); Ø and input trim (±24 dB, filled from the centre;
+  renames it on the strip); the output (a menu: "Inside Lumen", the master
+  and the groups that would not feed back, then "Audio outputs", every
+  pair of the device as "1/2", "3/4"…, the main pair marked "Main", the cue
+  pair greyed "Cue" with why, each pair's channel names and "Skips the
+  master" on hover; "Looking up the outputs…" until known); Ø and input trim (±24 dB, filled from the centre;
   the master shows its Solo/Cue switch there); the sends (O2: the first
   two returns' knobs, 22 pt, then "+N ▾" listing them all); pan; the fader
   (`widgets::fader`: a 4 pt groove and a 22 × 12 pt cap with a `text` line,

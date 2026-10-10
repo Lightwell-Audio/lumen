@@ -24,6 +24,7 @@ impl App {
                 .filter(|id| project.tracks.iter().any(|t| t.id == **id))
                 .copied()
                 .collect(),
+            outputs: self.transport.audio.outputs(),
         }
     }
 
