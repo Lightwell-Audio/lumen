@@ -222,3 +222,83 @@ fn the_loudness_column_reads_the_reference_tone_at_minus_23() {
         "true peak {true_peak}"
     );
 }
+
+/// A stereo sine of `frequency` Hz at `rate`, its samples peaking at
+/// `peak` (of 32,767), starting at `phase` radians.
+fn sine_file(
+    path: &std::path::Path,
+    rate: u32,
+    frequency: f64,
+    phase: f64,
+    peak: f64,
+) -> std::path::PathBuf {
+    let frames = rate as usize * 20;
+    let data: Vec<u8> = (0..frames)
+        .flat_map(|i| {
+            let t = i as f64 / f64::from(rate);
+            let v =
+                (peak * (2.0 * std::f64::consts::PI * frequency * t + phase).sin()).round() as i16;
+            let [a, b] = v.to_le_bytes();
+            [a, b, a, b]
+        })
+        .collect();
+    let mut out = Vec::new();
+    out.extend(b"RIFF");
+    out.extend((36 + data.len() as u32).to_le_bytes());
+    out.extend(b"WAVEfmt ");
+    out.extend(16_u32.to_le_bytes());
+    out.extend(1_u16.to_le_bytes());
+    out.extend(2_u16.to_le_bytes());
+    out.extend(rate.to_le_bytes());
+    out.extend((rate * 4).to_le_bytes());
+    out.extend(4_u16.to_le_bytes());
+    out.extend(16_u16.to_le_bytes());
+    out.extend(b"data");
+    out.extend((data.len() as u32).to_le_bytes());
+    out.extend(data);
+    std::fs::write(path, out).expect("write the sine");
+    path.to_path_buf()
+}
+
+/// Owner, after the pan law change: the master's meter went to about
+/// +1.1 dB. No gain is added: a full-scale 48 kHz file reads 0.0 dB on its
+/// track and the master. A file at another rate is converted to the
+/// device's, and the new samples land between the old ones, where a loud
+/// master's waveform goes over full scale (its true peak): a 44.1 kHz tone
+/// whose samples peak at 0 dBFS, its waveform at +3 dB, reads +3 dB.
+#[test]
+fn full_scale_reads_zero_and_a_converted_file_shows_its_true_peak() {
+    let cases = [
+        (48_000, 1_000.0, 0.0, 32_767.0, 0.0),
+        (
+            44_100,
+            11_025.0,
+            std::f64::consts::FRAC_PI_4,
+            32_767.0 * std::f64::consts::SQRT_2,
+            3.01,
+        ),
+    ];
+    for (rate, frequency, phase, amplitude, want) in cases {
+        let mut lumen = Lumen::start("meters-full-scale");
+        let file = sine_file(
+            &lumen.dir().join("full.wav"),
+            rate,
+            frequency,
+            phase,
+            amplitude,
+        );
+        lumen.drop_files(&[file]);
+        lumen.frames(5);
+        let track = lumen.app().project().tracks[0].id;
+        let master = lumen.app().project().master.id;
+        play(&mut lumen);
+        listen(&mut lumen, 600);
+        for id in [track, master] {
+            let peak = lumen.app().meter(id).peak_db;
+            assert!(
+                (peak - want).abs() < 0.05,
+                "{rate} Hz: {peak} dB, want {want}"
+            );
+        }
+    }
+}

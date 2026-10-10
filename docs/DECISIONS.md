@@ -3537,3 +3537,13 @@ for the known issues to be fixed where they can be now.
   four of the new test): the playhead is what the audio thread last
   reported. `Transport::position` counts a locate the engine has not
   played a block since; edits at the playhead use it.
+- **"The meters clip around +1.1 dB" after the pan law change.** No gain
+  is added: a full-scale 48 kHz file reads 0.0 dB on its track and the
+  master. Files at another rate are converted to the device's on import,
+  and the new samples land between the old ones, where a loud master's
+  waveform goes over full scale (its true peak, commonly +0.5 to +1.5
+  dBTP); MP3 and Ogg decode to floating point and keep their overs too.
+  At −3 dB those overs were hidden; at unity the meter shows them, as
+  Ableton's does. A 44.1 kHz tone with samples at 0 dBFS and its waveform
+  at +3 dB reads +3.0 dB (E2E
+  `full_scale_reads_zero_and_a_converted_file_shows_its_true_peak`).
