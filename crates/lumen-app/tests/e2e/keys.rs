@@ -7,8 +7,8 @@ use eframe::egui::{Event, Key, Modifiers, PointerButton, Pos2};
 use egui_kittest::kittest::Queryable;
 use lumen_core::time::Ticks;
 
-use super::Lumen;
 use super::properties::{select, with_two_clips};
+use super::{Lumen, keys};
 
 /// Right-clicks the control named `label`.
 fn right_click(lumen: &mut Lumen, label: &str) {
@@ -138,9 +138,12 @@ fn menus_show_the_keys_the_keymap_has() {
         launch.with_saved_shortcut("track.add_audio", &["Alt+T"])
     });
     lumen.click("Add track");
-    assert!(lumen.shows("Add audio track Alt+T"), "the changed key");
-    assert!(lumen.shows("Add MIDI track Ctrl+Shift+T"));
-    lumen.click("Add audio track Alt+T");
+    assert!(
+        lumen.shows(&keys("Add audio track Alt+T")),
+        "the changed key"
+    );
+    assert!(lumen.shows(&keys("Add MIDI track Ctrl+Shift+T")));
+    lumen.click(&keys("Add audio track Alt+T"));
     assert_eq!(lumen.track_names().len(), 1);
 }
 
@@ -166,10 +169,10 @@ fn a_right_click_on_a_track_name_opens_its_menu() {
     let name = lumen.track_names()[0].clone();
     right_click(&mut lumen, &format!("{name}: double-click to rename"));
     assert!(
-        lumen.shows("Rename Ctrl+R"),
+        lumen.shows(&keys("Rename Ctrl+R")),
         "the track's menu, with its keys"
     );
-    assert!(lumen.shows("Move up Alt+Up"));
+    assert!(lumen.shows(&keys("Move up Alt+Up")));
 }
 
 /// The M3 review's H2, in the owner's choice: with a clip selected the

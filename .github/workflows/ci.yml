@@ -55,8 +55,9 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       # --all-targets also runs every divan benchmark once as a smoke test.
+      # --no-fail-fast runs every test binary, so one run shows all failures.
       - name: Tests
-        run: cargo test --workspace --all-targets --locked
+        run: cargo test --workspace --all-targets --locked --no-fail-fast
       - name: Doc tests
         run: cargo test --workspace --doc --locked
       # Scanner isolation: crashing, hanging and broken VST3 modules must be

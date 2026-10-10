@@ -393,8 +393,12 @@ it first in a new session, and update it at the end of every slice.
 **Last updated:** 2026-10-10: **macOS CI is back** (owner) on
 `claude/busy-pascal-pbswo9`: `macos-latest` (Apple silicon) is in the test
 matrix again, and a new push to a pull request cancels its superseded run.
-The workspace passes the macOS cross-target clippy; the first macOS CI run
-since the pause is pending. Before it, 2026-10-10: **CI fixes** on
+Its first run failed 20 E2E tests, both kinds fixed: chords are written
+Cmd and Option on macOS (write E2E text with chords through `keys("Ctrl+D
+…")` in `tests/e2e/main.rs`), and `Lumen::listen` settled for a wall-clock
+time while the test device plays a block per 10 ms poll, so slow sleeps
+measured levels mid-glide; it now counts the settle in frames played. CI
+tests run with `--no-fail-fast`. Before it, 2026-10-10: **CI fixes** on
 `claude/gallant-newton-feg0a0`. `main` was red in Tests on both systems:
 - Linux: the waveform atlas test ran on OpenGL (llvmpipe), which reads
   negative peaks back as 0. It now asks for Vulkan, DX12 or Metal, and the

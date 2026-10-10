@@ -10,7 +10,7 @@ use lumen_project::model::{Clip, ClipContent, Id};
 
 use egui_kittest::kittest::Queryable;
 
-use super::{Lumen, wav};
+use super::{Lumen, keys, wav};
 
 /// Lumen with one two-second file dropped in, zoomed in until its clip is
 /// wide enough for its handles.
@@ -114,7 +114,7 @@ fn the_dot_bends_a_fade_freely_and_alt_adds_s_shape() {
     assert!(
         lumen
             .info()
-            .starts_with("Fade curve: drag to bend · Alt+drag to S-shape"),
+            .starts_with(&keys("Fade curve: drag to bend · Alt+drag to S-shape")),
         "{}",
         lumen.info()
     );

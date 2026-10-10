@@ -6,7 +6,7 @@ use eframe::egui::{Modifiers, Pos2};
 use egui_kittest::kittest::Queryable;
 use lumen_core::time::Ticks;
 
-use super::Lumen;
+use super::{Lumen, keys};
 
 const STRIP: &str = "Scrub strip: click to jump, drag to listen";
 const BAR: i64 = Ticks::quarters(4).0;
@@ -113,7 +113,7 @@ fn the_strip_hints_what_a_drag_will_do() {
         .harness
         .event(eframe::egui::Event::ModifiersChanged(Modifiers::ALT));
     lumen.frames(2);
-    assert_eq!(lumen.lit().as_deref(), Some("Alt+drag to scrub like tape"));
+    assert_eq!(lumen.lit(), Some(keys("Alt+drag to scrub like tape")));
     scrub(&mut lumen, 5.3, 9.0, Modifiers::ALT, |lumen| {
         let hint = lumen.app().hint().unwrap_or_default();
         assert!(hint.starts_with("tape ") && hint.ends_with('×'), "{hint}");
