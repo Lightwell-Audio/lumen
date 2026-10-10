@@ -26,8 +26,9 @@ use crate::meters::FLOOR_DB;
 use crate::widgets::{self, SliderKind, fader, meter};
 use crate::{fonts, motion, theme};
 
-/// A strip's width (the owner's S1).
-pub(super) const WIDTH: f32 = 76.0;
+/// A strip's width: wide enough for a track name of about eleven characters
+/// (the owner's S1, widened after MT-MIX-5).
+pub(super) const WIDTH: f32 = 96.0;
 /// Side inset inside a strip.
 const INSET: f32 = 6.0;
 /// The height of a control row, and the gap between rows.
@@ -358,7 +359,7 @@ impl Arrangement {
             peak.center(),
             Align2::CENTER_CENTER,
             if hold > FLOOR_DB {
-                widgets::db_text(hold).replace(" dB", "")
+                widgets::readout_db(hold)
             } else {
                 "\u{2014}".into()
             },

@@ -25,6 +25,9 @@ use crate::widgets::{self, SliderKind, draw_arrow, draw_edge_glow, gradient, val
 const ARROW_X: f32 = 16.0;
 const ICON_X: f32 = 34.0;
 const NAME_X: f32 = 48.0;
+/// The volume slider's value text rises this far, clear of the level bars
+/// drawn along its bottom (the owner's report: the meter sat against it).
+const METER_LIFT: f32 = 3.0;
 use crate::{fonts, motion, theme};
 
 impl Arrangement {
@@ -671,7 +674,7 @@ impl Arrangement {
             pos2(left, center_y - 10.0),
             pos2(pan_rect.left() - 6.0, center_y + 10.0),
         );
-        let db = value_slider(
+        let db = widgets::value_slider_lifted(
             ui,
             volume_rect,
             id.with("volume"),
@@ -679,6 +682,7 @@ impl Arrangement {
             SliderKind::Volume,
             &format!("Volume {}", track.name),
             look,
+            METER_LIFT,
         );
         if db != track.gain_db {
             doc.set_volume(track.id, db);

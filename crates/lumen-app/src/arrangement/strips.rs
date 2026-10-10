@@ -373,7 +373,7 @@ impl Arrangement {
         // Momentary, short-term and true peak.
         let mut y = ys.max + 14.0;
         let true_peak = if reading.true_peak > FLOOR_DB {
-            widgets::db_text(reading.true_peak).replace(" dB", "")
+            widgets::readout_db(reading.true_peak)
         } else {
             "\u{2014}".into()
         };

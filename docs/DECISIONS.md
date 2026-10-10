@@ -3245,3 +3245,23 @@ open; the master's Auto on the main pair). `wheel` unit tests: a gesture that st
 adjusts it; one that started scrolling keeps scrolling over it, and after
 a rest a new gesture on it adjusts it.
 
+### Amendment (2026-10-10, owner's report on the mixer and header meters)
+
+The owner found three layout faults after MT-MIX-5, and approved the fixes
+from a rendered mock-up:
+
+- **Strips are 96 pt, not 76 pt** (`strip::WIDTH`). At 76 pt a track name
+  kept about seven characters; at 96 pt it keeps about eleven. Longer names
+  still truncate with an ellipsis and keep their full name on hover.
+- **The header volume's value sits 3 pt higher** (`headers::METER_LIFT`,
+  through `widgets::value_slider_lifted`). The level bars along its bottom
+  no longer touch the text. Other volume sliders (the cue) keep their
+  centred text.
+- **Peak readouts drop the decimal from 10 dB up** (`widgets::readout_db`,
+  used by a strip's peak box and the master's true peak): "−12", where
+  "−12.3" overflowed its box. Below 10 dB, one decimal, as before.
+
+The strip's peak box is now wider too (half of the wider strip). The volume
+field under the fader needed no change: a typed "−16.3" fits it at 96 pt and
+150% (checked in the screenshot). Screenshot scenario:
+`shots::mixer_strips_and_header_levels`.

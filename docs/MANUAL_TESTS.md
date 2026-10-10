@@ -1546,3 +1546,17 @@ audio files (drums, bass, a vocal, anything loud), group the first two
 **Expected:** every step as described; nothing clicks or drops out while
 metering, dragging strips or turning the wheel; undo restores each change
 in one step.
+
+**Run 1 (2026-10-10, owner, in progress):** three findings, mock-ups
+first (the owner's rule): (1) strips are too narrow, so track names are
+nearly always cut off ("Heavy …", "Retu…"); (2) on a header, the level
+inside the volume slider runs right against the value's text; (3) the
+volume and peak values overflow their fields past two digits ("−16.3").
+**Fixes (2026-10-10, ADR-0040 amendment, mock-ups approved by the owner):**
+(1) strips are 96 pt wide, so about eleven characters of a name show; (2)
+the header's value text rises 3 pt clear of the level bars; (3) peak
+readouts from 10 dB up drop the decimal ("−12"), and the volume field
+fits a typed "−16.3" at 96 pt and 150% (checked by screenshot). Checked
+without audio: the header's level bars did not draw on the silent test
+device, so (2) needs a re-check with a track playing. **Run 2 waits for
+the owner.**

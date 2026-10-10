@@ -158,6 +158,18 @@ pub fn db_text(db: f32) -> String {
     }
 }
 
+/// A peak readout in a few characters, without " dB": "−3.0", "−12", "+6.0".
+/// From ten dB up the decimal goes, so the number fits a strip's readout
+/// box (the owner's report on overflowing meter numbers). Only for a level
+/// above the floor.
+pub fn readout_db(db: f32) -> String {
+    if db.abs() >= 9.95 {
+        format!("{db:+.0}").replace('-', "\u{2212}")
+    } else {
+        db_text(db).replace(" dB", "")
+    }
+}
+
 /// "0 ms", "125 ms", "1.25 s".
 pub fn ms_text(ms: f32) -> String {
     if ms < 999.5 {
@@ -268,6 +280,22 @@ pub fn value_slider(
     kind: SliderKind,
     name: &str,
     look: theme::Controls,
+) -> f32 {
+    value_slider_lifted(ui, rect, id, value, kind, name, look, 0.0)
+}
+
+/// `value_slider` with its value text raised `lift` points, for a slider
+/// that draws something along its bottom (a header's level meter).
+#[allow(clippy::too_many_arguments)]
+pub fn value_slider_lifted(
+    ui: &mut Ui,
+    rect: Rect,
+    id: EguiId,
+    value: f32,
+    kind: SliderKind,
+    name: &str,
+    look: theme::Controls,
+    lift: f32,
 ) -> f32 {
     let palette = *theme::p();
     let (lo, hi) = kind.range();
@@ -417,7 +445,7 @@ pub fn value_slider(
         }
     }
     p.text(
-        rect.center(),
+        rect.center() - vec2(0.0, lift),
         Align2::CENTER_CENTER,
         kind.text(out),
         FontId::proportional(theme::size::CAPTION),
@@ -635,6 +663,16 @@ mod tests {
         assert_eq!(pan_text(0.0), "C");
         assert_eq!(pan_text(-0.3), "L 30");
         assert_eq!(pan_text(1.0), "R 100");
+    }
+
+    #[test]
+    fn readouts_fit_a_strip_box() {
+        assert_eq!(readout_db(-3.0), "\u{2212}3.0");
+        assert_eq!(readout_db(6.0), "+6.0");
+        assert_eq!(readout_db(-9.9), "\u{2212}9.9");
+        assert_eq!(readout_db(-12.3), "\u{2212}12");
+        assert_eq!(readout_db(9.96), "+10");
+        assert_eq!(readout_db(-48.0), "\u{2212}48");
     }
 
     #[test]

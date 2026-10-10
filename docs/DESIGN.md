@@ -506,7 +506,7 @@ Chosen from interactive specimens:
   `border_strong` line, and the loudness column (L2, 108 pt) beside it.
   The strips scroll sideways; only those in view are drawn. With no
   tracks: "No tracks to mix yet: add one with + Add track or Ctrl+T".
-- **Strip (S1 console, 76 pt):** `header` fill (`raised` for returns and
+- **Strip (S1 console, 96 pt):** `header` fill (`raised` for returns and
   the master, `selected_row` when selected, controls stepping up as on
   headers). From the top: a 3 pt rail per group the track is in (and its
   own when it is a group), outermost first; a 3 × 14 pt colour chip, a
