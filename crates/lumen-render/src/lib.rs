@@ -456,16 +456,22 @@ pub enum CacheState {
     Warm,
 }
 
-/// Opens the shader pipeline cache stored at `path` (Vulkan only; the device
-/// must have been created with [`wgpu::Features::PIPELINE_CACHE`]).
+/// Whether `device` can cache pipelines (Vulkan only; the device must have
+/// been created with [`wgpu::Features::PIPELINE_CACHE`]).
+pub fn caches_pipelines(device: &wgpu::Device) -> bool {
+    device.features().contains(wgpu::Features::PIPELINE_CACHE)
+}
+
+/// Opens a shader pipeline cache from `data`, as [`pipeline_cache_data`]
+/// gave it at an earlier launch. The caller reads and writes the file, off
+/// the UI thread.
 pub fn open_pipeline_cache(
     device: &wgpu::Device,
-    path: &std::path::Path,
+    data: Option<Vec<u8>>,
 ) -> (Option<wgpu::PipelineCache>, CacheState) {
-    if !device.features().contains(wgpu::Features::PIPELINE_CACHE) {
+    if !caches_pipelines(device) {
         return (None, CacheState::Unsupported);
     }
-    let data = std::fs::read(path).ok();
     let state = if data.is_some() {
         CacheState::Warm
     } else {
@@ -483,11 +489,10 @@ pub fn open_pipeline_cache(
     (Some(cache), state)
 }
 
-/// Writes the cache back so the next start-up can reuse compiled shaders.
-pub fn save_pipeline_cache(cache: Option<&wgpu::PipelineCache>, path: &std::path::Path) {
-    if let Some(bytes) = cache.and_then(wgpu::PipelineCache::get_data) {
-        let _ = std::fs::write(path, bytes);
-    }
+/// The cache's contents, to write back so the next start-up can reuse
+/// compiled shaders.
+pub fn pipeline_cache_data(cache: Option<&wgpu::PipelineCache>) -> Option<Vec<u8>> {
+    cache.and_then(wgpu::PipelineCache::get_data)
 }
 
 #[cfg(test)]

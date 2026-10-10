@@ -82,7 +82,7 @@ impl Launch {
 /// renders with wgpu, as `run` does for the real window.
 pub fn install_renderer(cc: &eframe::CreationContext<'_>) -> Result<(), String> {
     match cc.wgpu_render_state.as_ref() {
-        Some(state) => crate::canvas::install(state).map_err(|e| format!("renderer: {e}")),
+        Some(state) => crate::canvas::install(state, None).map_err(|e| format!("renderer: {e}")),
         None => Ok(()),
     }
 }

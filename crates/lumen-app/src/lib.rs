@@ -819,12 +819,13 @@ pub fn run() -> eframe::Result {
             descriptor
         });
     }
+    let pipelines = canvas::PipelineCache::prefetch();
     eframe::run_native(
         PRODUCT_NAME,
         options,
         Box::new(move |cc| {
             if let Some(state) = cc.wgpu_render_state.as_ref() {
-                canvas::install(state).map_err(|e| format!("renderer: {e}"))?;
+                canvas::install(state, pipelines).map_err(|e| format!("renderer: {e}"))?;
             }
             Ok(Box::new(App::new(cc, launch)))
         }),

@@ -22,7 +22,7 @@ pub mod wheel;
 
 pub use keys::{
     KEY_LIGHT_ROOM, Keys, Tip, caps_height, caps_width, keycaps, menu_item, menu_toggle,
-    modifier_caps, tip,
+    modifier_caps, submenu, tip,
 };
 
 /// A floating window in the design system (DESIGN §5): no system title

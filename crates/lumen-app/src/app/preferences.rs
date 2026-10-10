@@ -10,7 +10,7 @@ use lumen_core::product::PRODUCT_NAME;
 
 use crate::app::projects::Next;
 use crate::commands::Command;
-use crate::{App, fonts, motion, settings, theme};
+use crate::{App, fonts, motion, settings, theme, widgets};
 
 impl App {
     /// The product name opens the app menu: appearance (theme, motion, UI
@@ -26,7 +26,7 @@ impl App {
                 self.menu_command(ui, Command::OpenProject, "Open\u{2026}");
                 let recent = self.settings.projects.recent.clone();
                 ui.add_enabled_ui(!recent.is_empty(), |ui| {
-                    ui.menu_button("Open recent", |ui| {
+                    widgets::submenu(ui, "Open recent", |ui| {
                         for path in recent {
                             let label = Path::new(&path)
                                 .file_stem()

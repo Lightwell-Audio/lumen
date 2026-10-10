@@ -120,23 +120,61 @@ impl GridLines {
     }
 }
 
-/// Where compiled GPU pipelines are cached between launches.
-fn pipeline_cache_path() -> Option<PathBuf> {
-    let base = std::env::var_os("LOCALAPPDATA")?;
-    let dir = PathBuf::from(base).join(PRODUCT_NAME).join("cache");
-    std::fs::create_dir_all(&dir).ok()?;
-    Some(dir.join("gpu-pipelines.bin"))
+/// Compiled GPU pipelines cached between launches (ADR-0002), read on a
+/// thread of its own while the window and the GPU start, so the UI thread
+/// never waits on the disk for it (KNOWN_ISSUES, M3 review L3).
+pub struct PipelineCache {
+    path: PathBuf,
+    read: std::thread::JoinHandle<Option<Vec<u8>>>,
 }
 
-pub fn install(state: &egui_wgpu::RenderState) -> Result<(), String> {
-    let path = pipeline_cache_path();
-    let (cache, _) = match &path {
-        Some(p) => lumen_render::open_pipeline_cache(&state.device, p),
-        None => (None, lumen_render::CacheState::Unsupported),
-    };
+impl PipelineCache {
+    /// Starts reading the cache, if there is a place for it.
+    pub fn prefetch() -> Option<Self> {
+        let base = std::env::var_os("LOCALAPPDATA")?;
+        let path = PathBuf::from(base)
+            .join(PRODUCT_NAME)
+            .join("cache")
+            .join("gpu-pipelines.bin");
+        let file = path.clone();
+        let read = std::thread::Builder::new()
+            .name("lumen-pipeline-cache".into())
+            .spawn(move || std::fs::read(file).ok())
+            .ok()?;
+        Some(Self { path, read })
+    }
+
+    /// The cache's bytes; read by now, as the GPU takes longer to start.
+    fn data(self) -> Option<Vec<u8>> {
+        self.read.join().ok().flatten()
+    }
+
+    /// Writes `data` back in the background.
+    fn store(path: PathBuf, data: Vec<u8>) {
+        let _ = std::thread::Builder::new()
+            .name("lumen-pipeline-cache".into())
+            .spawn(move || {
+                if let Some(dir) = path.parent() {
+                    let _ = std::fs::create_dir_all(dir);
+                }
+                let _ = std::fs::write(path, data);
+            });
+    }
+}
+
+/// Installs the renderer, with the pipeline cache when the device can use
+/// one (tests pass `None`: they never touch the user's cache).
+pub fn install(
+    state: &egui_wgpu::RenderState,
+    pipelines: Option<PipelineCache>,
+) -> Result<(), String> {
+    let pipelines = pipelines.filter(|_| lumen_render::caches_pipelines(&state.device));
+    let path = pipelines.as_ref().map(|p| p.path.clone());
+    let (cache, _) =
+        lumen_render::open_pipeline_cache(&state.device, pipelines.and_then(PipelineCache::data));
     let mut renderer = Renderer::new(&state.device, state.target_format, cache.clone())?;
-    if let Some(p) = &path {
-        lumen_render::save_pipeline_cache(cache.as_ref(), p);
+    if let (Some(path), Some(data)) = (path, lumen_render::pipeline_cache_data(cache.as_ref())) {
+        PipelineCache::store(path, data);
     }
     // Filled in on the first frame (`GridLines`); a buffer cannot be empty.
     let grid = renderer.add_layer(&state.device, &[RectInstance::new(0.0, 0.0, 0.0, 0)]);

@@ -264,7 +264,7 @@ impl App {
             FadeShape::of(&first.fade_in.curve),
             FadeShape::of(&first.fade_out.curve),
         ];
-        ui.menu_button("Fades", |ui| {
+        widgets::submenu(ui, "Fades", |ui| {
             for (edge, label, now) in [
                 (Edge::Start, "Fade in", current[0]),
                 (Edge::End, "Fade out", current[1]),

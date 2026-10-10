@@ -5,6 +5,7 @@ use eframe::egui::{
     self, Color32, FontId, Painter, Pos2, Rect, Sense, Stroke, Ui, Vec2, pos2, vec2,
 };
 
+use eframe::egui::containers::menu::SubMenuButton;
 use eframe::emath::GuiRounding as _;
 
 use crate::theme;
@@ -195,6 +196,23 @@ impl Keys {
 /// `enabled`.
 pub fn menu_item(ui: &mut Ui, label: &str, keys: Option<&Keys>, enabled: bool) -> egui::Response {
     menu_row(ui, label, keys, enabled, None)
+}
+
+/// A submenu row: `label`, then egui's arrow (⏵) at the right. egui names
+/// the button with its arrow ("Colour ⏵"), which screen readers read out;
+/// this one is named by its label alone. Use it for every submenu, in
+/// place of `ui.menu_button` inside a menu.
+pub fn submenu<R>(
+    ui: &mut Ui,
+    label: impl Into<String>,
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> egui::Response {
+    let label = label.into();
+    let button = egui::Button::new(label.as_str()).right_text(SubMenuButton::RIGHT_ARROW);
+    let (response, _) = SubMenuButton::from_button(button).ui(ui, add_contents);
+    let enabled = ui.is_enabled();
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &label));
+    response
 }
 
 /// A [`menu_item`] that is on or off (Snap to grid, Triplet): when on, it

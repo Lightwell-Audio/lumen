@@ -565,7 +565,7 @@ impl App {
                     ui.separator();
                 }
                 let label = format!("Grid: {}", self.grid_label());
-                ui.menu_button(label, |ui| self.grid_menu(ui));
+                widgets::submenu(ui, label, |ui| self.grid_menu(ui));
                 let keys = self.keymap.keys(Command::SnapToGrid);
                 if widgets::menu_toggle(ui, "Snap to grid", keys.as_ref(), self.grid.snap).clicked()
                 {

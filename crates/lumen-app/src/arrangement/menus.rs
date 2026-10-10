@@ -92,7 +92,7 @@ impl Arrangement {
             self.toggle_fold(id);
             ui.close();
         }
-        ui.menu_button("Colour", |ui| {
+        widgets::submenu(ui, "Colour", |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.set_max_width(6.0 * 26.0);
                 for c in theme::CLIP_COLORS {

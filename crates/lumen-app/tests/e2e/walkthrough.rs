@@ -172,9 +172,18 @@ fn create_add_import_arrange_edit_save_close_and_reopen_the_same_song() {
         assert!(o.path.starts_with("Samples/Imported"), "{}", o.path);
     }
 
-    // And it sounds the same, sample for sample.
+    // And it sounds the same, sample for sample, up to the Stop. Which
+    // audio block a key press lands in depends on the threads' timing: in
+    // the last block or two, one take can already be fading out while the
+    // other still plays (seen on Linux, KNOWN_ISSUES), so those are left
+    // out.
+    const STOP: usize = 2_048;
     let reheard = listen(&mut again);
-    let n = heard.len().min(reheard.len()).min(48_000);
+    let n = heard
+        .len()
+        .min(reheard.len())
+        .min(48_000)
+        .saturating_sub(STOP);
     assert!(n > 24_000, "a beat or more heard: {n}");
     let worst = heard[..n]
         .iter()

@@ -19,14 +19,17 @@ pub fn install(state: &egui_wgpu::RenderState) -> Result<(), String> {
     // The device was created with PIPELINE_CACHE (see main.rs), so Vello's
     // shaders can be reused across launches.
     let path = std::env::temp_dir().join("lumen-vello-pipeline-egui.cache");
-    let (cache, cache_state) = lumen_render::open_pipeline_cache(&state.device, &path);
+    let (cache, cache_state) =
+        lumen_render::open_pipeline_cache(&state.device, std::fs::read(&path).ok());
     let started = std::time::Instant::now();
     let mut renderer = Renderer::new(&state.device, state.target_format, cache.clone())?;
     println!(
         "lumen-render init: {:.0} ms (pipeline cache: {cache_state:?})",
         started.elapsed().as_secs_f64() * 1e3
     );
-    lumen_render::save_pipeline_cache(cache.as_ref(), &path);
+    if let Some(data) = lumen_render::pipeline_cache_data(cache.as_ref()) {
+        let _ = std::fs::write(&path, data);
+    }
     let clips = renderer.add_layer(&state.device, &demo::clip_instances());
     let notes = renderer.add_layer(&state.device, &demo::note_instances());
     state
