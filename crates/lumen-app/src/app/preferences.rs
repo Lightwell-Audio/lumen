@@ -41,9 +41,11 @@ impl App {
                 self.menu_command(ui, Command::Save, "Save");
                 self.menu_command(ui, Command::SaveAs, "Save as\u{2026}");
                 self.menu_command(ui, Command::ImportAudio, "Import audio\u{2026}");
-                ui.checkbox(
+                widgets::switch(
+                    ui,
                     &mut self.settings.projects.copy_imported,
                     "Copy imported audio into the project",
+                    true,
                 )
                 .on_hover_text("Saving copies outside audio into Samples/Imported");
                 ui.separator();
@@ -59,37 +61,53 @@ impl App {
                 }
                 ui.separator();
                 ui.label(RichText::new("Theme").small().weak());
-                let mut chosen = theme::Appearance::from_key(&self.settings.appearance.theme);
-                for option in theme::Appearance::ALL {
-                    ui.radio_value(&mut chosen, option, option.name());
+                let chosen = theme::Appearance::from_key(&self.settings.appearance.theme);
+                let themes = theme::Appearance::ALL.map(|a| widgets::Choice::new(a, a.name()));
+                if let Some(picked) = widgets::segmented(ui, ui.id().with("theme"), chosen, &themes)
+                {
+                    self.settings.appearance.theme = picked.key().to_owned();
                 }
-                self.settings.appearance.theme = chosen.key().to_owned();
                 ui.separator();
                 ui.label(RichText::new("Interface size").small().weak());
-                let mut scale = self.settings.appearance.scale();
-                for option in settings::UI_SCALES {
-                    ui.radio_value(&mut scale, option, format!("{:.0}%", option * 100.0));
+                let scale = self.settings.appearance.scale();
+                let labels = settings::UI_SCALES.map(|s| format!("{:.0}%", s * 100.0));
+                let sizes: Vec<_> = settings::UI_SCALES
+                    .iter()
+                    .zip(&labels)
+                    .map(|(s, label)| widgets::Choice::new(*s, label))
+                    .collect();
+                if let Some(picked) = widgets::segmented(ui, ui.id().with("scale"), scale, &sizes) {
+                    self.settings.appearance.ui_scale = picked;
                 }
-                self.settings.appearance.ui_scale = scale;
                 ui.separator();
-                ui.checkbox(&mut self.settings.appearance.reduce_motion, "Reduce motion")
-                    .on_hover_text("Things change in place instead of sliding or fading");
+                widgets::switch(
+                    ui,
+                    &mut self.settings.appearance.reduce_motion,
+                    "Reduce motion",
+                    true,
+                )
+                .on_hover_text("Things change in place instead of sliding or fading");
                 ui.separator();
                 ui.label(RichText::new("Mixing").small().weak());
-                if ui
-                    .checkbox(&mut self.settings.mixing.additive_solo, "Additive solo")
-                    .on_hover_text("A click on Solo adds the track; Ctrl+click solos it alone")
-                    .changed()
+                if widgets::switch(
+                    ui,
+                    &mut self.settings.mixing.additive_solo,
+                    "Additive solo",
+                    true,
+                )
+                .on_hover_text("A click on Solo adds the track; Ctrl+click solos it alone")
+                .changed()
                 {
                     self.settings_changed = Some(Instant::now());
                 }
-                if ui
-                    .checkbox(
-                        &mut self.settings.mixing.track_colour_meters,
-                        "Meters in track colours",
-                    )
-                    .on_hover_text("Meters take their track's colour instead of the accent")
-                    .changed()
+                if widgets::switch(
+                    ui,
+                    &mut self.settings.mixing.track_colour_meters,
+                    "Meters in track colours",
+                    true,
+                )
+                .on_hover_text("Meters take their track's colour instead of the accent")
+                .changed()
                 {
                     self.settings_changed = Some(Instant::now());
                 }

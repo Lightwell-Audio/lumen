@@ -6,8 +6,8 @@
 //! them now; the mixer (M4) and devices reuse them.
 
 use eframe::egui::{
-    self, Align2, Color32, FontId, Id as EguiId, Key, Painter, Pos2, Rect, Sense, Stroke, Ui, Vec2,
-    pos2, vec2,
+    self, Align2, Color32, FontId, Id as EguiId, Key, Painter, Pos2, Rangef, Rect, Sense, Stroke,
+    Ui, Vec2, pos2, vec2,
 };
 
 use eframe::emath::GuiRounding as _;
@@ -18,12 +18,14 @@ pub mod fader;
 mod keys;
 pub mod knob;
 pub mod meter;
+mod toggle;
 pub mod wheel;
 
 pub use keys::{
     KEY_LIGHT_ROOM, Keys, Tip, caps_height, caps_width, keycaps, menu_item, menu_toggle,
     modifier_caps, submenu, tip,
 };
+pub use toggle::{Choice, choice_row, segmented, switch};
 
 /// A floating window in the design system (DESIGN §5): no system title
 /// bar; our own title row with the title in the display face and, when it
@@ -425,6 +427,14 @@ pub fn value_slider_styled(
     let radius = theme::radius::SMALL;
     p.rect_filled(rect, radius, look.fill.lerp_to_gamma(look.hover, hover));
     let x_at = |v: f32| rect.left() + (v - lo) / (hi - lo) * rect.width();
+    let text = kind.text(out);
+    let galley = p.layout_no_wrap(
+        text,
+        FontId::proportional(theme::size::CAPTION),
+        palette.text,
+    );
+    let text_rect =
+        Align2::CENTER_CENTER.anchor_size(rect.center() - vec2(0.0, lift), galley.size());
     match kind {
         SliderKind::Volume | SliderKind::ClipGain | SliderKind::Millis { .. } => {
             let x = x_at(out);
@@ -433,11 +443,7 @@ pub fn value_slider_styled(
                 radius,
                 look.press,
             );
-            p.vline(
-                x,
-                rect.shrink2(vec2(0.0, 3.0)).y_range(),
-                Stroke::new(2.0, palette.start_marker),
-            );
+            draw_handle(p, x, rect.shrink2(vec2(0.0, 3.0)).y_range(), text_rect);
         }
         SliderKind::Pan | SliderKind::Trim => {
             let center = rect.center().x;
@@ -458,15 +464,13 @@ pub fn value_slider_styled(
             ] {
                 p.vline(center, y, Stroke::new(1.0, palette.text_hint));
             }
+            // The fill's moving edge, as the volume's handle.
+            if (x - center).abs() >= 1.0 {
+                draw_handle(p, x, rect.shrink2(vec2(0.0, 3.0)).y_range(), text_rect);
+            }
         }
     }
-    p.text(
-        rect.center() - vec2(0.0, lift),
-        Align2::CENTER_CENTER,
-        kind.text(out),
-        FontId::proportional(theme::size::CAPTION),
-        palette.text,
-    );
+    p.galley(text_rect.min, galley, palette.text);
     if response.has_focus() {
         p.rect_stroke(
             rect,
@@ -476,6 +480,47 @@ pub fn value_slider_styled(
         );
     }
     out
+}
+
+/// How far from the value's text a slider's handle starts to open, in
+/// points.
+const HANDLE_OPENS_WITHIN: f32 = 8.0;
+
+/// A slider's handle at `x` over `ys`: a solid line that opens around the
+/// value's `text` as it comes near, smoothly with the distance, until only
+/// a tick above and below it remains (the owner's choice C, the interface
+/// audit's S2: the line ran through the value). Nothing animates by
+/// itself: the opening follows the handle.
+fn draw_handle(p: &Painter, x: f32, ys: Rangef, text: Rect) {
+    let stroke = Stroke::new(2.0, theme::p().start_marker);
+    for span in handle_spans(x, ys, text) {
+        p.vline(x, span, stroke);
+    }
+}
+
+/// Half the height a handle opens to around the value: from the capitals'
+/// tops to the baseline (about 0.36 of the size each way from the line's
+/// middle), with 1.5 pt to spare; not the whole line, which fills the
+/// slider.
+const HANDLE_GAP_HALF: f32 = 0.36 * theme::size::CAPTION + 1.5;
+
+/// The parts of a handle at `x` over `ys` left drawn around `text`.
+fn handle_spans(x: f32, ys: Rangef, text: Rect) -> Vec<Rangef> {
+    let away = (x - text.center().x).abs() - text.width() / 2.0 - 3.0;
+    let near = (1.0 - away.max(0.0) / HANDLE_OPENS_WITHIN).clamp(0.0, 1.0);
+    let open = near * near * (3.0 - 2.0 * near);
+    let half = open * HANDLE_GAP_HALF;
+    let gap = Rangef::new(text.center().y - half, text.center().y + half);
+    if gap.span() < 0.5 {
+        return vec![ys];
+    }
+    [
+        Rangef::new(ys.min, gap.min.min(ys.max)),
+        Rangef::new(gap.max.max(ys.min), ys.max),
+    ]
+    .into_iter()
+    .filter(|s| s.span() >= 0.5)
+    .collect()
 }
 
 /// A value shown as text in a field (a strip's volume under its fader, M4
@@ -671,6 +716,40 @@ pub fn draw_glow_rect(painter: &Painter, rect: Rect, radius: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_handle_opens_around_the_value_as_it_nears_it() {
+        let ys = Rangef::new(3.0, 17.0);
+        // A value centred in a 20 pt slider, as on a strip.
+        let text = Rect::from_min_max(pos2(40.0, 4.5), pos2(80.0, 15.5));
+        // Far away: one solid line.
+        assert_eq!(handle_spans(10.0, ys, text), vec![ys]);
+        // Over the text: a tick above and below, clear of the letters.
+        let over = handle_spans(60.0, ys, text);
+        assert_eq!(over.len(), 2, "{over:?}");
+        let middle = text.center().y;
+        assert!(
+            over[0].max < middle - 4.0 && over[1].min > middle + 4.0,
+            "{over:?}"
+        );
+        assert!(over[0].span() >= 1.5 && over[1].span() >= 1.5, "{over:?}");
+        // Coming near, the gap grows with the closeness, never jumps.
+        let gap = |x: f32| {
+            let spans = handle_spans(x, ys, text);
+            if spans.len() == 2 {
+                spans[1].min - spans[0].max
+            } else {
+                0.0
+            }
+        };
+        let mut last = 0.0;
+        for i in 0..=40 {
+            let g = gap(25.0 + i as f32 * 0.5);
+            assert!(g >= last - 1e-4, "{g} after {last}");
+            last = g;
+        }
+        assert!(gap(36.0) > 0.0 && gap(36.0) < gap(37.0));
+    }
 
     #[test]
     fn values_read_naturally() {

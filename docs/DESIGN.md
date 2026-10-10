@@ -177,16 +177,22 @@ Sentence case for every label ("Audio settings", not
 
 ## 5. Spacing and shape
 
-- **4 pt grid:** `XS 4 · S 8 · M 12`. Controls sit 8 apart. Sections in a
-  window are divided by a separator with 10 above each heading. Content
-  insets in windows are 12.
-- **Control height:** 24 pt (transport icons 28).
+- **4 pt grid:** `XXS 2 · XS 4 · S 8 · M 12` (`theme::space`). Controls
+  sit 8 apart. Sections in a window are divided by a separator with 12
+  above each heading. Content insets in windows are 12, in strips 8.
+- **Control sizes** (`theme::size`, M4.5): `CONTROL` 24 pt for buttons,
+  fields and combos (egui's `interact_size`; transport icons 28);
+  `CONTROL_SMALL` 20 pt in dense rows (M, S and arm on headers and strips,
+  switches, segmented controls, strip rows, the clip card's rows); knobs
+  `KNOB` 24 pt and, in lists, `KNOB_SMALL` 18 pt. A module never invents its
+  own size for these.
 - **Radius:** `SMALL 4` (buttons, inputs, clips), `MEDIUM 6` (popovers),
   `LARGE 8` (windows).
 - **Elevation:** only windows and popovers float. They get `overlay` fill,
   a `border_strong` outline and one soft shadow. Nothing else has a shadow.
-- **Settings rows:** labels in a right-aligned column 96 pt wide, values to
-  the right of it, warnings wrapped within the column's width.
+- **Settings rows:** labels in a right-aligned column (`LABEL_COLUMN` 96 pt
+  in windows, `LABEL_COLUMN_NARROW` 72 pt in cards), values to the right of
+  it, warnings wrapped within the column's width.
 
 ## 6. Motion
 
@@ -235,8 +241,16 @@ not travel.
 | Combo / menu | as Field, ▼ | | | selected row `accent_muted` | |
 | Popover / window | `overlay`, `border_strong`, shadow | | | | |
 | Notice | `warning` text, wrapped, with Dismiss | | | | |
+| Switch (on/off) | a 30 × 16 pt pill in `control_press`, the knob `text_secondary`; its label at the left of a row as wide as there is room for | the pill lightens (`FAST`) | — | the knob glides right (`GLIDE`), `accent` on `accent_muted` | `text_disabled` |
+| Segmented (2–5 choices) | one `control` track, labels in `text_secondary` | label in `text` | — | an `accent_muted` thumb that slides to the choice (`GLIDE`), label in `accent` | label in `text_disabled`, with why on hover |
+| Choice row (longer lists, such as a device's channel pairs) | a 24 pt row, `text` | `control` wash | — | `accent_muted` fill, `accent` text | — |
 
 Keyboard focus shows as a 2 pt `accent` ring on every focusable control.
+
+egui's checkboxes and radio buttons are not used (M4.5, the interface
+audit's T3): on/off is a switch (`widgets::switch`), two to five choices a
+segmented control (`widgets::segmented`), longer lists choice rows
+(`widgets::choice_row`) or menu rows.
 
 ## 7a. Tracks and clips (M3 slice 4, owner's choices)
 
@@ -259,11 +273,15 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
   - A selected header is `selected_row`, and its controls step up (§3).
 - **Unfolded header:** one row of sliders that show their value inside, with
   no separate labels:
-  - **volume** fills from the left, with a thin handle line and the value
-    in dB;
+  - **volume** fills from the left, with a handle line and the value in
+    dB. The line is solid; within 8 pt of the value's box its middle opens,
+    smoothly with the distance, until only a tick above and below the
+    letters remains (the owner's C, M4.5), so it never crosses the value;
   - **pan** fills from the centre; its fill moves from neutral grey to the
     accent as the pan nears an edge (strength = |pan|^1.2). The centre is
-    marked by short ticks at the edges, clear of the value;
+    marked by short ticks at the edges, clear of the value; the fill's
+    moving edge is a handle line that opens around the value as volume's
+    does;
   - both: drag (Shift for fine), double-click to reset, click then type a
     value (Enter applies, Esc cancels), arrow keys when focused.
 - **Record arm ("glow and breathe")**, the owner's choice:
@@ -445,7 +463,7 @@ Chosen from interactive specimens (ADR-0038):
   its lanes have a quieter ground (`canvas` at 70%). A return's name
   follows a 16 pt **letter badge** in its colour (text by `text_on`); no
   arm button on returns or the master.
-- **Send knobs (K1 "comet"):** 24 pt knobs, 5 pt apart, under volume and
+- **Send knobs (K1 "comet"):** 24 pt knobs, 4 pt apart, under volume and
   pan on unfolded audio, MIDI and group tracks (such tracks unfold five
   steps tall). A 270° ring in `control`; the level a trail in the
   return's colour, from 18% to full strength and thickening towards a
@@ -522,10 +540,12 @@ Chosen from interactive specimens:
   pair greyed "Cue" with why, each pair's channel names and "Skips the
   master" on hover; "Looking up the outputs…" until known); Ø and input trim (±24 dB, filled from the centre;
   the master shows its Solo/Cue switch there); the sends (O2: the first
-  two returns' knobs, 22 pt, then "+N ▾" listing them all); pan; the fader
+  two returns' knobs, 24 pt, then "+N ▾" listing them all); pan; the fader
   (`widgets::fader`: a 4 pt groove and a 22 × 12 pt cap with a `text` line,
   on the send knobs' taper, 0 dB at three quarters of the travel, stopping
-  at −60 dB) beside the scale (monospace marks, 0 in `text_secondary`) and
+  at −60 dB) beside the scale (monospace marks, 0 in `text_secondary`; the
+  marks are placed most important first, 0, −48, +6, −12, −24, −6, and one
+  within 11 pt of a numbered mark is a 3 pt tick instead) and
   the stereo meter (two 5 pt bars, 2 pt apart, with the clip light, 5 pt,
   above); the volume typed in (`widgets::value_field`) and the peak held
   (`record` when clipped; a click clears it); M, S and arm, 20 pt, centred.

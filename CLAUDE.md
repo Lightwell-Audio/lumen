@@ -404,7 +404,13 @@ scroll clamp, the shots harness), shared widgets and sizes, chrome,
 Martian Mono (ask before downloading), motion, close. **Slice 1 is
 built** (T1 fields take `theme::controls`, the `well` token, the scroll
 clamp in `rows.rs` `keep_in_content`, the shots harness); MT-POL-1 waits
-for the owner. Next: slice 2.
+for the owner (passed). **Slice 2 is built**: size tokens
+(`size::CONTROL`, `CONTROL_SMALL`, `KNOB`, `KNOB_SMALL`, `LABEL_COLUMN*`,
+`space::XXS`), the handle that opens near its value
+(`widgets::draw_handle`), scale numbers thinned (`meter::place`), and
+`widgets/toggle.rs` (`switch`, `segmented`, `choice_row`): use these,
+never egui's checkbox or radio. MT-POL-2 waits for the owner. Next:
+slice 3.
 `tests/shots.rs` renders mixed themes when run in parallel (the theme is
 process-global): run it with `--test-threads=1`.
 Before it, 2026-10-10: **the M4 review's fixes are done on
@@ -556,7 +562,8 @@ escapes and quotes several times.
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
-- **M4.5 Polish pass: approved 2026-10-10; slice 1 built, MT-POL-1 waits.**
+- **M4.5 Polish pass: approved 2026-10-10; slice 1 done, slice 2 built
+  (MT-POL-2 waits).**
 - **M4 Mixer, Routing & Groups: complete 2026-10-10**; the review's fixes
   are merged (PR #3).
 - **M3 Arrangement & Project System: complete, approved 2026-10-09.** Slices 1–3 done:

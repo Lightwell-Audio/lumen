@@ -240,3 +240,23 @@ fn tab_walks_the_window_in_reading_order() {
     assert!(at.iter().all(|&t| t < arrangement), "the transport first");
     assert!(place(&order, "kick: double-click to rename") > arrangement);
 }
+
+#[test]
+fn switches_and_segmented_choices_work_by_name() {
+    // M4.5 slice 2: the app menu's on/off settings are switches (named as
+    // checkboxes) and its small choices segmented controls (radio buttons).
+    // A click closes the menu, as egui's menus do.
+    let mut lumen = Lumen::start("switches");
+    lumen.click("Lumen");
+    assert!(!lumen.is_on("Reduce motion"));
+    lumen.click("Reduce motion");
+    lumen.click("Lumen");
+    assert!(lumen.is_on("Reduce motion"), "a click switches it on");
+    assert!(lumen.is_on("Dark") && !lumen.is_on("Light"));
+    lumen.click("Light");
+    lumen.click("Lumen");
+    assert!(
+        lumen.is_on("Light") && !lumen.is_on("Dark"),
+        "one choice at a time"
+    );
+}

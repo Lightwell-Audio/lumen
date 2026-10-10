@@ -27,11 +27,11 @@ use crate::widgets::{db_text, draw_arrow};
 use crate::{fonts, motion, theme};
 
 /// A send knob's size, and the gap between knobs.
-const KNOB: f32 = 24.0;
-const GAP: f32 = 5.0;
+const KNOB: f32 = theme::size::KNOB;
+const GAP: f32 = theme::space::XS;
 /// A knob in a list (the "+N" list, a return's senders): small enough
 /// that knobs on 22 pt rows never touch.
-const SMALL_KNOB: f32 = 18.0;
+const SMALL_KNOB: f32 = theme::size::KNOB_SMALL;
 /// A return's "+N more" list scrolls past this many senders.
 const LIST_ROWS: usize = 10;
 /// A return lists this many senders, then "+N more" (the owner's L4).

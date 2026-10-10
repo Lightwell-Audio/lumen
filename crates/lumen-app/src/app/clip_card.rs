@@ -21,9 +21,9 @@ use crate::{App, lanes, theme};
 /// The card's width: its content wraps or truncates inside it.
 const CARD_WIDTH: f32 = 272.0;
 /// The labels' column.
-const LABEL_WIDTH: f32 = 62.0;
+const LABEL_WIDTH: f32 = theme::size::LABEL_COLUMN_NARROW;
 /// A slider's height.
-const ROW: f32 = 18.0;
+const ROW: f32 = theme::size::CONTROL_SMALL;
 /// A colour swatch.
 const SWATCH: f32 = 14.0;
 /// The narrowest title-bar rename field.

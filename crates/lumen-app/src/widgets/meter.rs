@@ -79,17 +79,50 @@ pub fn vertical(
     }
 }
 
-/// The scale between a fader and its meter: dB marks right-aligned at `x`.
+/// The least room between two numbers on a scale, in points.
+const LABEL_ROOM: f32 = 11.0;
+
+/// A mark on a scale: where it sits, and whether its number fits.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Mark {
+    db: f32,
+    y: f32,
+    numbered: bool,
+}
+
+/// Places `marks`, given most important first, along `ys`: a mark's number
+/// shows when it is at least [`LABEL_ROOM`] from every number already
+/// placed; otherwise the mark is a tick (the interface audit's S3: on a
+/// short strip, −6 and −12 overlapped).
+fn place(ys: Rangef, marks: &[f32]) -> Vec<Mark> {
+    let mut placed: Vec<Mark> = Vec::with_capacity(marks.len());
+    for &db in marks {
+        let y = y_at(ys, db);
+        let numbered = placed
+            .iter()
+            .filter(|m| m.numbered)
+            .all(|m| (m.y - y).abs() >= LABEL_ROOM);
+        placed.push(Mark { db, y, numbered });
+    }
+    placed
+}
+
+/// The scale between a fader and its meter: dB marks right-aligned at `x`,
+/// `marks` most important first; those without room are short ticks.
 pub fn scale(painter: &Painter, x: f32, ys: Rangef, marks: &[f32]) {
     let palette = theme::p();
-    for &db in marks {
+    for Mark { db, y, numbered } in place(ys, marks) {
+        if !numbered {
+            painter.hline(x - 3.0..=x, y, Stroke::new(1.0, palette.text_hint));
+            continue;
+        }
         let text = if db == 0.0 {
             "0".to_owned()
         } else {
             format!("{}{}", if db > 0.0 { "+" } else { "\u{2212}" }, db.abs())
         };
         painter.text(
-            egui::pos2(x, y_at(ys, db)),
+            egui::pos2(x, y),
             Align2::RIGHT_CENTER,
             text,
             FontId::monospace(theme::size::SCALE),
@@ -119,5 +152,26 @@ mod tests {
         assert_eq!((over[1].0, over[1].1), (theme::METER_WARN_DB, 0.0));
         assert_eq!((over[2].0, over[2].1), (0.0, 3.0));
         assert_eq!(zones(f32::NEG_INFINITY, base).count(), 0);
+    }
+
+    #[test]
+    fn scale_numbers_never_crowd_and_zero_always_shows() {
+        let marks = [0.0, -48.0, 6.0, -12.0, -24.0, -6.0];
+        for height in [64.0_f32, 80.0, 96.0, 140.0, 220.0] {
+            let placed = place(Rangef::new(0.0, height), &marks);
+            let numbered: Vec<_> = placed.iter().filter(|m| m.numbered).collect();
+            assert!(numbered.iter().any(|m| m.db == 0.0), "{height}: 0 dB");
+            for (i, a) in numbered.iter().enumerate() {
+                for b in &numbered[i + 1..] {
+                    assert!((a.y - b.y).abs() >= LABEL_ROOM, "{height}: {a:?} {b:?}");
+                }
+            }
+        }
+        // A tall strip numbers every mark.
+        assert!(
+            place(Rangef::new(0.0, 400.0), &marks)
+                .iter()
+                .all(|m| m.numbered)
+        );
     }
 }

@@ -9,7 +9,7 @@
 
 use std::path::PathBuf;
 
-use eframe::egui::{Event, Key, Modifiers, Pos2, Rect, vec2};
+use eframe::egui::{Event, Key, Modifiers, Pos2, Rect, pos2, vec2};
 use egui_kittest::Harness;
 use lumen_app::{App, Launch};
 use lumen_project::testing::TempDir;
@@ -492,6 +492,22 @@ fn menus_and_tips_looking(appearance: &str, scale: f32) {
     h.hover_at(play.center());
     h.run_steps(60);
     save(&mut h, "tip-play");
+    h.hover_at(pos2(600.0, 400.0));
+    h.run_steps(3);
+    // The app menu: switches and segmented choices (M4.5 slice 2).
+    let lumen = h.get_by_label("Lumen").rect();
+    click(&mut h, lumen.center());
+    h.run_steps(30);
+    save(&mut h, "menu-app");
+    h.key_press(Key::Escape);
+    h.run_steps(3);
+    // The metronome's menu.
+    let metronome = h.get_by_label("Metronome").rect();
+    right(&mut h, metronome.center());
+    h.run_steps(30);
+    save(&mut h, "menu-metronome");
+    h.key_press(Key::Escape);
+    h.run_steps(3);
 }
 
 #[test]

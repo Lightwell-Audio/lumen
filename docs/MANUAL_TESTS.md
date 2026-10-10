@@ -1703,3 +1703,38 @@ Slice 1 of M4.5 (`docs/milestones/M4.5.md`): findings T1, T2 and U1 of
    tracks (Ctrl+G), scroll down, fold the group: the same.
 
 **Expected:** as described.
+
+**Passed (2026-10-10, owner):** "looks good".
+
+### MT-POL-2 · Shared widgets and sizes (needs a human)
+Slice 2 of M4.5: findings S2, S3, S4 and T3. Run
+`cargo run --release -p lumen-app`.
+1. **The slider handle (S2, your C):** unfold a track. Drag its volume
+   slowly from −60 to +6 dB: away from the value the handle is a solid
+   line; as it nears the value it opens, and over the value only a tick
+   below the letters is left (the value sits high to leave room for the
+   meter). It never crosses a letter. Pan the track left and right: the
+   fill's edge does the same around "L 25". Check the mixer strip's pan
+   too.
+2. **Scale numbers (S3):** in the Mixer tab, drag the panel's top edge down
+   to its smallest: the dB numbers beside each fader never touch; the ones
+   without room become short ticks, and 0 always shows. Drag it tall:
+   every number comes back.
+3. **Switches and choices (T3):** open the Lumen menu. "Copy imported
+   audio", "Reduce motion", "Additive solo" and "Meters in track colours"
+   are switches: click one (the menu closes, as menus do), reopen it, and
+   it is on, its knob at the right in the accent. Theme and Interface size
+   are segmented: click Light, reopen, then 125%; the chosen one is lit. Right-click the metronome: Sound and Output are
+   segmented, and Cue is greyed with why on hover until a cue pair is set.
+   Right-click Follow: Page, Continuous and Off. Right-click a send knob:
+   Pre-fader and Post-fader. A clip's menu, Fades: Linear, Slow, Fast and
+   S-curve for each end. Audio settings: the channel pairs are rows, the
+   chosen one lit; Test tone is a switch. Each works from the keyboard
+   (Tab to it, Space or Enter).
+4. **Sizes (S4):** M, S and arm are the same size on headers and strips
+   (20 pt); send knobs on a mixer strip are as large as on a header (24 pt);
+   buttons, fields and combos in windows are a touch taller (24 pt). Check
+   both themes at 100%, 150% and 200%: nothing overlaps, and the mixer and
+   clip card still fit.
+
+**Expected:** as described.

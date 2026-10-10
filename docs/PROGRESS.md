@@ -37,8 +37,8 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 
 | # | Slice | Status | Commits |
 |---|---|---|---|
-| 1 | The audit's bugs: value fields follow the surface (T1), a `well` token for grooves and meters (T2), the scroll kept on the tracks (U1), the shots harness (a taller window, one thread) | 🟡 Built 2026-10-10, MT-POL-1 waits for the owner | |
-| 2 | Shared widgets and sizes (S4, S2, S3, T3) | 🔲 | |
+| 1 | The audit's bugs: value fields follow the surface (T1), a `well` token for grooves and meters (T2), the scroll kept on the tracks (U1), the shots harness (a taller window, one thread) | ✅ 2026-10-10 (MT-POL-1 passed) | `37bfea0` |
+| 2 | Shared widgets and sizes: the size scale (S4), the handle that opens near its value (S2, the owner's C), scale numbers thinned (S3), the switch, segmented control and choice rows replace egui's checkboxes and radios (T3) | 🟡 Built 2026-10-10, MT-POL-2 waits for the owner | |
 | 3 | Chrome (T4, T5, S5, S6, S7) | 🔲 | |
 | 4 | Numbers in Martian Mono (S1) | 🔲 | |
 | 5 | Motion (M1, M4, M2, M3, U2, M5) | 🔲 | |

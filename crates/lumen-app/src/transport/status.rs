@@ -10,7 +10,7 @@ use lumen_project::model::Project;
 
 use crate::app::info::{Held, Info, Mouse};
 use crate::audio::Status;
-use crate::theme;
+use crate::{theme, widgets};
 
 use super::Transport;
 use super::{compensation, dropouts};
@@ -158,11 +158,8 @@ impl Transport {
         }
         ui.separator();
         let mut on = self.audio.is_on();
-        if ui
-            .add_enabled(
-                self.audio.can_switch(),
-                egui::Checkbox::new(&mut on, "Audio on"),
-            )
+        let can = self.audio.can_switch();
+        if widgets::switch(ui, &mut on, "Audio on", can)
             .on_hover_text("Audio on or off (off frees the device)")
             .changed()
         {
@@ -177,8 +174,7 @@ impl Transport {
             // Close this panel, so the window is not hidden behind it.
             ui.close();
         }
-        if ui
-            .checkbox(&mut self.test_tone, "Test tone (1 kHz, −20 dBFS)")
+        if widgets::switch(ui, &mut self.test_tone, "Test tone (1 kHz, −20 dBFS)", true)
             .on_hover_text("A steady tone on every output, to check the audio path")
             .changed()
         {

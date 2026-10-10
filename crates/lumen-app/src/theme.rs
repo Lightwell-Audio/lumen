@@ -240,6 +240,8 @@ pub const CLIP_MUTED: Color32 = Color32::from_rgb(0x6C, 0x70, 0x78);
 
 /// Spacing on a 4 pt grid (`DESIGN.md` §5).
 pub mod space {
+    /// Hairline gaps: inside a segmented control, between a strip's rails.
+    pub const XXS: f32 = 2.0;
     pub const XS: f32 = 4.0;
     pub const S: f32 = 8.0;
     pub const M: f32 = 12.0;
@@ -268,6 +270,20 @@ pub mod size {
     pub const WORDMARK: f32 = 14.0;
     /// The info line's height along the bottom of the window (M4 slice 0).
     pub const INFO_LINE: f32 = 32.0;
+    /// Controls: buttons, fields and sliders (`DESIGN.md` §5).
+    pub const CONTROL: f32 = 24.0;
+    /// Controls in dense rows: M, S and arm, switches, segmented controls,
+    /// header sliders (the interface audit's S4: 18, 19, 20 and 22 were in
+    /// use).
+    pub const CONTROL_SMALL: f32 = 20.0;
+    /// Send knobs on headers and strips.
+    pub const KNOB: f32 = 24.0;
+    /// Knobs in lists (a return's senders, the "+N" list).
+    pub const KNOB_SMALL: f32 = 18.0;
+    /// A window's label column (labels right-aligned in it).
+    pub const LABEL_COLUMN: f32 = 96.0;
+    /// The label column of a narrow card (the clip's properties).
+    pub const LABEL_COLUMN_NARROW: f32 = 72.0;
 }
 
 /// Which theme the user asked for.
@@ -364,9 +380,12 @@ fn build_style(style: &mut egui::Style, c: &Palette, light: bool, animation_time
     .into();
 
     let spacing = &mut style.spacing;
-    spacing.item_spacing = vec2(space::S, space::XS + 2.0);
-    spacing.button_padding = vec2(space::S, 3.0);
-    spacing.interact_size.y = 22.0;
+    // On the 4 pt grid, with controls 24 tall (`DESIGN.md` §5; the
+    // interface audit's S4: the spacing was 6, the padding 3 and controls
+    // 22).
+    spacing.item_spacing = vec2(space::S, space::XS);
+    spacing.button_padding = vec2(space::S, space::XS);
+    spacing.interact_size.y = size::CONTROL;
     spacing.window_margin = Margin::same(space::M as i8);
     spacing.menu_margin = Margin::same(space::S as i8);
 

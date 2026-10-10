@@ -10,7 +10,7 @@ use lumen_engine::{ClickSound, Command, TransportSnapshot};
 
 use crate::audio::Status;
 use crate::icons::{self, Icon};
-use crate::{position, theme};
+use crate::{position, theme, widgets};
 
 use super::{DENOMINATORS, Transport};
 
@@ -41,17 +41,16 @@ impl Transport {
         }
         response.context_menu(|ui| {
             ui.label("Follow the playhead");
-            for mode in [Follow::Page, Follow::Continuous, Follow::Off] {
-                if ui
-                    .radio_value(&mut self.follow, mode, mode.name())
-                    .clicked()
-                {
-                    self.follow_paused = false;
-                    if mode != Follow::Off {
-                        self.follow_last = mode;
-                    }
-                    ui.close();
+            let modes = [Follow::Page, Follow::Continuous, Follow::Off]
+                .map(|mode| widgets::Choice::new(mode, mode.name()));
+            if let Some(mode) = widgets::segmented(ui, ui.id().with("follow"), self.follow, &modes)
+            {
+                self.follow = mode;
+                self.follow_paused = false;
+                if mode != Follow::Off {
+                    self.follow_last = mode;
                 }
+                ui.close();
             }
         });
     }
@@ -184,31 +183,35 @@ impl Transport {
             self.metronome.volume = percent / 100.0;
             ui.separator();
             ui.label("Sound");
-            for sound in ClickSound::ALL {
-                changed |= ui
-                    .radio_value(&mut self.metronome.sound, sound, sound.name())
-                    .changed();
+            let sounds = ClickSound::ALL.map(|s| widgets::Choice::new(s, s.name()));
+            if let Some(sound) =
+                widgets::segmented(ui, ui.id().with("sound"), self.metronome.sound, &sounds)
+            {
+                self.metronome.sound = sound;
+                changed = true;
             }
             // Its own output, never through the master (the owner's D6):
             // the main pair, or the cue pair for the headphones.
             ui.separator();
             ui.label("Output");
             let cue = crate::settings::CUE_CHANNEL;
-            changed |= ui
-                .radio_value(&mut self.metronome.channel, 0, "Main")
-                .changed();
             let ready = self.audio.cue_ready();
-            changed |= ui
-                .add_enabled(
-                    ready,
-                    egui::RadioButton::new(self.metronome.channel == cue, "Cue"),
-                )
-                .on_disabled_hover_text("Choose a Cue output in Audio settings first")
-                .clicked()
-                && {
-                    self.metronome.channel = cue;
-                    true
-                };
+            let outputs = [
+                widgets::Choice::new(0, "Main"),
+                widgets::Choice::new(cue, "Cue")
+                    .enabled(ready)
+                    .tip(if ready {
+                        "The cue pair, for headphones"
+                    } else {
+                        "Choose a Cue output in Audio settings first"
+                    }),
+            ];
+            if let Some(channel) =
+                widgets::segmented(ui, ui.id().with("output"), self.metronome.channel, &outputs)
+            {
+                self.metronome.channel = channel;
+                changed = true;
+            }
             if changed {
                 self.send(Command::SetMetronome(self.metronome));
             }

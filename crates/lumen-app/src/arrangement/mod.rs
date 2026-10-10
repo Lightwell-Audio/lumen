@@ -97,7 +97,9 @@ pub(crate) fn indent(depth: usize) -> f32 {
     INDENT * depth.min(lumen_project::groups::MAX_NESTING) as f32
 }
 
-const BUTTON: f32 = 19.0;
+/// M, S and arm on a header (the interface audit's S4: 19, against the
+/// strip's 20).
+const BUTTON: f32 = crate::theme::size::CONTROL_SMALL;
 
 /// One row of the arrangement, in content coordinates (on screen at the
 /// lanes' top + `y` − the scroll), drawn inside its zone.
