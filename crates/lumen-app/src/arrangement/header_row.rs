@@ -90,7 +90,7 @@ impl Arrangement {
         if background.drag_started() && track.kind != TrackKind::Return {
             self.start_drag(doc.project(), track.id, false);
         }
-        background.context_menu(|ui| {
+        widgets::Menu::context(&background).show(|ui| {
             if !self.selected.contains(&track.id) {
                 self.selected = vec![track.id];
             }
@@ -234,7 +234,7 @@ impl Arrangement {
         if let Some(name) = self.name(ui, doc, &track, name_rect, (heard, count), (id, false)) {
             let keys = keymap.keys(Command::Rename);
             let name = widgets::tip(name, "Double-click to rename", keys.as_ref(), None);
-            name.context_menu(|ui| {
+            widgets::Menu::context(&name).show(|ui| {
                 if !self.selected.contains(&track.id) {
                     self.selected = vec![track.id];
                 }

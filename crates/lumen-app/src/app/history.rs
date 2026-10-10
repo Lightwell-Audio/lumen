@@ -12,6 +12,8 @@ use crate::{App, motion, theme, trace};
 impl App {
     /// Undo (or redo) one step, with a brief note of what changed.
     pub(crate) fn undo(&mut self, redo: bool) {
+        // What it changes glides back and is washed in the accent (M4.5).
+        self.arrangement.note_undo();
         let done = if redo {
             self.document.redo().map(|l| format!("Redo: {l}"))
         } else {

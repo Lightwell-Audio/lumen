@@ -21,19 +21,22 @@ This file records the components whose licences need specific action.
 - **Recorded:** owner decision 2026-10-06 (`docs/DECISIONS.md`), with a
   `cargo-deny` exception in `deny.toml`.
 
-## Typefaces: Inter and Unbounded
+## Typefaces: Inter, Unbounded and Martian Mono
 
 - **Files:** `crates/lumen-app/assets/fonts/Inter.ttf` (Inter, by Rasmus
-  Andersson) and `Unbounded.ttf` (Unbounded, by the Unbounded Project
-  Authors), variable fonts embedded in the application.
+  Andersson), `Unbounded.ttf` (Unbounded, by the Unbounded Project
+  Authors) and `MartianMono.ttf` (Martian Mono, by the Martian Mono Project
+  Authors, Evil Martians; added in M4.5), variable fonts embedded in the
+  application.
 - **Licence:** SIL Open Font License 1.1. The full texts are next to the
-  files (`Inter-OFL.txt`, `Unbounded-OFL.txt`).
+  files (`Inter-OFL.txt`, `Unbounded-OFL.txt`, `MartianMono-OFL.txt`).
 - **Source:** the Google Fonts repository,
-  <https://github.com/google/fonts> (`ofl/inter`, `ofl/unbounded`).
+  <https://github.com/google/fonts> (`ofl/inter`, `ofl/unbounded`,
+  `ofl/martianmono`).
 - **How Lumen complies:** the fonts are bundled unmodified. The OFL allows
   bundling with any software, including proprietary software, as long as
   the licence text ships with them and the fonts are not sold on their own.
-  The installer (M10) must include both licence texts.
+  The installer (M10) must include the three licence texts.
 
 ## Pending owner actions
 

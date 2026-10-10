@@ -75,7 +75,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
-use eframe::egui::{self, RichText};
+use eframe::egui;
 use lumen_core::product::{PRODUCT_NAME, display_name};
 use lumen_core::time::{TempoPoint, Ticks};
 use lumen_project::model::{Project, TimeSignature};
@@ -441,9 +441,32 @@ impl eframe::App for App {
             |ui| {
                 let rect = ui.max_rect();
                 self.panes.anchor(ui, app::panes::Pane::Browser, rect);
-                ui.label(RichText::new("Browser").font(fonts::display(theme::size::HEADING)));
-                ui.add_space(8.0);
-                ui.label(RichText::new("Devices, samples and projects will be here").weak());
+                // Its title in the display face, inset like the window
+                // titles (it sat against the panel's corner), then an empty
+                // state until its milestone, said as the unbuilt tabs say it
+                // (the interface audit's S5).
+                let inset = egui::vec2(theme::space::M, theme::space::M);
+                let title = ui.painter().text(
+                    rect.left_top() + inset,
+                    egui::Align2::LEFT_TOP,
+                    "Browser",
+                    fonts::display(theme::size::HEADING),
+                    theme::p().text,
+                );
+                let rect =
+                    egui::Rect::from_min_max(egui::pos2(rect.left(), title.bottom()), rect.max);
+                let state = widgets::EmptyState {
+                    icon: Some(|p, at, colour| {
+                        let square = egui::Rect::from_center_size(at, egui::vec2(16.0, 16.0));
+                        p.extend(icons::shapes(icons::Icon::Search, square, colour));
+                    }),
+                    icon_size: theme::space::L,
+                    title: "Nothing to browse yet",
+                    hint: "Devices, samples and projects arrive in Milestone 6",
+                    action: None,
+                };
+                widgets::empty_state(ui, rect, &state);
+                ui.advance_cursor_after_rect(rect);
             },
         );
         // The detail panel: the Mixer tab (M4 slice 5); Devices and Clip
@@ -467,15 +490,28 @@ impl eframe::App for App {
             |ui| {
                 let rect = ui.max_rect();
                 self.panes.anchor(ui, app::panes::Pane::Detail, rect);
-                ui.horizontal(|ui| {
-                    for (tab, milestone) in [("Devices", "Milestone 6"), ("Clip", "Milestone 5")] {
-                        ui.add_enabled(false, egui::Button::new(tab))
-                            .on_disabled_hover_text(arrives(milestone));
-                    }
-                    let mixer = egui::Button::new(RichText::new("Mixer").color(theme::p().accent))
-                        .fill(theme::p().accent_muted);
-                    ui.add(mixer).on_hover_text("Every track's channel strip");
-                });
+                // Tabs as words over a sliding underline (the interface
+                // audit's T4); Devices and Clip arrive with their milestones.
+                let devices = arrives("Milestone 6");
+                let clip = arrives("Milestone 5");
+                let tabs = [
+                    widgets::Tab {
+                        label: "Devices",
+                        disabled_because: Some(&devices),
+                        tip: "",
+                    },
+                    widgets::Tab {
+                        label: "Clip",
+                        disabled_because: Some(&clip),
+                        tip: "",
+                    },
+                    widgets::Tab {
+                        label: "Mixer",
+                        disabled_because: None,
+                        tip: "Every track's channel strip",
+                    },
+                ];
+                widgets::tabs(ui, egui::Id::new("detail tabs"), 2, &tabs);
                 // Claimed without interaction: egui sizes the panel by what
                 // its contents take, so an unclaimed area snapped it back to
                 // its smallest after every change.
@@ -494,6 +530,8 @@ impl eframe::App for App {
                 .mixer_panel(&mut mixer, &mut self.document, &self.keymap);
             self.take_cue_controls();
         }
+        // Windows that closed fade out (M4.5).
+        widgets::paint_gone(&ctx);
         self.typing = ctx.text_edit_focused();
 
         // Scheduled after drawing, because buttons are clicked while drawing.

@@ -525,14 +525,85 @@ pub fn file_facts(ui: &mut egui::Ui, item: &Item) {
         }
         _ => {}
     }
-    ui.add(
-        egui::Label::new(
-            RichText::new(item.path.display().to_string())
-                .small()
-                .weak(),
-        )
-        .truncate(),
-    );
+    // Shortened in the middle, so the file's name always shows (the
+    // interface audit's S6: cut at its end, the name was what went).
+    let font = egui::FontId::proportional(theme::size::CAPTION);
+    let room = ui.available_width();
+    let shown = shorten_middle(&item.path, |text| {
+        ui.painter()
+            .layout_no_wrap(text.to_owned(), font.clone(), theme::p().text_hint)
+            .size()
+            .x
+            <= room
+    });
+    ui.add(egui::Label::new(RichText::new(shown).small().weak()).truncate())
+        .on_hover_text(item.path.display().to_string());
+}
+
+/// `path` as it `fits`: whole if it can be, otherwise with the folders
+/// nearest the file left out as "…", keeping the start and the file's name.
+fn shorten_middle(path: &std::path::Path, fits: impl Fn(&str) -> bool) -> String {
+    let whole = path.display().to_string();
+    if fits(&whole) {
+        return whole;
+    }
+    use std::path::Component;
+    let sep = std::path::MAIN_SEPARATOR_STR;
+    // The drive and root ("C:\", "/") lead the first folder; the rest are
+    // names.
+    let mut root = String::new();
+    let mut parts: Vec<String> = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(p) => root.push_str(&p.as_os_str().to_string_lossy()),
+            Component::RootDir => root.push_str(sep),
+            other => parts.push(other.as_os_str().to_string_lossy().into_owned()),
+        }
+    }
+    let Some((name, folders)) = parts.split_last() else {
+        return whole;
+    };
+    for keep in (1..folders.len()).rev() {
+        let text = format!(
+            "{root}{}{sep}\u{2026}{sep}{name}",
+            folders[..keep].join(sep)
+        );
+        if fits(&text) {
+            return text;
+        }
+    }
+    format!("\u{2026}{sep}{name}")
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::shorten_middle;
+    use std::path::PathBuf;
+
+    #[test]
+    fn a_long_path_keeps_its_start_and_its_file_name() {
+        let sep = std::path::MAIN_SEPARATOR_STR;
+        let path: PathBuf = ["base", "Users", "someone", "Music", "Samples", "kick.wav"]
+            .iter()
+            .collect();
+        assert_eq!(shorten_middle(&path, |_| true), path.display().to_string());
+        let short = shorten_middle(&path, |t| t.chars().count() <= 26);
+        assert!(
+            short.ends_with(&format!("\u{2026}{sep}kick.wav")),
+            "{short}"
+        );
+        assert!(short.starts_with("base"), "{short}");
+        assert!(short.chars().count() <= 26, "{short}");
+        assert_eq!(
+            shorten_middle(&path, |_| false),
+            format!("\u{2026}{sep}kick.wav")
+        );
+        // From the root: one separator after it, never two.
+        let rooted = PathBuf::from(sep).join(&path);
+        let short = shorten_middle(&rooted, |t| t.chars().count() <= 27);
+        assert!(short.starts_with(&format!("{sep}base")), "{short}");
+        assert!(!short.contains(&format!("{sep}{sep}")), "{short}");
+    }
 }
 
 #[cfg(test)]

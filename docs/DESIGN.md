@@ -83,6 +83,18 @@ or offers the button that does it.
   answered by its buttons.
 - Popovers (the audio panel, menus) open under the control that opened them,
   with a small gap.
+- **Menus with settings in them** (the owner's C, M4.5): a switch,
+  segmented choice or menu toggle leaves the menu open, so a change can be
+  followed by another. Once something has changed and the pointer leaves
+  the menu (8 pt of slack), it waits 0.4 s and fades; coming back cancels
+  it. Esc, a click elsewhere and commands (New, Audio settings…) close it
+  at once, with the fade. Every menu is a `widgets::Menu`
+  (`Menu::below`, `Menu::context`, `.keeping_open()` for a context menu
+  with settings).
+- **Everything in a menu lines up** (M4.5 slice 6): switches, segmented
+  controls and captions (`widgets::menu_caption`) come in from the menu's
+  edges as far as its rows' labels and keycaps do (`button_padding`); the
+  widgets do it themselves when they are in a menu.
 
 ## 3. Colour
 
@@ -118,6 +130,7 @@ Windows** are in the app menu (click **Lumen** at the left of the transport bar)
 | `selected_row` | `#223449` | `#DBE7F8` | A selected track header |
 | `selected_control` | `#434D5E` | `#FFFFFF` | Controls on a selected row |
 | `clip_body` | `#262A31` | `#FFFFFF` | Clip body (the title bar and waveform carry the track colour) |
+| `well` | `#141619` | `#D6DAE0` | Inset wells: fader grooves, meter and loudness backgrounds; below every surface in both themes (M4.5) |
 | `shadow` | black at 38% | black at 14% | The one shadow, under windows and popovers |
 | `core` | `#FFFFFF` | `#1F6FD1` | The centre of a light (§6a); on light the accent: light on paper is ink |
 | `sun` | `#FFC46B` | `#CC9D56` | The mark's sun, at its rim (§6b); never in the interface |
@@ -157,38 +170,47 @@ Two faces, chosen by the owner from side-by-side specimens (2026-10-07):
 - **Unbounded** for personality: the "Lumen" wordmark, window titles and
   panel titles, at weight 560. It is wide, so it is set a step smaller than a
   narrow face would be, and only on short titles, never on body text.
-- **Hack** (egui's bundled monospace) for numbers that must not jitter.
+- **Martian Mono** for numbers that must not jitter (M4.5, the owner's
+  choice from specimens over Geist, JetBrains and IBM Plex Mono): square
+  and wide like Unbounded, set at width 87.5 (`wdth`) so readouts keep
+  their room. egui's Hack stays behind it as a fallback.
 
 egui's bundled fonts stay behind Inter as fallbacks for symbols (⚠, ⟳).
 Licences: SIL Open Font License, see `THIRD_PARTY_NOTICES.md`.
 
 | Style | Face | Size (pt) | Use |
 |---|---|---|---|
-| `scale` | Inter or Hack | 10 | Meter scales, knob values (M4) |
+| `scale` | Inter or Martian Mono | 10 | Meter scales, knob values (M4) |
 | `caption` | Inter | 11 | Hints, secondary facts, sample counts |
 | `body` | Inter | 13 | Labels, values, menu items, buttons |
 | section heading | Inter medium | 13 | "Device", "Format" in windows |
 | `wordmark` | Unbounded | 14 | "Lumen" in the transport bar |
 | `title` | Unbounded | 15 | Window titles |
 | `heading` | Unbounded | 16 | Panel titles (Browser) |
-| `mono` | Hack | 13 | Position, tempo, CPU: anything that changes while you read it |
-| `readout` | Hack | 20 | The master's integrated loudness in the mixer (M4) |
+| `mono` | Martian Mono | 13 | Position, tempo, CPU: anything that changes while you read it |
+| `readout` | Martian Mono | 20 | The master's integrated loudness in the mixer (M4) |
 
 Sentence case for every label ("Audio settings", not
 "Audio Settings").
 
 ## 5. Spacing and shape
 
-- **4 pt grid:** `XS 4 · S 8 · M 12`. Controls sit 8 apart. Sections in a
-  window are divided by a separator with 10 above each heading. Content
-  insets in windows are 12.
-- **Control height:** 24 pt (transport icons 28).
+- **4 pt grid:** `XXS 2 · XS 4 · S 8 · M 12` (`theme::space`). Controls
+  sit 8 apart. Sections in a window are divided by a separator with 12
+  above each heading. Content insets in windows are 12, in strips 8.
+- **Control sizes** (`theme::size`, M4.5): `CONTROL` 24 pt for buttons,
+  fields and combos (egui's `interact_size`; transport icons 28);
+  `CONTROL_SMALL` 20 pt in dense rows (M, S and arm on headers and strips,
+  switches, segmented controls, strip rows, the clip card's rows); knobs
+  `KNOB` 24 pt and, in lists, `KNOB_SMALL` 18 pt. A module never invents its
+  own size for these.
 - **Radius:** `SMALL 4` (buttons, inputs, clips), `MEDIUM 6` (popovers),
   `LARGE 8` (windows).
 - **Elevation:** only windows and popovers float. They get `overlay` fill,
   a `border_strong` outline and one soft shadow. Nothing else has a shadow.
-- **Settings rows:** labels in a right-aligned column 96 pt wide, values to
-  the right of it, warnings wrapped within the column's width.
+- **Settings rows:** labels in a right-aligned column (`LABEL_COLUMN` 96 pt
+  in windows, `LABEL_COLUMN_NARROW` 72 pt in cards), values to the right of
+  it, warnings wrapped within the column's width.
 
 ## 6. Motion
 
@@ -208,11 +230,35 @@ not travel.
 - **What animates:**
   - panels opening and closing (slide);
   - popovers and windows (fade, egui's built-in, at `BASE`);
+  - menus closing: every menu fades out (`BASE`, ease-in, drifting 4 pt up)
+    instead of vanishing; the fading menu is a picture of its last frame,
+    which nothing can click, focus or read out (`widgets::Menu`, M4.5);
   - notices and banners appearing (fade and a 6 pt drop);
   - hover and press fills on transport buttons;
   - the playhead and start marker moving after a locate while stopped;
   - clips appearing after an import (fade);
-  - the progress fill of a loading clip.
+  - the progress fill of a loading clip;
+  - (M4.5) **clips moving to a new place**: undo, redo and commands glide
+    them (`GLIDE`), a drag's snapped steps over `FAST`; only the drawing
+    travels: the audio changes at once and clicks go by where a clip is
+    (`arrangement/glide.rs`). Moves to another track jump rows;
+  - (M4.5) **what undo or redo changed**: an accent wash on those clips,
+    fading over 600 ms;
+  - (M4.5) **rows**: a new track grows in from no height; reordered and
+    deleted tracks' rows glide to their places; a folding group's tracks
+    glide shut, clipped to their shrinking rows (`arrangement/row_glide.rs`);
+  - (M4.5) **scroll bars** on the arrangement's tracks and the mixer's
+    strips: shown while scrolling or with the pointer near the edge, fading
+    in over `FAST` and out over `BASE` 0.8 s later; draggable
+    (`widgets::scroll_bar`). A strip cut by the mixer's edge fades into
+    `canvas` over `space::L` there, so a part-scrolled strip never ends as
+    a stray rail;
+  - (M4.5) the palette's chosen-row fill slides between rows (`FAST`);
+    menu highlights follow the pointer directly and do not slide;
+  - (M4.5) lit buttons (M, S, cue, loop, metronome, follow) cross-fade on
+    and off over `FAST`;
+  - (M4.5) windows fade out (`BASE`, ease-in, 4 pt up) when they close, as
+    a picture of their last frame (`widgets::paint_gone`).
 - **The one deliberate loop:** a record-armed track's ring breathes (2.4 s)
   so an armed track is never missed (owner's choice, M3 slice 4). It
   requests frames only while a track is armed, and Reduce motion holds it
@@ -298,13 +344,24 @@ strokes are 4 wide and the third reflection goes.
 |---|---|---|---|---|---|
 | Icon button (transport) | icon `text`, no fill | `control_hover` fill (`FAST`) | `control_press` | `accent` icon on `accent_muted` | `text_disabled` icon |
 | Button | `control` fill, `body` text | `control_hover` | `control_press` | — | `text_disabled` text, no fill change |
-| Toggle (Browser, Detail) | as Button | as Button | as Button | `accent_muted` fill, `accent` text | — |
+| Toggle (Browser, Detail; `widgets::toggle_button`) | as Button: `control` fill, never bare text (M4.5) | as Button | as Button | `accent_muted` fill, `accent` text | — |
+| Tabs (the detail panel; `widgets::tabs`) | words in `text_secondary`, 16 pt apart | `text` | — | `text`, over a 2 pt `accent` underline that slides to it (`GLIDE`) | `text_disabled`, with when it arrives on hover |
+| Time signature (`widgets::time_signature`) | one field, "4 / 4", `control` fill | the half under the pointer brightens: the beats left, the unit right | — | drag or wheel changes the half under the pointer; click and type "7/8"; double-click 4/4 | — |
+| Empty state (`widgets::empty_state`) | centred: a 16 pt icon in `text_hint`, the title in medium `text_secondary`, a caption hint, the action as a button with its keys in the tooltip | | | | |
 | Field (tempo, meter) | `raised` fill | `border_strong` outline | — | `accent` outline while editing | — |
 | Combo / menu | as Field, ▼ | | | selected row `accent_muted` | |
 | Popover / window | `overlay`, `border_strong`, shadow | | | | |
 | Notice | `warning` text, wrapped, with Dismiss | | | | |
+| Switch (on/off) | a 30 × 16 pt pill in `control_press`, the knob `text_secondary`; its label at the left of a row as wide as there is room for | the pill lightens (`FAST`) | — | the knob glides right (`GLIDE`), `accent` on `accent_muted` | `text_disabled` |
+| Segmented (2–5 choices) | one `control` track, labels in `text_secondary` | label in `text` | — | an `accent_muted` thumb that slides to the choice (`GLIDE`), label in `accent` | label in `text_disabled`, with why on hover |
+| Choice row (longer lists, such as a device's channel pairs) | a 24 pt row, `text` | `control` wash | — | `accent_muted` fill, `accent` text | — |
 
 Keyboard focus shows as a 2 pt `accent` ring on every focusable control.
+
+egui's checkboxes and radio buttons are not used (M4.5, the interface
+audit's T3): on/off is a switch (`widgets::switch`), two to five choices a
+segmented control (`widgets::segmented`), longer lists choice rows
+(`widgets::choice_row`) or menu rows.
 
 ## 7a. Tracks and clips (M3 slice 4, owner's choices)
 
@@ -327,11 +384,15 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
   - A selected header is `selected_row`, and its controls step up (§3).
 - **Unfolded header:** one row of sliders that show their value inside, with
   no separate labels:
-  - **volume** fills from the left, with a thin handle line and the value
-    in dB;
+  - **volume** fills from the left, with a handle line and the value in
+    dB. The line is solid; within 8 pt of the value's box its middle opens,
+    smoothly with the distance, until only a tick above and below the
+    letters remains (the owner's C, M4.5), so it never crosses the value;
   - **pan** fills from the centre; its fill moves from neutral grey to the
     accent as the pan nears an edge (strength = |pan|^1.2). The centre is
-    marked by short ticks at the edges, clear of the value;
+    marked by short ticks at the edges, clear of the value; the fill's
+    moving edge is a handle line that opens around the value as volume's
+    does;
   - both: drag (Shift for fine), double-click to reset, click then type a
     value (Enter applies, Esc cancels), arrow keys when focused.
 - **Record arm ("glow and breathe")**, the owner's choice:
@@ -339,6 +400,9 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
   - the button is a red dot with a ring around it. The ring breathes
     slowly (2.4 s) while armed, its glow reaching at most 4 pt, inside the
     gap to S. Every circle shares one centre;
+  - at rest (M4.5, the owner's A) the dot is grey (the control's letters
+    at 55%) on the control fill, turning red under the pointer (`FAST`):
+    record red means recording;
   - the lane gets a red wash, strongest at the left, with thin red edges.
 - **Folding and resizing** (as in Ableton):
   - heights come in **22 pt steps**, so anything later drawn by track
@@ -376,9 +440,11 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
   - a **"+ Add track ▾"** button below the last track opens a menu of
     every type with its shortcut (audio Ctrl+T, MIDI Ctrl+Shift+T, group,
     return);
-  - the hint underneath says "Or double-click empty space", which adds an
-    audio track;
+  - a double-click on the empty space below adds an audio track (the info
+    line says so on hover);
   - the right-click menu offers the same.
+- **Empty lanes** (M4.5): the empty state, "Drop audio files here" with
+  the formats as its hint and **Import audio…** as its button.
 - **Clip:**
   - `clip_body` (dark in the dark theme), a 1 pt border of the track
     colour at 60%;
@@ -460,9 +526,10 @@ half selects a time range, empty lanes draw a marquee.
   view (8 pt to its right, else its left, kept across the lanes and inside
   the window). 272 pt wide, a 1 pt `accent` border, the popup surface.
   - A title row like a dialog: "Clip" in the display face, ✕ at the right.
-  - Rows with a 62 pt label column (`text_secondary`): Name (focused when
-    it opens), Colour (12 square swatches and a round "Track colour"
-    swatch, 14 pt, ringed in `accent` when chosen), Gain (a
+  - Rows with a 72 pt label column (`text_secondary`): Name (focused when
+    it opens), Colour (two rows of six 14 pt square swatches, 8 pt apart,
+    then a "Track colour" pill with a dot in the track's colour, ringed in
+    `accent` when chosen; M4.5), Gain (a
     `value_slider`), Fade in and Fade out (a `value_slider` in
     milliseconds and a shape menu), State (Mute clip and Lock clip,
     framed buttons that light when on); then the file's details.
@@ -513,7 +580,7 @@ Chosen from interactive specimens (ADR-0038):
   its lanes have a quieter ground (`canvas` at 70%). A return's name
   follows a 16 pt **letter badge** in its colour (text by `text_on`); no
   arm button on returns or the master.
-- **Send knobs (K1 "comet"):** 24 pt knobs, 5 pt apart, under volume and
+- **Send knobs (K1 "comet"):** 24 pt knobs, 4 pt apart, under volume and
   pan on unfolded audio, MIDI and group tracks (such tracks unfold five
   steps tall). A 270° ring in `control`; the level a trail in the
   return's colour, from 18% to full strength and thickening towards a
@@ -578,7 +645,9 @@ Chosen from interactive specimens:
   returns after a 10 pt gap; the master pinned at the right after a
   `border_strong` line, and the loudness column (L2, 108 pt) beside it.
   The strips scroll sideways; only those in view are drawn. With no
-  tracks: "No tracks to mix yet: add one with + Add track or Ctrl+T".
+  tracks: a **ghost strip** where the first will go (96 pt, a dashed
+  `border_strong` edge, a plus and "Add track"; a click adds an audio
+  track) and "Strips appear here as you add tracks" beside it (M4.5).
 - **Strip (S1 console, 96 pt):** `header` fill (`raised` for returns and
   the master, `selected_row` when selected, controls stepping up as on
   headers). From the top: a 3 pt rail per group the track is in (and its
@@ -590,10 +659,12 @@ Chosen from interactive specimens:
   pair greyed "Cue" with why, each pair's channel names and "Skips the
   master" on hover; "Looking up the outputs…" until known); Ø and input trim (±24 dB, filled from the centre;
   the master shows its Solo/Cue switch there); the sends (O2: the first
-  two returns' knobs, 22 pt, then "+N ▾" listing them all); pan; the fader
+  two returns' knobs, 24 pt, then "+N ▾" listing them all); pan; the fader
   (`widgets::fader`: a 4 pt groove and a 22 × 12 pt cap with a `text` line,
   on the send knobs' taper, 0 dB at three quarters of the travel, stopping
-  at −60 dB) beside the scale (monospace marks, 0 in `text_secondary`) and
+  at −60 dB) beside the scale (monospace marks, 0 in `text_secondary`; the
+  marks are placed most important first, 0, −48, +6, −12, −24, −6, and one
+  within 11 pt of a numbered mark is a 3 pt tick instead) and
   the stereo meter (two 5 pt bars, 2 pt apart, with the clip light, 5 pt,
   above); the volume typed in (`widgets::value_field`) and the peak held
   (`record` when clipped; a click clears it); M, S and arm, 20 pt, centred.

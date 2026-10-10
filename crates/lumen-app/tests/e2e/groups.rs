@@ -19,6 +19,8 @@ fn three_tracks(name: &str) -> Lumen {
     }
     lumen.key(Modifiers::NONE, Key::ArrowUp);
     lumen.key(Modifiers::SHIFT, Key::ArrowUp);
+    // New tracks grow in and moved rows glide (M4.5): let them settle.
+    lumen.frames(30);
     lumen
 }
 
@@ -120,6 +122,8 @@ fn a_folded_group_hides_its_tracks_and_stays_folded_when_saved() {
     assert!(lumen.shows("Mute Audio 1"));
     lumen.click("Fold group Group 1");
     assert!(lumen.is_on("Fold group Group 1"));
+    // Its tracks glide shut, then go (M4.5).
+    lumen.frames(30);
     assert!(!lumen.shows("Mute Audio 1") && !lumen.shows("Mute Audio 2"));
     assert!(lumen.shows("Mute Audio 3"));
     // The header says what it hides.
@@ -145,6 +149,7 @@ fn a_folded_group_hides_its_tracks_and_stays_folded_when_saved() {
     lumen.key(Modifiers::NONE, Key::ArrowRight);
     assert!(lumen.shows("Mute Audio 1"));
     lumen.key(Modifiers::NONE, Key::ArrowLeft);
+    lumen.frames(30);
     assert!(!lumen.shows("Mute Audio 1"));
     // Up and Down step over hidden tracks.
     lumen.key(Modifiers::NONE, Key::ArrowDown);
@@ -181,6 +186,8 @@ fn tracks_dragged_onto_a_group_go_in_and_dragged_below_it_come_out() {
     );
     assert_eq!(parent_of(&lumen, "Audio 3").as_deref(), Some("Group 1"));
     assert_eq!(lumen.app().undo_label(), Some("Move track"));
+    // New tracks grow in and moved rows glide (M4.5): let them settle.
+    lumen.frames(30);
 
     // Below the last track: out of the group, at the end.
     let from = header(&lumen, "Audio 3").left_center() + vec2(60.0, 0.0);
@@ -191,6 +198,7 @@ fn tracks_dragged_onto_a_group_go_in_and_dragged_below_it_come_out() {
         ["Group 1", "Audio 1", "Audio 2", "Audio 3"]
     );
     assert_eq!(parent_of(&lumen, "Audio 3"), None);
+    lumen.frames(30);
 
     // The group dragged below Audio 3 takes its track along.
     let from = header(&lumen, "Group 1").left_top() + vec2(60.0, 6.0);

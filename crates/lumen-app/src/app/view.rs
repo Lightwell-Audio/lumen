@@ -139,9 +139,9 @@ report: {}",
             {
                 self.toggle_palette();
             }
-            ui.toggle_value(&mut self.show_browser, "Browser")
+            widgets::toggle_button(ui, &mut self.show_browser, "Browser")
                 .on_hover_text("Show or hide the browser");
-            let detail = ui.toggle_value(&mut self.show_detail, "Detail");
+            let detail = widgets::toggle_button(ui, &mut self.show_detail, "Detail");
             let keys = self.keymap.keys(Command::ToggleDetail);
             widgets::tip(detail, "Show or hide the detail panel", keys.as_ref(), None);
         });
@@ -241,6 +241,13 @@ report: {}",
         self.time_format_button(ui, time_corner);
         self.arrangement.additive_solo = self.settings.mixing.additive_solo;
         self.lend_cue_controls();
+        // New, moved and deleted tracks glide (M4.5).
+        self.arrangement.begin_frame(
+            ui.ctx(),
+            self.document.session(),
+            self.document.project(),
+            self.lanes.pending().len(),
+        );
         self.arrangement
             .headers(ui, headers, &mut self.document, &self.lanes, &self.keymap);
         self.take_cue_controls();
@@ -284,7 +291,25 @@ report: {}",
             )
         });
         self.clip_editing(ui, &hover, canvas, &painter);
-        hover.context_menu(|ui| self.lanes_menu(ui));
+        widgets::Menu::context(&hover).show(|ui| self.lanes_menu(ui));
+        // Where the tracks are scrolled: a bar that shows while scrolling
+        // or near the right edge (M4.5, U2).
+        let pending = self.lanes.pending().len();
+        let (area, content) =
+            self.arrangement
+                .scroll_extent(ui.ctx(), self.document.project(), pending, canvas);
+        let bar = widgets::ScrollBar {
+            area,
+            axis: widgets::Axis::Vertical,
+            content,
+            offset: self.arrangement.top,
+        };
+        if let Some(top) = widgets::scroll_bar(ui, ui.id().with("tracks scroll bar"), bar) {
+            let all =
+                self.arrangement
+                    .height_of_content(ui.ctx(), self.document.project(), pending);
+            self.arrangement.scroll_to(top, all, canvas.height());
+        }
         self.arrangement.pinned_controls(ui, pinned, &self.document);
         // Clip properties (slice 6e): renaming in the title bar, and the
         // pinned card, which takes the hover card's place.
@@ -495,29 +520,26 @@ report: {}",
             };
             empty_mark(&painter, text, look);
         } else if self.lanes.is_empty(self.document.project()) {
-            let text = painter.text(
-                canvas.center(),
-                egui::Align2::CENTER_CENTER,
-                "Drop audio files here\nWAV, AIFF, FLAC, MP3 or Ogg Vorbis",
-                egui::FontId::proportional(theme::size::BODY),
-                theme::p().text_hint,
-            );
-            empty_mark(&painter, text, widgets::mark::Look::WAITING);
             // Or choose them (M3 review H1: importing was mouse-drag only).
-            let below = egui::Rect::from_min_max(
-                pos2(canvas.left(), text.bottom() + theme::space::M),
-                canvas.max,
-            );
-            let builder = egui::UiBuilder::new()
-                .max_rect(below)
-                .layout(egui::Layout::top_down(egui::Align::Center));
-            let clicked = ui
-                .scope_builder(builder, |ui| {
-                    let keys = self.keymap.keys(Command::ImportAudio);
-                    let button = ui.button("Import audio\u{2026}");
-                    widgets::tip(button, "Choose audio files to add", keys.as_ref(), None).clicked()
-                })
-                .inner;
+            let keys = self.keymap.keys(Command::ImportAudio);
+            let state = widgets::EmptyState {
+                // The mark waits, half risen, over an empty arrangement
+                // (ADR-0043).
+                icon: Some(|p, at, _| {
+                    let rect =
+                        egui::Rect::from_center_size(at, vec2(EMPTY_MARK_SIZE, EMPTY_MARK_SIZE));
+                    widgets::mark::paint(p, rect, widgets::mark::Look::WAITING);
+                }),
+                icon_size: EMPTY_MARK_SIZE,
+                title: "Drop audio files here",
+                hint: "WAV, AIFF, FLAC, MP3 or Ogg Vorbis",
+                action: Some(widgets::EmptyAction {
+                    label: "Import audio\u{2026}",
+                    keys: keys.as_ref(),
+                    tip: "Choose audio files to add",
+                }),
+            };
+            let clicked = widgets::empty_state(ui, canvas, &state);
             if clicked && self.availability(ui.ctx(), Command::ImportAudio).is_ok() {
                 self.run(&ui.ctx().clone(), Command::ImportAudio);
             }

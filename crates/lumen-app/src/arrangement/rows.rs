@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use eframe::egui::{self, Id as EguiId};
+use eframe::egui;
 use lumen_project::model::{Id, Project, Track, TrackKind};
 
 use super::{
@@ -58,21 +58,29 @@ impl Arrangement {
     pub(super) fn rows(&self, ctx: &egui::Context, project: &Project, pending: usize) -> Vec<Row> {
         let mut rows = Vec::with_capacity(project.tracks.len() + pending + 1);
         let mut y = 0.0;
+        let now = ctx.input(|i| i.time);
         for (i, track) in project.tracks.iter().enumerate() {
-            if track.kind == TrackKind::Return || self.hidden(project, track.id) {
+            if track.kind == TrackKind::Return {
                 continue;
             }
-            let height = motion::glide(
-                ctx,
-                EguiId::new(("track height", track.id)),
-                self.target_height(track.id),
-                true,
-            );
+            // A track hidden in a folded group glides shut, then goes
+            // (M4.5, M2); unfolding, it grows back.
+            let hidden = self.hidden(project, track.id);
+            let target = if hidden {
+                0.0
+            } else {
+                self.target_height(track.id)
+            };
+            let height = motion::glide(ctx, super::row_glide::height_id(track.id), target, true);
+            if hidden && height < 0.5 {
+                continue;
+            }
             rows.push(Row {
                 kind: RowKind::Track(i),
-                y,
+                y: y + self.row_glides.offset(track.id, now),
                 height,
                 zone: Zone::Main,
+                clipped: height + 0.5 < self.target_height(track.id),
             });
             y += height;
         }
@@ -82,6 +90,7 @@ impl Arrangement {
                 y,
                 height: FOLDED,
                 zone: Zone::Main,
+                clipped: false,
             });
             y += FOLDED;
         }
@@ -95,7 +104,7 @@ impl Arrangement {
             }
             let height = motion::glide(
                 ctx,
-                EguiId::new(("track height", track.id)),
+                super::row_glide::height_id(track.id),
                 self.target_height(track.id),
                 true,
             );
@@ -104,6 +113,7 @@ impl Arrangement {
                 y,
                 height,
                 zone: Zone::Returns,
+                clipped: false,
             });
             y += height;
         }
@@ -112,6 +122,7 @@ impl Arrangement {
             y: self.top + zones.master.0,
             height: zones.master.1 - zones.master.0,
             zone: Zone::Master,
+            clipped: false,
         });
         rows
     }
@@ -262,9 +273,44 @@ impl Arrangement {
         self.top = 0.0;
     }
 
+    /// The scrolling tracks' area within lanes `canvas`, and the height of
+    /// what scrolls in it (for the scroll bar, M4.5).
+    pub fn scroll_extent(
+        &self,
+        ctx: &egui::Context,
+        project: &Project,
+        pending: usize,
+        canvas: egui::Rect,
+    ) -> (egui::Rect, f32) {
+        let main = self.zone_span(ctx, project, Zone::Main, canvas.y_range());
+        let area = egui::Rect::from_x_y_ranges(canvas.x_range(), main);
+        // The furthest scroll leaves a folded row in view, as the wheel does.
+        let content = self.height_of_content(ctx, project, pending) + FOLDED;
+        (
+            area,
+            content.max(canvas.height()) - (canvas.height() - area.height()),
+        )
+    }
+
+    /// Scrolls to `top` points, within the content.
+    pub fn scroll_to(&mut self, top: f32, content: f32, visible: f32) {
+        self.top = top.clamp(0.0, max_top(content, visible));
+    }
+
     /// Scrolls vertically by `delta` points, within the content.
     pub fn scroll(&mut self, delta: f32, content: f32, visible: f32) {
-        self.top = (self.top - delta).clamp(0.0, (content - visible + FOLDED).max(0.0));
+        self.top = (self.top - delta).clamp(0.0, max_top(content, visible));
+    }
+
+    /// Keeps the scroll within the content: after a project opens, a group
+    /// folds or tracks are deleted, it could stay past the content and hide
+    /// tracks above an empty view (the interface audit's U1). True when it
+    /// moved.
+    pub(super) fn keep_in_content(&mut self, content: f32, visible: f32) -> bool {
+        let top = self.top.clamp(0.0, max_top(content, visible));
+        let moved = top != self.top;
+        self.top = top;
+        moved
     }
 
     /// Selects track `id` alone and scrolls just enough to show it in the
@@ -317,4 +363,9 @@ impl Arrangement {
     pub fn height_of_content(&self, ctx: &egui::Context, project: &Project, pending: usize) -> f32 {
         self.content_height(ctx, project, &self.rows(ctx, project, pending))
     }
+}
+
+/// The furthest the tracks scroll: the last one stays a folded row in view.
+fn max_top(content: f32, visible: f32) -> f32 {
+    (content - visible + FOLDED).max(0.0)
 }

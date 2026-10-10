@@ -14,7 +14,7 @@ use lumen_audio::{DeviceId, DeviceInfo};
 
 use crate::audio::{self, Audio, DRIVERS, Status, driver_label};
 use crate::settings::AudioSettings;
-use crate::theme;
+use crate::{theme, widgets};
 
 /// Rates offered for the device that is running (a running ASIO driver
 /// reports only its current rate).
@@ -141,7 +141,7 @@ pub struct Window {
 }
 
 /// Width of the label column, so every section lines up.
-const LABEL_WIDTH: f32 = 96.0;
+const LABEL_WIDTH: f32 = theme::size::LABEL_COLUMN;
 
 impl Window {
     /// The output channel names of `driver`'s device `id`, looked up in the
@@ -170,19 +170,19 @@ const WINDOW_WIDTH: f32 = 440.0;
 
 /// A section heading with even spacing above and below.
 fn section(ui: &mut Ui, title: &str) {
-    ui.add_space(theme::space::S + 2.0);
+    ui.add_space(theme::space::M);
     ui.label(RichText::new(title).font(crate::fonts::medium(theme::size::BODY)));
-    ui.add_space(4.0);
+    ui.add_space(theme::space::XS);
 }
 
 /// A label in the left column and `contents` beside it.
 fn row(ui: &mut Ui, label: &str, contents: impl FnOnce(&mut Ui)) {
     ui.horizontal(|ui| {
         ui.allocate_ui_with_layout(
-            egui::vec2(LABEL_WIDTH, 20.0),
+            egui::vec2(LABEL_WIDTH, theme::size::CONTROL_SMALL),
             egui::Layout::right_to_left(egui::Align::Center),
             |ui| {
-                ui.set_min_size(egui::vec2(LABEL_WIDTH, 20.0));
+                ui.set_min_size(egui::vec2(LABEL_WIDTH, theme::size::CONTROL_SMALL));
                 // A row without a heading has no label at all: an empty
                 // one is a nameless node for screen readers (slice 8).
                 if !label.is_empty() {
@@ -190,7 +190,7 @@ fn row(ui: &mut Ui, label: &str, contents: impl FnOnce(&mut Ui)) {
                 }
             },
         );
-        ui.add_space(8.0);
+        ui.add_space(theme::space::S);
         contents(ui);
     });
 }
@@ -430,7 +430,7 @@ impl Window {
             Some(Ok(info)) => info,
         };
         let running = audio.info.as_ref();
-        ui.add_space(4.0);
+        ui.add_space(theme::space::XS);
         ui.separator();
 
         // ── Format ──────────────────────────────────────────────────────
@@ -536,7 +536,7 @@ impl Window {
                 warning(ui, &format!("The control panel did not open: {e}"), 0.0);
             });
         }
-        ui.add_space(4.0);
+        ui.add_space(theme::space::XS);
         ui.separator();
 
         // ── Channels ────────────────────────────────────────────────────
@@ -547,7 +547,7 @@ impl Window {
                 for (pair, label) in pairs(output_names, "Out") {
                     let channels = channels_of(pair, output_names);
                     let on = current.output_channels == channels;
-                    if ui.radio(on, label).clicked() && !on {
+                    if widgets::choice_row(ui, &label, on).clicked() && !on {
                         // A cue on the new main pair would be the same
                         // outputs: it goes.
                         let cue = if current.cue_channels == channels {
@@ -574,11 +574,11 @@ impl Window {
                 channels.len() == 2 && channels != current.output_channels
             })
             .collect();
-        ui.add_space(6.0);
+        ui.add_space(theme::space::S);
         row(ui, "Cue", |ui| {
             ui.vertical(|ui| {
                 let none = current.cue_channels.is_empty();
-                if ui.radio(none, "None").clicked() && !none {
+                if widgets::choice_row(ui, "None", none).clicked() && !none {
                     actions.push(Action::Apply(AudioSettings {
                         cue_channels: Vec::new(),
                         ..current.clone()
@@ -587,7 +587,7 @@ impl Window {
                 for (pair, label) in &cue_pairs {
                     let channels = channels_of(*pair, output_names);
                     let on = current.cue_channels == channels;
-                    if ui.radio(on, label).clicked() && !on {
+                    if widgets::choice_row(ui, label, on).clicked() && !on {
                         actions.push(Action::Apply(AudioSettings {
                             cue_channels: channels,
                             ..current.clone()
@@ -606,11 +606,11 @@ impl Window {
         });
         if chosen == "asio" && !info.input_channels.is_empty() {
             let input_names = &info.input_channels;
-            ui.add_space(6.0);
+            ui.add_space(theme::space::S);
             row(ui, "Input", |ui| {
                 ui.vertical(|ui| {
                     let none = current.input_channels.is_empty();
-                    if ui.radio(none, "None").clicked() && !none {
+                    if widgets::choice_row(ui, "None", none).clicked() && !none {
                         actions.push(Action::Apply(AudioSettings {
                             input_channels: Vec::new(),
                             ..current.clone()
@@ -619,7 +619,7 @@ impl Window {
                     for (pair, label) in pairs(input_names, "In") {
                         let channels = channels_of(pair, input_names);
                         let on = current.input_channels == channels;
-                        if ui.radio(on, label).clicked() && !on {
+                        if widgets::choice_row(ui, &label, on).clicked() && !on {
                             actions.push(Action::Apply(AudioSettings {
                                 input_channels: channels,
                                 ..current.clone()
@@ -630,7 +630,7 @@ impl Window {
                 });
             });
         }
-        ui.add_space(4.0);
+        ui.add_space(theme::space::XS);
         ui.separator();
 
         // ── Latency ─────────────────────────────────────────────────────
@@ -650,7 +650,7 @@ impl Window {
                                 ui.label(format!("{:.1} ms", ms(frames)));
                             },
                         );
-                        ui.add_space(4.0);
+                        ui.add_space(theme::space::XS);
                         hint(ui, &format!("{frames} samples"));
                     });
                 };
@@ -670,12 +670,11 @@ impl Window {
             }
             None => row(ui, "", |ui| hint(ui, "Shown once the device is running")),
         }
-        ui.add_space(4.0);
+        ui.add_space(theme::space::XS);
         ui.separator();
-        ui.add_space(4.0);
+        ui.add_space(theme::space::XS);
         let mut tone = test_tone;
-        if ui
-            .checkbox(&mut tone, "Test tone (1 kHz, −20 dBFS)")
+        if widgets::switch(ui, &mut tone, "Test tone (1 kHz, −20 dBFS)", true)
             .on_hover_text("A steady tone on every output, to check the audio path")
             .changed()
         {

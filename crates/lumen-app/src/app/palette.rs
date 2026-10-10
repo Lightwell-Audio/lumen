@@ -14,7 +14,7 @@ use lumen_project::model::Id;
 
 use super::navigate::ViewStep;
 use crate::commands::{ALL, Command};
-use crate::{App, icons, theme, widgets};
+use crate::{App, icons, motion, theme, widgets};
 
 /// The palette's width, a row's height and how many rows show.
 const WIDTH: f32 = 520.0;
@@ -535,6 +535,11 @@ impl App {
                     );
                     ui.add_space(theme::space::S);
                 }
+                // The chosen row's fill, drawn under the rows once they are
+                // laid out, slides from row to row (M4.5, M5).
+                let highlight = ui.painter().add(egui::Shape::Noop);
+                let list_top = ui.min_rect().top();
+                let mut chosen_rect = None;
                 for (i, row) in rows.iter().enumerate() {
                     if recent > 0 && (i == 0 || i == recent) {
                         let heading = if i == 0 { "Recent" } else { "All commands" };
@@ -544,7 +549,10 @@ impl App {
                                 .color(palette.text_hint),
                         );
                     }
-                    let (response, rekey) = self.palette_row(ui, row, i == self.palette.chosen);
+                    let (response, rekey) = self.palette_row(ui, row);
+                    if i == self.palette.chosen {
+                        chosen_rect = Some(response.rect);
+                    }
                     if let (Some(slot), Entry::Command(command)) = (rekey, &row.entry) {
                         self.palette.chosen = i;
                         self.start_rebind(*command, Some(slot));
@@ -561,18 +569,31 @@ impl App {
                         picked = Some(i);
                     }
                 }
+                if let Some(rect) = chosen_rect {
+                    let y = motion::glide_over(
+                        ui.ctx(),
+                        egui::Id::new("palette highlight"),
+                        rect.top() - list_top,
+                        true,
+                        motion::FAST,
+                    );
+                    let shown = rect.translate(vec2(0.0, list_top + y - rect.top()));
+                    ui.painter().set(
+                        highlight,
+                        egui::Shape::rect_filled(
+                            shown,
+                            theme::radius::MEDIUM,
+                            theme::p().accent_muted,
+                        ),
+                    );
+                }
             });
         picked
     }
 
     /// A row; with the chord slot whose keycaps were clicked, to record
     /// new keys for it.
-    fn palette_row(
-        &self,
-        ui: &mut egui::Ui,
-        row: &Row,
-        chosen: bool,
-    ) -> (egui::Response, Option<usize>) {
+    fn palette_row(&self, ui: &mut egui::Ui, row: &Row) -> (egui::Response, Option<usize>) {
         let mut rekey = None;
         let palette = *theme::p();
         let (rect, response) =
@@ -592,10 +613,7 @@ impl App {
         if !ui.is_rect_visible(rect) {
             return (response, None);
         }
-        if chosen {
-            ui.painter()
-                .rect_filled(rect, theme::radius::MEDIUM, palette.accent_muted);
-        }
+        // The chosen row's fill is drawn by the list, sliding (M4.5).
         let text = if row.ready.is_ok() {
             palette.text
         } else {

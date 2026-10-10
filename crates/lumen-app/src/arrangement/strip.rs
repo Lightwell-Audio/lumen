@@ -29,26 +29,27 @@ use crate::{fonts, light, motion, theme};
 /// (the owner's S1, widened after MT-MIX-5).
 pub(super) const WIDTH: f32 = 96.0;
 /// Side inset inside a strip.
-const INSET: f32 = 6.0;
+const INSET: f32 = theme::space::S;
 /// The height of a control row, and the gap between rows.
-const ROW: f32 = 18.0;
-const GAP: f32 = 4.0;
+const ROW: f32 = theme::size::CONTROL_SMALL;
+const GAP: f32 = theme::space::XS;
 /// The group rails along the top: 3 pt for each group the track is in
 /// (and for a group itself), at most four.
 const RAIL: f32 = 3.0;
 const TOP: f32 = 4.0 * RAIL + 2.0;
-const NAME: f32 = 20.0;
+const NAME: f32 = theme::size::CONTROL_SMALL;
 /// Two send knobs, then the "+N ▾" row (the owner's O2).
-const KNOB: f32 = 22.0;
+const KNOB: f32 = theme::size::KNOB;
 const SENDS: f32 = KNOB + GAP + 16.0;
 /// The fader's travel is at least this tall; the cap and the clip light
 /// take room above and below it.
 const TRAVEL_MIN: f32 = 64.0;
 const TRAVEL_PAD: f32 = 12.0;
-const BUTTONS: f32 = 20.0;
-const BOTTOM: f32 = 6.0;
-/// dB marks on the scale between fader and meter.
-const MARKS: [f32; 6] = [6.0, 0.0, -6.0, -12.0, -24.0, -48.0];
+const BUTTONS: f32 = theme::size::CONTROL_SMALL;
+const BOTTOM: f32 = theme::space::S;
+/// dB marks on the scale between fader and meter, most important first:
+/// those without room for their number become ticks.
+const MARKS: [f32; 6] = [0.0, -48.0, 6.0, -12.0, -24.0, -6.0];
 
 /// Which optional sections a strip shows, for the panel's height.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -192,7 +193,7 @@ impl Arrangement {
             self.start_drag(doc.project(), track.id, true);
         }
         if track.kind != TrackKind::Master {
-            background.context_menu(|ui| {
+            widgets::Menu::context(&background).show(|ui| {
                 if !self.selected.contains(&track.id) {
                     self.selected = vec![track.id];
                 }
@@ -418,6 +419,7 @@ impl Arrangement {
             track.gain_db,
             SliderKind::Volume,
             &format!("{} volume in the mixer", track.name),
+            controls,
         );
         if db != track.gain_db {
             doc.set_volume(track.id, db);
@@ -430,7 +432,7 @@ impl Arrangement {
             if reading.clipped {
                 palette.record
             } else {
-                palette.raised
+                controls.fill
             },
         );
         painter.text(

@@ -13,7 +13,7 @@ use super::grid::draw_snap_guide;
 use super::info::{Held, Info, Mouse};
 use crate::timefmt::{self, TimeFormat};
 use crate::timeview::TimeView;
-use crate::{App, motion, ruler, theme, trace};
+use crate::{App, motion, ruler, theme, trace, widgets};
 
 /// The strip for locators, scrubbing and the loop brace.
 pub(crate) const STRIP_HEIGHT: f32 = 24.0;
@@ -119,7 +119,7 @@ impl App {
                 "Ruler: click to move the playhead",
             )
         });
-        response.context_menu(|ui| self.view_menu(ui));
+        widgets::Menu::context(&response).show(|ui| self.view_menu(ui));
         if self.drag_ruler(&response, at.canvas) {
             ui.ctx().set_cursor_icon(CursorIcon::ZoomIn);
             return;
@@ -232,7 +232,7 @@ impl App {
         let response = ui
             .interact(at.time, id, Sense::click_and_drag())
             .on_hover_text("Drag to select time on every track; click to move the playhead");
-        response.context_menu(|ui| self.time_format_menu(ui));
+        widgets::Menu::context(&response).show(|ui| self.time_format_menu(ui));
         response.widget_info(|| {
             egui::WidgetInfo::labeled(
                 egui::WidgetType::Other,
@@ -374,9 +374,7 @@ impl App {
             1.0,
             palette.text_secondary,
         );
-        egui::Popup::menu(&response)
-            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-            .show(|ui| self.time_format_menu(ui));
+        widgets::Menu::below(&response).show(|ui| self.time_format_menu(ui));
     }
 
     /// The time ruler's formats, from its corner or a right-click on it.

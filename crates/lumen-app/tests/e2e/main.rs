@@ -12,6 +12,7 @@
 //! workflow a slice delivers (DEVELOPMENT.md, "End-to-end tests").
 
 mod access;
+mod chrome;
 mod clips;
 mod commands;
 mod compensation;
@@ -29,6 +30,7 @@ mod looping;
 mod meters;
 mod mixer;
 mod mixing;
+mod motion;
 mod navigation;
 mod palette;
 mod playback;

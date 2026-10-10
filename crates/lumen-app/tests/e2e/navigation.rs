@@ -3,8 +3,9 @@
 
 use eframe::egui::{Key, Modifiers};
 
-use super::Lumen;
+use super::{Lumen, wav};
 use lumen_app::TimeView;
+use lumen_app::testing::PROJECT_EXTENSION;
 
 #[test]
 fn zoom_keys_fit_and_step_back() {
@@ -58,6 +59,8 @@ fn height_keys_fit_and_restore_the_tracks() {
     let mut lumen = Lumen::start("heights");
     lumen.key(Modifiers::COMMAND, Key::T);
     lumen.key(Modifiers::COMMAND, Key::T);
+    // New tracks grow in and moved rows glide (M4.5): let them settle.
+    lumen.frames(30);
     let ctx = lumen.harness.ctx.clone();
     let height = |lumen: &Lumen| lumen.app().tracks_height(&ctx);
     let before = height(&lumen);
@@ -82,4 +85,25 @@ fn follow_turns_the_page_while_playing() {
     // Following moves the view, never its zoom.
     assert_eq!(lumen.app().view().zoom, 2_000.0);
     lumen.key(Modifiers::NONE, Key::Space);
+}
+
+#[test]
+fn a_project_saved_scrolled_past_its_tracks_opens_showing_them() {
+    // The interface audit's U1: the v10 golden fixture was saved scrolled
+    // 48 points down, past its two rows. It opened with Drums hidden above
+    // the view and empty lanes below; the scroll now keeps to the content.
+    let dir = lumen_project::testing::TempDir::new("e2e-scroll-clamp");
+    let folder = dir.path().join("Golden");
+    std::fs::create_dir_all(folder.join("Samples")).unwrap();
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../lumen-project/tests/fixtures/v10/golden.lumen");
+    let path = folder.join(format!("Golden.{PROJECT_EXTENSION}"));
+    std::fs::copy(fixture, &path).unwrap();
+    wav(&folder.join("Samples/kick.wav"), 1.0);
+
+    let mut lumen = Lumen::start_with(dir, |launch| launch.opening(path.clone()));
+    lumen.wait_for("the project to open", |app| !app.is_busy());
+    lumen.frames(5);
+    assert!(lumen.shows("Mute Drums"), "the first track is in view");
+    assert!(lumen.shows("Mute Bass"));
 }

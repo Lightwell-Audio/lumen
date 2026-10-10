@@ -28,6 +28,7 @@
 mod buttons;
 mod clips;
 mod drop;
+mod glide;
 pub mod handles;
 mod header_row;
 mod headers;
@@ -36,6 +37,7 @@ mod menus;
 mod nesting;
 mod pinned;
 mod reorder;
+mod row_glide;
 mod rows;
 mod samples;
 pub mod select;
@@ -91,13 +93,44 @@ pub(crate) const TITLE: f32 = 15.0;
 pub(crate) const INDENT: f32 = 12.0;
 
 /// The indent of a track `depth` groups deep.
+impl Arrangement {
+    /// The next document change comes from undo or redo: what it changes
+    /// glides back and is washed in the accent (M4.5).
+    pub fn note_undo(&mut self) {
+        self.glides.note_undo();
+    }
+
+    /// Where clip `id` is drawn at `now` (for tests).
+    pub(crate) fn drawn_start(
+        &self,
+        project: &lumen_project::model::Project,
+        id: Id,
+        now: f64,
+    ) -> Option<lumen_core::time::Ticks> {
+        let shown = self.glides.shown(project, now);
+        shown
+            .tracks
+            .iter()
+            .flat_map(|t| t.clips.iter())
+            .find(|c| c.id == id)
+            .map(|c| c.start)
+    }
+
+    /// How strongly clip `id` is washed at `now` (for tests).
+    pub(crate) fn wash(&self, id: Id, now: f64) -> f32 {
+        self.glides.wash(id, now)
+    }
+}
+
 pub(crate) fn indent(depth: usize) -> f32 {
     // Groups go three deep (edits keep to it); an older, deeper project
     // stops stepping in there, so names keep room.
     INDENT * depth.min(lumen_project::groups::MAX_NESTING) as f32
 }
 
-const BUTTON: f32 = 19.0;
+/// M, S and arm on a header (the interface audit's S4: 19, against the
+/// strip's 20).
+const BUTTON: f32 = crate::theme::size::CONTROL_SMALL;
 
 /// One row of the arrangement, in content coordinates (on screen at the
 /// lanes' top + `y` − the scroll), drawn inside its zone.
@@ -107,6 +140,9 @@ struct Row {
     y: f32,
     height: f32,
     zone: Zone,
+    /// Shorter than its content while it folds shut: drawn clipped to its
+    /// height (M4.5).
+    clipped: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -150,6 +186,10 @@ enum Zone {
 pub struct Arrangement {
     /// Vertical scroll, in points.
     pub top: f32,
+    /// Clips gliding to new places, and what undo changed (M4.5).
+    glides: glide::ClipGlides,
+    /// Rows gliding to new places, and new ones growing in (M4.5).
+    row_glides: row_glide::RowGlides,
     /// Unfolded heights of tracks that were resized.
     pub heights: BTreeMap<Id, f32>,
     /// Unfolded tracks.
@@ -259,6 +299,8 @@ pub struct Arrangement {
     /// near their edge pushes them (-1 to 1).
     mixer_offset: f32,
     mixer_push: f32,
+    /// Where the mixer's scroll bar was dragged to, for the next frame.
+    mixer_scroll_to: Option<f32>,
 }
 
 /// The device's output pairs, as the strips' output menus offer them (the

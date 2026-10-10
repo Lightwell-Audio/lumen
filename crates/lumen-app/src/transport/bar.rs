@@ -10,9 +10,9 @@ use lumen_engine::{ClickSound, Command, TransportSnapshot};
 
 use crate::audio::Status;
 use crate::icons::{self, Icon};
-use crate::{position, theme};
+use crate::{position, theme, widgets};
 
-use super::{DENOMINATORS, Transport};
+use super::Transport;
 
 impl Transport {
     fn follow_button(&mut self, ui: &mut egui::Ui, keymap: &Keymap) {
@@ -39,19 +39,18 @@ impl Transport {
         if response.clicked() {
             self.toggle_follow();
         }
-        response.context_menu(|ui| {
-            ui.label("Follow the playhead");
-            for mode in [Follow::Page, Follow::Continuous, Follow::Off] {
-                if ui
-                    .radio_value(&mut self.follow, mode, mode.name())
-                    .clicked()
-                {
-                    self.follow_paused = false;
-                    if mode != Follow::Off {
-                        self.follow_last = mode;
-                    }
-                    ui.close();
+        widgets::Menu::context(&response).show(|ui| {
+            widgets::menu_caption(ui, "Follow the playhead");
+            let modes = [Follow::Page, Follow::Continuous, Follow::Off]
+                .map(|mode| widgets::Choice::new(mode, mode.name()));
+            if let Some(mode) = widgets::segmented(ui, ui.id().with("follow"), self.follow, &modes)
+            {
+                self.follow = mode;
+                self.follow_paused = false;
+                if mode != Follow::Off {
+                    self.follow_last = mode;
                 }
+                ui.close();
             }
         });
     }
@@ -157,7 +156,7 @@ impl Transport {
         if loop_button.clicked() {
             doc.set_loop_enabled(!looped.loop_enabled);
         }
-        loop_button.context_menu(|ui| punch_menu(ui, doc));
+        widgets::Menu::context(&loop_button).show(|ui| punch_menu(ui, doc));
         let metronome = icons::button(
             ui,
             Icon::Metronome,
@@ -176,45 +175,67 @@ impl Transport {
         }
         self.follow_button(ui, keymap);
         solo_chip(ui, doc, keymap);
-        metronome.context_menu(|ui| {
-            let mut changed = false;
-            ui.label("Metronome volume");
-            let mut percent = (self.metronome.volume * 100.0).round();
-            changed |= ui
-                .add(egui::Slider::new(&mut percent, 0.0..=100.0).suffix("%"))
-                .changed();
-            self.metronome.volume = percent / 100.0;
-            ui.separator();
-            ui.label("Sound");
-            for sound in ClickSound::ALL {
-                changed |= ui
-                    .radio_value(&mut self.metronome.sound, sound, sound.name())
-                    .changed();
-            }
-            // Its own output, never through the master (the owner's D6):
-            // the main pair, or the cue pair for the headphones.
-            ui.separator();
-            ui.label("Output");
-            let cue = crate::settings::CUE_CHANNEL;
-            changed |= ui
-                .radio_value(&mut self.metronome.channel, 0, "Main")
-                .changed();
-            let ready = self.audio.cue_ready();
-            changed |= ui
-                .add_enabled(
-                    ready,
-                    egui::RadioButton::new(self.metronome.channel == cue, "Cue"),
-                )
-                .on_disabled_hover_text("Choose a Cue output in Audio settings first")
-                .clicked()
-                && {
-                    self.metronome.channel = cue;
-                    true
-                };
-            if changed {
-                self.send(Command::SetMetronome(self.metronome));
-            }
-        });
+        widgets::Menu::context(&metronome)
+            .keeping_open()
+            .show(|ui| {
+                let mut changed = false;
+                ui.label("Metronome volume");
+                // A value slider like every other level (it was egui's
+                // own); double-click goes back to the default level.
+                let (rect, _) = ui.allocate_exact_size(
+                    egui::vec2(160.0, theme::size::CONTROL_SMALL),
+                    egui::Sense::hover(),
+                );
+                let default = lumen_engine::MetronomeSettings::default().volume;
+                let volume = widgets::value_slider(
+                    ui,
+                    rect,
+                    ui.id().with("metronome volume"),
+                    self.metronome.volume,
+                    widgets::SliderKind::Percent { default },
+                    "Metronome volume",
+                    theme::controls(false),
+                );
+                if volume != self.metronome.volume {
+                    self.metronome.volume = volume;
+                    widgets::note_change(ui);
+                    changed = true;
+                }
+                ui.separator();
+                widgets::menu_caption(ui, "Sound");
+                let sounds = ClickSound::ALL.map(|s| widgets::Choice::new(s, s.name()));
+                if let Some(sound) =
+                    widgets::segmented(ui, ui.id().with("sound"), self.metronome.sound, &sounds)
+                {
+                    self.metronome.sound = sound;
+                    changed = true;
+                }
+                // Its own output, never through the master (the owner's D6):
+                // the main pair, or the cue pair for the headphones.
+                ui.separator();
+                widgets::menu_caption(ui, "Output");
+                let cue = crate::settings::CUE_CHANNEL;
+                let ready = self.audio.cue_ready();
+                let outputs = [
+                    widgets::Choice::new(0, "Main"),
+                    widgets::Choice::new(cue, "Cue")
+                        .enabled(ready)
+                        .tip(if ready {
+                            "The cue pair, for headphones"
+                        } else {
+                            "Choose a Cue output in Audio settings first"
+                        }),
+                ];
+                if let Some(channel) =
+                    widgets::segmented(ui, ui.id().with("output"), self.metronome.channel, &outputs)
+                {
+                    self.metronome.channel = channel;
+                    changed = true;
+                }
+                if changed {
+                    self.send(Command::SetMetronome(self.metronome));
+                }
+            });
         ui.separator();
 
         // Tempo.
@@ -240,41 +261,18 @@ impl Transport {
         }
         let project = doc.project();
 
-        // Time signature.
-        let mut numerator = u32::from(project.time_signature.numerator);
-        let mut denominator = u32::from(project.time_signature.denominator);
-        let num = ui
-            .add(
-                egui::DragValue::new(&mut numerator)
-                    .update_while_editing(false)
-                    .range(1..=crate::document::MAX_BEATS_PER_BAR)
-                    .speed(0.1),
-            )
-            .on_hover_text("Beats per bar");
-        num.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::DragValue, true, "Beats per bar")
-        });
-        ui.label("/");
-        let den = egui::ComboBox::from_id_salt("denominator")
-            .width(36.0)
-            .selected_text(denominator.to_string())
-            .show_ui(ui, |ui| {
-                for d in DENOMINATORS {
-                    ui.selectable_value(&mut denominator, d, d.to_string());
-                }
-            })
-            .response
-            .on_hover_text("Beat unit");
-        den.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, "Beat unit")
-        });
-        if (numerator, denominator)
-            != (
-                project.time_signature.numerator.into(),
-                project.time_signature.denominator.into(),
-            )
-        {
-            doc.set_time_signature(numerator, denominator, Some("meter"));
+        // Time signature: one field (the interface audit's S7).
+        let current = (
+            u32::from(project.time_signature.numerator),
+            u32::from(project.time_signature.denominator),
+        );
+        if let Some((beats, unit)) = widgets::time_signature(
+            ui,
+            ui.id().with("time signature"),
+            current,
+            crate::document::MAX_BEATS_PER_BAR,
+        ) {
+            doc.set_time_signature(beats, unit, Some("meter"));
         }
         ui.separator();
 

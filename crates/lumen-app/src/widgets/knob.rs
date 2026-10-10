@@ -218,21 +218,13 @@ pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> Kno
     if response.double_clicked() {
         out.db = Some(f32::NEG_INFINITY);
     }
-    response.context_menu(|ui| {
-        if ui
-            .radio(knob.pre_fader, "Pre-fader")
-            .on_hover_text("Taken before the track's volume and pan")
-            .clicked()
-        {
-            out.pre_fader = Some(true);
-            ui.close();
-        }
-        if ui
-            .radio(!knob.pre_fader, "Post-fader")
-            .on_hover_text("Taken after the track's volume and pan")
-            .clicked()
-        {
-            out.pre_fader = Some(false);
+    super::Menu::context(&response).show(|ui| {
+        let taps = [
+            super::Choice::new(true, "Pre-fader").tip("Taken before the track's volume and pan"),
+            super::Choice::new(false, "Post-fader").tip("Taken after the track's volume and pan"),
+        ];
+        if let Some(pre) = super::segmented(ui, ui.id().with("tap"), knob.pre_fader, &taps) {
+            out.pre_fader = Some(pre);
             ui.close();
         }
         ui.separator();

@@ -46,8 +46,11 @@ impl Arrangement {
         self.hot_return = self.hot_return_next.take();
         // A send being set in a return's list keeps its row (S1).
         self.held_send = self.held_next.take();
-        let rows = self.rows(&ctx, doc.project(), lanes.pending().len());
+        let mut rows = self.rows(&ctx, doc.project(), lanes.pending().len());
         let content = self.content_height(&ctx, doc.project(), &rows);
+        if self.keep_in_content(content, column.height()) {
+            rows = self.rows(&ctx, doc.project(), lanes.pending().len());
+        }
         // The scrolling tracks end where the pinned returns and master
         // begin (slice 4).
         let main = self.zone_span(&ctx, doc.project(), Zone::Main, column.y_range());
@@ -102,6 +105,12 @@ impl Arrangement {
             if rect.bottom() < zone.top() || rect.top() > zone.bottom() {
                 continue;
             }
+            // A row folding shut shows only what fits in it (M4.5).
+            let zone = if row.clipped {
+                zone.intersect(rect)
+            } else {
+                zone
+            };
             ui.set_clip_rect(zone.intersect(base_clip));
             let painter = base_painter.with_clip_rect(zone.intersect(base_painter.clip_rect()));
             if row.kind == RowKind::Master {
@@ -218,7 +227,7 @@ impl Arrangement {
         } else if empty.clicked() {
             self.selected.clear();
         }
-        empty.context_menu(|ui| self.add_menu(ui, doc, None, keymap));
+        widgets::Menu::context(&empty).show(|ui| self.add_menu(ui, doc, None, keymap));
 
         // "+ Add track ▾": a menu of every track type with its shortcut,
         // and a hint that double-clicking here adds an audio track
@@ -265,12 +274,10 @@ impl Arrangement {
                 1.0,
                 palette.text_secondary,
             );
-            egui::Popup::menu(&response)
-                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                .show(|ui| {
-                    ui.set_min_width(button.width());
-                    self.add_menu(ui, doc, self.selected.last().copied(), keymap);
-                });
+            widgets::Menu::below(&response).show(|ui| {
+                ui.set_min_width(button.width());
+                self.add_menu(ui, doc, self.selected.last().copied(), keymap);
+            });
         }
     }
 
@@ -525,11 +532,11 @@ pub(super) fn arm_button(
             ));
             p.circle_filled(center, 4.5, palette.record);
         } else {
-            p.circle_filled(
-                center,
-                4.5,
-                palette.record.gamma_multiply(0.45 + 0.25 * hover),
-            );
+            // At rest a quiet grey dot, red only under the pointer: record
+            // red means recording (the interface audit's T5, the owner's A;
+            // a column of red dots was the loudest thing on screen).
+            let rest = look.text.gamma_multiply(0.55);
+            p.circle_filled(center, 4.5, rest.lerp_to_gamma(palette.record, hover));
         }
     }
     response.clicked()

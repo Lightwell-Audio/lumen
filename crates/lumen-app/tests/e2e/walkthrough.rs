@@ -64,6 +64,8 @@ fn create_add_import_arrange_edit_save_close_and_reopen_the_same_song() {
     lumen.click("Add track");
     lumen.click(&keys("Add audio track Ctrl+T"));
     assert_eq!(lumen.track_names(), ["Audio 1"]);
+    // New tracks grow in and moved rows glide (M4.5): let them settle.
+    lumen.frames(30);
 
     // Import: a file onto that track's lane, and one below the last track,
     // which makes a track for it.

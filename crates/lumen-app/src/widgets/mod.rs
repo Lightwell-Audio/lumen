@@ -6,25 +6,38 @@
 //! them now; the mixer (M4) and devices reuse them.
 
 use eframe::egui::{
-    self, Align2, Color32, FontId, Id as EguiId, Key, Painter, Pos2, Rect, Sense, Stroke, Ui, Vec2,
-    pos2, vec2,
+    self, Align2, Color32, FontId, Id as EguiId, Key, Painter, Pos2, Rangef, Rect, Sense, Stroke,
+    Ui, Vec2, pos2, vec2,
 };
 
 use eframe::emath::GuiRounding as _;
 
 use crate::{fonts, icons, light, motion, theme};
 
+mod empty;
+mod fade_out;
 pub mod fader;
 mod keys;
 pub mod knob;
 pub mod mark;
+mod menu;
 pub mod meter;
+mod scroll_bar;
+mod signature;
+mod toggle;
 pub mod wheel;
 
+pub use empty::{Action as EmptyAction, EmptyState, empty_state};
+pub use fade_out::paint_gone;
 pub use keys::{
     KEY_LIGHT_ROOM, Keys, Tip, caps_height, caps_width, keycaps, menu_item, menu_toggle,
     modifier_caps, submenu, tip,
 };
+pub use menu::Menu;
+pub(crate) use menu::note_change;
+pub use scroll_bar::{Axis, ScrollBar, scroll_bar};
+pub use signature::time_signature;
+pub use toggle::{Choice, Tab, choice_row, menu_caption, segmented, switch, tabs, toggle_button};
 
 /// A floating window in the design system (DESIGN §5): no system title
 /// bar; our own title row with the title in the display face and, when it
@@ -72,8 +85,9 @@ impl<'a> Dialog<'a> {
     /// Shows the dialog; true when the user asked to close it.
     pub fn show(self, ctx: &egui::Context, contents: impl FnOnce(&mut Ui)) -> bool {
         let mut close = false;
-        egui::Window::new(self.title)
-            .id(EguiId::new(("dialog", self.id)))
+        let id = EguiId::new(("dialog", self.id));
+        let shown = egui::Window::new(self.title)
+            .id(id)
             .title_bar(false)
             .collapsible(false)
             .resizable(false)
@@ -86,6 +100,13 @@ impl<'a> Dialog<'a> {
             });
         if self.closable && ctx.input(|i| i.key_pressed(Key::Escape)) {
             close = true;
+        }
+        // Remembered as drawn, to fade out when it closes (M4.5).
+        if let Some(shown) = shown {
+            fade_out::remember(ctx, id, shown.response.layer_id);
+        }
+        if close {
+            ctx.request_repaint();
         }
         close
     }
@@ -205,9 +226,20 @@ pub enum SliderKind {
     /// A channel's input trim (M4 slice 5): −24 to +24 dB, filled from the
     /// centre; resets to 0 dB.
     Trim,
+    /// A level as a share, 0 to 1 shown as 0–100%, filled from the left;
+    /// resets to `default` (the metronome's volume, M4.5).
+    Percent { default: f32 },
 }
 
 impl SliderKind {
+    /// What a double-click sets.
+    pub fn reset(self) -> f32 {
+        match self {
+            SliderKind::Percent { default } => default,
+            _ => 0.0,
+        }
+    }
+
     pub fn range(self) -> (f32, f32) {
         match self {
             SliderKind::Volume => (-60.0, 6.0),
@@ -215,6 +247,7 @@ impl SliderKind {
             SliderKind::ClipGain => (-60.0, 12.0),
             SliderKind::Millis { max_ms } => (0.0, max_ms.max(0.0)),
             SliderKind::Trim => (-24.0, 24.0),
+            SliderKind::Percent { .. } => (0.0, 1.0),
         }
     }
 
@@ -223,6 +256,7 @@ impl SliderKind {
     pub fn wheel_step(self) -> f32 {
         match self {
             SliderKind::Volume | SliderKind::ClipGain | SliderKind::Trim => 1.0,
+            SliderKind::Percent { .. } => 0.05,
             SliderKind::Pan => 0.05,
             SliderKind::Millis { max_ms } => (max_ms / 100.0).max(1.0),
         }
@@ -231,6 +265,7 @@ impl SliderKind {
     pub fn text(self, value: f32) -> String {
         match self {
             SliderKind::Volume | SliderKind::ClipGain | SliderKind::Trim => db_text(value),
+            SliderKind::Percent { .. } => format!("{:.0}%", value * 100.0),
             SliderKind::Pan => pan_text(value),
             SliderKind::Millis { .. } => ms_text(value),
         }
@@ -243,6 +278,12 @@ impl SliderKind {
             SliderKind::Volume | SliderKind::ClipGain | SliderKind::Trim => {
                 text.trim_end_matches("DB").trim().parse().ok()
             }
+            SliderKind::Percent { .. } => text
+                .trim_end_matches('%')
+                .trim()
+                .parse::<f32>()
+                .ok()
+                .map(|p| p / 100.0),
             SliderKind::Millis { .. } => {
                 let text = text.replace(',', ".");
                 if let Some(ms) = text.strip_suffix("MS") {
@@ -361,6 +402,9 @@ pub fn value_slider_styled(
             SliderKind::Trim => {
                 "Input trim: drag (Shift for fine), double-click for 0 dB, or click and type"
             }
+            SliderKind::Percent { .. } => {
+                "Drag or wheel (Shift for fine), double-click for the default, or click and type"
+            }
         });
     response.widget_info(|| {
         egui::WidgetInfo::slider(
@@ -379,7 +423,7 @@ pub fn value_slider_styled(
         response.request_focus();
     }
     if response.double_clicked() {
-        out = 0.0;
+        out = kind.reset();
     }
     if response.has_focus() {
         let (left, right, typed) = ui.input(|i| {
@@ -426,19 +470,26 @@ pub fn value_slider_styled(
     let radius = theme::radius::SMALL;
     p.rect_filled(rect, radius, look.fill.lerp_to_gamma(look.hover, hover));
     let x_at = |v: f32| rect.left() + (v - lo) / (hi - lo) * rect.width();
+    let text = kind.text(out);
+    let galley = p.layout_no_wrap(
+        text,
+        FontId::proportional(theme::size::CAPTION),
+        palette.text,
+    );
+    let text_rect =
+        Align2::CENTER_CENTER.anchor_size(rect.center() - vec2(0.0, lift), galley.size());
     match kind {
-        SliderKind::Volume | SliderKind::ClipGain | SliderKind::Millis { .. } => {
+        SliderKind::Volume
+        | SliderKind::ClipGain
+        | SliderKind::Millis { .. }
+        | SliderKind::Percent { .. } => {
             let x = x_at(out);
             p.rect_filled(
                 Rect::from_min_max(rect.min, pos2(x, rect.bottom())),
                 radius,
                 look.press,
             );
-            p.vline(
-                x,
-                rect.shrink2(vec2(0.0, 3.0)).y_range(),
-                Stroke::new(2.0, palette.start_marker),
-            );
+            draw_handle(p, x, rect.shrink2(vec2(0.0, 3.0)).y_range(), text_rect);
         }
         SliderKind::Pan | SliderKind::Trim => {
             let center = rect.center().x;
@@ -459,15 +510,13 @@ pub fn value_slider_styled(
             ] {
                 p.vline(center, y, Stroke::new(1.0, palette.text_hint));
             }
+            // The fill's moving edge, as the volume's handle.
+            if (x - center).abs() >= 1.0 {
+                draw_handle(p, x, rect.shrink2(vec2(0.0, 3.0)).y_range(), text_rect);
+            }
         }
     }
-    p.text(
-        rect.center() - vec2(0.0, lift),
-        Align2::CENTER_CENTER,
-        kind.text(out),
-        FontId::proportional(theme::size::CAPTION),
-        palette.text,
-    );
+    p.galley(text_rect.min, galley, palette.text);
     if response.has_focus() {
         p.rect_stroke(
             rect,
@@ -479,9 +528,51 @@ pub fn value_slider_styled(
     out
 }
 
+/// How far from the value's text a slider's handle starts to open, in
+/// points.
+const HANDLE_OPENS_WITHIN: f32 = 8.0;
+
+/// A slider's handle at `x` over `ys`: a solid line that opens around the
+/// value's `text` as it comes near, smoothly with the distance, until only
+/// a tick above and below it remains (the owner's choice C, the interface
+/// audit's S2: the line ran through the value). Nothing animates by
+/// itself: the opening follows the handle.
+fn draw_handle(p: &Painter, x: f32, ys: Rangef, text: Rect) {
+    let stroke = Stroke::new(2.0, theme::p().start_marker);
+    for span in handle_spans(x, ys, text) {
+        p.vline(x, span, stroke);
+    }
+}
+
+/// Half the height a handle opens to around the value: from the capitals'
+/// tops to the baseline (about 0.36 of the size each way from the line's
+/// middle), with 1.5 pt to spare; not the whole line, which fills the
+/// slider.
+const HANDLE_GAP_HALF: f32 = 0.36 * theme::size::CAPTION + 1.5;
+
+/// The parts of a handle at `x` over `ys` left drawn around `text`.
+fn handle_spans(x: f32, ys: Rangef, text: Rect) -> Vec<Rangef> {
+    let away = (x - text.center().x).abs() - text.width() / 2.0 - 3.0;
+    let near = (1.0 - away.max(0.0) / HANDLE_OPENS_WITHIN).clamp(0.0, 1.0);
+    let open = near * near * (3.0 - 2.0 * near);
+    let half = open * HANDLE_GAP_HALF;
+    let gap = Rangef::new(text.center().y - half, text.center().y + half);
+    if gap.span() < 0.5 {
+        return vec![ys];
+    }
+    [
+        Rangef::new(ys.min, gap.min.min(ys.max)),
+        Rangef::new(gap.max.max(ys.min), ys.max),
+    ]
+    .into_iter()
+    .filter(|s| s.span() >= 0.5)
+    .collect()
+}
+
 /// A value shown as text in a field (a strip's volume under its fader, M4
 /// slice 5): click to type (Enter applies, Esc cancels), double-click to
-/// reset. Returns the value.
+/// reset. Its fill follows the surface under it (`controls`). Returns the
+/// value.
 pub fn value_field(
     ui: &mut Ui,
     rect: Rect,
@@ -489,6 +580,7 @@ pub fn value_field(
     value: f32,
     kind: SliderKind,
     name: &str,
+    controls: theme::Controls,
 ) -> f32 {
     let palette = *theme::p();
     let (lo, hi) = kind.range();
@@ -535,7 +627,7 @@ pub fn value_field(
     }
     if response.double_clicked() {
         ui.data_mut(|d| d.remove::<String>(typing_id));
-        out = 0.0;
+        out = kind.reset();
     } else if response.clicked() {
         ui.data_mut(|d| d.insert_temp(typing_id, kind.text(value).replace(" dB", "")));
     }
@@ -544,7 +636,7 @@ pub fn value_field(
     p.rect_filled(
         rect,
         theme::radius::SMALL,
-        palette.raised.lerp_to_gamma(palette.control, hover),
+        controls.fill.lerp_to_gamma(controls.hover, hover),
     );
     p.text(
         rect.center(),
@@ -649,6 +741,40 @@ pub fn draw_glow_rect(painter: &Painter, rect: Rect, radius: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_handle_opens_around_the_value_as_it_nears_it() {
+        let ys = Rangef::new(3.0, 17.0);
+        // A value centred in a 20 pt slider, as on a strip.
+        let text = Rect::from_min_max(pos2(40.0, 4.5), pos2(80.0, 15.5));
+        // Far away: one solid line.
+        assert_eq!(handle_spans(10.0, ys, text), vec![ys]);
+        // Over the text: a tick above and below, clear of the letters.
+        let over = handle_spans(60.0, ys, text);
+        assert_eq!(over.len(), 2, "{over:?}");
+        let middle = text.center().y;
+        assert!(
+            over[0].max < middle - 4.0 && over[1].min > middle + 4.0,
+            "{over:?}"
+        );
+        assert!(over[0].span() >= 1.5 && over[1].span() >= 1.5, "{over:?}");
+        // Coming near, the gap grows with the closeness, never jumps.
+        let gap = |x: f32| {
+            let spans = handle_spans(x, ys, text);
+            if spans.len() == 2 {
+                spans[1].min - spans[0].max
+            } else {
+                0.0
+            }
+        };
+        let mut last = 0.0;
+        for i in 0..=40 {
+            let g = gap(25.0 + i as f32 * 0.5);
+            assert!(g >= last - 1e-4, "{g} after {last}");
+            last = g;
+        }
+        assert!(gap(36.0) > 0.0 && gap(36.0) < gap(37.0));
+    }
 
     #[test]
     fn values_read_naturally() {

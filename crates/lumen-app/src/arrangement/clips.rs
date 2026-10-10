@@ -144,7 +144,19 @@ impl Arrangement {
         time: TimeView,
     ) {
         let palette = *theme::p();
-        let project = doc.project();
+        // Clips moved by an edit are drawn on their way (M4.5, M1).
+        let now = ctx.input(|i| i.time);
+        self.glides.update(
+            now,
+            (doc.session(), doc.state()),
+            doc.project(),
+            self.gesture.is_some(),
+        );
+        if self.glides.moving() {
+            ctx.request_repaint();
+        }
+        let shown = self.glides.shown(doc.project(), now);
+        let project: &Project = &shown;
         let audible = audible(project);
         // The returns and master pinned at the bottom (slice 4) draw their
         // own lanes; everything below works in the scrolling tracks' zone.
@@ -198,7 +210,8 @@ impl Arrangement {
         }
 
         // Clip bodies, on the GPU.
-        self.refresh_boxes(ctx, doc.state(), project, lanes);
+        let gliding = self.glides.moving();
+        self.refresh_boxes(ctx, doc.state(), project, lanes, gliding);
         let ppp = ctx.pixels_per_point();
         // One slot per track, by its index (boxes and waves name their
         // track's index); tracks hidden in a folded group draw nothing.
@@ -277,18 +290,41 @@ impl Arrangement {
                     let heard = audible(track);
                     for clip in &track.clips {
                         let (x0, x1) = span(time, canvas, clip);
-                        if x1 < canvas.left() || x0 > canvas.right() || x1 - x0 < NAME_MIN_WIDTH {
+                        if x1 < canvas.left() || x0 > canvas.right() {
                             continue;
                         }
                         let rect = Rect::from_x_y_ranges(
                             x0..=x1,
                             lane.top() + INSET..=lane.bottom() - INSET,
                         );
+                        // What undo or redo changed, washed in the accent
+                        // (M4.5, M4).
+                        let wash = self.glides.wash(clip.id, now);
+                        if wash > 0.0 {
+                            painter.rect_filled(
+                                rect,
+                                theme::radius::SMALL,
+                                palette.accent.gamma_multiply(wash),
+                            );
+                        }
+                        if x1 - x0 < NAME_MIN_WIDTH {
+                            continue;
+                        }
                         let mut look = look_of(clip, clip_color(track, clip), lanes, ctx);
                         if !heard {
                             look.alpha *= DIMMED;
                         }
-                        draw_name(painter, rect, lane, &look);
+                        if row.clipped {
+                            // Folding shut: the name stays inside the lane.
+                            draw_name(
+                                &painter.with_clip_rect(lane.intersect(painter.clip_rect())),
+                                rect,
+                                lane,
+                                &look,
+                            );
+                        } else {
+                            draw_name(painter, rect, lane, &look);
+                        }
                     }
                     // Files dropped on this track, while they load (slice
                     // 6e), side by side from where they were dropped.
@@ -370,23 +406,25 @@ impl Arrangement {
     }
 
     /// Rebuilds the GPU boxes if the project, the media or the theme
-    /// changed, or a clip is still fading in or loading.
+    /// changed, or a clip is still fading in, loading or gliding.
     fn refresh_boxes(
         &mut self,
         ctx: &egui::Context,
         state: u64,
         project: &Project,
         lanes: &mut Lanes,
+        gliding: bool,
     ) {
         let palette = *theme::p();
         let rate = lanes.rate();
         let key = (state, lanes.revision(), rate, palette);
-        if self.gpu.built == Some(key) && !self.gpu.moving {
+        if self.gpu.built == Some(key) && !self.gpu.moving && !gliding {
             return;
         }
         // Any file loading (an import, or an opened project's media) has a
         // progress fill to keep moving.
-        let mut moving = lanes.library.is_loading();
+        // A glide rebuilds once more after it lands.
+        let mut moving = lanes.library.is_loading() || gliding;
         let count = project.tracks.iter().map(|t| t.clips.len()).sum();
         let mut boxes = Vec::with_capacity(count);
         for (row, track) in project.tracks.iter().enumerate() {

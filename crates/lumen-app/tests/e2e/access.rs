@@ -4,7 +4,7 @@
 //! place so it can be found.
 
 use eframe::egui::accesskit::{Action, Role};
-use eframe::egui::{Event, Key, Modifiers, PointerButton};
+use eframe::egui::{self, Event, Key, Modifiers, PointerButton};
 use egui_kittest::kittest::{NodeT, Queryable, by};
 
 use super::Lumen;
@@ -239,4 +239,88 @@ fn tab_walks_the_window_in_reading_order() {
     let arrangement = place(&order, "Arrangement");
     assert!(at.iter().all(|&t| t < arrangement), "the transport first");
     assert!(place(&order, "kick: double-click to rename") > arrangement);
+}
+
+#[test]
+fn switches_and_segmented_choices_work_by_name() {
+    // M4.5 slice 2: the app menu's on/off settings are switches (named as
+    // checkboxes) and its small choices segmented controls (radio buttons).
+    // The owner's C: the menu stays open through changes, fades once the
+    // pointer leaves it, and a command closes it at once.
+    let mut lumen = Lumen::start("switches");
+    lumen.click("Lumen");
+    assert!(!lumen.is_on("Meters in track colours"));
+    lumen.click("Meters in track colours");
+    assert!(
+        lumen.is_on("Meters in track colours"),
+        "a click switches it on"
+    );
+    assert!(lumen.shows("Additive solo"), "and the menu stays open");
+    // Not the theme or Reduce motion: they are process-wide, and would reach
+    // the tests running beside this one.
+    assert!(lumen.is_on("100%") && !lumen.is_on("125%"));
+    lumen.click("125%");
+    assert!(
+        lumen.is_on("125%") && !lumen.is_on("100%"),
+        "one choice at a time"
+    );
+    // The pointer leaves: after a moment, it fades away.
+    lumen.harness.hover_at(egui::pos2(900.0, 500.0));
+    lumen.frames(10);
+    assert!(lumen.shows("Additive solo"), "not at once");
+    lumen.frames(60);
+    assert!(
+        !lumen.shows("Additive solo"),
+        "gone after the pause and fade"
+    );
+    // A command closes it straight away: its fading picture has no controls.
+    lumen.click("Lumen");
+    lumen.click("History\u{2026}");
+    assert!(!lumen.shows("Additive solo"));
+}
+
+#[test]
+fn a_menus_segmented_controls_line_up_with_its_labels() {
+    // M4.5 slice 6, the design sweep: switches, segmented controls and
+    // captions sat at a menu's very edge, a little left of its rows'
+    // labels. They now come in as far as the labels do.
+    let mut lumen = Lumen::start("menu-inset");
+    lumen.click("Lumen");
+    lumen.frames(30);
+    // A segment sits 2 pt inside its control (`space::XXS`); in a menu the
+    // control itself comes in as well, by the rows' padding.
+    let row = lumen.harness.get_by_label("Additive solo").rect();
+    let dark = lumen.harness.get_by_label("Dark").rect();
+    let inset = dark.left() - row.left();
+    assert!(
+        inset > 2.0 + 0.5,
+        "the theme's choices start {inset} in from the row: only their own inset"
+    );
+}
+
+#[test]
+fn a_closing_menu_asks_for_the_frames_its_fade_needs() {
+    // Owner, MT-POL-2: menus vanished instead of fading. The frame that
+    // closed one asked for no next frame, so an idle window drew the next
+    // one only after the fade was over.
+    let mut lumen = Lumen::start("menu-fade");
+    lumen.click("Lumen");
+    lumen.frames(30);
+    lumen.harness.get_by_label("History\u{2026}").click();
+    // The frame that closes it is the first without its controls (from
+    // then on only its picture fades): that frame must ask for the next.
+    let mut closing_frame_asked = None;
+    for _ in 0..5 {
+        lumen.harness.step();
+        if !lumen.shows("Additive solo") {
+            let causes = lumen.harness.ctx.repaint_causes();
+            closing_frame_asked = Some(causes.iter().any(|c| c.file.ends_with("menu.rs")));
+            break;
+        }
+    }
+    assert_eq!(
+        closing_frame_asked,
+        Some(true),
+        "the fade's next frame is asked for"
+    );
 }

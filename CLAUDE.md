@@ -390,7 +390,61 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-10: **the light layer and the mark are built**
+**Last updated:** 2026-10-10: **M4.5, a polish pass, is approved and
+under way** on `m4.5-polish` (plan `docs/milestones/M4.5.md`). The owner
+merged the M4 review fixes (PR #3; CI did not run because of GitHub
+billing, so the full suite was run locally first), then asked for an
+interface audit (`docs/audits/2026-10-10-design.md`). Every proposal was
+chosen from interactive mock-ups (an artifact; the owner-decisions table,
+"Interface audit"); the slider handle is the owner's own variant (a solid
+line that opens into ticks near its value). M4.5 runs before M5 so the
+piano roll inherits the new widgets, and is recorded as a mid milestone
+when finished. Six slices: bugs (value field fill, a `well` token, the
+scroll clamp, the shots harness), shared widgets and sizes, chrome,
+Martian Mono (ask before downloading), motion, close. **Slice 1 is
+built** (T1 fields take `theme::controls`, the `well` token, the scroll
+clamp in `rows.rs` `keep_in_content`, the shots harness); MT-POL-1 waits
+for the owner (passed). **Slice 2 is built**: size tokens
+(`size::CONTROL`, `CONTROL_SMALL`, `KNOB`, `KNOB_SMALL`, `LABEL_COLUMN*`,
+`space::XXS`), the handle that opens near its value
+(`widgets::draw_handle`), scale numbers thinned (`meter::place`), and
+`widgets/toggle.rs` (`switch`, `segmented`, `choice_row`): use these,
+never egui's checkbox or radio. MT-POL-2 passed (run 2; menus fade,
+`widgets::Menu`, the owner's C). **Slice 3 is built**: `toggle_button`,
+`tabs` (names end "tab"), the grey arm at rest, `widgets::empty_state`
+and the mixer's ghost strip ("Add track in the mixer"), the clip card's
+swatches and `lanes::shorten_middle`, `widgets::time_signature`,
+`SliderKind::Percent`. MT-POL-3 passed. **Slice 4 is built**: Martian
+Mono (downloaded with the owner's approval) is the monospace, at width
+87.5 (`fonts.rs`). MT-POL-4 passed. **Slice 5 is built**: clip glides
+and the undo wash (`arrangement/glide.rs`, `Document::session`), rows
+that grow in, glide and fold shut (`arrangement/row_glide.rs`; `Row`
+has `clipped`), `widgets::scroll_bar`, the palette's sliding highlight
+(`motion::glide_over`), lit states cross-fading, `widgets::paint_gone`
+for closing windows. E2E that acts right after adding, moving or folding
+tracks must let rows settle (`frames(30)`); the harness clock moves 1/60 s
+a frame. MT-POL-5 waits. **Slice 6 (close) is built**: E2E `access` and
+the walkthroughs re-run; the design sweep (`shots::polish_sweep`, both
+themes at 100/150/200%) found menu switches, segmented controls and
+captions off the label line (they now inset themselves inside a menu,
+`toggle::menu_inset`; captions are `widgets::menu_caption`) and the
+audit's mixer edge fades unbuilt (built in `strips.rs`). The frame
+benchmark counts idle from 1.5 s after the last driven frame (the scroll
+bar's fade had read as 146 idle repaints). Frame times p99 1.5–1.7 ms at
+1600 × 900, 3.3–3.6 ms at 3440 × 1380, idle 3 in 3 s. The M4.5 report is
+in PROGRESS.md; MT-POL-6 waits. The pinned clip card covering windows
+opened after it is in KNOWN_ISSUES, to pitch. **M5 is proposed** in
+`docs/milestones/M5.md` with five owner choices (C1 what plays MIDI
+before VST3, C2 where the piano roll opens, C3 the computer keyboard, C4
+replace or overdub, C5 quantize defaults). Next: the owner's MT-POL-5,
+MT-POL-6 and MT-APP-18, merge `m4.5-polish`, then M5 once approved. E2E must not flip process-wide
+settings (theme, Reduce motion): tests run side by side.
+`tests/shots.rs` renders mixed themes when run in parallel (the theme is
+process-global): run it with `--test-threads=1`.
+`origin/main` (PRs #4 to #6: CI fixes, macOS CI back, the light layer
+and the mark) is merged into `m4.5-polish`; the empty arrangement's
+empty state shows the mark, half risen, as its icon (`EmptyState::icon_size`).
+Before it, 2026-10-10: **the light layer and the mark are built**
 on `claude/keen-einstein-2fjiuy` (ADR-0043, DESIGN.md §6a and §6b; the
 owner approved them on the identity canvas, a private Design artifact,
 and chose the logo, Dawn in Sunrise). `light.rs` holds the five levels
@@ -566,8 +620,10 @@ escapes and quotes several times.
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
+- **M4.5 Polish pass: built 2026-10-10; slices 1–4 done, slices 5 and 6
+  built (MT-POL-5 and MT-POL-6 wait).** M5 proposed (`docs/milestones/M5.md`).
 - **M4 Mixer, Routing & Groups: complete 2026-10-10**; the review's fixes
-  are on `m4-review`.
+  are merged (PR #3).
 - **M3 Arrangement & Project System: complete, approved 2026-10-09.** Slices 1–3 done:
   - performance gates;
   - design system, motion and typefaces;

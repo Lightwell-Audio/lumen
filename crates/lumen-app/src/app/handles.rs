@@ -269,23 +269,18 @@ impl App {
                 (Edge::Start, "Fade in", current[0]),
                 (Edge::End, "Fade out", current[1]),
             ] {
-                ui.label(egui::RichText::new(label).weak().small());
-                for shape in FadeShape::ALL {
-                    let mut chosen = now;
-                    let radio = ui.radio_value(&mut chosen, Some(shape), shape.name());
-                    radio.widget_info(|| {
-                        egui::WidgetInfo::selected(
-                            egui::WidgetType::RadioButton,
-                            true,
-                            now == Some(shape),
-                            format!("{label}: {}", shape.name()),
-                        )
-                    });
-                    if radio.clicked() {
-                        self.document
-                            .set_fade_curve(&ids, edge, shape.curve(), None);
-                        ui.close();
-                    }
+                widgets::menu_caption(ui, label);
+                let names = FadeShape::ALL.map(|s| format!("{label}: {}", s.name()));
+                let shapes: Vec<_> = FadeShape::ALL
+                    .iter()
+                    .zip(&names)
+                    .map(|(s, name)| widgets::Choice::new(Some(*s), s.name()).named(name))
+                    .collect();
+                if let Some(Some(shape)) = widgets::segmented(ui, ui.id().with(label), now, &shapes)
+                {
+                    self.document
+                        .set_fade_curve(&ids, edge, shape.curve(), None);
+                    ui.close();
                 }
             }
         });

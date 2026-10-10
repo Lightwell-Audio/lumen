@@ -2,16 +2,24 @@
 //! **Unbounded** as the companion face for personality (the wordmark, window
 //! and panel titles). Chosen by the owner from side-by-side specimens,
 //! 2026-10-07. Unbounded is wide, so it is set smaller than a narrow face.
+//! **Martian Mono** for numbers that must not jitter (the interface audit's
+//! S1, chosen by the owner, M4.5): its square, wide shapes echo Unbounded;
+//! it is set at width 87.5 so readouts keep their room.
 //!
-//! Both are variable fonts; each weight is the same file registered with its
-//! own `wght` coordinate. egui's bundled fonts stay behind them as fallbacks
-//! for symbols (⚠, ⟳, emoji) and as the monospace (Hack).
+//! All three are variable fonts; each weight (and Martian Mono's width) is
+//! the same file registered with its own coordinates. egui's bundled fonts
+//! stay behind them as fallbacks for symbols (⚠, ⟳, emoji), and Hack behind
+//! Martian Mono.
 
 use eframe::egui::epaint::text::VariationCoords;
 use eframe::egui::{self, FontData, FontDefinitions, FontFamily, FontId, FontTweak};
 
 const INTER: &[u8] = include_bytes!("../assets/fonts/Inter.ttf");
 const UNBOUNDED: &[u8] = include_bytes!("../assets/fonts/Unbounded.ttf");
+const MARTIAN_MONO: &[u8] = include_bytes!("../assets/fonts/MartianMono.ttf");
+/// Martian Mono's width: narrower than its default 100, so the position,
+/// tempo and meter scales keep the room Hack had.
+const MONO_WIDTH: f32 = 87.5;
 
 /// Medium-weight interface text: section headings, emphasis.
 pub fn medium(size: f32) -> FontId {
@@ -30,6 +38,13 @@ fn weighted(bytes: &'static [u8], weight: f32) -> FontData {
     })
 }
 
+fn mono() -> FontData {
+    FontData::from_static(MARTIAN_MONO).tweak(FontTweak {
+        coords: VariationCoords::new([("wght", 400.0), ("wdth", MONO_WIDTH)]),
+        ..FontTweak::default()
+    })
+}
+
 pub fn definitions() -> FontDefinitions {
     let mut defs = FontDefinitions::default();
     let fallbacks = defs
@@ -41,6 +56,7 @@ pub fn definitions() -> FontDefinitions {
         ("inter-400", weighted(INTER, 400.0)),
         ("inter-560", weighted(INTER, 560.0)),
         ("unbounded-560", weighted(UNBOUNDED, 560.0)),
+        ("martian-mono", mono()),
     ] {
         defs.font_data.insert(name.into(), data.into());
     }
@@ -55,6 +71,9 @@ pub fn definitions() -> FontDefinitions {
         .insert(FontFamily::Name("medium".into()), family("inter-560"));
     defs.families
         .insert(FontFamily::Name("display".into()), family("unbounded-560"));
+    // Martian Mono first, Hack and the symbol fallbacks behind it.
+    let mono = defs.families.entry(FontFamily::Monospace).or_default();
+    mono.insert(0, "martian-mono".to_owned());
     defs
 }
 
@@ -72,6 +91,7 @@ mod tests {
         let defs = definitions();
         for family in [
             FontFamily::Proportional,
+            FontFamily::Monospace,
             FontFamily::Name("medium".into()),
             FontFamily::Name("display".into()),
         ] {
@@ -81,5 +101,6 @@ mod tests {
                 assert!(defs.font_data.contains_key(name), "{name} missing");
             }
         }
+        assert_eq!(defs.families[&FontFamily::Monospace][0], "martian-mono");
     }
 }

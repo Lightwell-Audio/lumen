@@ -106,7 +106,7 @@ pub fn fader(
     // Drawing: the groove, then the cap at the level shown.
     let painter = ui.painter();
     let groove = Rect::from_x_y_ranges(x - GROOVE / 2.0..=x + GROOVE / 2.0, travel);
-    painter.rect_filled(groove, GROOVE / 2.0, palette.app);
+    painter.rect_filled(groove, GROOVE / 2.0, palette.well);
     let shown = out.unwrap_or(db);
     let hover = motion::hover(
         ui.ctx(),

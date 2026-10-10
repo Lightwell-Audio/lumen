@@ -2,13 +2,19 @@
 
 ## Status
 
-**Current milestone:** 4 — Mixer, Routing & Groups (plan:
+**Current milestone:** 4.5 — Polish pass, a mid milestone before M5
+(plan: [milestones/M4.5.md](milestones/M4.5.md)), approved 2026-10-10
+from the interface audit's mock-ups. **All six slices built**; every audit
+finding is built. MT-POL-5 and MT-POL-6 wait for the owner. The report is
+below. **Proposed next:** M5, MIDI and the piano roll
+([milestones/M5.md](milestones/M5.md)), for the owner's approval.
+**Before it:** 4 — Mixer, Routing & Groups (plan:
 [milestones/M4.md](milestones/M4.md)). **Complete 2026-10-10**: all eight
 slices built, and every manual test passed (MT-APP-17, MT-MIX-1 to
 MT-MIX-8, including the Focusrite's dropout count). The end-of-milestone
 review (`docs/audits/2026-10-10-m4.md`) found no High issues. Four Medium
-and eight Low findings are fixed on `m4-review` (the audit's Status
-table). The report is below.
+and eight Low findings are fixed (the audit's Status table), merged into
+`main` 2026-10-10 (PR #3). The report is below.
 **Previous:** M3 complete and approved 2026-10-09; M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
@@ -20,14 +26,26 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 1 | Foundations & Architecture | ✅ Complete | Plan and risk register in `docs/milestones/M1.md` |
 | 2 | Audio Engine, Devices & Transport | ✅ Complete, approved 2026-10-07 | Plan: `docs/milestones/M2.md` |
 | 3 | Arrangement & Project System | ✅ Complete, approved 2026-10-09 | Plan: `docs/milestones/M3.md` |
-| 4 | Mixer, Routing & Groups | ✅ Complete 2026-10-10 (review fixed on `m4-review`) | Plan: `docs/milestones/M4.md` |
-| 5 | MIDI & Piano Roll | 🔲 | |
+| 4 | Mixer, Routing & Groups | ✅ Complete 2026-10-10 (review fixes merged, PR #3) | Plan: `docs/milestones/M4.md` |
+| 4.5 | Polish pass (mid milestone: the interface audit's fixes) | 🟡 Built 2026-10-10; MT-POL-5 and 6 wait | Plan: `docs/milestones/M4.5.md`; audit: `docs/audits/2026-10-10-design.md` |
+| 5 | MIDI & Piano Roll | 🔲 Proposed | Plan: `docs/milestones/M5.md` |
 | 6 | VST3 Hosting & Device System | 🔲 | |
 | 7 | Automation, Envelopes & Advanced Editing | 🔲 | |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | |
 | 9 | Recording, Media, Export & Production Workflow | 🔲 | |
 | 10 | Hardening, Performance & Release | 🔲 | |
 | S | Stretch goals (unscheduled; pulled into a milestone only with owner approval) | 🔲 | VST3 scanning and hosting on macOS and Linux |
+
+## Milestone 4.5 slices
+
+| # | Slice | Status | Commits |
+|---|---|---|---|
+| 1 | The audit's bugs: value fields follow the surface (T1), a `well` token for grooves and meters (T2), the scroll kept on the tracks (U1), the shots harness (a taller window, one thread) | ✅ 2026-10-10 (MT-POL-1 passed) | `37bfea0` |
+| 2 | Shared widgets and sizes: the size scale (S4), the handle that opens near its value (S2, the owner's C), scale numbers thinned (S3), the switch, segmented control and choice rows replace egui's checkboxes and radios (T3) | ✅ 2026-10-10 (MT-POL-2 passed in run 2; menus close gently, the owner's C) | `614dbfa`, `173a51a`, `33a44c1` |
+| 3 | Chrome: toggles keep a button's fill and the detail tabs are underlined words (T4), the arm button grey at rest (T5), one empty-state widget and the mixer's ghost strip (S5), the clip card's 2 × 6 swatches and middle-shortened path (S6), one time-signature field (S7), the metronome's volume as a value slider | ✅ 2026-10-10 (MT-POL-3 passed) | `70d68d0` |
+| 4 | Numbers in Martian Mono (S1), at width 87.5; licence in `assets/fonts` and THIRD_PARTY_NOTICES | ✅ 2026-10-10 (MT-POL-4 passed) | `259f63a` |
+| 5 | Motion: clips glide to their place and undo washes what it changed (M1, M4); rows grow in, glide and fold shut (M2, M3); fading scroll bars on the tracks and the mixer (U2); the palette's sliding highlight, lit states cross-fading, windows fading out (M5). Idle: 3 repaints in 3 s, as before | 🟡 Built 2026-10-10, MT-POL-5 waits for the owner; release frame times measured in slice 6 | `ebce840`, `67137da` |
+| 6 | Close: E2E `access` and the walkthroughs re-run; the design sweep (`shots::polish_sweep`, both themes at 100/150/200%) found switches, segmented controls and captions off the menus' label line (fixed, `widgets::menu_caption`) and the audit's mixer edge fades unbuilt (built); the frame benchmark lets animations settle before counting idle; the report | 🟡 Built 2026-10-10, MT-POL-6 waits for the owner | this commit |
 
 ## Milestone 3 slices
 
@@ -322,6 +340,83 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 ---
 
 ## Milestone reports
+
+### Milestone 4.5 — report (2026-10-10)
+**Status:** Built 2026-10-10, a mid milestone between M4 and M5. All six
+slices are built and every finding of the interface audit
+(`docs/audits/2026-10-10-design.md`, 20 findings) is built; none was
+deferred. MT-POL-1 to MT-POL-4 passed (owner). MT-POL-5 (motion) and
+MT-POL-6 (the close) wait for the owner, as does MT-APP-18 (light and the
+mark, merged from `main`).
+
+**Shipped:** 12 commits on `m4.5-polish` (and one merge from `main`), no format change, nothing heard
+differently.
+- **Bugs** (slice 1): value fields follow the surface (T1), a `well` token
+  for grooves and meters (T2), the scroll kept on the tracks (U1), the
+  shots harness repaired (U3).
+- **Shared widgets and sizes** (slice 2): one size scale (S4), the slider
+  handle that opens near its value (S2, the owner's own variant C), scale
+  numbers thinned by priority (S3), switches, segmented controls and
+  choice rows in place of egui's checkboxes and radios (T3), menus that
+  stay open through changes and fade when left (the owner's C).
+- **Chrome** (slice 3): toggles and underlined tabs (T4), the arm grey at
+  rest (T5), one empty-state widget and the mixer's ghost strip (S5), the
+  clip card's swatches and shortened path (S6), one time-signature field
+  (S7).
+- **Martian Mono** for numbers (slice 4, S1).
+- **Motion** (slice 5): clips glide and undo washes what changed (M1, M4),
+  rows grow in, glide and fold shut (M2, M3), fading scroll bars (U2), the
+  palette's sliding highlight, cross-fading lit states and windows fading
+  out (M5).
+- **The close** (slice 6): the design sweep over every changed view, in
+  both themes at 100%, 150% and 200%, found two things, both fixed:
+  switches, segmented controls and captions sat at a menu's edge, about
+  1.5 pt left of its labels (they now line up, `widgets::menu_caption`);
+  and the audit's mixer edge fades (U2's second half) had not been built
+  (strips cut at an edge now fade into the ground).
+- **Merged from `main`:** the CI fixes, macOS back in CI, and the light
+  layer and the Dawn mark (ADR-0043); the empty arrangement's empty state
+  shows the mark as its icon.
+
+**Automated tests:** 687 in the workspace, including 157 end-to-end
+scenarios, all passing, plus 6 real-binary smoke tests. clippy
+(`-D warnings`) and rustfmt are clean. New shots: `polish_sweep` and
+`mixer_edges` (renders for checking by eye, run on demand).
+
+**Verified by hand:** MT-POL-1 to MT-POL-4 (owner). Not yet: MT-POL-5,
+MT-POL-6, MT-APP-18. Screen readers are still unchecked (Narrator
+deferred); names and Tab order are tested (E2E `access`).
+
+**Key measurements** (Ryzen 7 7700X, RTX 4070; stress project, 200
+tracks and 20,000 clips, Mixer tab open):
+
+| What | Result | Bar |
+|---|---|---|
+| Frame time p99, scroll time / scroll tracks / zoom, 1600 × 900 | 1.5 / 1.7 / 1.6 ms (M4: 2.4–3.2 ms) | 16.7 ms (60 fps); 8.3 ms target |
+| Frame time p99, 3440 × 1380 | 3.6 / 3.6 / 3.3 ms | same |
+| Idle repaints | 3 in 3 s, as in M3 and M4 | near-zero idle CPU |
+
+The first run reported 146 idle repaints at 1600 × 900. It was the
+benchmark, not the app: idle was counted from 0.1 s after the last scroll,
+while the scroll bar still lingered and faded (with vsync off, its fade
+alone was 30 to 140 frames). Idle is now counted from 1.5 s after.
+
+**Exit criterion:** *every audit finding built or explicitly deferred;
+each slice's manual test passed; idle repaints and frame times unchanged;
+no format change.* All met except the two manual tests that wait.
+
+**Not done or deferred:**
+- Found by the sweep and recorded (KNOWN_ISSUES): the pinned clip card
+  covers windows opened after it, older than M4.5; a fix is to pitch.
+
+**Risks:**
+- Motion adds per-frame work while it runs; at rest it costs nothing
+  (measured). M5's piano roll will be the next large draw.
+- The ASIO SDK agreement is still to be signed (owner action, before any
+  distribution).
+
+**Proposed next:** M5, MIDI and the piano roll, in
+`docs/milestones/M5.md`, with five choices for the owner (§4).
 
 ### Milestone 4 — report (2026-10-10)
 **Status:** Complete 2026-10-10. All eight slices are built, and every
