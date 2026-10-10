@@ -313,6 +313,8 @@ impl eframe::App for App {
             self.owner = owner::Owner::of(frame);
         }
         let ctx = ui.ctx().clone();
+        // Before anything scrolls: whose this frame's wheel is (M4 slice 5).
+        widgets::wheel::route(&ctx);
         self.transport.advance_playhead(ctx.input(|i| i.time));
         self.follow_file_drag(&ctx);
         if let Some(test) = self.crash_test {

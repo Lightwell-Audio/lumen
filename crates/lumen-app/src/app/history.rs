@@ -24,10 +24,10 @@ impl App {
     }
 
     /// Keeps the app in step with the document: gestures end when the
-    /// pointer is released, and the transport follows tempo and meter
-    /// changes from edits, undo and redo.
+    /// pointer is released (or the wheel rests on a control), and the
+    /// transport follows tempo and meter changes from edits, undo and redo.
     pub(crate) fn sync_document(&mut self, ctx: &egui::Context) {
-        if !ctx.input(|i| i.pointer.any_down()) {
+        if !ctx.input(|i| i.pointer.any_down()) && !crate::widgets::wheel::adjusting(ctx) {
             self.document.seal();
         }
         self.transport

@@ -4,8 +4,9 @@
 //! fader and a send at the same level sit at the same place.
 //!
 //! It acts as every value control does (DESIGN.md §7): drag (Shift for
-//! fine), double-click for 0 dB, arrow keys when focused. Its value is
-//! typed in the field under it on the strip.
+//! fine), double-click for 0 dB, arrow keys when focused, the wheel a dB a
+//! notch (Shift a tenth; `wheel.rs`). Its value is typed in the field
+//! under it on the strip.
 
 use eframe::egui::{self, CursorIcon, Id as EguiId, Key, Rect, Sense, Stroke, Ui, pos2, vec2};
 
@@ -41,7 +42,7 @@ pub fn fader(
     let response = ui
         .interact(area, id, Sense::click_and_drag())
         .on_hover_cursor(CursorIcon::ResizeVertical)
-        .on_hover_text("Volume: drag (Shift for fine), double-click for 0 dB");
+        .on_hover_text("Volume: drag or wheel (Shift for fine), double-click for 0 dB");
     response.widget_info(|| {
         egui::WidgetInfo::slider(
             true,
@@ -91,6 +92,13 @@ pub fn fader(
     }
     let at = at.clamp(0.0, 1.0);
     let mut out = (at != before).then(|| level(at));
+    // The wheel: a dB a notch, from −60 dB at the bottom.
+    let notches = super::wheel::steps(ui, id, area);
+    if notches != 0.0 {
+        let step = notches * if fine { 0.1 } else { 1.0 };
+        let from = if db.is_finite() { db } else { -60.0 };
+        out = Some((from + step).clamp(-60.0, super::knob::MAX_DB));
+    }
     if response.double_clicked() {
         out = Some(0.0);
     }

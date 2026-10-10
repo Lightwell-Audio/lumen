@@ -6,8 +6,8 @@
 //! It acts as every value control does (DESIGN.md §7): drag up or right
 //! (Shift for fine), double-click for silence, click then type a level
 //! (Enter applies, Esc cancels), arrow keys when focused; the right-click
-//! menu switches pre- and post-fader. (The wheel scrolls the tracks, as
-//! over the sliders: KNOWN_ISSUES.)
+//! menu switches pre- and post-fader. The wheel turns it a dB a notch
+//! (Shift a tenth) when its gesture starts on the knob (`wheel.rs`).
 
 use std::f32::consts::PI;
 
@@ -195,6 +195,25 @@ pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> Kno
     let at = at.clamp(0.0, 1.0);
     if at != before {
         out.db = Some(level(at));
+    }
+    // The wheel: a dB a notch, set as a level (not through the travel, where
+    // the floor itself reads as silence); up from silence starts at −60 dB.
+    let notches = super::wheel::steps(ui, id, rect);
+    if notches != 0.0 {
+        let step = notches * if fine { 0.1 } else { 1.0 };
+        let db = out.db.unwrap_or(knob.db);
+        let next = if db.is_finite() {
+            db + step
+        } else if step > 0.0 {
+            FLOOR_DB
+        } else {
+            db
+        };
+        out.db = Some(if next < FLOOR_DB {
+            f32::NEG_INFINITY
+        } else {
+            next.min(MAX_DB)
+        });
     }
     if response.double_clicked() {
         out.db = Some(f32::NEG_INFINITY);

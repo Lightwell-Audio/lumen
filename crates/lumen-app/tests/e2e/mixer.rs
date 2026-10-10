@@ -321,3 +321,51 @@ fn the_pan_law_is_chosen_from_the_mixers_menu_and_the_palette() {
     lumen.key(Modifiers::NONE, Key::Enter);
     assert_eq!(lumen.app().project().pan_law, PanLaw::Balance);
 }
+
+/// Turns the wheel `notches` at `at` (up is positive), then lets egui's
+/// smoothed scroll settle.
+fn wheel(lumen: &mut Lumen, at: eframe::egui::Pos2, notches: i32, modifiers: Modifiers) {
+    lumen.harness.hover_at(at);
+    lumen.frames(2);
+    for _ in 0..notches.abs() {
+        lumen.harness.event(Event::MouseWheel {
+            unit: eframe::egui::MouseWheelUnit::Point,
+            delta: vec2(0.0, 40.0 * notches.signum() as f32),
+            phase: eframe::egui::TouchPhase::Move,
+            modifiers,
+        });
+        lumen.frames(2);
+    }
+    lumen.frames(30);
+}
+
+#[test]
+fn the_wheel_sets_a_control_its_gesture_starts_on() {
+    let mut lumen = mixed("mixer-wheel");
+    let fader = lumen
+        .harness
+        .get_by_label_contains("Audio 3 fader in the mixer:")
+        .rect();
+    wheel(&mut lumen, fader.center(), 3, Modifiers::NONE);
+    let db = track(&lumen, "Audio 3").gain_db;
+    assert!((db - 3.0).abs() < 0.01, "{db}");
+    // The whole gesture is one undo step.
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert_eq!(track(&lumen, "Audio 3").gain_db, 0.0);
+
+    // Pan: 5% a notch; a send's knob: a dB a notch, from silence to −60.
+    let pan = lumen
+        .harness
+        .get_by_label_contains("Audio 3 pan in the mixer:")
+        .rect();
+    wheel(&mut lumen, pan.center(), -2, Modifiers::NONE);
+    assert!((track(&lumen, "Audio 3").pan + 0.1).abs() < 0.001);
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    let send = lumen
+        .harness
+        .get_by_label_contains("Send Audio 3 to A Return 1 in the mixer")
+        .rect();
+    wheel(&mut lumen, send.center(), 2, Modifiers::NONE);
+    let level = track(&lumen, "Audio 3").sends[0].level.0;
+    assert!((level + 59.0).abs() < 0.01, "{level}");
+}

@@ -531,6 +531,13 @@ Chosen from interactive specimens:
   `text` line and the −14 LUFS ± 1 band in the accent at 14%; the last
   minute's short-term loudness as a line beside it; M, S and TP (TP in the
   warning colour above −1 dBTP); "↺ Reset". Silence reads "—".
+- **The wheel (the owner's B3, every value control):** a wheel gesture
+  that starts on a slider, knob, fader or value field sets it, a notch a
+  step (1 dB, 5% of pan, a tenth with Shift; a send turned up from
+  silence starts at −60 dB), and the whole gesture is one undo step. A
+  gesture that started scrolling keeps scrolling over controls until the
+  wheel rests (0.3 s). Ctrl and Alt keep the wheel for zoom and track
+  heights (`widgets::wheel`).
 - **Names:** every strip control ends "in the mixer" ("Mute Kick in the
   mixer", "Kick fader in the mixer: −3.0 dB"), so it never shares a name
   with its header's twin; a strip itself is "Mixer strip: Kick, Audio

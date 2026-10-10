@@ -18,6 +18,7 @@ pub mod fader;
 mod keys;
 pub mod knob;
 pub mod meter;
+pub mod wheel;
 
 pub use keys::{
     KEY_LIGHT_ROOM, Keys, Tip, caps_height, caps_width, keycaps, menu_item, menu_toggle,
@@ -204,6 +205,16 @@ impl SliderKind {
         }
     }
 
+    /// What a notch of the wheel changes (Shift: a tenth of it): a dB on
+    /// levels, 5% on pan, a hundredth of a length.
+    pub fn wheel_step(self) -> f32 {
+        match self {
+            SliderKind::Volume | SliderKind::ClipGain | SliderKind::Trim => 1.0,
+            SliderKind::Pan => 0.05,
+            SliderKind::Millis { max_ms } => (max_ms / 100.0).max(1.0),
+        }
+    }
+
     pub fn text(self, value: f32) -> String {
         match self {
             SliderKind::Volume | SliderKind::ClipGain | SliderKind::Trim => db_text(value),
@@ -291,10 +302,10 @@ pub fn value_slider(
         .interact(rect, id, Sense::click_and_drag())
         .on_hover_text(match kind {
             SliderKind::Volume => {
-                "Volume: drag (Shift for fine), double-click for 0 dB, or click and type"
+                "Volume: drag or wheel (Shift for fine), double-click for 0 dB, or click and type"
             }
             SliderKind::Pan => {
-                "Pan: drag (Shift for fine), double-click to centre, or click and type L 30 or R 30"
+                "Pan: drag or wheel (Shift for fine), double-click to centre, or click and type L 30 or R 30"
             }
             SliderKind::ClipGain => {
                 "Gain: drag (Shift for fine), double-click for 0 dB, or click and type"
@@ -352,6 +363,11 @@ pub fn value_slider(
         if let Some(text) = typed {
             ui.data_mut(|d| d.insert_temp(typing_id, text));
         }
+    }
+    // The wheel, when its gesture started here (the owner's B3).
+    let notches = wheel::steps(ui, id, rect);
+    if notches != 0.0 {
+        out += notches * kind.wheel_step() * if fine { 0.1 } else { 1.0 };
     }
     let out = out.clamp(lo, hi);
 
@@ -467,6 +483,11 @@ pub fn value_field(
         )
     });
     let mut out = value;
+    let notches = wheel::steps(ui, id, rect);
+    if notches != 0.0 {
+        let fine = ui.input(|i| i.modifiers.shift);
+        out = (out + notches * kind.wheel_step() * if fine { 0.1 } else { 1.0 }).clamp(lo, hi);
+    }
     if response.double_clicked() {
         ui.data_mut(|d| d.remove::<String>(typing_id));
         out = 0.0;

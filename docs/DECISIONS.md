@@ -3150,6 +3150,20 @@ waiting on the UI, and must not raise idle CPU (risk R5).
 - **The pan law** (the owner's slice 2 answer): the mixer's empty area has
   a right-click menu (the four laws, Clear clip lights), and the palette
   has a command per law; one undo step each (`set_pan_law`).
+- **5d, the wheel on value controls** (`widgets/wheel.rs`, the owner's
+  B3, closing the KNOWN_ISSUES row): value controls register where they
+  are each frame; first thing next frame (before the arrangement or a
+  scroll area reads the wheel) `wheel::route` gives the gesture to the
+  control under the pointer if the gesture starts there, taking the scroll
+  out of the input, or leaves it scrolling; a gesture is wheel events
+  closer than 0.3 s, and a control's ends when the pointer leaves it.
+  Controls take whole notches (40 points of scroll) as they draw:
+  `value_slider` and `value_field` by their kind's `wheel_step` (1 dB, 5%
+  pan, a hundredth of a length), the knob and the fader a dB (Shift a
+  tenth; a send up from silence starts at −60 dB, set as a level since the
+  knob's travel reads its floor as silence). The app does not end an undo
+  gesture while the wheel holds a control (`wheel::adjusting`), so a
+  wheel turn is one step, as a drag is.
 - **Found and fixed on the way:** saved panel sizes never came back.
   egui keeps a panel's size by its id and sizes it by what its contents
   take: the detail panel's few contents snapped it to its smallest after
@@ -3201,5 +3215,8 @@ track in one undo step; the output menu routes into a group and never
 offers a group as its own output; the loudness column resets; a strip
 dragged onto a group's strip goes in, returns reorder among themselves
 and never move among tracks; the pan law from the mixer's menu and the
-palette.
+palette; the wheel sets a fader, pan and a send it starts on, one undo
+step a gesture. `wheel` unit tests: a gesture that starts on a control
+adjusts it; one that started scrolling keeps scrolling over it, and after
+a rest a new gesture on it adjusts it.
 
