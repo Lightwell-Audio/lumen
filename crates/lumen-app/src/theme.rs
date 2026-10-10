@@ -55,6 +55,13 @@ pub struct Palette {
     /// the colour (owner's choice, slice 4).
     pub clip_body: Color32,
     pub shadow: Color32,
+    /// The centre of a light (`light::BEAM`, ADR-0043): white in the dark,
+    /// the accent itself on the light theme, where light is ink, not glow.
+    pub core: Color32,
+    /// The logo's sun (the owner's Dawn in Sunrise): its rim, and its
+    /// centre. Its water is the accent.
+    pub sun: Color32,
+    pub sun_core: Color32,
 }
 
 pub const DARK: Palette = Palette {
@@ -84,6 +91,9 @@ pub const DARK: Palette = Palette {
     selected_row: Color32::from_rgb(0x22, 0x34, 0x49),
     selected_control: Color32::from_rgb(0x43, 0x4D, 0x5E),
     clip_body: Color32::from_rgb(0x26, 0x2A, 0x31),
+    core: Color32::WHITE,
+    sun: Color32::from_rgb(0xFF, 0xC4, 0x6B),
+    sun_core: Color32::WHITE,
     shadow: Color32::from_black_alpha(96),
 };
 
@@ -114,6 +124,9 @@ pub const LIGHT: Palette = Palette {
     selected_row: Color32::from_rgb(0xDB, 0xE7, 0xF8),
     selected_control: Color32::from_rgb(0xFF, 0xFF, 0xFF),
     clip_body: Color32::from_rgb(0xFF, 0xFF, 0xFF),
+    core: Color32::from_rgb(0x1F, 0x6F, 0xD1),
+    sun: Color32::from_rgb(0xCC, 0x9D, 0x56),
+    sun_core: Color32::from_rgb(0x80, 0x62, 0x36),
     shadow: Color32::from_black_alpha(36),
 };
 
@@ -302,6 +315,12 @@ impl Appearance {
 }
 
 static LIGHT_IN_USE: AtomicBool = AtomicBool::new(false);
+
+/// Whether the light theme is in use: lights are halved there
+/// (`light::strength`).
+pub fn is_light() -> bool {
+    LIGHT_IN_USE.load(Ordering::Relaxed)
+}
 
 /// The palette in use.
 pub fn p() -> &'static Palette {

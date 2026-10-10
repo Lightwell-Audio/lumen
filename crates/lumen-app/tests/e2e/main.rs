@@ -23,6 +23,7 @@ mod grid;
 mod groups;
 mod info;
 mod keys;
+mod light;
 mod locators;
 mod looping;
 mod meters;

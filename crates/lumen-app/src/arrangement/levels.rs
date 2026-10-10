@@ -13,7 +13,7 @@ use lumen_project::model::Track;
 use super::Arrangement;
 use crate::app::info::{Held, Info, Mouse};
 use crate::meters::{FLOOR_DB, Reading};
-use crate::theme;
+use crate::{light, theme};
 
 /// The top of the volume slider's range (`SliderKind::Volume`): the meter
 /// in it shares the slider's scale.
@@ -62,6 +62,12 @@ fn draw(
             theme::METER_PEAK_ALPHA,
         );
         bar(painter, span, side_ys, reading.rms[side], base, 1.0);
+        // The head: the level is light rising (ADR-0043).
+        let rms = reading.rms[side];
+        if rms > FLOOR_DB {
+            let color = theme::meter(rms, base);
+            light::vline(painter, light::BEAM, x_at(span, rms), side_ys, color, 1.0);
+        }
     }
     let hold = reading.hold_db();
     if hold > FLOOR_DB {
@@ -155,6 +161,7 @@ impl Arrangement {
         id: EguiId,
     ) {
         let palette = theme::p();
+        light::halo_around(ui.painter(), light::FLARE, mark, 1.0, palette.record);
         ui.painter().rect_filled(mark, 1.0, palette.record);
         let area = Rect::from_x_y_ranges(hit, mark.y_range().expand(3.0));
         let response = ui

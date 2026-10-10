@@ -12,10 +12,31 @@ use crate::arrangement::FileDrop;
 use crate::commands::Command;
 use crate::document::DropInto;
 use crate::icons::{self, Icon};
-use crate::{App, arrangement, audio, bench, canvas, lanes, media, motion, ruler, theme, widgets};
+use crate::{
+    App, arrangement, audio, bench, canvas, lanes, light, media, motion, ruler, theme, widgets,
+};
 
 /// A glided position, or the exact one once the glide has settled: the
 /// glide runs in f32, which is pixels off at sample-level zoom.
+/// The mark above an empty arrangement's words (`text`), half risen
+/// until files that can be added are dragged over.
+fn empty_mark(painter: &egui::Painter, text: egui::Rect, look: widgets::mark::Look) {
+    let rect = egui::Rect::from_center_size(
+        pos2(
+            text.center().x,
+            text.top() - theme::space::M - EMPTY_MARK_SIZE / 2.0,
+        ),
+        vec2(EMPTY_MARK_SIZE, EMPTY_MARK_SIZE),
+    );
+    widgets::mark::paint(painter, rect, look);
+}
+
+/// The mark's size above an empty arrangement.
+const EMPTY_MARK_SIZE: f32 = 48.0;
+
+/// The mark's size in the transport bar.
+const MARK_SIZE: f32 = 22.0;
+
 fn settled(glided: f32, exact: f64) -> f64 {
     if (f64::from(glided) - exact).abs() < 1e-3 {
         exact
@@ -91,6 +112,7 @@ report: {}",
             // Whatever does not fit is cut off here rather than drawn over
             // the panel toggles.
             ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
+            self.transport_mark(ui);
             self.app_menu(ui);
             ui.separator();
             self.transport.ui(ui, &mut self.document, &self.keymap);
@@ -128,6 +150,17 @@ report: {}",
             ui.data_mut(|d| d.insert_temp(width_id, used));
             ui.ctx().request_repaint();
         }
+    }
+
+    /// The mark before the wordmark (ADR-0043): a meter of the master, its
+    /// sun rising with the level. Recording turns it red from M9.
+    fn transport_mark(&mut self, ui: &mut egui::Ui) {
+        let master = self.document.project().master.id.0;
+        let reading = self.arrangement.meters.reading(master);
+        let look = widgets::mark::Look::level(reading.rms[0].max(reading.rms[1]), false);
+        self.mark = look;
+        let (_, rect) = ui.allocate_space(vec2(MARK_SIZE, MARK_SIZE));
+        widgets::mark::paint(ui.painter(), rect, look);
     }
 
     /// While files are dragged in from the system: where the pointer is
@@ -376,22 +409,28 @@ report: {}",
             ));
         }
 
-        // Playhead: from the bar ruler through the time ruler.
+        // Playhead: from the bar ruler through the time ruler. While
+        // playing it is a beam (ADR-0043): a white core in the accent, a
+        // halo, and light cast on the lanes it passes; stopped, it is unlit.
         let x = x_of(settled(head, playhead));
         if (full.left()..=full.right()).contains(&x) {
-            painter.line_segment(
-                [pos2(x, ruler.top()), pos2(x, full.bottom())],
-                Stroke::new(1.0, palette.accent),
-            );
-            painter.add(egui::Shape::convex_polygon(
-                vec![
-                    pos2(x - 5.0, ruler.top()),
-                    pos2(x + 5.0, ruler.top()),
-                    pos2(x, ruler.top() + 7.0),
-                ],
-                palette.accent,
-                Stroke::NONE,
-            ));
+            let ys = egui::Rangef::new(ruler.top(), full.bottom());
+            if state.playing {
+                light::cast(&painter, light::BEAM, x, canvas.y_range(), palette.accent);
+                light::vline(&painter, light::BEAM, x, ys, palette.accent, 1.0);
+                light::cap(&painter, x, ruler.top(), palette.accent);
+            } else {
+                painter.vline(x, ys, Stroke::new(1.0, palette.accent));
+                painter.add(egui::Shape::convex_polygon(
+                    vec![
+                        pos2(x - 5.0, ruler.top()),
+                        pos2(x + 5.0, ruler.top()),
+                        pos2(x, ruler.top() + 7.0),
+                    ],
+                    palette.accent,
+                    Stroke::NONE,
+                ));
+            }
         }
 
         // While files are dragged over the window, say which will be added.
@@ -441,13 +480,20 @@ report: {}",
                 }
                 (n, total) => format!("Drop to add {n} of {total} files"),
             };
-            painter.text(
+            let text = painter.text(
                 canvas.center(),
                 egui::Align2::CENTER_CENTER,
                 format!("{headline}\n\n{}", lines.join("\n")),
                 egui::FontId::proportional(theme::size::TITLE),
                 color,
             );
+            // The mark rises over the files it can take (ADR-0043).
+            let look = if supported > 0 {
+                widgets::mark::Look::RISEN
+            } else {
+                widgets::mark::Look::WAITING
+            };
+            empty_mark(&painter, text, look);
         } else if self.lanes.is_empty(self.document.project()) {
             let text = painter.text(
                 canvas.center(),
@@ -456,6 +502,7 @@ report: {}",
                 egui::FontId::proportional(theme::size::BODY),
                 theme::p().text_hint,
             );
+            empty_mark(&painter, text, widgets::mark::Look::WAITING);
             // Or choose them (M3 review H1: importing was mouse-drag only).
             let below = egui::Rect::from_min_max(
                 pos2(canvas.left(), text.bottom() + theme::space::M),

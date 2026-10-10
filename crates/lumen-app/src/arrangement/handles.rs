@@ -17,7 +17,7 @@ use lumen_project::model::{Clip, ClipContent};
 use super::TITLE;
 use super::clips::WAVE_GAP;
 use super::select::Edge;
-use crate::theme;
+use crate::{light, theme};
 
 /// The ends of the gain line: clip gain's range.
 const MIN_DB: f32 = *crate::document::CLIP_GAIN.start();
@@ -373,17 +373,11 @@ pub fn draw_handles(
     }
 }
 
-/// A glowing accent line through `points`: soft layers under a crisp one,
+/// A glowing accent line through `points` (the [`light::LIT`] level),
 /// brighter when `hot`.
 fn glow_line(painter: &Painter, points: Vec<Pos2>, accent: Color32, hot: bool) {
     let lift = if hot { 1.6 } else { 1.0 };
-    for (width, alpha) in [(6.0, 0.10), (3.5, 0.22)] {
-        painter.line(
-            points.clone(),
-            Stroke::new(width, accent.gamma_multiply(alpha * lift)),
-        );
-    }
-    painter.line(points, Stroke::new(if hot { 2.0 } else { 1.5 }, accent));
+    light::polyline(painter, light::LIT, points, accent, lift);
 }
 
 #[cfg(test)]

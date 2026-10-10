@@ -211,6 +211,24 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
 /// A transport-bar button showing `icon`. `active` marks a toggle that is on
 /// (or Play while playing). The accessible name is `label`; the tooltip adds
 /// the shortcut as keycaps and a hint (`tip`).
+/// Lights a transport button that is sounding now (Play while playing):
+/// the [`light::BEAM`] level's halo around it and its icon in the core
+/// colour (ADR-0043). Drawn over the button `button` returned.
+pub fn beam(ui: &Ui, rect: egui::Rect, icon: Icon) {
+    let painter = ui.painter();
+    let c = theme::p();
+    crate::light::halo_around(
+        painter,
+        crate::light::BEAM,
+        rect,
+        f32::from(theme::radius::SMALL),
+        c.accent,
+    );
+    for shape in shapes(icon, rect.shrink(4.0), c.core) {
+        painter.add(shape);
+    }
+}
+
 pub fn button(
     ui: &mut Ui,
     icon: Icon,
