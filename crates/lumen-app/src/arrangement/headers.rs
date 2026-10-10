@@ -526,11 +526,11 @@ pub(super) fn arm_button(
             ));
             p.circle_filled(center, 4.5, palette.record);
         } else {
-            p.circle_filled(
-                center,
-                4.5,
-                palette.record.gamma_multiply(0.45 + 0.25 * hover),
-            );
+            // At rest a quiet grey dot, red only under the pointer: record
+            // red means recording (the interface audit's T5, the owner's A;
+            // a column of red dots was the loudest thing on screen).
+            let rest = look.text.gamma_multiply(0.55);
+            p.circle_filled(center, 4.5, rest.lerp_to_gamma(palette.record, hover));
         }
     }
     response.clicked()

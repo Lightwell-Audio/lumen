@@ -20,8 +20,6 @@ use crate::audio::{Audio, Choice};
 
 pub use bar::punch_menu;
 
-const DENOMINATORS: [u32; 7] = [1, 2, 4, 8, 16, 32, 64];
-
 pub struct Transport {
     pub audio: Audio,
     /// The UI's copy of what the engine plays against.

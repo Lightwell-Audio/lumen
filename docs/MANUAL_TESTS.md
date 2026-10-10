@@ -1750,3 +1750,35 @@ The frame that started a fade asked for no next frame, so an idle window
 drew the next one only after the fade was over (the harness steps every
 frame, so the shots showed it). Fixed: a fade's first frame asks for the
 next; E2E `a_closing_menu_asks_for_the_frames_its_fade_needs`.
+
+**Passed (2026-10-10, owner, run 2).**
+
+### MT-POL-3 · Chrome (needs a human)
+Slice 3 of M4.5: findings T4, T5, S5, S6, S7, and the metronome's volume.
+Run `cargo run --release -p lumen-app`.
+1. **Toggles and tabs (T4):** in the transport, Browser and Detail always
+   look like buttons; on, they are lit. Under the arrangement, the detail
+   panel's tabs are words: Mixer has an accent underline; Devices and Clip
+   are greyed, and hovering one says which milestone brings it.
+2. **Arm at rest (T5):** on a project with several tracks the arm buttons
+   are quiet grey dots; hover one: it turns red. Arm a track: it glows and
+   breathes as before.
+3. **Empty states (S5):** File → New. The lanes say "Drop audio files
+   here" with the formats under it and an Import audio… button, all
+   centred. The mixer shows a dashed ghost strip with "Add track": click
+   it, an audio track is added and the ghost goes. The browser keeps its
+   title, inset from the corner, and says when it arrives.
+4. **Clip card (S6):** import a file from a long folder path; select its
+   clip, Alt+Enter. The colours are two even rows of six, then a "Track
+   colour" pill. The path at the bottom keeps the drive and the file's name,
+   with "…" in the middle; hover it for the whole path.
+5. **Time signature (S7):** the transport shows one "4 / 4" field. Wheel
+   over the left number: the beats change; over the right: the unit steps
+   through 1, 2, 4, 8, 16… Drag up and down on each half. Click and type
+   7/8, Enter: it reads 7 / 8 and the grid follows. Type 7/7: nothing
+   changes. Double-click: 4 / 4.
+6. **Metronome volume:** right-click the metronome. The volume is a slider
+   like the others (value inside it); drag it; double-click it: back to
+   50%. Move off the menu: it fades away.
+
+**Expected:** as described, in both themes.

@@ -168,6 +168,54 @@ fn swatch(
     response
 }
 
+/// "Track colour": a round swatch in the track's colour and its name, on a
+/// pill that is ringed in the accent while the clip follows its track.
+fn track_pill(ui: &mut egui::Ui, track: egui::Color32, on: bool) -> egui::Response {
+    let palette = theme::p();
+    let label = "Track colour";
+    let galley = ui.painter().layout_no_wrap(
+        label.to_owned(),
+        egui::FontId::proportional(theme::size::CAPTION),
+        palette.text,
+    );
+    let dot = SWATCH - 2.0;
+    let size = vec2(
+        theme::space::XS + dot + theme::space::XS + galley.size().x + theme::space::S,
+        theme::size::CONTROL_SMALL,
+    );
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    response
+        .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, on, label));
+    let hover = crate::motion::hover(ui.ctx(), response.id.with("hover"), response.hovered());
+    let controls = theme::controls(false);
+    let painter = ui.painter();
+    let round = (rect.height() / 2.0) as u8;
+    painter.rect_filled(
+        rect,
+        round,
+        controls.fill.lerp_to_gamma(controls.hover, hover),
+    );
+    let centre = pos2(rect.left() + theme::space::XS + dot / 2.0, rect.center().y);
+    painter.circle_filled(centre, dot / 2.0, track);
+    painter.galley(
+        pos2(
+            centre.x + dot / 2.0 + theme::space::XS,
+            rect.center().y - galley.size().y / 2.0,
+        ),
+        galley,
+        palette.text,
+    );
+    if on || response.has_focus() {
+        painter.rect_stroke(
+            rect,
+            round,
+            Stroke::new(1.5, palette.accent),
+            egui::StrokeKind::Inside,
+        );
+    }
+    response
+}
+
 /// The clip colours as swatches, then the track's colour; returns the one
 /// clicked (`Some(None)`: the track's colour again).
 fn swatches(
@@ -175,17 +223,25 @@ fn swatches(
     current: Option<Color>,
     track: egui::Color32,
 ) -> Option<Option<Color>> {
+    // Two even rows of six, then the track's colour as a labelled pill (the
+    // interface audit's S6: the thirteen wrapped ten and three).
     let mut chosen = None;
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = vec2(theme::space::XS + 1.0, theme::space::XS + 1.0);
-        for (i, &fill) in theme::CLIP_COLORS.iter().enumerate() {
-            let color = color_from(fill);
-            let name = format!("Colour {}", i + 1);
-            if swatch(ui, fill, current == Some(color), false, &name).clicked() {
-                chosen = Some(Some(color));
-            }
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing = vec2(theme::space::S, theme::space::S);
+        // Rows as tall as a swatch, not a control.
+        ui.spacing_mut().interact_size.y = SWATCH;
+        for row in theme::CLIP_COLORS.chunks(6).enumerate() {
+            ui.horizontal(|ui| {
+                for (j, &fill) in row.1.iter().enumerate() {
+                    let color = color_from(fill);
+                    let name = format!("Colour {}", row.0 * 6 + j + 1);
+                    if swatch(ui, fill, current == Some(color), false, &name).clicked() {
+                        chosen = Some(Some(color));
+                    }
+                }
+            });
         }
-        if swatch(ui, track, current.is_none(), true, "Track colour").clicked() {
+        if track_pill(ui, track, current.is_none()).clicked() {
             chosen = Some(None);
         }
     });

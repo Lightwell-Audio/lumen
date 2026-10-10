@@ -306,3 +306,137 @@ pub fn segmented<T: PartialEq + Copy>(
     }
     picked
 }
+
+/// A button that stays lit while `on` (Browser, Detail): a button's fill
+/// when off, the accent on `accent_muted` when on, so off still reads as a
+/// button (the interface audit's T4: egui's toggle had no fill when off).
+pub fn toggle_button(ui: &mut Ui, on: &mut bool, label: &str) -> egui::Response {
+    let palette = theme::p();
+    let galley = ui.painter().layout_no_wrap(
+        label.to_owned(),
+        FontId::proportional(theme::size::BODY),
+        palette.text,
+    );
+    let pad = theme::space::S;
+    let size = vec2(galley.size().x + 2.0 * pad, theme::size::CONTROL);
+    let (rect, mut response) = ui.allocate_exact_size(size, Sense::click());
+    if response.clicked() {
+        *on = !*on;
+        response.mark_changed();
+    }
+    let state = *on;
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, state, label)
+    });
+    if !ui.is_rect_visible(rect) {
+        return response;
+    }
+    let hover = motion::hover(ui.ctx(), response.id.with("hover"), response.hovered());
+    let controls = theme::controls(false);
+    let (fill, text) = if state {
+        (palette.accent_muted, palette.accent)
+    } else {
+        (
+            controls.fill.lerp_to_gamma(controls.hover, hover),
+            palette.text,
+        )
+    };
+    let painter = ui.painter();
+    painter.rect_filled(rect, theme::radius::SMALL, fill);
+    painter.galley_with_override_text_color(rect.center() - galley.size() / 2.0, galley, text);
+    if response.has_focus() {
+        painter.rect_stroke(
+            rect,
+            theme::radius::SMALL,
+            Stroke::new(2.0, palette.accent),
+            StrokeKind::Inside,
+        );
+    }
+    response
+}
+
+/// One tab of [`tabs`].
+#[derive(Debug, Clone, Copy)]
+pub struct Tab<'a> {
+    pub label: &'a str,
+    /// Said on hover: why an unbuilt tab cannot be opened.
+    pub disabled_because: Option<&'a str>,
+    pub tip: &'a str,
+}
+
+/// A row of tabs as words, the chosen one in `text` over a 2 pt accent
+/// underline that slides to it (`GLIDE`); tabs that cannot open yet are in
+/// `text_disabled` with why on hover (the interface audit's T4, the
+/// owner's A). Returns the index clicked, if another.
+pub fn tabs(ui: &mut Ui, id: EguiId, chosen: usize, tabs: &[Tab<'_>]) -> Option<usize> {
+    let palette = theme::p();
+    let gap = theme::space::L;
+    let mut picked = None;
+    let mut chosen_rect = None;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = gap;
+        for (i, tab) in tabs.iter().enumerate() {
+            let enabled = tab.disabled_because.is_none();
+            let colour = if !enabled {
+                palette.text_disabled
+            } else if i == chosen {
+                palette.text
+            } else {
+                palette.text_secondary
+            };
+            let galley = ui.painter().layout_no_wrap(
+                tab.label.to_owned(),
+                FontId::proportional(theme::size::BODY),
+                colour,
+            );
+            let size = vec2(galley.size().x, theme::size::CONTROL);
+            let sense = if enabled {
+                Sense::click()
+            } else {
+                Sense::hover()
+            };
+            let (rect, response) = ui.allocate_exact_size(size, sense);
+            let selected = i == chosen;
+            response.widget_info(|| {
+                egui::WidgetInfo::selected(
+                    egui::WidgetType::SelectableLabel,
+                    enabled,
+                    selected,
+                    format!("{} tab", tab.label),
+                )
+            });
+            let response = match tab.disabled_because {
+                Some(why) => response.on_disabled_hover_text(why).on_hover_text(why),
+                None => response.on_hover_text(tab.tip),
+            };
+            let hover = response.hovered() && enabled && !selected;
+            ui.painter().galley_with_override_text_color(
+                rect.center() - galley.size() / 2.0,
+                galley,
+                if hover { palette.text } else { colour },
+            );
+            if response.has_focus() {
+                ui.painter().rect_stroke(
+                    rect.expand(2.0),
+                    theme::radius::SMALL,
+                    Stroke::new(2.0, palette.accent),
+                    StrokeKind::Inside,
+                );
+            }
+            if response.clicked() && !selected {
+                picked = Some(i);
+            }
+            if Some(i) == picked.or(Some(chosen)) {
+                chosen_rect = Some(rect);
+            }
+        }
+    });
+    if let Some(rect) = chosen_rect {
+        let ctx = ui.ctx().clone();
+        let left = motion::glide(&ctx, id.with("underline left"), rect.left(), true);
+        let right = motion::glide(&ctx, id.with("underline right"), rect.right(), true);
+        let line = Rect::from_min_max(pos2(left, rect.bottom() - 2.0), pos2(right, rect.bottom()));
+        ui.painter().rect_filled(line, 1.0, palette.accent);
+    }
+    picked
+}

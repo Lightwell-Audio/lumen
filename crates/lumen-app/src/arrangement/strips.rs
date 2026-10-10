@@ -13,10 +13,84 @@ use lumen_project::model::{Id, TrackKind};
 use super::Arrangement;
 use super::reorder::{Mark, Spot};
 use super::strip::{self, Sections, StripLook};
+use crate::commands::Command;
 use crate::commands::Keymap;
 use crate::document::Document;
 use crate::meters::{FLOOR_DB, HISTORY};
 use crate::{fonts, theme, widgets};
+
+/// The empty mixer's ghost strip, at the left of `area`: a dashed strip
+/// with "Add track" in it, and a line beside it on what fills the mixer.
+/// True when clicked.
+fn ghost_strip(ui: &mut Ui, area: Rect, keymap: &Keymap) -> bool {
+    let palette = theme::p();
+    let inset = theme::space::S;
+    let rect = Rect::from_min_size(
+        area.min + vec2(inset, inset),
+        vec2(
+            strip::WIDTH,
+            (area.height() - 2.0 * inset).max(theme::size::CONTROL),
+        ),
+    );
+    let response = ui.interact(rect, ui.id().with("ghost strip"), Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Add track in the mixer")
+    });
+    let hover = crate::motion::hover(ui.ctx(), response.id.with("hover"), response.hovered());
+    let painter = ui.painter_at(area);
+    painter.rect_filled(
+        rect,
+        theme::radius::SMALL,
+        palette.control.gamma_multiply(0.35 * hover),
+    );
+    let stroke = egui::Stroke::new(
+        1.0,
+        palette
+            .border_strong
+            .lerp_to_gamma(palette.text_hint, hover),
+    );
+    let corners = [
+        rect.left_top(),
+        rect.right_top(),
+        rect.right_bottom(),
+        rect.left_bottom(),
+    ];
+    for i in 0..4 {
+        painter.extend(egui::Shape::dashed_line(
+            &[corners[i], corners[(i + 1) % 4]],
+            stroke,
+            4.0,
+            3.0,
+        ));
+    }
+    let keys = keymap.keys(Command::AddAudioTrack);
+    let state = widgets::EmptyState {
+        icon: Some(plus),
+        title: "Add track",
+        hint: "",
+        action: None,
+    };
+    widgets::empty_state(ui, rect, &state);
+    let beside = Rect::from_min_max(
+        pos2(rect.right() + theme::space::M, area.top()),
+        pos2((rect.right() + 240.0).min(area.right()), area.bottom()),
+    );
+    painter.text(
+        beside.left_center(),
+        Align2::LEFT_CENTER,
+        "Strips appear here as you add tracks",
+        FontId::proportional(theme::size::CAPTION),
+        palette.text_hint,
+    );
+    widgets::tip(response, "Add an audio track", keys.as_ref(), None).clicked()
+}
+
+/// A plus, for adding.
+fn plus(painter: &egui::Painter, at: egui::Pos2, colour: egui::Color32) {
+    let stroke = egui::Stroke::new(1.5, colour);
+    painter.line_segment([at - vec2(6.0, 0.0), at + vec2(6.0, 0.0)], stroke);
+    painter.line_segment([at - vec2(0.0, 6.0), at + vec2(0.0, 6.0)], stroke);
+}
 
 /// The gap between the tracks and the returns, and before the master.
 const RETURNS_GAP: f32 = 10.0;
@@ -113,13 +187,11 @@ impl Arrangement {
         let mut on_screen: Vec<(usize, Rangef)> = Vec::with_capacity(placed.len());
         ui.scope_builder(UiBuilder::new().max_rect(strips), |ui| {
             if placed.is_empty() {
-                ui.painter().text(
-                    strips.left_center() + vec2(16.0, 0.0),
-                    Align2::LEFT_CENTER,
-                    "No tracks to mix yet: add one with + Add track or Ctrl+T",
-                    FontId::proportional(theme::size::BODY),
-                    palette.text_hint,
-                );
+                // A ghost strip where the first will go (the interface
+                // audit's S5): a click adds an audio track.
+                if ghost_strip(ui, strips, keymap) {
+                    self.add_track(doc, TrackKind::Audio);
+                }
                 return;
             }
             let mut area = egui::ScrollArea::horizontal()

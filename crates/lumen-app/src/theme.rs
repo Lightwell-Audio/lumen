@@ -245,6 +245,8 @@ pub mod space {
     pub const XS: f32 = 4.0;
     pub const S: f32 = 8.0;
     pub const M: f32 = 12.0;
+    /// Between tabs, and around an empty state's parts.
+    pub const L: f32 = 16.0;
 }
 
 /// Corner radii.

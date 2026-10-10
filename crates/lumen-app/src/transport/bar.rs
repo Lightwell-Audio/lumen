@@ -12,7 +12,7 @@ use crate::audio::Status;
 use crate::icons::{self, Icon};
 use crate::{position, theme, widgets};
 
-use super::{DENOMINATORS, Transport};
+use super::Transport;
 
 impl Transport {
     fn follow_button(&mut self, ui: &mut egui::Ui, keymap: &Keymap) {
@@ -178,11 +178,27 @@ impl Transport {
             .show(|ui| {
                 let mut changed = false;
                 ui.label("Metronome volume");
-                let mut percent = (self.metronome.volume * 100.0).round();
-                changed |= ui
-                    .add(egui::Slider::new(&mut percent, 0.0..=100.0).suffix("%"))
-                    .changed();
-                self.metronome.volume = percent / 100.0;
+                // A value slider like every other level (it was egui's
+                // own); double-click goes back to the default level.
+                let (rect, _) = ui.allocate_exact_size(
+                    egui::vec2(160.0, theme::size::CONTROL_SMALL),
+                    egui::Sense::hover(),
+                );
+                let default = lumen_engine::MetronomeSettings::default().volume;
+                let volume = widgets::value_slider(
+                    ui,
+                    rect,
+                    ui.id().with("metronome volume"),
+                    self.metronome.volume,
+                    widgets::SliderKind::Percent { default },
+                    "Metronome volume",
+                    theme::controls(false),
+                );
+                if volume != self.metronome.volume {
+                    self.metronome.volume = volume;
+                    widgets::note_change(ui);
+                    changed = true;
+                }
                 ui.separator();
                 ui.label("Sound");
                 let sounds = ClickSound::ALL.map(|s| widgets::Choice::new(s, s.name()));
@@ -243,41 +259,18 @@ impl Transport {
         }
         let project = doc.project();
 
-        // Time signature.
-        let mut numerator = u32::from(project.time_signature.numerator);
-        let mut denominator = u32::from(project.time_signature.denominator);
-        let num = ui
-            .add(
-                egui::DragValue::new(&mut numerator)
-                    .update_while_editing(false)
-                    .range(1..=crate::document::MAX_BEATS_PER_BAR)
-                    .speed(0.1),
-            )
-            .on_hover_text("Beats per bar");
-        num.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::DragValue, true, "Beats per bar")
-        });
-        ui.label("/");
-        let den = egui::ComboBox::from_id_salt("denominator")
-            .width(36.0)
-            .selected_text(denominator.to_string())
-            .show_ui(ui, |ui| {
-                for d in DENOMINATORS {
-                    ui.selectable_value(&mut denominator, d, d.to_string());
-                }
-            })
-            .response
-            .on_hover_text("Beat unit");
-        den.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, "Beat unit")
-        });
-        if (numerator, denominator)
-            != (
-                project.time_signature.numerator.into(),
-                project.time_signature.denominator.into(),
-            )
-        {
-            doc.set_time_signature(numerator, denominator, Some("meter"));
+        // Time signature: one field (the interface audit's S7).
+        let current = (
+            u32::from(project.time_signature.numerator),
+            u32::from(project.time_signature.denominator),
+        );
+        if let Some((beats, unit)) = widgets::time_signature(
+            ui,
+            ui.id().with("time signature"),
+            current,
+            crate::document::MAX_BEATS_PER_BAR,
+        ) {
+            doc.set_time_signature(beats, unit, Some("meter"));
         }
         ui.separator();
 

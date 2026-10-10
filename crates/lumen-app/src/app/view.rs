@@ -117,9 +117,9 @@ report: {}",
             {
                 self.toggle_palette();
             }
-            ui.toggle_value(&mut self.show_browser, "Browser")
+            widgets::toggle_button(ui, &mut self.show_browser, "Browser")
                 .on_hover_text("Show or hide the browser");
-            let detail = ui.toggle_value(&mut self.show_detail, "Detail");
+            let detail = widgets::toggle_button(ui, &mut self.show_detail, "Detail");
             let keys = self.keymap.keys(Command::ToggleDetail);
             widgets::tip(detail, "Show or hide the detail panel", keys.as_ref(), None);
         });
@@ -449,28 +449,26 @@ report: {}",
                 color,
             );
         } else if self.lanes.is_empty(self.document.project()) {
-            let text = painter.text(
-                canvas.center(),
-                egui::Align2::CENTER_CENTER,
-                "Drop audio files here\nWAV, AIFF, FLAC, MP3 or Ogg Vorbis",
-                egui::FontId::proportional(theme::size::BODY),
-                theme::p().text_hint,
-            );
             // Or choose them (M3 review H1: importing was mouse-drag only).
-            let below = egui::Rect::from_min_max(
-                pos2(canvas.left(), text.bottom() + theme::space::M),
-                canvas.max,
-            );
-            let builder = egui::UiBuilder::new()
-                .max_rect(below)
-                .layout(egui::Layout::top_down(egui::Align::Center));
-            let clicked = ui
-                .scope_builder(builder, |ui| {
-                    let keys = self.keymap.keys(Command::ImportAudio);
-                    let button = ui.button("Import audio\u{2026}");
-                    widgets::tip(button, "Choose audio files to add", keys.as_ref(), None).clicked()
-                })
-                .inner;
+            let keys = self.keymap.keys(Command::ImportAudio);
+            let state = widgets::EmptyState {
+                icon: Some(|p, at, colour| {
+                    crate::icons::draw_type_icon(
+                        p,
+                        at,
+                        lumen_project::model::TrackKind::Audio,
+                        colour,
+                    )
+                }),
+                title: "Drop audio files here",
+                hint: "WAV, AIFF, FLAC, MP3 or Ogg Vorbis",
+                action: Some(widgets::EmptyAction {
+                    label: "Import audio\u{2026}",
+                    keys: keys.as_ref(),
+                    tip: "Choose audio files to add",
+                }),
+            };
+            let clicked = widgets::empty_state(ui, canvas, &state);
             if clicked && self.availability(ui.ctx(), Command::ImportAudio).is_ok() {
                 self.run(&ui.ctx().clone(), Command::ImportAudio);
             }

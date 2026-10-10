@@ -247,7 +247,10 @@ not travel.
 |---|---|---|---|---|---|
 | Icon button (transport) | icon `text`, no fill | `control_hover` fill (`FAST`) | `control_press` | `accent` icon on `accent_muted` | `text_disabled` icon |
 | Button | `control` fill, `body` text | `control_hover` | `control_press` | — | `text_disabled` text, no fill change |
-| Toggle (Browser, Detail) | as Button | as Button | as Button | `accent_muted` fill, `accent` text | — |
+| Toggle (Browser, Detail; `widgets::toggle_button`) | as Button: `control` fill, never bare text (M4.5) | as Button | as Button | `accent_muted` fill, `accent` text | — |
+| Tabs (the detail panel; `widgets::tabs`) | words in `text_secondary`, 16 pt apart | `text` | — | `text`, over a 2 pt `accent` underline that slides to it (`GLIDE`) | `text_disabled`, with when it arrives on hover |
+| Time signature (`widgets::time_signature`) | one field, "4 / 4", `control` fill | the half under the pointer brightens: the beats left, the unit right | — | drag or wheel changes the half under the pointer; click and type "7/8"; double-click 4/4 | — |
+| Empty state (`widgets::empty_state`) | centred: a 16 pt icon in `text_hint`, the title in medium `text_secondary`, a caption hint, the action as a button with its keys in the tooltip | | | | |
 | Field (tempo, meter) | `raised` fill | `border_strong` outline | — | `accent` outline while editing | — |
 | Combo / menu | as Field, ▼ | | | selected row `accent_muted` | |
 | Popover / window | `overlay`, `border_strong`, shadow | | | | |
@@ -300,6 +303,9 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
   - the button is a red dot with a ring around it. The ring breathes
     slowly (2.4 s) while armed, its glow reaching at most 4 pt, inside the
     gap to S. Every circle shares one centre;
+  - at rest (M4.5, the owner's A) the dot is grey (the control's letters
+    at 55%) on the control fill, turning red under the pointer (`FAST`):
+    record red means recording;
   - the lane gets a red wash, strongest at the left, with thin red edges.
 - **Folding and resizing** (as in Ableton):
   - heights come in **22 pt steps**, so anything later drawn by track
@@ -337,9 +343,11 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
   - a **"+ Add track ▾"** button below the last track opens a menu of
     every type with its shortcut (audio Ctrl+T, MIDI Ctrl+Shift+T, group,
     return);
-  - the hint underneath says "Or double-click empty space", which adds an
-    audio track;
+  - a double-click on the empty space below adds an audio track (the info
+    line says so on hover);
   - the right-click menu offers the same.
+- **Empty lanes** (M4.5): the empty state, "Drop audio files here" with
+  the formats as its hint and **Import audio…** as its button.
 - **Clip:**
   - `clip_body` (dark in the dark theme), a 1 pt border of the track
     colour at 60%;
@@ -421,9 +429,10 @@ half selects a time range, empty lanes draw a marquee.
   view (8 pt to its right, else its left, kept across the lanes and inside
   the window). 272 pt wide, a 1 pt `accent` border, the popup surface.
   - A title row like a dialog: "Clip" in the display face, ✕ at the right.
-  - Rows with a 62 pt label column (`text_secondary`): Name (focused when
-    it opens), Colour (12 square swatches and a round "Track colour"
-    swatch, 14 pt, ringed in `accent` when chosen), Gain (a
+  - Rows with a 72 pt label column (`text_secondary`): Name (focused when
+    it opens), Colour (two rows of six 14 pt square swatches, 8 pt apart,
+    then a "Track colour" pill with a dot in the track's colour, ringed in
+    `accent` when chosen; M4.5), Gain (a
     `value_slider`), Fade in and Fade out (a `value_slider` in
     milliseconds and a shape menu), State (Mute clip and Lock clip,
     framed buttons that light when on); then the file's details.
@@ -539,7 +548,9 @@ Chosen from interactive specimens:
   returns after a 10 pt gap; the master pinned at the right after a
   `border_strong` line, and the loudness column (L2, 108 pt) beside it.
   The strips scroll sideways; only those in view are drawn. With no
-  tracks: "No tracks to mix yet: add one with + Add track or Ctrl+T".
+  tracks: a **ghost strip** where the first will go (96 pt, a dashed
+  `border_strong` edge, a plus and "Add track"; a click adds an audio
+  track) and "Strips appear here as you add tracks" beside it (M4.5).
 - **Strip (S1 console, 96 pt):** `header` fill (`raised` for returns and
   the master, `selected_row` when selected, controls stepping up as on
   headers). From the top: a 3 pt rail per group the track is in (and its

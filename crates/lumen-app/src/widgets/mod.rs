@@ -14,21 +14,25 @@ use eframe::emath::GuiRounding as _;
 
 use crate::{fonts, icons, motion, theme};
 
+mod empty;
 pub mod fader;
 mod keys;
 pub mod knob;
 mod menu;
 pub mod meter;
+mod signature;
 mod toggle;
 pub mod wheel;
 
+pub use empty::{Action as EmptyAction, EmptyState, empty_state};
 pub use keys::{
     KEY_LIGHT_ROOM, Keys, Tip, caps_height, caps_width, keycaps, menu_item, menu_toggle,
     modifier_caps, submenu, tip,
 };
 pub use menu::Menu;
 pub(crate) use menu::note_change;
-pub use toggle::{Choice, choice_row, segmented, switch};
+pub use signature::time_signature;
+pub use toggle::{Choice, Tab, choice_row, segmented, switch, tabs, toggle_button};
 
 /// A floating window in the design system (DESIGN §5): no system title
 /// bar; our own title row with the title in the display face and, when it
@@ -209,9 +213,20 @@ pub enum SliderKind {
     /// A channel's input trim (M4 slice 5): −24 to +24 dB, filled from the
     /// centre; resets to 0 dB.
     Trim,
+    /// A level as a share, 0 to 1 shown as 0–100%, filled from the left;
+    /// resets to `default` (the metronome's volume, M4.5).
+    Percent { default: f32 },
 }
 
 impl SliderKind {
+    /// What a double-click sets.
+    pub fn reset(self) -> f32 {
+        match self {
+            SliderKind::Percent { default } => default,
+            _ => 0.0,
+        }
+    }
+
     pub fn range(self) -> (f32, f32) {
         match self {
             SliderKind::Volume => (-60.0, 6.0),
@@ -219,6 +234,7 @@ impl SliderKind {
             SliderKind::ClipGain => (-60.0, 12.0),
             SliderKind::Millis { max_ms } => (0.0, max_ms.max(0.0)),
             SliderKind::Trim => (-24.0, 24.0),
+            SliderKind::Percent { .. } => (0.0, 1.0),
         }
     }
 
@@ -227,6 +243,7 @@ impl SliderKind {
     pub fn wheel_step(self) -> f32 {
         match self {
             SliderKind::Volume | SliderKind::ClipGain | SliderKind::Trim => 1.0,
+            SliderKind::Percent { .. } => 0.05,
             SliderKind::Pan => 0.05,
             SliderKind::Millis { max_ms } => (max_ms / 100.0).max(1.0),
         }
@@ -235,6 +252,7 @@ impl SliderKind {
     pub fn text(self, value: f32) -> String {
         match self {
             SliderKind::Volume | SliderKind::ClipGain | SliderKind::Trim => db_text(value),
+            SliderKind::Percent { .. } => format!("{:.0}%", value * 100.0),
             SliderKind::Pan => pan_text(value),
             SliderKind::Millis { .. } => ms_text(value),
         }
@@ -247,6 +265,12 @@ impl SliderKind {
             SliderKind::Volume | SliderKind::ClipGain | SliderKind::Trim => {
                 text.trim_end_matches("DB").trim().parse().ok()
             }
+            SliderKind::Percent { .. } => text
+                .trim_end_matches('%')
+                .trim()
+                .parse::<f32>()
+                .ok()
+                .map(|p| p / 100.0),
             SliderKind::Millis { .. } => {
                 let text = text.replace(',', ".");
                 if let Some(ms) = text.strip_suffix("MS") {
@@ -365,6 +389,9 @@ pub fn value_slider_styled(
             SliderKind::Trim => {
                 "Input trim: drag (Shift for fine), double-click for 0 dB, or click and type"
             }
+            SliderKind::Percent { .. } => {
+                "Drag or wheel (Shift for fine), double-click for the default, or click and type"
+            }
         });
     response.widget_info(|| {
         egui::WidgetInfo::slider(
@@ -383,7 +410,7 @@ pub fn value_slider_styled(
         response.request_focus();
     }
     if response.double_clicked() {
-        out = 0.0;
+        out = kind.reset();
     }
     if response.has_focus() {
         let (left, right, typed) = ui.input(|i| {
@@ -439,7 +466,10 @@ pub fn value_slider_styled(
     let text_rect =
         Align2::CENTER_CENTER.anchor_size(rect.center() - vec2(0.0, lift), galley.size());
     match kind {
-        SliderKind::Volume | SliderKind::ClipGain | SliderKind::Millis { .. } => {
+        SliderKind::Volume
+        | SliderKind::ClipGain
+        | SliderKind::Millis { .. }
+        | SliderKind::Percent { .. } => {
             let x = x_at(out);
             p.rect_filled(
                 Rect::from_min_max(rect.min, pos2(x, rect.bottom())),
@@ -584,7 +614,7 @@ pub fn value_field(
     }
     if response.double_clicked() {
         ui.data_mut(|d| d.remove::<String>(typing_id));
-        out = 0.0;
+        out = kind.reset();
     } else if response.clicked() {
         ui.data_mut(|d| d.insert_temp(typing_id, kind.text(value).replace(" dB", "")));
     }
