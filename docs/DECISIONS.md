@@ -3139,6 +3139,17 @@ waiting on the UI, and must not raise idle CPU (risk R5).
   in reading order. The detail panel is never shorter than a strip with
   every section folded, nor so tall that the arrangement keeps less than
   180 pt.
+- **Strips drag (the owner's B8):** a strip's background drags its track
+  as a header does (`Arrangement::start_drag(.., in_mixer)`; the drag
+  remembers where it started so headers and strips each follow their own),
+  along x with the headers' drop rule (`reorder::drop_place`): between
+  strips the moved ones join the group of the strip to the right, the
+  middle half of a group's strip drops into it; returns move among returns
+  only (their letters follow their place). Near the strips' edges the
+  strips scroll.
+- **The pan law** (the owner's slice 2 answer): the mixer's empty area has
+  a right-click menu (the four laws, Clear clip lights), and the palette
+  has a command per law; one undo step each (`set_pan_law`).
 - **Found and fixed on the way:** saved panel sizes never came back.
   egui keeps a panel's size by its id and sizes it by what its contents
   take: the detail panel's few contents snapped it to its smallest after
@@ -3187,5 +3198,8 @@ strips follow the arrangement with returns after and the master pinned,
 one fold for both views, a click selects; every strip control (fader,
 typed volume, pan, polarity, trim, send, mute, solo, rename) sets its
 track in one undo step; the output menu routes into a group and never
-offers a group as its own output; the loudness column resets.
+offers a group as its own output; the loudness column resets; a strip
+dragged onto a group's strip goes in, returns reorder among themselves
+and never move among tracks; the pan law from the mixer's menu and the
+palette.
 

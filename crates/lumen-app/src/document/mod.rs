@@ -20,13 +20,6 @@ pub const MAX_BEATS_PER_BAR: u32 = 64;
 mod clips;
 mod groups;
 mod import;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the routing edits are called by the track headers and the mixer panel                   (M4 slices 4 and 5); until then only their tests call them"
-    )
-)]
 mod mixer;
 pub use clips::{CLIP_GAIN, ClipMove};
 pub use groups::Place;

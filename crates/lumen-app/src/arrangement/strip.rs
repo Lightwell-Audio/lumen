@@ -183,8 +183,9 @@ impl Arrangement {
         let heard = hears.output || track.kind == TrackKind::Master;
         let painter = ui.painter_at(rect);
 
-        // Background: click to select, right-click for the track's menu.
-        let background = ui.interact(rect, id, Sense::click());
+        // Background: click to select, drag to move (the owner's B8),
+        // right-click for the track's menu.
+        let background = ui.interact(rect, id, Sense::click_and_drag());
         background.widget_info(|| {
             egui::WidgetInfo::selected(
                 egui::WidgetType::SelectableLabel,
@@ -196,6 +197,9 @@ impl Arrangement {
         if background.clicked() && track.kind != TrackKind::Master {
             let modifiers = ui.input(|i| i.modifiers);
             self.click_select(doc.project(), track.id, modifiers);
+        }
+        if background.drag_started() && track.kind != TrackKind::Master {
+            self.start_drag(doc.project(), track.id, true);
         }
         if track.kind != TrackKind::Master {
             background.context_menu(|ui| {
@@ -420,6 +424,10 @@ impl Arrangement {
             rect.y_range(),
             Stroke::new(1.0, palette.border),
         );
+        // Strips being dragged are dimmed, as their headers are.
+        if self.is_dragged(track.id) {
+            painter.rect_filled(rect, 0.0, palette.header.gamma_multiply(0.6));
+        }
     }
 
     /// The colour chip, a group's fold arrow, a return's letter, and the

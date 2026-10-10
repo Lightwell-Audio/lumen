@@ -7,9 +7,11 @@
 use eframe::egui::{
     self, Align2, FontId, Rangef, Rect, Sense, Shape, Stroke, Ui, UiBuilder, pos2, vec2,
 };
-use lumen_project::model::TrackKind;
+use lumen_project::groups;
+use lumen_project::model::{Id, TrackKind};
 
 use super::Arrangement;
+use super::reorder::{Mark, Spot};
 use super::strip::{self, Sections, StripLook};
 use crate::commands::Keymap;
 use crate::document::Document;
@@ -18,6 +20,8 @@ use crate::{fonts, theme, widgets};
 
 /// The gap between the tracks and the returns, and before the master.
 const RETURNS_GAP: f32 = 10.0;
+/// How fast a strip drag near an edge scrolls the strips, at the edge.
+const DRAG_SCROLL: f32 = 900.0;
 /// The loudness column's width (the owner's L2).
 const LOUDNESS: f32 = 108.0;
 /// The loudness bar's range, in LUFS, and the band it marks (the common
@@ -90,6 +94,23 @@ impl Arrangement {
         }
         let width = x;
 
+        // The empty mixer: right-click for the project's pan law and the
+        // clip lights (strips, drawn over it, have their own menus).
+        let background = ui.interact(strips, ui.id().with("mixer background"), Sense::click());
+        background
+            .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Mixer"));
+        if background.hovered() {
+            use crate::app::info::{Held, Info, Mouse};
+            self.info = Some(Info::new("Mixer").on(
+                Held::NONE,
+                Mouse::RightClick,
+                "pan law and clip lights",
+            ));
+        }
+        background.context_menu(|ui| self.mixer_menu(ui, doc, keymap));
+
+        // Where every strip is on screen, for a drag's drop place.
+        let mut on_screen: Vec<(usize, Rangef)> = Vec::with_capacity(placed.len());
         ui.scope_builder(UiBuilder::new().max_rect(strips), |ui| {
             if placed.is_empty() {
                 ui.painter().text(
@@ -101,27 +122,136 @@ impl Arrangement {
                 );
                 return;
             }
-            egui::ScrollArea::horizontal()
+            let mut area = egui::ScrollArea::horizontal()
                 .id_salt("mixer strips")
-                .auto_shrink([false, false])
-                .show_viewport(ui, |ui, viewport| {
-                    ui.set_min_size(vec2(width, strips.height()));
-                    let origin = ui.min_rect().min;
-                    for &(index, x) in &placed {
-                        let span = Rangef::new(x, x + strip::WIDTH);
-                        if span.max < viewport.min.x || span.min > viewport.max.x {
-                            continue;
-                        }
-                        let rect = Rect::from_x_y_ranges(
-                            origin.x + span.min..=origin.x + span.max,
-                            strips.y_range(),
-                        );
-                        self.strip(ui, doc, Some(index), rect, &look);
+                .auto_shrink([false, false]);
+            if self.mixer_push != 0.0 {
+                // A strip drag near an edge scrolls, faster the closer.
+                let dt = ui.input(|i| i.stable_dt.min(0.1));
+                let to = (self.mixer_offset + self.mixer_push * DRAG_SCROLL * dt)
+                    .clamp(0.0, (width - strips.width()).max(0.0));
+                area = area.horizontal_scroll_offset(to);
+                ui.ctx().request_repaint();
+            }
+            let output = area.show_viewport(ui, |ui, viewport| {
+                ui.set_min_size(vec2(width, strips.height()));
+                let origin = ui.min_rect().min;
+                for &(index, x) in &placed {
+                    let span = Rangef::new(x, x + strip::WIDTH);
+                    on_screen.push((index, Rangef::new(span.min + origin.x, span.max + origin.x)));
+                    if span.max < viewport.min.x || span.min > viewport.max.x {
+                        continue;
                     }
-                });
+                    let rect = Rect::from_x_y_ranges(
+                        origin.x + span.min..=origin.x + span.max,
+                        strips.y_range(),
+                    );
+                    self.strip(ui, doc, Some(index), rect, &look);
+                }
+            });
+            self.mixer_offset = output.state.offset.x;
         });
+        self.follow_strips_drag(ui, doc, &on_screen, strips);
         self.strip(ui, doc, None, master, &look);
         self.loudness_column(ui, loudness);
+    }
+
+    /// The mixer's own menu: the project's pan law (the owner's choice in
+    /// slice 2: from the mixer and the palette), and clearing clip lights.
+    fn mixer_menu(&mut self, ui: &mut Ui, doc: &mut crate::document::Document, keymap: &Keymap) {
+        use crate::commands::Command;
+        use lumen_core::pan::PanLaw;
+        ui.label(
+            egui::RichText::new("Pan law")
+                .small()
+                .color(theme::p().text_hint),
+        );
+        let current = doc.project().pan_law;
+        for (law, command) in [
+            (PanLaw::ConstantPower, Command::PanLawConstantPower),
+            (PanLaw::Compromise, Command::PanLawCompromise),
+            (PanLaw::Linear, Command::PanLawLinear),
+            (PanLaw::Balance, Command::PanLawBalance),
+        ] {
+            let keys = keymap.keys(command);
+            if widgets::menu_toggle(ui, law.name(), keys.as_ref(), current == law).clicked() {
+                doc.set_pan_law(law);
+                ui.close();
+            }
+        }
+        ui.separator();
+        let keys = keymap.keys(Command::ClearClips);
+        if widgets::menu_item(
+            ui,
+            "Clear clip lights",
+            keys.as_ref(),
+            self.meters.any_clipped(),
+        )
+        .clicked()
+        {
+            self.meters.clear_all_clips();
+            ui.close();
+        }
+    }
+
+    /// A strip drag (the owner's B8): where it would land among the strips
+    /// of its kind (tracks, or returns), the drop line or the group lit,
+    /// and the drop itself.
+    fn follow_strips_drag(
+        &mut self,
+        ui: &mut Ui,
+        doc: &mut crate::document::Document,
+        on_screen: &[(usize, Rangef)],
+        strips: Rect,
+    ) {
+        let Some((moving, _, _)) = self.strip_drag() else {
+            self.mixer_push = 0.0;
+            return;
+        };
+        let moving: Vec<Id> = moving.to_vec();
+        let tracks = &doc.project().tracks;
+        let is_return = |i: usize| tracks[i].kind == TrackKind::Return;
+        let returns = on_screen
+            .iter()
+            .any(|&(i, _)| moving.contains(&tracks[i].id) && is_return(i));
+        let spots: Vec<Spot> = on_screen
+            .iter()
+            .filter(|&&(i, _)| !moving.contains(&tracks[i].id) && is_return(i) == returns)
+            .map(|&(i, span)| Spot {
+                id: tracks[i].id,
+                top: span.min,
+                height: span.span(),
+                // Returns are never grouped: none of them takes a drop.
+                group: tracks[i].kind == TrackKind::Group,
+                parent: tracks[i].parent,
+                depth: groups::depth(tracks, tracks[i].id),
+            })
+            .collect();
+        self.mixer_push = self.follow_strip_drag(ui, &spots, strips, doc);
+        if let Some((_, Some(at), refused)) = self.strip_drag() {
+            let palette = theme::p();
+            let accent = if refused {
+                palette.text_disabled
+            } else {
+                palette.accent
+            };
+            let painter = ui.painter_at(strips);
+            match at.mark {
+                Mark::Line(x) => {
+                    painter.vline(x, strips.y_range(), Stroke::new(2.0, accent));
+                }
+                Mark::Onto(x, width) => {
+                    let rect = Rect::from_x_y_ranges(x..=x + width, strips.y_range());
+                    painter.rect_filled(rect, 0.0, accent.gamma_multiply(0.10));
+                    painter.rect_stroke(
+                        rect.shrink(1.0),
+                        0.0,
+                        Stroke::new(2.0, accent),
+                        egui::StrokeKind::Inside,
+                    );
+                }
+            }
+        }
     }
 
     /// The master's loudness (the owner's L2): integrated large, a

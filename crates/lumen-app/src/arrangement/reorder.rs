@@ -10,6 +10,10 @@
 //! (folded or not), they go in at its end, and the header lights. A drop
 //! that would be refused (groups more than three deep) greys out, with a
 //! no-entry cursor, and says why if let go there.
+//!
+//! Mixer strips drag the same way along x (M4 slice 5, the owner's B8),
+//! returns included: tracks move among tracks, returns among returns (a
+//! return's letter follows its place).
 
 use eframe::egui::{self, CursorIcon, Key, Rect, Stroke, pos2};
 use lumen_project::groups;
@@ -35,56 +39,149 @@ pub(super) struct Drag {
     /// Where they would land, and why the move would be refused there.
     drop: Option<DropAt>,
     refused: Option<Refused>,
+    /// Started on a mixer strip: the strips follow it, not the headers.
+    in_mixer: bool,
 }
 
 /// Where dragged tracks would land.
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct DropAt {
+pub(super) struct DropAt {
     /// Before this track (`None`: at the end of the list or of `group`).
     before: Option<Id>,
     /// Inside this group (`None`: at the top).
     group: Option<Id>,
     /// The line, or the group header lit instead.
-    mark: Mark,
+    pub(super) mark: Mark,
     /// How many groups deep they land, for the line's indent.
     level: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Mark {
+pub(super) enum Mark {
     /// A line at this y (content points).
     Line(f32),
     /// The row of the group they go into: its top and height.
     Onto(f32, f32),
 }
 
-/// A visible track's row, as the drop sees it.
+/// A visible track's row (or strip, along x), as the drop sees it.
 #[derive(Debug, Clone, Copy)]
-struct Spot {
-    id: Id,
-    top: f32,
-    height: f32,
-    group: bool,
-    parent: Option<Id>,
-    depth: usize,
+pub(super) struct Spot {
+    pub(super) id: Id,
+    pub(super) top: f32,
+    pub(super) height: f32,
+    pub(super) group: bool,
+    pub(super) parent: Option<Id>,
+    pub(super) depth: usize,
 }
 
 impl Arrangement {
-    /// A header was dragged: moves the selection (or just this track, if it
-    /// is not selected).
-    pub(super) fn start_drag(&mut self, project: &lumen_project::model::Project, id: Id) {
+    /// A header (or, `in_mixer`, a strip) was dragged: moves the selection
+    /// (or just this track, if it is not selected). From a strip, only the
+    /// selected tracks of the same kind move: tracks, or returns.
+    pub(super) fn start_drag(
+        &mut self,
+        project: &lumen_project::model::Project,
+        id: Id,
+        in_mixer: bool,
+    ) {
         if !self.selected.contains(&id) {
             self.selected = vec![id];
             self.anchor = Some(id);
         }
-        let ids = groups::outermost(&project.tracks, &self.selected);
+        let is_return = |id: Id| {
+            project
+                .tracks
+                .iter()
+                .any(|t| t.id == id && t.kind == TrackKind::Return)
+        };
+        let zone = is_return(id);
+        let chosen: Vec<Id> = self
+            .selected
+            .iter()
+            .copied()
+            .filter(|&s| !in_mixer || is_return(s) == zone)
+            .collect();
+        let ids = groups::outermost(&project.tracks, &chosen);
         let moving = groups::with_contents(&project.tracks, &ids);
         self.drag = Some(Drag {
             ids,
             moving,
             drop: None,
             refused: None,
+            in_mixer,
         });
+    }
+
+    /// The drag in progress when it started on a mixer strip: what moves,
+    /// where it would land, and whether that would be refused.
+    pub(super) fn strip_drag(&self) -> Option<(&[Id], Option<DropAt>, bool)> {
+        self.drag
+            .as_ref()
+            .filter(|d| d.in_mixer)
+            .map(|d| (d.moving.as_slice(), d.drop, d.refused.is_some()))
+    }
+
+    /// Follows a strip drag each frame along x, as `follow_drag` does along
+    /// y: `spots` are the strips of the tracks that stay, in screen x.
+    /// Returns how hard to scroll the strips (-1 to 1) near the edges of
+    /// `strips`.
+    pub(super) fn follow_strip_drag(
+        &mut self,
+        ui: &egui::Ui,
+        spots: &[Spot],
+        strips: Rect,
+        doc: &mut Document,
+    ) -> f32 {
+        let Some(drag) = self.drag.as_mut().filter(|d| d.in_mixer) else {
+            return 0.0;
+        };
+        let ctx = ui.ctx();
+        let (pointer, released, cancel) = ctx.input(|i| {
+            (
+                i.pointer.interact_pos(),
+                i.pointer.primary_released() || !i.pointer.primary_down(),
+                i.key_pressed(Key::Escape),
+            )
+        });
+        if cancel {
+            self.drag = None;
+            return 0.0;
+        }
+        ctx.set_cursor_icon(if drag.refused.is_some() {
+            CursorIcon::NotAllowed
+        } else {
+            CursorIcon::Grabbing
+        });
+        let mut push = 0.0;
+        if let Some(p) = pointer {
+            let near_left = EDGE - (p.x - strips.left());
+            let near_right = EDGE - (strips.right() - p.x);
+            push = if near_left > 0.0 {
+                -(near_left.min(EDGE) / EDGE)
+            } else if near_right > 0.0 {
+                near_right.min(EDGE) / EDGE
+            } else {
+                0.0
+            };
+            let at = drop_place(spots, p.x);
+            if drag.drop != Some(at) {
+                drag.refused = doc
+                    .check_move(&drag.ids, place(doc, &drag.moving, at))
+                    .err();
+                drag.drop = Some(at);
+            }
+        }
+        if released {
+            if let Some(at) = drag.drop {
+                let to = place(doc, &drag.moving, at);
+                if let Err(refused) = doc.move_tracks(&drag.ids, to) {
+                    self.note = Some(refused.reason());
+                }
+            }
+            self.drag = None;
+        }
+        push
     }
 
     /// Whether `id` is being dragged (its header is drawn dimmed).
@@ -103,7 +200,7 @@ impl Arrangement {
         content: f32,
         doc: &mut Document,
     ) {
-        let Some(drag) = self.drag.as_mut() else {
+        let Some(drag) = self.drag.as_mut().filter(|d| !d.in_mixer) else {
             return;
         };
         let ctx = ui.ctx();
@@ -185,7 +282,12 @@ impl Arrangement {
     /// in to its level when `indented` (the headers); or the group the
     /// tracks go into, lit.
     pub(super) fn draw_drop_line(&self, painter: &egui::Painter, area: Rect, indented: bool) {
-        let Some(at) = self.drag.as_ref().and_then(|d| d.drop) else {
+        let Some(at) = self
+            .drag
+            .as_ref()
+            .filter(|d| !d.in_mixer)
+            .and_then(|d| d.drop)
+        else {
             return;
         };
         let refused = self.drag.as_ref().is_some_and(|d| d.refused.is_some());
@@ -245,7 +347,8 @@ fn place(doc: &Document, moving: &[Id], at: DropAt) -> Place {
 /// the tracks that are not moving, from the top. A track's upper half drops
 /// above it and its lower half below; a group's middle half drops into it.
 /// Between two tracks, the moved ones join the group of the track below.
-fn drop_place(rows: &[Spot], y: f32) -> DropAt {
+/// Strips use it along x.
+pub(super) fn drop_place(rows: &[Spot], y: f32) -> DropAt {
     let between = |line: f32, below: Option<&Spot>| DropAt {
         before: below.map(|r| r.id),
         group: below.and_then(|r| r.parent),

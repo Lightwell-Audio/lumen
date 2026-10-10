@@ -244,6 +244,10 @@ pub struct Arrangement {
     pub(crate) meters: crate::meters::Meters,
     /// Meters in track colours (the owner's M2 setting), set by the app.
     pub(crate) track_colour_meters: bool,
+    /// How far the mixer's strips are scrolled, and how hard a strip drag
+    /// near their edge pushes them (-1 to 1).
+    mixer_offset: f32,
+    mixer_push: f32,
 }
 
 /// The tallest whole-step height at which `count` tracks fit in `visible`

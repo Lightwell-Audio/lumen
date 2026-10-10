@@ -243,7 +243,7 @@ impl Arrangement {
             // Returns stay pinned in their own order (reordering them waits;
             // KNOWN_ISSUES).
             if background.drag_started() && track.kind != TrackKind::Return {
-                self.start_drag(doc.project(), track.id);
+                self.start_drag(doc.project(), track.id, false);
             }
             background.context_menu(|ui| {
                 if !self.selected.contains(&track.id) {

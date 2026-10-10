@@ -12,6 +12,11 @@ use super::Lumen;
 /// Three audio tracks, the first two grouped (Group 1 › Audio 1, Audio 2),
 /// Audio 3 outside, and a return; the mixer tall enough for every section.
 fn mixed(name: &str) -> Lumen {
+    mixed_with(name, 1)
+}
+
+/// As [`mixed`], with `returns` returns.
+fn mixed_with(name: &str, returns: usize) -> Lumen {
     let mut lumen = Lumen::start(name);
     for _ in 0..3 {
         lumen.key(Modifiers::COMMAND, Key::T);
@@ -19,8 +24,10 @@ fn mixed(name: &str) -> Lumen {
     lumen.key(Modifiers::NONE, Key::ArrowUp);
     lumen.key(Modifiers::SHIFT, Key::ArrowUp);
     lumen.key(Modifiers::COMMAND, Key::G);
-    lumen.click("Add track");
-    lumen.click("Add return track");
+    for _ in 0..returns {
+        lumen.click("Add track");
+        lumen.click("Add return track");
+    }
     tall_mixer(&mut lumen);
     lumen
 }
@@ -236,4 +243,81 @@ fn the_loudness_column_resets_on_click() {
         said.contains('\u{2014}'),
         "nothing measured reads as a dash: {said}"
     );
+}
+
+/// A point on `name`'s strip clear of its controls: beside its meter.
+fn grip(lumen: &Lumen, name: &str) -> eframe::egui::Pos2 {
+    let rect = lumen.harness.get_by_label_contains(&strip(name)).rect();
+    eframe::egui::pos2(rect.right() - 3.0, rect.center().y)
+}
+
+#[test]
+fn dragging_a_strip_moves_its_track_and_returns_reorder_among_themselves() {
+    let mut lumen = mixed_with("mixer-drag", 2);
+    // Audio 3 onto the middle of the group's strip: it goes in at the end.
+    let to = lumen
+        .harness
+        .get_by_label_contains(&strip("Group 1"))
+        .rect()
+        .center();
+    let from = grip(&lumen, "Audio 3");
+    lumen.drag(from, to, Modifiers::NONE);
+    let group = track(&lumen, "Group 1").id;
+    assert_eq!(track(&lumen, "Audio 3").parent, Some(group));
+    assert_eq!(lumen.app().undo_label(), Some("Move track"));
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert_eq!(track(&lumen, "Audio 3").parent, None);
+
+    // The second return, dragged before the first: the letters follow.
+    let names = |lumen: &Lumen| -> Vec<String> {
+        lumen
+            .app()
+            .project()
+            .tracks
+            .iter()
+            .filter(|t| t.kind == lumen_project::model::TrackKind::Return)
+            .map(|t| t.name.clone())
+            .collect()
+    };
+    assert_eq!(names(&lumen), ["Return 1", "Return 2"]);
+    let first = lumen
+        .harness
+        .get_by_label_contains(&strip("Return 1"))
+        .rect();
+    let from = grip(&lumen, "Return 2");
+    lumen.drag(
+        from,
+        eframe::egui::pos2(first.left() + 6.0, first.center().y),
+        Modifiers::NONE,
+    );
+    assert_eq!(names(&lumen), ["Return 2", "Return 1"]);
+    // Returns stay among returns: a track strip takes no return.
+    let audio = grip(&lumen, "Audio 3");
+    let from = grip(&lumen, "Return 1");
+    lumen.drag(from, audio, Modifiers::NONE);
+    let last = lumen.app().project().tracks.last().map(|t| t.name.clone());
+    assert_ne!(last.as_deref(), Some("Audio 3"));
+    assert!(lumen.track_names().iter().any(|n| n == "Return 1"));
+}
+
+#[test]
+fn the_pan_law_is_chosen_from_the_mixers_menu_and_the_palette() {
+    use lumen_core::pan::PanLaw;
+    let mut lumen = mixed("mixer-pan-law");
+    assert_eq!(lumen.app().project().pan_law, PanLaw::ConstantPower);
+    // Right-click the mixer's empty area, left of the master.
+    let master = lumen.harness.get_by_label_contains(&strip("Master")).rect();
+    lumen.right_click(eframe::egui::pos2(master.left() - 60.0, master.center().y));
+    lumen.click("\u{2212}6 dB, linear");
+    assert_eq!(lumen.app().project().pan_law, PanLaw::Linear);
+    assert_eq!(lumen.app().undo_label(), Some("Change pan law"));
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert_eq!(lumen.app().project().pan_law, PanLaw::ConstantPower);
+
+    // And from the palette.
+    lumen.key(Modifiers::COMMAND, Key::K);
+    lumen.harness.event(Event::Text("Pan law: 0 dB".into()));
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::Enter);
+    assert_eq!(lumen.app().project().pan_law, PanLaw::Balance);
 }

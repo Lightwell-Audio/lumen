@@ -3,6 +3,7 @@
 //! is bound to. The palette and menus run commands the same way.
 
 use eframe::egui;
+use lumen_core::pan::PanLaw;
 use lumen_core::time::Ticks;
 use lumen_project::model::TrackKind;
 
@@ -184,6 +185,10 @@ impl App {
             | Command::ToggleInfoLine
             | Command::AdditiveSolo
             | Command::TrackColourMeters
+            | Command::PanLawConstantPower
+            | Command::PanLawCompromise
+            | Command::PanLawLinear
+            | Command::PanLawBalance
             | Command::OpenPalette
             | Command::OpenShortcuts
             | Command::NextPane
@@ -329,6 +334,10 @@ impl App {
                 self.settings_changed = Some(std::time::Instant::now());
             }
             Command::ClearClips => self.arrangement.meters.clear_all_clips(),
+            Command::PanLawConstantPower => doc.set_pan_law(PanLaw::ConstantPower),
+            Command::PanLawCompromise => doc.set_pan_law(PanLaw::Compromise),
+            Command::PanLawLinear => doc.set_pan_law(PanLaw::Linear),
+            Command::PanLawBalance => doc.set_pan_law(PanLaw::Balance),
             Command::TrackColourMeters => {
                 let coloured = &mut self.settings.mixing.track_colour_meters;
                 *coloured = !*coloured;
