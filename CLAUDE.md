@@ -390,7 +390,12 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-10: **macOS CI is back** (owner) on
+**Last updated:** 2026-10-10: **identity and audience** (owner): the logo is
+**Dawn in Sunrise** (an amber sun over blue water), and Lumen is made
+mostly for **musicians and bedroom guitarists** (owner-decisions table).
+The identity canvas (a private Design artifact) also proposes a light layer
+(`theme::light`), the mark as a level meter and six player-first choices,
+all waiting for the owner; nothing is built yet. Before it, 2026-10-10: **macOS CI is back** (owner) on
 `claude/busy-pascal-pbswo9`: `macos-latest` (Apple silicon) is in the test
 matrix again, and a new push to a pull request cancels its superseded run.
 Its first run failed 20 E2E tests, both kinds fixed: chords are written
