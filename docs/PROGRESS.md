@@ -2,56 +2,14 @@
 
 ## Status
 
-**Current milestone:** 3 — Arrangement & Project System (plan:
-[milestones/M3.md](milestones/M3.md)). **Complete, approved by the owner
-2026-10-09** (MT-APP-16 passed; report below). **M4 (Mixer, Routing & Groups) is approved and started.** Slice 0, the UX
-pass on hints, is built: the info line (ADR-0034); MT-APP-17 waits for the
-owner. **Slice 1, the mixer graph in the engine, is built** (ADR-0035):
-tracks play through nodes with trim, polarity, mute, sends, volume and
-pan into groups, returns, the master or device pairs; MT-MIX-1 waits for
-the owner. **Slice 2, routing in the model (format v7), is built**
-(ADR-0036): a master track in every project, outputs, sends, polarity,
-input trim and the pan law, saved and undoable, loops refused; MT-MIX-2
-waits for the owner. **Slice 3, group tracks (format v8), is built**
-(ADR-0037): Ctrl+G and Ctrl+Shift+G, nesting, folding, dragging tracks in
-and out, nested rails and lane bars, arming and deleting a group; MT-MIX-3
-run 1's findings are fixed (three-deep groups, a resizable header column
-saved per project in format v9, solo inside groups), and run 2's (a
-crash deleting from a track's menu, grouped tracks playing quieter);
-**MT-MIX-3 passed** (slice 3 done). **Slice 4, mute, solo, returns,
-master and cue, is built** (ADR-0038, format v10): the owner's solo rules
-as a pure function with their 14 cases, hollow M and S, the transport's S
-chip, additive solo; returns lettered and pinned with the master at the
-bottom; comet send knobs; cue to a second output pair and the metronome's
-output (the owner's O1). Runs 1 to 5 added, from mock-ups, knobs that
-step up on selected rows, a "+N ▾" list of every send, a return's
-senders (its four loudest, then "+N more"; silent ones leave), at most 12
-returns, and fixed a silent floor of −80 dB, overlapping live values,
-rows that swapped and slow drags stuck at −∞. **MT-MIX-4 passed; slice 4
-is done** ([milestones/M4.md](milestones/M4.md)). **Slice 5, the mixer
-panel and meters, is built** (ADR-0040; the owner chose S1, O2, M1 with
-M2 as a setting, L2, H2 and B1–B8 from interactive specimens): meters and
-loudness measured on the audio thread, meters inside the headers' volume
-sliders, the Mixer tab with strips, a loudness column and output pairs,
-strips dragged to reorder, the pan law menu, and the latching wheel on
-every value control; MT-MIX-5 waits for the owner. **Slice 6,
-sidechains and delay compensation, is built** (ADR-0041; the owner chose
-read ahead, Ableton's three sidechain taps, saving sidechains with the
-first device, and the D1 readout from mock-ups): devices with latency
-and sidechains in the engine graph, delay lines that line up every path,
-the engine rendering ahead of the playhead, and the readout in the
-transport bar; MT-MIX-6 waits for the owner. **Slice 7, walkthrough,
-review and report, is under way** (ADR-0042): the exit walkthrough is an
-E2E scenario (a drum group and a vocal through a latent return, solo and
-mute across them, heard at every step, saved and reopened) and MT-MIX-7;
-it found and fixed a bug (stopped, the engine took no clip lists or
-routings, so after four edits Play started on stale mutes, solos and
-sends). Known issues fixed: a second Lumen no longer offers a running
-session's autosave (session locks), submenus are named without their
-arrow, the GPU pipeline cache never waits on the disk on the UI thread,
-and the M3 walkthrough's Linux flake. The review and the M4 report come
-after the owner's manual tests.
-**Previous:** M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
+**Current milestone:** 4 — Mixer, Routing & Groups (plan:
+[milestones/M4.md](milestones/M4.md)). **Complete 2026-10-10**: all eight
+slices built, and every manual test passed (MT-APP-17, MT-MIX-1 to
+MT-MIX-8, including the Focusrite's dropout count). The end-of-milestone
+review (`docs/audits/2026-10-10-m4.md`) found no High issues. Four Medium
+and eight Low findings are fixed on a follow-up branch. The report is
+below; M4 merges into `main` now.
+**Previous:** M3 complete and approved 2026-10-09; M2 complete and approved 2026-10-07 (report below); M1 complete 2026-10-06 (report below; [milestones/M1.md](milestones/M1.md))
 
 Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial / known limitation · ⏸️ Deferred with approval · ❌ Blocked
 
@@ -62,7 +20,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 1 | Foundations & Architecture | ✅ Complete | Plan and risk register in `docs/milestones/M1.md` |
 | 2 | Audio Engine, Devices & Transport | ✅ Complete, approved 2026-10-07 | Plan: `docs/milestones/M2.md` |
 | 3 | Arrangement & Project System | ✅ Complete, approved 2026-10-09 | Plan: `docs/milestones/M3.md` |
-| 4 | Mixer, Routing & Groups | 🟡 In progress (slices 0–6 built, 7 under way; slices 3 and 4 done) | Plan: `docs/milestones/M4.md` |
+| 4 | Mixer, Routing & Groups | ✅ Complete 2026-10-10 (review fixes follow on their own branch) | Plan: `docs/milestones/M4.md` |
 | 5 | MIDI & Piano Roll | 🔲 | |
 | 6 | VST3 Hosting & Device System | 🔲 | |
 | 7 | Automation, Envelopes & Advanced Editing | 🔲 | |
@@ -233,10 +191,10 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 |---|---|---|---|
 | Channel strip: input gain, polarity, devices, pre/post sends, fader, pan law, mute, solo, cue, output | M | 🟡 In the engine (M4 slice 1, ADR-0035): input trim, polarity, mute, pre- and post-fader sends, volume and pan with four pan laws (−3 dB constant power by default), output to a node or a device pair, all gliding over 20 ms. Saved and undoable in the model (slice 2, format v7, ADR-0036). Slice 4 (ADR-0038): sends set from comet knobs on the headers (pre/post from their menu), mute and solo by the agreed rules, cue before the fader to a second output pair. Slice 5 (ADR-0040): the strip itself in the Mixer tab (the owner's S1: output, polarity, trim, two send knobs then "+N", pan, a fader beside its meter, typed volume, held peak, M S arm), the pan law from the mixer's menu and the palette; devices with M6 | 4 |
 | Returns, groups, master, sidechain from any track, hardware output routing | M | 🟡 The engine graph sums groups (nested), returns and a master and routes to device pairs (slice 1); a track in a group plays into it. A master track in every project, outputs and sends in the model, loops refused (slice 2, ADR-0036); grouping built (slice 3, ADR-0037); returns and the master pinned at the bottom of the arrangement with sends on the headers (slice 4, ADR-0038). Output choices on the strips, any of the device's pairs, which Lumen then opens (slice 5, B6, ADR-0040); sidechains from any track in the engine graph at Ableton's three taps, compensated (slice 6, ADR-0041), chosen in the UI when a device has a sidechain input (M6, M8) | 4 |
-| Solo keeps soloed paths audible; exclusive-solo option | M | 🟡 Built (M4 slice 4, ADR-0038): the owner's 14 cases as one pure function (`lumen_project::solo`) and its tests: a soloed path stays open, mute beats solo, returns are solo-safe, a soloed return plays wet only. Exclusive by default (Ableton), additive as a preference; hollow M and S show why a track is silent or heard; the transport's S chip clears every solo. MT-MIX-4 passed | 4 |
-| Automatic plugin delay compensation with indicator | M | 🟡 Built in the engine (M4 slice 6, ADR-0041): every node reports its devices' latency; parallel paths, sends and sidechains line up sample for sample through delay lines; the engine renders ahead so what is heard lines up with the playhead; the transport shows the compensation while there is some (the owner's D1). Tested with the synthetic latent device; real latency arrives with VST3 (M6). MT-MIX-6 waits for the owner | 4, 6 |
-| Peak (hold, clip), RMS; master LUFS and true peak | M | 🟡 Built (M4 slice 5, ADR-0040): every node metered after fader and pan on the audio thread (lock-free), peaks falling 20 dB/s with a 1.5 s hold, clips latched until clicked, a 300 ms RMS; the master's momentary, short-term and gated integrated LUFS (BS.1770-4, EBU Tech 3341 cases 1–5 within 0.1 LU) and 4× true peak in the loudness column. MT-MIX-5 waits for the owner | 4 |
-| Dockable mixer panel; inline fader, pan and meter on track headers | M | 🟡 Built (M4 slice 5, ADR-0040): the Mixer tab of the detail panel (strips in the arrangement's order and folding, returns after, the master pinned with the loudness column, strips dragged to reorder, sections folding in a short panel); meters inside the headers' volume sliders. Detachable mixer windows are S (M10). MT-MIX-5 waits for the owner | 4 |
+| Solo keeps soloed paths audible; exclusive-solo option | M | ✅ Built (M4 slice 4, ADR-0038): the owner's 14 cases as one pure function (`lumen_project::solo`) and its tests: a soloed path stays open, mute beats solo, returns are solo-safe, a soloed return plays wet only. Exclusive by default (Ableton), additive as a preference; hollow M and S show why a track is silent or heard; the transport's S chip clears every solo. MT-MIX-4 passed | 4 |
+| Automatic plugin delay compensation with indicator | M | 🟡 Built in the engine (M4 slice 6, ADR-0041): every node reports its devices' latency; parallel paths, sends and sidechains line up sample for sample through delay lines; the engine renders ahead so what is heard lines up with the playhead; the transport shows the compensation while there is some (the owner's D1). Tested with the synthetic latent device; real latency arrives with VST3 (M6). MT-MIX-6 passed | 4, 6 |
+| Peak (hold, clip), RMS; master LUFS and true peak | M | ✅ Built (M4 slice 5, ADR-0040): every node metered after fader and pan on the audio thread (lock-free), peaks falling 20 dB/s with a 1.5 s hold, clips latched until clicked, a 300 ms RMS; the master's momentary, short-term and gated integrated LUFS (BS.1770-4, EBU Tech 3341 cases 1–5 within 0.1 LU) and 4× true peak in the loudness column. MT-MIX-5 passed | 4 |
+| Dockable mixer panel; inline fader, pan and meter on track headers | M | ✅ Built (M4 slice 5, ADR-0040): the Mixer tab of the detail panel (strips in the arrangement's order and folding, returns after, the master pinned with the loudness column, strips dragged to reorder, sections folding in a short panel); meters inside the headers' volume sliders. Detachable mixer windows are S (M10). MT-MIX-5 passed | 4 |
 | Routing matrix; master mono-check and dim | S | 🔲 | 4 |
 | Reference-track A/B | L | 🔲 | — |
 
@@ -364,6 +322,106 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 ---
 
 ## Milestone reports
+
+### Milestone 4 — report (2026-10-10)
+**Status:** Complete 2026-10-10. All eight slices are built, and every
+manual test passed (MT-APP-17 and MT-MIX-1 to MT-MIX-8, owner). The
+review, `docs/audits/2026-10-10-m4.md`, found no High issues. Its four
+Medium and eight Low findings are fixed on a follow-up branch, after this
+merge, at the owner's request.
+
+**Shipped:** 65 commits on `m4` (ADR-0034 to ADR-0042, formats v7 to v10).
+- **The info line** (slice 0, ADR-0034): hints along the bottom of the
+  window with K5 keycaps. Only live values follow the pointer.
+- **The mixer graph in the engine** (slice 1, ADR-0035): a node per
+  track with trim, polarity, mute, sends, volume, pan and output, compiled
+  into a plan off the audio thread. Plans swap at a block edge, levels
+  glide over 20 ms, and a new shape crossfades over 5 ms.
+- **Routing in the model** (slice 2, format v7, ADR-0036): a master track
+  in every project, outputs, sends, polarity, trim and the pan law. One
+  rule for destinations and loops serves validation, edits and the engine.
+- **Group tracks** (slice 3, formats v8 and v9, ADR-0037): Ctrl+G and
+  Ctrl+Shift+G, nesting up to three deep, folding, dragging tracks in and
+  out, nested rails and lane bars, and a resizable header column.
+- **Mute, solo, returns, master and cue** (slice 4, format v10,
+  ADR-0038): the owner's 14 solo cases as one pure function. Returns and
+  the master are pinned at the bottom, with comet send knobs and a
+  return's loudest senders. A pre-fader cue goes to a second output pair.
+- **The mixer panel and meters** (slice 5, ADR-0040): meters and
+  loudness are measured on the audio thread (peak with hold, clips, RMS,
+  gated LUFS and 4× true peak, checked against EBU Tech 3341). Meters sit
+  inside the headers' volume sliders. The Mixer tab has console strips, a
+  loudness column, output pairs, strips dragged to reorder, the pan law
+  menu and the latching wheel.
+- **Sidechains and delay compensation** (slice 6, ADR-0041): devices and
+  Ableton's three sidechain taps in the graph, delay lines that line up
+  every path, the engine rendering ahead of the playhead, and the D1
+  readout in the transport bar.
+- **The exit flow** (slice 7, ADR-0042): E2E `walkthrough_mix` and
+  MT-MIX-7. It found that edits made while stopped never reached the
+  engine (fixed). Session locks stop a second Lumen from offering a
+  running session's autosave. The pan law now applies to mono tracks
+  only. Clipboard keys work in the real window.
+
+**Automated tests:** 661 in the workspace, including 144 end-to-end
+scenarios, all passing, plus 6 real-binary smoke tests. clippy
+(`-D warnings`) and rustfmt are clean on Windows, in the WSL Linux mirror
+and for the macOS target. The WSL performance gate passes with every
+scenario at ±0.00% against the baseline, which was updated with reasons
+in slices 1, 5 and 6.
+
+**Verified by hand** (owner, Focusrite USB on ASIO and WASAPI): MT-APP-17
+and MT-MIX-1 to MT-MIX-8, including the dropout count on the Focusrite.
+
+**Not verified:**
+- The cue bus on real hardware: the owner's interface has one output
+  pair. It is checked on the four-output test device (KNOWN_ISSUES).
+- Delay compensation with real plugin latency (M6). Only the synthetic
+  latent device exists.
+- macOS and Linux by hand, and screen readers (Narrator deferred). Names
+  and Tab order are tested.
+
+**Key measurements** (Ryzen 7 7700X, RTX 4070):
+
+| What | Result | Bar |
+|---|---|---|
+| 64 routed tracks in 8 groups, two sends each | about 1% of a 128-frame block at 48 kHz | under 50% |
+| Frame time with the Mixer tab open, stress project (200 tracks, 20,000 clips), p99 | 2.4–3.2 ms (1.5–1.8 ms without the mixer) | 16.7 ms (60 fps); 8.3 ms target |
+| Idle repaints, stress project | 3 in 3 s, as in M3 | near-zero idle CPU |
+| Performance gate (instructions, WSL) | `engine_routed_64` and `engine_latent_64` added; every scenario ±0.00% at the close | +2% fails CI |
+
+**Exit criterion:** *a multi-track project can be routed through groups,
+returns and the master bus, with predictable solo and mute behaviour.*
+
+| Step | Status |
+|---|---|
+| Automated | ✅ E2E `walkthrough_mix`: a drum group and a vocal through a latent return. Solo and mute are heard at every step, then the project is saved and reopened |
+| By hand | ✅ MT-MIX-7 (owner, 2026-10-10) |
+
+**Not done or deferred** (as planned in M4.md §6):
+- Plugins and plugin latency → M6. The built-in compressor, reverb and
+  delay → M8.
+- Automation of mixer controls and the override state → M7.
+- Recording, input monitoring and input meters → M9.
+- Routing matrix, mono-check and dim [S], detachable mixer windows [S]
+  → M10.
+- Recorded for later (KNOWN_ISSUES): header drag for returns, sends
+  between returns, scrubbing heard late under delay compensation, a
+  crowded transport bar at 150%, and browser audition through the cue.
+
+**Risks:**
+- A plan swap copies every delay line on the audio thread (review M3).
+  Nothing can trigger it before M6, and it is fixed on the review branch.
+- The frame budget keeps growing: the mixer added about 1 ms at p99. M5's
+  piano roll is the next large draw.
+- Four app modules passed the 800-line limit during M4 (review M1). They
+  are split before M5 builds on them.
+- The ASIO SDK agreement is still to be signed (owner action, before any
+  distribution).
+
+**Proposed next:** the review's fixes on their own branch. Then M5, MIDI
+and the piano roll, planned in `docs/milestones/M5.md` for the owner's
+approval.
 
 ### Milestone 3 — report (2026-10-09)
 **Status:** Complete; approved by the owner 2026-10-09 (MT-APP-16 passed).

@@ -1233,6 +1233,8 @@ clips with fades, a loop and a locator.
 **Expected:** every step as described, and the arrangement reads as
 calmer than before.
 
+**Passed (2026-10-10, owner):** the owner reported every step passing at the end of M4.
+
 ### MT-MIX-1 · The mixer graph (needs a human, with the audio interface)
 Run `cargo run --release -p lumen-app` with ASIO on the Focusrite, and a
 project with about ten tracks of audio (drums, bass, pads: anything
@@ -1268,6 +1270,8 @@ continuous is best), on headphones.
 
 **Expected:** every step as described.
 
+**Passed (2026-10-10, owner):** the owner reported every step passing at the end of M4. The dropout count on the Focusrite (ASIO) is confirmed: the KNOWN_ISSUES entry is closed.
+
 ### MT-MIX-2 · Projects from before the mixer (needs a human)
 Run `cargo run --release -p lumen-app`. Use a copy of a project saved
 before M4 (keep the original).
@@ -1282,6 +1286,8 @@ before M4 (keep the original).
    each: every change undoes in one step, as before.
 
 **Expected:** every step as described, no warnings about the file.
+
+**Passed (2026-10-10, owner):** the owner reported every step passing at the end of M4.
 
 ### MT-MIX-3 · Group tracks (needs a human)
 Run `cargo run --release -p lumen-app`. Start a new project and drop in
@@ -1564,6 +1570,7 @@ without audio: the header's level bars did not draw on the silent test
 device, so (2) needs a re-check with a track playing. **Run 2 waits for
 the owner.**
 
+**Run 2: passed (2026-10-10, owner),** including the header's level bars with a track playing.
 
 ### MT-MIX-6 · Delay compensation and its readout (needs a human, with the audio interface)
 Nothing in Lumen adds latency until devices arrive (M6), so this test
@@ -1603,6 +1610,8 @@ track is the latent one.
 **Expected:** as described; nothing clicks while starting, looping or
 jumping with compensation on; the latent track never drifts from the
 others.
+
+**Passed (2026-10-10, owner):** the owner reported every step passing at the end of M4.
 
 ### MT-MIX-7 · The M4 exit walkthrough (needs a human, with the audio interface)
 The milestone's exit criterion by hand (ADR-0042), with two fixes from
@@ -1646,6 +1655,8 @@ or any melodic file.
 muting or clearing; the reopened project matches; step 9 has no blip;
 step 10 has no banner.
 
+**Passed (2026-10-10, owner):** the owner reported every step passing at the end of M4.
+
 ### MT-MIX-8 · Clipboard keys and the pan law for mono (needs a human)
 Fixes after MT-MIX-7 was written (ADR-0042). Run
 `cargo run --release -p lumen-app`.
@@ -1669,3 +1680,5 @@ Fixes after MT-MIX-7 was written (ADR-0042). Run
    down per side at the centre.
 
 **Expected:** as described.
+
+**Passed (2026-10-10, owner):** the owner reported every step passing at the end of M4.

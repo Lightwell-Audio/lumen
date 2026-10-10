@@ -390,7 +390,23 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-10: **M4 slice 7 under way** (ADR-0042). The
+**Last updated:** 2026-10-10: **M4 is complete and merged into `main`.**
+Every manual test passed (MT-APP-17 and MT-MIX-1 to 8, owner), including
+the Focusrite's dropout count. The report is in PROGRESS.md. The review,
+`docs/audits/2026-10-10-m4.md`, found no High issues. The owner asked for
+its fixes on a new branch from `main` after the merge, in the audit's
+order:
+- records and docs;
+- M3: a plan swap copies every delay line on the audio thread. Swap
+  same-length lines, and add swaps to `engine_latent_64`;
+- M1, M2: split `arrangement/mod.rs`, `strip.rs`, `headers.rs`, `lib.rs`
+  and `clips.rs`, and turn `value_slider_lifted`'s arguments into a
+  struct;
+- M4: extend the access E2E to M4's views;
+- L1–L8.
+
+Then propose M5. The WSL scripts test `origin/main` unless run with
+`env LUMEN_REF=<branch>`. Before it, 2026-10-10: **M4 slice 7 under way** (ADR-0042). The
 exit walkthrough is E2E `walkthrough_mix` (drum group and vocal through a
 return with the synthetic latent device; solo and mute heard at every
 step; save and reopen) and MT-MIX-7. It found a bug, fixed: stopped, the
@@ -522,6 +538,8 @@ escapes and quotes several times.
 
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
+- **M4 Mixer, Routing & Groups: complete 2026-10-10**; the review's fixes
+  follow on their own branch.
 - **M3 Arrangement & Project System: complete, approved 2026-10-09.** Slices 1–3 done:
   - performance gates;
   - design system, motion and typefaces;
