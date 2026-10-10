@@ -76,7 +76,7 @@ Before every commit:
 
 Before pushing:
 - **Platform-specific code:** the WSL Linux mirror (`clippy.sh`), and the
-  macOS cross-check, since macOS CI is paused (owner, 2026-10-07):
+  macOS cross-check, which catches macOS errors before a CI cycle:
   `cargo clippy --workspace --all-targets --target aarch64-apple-darwin -- -D warnings`.
 - **Engine or project code:** the performance gate in WSL (`perf.sh`). It
   fails at +2% instructions. If a change is intended, update the baseline

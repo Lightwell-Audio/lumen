@@ -390,7 +390,11 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-10: **CI fixes** on
+**Last updated:** 2026-10-10: **macOS CI is back** (owner) on
+`claude/busy-pascal-pbswo9`: `macos-latest` (Apple silicon) is in the test
+matrix again, and a new push to a pull request cancels its superseded run.
+The workspace passes the macOS cross-target clippy; the first macOS CI run
+since the pause is pending. Before it, 2026-10-10: **CI fixes** on
 `claude/gallant-newton-feg0a0`. `main` was red in Tests on both systems:
 - Linux: the waveform atlas test ran on OpenGL (llvmpipe), which reads
   negative peaks back as 0. It now asks for Vulkan, DX12 or Metal, and the
@@ -680,9 +684,10 @@ escapes and quotes several times.
   `cargo run --release -p lumen-app` from the repository root, never an
   `.exe` path.
 - Checks CI on GitHub themselves: push, don't watch or poll it.
-- **macOS CI is paused** (2026-10-07; Actions minutes ran out). CI runs
-  Windows and Linux. Check macOS code with the cross-target clippy in
-  DEVELOPMENT.md before pushing.
+- **macOS CI is back** (owner, 2026-10-10; paused from 2026-10-07 when
+  Actions minutes ran out). CI runs Windows, macOS and Linux. Still check
+  macOS-specific code with the cross-target clippy in DEVELOPMENT.md
+  before pushing.
 - Wants variants pitched before a slice is built, for behaviour (what is
   heard, how controls act) as well as visuals, with a recommendation
   (owner, M4 slice 1).

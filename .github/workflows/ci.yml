@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+# A new push to a pull request cancels its superseded run, which saves
+# Actions minutes (macOS minutes cost ten times as much). Pushes to main
+# always finish.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -23,11 +30,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # windows-latest builds the production target, x86_64-pc-windows-msvc.
-        # macOS is paused (owner, 2026-10-07: GitHub Actions minutes ran
-        # out; macOS runners cost ten times as much). Until it is back,
-        # check macOS code with the cross-target clippy in DEVELOPMENT.md.
-        os: [windows-latest, ubuntu-latest]
+        # windows-latest builds the production target, x86_64-pc-windows-msvc;
+        # macos-latest is Apple silicon (aarch64-apple-darwin, Metal). macOS
+        # was paused from 2026-10-07 (Actions minutes ran out) and is back
+        # since 2026-10-10 (owner).
+        os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     steps:

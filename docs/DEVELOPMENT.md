@@ -75,10 +75,10 @@ export CARGO_TARGET_DIR="$(cygpath -w "$USERPROFILE")\lumen-target"
 
 ## Checking macOS code from Windows
 
-**macOS CI is paused** (owner, 2026-10-07), so run this before pushing any
-code that is compiled differently on macOS. Platform-specific code (the
-cpal audio backend, for example) can be type-checked for macOS without a
-Mac:
+CI tests macOS (Apple silicon) on every pull request. A CI cycle is slow,
+so run this before pushing any code that is compiled differently on macOS.
+Platform-specific code (the cpal audio backend, for example) can be
+type-checked for macOS without a Mac:
 
 ```bash
 rustup target add aarch64-apple-darwin
