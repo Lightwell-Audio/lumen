@@ -289,6 +289,19 @@ impl App {
             .map(|(_, _, rect)| rect)
     }
 
+    /// Where clip `id` is drawn on the timeline now: on its way while it
+    /// glides after an edit (M4.5), else where it is.
+    pub fn drawn_clip_start(&self, ctx: &egui::Context, id: Id) -> Option<Ticks> {
+        let now = ctx.input(|i| i.time);
+        self.arrangement
+            .drawn_start(self.document.project(), id, now)
+    }
+
+    /// How strongly clip `id` is washed after an undo (M4.5), 0 when not.
+    pub fn clip_wash(&self, ctx: &egui::Context, id: Id) -> f32 {
+        self.arrangement.wash(id, ctx.input(|i| i.time))
+    }
+
     /// Where the handles of audio clip `id` are on screen (slice 6d), if it
     /// is in view and big enough to show them.
     pub fn clip_handles(&self, ctx: &egui::Context, id: Id) -> Option<ClipHandlesAt> {

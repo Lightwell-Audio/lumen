@@ -29,6 +29,7 @@ mod looping;
 mod meters;
 mod mixer;
 mod mixing;
+mod motion;
 mod navigation;
 mod palette;
 mod playback;

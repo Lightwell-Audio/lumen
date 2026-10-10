@@ -208,6 +208,13 @@ report: {}",
         self.time_format_button(ui, time_corner);
         self.arrangement.additive_solo = self.settings.mixing.additive_solo;
         self.lend_cue_controls();
+        // New, moved and deleted tracks glide (M4.5).
+        self.arrangement.begin_frame(
+            ui.ctx(),
+            self.document.session(),
+            self.document.project(),
+            self.lanes.pending().len(),
+        );
         self.arrangement
             .headers(ui, headers, &mut self.document, &self.lanes, &self.keymap);
         self.take_cue_controls();

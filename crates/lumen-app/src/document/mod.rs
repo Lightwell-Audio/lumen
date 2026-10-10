@@ -41,19 +41,29 @@ pub struct Document {
     next_id: u64,
     /// Where each media file actually is on this machine.
     pub media_files: HashMap<Id, PathBuf>,
+    /// Which document this is: a new one (another project, opened or new)
+    /// has another, though its history counts from the start again.
+    session: u64,
 }
 
 impl Document {
     pub fn new(project: Project) -> Self {
         let next_id = highest_id(&project) + 1;
         let history = History::new(project);
+        static SESSIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         Self {
             saved: history.state(),
             history,
             path: None,
             next_id,
             media_files: HashMap::new(),
+            session: SESSIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         }
+    }
+
+    /// Which document this is (see `state` for which version of it).
+    pub fn session(&self) -> u64 {
+        self.session
     }
 
     pub fn project(&self) -> &Project {

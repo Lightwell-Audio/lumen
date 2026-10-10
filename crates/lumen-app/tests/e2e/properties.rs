@@ -25,7 +25,7 @@ pub(super) fn with_two_clips(name: &str) -> (Lumen, Id, Id) {
     (lumen, a, b)
 }
 
-fn rect(lumen: &Lumen, clip: Id) -> Rect {
+pub(super) fn rect(lumen: &Lumen, clip: Id) -> Rect {
     let ctx = lumen.harness.ctx.clone();
     lumen
         .app()

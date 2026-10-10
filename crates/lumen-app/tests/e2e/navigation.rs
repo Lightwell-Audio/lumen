@@ -59,6 +59,8 @@ fn height_keys_fit_and_restore_the_tracks() {
     let mut lumen = Lumen::start("heights");
     lumen.key(Modifiers::COMMAND, Key::T);
     lumen.key(Modifiers::COMMAND, Key::T);
+    // New tracks grow in and moved rows glide (M4.5): let them settle.
+    lumen.frames(30);
     let ctx = lumen.harness.ctx.clone();
     let height = |lumen: &Lumen| lumen.app().tracks_height(&ctx);
     let before = height(&lumen);

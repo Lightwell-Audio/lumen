@@ -105,6 +105,12 @@ impl Arrangement {
             if rect.bottom() < zone.top() || rect.top() > zone.bottom() {
                 continue;
             }
+            // A row folding shut shows only what fits in it (M4.5).
+            let zone = if row.clipped {
+                zone.intersect(rect)
+            } else {
+                zone
+            };
             ui.set_clip_rect(zone.intersect(base_clip));
             let painter = base_painter.with_clip_rect(zone.intersect(base_painter.clip_rect()));
             if row.kind == RowKind::Master {

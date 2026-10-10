@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use eframe::egui::{self, Id as EguiId};
+use eframe::egui;
 use lumen_project::model::{Id, Project, Track, TrackKind};
 
 use super::{
@@ -58,21 +58,29 @@ impl Arrangement {
     pub(super) fn rows(&self, ctx: &egui::Context, project: &Project, pending: usize) -> Vec<Row> {
         let mut rows = Vec::with_capacity(project.tracks.len() + pending + 1);
         let mut y = 0.0;
+        let now = ctx.input(|i| i.time);
         for (i, track) in project.tracks.iter().enumerate() {
-            if track.kind == TrackKind::Return || self.hidden(project, track.id) {
+            if track.kind == TrackKind::Return {
                 continue;
             }
-            let height = motion::glide(
-                ctx,
-                EguiId::new(("track height", track.id)),
-                self.target_height(track.id),
-                true,
-            );
+            // A track hidden in a folded group glides shut, then goes
+            // (M4.5, M2); unfolding, it grows back.
+            let hidden = self.hidden(project, track.id);
+            let target = if hidden {
+                0.0
+            } else {
+                self.target_height(track.id)
+            };
+            let height = motion::glide(ctx, super::row_glide::height_id(track.id), target, true);
+            if hidden && height < 0.5 {
+                continue;
+            }
             rows.push(Row {
                 kind: RowKind::Track(i),
-                y,
+                y: y + self.row_glides.offset(track.id, now),
                 height,
                 zone: Zone::Main,
+                clipped: height + 0.5 < self.target_height(track.id),
             });
             y += height;
         }
@@ -82,6 +90,7 @@ impl Arrangement {
                 y,
                 height: FOLDED,
                 zone: Zone::Main,
+                clipped: false,
             });
             y += FOLDED;
         }
@@ -95,7 +104,7 @@ impl Arrangement {
             }
             let height = motion::glide(
                 ctx,
-                EguiId::new(("track height", track.id)),
+                super::row_glide::height_id(track.id),
                 self.target_height(track.id),
                 true,
             );
@@ -104,6 +113,7 @@ impl Arrangement {
                 y,
                 height,
                 zone: Zone::Returns,
+                clipped: false,
             });
             y += height;
         }
@@ -112,6 +122,7 @@ impl Arrangement {
             y: self.top + zones.master.0,
             height: zones.master.1 - zones.master.0,
             zone: Zone::Master,
+            clipped: false,
         });
         rows
     }

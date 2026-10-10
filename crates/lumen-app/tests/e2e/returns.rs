@@ -67,6 +67,8 @@ fn the_divider_resizes_the_area_and_double_click_restores_its_natural_size() {
         lumen.click("Add track");
         lumen.click("Add return track");
     }
+    // New tracks grow in and moved rows glide (M4.5): let them settle.
+    lumen.frames(30);
     let saved = |lumen: &Lumen| lumen.app().project_as_saved().view.returns_height;
     assert_eq!(saved(&lumen), None, "its natural size");
     let line = divider(&lumen).center();

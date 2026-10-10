@@ -40,7 +40,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 1 | The audit's bugs: value fields follow the surface (T1), a `well` token for grooves and meters (T2), the scroll kept on the tracks (U1), the shots harness (a taller window, one thread) | ✅ 2026-10-10 (MT-POL-1 passed) | `37bfea0` |
 | 2 | Shared widgets and sizes: the size scale (S4), the handle that opens near its value (S2, the owner's C), scale numbers thinned (S3), the switch, segmented control and choice rows replace egui's checkboxes and radios (T3) | ✅ 2026-10-10 (MT-POL-2 passed in run 2; menus close gently, the owner's C) | `614dbfa`, `173a51a`, `33a44c1` |
 | 3 | Chrome: toggles keep a button's fill and the detail tabs are underlined words (T4), the arm button grey at rest (T5), one empty-state widget and the mixer's ghost strip (S5), the clip card's 2 × 6 swatches and middle-shortened path (S6), one time-signature field (S7), the metronome's volume as a value slider | ✅ 2026-10-10 (MT-POL-3 passed) | `70d68d0` |
-| 4 | Numbers in Martian Mono (S1), at width 87.5; licence in `assets/fonts` and THIRD_PARTY_NOTICES | 🟡 Built 2026-10-10, MT-POL-4 waits for the owner | |
+| 4 | Numbers in Martian Mono (S1), at width 87.5; licence in `assets/fonts` and THIRD_PARTY_NOTICES | ✅ 2026-10-10 (MT-POL-4 passed) | `259f63a` |
 | 5 | Motion (M1, M4, M2, M3, U2, M5) | 🔲 | |
 | 6 | Close: checks, report | 🔲 | |
 
