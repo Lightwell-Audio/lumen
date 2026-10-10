@@ -39,6 +39,7 @@ mod reorder;
 mod rows;
 mod samples;
 pub mod select;
+mod selection_look;
 mod sends;
 mod strip;
 mod strip_output;
