@@ -438,3 +438,183 @@ mod tests {
         assert!(nanos >= 0 && nanos <= clock.now());
     }
 }
+
+#[cfg(test)]
+mod sender_tests {
+    use std::collections::HashMap;
+
+    use lumen_midi::fake::FakeControl;
+    use lumen_midi::{MidiSystem, Use};
+
+    use super::*;
+
+    struct Rig {
+        fake: FakeControl,
+        _system: MidiSystem,
+        queue: rtrb::Producer<MidiOut>,
+        clock: Arc<StreamClock>,
+        output: Output,
+    }
+
+    fn id(name: &str) -> PortId {
+        FakeControl::id(Direction::Output, name)
+    }
+
+    /// A fake output "Synth" switched on for tracks, with the sender
+    /// running on port 0.
+    fn rig() -> Rig {
+        let fake = FakeControl::new();
+        fake.plug(Direction::Output, "Synth");
+        let uses = HashMap::from([(
+            id("Synth"),
+            Use {
+                track: true,
+                remote: false,
+            },
+        )]);
+        let backend = fake.backend();
+        let system = MidiSystem::start(
+            move || Ok(Box::new(backend)),
+            uses,
+            Duration::from_millis(10),
+        );
+        for _ in 0..200 {
+            if system.ports().iter().any(|p| p.open) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        let (queue, rx) = rtrb::RingBuffer::new(4_096);
+        let clock = StreamClock::new();
+        let mut output = Output::new(rx, system.sender(), Arc::clone(&clock));
+        output.set_ports(&["Synth".to_owned()]);
+        Rig {
+            fake,
+            _system: system,
+            queue,
+            clock,
+            output,
+        }
+    }
+
+    fn wait_for(fake: &FakeControl, count: usize) {
+        for _ in 0..600 {
+            if fake.sent().len() >= count {
+                return;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    fn at(frame: u64, msg: Msg) -> MidiOut {
+        MidiOut::At {
+            frame,
+            port: 0,
+            msg,
+        }
+    }
+
+    #[test]
+    fn messages_keep_their_order_and_spacing_and_arrive_on_time() {
+        let mut rig = rig();
+        rig.output.set_latency(480);
+        let base = Instant::now();
+        rig.clock.publish(0, 48_000);
+        // A note every 100 ms, each held for 50 ms, ten of them.
+        for k in 1..=10_u64 {
+            let key = 60 + k as u8;
+            rig.queue
+                .push(at(4_800 * k, Msg::note_on(0, key, 100)))
+                .unwrap();
+            rig.queue
+                .push(at(4_800 * k + 2_400, Msg::note_off(0, key)))
+                .unwrap();
+        }
+        wait_for(&rig.fake, 20);
+        let sent = rig.fake.sent_timed();
+        assert_eq!(sent.len(), 20);
+        let mut worst = Duration::ZERO;
+        for (i, (_, bytes, when)) in sent.iter().enumerate() {
+            let k = (i / 2 + 1) as u64;
+            let on = i % 2 == 0;
+            let key = 60 + k as u8;
+            let expected = if on {
+                Msg::note_on(0, key, 100)
+            } else {
+                Msg::note_off(0, key)
+            };
+            assert_eq!(bytes.as_slice(), expected.bytes(), "message {i}");
+            // Due at its frame's time plus the 10 ms of output latency.
+            let frame = 4_800 * k + if on { 0 } else { 2_400 };
+            let plan = base + Duration::from_micros(frame * 1_000_000 / 48_000 + 10_000);
+            let late = when.saturating_duration_since(plan);
+            worst = worst.max(late);
+            assert!(
+                *when + Duration::from_millis(1) >= plan,
+                "message {i} went out early"
+            );
+        }
+        eprintln!("worst lateness: {worst:?}");
+        assert!(worst < Duration::from_millis(4), "worst lateness {worst:?}");
+        // Spacing: the gaps between notes follow the frames.
+        let gap = sent[2].2 - sent[0].2;
+        assert!(
+            gap > Duration::from_millis(97) && gap < Duration::from_millis(104),
+            "{gap:?}"
+        );
+    }
+
+    #[test]
+    fn a_flush_lets_go_of_the_notes_sent_and_forgets_the_rest() {
+        let mut rig = rig();
+        rig.clock.publish(0, 48_000);
+        rig.queue.push(at(0, Msg::note_on(2, 60, 90))).unwrap();
+        // Far in the future: never heard.
+        rig.queue
+            .push(at(480_000, Msg::note_on(2, 72, 90)))
+            .unwrap();
+        wait_for(&rig.fake, 1);
+        rig.queue.push(MidiOut::Flush).unwrap();
+        wait_for(&rig.fake, 2);
+        let sent = rig.fake.sent();
+        assert_eq!(sent.len(), 2);
+        assert_eq!(sent[0].1, Msg::note_on(2, 60, 90).bytes());
+        assert_eq!(sent[1].1, Msg::note_off(2, 60).bytes());
+        thread::sleep(Duration::from_millis(60));
+        assert_eq!(rig.fake.sent().len(), 2, "the waiting note never goes");
+    }
+
+    #[test]
+    fn a_port_that_goes_away_drops_its_messages_without_trouble() {
+        let mut rig = rig();
+        rig.clock.publish(0, 48_000);
+        rig.queue.push(at(0, Msg::note_on(0, 60, 90))).unwrap();
+        wait_for(&rig.fake, 1);
+        rig.fake.unplug(Direction::Output, "Synth");
+        for _ in 0..200 {
+            if !rig._system.ports().iter().any(|p| p.open) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        rig.queue.push(at(0, Msg::note_off(0, 60))).unwrap();
+        rig.queue.push(MidiOut::Flush).unwrap();
+        thread::sleep(Duration::from_millis(80));
+        assert_eq!(
+            rig.fake.sent().len(),
+            1,
+            "nothing is sent to a missing port"
+        );
+        // It comes back and works again.
+        rig.fake.plug(Direction::Output, "Synth");
+        for _ in 0..400 {
+            if rig._system.ports().iter().any(|p| p.open) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        rig.queue.push(at(0, Msg::note_on(0, 61, 90))).unwrap();
+        wait_for(&rig.fake, 2);
+        assert_eq!(rig.fake.sent().len(), 2);
+    }
+}

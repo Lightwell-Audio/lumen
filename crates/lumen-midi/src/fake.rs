@@ -14,6 +14,8 @@ struct State {
     sinks: Vec<(PortId, u64, InputSink)>,
     next: u64,
     sent: Vec<(PortId, Vec<u8>)>,
+    /// When each of `sent` was sent.
+    sent_at: Vec<std::time::Instant>,
     refuse: HashSet<PortId>,
     opens: HashMap<PortId, u32>,
 }
@@ -88,6 +90,16 @@ impl FakeControl {
         self.state().sent.clone()
     }
 
+    /// Everything sent to outputs so far, with the time it was sent.
+    pub fn sent_timed(&self) -> Vec<(PortId, Vec<u8>, std::time::Instant)> {
+        let s = self.state();
+        s.sent
+            .iter()
+            .zip(&s.sent_at)
+            .map(|((id, bytes), at)| (id.clone(), bytes.clone(), *at))
+            .collect()
+    }
+
     /// How many times the port has been opened.
     pub fn opens(&self, direction: Direction, name: &str) -> u32 {
         let id = Self::id(direction, name);
@@ -134,6 +146,7 @@ impl Output for Sender {
             return Err(MidiError::Send(format!("{} is gone", self.id.name)));
         }
         s.sent.push((self.id.clone(), bytes.to_vec()));
+        s.sent_at.push(std::time::Instant::now());
         Ok(())
     }
 }
