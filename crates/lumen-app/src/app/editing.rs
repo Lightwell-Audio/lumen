@@ -175,6 +175,10 @@ impl App {
                 let target = self.snapped(self.ticks_at(canvas, p.x), modifiers.alt);
                 self.transport.locate(target.max(Ticks::ZERO));
                 self.transport.follow_paused = true;
+                // The clicked track is where Paste lands now; the headers'
+                // selection gives way to it.
+                self.arrangement.insert = self.lane_track(&ctx, canvas, p);
+                self.arrangement.selected.clear();
             }
         }
 
@@ -195,6 +199,9 @@ impl App {
                 }
                 MenuFor::Clips
             } else {
+                let at = self.snapped(self.ticks_at(canvas, p.x), modifiers.alt);
+                self.arrangement.menu_spot =
+                    Some((at.max(Ticks::ZERO), self.lane_track(&ctx, canvas, p)));
                 MenuFor::Lanes
             };
         }
@@ -316,6 +323,14 @@ impl App {
             .and_then(|i| project.tracks.get(i))
             .map(|t| t.id);
         (range.start..range.end).contains(&at) && track.is_some_and(|t| range.tracks.contains(&t))
+    }
+
+    /// The track whose lane is at `p`, if any.
+    fn lane_track(&self, ctx: &egui::Context, canvas: Rect, p: Pos2) -> Option<Id> {
+        let project = self.document.project();
+        let pending = self.lanes.pending().len();
+        self.arrangement
+            .track_at(ctx, project, pending, p.y - canvas.top())
     }
 
     fn ticks_at(&self, canvas: Rect, x: f32) -> Ticks {
@@ -561,7 +576,23 @@ impl App {
                 self.edit_items(ui, &[DeleteTime, InsertTime]);
             }
             MenuFor::Lanes => {
-                if self.edit_items(ui, &[Edit::Paste]) {
+                if self.can_edit(Edit::Paste) {
+                    // Where the lanes were right-clicked, not the playhead.
+                    let run = Edit::Paste.command();
+                    let keys = self.keymap.keys(run);
+                    if widgets::menu_item(ui, run.name(), keys.as_ref(), true).clicked()
+                        && let Some(clipboard) = self.clipboard.clone()
+                    {
+                        let project = self.document.project();
+                        let (at, track) = self
+                            .arrangement
+                            .menu_spot
+                            .unwrap_or((self.transport.state().ticks, None));
+                        let track = track
+                            .and_then(|t| project.tracks.iter().position(|x| x.id == t))
+                            .unwrap_or(clipboard.from_track);
+                        self.paste(&clipboard, at, track, "Paste");
+                    }
                     ui.separator();
                 }
                 let label = format!("Grid: {}", self.grid_label());
@@ -633,12 +664,18 @@ impl App {
                     return;
                 };
                 // Into the range if there is one; otherwise at the playhead,
-                // on the first selected track or where it was copied from.
+                // on the first selected track, the track last clicked in the
+                // lanes, or where it was copied from.
                 let (at, track) = match &range {
                     Some(r) => (r.start, r.tracks.first().and_then(|&t| index_of(t))),
                     None => (
                         self.transport.state().ticks,
-                        self.arrangement.selected.first().and_then(|&t| index_of(t)),
+                        self.arrangement
+                            .selected
+                            .first()
+                            .copied()
+                            .or(self.arrangement.insert)
+                            .and_then(index_of),
                     ),
                 };
                 let track = track.unwrap_or(clipboard.from_track);

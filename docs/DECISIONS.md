@@ -3487,3 +3487,23 @@ for the known issues to be fixed where they can be now.
   12 after.
 - E2E `walkthrough_mix` passes; without the idle fix it timed out
   waiting for the compensation.
+
+### Found by the owner after the walkthrough (2026-10-10)
+- **A clip copied to another track pasted back onto its own.** Paste went
+  to the first selected track, or else where the clip was copied from;
+  clicking a clip clears the track selection, and a click on another
+  track's empty lane only moved the playhead. Now a plain click in the
+  lanes (on a clip or empty) makes that track the insert track
+  (`Arrangement::insert`) and clears the headers' selection, so Ctrl+V
+  pastes there at the playhead (a header clicked afterwards wins again).
+  The lanes' menu pastes where it was right-clicked, time and track
+  (`Arrangement::menu_spot`), without moving the playhead. E2E
+  `a_copied_clip_pastes_onto_the_track_clicked` (keys and menu).
+- **"The loudness seems low."** The measurement is right: the EBU
+  reference tone (stereo 1 kHz at −23 dBFS) reads −23.0 LUFS through the
+  engine at unity, and −26.0 LUFS momentary and integrated, −26.0 dBTP,
+  through the app, where a centred track takes the default −3 dB pan law
+  (ADR-0035). So every file plays and measures 3 dB under its own level.
+  E2E `the_loudness_column_reads_the_reference_tone_less_the_pan_law`.
+  Whether stereo material should keep its level at the centre is the
+  owner's choice (pending).

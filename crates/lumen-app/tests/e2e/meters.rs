@@ -171,3 +171,55 @@ fn integrated_loudness_starts_again_on_play_from_stop() {
         lumen.app().loudness()
     );
 }
+
+/// A stereo 1 kHz sine at `dbfs` (16-bit, 48 kHz), the EBU Tech 3341
+/// reference tone at −23.
+fn reference_tone(path: &std::path::Path, dbfs: f64, seconds: f64) -> std::path::PathBuf {
+    let amplitude = 10f64.powf(dbfs / 20.0) * 32_767.0;
+    let frames = (seconds * 48_000.0) as usize;
+    let data: Vec<u8> = (0..frames)
+        .flat_map(|i| {
+            let t = i as f64 / 48_000.0;
+            let v = (amplitude * (2.0 * std::f64::consts::PI * 1_000.0 * t).sin()).round() as i16;
+            let [a, b] = v.to_le_bytes();
+            [a, b, a, b]
+        })
+        .collect();
+    let mut out = Vec::new();
+    out.extend(b"RIFF");
+    out.extend((36 + data.len() as u32).to_le_bytes());
+    out.extend(b"WAVEfmt ");
+    out.extend(16_u32.to_le_bytes());
+    out.extend(1_u16.to_le_bytes());
+    out.extend(2_u16.to_le_bytes());
+    out.extend(48_000_u32.to_le_bytes());
+    out.extend((48_000_u32 * 4).to_le_bytes());
+    out.extend(4_u16.to_le_bytes());
+    out.extend(16_u16.to_le_bytes());
+    out.extend(b"data");
+    out.extend((data.len() as u32).to_le_bytes());
+    out.extend(data);
+    std::fs::write(path, out).expect("write the reference tone");
+    path.to_path_buf()
+}
+
+/// Owner, after slice 7: the loudness seemed low. The EBU Tech 3341
+/// reference tone (stereo 1 kHz at −23 dBFS) reads −23 LUFS at the master
+/// less the pan law's centre: a centred track plays its file 3 dB down.
+#[test]
+fn the_loudness_column_reads_the_reference_tone_less_the_pan_law() {
+    let mut lumen = Lumen::start("meters-reference");
+    let file = reference_tone(&lumen.dir().join("ref.wav"), -23.0, 30.0);
+    lumen.drop_files(&[file]);
+    lumen.frames(5);
+    play(&mut lumen);
+    listen(&mut lumen, 3_000);
+    let (momentary, _, integrated, true_peak) = lumen.app().loudness();
+    let want = -23.0 + f64::from(CENTRE_DB);
+    assert!((momentary - want).abs() < 0.1, "momentary {momentary}");
+    assert!((integrated - want).abs() < 0.1, "integrated {integrated}");
+    assert!(
+        (f64::from(true_peak) - want).abs() < 0.2,
+        "true peak {true_peak}"
+    );
+}

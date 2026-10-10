@@ -195,6 +195,13 @@ pub struct Arrangement {
     /// The clip the arrow keys last chose (M3 review H2): where the next
     /// arrow goes from while it is selected.
     pub(crate) clip_cursor: Option<Id>,
+    /// The track last clicked in the lanes, on a clip or empty: Paste
+    /// lands there (at the playhead) unless tracks are selected, as
+    /// Ableton's insert point sits on a track (owner, after M4 slice 7).
+    pub(crate) insert: Option<Id>,
+    /// Where the lanes were right-clicked, for the menu's Paste: the time
+    /// (snapped) and the track there.
+    pub(crate) menu_spot: Option<(lumen_core::time::Ticks, Option<Id>)>,
     /// What the info line should say about the headers under the pointer
     /// (M4 slice 0); the app takes it after drawing.
     pub(crate) info: Option<crate::app::info::Info>,

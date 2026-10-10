@@ -663,3 +663,36 @@ fn dragging_a_playing_clip_does_not_click() {
         .fold(0.0, f32::max);
     assert!(steepest < 0.006, "a click: a step of {steepest}");
 }
+
+/// Owner, after slice 7: a clip copied, then pasted onto another track
+/// (with keys, or from the lanes' menu) did not land there.
+#[test]
+fn a_copied_clip_pastes_onto_the_track_clicked() {
+    let (mut lumen, kick, snare) = with_two_clips("paste-other-track");
+    let p = top_half(rect(&lumen, kick));
+    lumen.drag(p, p, Modifiers::NONE);
+    lumen.key(Modifiers::COMMAND, Key::C);
+    // A click on the snare's empty lane at bar 3 (two bars right of the
+    // clips' start), then Ctrl+V.
+    let zoom = lumen.app().view().zoom as f32;
+    let s = rect(&lumen, snare);
+    let spot = Pos2::new(s.left() + 8.0 * zoom + 2.0, s.center().y);
+    lumen.drag(spot, spot, Modifiers::NONE);
+    lumen.key(Modifiers::COMMAND, Key::V);
+    assert_eq!(
+        starts(&lumen, 0),
+        [(0, BAR / 2)],
+        "the kick's track as it was"
+    );
+    assert_eq!(starts(&lumen, 1), [(0, BAR / 2), (2 * BAR, BAR / 2)]);
+
+    // The lanes' menu: a right-click on the snare's lane at bar 5, Paste.
+    let spot = Pos2::new(s.left() + 16.0 * zoom + 2.0, s.center().y);
+    lumen.right_click(spot);
+    lumen.click("Paste Ctrl+V");
+    assert_eq!(starts(&lumen, 0), [(0, BAR / 2)]);
+    assert_eq!(
+        starts(&lumen, 1),
+        [(0, BAR / 2), (2 * BAR, BAR / 2), (4 * BAR, BAR / 2)]
+    );
+}
