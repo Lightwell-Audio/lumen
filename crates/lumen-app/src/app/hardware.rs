@@ -74,10 +74,16 @@ impl App {
         }
         // Outputs that tracks name are switched on for tracks, so they
         // open (and appear switched on in the MIDI settings).
-        let state = (self.document.state(), self.midi_ports_seen);
-        if self.midi_checked != Some(state) {
+        let state = (
+            self.document.session(),
+            self.document.state(),
+            self.midi_ports_seen,
+        );
+        if self.midi_checked != Some(state) && self.open_used_outputs() {
+            // Checked again only when the project or the ports change, unless
+            // an output a track names is not listed yet (the list lags the
+            // plug-in notice, or the device is away).
             self.midi_checked = Some(state);
-            self.open_used_outputs();
         }
         let menu = self.menu_ports();
         if MenuPorts::of(ctx) != menu {
@@ -86,12 +92,19 @@ impl App {
     }
 
     /// Switches on for tracks every present output a track sends to.
-    fn open_used_outputs(&mut self) {
+    /// True when every output the tracks name is listed.
+    fn open_used_outputs(&mut self) -> bool {
         let used = used_ports(self.document.project());
         if used.is_empty() {
-            return;
+            return true;
         }
-        for port in self.midi.ports() {
+        let ports = self.midi.ports();
+        let listed = used.iter().all(|name| {
+            ports
+                .iter()
+                .any(|p| p.info.id.direction == Direction::Output && &p.info.id.name == name)
+        });
+        for port in ports {
             let id = &port.info.id;
             if id.direction == Direction::Output && used.contains(&id.name) && !port.using.track {
                 let using = Use {
@@ -103,6 +116,7 @@ impl App {
                 self.settings_changed = Some(std::time::Instant::now());
             }
         }
+        listed
     }
 
     fn menu_ports(&self) -> MenuPorts {

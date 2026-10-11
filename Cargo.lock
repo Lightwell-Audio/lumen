@@ -2236,6 +2236,7 @@ name = "lumen-perf"
 version = "0.0.1"
 dependencies = [
  "lumen-core",
+ "lumen-devices",
  "lumen-engine",
  "lumen-project",
  "serde_json",

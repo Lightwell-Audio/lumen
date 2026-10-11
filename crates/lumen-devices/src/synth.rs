@@ -248,6 +248,9 @@ struct Voice {
     pending: Option<(u8, u8)>,
     /// The filter's state: `[ic1eq, ic2eq]` for the left side, then the right.
     ic: [[f32; 2]; 2],
+    /// Each oscillator's left and right gain (equal-power pan), worked out
+    /// once when the note starts.
+    pans: [[f32; 2]; 2],
 }
 
 const IDLE: Voice = Voice {
@@ -283,6 +286,7 @@ const IDLE: Voice = Voice {
     steal: 1.0,
     pending: None,
     ic: [[0.0; 2]; 2],
+    pans: [[0.0; 2]; 2],
 };
 
 /// What one span of rendering shares between voices.
@@ -294,6 +298,12 @@ struct Span {
     open: f32,
     /// The sound new notes get (a stolen voice's replacement).
     sound: Params,
+}
+
+/// Left and right gains for a pan from -1 to 1, at constant power.
+fn pan_gains(pan: f32) -> [f32; 2] {
+    let angle = (pan + 1.0) * 0.25 * PI;
+    [angle.cos(), angle.sin()]
 }
 
 fn coef(seconds: f32, rate: f32) -> f32 {
@@ -325,6 +335,7 @@ impl Voice {
             steal: 1.0,
             pending: None,
             ic: [[0.0; 2]; 2],
+            pans: [pan_gains(params.osc[0].pan), pan_gains(params.osc[1].pan)],
         };
     }
 
@@ -413,9 +424,8 @@ impl Voice {
                 let next = t + dt;
                 self.phase[n] = next - next.floor();
                 // Equal-power pan of each oscillator.
-                let angle = (osc.pan + 1.0) * 0.25 * PI;
-                sides[0] += sample * angle.cos();
-                sides[1] += sample * angle.sin();
+                sides[0] += sample * self.pans[n][0];
+                sides[1] += sample * self.pans[n][1];
             }
             // A state variable filter (low-pass) on each side.
             for (x, ic) in sides.iter_mut().zip(self.ic.iter_mut()) {

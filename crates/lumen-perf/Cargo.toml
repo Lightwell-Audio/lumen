@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 lumen-core.workspace = true
+lumen-devices.workspace = true
 lumen-engine.workspace = true
 lumen-project.workspace = true
 serde_json.workspace = true

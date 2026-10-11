@@ -156,21 +156,24 @@ impl Scheduler {
             && entry.key().0 <= now
         {
             let (port, msg) = entry.remove();
-            self.note(port, msg);
-            out.push((port, msg));
+            if self.note(port, msg) {
+                out.push((port, msg));
+            }
         }
         out
     }
 
-    fn note(&mut self, port: u16, msg: Msg) {
+    /// Records what `msg` does to the notes sent on; false for a note-off
+    /// for a note that is not sounding (a flush already let it go, or its
+    /// note-on never went out), which is not sent a second time.
+    fn note(&mut self, port: u16, msg: Msg) -> bool {
         match msg.kind() {
             Kind::NoteOn { key, .. } => {
                 self.sounding.insert((port, msg.channel(), key));
+                true
             }
-            Kind::NoteOff { key, .. } => {
-                self.sounding.remove(&(port, msg.channel(), key));
-            }
-            _ => {}
+            Kind::NoteOff { key, .. } => self.sounding.remove(&(port, msg.channel(), key)),
+            _ => true,
         }
     }
 
@@ -378,6 +381,20 @@ mod tests {
         assert!(s.is_empty());
         assert!(s.due(1_000_000).is_empty(), "the waiting note never goes");
         assert!(s.flush().is_empty());
+    }
+
+    #[test]
+    fn a_note_off_for_a_note_that_is_not_sounding_is_not_sent() {
+        let mut s = Scheduler::default();
+        s.push(0, 0, on(60));
+        s.due(1);
+        // A stop lets it go; the engine's own note-off follows.
+        assert_eq!(s.flush(), vec![(0, off(60))]);
+        s.push(2, 0, off(60));
+        assert!(s.due(10).is_empty(), "already released");
+        // Nor is the off of a note whose on never went out.
+        s.push(3, 0, off(61));
+        assert!(s.due(10).is_empty());
     }
 
     #[test]

@@ -771,3 +771,17 @@ fn midi_outputs_and_synths_belong_on_midi_tracks_and_are_checked() {
         [1]
     .state = vec![0xFF, 0xFE]));
 }
+
+#[test]
+fn the_midi_demo_project_file_is_current_and_valid() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/projects/midi-demo.lumen");
+    let demo = lumen_project::testing::midi_demo();
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&demo).unwrap()).unwrap();
+    }
+    let loaded =
+        load(&path).expect("the demo project must load (regenerate with LUMEN_WRITE_FIXTURES=1)");
+    assert_eq!(loaded, demo, "regenerate with LUMEN_WRITE_FIXTURES=1");
+    assert_eq!(loaded.tracks.len(), 5);
+}

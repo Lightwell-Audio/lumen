@@ -132,9 +132,9 @@ pub struct App {
     /// Times MIDI to hardware outputs; starts with the first one a track names.
     midi_out: Option<midi_out::Output>,
     /// Counts changes to the MIDI ports, and what the used outputs were last
-    /// checked against (project state, port changes).
+    /// checked against (document, its state, port changes).
     midi_ports_seen: u64,
-    midi_checked: Option<(u64, u64)>,
+    midi_checked: Option<(u64, u64, u64)>,
     /// Audio clips on the simple timeline (M2 slice 6).
     lanes: lanes::Lanes,
     /// Where dropped files go: under the pointer, snapped, or the playhead.
