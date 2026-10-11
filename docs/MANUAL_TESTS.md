@@ -1990,6 +1990,19 @@ about 1–2 seconds to become audible. The Windows GS Wavetable Synth output
 worked, but its latency was noticeable even with ASIO at 128 samples. A
 physical output unplug/reconnect was not tested.
 
+**Fixes after run 2026-10-11** (re-run steps 2, 5, 6 and 8):
+- The demo's Hardware arpeggio was a C major pattern over every chord (and
+  the bass played A C F G against Am F C G), so the root sounded wrong:
+  both now start on each chord's root on the downbeat. **Undo your eighth
+  note shift first** (or reopen the regenerated file). Any lateness left in
+  step 2 is the GS synth's own; note it in milliseconds.
+- Jumps and loop wraps under a sounding synth popped: the engine's 2 ms
+  jump crossfade had no instrument audio to fade out. Fixed; clicking the
+  ruler while chords sound and letting the loop run should be clean.
+- Presets: a change reaches the engine within one block (measured), but a
+  sounding note keeps its sound, so the new preset is heard at the next
+  chord. Whether held notes should change at once is your choice.
+
 
 ### MT-MIDI-3 · Playing live (needs a human; a MIDI keyboard for steps 1–6, or loopMIDI)
 Slice 2 of M5 (ADR-0046). **Status: run 2026-10-11; see findings below.** In PowerShell,
