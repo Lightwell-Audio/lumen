@@ -7,6 +7,7 @@
 mod bar;
 mod compensation;
 mod dropouts;
+mod fit;
 mod midi_chip;
 mod status;
 
@@ -81,11 +82,8 @@ pub struct Transport {
     /// The readout fitted in the bar this frame; when it did not (the
     /// smallest window) the info line carries it.
     pub(crate) keyboard_readout_shown: bool,
-    /// How wide the bar's controls after the keyboard's were last frame,
-    /// to know whether the readout leaves them room.
-    keyboard_rest: f32,
-    /// Where the controls after the keyboard's start.
-    keyboard_from: f32,
+    /// What fits in the bar (`fit.rs`).
+    fit: fit::Fit,
 }
 
 fn timeline_of(project: &Project) -> Timeline {
@@ -135,8 +133,7 @@ impl Transport {
             keyboard_readout: None,
             keyboard_clicked: false,
             keyboard_readout_shown: false,
-            keyboard_rest: 360.0,
-            keyboard_from: 0.0,
+            fit: Default::default(),
         }
     }
 
