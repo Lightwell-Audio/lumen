@@ -21,6 +21,7 @@ mod clips;
 mod groups;
 mod import;
 mod instrument;
+mod lanes;
 mod midi_clips;
 mod mixer;
 mod notes;
