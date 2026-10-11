@@ -2291,3 +2291,37 @@ cargo run --release -p lumen-app -- tests\projects\midi-demo.lumen
 step, and the clip changes only when you let go.
 
 **Run 1: waiting for the owner.**
+
+### MT-DS-1 · The design system's look (needs a human; both themes)
+
+Checks ADR-0052 by eye. Start Lumen (`cargo run --release -p lumen-app`),
+open a project with a few audio and MIDI tracks, a group and a return.
+
+1. **Buttons** (Audio settings, a banner, the shortcuts window): raised,
+   a faint light along the top edge, no shadow under them; hovering
+   washes them lighter and strengthens the edge; pressing sinks them and
+   moves the label 1 pt down; 24 pt buttons have 6 pt corners.
+2. **On states:** Loop, Metronome and Follow when on are a quiet blue
+   fill with blue icons and a thin blue edge, with no glow. Play while
+   playing still beams.
+3. **Solo and mute:** S lit is a blue gradient with a dark letter (no
+   amber anywhere, no halo); M lit is light grey with a dark letter (on
+   the light theme a dark grey with a white letter). A track silenced by
+   another's solo shows a hollow grey M.
+4. **Arm:** round; a grey dot at rest that turns red under the pointer;
+   armed, a faint red body, a red dot and the breathing ring.
+5. **Segmented and switches** (the app menu, the clip card): the trough
+   is cut in, the chosen piece a neutral raised thumb with white letters;
+   a switch that is on is blue with a blue knob.
+6. **Fields and sliders:** header sliders, the strip's volume field and
+   the transport's position and tempo are wells (darker than around them,
+   a dark lip on top); typed tempo applies on Enter.
+7. **Windows and menus:** windows have 12 pt corners, menus 8 pt; both a
+   faint light along the top edge; menu rows highlight with a soft wash.
+8. **Focus:** Tab through the transport: the ring sits just outside each
+   control, rounded like it.
+9. Repeat 1–8 on the light theme and at 150% and 200% scale.
+
+Results:
+- (waiting for the owner)
+

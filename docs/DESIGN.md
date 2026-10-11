@@ -1,9 +1,14 @@
 # Lumen design system and key flows
 
-**Status:** v1, M3 slice 2 (2026-10-07), extended by slices 4 to 6e (2026-10-08). Code: `crates/lumen-app/src/theme.rs`
-(colour, type, spacing, shape and the egui style built from them) and
-`crates/lumen-app/src/motion.rs` (motion). Every screen takes its values from
-there. A colour or duration written inline in UI code is a bug.
+**Status:** v1, M3 slice 2 (2026-10-07), extended through M5; **v2
+(2026-10-11, ADR-0052)** follows the owner's **Lumen design system** (a
+Design System artifact: tokens, a Material card and a card per component).
+Where this file and the design system differ, the design system wins.
+Code: `crates/lumen-app/src/theme.rs` (colour, type, spacing, shape,
+strokes, the on states and the egui style built from them), `motion.rs`
+(motion), `light.rs` (light) and `widgets/raised.rs` (material, §5a).
+Every screen takes its values from there. A colour or duration written
+inline in UI code is a bug.
 
 The direction comes from `CLAUDE.md` §5: Ableton's arrangement-first
 workflow, with FL Studio's clarity but not its density. Minimal and quiet
@@ -35,7 +40,7 @@ restrained and purposeful.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ Lumen   │ transport │ tempo · meter │ position │ CPU · status │ panels │  transport bar, 36 pt
+│ Lumen   │ transport │ tempo · meter │ position │ CPU · status │ panels │  transport bar, 44 pt
 ├──────────────────────────────────────────────────────────────────────┤
 │ (device banner, only when the audio device needs attention)          │
 ├────────────┬─────────────────────────────────────────────────────────┤
@@ -109,8 +114,10 @@ Windows** are in the app menu (click **Lumen** at the left of the transport bar)
 | `raised` | `#23262D` | `#E9EBEE` | Ruler, track headers, inputs |
 | `overlay` | `#262A31` | `#FFFFFF` | Popovers, windows, hover cards |
 | `control` | `#31353E` | `#E2E5E9` | Button at rest |
-| `control_hover` | `#3A3F4A` | `#D7DBE0` | Button under the pointer |
-| `control_press` | `#444A56` | `#CBD0D7` | Button held down; checkbox and radio wells |
+| `control_hover` | `#3A3F4A` | `#D7DBE0` | Flat controls under the pointer; raised controls, rows and segmented pieces take `ember` instead |
+| `control_hi` | `#383C46` | `#EEF0F3` | The top of a raised control's gradient (`control_hi` to `control`, a 3% step); never flat |
+| `control_press` | `#444A56` | `#CBD0D7` | A control held down; the filled part of a slider; a knob's ring |
+| `thumb_hi`, `thumb` | `#4A5160`, `#3E4551` | `#FFFFFF`, `#F3F4F6` | The chosen piece of a segmented control: a raised thumb in the well, `text` letters |
 | `border` | `#2E323A` | `#DADDE2` | Separators, panel edges |
 | `border_strong` | `#3C414B` | `#C3C8CF` | Window and popover outlines, focus-free inputs |
 | `text` | `#E6E8EC` | `#1C1F24` | Primary text, icons |
@@ -118,7 +125,10 @@ Windows** are in the app menu (click **Lumen** at the left of the transport bar)
 | `text_hint` | `#6E7480` | `#878D98` | Hints, empty states |
 | `text_disabled` | `#555A65` | `#B3B8C0` | Disabled controls |
 | `accent` | `#4FA3FF` | `#1F6FD1` | Active, selected, playhead, focus ring |
-| `accent_muted` | `#243A55` | `#D5E5FA` | Background of active toggles |
+| `accent_muted` | `#243A55` | `#D5E5FA` | Something that is on (a toggle, pill, switch, chosen row): with `accent` letters and a 38% accent hairline |
+| `accent_hi`, `accent_lo` | `#5DAEFF`, `#3F8FEA` | `#2A74D4`, `#1A62BD` | Filled accent (the one primary of a view, a lit S, the chosen tool): a gradient, no halo |
+| `on_accent` | `#06182E` | `#FFFFFF` | Letters and icons on filled accent |
+| `mute`, `on_mute` | `#C8CCD4`, `#0B0D10` | `#5A6170`, `#FFFFFF` | A lit M, and its letter |
 | `record` | `#E5484D` | `#D33A40` | Record only |
 | `warning` | `#F2B14C` | `#A86400` | Problems that need attention |
 | `grid_bar` | `#343842` | `#D9DCE1` | Bar lines |
@@ -136,6 +146,10 @@ Windows** are in the app menu (click **Lumen** at the left of the transport bar)
 | `key_black` | `#0E1013` | `#3A3F4A` | Piano-roll black keys |
 | `key_text` | `#3A3F4A` | `#5A6170` | The C labels on the keys |
 | `well` | `#141619` | `#D6DAE0` | Inset wells: fader grooves, meter and loudness backgrounds; below every surface in both themes (M4.5) |
+| `ground` | `#111316` | `#E7E9ED` | The deepest layer, under `well`: behind the window, scrims, the app icon's base |
+| `edge_light` | white at 7% | white at 80% | The 1 pt line along the top inside edge of every raised surface (§5a) |
+| `shade` | black at 50% | `text` at 14% | The 1 pt lip along the top inside edge of a well or a pressed control (§5a) |
+| `ember` | `text` at 8% | `text` at 8% | Light level 1, washed over what the pointer is on: the hover of raised controls, rows and segmented pieces (§6a) |
 | `shadow` | black at 38% | black at 14% | The one shadow, under windows and popovers |
 | `core` | `#FFFFFF` | `#1F6FD1` | The centre of a light (§6a); on light the accent: light on paper is ink |
 | `sun` | `#FFC46B` | `#CC9D56` | The mark's sun, at its rim (§6b); never in the interface |
@@ -194,17 +208,24 @@ Licences: SIL Open Font License, see `THIRD_PARTY_NOTICES.md`.
 | `heading` | Unbounded | 16 | Panel titles (Browser) |
 | `mono` | Martian Mono | 13 | Position, tempo, CPU: anything that changes while you read it |
 | `readout` | Martian Mono | 20 | The master's integrated loudness in the mixer (M4) |
+| `mono_small` | Martian Mono | 10 | Units after a readout, ruler numbers, clip meta |
+| `keycap` | Inter | 11 | The letters on K5 keycaps (the caption size) |
+| `display` | Unbounded | 24 | Welcome and first-run titles only |
 
 Sentence case for every label ("Audio settings", not
 "Audio Settings").
 
 ## 5. Spacing and shape
 
-- **4 pt grid:** `XXS 2 · XS 4 · S 8 · M 12` (`theme::space`). Controls
+- **4 pt grid:** `XXS 2 · XS 4 · S 8 · M 12 · L 16 · XL 24 · XXL 32`
+  (`theme::space`; L for panel toolbars and empty states, XL and XXL for
+  first-run layouts). Controls
   sit 8 apart. Sections in a window are divided by a separator with 12
   above each heading. Content insets in windows are 12, in strips 8.
 - **Control sizes** (`theme::size`, M4.5): `CONTROL` 24 pt for buttons,
-  fields and combos (egui's `interact_size`; transport icons 28);
+  fields and combos (egui's `interact_size`); `CONTROL_LARGE` 30 pt for the
+  transport's readouts and detail-panel toolbars; `TRANSPORT_ICON` 28 pt
+  square icon buttons in a `TRANSPORT_BAR` 44 pt bar;
   `CONTROL_SMALL` 20 pt in dense rows (M, S and arm on headers and strips,
   switches, segmented controls, strip rows, the clip card's rows); knobs
   `KNOB` 24 pt and, in lists, `KNOB_SMALL` 18 pt. A module never invents its
@@ -213,13 +234,51 @@ Sentence case for every label ("Audio settings", not
   (accent on `accent_muted`, a hairline when the row is selected, no glow)
   or Off (struck-through speaker, hint grey); Auto shows nothing. A click
   cycles In, Off, Auto.
-- **Radius:** `SMALL 4` (buttons, inputs, clips), `MEDIUM 6` (popovers),
-  `LARGE 8` (windows).
+- **Radius follows the height** (`theme::radius::for_height`): `SMALL 4`
+  for 20 pt controls and troughs, clips, notes, keycaps and chips in 20 pt
+  rows; `MEDIUM 6` for 24 pt controls, inputs and menu rows; `LARGE 8` for
+  30 pt controls, popovers and menus; `XL 12` for windows, cards and the
+  palette; `FULL` for pills (switches, lane tabs, chips). A piece inside a
+  trough takes the trough's radius less its 2 pt inset.
+- **Strokes** (`theme::stroke`): `HAIRLINE 1` for separators, outlines,
+  edge lights and lips; `LIT 1.5` for a Lit or Flare line and icons;
+  `FOCUS 2` for the focus ring and a Beam.
 - **Elevation:** only windows and popovers float. They get `overlay` fill,
-  a `border_strong` outline and one soft shadow. Nothing else has a shadow.
+  a `border_strong` outline, the edge light and one soft shadow (offset
+  0, 6, blur 18). Nothing else has a shadow.
 - **Settings rows:** labels in a right-aligned column (`LABEL_COLUMN` 96 pt
   in windows, `LABEL_COLUMN_NARROW` 72 pt in cards), values to the right of
   it, warnings wrapped within the column's width.
+
+## 5a. Material (the design system's Material card, ADR-0052)
+
+Depth without clutter: surfaces step lighter as they rise (`ground` <
+`well` < `app` < `canvas` and `header` < `raised` < `overlay`), and three
+painted details do the rest (`widgets/raised.rs`):
+1. **Raised** (buttons, M and S at rest, the fader cap, dropdowns, toggles
+   when off): a vertical gradient `control_hi` to `control` (flat
+   `selected_control` on a selected row), a 1 pt `border` (`border_strong`
+   under the pointer) and a 1 pt `edge_light` along the top inside edge
+   (`raised::paint`).
+2. **Sunk** (fields, sliders, fader grooves, meters, the segmented and
+   switch troughs, the transport's readouts): `well` with a 1 pt `shade` lip
+   along the top inside edge (`raised::paint_sunken`); fields add a 1 pt
+   `border`, `border_strong` on hover (`raised::paint_field`). A pressed
+   control sinks too: flat `control_press`, the lip, its content 1 pt down.
+3. **Filled** (`theme::Tone::Accent`: the one primary of a view, a lit S,
+   the chosen tool; `Tone::Mute`: a lit M): its colour (a gradient
+   `accent_hi` to `accent_lo`, or `mute`), its letters (`on_accent`,
+   `on_mute`) and a stronger edge light (white at 35%). No halo: a filled
+   control's fill is its light.
+
+**States** of every control: rest; hover is Ember (`ember` over the fill,
+never another fill); pressed is sunk; **on** is `accent_muted` with
+`accent` letters and one accent hairline at 38% (`Tone::On`); recording is
+record red over the control with a 45% hairline and the Flare
+(`Tone::Record`, the one lit state that glows); keyboard focus is a 2 pt
+`accent` ring 2 pt outside (`raised::focus_ring`); disabled is a flat
+`control` with `text_disabled` letters and the reason on hover. Buttons are
+`raised::button` or, at most one per view, `raised::primary_button`.
 
 ## 6. Motion
 
@@ -230,6 +289,8 @@ not travel.
 |---|---|---|---|
 | `FAST` | 100 ms | ease-out | Hover and press feedback |
 | `BASE` | 180 ms | ease-out (enter), ease-in (exit) | Popovers, windows, notices |
+| `WASH` | 600 ms | ease-out | What undo or redo changed (the accent wash) |
+| `BREATH` | 2.4 s | cosine | The armed ring: the one deliberate loop |
 | `GLIDE` | 220 ms | critically damped spring | Panels opening and closing (both directions decelerate), and things that move to a new place: the playhead and start marker after a locate, clips settling after a drag (slice 6) |
 
 - **Ease-out** (cubic) starts fast and settles gently, so the response
@@ -351,33 +412,36 @@ strokes are 4 wide and the third reflection goes.
 
 | Widget | Rest | Hover | Pressed | Active / on | Disabled |
 |---|---|---|---|---|---|
-| Icon button (transport) | icon `text`, no fill | `control_hover` fill (`FAST`) | `control_press` | `accent` icon on `accent_muted` | `text_disabled` icon |
-| Button (`widgets::raised::button`, ADR-0046) | raised: `control` fill lifting top to bottom, 1 px light top edge, `border`, soft drop shadow | `control_hover` | sunken: `control_press`, inset shadow, 1 px lower | — | `text_disabled` text, no fill change |
-| Toggle (Browser, Detail; `widgets::toggle_button`) | as Button, never bare text (M4.5) | as Button | as Button | lit: the accent gradient, `text_on` letters, `light::LIT` glow (cross-fades, `FAST`) | — |
-| Tabs (the detail panel; `widgets::tabs`) | words in `text_secondary`, 16 pt apart | `text` | — | `text`, over a 2 pt `accent` underline with a `light::LIT` glow that slides to it (`GLIDE`) | `text_disabled`, with when it arrives on hover |
-| Time signature (`widgets::time_signature`) | one field, "4 / 4", `control` fill | the half under the pointer brightens: the beats left, the unit right | — | drag or wheel changes the half under the pointer; click and type "7/8"; double-click 4/4 | — |
+| Icon button (transport, 28 pt square) | quiet: no fill, icon `text_secondary` | Ember wash (`FAST`) | sunk | on: `accent` icon on `accent_muted` with the 38% hairline; Play while playing: the icon in `core` with the Beam | `text_disabled` icon |
+| Button (`raised::button`; 24 pt, radius 6) | raised (§5a), `body` letters in `text_secondary` | Ember, `border_strong` edge, letters `text` | sunk, letters 1 pt down | — | flat `control`, `text_disabled` letters |
+| Primary (`raised::primary_button`, one per view) | filled accent, `on_accent` letters | Ember | sunk | — | as Button |
+| Toggle (Browser, Detail; `widgets::toggle_button`) | as Button, never bare text (M4.5) | as Button | as Button | on: `accent_muted`, `accent` letters, the 38% hairline, no glow (cross-fades, `FAST`) | — |
+| Tabs (the detail panel; `widgets::tabs`) | words in `text_secondary`, `space::M` padding each side, `space::XS` apart | `text` | — | `text`, over a 2 pt `accent` underline inset by `space::M`, with Lit's soft layer, sliding to it (`GLIDE`) | `text_disabled`, with why on hover |
+| Time signature (`widgets::time_signature`) | one field, "4 / 4" in the monospace, sunk with a border | Ember on the half under the pointer: the beats left, the unit right | — | drag or wheel changes the half under the pointer; click and type "7/8"; double-click 4/4 | — |
 | Empty state (`widgets::empty_state`) | centred: a 16 pt icon in `text_hint`, the title in medium `text_secondary`, a caption hint, the action as a button with its keys in the tooltip | | | | |
-| Field (tempo, meter) | `raised` fill | `border_strong` outline | — | `accent` outline while editing | — |
-| Dropdown (combo; `widgets::Dropdown`) | raised like Button (`raised::paint`): the value at the left, a ▼ chevron at the right | `control_hover` | sunken, as Button | — (the open list is a menu: its chosen row `accent_muted`) | `text_disabled` |
-| Popover / window | `overlay`, `border_strong`, shadow | | | | |
-| Notice | `warning` text, wrapped, with Dismiss | | | | |
-| Switch (on/off) | a 30 × 16 pt pill in `control_press`, the knob `text_secondary`; its label at the left of a row as wide as there is room for | the pill lightens (`FAST`) | — | the knob glides right (`GLIDE`), `accent` on `accent_muted` | `text_disabled` |
-| Segmented (2–5 choices; `widgets::segmented`, `segmented_styled`) | a sunken `well` track (inset shadow), optional icon then label on one centre line, `text_secondary` | label in `text` | — | a raised thumb (`theme::thumb`) that slides to the choice (`GLIDE`), label in `text`; `segmented_styled(.., Some(Tone::Accent))` lights the thumb | label in `text_disabled`, with why on hover |
-| Choice row (longer lists, such as a device's channel pairs) | a 24 pt row, `text` | `control` wash | — | `accent_muted` fill, `accent` text | — |
+| Field (tempo, value fields) | sunk: `well`, the lip, a 1 pt `border`; numbers in the monospace | `border_strong` outline | — | `accent` outline while editing | — |
+| Value slider (`widgets::value_slider`) | sunk; the filled part `control_press` to `control`; the handle a 2 pt `text` line that opens around the value | Ember | — | — | — |
+| Dropdown (combo; `widgets::Dropdown`) | raised like Button: the value at the left, a ▼ chevron at the right | as Button | sunk, as Button | — (the open list is a menu: its chosen row `accent_muted`) | flat, `text_disabled` |
+| Popover / window | `overlay`, `border_strong`, the edge light, the shadow; windows radius 12, popovers and menus 8 | | | | |
+| Notice | `raised` ground, a 1 pt `warning` hairline at 45%, radius 8, ⚠ and `warning` text, wrapped, with buttons named for the action | | | | |
+| Switch (on/off) | a 30 × 16 pt sunk pill (`well`, the lip), the knob a `text` to `text_secondary` gradient; its label at the left of a 20 pt row as wide as there is room for | Ember over the pill (`FAST`) | — | the knob glides right (`GLIDE`), `accent_hi` to `accent_lo`, on `accent_muted` with the 38% hairline | `text_disabled` |
+| Segmented (2–5 choices; `widgets::segmented`, `segmented_styled`) | a sunk trough (`well`, the lip; radius by height), optional icon then label on one centre line, `text_secondary` | Ember over the piece, label `text` | — | a neutral raised thumb (`thumb_hi` to `thumb`, the edge light, the trough's radius less 2) that slides to the choice (`GLIDE`), label `text`; `segmented_styled(.., Some(Tone::Accent))` fills the chosen tool with the accent | label in `text_disabled`, with why on hover |
+| Choice row (longer lists, such as a device's channel pairs) | a 24 pt row, `text`, radius 6 | Ember wash | — | `accent_muted` fill, `accent` text | — |
+| Menu row (`widgets::menu_item`) | `text`, with keycaps at the right | Ember highlight, radius 6, reaching `space::XS` past the row, following the pointer | — | a toggle that is on: `accent_muted`, `accent` letters | `text_disabled` |
+| Pill (lane tabs; `widgets::pills`) | 24 pt, radius `FULL`, `text_secondary` | Ember | — | `accent_muted`, `accent` letters, the 38% hairline; "+ CC" a `border_strong` hairline pill | — |
 
-Keyboard focus shows as a 2 pt `accent` ring on every focusable control.
+Keyboard focus shows as a 2 pt `accent` ring, 2 pt outside, on every
+focusable control (`raised::focus_ring`).
 
-**Premium control look (ADR-0046).** Raised controls (`widgets::raised`):
-the control fill lifted a little top to bottom (`theme::lift`), a 1 px
-light edge inside the top (`theme::edge_light`), the `border`, a soft drop
-shadow (`theme::control_shadow`). Pressed sinks: an inset shadow, 1 px
-lower. On is lit by `theme::Tone`: `Accent` (on, chosen), `Warning` (solo),
-`Record` (arm), each a gradient from `theme::lit` with `text_on` letters and
-a glow that is a light level (`raised::glow_level`: `LIT`, and `FLARE` for
-
-Chrome migration (ADR-0051): transport icon buttons (`icons::button`), the solo chip, MIDI chip, arm (a raised square lit in `Tone::Record`, a solid dot and the breathing ring kept), Monitor badge, dialog and banner buttons, preferences-window buttons, Reset and Panic buttons use `raised::button`, `button_inked` or `paint`. Menu rows stay menu rows; value fields stay fields.
-record); `Recessed` (mute on) is the well's colour with `text_hint`
-letters. M and S on headers and strips are raised buttons in this look.
+**The material (ADR-0052, replacing ADR-0051's lit look).** Every control
+is painted by `widgets::raised` as §5a says; on states are
+`theme::Tone`: `On` (toggles, pills, the transport's toggles, the Monitor
+badge), `Accent` (filled: the one primary, a lit S, cue, the chosen tool),
+`Mute` (a lit M) and `Record` (recording). Transport icon buttons, the
+solo chip, the MIDI chip, the Monitor badge, dialog and banner buttons,
+preferences-window buttons, Reset and Panic use `raised::button`,
+`button_inked` or `paint`. Menu rows stay menu rows; value fields stay
+fields.
 
 Dropdowns (`widgets::Dropdown`) replace egui's
 `ComboBox`, which stays flat: a closed dropdown is a raised button with the
@@ -407,8 +471,9 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
   - the name, with room after the arrow, shortened with "…" and renamed by
     double-click or F2;
   - **M**, **S** and a round record-arm button, always visible.
-  - Lit states: **S** uses the accent and **M** the light neutral. Text on
-    a lit button is white or near-black by the fill's brightness.
+  - At rest M and S are raised (§5a). Lit: **S** is filled accent
+    (`accent_hi` to `accent_lo`, an `on_accent` letter, no halo) and **M**
+    is `mute` with an `on_mute` letter (ADR-0052).
   - M, S and arm are evenly spaced (8 pt) and snapped to whole pixels
     together, so the round button lines up with the square ones at every
     scale.
@@ -428,7 +493,9 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
     value (Enter applies, Esc cancels), arrow keys when focused.
 - **Record arm ("glow and breathe")**, the owner's choice:
   - the rail turns red and glows into the header;
-  - the button is a red dot with a ring around it. The ring breathes
+  - the button is round (no border or edge light: ADR-0052 keeps it off
+    the raised material); armed, its body is record red at 25% with a red
+    dot and a ring around it. The ring breathes
     slowly (2.4 s) while armed, its glow reaching at most 4 pt, inside the
     gap to S. Every circle shares one centre;
   - at rest (M4.5, the owner's A) the dot is grey (the control's letters
@@ -596,7 +663,8 @@ half selects a time range, empty lanes draw a marquee.
 Chosen from interactive specimens (ADR-0038):
 - **Why a track is silent or heard.** A track silenced by another's solo,
   or by a muted group it plays through, shows a **hollow M** (a 1.5 pt
-  ring in the M's lit colour, the letter in it, on a half-strength fill)
+  ring in `mute`, the letter in it, on `mute` at 14%; a hollow S is the
+  accent at 12%)
   and its name and type icon dim. A track heard because its group is
   soloed shows a **hollow S** in the accent. Lit buttons mean the user set
   them on that track.
@@ -613,7 +681,7 @@ Chosen from interactive specimens (ADR-0038):
   arm button on returns or the master.
 - **Send knobs (K1 "comet"):** 24 pt knobs, 4 pt apart, under volume and
   pan on unfolded audio, MIDI and group tracks (such tracks unfold five
-  steps tall). A 270° ring in `control`; the level a trail in the
+  steps tall). A 270° ring in `control_press`; the level a trail in the
   return's colour, from 18% to full strength and thickening towards a
   glowing head (two soft circles, a white core, a colour centre); the
   return's letter in the middle (`text` when sending, `text_hint` when
@@ -691,7 +759,8 @@ Chosen from interactive specimens:
   master" on hover; "Looking up the outputs…" until known); Ø and input trim (±24 dB, filled from the centre;
   the master shows its Solo/Cue switch there); the sends (O2: the first
   two returns' knobs, 24 pt, then "+N ▾" listing them all); pan; the fader
-  (`widgets::fader`: a 4 pt groove and a 22 × 12 pt cap with a `text` line,
+  (`widgets::fader`: a 4 pt sunk groove and a 22 × 12 pt raised cap with a
+  2 pt `text` line,
   on the send knobs' taper, 0 dB at three quarters of the travel, stopping
   at −60 dB) beside the scale (monospace marks, 0 in `text_secondary`; the
   marks are placed most important first, 0, −48, +6, −12, −24, −6, and one
@@ -752,7 +821,7 @@ and grid.
 
 ### The clip editor's look (M5 slice 5, the owner's approved canvas mock-up)
 
-The Clip tab uses the shared premium controls (ADR-0046, ADR-0051).
+The Clip tab uses the shared controls (§5a, ADR-0052).
 - **Header strip** (`note_editor/toolbar.rs`, 40 pt, `raised`): the clip's
   colour bar, its name (medium) over "N bars · N notes" in the mono face
   (`SCALE`, `text_hint`; "· locked" when it cannot be edited); a rule; the
@@ -968,6 +1037,9 @@ Each flow lists its steps, its keyboard path and its feedback. Flows marked
    `theme::controls(true)`. Circles are snapped to pixels along with the
    rectangles beside them.
 5b. Typed values apply on Enter or leaving the field, never per keystroke.
+5c. Surfaces come from `widgets::raised` (§5a): controls raised, wells
+   sunk, the one primary filled; hover is Ember, never another fill; the
+   radius follows the height; no shadows but on windows and popovers.
 6. Motion follows §6. With Reduce motion on, it still works and simply does
    not travel.
 7. Every control has an accessible name.

@@ -57,6 +57,7 @@ irreversible or external) · *Superseded*.
 | [0045](#adr-0045--hearing-midi-the-event-path-the-synth-and-midi-to-m5-slice-1-format-v12) | Hearing MIDI: the event path, the synth (`lumen-devices`) and MIDI To (format v12) | Accepted 2026-10-10 | No |
 | [0046](#adr-0046--playing-live-midi-from-monitoring-the-computer-keyboard-and-the-midi-chip-m5-slice-2-format-v13) | Playing live: live input in the engine, MIDI From and Monitor (format v13), the computer keyboard, the MIDI chip | Accepted 2026-10-11 | No |
 | [0047](#adr-0047--midi-clips-and-the-piano-roll-m5-slice-3-format-v14) | MIDI clips and the piano roll: note edits and mute (format v14), notes on the GPU, the clip editor and its pop-out, auditioning | Accepted 2026-10-11 | No |
+| [0052](#adr-0052--the-design-system-replaces-adr-0051s-lit-look) | The design system's material and tokens replace ADR-0051's lit look | Accepted 2026-10-11 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -121,6 +122,7 @@ irreversible or external) · *Superseded*.
 | Time selection in empty lanes (M5 amendment, 2026-10-11) | Owner (MT-MIDI-4): a drag in empty lanes selects time on the tracks it spans, snapped, as a clip's lower half does; the time ruler selects time on the selected tracks, or every track when none is selected, and keeps the selection. The clip marquee moved to Ctrl+Shift (the integrator's choice, for the owner to confirm). ADR-0049. |
 | Velocity and controller lanes (M5 slice 4, 2026-10-11) | Chosen from live specimens (the "Lumen Controller Lane Specimens" artifact), all as recommended: **V A stems with round heads**, one per note start, over filled bars as wide as their notes; **L A one lane at a time with a tab switcher** (Velocity, Mod wheel, Pitch bend, Pressure, "+ CC") over a stack of lanes with Add and Remove; **T A Pencil, Line and Curve in the lane\'s own header** over modifier-only drawing; **R B Line, Curve and bend write an event every 1/64 note, dropping only repeated values, and the Pencil follows the grid when snapping is on** over every tool following the 1/16 grid. Plan in `docs/milestones/M5-slice4.md`. ADR-0050. |
 | MT-MIDI-2 and MT-MIDI-3 follow-ups (2026-10-11) | **MA a monitor badge** on MIDI track headers, only when Monitor is not Auto (a speaker in accent for In, slashed grey for Off; click cycles), over the arm showing all three or an IN/OFF word ("MIDI: Playing Live" canvas, boards M). **Held notes glide to a new preset** at once (no retrigger), over keeping the old sound or retriggering. **The GS Wavetable latency is deferred**: a per-port output offset to be built later, recorded in KNOWN_ISSUES. |
+| Design system over ADR-0051 (2026-10-11) | The owner's **Lumen design system** (a Design System artifact: tokens, a Material card and a card per component) is the reference for tokens, components and widgets. Asked where it and ADR-0051 differ, the owner chose **the design system on all four**: **on** is `accent_muted` with accent letters and a 38% accent hairline, no glow; **solo** (and the primary, the chosen tool) is filled accent (`accent_hi` to `accent_lo`, no halo; amber only warns); a **lit M** is the `mute` grey with `on_mute` letters; **raised** controls are `control_hi` to `control` with an edge light and a border, Ember on hover, no drop shadow, radius by height; the **arm** is round with a grey dot at rest. ADR-0052. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
 | Logo and light (2026-10-10) | Chosen from rendered specimens on the identity canvas (a Design artifact): four marks, then six colourways. **D, Dawn, in Sunrise**: a sun rising over a horizon, its reflection breaking into a waveform; an amber sun (`#FFC46B`) over water in the accent. **The light layer holds** (five levels: Unlit, Ember, Lit, Beam, Flare, and five rules), and **the mark is a meter** (the sun rises with the master's level, red while recording), with every proposed use of light: the playhead beam, Play's beam, meter heads, the mark above an empty arrangement. ADR-0043. A guitarist-first direction was pitched and set aside by the owner. |
@@ -4352,3 +4354,63 @@ The owner wanted a more finished, tactile interface that every surface
   Call sites adopt `raised::button`/`icon_button` as they migrate.
 - Gradients are a small mesh per control; Reduce motion only removes the
   cross-fades. Unverified on a GPU window.
+
+## ADR-0052 — The design system replaces ADR-0051's lit look
+
+**Status:** Accepted 2026-10-11 (owner, choosing between the design system
+and ADR-0051 point by point; supersedes ADR-0051's Decision and
+Consequences where they differ).
+
+### Context
+The owner's Lumen design system (a Design System artifact: `tokens.json`,
+a README, a Material card, a card per component and a `porting.md`) was
+made from the code beside ADR-0051's premium control look, built the same
+day. They agree on the shape (raised controls, sunk wells, a raised thumb)
+and differ on states. The owner asked for the tokens, components and
+widgets to be made consistent with the design system.
+
+### Options (per difference)
+1. On, solo: ADR-0051's lit accent gradient with a glow and amber solo, or
+   the design system's `accent_muted` with a hairline and a filled accent
+   solo without a halo.
+2. Mute: recessed with hint letters, or the lit `mute` grey.
+3. Raised: a computed lift, a drop shadow and a `control_hover` step, or
+   the `control_hi` token, Ember and no shadow.
+4. Arm: a raised square lit red, or the round button.
+
+### Decision
+The design system on all four (the owner-decisions table). In code:
+- New palette tokens: `ground`, `control_hi`, `thumb_hi`, `thumb`,
+  `edge_light`, `shade`, `ember`, `accent_hi`, `accent_lo`, `on_accent`,
+  `mute`, `on_mute`; `radius::{XL, FULL, for_height}`; `space::{XL, XXL}`;
+  `stroke::{HAIRLINE, LIT, FOCUS}`; `size::{CONTROL_LARGE, TRANSPORT_ICON,
+  TRANSPORT_BAR, TRACK_STEP, HEADER_COLUMN, MONO_SMALL, KEYCAP, DISPLAY}`;
+  `motion::{WASH, BREATH}`.
+- `theme::Tone` is `On`, `Accent` (filled), `Mute` and `Record` (the one
+  lit state that glows); `Warning` and `Recessed` are gone. `lift`,
+  `thumb()` and `control_shadow` are replaced by tokens and the `shade` lip.
+- `widgets/raised.rs` paints to the Material card: the gradient, the
+  border (`border_strong` on hover), the edge light, Ember on hover; pressed
+  is flat `control_press` with the lip and the content 1 pt down; disabled
+  is flat; `paint_sunken` is `well` and the lip; `paint_field` adds the
+  border; the focus ring sits 2 pt outside; `primary_button` is filled.
+- egui's style: 6 pt radii on its 24 pt widgets, windows 12, menus 8,
+  Ember hover, a border on raised controls, wells for text fields.
+
+Kept, as the design system does: K5 keycaps, the arm ring's breath, the
+comet knobs, the header slider's level bars and the handle that opens
+around its value. Kept as earlier owner decisions the design system does
+not overrule: the grid through clips (G1), the half-clip hover (H1), the
+piano roll's Look A note colours and velocity bars, Beam meter heads
+(ADR-0043), the palette's 520 pt width and 30 pt rows, the pan fill moving
+to the accent.
+
+### Consequences
+- Visible across the app: every on state turns quieter (no glows but the
+  recording one), solo turns blue, mute grey, buttons lose their shadows,
+  24 pt controls round to 6 and windows to 12.
+- ADR-0051's tests for amber solo and recessed mute are replaced by tests
+  for the tokens' contrast and the tones.
+- The fixtures, screenshots and E2E names are unchanged; the owner checks
+  the look in MT-DS-1.
+

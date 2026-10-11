@@ -10,12 +10,18 @@ Before planning substantial work, read and follow the shared
 subagent tasks for UI implementation and visual/accessibility verification;
 the parent integrates results and presents choices to the owner.
 
-The source of truth is `docs/DESIGN.md`. Its §7a covers tracks and clips;
-its §9 is the checklist for new UI. The code that implements it:
-- `theme.rs`: palettes, `controls()`, `text_on()`, space, radius and size;
+The source of truth is `docs/DESIGN.md`, which follows the owner's **Lumen
+design system** (a Design System artifact; where they differ, the design
+system wins, ADR-0052). Its §5a is the material, §7a covers tracks and
+clips, §9 is the checklist for new UI. The code that implements it:
+- `theme.rs`: palettes, `controls()`, `Tone` and `lit()` for on states,
+  `text_on()`, space, radius (`for_height`), stroke and size;
+- `widgets/raised.rs`: raised, sunk, field and filled surfaces, the focus
+  ring, `button` and `primary_button` (never egui's own buttons);
 - `motion.rs`: durations, springs, Reduce motion;
 - `fonts.rs`: Inter for the interface, Unbounded for titles;
-- `widgets.rs`: `Dialog`, `value_slider`, arrows, gradients, glow;
+- `widgets/`: `Dialog`, `value_slider`, `switch`, `segmented`, `tabs`,
+  `Menu`, keycaps, arrows, glow;
 - `icons.rs`.
 
 Product rules from `CLAUDE.md` §2 and §5 come first: few steps,
@@ -32,7 +38,9 @@ discoverable, keyboard and mouse equal, nothing blocks, everything undoable.
 
 ## Rules
 
-1. **Tokens only.** Colours, sizes, radii, spacing and durations come from
+1. **Material and tokens only.** Controls are raised, wells sunk, the one
+   primary filled (`widgets::raised`); hover is Ember, never another fill;
+   on is `Tone::On`. **Tokens only.** Colours, sizes, radii, spacing and durations come from
    `theme`, `fonts` and `motion`, never literals. A new token is added to
    both palettes and to DESIGN.md §3.
 2. **One accent** (blue) for active, selected, playing and focus. Record
