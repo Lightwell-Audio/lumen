@@ -627,3 +627,23 @@ fn deleting_the_open_clip_closes_the_editor() {
     lumen.frames(10);
     assert_eq!(lumen.app().editor_open_clip(), None);
 }
+
+#[test]
+fn pressing_a_note_auditions_it_and_escape_lets_go() {
+    let mut lumen = launch("notes-audition");
+    open(&mut lumen);
+    let p = at(&lumen, beat(1.5), 64);
+    hover(&mut lumen, p);
+    lumen.harness.drag_at(p);
+    lumen.wait_for("the picked note sounds", |app| app.audition_sounding());
+    assert!(lumen.app().editor_gesture());
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.frames(2);
+    assert!(!lumen.app().editor_gesture());
+    assert!(
+        !lumen.app().audition_sounding(),
+        "Escape lets the preview go"
+    );
+    lumen.harness.drop_at(p);
+    lumen.frames(3);
+}

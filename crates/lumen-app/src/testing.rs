@@ -233,7 +233,8 @@ impl App {
     /// Edits the notes of a clip as the piano roll will (M5 slice 3a's
     /// `Document` methods), for tests of notes committed while playing.
     pub fn edit_notes(&mut self, clip: Id, selection: &[usize], edit: NoteEdit) {
-        use crate::document::{End, Resize};
+        use crate::document::Resize;
+        use lumen_project::edit::notes::End;
         let base = self.document.project().clone();
         match edit {
             NoteEdit::Move { time, pitch } => {

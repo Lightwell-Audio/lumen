@@ -164,7 +164,7 @@ impl App {
                 let sounding = (i32::from(n.pitch()) + pitch).clamp(0, 127) as u8;
                 if ed.auditioned != Some(sounding) {
                     ed.auditioned = Some(sounding);
-                    self.audition(sounding, n.velocity());
+                    self.audition_note(clip.id, sounding, n.velocity());
                 }
             }
         }
@@ -624,7 +624,7 @@ impl App {
         let resolved = gesture.resolve(at, &env);
         let gesture = ed.gesture.take().expect("a gesture was just used");
         ed.auditioned = None;
-        self.release_audition();
+        self.end_audition();
         let base = self.document.project().clone();
         let id = clip.id;
         let doc = &mut self.document;
@@ -696,7 +696,7 @@ impl App {
                     return;
                 }
                 let pitch = view.pitch_at(p.y).clamp(0, 127) as u8;
-                self.audition(pitch, super::gesture::DRAW_VELOCITY);
+                self.audition_note(clip.id, pitch, super::gesture::DRAW_VELOCITY);
                 ed.gesture = Some(Gesture {
                     kind: Kind::Draw {
                         start,
@@ -733,7 +733,7 @@ impl App {
                         copy: modifiers.command,
                     },
                 };
-                self.audition(notes[i].pitch(), notes[i].velocity());
+                self.audition_note(clip.id, notes[i].pitch(), notes[i].velocity());
                 ed.gesture = Some(Gesture {
                     kind,
                     origin: p,

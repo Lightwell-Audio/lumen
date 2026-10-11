@@ -96,10 +96,25 @@ impl App {
         }
     }
 
-    /// A pitch sounds while a note is drawn or moved (slice 3d: audition).
-    /// Nothing yet.
-    pub(crate) fn audition(&mut self, _pitch: u8, _velocity: u8) {}
+    /// A pitch sounds on the track of `clip` (the clip being edited) while
+    /// a note is picked, drawn or moved (slice 3d): one note at a time, let
+    /// go after a moment or when the gesture ends.
+    pub(crate) fn audition_note(&mut self, clip: Id, pitch: u8, velocity: u8) {
+        let track = self
+            .document
+            .project()
+            .tracks
+            .iter()
+            .find(|t| t.clips.iter().any(|c| c.id == clip))
+            .map(|t| t.id);
+        if let Some(track) = track {
+            self.audition_play(track, pitch, velocity);
+        }
+    }
 
-    /// The audition ends (slice 3d).
-    pub(crate) fn release_audition(&mut self) {}
+    /// The audition ends: the gesture ended or was cancelled, or the
+    /// editor shows another clip or none.
+    pub(crate) fn end_audition(&mut self) {
+        self.audition_release();
+    }
 }

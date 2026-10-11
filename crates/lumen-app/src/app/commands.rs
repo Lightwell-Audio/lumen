@@ -281,6 +281,7 @@ impl App {
         let notes = self.note_keys_picked();
         let note_keys = self.note_keys();
         if command == Command::Deselect && self.note_editor.cancel_gesture() {
+            self.end_audition();
             ctx.request_repaint();
             return;
         }

@@ -174,11 +174,14 @@ impl App {
     /// Opens MIDI clip `clip` in the Clip tab (showing the detail panel),
     /// and brings it into view in the arrangement. Not a MIDI clip: nothing.
     pub(crate) fn open_note_editor(&mut self, clip: Id) {
-        let project = self.document.project();
         if self.editor_clip(clip).is_none() {
             return;
         }
         let same = self.note_editor.clip == Some(clip);
+        if !same {
+            self.end_audition();
+        }
+        let project = self.document.project();
         self.note_editor.selection = NoteSelection::in_clip(project, clip);
         if !same {
             self.note_editor.gesture = None;
@@ -194,6 +197,7 @@ impl App {
 
     /// Stops editing (the clip is gone).
     pub(crate) fn close_note_editor(&mut self) {
+        self.end_audition();
         let ed = &mut self.note_editor;
         ed.clip = None;
         ed.selection = None;
