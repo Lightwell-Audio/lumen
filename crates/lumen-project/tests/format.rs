@@ -484,10 +484,15 @@ fn a_muted_note_is_written_with_a_fifth_element_and_others_as_before() {
     assert!(flat.contains("[470400,352800,43,90]"), "plain note");
     // And the v13 file, which has no fifth element, loads unmuted.
     let old = load(&fixture("v13/golden.lumen")).unwrap();
-    assert!(old.tracks.iter().flat_map(|t| &t.clips).all(|c| match &c.content {
-        ClipContent::Midi { notes, .. } => notes.iter().all(|n| !n.muted()),
-        _ => true,
-    }));
+    assert!(
+        old.tracks
+            .iter()
+            .flat_map(|t| &t.clips)
+            .all(|c| match &c.content {
+                ClipContent::Midi { notes, .. } => notes.iter().all(|n| !n.muted()),
+                _ => true,
+            })
+    );
 }
 
 #[test]

@@ -322,7 +322,10 @@ mod tests {
     fn notes_and_events_reach_the_engine_sorted_with_their_loop() {
         let q = Ticks::quarters;
         let mut clip = midi_clip(
-            vec![Note::new(q(2), q(1), 64, 90), Note::new(q(0), q(1), 60, 100)],
+            vec![
+                Note::new(q(2), q(1), 64, 90),
+                Note::new(q(0), q(1), 60, 100),
+            ],
             vec![
                 ClipEvent {
                     at: q(1),
@@ -382,7 +385,11 @@ mod tests {
         let mut quiet = Note::new(q(1), q(1), 62, 100);
         quiet.4 = true;
         let clip = midi_clip(
-            vec![Note::new(q(0), q(1), 60, 100), quiet, Note::new(q(2), q(1), 64, 90)],
+            vec![
+                Note::new(q(0), q(1), 60, 100),
+                quiet,
+                Note::new(q(2), q(1), 64, 90),
+            ],
             vec![],
         );
         let (project, _) = project_with(clip);
@@ -402,7 +409,10 @@ mod tests {
 
     #[test]
     fn muted_clips_audio_tracks_and_empty_clips_play_nothing() {
-        let mut muted = midi_clip(vec![Note::new(Ticks::ZERO, Ticks::quarters(1), 60, 100)], vec![]);
+        let mut muted = midi_clip(
+            vec![Note::new(Ticks::ZERO, Ticks::quarters(1), 60, 100)],
+            vec![],
+        );
         muted.muted = true;
         let (project, _) = project_with(muted);
         let tracks = engine_midi(
@@ -489,7 +499,10 @@ mod tests {
 
     #[test]
     fn an_unchanged_clip_keeps_its_lists() {
-        let clip = midi_clip(vec![Note::new(Ticks::ZERO, Ticks::quarters(1), 60, 100)], vec![]);
+        let clip = midi_clip(
+            vec![Note::new(Ticks::ZERO, Ticks::quarters(1), 60, 100)],
+            vec![],
+        );
         let (project, _) = project_with(clip);
         let mut cache = Cache::default();
         let a = engine_midi(
