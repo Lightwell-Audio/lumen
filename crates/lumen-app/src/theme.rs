@@ -291,6 +291,10 @@ pub mod size {
     /// header sliders (the interface audit's S4: 18, 19, 20 and 22 were in
     /// use).
     pub const CONTROL_SMALL: f32 = 20.0;
+    /// The Monitor badge on a MIDI track's header (a speaker, only when
+    /// Monitor is not Auto): width and height.
+    pub const BADGE_W: f32 = 16.0;
+    pub const BADGE_H: f32 = 14.0;
     /// Send knobs on headers and strips.
     pub const KNOB: f32 = 24.0;
     /// Knobs in lists (a return's senders, the "+N" list).

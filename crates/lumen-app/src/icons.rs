@@ -38,11 +38,15 @@ pub enum Icon {
     Keycap,
     /// MIDI (M5 slice 2d): a five-pin DIN socket.
     Din,
+    /// Monitor In (M5 slice 2 fix): a speaker with one wave.
+    Speaker,
+    /// Monitor Off: the speaker, struck through.
+    SpeakerOff,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 15] = [
+    pub const ALL: [Icon; 17] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
@@ -58,6 +62,8 @@ impl Icon {
         Icon::Mouse,
         Icon::Keycap,
         Icon::Din,
+        Icon::Speaker,
+        Icon::SpeakerOff,
     ];
 }
 
@@ -223,6 +229,39 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             let mut shapes = vec![Shape::circle_stroke(g.p(8.0, 8.0), 6.6 * g.unit, stroke)];
             for (x, y) in [(3.6, 9.6), (4.7, 6.0), (8.0, 4.6), (11.3, 6.0), (12.4, 9.6)] {
                 shapes.push(Shape::circle_filled(g.p(x, y), pin, color));
+            }
+            shapes
+        }
+        Icon::Speaker | Icon::SpeakerOff => {
+            // A cone and box, and one wave; Off adds the slash.
+            let mut shapes = vec![
+                Shape::convex_polygon(
+                    vec![
+                        g.p(2.0, 6.0),
+                        g.p(5.2, 6.0),
+                        g.p(9.0, 2.8),
+                        g.p(9.0, 13.2),
+                        g.p(5.2, 10.0),
+                        g.p(2.0, 10.0),
+                    ],
+                    color,
+                    none,
+                ),
+                Shape::line(
+                    (0..=8)
+                        .map(|k| {
+                            let a = -0.9 + 1.8 * k as f32 / 8.0;
+                            g.p(8.4 + 3.6 * a.cos(), 8.0 + 3.6 * a.sin())
+                        })
+                        .collect(),
+                    stroke,
+                ),
+            ];
+            if icon == Icon::SpeakerOff {
+                shapes.push(Shape::line_segment(
+                    [g.p(2.0, 14.0), g.p(14.0, 2.0)],
+                    Stroke::new(1.8 * g.unit, color),
+                ));
             }
             shapes
         }
