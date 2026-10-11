@@ -1904,9 +1904,13 @@ such as loopMIDI. Run `cargo run --release -p lumen-app`.
 **Expected:** as described. Record what your device is called, and whether
 WinMM shows it once or twice.
 
+**Last run (2026-10-11, owner):** pass. Enumeration, Track and Remote
+switches, persistence, hot-plug and replug all behaved as expected. The
+device name was not recorded.
+
 ### MT-MIDI-2 · Hearing MIDI (needs a human and ears; Windows' GS Wavetable Synth is the "hardware")
 Slice 1 of M5. Notes cannot be drawn until the piano roll (slice 3), so the
-project is made by code. **Status: waits for the owner.** In PowerShell,
+project is made by code. **Status: run 2026-10-11; see findings below.** In PowerShell,
 from the repository root:
 
 ```powershell
@@ -1975,9 +1979,19 @@ size and driver; whether the MIDI To menu's sixteen channel rows are too long
 to use comfortably (a compact grid would need a mock-up first); any stuck
 note or click.
 
+**Run 2026-10-11 (owner):** playback, sustain, chase, stop, presets, MIDI To,
+mute/solo, Panic and save/reopen passed. The Hardware output sounded broadly
+aligned, but the owner shifted the clip right by an eighth note because the
+melodic root seemed off; the MIDI notes cannot yet be inspected visually
+until the piano roll slice. Jumping during playback produced static/popping,
+and loop boundaries produced the same artifact. Preset changes and undo took
+about 1–2 seconds to become audible. The Windows GS Wavetable Synth output
+worked, but its latency was noticeable even with ASIO at 128 samples. A
+physical output unplug/reconnect was not tested.
+
 
 ### MT-MIDI-3 · Playing live (needs a human; a MIDI keyboard for steps 1–6, or loopMIDI)
-Slice 2 of M5 (ADR-0046). **Status: waits for the owner.** In PowerShell,
+Slice 2 of M5 (ADR-0046). **Status: run 2026-10-11; see findings below.** In PowerShell,
 from the repository root:
 
 ```powershell
@@ -2041,3 +2055,11 @@ cargo run --release -p lumen-app -- tests\projects\midi-demo.lumen
     kept; the computer keyboard mode is off again.
 13. **Themes and scale.** Light theme and 150% / 200% interface size: the
     chip, popover, header lights, hollow ring and menus look right.
+
+**Run 2026-10-11 (owner):** pass for the available hardware. Live input,
+monitoring, MIDI From, computer keyboard, MIDI To, mixer routing, the
+960 × 540 layout, idle CPU, save/reopen, themes and scaling all behaved as
+described. The physical controller did not expose a channel selector, so the
+channel-filter subtest was not verifiable. At ASIO 128 samples, external
+MIDI output latency was noticeable. The Auto monitor hollow ring was
+understandable but less clear than the In/Off states.
