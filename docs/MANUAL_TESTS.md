@@ -2001,7 +2001,14 @@ physical output unplug/reconnect was not tested.
   ruler while chords sound and letting the loop run should be clean.
 - Presets: a change reaches the engine within one block (measured), but a
   sounding note keeps its sound, so the new preset is heard at the next
-  chord. Whether held notes should change at once is your choice.
+  chord. Held notes now glide to the new preset over 25 ms (your choice):
+  in step 8, a held pad changes tone at once, with no click and no
+  re-attack, and Ctrl+Z glides back.
+
+**Also new (MT-MIDI-3 re-run, step 4):** a MIDI track set to Monitor In
+shows a blue speaker before M, Off a slashed grey one, Auto nothing. Click
+it to cycle In → Off → Auto; Tab reaches it before M and Space cycles it.
+Check how long names shorten with the badge at the default header width.
 
 
 ### MT-MIDI-3 · Playing live (needs a human; a MIDI keyboard for steps 1–6, or loopMIDI)
