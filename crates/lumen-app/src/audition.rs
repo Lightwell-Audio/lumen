@@ -16,6 +16,13 @@
 //! The app owns one (`App::audition`) and exposes it as
 //! `App::audition_play(track, pitch, velocity)` and
 //! `App::audition_release()`; the frame calls `App::update_audition`.
+//!
+//! On a hardware track (a MIDI output), a tone whose key the track's own
+//! clip is sounding now is not struck at all: the port sees plain MIDI, so
+//! the preview's note-off would end the clip's note too. The caller says
+//! which keys those are (`busy`), decided from the project in
+//! `midi_play::busy_keys`; a skipped tone gets neither a note-on nor an
+//! off, and the rest of the chord plays.
 
 use std::time::{Duration, Instant};
 
@@ -99,19 +106,20 @@ impl Audition {
 
     /// Starts a fresh preview of `tones` on `track` for [`LENGTH`], letting
     /// go of the one before. Nothing when auditioning is off. True if a note
-    /// started.
+    /// started. `busy` is as for [`Audition::change`].
     pub fn play_chord(
         &mut self,
         sink: &mut dyn Sink,
         track: Id,
         tones: &[Tone],
+        busy: &[u8],
         now: Instant,
     ) -> bool {
         if !self.enabled {
             return false;
         }
         self.release(sink);
-        self.change(sink, track, tones, now)
+        self.change(sink, track, tones, busy, now)
     }
 
     /// The gesture's notes now sound at `tones`, given in the same order as
@@ -120,7 +128,19 @@ impl Audition {
     /// are no longer wanted let go first. A tone that is unchanged but has
     /// already let go by itself (its time ran out) is not struck again.
     /// Nothing when auditioning is off. True if a note started.
-    pub fn change(&mut self, sink: &mut dyn Sink, track: Id, tones: &[Tone], now: Instant) -> bool {
+    ///
+    /// `busy` lists the keys that already sound on the track's hardware
+    /// output from the track's own clip. A tone struck at one of them is
+    /// skipped: no note-on, and so no note-off either. Like an unchanged
+    /// tone, a skipped one is not checked again until its pitch changes.
+    pub fn change(
+        &mut self,
+        sink: &mut dyn Sink,
+        track: Id,
+        tones: &[Tone],
+        busy: &[u8],
+        now: Instant,
+    ) -> bool {
         if !self.enabled {
             return false;
         }
@@ -157,7 +177,7 @@ impl Audition {
         let mut started = false;
         for (i, tone) in tones.iter().enumerate() {
             let unchanged = chord.asked.get(i).is_some_and(|a| a.pitch == tone.pitch);
-            if unchanged || chord.sounding.contains(&tone.pitch) {
+            if unchanged || chord.sounding.contains(&tone.pitch) || busy.contains(&tone.pitch) {
                 continue;
             }
             let on = Msg::note_on(CHANNEL, tone.pitch, tone.velocity);
@@ -322,8 +342,8 @@ mod tests {
     #[test]
     fn a_new_note_lets_go_of_the_last_and_one_sounds_at_a_time() {
         let (mut audition, mut log, now) = (Audition::default(), Log::default(), Instant::now());
-        audition.play_chord(&mut log, Id(4), &tones(&[60]), now);
-        audition.play_chord(&mut log, Id(4), &tones(&[62]), now);
+        audition.play_chord(&mut log, Id(4), &tones(&[60]), &[], now);
+        audition.play_chord(&mut log, Id(4), &tones(&[62]), &[], now);
         assert_eq!(log.sent, vec![(4, on(60)), (4, off(60)), (4, on(62))]);
         audition.release(&mut log);
         audition.release(&mut log);
@@ -335,7 +355,7 @@ mod tests {
     #[test]
     fn it_lets_go_by_itself_after_its_length() {
         let (mut audition, mut log, now) = (Audition::default(), Log::default(), Instant::now());
-        audition.play_chord(&mut log, Id(1), &tones(&[60]), now);
+        audition.play_chord(&mut log, Id(1), &tones(&[60]), &[], now);
         let wait = audition.update(&mut log, now + LENGTH / 2, false, true);
         assert_eq!(wait, Some(LENGTH / 2));
         assert_eq!(log.sent.len(), 1);
@@ -348,16 +368,16 @@ mod tests {
     fn stop_and_losing_focus_let_go_and_off_plays_nothing() {
         let (mut audition, mut log, now) = (Audition::default(), Log::default(), Instant::now());
         audition.update(&mut log, now, true, true);
-        audition.play_chord(&mut log, Id(1), &tones(&[60]), now);
+        audition.play_chord(&mut log, Id(1), &tones(&[60]), &[], now);
         audition.update(&mut log, now, false, true);
         assert!(!audition.is_sounding(), "the transport stopped");
-        audition.play_chord(&mut log, Id(1), &tones(&[61]), now);
+        audition.play_chord(&mut log, Id(1), &tones(&[61]), &[], now);
         audition.update(&mut log, now, false, false);
         assert!(!audition.is_sounding(), "focus lost");
         let before = log.sent.len();
         audition.set_enabled(false);
-        assert!(!audition.play_chord(&mut log, Id(1), &tones(&[62]), now));
-        assert!(!audition.change(&mut log, Id(1), &tones(&[63]), now));
+        assert!(!audition.play_chord(&mut log, Id(1), &tones(&[62]), &[], now));
+        assert!(!audition.change(&mut log, Id(1), &tones(&[63]), &[], now));
         assert_eq!(log.sent.len(), before);
         check(&log, true);
     }
@@ -365,7 +385,7 @@ mod tests {
     #[test]
     fn a_full_queue_owes_the_note_off_until_it_can_go() {
         let (mut audition, mut log, now) = (Audition::default(), Log::default(), Instant::now());
-        audition.play_chord(&mut log, Id(1), &tones(&[60]), now);
+        audition.play_chord(&mut log, Id(1), &tones(&[60]), &[], now);
         log.full = true;
         audition.release(&mut log);
         assert_eq!(log.sent.len(), 1);
@@ -388,7 +408,7 @@ mod tests {
                 velocity: 120,
             },
         ];
-        assert!(audition.play_chord(&mut log, Id(2), &chord, now));
+        assert!(audition.play_chord(&mut log, Id(2), &chord, &[], now));
         assert_eq!(
             log.sent,
             vec![
@@ -404,9 +424,9 @@ mod tests {
     #[test]
     fn moved_notes_are_struck_again_at_their_new_pitches_and_the_old_let_go_first() {
         let (mut audition, mut log, now) = (Audition::default(), Log::default(), Instant::now());
-        audition.play_chord(&mut log, Id(1), &tones(&[60, 64, 67]), now);
+        audition.play_chord(&mut log, Id(1), &tones(&[60, 64, 67]), &[], now);
         let before = log.sent.len();
-        assert!(audition.change(&mut log, Id(1), &tones(&[63, 67, 70]), now));
+        assert!(audition.change(&mut log, Id(1), &tones(&[63, 67, 70]), &[], now));
         assert_eq!(
             &log.sent[before..],
             &[
@@ -430,9 +450,9 @@ mod tests {
     #[test]
     fn a_tone_whose_pitch_did_not_change_keeps_sounding() {
         let (mut audition, mut log, now) = (Audition::default(), Log::default(), Instant::now());
-        audition.play_chord(&mut log, Id(1), &tones(&[60, 64]), now);
+        audition.play_chord(&mut log, Id(1), &tones(&[60, 64]), &[], now);
         let before = log.sent.len();
-        audition.change(&mut log, Id(1), &tones(&[60, 65]), now);
+        audition.change(&mut log, Id(1), &tones(&[60, 65]), &[], now);
         assert_eq!(&log.sent[before..], &[(1, off(64)), (1, on(65))]);
         audition.release(&mut log);
         check(&log, true);
@@ -441,9 +461,9 @@ mod tests {
     #[test]
     fn a_move_in_time_alone_strikes_nothing() {
         let (mut audition, mut log, now) = (Audition::default(), Log::default(), Instant::now());
-        audition.play_chord(&mut log, Id(1), &tones(&[60, 64, 67]), now);
+        audition.play_chord(&mut log, Id(1), &tones(&[60, 64, 67]), &[], now);
         let before = log.sent.len();
-        assert!(!audition.change(&mut log, Id(1), &tones(&[60, 64, 67]), now));
+        assert!(!audition.change(&mut log, Id(1), &tones(&[60, 64, 67]), &[], now));
         assert_eq!(log.sent.len(), before);
         audition.release(&mut log);
         check(&log, true);
@@ -452,13 +472,13 @@ mod tests {
     #[test]
     fn after_its_length_an_unmoved_tone_is_not_struck_again_but_a_moved_one_is() {
         let (mut audition, mut log, now) = (Audition::default(), Log::default(), Instant::now());
-        audition.play_chord(&mut log, Id(1), &tones(&[60, 64]), now);
+        audition.play_chord(&mut log, Id(1), &tones(&[60, 64]), &[], now);
         audition.update(&mut log, now + LENGTH, true, true);
         assert!(!audition.is_sounding(), "the time ran out");
         let before = log.sent.len();
-        audition.change(&mut log, Id(1), &tones(&[60, 64]), now + LENGTH);
+        audition.change(&mut log, Id(1), &tones(&[60, 64]), &[], now + LENGTH);
         assert_eq!(log.sent.len(), before, "nothing moved, nothing struck");
-        audition.change(&mut log, Id(1), &tones(&[61, 64]), now + LENGTH);
+        audition.change(&mut log, Id(1), &tones(&[61, 64]), &[], now + LENGTH);
         assert_eq!(&log.sent[before..], &[(1, on(61))]);
         audition.release(&mut log);
         check(&log, true);
@@ -467,8 +487,8 @@ mod tests {
     #[test]
     fn a_change_of_track_lets_go_of_the_old_track_first() {
         let (mut audition, mut log, now) = (Audition::default(), Log::default(), Instant::now());
-        audition.play_chord(&mut log, Id(1), &tones(&[60]), now);
-        audition.change(&mut log, Id(2), &tones(&[60]), now);
+        audition.play_chord(&mut log, Id(1), &tones(&[60]), &[], now);
+        audition.change(&mut log, Id(2), &tones(&[60]), &[], now);
         assert_eq!(log.sent, vec![(1, on(60)), (1, off(60)), (2, on(60))]);
         audition.release(&mut log);
         check(&log, true);
@@ -487,7 +507,7 @@ mod tests {
                 velocity: 120,
             },
         ];
-        audition.play_chord(&mut log, Id(1), &twice, now);
+        audition.play_chord(&mut log, Id(1), &twice, &[], now);
         assert_eq!(log.sent, vec![(1, Msg::note_on(CHANNEL, 60, 50))]);
         audition.release(&mut log);
         check(&log, true);
@@ -497,7 +517,7 @@ mod tests {
     fn a_full_queue_strikes_nothing_and_leaves_nothing_sounding() {
         let (mut audition, mut log, now) = (Audition::default(), Log::default(), Instant::now());
         log.full = true;
-        assert!(!audition.play_chord(&mut log, Id(1), &tones(&[60, 64]), now));
+        assert!(!audition.play_chord(&mut log, Id(1), &tones(&[60, 64]), &[], now));
         assert!(!audition.is_sounding());
         log.full = false;
         audition.release(&mut log);
@@ -508,12 +528,45 @@ mod tests {
     #[test]
     fn a_refused_off_is_sent_on_a_later_frame_and_the_rest_is_kept() {
         let (mut audition, mut log, now) = (Audition::default(), Log::default(), Instant::now());
-        audition.play_chord(&mut log, Id(1), &tones(&[60, 64]), now);
+        audition.play_chord(&mut log, Id(1), &tones(&[60, 64]), &[], now);
         log.full = true;
-        assert!(!audition.change(&mut log, Id(1), &tones(&[61, 64]), now));
+        assert!(!audition.change(&mut log, Id(1), &tones(&[61, 64]), &[], now));
         log.full = false;
         audition.update(&mut log, now, true, true);
         assert_eq!(log.sent.last(), Some(&(1, off(60))));
+        audition.release(&mut log);
+        check(&log, true);
+    }
+
+    #[test]
+    fn a_tone_on_a_busy_key_is_not_struck_so_it_gets_no_off_and_the_rest_plays() {
+        let (mut audition, mut log, now) = (Audition::default(), Log::default(), Instant::now());
+        assert!(audition.play_chord(&mut log, Id(1), &tones(&[50, 62]), &[50], now));
+        assert_eq!(log.sent, vec![(1, on(62))]);
+        audition.release(&mut log);
+        assert_eq!(log.sent, vec![(1, on(62)), (1, off(62))]);
+        check(&log, true);
+    }
+
+    #[test]
+    fn a_tone_moved_onto_a_busy_key_is_skipped_and_the_one_it_left_lets_go() {
+        let (mut audition, mut log, now) = (Audition::default(), Log::default(), Instant::now());
+        audition.play_chord(&mut log, Id(1), &tones(&[60, 64]), &[], now);
+        let before = log.sent.len();
+        assert!(!audition.change(&mut log, Id(1), &tones(&[60, 67]), &[67], now));
+        assert_eq!(&log.sent[before..], &[(1, off(64))]);
+        audition.release(&mut log);
+        check(&log, true);
+    }
+
+    #[test]
+    fn a_skipped_tone_is_struck_when_its_pitch_moves_again_and_the_key_is_free() {
+        let (mut audition, mut log, now) = (Audition::default(), Log::default(), Instant::now());
+        assert!(!audition.play_chord(&mut log, Id(1), &tones(&[60]), &[60], now));
+        assert!(log.sent.is_empty(), "a busy key is not struck");
+        assert!(audition.change(&mut log, Id(1), &tones(&[61]), &[], now));
+        assert!(audition.change(&mut log, Id(1), &tones(&[60]), &[], now));
+        assert_eq!(log.sent, vec![(1, on(61)), (1, off(61)), (1, on(60))]);
         audition.release(&mut log);
         check(&log, true);
     }

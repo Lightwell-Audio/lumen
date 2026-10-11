@@ -1,11 +1,12 @@
 //! Auditioning and editing notes while playing (M5 slice 3d, the owner's
 //! Live A): the piano roll's preview sounds on the edited clip's track
-//! whether or not it listens, has notes of its own (a preview on a pitch
-//! that a clip is playing never ends the clip's note, and the clip's end
-//! never ends the preview), and every way of letting go works. Notes
-//! committed while the song plays reach the engine through the clip list
-//! and never hang. Watched where hanging is felt: a fake hardware port,
-//! which must get a note-off for every note-on.
+//! whether or not it listens, and every way of letting go works. On a
+//! hardware track (a MIDI output), a preview on a key the track's own clip
+//! is sounding now is skipped: the port would take its off as the clip's,
+//! so nothing is sent for that key (2026-10-11). Built-in synth tracks are
+//! not skipped. Notes committed while the song plays reach the engine
+//! through the clip list and never hang. Watched where hanging is felt: a
+//! fake hardware port, which must get a note-off for every note-on.
 
 use std::time::Duration;
 
@@ -49,8 +50,10 @@ fn launch(name: &str, project: &Project, fake: &FakeControl) -> Lumen {
     let mut lumen = Lumen::start_with(dir, move |l| l.opening(path).with_midi(owned));
     lumen.wait_for("the project", |app| app.project().tracks.len() == 1);
     lumen.frames(30);
+    // Wait for the output to open, unless no track sends to it.
+    let to_port = project.tracks.iter().any(|t| t.midi_to.is_some());
     for _ in 0..1_500 {
-        if lumen_open(fake) {
+        if !to_port || lumen_open(fake) {
             break;
         }
         lumen.frames(1);
@@ -138,27 +141,91 @@ fn a_preview_sounds_on_a_track_that_does_not_listen_and_lets_go() {
 }
 
 #[test]
-fn a_preview_on_a_pitch_the_clip_plays_never_ends_the_clips_note() {
+fn a_preview_of_a_key_the_clip_sounds_on_hardware_is_skipped() {
     let fake = fake_with_output();
     // A clip note on pitch 50 that lasts far longer than the test.
     let mut lumen = launch("audition-same", &project(vec![note(0, 60, 50)]), &fake);
     let id = track(&lumen);
     play(&mut lumen);
     until(&mut lumen, &fake, "the clip's note", |b| b == (1, 0));
-    lumen.app_mut().audition(id, 50, 80);
-    until(&mut lumen, &fake, "the preview", |b| b == (2, 0));
+    // A hardware port would take the preview's off as the clip's, so the
+    // preview on 50 sends nothing at all: no note-on, no note-off.
+    assert!(!lumen.app_mut().audition(id, 50, 80));
+    assert!(!lumen.app().audition_sounding());
     lumen.app_mut().release_audition();
-    until(&mut lumen, &fake, "the preview let go", |b| b == (2, 1));
-    // The clip's own note is still sounding: nothing more came off.
     settle(&mut lumen);
-    assert_eq!(balance(&fake), (2, 1));
-    // ...and the clip's end (stop) does not matter to a later preview.
+    assert_eq!(balance(&fake), (1, 0), "the clip's note alone");
+    // In a chord, the key that is not sounding plays and 50 is skipped.
+    assert!(lumen.app_mut().audition_chord(id, &[(50, 80), (62, 80)]));
+    until(&mut lumen, &fake, "62 sounds", |b| b == (2, 0));
+    assert_eq!(keys_on(&fake), vec![50, 62]);
+    lumen.app_mut().release_audition();
+    until(&mut lumen, &fake, "62 let go", |b| b == (2, 1));
+    // The clip's note ends at stop; a preview of 50 after it plays.
     stop(&mut lumen);
     until(&mut lumen, &fake, "the clip's note let go", |b| b == (2, 2));
-    lumen.app_mut().audition(id, 50, 80);
-    until(&mut lumen, &fake, "a preview", |b| b == (3, 2));
+    assert!(lumen.app_mut().audition(id, 50, 80));
+    until(&mut lumen, &fake, "a preview while stopped", |b| {
+        b == (3, 2)
+    });
     lumen.app_mut().release_audition();
     until(&mut lumen, &fake, "answered", |b| b == (3, 3));
+    check_balance(&fake, true);
+}
+
+#[test]
+fn a_preview_of_a_key_the_clip_does_not_sound_on_hardware_plays() {
+    let fake = fake_with_output();
+    // The clip sounds 60 for far longer than the test; 50 is not sounding.
+    let mut lumen = launch("audition-other", &project(vec![note(0, 60, 60)]), &fake);
+    let id = track(&lumen);
+    play(&mut lumen);
+    until(&mut lumen, &fake, "the clip's note", |b| b == (1, 0));
+    assert!(lumen.app_mut().audition(id, 50, 80));
+    until(&mut lumen, &fake, "the preview of 50", |b| b == (2, 0));
+    assert_eq!(keys_on(&fake), vec![60, 50]);
+    lumen.app_mut().release_audition();
+    until(&mut lumen, &fake, "50 let go", |b| b == (2, 1));
+    stop(&mut lumen);
+    until(&mut lumen, &fake, "the clip's note let go", |b| b == (2, 2));
+    check_balance(&fake, true);
+}
+
+#[test]
+fn a_preview_of_a_key_the_clip_plays_later_plays_while_the_song_runs() {
+    let fake = fake_with_output();
+    // The clip plays 50 at beat 62, almost eight seconds in at 480 BPM: the
+    // playhead is at the start, so 50 is not sounding yet.
+    let mut lumen = launch("audition-later", &project(vec![note(62, 2, 50)]), &fake);
+    let id = track(&lumen);
+    play(&mut lumen);
+    assert!(lumen.app_mut().audition(id, 50, 80));
+    until(&mut lumen, &fake, "the preview", |b| b == (1, 0));
+    lumen.app_mut().release_audition();
+    until(&mut lumen, &fake, "the preview let go", |b| b == (1, 1));
+    stop(&mut lumen);
+    settle(&mut lumen);
+    assert_eq!(balance(&fake), (1, 1), "the clip's note never came");
+}
+
+#[test]
+fn a_built_in_synth_track_previews_a_key_its_clip_sounds() {
+    let fake = fake_with_output();
+    // No MIDI To: the track plays on its own synth, whose voices are keyed
+    // by channel, so the preview is never skipped.
+    let mut on_synth = project(vec![note(0, 60, 50)]);
+    std::sync::Arc::make_mut(&mut on_synth.tracks[0]).midi_to = None;
+    let mut lumen = launch("audition-synth", &on_synth, &fake);
+    let id = track(&lumen);
+    play(&mut lumen);
+    lumen.frames(10);
+    assert!(lumen.app_mut().audition(id, 50, 80));
+    assert!(lumen.app().audition_sounding());
+    lumen.app_mut().release_audition();
+    settle(&mut lumen);
+    assert!(!lumen.app().audition_sounding());
+    assert_eq!(balance(&fake), (0, 0), "nothing reaches the port");
+    stop(&mut lumen);
 }
 
 #[test]

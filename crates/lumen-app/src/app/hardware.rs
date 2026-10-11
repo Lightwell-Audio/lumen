@@ -13,6 +13,7 @@ use crate::App;
 use crate::audition::Tone;
 use crate::midi::{Action, Midi};
 use crate::midi_out::Output;
+use crate::midi_play;
 use crate::midi_play::used_ports;
 use lumen_project::model::Id;
 
@@ -88,9 +89,17 @@ impl App {
     pub(crate) fn audition_tones(&mut self, track: Id, tones: &[Tone], fresh: bool) -> bool {
         self.audition.set_enabled(self.settings.midi.audition);
         let now = std::time::Instant::now();
+        // On a hardware track, a key the track's own clip sounds now is not
+        // struck (its off would end the clip's note): `busy_keys`.
+        let busy = midi_play::busy_keys(
+            self.document.project(),
+            track,
+            self.transport.position(),
+            self.transport.state().playing,
+        );
         match self.live_keys.as_mut() {
-            Some(keys) if fresh => self.audition.play_chord(keys, track, tones, now),
-            Some(keys) => self.audition.change(keys, track, tones, now),
+            Some(keys) if fresh => self.audition.play_chord(keys, track, tones, &busy, now),
+            Some(keys) => self.audition.change(keys, track, tones, &busy, now),
             None => false,
         }
     }

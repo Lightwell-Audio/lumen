@@ -2122,6 +2122,11 @@ cargo run --release -p lumen-app -- tests\projects\midi-demo.lumen
    note somewhere else. While you hold it, the loop still plays the note
    where it was; on release it plays the new place. Delete a note that is
    sounding, mute one (0), transpose one (Up): nothing keeps ringing.
+   On a **hardware** track (MIDI To set to a port), with the clip playing,
+   press a note that is sounding under the playhead: the port gets no extra
+   note-on or note-off for that key, and the clip's note still ends once.
+   Press a note that is not sounding: it plays as before. (Added 2026-10-11;
+   the built-in synth is not skipped.)
 5. **Draw.** Press **B** (the Draw button lights). Click an empty spot:
    a note one grid step long appears and sounds. Click and drag right: the
    new note grows with the pointer, snapped. Click an existing note: it is

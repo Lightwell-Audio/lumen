@@ -215,6 +215,17 @@ impl App {
         self.audition_play(track, pitch, velocity)
     }
 
+    /// Previews a chord of `(pitch, velocity)` notes on `track`, as a press
+    /// on picked notes does: each note its own tone, so one on a key the
+    /// track's clip is sounding on hardware is skipped and the rest play.
+    pub fn audition_chord(&mut self, track: Id, tones: &[(u8, u8)]) -> bool {
+        let tones: Vec<crate::audition::Tone> = tones
+            .iter()
+            .map(|&(pitch, velocity)| crate::audition::Tone { pitch, velocity })
+            .collect();
+        self.audition_tones(track, &tones, true)
+    }
+
     /// Lets go of the preview (the end of a gesture).
     pub fn release_audition(&mut self) {
         self.audition_release();

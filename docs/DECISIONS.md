@@ -4082,6 +4082,22 @@ way to pop it out into its own window.
 - Unverified: the real second window and the pop-out's DPI and
   multi-monitor behaviour, and previews on real hardware (MT-MIDI-4).
 
+### Amendment (2026-10-11): previews on hardware tracks
+
+Owner decision. On a hardware track (a MIDI output), a piano-roll preview
+is skipped for a key the track's own clip is sounding now. A port sees
+only plain MIDI, so the preview's off would end the clip's note too. The
+app decides "sounding" from the project, with the engine's rules
+(`midi_play::sounding_keys` after `hold.rs`): a note sounds from its start
+to its end within its repeat of a looping clip; muted notes and clips
+sound nothing; a stopped transport and a silenced output (a mute, or
+another track's solo) count as not sounding. The skipped tone gets no
+note-on and no off; the rest of a chord plays. Built-in synth tracks keep
+their previews on channel 15 unchanged. Known limits are in KNOWN_ISSUES:
+a clip note that starts during a preview of its key is not handled, and
+the playhead the check reads can differ from the port's timing by the
+output latency.
+
 ## ADR-0048 — The clip editor's own zoom and scroll (M5 slice 3 amendment)
 
 **Status:** Accepted 2026-10-11, owner decision. It amends the M5 slice 3

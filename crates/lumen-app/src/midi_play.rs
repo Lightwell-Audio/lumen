@@ -12,11 +12,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use lumen_core::midi::Msg;
+use lumen_core::time::Ticks;
 use lumen_devices::{Preset, Synth, synth};
 use lumen_engine::{
     INPUT_SLOTS, InstrumentSpec, KEYBOARD, Listen, MidiClip, MidiControl, MidiNote, MidiTrack,
     Target, control_list, note_list,
 };
+use lumen_project::edit;
 use lumen_project::model::{
     self, ClipContent, EventKind, FromSource, Id, Monitor, Project, TrackKind,
 };
@@ -228,6 +230,59 @@ pub fn from_sources(track: &model::Track, inputs: &Inputs) -> u64 {
         FromSource::Keyboard => 1 << KEYBOARD,
         FromSource::Port(name) => inputs.bit(name),
     }
+}
+
+/// The keys the track's own clips hold at arrangement time `at`, as the
+/// engine plays them (`hold.rs`): a note sounds from its start up to its
+/// end, within its repeat of the clip's content, and only while its clip is
+/// unmuted and `at` is inside the clip. A muted note holds nothing. Each key
+/// once.
+pub fn sounding_keys(track: &model::Track, at: Ticks) -> Vec<u8> {
+    let mut keys = Vec::new();
+    for clip in &track.clips {
+        if clip.muted || clip.length.0 <= 0 {
+            continue;
+        }
+        let ClipContent::Midi { notes, .. } = &clip.content else {
+            continue;
+        };
+        // The position in the clip's content: a note of a loop sounds in
+        // each repeat, and never past its repeat's end (the engine cuts it).
+        let Some((local, _)) = edit::to_clip_time(clip, at) else {
+            continue;
+        };
+        for note in notes.iter().filter(|n| !n.muted()) {
+            // A zero-length note sounds for one tick, as the engine plays it.
+            let start = note.start().0;
+            let end = start + note.length().0.max(1);
+            if (start..end).contains(&local.0) && !keys.contains(&note.pitch()) {
+                keys.push(note.pitch());
+            }
+        }
+    }
+    keys
+}
+
+/// The keys a track's own clips sound on its MIDI output now, while the
+/// song plays: the keys a piano-roll preview on a hardware track must not
+/// strike (`audition.rs`). Empty for an instrument track (its voices are
+/// keyed by channel, and the preview plays on its own), while stopped, and
+/// while the track's output is silenced (a mute, or another track's solo),
+/// since then no clip note goes out.
+pub fn busy_keys(project: &Project, id: Id, at: Ticks, playing: bool) -> Vec<u8> {
+    if !playing {
+        return Vec::new();
+    }
+    let Some(track) = project.tracks.iter().find(|t| t.id == id) else {
+        return Vec::new();
+    };
+    if track.kind != TrackKind::Midi || track.midi_to.is_none() {
+        return Vec::new();
+    }
+    if !lumen_project::solo::hearing(project).of(id).output {
+        return Vec::new();
+    }
+    sounding_keys(track, at)
 }
 
 /// What the engine plays: every MIDI track's unmuted clips, in start
@@ -518,5 +573,120 @@ mod tests {
             &mut cache,
         );
         assert!(Arc::ptr_eq(&a[0].clips[0].notes, &b[0].clips[0].notes));
+    }
+
+    // `midi_clip` starts at beat 4 and lasts eight beats; the notes below
+    // are given in clip time.
+
+    /// A track sent to the MIDI output "Synth" (a hardware track).
+    fn hardware(clip: Clip) -> (Project, Id) {
+        let (mut project, id) = project_with(clip);
+        Arc::make_mut(&mut project.tracks[0]).midi_to = Some(model::MidiTo {
+            port: "Synth".into(),
+            channel: 0,
+        });
+        (project, id)
+    }
+
+    #[test]
+    fn a_note_sounds_from_its_start_up_to_its_end_in_the_clip() {
+        let q = Ticks::quarters;
+        let clip = midi_clip(vec![Note::new(q(1), q(2), 60, 100)], vec![]);
+        let (project, _) = project_with(clip);
+        let track = &project.tracks[0];
+        assert!(sounding_keys(track, q(4)).is_empty(), "before the note");
+        assert_eq!(sounding_keys(track, q(5)), vec![60], "at its start");
+        assert_eq!(sounding_keys(track, Ticks(q(7).0 - 1)), vec![60]);
+        assert!(
+            sounding_keys(track, q(7)).is_empty(),
+            "its end is not in it"
+        );
+        assert!(sounding_keys(track, q(3)).is_empty(), "before the clip");
+        assert!(sounding_keys(track, q(12)).is_empty(), "the clip's end");
+    }
+
+    #[test]
+    fn a_chord_holds_each_key_once_and_a_muted_note_holds_nothing() {
+        let q = Ticks::quarters;
+        let mut quiet = Note::new(q(0), q(4), 62, 100);
+        quiet.4 = true;
+        let clip = midi_clip(
+            vec![
+                Note::new(q(0), q(4), 60, 100),
+                Note::new(q(0), q(4), 60, 90),
+                Note::new(q(0), q(4), 64, 90),
+                quiet,
+            ],
+            vec![],
+        );
+        let (project, _) = project_with(clip);
+        assert_eq!(sounding_keys(&project.tracks[0], q(5)), vec![60, 64]);
+    }
+
+    #[test]
+    fn a_muted_clip_holds_nothing() {
+        let q = Ticks::quarters;
+        let mut clip = midi_clip(vec![Note::new(q(0), q(8), 60, 100)], vec![]);
+        clip.muted = true;
+        let (project, _) = project_with(clip);
+        assert!(sounding_keys(&project.tracks[0], q(5)).is_empty());
+    }
+
+    #[test]
+    fn a_looping_clip_sounds_its_notes_in_each_repeat_and_never_past_one() {
+        let q = Ticks::quarters;
+        // Content of two beats from beat 4; the clip lasts to beat 12.
+        let mut clip = midi_clip(
+            vec![
+                Note::new(q(0), q(1), 60, 100),
+                Note::new(q(1), q(2), 64, 100),
+            ],
+            vec![],
+        );
+        clip.loop_length = Some(q(2));
+        let (project, _) = project_with(clip);
+        let track = &project.tracks[0];
+        // Repeat 0 (beats 4 to 6): 60, then 64, which the repeat cuts short.
+        assert_eq!(sounding_keys(track, q(4)), vec![60]);
+        assert_eq!(sounding_keys(track, q(5)), vec![64]);
+        // Repeat 1 (beats 6 to 8): 64 does not carry over into the repeat.
+        assert_eq!(sounding_keys(track, q(6)), vec![60]);
+        assert_eq!(sounding_keys(track, q(7)), vec![64]);
+        assert!(sounding_keys(track, q(12)).is_empty(), "the clip ended");
+    }
+
+    #[test]
+    fn busy_keys_are_the_keys_a_hardware_track_sounds_only_while_playing() {
+        let q = Ticks::quarters;
+        let (project, id) = hardware(midi_clip(vec![Note::new(q(0), q(8), 60, 100)], vec![]));
+        assert_eq!(busy_keys(&project, id, q(5), true), vec![60]);
+        assert!(
+            busy_keys(&project, id, q(5), false).is_empty(),
+            "stopped: nothing sounds"
+        );
+        assert!(busy_keys(&project, Id(999), q(5), true).is_empty());
+    }
+
+    #[test]
+    fn an_instrument_track_has_no_busy_keys() {
+        let q = Ticks::quarters;
+        let (project, id) = project_with(midi_clip(vec![Note::new(q(0), q(8), 60, 100)], vec![]));
+        assert!(busy_keys(&project, id, q(5), true).is_empty());
+    }
+
+    #[test]
+    fn a_silenced_hardware_output_has_no_busy_keys() {
+        let q = Ticks::quarters;
+        let (mut project, id) = hardware(midi_clip(vec![Note::new(q(0), q(8), 60, 100)], vec![]));
+        Arc::make_mut(&mut project.tracks[0]).mute = true;
+        assert!(busy_keys(&project, id, q(5), true).is_empty(), "muted");
+        Arc::make_mut(&mut project.tracks[0]).mute = false;
+        let mut other = model::Track::new(Id(77), "Other", TrackKind::Midi, model::Color(0));
+        other.solo = true;
+        project.tracks.push(Arc::new(other));
+        assert!(
+            busy_keys(&project, id, q(5), true).is_empty(),
+            "silenced by another track's solo"
+        );
     }
 }
