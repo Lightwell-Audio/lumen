@@ -588,14 +588,14 @@ fn a_preset_chosen_from_the_menu_changes_the_note_being_held() {
     assert!(b1 > b0 * 1.15, "brighter: {b0} -> {b1}");
     // ...it is the same note, not a new one starting from silence...
     assert!(rms_of(&after) > 0.01, "still sounding at its level");
-    // ...and nothing stepped (Poly's own steps are the larger).
-    let mut across = before[before.len() - 64..].to_vec();
-    across.extend(&heard);
+    // ...and nothing stepped (Poly's own steps are the larger). Only the
+    // continuous recording counts: frames go by unheard while the menu is
+    // clicked, so joining `before` to `heard` would measure a seam.
     let level = steepest(&before).max(steepest(&after));
     assert!(
-        steepest(&across) < level * 2.2,
+        steepest(&heard) < level * 2.2,
         "a click: {} vs {level}",
-        steepest(&across),
+        steepest(&heard),
     );
     // Undo glides back.
     lumen.key(Modifiers::COMMAND, Key::Z);
