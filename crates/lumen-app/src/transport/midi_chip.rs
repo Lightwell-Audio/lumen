@@ -4,6 +4,7 @@
 //! its Track and Remote switches.
 
 use eframe::egui::{self, Id, Pos2, Sense, Stroke, Ui, vec2};
+use eframe::emath::GuiRounding as _;
 use lumen_midi::{Direction, PortId, Use};
 
 use super::Transport;
@@ -214,20 +215,14 @@ impl Transport {
                 response.id.with("hover"),
                 response.hovered() || response.has_focus() || open,
             );
+            let rect = rect.round_to_pixels(ui.pixels_per_point());
+            let face = widgets::raised::Face::new(controls)
+                .hover(hover)
+                .pressed(response.is_pointer_button_down_on());
+            let body = widgets::raised::paint(ui.painter(), rect, theme::radius::SMALL, &face);
+            widgets::raised::focus_ring(ui.painter(), &response, rect);
             let painter = ui.painter();
-            painter.rect_filled(
-                rect,
-                theme::radius::SMALL,
-                controls.fill.lerp_to_gamma(controls.hover, hover),
-            );
-            if response.has_focus() {
-                painter.rect_stroke(
-                    rect,
-                    theme::radius::SMALL,
-                    Stroke::new(1.5, palette.accent),
-                    egui::StrokeKind::Inside,
-                );
-            }
+            let rect = body;
             let glyph = egui::Rect::from_center_size(
                 egui::pos2(rect.left() + 12.0, rect.center().y),
                 vec2(12.0, 12.0),

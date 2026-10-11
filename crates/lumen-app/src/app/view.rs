@@ -12,6 +12,7 @@ use crate::arrangement::FileDrop;
 use crate::commands::Command;
 use crate::document::DropInto;
 use crate::icons::{self, Icon};
+use crate::widgets::raised;
 use crate::{
     App, arrangement, audio, bench, canvas, lanes, light, media, motion, ruler, theme, widgets,
 };
@@ -695,11 +696,11 @@ report: {}",
                 ui.add_enabled_ui(live, |ui| {
                     if retry
                         && self.transport.audio.can_switch()
-                        && ui.button("Try again").clicked()
+                        && raised::button(ui, "Try again").clicked()
                     {
                         self.transport.audio.set_on(true);
                     }
-                    if ui.button("Audio and MIDI settings…").clicked() {
+                    if raised::button(ui, "Audio and MIDI settings…").clicked() {
                         self.transport.settings_window.open = true;
                     }
                 });

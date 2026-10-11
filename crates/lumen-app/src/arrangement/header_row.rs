@@ -172,10 +172,8 @@ impl Arrangement {
         );
 
         // M, S and arm sit evenly spaced, snapped to whole pixels
-        // together: egui snaps rectangles but not circles, so an
-        // unsnapped arm button sat up to half a pixel off M and S, and
-        // its ring off its dot (owner, after slice 4a). The armed glow
-        // reaches `ARM_GLOW` beyond the button, inside the gap.
+        // together, so the arm button's dot sits on the same line as the
+        // letters of M and S (owner, after slice 4a).
         let ppp = ui.ctx().pixels_per_point();
         let button = |x: f32| {
             Rect::from_min_size(pos2(x, mid - BUTTON / 2.0), vec2(BUTTON, BUTTON))
@@ -258,7 +256,7 @@ impl Arrangement {
         }
 
         if let Some(badge) = badge
-            && let Some(next) = super::monitor_badge::badge(ui, badge, id, &track, look, selected)
+            && let Some(next) = super::monitor_badge::badge(ui, badge, id, &track, look)
         {
             doc.set_monitor(&self.targets(track.id), next);
         }

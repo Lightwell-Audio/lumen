@@ -10,7 +10,10 @@ use eframe::egui::{self, Id as EguiId, Rect, Sense, Ui};
 use lumen_project::model::{Monitor, Track, TrackKind};
 
 use crate::icons::{self, Icon};
+use crate::theme::Tone;
+use crate::widgets::raised;
 use crate::{motion, theme, widgets};
+use eframe::emath::GuiRounding as _;
 
 /// Whether `track` shows the badge.
 pub(super) fn shown(track: &Track) -> bool {
@@ -24,7 +27,6 @@ pub(super) fn badge(
     id: EguiId,
     track: &Track,
     look: theme::Controls,
-    selected: bool,
 ) -> Option<Monitor> {
     let on = track.monitor == Monitor::In;
     let (word, tip) = if on {
@@ -43,34 +45,27 @@ pub(super) fn badge(
     let response = widgets::tip(response, tip, None, Some("Click to change"));
     let palette = theme::p();
     let hover = motion::hover(ui.ctx(), id.with("monitor hover"), response.hovered());
-    let (fill, ink, icon) = if on {
-        (
-            palette
-                .accent_muted
-                .lerp_to_gamma(palette.accent, 0.25 * hover),
-            palette.accent,
-            Icon::Speaker,
-        )
+    let lit = motion::hover(ui.ctx(), id.with("monitor lit"), on);
+    // The premium look (ADR-0046): raised; In is lit in the accent, Off is
+    // the struck-through speaker in the hint grey.
+    let face = raised::Face::new(look)
+        .hover(hover)
+        .pressed(response.is_pointer_button_down_on())
+        .lit(lit, Tone::Accent);
+    let rect = rect.round_to_pixels(ui.pixels_per_point());
+    let body = raised::paint(ui.painter(), rect, theme::radius::SMALL, &face);
+    let (ink, icon) = if on {
+        (face.text(), Icon::Speaker)
     } else {
-        (
-            look.fill.lerp_to_gamma(look.hover, hover),
-            palette.text_hint,
-            Icon::SpeakerOff,
-        )
+        (palette.text_hint, Icon::SpeakerOff)
     };
-    let p = ui.painter();
-    p.rect_filled(rect, theme::radius::SMALL, fill);
-    if on && selected {
-        // A selected row is nearly the badge's own fill: a hairline keeps
-        // it a badge there.
-        p.rect_stroke(
-            rect,
-            theme::radius::SMALL,
-            egui::Stroke::new(1.0, palette.accent.gamma_multiply(0.45)),
-            egui::StrokeKind::Inside,
-        );
-    }
-    p.extend(icons::shapes(icon, rect.shrink2(egui::vec2(1.0, 0.0)), ink));
+    let icon_rect = Rect::from_center_size(body.center().round(), body.size());
+    ui.painter().extend(icons::shapes(
+        icon,
+        icon_rect.shrink2(egui::vec2(1.0, 0.0)),
+        ink,
+    ));
+    raised::focus_ring(ui.painter(), &response, rect);
     response.clicked().then_some(match track.monitor {
         Monitor::In => Monitor::Off,
         Monitor::Off | Monitor::Auto => Monitor::Auto,

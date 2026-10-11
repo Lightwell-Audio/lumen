@@ -219,11 +219,13 @@ fn gradient(painter: &Painter, rect: Rect, radius: f32, top: Color32, bottom: Co
 }
 
 /// A raised button named `label`, sized to its letters.
-#[allow(
-    dead_code,
-    reason = "foundation API: call sites migrate to it in the next slices (ADR-0046)"
-)]
 pub fn button(ui: &mut Ui, label: &str) -> Response {
+    button_inked(ui, label, None)
+}
+
+/// [`button`] with its letters in `ink` (Panic's record red), still on one
+/// pixel-snapped centred line.
+pub fn button_inked(ui: &mut Ui, label: &str, ink: Option<Color32>) -> Response {
     let galley = ui.painter().layout_no_wrap(
         label.to_owned(),
         egui::FontId::proportional(theme::size::BODY),
@@ -239,7 +241,12 @@ pub fn button(ui: &mut Ui, label: &str) -> Response {
         let face = face_of(ui, &response);
         let rect = rect.round_to_pixels(ui.pixels_per_point());
         let body = paint(ui.painter(), rect, theme::radius::SMALL, &face);
-        centre_galley(ui.painter(), body, galley, face.text());
+        centre_galley(
+            ui.painter(),
+            body,
+            galley,
+            ink.unwrap_or_else(|| face.text()),
+        );
         focus_ring(ui.painter(), &response, rect);
     }
     response
@@ -247,10 +254,6 @@ pub fn button(ui: &mut Ui, label: &str) -> Response {
 
 /// A raised square button of the control's height named `name`; `draw`
 /// paints the icon centred on the point it is given, in the colour given.
-#[allow(
-    dead_code,
-    reason = "foundation API: call sites migrate to it in the next slices (ADR-0046)"
-)]
 pub fn icon_button(
     ui: &mut Ui,
     name: &str,

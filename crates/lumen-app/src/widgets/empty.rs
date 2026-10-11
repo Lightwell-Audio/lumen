@@ -97,6 +97,8 @@ pub fn empty_state(ui: &mut Ui, rect: Rect, state: &EmptyState<'_>) -> bool {
         pos2(rect.center().x, y + theme::size::CONTROL / 2.0),
         vec2(width, theme::size::CONTROL),
     );
-    let response = ui.put(button, egui::Button::new(action.label));
+    let response = ui.put(button, |ui: &mut egui::Ui| {
+        super::raised::button(ui, action.label)
+    });
     tip(response, action.tip, action.keys, None).clicked()
 }

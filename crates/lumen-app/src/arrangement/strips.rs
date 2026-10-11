@@ -529,7 +529,9 @@ impl Arrangement {
             rect.bottom() - 8.0 - reset_h..=rect.bottom() - 8.0,
         );
         let response = ui
-            .put(reset, egui::Button::new("\u{21BA} Reset"))
+            .put(reset, |ui: &mut egui::Ui| {
+                crate::widgets::raised::button(ui, "\u{21BA} Reset")
+            })
             .on_hover_text(
                 "Start integrated loudness and true peak again (Play from stop does too)",
             );

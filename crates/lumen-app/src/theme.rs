@@ -215,10 +215,6 @@ pub enum Tone {
     /// Solo.
     Warning,
     /// Arm and record.
-    #[allow(
-        dead_code,
-        reason = "used by the arm button when it migrates (ADR-0046)"
-    )]
     Record,
     /// Mute on: recessed and dark with hint text, not lit.
     Recessed,

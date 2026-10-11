@@ -47,8 +47,8 @@ const TRAVEL_MIN: f32 = 64.0;
 const TRAVEL_PAD: f32 = 12.0;
 const BUTTONS: f32 = theme::size::CONTROL_SMALL;
 const BOTTOM: f32 = theme::space::S;
-/// Room above the buttons for the armed glow, which reaches 4 pt past the
-/// arm button (`headers::ARM_GLOW`); the peak readout above must stay clear.
+/// Room above the buttons for the armed glow, which reaches 6 pt past the
+/// arm button (the `FLARE` light); the peak readout above must stay clear.
 const ABOVE_BUTTONS: f32 = theme::space::S;
 /// dB marks on the scale between fader and meter, most important first:
 /// those without room for their number become ticks.

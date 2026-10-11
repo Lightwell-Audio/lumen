@@ -2,6 +2,7 @@
 //! and the position field.
 
 use eframe::egui::{self, Key, RichText, Ui};
+use eframe::emath::GuiRounding as _;
 
 use crate::commands::{Command as Run, Keymap};
 use crate::widgets::Tip;
@@ -79,16 +80,6 @@ impl Transport {
             true,
             "",
         );
-        if on {
-            let c = theme::p();
-            crate::light::rect(
-                ui.painter(),
-                crate::light::LIT,
-                response.rect,
-                f32::from(theme::radius::SMALL),
-                c.accent,
-            );
-        }
         if response.clicked() {
             self.keyboard_clicked = true;
         }
@@ -494,22 +485,20 @@ fn solo_chip(ui: &mut Ui, doc: &mut crate::document::Document, keymap: &Keymap) 
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, soloed > 0, "Clear all solos")
     });
-    let hover = crate::motion::hover(ui.ctx(), response.id.with("hover"), response.hovered());
-    let (fill, ink) = if soloed > 0 {
-        let fill = palette.accent;
-        (fill, theme::text_on(fill))
+    // Raised like every control; lit amber like the S buttons it clears.
+    let lit = crate::motion::hover(ui.ctx(), response.id.with("lit"), soloed > 0);
+    let face = crate::widgets::raised::face_of(ui, &response).lit(lit, crate::theme::Tone::Warning);
+    let rect = rect
+        .shrink2(egui::vec2(0.0, 2.0))
+        .round_to_pixels(ui.pixels_per_point());
+    let body = crate::widgets::raised::paint(ui.painter(), rect, theme::radius::SMALL, &face);
+    let ink = if soloed > 0 {
+        face.text()
     } else {
-        (palette.control.gamma_multiply(0.6), palette.text_hint)
+        palette.text_hint
     };
-    let fill = if soloed > 0 {
-        fill.lerp_to_gamma(palette.text, 0.12 * hover)
-    } else {
-        fill
-    };
-    let rect = rect.shrink2(egui::vec2(0.0, 2.0));
-    ui.painter().rect_filled(rect, theme::radius::SMALL, fill);
-    ui.painter()
-        .galley_with_override_text_color(rect.center() - galley.size() / 2.0, galley, ink);
+    crate::widgets::raised::centre_galley(ui.painter(), body, galley, ink);
+    crate::widgets::raised::focus_ring(ui.painter(), &response, rect);
     if soloed > 0 && response.clicked() {
         doc.clear_solos();
     }

@@ -33,8 +33,7 @@ pub fn page(ui: &mut Ui, midi: &Midi, actions: &mut Vec<Action>) {
          Devices appear when plugged in.",
     );
     ui.add_space(theme::space::XS);
-    if ui
-        .button("Look for devices")
+    if crate::widgets::raised::button(ui, "Look for devices")
         .on_hover_text("Check for new ports now rather than at the next poll")
         .clicked()
     {

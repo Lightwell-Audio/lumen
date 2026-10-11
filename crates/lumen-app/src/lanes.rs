@@ -432,7 +432,10 @@ impl Lanes {
                                 [(name, _)] => format!("Loading {name}"),
                                 many => format!("Loading {} files", many.len()),
                             });
-                            if ui.button("Cancel").on_hover_text("Stop loading").clicked() {
+                            if crate::widgets::raised::button(ui, "Cancel")
+                                .on_hover_text("Stop loading")
+                                .clicked()
+                            {
                                 self.library.cancel_all();
                             }
                         });

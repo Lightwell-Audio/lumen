@@ -13,6 +13,7 @@ use lumen_project::model::Project;
 
 use crate::document::DropInto;
 use crate::widgets::Dialog;
+use crate::widgets::raised;
 use crate::{App, arrangement, document, empty_project, files, lanes, media, theme, trace};
 
 /// What happens after unsaved changes are saved or discarded.
@@ -378,14 +379,14 @@ impl App {
                 );
                 ui.add_space(theme::space::M);
                 ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
+                    if raised::button(ui, "Save").clicked() {
                         choice = Some(0);
                     }
-                    if ui.button("Don't save").clicked() {
+                    if raised::button(ui, "Don't save").clicked() {
                         choice = Some(1);
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Cancel").clicked() {
+                        if raised::button(ui, "Cancel").clicked() {
                             choice = Some(2);
                         }
                     });
@@ -420,10 +421,12 @@ impl App {
                 let warning = theme::p().warning;
                 ui.label(RichText::new("\u{26A0}").color(warning));
                 ui.label(RichText::new(&message).color(warning));
-                if message.starts_with("Not saved") && ui.button("Save as\u{2026}").clicked() {
+                if message.starts_with("Not saved")
+                    && raised::button(ui, "Save as\u{2026}").clicked()
+                {
                     self.save(&ctx, true);
                 }
-                if ui.small_button("Dismiss").clicked() {
+                if raised::button(ui, "Dismiss").clicked() {
                     self.file_notice = None;
                 }
             });

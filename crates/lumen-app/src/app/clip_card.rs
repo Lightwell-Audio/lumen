@@ -601,19 +601,19 @@ impl App {
     fn card_toggles(&mut self, ui: &mut egui::Ui, clip: &Clip) {
         // Framed buttons that light when on, so off still reads as a
         // control.
-        if ui
-            .add(egui::Button::new("Mute clip").selected(clip.muted))
+        let mut muted = clip.muted;
+        if widgets::toggle_button(ui, &mut muted, "Mute clip")
             .on_hover_text("Mute or unmute this clip (0)")
-            .clicked()
+            .changed()
         {
-            self.document.set_clips_muted(&[clip.id], !clip.muted);
+            self.document.set_clips_muted(&[clip.id], muted);
         }
-        if ui
-            .add(egui::Button::new("Lock clip").selected(clip.locked))
+        let mut locked = clip.locked;
+        if widgets::toggle_button(ui, &mut locked, "Lock clip")
             .on_hover_text("A locked clip cannot be moved, trimmed, faded or deleted")
-            .clicked()
+            .changed()
         {
-            self.document.set_clips_locked(&[clip.id], !clip.locked);
+            self.document.set_clips_locked(&[clip.id], locked);
         }
     }
 }

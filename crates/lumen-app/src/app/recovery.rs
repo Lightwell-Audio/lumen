@@ -6,6 +6,7 @@ use std::time::Instant;
 use eframe::egui::{self, RichText};
 use lumen_core::product::PRODUCT_NAME;
 
+use crate::widgets::raised;
 use crate::{App, autosave, files, theme, trace};
 
 impl App {
@@ -58,11 +59,10 @@ impl App {
                     leftover.note.name,
                     autosave::ago(leftover.note.written)
                 ));
-                if ui.button("Recover").clicked() {
+                if raised::button(ui, "Recover").clicked() {
                     choice = Some(true);
                 }
-                if ui
-                    .button("Discard")
+                if raised::button(ui, "Discard")
                     .on_hover_text("Delete the autosaved copy")
                     .clicked()
                 {
@@ -98,15 +98,14 @@ impl App {
                 ui.label(format!(
                     "{PRODUCT_NAME} closed unexpectedly last time. A crash report was saved."
                 ));
-                if ui
-                    .button("Show report")
+                if raised::button(ui, "Show report")
                     .on_hover_text(report.display().to_string())
                     .clicked()
                 {
                     crate::crash::reveal(&report);
                     done = true;
                 }
-                if ui.button("Dismiss").clicked() {
+                if raised::button(ui, "Dismiss").clicked() {
                     done = true;
                 }
             });

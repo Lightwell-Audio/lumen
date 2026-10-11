@@ -200,8 +200,7 @@ impl Transport {
                 if let Some(detail) = &self.audio.notice_detail {
                     label.on_hover_text(detail);
                 }
-                dismiss = ui
-                    .small_button("Dismiss")
+                dismiss = crate::widgets::raised::button(ui, "Dismiss")
                     .on_hover_text("Dismiss")
                     .clicked();
             });
@@ -272,10 +271,9 @@ impl Transport {
             // CPU is a live reading; only the counts can be reset.
             let counted = meters.overloads() + meters.dropouts() > 0;
             if ui
-                .add_enabled(
-                    counted,
-                    egui::Button::new("Reset overload and dropout counts"),
-                )
+                .add_enabled(counted, |ui: &mut egui::Ui| {
+                    crate::widgets::raised::button(ui, "Reset overload and dropout counts")
+                })
                 .on_disabled_hover_text("Nothing to reset: both counts are zero")
                 .clicked()
             {
@@ -284,7 +282,13 @@ impl Transport {
         }
         ui.separator();
         if ui
-            .button(RichText::new("Panic: stop and silence everything").color(theme::p().record))
+            .add(|ui: &mut egui::Ui| {
+                crate::widgets::raised::button_inked(
+                    ui,
+                    "Panic: stop and silence everything",
+                    Some(theme::p().record),
+                )
+            })
             .on_hover_text("Silence everything at once")
             .clicked()
         {

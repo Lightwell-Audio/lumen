@@ -5,6 +5,7 @@
 //! drawn by `header_row`.
 
 use eframe::egui::{self, Align2, FontId, Id as EguiId, Key, Rect, Sense, Stroke, Ui, pos2, vec2};
+use eframe::emath::GuiRounding as _;
 use lumen_project::model::{Id, TrackKind};
 
 use super::header_row::HeaderRow;
@@ -23,6 +24,8 @@ pub(super) const NAME_X: f32 = 48.0;
 /// The volume slider's value text rises this far, clear of the level bars
 /// drawn along its bottom (the owner's report: the meter sat against it).
 const METER_LIFT: f32 = 3.0;
+use crate::theme::Tone;
+use crate::widgets::raised;
 use crate::{fonts, motion, theme};
 
 impl Arrangement {
@@ -512,11 +515,14 @@ pub(super) fn arm_button(
         )
     });
     let hover = motion::hover(ui.ctx(), id.with("arm hover"), response.hovered());
-    let p = ui.painter();
-    // Every circle shares this exact centre (owner: the ring must sit
-    // centred on the dot).
-    let center = rect.center();
-    let radius = rect.width() / 2.0;
+    // Lighting up and going out cross-fade, like M and S.
+    let lit = motion::hover(ui.ctx(), id.with("arm lit"), armed);
+    // The premium look (ADR-0046): raised, lit in record red when armed.
+    let face = raised::Face::new(look)
+        .hover(hover)
+        .pressed(response.is_pointer_button_down_on())
+        .lit(lit, Tone::Record);
+    let rect = rect.round_to_pixels(ui.pixels_per_point());
     if armed {
         // The one deliberate loop in Lumen (owner's choice): while armed, a
         // ring breathes slowly around the button. Reduce motion holds it
@@ -528,42 +534,38 @@ pub(super) fn arm_button(
             ui.ctx().request_repaint_after(motion::BREATH_FRAME);
             0.5 - 0.5 * (t * std::f32::consts::TAU / ARM_BREATH).cos()
         };
-        for (spread, alpha) in [(ARM_GLOW, 0.10), (ARM_GLOW * 0.7, 0.18)] {
-            p.circle_filled(
-                center,
-                radius + spread * (0.6 + 0.4 * breath),
-                palette.record.gamma_multiply(alpha * (0.6 + 0.4 * breath)),
-            );
-        }
-        p.circle_stroke(
-            center,
-            radius + 1.0 + breath,
+        ui.painter().rect_stroke(
+            rect.expand(1.0 + breath),
+            f32::from(theme::radius::SMALL) + 1.0 + breath,
             Stroke::new(1.5, palette.record.gamma_multiply(0.45 + 0.3 * breath)),
+            egui::StrokeKind::Outside,
         );
-        p.circle_filled(center, radius, palette.record.gamma_multiply(0.25));
-        p.circle_filled(center, 4.5, palette.record);
-    } else {
-        p.circle_filled(center, radius, look.fill.lerp_to_gamma(look.hover, hover));
-        if arm == Arm::Partly {
-            // Some of the group armed: a lit dot and half a ring, still.
-            p.add(egui::Shape::line(
-                half_ring(center, radius + 1.0),
-                Stroke::new(1.5, palette.record.gamma_multiply(0.6)),
-            ));
-            p.circle_filled(center, 4.5, palette.record);
-        } else if arm == Arm::Listening {
-            // Listening only because it is selected: a hollow record-red
-            // ring, no fill and no glow, so it is not mistaken for an arm.
-            p.circle_filled(center, radius, look.fill.lerp_to_gamma(look.hover, hover));
-            p.circle_stroke(center, 4.5, Stroke::new(1.5, palette.record));
-        } else {
-            // At rest a quiet grey dot, red only under the pointer: record
-            // red means recording (the interface audit's T5, the owner's A;
-            // a column of red dots was the loudest thing on screen).
-            let rest = look.text.gamma_multiply(0.55);
-            p.circle_filled(center, 4.5, rest.lerp_to_gamma(palette.record, hover));
-        }
     }
+    let body = raised::paint(ui.painter(), rect, theme::radius::SMALL, &face);
+    let p = ui.painter();
+    // Every shape shares the body's centre, so the dot sits centred.
+    let center = body.center();
+    if armed {
+        // Armed: a solid dot, the shape cue as well as the colour.
+        p.circle_filled(center, 4.5, face.text());
+    } else if arm == Arm::Partly {
+        // Some of the group armed: a lit dot and half a ring, still.
+        p.add(egui::Shape::line(
+            half_ring(center, rect.width() / 2.0 - 1.0),
+            Stroke::new(1.5, palette.record.gamma_multiply(0.6)),
+        ));
+        p.circle_filled(center, 4.5, palette.record);
+    } else if arm == Arm::Listening {
+        // Listening only because it is selected: a hollow record-red
+        // ring, so it is not mistaken for an arm.
+        p.circle_stroke(center, 4.5, Stroke::new(1.5, palette.record));
+    } else {
+        // At rest a quiet grey dot, red only under the pointer: record
+        // red means recording (the interface audit's T5, the owner's A).
+        let rest = look.text.gamma_multiply(0.55);
+        p.circle_filled(center, 4.5, rest.lerp_to_gamma(palette.record, hover));
+    }
+    raised::focus_ring(p, &response, rect);
     response.clicked()
 }
 
@@ -581,11 +583,8 @@ fn half_ring(center: egui::Pos2, radius: f32) -> Vec<egui::Pos2> {
 /// Seconds per breath of the armed ring.
 const ARM_BREATH: f32 = 2.4;
 
-/// How far the armed glow reaches beyond the button, at its widest.
-const ARM_GLOW: f32 = 4.0;
-
-/// The space between M, S and the arm button; wider than the glow, so it
-/// never touches S.
+/// The space between M, S and the arm button. The armed glow (`FLARE`, 6 pt)
+/// and S's lit glow (3 pt) meet in it as faint halos only.
 pub(super) const BUTTON_GAP: f32 = 8.0;
 
 /// What a screen reader says for a header; a group adds how many tracks

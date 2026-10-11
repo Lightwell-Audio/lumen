@@ -3,6 +3,7 @@
 //! at every UI scale. They are drawn with egui's painter: at icon sizes that
 //! is crisp and cheap, and Vello stays reserved for dense canvases (ADR-0018).
 
+use eframe::emath::GuiRounding as _;
 use std::f32::consts::{PI, TAU};
 
 use eframe::egui::{
@@ -318,45 +319,29 @@ pub fn button(
         egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, active, label)
     });
     if ui.is_rect_visible(rect) {
-        let painter = ui.painter();
         let c = theme::p();
-        // Hover and press fade in and out (motion: FAST), and so does being
-        // lit (M4.5).
+        // Raised like every control (ADR-0046); hover and being lit
+        // cross-fade (motion: FAST).
         let hot = enabled && (response.hovered() || response.has_focus());
         let lit = crate::motion::hover(ui.ctx(), response.id.with("lit"), active);
         let hover = crate::motion::hover(ui.ctx(), response.id.with("hover"), hot);
-        let press = crate::motion::hover(
-            ui.ctx(),
-            response.id.with("press"),
-            enabled && response.is_pointer_button_down_on(),
-        );
-        if hover > 0.0 && lit < 1.0 {
-            let fill = c.control_hover.lerp_to_gamma(c.control_press, press);
-            painter.rect_filled(rect, theme::radius::SMALL, fill.gamma_multiply(hover));
-        }
-        if lit > 0.0 {
-            painter.rect_filled(
-                rect,
-                theme::radius::SMALL,
-                c.accent_muted.gamma_multiply(lit),
-            );
-        }
-        if response.has_focus() {
-            painter.rect_stroke(
-                rect,
-                theme::radius::SMALL,
-                Stroke::new(1.5, c.accent),
-                egui::StrokeKind::Inside,
-            );
-        }
+        let face = crate::widgets::raised::Face::new(theme::controls(false))
+            .hover(hover)
+            .pressed(enabled && response.is_pointer_button_down_on())
+            .lit(lit, crate::theme::Tone::Accent);
+        let rect = rect.round_to_pixels(ui.pixels_per_point());
+        let body = crate::widgets::raised::paint(ui.painter(), rect, theme::radius::SMALL, &face);
         let color = match (enabled, icon) {
             (false, _) => c.text_disabled,
             (true, Icon::Record) => c.record,
-            (true, _) => c.text.lerp_to_gamma(c.accent, lit),
+            (true, _) => face.text(),
         };
-        for shape in shapes(icon, rect.shrink(4.0), color) {
-            painter.add(shape);
+        // The icon sits on the body's centre, in whole pixels.
+        let icon_rect = Rect::from_center_size(body.center().round(), Vec2::new(22.0, 16.0));
+        for shape in shapes(icon, icon_rect, color) {
+            ui.painter().add(shape);
         }
+        crate::widgets::raised::focus_ring(ui.painter(), &response, rect);
     }
     if crate::trace::enabled() {
         let released_here = ui.input(|i| i.pointer.primary_released()) && response.hovered();

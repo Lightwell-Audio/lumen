@@ -374,6 +374,8 @@ shadow (`theme::control_shadow`). Pressed sinks: an inset shadow, 1 px
 lower. On is lit by `theme::Tone`: `Accent` (on, chosen), `Warning` (solo),
 `Record` (arm), each a gradient from `theme::lit` with `text_on` letters and
 a glow that is a light level (`raised::glow_level`: `LIT`, and `FLARE` for
+
+Chrome migration (ADR-0051): transport icon buttons (`icons::button`), the solo chip, MIDI chip, arm (a raised square lit in `Tone::Record`, a solid dot and the breathing ring kept), Monitor badge, dialog and banner buttons, preferences-window buttons, Reset and Panic buttons use `raised::button`, `button_inked` or `paint`. Menu rows stay menu rows; value fields stay fields.
 record); `Recessed` (mute on) is the well's colour with `text_hint`
 letters. M and S on headers and strips are raised buttons in this look.
 

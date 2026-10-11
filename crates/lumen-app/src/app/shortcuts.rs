@@ -309,15 +309,9 @@ impl App {
                 (&mut layer.1, "Shift"),
                 (&mut layer.2, "Alt"),
             ] {
-                if ui
-                    .add(egui::Button::new(name).selected(*on))
-                    .on_hover_text(format!(
-                        "Show what {name} with each key does (or hold {name})"
-                    ))
-                    .clicked()
-                {
-                    *on = !*on;
-                }
+                crate::widgets::toggle_button(ui, on, name).on_hover_text(format!(
+                    "Show what {name} with each key does (or hold {name})"
+                ));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 for area in AREAS.iter().rev() {
@@ -483,10 +477,9 @@ impl App {
             });
             ui.label(RichText::new("Keymap: Ableton").color(palette.text_hint));
             if ui
-                .add_enabled(
-                    !self.keymap.saved().is_empty(),
-                    egui::Button::new("Reset all"),
-                )
+                .add_enabled(!self.keymap.saved().is_empty(), |ui: &mut egui::Ui| {
+                    crate::widgets::raised::button(ui, "Reset all")
+                })
                 .on_hover_text("Every shortcut back to its default")
                 .clicked()
             {

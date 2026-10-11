@@ -511,7 +511,7 @@ impl Window {
                 let button = ui
                     .add_enabled(
                         matches!(audio.status, Status::Running { .. }) && !opening,
-                        egui::Button::new("Control panel…").small(),
+                        |ui: &mut egui::Ui| crate::widgets::raised::button(ui, "Control panel…"),
                     )
                     .on_hover_text(
                         "Set the buffer size (and clock source) in the driver's own settings",
