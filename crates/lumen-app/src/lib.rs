@@ -37,6 +37,7 @@ mod app;
 mod arrangement;
 mod audio;
 mod audio_settings;
+mod audition;
 mod autosave;
 mod bench;
 mod brand;
@@ -139,6 +140,8 @@ pub struct App {
     /// Sends the computer keyboard's notes into the engine, once the live
     /// feed is handed over (slice 2).
     live_keys: Option<live::LiveKeys>,
+    /// The piano roll's note preview (M5 slice 3d).
+    audition: audition::Audition,
     /// Counts changes to the MIDI ports, and what the used outputs were last
     /// checked against (document, its state, port changes).
     midi_ports_seen: u64,
@@ -459,6 +462,7 @@ impl eframe::App for App {
             self.transport.audio.notice = Some(notice);
         }
         self.update_midi_hardware(&ctx);
+        self.update_audition(&ctx);
         self.history_window(&ctx);
         self.prompt_window(&ctx);
         self.shortcuts_window(&ctx);
@@ -657,6 +661,7 @@ impl App {
             midi,
             midi_out: None,
             live_keys: None,
+            audition: audition::Audition::default(),
             midi_ports_seen: 0,
             keyboard: Default::default(),
             midi_checked: None,

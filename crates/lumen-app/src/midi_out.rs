@@ -20,7 +20,7 @@
 //! interface with a MIDI port is on the test machine); the scheduling and
 //! the clock mapping are tested with injected times.
 
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -172,8 +172,11 @@ impl ClockMap {
 pub struct Scheduler {
     queue: BTreeMap<(i64, u64), (u16, Msg)>,
     seq: u64,
-    /// `(port, channel, key)` of notes sent on and not yet off.
-    sounding: HashSet<(u16, u8, u8)>,
+    /// `(port, channel, key)` of notes sent on and not yet off, with how
+    /// many times: two sources (a clip and a live key or the piano roll's
+    /// preview) can sound one key, and each note-on is answered by one
+    /// note-off.
+    sounding: HashMap<(u16, u8, u8), u32>,
 }
 
 impl Scheduler {
@@ -202,10 +205,20 @@ impl Scheduler {
     fn note(&mut self, port: u16, msg: Msg) -> bool {
         match msg.kind() {
             Kind::NoteOn { key, .. } => {
-                self.sounding.insert((port, msg.channel(), key));
+                *self.sounding.entry((port, msg.channel(), key)).or_insert(0) += 1;
                 true
             }
-            Kind::NoteOff { key, .. } => self.sounding.remove(&(port, msg.channel(), key)),
+            Kind::NoteOff { key, .. } => {
+                let which = (port, msg.channel(), key);
+                match self.sounding.get_mut(&which) {
+                    Some(count) if *count > 1 => {
+                        *count -= 1;
+                        true
+                    }
+                    Some(_) => self.sounding.remove(&which).is_some(),
+                    None => false,
+                }
+            }
             _ => true,
         }
     }
@@ -217,7 +230,9 @@ impl Scheduler {
         let mut offs: Vec<(u16, Msg)> = self
             .sounding
             .drain()
-            .map(|(port, channel, key)| (port, Msg::note_off(channel, key)))
+            .flat_map(|((port, channel, key), count)| {
+                (0..count).map(move |_| (port, Msg::note_off(channel, key)))
+            })
             .collect();
         offs.sort_by_key(|(port, msg)| (*port, msg.0));
         offs
@@ -226,7 +241,7 @@ impl Scheduler {
     /// A port went away: its messages and notes are forgotten.
     pub fn forget_port(&mut self, port: u16) {
         self.queue.retain(|_, (p, _)| *p != port);
-        self.sounding.retain(|(p, _, _)| *p != port);
+        self.sounding.retain(|(p, _, _), _| *p != port);
     }
 
     pub fn is_empty(&self) -> bool {
@@ -431,6 +446,27 @@ mod tests {
         assert!(s.is_empty());
         assert!(s.due(1_000_000).is_empty(), "the waiting note never goes");
         assert!(s.flush().is_empty());
+    }
+
+    #[test]
+    fn two_sources_on_one_key_each_get_their_own_note_off() {
+        let mut s = Scheduler::default();
+        // A clip's note and a preview on one key: on, on, off, off.
+        s.push(0, 0, on(60));
+        s.push(1, 0, on(60));
+        s.push(2, 0, off(60));
+        s.push(3, 0, off(60));
+        s.push(4, 0, off(60));
+        assert_eq!(
+            s.due(10),
+            vec![(0, on(60)), (0, on(60)), (0, off(60)), (0, off(60))],
+            "every note-on is answered, and a third off is not sent"
+        );
+        // A flush answers every note-on still unanswered.
+        s.push(0, 0, on(61));
+        s.push(0, 0, on(61));
+        s.due(10);
+        assert_eq!(s.flush(), vec![(0, off(61)), (0, off(61))]);
     }
 
     #[test]

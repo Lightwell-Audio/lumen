@@ -20,7 +20,7 @@
 use std::sync::Arc;
 
 use lumen_core::midi::{Kind, Msg};
-use lumen_engine::{KEYBOARD, LiveIn, LiveInput};
+use lumen_engine::{AUDITION, INPUT_SLOTS, KEYBOARD, LiveIn, LiveInput};
 use lumen_midi::Timed;
 
 use crate::midi_out::{StreamClock, frame_ns};
@@ -111,6 +111,8 @@ impl FrameMap {
 #[derive(Debug, Clone, Copy)]
 struct Keyed {
     nanos: i64,
+    /// For the piano roll's audition: the track it sounds on.
+    track: Option<u64>,
     msg: Msg,
 }
 
@@ -125,8 +127,18 @@ pub struct LiveKeys {
 impl LiveKeys {
     /// Sends `msg` as played now. False if the queue is full.
     pub fn send(&mut self, msg: Msg) -> bool {
+        self.push(None, msg)
+    }
+
+    /// Sends `msg` as an audition on `track` (M5 slice 3d): it sounds
+    /// there whether or not the track listens, and has notes of its own.
+    pub fn send_to(&mut self, track: u64, msg: Msg) -> bool {
+        self.push(Some(track), msg)
+    }
+
+    fn push(&mut self, track: Option<u64>, msg: Msg) -> bool {
         let nanos = self.clock.now();
-        let sent = self.tx.push(Keyed { nanos, msg }).is_ok();
+        let sent = self.tx.push(Keyed { nanos, track, msg }).is_ok();
         if sent {
             self.sent = self.sent.wrapping_add(1);
         }
@@ -155,7 +167,7 @@ pub struct LiveFeed {
     keys: rtrb::Consumer<Keyed>,
     clock: Arc<StreamClock>,
     frames: FrameMap,
-    stamps: [StampMap; KEYBOARD as usize],
+    stamps: [StampMap; INPUT_SLOTS as usize],
     /// Sorted by frame; `len` used.
     pending: [LiveIn; PENDING],
     len: usize,
@@ -167,6 +179,7 @@ pub fn live(input: Option<rtrb::Consumer<Timed>>, clock: Arc<StreamClock>) -> (L
     let empty = LiveIn {
         frame: 0,
         source: 0,
+        track: None,
         msg: Msg::default(),
     };
     (
@@ -175,7 +188,7 @@ pub fn live(input: Option<rtrb::Consumer<Timed>>, clock: Arc<StreamClock>) -> (L
             keys,
             clock: Arc::clone(&clock),
             frames: FrameMap::new(),
-            stamps: [StampMap::default(); KEYBOARD as usize],
+            stamps: [StampMap::default(); INPUT_SLOTS as usize],
             pending: [empty; PENDING],
             len: 0,
         },
@@ -231,7 +244,8 @@ impl LiveInput for LiveFeed {
         });
         if let Some(mut input) = self.input.take() {
             while let Ok(timed) = input.pop() {
-                let Some(source) = u8::try_from(timed.slot).ok().filter(|s| *s < KEYBOARD) else {
+                let Some(source) = u8::try_from(timed.slot).ok().filter(|s| *s < INPUT_SLOTS)
+                else {
                     continue;
                 };
                 let msg = Msg(timed.message.bytes);
@@ -244,7 +258,15 @@ impl LiveInput for LiveFeed {
                     continue;
                 }
                 let frame = self.place(played, block, start);
-                self.queue(LiveIn { frame, source, msg }, take);
+                self.queue(
+                    LiveIn {
+                        frame,
+                        source,
+                        track: None,
+                        msg,
+                    },
+                    take,
+                );
             }
             self.input = Some(input);
         }
@@ -256,7 +278,12 @@ impl LiveInput for LiveFeed {
             self.queue(
                 LiveIn {
                     frame,
-                    source: KEYBOARD,
+                    source: if keyed.track.is_some() {
+                        AUDITION
+                    } else {
+                        KEYBOARD
+                    },
+                    track: keyed.track,
                     msg: keyed.msg,
                 },
                 take,

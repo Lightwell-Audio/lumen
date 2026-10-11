@@ -16,6 +16,19 @@ use crate::launch::Launch;
 use crate::timeview::TimeView;
 use crate::{App, files, settings};
 
+/// A note edit for tests (`App::edit_notes`).
+#[derive(Debug, Clone, Copy)]
+pub enum NoteEdit {
+    Move {
+        time: Ticks,
+        pitch: i32,
+    },
+    Delete,
+    Mute(bool),
+    /// Lengthens the end by this much.
+    Lengthen(Ticks),
+}
+
 impl Launch {
     /// A clean start for a test: default settings that are never saved,
     /// autosaves in `dir/autosave`, and the silent test device.
@@ -195,6 +208,54 @@ impl App {
     /// Plays `msg` live, as the computer keyboard does (M5 slice 2).
     pub fn play_live(&mut self, msg: lumen_core::midi::Msg) -> bool {
         self.play_key(msg)
+    }
+
+    /// Previews `pitch` on `track` as the piano roll does (M5 slice 3d).
+    pub fn audition(&mut self, track: Id, pitch: u8, velocity: u8) -> bool {
+        self.audition_play(track, pitch, velocity)
+    }
+
+    /// Lets go of the preview (the end of a gesture).
+    pub fn release_audition(&mut self) {
+        self.audition_release();
+    }
+
+    /// Whether a previewed note is sounding.
+    pub fn audition_sounding(&self) -> bool {
+        self.audition.is_sounding()
+    }
+
+    /// Turns the piano roll's audition on or off, in the settings.
+    pub fn set_audition_setting(&mut self, on: bool) {
+        self.settings.midi.audition = on;
+    }
+
+    /// Edits the notes of a clip as the piano roll will (M5 slice 3a's
+    /// `Document` methods), for tests of notes committed while playing.
+    pub fn edit_notes(&mut self, clip: Id, selection: &[usize], edit: NoteEdit) {
+        use crate::document::{End, Resize};
+        let base = self.document.project().clone();
+        match edit {
+            NoteEdit::Move { time, pitch } => {
+                self.document
+                    .move_notes(&base, clip, selection, time, pitch, None);
+            }
+            NoteEdit::Delete => {
+                self.document.delete_notes(clip, selection);
+            }
+            NoteEdit::Mute(muted) => {
+                self.document.mute_notes(clip, selection, Some(muted));
+            }
+            NoteEdit::Lengthen(by) => {
+                let resize = Resize {
+                    end: End::End,
+                    by,
+                    min: Ticks::ZERO,
+                };
+                self.document
+                    .resize_notes(&base, clip, selection, resize, None);
+            }
+        }
     }
 
     /// Whether the computer keyboard mode is on (M5 slice 2).

@@ -5,7 +5,7 @@
 use lumen_core::midi::{Event, Msg, cc};
 
 use super::hold::{self, Clock, MAX_EVENTS};
-use super::live::{LiveIn, LiveInput};
+use super::live::{AUDITION, LiveIn, LiveInput};
 use super::{MidiOut, MidiTrack, Target};
 use crate::mixer::{Buses, CHUNK, TrackSource};
 use crate::source::{Jump, Mode, RenderContext};
@@ -212,10 +212,19 @@ impl MidiPlayer {
         };
         let tracks = &mut self.current.tracks;
         let last = frames.saturating_sub(1) as u64;
+        let last32 = last as u32;
         live.pull(start, start + frames as u64, &mut |m: LiveIn| {
             let offset = m.frame.saturating_sub(start).min(last) as u32;
             for track in tracks.iter_mut() {
-                if !track.sounds() || !track.listen.takes(m.source, m.msg) {
+                if !track.sounds() {
+                    continue;
+                }
+                let heard = if m.source == AUDITION {
+                    m.track == Some(track.id) && m.msg.0[0] & 0xF0 != 0xF0
+                } else {
+                    track.listen.takes(m.source, m.msg)
+                };
+                if !heard {
                     continue;
                 }
                 let out = match track.target {
@@ -223,6 +232,7 @@ impl MidiPlayer {
                     Target::Instrument => None,
                 };
                 if let Some(msg) = track.state.live.take(m.source, m.msg, out) {
+                    let offset = apart_from_its_on(&mut track.state.events, msg, offset, last32);
                     track.state.push(Event { offset, msg });
                 }
             }
@@ -357,6 +367,31 @@ impl MidiPlayer {
         if ports {
             self.out.push(MidiOut::Flush);
         }
+    }
+}
+
+/// Where a live note-off goes. Events on one frame are ordered offs before
+/// ons (so a retriggered note ends before it starts), which would leave a
+/// note that was played and let go within one frame sounding: its off is
+/// placed one frame after its on (or the on one frame before, at the end of
+/// the part).
+fn apart_from_its_on(events: &mut [Event], msg: Msg, offset: u32, last: u32) -> u32 {
+    let lumen_core::midi::Kind::NoteOff { key, .. } = msg.kind() else {
+        return offset;
+    };
+    let on = events.iter_mut().rev().find(|e| {
+        e.offset >= offset
+            && e.msg.channel() == msg.channel()
+            && matches!(e.msg.kind(), lumen_core::midi::Kind::NoteOn { key: k, .. } if k == key)
+    });
+    let Some(on) = on else {
+        return offset;
+    };
+    if on.offset < last {
+        on.offset + 1
+    } else {
+        on.offset = last.saturating_sub(1);
+        last
     }
 }
 
