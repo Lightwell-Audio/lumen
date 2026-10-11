@@ -61,7 +61,7 @@ pub fn slice(project: &Project, tempo: &TempoMap, clip: &Clip, a: Ticks, b: Tick
                         (n.start() + n.length()).min(cut + part.length),
                     );
                     (from < to && n.start() >= cut)
-                        .then(|| Note(from - cut, to - from, n.pitch(), n.velocity()))
+                        .then(|| Note(from - cut, to - from, n.pitch(), n.velocity(), n.muted()))
                 })
                 .collect();
             shift_events(events, cut, part.length);
@@ -259,6 +259,7 @@ fn shift_notes(notes: &mut Vec<Note>, by: Ticks, length: Ticks) {
                     n.length().min(length - start),
                     n.pitch(),
                     n.velocity(),
+                    n.muted(),
                 )
             })
         })
@@ -523,7 +524,7 @@ mod tests {
         let p = song();
         let mut clip = (*p.tracks[1].clips[0]).clone();
         clip.content = ClipContent::Midi {
-            notes: vec![Note(q(1), q(1), 60, 100), Note(q(5), q(2), 62, 90)],
+            notes: vec![Note::new(q(1), q(1), 60, 100), Note::new(q(5), q(2), 62, 90)],
             events: vec![
                 ClipEvent {
                     at: q(1),
@@ -539,7 +540,7 @@ mod tests {
         assert_eq!(
             part.content,
             ClipContent::Midi {
-                notes: vec![Note(q(1), q(1), 62, 90)],
+                notes: vec![Note::new(q(1), q(1), 62, 90)],
                 events: vec![ClipEvent {
                     at: q(1),
                     kind: EventKind::Pressure { value: 20 },

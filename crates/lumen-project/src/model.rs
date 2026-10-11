@@ -583,11 +583,16 @@ impl EventKind {
 }
 
 /// A note, written as `[start, length, pitch, velocity]` to keep large clips
-/// readable and compact. `start` is relative to the clip.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Note(pub Ticks, pub Ticks, pub u8, pub u8);
+/// readable and compact; a muted note (format v14) has a fifth element,
+/// `true`. `start` is relative to the clip. Build one with [`Note::new`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Note(pub Ticks, pub Ticks, pub u8, pub u8, pub bool);
 
 impl Note {
+    /// An unmuted note.
+    pub fn new(start: Ticks, length: Ticks, pitch: u8, velocity: u8) -> Self {
+        Note(start, length, pitch, velocity, false)
+    }
     pub fn start(self) -> Ticks {
         self.0
     }
@@ -599,6 +604,46 @@ impl Note {
     }
     pub fn velocity(self) -> u8 {
         self.3
+    }
+    /// Whether the note is switched off: it stays in the clip, but is not
+    /// played.
+    pub fn muted(self) -> bool {
+        self.4
+    }
+    /// Where the note ends.
+    pub fn end(self) -> Ticks {
+        self.0 + self.1
+    }
+}
+
+impl Serialize for Note {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeTuple;
+        let mut t = s.serialize_tuple(if self.4 { 5 } else { 4 })?;
+        t.serialize_element(&self.0)?;
+        t.serialize_element(&self.1)?;
+        t.serialize_element(&self.2)?;
+        t.serialize_element(&self.3)?;
+        if self.4 {
+            t.serialize_element(&true)?;
+        }
+        t.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Note {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        /// Four elements, or five with the mute flag.
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Form {
+            Plain(Ticks, Ticks, u8, u8),
+            Muted(Ticks, Ticks, u8, u8, bool),
+        }
+        Ok(match Form::deserialize(d)? {
+            Form::Plain(a, b, c, v) => Note(a, b, c, v, false),
+            Form::Muted(a, b, c, v, m) => Note(a, b, c, v, m),
+        })
     }
 }
 

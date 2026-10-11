@@ -80,8 +80,8 @@ fn golden_v1_expected() -> Project {
         loop_length: None,
         content: ClipContent::Midi {
             notes: vec![
-                Note(Ticks::ZERO, Ticks(PPQ / 4), 36, 100),
-                Note(Ticks(PPQ / 3), Ticks(PPQ / 4), 43, 90),
+                Note::new(Ticks::ZERO, Ticks(PPQ / 4), 36, 100),
+                Note::new(Ticks(PPQ / 3), Ticks(PPQ / 4), 43, 90),
             ],
             events: Vec::new(),
         },
@@ -438,6 +438,56 @@ fn golden_v13_file_loads_forever() {
     }
     let project = load(&path).expect("v13 golden file must load");
     assert_eq!(project, golden_v13_expected());
+}
+
+/// The model the v14 golden file must always load as: v13 with the first
+/// note of the MIDI clip muted.
+fn golden_v14_expected() -> Project {
+    let mut project = Project {
+        name: "Golden v14".into(),
+        ..golden_v13_expected()
+    };
+    let track = project
+        .tracks
+        .iter_mut()
+        .find(|t| {
+            t.clips
+                .iter()
+                .any(|c| matches!(c.content, ClipContent::Midi { .. }))
+        })
+        .expect("the golden project has a MIDI clip");
+    for clip in &mut Arc::make_mut(track).clips {
+        if let ClipContent::Midi { notes, .. } = &mut Arc::make_mut(clip).content {
+            notes[0].4 = true;
+        }
+    }
+    project
+}
+
+#[test]
+fn golden_v14_file_loads_forever() {
+    let path = fixture("v14/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        // Written once, when version 14 was introduced; never rewritten.
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v14_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v14 golden file must load");
+    assert_eq!(project, golden_v14_expected());
+}
+
+#[test]
+fn a_muted_note_is_written_with_a_fifth_element_and_others_as_before() {
+    let text = String::from_utf8(to_bytes(&golden_v14_expected()).unwrap()).unwrap();
+    let flat: String = text.split_whitespace().collect();
+    assert!(flat.contains("[0,352800,36,100,true]"), "muted note");
+    assert!(flat.contains("[470400,352800,43,90]"), "plain note");
+    // And the v13 file, which has no fifth element, loads unmuted.
+    let old = load(&fixture("v13/golden.lumen")).unwrap();
+    assert!(old.tracks.iter().flat_map(|t| &t.clips).all(|c| match &c.content {
+        ClipContent::Midi { notes, .. } => notes.iter().all(|n| !n.muted()),
+        _ => true,
+    }));
 }
 
 #[test]
