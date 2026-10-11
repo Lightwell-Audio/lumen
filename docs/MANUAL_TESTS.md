@@ -1975,3 +1975,69 @@ size and driver; whether the MIDI To menu's sixteen channel rows are too long
 to use comfortably (a compact grid would need a mock-up first); any stuck
 note or click.
 
+
+### MT-MIDI-3 · Playing live (needs a human; a MIDI keyboard for steps 1–6, or loopMIDI)
+Slice 2 of M5 (ADR-0046). **Status: waits for the owner.** In PowerShell,
+from the repository root:
+
+```powershell
+cargo run --release -p lumen-app -- tests\projects\midi-demo.lumen
+```
+
+1. **The chip.** At the right of the transport bar, beside the magnifier,
+   is a small round MIDI socket with two lights (IN above, OUT below).
+   Click it: a list of every MIDI input and output, each with its own
+   light and **Track** / **Remote** pills, then **MIDI settings…**. Plug in
+   your keyboard and switch its **Track** pill on. The chip's tooltip and
+   name say how many inputs and outputs are on.
+2. **Play the selected track.** Click the **Chords** track's name and play
+   your keyboard: you hear the Poly synth. The arm button shows a hollow
+   red ring (hover: "Listening because selected"), a small light after the
+   name flashes with each note, and so do the chip's IN light and your
+   keyboard's row in the popover. Select **Bass** and play: the bass sound,
+   and Chords stays dark. Select an audio track (add one with Ctrl+T): your
+   keyboard plays nothing.
+3. **Timing.** Play a fast, even phrase (sixteenths at 120 BPM) on a held
+   rhythm. It should feel as tight as in your other DAW, with no flamming
+   or wobble at your usual buffer size. Note the buffer size and how it
+   feels; try 256 and 1024 too.
+4. **Layering and Monitor.** Arm **Lead** (its record button), select
+   Chords and play: both sound. Right-click Chords: **MIDI From ▸** and a
+   **Monitor** row (In · Auto · Off). Choose Off: Chords is silent even
+   when selected. Choose In, then select another track: Chords still
+   plays. Back to Auto. Ctrl+Z undoes each change.
+5. **MIDI From.** On Chords choose **MIDI From ▸ <your keyboard> ▸
+   Channel 2** (set your keyboard to send on channel 1): silent; change
+   your keyboard to channel 2: it plays. Choose **Computer keyboard**: your
+   hardware keyboard no longer plays it. Back to **All inputs**.
+6. **Nothing hangs.** Hold a chord and, while holding: press Space twice
+   (play, stop) — the chord keeps sounding until you let go; click another
+   track — the chord stops at once on the old one; set Monitor to Off —
+   it stops; unplug the keyboard — nothing keeps sounding. Plug it back:
+   its row comes back, Track still on.
+7. **The computer keyboard.** Press **Ctrl+Shift+K**: the keycap button
+   after Follow lights and, in a wide window, `C3–C4 · vel 100` sits
+   beside it; the info line along the bottom shows A–K, Z X, C V, Esc.
+   Select Chords and press A S D F (C D E F), W and E (black keys). Hold A,
+   press X, let go of A: the note stops and the next A is an octave
+   higher. C and V change the velocity. H, W, X, Z play or move the octave
+   instead of zooming; Ctrl+D, Space and the arrows still work. Esc leaves
+   the mode; hold a note and Alt+Tab away: it stops. Rename a track (F2)
+   while the mode is on: typing plays nothing.
+8. **MIDI To.** On the **Hardware** track, select it and play: your notes
+   go to the Windows GS synth (OUT on the chip flashes, and that output's
+   row). Ctrl+Z restores anything you changed.
+9. **The mixer.** Open the Mixer tab: MIDI strips show **From** and **To**
+   rows above the output; each opens the same choices.
+10. **The narrowest window.** Make the window as small as it goes (960 ×
+    540 points): the position (bars and time) shows whole, the audio dot
+    and the MIDI chip stay; the CPU readout, device text and keyboard
+    readout give way (the keyboard readout moves to the info line). In this
+    width the bar is compact: buttons 4 pt apart, the tempo without "BPM",
+    no divider before the audio dot (judge whether this reads well).
+11. **Idle.** Leave an input switched on and play nothing for a minute:
+    Task Manager shows Lumen near 0% CPU.
+12. **Save and reopen.** Save, close and reopen: MIDI From and Monitor are
+    kept; the computer keyboard mode is off again.
+13. **Themes and scale.** Light theme and 150% / 200% interface size: the
+    chip, popover, header lights, hollow ring and menus look right.

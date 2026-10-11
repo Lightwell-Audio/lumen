@@ -2,7 +2,7 @@
 
 ## Status
 
-**Current milestone:** 5 - MIDI and the piano roll (plan: [milestones/M5.md](milestones/M5.md)), approved 2026-10-10. **Slices 0 and 1 are built**: the device layer and format v11, then MIDI you can hear (the event path, the built-in synth, MIDI To, format v12; ADR-0045). MT-MIDI-1 and MT-MIDI-2 wait for the owner. Next: slice 2 (playing live: MIDI From, monitoring, the computer keyboard).
+**Current milestone:** 5 - MIDI and the piano roll (plan: [milestones/M5.md](milestones/M5.md)), approved 2026-10-10. **Slices 0, 1 and 2 are built**: the device layer and format v11, then MIDI you can hear (the event path, the built-in synth, MIDI To, format v12; ADR-0045), then playing live (live input in the engine, MIDI From and Monitor in format v13, the computer keyboard, the MIDI chip and header lights; ADR-0046). MT-MIDI-1, MT-MIDI-2 and MT-MIDI-3 wait for the owner. Next: slice 3 (MIDI clips and the piano roll).
 **Before it:** 4.5 — Polish pass, a mid milestone before M5
 (plan: [milestones/M4.5.md](milestones/M4.5.md)), approved 2026-10-10
 from the interface audit's mock-ups. **All six slices built**; every audit
@@ -29,7 +29,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 3 | Arrangement & Project System | ✅ Complete, approved 2026-10-09 | Plan: `docs/milestones/M3.md` |
 | 4 | Mixer, Routing & Groups | ✅ Complete 2026-10-10 (review fixes merged, PR #3) | Plan: `docs/milestones/M4.md` |
 | 4.5 | Polish pass (mid milestone: the interface audit's fixes) | 🟡 Built 2026-10-10; MT-POL-5 and 6 wait | Plan: `docs/milestones/M4.5.md`; audit: `docs/audits/2026-10-10-design.md` |
-| 5 | MIDI & Piano Roll | 🟡 Approved 2026-10-10; slices 0 and 1 built | Plan: `docs/milestones/M5.md` |
+| 5 | MIDI & Piano Roll | 🟡 Approved 2026-10-10; slices 0, 1 and 2 built | Plan: `docs/milestones/M5.md` |
 | 6 | VST3 Hosting & Device System | 🔲 | |
 | 7 | Automation, Envelopes & Advanced Editing | 🔲 | |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | |
@@ -43,6 +43,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 |---|---|---|---|
 | 0 | MIDI devices and the model: `lumen-midi` (midir), the MIDI page of the settings, format v11 (controller, bend, pressure and program events in clips); ADR-0044 | ✅ Built 2026-10-10; MT-MIDI-1 waits for the owner (needs a MIDI device) | `32a751a`, `5fa36c3` |
 | 1 | Hearing MIDI (ADR-0045): **1a** the event path in the engine (sample-exact events, the note tracker, chase, every release case, hardware queue); **1b** the built-in synth in the new `lumen-devices` crate (five presets), format v12 (instrument device and MIDI To on the track), `set_instrument` and `set_midi_to`, the track menu's Instrument and MIDI To, palette commands; **1c** MIDI To timing and its tests; **1d** Panic, E2E (11 scenarios), the demo project for MT-MIDI-2, perf scenario `engine_synth_64`, records | ✅ Built 2026-10-10; MT-MIDI-2 waits for the owner | `19babb4`, `d1a0761`, `22ac950`, `25b48a5`, `b856d79` |
+| 2 | Playing live (ADR-0046; owner's L A, J A, C B, K A, H B, R A from the "MIDI: Playing Live" canvas): **2a** live input through the engine, placed one block after it was played (`LiveInput`, `Listen`, a live note tracker; `live.rs` maps driver stamps to frames); **2b** format v13 (`midi_from`, `monitor`), who listens (the selected MIDI track, as Ableton's auto-arm, plus armed tracks), the track menu's MIDI From and Monitor, the mixer strip's From and To, the hollow ring; **2c** the computer keyboard (Ctrl+Shift+K, lit keycap and readout, info line); **2d** the MIDI chip, its popover and activity counted at the source; **2e** header lights, the driver waking the UI (no polling), E2E that the keyboard is heard, the design sweep (`shots::live_sweep`); then the transport bar fitting 960 × 540 by a set order (`transport/fit.rs`). Built by Sonnet agents in worktrees, reviewed and merged. 9 engine tests, 5 feed tests, E2E `midi_from`, `keyboard`, `midi_chip`, `live_lights`, `barfit` | ✅ Built 2026-10-11; MT-MIDI-3 waits for the owner | `015c23d`, `456b914`, `040191d`, `b41cb2a`, `d3ddee1`, `d209702` |
 
 ## Milestone 4.5 slices
 
@@ -254,7 +255,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Test tone, CPU load, dropout counter, Audio On/Off | M | ✅ All four in the audio panel (M2 slice 7, ADR-0020); test tone also in the audio settings window (slice 8) | 2 |
 | ASIO control panel; driver resets and rate/buffer changes without losing the session; busy/missing messages | M | ✅ Control panel button; resets (MT-AUDIO-2); busy, lost and failed banners with Try again / Audio settings; missing saved device falls back with a notice; a device that fails to start returns to the previous one. MT-APP-6 passes | 2 |
 | Runtime changes never crash; restore a working configuration; persisted settings | M | ✅ Driver and device switches at run time move the engine to a fresh control thread; refused changes revert with the reason; settings saved atomically once a setup works. MT-APP-6 passes | 2 |
-| MIDI devices: enable toggles, hot-plug, per-track MIDI From/To, virtual ports | M | 🟡 Device layer and the MIDI page of the settings are built (M5 slice 0, ADR-0044): inputs and outputs listed, Track and Remote switches saved, hot-plug and replug, opened off the UI thread, a busy port says so. **MIDI To** per track is built (slice 1, ADR-0045: a port and channel from the track menu, timed against the audio clock, outputs switched on automatically; tested on the fake backend, hardware timing unverified). MIDI From in slice 2; virtual ports are not built (WinMM has none; recorded in KNOWN_ISSUES) | 5 |
+| MIDI devices: enable toggles, hot-plug, per-track MIDI From/To, virtual ports | M | 🟡 Device layer and the MIDI page of the settings are built (M5 slice 0, ADR-0044): inputs and outputs listed, Track and Remote switches saved, hot-plug and replug, opened off the UI thread, a busy port says so. **MIDI To** per track is built (slice 1, ADR-0045: a port and channel from the track menu, timed against the audio clock, outputs switched on automatically; tested on the fake backend, hardware timing unverified). **MIDI From** per track (all inputs, the computer keyboard, or a port and channel) and Monitor In/Auto/Off are built (slice 2, ADR-0046), with the MIDI chip's popover for quick switches; virtual ports are not built (WinMM has none; recorded in KNOWN_ISSUES) | 5 |
 
 ## §6.10 Projects, media and export
 
@@ -296,10 +297,10 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Audio recording with monitoring, multitrack, input meters | M | 🔲 |
 | Latency compensation with manual offset; crash-safe capture | M | 🔲 |
 | MIDI recording: overdub/replace, count-in, punch | M | 🔲 |
-| Computer keyboard as MIDI input | M | 🔲 |
+| Computer keyboard as MIDI input | M | 🟡 Built in M5 slice 2 (ADR-0046): Ableton's layout in a mode (Ctrl+Shift+K), octave and velocity keys, lit transport button and readout; E2E hears it. MT-MIDI-3 waits |
 | Loop recording into takes; capture MIDI | S | 🔲 |
 | Piano roll, velocity and controller lanes, quantize, humanize, transpose, legato | M | 🔲 |
-| MIDI thru, channel filter, panic, sustain/bend/aftertouch, program/bank | M | 🟡 Panic, sustain, bend, pressure and program done (slice 1); thru and channel filter in slice 2 |
+| MIDI thru, channel filter, panic, sustain/bend/aftertouch, program/bank | M | 🟡 Panic, sustain, bend, pressure and program done (slice 1); thru (to the instrument or the MIDI To port) and the channel filter in MIDI From done (slice 2, ADR-0046). Real-controller timing unverified (MT-MIDI-3) |
 | SMF import/export; MIDI learn | M | 🔲 |
 | Drum maps, drum editor, step sequencer | M | 🔲 |
 | MIDI effects; on-screen keyboard | S | 🔲 |

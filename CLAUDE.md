@@ -390,7 +390,29 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-10: **M5 (MIDI and the piano roll) is approved and
+**Last updated:** 2026-10-11: **M5 slice 2 (playing live) is built** on
+`m5-midi` (ADR-0046; owner's L A, J A, C B, K A, H B, R A and Ctrl+Shift+K,
+chosen on the "MIDI: Playing Live" design canvas). Live input reaches the
+engine through `LiveInput` (`lumen-engine/src/midi/live.rs`: `Listen`, a
+live note tracker; stop and jumps leave live notes alone) and the app's
+`LiveFeed` (`live.rs`: driver stamps to device frames, one block later;
+`RenderContext::device`); **format v13** (`Track::midi_from`,
+`Track::monitor`); who listens is `midi_play::listening` (selected or armed
+MIDI tracks, Monitor Auto); the computer keyboard (`app/keyboard.rs`); the
+MIDI chip (`transport/midi_chip.rs`; activity counted in `lumen-midi`, the
+driver wakes the UI, never poll); header lights
+(`arrangement/listen_light.rs`); the transport bar's room rule
+(`transport/fit.rs`: say where a new bar control falls in its order). The
+slice was built by **Sonnet agents in worktrees** (the owner's request:
+orchestrate with Sonnet), reviewed and merged here; worktrees build their
+own `target/`, so watch the disk (`.claude/worktrees/` is excluded in
+`.git/info/exclude`). The perf gate reads ~+5% high in this cloud sandbox
+(Ubuntu 24.04 glibc); trust CI's 26.04 container. MT-MIDI-3 waits for the
+owner, after MT-MIDI-1 and 2. Next: slice 3 (MIDI clips and the piano roll),
+specimens first; the "MIDI Clips & Editing" canvas holds earlier
+explorations for it.
+
+Before it, 2026-10-10: **M5 (MIDI and the piano roll) is approved and
 under way** on `m5-midi` (plan `docs/milestones/M5.md`; owner choices: C1 a
 small built-in synth plus MIDI out, C2 the detail panel's Clip tab *and* a
 way to pop the piano roll out into its own window, C3 Ableton's keyboard
@@ -653,7 +675,7 @@ escapes and quotes several times.
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
 - **M4.5 Polish pass: built 2026-10-10; slices 1–4 done, slices 5 and 6
-  built (MT-POL-5 and MT-POL-6 wait).** M5 under way: slices 0 and 1 built (`docs/milestones/M5.md`).
+  built (MT-POL-5 and MT-POL-6 wait).** M5 under way: slices 0, 1 and 2 built (`docs/milestones/M5.md`).
 - **M4 Mixer, Routing & Groups: complete 2026-10-10**; the review's fixes
   are merged (PR #3).
 - **M3 Arrangement & Project System: complete, approved 2026-10-09.** Slices 1–3 done:

@@ -3910,11 +3910,37 @@ with a quick way to switch ports.
   `motion::NOTE`). Its popover lists every port with its own light and
   Track and Remote pills that act through the settings page's own path,
   unplugged ports dimmed with "not connected", and "MIDI settings…".
-- **Header lights (H B).** See the slice 2e notes below.
+- **Header lights (H B).** A light right after the name of each MIDI track
+  that listens flashes (BEAM, `light::flash`) when any source its MIDI From
+  takes shows traffic. A listening track keeps a fixed 9 pt for it, so a
+  name never shifts with a flash; tracks that do not listen keep no room
+  and never light. The channel filter is ignored for the light.
+- **No polling for lights.** The driver callback wakes the UI
+  (`MidiSystem::start_with_waker`, `ctx.request_repaint`) after counting a
+  channel message; lights repaint only while they fade, so idle stays idle
+  with inputs switched on (E2E `live_lights`).
+- **The transport bar fits 960 × 540** (`transport/fit.rs`): the bar
+  measures its essentials each frame and optional pieces take what is left
+  in a set order, first to go first: the device text, the keyboard readout
+  (to the info line), the CPU readout, the compensation readout, the
+  dropout chip (the dot turns amber), then a compact layout (4 pt spacing,
+  the tempo without "BPM", no divider before the dot). The position field,
+  the audio dot and the MIDI chip always show (E2E `barfit`). The compact
+  layout was not mocked up first; MT-MIDI-3 step 10 asks the owner to
+  judge it.
 
 ### Consequences
 - Engine tests (`tests/live.rs`, 9) and the allocation guard over live
   input with list swaps and a feed replaced mid-run; feed tests for the
   steady spacing under late callbacks, the bounds, stale notes and bad
   stamps; E2E for listening, MIDI From, Monitor, the keyboard, the chip.
+- Built by Sonnet agents in separate worktrees (2b, 2c and 2d in
+  parallel, then 2e, then two fix-ups), each reviewed and merged with the
+  full suite run before every push.
+- Perf gate: slice 2b adds +0.70% to `project_parse` (two optional fields;
+  callgrind shows the cost in serde_json's map building, not in Lumen's
+  code), under the gate. Measured in an Ubuntu 24.04 sandbox, every
+  scenario reads high against the baseline recorded on 26.04 (+5.3% for
+  `project_parse` at the baseline's own commit, from glibc's allocator), so
+  the CI container is the authority; the baseline was not changed.
 - Unverified: timing with a real controller (MT-MIDI-3).
