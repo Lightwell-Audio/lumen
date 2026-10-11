@@ -13,6 +13,7 @@
 //! the notes follow the pointer meanwhile as a preview. Escape cancels.
 
 pub(crate) mod gesture;
+pub(crate) mod lane;
 mod ops;
 pub(crate) mod paint;
 pub(crate) mod ui;
