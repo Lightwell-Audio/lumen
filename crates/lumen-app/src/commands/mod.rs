@@ -303,9 +303,9 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::LaneModWheel, "midi.lane_mod_wheel", "Mod wheel lane", Area::Midi, &[], "Shows the mod wheel (controller 1) in the lane under the clip editor."),
     info(Command::LanePitchBend, "midi.lane_pitch_bend", "Pitch bend lane", Area::Midi, &[], "Shows pitch bend in the lane under the clip editor."),
     info(Command::LanePressure, "midi.lane_pressure", "Pressure lane", Area::Midi, &[], "Shows channel pressure (aftertouch) in the lane under the clip editor."),
-    info(Command::LanePencil, "midi.lane_pencil", "Lane pencil", Area::Midi, &[], "Draws values freehand in the lane. A click sets one value."),
-    info(Command::LaneLine, "midi.lane_line", "Lane line", Area::Midi, &[], "Draws a straight line between two values in the lane."),
-    info(Command::LaneCurve, "midi.lane_curve", "Lane curve", Area::Midi, &[], "Draws a line in the lane, then drag its dot to bend it."),
+    info(Command::LanePencil, "midi.lane_pencil", "Lane pencil", Area::Midi, &[plain(Key::Num1)], "Draws values freehand in the lane. A click sets one value."),
+    info(Command::LaneLine, "midi.lane_line", "Lane line", Area::Midi, &[plain(Key::Num2)], "Draws a straight line between two values in the lane."),
+    info(Command::LaneCurve, "midi.lane_curve", "Lane curve", Area::Midi, &[plain(Key::Num3)], "Draws a line in the lane, then drag its dot to bend it."),
     info(Command::RaiseVelocity, "midi.raise_velocity", "Raise velocity", Area::Midi, &[], "Raises the velocity of the selected notes by 8."),
     info(Command::LowerVelocity, "midi.lower_velocity", "Lower velocity", Area::Midi, &[], "Lowers the velocity of the selected notes by 8."),
 ];

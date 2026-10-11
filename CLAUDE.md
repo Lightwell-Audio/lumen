@@ -390,7 +390,36 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-11: **M5 slice 3 (MIDI clips and the piano
+**Last updated:** 2026-10-11: **M5 slice 4 (velocity and controller lanes)
+is built** on `m5-midi` (ADR-0050; the owner took every recommendation from
+the live "Lumen Controller Lane Specimens" artifact: V A stems with round
+heads, L A one lane with a tab switcher, T A Pencil, Line and Curve in the
+lane's header, R B a 1/64 event density for Line, Curve and bend with the
+Pencil on the grid; plan `docs/milestones/M5-slice4.md`). **No format change**
+(v14; controller events have been in clips since v11). Pure edits:
+`lumen_project::edit::velocity` and `edit::events` (a drawn line is plain
+events, only repeated values dropped: MIDI has no ramps); undoable
+`Document` methods in `document/lanes.rs` (`Drag`, `Line`, `Shift` structs;
+one undo step per gesture, the document changes on release as for notes);
+the lane itself is `note_editor/lane/` (`geometry`, pure `gesture`, `paint`,
+`ui`, state in `mod.rs`), under the roll with its own tabs and tools, sharing
+the roll's time view; ten palette commands (the tools on keys 1, 2, 3, which
+work whenever a clip is open; Shift in the lane starts a box rather than
+drawing a line, to confirm with the owner), Delete removes picked lane points
+when the lane was the last place pressed. Engine golden check for controller
+and bend timing: `tests/midi.rs`
+`drawn_controllers_and_bends_land_on_their_exact_sample_in_order`. E2E
+`lanes` (18 scenarios), shot `clip_lane`. **Frame times with the 100,000-note
+clip and the lane open are not measured here** (see below); MT-MIDI-5 waits.
+Built by **Haiku subagents** under the new delegation policy
+(`.claude/skills/references/delegation.md`: the parent specifies, integrates
+and verifies; Haiku for bounded work), the parent wrote the UI wiring. In a
+Linux cloud container, install `libasound2-dev libudev-dev pkg-config` to
+build, `mesa-vulkan-drivers` for GPU tests and shots, and `xvfb`,
+`libxkbcommon-x11-0` to run the smoke tests under `xvfb-run -a`. Next: slice 5
+(quantize and its tools), specimens first; the owner's MT-MIDI-5 (and 4).
+
+Before it, 2026-10-11: **M5 slice 3 (MIDI clips and the piano
 roll) is built** on `m5-midi` (ADR-0047; the owner's Look A studio keys,
 Draw A click-adds-then-drag-length, Live A preview-then-commit, chosen from
 the "Lumen Piano Roll Specimens" artifact; plan `docs/milestones/M5-slice3.md`).
@@ -408,8 +437,7 @@ editor's state is lifted out of `App` during a gesture. `--bench-editor`
 measures with the 100,000-note clip open: p99 at most 1.82 ms at
 1600 × 900 and 2.22 ms at 3440 × 1380, idle 3 repaints in 3 s. Built by Sonnet agents in worktrees
 (created from `main`: reset them to `m5-midi` first), merged here.
-MT-MIDI-4 waits for the owner. Next: slice 4 (velocity and controller
-lanes), specimens first.
+MT-MIDI-4 waits for the owner.
 
 Before it, 2026-10-11: **M5 slice 2 (playing live) is built** on
 `m5-midi` (ADR-0046; owner's L A, J A, C B, K A, H B, R A and Ctrl+Shift+K,
@@ -696,7 +724,7 @@ escapes and quotes several times.
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
 - **M4.5 Polish pass: built 2026-10-10; slices 1–4 done, slices 5 and 6
-  built (MT-POL-5 and MT-POL-6 wait).** M5 under way: slices 0 to 3 built (`docs/milestones/M5.md`).
+  built (MT-POL-5 and MT-POL-6 wait).** M5 under way: slices 0 to 4 built (`docs/milestones/M5.md`).
 - **M4 Mixer, Routing & Groups: complete 2026-10-10**; the review's fixes
   are merged (PR #3).
 - **M3 Arrangement & Project System: complete, approved 2026-10-09.** Slices 1–3 done:

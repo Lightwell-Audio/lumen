@@ -459,3 +459,15 @@ fn a_box_in_the_velocity_lane_picks_the_notes_of_the_stems_it_holds() {
     lumen.drag(at(&lumen, 1.5, 120), at(&lumen, -0.2, 90), Modifiers::SHIFT);
     assert_eq!(lumen.app().editor_picked(), [0, 1]);
 }
+
+#[test]
+fn the_number_keys_choose_the_lane_tool() {
+    let mut lumen = launch("lane-keys", vec![]);
+    assert!(lumen.is_on("Lane pencil tool"));
+    lumen.key(Modifiers::NONE, Key::Num2);
+    assert!(lumen.is_on("Lane line tool"));
+    lumen.key(Modifiers::NONE, Key::Num3);
+    assert!(lumen.is_on("Lane curve tool"));
+    lumen.key(Modifiers::NONE, Key::Num1);
+    assert!(lumen.is_on("Lane pencil tool"));
+}

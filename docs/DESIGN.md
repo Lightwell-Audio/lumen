@@ -699,6 +699,35 @@ Chosen from interactive specimens:
   with its header's twin; a strip itself is "Mixer strip: Kick, Audio
   track".
 
+### The velocity and controller lane (M5 slice 4, owner's V A, L A, T A, R B)
+
+Chosen from live specimens (ADR-0050). The lane sits under the piano roll in
+the clip editor, in the Clip tab and the pop-out, and shares the roll's zoom
+and grid.
+- **Header:** 26 pt on `raised`, a 1 pt `border_strong` rule along its top and
+  a 1 pt `border` rule along its bottom. The tabs (Velocity, Mod wheel, Pitch
+  bend, Pressure, "+ CC") sit at the left; the tools Pencil, Line and Curve
+  at the right.
+- **Plot:** on `canvas`, 28% of the editor's height and 48 to 150 pt tall.
+  The lane is left out when the roll above would be under 140 pt. A value
+  scale column on `raised` holds the range's ends (and 0 for pitch bend),
+  in `text_secondary`, with a 1 pt `border` rule on its right edge.
+- **Velocity stems:** a 2 pt stem from the lane's rest line to a head of 4 pt
+  radius (5 pt under the pointer), filled in the note's colour; a muted note
+  uses `CLIP_MUTED`. A picked stem is lit: its stem in `accent`, its head
+  filled `text` with a 1.5 pt `accent` ring.
+- **Controller traces:** a 1.6 pt `accent` step line, its area filled with
+  `accent` at 16% alpha down to the rest line. Points are 2.5 pt `accent`
+  dots (4 pt under the pointer), ringed 1.5 pt in `text` when picked. Dots
+  show only while fewer than 250 points are in view and, on average, 5 pt
+  or more apart; otherwise the trace alone shows.
+- **Previews** of what a gesture will write, before release: 1.4 pt in `text`.
+- **Bend dot:** on the middle of a drawn curve, 5 pt radius, `text` fill,
+  2 pt `accent` ring; the bend's line is 1.6 pt `accent`.
+- **Colour:** every colour is an existing token or constant (`raised`,
+  `canvas`, `border`, `border_strong`, `text`, `text_secondary`, `accent`,
+  `CLIP_MUTED`). This slice added no tokens.
+
 ## 7b. Navigation (M3 slice 4d, ADR-0028)
 
 - **Zoom** glides (`GLIDE`) for keys and fits; the wheel and pinch follow

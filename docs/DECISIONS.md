@@ -119,6 +119,7 @@ irreversible or external) · *Superseded*.
 | Piano roll (M5 slice 3, 2026-10-11) | Chosen from live specimens (the "Lumen Piano Roll Specimens" artifact), all as recommended: **Look A, studio keys** (a piano-key column, darker lanes for black keys, notes in the track's colour shaded by velocity, an outline on selected notes, handles on hover) over a labelled pitch rail; **Draw A, a click adds one grid step and dragging sets its length** (Ableton) over drag-to-paint; **Live A, preview then commit**: notes follow the pointer and pitches are auditioned, the playing clip changes once on release, over changing it continuously. Built by Sonnet agents at medium effort in worktrees (the owner's request). Plan in `docs/milestones/M5-slice3.md`. |
 | Clip editor's view (M5 slice 3, 2026-10-11) | Owner: the piano roll zooms and scrolls on its own, independent of the arrangement; it is fitted to each clip it opens; grid settings stay shared. ADR-0048. |
 | Time selection in empty lanes (M5 amendment, 2026-10-11) | Owner (MT-MIDI-4): a drag in empty lanes selects time on the tracks it spans, snapped, as a clip's lower half does; the time ruler selects time on the selected tracks, or every track when none is selected, and keeps the selection. The clip marquee moved to Ctrl+Shift (the integrator's choice, for the owner to confirm). ADR-0049. |
+| Velocity and controller lanes (M5 slice 4, 2026-10-11) | Chosen from live specimens (the "Lumen Controller Lane Specimens" artifact), all as recommended: **V A stems with round heads**, one per note start, over filled bars as wide as their notes; **L A one lane at a time with a tab switcher** (Velocity, Mod wheel, Pitch bend, Pressure, "+ CC") over a stack of lanes with Add and Remove; **T A Pencil, Line and Curve in the lane\'s own header** over modifier-only drawing; **R B Line, Curve and bend write an event every 1/64 note, dropping only repeated values, and the Pencil follows the grid when snapping is on** over every tool following the 1/16 grid. Plan in `docs/milestones/M5-slice4.md`. ADR-0050. |
 | MT-MIDI-2 and MT-MIDI-3 follow-ups (2026-10-11) | **MA a monitor badge** on MIDI track headers, only when Monitor is not Auto (a speaker in accent for In, slashed grey for Off; click cycles), over the arm showing all three or an IN/OFF word ("MIDI: Playing Live" canvas, boards M). **Held notes glide to a new preset** at once (no retrigger), over keeping the old sound or retriggering. **The GS Wavetable latency is deferred**: a per-port output offset to be built later, recorded in KNOWN_ISSUES. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
@@ -4205,3 +4206,112 @@ be aimed at a chosen track.
   after an empty-lane drag puts the clip on that track).
 - Unverified: Cmd+Shift marquee on macOS, and the feel of choosing tracks by
   header before a ruler drag. Both are in MT-MIDI-4 step 7.
+
+## ADR-0050 — Velocity and controller lanes (M5 slice 4, no format change)
+
+**Status:** Accepted 2026-10-11 (M5 slice 4). Owner choices V A, L A, T A and
+R B are in the owner-decisions table ("Velocity and controller lanes"), chosen
+from live specimens. Built in parts by delegated agents, integrated and checked
+by the integrator.
+
+### Context
+Slice 3 gave the piano roll notes, but no lane for their velocities, and no way
+to see or draw a clip's controller events (mod wheel, other CCs, pitch bend,
+channel pressure). The events have been in the model since format v11
+(`ClipEvent`, `EventKind`). The requirements ask for a velocity lane (drag a
+stem, draw across stems, box-select) and lanes for CC, pitch bend and pressure
+with pencil, line and curve tools. Curves reuse the fades' free curves
+(`lumen_core::curve`, ADR-0031).
+
+### Decision
+- **No format change.** The lanes read and write the events already in clips;
+  the format stays at v14.
+- **Pure edits in `lumen_project::edit`.** `velocity.rs`: set, set_each,
+  offset, scale, ramp, at_start and stems. `events.rs`: a `Lane`
+  (`Controller(n)`, `PitchBend`, `Pressure`), the steps `FINE` (1/64 note) and
+  `GRID` (1/16 note), and in_lane, set_point, delete_points, move_points,
+  in_box, ramp and replace_span.
+- **A ramp keeps the user's shape.** A ramp drops only repeated values, so it
+  never becomes a staircase the user did not draw. MIDI has no ramps: a drawn
+  line is stored as plain events, one every 1/64 note (R B).
+- **Undoable `Document` methods** in `document/lanes.rs`: set_velocities_each,
+  ramp_velocities, offset_velocities, move_lane_points, delete_lane_points,
+  draw_lane_span and draw_lane_points (the Pencil). A drawn line is capped at
+  `MAX_SPAN_EVENTS` (4000) events. Each gesture is one undo step, and the
+  document changes once, on release (Live A, as for notes). Small structs
+  carry a gesture: `Drag`, `Line`, `Shift`.
+- **The lane** (`note_editor/lane/`) sits under the roll and shares its
+  horizontal zoom, scroll and grid. Its 26 pt header holds the tabs (Velocity,
+  Mod wheel, Pitch bend, Pressure, and a "+ CC" menu of ten common controllers)
+  and, at the right, the tools Pencil, Line and Curve. The plot is 28% of the
+  editor's height, clamped to 48–150 pt. The lane is left out when the roll
+  above would be under 140 pt; a "Lane" button in the editor's toolbar hides it.
+- **Velocity lane.** The Pencil sets every stem its stroke passes: chords share
+  a stem, and a fast stroke does not skip stems. Line and Curve ramp the
+  velocities of the notes between their ends.
+- **Controller lanes.** A press on a point moves it (value and time, snapped).
+  Shift-drag draws a box that picks points; in the velocity lane it picks the
+  notes of the stems inside it. Delete removes the picked points when the lane
+  was the last place pressed. Esc cancels a gesture. After Curve, a dot at the
+  curve's middle bends it until anything else changes; the curve is the fades'
+  free curve (`lumen_core::curve::Curve::from_handle`).
+- **Commands** (area MIDI, in the palette, rebindable; the three tools have
+  the keys 1, 2 and 3, the rest no default keys):
+  `midi.toggle_lane`, `midi.lane_velocity`, `midi.lane_mod_wheel`,
+  `midi.lane_pitch_bend`, `midi.lane_pressure`, `midi.lane_pencil`,
+  `midi.lane_line`, `midi.lane_curve`, and `midi.raise_velocity` and
+  `midi.lower_velocity` (the picked notes' velocity by 8, one undo step).
+- **Changed from the plan:** the keys 1, 2 and 3 for Pencil, Line and Curve
+  are plain keys that work whenever a clip is open (not only with the lane
+  focused). Shift with the Pencil does **not** draw a line: in the lane Shift
+  starts a box, as it adds to a selection everywhere else, and the Line tool
+  (key 2) draws lines. Owner to confirm.
+
+### Consequences
+- Every lane edit is one named, undoable `Document` method over a pure
+  transform; the lane never edits in a closure.
+- `velocity::set`, `velocity::scale` and `events::set_point` are tested, but
+  nothing calls them yet. Slice 5 (humanize and quantize) is their first user;
+  they have no `Document` wrappers yet.
+- Limits, all recorded in `docs/KNOWN_ISSUES.md` (2026-10-11, M5 slice 4): the
+  frame times are unmeasured; the mouse wheel over the lane does not scroll or
+  zoom; the first stem at the clip's left edge shows half its head; "+ CC"
+  offers ten common controllers only, and the tabs, the chosen lane, the tool
+  and whether the lane is shown are not kept between sessions; there is still
+  no auto-scroll at the editor's edges, lane drags included; the lane has no
+  info-line hints yet.
+- Quantize, humanize and the rest of the M5 list are later slices and are not
+  in this record.
+
+### Tests
+- `edit/velocity.rs`: 16 unit tests. `edit/events.rs`: 30. `document/lanes.rs`:
+  16. `note_editor/lane/`: 63 unit tests.
+- E2E `tests/e2e/lanes.rs`: 18 scenarios: the lane under the roll, hide and
+  show, the tabs, the "+ CC" menu, a velocity stroke as one undo step, Live A,
+  Esc, the Pencil, a line, the curve's bend, the pitch bend lane, moving a
+  point, a box with Delete as one step, what the lane draws reaching the fake
+  MIDI port, the palette's lane and tool commands, raise and lower velocity,
+  and a box in the velocity lane.
+- `crates/lumen-engine/tests/midi.rs`: drawn controllers and bends land on their
+  exact sample, in order, with their values, at five combinations of tempo,
+  sample rate and block size. This is the golden check for controller and bend
+  timing.
+- Screenshot test `clip_lane` (`tests/shots.rs`): velocity and curve, dark at
+  100% and 200%, light at 100%, checked by eye.
+- Four older note-editor E2E tests and the `note_editor` shot had their clicks
+  moved off a row the lane now covers.
+- Results: the full workspace tests pass (lumen-app lib 417, E2E 272, the other
+  crates as before), and `cargo clippy --workspace --all-targets -- -D warnings`
+  is clean.
+
+### Measurements
+Not measured. The frame times with the 100,000-note clip and a lane open were
+not taken: `--bench-editor` needs a real window and GPU, and it was not run for
+this slice. Stems are cached per clip version and drawing is limited to the
+visible part, which should keep the lane cheap, but that is unproven. MT-MIDI-5
+step 12 asks the owner to run `--stress --bench-frames --bench-editor` at
+1600 × 900 and 3440 × 1380; the p99 per phase and the idle repaints are added
+to this record when they are in.
+
+**Unverified:** the timing and audibility of drawn bends and controllers on real
+hardware and on the built-in synth (MT-MIDI-5).

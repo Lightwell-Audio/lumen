@@ -2218,3 +2218,76 @@ theme and remained clear and sharp at 150% and 200% scale.
 Step 11 passed: a renamed copy saved and reopened with note edits, muted
 notes and new clips intact. MT-MIDI-4 remains blocked from passing by the
 Ctrl+E split failure recorded above.
+
+### MT-MIDI-5 · Velocity and controller lanes (needs a human; a MIDI controller helps but is not required)
+Slice 4 of M5 (ADR-0050). **Status: waiting for the owner.** In PowerShell,
+from the repository root:
+
+```powershell
+cargo run --release -p lumen-app -- tests\projects\midi-demo.lumen
+```
+
+1. **The lane.** Double-click the **Chords** clip. Under the piano roll is a
+   lane with a header: the tabs **Velocity**, **Mod wheel**, **Pitch bend**,
+   **Pressure** and **+ CC**, and the tools **Pencil**, **Line** and **Curve**
+   at the right. Its plot is 28% of the editor's height, between 48 and
+   150 pt. Check it at 100%, 150% and 200% scale, in the dark and the light
+   theme, and report anything that looks off.
+2. **Velocity stems.** On **Velocity**, each note start has a stem with a
+   round head; picked notes' stems are lit. Judge whether they still read
+   well where the clip is dense. Choose **Pencil** (its button lights) and
+   drag across several stems: every stem the stroke passes changes, chords
+   change together, and a fast stroke does not skip stems. Ctrl+Z undoes the
+   whole stroke.
+3. **Velocity ramps.** Pick a run of notes. With **Line**, drag from one stem
+   to another: the notes between the two ends ramp to the new velocities. Do
+   the same with **Curve**; its dot at the middle bends the ramp. Ctrl+Z after
+   each.
+4. **Mod wheel and the pencil.** Choose **Mod wheel**. With **Pencil**, a click
+   sets one value and a drag draws a stroke; with snapping on, the times follow
+   the grid. The keys **1**, **2** and **3** choose Pencil, Line and Curve (Shift
+   in the lane starts a box, not a line: say whether you expected it to draw a
+   line). Press Space to play the loop and listen. The built-in synth's
+   presets may not respond to the mod wheel: note whether you hear any change.
+5. **Pitch bend.** Choose **Pitch bend**: the centre line is no bend. Draw a
+   **Line** down and back up, then a **Curve** and drag its dot. Play it and
+   listen for steps in the glide. Each drawn bend is one undo step.
+6. **Move, box and Delete.** On **Mod wheel**, press on a point and drag it: its
+   value and time snap, and release is one undo step. Shift-drag a box over
+   several points: they pick. Press **Delete** (the lane was the last place
+   pressed): the picked points go, and Ctrl+Z brings them back. Then click a
+   note in the roll and press **Delete**: the note goes and the lane's points
+   stay.
+7. **Esc.** Start dragging a point, or a stroke with the Pencil, and press Esc
+   before you let go: it snaps back and nothing changes.
+8. **Hide and show.** Press the **Lane** button in the editor's toolbar: the
+   lane closes and the roll takes its height. Press it again: the lane comes
+   back.
+9. **Palette.** Pick some notes, then press Ctrl+K and type "velocity":
+   **Raise velocity** and **Lower velocity** each move the picked notes by 8,
+   one Ctrl+Z each. Type "lane" and check the lane commands switch the tab.
+10. **What you draw reaches the port.** If a MIDI device is available, set a
+    track's **MIDI To** to its port, draw a pitch bend and a mod wheel curve,
+    and play the loop: check the device receives them. Not required; if you
+    do not run it, say so.
+11. **Live input.** With a MIDI controller and the lane open, play on the track
+    that listens (slice 2): notes still sound. Record nothing; recording is
+    slice 6.
+12. **Frame times.** In PowerShell, from the repository root:
+
+    ```powershell
+    cargo run --release -p lumen-app -- --stress --bench-frames "$env:TEMP\frames.json" --bench-editor
+    cargo run --release -p lumen-app -- --stress --bench-frames "$env:TEMP\frames.json" --bench-editor --bench-size 3440x1380
+    ```
+
+    Report p50, p95, p99 and the worst frame per phase, the idle repaints in
+    3 s, and the exit status (3 means a phase missed 60 fps at p99). These
+    numbers are what ADR-0050 is waiting for.
+13. **Save and reopen.** Save the demo under a new name and reopen the copy:
+    the drawn velocities and controller points are all there. The lane's tab
+    and whether it is open are not saved; that is a known limit.
+
+**Expected:** each step does what is described. Every gesture is one undo
+step, and the clip changes only when you let go.
+
+**Run 1: waiting for the owner.**

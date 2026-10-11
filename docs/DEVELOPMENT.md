@@ -166,6 +166,20 @@ cargo fmt --all
 cargo bench -p lumen-rt                  # real benchmark run (release profile)
 ```
 
+## Linux cloud containers
+
+A Linux cloud container needs system packages before the first build. The app
+needs `libasound2-dev` and `libudev-dev` to build; install them with
+`pkg-config`:
+
+```bash
+sudo apt-get install libasound2-dev libudev-dev pkg-config
+```
+
+The GPU tests and the screenshot tests also need a software Vulkan device,
+which is `mesa-vulkan-drivers` (lavapipe; CI's Linux job installs it too).
+The first `cargo test -p lumen-app --test e2e` takes minutes to build.
+
 ## End-to-end tests (ADR-0029)
 
 Run both **at the end of every slice**, and add scenarios for the
