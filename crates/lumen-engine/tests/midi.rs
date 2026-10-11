@@ -847,3 +847,57 @@ fn an_edit_elsewhere_does_not_cut_the_synth_that_is_sounding() {
     assert!(out[..500].iter().any(|v| v.abs() > 0.01), "still sounding");
     assert_eq!(rig.engine.source().tracks().1.held(TRACK), 1);
 }
+
+/// A synth track on `preset` with one note at beat 1 (+77 ticks).
+fn preset_track(preset: lumen_devices::Preset) -> MidiTrack {
+    let q = Ticks::quarters;
+    MidiTrack::new(
+        TRACK,
+        Target::Instrument,
+        Some(InstrumentSpec {
+            kind: lumen_devices::synth::KIND,
+            preset: preset.number(),
+            instrument: Box::new(lumen_devices::Synth::new(preset)),
+        }),
+        vec![clip(
+            1,
+            Ticks::ZERO,
+            q(8),
+            vec![note(q(1) + Ticks(77), q(1), 60)],
+        )],
+    )
+}
+
+/// Pins the latency of a preset change (the owner's MT-MIDI-2 finding):
+/// the engine takes the new sound on the very next block, so the next
+/// note-on is the new preset's, bit for bit, even when the list arrives
+/// one block before the note. A note already sounding finishes as it was.
+#[test]
+fn a_preset_change_is_in_effect_on_the_next_block() {
+    use lumen_devices::Preset;
+    let block = 128;
+    let timeline = Timeline::default();
+    let start = timeline.sample_at(Ticks::quarters(1) + Ticks(77), 48_000) as usize;
+    let render = |from: Preset, to: Preset, change_at: usize| {
+        let log = Log::default();
+        let mut rig = rig(timeline.clone(), 48_000, vec![preset_track(from)], &log);
+        rig.play();
+        let mut out = rig.run(change_at, block);
+        rig.midi.set(vec![preset_track(to)]).ok().unwrap();
+        out.extend(rig.run(start + 12_000 - change_at, block));
+        out
+    };
+    // The list lands in the block before the one holding the note-on.
+    let change_at = (start / block - 1) * block;
+    let changed = render(Preset::Poly, Preset::Pad, change_at);
+    let reference = render(Preset::Pad, Preset::Pad, change_at);
+    assert_eq!(changed, reference, "the note-on already has the new sound");
+    let old = render(Preset::Poly, Preset::Poly, change_at);
+    assert_ne!(changed, old, "and it is not the old sound");
+
+    // A change after the note started leaves that note as it was.
+    let late = (start / block + 2) * block;
+    let late_change = render(Preset::Poly, Preset::Pad, late);
+    let late_old = render(Preset::Poly, Preset::Poly, late);
+    assert_eq!(late_change[..late + block], late_old[..late + block]);
+}
