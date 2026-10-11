@@ -103,7 +103,7 @@ impl Transport {
         midi: &crate::midi::Midi,
     ) -> Vec<crate::midi::Action> {
         use crate::audio_settings::Action;
-        let mut asked = Vec::new();
+        let mut asked = std::mem::take(&mut self.midi_asked);
         for action in self
             .settings_window
             .show(ctx, &self.audio, midi, self.test_tone)

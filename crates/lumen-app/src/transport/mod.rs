@@ -7,6 +7,7 @@
 mod bar;
 mod compensation;
 mod dropouts;
+mod midi_chip;
 mod status;
 
 use std::time::{Duration, Instant};
@@ -19,6 +20,7 @@ use lumen_project::model::Project;
 use crate::audio::{Audio, Choice};
 
 pub use bar::punch_menu;
+pub use midi_chip::{Lights as MidiLights, View as MidiView};
 
 pub struct Transport {
     pub audio: Audio,
@@ -46,6 +48,10 @@ pub struct Transport {
     pub time_format: crate::timefmt::TimeFormat,
     test_tone: bool,
     pub settings_window: crate::audio_settings::Window,
+    /// What the MIDI chip's popover asked for, taken by `windows`.
+    midi_asked: Vec<crate::midi::Action>,
+    /// What the chip's lights showed when last drawn.
+    pub midi_lights: MidiLights,
     /// CPU load shown: the peak over the last second, refreshed once a second.
     cpu_peak: f32,
     cpu_taken: Option<Instant>,
@@ -101,6 +107,8 @@ impl Transport {
             time_format: crate::timefmt::TimeFormat::MinSec,
             test_tone: false,
             settings_window: Default::default(),
+            midi_asked: Vec::new(),
+            midi_lights: Default::default(),
             cpu_peak: 0.0,
             cpu_taken: None,
             dropouts: Default::default(),

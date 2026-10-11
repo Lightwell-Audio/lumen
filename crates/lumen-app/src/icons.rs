@@ -33,11 +33,13 @@ pub enum Icon {
     Search,
     /// A mouse, before a gesture in the info line (M4 slice 0).
     Mouse,
+    /// MIDI (M5 slice 2d): a five-pin DIN socket.
+    Din,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 13] = [
+    pub const ALL: [Icon; 14] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
@@ -51,6 +53,7 @@ impl Icon {
         Icon::Lock,
         Icon::Search,
         Icon::Mouse,
+        Icon::Din,
     ];
 }
 
@@ -196,6 +199,15 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             ),
             Shape::line_segment([g.p(8.0, 1.5), g.p(8.0, 6.5)], stroke),
         ],
+        Icon::Din => {
+            // The shell, and five pins on its upper arc (180 degrees).
+            let pin = 1.1 * g.unit;
+            let mut shapes = vec![Shape::circle_stroke(g.p(8.0, 8.0), 6.6 * g.unit, stroke)];
+            for (x, y) in [(3.6, 9.6), (4.7, 6.0), (8.0, 4.6), (11.3, 6.0), (12.4, 9.6)] {
+                shapes.push(Shape::circle_filled(g.p(x, y), pin, color));
+            }
+            shapes
+        }
         Icon::Follow => vec![
             Shape::line_segment([g.p(4.0, 2.5), g.p(4.0, 13.5)], stroke),
             Shape::line_segment([g.p(6.5, 8.0), g.p(11.5, 8.0)], stroke),

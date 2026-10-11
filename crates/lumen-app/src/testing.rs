@@ -62,6 +62,12 @@ impl Launch {
         self
     }
 
+    /// Starts with MIDI switched off, as `--midi off` does.
+    pub fn with_midi_off(mut self) -> Self {
+        self.midi = crate::midi::Source::Off;
+        self
+    }
+
     /// Autosaves `after` the first unsaved change, instead of a minute.
     pub fn autosaving_after(mut self, after: Duration) -> Self {
         self.autosave_after = Some(after);
@@ -235,6 +241,26 @@ impl App {
     /// The metronome's output as the settings hold it: `main` or `cue`.
     pub fn saved_metronome_output(&self) -> &str {
         &self.settings.metronome.output
+    }
+
+    /// How bright the MIDI chip's IN and OUT lights were when last drawn
+    /// (0 at rest, 1 at a flash, fading over `motion::NOTE`).
+    pub fn midi_chip_lights(&self) -> (f32, f32) {
+        (
+            self.transport.midi_lights.input,
+            self.transport.midi_lights.output,
+        )
+    }
+
+    /// How bright the popover's light for a port was when last drawn
+    /// (`None` when the popover is not showing it).
+    pub fn midi_row_light(&self, direction: lumen_midi::Direction, name: &str) -> Option<f32> {
+        self.transport
+            .midi_lights
+            .rows
+            .iter()
+            .find(|(id, _)| id.direction == direction && id.name == name)
+            .map(|(_, b)| *b)
     }
 
     /// The MIDI switches the settings hold: (direction, name, track, remote).

@@ -120,6 +120,12 @@ impl Midi {
         self.system.as_mut().and_then(MidiSystem::take_input)
     }
 
+    /// The traffic count of a port (see `MidiSystem::activity`); 0 when
+    /// MIDI is off or the port is not there.
+    pub fn activity(&self, id: &PortId) -> u32 {
+        self.system.as_ref().map_or(0, |s| s.activity(id))
+    }
+
     /// A handle that sends from other threads, if MIDI is on.
     pub fn sender(&self) -> Option<lumen_midi::MidiSender> {
         self.system.as_ref().map(MidiSystem::sender)
