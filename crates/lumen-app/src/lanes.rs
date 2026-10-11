@@ -823,4 +823,79 @@ mod tests {
         assert!(lanes.pending().is_empty() && lanes.before.is_empty());
         assert_eq!(doc.history().steps().0.len(), 1, "one step");
     }
+
+    /// The owner's MT-MIDI-2 finding: choosing a preset must reach the
+    /// engine at once. Between the edit and the next block there is one
+    /// `Lanes::update` (a frame) and nothing else: the first note after
+    /// the edit is, sample for sample, the one the new preset plays.
+    #[test]
+    fn a_preset_change_reaches_the_engine_in_one_update() {
+        use lumen_devices::Preset;
+        use lumen_engine::{Command, Layered, Timeline, clip_player, engine, midi_player, mixer};
+        use lumen_project::testing::{midi_track, project_of};
+        let q = Ticks::quarters;
+        let project = |preset: &str| {
+            project_of(
+                "Preset",
+                vec![midi_track(
+                    1,
+                    "Keys",
+                    preset,
+                    (0, 8),
+                    None,
+                    vec![lumen_project::model::Note(q(1), q(1), 60, 100)],
+                    vec![],
+                )],
+            )
+        };
+        let ctx = egui::Context::default();
+        let render = |from: &str, to: &str| -> Vec<f32> {
+            let mut doc = Document::new(project(from));
+            let (mut clips, players) = clip_player();
+            let (mut midi, player) = midi_player();
+            let (mut routing, source) = mixer(Layered(players, player));
+            let (mut transport, mut engine) = engine(Timeline::default(), source, 48_000);
+            let mut lanes = Lanes::default();
+            let (cue, inputs) = (Default::default(), Default::default());
+            let mut update = |lanes: &mut Lanes, doc: &mut Document| {
+                lanes.update(
+                    48_000,
+                    &ctx,
+                    doc,
+                    Handles {
+                        clips: &mut clips,
+                        midi: &mut midi,
+                        mixer: &mut routing,
+                    },
+                    &cue,
+                    &inputs,
+                );
+            };
+            update(&mut lanes, &mut doc);
+            transport.send(Command::Play).unwrap();
+            let mut out = Vec::new();
+            let mut data = vec![0.0; 256];
+            let mut block = |out: &mut Vec<f32>| {
+                engine.process(48_000, &mut data, 2, 128);
+                out.extend((0..128).map(|i| data[2 * i]));
+            };
+            // Well before the note.
+            for _ in 0..100 {
+                block(&mut out);
+            }
+            let id = doc.project().tracks[0].id;
+            let preset = Preset::ALL.iter().find(|p| p.id() == to).copied();
+            doc.set_instrument(&[id], preset);
+            // One frame: one update; then audio.
+            update(&mut lanes, &mut doc);
+            for _ in 0..(24_000 + 12_000) / 128 - 100 {
+                block(&mut out);
+            }
+            out
+        };
+        let changed = render("poly", "pad");
+        assert_eq!(changed, render("pad", "pad"), "the new sound, at once");
+        assert_ne!(changed, render("poly", "poly"));
+        assert!(changed.iter().any(|v| v.abs() > 0.01), "and it sounds");
+    }
 }
