@@ -54,7 +54,7 @@ pub fn add_dense_midi(project: &mut lumen_project::model::Project) {
     let step = BEATS * PPQ / DENSE_NOTES as i64;
     let notes: Vec<Note> = (0..DENSE_NOTES as i64)
         .map(|i| {
-            Note(
+            Note::new(
                 Ticks(i * step),
                 Ticks(step * 3),
                 36 + ((i * 7) % 72) as u8,

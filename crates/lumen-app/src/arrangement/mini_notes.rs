@@ -43,7 +43,6 @@ pub(super) fn build(project: &Project) -> MiniNotes {
                     length: clip.length,
                     loop_length: clip.loop_length,
                     notes,
-                    muted: &[],
                 },
                 n as u32,
                 theme::wave(clip_color(track, clip)),
@@ -102,7 +101,7 @@ mod tests {
         let mut track = (*project.tracks[0]).clone();
         track.clips = vec![Arc::new(clip(Vec::new()))];
         let mut with = track.clone();
-        with.clips = vec![Arc::new(clip(vec![Note(
+        with.clips = vec![Arc::new(clip(vec![Note::new(
             Ticks::quarters(1),
             Ticks::quarters(1),
             60,

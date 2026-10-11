@@ -117,16 +117,15 @@ mod tests {
             length: q(4),
             loop_length: None,
             notes,
-            muted: &[],
         }
     }
 
     #[test]
     fn the_range_is_the_pitches_that_play() {
         let notes = [
-            Note(q(0), q(1), 64, 90),
-            Note(q(1), q(1), 48, 90),
-            Note(q(9), q(1), 100, 90),
+            Note::new(q(0), q(1), 64, 90),
+            Note::new(q(1), q(1), 48, 90),
+            Note::new(q(9), q(1), 100, 90),
         ];
         assert_eq!(pitch_range(&clip(&notes)), Some((48, 64)));
         assert_eq!(pitch_range(&clip(&[])), None);
@@ -150,7 +149,10 @@ mod tests {
 
     #[test]
     fn instances_follow_the_clip_and_its_track() {
-        let notes = [Note(q(1), q(1), 60, 100), Note(q(2), q(1), 72, 100)];
+        let notes = [
+            Note::new(q(1), q(1), 60, 100),
+            Note::new(q(2), q(1), 72, 100),
+        ];
         let mut out = Vec::new();
         mini_instances(&mut out, &clip(&notes), 3, Color32::RED);
         assert_eq!(out.len(), 2);

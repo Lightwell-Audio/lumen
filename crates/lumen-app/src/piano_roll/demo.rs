@@ -25,7 +25,7 @@ pub(crate) fn sample_boxes(color: egui::Color32) -> Vec<BoxInstance> {
     let mut notes = Vec::new();
     for (i, root) in [48_u8, 53, 55, 50].into_iter().enumerate() {
         for (j, step) in [0_u8, 4, 7, 12].into_iter().enumerate() {
-            notes.push(Note(
+            notes.push(Note::new(
                 q(i as i64 * 2),
                 q(2),
                 root + step,
@@ -34,14 +34,14 @@ pub(crate) fn sample_boxes(color: egui::Color32) -> Vec<BoxInstance> {
         }
     }
     for (i, p) in [72_u8, 74, 76, 77, 79, 77, 76, 74].into_iter().enumerate() {
-        notes.push(Note(
+        notes.push(Note::new(
             q(i as i64) + Ticks(i as i64 * 1000),
             Ticks(lumen_core::time::PPQ / 2),
             p,
             40 + i as u8 * 12,
         ));
     }
-    let muted: Vec<bool> = (0..notes.len()).map(|i| i == 5).collect();
+    notes[5].4 = true;
     let selected: BTreeSet<usize> = [1, 2, 3, 17].into();
     note_instances(
         &ClipNotes {
@@ -49,7 +49,6 @@ pub(crate) fn sample_boxes(color: egui::Color32) -> Vec<BoxInstance> {
             length: q(32),
             loop_length: Some(q(8)),
             notes: &notes,
-            muted: &muted,
         },
         &selected,
         &NoteColors::new(color),

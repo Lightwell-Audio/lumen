@@ -29,16 +29,13 @@ const SELECTED_LIGHTER: f32 = 0.3;
 /// The 1-px top edge is this much lighter than the body.
 const EDGE_LIGHTER: f32 = 0.4;
 
-/// What the piano roll needs of a MIDI clip. `muted` is per note, by
-/// index (shorter than `notes` means the rest sound); the per-note mute
-/// flag arrives with format v14 and the caller adapts it to this.
+/// What the piano roll needs of a MIDI clip.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ClipNotes<'a> {
     pub start: Ticks,
     pub length: Ticks,
     pub loop_length: Option<Ticks>,
     pub notes: &'a [Note],
-    pub muted: &'a [bool],
 }
 
 /// One note placed on the timeline: `index` into the clip's notes, `rep`
@@ -64,7 +61,7 @@ impl ClipNotes<'_> {
 
     /// Whether note `index` is muted.
     pub fn is_muted(&self, index: usize) -> bool {
-        self.muted.get(index).copied().unwrap_or(false)
+        self.notes.get(index).is_some_and(|n| n.muted())
     }
 
     /// Every note as it plays, the way the engine reads the clip
@@ -221,13 +218,12 @@ mod tests {
         Ticks::quarters(n)
     }
 
-    fn clip<'a>(notes: &'a [Note], muted: &'a [bool]) -> ClipNotes<'a> {
+    fn clip(notes: &[Note]) -> ClipNotes<'_> {
         ClipNotes {
             start: q(8),
             length: q(4),
             loop_length: None,
             notes,
-            muted,
         }
     }
 
@@ -248,10 +244,10 @@ mod tests {
     #[test]
     fn notes_sit_at_the_clip_start_on_their_pitch_row() {
         let notes = [
-            Note(q(1), q(2), 60, 100),
-            Note(q(0), Ticks(PPQ / 2), 72, 127),
+            Note::new(q(1), q(2), 60, 100),
+            Note::new(q(0), Ticks(PPQ / 2), 72, 127),
         ];
-        let built = note_instances(&clip(&notes, &[]), &BTreeSet::new(), &colors());
+        let built = note_instances(&clip(&notes), &BTreeSet::new(), &colors());
         assert_eq!(built.len(), 2);
         assert_eq!((start_of(&built[0]), end_of(&built[0])), (9.0, 11.0));
         assert_eq!(built[0].row, 60);
@@ -262,26 +258,29 @@ mod tests {
     #[test]
     fn notes_are_cut_at_the_clip_end_and_dropped_after_it() {
         let notes = [
-            Note(q(3), q(4), 60, 100),
-            Note(q(4), q(1), 61, 100),
-            Note(q(5), q(1), 62, 100),
+            Note::new(q(3), q(4), 60, 100),
+            Note::new(q(4), q(1), 61, 100),
+            Note::new(q(5), q(1), 62, 100),
         ];
-        let built = note_instances(&clip(&notes, &[]), &BTreeSet::new(), &colors());
+        let built = note_instances(&clip(&notes), &BTreeSet::new(), &colors());
         assert_eq!(built.len(), 1, "notes from the clip's end on do not play");
         assert_eq!(end_of(&built[0]), 12.0);
     }
 
     #[test]
     fn a_zero_length_note_is_a_tick_long() {
-        let notes = [Note(q(1), Ticks(0), 60, 100)];
-        let built = note_instances(&clip(&notes, &[]), &BTreeSet::new(), &colors());
+        let notes = [Note::new(q(1), Ticks(0), 60, 100)];
+        let built = note_instances(&clip(&notes), &BTreeSet::new(), &colors());
         assert!(end_of(&built[0]) > start_of(&built[0]));
     }
 
     #[test]
     fn loops_repeat_the_content_fainter_and_cut_the_last_repeat() {
-        let notes = [Note(q(0), q(1), 60, 127), Note(q(1), q(2), 64, 127)];
-        let mut c = clip(&notes, &[]);
+        let notes = [
+            Note::new(q(0), q(1), 60, 127),
+            Note::new(q(1), q(2), 64, 127),
+        ];
+        let mut c = clip(&notes);
         c.length = q(5);
         c.loop_length = Some(q(2));
         let built = note_instances(&c, &BTreeSet::new(), &colors());
@@ -302,9 +301,9 @@ mod tests {
 
     #[test]
     fn selected_notes_come_last_outlined_and_brighter() {
-        let notes = [Note(q(0), q(1), 60, 64), Note(q(1), q(1), 61, 64)];
+        let notes = [Note::new(q(0), q(1), 60, 64), Note::new(q(1), q(1), 61, 64)];
         let selected: BTreeSet<usize> = [0].into();
-        let built = note_instances(&clip(&notes, &[]), &selected, &colors());
+        let built = note_instances(&clip(&notes), &selected, &colors());
         assert_eq!(built[0].row, 61);
         assert_eq!(built[0].border, 0, "unselected notes have no outline");
         assert_eq!(built[1].row, 60);
@@ -315,8 +314,8 @@ mod tests {
 
     #[test]
     fn repeats_are_never_selected() {
-        let notes = [Note(q(0), q(1), 60, 64)];
-        let mut c = clip(&notes, &[]);
+        let notes = [Note::new(q(0), q(1), 60, 64)];
+        let mut c = clip(&notes);
         c.loop_length = Some(q(2));
         let selected: BTreeSet<usize> = [0].into();
         let built = note_instances(&c, &selected, &colors());
@@ -327,11 +326,11 @@ mod tests {
     #[test]
     fn muted_notes_are_grey_and_velocity_shades_the_rest() {
         let notes = [
-            Note(q(0), q(1), 60, 127),
-            Note(q(1), q(1), 61, 127),
-            Note(q(2), q(1), 62, 0),
+            Note::new(q(0), q(1), 60, 127),
+            Note(q(1), q(1), 61, 127, true),
+            Note::new(q(2), q(1), 62, 0),
         ];
-        let built = note_instances(&clip(&notes, &[false, true]), &BTreeSet::new(), &colors());
+        let built = note_instances(&clip(&notes), &BTreeSet::new(), &colors());
         let [r, g, b, _] = theme::CLIP_MUTED.to_array();
         assert_eq!(built[1].body & 0x00FF_FFFF, rgba(r, g, b, 0));
         assert_ne!(built[0].body & 0x00FF_FFFF, built[1].body & 0x00FF_FFFF);
@@ -341,8 +340,8 @@ mod tests {
 
     #[test]
     fn a_huge_loop_count_is_capped() {
-        let notes = [Note(q(0), Ticks(1), 60, 64)];
-        let mut c = clip(&notes, &[]);
+        let notes = [Note::new(q(0), Ticks(1), 60, 64)];
+        let mut c = clip(&notes);
         c.length = Ticks(i64::MAX / 4);
         c.loop_length = Some(Ticks(1));
         let built = note_instances(&c, &BTreeSet::new(), &colors());
@@ -352,9 +351,9 @@ mod tests {
     #[test]
     fn a_hundred_thousand_notes_build_quickly() {
         let notes: Vec<Note> = (0..100_000)
-            .map(|i| Note(Ticks(i * 1000), Ticks(900), (i % 128) as u8, 90))
+            .map(|i| Note::new(Ticks(i * 1000), Ticks(900), (i % 128) as u8, 90))
             .collect();
-        let mut c = clip(&notes, &[]);
+        let mut c = clip(&notes);
         c.length = Ticks(100_000 * 1000);
         let t = std::time::Instant::now();
         let built = note_instances(&c, &BTreeSet::new(), &colors());
