@@ -210,7 +210,7 @@ Licences: SIL Open Font License, see `THIRD_PARTY_NOTICES.md`.
 | `readout` | Martian Mono | 20 | The master's integrated loudness in the mixer (M4) |
 | `mono_small` | Martian Mono | 10 | Units after a readout, ruler numbers, clip meta |
 | `keycap` | Inter | 11 | The letters on K5 keycaps (the caption size) |
-| `display` | Unbounded | 24 | Welcome and first-run titles only |
+| `display` | Unbounded | 24 | Welcome and first-run titles only (added to `theme::size` with those screens, M9) |
 
 Sentence case for every label ("Audio settings", not
 "Audio Settings").
@@ -218,8 +218,8 @@ Sentence case for every label ("Audio settings", not
 ## 5. Spacing and shape
 
 - **4 pt grid:** `XXS 2 · XS 4 · S 8 · M 12 · L 16 · XL 24 · XXL 32`
-  (`theme::space`; L for panel toolbars and empty states, XL and XXL for
-  first-run layouts). Controls
+  (`theme::space`; L for panel toolbars and empty states; XL and XXL, for
+  first-run layouts, join `theme::space` with those screens in M9). Controls
   sit 8 apart. Sections in a window are divided by a separator with 12
   above each heading. Content insets in windows are 12, in strips 8.
 - **Control sizes** (`theme::size`, M4.5): `CONTROL` 24 pt for buttons,

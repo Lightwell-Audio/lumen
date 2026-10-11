@@ -4382,9 +4382,10 @@ widgets to be made consistent with the design system.
 The design system on all four (the owner-decisions table). In code:
 - New palette tokens: `ground`, `control_hi`, `thumb_hi`, `thumb`,
   `edge_light`, `shade`, `ember`, `accent_hi`, `accent_lo`, `on_accent`,
-  `mute`, `on_mute`; `radius::{XL, FULL, for_height}`; `space::{XL, XXL}`;
+  `mute`, `on_mute`; `radius::{XL, FULL, for_height}`;
   `stroke::{HAIRLINE, LIT, FOCUS}`; `size::{CONTROL_LARGE, TRANSPORT_ICON,
-  TRANSPORT_BAR, TRACK_STEP, HEADER_COLUMN, MONO_SMALL, KEYCAP, DISPLAY}`;
+  TRANSPORT_BAR, TRACK_STEP, HEADER_COLUMN, MONO_SMALL, KEYCAP}` (space XL,
+  XXL and the display style arrive with the first-run screens);
   `motion::{WASH, BREATH}`.
 - `theme::Tone` is `On`, `Accent` (filled), `Mute` and `Record` (the one
   lit state that glows); `Warning` and `Recessed` are gone. `lift`,
