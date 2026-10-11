@@ -223,10 +223,22 @@ pub struct MidiPort {
 
 /// The MIDI page of the settings: an added field with a default, so older
 /// files read as before (no version change).
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Midi {
     pub ports: Vec<MidiPort>,
+    /// The piano roll plays a note while it is drawn or changes pitch
+    /// (M5 slice 3d; an added field, on by default).
+    pub audition: bool,
+}
+
+impl Default for Midi {
+    fn default() -> Self {
+        Self {
+            ports: Vec::new(),
+            audition: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -457,6 +469,7 @@ mod tests {
                     track: true,
                     remote: true,
                 }],
+                audition: false,
             },
         };
         save(&path, &settings).unwrap();

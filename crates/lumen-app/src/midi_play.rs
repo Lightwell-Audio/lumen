@@ -14,8 +14,8 @@ use std::sync::Arc;
 use lumen_core::midi::Msg;
 use lumen_devices::{Preset, Synth, synth};
 use lumen_engine::{
-    InstrumentSpec, KEYBOARD, Listen, MidiClip, MidiControl, MidiNote, MidiTrack, Target,
-    control_list, note_list,
+    INPUT_SLOTS, InstrumentSpec, KEYBOARD, Listen, MidiClip, MidiControl, MidiNote, MidiTrack,
+    Target, control_list, note_list,
 };
 use lumen_project::model::{
     self, ClipContent, EventKind, FromSource, Id, Monitor, Project, TrackKind,
@@ -187,7 +187,7 @@ impl Inputs {
 }
 
 fn slot_bit(slot: u16) -> u64 {
-    if slot < u16::from(KEYBOARD) {
+    if slot < u16::from(INPUT_SLOTS) {
         1 << slot
     } else {
         0

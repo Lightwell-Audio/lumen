@@ -15,7 +15,7 @@
 //! mind; the sound is right either way.
 
 use eframe::egui::{Id, Rect, Ui, pos2};
-use lumen_engine::KEYBOARD;
+use lumen_engine::{INPUT_SLOTS, KEYBOARD};
 use lumen_project::model::{Track, TrackKind};
 
 use crate::midi_play::{Inputs, from_sources, listening};
@@ -45,7 +45,7 @@ impl Live {
     fn traffic(&self, sources: u64) -> u32 {
         let mut total = 0_u32;
         for &(slot, count) in &self.counts {
-            if slot < u16::from(KEYBOARD) && sources & (1 << slot) != 0 {
+            if slot < u16::from(INPUT_SLOTS) && sources & (1 << slot) != 0 {
                 total = total.wrapping_add(count);
             }
         }

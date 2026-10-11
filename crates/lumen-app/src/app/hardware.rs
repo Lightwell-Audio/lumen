@@ -13,6 +13,7 @@ use crate::App;
 use crate::midi::{Action, Midi};
 use crate::midi_out::Output;
 use crate::midi_play::used_ports;
+use lumen_project::model::Id;
 
 /// An output the track menu offers, put in the egui context each frame
 /// for menus deep in the arrangement to read.
@@ -62,6 +63,7 @@ impl App {
     /// outputs in use are told directly too, in case it is not running.
     pub(crate) fn panic(&mut self) {
         self.release_computer_keyboard();
+        self.audition.forget();
         self.transport.panic();
     }
 
@@ -69,6 +71,45 @@ impl App {
     /// False when it could not go (no engine yet, or the queue is full).
     pub(crate) fn play_key(&mut self, msg: lumen_core::midi::Msg) -> bool {
         self.live_keys.as_mut().is_some_and(|keys| keys.send(msg))
+    }
+
+    /// Previews `pitch` on `track` (the piano roll, M5 slice 3d): a short
+    /// note that lets go of the last preview. Nothing if auditioning is off
+    /// in the settings or the engine is not there. True if a note started.
+    pub(crate) fn audition_play(&mut self, track: Id, pitch: u8, velocity: u8) -> bool {
+        self.audition.set_enabled(self.settings.midi.audition);
+        match self.live_keys.as_mut() {
+            Some(keys) => {
+                self.audition
+                    .play(keys, track, pitch, velocity, std::time::Instant::now())
+            }
+            None => false,
+        }
+    }
+
+    /// Lets go of the previewed note: the end or cancel of a gesture, the
+    /// open clip or editor changing.
+    pub(crate) fn audition_release(&mut self) {
+        if let Some(keys) = self.live_keys.as_mut() {
+            self.audition.release(keys);
+        }
+    }
+
+    /// Every frame: the preview's own end, and the reasons to let go (the
+    /// transport stopped, the window lost focus, the setting turned off).
+    pub(crate) fn update_audition(&mut self, ctx: &egui::Context) {
+        let Some(keys) = self.live_keys.as_mut() else {
+            return;
+        };
+        self.audition.set_enabled(self.settings.midi.audition);
+        let focused = ctx.input(|i| i.focused);
+        let playing = self.transport.state().playing;
+        if let Some(wait) = self
+            .audition
+            .update(keys, std::time::Instant::now(), playing, focused)
+        {
+            ctx.request_repaint_after(wait);
+        }
     }
 
     /// What decides which tracks listen: the selection and the inputs
