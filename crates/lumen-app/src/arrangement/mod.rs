@@ -36,6 +36,7 @@ mod levels;
 mod listen_light;
 mod menus;
 mod midi_io;
+mod mini_notes;
 mod monitor_badge;
 mod nesting;
 mod pinned;

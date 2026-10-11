@@ -101,7 +101,7 @@ fn clip(h: &Harness<'static, App>, track: usize) -> Rect {
     h.state().clip_rect(&h.ctx, id).expect("in view")
 }
 
-fn save(h: &mut Harness<'static, App>, name: &str) {
+fn save<S>(h: &mut Harness<'_, S>, name: &str) {
     h.run_steps(3);
     let image = h.render().expect("render");
     let dir = PathBuf::from(std::env::var("SHOTS").expect("SHOTS names a folder"));
@@ -1275,5 +1275,77 @@ fn left_click(h: &mut Harness<'static, App>, p: Pos2) {
             modifiers: Modifiers::NONE,
         });
         h.run_steps(1);
+    }
+}
+
+/// The piano roll body and the arrangement's mini notes (M5 slice 3b),
+/// in both themes at 100, 150 and 200%.
+struct RollShot {
+    demo: lumen_app::testing::PianoRollDemo,
+    zoom: f64,
+    row: f32,
+}
+
+impl eframe::App for RollShot {
+    fn ui(&mut self, ui: &mut eframe::egui::Ui, _frame: &mut eframe::Frame) {
+        self.demo.show(ui, self.zoom, self.row);
+    }
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn piano_roll_body() {
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let mut h = Harness::builder()
+                .with_size(vec2(900.0, 420.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    lumen_app::testing::PianoRollDemo::prepare(&cc.egui_ctx, appearance == "light");
+                    RollShot {
+                        demo: lumen_app::testing::PianoRollDemo::new(1),
+                        zoom: 40.0,
+                        row: 14.0,
+                    }
+                });
+            h.run_steps(5);
+            save(
+                &mut h,
+                &format!("piano-roll-{appearance}-{}", (scale * 100.0) as u32),
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn mini_notes() {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/projects/midi-demo.lumen");
+    for appearance in ["dark", "light"] {
+        let dir = TempDir::new("shots-mini");
+        let copy = dir.path().join("midi-demo.lumen");
+        std::fs::copy(&fixture, &copy).expect("the MIDI demo project");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .opening(copy);
+        let mut h = Harness::builder()
+            .with_size(vec2(1200.0, 500.0))
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(60);
+        save(&mut h, &format!("mini-notes-{appearance}"));
     }
 }
