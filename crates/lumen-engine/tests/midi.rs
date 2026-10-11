@@ -1194,3 +1194,76 @@ fn a_jump_or_loop_wrap_under_a_held_chord_does_not_pop() {
     }
     assert!(bad.is_empty(), "{bad:#?}");
 }
+
+/// Frames of every marker the probe writes on the right channel for a
+/// controller, pitch bend or program message (0.5 each).
+fn controller_markers(rig: &mut Rig, frames: usize, block: usize) -> Vec<usize> {
+    let mut found = Vec::new();
+    let mut data = vec![0.0; 2 * block];
+    let mut done = 0;
+    while done < frames {
+        let n = block.min(frames - done);
+        rig.engine.process(rig.rate, &mut data[..2 * n], 2, n);
+        found.extend(
+            data[n..2 * n]
+                .iter()
+                .enumerate()
+                .filter(|(_, v)| v.abs() > 0.25)
+                .map(|(i, _)| done + i),
+        );
+        done += n;
+    }
+    found
+}
+
+/// What the controller lanes draw (M5 slice 4): a ramp of mod wheel events and
+/// a pitch bend, a 1/64 note apart from odd start ticks, land on their exact
+/// sample whatever the tempo, rate and block size, in order, with the values
+/// drawn (golden: the expected frame of each is worked out from the
+/// timeline, not read back from the player).
+#[test]
+fn drawn_controllers_and_bends_land_on_their_exact_sample_in_order() {
+    let q = Ticks::quarters;
+    let fine = Ticks(q(1).0 / 16);
+    let mut controls = Vec::new();
+    for i in 0..24_i64 {
+        controls.push(MidiControl {
+            at: q(1) + Ticks(777) + Ticks(fine.0 * i),
+            msg: Msg::controller(0, 1, (i * 5) as u8),
+        });
+    }
+    for j in 0..20_i64 {
+        controls.push(MidiControl {
+            at: q(3) + Ticks(1) + Ticks(fine.0 * j),
+            msg: Msg::pitch_bend(0, (-8_192 + j * 683) as i16),
+        });
+    }
+    for (bpm, rate, block) in [
+        (120.0, 48_000, 128),
+        (97.3, 44_100, 100),
+        (140.0, 96_000, 480),
+        (480.0, 48_000, 64),
+        (20.0, 44_100, 333),
+    ] {
+        let timeline = Timeline::constant(bpm, Meter::FOUR_FOUR);
+        let log = Log::default();
+        let mut c = clip(1, Ticks::ZERO, q(16), Vec::new());
+        c.controls = control_list(controls.clone());
+        let track = MidiTrack::new(TRACK, Target::Instrument, probe(&log), vec![c]);
+        let mut rig = rig(timeline.clone(), rate, vec![track], &log);
+        rig.play();
+        let end = timeline.sample_at(q(5), rate) as usize;
+        let found = controller_markers(&mut rig, end, block);
+        let expected: Vec<usize> = controls
+            .iter()
+            .map(|c| timeline.sample_at(c.at, rate) as usize)
+            .collect();
+        assert_eq!(
+            found, expected,
+            "{bpm} bpm at {rate} Hz in blocks of {block}"
+        );
+        let sent: Vec<Msg> = rig.log();
+        let wanted: Vec<Msg> = controls.iter().map(|c| c.msg).collect();
+        assert_eq!(sent, wanted, "values and order at {bpm} bpm");
+    }
+}
