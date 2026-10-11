@@ -538,3 +538,67 @@ fn controllers_in_a_clip_reach_the_port() {
         s.contains(&vec![0xB1, 64, 0]) && s.contains(&vec![0xE1, 0, 64])
     });
 }
+
+/// Left-channel samples of a stretch of what plays.
+fn left(heard: &[[f32; 4]]) -> Vec<f32> {
+    heard.iter().map(|f| f[0]).collect()
+}
+
+fn steepest(x: &[f32]) -> f32 {
+    x.windows(2)
+        .map(|w| (w[1] - w[0]).abs())
+        .fold(0.0, f32::max)
+}
+
+fn rms_of(x: &[f32]) -> f32 {
+    (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt()
+}
+
+/// How bright a sound is: the size of its steps against its own.
+fn brightness(x: &[f32]) -> f32 {
+    let d: Vec<f32> = x.windows(2).map(|w| w[1] - w[0]).collect();
+    rms_of(&d) / rms_of(x)
+}
+
+/// Choosing another preset from the track menu reaches a note that is
+/// already sounding: it glides to the new sound within about 100 ms, with
+/// no retrigger (a Pad note would start from silence again) and no click.
+#[test]
+fn a_preset_chosen_from_the_menu_changes_the_note_being_held() {
+    let fake = FakeControl::new();
+    let mut lumen = launch("midi-glide", &one_note("pad"), &fake);
+    play(&mut lumen);
+    // Past Pad's attack and decay: a steady held note.
+    let before = left(&lumen.listen(Duration::from_millis(1_500), 9_600));
+    assert!(rms_of(&before) > 0.01, "the pad is held");
+    let header = lumen.harness.get_by_label_contains("Track Keys,").rect();
+    lumen.right_click(header.center());
+    lumen.click("Instrument");
+    lumen.click("Poly");
+    assert_eq!(
+        lumen.app().project().tracks[0]
+            .instrument()
+            .and_then(|d| d.preset()),
+        Some("poly")
+    );
+    // The glide is heard from the first frame; 100 ms later it has settled.
+    let heard = left(&lumen.listen(Duration::ZERO, 14_400));
+    let after = heard[4_800..].to_vec();
+    let (b0, b1) = (brightness(&before), brightness(&after));
+    assert!(b1 > b0 * 1.15, "brighter: {b0} -> {b1}");
+    // ...it is the same note, not a new one starting from silence...
+    assert!(rms_of(&after) > 0.01, "still sounding at its level");
+    // ...and nothing stepped (Poly's own steps are the larger).
+    let mut across = before[before.len() - 64..].to_vec();
+    across.extend(&heard);
+    let level = steepest(&before).max(steepest(&after));
+    assert!(
+        steepest(&across) < level * 2.2,
+        "a click: {} vs {level}",
+        steepest(&across),
+    );
+    // Undo glides back.
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    let back = left(&lumen.listen(Duration::from_millis(100), 9_600));
+    assert!(brightness(&back) < b1 * 0.9, "darker again");
+}

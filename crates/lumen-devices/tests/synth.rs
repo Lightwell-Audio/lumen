@@ -153,21 +153,72 @@ fn a_seventeenth_note_steals_the_oldest_voice() {
 }
 
 #[test]
-fn a_preset_change_leaves_sounding_notes_alone() {
+fn a_preset_change_glides_sounding_notes_without_a_click_or_a_new_note() {
+    let bright = |x: &[f32]| x.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f32>() / rms(x);
+    let steepest = |x: &[f32]| {
+        x.windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .fold(0.0, f32::max)
+    };
     let mut synth = Synth::new(Preset::Poly);
-    let (before, _) = render(&mut synth, &[on(0, 60, 100)], 4_800, 128);
+    let (before, _) = render(&mut synth, &[on(0, 60, 100)], 24_000, 128);
     synth.configure(Preset::Bass.number());
     assert_eq!(synth.preset(), Preset::Bass);
-    let (after, _) = render(&mut synth, &[], 4_800, 128);
+    let glide = (lumen_devices::synth::GLIDE_SECONDS * RATE as f32) as usize;
+    let (during, _) = render(&mut synth, &[], glide + 128, 128);
+    let (after, _) = render(&mut synth, &[], 9_600, 128);
+    assert_eq!(synth.voices(), 1, "no new note");
+    // No step beyond what the note itself does, across the change.
+    let straight = steepest(&before[4_000..]);
     assert!(
-        rms(&before[2_000..]) > 0.01 && rms(&after) > 0.01,
-        "the note carries on"
+        steepest(&during) < straight * 2.0,
+        "{} {straight}",
+        steepest(&during)
     );
-    // A new note has the new sound: the bass is darker than the poly.
+    // Once it has glided, the held note has the new preset's character:
+    // the bass is darker than the poly.
+    assert!(bright(&after) < bright(&before[12_000..]) * 0.8);
+    // And matches a bass note held the same way (level within 15%).
+    let mut bass = Synth::new(Preset::Bass);
+    let skip = 24_000 + glide + 128;
+    let (b, _) = render(&mut bass, &[on(0, 60, 100)], skip + 9_600, 128);
+    let b = &b[skip..];
+    assert!(
+        (rms(&after) - rms(b)).abs() / rms(b) < 0.15,
+        "{} {}",
+        rms(&after),
+        rms(b)
+    );
+    // Nothing hangs: release it and it ends.
+    render(&mut synth, &[off(0, 60)], 96_000, 4_800);
+    assert!(!synth.active());
+}
+
+#[test]
+fn a_voice_in_release_keeps_releasing_through_a_preset_change() {
+    let mut synth = Synth::new(Preset::Pad);
+    render(&mut synth, &[on(0, 60, 100), off(9_000, 60)], 12_000, 128);
+    assert!(synth.active());
+    synth.configure(Preset::Bass.number());
+    let (tail, _) = render(&mut synth, &[], 4_000, 128);
+    assert!(
+        tail.windows(2).all(|w| (w[1] - w[0]).abs() < 0.2),
+        "no step"
+    );
+    render(&mut synth, &[], 96_000, 4_800);
+    assert!(!synth.active(), "it still ends");
+}
+
+#[test]
+fn a_new_note_has_the_new_sound() {
+    let mut synth = Synth::new(Preset::Poly);
+    synth.configure(Preset::Bass.number());
     let mut poly = Synth::new(Preset::Poly);
     let mut bass = Synth::new(Preset::Bass);
     let (p, _) = render(&mut poly, &[on(0, 72, 100)], 9_600, 128);
     let (b, _) = render(&mut bass, &[on(0, 72, 100)], 9_600, 128);
+    let (n, _) = render(&mut synth, &[on(0, 72, 100)], 9_600, 128);
+    assert_eq!(n, b);
     let bright = |x: &[f32]| x.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f32>() / rms(x);
     assert!(bright(&p[4_000..]) > bright(&b[4_000..]));
 }

@@ -6,8 +6,16 @@
 //! R 250 ms).
 //!
 //! Events apply at their exact frame: a block is rendered in spans between
-//! them. A note's sound is fixed when it starts, so changing the preset
-//! (or a program change) leaves notes already sounding as they were.
+//! them. Choosing another preset (or a program change) reaches the notes
+//! already sounding: each voice glides to the new sound over
+//! [`GLIDE_SECONDS`] without retriggering (the owner's choice, after
+//! ADR-0045). Levels, filter, detune, pan, gain and the sustain level move
+//! in a straight line; a changed waveform cross-fades. A voice in attack,
+//! decay or sustain stays in its stage and heads for the new targets (a
+//! held note moves to the new sustain level; if that is zero, as in Pluck,
+//! it ends when the glide does, as a Pluck note would). A voice in release
+//! keeps releasing, with the new release time (its level is continuous, so
+//! it cannot click, and it always ends). Nothing allocates.
 //!
 //! The synth listens on every channel. Pitch bend is ±2 semitones; CC 64 is
 //! the sustain pedal; CC 1 and channel pressure open the filter a little
@@ -28,6 +36,12 @@ const VOICES: usize = 16;
 const BEND_RANGE: f32 = 2.0;
 /// How far the modulation wheel opens the filter, in octaves.
 const MOD_OCTAVES: f32 = 1.5;
+/// A preset change reaches sounding notes by gliding over this long: long
+/// enough that no parameter steps audibly, short enough to feel at once.
+pub const GLIDE_SECONDS: f32 = 0.025;
+/// While gliding, a voice's derived values (filter, pitch) are worked out
+/// again every this many frames.
+const GLIDE_CHUNK: usize = 8;
 /// A stolen voice fades out over this long.
 const STEAL_SECONDS: f32 = 0.002;
 /// Below this an envelope has ended (-80 dB).
@@ -197,7 +211,7 @@ struct Osc {
     pan: f32,
 }
 
-/// A sound, fixed when a note starts.
+/// A sound.
 #[derive(Debug, Clone, Copy)]
 struct Params {
     osc: [Osc; 2],
@@ -234,7 +248,19 @@ struct Voice {
     /// The key came up while the pedal was down: released with the pedal.
     pedal: bool,
     age: u64,
+    /// The sound now: while gliding, between where it began and `goal`.
     params: Params,
+    /// Where a glide is heading.
+    goal: Params,
+    /// Frames of the glide left (0: not gliding).
+    glide: u32,
+    /// The waveforms before a change, cross-fading out as `wave_mix` goes
+    /// from 0 to 1.
+    wave_old: [Wave; 2],
+    wave_mix: f32,
+    /// Velocity, 0 to 1, and the note's pitch in Hz before detune.
+    vel: f32,
+    hz: f32,
     amp: f32,
     /// Octaves of cutoff from velocity.
     cutoff_shift: f32,
@@ -253,28 +279,36 @@ struct Voice {
     pans: [[f32; 2]; 2],
 }
 
+const IDLE_PARAMS: Params = Params {
+    osc: [Osc {
+        wave: Wave::Saw,
+        level: 0.0,
+        cents: 0.0,
+        pan: 0.0,
+    }; 2],
+    cutoff: 1_000.0,
+    resonance: 0.7,
+    vel_cutoff: 0.0,
+    attack: 0.0,
+    decay: 0.0,
+    sustain: 0.0,
+    release: 0.0,
+    gain: 0.0,
+};
+
 const IDLE: Voice = Voice {
     stage: Stage::Off,
     key: 0,
     down: false,
     pedal: false,
     age: 0,
-    params: Params {
-        osc: [Osc {
-            wave: Wave::Saw,
-            level: 0.0,
-            cents: 0.0,
-            pan: 0.0,
-        }; 2],
-        cutoff: 1_000.0,
-        resonance: 0.7,
-        vel_cutoff: 0.0,
-        attack: 0.0,
-        decay: 0.0,
-        sustain: 0.0,
-        release: 0.0,
-        gain: 0.0,
-    },
+    params: IDLE_PARAMS,
+    goal: IDLE_PARAMS,
+    glide: 0,
+    wave_old: [Wave::Saw; 2],
+    wave_mix: 1.0,
+    vel: 0.0,
+    hz: 0.0,
     amp: 0.0,
     cutoff_shift: 0.0,
     freq: [0.0; 2],
@@ -312,8 +346,6 @@ fn coef(seconds: f32, rate: f32) -> f32 {
 
 impl Voice {
     fn start(&mut self, key: u8, velocity: u8, params: &Params, rate: f32, age: u64) {
-        let v = f32::from(velocity) / 127.0;
-        let hz = 440.0 * ((f32::from(key) - 69.0) / 12.0).exp2();
         *self = Voice {
             stage: Stage::Attack,
             key,
@@ -321,22 +353,94 @@ impl Voice {
             pedal: false,
             age,
             params: *params,
-            amp: v * params.gain,
-            cutoff_shift: params.vel_cutoff * (v - 0.5) * 2.0,
-            freq: [
-                hz * (params.osc[0].cents / 1_200.0).exp2(),
-                hz * (params.osc[1].cents / 1_200.0).exp2(),
-            ],
+            goal: *params,
+            glide: 0,
+            wave_old: [params.osc[0].wave, params.osc[1].wave],
+            wave_mix: 1.0,
+            vel: f32::from(velocity) / 127.0,
+            hz: 440.0 * ((f32::from(key) - 69.0) / 12.0).exp2(),
+            amp: 0.0,
+            cutoff_shift: 0.0,
+            freq: [0.0; 2],
             phase: [0.0, 0.25],
             env: 0.0,
-            attack_step: 1.0 / (params.attack.max(0.001) * rate),
-            decay_coef: coef(params.decay, rate),
-            release_coef: coef(params.release, rate),
+            attack_step: 1.0,
+            decay_coef: 1.0,
+            release_coef: 1.0,
             steal: 1.0,
             pending: None,
             ic: [[0.0; 2]; 2],
-            pans: [pan_gains(params.osc[0].pan), pan_gains(params.osc[1].pan)],
+            pans: [[0.0; 2]; 2],
         };
+        self.refresh(rate);
+    }
+
+    /// Works the values derived from the sound out again.
+    fn refresh(&mut self, rate: f32) {
+        let p = &self.params;
+        self.amp = self.vel * p.gain;
+        self.cutoff_shift = p.vel_cutoff * (self.vel - 0.5) * 2.0;
+        self.freq = [
+            self.hz * (p.osc[0].cents / 1_200.0).exp2(),
+            self.hz * (p.osc[1].cents / 1_200.0).exp2(),
+        ];
+        self.attack_step = 1.0 / (p.attack.max(0.001) * rate);
+        self.decay_coef = coef(p.decay, rate);
+        self.release_coef = coef(p.release, rate);
+        self.pans = [pan_gains(p.osc[0].pan), pan_gains(p.osc[1].pan)];
+    }
+
+    /// Begins gliding to another sound, from wherever the voice is now.
+    fn retarget(&mut self, sound: &Params, rate: f32) {
+        if self.wave_mix >= 1.0 {
+            self.wave_old = [self.params.osc[0].wave, self.params.osc[1].wave];
+        }
+        for n in 0..2 {
+            if sound.osc[n].wave != self.params.osc[n].wave {
+                self.params.osc[n].wave = sound.osc[n].wave;
+                self.wave_mix = 0.0;
+            }
+        }
+        self.goal = *sound;
+        self.glide = ((GLIDE_SECONDS * rate) as u32).max(1);
+    }
+
+    /// Moves `frames` frames along the glide.
+    fn advance(&mut self, frames: u32, rate: f32) {
+        let frac = if frames >= self.glide {
+            1.0
+        } else {
+            frames as f32 / self.glide as f32
+        };
+        let mix = |a: &mut f32, b: f32| *a += (b - *a) * frac;
+        let (p, g) = (&mut self.params, &self.goal);
+        for n in 0..2 {
+            mix(&mut p.osc[n].level, g.osc[n].level);
+            mix(&mut p.osc[n].cents, g.osc[n].cents);
+            mix(&mut p.osc[n].pan, g.osc[n].pan);
+        }
+        mix(&mut p.cutoff, g.cutoff);
+        mix(&mut p.resonance, g.resonance);
+        mix(&mut p.vel_cutoff, g.vel_cutoff);
+        mix(&mut p.attack, g.attack);
+        mix(&mut p.decay, g.decay);
+        mix(&mut p.sustain, g.sustain);
+        mix(&mut p.release, g.release);
+        mix(&mut p.gain, g.gain);
+        mix(&mut self.wave_mix, 1.0);
+        self.glide = self.glide.saturating_sub(frames);
+        if self.glide == 0 {
+            self.params = self.goal;
+            self.wave_mix = 1.0;
+        }
+        if self.stage == Stage::Sustain {
+            // A held note moves to the new sustain level.
+            self.env = self.params.sustain;
+            if self.glide == 0 && self.env <= SILENT {
+                self.stage = Stage::Off;
+            }
+        }
+        self.refresh(rate);
     }
 
     fn release(&mut self) {
@@ -349,6 +453,36 @@ impl Voice {
 
     /// Adds `left.len()` frames of this voice.
     fn render(&mut self, span: &Span, left: &mut [f32], right: &mut [f32]) {
+        if self.glide == 0 {
+            return self.run(span, left, right);
+        }
+        let mut at = 0;
+        while at < left.len() && self.stage != Stage::Off {
+            let end = (at + GLIDE_CHUNK).min(left.len());
+            if self.glide > 0 {
+                self.advance((end - at) as u32, span.rate);
+            }
+            if self.stage == Stage::Off {
+                break;
+            }
+            self.run(span, &mut left[at..end], &mut right[at..end]);
+            at = end;
+        }
+    }
+
+    /// Adds the frames of this voice with its values as they are.
+    fn run(&mut self, span: &Span, left: &mut [f32], right: &mut [f32]) {
+        // Two copies of the loop, so that a voice not gliding pays nothing.
+        if self.wave_mix < 1.0 {
+            self.run_with::<true>(span, left, right);
+        } else {
+            self.run_with::<false>(span, left, right);
+        }
+    }
+
+    #[inline(always)]
+    fn run_with<const FADING: bool>(&mut self, span: &Span, left: &mut [f32], right: &mut [f32]) {
+        let mix = self.wave_mix;
         let inv = 1.0 / span.rate;
         let incs = [
             self.freq[0] * span.bend * inv,
@@ -413,13 +547,10 @@ impl Voice {
             for (n, osc) in self.params.osc.iter().enumerate() {
                 let dt = incs[n];
                 let t = self.phase[n];
-                let sample = match osc.wave {
-                    Wave::Saw => 2.0 * t - 1.0 - blep(t, dt),
-                    Wave::Square => {
-                        let u = if t < 0.5 { t + 0.5 } else { t - 0.5 };
-                        (if t < 0.5 { 1.0 } else { -1.0 }) + blep(t, dt) - blep(u, dt)
-                    }
-                    Wave::Triangle => 4.0 * (t - 0.5).abs() - 1.0,
+                let sample = if FADING {
+                    wave_at(self.wave_old[n], t, dt) * (1.0 - mix) + wave_at(osc.wave, t, dt) * mix
+                } else {
+                    wave_at(osc.wave, t, dt)
                 } * osc.level;
                 let next = t + dt;
                 self.phase[n] = next - next.floor();
@@ -446,6 +577,18 @@ impl Voice {
             left[i] += sides[0] * gain;
             right[i] += sides[1] * gain;
         }
+    }
+}
+
+#[inline]
+fn wave_at(wave: Wave, t: f32, dt: f32) -> f32 {
+    match wave {
+        Wave::Saw => 2.0 * t - 1.0 - blep(t, dt),
+        Wave::Square => {
+            let u = if t < 0.5 { t + 0.5 } else { t - 0.5 };
+            (if t < 0.5 { 1.0 } else { -1.0 }) + blep(t, dt) - blep(u, dt)
+        }
+        Wave::Triangle => 4.0 * (t - 0.5).abs() - 1.0,
     }
 }
 
@@ -654,6 +797,12 @@ impl Instrument for Synth {
         if let Some(preset) = Preset::from_number(preset) {
             self.preset = preset;
             self.sound = preset.params();
+            // Sounding notes glide to the new sound.
+            for v in &mut self.voices {
+                if v.stage != Stage::Off {
+                    v.retarget(&self.sound, self.rate);
+                }
+            }
         }
     }
 

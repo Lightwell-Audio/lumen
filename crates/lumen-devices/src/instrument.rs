@@ -25,8 +25,8 @@ pub trait Instrument: Send {
     /// nothing. The default adds nothing.
     fn preview(&mut self, _rate: u32, _left: &mut [f32], _right: &mut [f32]) {}
 
-    /// Chooses another sound (a preset). Notes already sounding finish
-    /// with the sound they began with.
+    /// Chooses another sound (a preset). Notes already sounding glide to
+    /// it without starting again.
     fn configure(&mut self, _preset: u32) {}
 
     /// Stops every voice at once, without a release tail.
