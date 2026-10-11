@@ -55,6 +55,7 @@ irreversible or external) · *Superseded*.
 | [0043](#adr-0043--the-light-layer-and-the-mark) | The light layer (five levels of light) and the mark (Dawn in Sunrise): the playhead beam, meter heads, the mark as a master meter, the window icon | Accepted 2026-10-10 | No |
 | [0044](#adr-0044--midi-devices-and-clip-events) | MIDI devices (`lumen-midi`, midir, a worker thread) and clip events (format v11) | Accepted 2026-10-10 | No |
 | [0045](#adr-0045--hearing-midi-the-event-path-the-synth-and-midi-to-m5-slice-1-format-v12) | Hearing MIDI: the event path, the synth (`lumen-devices`) and MIDI To (format v12) | Accepted 2026-10-10 | No |
+| [0046](#adr-0046--playing-live-midi-from-monitoring-the-computer-keyboard-and-the-midi-chip-m5-slice-2-format-v13) | Playing live: live input in the engine, MIDI From and Monitor (format v13), the computer keyboard, the MIDI chip | Accepted 2026-10-11 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -3829,3 +3830,91 @@ instrument (VST3 arrives in M6), and a way to send a track to hardware.
   compact grid would be nicer and needs a mock-up first. A track whose
   output is unplugged shows nothing on screen, only "(not connected)" in its
   menu.
+
+
+## ADR-0046 — Playing live: MIDI From, monitoring, the computer keyboard and the MIDI chip (M5 slice 2, format v13)
+
+**Status:** Accepted 2026-10-11 (M5 slice 2). Owner choices L A, J A, C B,
+K A, H B, R A and Ctrl+Shift+K are in the owner-decisions table ("Playing
+live"), chosen from the "MIDI: Playing Live" design canvas.
+
+### Context
+Slice 1 made MIDI clips audible. A MIDI track also has to play what a
+player plays now, from a controller or the computer keyboard, before
+recording (slice 6) can keep it. The owner asked for a MIDI activity chip
+with a quick way to switch ports.
+
+### Decision
+- **Live input in the engine** (`lumen-engine/src/midi/live.rs`). The app
+  hands the MIDI player a `LiveInput` (through a queue, the old one handed
+  back to be freed); each part, the player pulls the messages to be heard
+  in it, stamped with the device frame (`RenderContext::device`, the
+  callback's frame count without the read ahead). A track plays what its
+  `Listen` takes: a bit per source (an input's slot, 0 to 62, and the
+  computer keyboard, 63) and an optional channel. Live messages go the way
+  clip events go: into the instrument, or out to the MIDI To port
+  rechannelled to the track's channel. Live notes have their own tracker,
+  apart from the clips', so a key held while a clip plays the same note
+  ends only its own note. A track that stops listening, listens to
+  something else, changes instrument or port, or leaves the list lets go
+  of its live notes, pedal and bend; Panic forgets them; **stop and jumps
+  leave them alone** (a held key keeps sounding). A note-off for a note
+  the track is not holding is dropped. Live input waiting makes the engine
+  render while stopped (`ringing`). While scrubbing, live input waits for
+  the scrub to end.
+- **Timing (J A, "steady").** `lumen-app/src/live.rs`'s `LiveFeed` runs on
+  the audio thread. A message's play time is its driver stamp plus the
+  input's offset to the clock (the smallest `arrived - stamp` lately seen,
+  creeping up by 1/256 of a later gap so a slow driver clock is followed;
+  a stamp more than 20 ms off starts the offset again, so drivers with
+  useless stamps fall back to arrival time). Frame 0's time is the
+  earliest `time - frame` over the last 256 callbacks (`StreamClock`, now
+  with the block length). A message is heard one block after it was
+  played, never before the part being rendered and never more than two
+  blocks after the block that takes it. A note-on more than 100 ms old
+  (the audio stood still) is dropped; its note-off still goes. The
+  computer keyboard is stamped with the clock when the UI reads the key.
+  Recording (slice 6) will use the same times.
+- **The model, format v13.** `Track::midi_from` (`All` inputs switched on
+  for tracks and the computer keyboard, `Keyboard`, or a `Port` by name,
+  remembered while unplugged; and a channel or all) and `Track::monitor`
+  (Auto, In, Off; stored on every track kind, used by audio tracks from
+  M9). Both are written only when not the default. No-op migration, golden
+  fixture `v13`, validation, `history::unchanged`.
+  `Document::set_midi_from` and `set_monitor`, one undo step each.
+- **Who listens (L A, Ableton's auto-arm).** Pure and tested in
+  `midi_play::listening`: Monitor In always; Auto when armed **or
+  selected**; Off never; a MIDI To track that is muted or silenced by solo
+  never. The arm of a track that listens only because it is selected shows
+  a hollow record-red ring. The engine list is resent when the selection,
+  arms, monitors, MIDI From or the ports change.
+- **Where it is set (R A).** The track menu's MIDI From (All inputs,
+  Computer keyboard, each input with its channels, ports not connected
+  dimmed) and a Monitor row (In · Auto · Off); palette commands; From and
+  To rows on MIDI tracks' mixer strips.
+- **The computer keyboard (K A).** A command (Ctrl+Shift+K, area MIDI)
+  toggles a mode that is not saved. While on, A to K, W E T Y U, O and L
+  play notes, Z X move the octave (C-2 to C8, from C3), C V step the
+  velocity (1, 20 … 120, 127, from 100); repeats are ignored; each key ends
+  the note it started. Only plain letters are taken, and not while a text
+  field, a rebind or a window has the keys. Esc, turning it off, Panic and
+  the window losing focus let go of what it holds. The transport has a lit
+  keycap button and, where there is room, a readout (`C3–C4 · vel 100`);
+  in the narrowest window the readout leads the info line instead.
+- **The MIDI chip (C B).** A DIN glyph with in and out lights in the
+  transport bar's right cluster. Activity is counted with atomics where it
+  happens: per input slot in the driver callback (channel messages only,
+  so clock and active sensing never flash), per output in the device
+  layer's worker when a send succeeds, and in `LiveKeys`. The UI flashes a
+  light when a count changes (`light::flash`, the BEAM level, fading over
+  `motion::NOTE`). Its popover lists every port with its own light and
+  Track and Remote pills that act through the settings page's own path,
+  unplugged ports dimmed with "not connected", and "MIDI settings…".
+- **Header lights (H B).** See the slice 2e notes below.
+
+### Consequences
+- Engine tests (`tests/live.rs`, 9) and the allocation guard over live
+  input with list swaps and a feed replaced mid-run; feed tests for the
+  steady spacing under late callbacks, the bounds, stale notes and bad
+  stamps; E2E for listening, MIDI From, Monitor, the keyboard, the chip.
+- Unverified: timing with a real controller (MT-MIDI-3).
