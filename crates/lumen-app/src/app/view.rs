@@ -56,6 +56,7 @@ impl App {
         let step = bench.step(now);
         let idle_left = bench.idle_left(now);
         let out = bench.out().to_path_buf();
+        let editor = bench.editor();
         match step {
             bench::Step::Drive(view) => {
                 self.nav.set(crate::timeview::TimeView {
@@ -70,6 +71,9 @@ impl App {
                 // The lanes take a little over half the window.
                 let visible = ctx.content_rect().height() * 0.6;
                 self.arrangement.top = view.top * (content - visible).max(0.0);
+                if editor {
+                    self.bench_editor(view.top);
+                }
                 ctx.request_repaint();
             }
             bench::Step::Idle => {
@@ -89,6 +93,26 @@ report: {}",
                 std::process::exit(if pass { 0 } else { 3 });
             }
         }
+    }
+
+    /// `--bench-editor`: keeps the stress project's dense clip open in the
+    /// clip editor, its pitches scrolled to `top` (0 to 1) of their range.
+    fn bench_editor(&mut self, top: f32) {
+        if self.note_editor.clip.is_none() {
+            let dense = self
+                .document
+                .project()
+                .tracks
+                .last()
+                .and_then(|t| t.clips.first())
+                .map(|c| c.id);
+            if let Some(id) = dense {
+                self.open_note_editor(id);
+                self.detail_size = 420.0;
+            }
+        }
+        let rows = 128.0 * self.note_editor.row_height;
+        self.note_editor.scroll = top * (rows - 300.0).max(0.0);
     }
 
     pub(crate) fn transport(&mut self, ui: &mut egui::Ui) {

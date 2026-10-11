@@ -175,6 +175,10 @@ pub struct Bench {
     counting: bool,
     /// What asked for each idle repaint ("file:line reason"), with counts.
     idle_causes: std::collections::BTreeMap<String, u32>,
+    /// `--bench-editor`: the dense clip is open in the clip editor, which
+    /// follows the arrangement's scroll and zoom and scrolls its pitches
+    /// with the tracks (M5 slice 3).
+    editor: bool,
 }
 
 impl Bench {
@@ -192,7 +196,19 @@ impl Bench {
             idle_frames: 0,
             counting: false,
             idle_causes: std::collections::BTreeMap::new(),
+            editor: false,
         }
+    }
+
+    /// Measures with the dense clip open in the clip editor.
+    pub fn with_editor(mut self, editor: bool) -> Self {
+        self.editor = editor;
+        self
+    }
+
+    /// The dense clip is to be open in the clip editor.
+    pub fn editor(&self) -> bool {
+        self.editor
     }
 
     /// Notes what caused an idle repaint (egui's repaint causes).

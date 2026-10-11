@@ -134,7 +134,9 @@ impl Launch {
             appearance: value("--appearance"),
             smoke_test: screenshot.is_some() || has("--smoke-test"),
             screenshot,
-            bench: value("--bench-frames").map(|out| bench::Bench::new(PathBuf::from(out))),
+            bench: value("--bench-frames").map(|out| {
+                bench::Bench::new(PathBuf::from(out)).with_editor(has("--bench-editor"))
+            }),
             bench_size: value("--bench-size").and_then(|v| {
                 let (w, h) = v.split_once('x')?;
                 Some((w.parse().ok()?, h.parse().ok()?))
