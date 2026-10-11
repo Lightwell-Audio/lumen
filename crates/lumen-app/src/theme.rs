@@ -414,6 +414,8 @@ pub mod size {
     pub const LABEL_COLUMN: f32 = 96.0;
     /// The label column of a narrow card (the clip's properties).
     pub const LABEL_COLUMN_NARROW: f32 = 72.0;
+    /// The tallest a dropdown's list of choices gets before it scrolls.
+    pub const MENU_LIST: f32 = 320.0;
 }
 
 /// Which theme the user asked for.

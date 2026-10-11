@@ -15,6 +15,7 @@ use lumen_audio::{DeviceId, DeviceInfo};
 use crate::audio::{self, Audio, DRIVERS, Status, driver_label};
 use crate::settings::AudioSettings;
 use crate::{theme, widgets};
+use widgets::Dropdown;
 
 /// Rates offered for the device that is running (a running ASIO driver
 /// reports only its current rate).
@@ -315,14 +316,17 @@ impl Window {
         section(ui, "Device");
         let mut chosen = driver.clone();
         row(ui, "Driver", |ui| {
-            egui::ComboBox::from_id_salt("driver")
-                .selected_text(driver_label(&driver))
-                .width(280.0)
-                .show_ui(ui, |ui| {
-                    for (key, label) in DRIVERS {
-                        ui.selectable_value(&mut chosen, (*key).to_owned(), *label);
-                    }
-                });
+            let labels: Vec<&str> = DRIVERS.iter().map(|(_, label)| *label).collect();
+            let index = DRIVERS.iter().position(|(key, _)| *key == driver);
+            let shown = driver_label(&driver);
+            if let Some(i) = Dropdown::new("Driver", shown, 280.0).show(
+                ui,
+                egui::Id::new("driver"),
+                &labels,
+                index,
+            ) {
+                chosen = DRIVERS[i].0.to_owned();
+            }
         });
         if chosen != driver {
             self.driver = Some(chosen.clone());
@@ -348,20 +352,13 @@ impl Window {
                         .iter()
                         .find(|(id, _)| Some(&id.id) == using.as_ref())
                         .map_or("Choose a device", |(_, name)| name.as_str());
-                    let mut pick = None;
-                    egui::ComboBox::from_id_salt("device")
-                        .selected_text(selected)
-                        .width(280.0)
-                        .show_ui(ui, |ui| {
-                            for (id, name) in devices {
-                                if ui
-                                    .selectable_label(Some(&id.id) == using.as_ref(), name)
-                                    .clicked()
-                                {
-                                    pick = Some((id.clone(), name.clone()));
-                                }
-                            }
-                        });
+                    let names: Vec<&str> = devices.iter().map(|(_, n)| n.as_str()).collect();
+                    let index = devices
+                        .iter()
+                        .position(|(id, _)| Some(&id.id) == using.as_ref());
+                    let pick = Dropdown::new("Device", selected, 280.0)
+                        .show(ui, egui::Id::new("device"), &names, index)
+                        .map(|i| devices[i].clone());
                     if let Some((id, name)) = pick {
                         actions.push(Action::Apply(AudioSettings {
                             driver: chosen.clone(),
@@ -488,14 +485,17 @@ impl Window {
             let now = running.map(|i| i.sample_rate);
             let shown = current.sample_rate.or(now);
             let mut rate = shown;
-            egui::ComboBox::from_id_salt("rate")
-                .selected_text(rate.map_or("Device default".into(), khz))
-                .width(120.0)
-                .show_ui(ui, |ui| {
-                    for r in rates {
-                        ui.selectable_value(&mut rate, Some(r), khz(r));
-                    }
-                });
+            let labels: Vec<String> = rates.iter().map(|r| khz(*r)).collect();
+            let index = shown.and_then(|s| rates.iter().position(|r| *r == s));
+            let text = shown.map_or("Device default".to_owned(), khz);
+            if let Some(i) = Dropdown::new("Sample rate", &text, 120.0).show(
+                ui,
+                egui::Id::new("rate"),
+                &labels,
+                index,
+            ) {
+                rate = Some(rates[i]);
+            }
             if rate != shown {
                 actions.push(Action::Apply(AudioSettings {
                     sample_rate: rate,
@@ -543,21 +543,19 @@ impl Window {
                     }
                     let shown = current.buffer_frames.or(frames);
                     let mut chosen_frames = shown;
-                    egui::ComboBox::from_id_salt("buffer")
-                        .selected_text(
-                            chosen_frames
-                                .map_or("Device default".into(), |f| format!("{f} samples")),
-                        )
-                        .width(120.0)
-                        .show_ui(ui, |ui| {
-                            for f in choices {
-                                ui.selectable_value(
-                                    &mut chosen_frames,
-                                    Some(f),
-                                    format!("{f} samples"),
-                                );
-                            }
-                        });
+                    let labels: Vec<String> =
+                        choices.iter().map(|f| format!("{f} samples")).collect();
+                    let index = shown.and_then(|s| choices.iter().position(|f| *f == s));
+                    let text =
+                        shown.map_or("Device default".to_owned(), |f| format!("{f} samples"));
+                    if let Some(i) = Dropdown::new("Buffer size", &text, 120.0).show(
+                        ui,
+                        egui::Id::new("buffer"),
+                        &labels,
+                        index,
+                    ) {
+                        chosen_frames = Some(choices[i]);
+                    }
                     if chosen_frames != shown {
                         actions.push(Action::Apply(AudioSettings {
                             buffer_frames: chosen_frames,

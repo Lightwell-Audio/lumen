@@ -19,6 +19,7 @@ mod clips;
 mod commands;
 mod compensation;
 mod cue;
+mod dropdown;
 mod editing;
 mod fades;
 mod files;

@@ -547,24 +547,25 @@ impl App {
                                 .set_fade_length(id, edge, length, Some("card fade"));
                         }
                         let now = FadeShape::of(&fade.curve);
-                        egui::ComboBox::from_id_salt(("clip card shape", id, label))
-                            .width(combo)
-                            .selected_text(now.map_or("Custom", FadeShape::name))
-                            .show_ui(ui, |ui| {
-                                for shape in FadeShape::ALL {
-                                    if ui
-                                        .selectable_label(now == Some(shape), shape.name())
-                                        .clicked()
-                                    {
-                                        self.document.set_fade_curve(
-                                            &[id],
-                                            edge,
-                                            shape.curve(),
-                                            None,
-                                        );
-                                    }
-                                }
-                            });
+                        let names: Vec<&str> =
+                            FadeShape::ALL.iter().map(|shape| shape.name()).collect();
+                        let chosen =
+                            now.and_then(|now| FadeShape::ALL.iter().position(|s| *s == now));
+                        let shown = now.map_or("Custom", FadeShape::name);
+                        let name = format!("{label} shape");
+                        if let Some(i) = widgets::Dropdown::new(&name, shown, combo).show(
+                            ui,
+                            egui::Id::new(("clip card shape", id, label)),
+                            &names,
+                            chosen,
+                        ) {
+                            self.document.set_fade_curve(
+                                &[id],
+                                edge,
+                                FadeShape::ALL[i].curve(),
+                                None,
+                            );
+                        }
                     });
                 }
             });

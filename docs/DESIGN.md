@@ -358,7 +358,7 @@ strokes are 4 wide and the third reflection goes.
 | Time signature (`widgets::time_signature`) | one field, "4 / 4", `control` fill | the half under the pointer brightens: the beats left, the unit right | — | drag or wheel changes the half under the pointer; click and type "7/8"; double-click 4/4 | — |
 | Empty state (`widgets::empty_state`) | centred: a 16 pt icon in `text_hint`, the title in medium `text_secondary`, a caption hint, the action as a button with its keys in the tooltip | | | | |
 | Field (tempo, meter) | `raised` fill | `border_strong` outline | — | `accent` outline while editing | — |
-| Combo / menu | as Field, ▼ | | | selected row `accent_muted` | |
+| Dropdown (combo; `widgets::Dropdown`) | raised like Button (`raised::paint`): the value at the left, a ▼ chevron at the right | `control_hover` | sunken, as Button | — (the open list is a menu: its chosen row `accent_muted`) | `text_disabled` |
 | Popover / window | `overlay`, `border_strong`, shadow | | | | |
 | Notice | `warning` text, wrapped, with Dismiss | | | | |
 | Switch (on/off) | a 30 × 16 pt pill in `control_press`, the knob `text_secondary`; its label at the left of a row as wide as there is room for | the pill lightens (`FAST`) | — | the knob glides right (`GLIDE`), `accent` on `accent_muted` | `text_disabled` |
@@ -378,6 +378,16 @@ a glow that is a light level (`raised::glow_level`: `LIT`, and `FLARE` for
 Chrome migration (ADR-0051): transport icon buttons (`icons::button`), the solo chip, MIDI chip, arm (a raised square lit in `Tone::Record`, a solid dot and the breathing ring kept), Monitor badge, dialog and banner buttons, preferences-window buttons, Reset and Panic buttons use `raised::button`, `button_inked` or `paint`. Menu rows stay menu rows; value fields stay fields.
 record); `Recessed` (mute on) is the well's colour with `text_hint`
 letters. M and S on headers and strips are raised buttons in this look.
+
+Dropdowns (`widgets::Dropdown`) replace egui's
+`ComboBox`, which stays flat: a closed dropdown is a raised button with the
+button's height, edge, hover, press and focus ring, and its list opens as a
+menu (`Menu::below`, rows as `choice_row`), so it matches every menu. Its
+accessible name is "<label>: <value>"; Enter or Space opens it, Up and Down
+step the value when closed and move between rows when open, Esc returns
+focus to the button. The list scrolls past `size::MENU_LIST`. Use it for
+every choice of one of many values; two to five choices stay a segmented
+control.
 
 egui's checkboxes and radio buttons are not used (M4.5, the interface
 audit's T3): on/off is a switch (`widgets::switch`), two to five choices a

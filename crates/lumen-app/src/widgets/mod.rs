@@ -14,6 +14,7 @@ use eframe::emath::GuiRounding as _;
 
 use crate::{fonts, icons, light, motion, theme};
 
+mod dropdown;
 mod empty;
 mod fade_out;
 pub mod fader;
@@ -29,6 +30,7 @@ mod signature;
 mod toggle;
 pub mod wheel;
 
+pub use dropdown::Dropdown;
 pub use empty::{Action as EmptyAction, EmptyState, empty_state};
 pub use fade_out::paint_gone;
 pub use keys::{
