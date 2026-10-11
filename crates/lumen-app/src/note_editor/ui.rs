@@ -732,6 +732,11 @@ impl App {
                     cell_start
                 };
                 let start = at - clip.start;
+                let end = if free || !self.grid.snap {
+                    start
+                } else {
+                    cell_end - clip.start
+                };
                 let content = lumen_project::edit::content_length(clip);
                 if start < Ticks::ZERO || start >= content {
                     return;
@@ -741,6 +746,7 @@ impl App {
                 ed.gesture = Some(Gesture {
                     kind: Kind::Draw {
                         start,
+                        end,
                         pitch,
                         step: (cell_end - cell_start).max(MIN_NOTE),
                     },

@@ -299,14 +299,14 @@ fn dragging_with_the_draw_tool_sets_the_length_of_the_new_note() {
 }
 
 #[test]
-fn dragging_left_with_the_draw_tool_ends_the_new_note_at_the_press() {
+fn dragging_left_with_the_draw_tool_keeps_the_cell_pressed() {
     let mut lumen = launch("notes-draw-left");
     open(&mut lumen);
     lumen.key(Modifiers::NONE, Key::B);
     // Pressed in the grid cell at beat 6, dragged left to beat 4: the note
-    // runs from the pointer's snapped place to the press's cell, so the
-    // press is its end.
-    let (press, _) = lumen.app().grid_cell_at(beat(6.1));
+    // runs from the pointer's snapped place to the end of the pressed cell,
+    // so the cell pressed is part of it.
+    let (_, press_end) = lumen.app().grid_cell_at(beat(6.1));
     let from = at(&lumen, beat(6.1), 62);
     let to = at(&lumen, beat(4.0), 62);
     lumen.drag(from, to, Modifiers::NONE);
@@ -314,7 +314,7 @@ fn dragging_left_with_the_draw_tool_ends_the_new_note_at_the_press() {
         .into_iter()
         .find(|n| n.pitch() == 62)
         .expect("drawn");
-    assert_eq!((drawn.start(), drawn.end()), (q(4), press));
+    assert_eq!((drawn.start(), drawn.end()), (q(4), press_end));
     assert_eq!(
         lumen.app().editor_picked().len(),
         1,

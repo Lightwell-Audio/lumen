@@ -42,9 +42,12 @@ pub(crate) enum Kind {
     Resize { end: End },
     /// A box from the press; `base` are the picks kept when it adds.
     Marquee { base: Vec<usize> },
-    /// Drawing a new note from `start` (clip time) at `pitch`.
+    /// Drawing a new note from `start` (clip time) at `pitch`. Dragged
+    /// left, the note ends at `end`: the far side of the cell pressed (the
+    /// press itself off the grid).
     Draw {
         start: Ticks,
+        end: Ticks,
         pitch: u8,
         /// The grid step the note has at least.
         step: Ticks,
@@ -99,16 +102,22 @@ impl Gesture {
             Kind::Marquee { .. } => {
                 Resolved::Marquee(Rect::from_two_pos(self.origin, pointer).intersect(view.body))
             }
-            Kind::Draw { start, pitch, step } => {
+            Kind::Draw {
+                start,
+                end,
+                pitch,
+                step,
+            } => {
                 let at = (env.snap)(view.absolute_at(pointer.x)) - view.clip_start;
                 let min = (*step).max(MIN_NOTE);
                 // Dragged right, the press is the note's start; dragged left,
-                // it is the note's end, and the pointer sets the start.
+                // the note keeps the pressed cell and the pointer sets the
+                // start.
                 let (begin, length) = if at >= *start {
                     (*start, (at - *start).max(min))
                 } else {
-                    let begin = (*start - (*start - at).max(min)).max(Ticks::ZERO);
-                    (begin, *start - begin)
+                    let begin = at.min(*end - min).max(Ticks::ZERO);
+                    (begin, *end - begin)
                 };
                 Resolved::Draw(Note::new(begin, length, *pitch, DRAW_VELOCITY))
             }
@@ -332,6 +341,7 @@ mod tests {
         let g = gesture(
             Kind::Draw {
                 start: Ticks::quarters(2),
+                end: Ticks::quarters(3),
                 pitch: 64,
                 step: Ticks::quarters(1),
             },
@@ -351,15 +361,16 @@ mod tests {
     }
 
     #[test]
-    fn drawing_right_to_left_makes_a_note_that_ends_at_the_press() {
+    fn drawing_right_to_left_keeps_the_cell_pressed() {
         let v = view();
         let snap = to_quarter;
         let e = env(&v, &[], &snap);
-        // Pressed at beat 5, the note's end; dragged left to beat 2.2, which
-        // snaps to 2: a three-beat note from 2 to 5.
+        // Pressed in the cell from beat 5 to 6; dragged left to beat 2.2,
+        // which snaps to 2: the note keeps the pressed cell, 2 to 6.
         let g = gesture(
             Kind::Draw {
                 start: Ticks::quarters(5),
+                end: Ticks::quarters(6),
                 pitch: 64,
                 step: Ticks::quarters(1),
             },
@@ -370,19 +381,28 @@ mod tests {
         };
         assert_eq!(
             (n.start(), n.end(), n.pitch()),
-            (Ticks::quarters(2), Ticks::quarters(5), 64)
+            (Ticks::quarters(2), Ticks::quarters(6), 64)
         );
-        // One step left of the press is the shortest note, still ending there.
+        // One step left of the press adds a cell, still ending there.
         let Resolved::Draw(n) = g.resolve(pos2(440.0, 100.0), &e) else {
             panic!()
         };
         assert_eq!(
             (n.start(), n.end()),
-            (Ticks::quarters(4), Ticks::quarters(5))
+            (Ticks::quarters(4), Ticks::quarters(6))
         );
         // Off the grid (Alt), the minimum length still holds.
         let free = |t: Ticks| t;
         let e = env(&v, &[], &free);
+        let g = gesture(
+            Kind::Draw {
+                start: Ticks::quarters(5),
+                end: Ticks::quarters(5),
+                pitch: 64,
+                step: Ticks::quarters(1),
+            },
+            pos2(510.0, 100.0),
+        );
         let Resolved::Draw(n) = g.resolve(pos2(495.0, 100.0), &e) else {
             panic!()
         };
@@ -394,6 +414,7 @@ mod tests {
         let at_start = gesture(
             Kind::Draw {
                 start: Ticks::quarters(1),
+                end: Ticks::quarters(2),
                 pitch: 64,
                 step: Ticks::quarters(1),
             },
@@ -402,7 +423,7 @@ mod tests {
         let Resolved::Draw(n) = at_start.resolve(pos2(0.0, 100.0), &env(&v, &[], &snap)) else {
             panic!()
         };
-        assert_eq!((n.start(), n.end()), (Ticks::ZERO, Ticks::quarters(1)));
+        assert_eq!((n.start(), n.end()), (Ticks::ZERO, Ticks::quarters(2)));
     }
 
     #[test]
