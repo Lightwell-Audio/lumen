@@ -264,11 +264,13 @@ pub fn midi_track(
 ///   rings on until the pedal comes up;
 /// - **Pad** (Pad): one chord for all eight bars, for chase: start playback
 ///   anywhere and it sounds at once;
-/// - **Bass** (Bass): eighth notes, two bars repeated;
+/// - **Bass** (Bass): eighth notes on the chords' roots and fifths, four
+///   bars repeated;
 /// - **Lead** (Keys): a note in bar 5 that bends up two semitones while the
 ///   modulation wheel opens the filter, then comes back;
 /// - **Hardware** (Pluck, sent to Microsoft GS Wavetable Synth, channel 1):
-///   an arpeggio in bars 1 to 4.
+///   an arpeggio of the same chords in bars 1 to 4, in eighth notes, its
+///   root on every downbeat.
 ///
 /// The loop brace (bars 1 to 4) is set and off.
 pub fn midi_demo() -> Project {
@@ -309,21 +311,25 @@ pub fn midi_demo() -> Project {
         vec![note(0, 32, 48, 70), note(0, 32, 55, 70)],
         vec![],
     );
-    let bass_line: Vec<Note> = [
-        33, 33, 40, 33, 36, 36, 43, 36, 29, 29, 36, 29, 31, 31, 38, 31,
-    ]
-    .iter()
-    .enumerate()
-    .map(|(i, &p)| {
-        Note(
-            Ticks(q(1).0 / 2 * i as i64),
-            Ticks(q(1).0 / 2 - 1_000),
-            p,
-            100,
-        )
-    })
-    .collect();
-    let bass = midi_track(20, "Bass", "bass", (0, 32), Some(8), bass_line, vec![]);
+    // Roots of Am, F, C, G, one per bar: root, root, fifth, root, twice.
+    let bass_line: Vec<Note> = [33_u8, 29, 36, 31]
+        .iter()
+        .enumerate()
+        .flat_map(|(bar, &root)| {
+            [0, 0, 7, 0, 0, 0, 7, 0]
+                .iter()
+                .enumerate()
+                .map(move |(i, &up)| {
+                    Note(
+                        Ticks(q(bar as i64 * 4).0 + q(1).0 / 2 * i as i64),
+                        Ticks(q(1).0 / 2 - 1_000),
+                        root + up,
+                        100,
+                    )
+                })
+        })
+        .collect();
+    let bass = midi_track(20, "Bass", "bass", (0, 32), Some(16), bass_line, vec![]);
     let bend = |beat: i64, sixteenth: i64, value: i16| ClipEvent {
         at: Ticks(q(beat).0 + q(1).0 / 4 * sixteenth),
         kind: EventKind::PitchBend { value },
@@ -351,20 +357,30 @@ pub fn midi_demo() -> Project {
             wheel(6, 0),
         ],
     );
-    let arpeggio: Vec<Note> = [60, 64, 67, 72, 67, 64, 60, 64]
-        .iter()
-        .enumerate()
-        .flat_map(|(i, &p)| {
-            (0..2).map(move |bar| {
+    // The chords' notes again, one bar each, eighth notes going up and
+    // back: the root (the chord's lowest note) on every downbeat.
+    let arpeggio: Vec<Note> = [
+        [57_u8, 60, 64, 69],
+        [53, 57, 60, 65],
+        [60, 64, 67, 72],
+        [55, 59, 62, 67],
+    ]
+    .iter()
+    .enumerate()
+    .flat_map(|(bar, tones)| {
+        [0_usize, 1, 2, 3, 2, 1, 2, 1]
+            .into_iter()
+            .enumerate()
+            .map(move |(i, tone)| {
                 Note(
-                    Ticks(q(bar * 8).0 + q(1).0 * i as i64),
-                    Ticks(q(1).0 - 2_000),
-                    p,
+                    Ticks(q(bar as i64 * 4).0 + q(1).0 / 2 * i as i64),
+                    Ticks(q(1).0 / 2 - 2_000),
+                    tones[tone],
                     96,
                 )
             })
-        })
-        .collect();
+    })
+    .collect();
     let mut hardware = midi_track(40, "Hardware", "pluck", (0, 16), None, arpeggio, vec![]);
     hardware.midi_to = Some(MidiTo {
         port: "Microsoft GS Wavetable Synth".into(),

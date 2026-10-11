@@ -1929,7 +1929,8 @@ channel 1). The loop brace covers bars 1 to 4 and is off.
    bar: the sustain pedal is down from the start of bar 3 to the start of bar 4. It must stop
    cleanly when the pedal comes up, not hang.
 2. **The Hardware track.** Without anything else, you also hear a plucked
-   arpeggio in bars 1 and 2 (and again in 3 and 4) from the Windows
+   arpeggio in bars 1 to 4 (the same chords, eighth notes, its first note on
+   the chord root on every downbeat) from the Windows
    synthesiser, with a different, GM sound. The first time, Lumen switches
    the output on itself: open **Audio and MIDI settings… → MIDI** and see
    Microsoft GS Wavetable Synth under Outputs with Track on. Does the

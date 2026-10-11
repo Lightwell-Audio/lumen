@@ -850,3 +850,42 @@ fn the_midi_demo_project_file_is_current_and_valid() {
     assert_eq!(loaded, demo, "regenerate with LUMEN_WRITE_FIXTURES=1");
     assert_eq!(loaded.tracks.len(), 5);
 }
+
+#[test]
+fn the_midi_demo_arpeggio_and_bass_start_on_each_chords_root_on_the_downbeat() {
+    use lumen_project::model::ClipContent;
+    let demo = lumen_project::testing::midi_demo();
+    let notes =
+        |name: &str| match &demo.tracks.iter().find(|t| t.name == name).unwrap().clips[0].content {
+            ClipContent::Midi { notes, .. } => notes.clone(),
+            _ => panic!("not MIDI"),
+        };
+    let chords = notes("Chords");
+    let bar = lumen_core::time::Ticks::quarters(4);
+    for track in ["Hardware", "Bass"] {
+        let line = notes(track);
+        for b in 0..4_i64 {
+            let start = lumen_core::time::Ticks(bar.0 * b);
+            let first = line
+                .iter()
+                .find(|n| n.0 == start)
+                .expect("a note on the downbeat");
+            // The chord of bar b: its lowest note is the root (pitch class).
+            let root = chords
+                .iter()
+                .filter(|n| n.0 == start)
+                .map(|n| n.2)
+                .min()
+                .unwrap();
+            assert_eq!(
+                first.2 % 12,
+                root % 12,
+                "{track} bar {b} starts on the root"
+            );
+            let in_bar = line
+                .iter()
+                .filter(|n| n.0 >= start && n.0.0 < start.0 + bar.0);
+            assert_eq!(in_bar.count(), 8, "{track} bar {b}: eight eighth notes");
+        }
+    }
+}
