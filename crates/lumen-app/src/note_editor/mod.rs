@@ -67,6 +67,10 @@ pub(crate) struct NoteEditor {
     /// notes change under it (undo, redo).
     pub selection: Option<NoteSelection>,
     pub gesture: Option<gesture::Gesture>,
+    /// The velocity and controller lane under the roll (slice 4b).
+    pub lane: lane::LaneState,
+    /// Where the lane was drawn last (tests).
+    pub last_lane: Option<lane::geometry::LaneView>,
     /// The editor is in its own window.
     pub popped: bool,
     /// The editor's own horizontal view: its zoom and scroll, independent of
@@ -162,7 +166,9 @@ impl NoteEditor {
 
     /// Ends a gesture without changing anything. True if one was running.
     pub fn cancel_gesture(&mut self) -> bool {
-        self.gesture.take().is_some()
+        let notes = self.gesture.take().is_some();
+        let lane = self.lane.cancel_gesture();
+        notes || lane
     }
 }
 

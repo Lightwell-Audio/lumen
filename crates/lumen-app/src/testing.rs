@@ -694,6 +694,38 @@ impl App {
         Some(egui::pos2(v.x_of(local), y))
     }
 
+    /// The lane under the roll is showing (it was drawn last frame).
+    pub fn lane_shown(&self) -> bool {
+        self.note_editor.last_lane.is_some() && !self.note_editor.lane.hidden
+    }
+
+    /// The name of the lane's tab chosen ("Velocity", "Mod wheel", ...).
+    pub fn lane_name(&self) -> String {
+        self.note_editor.lane.kind.name()
+    }
+
+    /// The lane's plotting area, where it drew last.
+    pub fn lane_body(&self) -> Option<egui::Rect> {
+        self.note_editor.last_lane.map(|v| v.body)
+    }
+
+    /// The point where the open lane shows `value` at clip time `local`.
+    pub fn lane_point(&self, local: Ticks, value: i32) -> Option<egui::Pos2> {
+        let v = self.note_editor.last_lane?;
+        Some(egui::pos2(v.x_of(local), v.y_of(value)))
+    }
+
+    /// A gesture is in progress in the lane.
+    pub fn lane_gesture(&self) -> bool {
+        self.note_editor.lane.gesture.is_some()
+    }
+
+    /// The picked points of the controller lane (indices into the clip's
+    /// events).
+    pub fn lane_picked(&self) -> Vec<usize> {
+        self.note_editor.lane.picked.clone()
+    }
+
     /// Makes `pitch` visible in the editor, as scrolling would.
     pub fn editor_show_pitch(&mut self, pitch: u8) {
         if let Some(v) = self.note_editor.last_view {

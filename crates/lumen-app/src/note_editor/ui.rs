@@ -12,6 +12,7 @@ use lumen_project::edit::notes::{End, MIN_NOTE};
 use lumen_project::model::Clip;
 
 use super::gesture::{DRAG_THRESHOLD, Env, Gesture, Kind, Preview, Resolved, tones_of};
+use super::lane;
 use super::paint::{self, Scene};
 use super::view::{
     EditorView, KEY_WIDTH, ROW_DEFAULT, ROW_MAX, ROW_MIN, RULER_HEIGHT, Zone, fit_clip, pitch_name,
@@ -58,6 +59,10 @@ impl App {
             return;
         };
         let editable = self.document.notes_editable(clip.id);
+        // The lane takes the bottom of the editor when there is room.
+        let lane_height = lane::reserved(area.height() - TOOLBAR - RULER_HEIGHT, &ed.lane);
+        let roll = Rect::from_min_max(area.min, pos2(area.right(), area.bottom() - lane_height));
+        let lane_area = Rect::from_min_max(pos2(area.left(), roll.bottom()), area.max);
         let toolbar = Rect::from_min_size(area.min, vec2(area.width(), TOOLBAR));
         let ruler = Rect::from_min_max(
             pos2(area.left() + KEY_WIDTH, toolbar.bottom()),
@@ -65,9 +70,9 @@ impl App {
         );
         let keys = Rect::from_min_max(
             pos2(area.left(), ruler.bottom()),
-            pos2(area.left() + KEY_WIDTH, area.bottom()),
+            pos2(area.left() + KEY_WIDTH, roll.bottom()),
         );
-        let body = Rect::from_min_max(pos2(keys.right(), ruler.bottom()), area.max);
+        let body = Rect::from_min_max(pos2(keys.right(), ruler.bottom()), roll.max);
         if ed.row_height <= 0.0 {
             ed.row_height = ROW_DEFAULT;
         }
@@ -93,7 +98,7 @@ impl App {
         let layer = ui.layer_id();
         let on_top = |p: Pos2| ctx.layer_id_at(p) == Some(layer);
         let over_area = pointer.filter(|p| area.contains(*p) && on_top(*p));
-        self.editor_wheel(&ctx, over_area, &mut view);
+        self.editor_wheel(&ctx, over_area.filter(|p| roll.contains(*p)), &mut view);
         ed.time = view.time;
         view.clamp_scroll();
         ed.row_height = view.row_height;
@@ -125,6 +130,7 @@ impl App {
             // A click in the notes does not keep the keyboard focus: the
             // arrows and Delete are the editor's keys, not a control's.
             ctx.memory_mut(|m| m.surrender_focus(notes_response.id));
+            ed.lane.focus = false;
         }
 
         let modifiers = ctx.input(|i| i.modifiers);
@@ -212,6 +218,18 @@ impl App {
         if let (Some(chip), Some(p)) = (&preview.chip, ctx.input(|i| i.pointer.latest_pos())) {
             widgets::draw_hint(&painter, p + vec2(14.0, -16.0), chip, body);
         }
+        if lane_height > 0.0 {
+            let input = lane::LaneInput {
+                clip: &clip,
+                colour,
+                view: &view,
+                area: lane_area,
+                lines: &lines,
+                over: pointer.filter(|p| on_top(*p)),
+                editable,
+            };
+            self.draw_lane(ui, ed, &input);
+        }
         ed.last_view = Some(view);
 
         // The pointer's shape, and what the info line says.
@@ -296,6 +314,16 @@ impl App {
                 None,
             );
             ed.popped = popped;
+            ui.add_space(theme::space::S);
+            let mut shown = !ed.lane.hidden;
+            let response = widgets::toggle_button(ui, &mut shown, "Lane");
+            widgets::tip(
+                response,
+                "Show the velocity and controller lane under the notes",
+                None,
+                None,
+            );
+            ed.lane.hidden = !shown;
         });
     }
 
@@ -583,7 +611,7 @@ impl App {
     }
 
     /// Sets the picked notes (a click or a box).
-    fn select_notes(&self, ed: &mut NoteEditor, indices: Vec<usize>) {
+    pub(in crate::note_editor) fn select_notes(&self, ed: &mut NoteEditor, indices: Vec<usize>) {
         let project = self.document.project();
         match &mut ed.selection {
             Some(selection) => {

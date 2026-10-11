@@ -26,9 +26,10 @@ const VISIBLE_MARGIN: f32 = 8.0;
 const VELOCITY: (i32, i32) = (1, 127);
 
 /// What the lane shows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum LaneKind {
     /// The notes' velocities, one stem per start time.
+    #[default]
     Velocity,
     /// A controller by number (0 to 127).
     Controller(u8),

@@ -28,6 +28,7 @@ mod notes;
 pub use clips::{CLIP_GAIN, ClipMove};
 pub use groups::Place;
 pub use import::{DropInto, Imported, import_place};
+pub use lanes::{Drag, Line, Shift};
 pub use midi_clips::NewClip;
 pub use mixer::{MAX_RETURNS, Refused};
 pub use notes::Resize;
