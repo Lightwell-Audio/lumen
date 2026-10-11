@@ -21,11 +21,23 @@ mod clips;
 mod groups;
 mod import;
 mod instrument;
+mod midi_clips;
 mod mixer;
+mod notes;
 pub use clips::{CLIP_GAIN, ClipMove};
 pub use groups::Place;
 pub use import::{DropInto, Imported, import_place};
+#[expect(
+    unused_imports,
+    reason = "M5 slice 3c uses these; remove this line then"
+)]
+pub use midi_clips::NewClip;
 pub use mixer::{MAX_RETURNS, Refused};
+#[expect(
+    unused_imports,
+    reason = "M5 slice 3c uses these; remove this line then"
+)]
+pub use notes::{End, MIN_NOTE, Resize};
 
 /// Track colours, cycled for new tracks (`theme::CLIP_COLORS`, as `#RRGGBB`).
 fn track_color(index: usize) -> Color {

@@ -142,7 +142,7 @@ pub fn synthetic(
                             None => ClipContent::Midi {
                                 notes: (0..notes_per_clip)
                                     .map(|_| {
-                                        Note(
+                                        Note::new(
                                             Ticks(rng.below(2 * PPQ as u64) as i64),
                                             Ticks(PPQ / 4),
                                             36 + rng.below(48) as u8,
@@ -277,7 +277,7 @@ pub fn midi_demo() -> Project {
     use crate::model::{ClipEvent, EventKind, MidiTo};
     let q = Ticks::quarters;
     let note = |start: i64, length: i64, pitch: u8, velocity: u8| {
-        Note(q(start), q(length), pitch, velocity)
+        Note::new(q(start), q(length), pitch, velocity)
     };
     let chord = |bar: i64, length: i64, pitches: &[u8]| -> Vec<Note> {
         pitches
@@ -320,7 +320,7 @@ pub fn midi_demo() -> Project {
                 .iter()
                 .enumerate()
                 .map(move |(i, &up)| {
-                    Note(
+                    Note::new(
                         Ticks(q(bar as i64 * 4).0 + q(1).0 / 2 * i as i64),
                         Ticks(q(1).0 / 2 - 1_000),
                         root + up,
@@ -372,7 +372,7 @@ pub fn midi_demo() -> Project {
             .into_iter()
             .enumerate()
             .map(move |(i, tone)| {
-                Note(
+                Note::new(
                     Ticks(q(bar as i64 * 4).0 + q(1).0 / 2 * i as i64),
                     Ticks(q(1).0 / 2 - 2_000),
                     tones[tone],

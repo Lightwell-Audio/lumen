@@ -21,7 +21,7 @@ fn q(beats: i64) -> Ticks {
 fn chord(start: i64, length: i64, pitches: [u8; 3]) -> Vec<Note> {
     pitches
         .into_iter()
-        .map(|pitch| Note(q(start), q(length), pitch, 100))
+        .map(|pitch| Note::new(q(start), q(length), pitch, 100))
         .collect()
 }
 

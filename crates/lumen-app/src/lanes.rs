@@ -843,7 +843,7 @@ mod tests {
                     preset,
                     (0, 8),
                     None,
-                    vec![lumen_project::model::Note(q(1), q(1), 60, 100)],
+                    vec![lumen_project::model::Note::new(q(1), q(1), 60, 100)],
                     vec![],
                 )],
             )

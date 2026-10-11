@@ -22,8 +22,13 @@ use crate::model::EventKind;
 use crate::model::{Clip, ClipContent, ClipEvent, Id, Note, Project};
 
 mod clipboard;
+mod note_selection;
+mod note_time;
+pub mod notes;
 
 pub use clipboard::{Clipboard, copy_clips, copy_range, paste};
+pub use note_selection::NoteSelection;
+pub use note_time::{content_length, repeats, shown, to_arrangement, to_clip_time};
 
 /// Times before and after any clip, for "everything before" and "everything
 /// after" (far from overflow).
@@ -61,7 +66,7 @@ pub fn slice(project: &Project, tempo: &TempoMap, clip: &Clip, a: Ticks, b: Tick
                         (n.start() + n.length()).min(cut + part.length),
                     );
                     (from < to && n.start() >= cut)
-                        .then(|| Note(from - cut, to - from, n.pitch(), n.velocity()))
+                        .then(|| Note(from - cut, to - from, n.pitch(), n.velocity(), n.muted()))
                 })
                 .collect();
             shift_events(events, cut, part.length);
@@ -259,6 +264,7 @@ fn shift_notes(notes: &mut Vec<Note>, by: Ticks, length: Ticks) {
                     n.length().min(length - start),
                     n.pitch(),
                     n.velocity(),
+                    n.muted(),
                 )
             })
         })
@@ -523,7 +529,10 @@ mod tests {
         let p = song();
         let mut clip = (*p.tracks[1].clips[0]).clone();
         clip.content = ClipContent::Midi {
-            notes: vec![Note(q(1), q(1), 60, 100), Note(q(5), q(2), 62, 90)],
+            notes: vec![
+                Note::new(q(1), q(1), 60, 100),
+                Note::new(q(5), q(2), 62, 90),
+            ],
             events: vec![
                 ClipEvent {
                     at: q(1),
@@ -539,7 +548,7 @@ mod tests {
         assert_eq!(
             part.content,
             ClipContent::Midi {
-                notes: vec![Note(q(1), q(1), 62, 90)],
+                notes: vec![Note::new(q(1), q(1), 62, 90)],
                 events: vec![ClipEvent {
                     at: q(1),
                     kind: EventKind::Pressure { value: 20 },

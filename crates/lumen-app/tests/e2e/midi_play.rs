@@ -30,7 +30,7 @@ fn q(beats: i64) -> Ticks {
 }
 
 fn note(start: i64, length: i64, pitch: u8) -> Note {
-    Note(q(start), q(length), pitch, 100)
+    Note::new(q(start), q(length), pitch, 100)
 }
 
 /// Starts Lumen with `project` open, MIDI from `fake`.
