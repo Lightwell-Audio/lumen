@@ -47,6 +47,9 @@ const TRAVEL_MIN: f32 = 64.0;
 const TRAVEL_PAD: f32 = 12.0;
 const BUTTONS: f32 = theme::size::CONTROL_SMALL;
 const BOTTOM: f32 = theme::space::S;
+/// Room above the buttons for the armed glow, which reaches 4 pt past the
+/// arm button (`headers::ARM_GLOW`); the peak readout above must stay clear.
+const ABOVE_BUTTONS: f32 = theme::space::S;
 /// dB marks on the scale between fader and meter, most important first:
 /// those without room for their number become ticks.
 const MARKS: [f32; 6] = [0.0, -48.0, 6.0, -12.0, -24.0, -6.0];
@@ -105,7 +108,7 @@ impl Sections {
             + 2.0 * TRAVEL_PAD
             + GAP
             + ROW // volume and peak
-            + GAP
+            + ABOVE_BUTTONS
             + BUTTONS
             + BOTTOM
     }
@@ -316,7 +319,8 @@ impl Arrangement {
             },
         );
 
-        // M, S and arm, centred.
+        // M, S and arm, centred, with room above them for the armed glow.
+        y += ABOVE_BUTTONS - GAP;
         let ppp = ui.ctx().pixels_per_point();
         let size = vec2(BUTTONS, BUTTONS);
         let arms = matches!(

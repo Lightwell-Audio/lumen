@@ -5,6 +5,11 @@ description: Lumen's engineering rules. Use before writing, changing or reviewin
 
 # Lumen architecture
 
+Before planning substantial work, read and follow the shared
+[subagent delegation policy](../references/delegation.md). Prefer bounded
+subagent tasks for investigation, implementation and tests; the parent owns
+integration and final verification.
+
 The sources of truth are `docs/ARCHITECTURE.md` (crates, threads, module
 map), `docs/DECISIONS.md` (ADRs and owner decisions) and `CLAUDE.md` §12
 (where the project stands). Read the parts you touch. This skill is the

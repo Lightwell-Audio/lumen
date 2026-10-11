@@ -891,6 +891,27 @@ fn mixer_strips_and_header_levels() {
 
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn mixer_armed_glow_clears_the_peak_readout() {
+    // The owner's M4.5 finding: an armed record button's glow ran into the
+    // peak readout above it. The gap above the buttons now clears the glow.
+    use egui_kittest::kittest::Queryable;
+    for (appearance, scale) in [("dark", 1.0), ("light", 1.0), ("dark", 2.0)] {
+        let dir = TempDir::new("shots-mixer-arm");
+        let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1200.0, 900.0));
+        h.key_press_modifiers(Modifiers::COMMAND, Key::T);
+        h.run_steps(3);
+        h.get_by_label("Mixer tab").click();
+        h.run_steps(5);
+        h.get_by_label("Arm kick in the mixer").click();
+        h.run_steps(20);
+        h.hover_at(Pos2::new(900.0, 650.0));
+        h.run_steps(5);
+        save(&mut h, &format!("mixer-armed-{appearance}-{scale}"));
+    }
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn delay_compensation_readout() {
     // M4 slice 6, the owner's D1: the readout at the end of the device
     // line, its path in the info line, and the audio panel's Latency rows.
