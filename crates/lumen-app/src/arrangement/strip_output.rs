@@ -3,13 +3,15 @@
 //! and the device's pairs; choices that would feed back are never
 //! offered). Split from `strip.rs` (M4 review M1).
 
-use eframe::egui::{self, Align2, Color32, FontId, Id as EguiId, Rect, Sense, Ui, pos2};
+use eframe::egui::{self, Align2, FontId, Id as EguiId, Rect, Sense, Ui, pos2};
+use eframe::emath::GuiRounding as _;
 use lumen_project::model::{Id, Output, Project, Track, TrackKind};
 use lumen_project::routing::{self as rules, Destination};
 
 use super::Arrangement;
 use crate::document::Document;
-use crate::widgets;
+use crate::theme::Tone;
+use crate::widgets::{self, raised};
 use crate::{motion, theme};
 use lumen_core::product::PRODUCT_NAME;
 
@@ -55,16 +57,27 @@ pub(super) fn row_button(
         .on_hover_text(tip);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, name));
     let hover = motion::hover(ui.ctx(), id.with((salt, "hover")), response.hovered());
-    let painter = ui.painter();
-    painter.rect_filled(
+    let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&response));
+    // A raised combo (ADR-0052), on while its menu is open.
+    let face = raised::Face::new(theme::controls(false))
+        .hover(hover)
+        .pressed(response.is_pointer_button_down_on())
+        .lit(
+            motion::hover(ui.ctx(), id.with((salt, "open")), open),
+            Tone::On,
+        );
+    let row = row.round_to_pixels(ui.pixels_per_point());
+    let body = raised::paint(
+        ui.painter(),
         row,
-        theme::radius::SMALL,
-        palette.control.lerp_to_gamma(palette.control_hover, hover),
+        theme::radius::for_height(row.height()),
+        &face,
     );
+    let painter = ui.painter();
     let font = FontId::proportional(theme::size::CAPTION);
     let room = row.width() - 20.0;
     let shown = if painter
-        .layout_no_wrap(text.to_owned(), font.clone(), Color32::WHITE)
+        .layout_no_wrap(text.to_owned(), font.clone(), palette.text)
         .size()
         .x
         > room
@@ -74,18 +87,21 @@ pub(super) fn row_button(
         text.to_owned()
     };
     painter.text(
-        pos2(row.left() + 5.0, row.center().y),
+        pos2(row.left() + 5.0, body.center().y),
         Align2::LEFT_CENTER,
         shown,
         font,
-        palette.text_secondary,
+        palette
+            .text_secondary
+            .lerp_to_gamma(theme::lit(Tone::On).text, face.lit),
     );
     widgets::draw_arrow(
         painter,
-        pos2(row.right() - 8.0, row.center().y),
+        pos2(row.right() - 8.0, body.center().y),
         1.0,
         palette.text_hint,
     );
+    raised::focus_ring(painter, &response, row);
     response
 }
 

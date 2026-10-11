@@ -48,8 +48,8 @@ const TRAVEL_MIN: f32 = 64.0;
 const TRAVEL_PAD: f32 = 12.0;
 const BUTTONS: f32 = theme::size::CONTROL_SMALL;
 const BOTTOM: f32 = theme::space::S;
-/// Room above the buttons for the armed glow, which reaches 6 pt past the
-/// arm button (the `FLARE` light); the peak readout above must stay clear.
+/// Room above the buttons for the armed glow, which reaches 4 pt past the
+/// arm button; the peak readout above must stay clear.
 const ABOVE_BUTTONS: f32 = theme::space::S;
 /// dB marks on the scale between fader and meter, most important first:
 /// those without room for their number become ticks.
@@ -450,26 +450,27 @@ impl Arrangement {
         if db != track.gain_db {
             doc.set_volume(track.id, db);
         }
-        // The held peak is a button: a click clears it (ADR-0051, raised).
+        // The held peak is a readout: a click clears it.
         let peak = Rect::from_x_y_ranges(x.max - half..=x.max, y..=y + ROW);
         let hold = reading.hold_db();
         let response = self.clear_clip_on_click(ui, peak, track, id.with("peak"));
         let hover = motion::hover(ui.ctx(), id.with("peak hover"), response.hovered());
-        let mut face = raised::Face::new(theme::controls(false))
-            .hover(hover)
-            .pressed(response.is_pointer_button_down_on());
-        if reading.clipped {
-            // A clip light needs you: it flares in the record colour.
-            face = face.lit(1.0, Tone::Record);
-        }
-        let body = raised::paint(
-            &painter,
-            peak.round_to_pixels(ui.pixels_per_point()),
-            theme::radius::SMALL,
-            &face,
-        );
+        // A readout, sunk like the value field beside it (`paint_field`);
+        // a clip flares it in the record colour.
+        let peak = peak.round_to_pixels(ui.pixels_per_point());
+        let radius = theme::radius::for_height(peak.height());
+        let ink = if reading.clipped {
+            let flare = raised::Face::new(controls)
+                .hover(hover)
+                .lit(1.0, Tone::Record);
+            raised::paint(&painter, peak, radius, &flare);
+            flare.text()
+        } else {
+            raised::paint_field(&painter, peak, radius, hover);
+            controls.text
+        };
         painter.text(
-            body.center(),
+            peak.center(),
             Align2::CENTER_CENTER,
             if hold > FLOOR_DB {
                 widgets::readout_db(hold)
@@ -477,7 +478,7 @@ impl Arrangement {
                 "\u{2014}".into()
             },
             FontId::monospace(theme::size::CAPTION),
-            face.text(),
+            ink,
         );
         raised::focus_ring(ui.painter(), &response, peak);
         y + ROW + GAP
@@ -581,7 +582,6 @@ impl Arrangement {
         row: Rect,
         (id, controls): (EguiId, theme::Controls),
     ) {
-        let palette = *theme::p();
         let flip = Rect::from_min_size(row.min, vec2(ROW, ROW));
         let response = ui
             .interact(flip, id.with("invert"), Sense::click())
@@ -598,23 +598,27 @@ impl Arrangement {
             doc.set_invert(&self.targets(track.id), !track.invert);
         }
         let hover = motion::hover(ui.ctx(), id.with("invert hover"), response.hovered());
-        let fill = if track.invert {
-            palette.accent
-        } else {
-            controls.fill.lerp_to_gamma(controls.hover, hover)
-        };
-        ui.painter().rect_filled(flip, theme::radius::SMALL, fill);
+        let lit = motion::hover(ui.ctx(), id.with("invert lit"), track.invert);
+        // A raised toggle (ADR-0052), on while the polarity is inverted.
+        let face = raised::Face::new(controls)
+            .hover(hover)
+            .pressed(response.is_pointer_button_down_on())
+            .lit(lit, Tone::On);
+        let flip = flip.round_to_pixels(ui.pixels_per_point());
+        let body = raised::paint(
+            ui.painter(),
+            flip,
+            theme::radius::for_height(flip.height()),
+            &face,
+        );
         ui.painter().text(
-            flip.center(),
+            body.center(),
             Align2::CENTER_CENTER,
             "\u{00D8}",
             fonts::medium(theme::size::CAPTION),
-            if track.invert {
-                theme::text_on(fill)
-            } else {
-                controls.text
-            },
+            face.text(),
         );
+        raised::focus_ring(ui.painter(), &response, flip);
         let trim = Rect::from_min_max(pos2(flip.right() + GAP, row.top()), row.max);
         let db = widgets::value_slider(
             ui,
@@ -685,7 +689,6 @@ impl Arrangement {
         rect: Rect,
         (id, controls): (EguiId, theme::Controls),
     ) {
-        let palette = *theme::p();
         let response = ui
             .interact(rect, id.with("mute"), Sense::click())
             .on_hover_text("Mute the master: silences the main output");
@@ -701,23 +704,27 @@ impl Arrangement {
             doc.set_mute(&[master.id], !master.mute);
         }
         let hover = motion::hover(ui.ctx(), id.with("mute hover"), response.hovered());
-        let fill = if master.mute {
-            palette.start_marker
-        } else {
-            controls.fill.lerp_to_gamma(controls.hover, hover)
-        };
-        ui.painter().rect_filled(rect, theme::radius::SMALL, fill);
+        let lit = motion::hover(ui.ctx(), id.with("mute lit"), master.mute);
+        // As every track's M (ADR-0052): raised, `mute` when on.
+        let face = raised::Face::new(controls)
+            .hover(hover)
+            .pressed(response.is_pointer_button_down_on())
+            .lit(lit, Tone::Mute);
+        let rect = rect.round_to_pixels(ui.pixels_per_point());
+        let body = raised::paint(
+            ui.painter(),
+            rect,
+            theme::radius::for_height(rect.height()),
+            &face,
+        );
         ui.painter().text(
-            rect.center(),
+            body.center(),
             Align2::CENTER_CENTER,
             "M",
             fonts::medium(theme::size::CAPTION),
-            if master.mute {
-                theme::text_on(fill)
-            } else {
-                controls.text
-            },
+            face.text(),
         );
+        raised::focus_ring(ui.painter(), &response, rect);
     }
 
     /// A click on a clip light or a held peak clears it; Alt+click clears

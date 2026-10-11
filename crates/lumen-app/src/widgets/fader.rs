@@ -1,7 +1,8 @@
-//! The channel fader (M4 slice 5, the owner's S1 console): a thin groove
-//! with a cap, on the send knobs' taper (`knob::position`: 0 dB at three
-//! quarters of the travel, +6 dB at the top, silence at the bottom), so a
-//! fader and a send at the same level sit at the same place.
+//! The channel fader (M4 slice 5, the owner's S1 console; its look is the
+//! design system's FaderMeter, ADR-0052): a sunken groove with a raised
+//! cap, on the send knobs' taper (`knob::position`: 0 dB at three quarters
+//! of the travel, +6 dB at the top, silence at the bottom), so a fader and
+//! a send at the same level sit at the same place.
 //!
 //! It acts as every value control does (DESIGN.md §7): drag (Shift for
 //! fine), double-click for 0 dB, arrow keys when focused, the wheel a dB a
@@ -9,13 +10,19 @@
 //! under it on the strip.
 
 use eframe::egui::{self, CursorIcon, Id as EguiId, Key, Rect, Sense, Stroke, Ui, pos2, vec2};
+use eframe::emath::GuiRounding as _;
 
 use super::db_text;
 use super::knob::{level, position};
+use super::raised;
 use crate::{motion, theme};
 
-/// The groove's width and the cap's size.
+/// The groove's width and corner radius (half its width), and the cap's size.
 const GROOVE: f32 = 4.0;
+const GROOVE_RADIUS: u8 = 2;
+/// The cap's index line: 2 pt thick, 4 pt in from each side.
+const INDEX: f32 = 2.0;
+const INDEX_INSET: f32 = 4.0;
 pub const CAP: egui::Vec2 = vec2(22.0, 12.0);
 
 /// Where `db` sits in `travel` (top is loudest).
@@ -34,7 +41,6 @@ pub fn fader(
     name: &str,
     look: theme::Controls,
 ) -> Option<f32> {
-    let palette = *theme::p();
     let area = Rect::from_x_y_ranges(
         x - CAP.x / 2.0..=x + CAP.x / 2.0,
         travel.min - CAP.y / 2.0..=travel.max + CAP.y / 2.0,
@@ -106,7 +112,7 @@ pub fn fader(
     // Drawing: the groove, then the cap at the level shown.
     let painter = ui.painter();
     let groove = Rect::from_x_y_ranges(x - GROOVE / 2.0..=x + GROOVE / 2.0, travel);
-    painter.rect_filled(groove, GROOVE / 2.0, palette.well);
+    raised::paint_sunken(painter, groove, GROOVE_RADIUS);
     let shown = out.unwrap_or(db);
     let hover = motion::hover(
         ui.ctx(),
@@ -115,35 +121,23 @@ pub fn fader(
     );
     let cap = Rect::from_center_size(pos2(x, y_of(travel, shown)), CAP)
         .round_to_pixels(ui.ctx().pixels_per_point());
-    let fill = if response.dragged() {
-        look.press
-    } else {
-        look.hover.lerp_to_gamma(look.press, hover)
-    };
-    painter.rect_filled(cap, theme::radius::SMALL, fill);
-    painter.rect_stroke(
-        cap,
-        theme::radius::SMALL,
-        Stroke::new(1.0, palette.border_strong),
-        egui::StrokeKind::Inside,
-    );
+    // The cap is a raised control (ADR-0052): Ember under the pointer,
+    // sunk while dragged.
+    let radius = theme::radius::for_height(cap.height());
+    let face = raised::Face::new(look)
+        .hover(hover)
+        .pressed(response.dragged());
+    let body = raised::paint(painter, cap, radius, &face);
     painter.hline(
-        cap.x_range().shrink(4.0),
-        cap.center().y,
-        Stroke::new(1.0, palette.text),
+        body.x_range().shrink(INDEX_INSET),
+        body.center().y,
+        Stroke::new(INDEX, theme::p().text),
     );
     if response.has_focus() {
-        painter.rect_stroke(
-            cap.expand(2.0),
-            theme::radius::SMALL,
-            Stroke::new(2.0, palette.accent),
-            egui::StrokeKind::Outside,
-        );
+        raised::paint_focus(painter, cap, radius);
     }
     out
 }
-
-use eframe::emath::GuiRounding as _;
 
 #[cfg(test)]
 mod tests {

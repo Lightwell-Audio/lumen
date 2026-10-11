@@ -16,7 +16,7 @@ use lumen_project::model::{Id, Track, TrackKind};
 use lumen_project::solo::Heard;
 
 use super::headers::{
-    ARROW_X, BUTTON_GAP, ICON_X, NAME_X, arm_button, group_description, kind_name,
+    ARROW_X, BUTTON_GAP, ICON_X, NAME_X, SILENCED, arm_button, group_description, kind_name,
 };
 use super::nesting;
 use super::{Arrangement, BUTTON, FOLD_BELOW, FOLDED, MAX_HEIGHT, STEP, snap_height};
@@ -25,6 +25,11 @@ use crate::document::Document;
 use crate::icons::draw_type_icon;
 use crate::widgets::{self, draw_arrow, draw_edge_glow, gradient};
 use crate::{fonts, motion, theme};
+
+/// The armed wash: this strong at the rail, fading across this share of
+/// the header (the design system's `.is-armed`).
+const ARMED_WASH: f32 = 0.10;
+const ARMED_WASH_SPAN: f32 = 0.55;
 
 /// Where a header row is, and what it shows.
 pub(super) struct HeaderRow<'a> {
@@ -108,10 +113,15 @@ impl Arrangement {
         // colour, or red with a glow into the header while armed.
         let left = nesting::draw_rails(&painter, rect, doc.project(), &track, arm.on());
         if arm.on() {
+            // The armed wash: `record` at 10%, fading out across the
+            // header's left 55% (the design system's `.is-armed`).
             gradient(
                 &painter,
-                Rect::from_min_size(pos2(left, rect.top()), vec2(28.0, rect.height())),
-                palette.record.gamma_multiply(0.30),
+                Rect::from_min_size(
+                    pos2(left, rect.top()),
+                    vec2((rect.right() - left) * ARMED_WASH_SPAN, rect.height()),
+                ),
+                palette.record.gamma_multiply(ARMED_WASH),
                 Color32::TRANSPARENT,
             );
         }
@@ -191,7 +201,8 @@ impl Arrangement {
             if heard {
                 palette.text_secondary
             } else {
-                palette.text_hint
+                // Silenced: dimmed to 45% (the design system's `.is-dim`).
+                palette.text_secondary.gamma_multiply(SILENCED)
             },
         );
         let kind_hover = Rect::from_center_size(pos2(left + ICON_X, mid), vec2(16.0, 16.0));

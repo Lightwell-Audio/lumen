@@ -11,14 +11,14 @@ use lumen_project::solo::Hearing;
 
 use super::Arrangement;
 use crate::document::Document;
-use crate::theme::Tone;
+use crate::theme::{self, Tone};
 use crate::widgets::raised;
+use crate::{fonts, motion};
 
 /// How strongly a hollow M and S fill with their colour (the design
 /// system's `.is-hollow-m` and `.is-hollow-s`).
 const HOLLOW_MUTE: f32 = 0.14;
 const HOLLOW_SOLO: f32 = 0.12;
-use crate::{fonts, motion, theme};
 
 /// The M and S buttons; S is a headphone button on Cue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,24 +99,26 @@ impl Arrangement {
             let hover = motion::hover(ui.ctx(), id.with(what).with("hover"), response.hovered());
             // Lighting up and going out cross-fade (`FAST`, M4.5).
             let lit = motion::hover(ui.ctx(), id.with(what).with("lit"), on);
-            // The premium look (ADR-0046): raised; solo lit amber, cue lit
-            // in the accent, mute on recessed with hint letters.
+            // The design system's TrackButtons (ADR-0052): raised; a lit M
+            // is `mute`, a lit S and the lit cue are filled accent.
             let face = raised::Face::new(look)
                 .hover(hover)
                 .pressed(response.is_pointer_button_down_on())
                 .lit(lit, tone);
             let r = r.round_to_pixels(ui.pixels_per_point());
-            let body = raised::paint(ui.painter(), r, theme::radius::SMALL, &face);
+            // Radius follows height: 4 on a header's 20 pt, 6 on a strip's 24.
+            let radius = theme::radius::for_height(r.height());
+            let body = raised::paint(ui.painter(), r, radius, &face);
             let p = ui.painter();
             let mut text = face.text();
             if implied && !on {
                 // Hollow: the state's colour as a ring, the letter in it.
-                p.rect_filled(r, theme::radius::SMALL, accent.gamma_multiply(faint));
+                p.rect_filled(r, f32::from(radius), accent.gamma_multiply(faint));
                 p.rect_stroke(
-                    r.shrink(0.75),
-                    theme::radius::SMALL,
-                    Stroke::new(1.5, accent),
-                    egui::StrokeKind::Middle,
+                    r,
+                    f32::from(radius),
+                    Stroke::new(theme::stroke::LIT, accent),
+                    egui::StrokeKind::Inside,
                 );
                 text = accent;
             }
@@ -131,6 +133,7 @@ impl Arrangement {
                     text,
                 );
             }
+            raised::focus_ring(p, &response, r);
             response.clicked()
         };
         if toggle(ui, mute_rect, Toggle::Mute, Tone::Mute) {

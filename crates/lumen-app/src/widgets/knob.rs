@@ -1,7 +1,8 @@
-//! The send knob (M4 slice 4, the owner's K1 "comet"): a ring with the
-//! return's letter in the middle; the level is a trail of light in the
-//! return's colour that brightens towards a glowing head. A dot at the top
-//! marks a pre-fader send. Silent, it is only the ring and the letter.
+//! The send knob (M4 slice 4, the owner's K1 "comet"; the design system's
+//! Knob card, ADR-0052): a ring with the return's letter in the middle;
+//! the level is a trail of light in the return's colour that brightens
+//! towards a glowing head. A dot at the top marks a pre-fader send. Silent,
+//! it is only the ring and the letter.
 //!
 //! It acts as every value control does (DESIGN.md §7): drag up or right
 //! (Shift for fine), double-click for silence, click then type a level
@@ -16,7 +17,7 @@ use eframe::egui::{
     vec2,
 };
 
-use super::db_text;
+use super::{db_text, raised};
 use crate::{fonts, motion, theme};
 
 /// The loudest send, in dB.
@@ -228,9 +229,9 @@ pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> Kno
             ui.close();
         }
         ui.separator();
-        if ui.button("Silence the send").clicked() {
+        // A menu item closes the menu itself.
+        if super::menu_item(ui, "Silence the send", None, true).clicked() {
             out.db = Some(f32::NEG_INFINITY);
-            ui.close();
         }
     });
 
@@ -238,11 +239,7 @@ pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> Kno
     let hot = motion::hover(ui.ctx(), id.with("hot"), out.hovered || knob.linked);
     draw(ui.painter(), rect, &knob, shown, hot);
     if response.has_focus() {
-        ui.painter().circle_stroke(
-            rect.center(),
-            rect.width() / 2.0,
-            Stroke::new(1.5, palette.accent),
-        );
+        raised::paint_focus(ui.painter(), rect, theme::radius::FULL);
     }
     if knob.live_value && (response.dragged() || response.has_focus() && out.db.is_some()) {
         // The level, live, in a chip above the knob, over everything: beside
@@ -289,18 +286,16 @@ fn on_ring(center: Pos2, r: f32, t: f32) -> Pos2 {
 /// in its colour.
 fn draw(painter: &egui::Painter, rect: Rect, knob: &SendKnob<'_>, at: f32, hot: f32) {
     let palette = *theme::p();
-    let look = theme::controls(knob.selected);
     let center = rect.center();
     let r = rect.width() / 2.0 - 2.0;
     let width = (r * 0.28).max(1.8);
-    // The ring, all the way round its sweep: two steps up on a selected
-    // row, where the plain control colour vanishes into the row.
+    // The ring, all the way round its sweep: `control_press` (the Knob
+    // card); on a selected row a quarter of the way to the text colour
+    // (lighter on dark, darker on light), clear of the row either way.
     let ring_color = if knob.selected {
-        // A quarter of the way to the text colour: lighter on dark, darker
-        // on light, clear of the selected row either way.
-        look.fill.lerp_to_gamma(palette.text, 0.25)
+        palette.control_press.lerp_to_gamma(palette.text, 0.25)
     } else {
-        look.fill
+        palette.control_press
     };
     let ring: Vec<Pos2> = (0..=32)
         .map(|i| on_ring(center, r, i as f32 / 32.0))
@@ -326,14 +321,17 @@ fn draw(painter: &egui::Painter, rect: Rect, knob: &SendKnob<'_>, at: f32, hot: 
         for (radius, alpha) in [(width * 2.4 * glow, 0.14), (width * 1.6 * glow, 0.3)] {
             painter.circle_filled(head, radius, knob.color.gamma_multiply(alpha * strength));
         }
-        painter.circle_filled(head, width * 1.0, Color32::WHITE.gamma_multiply(strength));
+        painter.circle_filled(head, width * 1.0, palette.core.gamma_multiply(strength));
         painter.circle_filled(head, width * 0.62, knob.color);
     }
     if hot > 0.0 {
         painter.circle_stroke(
             center,
             r + width + 1.5,
-            Stroke::new(1.0, knob.color.gamma_multiply(0.5 * hot)),
+            Stroke::new(
+                theme::stroke::HAIRLINE,
+                knob.color.gamma_multiply(0.5 * hot),
+            ),
         );
     }
     let ink = match (at > 0.0, knob.selected) {

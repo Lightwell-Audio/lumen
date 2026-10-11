@@ -11,11 +11,13 @@
 use eframe::egui::{
     self, Align2, CursorIcon, FontId, Id as EguiId, Rect, Sense, Stroke, Ui, pos2, vec2,
 };
+use eframe::emath::GuiRounding as _;
 use lumen_project::model::{Project, TrackKind};
 
 use super::{Arrangement, FOLDED};
 use crate::document::Document;
-use crate::widgets::{draw_arrow, draw_edge_glow};
+use crate::theme::Tone;
+use crate::widgets::{draw_arrow, draw_edge_glow, raised};
 use crate::{fonts, motion, theme};
 
 /// The divider above the pinned area.
@@ -371,7 +373,6 @@ impl Arrangement {
     /// the tracks' S buttons cue them to the headphones. Without a cue pair
     /// (Audio settings) it is quiet and says why when clicked.
     pub(super) fn cue_switch(&mut self, ui: &mut Ui, rect: Rect, mid: f32, place: &str) {
-        let palette = *theme::p();
         let switch = Rect::from_min_size(
             pos2(rect.right() - 10.0 - 46.0, mid - 9.0),
             vec2(46.0, 18.0),
@@ -406,33 +407,41 @@ impl Arrangement {
             ui.id().with(("solo cue hover", place)),
             response.hovered(),
         );
-        let look = theme::controls(false);
-        let (fill, ink) = if on {
-            (palette.accent, theme::text_on(palette.accent))
-        } else if ready {
-            (look.fill.lerp_to_gamma(look.hover, hover), look.text)
-        } else {
-            (look.fill.gamma_multiply(0.6), palette.text_disabled)
-        };
+        let lit = motion::hover(ui.ctx(), ui.id().with(("solo cue lit", place)), on);
+        // A raised toggle (ADR-0052): on in Cue, flat and grey without a
+        // cue pair.
+        let face = raised::Face::new(theme::controls(false))
+            .hover(hover)
+            .pressed(response.is_pointer_button_down_on())
+            .lit(lit, Tone::On)
+            .enabled(ready);
+        let switch = switch.round_to_pixels(ui.pixels_per_point());
+        let body = raised::paint(
+            ui.painter(),
+            switch,
+            theme::radius::for_height(switch.height()),
+            &face,
+        );
+        let ink = face.text();
         let painter = ui.painter();
-        painter.rect_filled(switch, theme::radius::SMALL, fill);
         if on {
             crate::icons::draw_headphones(
                 painter,
-                pos2(switch.left() + 11.0, switch.center().y),
+                pos2(switch.left() + 11.0, body.center().y),
                 ink,
             );
         }
         painter.text(
             pos2(
-                switch.center().x + if on { 5.0 } else { 0.0 },
-                switch.center().y,
+                body.center().x + if on { 5.0 } else { 0.0 },
+                body.center().y,
             ),
             Align2::CENTER_CENTER,
             if on { "Cue" } else { "Solo" },
             fonts::medium(theme::size::CAPTION),
             ink,
         );
+        raised::focus_ring(painter, &response, switch);
     }
 
     /// The master's header: its rail and name, the fold arrow, and volume

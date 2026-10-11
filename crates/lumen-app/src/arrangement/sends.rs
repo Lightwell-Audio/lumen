@@ -13,17 +13,16 @@
 //! it is let go (S1). The send itself stays on the track, pre- or
 //! post-fader as it was.
 
-use eframe::egui::{
-    self, Align2, Color32, FontId, Id as EguiId, Rect, Sense, Stroke, Ui, pos2, vec2,
-};
+use eframe::egui::{self, Align2, Color32, FontId, Id as EguiId, Rect, Sense, Ui, pos2, vec2};
 use eframe::emath::GuiRounding as _;
 use lumen_project::model::{Id, Level, Project, Track, TrackKind};
 use lumen_project::solo::Heard;
 
 use super::{Arrangement, FOLDED, STEP, color_of, pinned};
 use crate::document::Document;
+use crate::theme::Tone;
 use crate::widgets::knob::{SendKnob, send_knob};
-use crate::widgets::{db_text, draw_arrow};
+use crate::widgets::{db_text, draw_arrow, raised};
 use crate::{fonts, motion, theme, widgets};
 
 /// A send knob's size, and the gap between knobs.
@@ -148,36 +147,33 @@ fn plus_button(ui: &mut Ui, plus: Plus) -> egui::Response {
     let ctx = ui.ctx().clone();
     let hover = motion::hover(&ctx, response.id.with("hover"), response.hovered());
     let open = egui::Popup::is_id_open(&ctx, egui::Popup::default_response_id(&response));
-    let painter = ui.painter();
-    painter.rect_filled(
-        button,
-        theme::radius::MEDIUM,
-        look.fill.lerp_to_gamma(look.hover, hover),
-    );
-    if open || hover > 0.0 {
-        painter.rect_stroke(
-            button,
-            theme::radius::MEDIUM,
-            Stroke::new(
-                1.0,
-                palette
-                    .accent
-                    .gamma_multiply(if open { 1.0 } else { hover }),
-            ),
-            egui::StrokeKind::Inside,
+    // A raised menu button (ADR-0052), on while its list is open.
+    let face = raised::Face::new(look)
+        .hover(hover)
+        .pressed(response.is_pointer_button_down_on())
+        .lit(
+            motion::hover(&ctx, response.id.with("open"), open),
+            Tone::On,
         );
-    }
+    let body = raised::paint(
+        ui.painter(),
+        button,
+        theme::radius::for_height(button.height()),
+        &face,
+    );
+    let painter = ui.painter();
     let mut x = button.left() + 8.0;
     if let Some(color) = plus.dot {
         painter.circle_filled(pos2(x + 3.0, button.center().y), 3.0, color);
         x += dot;
     }
     let text_width = galley.size().x;
-    painter.galley(
-        pos2(x, button.center().y - galley.size().y / 2.0),
+    painter.galley_with_override_text_color(
+        pos2(x, body.center().y - galley.size().y / 2.0),
         galley,
-        look.text,
+        face.text(),
     );
+    raised::focus_ring(painter, &response, button);
     draw_arrow(
         painter,
         pos2(x + text_width + 6.0 + 4.0, button.center().y),
@@ -629,7 +625,8 @@ pub(super) fn shorten(painter: &egui::Painter, text: &str, font: FontId, width: 
     let mut cut = text.to_owned();
     while !cut.is_empty() {
         cut.pop();
-        let galley = painter.layout_no_wrap(format!("{cut}\u{2026}"), font.clone(), Color32::WHITE);
+        let galley =
+            painter.layout_no_wrap(format!("{cut}\u{2026}"), font.clone(), theme::p().text);
         if galley.size().x <= width {
             break;
         }

@@ -1,7 +1,8 @@
 //! The Monitor badge on a MIDI track's header (M5 slice 2 fix, the owner's
 //! MA): a small speaker before M, shown only when Monitor is not Auto, so
-//! the name keeps its room. In is the accent on its muted fill, with no halo
-//! (a chosen setting, not something sounding); Off is the struck-through
+//! the name keeps its room. In is on (`Tone::On`: the accent on its muted
+//! fill, an accent hairline, no halo: a chosen setting, not something
+//! sounding); Off is the struck-through
 //! speaker in the hint grey. Auto shows nothing: it is set from the track
 //! menu, and the hollow ring on a selected Auto track stays. A click cycles
 //! In, Off, Auto.
@@ -46,14 +47,19 @@ pub(super) fn badge(
     let palette = theme::p();
     let hover = motion::hover(ui.ctx(), id.with("monitor hover"), response.hovered());
     let lit = motion::hover(ui.ctx(), id.with("monitor lit"), on);
-    // The premium look (ADR-0046): raised; In is lit in the accent, Off is
-    // the struck-through speaker in the hint grey.
+    // The design system's toggle (ADR-0052): raised; In is on, Off is the
+    // struck-through speaker in the hint grey.
     let face = raised::Face::new(look)
         .hover(hover)
         .pressed(response.is_pointer_button_down_on())
-        .lit(lit, Tone::Accent);
+        .lit(lit, Tone::On);
     let rect = rect.round_to_pixels(ui.pixels_per_point());
-    let body = raised::paint(ui.painter(), rect, theme::radius::SMALL, &face);
+    let body = raised::paint(
+        ui.painter(),
+        rect,
+        theme::radius::for_height(rect.height()),
+        &face,
+    );
     let (ink, icon) = if on {
         (face.text(), Icon::Speaker)
     } else {

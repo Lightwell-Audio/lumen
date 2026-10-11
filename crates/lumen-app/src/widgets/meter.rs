@@ -1,16 +1,22 @@
 //! Level meters (M4 slice 5, ADR-0040): the zones a level is drawn in, and
-//! the strip's stereo meter with its scale. Colours come from
+//! the strip's stereo meter with its scale. Each bar is a sunken trough
+//! (the design system's FaderMeter, ADR-0052). Colours come from
 //! `theme::meter` (the owner's M1, with M2 as a setting); readings from
 //! `crate::meters`.
 
 use eframe::egui::{Align2, Color32, FontId, Painter, Rangef, Rect, Stroke};
 
 use super::knob::position;
+use super::raised;
 use crate::meters::{FLOOR_DB, Reading};
 use crate::theme;
 
 /// The loudest a meter shows.
 pub const TOP_DB: f32 = 6.0;
+
+/// A bar's corner radius: the trough is 5 pt wide, and its fills are
+/// square, so the corners stay nearly so.
+const BAR_RADIUS: u8 = 1;
 
 /// The stretches of a bar from the floor up to `db`, each in one colour:
 /// below the warning level, up to full scale, and over it. Each is
@@ -52,7 +58,7 @@ pub fn vertical(
     for side in 0..2 {
         let left = rect.left() + side as f32 * (width + gap);
         let bar = Rect::from_x_y_ranges(left..=left + width, rect.y_range());
-        painter.rect_filled(bar, 1.0, palette.well);
+        raised::paint_sunken(painter, bar, BAR_RADIUS);
         for (db, alpha) in [
             (reading.peak[side], theme::METER_PEAK_ALPHA),
             (reading.rms[side], 1.0),
@@ -88,11 +94,13 @@ pub fn vertical(
             } else {
                 palette.text
             };
-            painter.hline(bar.x_range(), y, Stroke::new(1.5, color));
+            painter.hline(bar.x_range(), y, Stroke::new(theme::stroke::LIT, color));
         }
     }
 }
 
+/// The length of a tick standing for a number without room.
+const TICK: f32 = 3.0;
 /// The least room between two numbers on a scale, in points.
 const LABEL_ROOM: f32 = 11.0;
 
@@ -127,7 +135,11 @@ pub fn scale(painter: &Painter, x: f32, ys: Rangef, marks: &[f32]) {
     let palette = theme::p();
     for Mark { db, y, numbered } in place(ys, marks) {
         if !numbered {
-            painter.hline(x - 3.0..=x, y, Stroke::new(1.0, palette.text_hint));
+            painter.hline(
+                x - TICK..=x,
+                y,
+                Stroke::new(theme::stroke::HAIRLINE, palette.text_hint),
+            );
             continue;
         }
         let text = if db == 0.0 {
