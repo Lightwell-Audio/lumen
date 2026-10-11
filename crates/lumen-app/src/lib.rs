@@ -58,6 +58,7 @@ mod midi_settings;
 mod motion;
 mod owner;
 mod panels;
+mod piano_roll;
 mod playhead;
 mod position;
 mod probe;
@@ -603,7 +604,9 @@ impl App {
             ..
         } = launch;
         let mut document = document::Document::new(if launch.stress {
-            lumen_project::testing::synthetic(42, 200, 100, 10, 0)
+            let mut project = lumen_project::testing::synthetic(42, 200, 100, 10, 0);
+            bench::add_dense_midi(&mut project);
+            project
         } else {
             empty_project()
         });

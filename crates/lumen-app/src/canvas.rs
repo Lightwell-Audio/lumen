@@ -33,11 +33,51 @@ struct Resources {
     peaks_uploaded: HashSet<u32>,
     /// The atlas is full: waves of further files are not drawn.
     atlas_full: bool,
+    /// The notes inside the arrangement's MIDI clips (M5 slice 3b): a box
+    /// layer beside the clips, with its own row table.
+    mini: BoxLayerId,
+    mini_rows: Vec<RowSlot>,
+    /// The piano roll's grid and notes, one set per [`Surface`].
+    rolls: [Roll; 2],
+}
+
+/// One piano roll's layers.
+struct Roll {
+    grid: LayerId,
+    grid_lines: Option<GridLines>,
+    notes: BoxLayerId,
+    /// The generation of note boxes on the GPU.
+    notes_generation: Option<u64>,
+    /// The row height the pitch rows were laid out for (physical pixels).
+    row_height: Option<f32>,
+}
+
+/// Where a piano roll is shown. Each place has layers of its own, so the
+/// docked roll and a popped-out window never rebuild each other's notes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Surface {
+    Docked,
+    #[expect(dead_code, reason = "the pop-out window (slice 3c) draws on it")]
+    Window,
+}
+
+impl Surface {
+    fn index(self) -> usize {
+        self as usize
+    }
+    fn grid_target(self) -> usize {
+        ROLL_TARGETS + 2 * self.index()
+    }
+    fn notes_target(self) -> usize {
+        self.grid_target() + 1
+    }
 }
 
 /// Drawing targets: each paint callback prepares its own.
 const GRID_TARGET: usize = 0;
 const CLIPS_TARGET: usize = 1;
+/// The piano rolls' targets start here: a grid and a notes target each.
+const ROLL_TARGETS: usize = 2;
 
 /// What the arrangement grid shows: the editing grid, the time signatures
 /// it counts from, and the line colours (theme tokens `grid_bar`,
@@ -179,6 +219,15 @@ pub fn install(
     // Filled in on the first frame (`GridLines`); a buffer cannot be empty.
     let grid = renderer.add_layer(&state.device, &[RectInstance::new(0.0, 0.0, 0.0, 0)]);
     let clips = renderer.add_box_layer(&state.device);
+    let mini = renderer.add_box_layer(&state.device);
+    let roll = |renderer: &mut Renderer| Roll {
+        grid: renderer.add_layer(&state.device, &[RectInstance::new(0.0, 0.0, 0.0, 0)]),
+        grid_lines: None,
+        notes: renderer.add_box_layer(&state.device),
+        notes_generation: None,
+        row_height: None,
+    };
+    let rolls = [roll(&mut renderer), roll(&mut renderer)];
     state
         .renderer
         .write()
@@ -191,6 +240,9 @@ pub fn install(
             clips_generation: None,
             peaks_uploaded: HashSet::new(),
             atlas_full: false,
+            mini,
+            mini_rows: Vec::new(),
+            rolls,
         }));
     Ok(())
 }
@@ -199,6 +251,14 @@ struct GridCallback {
     view: View,
     port: Port,
     lines: GridLines,
+    /// The arrangement's grid (`None`), or a piano roll's.
+    surface: Option<Surface>,
+}
+
+impl GridCallback {
+    fn target(&self) -> usize {
+        self.surface.map_or(GRID_TARGET, Surface::grid_target)
+    }
 }
 
 /// A callback's viewport, as egui-wgpu sets it: each edge rounded to a
@@ -249,10 +309,17 @@ impl egui_wgpu::CallbackTrait for GridCallback {
         let Some(Ok(r)) = resources.get_mut::<Mutex<Resources>>().map(Mutex::get_mut) else {
             return Vec::new();
         };
-        if !r.grid_lines.as_ref().is_some_and(|l| l.covers(&self.lines)) {
+        let (layer, cache, target) = match self.surface {
+            None => (r.grid, &mut r.grid_lines, GRID_TARGET),
+            Some(s) => {
+                let roll = &mut r.rolls[s.index()];
+                (roll.grid, &mut roll.grid_lines, s.grid_target())
+            }
+        };
+        if !cache.as_ref().is_some_and(|l| l.covers(&self.lines)) {
             r.renderer
-                .update_layer(device, queue, r.grid, &self.lines.instances());
-            r.grid_lines = Some(self.lines.clone());
+                .update_layer(device, queue, layer, &self.lines.instances());
+            *cache = Some(self.lines.clone());
         }
         let view = View {
             row_height: self.port.size_px[1] as f32,
@@ -263,9 +330,9 @@ impl egui_wgpu::CallbackTrait for GridCallback {
         if let Err(e) = r.renderer.prepare(
             device,
             queue,
-            GRID_TARGET,
+            target,
             self.port.size_px,
-            &[(r.grid, area, view)],
+            &[(layer, area, view)],
             None,
         ) {
             eprintln!("arrangement grid: {e}");
@@ -282,7 +349,7 @@ impl egui_wgpu::CallbackTrait for GridCallback {
         if let Some(lock) = resources.get::<Mutex<Resources>>()
             && let Ok(r) = lock.lock()
         {
-            r.renderer.paint(GRID_TARGET, pass);
+            r.renderer.paint(self.target(), pass);
         }
     }
 }
@@ -294,7 +361,30 @@ pub fn grid_shape(
     time: TimeView,
     look: &GridLook,
 ) -> egui::Shape {
+    grid_shape_on(None, rect, pixels_per_point, time, look)
+}
+
+/// Paint shape for a piano roll's vertical grid lines in `rect` (the
+/// lanes), at `time`, the arrangement's zoom.
+pub(crate) fn roll_grid_shape(
+    surface: Surface,
+    rect: Rect,
+    pixels_per_point: f32,
+    time: TimeView,
+    look: &GridLook,
+) -> egui::Shape {
+    grid_shape_on(Some(surface), rect, pixels_per_point, time, look)
+}
+
+fn grid_shape_on(
+    surface: Option<Surface>,
+    rect: Rect,
+    pixels_per_point: f32,
+    time: TimeView,
+    look: &GridLook,
+) -> egui::Shape {
     let callback = GridCallback {
+        surface,
         lines: GridLines::around(time, rect.width(), look),
         view: View {
             left: time.left,
@@ -326,6 +416,12 @@ pub struct ClipFrame {
     /// Clip sizes, in physical pixels ([`box_style`]).
     pub style: BoxStyle,
     pub wave_style: WaveStyle,
+    /// The notes inside MIDI clips, rebuilt with `generation`, the row
+    /// slots of their bands (`piano_roll::mini`) each frame, and their
+    /// sizes.
+    pub mini: Arc<Vec<BoxInstance>>,
+    pub mini_rows: Vec<RowSlot>,
+    pub mini_style: BoxStyle,
 }
 
 struct ClipsCallback {
@@ -364,9 +460,15 @@ impl egui_wgpu::CallbackTrait for ClipsCallback {
                 .update_boxes(device, queue, r.clips, &frame.boxes);
             r.renderer
                 .update_waves(device, queue, r.clips, &frame.waves);
+            r.renderer.update_boxes(device, queue, r.mini, &frame.mini);
             r.clips_generation = Some(frame.generation);
         }
         r.renderer.update_rows(device, queue, r.clips, &frame.rows);
+        if r.mini_rows != frame.mini_rows {
+            r.renderer
+                .update_rows(device, queue, r.mini, &frame.mini_rows);
+            r.mini_rows.clone_from(&frame.mini_rows);
+        }
         if let Some(strips) = &frame.strips {
             let writes: Vec<(u32, &[[i16; 2]])> = strips
                 .writes
@@ -388,13 +490,22 @@ impl egui_wgpu::CallbackTrait for ClipsCallback {
             device,
             CLIPS_TARGET,
             self.port.size_px,
-            &[BoxDraw {
-                layer: r.clips,
-                area,
-                view,
-                style: frame.style,
-                waves: frame.wave_style,
-            }],
+            &[
+                BoxDraw {
+                    layer: r.clips,
+                    area,
+                    view,
+                    style: frame.style,
+                    waves: frame.wave_style,
+                },
+                BoxDraw {
+                    layer: r.mini,
+                    area,
+                    view,
+                    style: frame.mini_style,
+                    waves: frame.wave_style,
+                },
+            ],
         );
         Vec::new()
     }
@@ -433,6 +544,143 @@ pub fn box_style(pixels_per_point: f32, inset: f32, title: f32) -> BoxStyle {
         border: pixels_per_point,
         min_width: 2.0 * pixels_per_point,
     }
+}
+
+/// How the notes inside arrangement clips are drawn, in physical pixels:
+/// thin bands, square-ish, one pixel wide at the least.
+pub fn mini_style(pixels_per_point: f32) -> BoxStyle {
+    BoxStyle {
+        inset: 0.0,
+        radius: pixels_per_point,
+        title: 0.0,
+        border: 0.0,
+        min_width: pixels_per_point.max(1.0),
+    }
+}
+
+/// The piano roll's notes for the GPU: the boxes (one row per pitch, see
+/// `piano_roll::notes`), rebuilt only when `generation` changes, and how
+/// the view looks this frame. Changing the zoom, the scroll or the row
+/// height uploads nothing but a 128-slot row table.
+pub(crate) struct NoteFrame {
+    pub boxes: Arc<Vec<BoxInstance>>,
+    pub generation: u64,
+    /// The horizontal view, shared with the arrangement.
+    pub time: TimeView,
+    /// The vertical scroll, in points from the top of pitch 127.
+    pub scroll: f32,
+    /// Points per pitch row.
+    pub row_height: f32,
+    /// Sizes in physical pixels ([`note_style`]).
+    pub style: BoxStyle,
+}
+
+/// How piano-roll notes are drawn, in physical pixels: a hairline gap
+/// between rows, the owner's slightly rounded corners, a 1-px lighter top
+/// edge (the title bar) and a 1.5 pt outline for selected notes.
+pub(crate) fn note_style(pixels_per_point: f32) -> BoxStyle {
+    BoxStyle {
+        inset: 0.5 * pixels_per_point,
+        radius: f32::from(crate::theme::radius::SMALL) * pixels_per_point / 2.0,
+        title: 1.0,
+        border: 1.5 * pixels_per_point,
+        min_width: 2.0 * pixels_per_point,
+    }
+}
+
+struct NotesCallback {
+    frame: NoteFrame,
+    surface: Surface,
+    pixels_per_point: f32,
+    port: Port,
+}
+
+impl egui_wgpu::CallbackTrait for NotesCallback {
+    fn prepare(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        _screen: &egui_wgpu::ScreenDescriptor,
+        _encoder: &mut wgpu::CommandEncoder,
+        resources: &mut egui_wgpu::CallbackResources,
+    ) -> Vec<wgpu::CommandBuffer> {
+        let Some(Ok(r)) = resources.get_mut::<Mutex<Resources>>().map(Mutex::get_mut) else {
+            return Vec::new();
+        };
+        let frame = &self.frame;
+        let ppp = self.pixels_per_point;
+        let roll = &mut r.rolls[self.surface.index()];
+        if roll.notes_generation != Some(frame.generation) {
+            r.renderer
+                .update_boxes(device, queue, roll.notes, &frame.boxes);
+            roll.notes_generation = Some(frame.generation);
+        }
+        let row = frame.row_height * ppp;
+        if roll.row_height != Some(row) {
+            let rows: Vec<RowSlot> = (0..crate::piano_roll::PITCHES)
+                .map(|pitch| {
+                    let from_top = (crate::piano_roll::PITCHES - 1 - pitch) as f32;
+                    RowSlot::new(from_top * row, row, 1.0)
+                })
+                .collect();
+            r.renderer.update_rows(device, queue, roll.notes, &rows);
+            roll.row_height = Some(row);
+        }
+        let view = View {
+            left: frame.time.left,
+            px_per_unit: (frame.time.zoom * f64::from(ppp)) as f32,
+            top_px: frame.scroll * ppp,
+            row_height: 0.0,
+        };
+        r.renderer.prepare_boxes(
+            device,
+            self.surface.notes_target(),
+            self.port.size_px,
+            &[BoxDraw {
+                layer: roll.notes,
+                area: self.port.area(),
+                view,
+                style: frame.style,
+                waves: WaveStyle {
+                    top: 0.0,
+                    bottom: 0.0,
+                    side: 0.0,
+                    split_below: 0.0,
+                },
+            }],
+        );
+        Vec::new()
+    }
+
+    fn paint(
+        &self,
+        _info: egui::PaintCallbackInfo,
+        pass: &mut wgpu::RenderPass<'static>,
+        resources: &egui_wgpu::CallbackResources,
+    ) {
+        if let Some(lock) = resources.get::<Mutex<Resources>>()
+            && let Ok(r) = lock.lock()
+        {
+            r.renderer.paint(self.surface.notes_target(), pass);
+        }
+    }
+}
+
+/// Paint shape for a piano roll's notes in `rect` (the lanes, without the
+/// key column), over its grid.
+pub(crate) fn notes_shape(
+    surface: Surface,
+    rect: Rect,
+    pixels_per_point: f32,
+    frame: NoteFrame,
+) -> egui::Shape {
+    let callback = NotesCallback {
+        frame,
+        surface,
+        pixels_per_point,
+        port: Port::of(rect, pixels_per_point),
+    };
+    egui::Shape::Callback(egui_wgpu::Callback::new_paint_callback(rect, callback))
 }
 
 #[cfg(test)]

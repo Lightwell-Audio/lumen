@@ -59,6 +59,15 @@ pub struct Palette {
     /// was lighter than the strips in the light theme).
     pub well: Color32,
     pub shadow: Color32,
+    /// The piano roll's keys and lanes (M5 slice 3b, the owner's look A,
+    /// "studio keys"): white keys, black keys, the label on a white key,
+    /// the darker lane behind a black-key pitch, and the faint line at B|C
+    /// and E|F.
+    pub key_white: Color32,
+    pub key_black: Color32,
+    pub key_text: Color32,
+    pub lane_black: Color32,
+    pub lane_split: Color32,
     /// The centre of a light (`light::BEAM`, ADR-0043): white in the dark,
     /// the accent itself on the light theme, where light is ink, not glow.
     pub core: Color32,
@@ -100,6 +109,11 @@ pub const DARK: Palette = Palette {
     sun: Color32::from_rgb(0xFF, 0xC4, 0x6B),
     sun_core: Color32::WHITE,
     shadow: Color32::from_black_alpha(96),
+    key_white: Color32::from_rgb(0xC9, 0xCD, 0xD4),
+    key_black: Color32::from_rgb(0x0E, 0x10, 0x13),
+    key_text: Color32::from_rgb(0x3A, 0x3F, 0x4A),
+    lane_black: Color32::from_rgb(0x16, 0x18, 0x1C),
+    lane_split: Color32::from_rgb(0x2E, 0x32, 0x3A),
 };
 
 pub const LIGHT: Palette = Palette {
@@ -134,6 +148,11 @@ pub const LIGHT: Palette = Palette {
     sun: Color32::from_rgb(0xCC, 0x9D, 0x56),
     sun_core: Color32::from_rgb(0x80, 0x62, 0x36),
     shadow: Color32::from_black_alpha(36),
+    key_white: Color32::from_rgb(0xFF, 0xFF, 0xFF),
+    key_black: Color32::from_rgb(0x3A, 0x3F, 0x4A),
+    key_text: Color32::from_rgb(0x5A, 0x61, 0x70),
+    lane_black: Color32::from_rgb(0xEC, 0xEE, 0xF1),
+    lane_split: Color32::from_rgb(0xD2, 0xD6, 0xDC),
 };
 
 /// Track and clip colours: muted, medium lightness, so white names read on
