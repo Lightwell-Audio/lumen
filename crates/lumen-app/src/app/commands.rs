@@ -195,6 +195,7 @@ impl App {
             | Command::PauseContinue
             | Command::GoToStart
             | Command::Panic
+            | Command::ComputerKeyboard
             | Command::ToggleFollow
             | Command::AddAudioTrack
             | Command::AddMidiTrack
@@ -241,6 +242,10 @@ impl App {
             Command::PauseContinue => self.transport.pause_continue(),
             Command::GoToStart => self.transport.locate(Ticks::ZERO),
             Command::Panic => self.panic(),
+            Command::ComputerKeyboard => {
+                let on = !self.keyboard.is_on();
+                self.set_computer_keyboard(on);
+            }
             Command::InstrumentPoly => self.choose_instrument(Preset::Poly),
             Command::InstrumentKeys => self.choose_instrument(Preset::Keys),
             Command::InstrumentBass => self.choose_instrument(Preset::Bass),

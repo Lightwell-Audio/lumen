@@ -44,6 +44,7 @@ pub(crate) enum Command {
     InstrumentPluck,
     InstrumentPad,
     MidiToInstrument,
+    ComputerKeyboard,
     GroupTracks,
     Ungroup,
     MoveTracksUp,
@@ -106,6 +107,7 @@ pub(crate) enum Area {
     View,
     Grid,
     Locators,
+    Midi,
     File,
 }
 
@@ -120,6 +122,7 @@ impl Area {
             Area::View => "View",
             Area::Grid => "Grid",
             Area::Locators => "Locators",
+            Area::Midi => "MIDI",
             Area::File => "File",
         }
     }
@@ -137,6 +140,7 @@ impl Area {
             Area::Transport => 4,
             Area::Grid => 5,
             Area::Locators => 9,
+            Area::Midi => 7,
             Area::File => 11,
         };
         crate::theme::CLIP_COLORS[index]
@@ -195,6 +199,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::InstrumentPluck, "track.instrument_pluck", "Instrument: Pluck", Area::Track, &[], "Gives the selected MIDI tracks the built-in synth's Pluck sound: short and bright, no sustain."),
     info(Command::InstrumentPad, "track.instrument_pad", "Instrument: Pad", Area::Track, &[], "Gives the selected MIDI tracks the built-in synth's Pad sound: slow attack, long release."),
     info(Command::MidiToInstrument, "track.midi_to_instrument", "MIDI To: Instrument", Area::Track, &[], "Plays the selected MIDI tracks on their own instrument, not on a MIDI output port."),
+    info(Command::ComputerKeyboard, "midi.computer_keyboard", "Computer keyboard", Area::Midi, &[ctrl_shift(Key::K)], "Plays notes from the letter keys: A to K, W E T Y U for the black keys, Z X octave, C V velocity."),
     info(Command::GroupTracks, "track.group", "Group tracks", Area::Track, &[ctrl(Key::G)], "Puts the selected tracks into a new group track."),
     info(Command::Ungroup, "track.ungroup", "Ungroup", Area::Track, &[ctrl_shift(Key::G)], "Removes the selected group, keeping its tracks; or takes the selected tracks out of their group."),
     info(Command::MoveTracksUp, "track.move_up", "Move track up", Area::Track, &[alt(Key::ArrowUp)], "Moves the selected tracks one place up, within their group."),

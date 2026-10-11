@@ -12,6 +12,7 @@ mod handles;
 pub(crate) mod hardware;
 pub(crate) mod history;
 pub(crate) mod info;
+pub(crate) mod keyboard;
 pub(crate) mod locators;
 mod mixer;
 pub(crate) mod navigate;

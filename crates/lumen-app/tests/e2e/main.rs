@@ -23,6 +23,7 @@ mod files;
 mod grid;
 mod groups;
 mod info;
+mod keyboard;
 mod keys;
 mod light;
 mod locators;

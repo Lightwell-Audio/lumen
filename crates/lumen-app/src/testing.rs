@@ -179,6 +179,21 @@ impl App {
         self.play_key(msg)
     }
 
+    /// Whether the computer keyboard mode is on (M5 slice 2).
+    pub fn computer_keyboard_on(&self) -> bool {
+        self.keyboard.is_on()
+    }
+
+    /// The notes the computer keyboard holds now, lowest first.
+    pub fn computer_keyboard_held(&self) -> Vec<u8> {
+        self.keyboard.held_notes()
+    }
+
+    /// The messages the computer keyboard sent since the last call.
+    pub fn computer_keyboard_sent(&mut self) -> Vec<lumen_core::midi::Msg> {
+        self.keyboard.take_sent()
+    }
+
     /// What the test device has played since the last call, frame by
     /// frame: the main pair's left and right, then the cue pair's (M4
     /// slice 4; silent without a cue pair).

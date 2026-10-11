@@ -138,6 +138,8 @@ pub struct App {
     /// Counts changes to the MIDI ports, and what the used outputs were last
     /// checked against (document, its state, port changes).
     midi_ports_seen: u64,
+    /// The computer keyboard as a MIDI keyboard (M5 slice 2): a mode, not saved.
+    keyboard: app::keyboard::ComputerKeyboard,
     midi_checked: Option<(u64, u64, u64)>,
     /// Audio clips on the simple timeline (M2 slice 6).
     lanes: lanes::Lanes,
@@ -353,6 +355,7 @@ impl eframe::App for App {
         self.transport.update();
         self.restore_clipboard_keys(&ctx);
         self.capture_chord(&ctx);
+        self.computer_keyboard_keys(&ctx);
         self.command_keys(&ctx);
         if std::mem::take(&mut self.arrangement.import_requested) {
             self.run(&ctx, commands::Command::ImportAudio);
@@ -658,6 +661,7 @@ impl App {
             midi_out: None,
             live_keys: None,
             midi_ports_seen: 0,
+            keyboard: Default::default(),
             midi_checked: None,
             lanes,
             drop_target: Ticks::ZERO,

@@ -14,6 +14,9 @@ use crate::{position, theme, widgets};
 
 use super::Transport;
 
+/// What the status needs after the controls: its dot and a little room.
+const KEYBOARD_STATUS_ROOM: f32 = 28.0;
+
 impl Transport {
     fn follow_button(&mut self, ui: &mut egui::Ui, keymap: &Keymap) {
         use crate::settings::Follow;
@@ -53,6 +56,69 @@ impl Transport {
                 ui.close();
             }
         });
+    }
+
+    /// The computer keyboard's switch, after Follow (M5 slice 2, the owner's
+    /// K A): a keycap that lights while the mode is on, and beside it the
+    /// octaves under A to K and the velocity, in a well. A click is for the
+    /// app to take (`keyboard_clicked`).
+    fn keyboard_button(&mut self, ui: &mut Ui, keymap: &Keymap) {
+        let on = self.keyboard_readout.is_some();
+        let keys = keymap.keys(Run::ComputerKeyboard);
+        let response = icons::button(
+            ui,
+            Icon::Keycap,
+            "Computer keyboard plays notes",
+            Tip {
+                keys: keys.as_ref(),
+                hint: Some("A to K play notes, Z X octave, C V velocity, Esc leaves"),
+            },
+            on,
+            true,
+            "",
+        );
+        if on {
+            let c = theme::p();
+            crate::light::rect(
+                ui.painter(),
+                crate::light::LIT,
+                response.rect,
+                f32::from(theme::radius::SMALL),
+                c.accent,
+            );
+        }
+        if response.clicked() {
+            self.keyboard_clicked = true;
+        }
+        self.keyboard_readout_shown = false;
+        if let Some(readout) = self.keyboard_readout.clone() {
+            let c = theme::p();
+            let galley = ui.painter().layout_no_wrap(
+                readout.clone(),
+                egui::FontId::monospace(theme::size::CAPTION),
+                c.text,
+            );
+            let size = galley.size() + egui::vec2(2.0 * theme::space::S, 6.0);
+            // In the smallest window the tempo, meter and position come
+            // first: the readout gives way, and the info line says it.
+            let room = ui.clip_rect().right() - ui.cursor().left();
+            let spacing = ui.spacing().item_spacing.x;
+            if size.x + spacing + self.keyboard_rest + KEYBOARD_STATUS_ROOM <= room {
+                let (rect, well) = ui.allocate_exact_size(size, egui::Sense::hover());
+                well.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Label,
+                        true,
+                        format!("Computer keyboard: {readout}"),
+                    )
+                });
+                ui.painter().rect_filled(rect, theme::radius::SMALL, c.well);
+                ui.painter()
+                    .galley(rect.center() - galley.size() / 2.0, galley, c.text);
+                self.keyboard_readout_shown = true;
+            }
+        }
+        self.keyboard_from = ui.cursor().left();
     }
 
     pub fn ui(&mut self, ui: &mut Ui, doc: &mut crate::document::Document, keymap: &Keymap) {
@@ -174,6 +240,7 @@ impl Transport {
             self.send(Command::SetMetronome(self.metronome));
         }
         self.follow_button(ui, keymap);
+        self.keyboard_button(ui, keymap);
         solo_chip(ui, doc, keymap);
         widgets::Menu::context(&metronome)
             .keeping_open()
@@ -277,6 +344,7 @@ impl Transport {
         ui.separator();
 
         self.position_field(ui, state);
+        self.keyboard_rest = (ui.min_rect().right() - self.keyboard_from).max(0.0);
         ui.separator();
         self.status(ui, doc.project());
     }

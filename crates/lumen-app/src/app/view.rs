@@ -115,7 +115,13 @@ report: {}",
             self.transport_mark(ui);
             self.app_menu(ui);
             ui.separator();
+            self.transport.keyboard_readout =
+                self.keyboard.is_on().then(|| self.keyboard.readout());
             self.transport.ui(ui, &mut self.document, &self.keymap);
+            if std::mem::take(&mut self.transport.keyboard_clicked) {
+                let on = !self.keyboard.is_on();
+                self.set_computer_keyboard(on);
+            }
         });
         if let Some(info) = self.transport.info.take() {
             self.set_info(info);

@@ -67,6 +67,19 @@ pub struct Transport {
     /// What the info line should say about the bar this frame, for the
     /// app to take (the delay compensation readout).
     pub(crate) info: Option<crate::app::info::Info>,
+    /// The computer keyboard's readout while its mode is on, set by the app
+    /// each frame; `None` when off (M5 slice 2).
+    pub(crate) keyboard_readout: Option<String>,
+    /// Its button was clicked, for the app to take.
+    pub(crate) keyboard_clicked: bool,
+    /// The readout fitted in the bar this frame; when it did not (the
+    /// smallest window) the info line carries it.
+    pub(crate) keyboard_readout_shown: bool,
+    /// How wide the bar's controls after the keyboard's were last frame,
+    /// to know whether the readout leaves them room.
+    keyboard_rest: f32,
+    /// Where the controls after the keyboard's start.
+    keyboard_from: f32,
 }
 
 fn timeline_of(project: &Project) -> Timeline {
@@ -111,6 +124,11 @@ impl Transport {
             played_from_stop: false,
             panic_midi: false,
             info: None,
+            keyboard_readout: None,
+            keyboard_clicked: false,
+            keyboard_readout_shown: false,
+            keyboard_rest: 360.0,
+            keyboard_from: 0.0,
         }
     }
 

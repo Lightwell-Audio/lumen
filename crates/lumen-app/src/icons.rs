@@ -33,11 +33,14 @@ pub enum Icon {
     Search,
     /// A mouse, before a gesture in the info line (M4 slice 0).
     Mouse,
+    /// The computer keyboard plays notes (M5 slice 2): a keycap, a rounded
+    /// square with a smaller one set up inside it.
+    Keycap,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 13] = [
+    pub const ALL: [Icon; 14] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
@@ -51,6 +54,7 @@ impl Icon {
         Icon::Lock,
         Icon::Search,
         Icon::Mouse,
+        Icon::Keycap,
     ];
 }
 
@@ -195,6 +199,20 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
                 egui::StrokeKind::Middle,
             ),
             Shape::line_segment([g.p(8.0, 1.5), g.p(8.0, 6.5)], stroke),
+        ],
+        Icon::Keycap => vec![
+            Shape::rect_stroke(
+                g.rect(1.5, 2.5, 14.5, 14.5),
+                3.0 * g.unit,
+                stroke,
+                egui::StrokeKind::Middle,
+            ),
+            Shape::rect_stroke(
+                g.rect(4.5, 4.5, 11.5, 10.0),
+                1.5 * g.unit,
+                stroke,
+                egui::StrokeKind::Middle,
+            ),
         ],
         Icon::Follow => vec![
             Shape::line_segment([g.p(4.0, 2.5), g.p(4.0, 13.5)], stroke),

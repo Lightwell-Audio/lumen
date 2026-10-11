@@ -48,6 +48,7 @@ impl App {
     /// Panic: the engine stops and cuts everything (MIDI included), and the
     /// outputs in use are told directly too, in case it is not running.
     pub(crate) fn panic(&mut self) {
+        self.release_computer_keyboard();
         self.transport.panic();
     }
 
