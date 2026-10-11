@@ -405,8 +405,8 @@ on arrangement clips). The editor is `note_editor/` (Clip tab and pop-out,
 Esc and the arrows act on notes. Auditioning is the live source
 `AUDITION` (`audition.rs`); its editor hook takes the clip, because the
 editor's state is lifted out of `App` during a gesture. `--bench-editor`
-measures with the 100,000-note clip open; it has not been run yet (the
-owner's release Lumen was open). Built by Sonnet agents in worktrees
+measures with the 100,000-note clip open: p99 at most 1.82 ms at
+1600 × 900 and 2.22 ms at 3440 × 1380, idle 3 repaints in 3 s. Built by Sonnet agents in worktrees
 (created from `main`: reset them to `m5-midi` first), merged here.
 MT-MIDI-4 waits for the owner. Next: slice 4 (velocity and controller
 lanes), specimens first.

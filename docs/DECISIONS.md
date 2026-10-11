@@ -4073,6 +4073,9 @@ way to pop it out into its own window.
   only with the mouse (every other note edit is keyboard-reachable); no UI
   for the audition setting yet; a preview on a muted hardware track still
   sends.
-- Measured: see the slice 3 row in PROGRESS.md.
+- Measured (release, stress project plus the 100,000-note track, p99):
+  with the dense clip open in the editor 1.20 to 1.82 ms at 1600 × 900 and
+  2.10 to 2.22 ms at 3440 × 1380, inside the 120 fps target; idle 3
+  repaints in 3 s. Details in the slice 3 row of PROGRESS.md.
 - Unverified: the real second window and the pop-out's DPI and
   multi-monitor behaviour, and previews on real hardware (MT-MIDI-4).
