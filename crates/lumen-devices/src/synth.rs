@@ -636,6 +636,16 @@ impl Instrument for Synth {
         }
     }
 
+    fn preview(&mut self, rate: u32, left: &mut [f32], right: &mut [f32]) {
+        if rate as f32 != self.rate {
+            return;
+        }
+        // Voices are plain data: run a copy, keep the real ones.
+        let kept = self.voices;
+        self.render(rate, &[], left, right);
+        self.voices = kept;
+    }
+
     fn active(&self) -> bool {
         self.voices.iter().any(|v| v.stage != Stage::Off)
     }

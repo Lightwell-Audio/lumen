@@ -17,6 +17,14 @@ pub trait Instrument: Send {
     /// engine keeps rendering a stopped project while this is true.
     fn active(&self) -> bool;
 
+    /// Adds the next `left.len()` frames of what sounds now, as if no event
+    /// came, **without** moving on: the next `render` starts where the last
+    /// one ended. The engine fades this out across a jump while the new
+    /// position fades in, so what was sounding does not stop with a click.
+    /// `rate` is the device's; an instrument that runs at another rate adds
+    /// nothing. The default adds nothing.
+    fn preview(&mut self, _rate: u32, _left: &mut [f32], _right: &mut [f32]) {}
+
     /// Chooses another sound (a preset). Notes already sounding finish
     /// with the sound they began with.
     fn configure(&mut self, _preset: u32) {}

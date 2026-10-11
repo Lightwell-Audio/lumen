@@ -41,6 +41,7 @@ mod motion;
 mod navigation;
 mod palette;
 mod playback;
+mod pops;
 mod properties;
 mod returns;
 mod rulers;

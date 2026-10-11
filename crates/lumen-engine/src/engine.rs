@@ -280,6 +280,7 @@ impl<S: Source> Engine<S> {
                     sample_rate: rate,
                     start: self.position,
                     tail: false,
+                    stopping: false,
                     mode: Mode::Ring,
                     stream: self.stream,
                     device: self.stream,
@@ -323,6 +324,7 @@ impl<S: Source> Engine<S> {
                 sample_rate: self.sample_rate,
                 start: self.ahead,
                 tail: false,
+                stopping: false,
                 mode: Mode::Play,
                 stream: self.stream + offset as u64 + self.lookahead.max(0) as u64,
                 device: self.stream + offset as u64,
@@ -438,7 +440,7 @@ impl<S: Source> Engine<S> {
     /// Stops where the playhead is: playback continues from what was
     /// heard.
     fn halt(&mut self, channels: usize) {
-        self.capture_tail(channels);
+        self.capture(channels, true);
         self.playing = false;
         self.ahead = self.position;
         self.source.stopped();
@@ -453,6 +455,13 @@ impl<S: Source> Engine<S> {
     /// Renders what would follow the current position into the declick
     /// tail, faded out, ahead of a jump. Only while playing.
     fn capture_tail(&mut self, channels: usize) {
+        self.capture(channels, false);
+    }
+
+    /// As [`Self::capture_tail`]; `stopping` when playback is about to
+    /// stop rather than jump (instruments carry on ringing after a stop,
+    /// so they leave the tail out).
+    fn capture(&mut self, channels: usize, stopping: bool) {
         if !self.playing {
             return;
         }
@@ -465,6 +474,7 @@ impl<S: Source> Engine<S> {
             sample_rate: self.sample_rate,
             start: self.ahead,
             tail: true,
+            stopping,
             mode: Mode::Play,
             stream: 0,
             device: 0,
