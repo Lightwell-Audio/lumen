@@ -4,9 +4,7 @@
 
 use std::sync::Arc;
 
-use eframe::egui::{
-    self, Align, CursorIcon, Layout, PointerButton, Pos2, Rect, Sense, Ui, UiBuilder, pos2, vec2,
-};
+use eframe::egui::{self, CursorIcon, PointerButton, Pos2, Rect, Sense, Ui, pos2, vec2};
 use lumen_core::time::{PPQ, Ticks};
 use lumen_project::edit::notes::{End, MIN_NOTE};
 use lumen_project::model::Clip;
@@ -25,11 +23,11 @@ use crate::canvas::{self, Surface};
 use crate::commands::Command;
 use crate::document::Resize;
 use crate::piano_roll::{self, draw::RollView};
-use crate::widgets::{self, Choice};
+use crate::widgets;
 use crate::{App, theme};
 
 /// The toolbar's height above the ruler.
-const TOOLBAR: f32 = 28.0;
+const TOOLBAR: f32 = super::toolbar::HEADER;
 /// The editor needs at least this much body to be drawn.
 const MIN_BODY: f32 = 24.0;
 
@@ -80,7 +78,7 @@ impl App {
         if ed.framed_for != Some(clip.id) {
             self.frame_editor(ed, &clip, body);
         }
-        self.editor_toolbar(ui, toolbar, ed, &clip, editable);
+        self.editor_toolbar(ui, toolbar, ed, &clip, colour, editable);
         if body.height() < MIN_BODY || body.width() < MIN_BODY {
             return;
         }
@@ -196,7 +194,11 @@ impl App {
                 row_height: view.row_height,
             },
             &look,
-            boxes,
+            piano_roll::draw::RollNotes {
+                boxes: boxes.0,
+                generation: boxes.1,
+                under: |painter: &egui::Painter| paint::paint_note_shadows(painter, &view, notes),
+            },
         );
         if ed.gesture.is_none() {
             ed.boxed.clear();
@@ -208,12 +210,14 @@ impl App {
             colour,
             clip_length: clip.length,
             hover: hover.map(|(i, _)| i),
+            picked: ed.picked(),
         };
         paint::paint_overlay(&painter, &view, &scene);
         if let Some(lit) = gesture_pitch.or_else(|| over_body.map(|p| view.pitch_at(p.y))) {
             paint::paint_lit_key(&painter, &view, keys, lit);
         }
         paint::paint_ruler(&painter, &view, ruler, &lines, &meter, clip.length);
+        self.editor_edge_fade(&painter, body);
         self.editor_playhead(&painter, &view, ruler);
         if let (Some(chip), Some(p)) = (&preview.chip, ctx.input(|i| i.pointer.latest_pos())) {
             widgets::draw_hint(&painter, p + vec2(14.0, -16.0), chip, body);
@@ -248,83 +252,6 @@ impl App {
         if ed.gesture.is_some() {
             ctx.request_repaint();
         }
-    }
-
-    /// The tool, the clip's name, the grid, and Pop out.
-    fn editor_toolbar(
-        &mut self,
-        ui: &mut Ui,
-        toolbar: Rect,
-        ed: &mut NoteEditor,
-        clip: &Arc<Clip>,
-        editable: bool,
-    ) {
-        let mut row = ui.new_child(
-            UiBuilder::new()
-                .max_rect(toolbar)
-                .layout(Layout::left_to_right(Align::Center)),
-        );
-        row.set_clip_rect(toolbar.intersect(ui.clip_rect()));
-        let keymap = &self.keymap;
-        let choices = [
-            Choice::new(Tool::Pointer, "Pointer")
-                .named("Pointer tool")
-                .tip("Select, move and resize notes"),
-            Choice::new(Tool::Draw, "Draw")
-                .named("Draw tool")
-                .tip("Click to add a note, drag to set its length, click a note to remove it"),
-        ];
-        let drawn = widgets::segmented(&mut row, ui.id().with("note tool"), ed.tool, &choices);
-        if let Some(tool) = drawn {
-            ed.tool = tool;
-        }
-        row.add_space(theme::space::M);
-        let label = if editable {
-            clip.name.clone()
-        } else {
-            format!("{} (locked)", clip.name)
-        };
-        row.label(
-            egui::RichText::new(label)
-                .color(theme::p().text_secondary)
-                .size(theme::size::BODY),
-        );
-        row.add_space(theme::space::M);
-        row.label(
-            egui::RichText::new(format!(
-                "Grid {}",
-                self.grid_label_at(ed.time.left, ed.time.zoom)
-            ))
-            .color(theme::p().text_hint)
-            .size(theme::size::CAPTION),
-        );
-        row.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let mut popped = ed.popped;
-            let label = if popped { "Dock" } else { "Pop out" };
-            let response = widgets::toggle_button(ui, &mut popped, label);
-            let keys = keymap.keys(Command::PopOutEditor);
-            widgets::tip(
-                response,
-                if ed.popped {
-                    "Put the editor back in the detail panel"
-                } else {
-                    "Open the editor in its own window"
-                },
-                keys.as_ref(),
-                None,
-            );
-            ed.popped = popped;
-            ui.add_space(theme::space::S);
-            let mut shown = !ed.lane.hidden;
-            let response = widgets::toggle_button(ui, &mut shown, "Lane");
-            widgets::tip(
-                response,
-                "Show the velocity and controller lane under the notes",
-                None,
-                None,
-            );
-            ed.lane.hidden = !shown;
-        });
     }
 
     /// The wheel over the editor: Ctrl+wheel zooms time, Shift+wheel or a
@@ -422,6 +349,9 @@ impl App {
         }
     }
 
+    /// The playhead through the ruler and the roll: a beam while playing
+    /// (the arrangement's: a white core in the accent, its halo, light cast
+    /// on the notes and a cap on the ruler), a plain line when stopped.
     fn editor_playhead(&self, painter: &egui::Painter, view: &EditorView, ruler: Rect) {
         let at = self.transport.playhead().as_quarters();
         let x = view.time.x(view.body.left(), at);
@@ -430,11 +360,41 @@ impl App {
         }
         let y = egui::Rangef::new(ruler.top(), view.body.bottom());
         let colour = theme::p().accent;
+        let painter = painter.with_clip_rect(
+            Rect::from_x_y_ranges(view.body.x_range(), ruler.top()..=view.body.bottom())
+                .intersect(painter.clip_rect()),
+        );
         if self.transport.state().playing {
-            crate::light::vline(painter, crate::light::BEAM, x, y, colour, 1.0);
+            crate::light::cast(
+                &painter,
+                crate::light::BEAM,
+                x,
+                egui::Rangef::new(view.body.top(), view.body.bottom()),
+                colour,
+            );
+            crate::light::vline(&painter, crate::light::BEAM, x, y, colour, 1.0);
+            crate::light::cap(&painter, x, ruler.top(), colour);
         } else {
-            painter.vline(x, y, egui::Stroke::new(1.5, colour));
+            painter.vline(x, y, egui::Stroke::new(1.0, colour));
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    pos2(x - 5.0, ruler.top()),
+                    pos2(x + 5.0, ruler.top()),
+                    pos2(x, ruler.top() + 7.0),
+                ],
+                colour,
+                egui::Stroke::NONE,
+            ));
         }
+    }
+
+    /// The roll's right edge fades into the ground, as the mixer's strips
+    /// do, so notes running off the view end softly rather than at a cut.
+    fn editor_edge_fade(&self, painter: &egui::Painter, body: Rect) {
+        let ground = theme::p().canvas;
+        let edge = theme::space::L;
+        let rect = Rect::from_min_max(pos2(body.right() - edge, body.top()), body.max);
+        widgets::gradient(painter, rect, ground.gamma_multiply(0.0), ground);
     }
 
     fn chip_text(&self, resolved: &Resolved, preview: &Preview, clip: &Clip) -> Option<String> {
@@ -447,9 +407,14 @@ impl App {
         };
         match resolved {
             Resolved::Move { .. } => Some(format!("{name} \u{00B7} {}", at(first.start()))),
-            Resolved::Resize { .. } | Resolved::Draw(_) => {
+            Resolved::Resize { .. } => {
                 Some(format!("{name} \u{00B7} {}", length_text(first.length())))
             }
+            Resolved::Draw(_) => Some(format!(
+                "{name} \u{00B7} vel {} \u{00B7} {}",
+                first.velocity(),
+                length_text(first.length())
+            )),
             _ => None,
         }
     }

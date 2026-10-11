@@ -80,6 +80,10 @@ pub(crate) fn show(ui: &mut egui::Ui, boxes: &Arc<Vec<BoxInstance>>, zoom: f64, 
         56.0,
         view,
         &grid,
-        (Arc::clone(boxes), 1),
+        draw::RollNotes {
+            boxes: Arc::clone(boxes),
+            generation: 1,
+            under: |_: &eframe::egui::Painter| {},
+        },
     );
 }

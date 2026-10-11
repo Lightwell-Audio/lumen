@@ -19,9 +19,10 @@ use super::gesture::{Env, Kind, LaneGesture, LaneTool, Resolved, boxed_stems};
 use super::paint::{self, BendHandle, LaneHover, LaneScene, bend_dot};
 use super::{LaneState, events_of};
 use crate::document::{Drag, Line, Shift};
+use crate::note_editor::glyphs;
 use crate::note_editor::view::EditorView;
 use crate::note_editor::{NoteEditor, notes_of};
-use crate::widgets::{self, Choice, Tab};
+use crate::widgets::{self, Choice, Pill};
 use crate::{App, theme};
 
 /// The height of the lane's header: the tabs and the tools.
@@ -262,27 +263,21 @@ impl App {
                 .layout(Layout::left_to_right(Align::Center)),
         );
         row.set_clip_rect(header.intersect(ui.clip_rect()));
-        row.add_space(theme::space::S);
+        row.add_space(theme::space::M);
         let all = kinds(&ed.lane);
         let names: Vec<String> = all.iter().map(|k| k.name()).collect();
         let tips: Vec<String> = names.iter().map(|n| format!("Edit {n}")).collect();
-        let tabs: Vec<Tab<'_>> = names
+        let tabs: Vec<Pill<'_>> = names
             .iter()
             .zip(&tips)
-            .map(|(label, tip)| Tab {
-                label,
-                disabled_because: None,
-                tip,
-            })
+            .map(|(label, tip)| Pill { label, tip })
             .collect();
         let chosen = all.iter().position(|k| *k == ed.lane.kind).unwrap_or(0);
         let tab_id = ui.id().with("lane tabs");
-        if let Some(i) = widgets::tabs(&mut row, tab_id, chosen, &tabs) {
+        if let Some(i) = widgets::pill_tabs(&mut row, tab_id, chosen, &tabs) {
             ed.lane.choose(all[i]);
         }
-        row.add_space(theme::space::S);
-        let mut unused = false;
-        let plus = widgets::toggle_button(&mut row, &mut unused, "+ CC");
+        let plus = widgets::pill_button(&mut row, tab_id.with("plus"), "+ CC");
         let plus = widgets::tip(plus, "Show another controller in the lane", None, None);
         widgets::Menu::below(&plus).show(|ui| {
             ui.set_min_width(140.0);
@@ -300,12 +295,15 @@ impl App {
         row.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let choices = [
                 Choice::new(LaneTool::Pencil, "Pencil")
+                    .icon(glyphs::pencil)
                     .named("Lane pencil tool")
                     .tip("Draw values freehand"),
                 Choice::new(LaneTool::Line, "Line")
+                    .icon(glyphs::line)
                     .named("Lane line tool")
                     .tip("Drag a straight line from one value to another"),
                 Choice::new(LaneTool::Curve, "Curve")
+                    .icon(glyphs::curve)
                     .named("Lane curve tool")
                     .tip("Drag a line, then drag its dot to bend it"),
             ];

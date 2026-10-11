@@ -5,12 +5,12 @@
 
 use std::sync::Arc;
 
-use eframe::egui::{Align2, Color32, Painter, Rect, Stroke, pos2};
+use eframe::egui::{Align2, Color32, Painter, Rect, Stroke, pos2, vec2};
 use lumen_render::BoxInstance;
 
 use crate::canvas::{self, GridLook, NoteFrame, Surface};
-use crate::theme;
 use crate::timeview::TimeView;
+use crate::{theme, widgets};
 
 use super::PITCHES;
 
@@ -71,29 +71,51 @@ pub(crate) fn lanes(painter: &Painter, rect: Rect, scroll: f32, row_height: f32)
     }
 }
 
-/// The key column: white keys light, black keys dark and shorter, and C
-/// labelled ("C4") in the monospace face.
+/// How much of the key column's width a black key takes.
+pub(crate) const BLACK_KEY: f32 = 0.62;
+
+/// The key column, as a real keyboard: white keys in an ivory gradient
+/// (darker at the left, as if lit from the right), the white keys' dividers
+/// behind the black keys, and black keys that are shorter, darker and cast a
+/// shadow. Only C is labelled ("C4"), in the mono face.
 pub(crate) fn keys(painter: &Painter, rect: Rect, scroll: f32, row_height: f32) {
     let p = theme::p();
     let ppp = painter.ctx().pixels_per_point();
     let painter = painter.with_clip_rect(rect.intersect(painter.clip_rect()));
-    painter.rect_filled(rect, 0.0, p.key_white);
-    let black_width = rect.width() * 0.62;
-    for (pitch, top) in visible(rect, scroll, row_height, ppp) {
+    let ivory = (p.key_white.lerp_to_gamma(Color32::BLACK, 0.09), p.key_white);
+    widgets::gradient(&painter, rect, ivory.0, ivory.1);
+    let black_width = (rect.width() * BLACK_KEY).round();
+    let divider = Stroke::new(1.0, p.key_text.gamma_multiply(0.5));
+    let rows = visible(rect, scroll, row_height, ppp);
+    // White keys meet at B|C and E|F (a row edge) and behind each black key
+    // (its row's middle).
+    for &(pitch, top) in &rows {
+        let bottom = top + row_height;
+        if is_black(pitch) {
+            let middle = ((top + row_height / 2.0) * ppp).round() / ppp;
+            painter.hline(rect.left() + black_width..=rect.right(), middle, divider);
+        } else if matches!(pitch % 12, 11 | 4) {
+            painter.hline(rect.x_range(), bottom, divider);
+        }
+    }
+    for &(pitch, top) in &rows {
         let bottom = top + row_height;
         if is_black(pitch) {
             let key = Rect::from_min_max(
                 pos2(rect.left(), top),
                 pos2(rect.left() + black_width, bottom),
             );
-            painter.rect_filled(key, 1.0, p.key_black);
-        }
-        if matches!(pitch % 12, 11 | 4) {
-            painter.hline(
-                rect.x_range(),
-                bottom,
-                Stroke::new(1.0, p.key_text.gamma_multiply(0.5)),
+            // The shadow a black key throws onto the white keys.
+            painter.rect_filled(
+                key.translate(vec2(1.0, 1.0)).expand2(vec2(0.5, 0.0)),
+                1.5,
+                theme::control_shadow(1.2),
             );
+            let face = (
+                p.key_black.lerp_to_gamma(Color32::BLACK, 0.45),
+                p.key_black.lerp_to_gamma(Color32::WHITE, 0.10),
+            );
+            widgets::gradient(&painter, key, face.0, face.1);
         }
         if pitch % 12 == 0 && row_height >= 8.0 {
             painter.text(
@@ -124,8 +146,17 @@ pub(crate) struct RollView {
     pub row_height: f32,
 }
 
-/// Draws the whole roll in `rect`: lanes, the grid's vertical lines, the
-/// notes, and the key column (`key_width` wide, on the left).
+/// The notes layer of [`roll`]: the shared boxes and their generation, and
+/// what draws under them (note shadows).
+pub(crate) struct RollNotes<F> {
+    pub boxes: Arc<Vec<BoxInstance>>,
+    pub generation: u64,
+    pub under: F,
+}
+
+/// Draws the whole roll in `rect`: lanes, the grid's vertical lines,
+/// whatever `under_notes` draws (note shadows), the notes, and the key
+/// column (`key_width` wide, on the left).
 ///
 /// Per frame the caller supplies the view and the shared `boxes`; the
 /// boxes only change with `generation` (the clip's content or the
@@ -137,7 +168,7 @@ pub(crate) fn roll(
     key_width: f32,
     view: RollView,
     grid: &GridLook,
-    notes: (Arc<Vec<BoxInstance>>, u64),
+    notes: RollNotes<impl FnOnce(&Painter)>,
 ) {
     let ppp = painter.ctx().pixels_per_point();
     let split = rect.left() + key_width;
@@ -147,13 +178,14 @@ pub(crate) fn roll(
     painter.add(canvas::roll_grid_shape(
         surface, lanes_rect, ppp, view.time, grid,
     ));
+    (notes.under)(painter);
     painter.add(canvas::notes_shape(
         surface,
         lanes_rect,
         ppp,
         NoteFrame {
-            boxes: notes.0,
-            generation: notes.1,
+            boxes: notes.boxes,
+            generation: notes.generation,
             time: view.time,
             scroll: view.scroll,
             row_height: view.row_height,

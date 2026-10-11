@@ -22,6 +22,7 @@ pub mod knob;
 pub mod mark;
 mod menu;
 pub mod meter;
+mod pills;
 pub mod raised;
 mod scroll_bar;
 mod signature;
@@ -36,12 +37,9 @@ pub use keys::{
 };
 pub use menu::Menu;
 pub(crate) use menu::note_change;
+pub use pills::{Pill, pill_button, pill_tabs};
 pub use scroll_bar::{Axis, ScrollBar, scroll_bar};
 pub use signature::time_signature;
-#[allow(
-    unused_imports,
-    reason = "segmented_styled is foundation API for the next slices (ADR-0046)"
-)]
 pub use toggle::{
     Choice, Tab, choice_row, menu_caption, segmented, segmented_styled, switch, tabs, toggle_button,
 };

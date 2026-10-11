@@ -146,7 +146,7 @@ pub(crate) fn paint_scale(painter: &Painter, view: &LaneView, column: Rect) {
             pos2(column.right() - SCALE_INSET, label_y(y, column)),
             Align2::RIGHT_CENTER,
             text,
-            FontId::proportional(theme::size::SCALE),
+            FontId::monospace(theme::size::SCALE),
             palette.text_secondary,
         );
     }
@@ -567,6 +567,11 @@ pub(crate) fn label_y(y: f32, column: Rect) -> f32 {
     y.max(top).min(bottom)
 }
 
+/// Whether a label at `y` has room beside labels at `others`.
+fn clear_of(y: f32, others: &[f32]) -> bool {
+    others.iter().all(|o| (o - y).abs() >= 2.0 * LABEL_HALF)
+}
+
 /// The scale's `(y, text)` labels: the range's ends and pitch bend's 0.
 pub(crate) fn scale_labels(view: &LaneView) -> Vec<(f32, String)> {
     let (low, high) = view.kind.range();
@@ -577,6 +582,12 @@ pub(crate) fn scale_labels(view: &LaneView) -> Vec<(f32, String)> {
     let clear = |y: f32| (centre - y).abs() >= 2.0 * LABEL_HALF;
     if view.kind == LaneKind::PitchBend && clear(top) && clear(bottom) {
         labels.push((centre, "0".to_owned()));
+    } else if view.kind != LaneKind::PitchBend {
+        // The middle of 0 to 127, as the mock-up's 127 / 64 / 0 scale.
+        let middle = view.y_of((low + high + 1) / 2);
+        if clear_of(middle, &[top, bottom]) {
+            labels.push((middle, ((low + high + 1) / 2).to_string()));
+        }
     }
     labels
 }
@@ -774,8 +785,8 @@ mod tests {
 
     #[test]
     fn scale_labels_name_the_range_and_the_centre_and_stay_in_the_column() {
-        assert_eq!(labels(&lane(LaneKind::Controller(7))), ["127", "0"]);
-        assert_eq!(labels(&lane(LaneKind::Velocity)), ["127", "1"]);
+        assert_eq!(labels(&lane(LaneKind::Controller(7))), ["127", "0", "64"]);
+        assert_eq!(labels(&lane(LaneKind::Velocity)), ["127", "1", "64"]);
         assert_eq!(labels(&lane(LaneKind::PitchBend)), ["8191", "-8192", "0"]);
         // Too short for a centre label beside the ends: it is left out.
         let short = Rect::from_min_max(pos2(100.0, 50.0), pos2(500.0, 60.0));

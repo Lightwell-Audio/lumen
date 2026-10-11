@@ -5,7 +5,9 @@
 //! - `view`: the geometry (the editor's own time axis and pitch scroll);
 //! - `gesture`: the mouse gestures as pure arithmetic, with the preview;
 //! - `paint`: the drawing boundary (slice 3b's GPU renderer plugs in here);
-//! - `ui`: the toolbar, the input and the menu;
+//! - `toolbar`: the clip header strip (title, tools, grid, Lane, Pop out);
+//! - `glyphs`: its icons;
+//! - `ui`: the input, the ruler and the menu;
 //! - `ops`: the note edits as commands and menus run them;
 //! - `window`: the pop-out.
 //!
@@ -13,9 +15,11 @@
 //! the notes follow the pointer meanwhile as a preview. Escape cancels.
 
 pub(crate) mod gesture;
+mod glyphs;
 pub(crate) mod lane;
 mod ops;
 pub(crate) mod paint;
+mod toolbar;
 pub(crate) mod ui;
 pub(crate) mod view;
 mod window;

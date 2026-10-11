@@ -200,6 +200,9 @@ pub struct Choice<'a, T> {
     /// An icon before the label, drawn centred on the point it is given in
     /// the colour given; on the same line as the label.
     pub icon: Option<fn(&egui::Painter, egui::Pos2, egui::Color32)>,
+    /// The choice's key, drawn as a small keycap after the label (from the
+    /// keymap, never written text). Short keys only.
+    pub hint: Option<&'a str>,
 }
 
 impl<'a, T> Choice<'a, T> {
@@ -211,13 +214,16 @@ impl<'a, T> Choice<'a, T> {
             tip: None,
             name: None,
             icon: None,
+            hint: None,
         }
     }
 
-    #[allow(
-        dead_code,
-        reason = "foundation API: call sites adopt icons in the next slices (ADR-0046)"
-    )]
+    /// Shows `key` as a keycap after the label.
+    pub fn hint(mut self, key: Option<&'a str>) -> Self {
+        self.hint = key.filter(|k| k.chars().count() <= 3);
+        self
+    }
+
     pub fn icon(mut self, icon: fn(&egui::Painter, egui::Pos2, egui::Color32)) -> Self {
         self.icon = Some(icon);
         self
@@ -279,16 +285,29 @@ pub fn segmented_styled<T: PartialEq + Copy>(
         .collect();
     let inset = theme::space::XXS;
     let height = theme::size::CONTROL_SMALL;
+    let caps: Vec<_> = choices
+        .iter()
+        .map(|c| {
+            c.hint.map(|key| {
+                ui.painter().layout_no_wrap(
+                    key.to_owned(),
+                    FontId::monospace(theme::size::SCALE),
+                    palette.text_hint,
+                )
+            })
+        })
+        .collect();
     let widths: Vec<f32> = galleys
         .iter()
         .zip(choices)
-        .map(|(g, c)| {
+        .zip(&caps)
+        .map(|((g, c), cap)| {
             let icon = if c.icon.is_some() {
                 ICON + ICON_GAP
             } else {
                 0.0
             };
-            g.size().x + icon + 2.0 * pad
+            g.size().x + icon + cap_width(cap.as_deref()) + 2.0 * pad
         })
         .collect();
     let total = widths.iter().sum::<f32>() + 2.0 * inset;
@@ -361,8 +380,8 @@ pub fn segmented_styled<T: PartialEq + Copy>(
         }
         raised::paint(painter, thumb, theme::radius::SMALL, &face);
     }
-    for ((segment, response, chosen), (choice, galley)) in
-        segments.iter().zip(choices.iter().zip(galleys))
+    for (((segment, response, chosen), (choice, galley)), cap) in
+        segments.iter().zip(choices.iter().zip(galleys)).zip(caps)
     {
         let on = *chosen || picked == Some(choice.value);
         let colour = if !choice.enabled {
@@ -380,7 +399,7 @@ pub fn segmented_styled<T: PartialEq + Copy>(
         } else {
             0.0
         };
-        let content = galley.size().x + icon;
+        let content = galley.size().x + icon + cap_width(cap.as_deref());
         let left = (segment.center().x - content / 2.0).round();
         let mid = segment.center().y.round();
         if let Some(draw) = choice.icon {
@@ -388,12 +407,50 @@ pub fn segmented_styled<T: PartialEq + Copy>(
         }
         painter.galley_with_override_text_color(
             pos2(left + icon, mid - (galley.size().y / 2.0).round()),
-            galley,
+            galley.clone(),
             colour,
         );
+        if let Some(cap) = cap {
+            let at = pos2(left + icon + galley.size().x + CAP_GAP, mid);
+            paint_cap(painter, at, cap, colour);
+        }
         raised::focus_ring(painter, response, *segment);
     }
     picked
+}
+
+/// Gap between a choice's label and its keycap.
+const CAP_GAP: f32 = 6.0;
+/// Padding either side of a keycap's letters.
+const CAP_PAD: f32 = 4.0;
+
+/// The room a keycap takes after a label, with its gap.
+fn cap_width(cap: Option<&egui::Galley>) -> f32 {
+    cap.map_or(0.0, |g| CAP_GAP + g.size().x + 2.0 * CAP_PAD)
+}
+
+/// A small keycap whose left edge is at `at.x`, centred on `at.y`: a
+/// hairline outline and the key in the mono face, in `ink` at a lower
+/// strength so it reads as a hint beside the label.
+fn paint_cap(
+    painter: &egui::Painter,
+    at: egui::Pos2,
+    galley: std::sync::Arc<egui::Galley>,
+    ink: egui::Color32,
+) {
+    let size = vec2(galley.size().x + 2.0 * CAP_PAD, galley.size().y + 2.0);
+    let rect = Rect::from_min_size(pos2(at.x, at.y - (size.y / 2.0).round()), size);
+    painter.rect_stroke(
+        rect,
+        theme::radius::SMALL,
+        Stroke::new(1.0, ink.gamma_multiply(0.45)),
+        egui::StrokeKind::Inside,
+    );
+    painter.galley_with_override_text_color(
+        pos2(rect.left() + CAP_PAD, rect.top() + 1.0),
+        galley,
+        ink.gamma_multiply(0.75),
+    );
 }
 
 /// A button that stays lit while `on` (Browser, Detail): raised like every

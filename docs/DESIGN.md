@@ -738,6 +738,34 @@ and grid.
   `canvas`, `border`, `border_strong`, `text`, `text_secondary`, `accent`,
   `CLIP_MUTED`). This slice added no tokens.
 
+### The clip editor's look (M5 slice 5, the owner's approved canvas mock-up)
+
+The Clip tab uses the shared premium controls (ADR-0046, ADR-0051).
+- **Header strip** (`note_editor/toolbar.rs`, 40 pt, `raised`): the clip's
+  colour bar, its name (medium) over "N bars · N notes" in the mono face
+  (`SCALE`, `text_hint`; "· locked" when it cannot be edited); a rule; the
+  Pointer/Draw `segmented_styled` control with icons, the Draw key as a
+  keycap from the keymap (`Choice::hint`); the grid chip (a raised button:
+  magnet lit while snapping, "Grid", the value in mono, a chevron; it opens
+  the grid menu; named "Editor grid: 1/8"); at the right Lane (a lit icon
+  toggle) and Pop out/Dock (icon buttons), keycaps in their tooltips. No
+  Quantize button yet: there is no quantize command until slice 5 of M5's plan.
+- **Notes:** the GPU boxes (rounded, light top edge, velocity brightness)
+  plus egui layers: a two-layer soft shadow beneath (`control_shadow`), a
+  2 pt velocity bar on the bottom edge, and a `light::LIT` glow around picked
+  notes (all capped at 4000 notes a frame). A note being drawn is a dashed
+  ghost with a "G3 · vel 96 · 1 beat" chip.
+- **Keys:** an ivory gradient, white-key dividers behind the black keys, black
+  keys (62% wide) with a gradient and a shadow, C labelled in mono; the key
+  under the pointer or a gesture is lit with an accent gradient.
+- **Roll:** ruler bar numbers in mono; the playhead is the arrangement's
+  (`light::BEAM`, its cast and cap while playing); the right edge fades into
+  `canvas` as the mixer's does.
+- **Lane header:** `widgets::pill_tabs`: the chosen pill is `accent_muted`
+  with a 1 px `accent` edge and `accent` letters; "+ CC" is a dashed
+  `pill_button`; Pencil/Line/Curve are a segmented control with icons. The
+  value scale reads 127 / 64 / 0 in mono.
+
 ## 7b. Navigation (M3 slice 4d, ADR-0028)
 
 - **Zoom** glides (`GLIDE`) for keys and fits; the wheel and pinch follow
