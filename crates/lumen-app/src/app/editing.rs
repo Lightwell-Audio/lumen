@@ -140,11 +140,22 @@ impl App {
             self.arrangement.marquee = None;
         }
 
+        // A double-click resets a handle; on a MIDI clip it opens the clip
+        // editor; on an empty spot of a MIDI track's lane it makes a
+        // one-bar clip there (snapped) and opens it (M5 slice 3c).
         if response.double_clicked()
             && let Some(p) = response.interact_pointer_pos()
-            && let Some(hit) = self.hit(&ctx, p, canvas)
         {
-            self.reset_handle(&hit);
+            match self.hit(&ctx, p, canvas) {
+                Some(hit) if hit.handle.is_some() => self.reset_handle(&hit),
+                Some(hit) => self.open_note_editor(hit.clip),
+                None => {
+                    if let Some(track) = self.lane_track(&ctx, canvas, p) {
+                        let at = self.snapped(self.ticks_at(canvas, p.x), modifiers.alt);
+                        self.put_midi_clip(track, crate::document::NewClip::Bar(at));
+                    }
+                }
+            }
         }
 
         if response.clicked()

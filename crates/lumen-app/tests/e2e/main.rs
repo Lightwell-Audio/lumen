@@ -40,6 +40,7 @@ mod mixing;
 mod monitor_badge;
 mod motion;
 mod navigation;
+mod notes;
 mod palette;
 mod playback;
 mod pops;

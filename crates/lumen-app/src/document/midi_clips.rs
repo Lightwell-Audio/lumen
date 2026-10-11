@@ -12,13 +12,6 @@ use super::Document;
 use super::clips::fresh_ids;
 
 /// Where a new MIDI clip goes.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "M5 slice 3c wires the piano roll to these; remove this line then"
-    )
-)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NewClip {
     /// Over a time range (a time selection). The ends may come in either
@@ -29,13 +22,6 @@ pub enum NewClip {
     Bar(Ticks),
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "M5 slice 3c wires the piano roll to these; remove this line then"
-    )
-)]
 impl Document {
     /// Puts an empty MIDI clip on the MIDI track `track` and returns its
     /// id. It cuts away the unlocked clips it covers, as every clip put

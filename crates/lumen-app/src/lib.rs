@@ -56,6 +56,7 @@ mod midi_out;
 mod midi_play;
 mod midi_settings;
 mod motion;
+mod note_editor;
 mod owner;
 mod panels;
 mod playhead;
@@ -165,6 +166,10 @@ pub struct App {
     settings_writer: settings::Writer,
     show_browser: bool,
     show_detail: bool,
+    /// Which tab of the detail panel shows (M5 slice 3c).
+    detail_tab: app::detail::DetailTab,
+    /// The MIDI note editor: in the Clip tab, or popped out (slice 3c).
+    note_editor: note_editor::NoteEditor,
     /// Full panel sizes, for sliding (kept while the panels are open).
     browser_size: f32,
     detail_size: f32,
@@ -356,6 +361,7 @@ impl eframe::App for App {
         self.restore_clipboard_keys(&ctx);
         self.capture_chord(&ctx);
         self.computer_keyboard_keys(&ctx);
+        self.refresh_note_editor(&ctx);
         self.command_keys(&ctx);
         if std::mem::take(&mut self.arrangement.import_requested) {
             self.run(&ctx, commands::Command::ImportAudio);
@@ -529,27 +535,8 @@ impl eframe::App for App {
                 let rect = ui.max_rect();
                 self.panes.anchor(ui, app::panes::Pane::Detail, rect);
                 // Tabs as words over a sliding underline (the interface
-                // audit's T4); Devices and Clip arrive with their milestones.
-                let devices = arrives("Milestone 6");
-                let clip = arrives("Milestone 5");
-                let tabs = [
-                    widgets::Tab {
-                        label: "Devices",
-                        disabled_because: Some(&devices),
-                        tip: "",
-                    },
-                    widgets::Tab {
-                        label: "Clip",
-                        disabled_because: Some(&clip),
-                        tip: "",
-                    },
-                    widgets::Tab {
-                        label: "Mixer",
-                        disabled_because: None,
-                        tip: "Every track's channel strip",
-                    },
-                ];
-                widgets::tabs(ui, egui::Id::new("detail tabs"), 2, &tabs);
+                // audit's T4); Devices arrive with Milestone 6.
+                self.detail_tabs(ui);
                 // Claimed without interaction: egui sizes the panel by what
                 // its contents take, so an unclaimed area snapped it back to
                 // its smallest after every change.
@@ -561,13 +548,9 @@ impl eframe::App for App {
         self.detail_size = detail_size;
         egui::CentralPanel::default().show(ui, |ui| self.arrangement(ui));
         if let Some(content) = detail_content {
-            self.lend_cue_controls();
-            let mut mixer = ui.new_child(egui::UiBuilder::new().max_rect(content));
-            mixer.set_clip_rect(content.intersect(ui.clip_rect()));
-            self.arrangement
-                .mixer_panel(&mut mixer, &mut self.document, &self.keymap);
-            self.take_cue_controls();
+            self.detail_content(ui, content);
         }
+        self.note_editor_window(&ctx);
         // Windows that closed fade out (M4.5).
         widgets::paint_gone(&ctx);
         self.typing = ctx.text_edit_focused();
@@ -705,6 +688,8 @@ impl App {
             recovering: None,
             show_browser: true,
             show_detail: true,
+            detail_tab: Default::default(),
+            note_editor: Default::default(),
             browser_size: 220.0,
             detail_size: 220.0,
             toggle_detail_requested: false,

@@ -178,7 +178,7 @@ impl App {
 
     /// How far the view may zoom and scroll: out to the song (as in
     /// Ableton), in to single samples at the tempo where the view is.
-    fn zoom_limits(&self, width: f32) -> Limits {
+    pub(crate) fn zoom_limits(&self, width: f32) -> Limits {
         let state = self.transport.state();
         let rate = state.sample_rate;
         let tempo = &self.transport.timeline.tempo;
