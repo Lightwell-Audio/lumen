@@ -69,6 +69,9 @@ pub(super) struct GpuClips {
     /// sample (slice 4d).
     geometry: Vec<Geometry>,
     strips: Strips,
+    /// The notes inside MIDI clips, and the tracks their bands belong to.
+    mini: Arc<Vec<BoxInstance>>,
+    mini_tracks: Vec<usize>,
     generation: u64,
     /// Peak slots by the peaks they hold (files with the same peaks share
     /// one), and the list the GPU side uploads from.
@@ -257,6 +260,7 @@ impl Arrangement {
                 _ => None,
             },
         );
+        let mini_rows = super::mini_notes::rows(&self.gpu.mini_tracks, &slots, ppp);
         painter.add(canvas::clips_shape(
             canvas,
             ppp,
@@ -270,6 +274,9 @@ impl Arrangement {
                 time,
                 top: self.top,
                 style: canvas::box_style(ppp, INSET, TITLE),
+                mini: Arc::clone(&self.gpu.mini),
+                mini_rows,
+                mini_style: canvas::mini_style(ppp),
                 wave_style: WaveStyle {
                     top: (INSET + TITLE + WAVE_GAP) * ppp,
                     bottom: (INSET + WAVE_GAP) * ppp,
@@ -440,6 +447,9 @@ impl Arrangement {
         gpu.geometry = waves.iter().map(|w| w.geometry).collect();
         gpu.waves = Arc::new(waves.into_iter().map(|w| w.instance).collect());
         gpu.strips.reset();
+        let mini = super::mini_notes::build(project);
+        gpu.mini = Arc::new(mini.boxes);
+        gpu.mini_tracks = mini.tracks;
         gpu.generation += 1;
         gpu.built = Some(key);
         gpu.moving = moving;

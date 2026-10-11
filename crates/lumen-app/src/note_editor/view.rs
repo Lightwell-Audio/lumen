@@ -83,13 +83,6 @@ impl EditorView {
         (PITCHES as f32 * self.row_height - self.body.height()).max(0.0)
     }
 
-    /// Pitches whose rows are at least partly in view, highest first.
-    pub fn visible_pitches(&self) -> (i32, i32) {
-        let high = self.pitch_at(self.body.top()).min(PITCHES - 1);
-        let low = self.pitch_at(self.body.bottom() - 0.01).max(0);
-        (high, low)
-    }
-
     /// Where `note` is drawn (not cut to the body).
     pub fn note_rect(&self, note: Note) -> Rect {
         let top = self.row_top(i32::from(note.pitch()));
@@ -155,11 +148,6 @@ pub(crate) fn pitch_name(pitch: i32) -> String {
     format!("{}{}", NAMES[(pitch % 12) as usize], pitch / 12 - 1)
 }
 
-/// Whether `pitch` is a black key.
-pub(crate) fn is_black(pitch: i32) -> bool {
-    matches!(pitch.rem_euclid(12), 1 | 3 | 6 | 8 | 10)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,7 +191,6 @@ mod tests {
         assert_eq!(pitch_name(61), "C#4");
         assert_eq!(pitch_name(0), "C-1");
         assert_eq!(pitch_name(127), "G9");
-        assert!(is_black(61) && !is_black(60));
     }
 
     #[test]

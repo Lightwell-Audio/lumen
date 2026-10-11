@@ -19,8 +19,10 @@ use super::view::{
 };
 use super::{MenuFor, NoteEditor, NoteOp, Tool, notes_of};
 use crate::app::info::{Held, Info, Mouse};
+use crate::canvas::{self, Surface};
 use crate::commands::Command;
 use crate::document::Resize;
+use crate::piano_roll::{self, draw::RollView};
 use crate::widgets::{self, Choice};
 use crate::{App, theme};
 
@@ -32,15 +34,15 @@ const MIN_BODY: f32 = 24.0;
 impl App {
     /// Draws the editor in `area` of `ui`: in the detail panel, or in the
     /// pop-out window.
-    pub(crate) fn note_editor_surface(&mut self, ui: &mut Ui, area: Rect) {
+    pub(crate) fn note_editor_surface(&mut self, ui: &mut Ui, area: Rect, surface: Surface) {
         // The editor's state is taken out while it draws, so the drawing can
         // use the rest of the app freely.
         let mut ed = std::mem::take(&mut self.note_editor);
-        self.draw_editor(ui, area, &mut ed);
+        self.draw_editor(ui, area, surface, &mut ed);
         self.note_editor = ed;
     }
 
-    fn draw_editor(&mut self, ui: &mut Ui, area: Rect, ed: &mut NoteEditor) {
+    fn draw_editor(&mut self, ui: &mut Ui, area: Rect, surface: Surface, ed: &mut NoteEditor) {
         let ctx = ui.ctx().clone();
         let Some((clip, colour)) = ed.clip.and_then(|id| self.editor_clip(id)) else {
             ed.hovered = false;
@@ -176,19 +178,44 @@ impl App {
         let meter = self.transport.timeline.meter.clone();
         let lines = self.grid.lines(&meter, from, to, view.time.zoom);
         let painter = ui.painter().clone();
+        // The GPU roll: its boxes are rebuilt only when the clip or the
+        // picked notes change, never for a gesture's frames.
+        let boxes = ed.boxes_for(&clip, colour);
+        let p = theme::p();
+        let look = canvas::GridLook {
+            grid: self.grid,
+            meter: meter.clone(),
+            colors: [p.grid_bar, p.grid_beat, p.grid_sub],
+        };
+        let roll_rect = Rect::from_min_max(keys.min, body.max);
+        piano_roll::draw::roll(
+            &painter,
+            surface,
+            roll_rect,
+            KEY_WIDTH,
+            RollView {
+                time: view.time,
+                scroll: view.scroll,
+                row_height: view.row_height,
+            },
+            &look,
+            boxes,
+        );
+        if ed.gesture.is_none() {
+            ed.boxed.clear();
+        }
         let scene = Scene {
             notes,
-            selected: ed.picked(),
             preview: &preview,
+            boxed: &ed.boxed,
             colour,
             clip_length: clip.length,
-            content_length: content,
-            lines: &lines,
             hover: hover.map(|(i, _)| i),
         };
-        paint::paint_body(&painter, &view, &scene);
-        let lit = gesture_pitch.or_else(|| over_body.map(|p| view.pitch_at(p.y)));
-        paint::paint_keys(&painter, &view, keys, lit);
+        paint::paint_overlay(&painter, &view, &scene);
+        if let Some(lit) = gesture_pitch.or_else(|| over_body.map(|p| view.pitch_at(p.y))) {
+            paint::paint_lit_key(&painter, &view, keys, lit);
+        }
         paint::paint_ruler(&painter, &view, ruler, &lines, &meter, clip.length);
         self.editor_playhead(&painter, &view, ruler);
         if let (Some(chip), Some(p)) = (&preview.chip, ctx.input(|i| i.pointer.latest_pos())) {
@@ -589,10 +616,7 @@ impl App {
                 }
                 picked.sort_unstable();
                 picked.dedup();
-                let project = self.document.project();
-                if let Some(selection) = &mut ed.selection {
-                    selection.rebind(project, picked);
-                }
+                ed.boxed = picked;
             }
             return;
         }
@@ -620,6 +644,12 @@ impl App {
         };
         match result {
             Some(indices) => self.select_notes(ed, indices),
+            None if matches!(gesture.kind, Kind::Marquee { .. }) && gesture.dragging => {
+                // The box picks what it held, once, so the roll's boxes are
+                // rebuilt once for it.
+                let picked = std::mem::take(&mut ed.boxed);
+                self.select_notes(ed, picked);
+            }
             None => {
                 // A click without a drag. On one of several picked notes it
                 // picks that one alone.

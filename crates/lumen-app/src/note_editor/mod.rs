@@ -78,8 +78,61 @@ pub(crate) struct NoteEditor {
     pub menu_for: MenuFor,
     /// The last pitch auditioned while a gesture ran (slice 3d).
     pub auditioned: Option<u8>,
+    /// Notes a marquee in progress would pick.
+    pub boxed: Vec<usize>,
+    /// The roll's note boxes, kept until the clip or the picks change.
+    boxes: Option<NoteBoxes>,
+    generation: u64,
     /// Where the notes were drawn last (tests).
     pub last_view: Option<view::EditorView>,
+}
+
+/// The GPU boxes of the open clip's notes and what they were built from.
+struct NoteBoxes {
+    clip: std::sync::Arc<Clip>,
+    picked: Vec<usize>,
+    colour: egui::Color32,
+    boxes: std::sync::Arc<Vec<lumen_render::BoxInstance>>,
+    generation: u64,
+}
+
+impl NoteEditor {
+    /// The boxes for `clip` in `colour` with the picked notes outlined,
+    /// rebuilt only when the clip, the picks or the colour changed.
+    pub fn boxes_for(
+        &mut self,
+        clip: &std::sync::Arc<Clip>,
+        colour: egui::Color32,
+    ) -> (std::sync::Arc<Vec<lumen_render::BoxInstance>>, u64) {
+        let picked = self.picked().to_vec();
+        let fresh = self.boxes.as_ref().is_some_and(|b| {
+            std::sync::Arc::ptr_eq(&b.clip, clip) && b.picked == picked && b.colour == colour
+        });
+        if !fresh {
+            let selected: std::collections::BTreeSet<usize> = picked.iter().copied().collect();
+            let notes = crate::piano_roll::notes::ClipNotes {
+                start: clip.start,
+                length: clip.length,
+                loop_length: clip.loop_length,
+                notes: notes_of(clip),
+            };
+            let boxes = crate::piano_roll::notes::note_instances(
+                &notes,
+                &selected,
+                &crate::piano_roll::notes::NoteColors::new(colour),
+            );
+            self.generation += 1;
+            self.boxes = Some(NoteBoxes {
+                clip: clip.clone(),
+                picked,
+                colour,
+                boxes: std::sync::Arc::new(boxes),
+                generation: self.generation,
+            });
+        }
+        let b = self.boxes.as_ref().expect("just built");
+        (b.boxes.clone(), b.generation)
+    }
 }
 
 impl NoteEditor {

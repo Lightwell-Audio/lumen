@@ -69,13 +69,10 @@ impl App {
         let picked: Vec<usize> = editor.picked().to_vec();
         let doc = &mut self.document;
         let next = match op {
-            NoteOp::SelectAll => {
-                let all = self
-                    .editor_clip(clip)
-                    .map(|(c, _)| edit::notes::all(notes_of(&c)))
-                    .unwrap_or_default();
-                all
-            }
+            NoteOp::SelectAll => self
+                .editor_clip(clip)
+                .map(|(c, _)| edit::notes::all(notes_of(&c)))
+                .unwrap_or_default(),
             _ if picked.is_empty() => return,
             NoteOp::Delete => doc.delete_notes(clip, &picked),
             NoteOp::Duplicate => doc.duplicate_notes(clip, &picked),

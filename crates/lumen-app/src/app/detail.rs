@@ -77,7 +77,7 @@ impl App {
                     // The arrows are the notes' keys while the pane has the
                     // keyboard: egui must not take them to move the focus.
                     super::panes::keep_arrows(ui.ctx(), super::panes::Pane::Detail);
-                    self.note_editor_surface(&mut child, content);
+                    self.note_editor_surface(&mut child, content, crate::canvas::Surface::Docked);
                 }
             }
             DetailTab::Devices | DetailTab::Mixer => {

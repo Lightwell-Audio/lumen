@@ -633,3 +633,38 @@ impl App {
         self.grid_cell(t)
     }
 }
+
+/// The piano roll's body drawn on its own with a sample clip (slice 3b),
+/// for the shots harness: the real roll arrives with slice 3c.
+pub struct PianoRollDemo {
+    boxes: std::sync::Arc<Vec<lumen_render::BoxInstance>>,
+}
+
+impl PianoRollDemo {
+    /// The sample clip in track colour `colour` (an index of
+    /// [`clip_colour`]'s palette).
+    pub fn new(colour: usize) -> Self {
+        Self {
+            boxes: std::sync::Arc::new(crate::piano_roll::demo::sample_boxes(
+                crate::theme::CLIP_COLORS[colour],
+            )),
+        }
+    }
+
+    /// Installs the typefaces and the theme (`light` or dark), as the app
+    /// does at start, in a context that has no `App`.
+    pub fn prepare(ctx: &egui::Context, light: bool) {
+        crate::fonts::install(ctx);
+        let appearance = if light {
+            crate::theme::Appearance::Light
+        } else {
+            crate::theme::Appearance::Dark
+        };
+        crate::theme::apply(ctx, appearance, 0.0);
+    }
+
+    /// Draws the roll over all of `ui`'s free area.
+    pub fn show(&self, ui: &mut egui::Ui, points_per_beat: f64, row_height: f32) {
+        crate::piano_roll::demo::show(ui, &self.boxes, points_per_beat, row_height);
+    }
+}
