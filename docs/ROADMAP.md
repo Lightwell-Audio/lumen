@@ -302,6 +302,7 @@ Implement:
 - Lane mute/solo
 - Lane reordering
 - Step sequencer
+- Clip content faces in the arrangement (owner, 2026-10-11): drum rows named by the map, chord names from chord detection, bass and melody drawn as a contour
 
 ### Built-in devices
 
