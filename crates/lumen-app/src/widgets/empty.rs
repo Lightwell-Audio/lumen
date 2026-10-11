@@ -1,6 +1,7 @@
 //! Empty states (the interface audit's S5, the owner's A): one layout for
 //! every area with nothing in it yet: a quiet icon, a title, one line of
-//! hint, and the action that fills it as a real button, all centred.
+//! hint, and the action that fills it as a real button, all centred, with
+//! `space::S` between each (the Notices card, ADR-0052).
 
 use eframe::egui::{self, Align2, FontId, Painter, Pos2, Rect, Ui, pos2, vec2};
 
@@ -50,11 +51,11 @@ pub fn empty_state(ui: &mut Ui, rect: Rect, state: &EmptyState<'_>) -> bool {
         0.0
     };
     let button_room = if state.action.is_some() {
-        theme::space::M + theme::size::CONTROL
+        theme::space::S + theme::size::CONTROL
     } else {
         0.0
     };
-    let height = icon_room + title.size().y + theme::space::XS + hint.size().y + button_room;
+    let height = icon_room + title.size().y + theme::space::S + hint.size().y + button_room;
     let mut y = (rect.center().y - height / 2.0).max(rect.top() + theme::space::S);
     let painter = ui.painter_at(rect);
     if let Some(icon) = state.icon {
@@ -73,7 +74,7 @@ pub fn empty_state(ui: &mut Ui, rect: Rect, state: &EmptyState<'_>) -> bool {
         title,
         palette.text_secondary,
     );
-    y += title_height + theme::space::XS;
+    y += title_height + theme::space::S;
     let hint_height = hint.size().y;
     painter.galley(
         Align2::CENTER_TOP
@@ -86,7 +87,7 @@ pub fn empty_state(ui: &mut Ui, rect: Rect, state: &EmptyState<'_>) -> bool {
     let Some(action) = &state.action else {
         return false;
     };
-    y += theme::space::M;
+    y += theme::space::S;
     let label = ui.painter().layout_no_wrap(
         action.label.to_owned(),
         FontId::proportional(theme::size::BODY),

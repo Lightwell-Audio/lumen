@@ -1,7 +1,7 @@
-//! Dropdowns (combo boxes) in the premium control look (ADR-0051): a closed
-//! dropdown is a raised button, its value at the left and a chevron at the
-//! right, with the height, edge, hover, press and focus ring of
-//! `raised::button`. It opens the menu look (`Menu::below`, rows as
+//! Dropdowns (combo boxes) in the design system's control look (ADR-0052): a
+//! closed dropdown is a raised button, its value at the left and a chevron at
+//! the right, with the height, radius, edge, Ember hover, press, disabled
+//! look and focus ring of `raised::button`. It opens the menu look (`Menu::below`, rows as
 //! `choice_row`), so the open list matches every menu.
 //!
 //! Keyboard: Enter or Space opens it; Up and Down step the value while it is
@@ -158,11 +158,14 @@ impl<'a> Dropdown<'a> {
 
         if ui.is_rect_visible(rect) {
             let hover = motion::hover(&ctx, response.id.with("hover"), response.hovered() || open);
+            let enabled = ui.is_enabled();
             let face = raised::Face::new(theme::controls(false))
                 .hover(hover)
-                .pressed(response.is_pointer_button_down_on());
+                .pressed(response.is_pointer_button_down_on())
+                .enabled(enabled);
             let rect = rect.round_to_pixels(ui.pixels_per_point());
-            let body = raised::paint(ui.painter(), rect, theme::radius::SMALL, &face);
+            let radius = theme::radius::for_height(rect.height());
+            let body = raised::paint(ui.painter(), rect, radius, &face);
             let pad = theme::space::S;
             let text_width = (body.width() - 2.0 * pad - CHEVRON - pad).max(1.0);
             let mut job = LayoutJob::simple_singleline(
@@ -181,7 +184,12 @@ impl<'a> Dropdown<'a> {
             ui.painter()
                 .galley_with_override_text_color(at, galley, face.text());
             let chevron = pos2(body.right() - pad - CHEVRON / 2.0, body.center().y);
-            super::draw_arrow(ui.painter(), chevron, 1.0, theme::p().text_secondary);
+            let chevron_ink = if enabled {
+                theme::p().text_secondary
+            } else {
+                theme::p().text_disabled
+            };
+            super::draw_arrow(ui.painter(), chevron, 1.0, chevron_ink);
             raised::focus_ring(ui.painter(), &response, rect);
         }
         picked

@@ -111,12 +111,26 @@ impl<'a> Dialog<'a> {
         // Remembered as drawn, to fade out when it closes (M4.5).
         if let Some(shown) = shown {
             fade_out::remember(ctx, id, shown.response.layer_id);
+            window_lip(ctx, shown.response.layer_id, shown.response.rect);
         }
         if close {
             ctx.request_repaint();
         }
         close
     }
+}
+
+/// The 1 pt `edge_light` along the top inside edge of a floating window
+/// of `rect` on `layer` (the design system's window: radius XL, a lit top
+/// edge). Call it after the window is shown, with the window's layer and
+/// rect (`Dialog` does); cards that float on their own windows call it too.
+pub fn window_lip(ctx: &egui::Context, layer: egui::LayerId, rect: Rect) {
+    raised::lip(
+        &ctx.layer_painter(layer),
+        rect,
+        theme::radius::XL,
+        theme::p().edge_light,
+    );
 }
 
 /// A floating window's title row, shared by `Dialog` and the cards that
@@ -372,7 +386,7 @@ pub fn value_slider_styled(
             rect,
             egui::TextEdit::singleline(&mut text)
                 .id(id.with("edit"))
-                .font(FontId::proportional(theme::size::CAPTION))
+                .font(FontId::monospace(theme::size::MONO_SMALL))
                 .horizontal_align(egui::Align::Center)
                 .margin(vec2(2.0, 2.0)),
         );
@@ -474,13 +488,20 @@ pub fn value_slider_styled(
         id.with("hover"),
         response.hovered() || response.dragged(),
     );
-    let radius = theme::radius::SMALL;
-    p.rect_filled(rect, radius, look.fill.lerp_to_gamma(look.hover, hover));
+    // The ground is a well (the Field card, ADR-0052; it supersedes the
+    // owner's T1, which filled it with the control colour), Ember under
+    // the pointer; the filled part is drawn over it.
+    let radius = theme::radius::for_height(rect.height());
+    raised::paint_sunken(p, rect, radius);
+    if hover > 0.0 {
+        p.rect_filled(rect, f32::from(radius), palette.ember.gamma_multiply(hover));
+    }
     let x_at = |v: f32| rect.left() + (v - lo) / (hi - lo) * rect.width();
     let text = kind.text(out);
+    // Numbers are mono (`.lm-slider .val`).
     let galley = p.layout_no_wrap(
         text,
-        FontId::proportional(theme::size::CAPTION),
+        FontId::monospace(theme::size::MONO_SMALL),
         palette.text,
     );
     let text_rect =
@@ -491,10 +512,14 @@ pub fn value_slider_styled(
         | SliderKind::Millis { .. }
         | SliderKind::Percent { .. } => {
             let x = x_at(out);
-            p.rect_filled(
-                Rect::from_min_max(rect.min, pos2(x, rect.bottom())),
-                radius,
+            // `press` to `fill`, cut off square at the value; the well's
+            // rounded corners shape its left end.
+            raised::gradient(
+                &p.with_clip_rect(Rect::from_min_max(rect.min, pos2(x, rect.bottom()))),
+                rect,
+                f32::from(radius),
                 look.press,
+                look.fill,
             );
             draw_handle(p, x, rect.shrink2(vec2(0.0, 3.0)).y_range(), text_rect);
         }
@@ -525,12 +550,7 @@ pub fn value_slider_styled(
     }
     p.galley(text_rect.min, galley, palette.text);
     if response.has_focus() {
-        p.rect_stroke(
-            rect,
-            radius,
-            Stroke::new(1.5, palette.accent),
-            egui::StrokeKind::Inside,
-        );
+        raised::paint_focus(p, rect, radius);
     }
     out
 }
@@ -539,13 +559,13 @@ pub fn value_slider_styled(
 /// points.
 const HANDLE_OPENS_WITHIN: f32 = 8.0;
 
-/// A slider's handle at `x` over `ys`: a solid line that opens around the
+/// A slider's handle at `x` over `ys`: a 2 pt `text` line that opens around the
 /// value's `text` as it comes near, smoothly with the distance, until only
 /// a tick above and below it remains (the owner's choice C, the interface
 /// audit's S2: the line ran through the value). Nothing animates by
 /// itself: the opening follows the handle.
 fn draw_handle(p: &Painter, x: f32, ys: Rangef, text: Rect) {
-    let stroke = Stroke::new(2.0, theme::p().start_marker);
+    let stroke = Stroke::new(2.0, theme::p().text);
     for span in handle_spans(x, ys, text) {
         p.vline(x, span, stroke);
     }
@@ -554,8 +574,8 @@ fn draw_handle(p: &Painter, x: f32, ys: Rangef, text: Rect) {
 /// Half the height a handle opens to around the value: from the capitals'
 /// tops to the baseline (about 0.36 of the size each way from the line's
 /// middle), with 1.5 pt to spare; not the whole line, which fills the
-/// slider.
-const HANDLE_GAP_HALF: f32 = 0.36 * theme::size::CAPTION + 1.5;
+/// slider. The value is in `MONO_SMALL`.
+const HANDLE_GAP_HALF: f32 = 0.36 * theme::size::MONO_SMALL + 1.5;
 
 /// The parts of a handle at `x` over `ys` left drawn around `text`.
 fn handle_spans(x: f32, ys: Rangef, text: Rect) -> Vec<Rangef> {
@@ -578,7 +598,9 @@ fn handle_spans(x: f32, ys: Rangef, text: Rect) -> Vec<Rangef> {
 
 /// A value shown as text in a field (a strip's volume under its fader, M4
 /// slice 5): click to type (Enter applies, Esc cancels), double-click to
-/// reset. Its fill follows the surface under it (`controls`). Returns the
+/// reset. A field of the design system: a well with a border that
+/// strengthens on hover, the digits in the monospace. It is a well on
+/// every surface, so the surface's `_controls` are not needed. Returns the
 /// value.
 pub fn value_field(
     ui: &mut Ui,
@@ -587,7 +609,7 @@ pub fn value_field(
     value: f32,
     kind: SliderKind,
     name: &str,
-    controls: theme::Controls,
+    _controls: theme::Controls,
 ) -> f32 {
     let palette = *theme::p();
     let (lo, hi) = kind.range();
@@ -639,20 +661,12 @@ pub fn value_field(
         ui.data_mut(|d| d.insert_temp(typing_id, kind.text(value).replace(" dB", "")));
     }
     let hover = motion::hover(ui.ctx(), id.with("hover"), response.hovered());
-    // A field, not a button: sunk in its well, with a hairline that lights
-    // on hover (ADR-0051).
+    // A field, not a button: sunk in its well, with a `border` that
+    // strengthens to `border_strong` on hover (the Field card, ADR-0052).
     let rect = rect.round_to_pixels(ui.pixels_per_point());
+    let radius = theme::radius::for_height(rect.height());
     let p = ui.painter();
-    raised::paint_sunken(p, rect, theme::radius::SMALL);
-    p.rect_stroke(
-        rect,
-        theme::radius::SMALL,
-        Stroke::new(
-            1.0,
-            palette.border_strong.lerp_to_gamma(controls.hover, hover),
-        ),
-        egui::StrokeKind::Inside,
-    );
+    raised::paint_field(p, rect, radius, hover);
     p.text(
         rect.center(),
         Align2::CENTER_CENTER,
@@ -660,6 +674,7 @@ pub fn value_field(
         FontId::monospace(theme::size::CAPTION),
         palette.text,
     );
+    raised::focus_ring(p, &response, rect);
     out
 }
 

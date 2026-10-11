@@ -1,14 +1,15 @@
 //! The time signature as one field, "4 / 4" (the interface audit's S7): it
-//! was a drag value and a combo box side by side. Drag up or down, or turn
+//! was a drag value and a combo box side by side. A field of the design
+//! system (the Field card, ADR-0052): a well with a border, its digits in
+//! Martian Mono, the Ember wash on the half under the pointer. Drag up or down, or turn
 //! the wheel, over the top number to change the beats; over the bottom one
 //! to change the beat unit. Click and type "7/8" (Enter applies, Esc
 //! cancels); double-click for 4/4; arrow keys when focused.
 
-use eframe::egui::{
-    self, Align2, FontId, Id as EguiId, Key, Sense, Stroke, StrokeKind, Ui, pos2, vec2,
-};
+use eframe::egui::{self, Align2, FontId, Id as EguiId, Key, Rect, Sense, Ui, pos2, vec2};
+use eframe::emath::GuiRounding as _;
 
-use super::wheel;
+use super::{raised, wheel};
 use crate::{motion, theme};
 
 /// The beat units a signature can have.
@@ -43,7 +44,7 @@ pub fn time_signature(
     max_beats: u32,
 ) -> Option<(u32, u32)> {
     let palette = theme::p();
-    let font = FontId::proportional(theme::size::BODY);
+    let font = FontId::monospace(theme::size::BODY);
     let typing_id = id.with("typing");
     let size = vec2(WIDTH, theme::size::CONTROL);
     if let Some(mut text) = ui.data(|d| d.get_temp::<String>(typing_id)) {
@@ -140,12 +141,23 @@ pub fn time_signature(
             response.hovered() || response.dragged(),
         );
         let controls = theme::controls(false);
+        let rect = rect.round_to_pixels(ui.pixels_per_point());
+        let radius = theme::radius::for_height(rect.height());
         let painter = ui.painter();
-        painter.rect_filled(
-            rect,
-            theme::radius::SMALL,
-            controls.fill.lerp_to_gamma(controls.hover, hover),
-        );
+        raised::paint_field(painter, rect, radius, hover);
+        // Ember on the half the wheel or a drag would change.
+        if hover > 0.0 {
+            let half = if over_unit {
+                Rect::from_min_max(pos2(rect.center().x, rect.top()), rect.max)
+            } else {
+                Rect::from_min_max(rect.min, pos2(rect.center().x, rect.bottom()))
+            };
+            painter.with_clip_rect(half).rect_filled(
+                rect,
+                f32::from(radius),
+                palette.ember.gamma_multiply(hover),
+            );
+        }
         // The half the wheel or a drag would change brightens.
         let lit = |right: bool| hover > 0.0 && over_unit == right;
         let colour = |right: bool| {
@@ -177,14 +189,7 @@ pub fn time_signature(
             font,
             colour(true),
         );
-        if response.has_focus() {
-            painter.rect_stroke(
-                rect,
-                theme::radius::SMALL,
-                Stroke::new(2.0, palette.accent),
-                StrokeKind::Inside,
-            );
-        }
+        raised::focus_ring(painter, &response, rect);
     }
     (out != (beats, unit)).then_some(out)
 }
