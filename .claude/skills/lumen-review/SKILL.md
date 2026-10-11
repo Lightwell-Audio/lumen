@@ -5,6 +5,11 @@ description: Full repository review of Lumen against its standards. Use at the e
 
 # Lumen repository review
 
+Before planning the review, read and follow the shared
+[subagent delegation policy](../references/delegation.md). Prefer independent
+subagent sweeps by crate or concern with explicit coverage and evidence;
+the parent consolidates findings and owns the final report.
+
 The owner wants a full review at the end of every milestone, so problems
 are fixed before the next one builds on them (owner decision, 2026-10-07).
 The first audit, `docs/audits/2026-10-07-architecture.md`, is the model

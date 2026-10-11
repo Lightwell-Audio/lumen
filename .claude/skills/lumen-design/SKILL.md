@@ -5,6 +5,11 @@ description: Lumen's design system and UX rules. Use before building or changing
 
 # Lumen design
 
+Before planning substantial work, read and follow the shared
+[subagent delegation policy](../references/delegation.md). Prefer bounded
+subagent tasks for UI implementation and visual/accessibility verification;
+the parent integrates results and presents choices to the owner.
+
 The source of truth is `docs/DESIGN.md`. Its §7a covers tracks and clips;
 its §9 is the checklist for new UI. The code that implements it:
 - `theme.rs`: palettes, `controls()`, `text_on()`, space, radius and size;
