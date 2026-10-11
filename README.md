@@ -3,6 +3,14 @@
 [![CI](https://github.com/andrewl913/lumen/actions/workflows/ci.yml/badge.svg)](https://github.com/andrewl913/lumen/actions/workflows/ci.yml)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
 
+<p align="center">
+  <img src="docs/brand/lumen-mascot-anime-v1.png" width="180" alt="Lumi, Lumen's amber light-spirit mascot, waving in blue headphones">
+</p>
+
+> **Lumi says:** Welcome to Lumen! I'll show you [what works today](#what-works-today),
+> help you [get started](#getting-started), and point you toward
+> [ways to contribute](#contributing).
+
 Lumen is a desktop digital audio workstation written in Rust. It is built
 around one timeline: the arrangement is the whole product, and the browser,
 device chain, clip editors and mixer exist to support it. The aim is the
@@ -44,6 +52,13 @@ FLAC, MP3 and Ogg Vorbis are supported.
 
 ## Roadmap
 
+<p>
+  <img src="docs/brand/lumi-curious.png" width="100" alt="Lumi looking curious with a hand on his chin">
+</p>
+
+> **Lumi says:** Curious about what's next? Check the status column below,
+> then explore the milestone plans for the details.
+
 Lumen is built in milestones. Each one ends with a working build, automated
 tests, manual tests on real hardware where needed, and a written report.
 
@@ -66,6 +81,14 @@ The full requirements, with the status of each, are in
 [CLAUDE.md](CLAUDE.md).
 
 ## Getting started
+
+<p>
+  <img src="docs/brand/lumi-focused.png" width="100" alt="Lumi adjusting his headphones, ready to guide setup">
+</p>
+
+> **Lumi says:** Let's get set up. Start with the requirements for your platform,
+> then build and run. If you don't have an audio interface handy, try the
+> test-device command below.
 
 ### Requirements
 
@@ -152,6 +175,14 @@ committed baseline in `perf/baseline.json`. See
 | [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | Third-party licences that need specific action |
 
 ## Contributing
+
+<p>
+  <img src="docs/brand/lumi-celebrating.png" width="100" alt="Lumi smiling with closed eyes and both arms raised in celebration">
+</p>
+
+> **Lumi says:** Thanks for helping Lumen grow! Feedback and bug reports are
+> welcome. For a larger code change, open an issue first, then follow the
+> checklist below before sending your pull request.
 
 Lumen is developed in the open, and feedback is welcome. Before you start
 on a larger change, please open an issue so we can agree on the approach.
