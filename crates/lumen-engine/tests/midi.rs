@@ -871,7 +871,7 @@ fn preset_track(preset: lumen_devices::Preset) -> MidiTrack {
 /// Pins the latency of a preset change (the owner's MT-MIDI-2 finding):
 /// the engine takes the new sound on the very next block, so the next
 /// note-on is the new preset's, bit for bit, even when the list arrives
-/// one block before the note. A note already sounding finishes as it was.
+/// one block before the note. (A note already sounding glides: below.)
 #[test]
 fn a_preset_change_is_in_effect_on_the_next_block() {
     use lumen_devices::Preset;
@@ -894,12 +894,193 @@ fn a_preset_change_is_in_effect_on_the_next_block() {
     assert_eq!(changed, reference, "the note-on already has the new sound");
     let old = render(Preset::Poly, Preset::Poly, change_at);
     assert_ne!(changed, old, "and it is not the old sound");
+}
 
-    // A change after the note started leaves that note as it was.
-    let late = (start / block + 2) * block;
-    let late_change = render(Preset::Poly, Preset::Pad, late);
-    let late_old = render(Preset::Poly, Preset::Poly, late);
-    assert_eq!(late_change[..late + block], late_old[..late + block]);
+// ---- A preset change reaches the notes sounding (owner, after ADR-0045) ----
+
+/// A synth track on `preset` with one note at beat 1 (+77 ticks) of
+/// `beats` beats.
+fn held_track(preset: lumen_devices::Preset, beats: i64) -> MidiTrack {
+    let q = Ticks::quarters;
+    MidiTrack::new(
+        TRACK,
+        Target::Instrument,
+        Some(InstrumentSpec {
+            kind: lumen_devices::synth::KIND,
+            preset: preset.number(),
+            instrument: Box::new(lumen_devices::Synth::new(preset)),
+        }),
+        vec![clip(
+            1,
+            Ticks::ZERO,
+            q(16),
+            vec![note(q(1) + Ticks(77), q(beats), 60)],
+        )],
+    )
+}
+
+fn rms(x: &[f32]) -> f32 {
+    (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt()
+}
+
+/// How bright a sound is: the energy of its steps against its own.
+fn brightness(x: &[f32]) -> f32 {
+    let d: Vec<f32> = x.windows(2).map(|w| w[1] - w[0]).collect();
+    rms(&d) / rms(x)
+}
+
+/// Plays a held note on `first`, makes it each of `then` (a preset and a
+/// time in seconds after the note began), and renders `seconds` in all.
+fn glide_render(
+    rate: u32,
+    block: usize,
+    note_beats: i64,
+    first: lumen_devices::Preset,
+    then: &[(lumen_devices::Preset, f32)],
+    seconds: f32,
+) -> Vec<f32> {
+    let timeline = Timeline::default();
+    let start = timeline.sample_at(Ticks::quarters(1) + Ticks(77), rate) as usize;
+    let log = Log::default();
+    let mut rig = rig(timeline, rate, vec![held_track(first, note_beats)], &log);
+    rig.play();
+    let mut out = Vec::new();
+    for &(preset, after) in then {
+        let at = (start + (after * rate as f32) as usize) / block * block;
+        out.extend(rig.run(at - out.len(), block));
+        rig.midi
+            .set(vec![held_track(preset, note_beats)])
+            .ok()
+            .unwrap();
+    }
+    let total = (seconds * rate as f32) as usize;
+    out.extend(rig.run(total - out.len(), block));
+    out
+}
+
+/// Seconds into the project of a glide test's note-on (beat 1 at 120 bpm).
+const NOTE_AT: f32 = 0.5;
+
+#[test]
+fn a_held_note_glides_to_the_new_preset_without_a_new_note() {
+    use lumen_devices::Preset::{Pad, Poly};
+    let rate = 48_000;
+    let block = 128;
+    let after = 1.0;
+    let changed = glide_render(rate, block, 8, Poly, &[(Pad, after)], 5.0);
+    let poly = glide_render(rate, block, 8, Poly, &[], 5.0);
+    let pad = glide_render(rate, block, 8, Pad, &[], 5.0);
+    let cut = ((NOTE_AT + after) * rate as f32) as usize / block * block;
+    // Before the change: the old sound, bit for bit.
+    assert_eq!(changed[..cut], poly[..cut]);
+    // It starts moving within about a block (not at the next note-on).
+    let early = cut + 2 * block;
+    assert_ne!(changed[cut..early], poly[cut..early]);
+    // Once the glide is over it has the new preset's steady character: a
+    // held note has no new attack, so its level and brightness are Pad's.
+    let settled = cut + (lumen_devices::synth::GLIDE_SECONDS * rate as f32) as usize + block;
+    let window = |x: &[f32]| x[settled..settled + 9_600].to_vec();
+    let (c, p, d) = (window(&changed), window(&poly), window(&pad));
+    println!(
+        "rms changed {} poly {} pad {}; brightness {} {} {}",
+        rms(&c),
+        rms(&p),
+        rms(&d),
+        brightness(&c),
+        brightness(&p),
+        brightness(&d)
+    );
+    let near = |a: f32, b: f32| (a - b).abs() / b < 0.12;
+    assert!(near(rms(&c), rms(&d)), "level of Pad");
+    assert!(near(brightness(&c), brightness(&d)), "brightness of Pad");
+    assert!(!near(brightness(&c), brightness(&p)), "no longer Poly's");
+}
+
+#[test]
+fn a_glide_does_not_click() {
+    use lumen_devices::Preset::{self, Bass, Keys, Pad, Poly};
+    let pairs: [(Preset, Preset); 6] = [
+        (Poly, Pad),
+        (Pad, Poly),
+        (Poly, Bass),
+        (Keys, Bass),
+        (Bass, Keys),
+        (Pad, Keys),
+    ];
+    let mut bad = Vec::new();
+    for rate in [44_100, 48_000, 96_000] {
+        for block in [64, 128, 480] {
+            for (a, b) in pairs {
+                let after = 1.0;
+                let changed = glide_render(rate, block, 8, a, &[(b, after)], 3.0);
+                let lo = ((NOTE_AT + after) * rate as f32) as usize;
+                let hi = lo + rate as usize / 2;
+                let straight = |p| {
+                    let x = glide_render(rate, block, 8, p, &[], 3.0);
+                    steepest_step(&x[lo..hi])
+                };
+                let level = straight(a).max(straight(b));
+                let worst = steepest_step(&changed[lo..hi]);
+                println!("{rate} {block} {a:?}->{b:?}: {worst:.4} vs straight {level:.4}");
+                // A step is judged against the sound's own: opening a
+                // filter on a saw's edge makes a steeper but smooth swing
+                // (up to 2x); a retrigger or a stepped parameter is far
+                // beyond (the note-on at this level is several times).
+                if worst > level * 2.2 {
+                    bad.push(format!("{rate} {block} {a:?}->{b:?}: {worst} vs {level}"));
+                }
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
+#[test]
+fn undo_of_a_preset_change_glides_back_and_every_note_ends() {
+    use lumen_devices::Preset::{Pad, Poly};
+    let rate = 48_000;
+    let block = 128;
+    // A 4-beat note; Pad at 0.3 s, back to Poly (the undo) at 0.6 s.
+    let back = glide_render(rate, block, 4, Poly, &[(Pad, 0.3), (Poly, 0.6)], 6.0);
+    let poly = glide_render(rate, block, 4, Poly, &[], 6.0);
+    let lo = ((NOTE_AT + 0.6) * rate as f32) as usize + 3_000;
+    let hi = lo + 4_800;
+    let near = |a: f32, b: f32| (a - b).abs() / b < 0.12;
+    assert!(near(rms(&back[lo..hi]), rms(&poly[lo..hi])));
+    assert!(near(brightness(&back[lo..hi]), brightness(&poly[lo..hi])));
+    let steep = steepest_step(&poly[..hi]);
+    assert!(
+        steepest_step(&back[..hi]) <= steep * 1.05,
+        "no click going back"
+    );
+    // Nothing is left sounding.
+    assert!(back[back.len() - 4_800..].iter().all(|v| v.abs() < 1e-4));
+}
+
+#[test]
+fn a_voice_in_release_when_the_preset_changes_still_ends() {
+    use lumen_devices::Preset::{Bass, Pad, Pluck, Poly};
+    let rate = 48_000;
+    // The note (1 beat = 0.5 s) ends 0.5 s after it began; the change comes
+    // 0.1 s into the release.
+    for (a, b) in [(Poly, Pad), (Pad, Bass), (Poly, Pluck), (Pad, Poly)] {
+        let x = glide_render(rate, 128, 1, a, &[(b, 0.6)], 8.0);
+        assert!(
+            x[x.len() - 4_800..].iter().all(|v| v.abs() < 1e-4),
+            "{a:?}->{b:?} is still sounding"
+        );
+        let lo = ((NOTE_AT + 0.5) * rate as f32) as usize;
+        let window = |x: &[f32]| steepest_step(&x[lo..lo + 24_000]);
+        let level = window(&glide_render(rate, 128, 1, a, &[], 8.0)).max(window(&glide_render(
+            rate,
+            128,
+            1,
+            b,
+            &[],
+            8.0,
+        )));
+        assert!(window(&x) <= level * 1.05, "{a:?}->{b:?} clicks");
+    }
 }
 
 // ---- Jumps and loop wraps never pop (owner, MT-MIDI-2) ----
