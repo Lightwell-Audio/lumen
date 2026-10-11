@@ -304,3 +304,105 @@ fn a_preview_is_what_comes_next_and_leaves_the_synth_where_it_was() {
     a.preview(44_100, &mut xl, &mut xr);
     assert!(xl.iter().chain(&xr).all(|v| *v == 0.0));
 }
+
+/// An event on `channel`.
+fn on_channel(offset: u32, channel: u8, key: u8, velocity: u8) -> Event {
+    Event {
+        offset,
+        msg: Msg::note_on(channel, key, velocity),
+    }
+}
+
+fn off_channel(offset: u32, channel: u8, key: u8) -> Event {
+    Event {
+        offset,
+        msg: Msg::note_off(channel, key),
+    }
+}
+
+fn controller_on(offset: u32, channel: u8, number: u8, value: u8) -> Event {
+    Event {
+        offset,
+        msg: Msg::controller(channel, number, value),
+    }
+}
+
+#[test]
+fn the_same_key_on_two_channels_is_two_notes_and_a_preview_ending_leaves_the_clip() {
+    // A clip's note on channel 0 and a preview of the same key on channel 15.
+    let mut synth = Synth::new(Preset::Poly);
+    render(
+        &mut synth,
+        &[on_channel(0, 0, 50, 100), on_channel(0, 15, 50, 80)],
+        4_800,
+        128,
+    );
+    assert_eq!(synth.voices(), 2, "both sound");
+    // The preview lets go; its release ends, and the clip's note rings on.
+    let (left, _) = render(&mut synth, &[off_channel(0, 15, 50)], 96_000, 128);
+    assert_eq!(synth.voices(), 1, "only the clip's note is left");
+    assert!(rms(&left[92_000..]) > 0.01, "and it still rings");
+}
+
+#[test]
+fn a_note_off_ends_only_the_note_on_its_own_channel() {
+    for (ended, kept) in [(0, 15), (15, 0)] {
+        let mut synth = Synth::new(Preset::Poly);
+        render(
+            &mut synth,
+            &[on_channel(0, 0, 50, 100), on_channel(0, 15, 50, 100)],
+            4_800,
+            128,
+        );
+        render(&mut synth, &[off_channel(0, ended, 50)], 96_000, 128);
+        assert_eq!(synth.voices(), 1, "channel {kept} keeps its note");
+    }
+}
+
+#[test]
+fn the_same_key_again_on_one_channel_lets_the_first_go() {
+    let mut synth = Synth::new(Preset::Poly);
+    render(&mut synth, &[on_channel(0, 0, 50, 100)], 9_600, 128);
+    // The same key again, once the first is sounding: it is released.
+    render(&mut synth, &[on_channel(0, 0, 50, 100)], 128, 128);
+    assert_eq!(synth.voices(), 2, "the first is in release, still counted");
+    render(&mut synth, &[], 96_000, 128);
+    assert_eq!(synth.voices(), 1, "the second holds on");
+    render(&mut synth, &[off_channel(0, 0, 50)], 96_000, 128);
+    assert_eq!(synth.voices(), 0);
+}
+
+#[test]
+fn a_note_waiting_for_a_steal_is_matched_by_channel_and_key() {
+    let mut synth = Synth::new(Preset::Poly);
+    // Sixteen notes on channel 0; a seventeenth on channel 15 with the same
+    // key takes the oldest voice (channel 0, key 40) once it has faded.
+    let mut events: Vec<Event> = (0..16).map(|i| on_channel(0, 0, 40 + i, 100)).collect();
+    events.push(on_channel(1_000, 15, 40, 100));
+    // Channel 0's key 40 lets go while its voice is still fading (about
+    // 2 ms): it must not cancel channel 15's waiting note.
+    events.push(off_channel(1_050, 0, 40));
+    render(&mut synth, &events, 9_600, 128);
+    assert_eq!(synth.voices(), 16, "channel 15's note took the voice");
+}
+
+#[test]
+fn all_notes_off_and_all_sound_off_still_reach_every_channel() {
+    let mut synth = Synth::new(Preset::Poly);
+    render(
+        &mut synth,
+        &[on_channel(0, 0, 60, 100), on_channel(0, 15, 64, 100)],
+        4_800,
+        128,
+    );
+    render(&mut synth, &[controller_on(0, 0, 123, 0)], 96_000, 128);
+    assert_eq!(synth.voices(), 0, "all notes off releases channel 15 too");
+    render(&mut synth, &[on_channel(0, 15, 64, 100)], 4_800, 128);
+    synth.render(
+        RATE,
+        &[controller_on(0, 0, 120, 0)],
+        &mut [0.0; 1],
+        &mut [0.0; 1],
+    );
+    assert!(!synth.active(), "all sound off cuts channel 15 too");
+}

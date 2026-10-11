@@ -119,9 +119,13 @@ fn clip_selection() {
     h.hover_at(Pos2::new(a.left() + 20.0, a.bottom() - 5.0));
     save(&mut h, "clip-hover-bottom");
 
-    // Select two by a marquee, held mid-drag.
+    // Select two by a marquee (Ctrl+Shift in empty lanes, ADR-0049), held
+    // mid-drag.
     let b = clip(&h, 1);
     let from = Pos2::new(a.right() + 200.0, a.top() + 2.0);
+    h.event(Event::ModifiersChanged(
+        Modifiers::COMMAND | Modifiers::SHIFT,
+    ));
     h.hover_at(from);
     h.drag_at(from);
     h.run_steps(2);
@@ -129,6 +133,7 @@ fn clip_selection() {
     save(&mut h, "clip-marquee");
     h.drop_at(Pos2::new(a.left() + 30.0, b.bottom() - 4.0));
     h.run_steps(2);
+    h.event(Event::ModifiersChanged(Modifiers::NONE));
     h.hover_at(Pos2::new(a.right() + 300.0, b.bottom() + 60.0));
     save(&mut h, "clip-selected");
 

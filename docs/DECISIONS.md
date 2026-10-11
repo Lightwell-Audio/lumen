@@ -116,6 +116,8 @@ irreversible or external) · *Superseded*.
 | Hearing MIDI (M5 slice 1, 2026-10-10) | Asked before building, all as recommended: the built-in synth's default sound is **S1 warm poly** (two saws ±7 cents, 12 dB low-pass at 2.4 kHz, A 5 ms · D 300 ms · S 70 % · R 250 ms, 16 voices, oldest stolen) over clean keys and a square pluck; until the device chain, the sound changes through **E1 presets in a menu** (Poly, Keys, Bass, Pluck, Pad; track menu and palette) over a small knob card or a fixed patch; **T1 MIDI To is one or the other** (instrument or a port and channel, Ableton) over layering both; **H1 chase notes and controllers** on Play and jumps (Live 11 default) over controllers only (Cubase default). Plan in `docs/milestones/M5.md`, slice 1. |
 | Playing live (M5 slice 2, 2026-10-11) | Chosen from specimens (the "MIDI: Playing Live" design canvas), all as recommended: **L A the selected MIDI track listens** without being armed (a hollow arm ring), plus every armed track (Ableton's auto-arm), over armed tracks only; **J A steady timing**, each live message placed at its driver stamp one buffer later, over playing at the next buffer; **C B a MIDI chip with in and out lights** and a popover whose rows show each port's traffic with Track and Remote pills, unplugged ports dimmed, over a word and one light; **K A a lit keycap button and a readout** (`C3–C4 · vel 100`) for the computer keyboard, over a mini keyboard in the bar; **H B a light by the name** of each listening MIDI track, over none; **R A MIDI From and Monitor in the track menu and on the mixer strip**, over an I/O block on tall headers. The computer keyboard toggles with **Ctrl+Shift+K** (M stays Set locator). Plan in `docs/milestones/M5.md`, slice 2. |
 | Piano roll (M5 slice 3, 2026-10-11) | Chosen from live specimens (the "Lumen Piano Roll Specimens" artifact), all as recommended: **Look A, studio keys** (a piano-key column, darker lanes for black keys, notes in the track's colour shaded by velocity, an outline on selected notes, handles on hover) over a labelled pitch rail; **Draw A, a click adds one grid step and dragging sets its length** (Ableton) over drag-to-paint; **Live A, preview then commit**: notes follow the pointer and pitches are auditioned, the playing clip changes once on release, over changing it continuously. Built by Sonnet agents at medium effort in worktrees (the owner's request). Plan in `docs/milestones/M5-slice3.md`. |
+| Clip editor's view (M5 slice 3, 2026-10-11) | Owner: the piano roll zooms and scrolls on its own, independent of the arrangement; it is fitted to each clip it opens; grid settings stay shared. ADR-0048. |
+| Time selection in empty lanes (M5 amendment, 2026-10-11) | Owner (MT-MIDI-4): a drag in empty lanes selects time on the tracks it spans, snapped, as a clip's lower half does; the time ruler selects time on the selected tracks, or every track when none is selected, and keeps the selection. The clip marquee moved to Ctrl+Shift (the integrator's choice, for the owner to confirm). ADR-0049. |
 | MT-MIDI-2 and MT-MIDI-3 follow-ups (2026-10-11) | **MA a monitor badge** on MIDI track headers, only when Monitor is not Auto (a speaker in accent for In, slashed grey for Off; click cycles), over the arm showing all three or an IN/OFF word ("MIDI: Playing Live" canvas, boards M). **Held notes glide to a new preset** at once (no retrigger), over keeping the old sound or retriggering. **The GS Wavetable latency is deferred**: a per-port output offset to be built later, recorded in KNOWN_ISSUES. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
@@ -4079,3 +4081,110 @@ way to pop it out into its own window.
   repaints in 3 s. Details in the slice 3 row of PROGRESS.md.
 - Unverified: the real second window and the pop-out's DPI and
   multi-monitor behaviour, and previews on real hardware (MT-MIDI-4).
+
+## ADR-0048 — The clip editor's own zoom and scroll (M5 slice 3 amendment)
+
+**Status:** Accepted 2026-10-11, owner decision. It amends the M5 slice 3
+plan (`docs/milestones/M5-slice3.md`, which kept zoom synchronized with the
+arrangement) and ADR-0047's "zoom synchronized with the arrangement".
+
+### Context
+ADR-0047 gave the piano roll the arrangement's `TimeView`, so zooming or
+scrolling the arrangement moved the roll and the reverse. The owner asked
+for the roll to zoom and scroll on its own: a clip is worked on at its own
+scale, without the arrangement's zoom deciding it.
+
+### Decision
+- **Its own view.** `NoteEditor::time` is a `TimeView` the roll owns. It
+  uses the same beats as the arrangement, so a clip sits at the same place
+  in both views. Drawing, hit testing, the ruler, the notes and the playhead
+  use it. The editor never writes the arrangement's view, and the arrangement
+  never writes the roll's.
+- **Zoom and scroll.** Ctrl+wheel over the roll zooms it, anchored on the
+  pointer (`TimeView::zoomed`). Shift+wheel or a sideways swipe scrolls it in
+  time (`TimeView::scrolled`; egui turns Shift into a horizontal scroll).
+  Both take their limits from the roll's own view (`App::zoom_limits_at`, the
+  tempo where the roll is). Wheel and keys in the roll no longer pause the
+  arrangement's Follow.
+- **The zoom keys.** While the editor has the keyboard (the same condition that
+  makes the arrows its notes' keys), + and - zoom the roll, anchored on the
+  pointer over the roll, else on the playhead when it is in view, else on the
+  middle of the roll. Otherwise they zoom the arrangement as before. This keeps
+  roll zoom reachable from the keyboard. W, Z and X stay with the arrangement.
+- **Fit on open.** The first draw of a clip fits its span to the roll's width
+  with the small margin of `TimeView::fit` (`view::fit_clip`) and centres its
+  middle pitch. Opening the same clip again keeps the view; a different clip is
+  framed again. The view is not remembered per clip (the simplest correct
+  behaviour the owner allowed).
+- **Grid and snap.** Grid settings (width, fixed size, triplet, dotted, snap)
+  stay shared. The roll snaps, and names its grid in the toolbar and the menu,
+  at its own zoom, so the grid it snaps to is the grid it draws.
+- **Benchmark.** `--bench-editor` drives the roll to the arrangement's driven
+  zoom and scroll, so the run still measures the roll zoomed and scrolled.
+
+### Consequences
+- Two views over one set of beats: no note is converted through the
+  arrangement's zoom, and a clip's notes stay where the roll put them.
+- Keyboard-only users keep roll zoom through + and -.
+- Not built: a fit-to-clip key for the roll (W, Z and X fit the arrangement),
+  and Follow-playhead in the roll (not required by the owner's decision).
+- Tests: `view::fit_clip` unit tests; E2E `notes::opening_a_clip_frames_it_in_the_roll`
+  and `notes::the_roll_zooms_and_scrolls_on_its_own` (the arrangement's zoom
+  leaves the roll's note positions alone, and the roll's zoom leaves the
+  arrangement alone).
+- Unverified: the feel of Ctrl+wheel and Shift+wheel on a real mouse and
+  trackpad (MT-MIDI-4 to be re-run).
+
+## ADR-0049 — Time selection in empty lanes (M5 amendment)
+
+**Status:** Accepted 2026-10-11, from the owner's request in MT-MIDI-4 step 7.
+The owner asked for a time selection anywhere on the timeline and for the
+ruler not to clear the track selection. The modifier and the selection rules
+below are the integrator's choices, not the owner's words; they are listed
+for the owner to confirm or change.
+
+### Context
+A time range could only start on a clip's lower half, so an empty stretch of
+a track could not be selected by dragging in its lane. A drag in empty lanes
+drew a clip marquee instead. The time ruler selected a range on every track
+and cleared the track selection, so Create MIDI clip (Ctrl+Shift+M) could not
+be aimed at a chosen track.
+
+### Decision
+- **Empty lanes make a time range.** A drag from empty lane space selects time
+  on the tracks it spans: from the track under the press down to the track
+  under the pointer (a horizontal drag keeps one track). It snaps to the grid,
+  and Alt places it freely. It uses the same range as a clip's lower half
+  (`Gesture::Range`, `TimeRange`).
+- **The clip marquee is Ctrl+Shift (Cmd+Shift on macOS)** (assumed). It keeps
+  the clips already selected, as Shift or Ctrl did. Shift or Ctrl alone no
+  longer draw a marquee: they make a range, so no modifier means two things.
+  Alt stays the snap bypass, and Alt-drag moves windows on several desktops,
+  so it was not used. Decided by `select::empty_lane_drag`.
+- **A range and the track selection go together** (assumed). A range's tracks
+  are the selected tracks: a lane or lower-half drag selects the tracks it
+  spans, and the ruler's range covers the selected tracks (every track when
+  none is selected) and keeps the selection. A range stays only while it
+  covers exactly the selected tracks (`TimeRange::covers_exactly`, checked in
+  `sync_selection` each frame). Selecting other tracks drops it, as before.
+- **Create MIDI clip picks its track in this order** (assumed): the first
+  selected MIDI track, then the first MIDI track of the time range, then the
+  track last clicked on the lanes.
+- **Pasting a copied range clears only the tracks it was copied from**
+  (`Clipboard::rows`, `edit::landing_tracks`). A range copied from a selection
+  with gaps no longer clears the tracks between. The pasted range is selected
+  on the tracks it landed on.
+
+### Consequences
+- Track headers show the tracks a range spans, since the range's tracks are
+  the selection. A clip's lower-half drag with a track selected keeps its
+  range now, where the old frame-by-frame sync used to clear it.
+- Hints: empty lanes say "select time", and Ctrl+Shift "select clips"; the
+  time ruler says "select time on the selected tracks, or all".
+- Tests: unit tests in `arrangement/select.rs` (`over`, `covers_exactly`, the
+  marquee modifier), the clipboard test for skipped tracks in `lumen-project`;
+  E2E in `tests/e2e/clips.rs` (empty-lane range, horizontal drag, ruler on the
+  selected track, the marquee still selects clips) and `notes.rs` (Ctrl+Shift+M
+  after an empty-lane drag puts the clip on that track).
+- Unverified: Cmd+Shift marquee on macOS, and the feel of choosing tracks by
+  header before a ruler drag. Both are in MT-MIDI-4 step 7.

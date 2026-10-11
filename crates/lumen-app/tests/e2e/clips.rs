@@ -1,6 +1,7 @@
 //! Clips, in the owner's split-clip model: the top half moves (Ctrl
-//! copies), the bottom half selects a time range, empty lanes draw a
-//! marquee; clicks select; Delete and Esc.
+//! copies), the bottom half selects a time range, a drag in empty lanes
+//! selects time on the tracks it spans and Ctrl+Shift draws a marquee
+//! (ADR-0049); clicks select; Delete and Esc.
 
 use eframe::egui::{Key, Modifiers, Pos2, Rect, vec2};
 use egui_kittest::kittest::Queryable;
@@ -96,10 +97,12 @@ fn ctrl_dragging_copies_and_selects_the_copy() {
 fn a_marquee_selects_clips_and_delete_removes_them() {
     let (mut lumen, kick, snare) = with_two_clips("clip-marquee");
     let (a, b) = (rect(&lumen, kick), rect(&lumen, snare));
-    // From empty space right of the clips, back over both.
+    // From empty space right of the clips, back over both. Ctrl+Shift draws
+    // the marquee; a plain drag there selects time (ADR-0049).
     let from = Pos2::new(a.right().max(b.right()) + 120.0, a.top() + 2.0);
     let to = Pos2::new(a.left() + 20.0, b.bottom() - 2.0);
-    lumen.drag(from, to, Modifiers::NONE);
+    lumen.drag(from, to, Modifiers::COMMAND | Modifiers::SHIFT);
+    assert!(lumen.app().time_range().is_none(), "a marquee, not a range");
     let mut selected = lumen.app().selected_clips();
     selected.sort();
     let mut both = vec![kick, snare];
@@ -416,6 +419,78 @@ fn the_lanes_menu_edits_what_was_right_clicked() {
     assert_eq!(starts(&lumen, 0).len(), 2);
 }
 
+/// ADR-0049 (owner, MT-MIDI-4): a drag in empty lane space selects time on
+/// the tracks it spans, snapped like a clip's bottom half; the clips stay.
+#[test]
+fn a_drag_in_empty_lane_space_selects_time_on_the_tracks_it_spans() {
+    let (mut lumen, kick, snare) = with_two_clips("lane-range");
+    let zoom = lumen.app().view().zoom as f32;
+    let (a, b) = (rect(&lumen, kick), rect(&lumen, snare));
+    // Bars 3 to 5 (quarters 8.2 to 16.3, snapped), from the kick's lane
+    // down to the snare's: empty space on both.
+    let x = |q: f32| a.left() + q * zoom;
+    lumen.drag(
+        Pos2::new(x(8.2), a.center().y),
+        Pos2::new(x(16.3), b.center().y),
+        Modifiers::NONE,
+    );
+    let (start, end, tracks) = lumen.app().time_range().expect("a range");
+    assert_eq!((start, end), (Ticks(2 * BAR), Ticks(4 * BAR)), "snapped");
+    let ids: Vec<Id> = lumen.app().project().tracks.iter().map(|t| t.id).collect();
+    assert_eq!(tracks, ids, "both tracks, as the drag spans them");
+    assert_eq!(lumen.app().selected_tracks(), ids, "the range's tracks");
+    assert!(lumen.app().selected_clips().is_empty());
+    assert_eq!(starts(&lumen, 0), [(0, BAR / 2)], "nothing moved");
+    // The range stays with its selection on later frames.
+    lumen.frames(3);
+    assert!(lumen.app().time_range().is_some(), "the range stays");
+    lumen.key(Modifiers::NONE, Key::Escape);
+    assert!(lumen.app().time_range().is_none());
+}
+
+#[test]
+fn a_horizontal_drag_in_one_lane_selects_only_that_track() {
+    let (mut lumen, kick, _) = with_two_clips("lane-range-one");
+    let zoom = lumen.app().view().zoom as f32;
+    let a = rect(&lumen, kick);
+    let (from, to) = (
+        Pos2::new(a.left() + 8.2 * zoom, a.center().y),
+        Pos2::new(a.left() + 16.3 * zoom, a.center().y),
+    );
+    lumen.drag(from, to, Modifiers::NONE);
+    let kick_track = lumen.app().project().tracks[0].id;
+    let (_, _, tracks) = lumen.app().time_range().expect("a range");
+    assert_eq!(tracks, [kick_track]);
+    assert_eq!(lumen.app().selected_tracks(), [kick_track]);
+}
+
+/// ADR-0049: the ruler's range is on the selected tracks, and the selection
+/// is kept; with none selected it is on every track (the test below).
+#[test]
+fn the_ruler_drag_selects_time_on_the_selected_tracks_only() {
+    let (mut lumen, _, _) = with_two_clips("ruler-selected");
+    let snare = lumen.app().project().tracks[1].id;
+    lumen.harness.get_by_label_contains("Track snare,").click();
+    lumen.frames(3);
+    assert_eq!(lumen.app().selected_tracks(), [snare]);
+    let ruler = lumen
+        .harness
+        .get_by_label("Time ruler: drag to select time on the selected tracks, or every track")
+        .rect();
+    let zoom = lumen.app().view().zoom as f32;
+    let x = |q: f32| ruler.left() + q * zoom;
+    let y = ruler.center().y;
+    lumen.drag(Pos2::new(x(8.2), y), Pos2::new(x(16.3), y), Modifiers::NONE);
+    let (start, end, tracks) = lumen.app().time_range().expect("a range");
+    assert_eq!((start, end), (Ticks(2 * BAR), Ticks(4 * BAR)));
+    assert_eq!(tracks, [snare], "only the selected track");
+    assert_eq!(
+        lumen.app().selected_tracks(),
+        [snare],
+        "the selection stays"
+    );
+}
+
 /// Owner, slice 6b: a range could only start on a clip, so empty bars could
 /// not be chosen. Dragging the time ruler selects time on every track.
 #[test]
@@ -423,7 +498,7 @@ fn dragging_the_time_ruler_selects_empty_bars_on_every_track() {
     let (mut lumen, _, _) = with_two_clips("time-ruler-range");
     let ruler = lumen
         .harness
-        .get_by_label("Time ruler: drag to select time on every track")
+        .get_by_label("Time ruler: drag to select time on the selected tracks, or every track")
         .rect();
     let zoom = lumen.app().view().zoom as f32;
     let x = |q: f32| ruler.left() + q * zoom;

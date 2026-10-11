@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use lumen_core::midi::{Event, Kind, Msg, cc};
 use lumen_core::time::Ticks;
-use lumen_devices::Instrument;
+use lumen_devices::{Instrument, Preset, Synth};
 use lumen_engine::{
     AUDITION, Command, Destination, Engine, EngineHandle, InstrumentSpec, KEYBOARD, Layered,
     Listen, LiveIn, LiveInput, MidiClip, MidiHandle, MidiNote, MidiOut, MidiPlayer, MidiTrack,
@@ -318,13 +318,14 @@ fn an_audition_sounds_on_its_track_alone_and_never_ends_another_sources_note() {
     // 47,000 to 50,000 (across the clip's end). One on B, which does not
     // listen: 31,000 to 33,000.
     rig.live.send(26_000, KEYS, Msg::note_on(0, 60, 100));
-    rig.live.audition(30_000, A, Msg::note_on(0, 60, 80));
-    rig.live.audition(31_000, B, Msg::note_on(0, 60, 80));
-    rig.live.audition(32_000, A, Msg::note_off(0, 60));
-    rig.live.audition(33_000, B, Msg::note_off(0, 60));
+    // Previews play on channel 15, apart from the clip's channel 0.
+    rig.live.audition(30_000, A, Msg::note_on(15, 60, 80));
+    rig.live.audition(31_000, B, Msg::note_on(15, 60, 80));
+    rig.live.audition(32_000, A, Msg::note_off(15, 60));
+    rig.live.audition(33_000, B, Msg::note_off(15, 60));
     rig.live.send(46_000, KEYS, Msg::note_off(0, 60));
-    rig.live.audition(47_000, A, Msg::note_on(0, 60, 80));
-    rig.live.audition(50_000, A, Msg::note_off(0, 60));
+    rig.live.audition(47_000, A, Msg::note_on(15, 60, 80));
+    rig.live.audition(50_000, A, Msg::note_off(15, 60));
     let found = impulses(&rig.run(52_000, 128));
     // Every source ends its own note, at its own frame.
     assert_eq!(
@@ -342,14 +343,93 @@ fn an_audition_sounds_on_its_track_alone_and_never_ends_another_sources_note() {
             (50_000, -1),
         ]
     );
-    assert_eq!(notes_of(&rig.log(), B), vec![(true, 0, 60), (false, 0, 60)]);
+    assert_eq!(
+        notes_of(&rig.log(), B),
+        vec![(true, 15, 60), (false, 15, 60)]
+    );
     assert_eq!(rig.held_live(A), 0);
     assert_eq!(rig.held_live(B), 0);
     // A stray off with nothing sounding sends nothing.
     let before = notes_of(&rig.log(), A).len();
-    rig.live.audition(52_100, A, Msg::note_off(0, 60));
+    rig.live.audition(52_100, A, Msg::note_off(15, 60));
     rig.run(512, 128);
     assert_eq!(notes_of(&rig.log(), A).len(), before);
+}
+
+/// The real synth, reporting how many of its voices sound after each block.
+struct Counted {
+    synth: Synth,
+    voices: Arc<Mutex<usize>>,
+}
+
+impl Instrument for Counted {
+    fn render(&mut self, rate: u32, events: &[Event], left: &mut [f32], right: &mut [f32]) {
+        self.synth.render(rate, events, left, right);
+        *self.voices.lock().unwrap() = self.synth.voices();
+    }
+
+    fn active(&self) -> bool {
+        self.synth.active()
+    }
+
+    fn preview(&mut self, rate: u32, left: &mut [f32], right: &mut [f32]) {
+        self.synth.preview(rate, left, right);
+    }
+
+    fn configure(&mut self, preset: u32) {
+        self.synth.configure(preset);
+    }
+
+    fn silence(&mut self) {
+        self.synth.silence();
+    }
+}
+
+#[test]
+fn a_preview_of_a_clip_notes_key_on_the_audition_channel_leaves_the_clip_note_sounding() {
+    let q = Ticks::quarters;
+    let clip = MidiClip {
+        id: 9,
+        start: Ticks::ZERO,
+        length: q(8),
+        period: None,
+        notes: note_list(vec![MidiNote {
+            start: q(1),
+            length: q(7),
+            pitch: 60,
+            velocity: 100,
+        }]),
+        controls: control_list(Vec::new()),
+    };
+    let voices = Arc::new(Mutex::new(0));
+    let synth = InstrumentSpec {
+        kind: 1,
+        preset: Preset::Poly.number(),
+        instrument: Box::new(Counted {
+            synth: Synth::new(Preset::Poly),
+            voices: Arc::clone(&voices),
+        }),
+    };
+    let track = MidiTrack::new(A, Target::Instrument, Some(synth), vec![clip]);
+    let log = Log::default();
+    let mut rig = rig(vec![track.listening(keys_on(None))], &log);
+    rig.transport.send(Command::Play).unwrap();
+    // The clip's note on pitch 60 runs from 24,000 to 192,000. A preview of
+    // pitch 60 on the audition channel runs from 30,000 to 32,000.
+    rig.live.audition(30_000, A, Msg::note_on(15, 60, 80));
+    rig.live.audition(32_000, A, Msg::note_off(15, 60));
+    rig.run(31_000, 128);
+    assert_eq!(
+        *voices.lock().unwrap(),
+        2,
+        "the clip's note and the preview both sound"
+    );
+    rig.run(70_000, 128);
+    assert_eq!(
+        *voices.lock().unwrap(),
+        1,
+        "the preview has ended and the clip's note still sounds"
+    );
 }
 
 #[test]

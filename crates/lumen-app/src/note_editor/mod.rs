@@ -2,7 +2,7 @@
 //! Live A). It lives in the detail panel's Clip tab and can pop out into
 //! its own window; both views draw the same [`NoteEditor`] state.
 //!
-//! - `view`: the geometry (shared time axis, editor-owned pitch scroll);
+//! - `view`: the geometry (the editor's own time axis and pitch scroll);
 //! - `gesture`: the mouse gestures as pure arithmetic, with the preview;
 //! - `paint`: the drawing boundary (slice 3b's GPU renderer plugs in here);
 //! - `ui`: the toolbar, the input and the menu;
@@ -27,6 +27,7 @@ use lumen_project::model::{Clip, ClipContent, Id, Note, TrackKind};
 use crate::app::detail::DetailTab;
 use crate::app::panes::{self, Pane};
 use crate::arrangement::select::TimeRange;
+use crate::timeview::TimeView;
 use crate::{App, document::NewClip};
 
 pub(crate) use ops::NoteOp;
@@ -47,6 +48,14 @@ pub(crate) enum MenuFor {
     Notes,
 }
 
+/// A zoom key pressed while the editor has the keyboard, waiting for the
+/// editor to draw (it knows its own width and the pointer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EditorZoom {
+    In,
+    Out,
+}
+
 /// The editor's state, shared by the panel and the window.
 #[derive(Default)]
 pub(crate) struct NoteEditor {
@@ -59,12 +68,19 @@ pub(crate) struct NoteEditor {
     pub gesture: Option<gesture::Gesture>,
     /// The editor is in its own window.
     pub popped: bool,
+    /// The editor's own horizontal view: its zoom and scroll, independent of
+    /// the arrangement (owner decision, ADR-0048). Fitted to each clip when
+    /// it opens (`framed_for`).
+    pub time: TimeView,
+    /// Zoom keys waiting for the next frame.
+    pub zooms: Vec<EditorZoom>,
     /// Points a pitch is tall (0 until first drawn).
     pub row_height: f32,
     /// Points scrolled down from the top of pitch 127.
     pub scroll: f32,
-    /// The clip the scroll was last centred for.
-    pub centred_for: Option<Id>,
+    /// The clip the view was last framed for: fitted to its span and
+    /// centred vertically when it first draws.
+    pub framed_for: Option<Id>,
     /// Written while drawing: the pointer is over the editor, and the
     /// clip time and pitch it is at.
     pub hovered: bool,
@@ -80,8 +96,6 @@ pub(crate) struct NoteEditor {
     /// here" cuts there. Latched, because while the menu is used the pointer
     /// is over the menu, not the roll, so `pointer_at` is empty.
     pub menu_at: Option<Ticks>,
-    /// The last pitch auditioned while a gesture ran (slice 3d).
-    pub auditioned: Option<u8>,
     /// Notes a marquee in progress would pick.
     pub boxed: Vec<usize>,
     /// The roll's note boxes, kept until the clip or the picks change.
@@ -189,7 +203,7 @@ impl App {
         self.note_editor.selection = NoteSelection::in_clip(project, clip);
         if !same {
             self.note_editor.gesture = None;
-            self.note_editor.centred_for = None;
+            self.note_editor.framed_for = None;
         }
         self.note_editor.clip = Some(clip);
         self.detail_tab = DetailTab::Clip;
@@ -269,28 +283,27 @@ impl App {
     }
 
     /// The MIDI track Create MIDI clip puts a clip on: the first selected
-    /// MIDI track, else the track last clicked on the lanes.
+    /// MIDI track, else the first MIDI track of the time range, else the
+    /// track last clicked on the lanes (ADR-0049).
     pub(crate) fn midi_track_for_new_clip(&self) -> Option<Id> {
         let tracks = &self.document.project().tracks;
-        // A time range names its tracks: the first MIDI one.
-        if let Some(range) = &self.arrangement.range
-            && let Some(track) = range.tracks.iter().find(|id| {
-                tracks
-                    .iter()
-                    .any(|t| t.id == **id && t.kind == TrackKind::Midi)
-            })
-        {
-            return Some(*track);
-        }
         let is_midi = |id: &Id| {
             tracks
                 .iter()
                 .any(|t| t.id == *id && t.kind == TrackKind::Midi)
         };
-        self.selected_midi_tracks()
-            .first()
-            .copied()
-            .or_else(|| self.arrangement.insert.filter(is_midi))
+        if let Some(track) = self.selected_midi_tracks().first().copied() {
+            return Some(track);
+        }
+        if let Some(track) = self
+            .arrangement
+            .range
+            .as_ref()
+            .and_then(|range| range.tracks.iter().copied().find(is_midi))
+        {
+            return Some(track);
+        }
+        self.arrangement.insert.filter(is_midi)
     }
 
     /// Create MIDI clip: over the time range if there is one, else one bar

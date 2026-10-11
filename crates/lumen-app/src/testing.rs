@@ -669,6 +669,12 @@ impl App {
         self.note_editor.last_view.map(|v| v.body)
     }
 
+    /// The clip editor's own horizontal view (its zoom and scroll), where it
+    /// drew last: separate from [`App::view`], the arrangement's (ADR-0048).
+    pub fn editor_view(&self) -> Option<TimeView> {
+        self.note_editor.last_view.map(|v| v.time)
+    }
+
     /// The point at the start of clip time `local`, in the row of `pitch`
     /// (the row's middle), where the editor drew it last.
     pub fn editor_point(&self, local: Ticks, pitch: u8) -> Option<egui::Pos2> {

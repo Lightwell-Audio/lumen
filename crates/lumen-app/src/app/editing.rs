@@ -1,8 +1,10 @@
 //! Clip editing on the lanes (M3 slice 6), in the owner's split-clip
 //! model: a clip's top half moves it (Ctrl+drag copies), its bottom half
-//! selects a time range across tracks, and a drag in empty lanes draws a
-//! marquee. Clicks select (Ctrl toggles, Shift adds). Everything snaps to
-//! the grid (Alt places freely), and every drag is one undo step.
+//! selects a time range, and a drag in empty lanes selects a time range on
+//! the tracks it spans (ADR-0049; Ctrl+Shift+drag draws a clip marquee
+//! instead). A range and the track selection travel together. Clicks select
+//! (Ctrl toggles, Shift adds). Everything snaps to the grid (Alt places
+//! freely), and every drag is one undo step.
 
 use std::collections::BTreeSet;
 
@@ -15,7 +17,8 @@ use super::info::{Held, Info, Mouse};
 use super::navigate::ViewStep;
 use crate::arrangement::Arrangement;
 use crate::arrangement::select::{
-    ClipStep, Edge, Gesture, Half, Hover, TimeRange, clip_step, drag_moves,
+    ClipStep, Edge, EmptyLaneDrag, Gesture, Half, Hover, TimeRange, clip_step, drag_moves,
+    empty_lane_drag,
 };
 use crate::commands::Command;
 use lumen_project::edit;
@@ -231,7 +234,8 @@ impl App {
             // not by the pointer).
             self.set_info(
                 Info::new("Lanes")
-                    .on(Held::NONE, Mouse::Drag, "select clips")
+                    .on(Held::NONE, Mouse::Drag, "select time")
+                    .on(Held::CTRL_SHIFT, Mouse::Drag, "select clips")
                     .on(Held::NONE, Mouse::Click, "move the playhead")
                     .on(Held::NONE, Mouse::RightClick, "menu")
                     .key(Command::Paste, "paste"),
@@ -358,13 +362,7 @@ impl App {
     ) -> Option<Gesture> {
         let adding = modifiers.shift || modifiers.command;
         let Some(hit) = self.hit(ctx, origin, canvas) else {
-            let kept = if adding {
-                self.arrangement.clips.clone()
-            } else {
-                BTreeSet::new()
-            };
-            self.arrangement.range = None;
-            return Some(Gesture::Marquee { from: origin, kept });
+            return self.empty_lane_gesture(ctx, origin, canvas, modifiers);
         };
         if hit.handle.is_some() {
             return self.start_handle_gesture(&hit, origin, canvas);
@@ -434,6 +432,41 @@ impl App {
             track: hit.track,
             copies,
         })
+    }
+
+    /// What a drag from empty lane space does (ADR-0049): a time range from
+    /// the press down to the pointer's track, or, with Ctrl+Shift, a marquee
+    /// that keeps the clips already selected when Shift or Ctrl is held.
+    fn empty_lane_gesture(
+        &mut self,
+        ctx: &egui::Context,
+        origin: Pos2,
+        canvas: Rect,
+        modifiers: Modifiers,
+    ) -> Option<Gesture> {
+        let pending = self.lanes.pending().len();
+        let track = self.arrangement.track_index_at(
+            ctx,
+            self.document.project(),
+            pending,
+            canvas,
+            origin.y,
+        );
+        if let (EmptyLaneDrag::Range, Some(track)) = (empty_lane_drag(modifiers), track) {
+            self.arrangement.clips.clear();
+            self.arrangement.range = None;
+            return Some(Gesture::Range {
+                at: self.ticks_at(canvas, origin.x),
+                track,
+            });
+        }
+        let kept = if modifiers.shift || modifiers.command {
+            self.arrangement.clips.clone()
+        } else {
+            BTreeSet::new()
+        };
+        self.arrangement.range = None;
+        Some(Gesture::Marquee { from: origin, kept })
     }
 
     fn continue_gesture(
@@ -550,11 +583,13 @@ impl App {
                     self.snapped(at, free),
                     self.snapped(self.ticks_at(canvas, p.x), free),
                 );
-                self.arrangement.range =
-                    TimeRange::between(project, a, b, track, row.unwrap_or(track));
+                let range = TimeRange::between(project, a, b, track, row.unwrap_or(track));
+                // The range's tracks are the selected ones (ADR-0049).
+                self.arrangement.selected =
+                    range.as_ref().map(|r| r.tracks.clone()).unwrap_or_default();
+                self.arrangement.range = range;
                 draw_snap_guide(painter, x(b), guides);
                 ctx.set_cursor_icon(CursorIcon::Text);
-                self.arrangement.selected.clear();
                 self.locators.selected = None;
             }
         }
@@ -736,13 +771,13 @@ impl App {
         let pasted = self.document.paste(label, clipboard, at, track);
         let project = self.document.project();
         if clipboard.range {
-            self.arrangement.range = TimeRange::between(
-                project,
-                at,
-                at + clipboard.length,
-                track,
-                (track + clipboard.tracks - 1).min(project.tracks.len().saturating_sub(1)),
-            );
+            // The pasted range is selected on the tracks it landed on, as a
+            // range drag selects its tracks (ADR-0049).
+            let landed = edit::landing_tracks(project, clipboard, track);
+            let range = TimeRange::over(project, at, at + clipboard.length, &landed);
+            self.arrangement.selected =
+                range.as_ref().map(|r| r.tracks.clone()).unwrap_or_default();
+            self.arrangement.range = range;
             self.arrangement.clips.clear();
         } else {
             self.arrangement.clips = pasted.into_iter().collect();

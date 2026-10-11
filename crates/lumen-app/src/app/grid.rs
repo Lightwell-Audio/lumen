@@ -14,29 +14,50 @@ impl App {
     /// `t` snapped to the grid at the current zoom, unless `free` (Alt held)
     /// or snapping is off.
     pub(crate) fn snapped(&self, t: Ticks, free: bool) -> Ticks {
+        self.snapped_at_zoom(t, free, self.nav.view.zoom)
+    }
+
+    /// [`Self::snapped`] for a view at `zoom` points a beat: the clip
+    /// editor's own zoom (its grid lines are drawn at it, so it snaps there).
+    pub(crate) fn snapped_at_zoom(&self, t: Ticks, free: bool, zoom: f64) -> Ticks {
         if free {
             return t;
         }
-        self.grid
-            .snap(&self.transport.timeline.meter, t, self.nav.view.zoom)
+        self.grid.snap(&self.transport.timeline.meter, t, zoom)
     }
 
     /// The grid step `t` falls in, at the current zoom (scrubbing).
     pub(crate) fn grid_cell(&self, t: Ticks) -> (Ticks, Ticks) {
-        self.grid
-            .cell(&self.transport.timeline.meter, t, self.nav.view.zoom)
+        self.grid_cell_at_zoom(t, self.nav.view.zoom)
+    }
+
+    /// [`Self::grid_cell`] at `zoom` points a beat.
+    pub(crate) fn grid_cell_at_zoom(&self, t: Ticks, zoom: f64) -> (Ticks, Ticks) {
+        self.grid.cell(&self.transport.timeline.meter, t, zoom)
     }
 
     /// The step showing now, where the view starts.
     pub(crate) fn grid_step(&self) -> Step {
+        self.grid_step_at(self.nav.view.left, self.nav.view.zoom)
+    }
+
+    /// The step showing in a view whose left edge is at beat `left` and
+    /// that takes `zoom` points a beat.
+    pub(crate) fn grid_step_at(&self, left: f64, zoom: f64) -> Step {
         let map = &self.transport.timeline.meter;
-        let meter = map.meter_at(ruler::ticks_at(self.nav.view.left));
-        self.grid.step(meter, self.nav.view.zoom)
+        let meter = map.meter_at(ruler::ticks_at(left));
+        self.grid.step(meter, zoom)
     }
 
     /// What the grid is, for the screen: "1/16", "1/8T", "4 bars".
     pub(crate) fn grid_label(&self) -> String {
         self.grid.label(self.grid_step())
+    }
+
+    /// [`Self::grid_label`] for a view at `left` and `zoom` (the clip
+    /// editor's toolbar shows the grid its roll is drawn with).
+    pub(crate) fn grid_label_at(&self, left: f64, zoom: f64) -> String {
+        self.grid.label(self.grid_step_at(left, zoom))
     }
 
     /// The grid menu: adaptive widths, fixed sizes, triplet, dotted, snap.

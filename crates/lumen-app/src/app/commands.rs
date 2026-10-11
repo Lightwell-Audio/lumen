@@ -14,7 +14,7 @@ use super::panes;
 use super::projects::Next;
 use crate::arrangement::select::ClipStep;
 use crate::commands::{Chord, Command};
-use crate::note_editor::{NoteOp, Tool};
+use crate::note_editor::{EditorZoom, NoteOp, Tool};
 use crate::{App, widgets};
 
 impl App {
@@ -54,11 +54,21 @@ impl App {
     }
 
     /// Selections are one kind at a time: selecting tracks deselects clips
-    /// and the range, and selecting anything deselects the locator.
+    /// (and a range on other tracks), and selecting anything deselects the
+    /// locator.
     pub(crate) fn sync_selection(&mut self) {
         if !self.arrangement.selected.is_empty() {
             self.arrangement.clips.clear();
-            self.arrangement.range = None;
+            // A range lives on the selected tracks (ADR-0049): a range that
+            // covers other tracks goes when the selection changes.
+            let keep = self
+                .arrangement
+                .range
+                .as_ref()
+                .is_none_or(|r| r.covers_exactly(&self.arrangement.selected));
+            if !keep {
+                self.arrangement.range = None;
+            }
         }
         if !self.arrangement.selected.is_empty() || self.clips_chosen() {
             self.locators.selected = None;
@@ -458,6 +468,10 @@ impl App {
             Command::ExtendSelectionDown => self.arrangement.step_selection(doc, 1, true),
             Command::FoldTracks => self.arrangement.fold_selected(doc.project(), true),
             Command::UnfoldTracks => self.arrangement.fold_selected(doc.project(), false),
+            // With the clip editor's keys live, the zoom keys zoom its roll
+            // (its view is its own, ADR-0048); otherwise the arrangement.
+            Command::ZoomIn if note_keys => self.note_editor.zooms.push(EditorZoom::In),
+            Command::ZoomOut if note_keys => self.note_editor.zooms.push(EditorZoom::Out),
             Command::ZoomIn => self.nav.steps.push(ViewStep::ZoomIn),
             Command::ZoomOut => self.nav.steps.push(ViewStep::ZoomOut),
             Command::ZoomBack => self.nav.steps.push(ViewStep::Back),

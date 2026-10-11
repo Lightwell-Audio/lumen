@@ -2137,11 +2137,17 @@ cargo run --release -p lumen-app -- tests\projects\midi-demo.lumen
    space in the roll: menus with these commands and their keys. Ctrl+K
    finds them all ("notes", "MIDI clip").
 7. **Make clips.** Double-click an empty spot on the **Lead** track's
-   lane: a one-bar clip appears, snapped, and opens. Start dragging from the
-   lower half of that Lead clip to select a Lead-only range (an empty-lane
-   drag makes a clip marquee). Press **Ctrl+Shift+M**: a second clip fills
-   the range. A time-ruler drag selects all tracks and clears track selection,
-   so it is not suitable for checking clip placement specifically on Lead.
+   lane: a one-bar clip appears, snapped, and opens. Then drag across empty
+   lane space beside that clip, with no modifier, to select a time range on
+   Lead: the range is snapped and Lead is selected. A drag that goes down
+   to another track takes in every track it crosses (ADR-0049). Press
+   **Ctrl+Shift+M**: a second clip fills the range on Lead. Ctrl+Shift+drag
+   in empty lanes still draws a clip marquee: check that it selects clips
+   and makes no range. Then select a track by its header (Lead), and drag
+   the time ruler: the range covers the selected track only (with no track
+   selected it covers every track), and the selection stays. Ctrl+Shift+M
+   puts the clip on Lead. Report anything that feels wrong about how the
+   ruler, the lanes and the track selection work together.
 8. **Keyboard only.** Click a MIDI clip, press **Enter**: it opens. Press
    **F6** until the Clip tab has focus, then Ctrl+A, the arrows and Delete
    work without touching the mouse.

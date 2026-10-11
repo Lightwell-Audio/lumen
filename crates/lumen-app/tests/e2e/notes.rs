@@ -217,6 +217,45 @@ fn the_create_command_uses_the_time_range_when_there_is_one() {
     assert_eq!(made.start + made.length, b);
 }
 
+/// ADR-0049 (owner, MT-MIDI-4 step 7): a drag in empty lane space selects
+/// time on its track, and Create MIDI clip puts the clip on that track.
+#[test]
+fn create_after_an_empty_lane_drag_puts_the_clip_on_that_track() {
+    let mut lumen = launch("notes-create-lane");
+    let empty = lumen.app().project().tracks[1].id;
+    let ctx = lumen.harness.ctx.clone();
+    let zoom = lumen.app().view().zoom as f32;
+    let r = lumen.app().clip_rect(&ctx, KEYS_CLIP).unwrap();
+    // The Empty track has no clips: its lane is at the Keys clip's height
+    // one row down, so take its y from its header.
+    let y = lumen
+        .harness
+        .get_by_label_contains("Track Empty,")
+        .rect()
+        .center()
+        .y;
+    let x = |beat: f32| r.left() + beat * zoom;
+    lumen.drag(
+        Pos2::new(x(10.2), y),
+        Pos2::new(x(14.1), y),
+        Modifiers::NONE,
+    );
+    let (a, b, tracks) = lumen.app().time_range().expect("a range");
+    assert_eq!(tracks, [empty], "the lane it was dragged in");
+    assert_eq!(lumen.app().selected_tracks(), [empty]);
+
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::M);
+    lumen.frames(10);
+    let project = lumen.app().project();
+    assert_eq!(project.tracks[0].clips.len(), 1, "Keys is untouched");
+    let made = project.tracks[1]
+        .clips
+        .iter()
+        .find(|c| c.start == a)
+        .expect("the clip is on Empty, at the range");
+    assert_eq!(made.start + made.length, b);
+}
+
 #[test]
 fn a_click_with_the_draw_tool_adds_a_note_of_one_grid_step() {
     let mut lumen = launch("notes-draw");
@@ -257,6 +296,35 @@ fn dragging_with_the_draw_tool_sets_the_length_of_the_new_note() {
     assert_eq!(drawn.length(), q(2), "the end snapped to the grid");
     undo(&mut lumen);
     assert!(notes(&lumen).iter().all(|n| n.pitch() != 62));
+}
+
+#[test]
+fn dragging_left_with_the_draw_tool_ends_the_new_note_at_the_press() {
+    let mut lumen = launch("notes-draw-left");
+    open(&mut lumen);
+    lumen.key(Modifiers::NONE, Key::B);
+    // Pressed in the grid cell at beat 6, dragged left to beat 4: the note
+    // runs from the pointer's snapped place to the press's cell, so the
+    // press is its end.
+    let (press, _) = lumen.app().grid_cell_at(beat(6.1));
+    let from = at(&lumen, beat(6.1), 62);
+    let to = at(&lumen, beat(4.0), 62);
+    lumen.drag(from, to, Modifiers::NONE);
+    let drawn = notes(&lumen)
+        .into_iter()
+        .find(|n| n.pitch() == 62)
+        .expect("drawn");
+    assert_eq!((drawn.start(), drawn.end()), (q(4), press));
+    assert_eq!(
+        lumen.app().editor_picked().len(),
+        1,
+        "the new note is picked"
+    );
+    undo(&mut lumen);
+    assert!(
+        notes(&lumen).iter().all(|n| n.pitch() != 62),
+        "one undo step"
+    );
 }
 
 #[test]
@@ -385,8 +453,10 @@ fn ctrl_dragging_copies_the_note() {
 fn dragging_a_note_s_ends_resizes_it() {
     let mut lumen = launch("notes-resize");
     open(&mut lumen);
-    // The end of the note at beat 1 (E4), out to beat 3.
-    let end = at(&lumen, q(2) - Ticks(PPQ / 20), 64);
+    // The end of the note at beat 1 (E4), out to beat 3. The grab is two
+    // points inside the end: the roll fits the clip, so a beat is wide.
+    let on = at(&lumen, q(2), 64);
+    let end = Pos2::new(on.x - 2.0, on.y);
     let to = at(&lumen, q(3), 64);
     lumen.drag(end, to, Modifiers::NONE);
     let n = notes(&lumen).into_iter().find(|n| n.pitch() == 64).unwrap();
@@ -394,7 +464,8 @@ fn dragging_a_note_s_ends_resizes_it() {
     undo(&mut lumen);
     // The start of the note at beat 2 (G4), back to beat 2.5.. snapped to 3
     // is past its end, so it stops at the minimum: drag it half a beat.
-    let start = at(&lumen, q(2) + Ticks(PPQ / 20), 67);
+    let on = at(&lumen, q(2), 67);
+    let start = Pos2::new(on.x + 2.0, on.y);
     let to = at(&lumen, beat(2.5), 67);
     lumen.drag(start, to, Modifiers::NONE);
     let n = notes(&lumen).into_iter().find(|n| n.pitch() == 67).unwrap();
@@ -722,4 +793,104 @@ fn pressing_a_note_auditions_it_and_escape_lets_go() {
     );
     lumen.harness.drop_at(p);
     lumen.frames(3);
+}
+
+/// Turns the wheel `notches` at `p` (up is positive) with `modifiers` held,
+/// then lets egui's smoothed scroll settle.
+fn wheel(lumen: &mut Lumen, p: Pos2, notches: i32, modifiers: Modifiers) {
+    hover(lumen, p);
+    for _ in 0..notches.abs() {
+        lumen.harness.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: vec2(0.0, 40.0 * notches.signum() as f32),
+            phase: egui::TouchPhase::Move,
+            modifiers,
+        });
+        lumen.frames(2);
+    }
+    lumen.frames(30);
+}
+
+/// The x at which the roll draws clip time `local` (pitch 60's row).
+fn roll_x(lumen: &Lumen, local: Ticks) -> f32 {
+    lumen
+        .app()
+        .editor_point(local, 60)
+        .expect("the roll has drawn")
+        .x
+}
+
+#[test]
+fn opening_a_clip_frames_it_in_the_roll() {
+    let mut lumen = launch("notes-frame");
+    open(&mut lumen);
+    let body = lumen.app().editor_body().unwrap();
+    let (start, end) = (roll_x(&lumen, Ticks::ZERO), roll_x(&lumen, q(8)));
+    assert!(start >= body.left() && end <= body.right(), "{start} {end}");
+    assert!(end - start > body.width() * 0.9, "the clip fills the roll");
+    assert!(
+        start - body.left() < body.width() * 0.05,
+        "little room before"
+    );
+    assert!(
+        body.right() - end < body.width() * 0.05,
+        "little room after"
+    );
+}
+
+#[test]
+fn the_roll_zooms_and_scrolls_on_its_own() {
+    let mut lumen = launch("notes-own-view");
+    open(&mut lumen);
+    let ctx = lumen.harness.ctx.clone();
+    let lane = lumen
+        .app()
+        .clip_rect(&ctx, KEYS_CLIP)
+        .expect("the clip is in view")
+        .center();
+    let body = lumen.app().editor_body().unwrap();
+    let roll = Pos2::new(body.left() + body.width() * 0.8, body.center().y);
+    let (arrangement0, roll0) = (lumen.app().view(), lumen.app().editor_view().unwrap());
+    let x0 = roll_x(&lumen, beat(4.0));
+
+    // Ctrl+wheel over the arrangement zooms the arrangement, and only it.
+    wheel(&mut lumen, lane, 2, Modifiers::COMMAND);
+    let arrangement1 = lumen.app().view();
+    assert!(arrangement1.zoom > arrangement0.zoom, "{arrangement1:?}");
+    assert_eq!(lumen.app().editor_view(), Some(roll0), "the roll stays");
+    assert_eq!(roll_x(&lumen, beat(4.0)), x0, "its notes stay put");
+
+    // Ctrl+wheel over the roll zooms the roll, and only it.
+    wheel(&mut lumen, roll, 2, Modifiers::COMMAND);
+    let roll1 = lumen.app().editor_view().unwrap();
+    assert!(roll1.zoom > roll0.zoom, "{roll0:?} -> {roll1:?}");
+    assert_eq!(lumen.app().view(), arrangement1, "the arrangement stays");
+    assert!(
+        (roll_x(&lumen, beat(4.0)) - x0).abs() > 1.0,
+        "the notes moved"
+    );
+
+    // Shift+wheel scrolls the roll in time, and only it.
+    wheel(&mut lumen, roll, 2, Modifiers::SHIFT);
+    let roll2 = lumen.app().editor_view().unwrap();
+    assert_ne!(roll2.left, roll1.left, "the roll scrolled");
+    assert_eq!(lumen.app().view(), arrangement1, "the arrangement stays");
+
+    // The zoom keys follow the pointer: over the roll they zoom the roll...
+    hover(&mut lumen, roll);
+    lumen.key(Modifiers::NONE, Key::Equals);
+    lumen.frames(30);
+    let roll3 = lumen.app().editor_view().unwrap();
+    assert!(roll3.zoom > roll2.zoom, "+ zooms the roll");
+    assert_eq!(lumen.app().view(), arrangement1, "the arrangement stays");
+
+    // ...and over the arrangement they zoom the arrangement.
+    hover(&mut lumen, lane);
+    lumen.key(Modifiers::NONE, Key::Equals);
+    lumen.frames(30);
+    assert!(
+        lumen.app().view().zoom > arrangement1.zoom,
+        "+ zooms the arrangement"
+    );
+    assert_eq!(lumen.app().editor_view(), Some(roll3), "the roll stays");
 }

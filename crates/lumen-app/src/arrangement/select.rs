@@ -1,6 +1,7 @@
 //! Clip selection and moving (M3 slice 6a), in the owner's split-clip
 //! model: a clip's top half moves it (Ctrl copies), its bottom half selects
-//! a time range (slice 6b), and a drag in empty lanes draws a marquee.
+//! a time range (slice 6b). A drag in empty lanes selects a time range on
+//! the tracks it spans (ADR-0049); Ctrl+Shift there draws a clip marquee.
 //!
 //! Hit-testing and the arithmetic of a drag are pure and tested here; the
 //! app turns them into document edits (`App::clip_editing`).
@@ -8,7 +9,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use eframe::egui::{self, Pos2, Rect, pos2};
+use eframe::egui::{self, Modifiers, Pos2, Rect, pos2};
 use lumen_core::time::Ticks;
 use lumen_project::model::{ClipContent, Id, Project, TrackKind};
 
@@ -191,7 +192,8 @@ pub enum Gesture {
     },
     /// A marquee from `from`; clips selected before it (Ctrl or Shift) stay.
     Marquee { from: Pos2, kept: BTreeSet<Id> },
-    /// A time range from `at` on track `track` (a clip's bottom half).
+    /// A time range from `at` on track `track` (a clip's bottom half, or an
+    /// empty lane); it spans the tracks down to the pointer's.
     Range { at: Ticks, track: usize },
     /// Trimming a side of `clip`; with `looping` (Shift at the start) the
     /// end extends by repeating.
@@ -242,10 +244,51 @@ impl TimeRange {
     /// The range between `a` and `b` (either order) over the tracks from
     /// index `from` to `to` (either order); `None` when it is empty.
     pub fn between(project: &Project, a: Ticks, b: Ticks, from: usize, to: usize) -> Option<Self> {
-        let (start, end) = (a.min(b).max(Ticks::ZERO), a.max(b).max(Ticks::ZERO));
         let (lo, hi) = (from.min(to), from.max(to));
-        let tracks: Vec<Id> = project.tracks.get(lo..=hi)?.iter().map(|t| t.id).collect();
-        (start < end).then_some(Self { start, end, tracks })
+        let ids: Vec<Id> = project.tracks.get(lo..=hi)?.iter().map(|t| t.id).collect();
+        Self::over(project, a, b, &ids)
+    }
+
+    /// The range between `a` and `b` (either order) on the tracks `ids`,
+    /// as many of them as the project has, top to bottom. `None` when it is
+    /// empty or none of `ids` is a track. Tracks need not be neighbours:
+    /// the ruler's range covers the selected ones.
+    pub fn over(project: &Project, a: Ticks, b: Ticks, ids: &[Id]) -> Option<Self> {
+        let (start, end) = (a.min(b).max(Ticks::ZERO), a.max(b).max(Ticks::ZERO));
+        let tracks: Vec<Id> = project
+            .tracks
+            .iter()
+            .map(|t| t.id)
+            .filter(|id| ids.contains(id))
+            .collect();
+        (start < end && !tracks.is_empty()).then_some(Self { start, end, tracks })
+    }
+
+    /// Whether the range is on exactly the tracks `selected` (in any order).
+    /// A range and the track selection go together: when they part, the
+    /// range goes.
+    pub fn covers_exactly(&self, selected: &[Id]) -> bool {
+        self.tracks.len() == selected.len() && self.tracks.iter().all(|t| selected.contains(t))
+    }
+}
+
+/// What a drag that starts in empty lane space does (ADR-0049).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmptyLaneDrag {
+    /// A time range on the tracks it spans: the default.
+    Range,
+    /// A clip marquee that keeps the clips already selected.
+    Marquee,
+}
+
+/// Ctrl+Shift (Cmd+Shift on macOS) draws a clip marquee in empty lanes.
+/// Shift or Ctrl alone do not: they make a time range, as the drag does
+/// everywhere else, so no modifier stands for two things.
+pub fn empty_lane_drag(modifiers: Modifiers) -> EmptyLaneDrag {
+    if modifiers.command && modifiers.shift {
+        EmptyLaneDrag::Marquee
+    } else {
+        EmptyLaneDrag::Range
     }
 }
 
@@ -454,6 +497,35 @@ mod tests {
             TimeRange::between(&p, Ticks::ZERO, Ticks(1), 0, 9).is_none(),
             "no such track"
         );
+    }
+
+    #[test]
+    fn a_range_over_chosen_tracks_skips_the_ones_between() {
+        use TrackKind::Audio;
+        let p = project(&[Audio, Audio, Audio, Audio]);
+        let (a, b) = (Ticks::quarters(4), Ticks::quarters(8));
+        let r = TimeRange::over(&p, b, a, &[Id(3), Id(1)]).unwrap();
+        assert_eq!((r.start, r.end), (a, b));
+        assert_eq!(
+            r.tracks,
+            [Id(1), Id(3)],
+            "top to bottom, not the list's order"
+        );
+        assert!(r.covers_exactly(&[Id(3), Id(1)]));
+        assert!(!r.covers_exactly(&[Id(1)]), "a track more");
+        assert!(!r.covers_exactly(&[Id(1), Id(2)]), "another track");
+        assert!(TimeRange::over(&p, a, b, &[]).is_none(), "no tracks");
+        assert!(TimeRange::over(&p, a, a, &[Id(1)]).is_none(), "empty");
+    }
+
+    #[test]
+    fn an_empty_lane_drag_makes_a_range_unless_ctrl_shift_is_held() {
+        let ctrl_shift = Modifiers::COMMAND | Modifiers::SHIFT;
+        assert_eq!(empty_lane_drag(Modifiers::NONE), EmptyLaneDrag::Range);
+        assert_eq!(empty_lane_drag(Modifiers::SHIFT), EmptyLaneDrag::Range);
+        assert_eq!(empty_lane_drag(Modifiers::COMMAND), EmptyLaneDrag::Range);
+        assert_eq!(empty_lane_drag(Modifiers::ALT), EmptyLaneDrag::Range);
+        assert_eq!(empty_lane_drag(ctrl_shift), EmptyLaneDrag::Marquee);
     }
 
     #[test]

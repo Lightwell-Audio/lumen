@@ -15,11 +15,23 @@ use lumen_project::edit::notes::{self as ops, End, MIN_NOTE};
 use lumen_project::model::{Clip, Note};
 
 use super::view::EditorView;
+use crate::audition::Tone;
 
 /// Points the pointer must travel before a press on a note becomes a drag.
 pub(crate) const DRAG_THRESHOLD: f32 = 3.0;
 /// The velocity of a drawn note.
 pub(crate) const DRAW_VELOCITY: u8 = 100;
+
+/// The tones `notes` sound as, in order: what a preview plays for them.
+pub(crate) fn tones_of(notes: &[Note]) -> Vec<Tone> {
+    notes
+        .iter()
+        .map(|n| Tone {
+            pitch: n.pitch(),
+            velocity: n.velocity(),
+        })
+        .collect()
+}
 
 /// What a gesture is doing.
 #[derive(Debug, Clone, PartialEq)]
@@ -88,9 +100,17 @@ impl Gesture {
                 Resolved::Marquee(Rect::from_two_pos(self.origin, pointer).intersect(view.body))
             }
             Kind::Draw { start, pitch, step } => {
-                let end = (env.snap)(view.absolute_at(pointer.x)) - view.clip_start;
-                let length = (end - *start).max(*step).max(MIN_NOTE);
-                Resolved::Draw(Note::new(*start, length, *pitch, DRAW_VELOCITY))
+                let at = (env.snap)(view.absolute_at(pointer.x)) - view.clip_start;
+                let min = (*step).max(MIN_NOTE);
+                // Dragged right, the press is the note's start; dragged left,
+                // it is the note's end, and the pointer sets the start.
+                let (begin, length) = if at >= *start {
+                    (*start, (at - *start).max(min))
+                } else {
+                    let begin = (*start - (*start - at).max(min)).max(Ticks::ZERO);
+                    (begin, *start - begin)
+                };
+                Resolved::Draw(Note::new(begin, length, *pitch, DRAW_VELOCITY))
             }
             _ if !self.dragging => Resolved::Nothing,
             Kind::Move { copy } => {
@@ -328,6 +348,61 @@ mod tests {
             panic!()
         };
         assert_eq!(n.length(), Ticks::quarters(3));
+    }
+
+    #[test]
+    fn drawing_right_to_left_makes_a_note_that_ends_at_the_press() {
+        let v = view();
+        let snap = to_quarter;
+        let e = env(&v, &[], &snap);
+        // Pressed at beat 5, the note's end; dragged left to beat 2.2, which
+        // snaps to 2: a three-beat note from 2 to 5.
+        let g = gesture(
+            Kind::Draw {
+                start: Ticks::quarters(5),
+                pitch: 64,
+                step: Ticks::quarters(1),
+            },
+            pos2(510.0, 100.0),
+        );
+        let Resolved::Draw(n) = g.resolve(pos2(222.0, 100.0), &e) else {
+            panic!()
+        };
+        assert_eq!(
+            (n.start(), n.end(), n.pitch()),
+            (Ticks::quarters(2), Ticks::quarters(5), 64)
+        );
+        // One step left of the press is the shortest note, still ending there.
+        let Resolved::Draw(n) = g.resolve(pos2(440.0, 100.0), &e) else {
+            panic!()
+        };
+        assert_eq!(
+            (n.start(), n.end()),
+            (Ticks::quarters(4), Ticks::quarters(5))
+        );
+        // Off the grid (Alt), the minimum length still holds.
+        let free = |t: Ticks| t;
+        let e = env(&v, &[], &free);
+        let Resolved::Draw(n) = g.resolve(pos2(495.0, 100.0), &e) else {
+            panic!()
+        };
+        assert_eq!(
+            (n.start(), n.end()),
+            (Ticks::quarters(4), Ticks::quarters(5))
+        );
+        // Dragged past the start of the clip, the note stops at zero.
+        let at_start = gesture(
+            Kind::Draw {
+                start: Ticks::quarters(1),
+                pitch: 64,
+                step: Ticks::quarters(1),
+            },
+            pos2(110.0, 100.0),
+        );
+        let Resolved::Draw(n) = at_start.resolve(pos2(0.0, 100.0), &env(&v, &[], &snap)) else {
+            panic!()
+        };
+        assert_eq!((n.start(), n.end()), (Ticks::ZERO, Ticks::quarters(1)));
     }
 
     #[test]

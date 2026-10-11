@@ -10,6 +10,7 @@ use lumen_devices::Preset;
 use lumen_midi::{Direction, Use};
 
 use crate::App;
+use crate::audition::Tone;
 use crate::midi::{Action, Midi};
 use crate::midi_out::Output;
 use crate::midi_play::used_ports;
@@ -77,12 +78,19 @@ impl App {
     /// note that lets go of the last preview. Nothing if auditioning is off
     /// in the settings or the engine is not there. True if a note started.
     pub(crate) fn audition_play(&mut self, track: Id, pitch: u8, velocity: u8) -> bool {
+        self.audition_tones(track, &[Tone { pitch, velocity }], true)
+    }
+
+    /// Previews the notes `tones` on `track`: `fresh` starts a new preview,
+    /// letting go of the last; otherwise the preview of the gesture moves on
+    /// to `tones`, striking only the notes whose pitch changed (the moved
+    /// notes of the piano roll, M5 slice 3d). True if a note started.
+    pub(crate) fn audition_tones(&mut self, track: Id, tones: &[Tone], fresh: bool) -> bool {
         self.audition.set_enabled(self.settings.midi.audition);
+        let now = std::time::Instant::now();
         match self.live_keys.as_mut() {
-            Some(keys) => {
-                self.audition
-                    .play(keys, track, pitch, velocity, std::time::Instant::now())
-            }
+            Some(keys) if fresh => self.audition.play_chord(keys, track, tones, now),
+            Some(keys) => self.audition.change(keys, track, tones, now),
             None => false,
         }
     }

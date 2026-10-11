@@ -176,8 +176,8 @@ pub struct Bench {
     /// What asked for each idle repaint ("file:line reason"), with counts.
     idle_causes: std::collections::BTreeMap<String, u32>,
     /// `--bench-editor`: the dense clip is open in the clip editor, which
-    /// follows the arrangement's scroll and zoom and scrolls its pitches
-    /// with the tracks (M5 slice 3).
+    /// is driven to the arrangement's scroll and zoom and scrolls its pitches
+    /// with the tracks (M5 slice 3; the roll has its own view, ADR-0048).
     editor: bool,
 }
 

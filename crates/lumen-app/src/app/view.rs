@@ -98,6 +98,9 @@ report: {}",
     /// `--bench-editor`: keeps the stress project's dense clip open in the
     /// clip editor, its pitches scrolled to `top` (0 to 1) of their range.
     fn bench_editor(&mut self, top: f32) {
+        // The roll has its own view (ADR-0048): the run drives it to the same
+        // zoom and scroll as the arrangement, so it is measured zoomed.
+        self.note_editor.time = self.nav.view;
         if self.note_editor.clip.is_none() {
             let dense = self
                 .document

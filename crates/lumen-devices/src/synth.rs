@@ -17,11 +17,14 @@
 //! keeps releasing, with the new release time (its level is continuous, so
 //! it cannot click, and it always ends). Nothing allocates.
 //!
-//! The synth listens on every channel. Pitch bend is ±2 semitones; CC 64 is
-//! the sustain pedal; CC 1 and channel pressure open the filter a little
-//! (up to an octave and a half); CC 120 silences, CC 123 releases, CC 121
-//! resets the controllers; program changes 0 to 4 choose a preset. Bank
-//! selects are ignored.
+//! The synth listens on every channel. A note is its channel and key: the
+//! same key on two channels is two notes, and a note-off, a retrigger or a
+//! steal ends only the note on its own channel (the piano roll previews on
+//! channel 15, apart from a clip's channel 0). Pitch bend is ±2 semitones;
+//! CC 64 is the sustain pedal; CC 1 and channel pressure open the filter a
+//! little (up to an octave and a half); CC 120 silences, CC 123 releases, CC
+//! 121 resets the controllers; all of these act on every channel. Program
+//! changes 0 to 4 choose a preset. Bank selects are ignored.
 
 use std::f32::consts::PI;
 
@@ -242,6 +245,8 @@ enum Stage {
 #[derive(Clone, Copy)]
 struct Voice {
     stage: Stage,
+    /// The MIDI channel and key the note came on: a note is both.
+    channel: u8,
     key: u8,
     /// The key is down.
     down: bool,
@@ -271,7 +276,8 @@ struct Voice {
     decay_coef: f32,
     release_coef: f32,
     steal: f32,
-    pending: Option<(u8, u8)>,
+    /// The note waiting for this voice to fade out: (channel, key, velocity).
+    pending: Option<(u8, u8, u8)>,
     /// The filter's state: `[ic1eq, ic2eq]` for the left side, then the right.
     ic: [[f32; 2]; 2],
     /// Each oscillator's left and right gain (equal-power pan), worked out
@@ -298,6 +304,7 @@ const IDLE_PARAMS: Params = Params {
 
 const IDLE: Voice = Voice {
     stage: Stage::Off,
+    channel: 0,
     key: 0,
     down: false,
     pedal: false,
@@ -345,9 +352,10 @@ fn coef(seconds: f32, rate: f32) -> f32 {
 }
 
 impl Voice {
-    fn start(&mut self, key: u8, velocity: u8, params: &Params, rate: f32, age: u64) {
+    fn start(&mut self, channel: u8, key: u8, velocity: u8, params: &Params, rate: f32, age: u64) {
         *self = Voice {
             stage: Stage::Attack,
+            channel,
             key,
             down: true,
             pedal: false,
@@ -529,9 +537,9 @@ impl Voice {
                     self.steal -= steal_step;
                     if self.steal <= 0.0 {
                         match self.pending.take() {
-                            Some((key, velocity)) => {
+                            Some((channel, key, velocity)) => {
                                 let age = self.age;
-                                self.start(key, velocity, &span.sound, span.rate, age);
+                                self.start(channel, key, velocity, &span.sound, span.rate, age);
                             }
                             None => self.stage = Stage::Off,
                         }
@@ -652,8 +660,8 @@ impl Synth {
 
     fn apply(&mut self, msg: Msg) {
         match msg.kind() {
-            Kind::NoteOn { key, velocity } => self.note_on(key, velocity),
-            Kind::NoteOff { key, .. } => self.note_off(key),
+            Kind::NoteOn { key, velocity } => self.note_on(msg.channel(), key, velocity),
+            Kind::NoteOff { key, .. } => self.note_off(msg.channel(), key),
             Kind::Controller { number, value } => match number {
                 cc::SUSTAIN => self.pedal(value >= 64),
                 cc::MODULATION => self.wheel = f32::from(value) / 127.0,
@@ -695,16 +703,17 @@ impl Synth {
         }
     }
 
-    fn note_on(&mut self, key: u8, velocity: u8) {
+    fn note_on(&mut self, channel: u8, key: u8, velocity: u8) {
         self.clock += 1;
-        // The same key again lets the first go.
+        // The same key on the same channel again lets the first go.
         for v in &mut self.voices {
-            if v.key == key && v.stage != Stage::Off && (v.down || v.pedal) {
+            if v.channel == channel && v.key == key && v.stage != Stage::Off && (v.down || v.pedal)
+            {
                 v.release();
             }
         }
         if let Some(v) = self.voices.iter_mut().find(|v| v.stage == Stage::Off) {
-            v.start(key, velocity, &self.sound, self.rate, self.clock);
+            v.start(channel, key, velocity, &self.sound, self.rate, self.clock);
             return;
         }
         // Full: the oldest voice fades out, then the new note takes it.
@@ -716,18 +725,20 @@ impl Synth {
         {
             v.stage = Stage::Steal;
             v.steal = 1.0;
-            v.pending = Some((key, velocity));
+            v.pending = Some((channel, key, velocity));
             v.age = self.clock;
             v.down = false;
             v.pedal = false;
         }
     }
 
-    fn note_off(&mut self, key: u8) {
+    fn note_off(&mut self, channel: u8, key: u8) {
         for v in &mut self.voices {
-            if v.stage == Stage::Steal && v.pending.is_some_and(|(k, _)| k == key) {
+            if v.stage == Stage::Steal
+                && v.pending.is_some_and(|(c, k, _)| c == channel && k == key)
+            {
                 v.pending = None;
-            } else if v.key == key && v.down && v.stage != Stage::Off {
+            } else if v.channel == channel && v.key == key && v.down && v.stage != Stage::Off {
                 if self.sustain {
                     v.down = false;
                     v.pedal = true;

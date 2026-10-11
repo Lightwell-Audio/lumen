@@ -18,7 +18,7 @@ const GESTURE: f64 = 0.5;
 /// Alt+wheel: this much scroll moves a track one height step.
 const NOTCH: f32 = 40.0;
 /// The keys zoom by this factor.
-const KEY_ZOOM: f64 = 2.0;
+pub(crate) const KEY_ZOOM: f64 = 2.0;
 /// Page follow: the page turns when the playhead passes this fraction of
 /// the width, and the playhead lands this far in.
 const PAGE_TURN: f64 = 0.95;
@@ -179,10 +179,17 @@ impl App {
     /// How far the view may zoom and scroll: out to the song (as in
     /// Ableton), in to single samples at the tempo where the view is.
     pub(crate) fn zoom_limits(&self, width: f32) -> Limits {
+        self.zoom_limits_at(width, self.nav.view.left)
+    }
+
+    /// [`Self::zoom_limits`] for a view whose left edge is at beat `left`:
+    /// the clip editor has its own view (M5 slice 3), so its samples-per-
+    /// point limit follows the tempo where its view is, not the arrangement's.
+    pub(crate) fn zoom_limits_at(&self, width: f32, left: f64) -> Limits {
         let state = self.transport.state();
         let rate = state.sample_rate;
         let tempo = &self.transport.timeline.tempo;
-        let at = Ticks((self.nav.view.left * PPQ as f64) as i64).max(Ticks::ZERO);
+        let at = Ticks((left * PPQ as f64) as i64).max(Ticks::ZERO);
         let frames = tempo.sample_at(at + Ticks(PPQ), rate) - tempo.sample_at(at, rate);
         // The furthest beat in use: clips, the playhead, the start marker
         // and the loop.

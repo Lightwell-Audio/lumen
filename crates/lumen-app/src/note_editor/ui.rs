@@ -11,14 +11,15 @@ use lumen_core::time::{PPQ, Ticks};
 use lumen_project::edit::notes::{End, MIN_NOTE};
 use lumen_project::model::Clip;
 
-use super::gesture::{DRAG_THRESHOLD, Env, Gesture, Kind, Preview, Resolved};
+use super::gesture::{DRAG_THRESHOLD, Env, Gesture, Kind, Preview, Resolved, tones_of};
 use super::paint::{self, Scene};
 use super::view::{
-    EditorView, KEY_WIDTH, ROW_DEFAULT, ROW_MAX, ROW_MIN, RULER_HEIGHT, Zone, pitch_name,
+    EditorView, KEY_WIDTH, ROW_DEFAULT, ROW_MAX, ROW_MIN, RULER_HEIGHT, Zone, fit_clip, pitch_name,
     scroll_to_centre,
 };
-use super::{MenuFor, NoteEditor, NoteOp, Tool, notes_of};
+use super::{EditorZoom, MenuFor, NoteEditor, NoteOp, Tool, notes_of};
 use crate::app::info::{Held, Info, Mouse};
+use crate::app::navigate::KEY_ZOOM;
 use crate::canvas::{self, Surface};
 use crate::commands::Command;
 use crate::document::Resize;
@@ -67,40 +68,33 @@ impl App {
             pos2(area.left() + KEY_WIDTH, area.bottom()),
         );
         let body = Rect::from_min_max(pos2(keys.right(), ruler.bottom()), area.max);
+        if ed.row_height <= 0.0 {
+            ed.row_height = ROW_DEFAULT;
+        }
+        // Framed before the toolbar, so the grid it names is the roll's.
+        if ed.framed_for != Some(clip.id) {
+            self.frame_editor(ed, &clip, body);
+        }
         self.editor_toolbar(ui, toolbar, ed, &clip, editable);
         if body.height() < MIN_BODY || body.width() < MIN_BODY {
             return;
         }
 
-        // The geometry: time is the arrangement's; pitch is ours.
-        if ed.row_height <= 0.0 {
-            ed.row_height = ROW_DEFAULT;
-        }
+        // The geometry: time is the editor's own view; pitch is ours too.
         let mut view = EditorView {
             body,
-            time: self.nav.view,
+            time: ed.time,
             clip_start: clip.start,
             row_height: ed.row_height,
             scroll: ed.scroll,
         };
-        if ed.centred_for != Some(clip.id) {
-            ed.centred_for = Some(clip.id);
-            let notes = notes_of(&clip);
-            let middle = if notes.is_empty() {
-                60
-            } else {
-                let mut pitches: Vec<i32> = notes.iter().map(|n| i32::from(n.pitch())).collect();
-                pitches.sort_unstable();
-                pitches[pitches.len() / 2]
-            };
-            view.scroll = scroll_to_centre(middle, view.row_height, body.height());
-        }
         let pointer = ctx.input(|i| i.pointer.hover_pos());
+        self.editor_zoom_keys(ed, &mut view, pointer);
         let layer = ui.layer_id();
         let on_top = |p: Pos2| ctx.layer_id_at(p) == Some(layer);
         let over_area = pointer.filter(|p| area.contains(*p) && on_top(*p));
         self.editor_wheel(&ctx, over_area, &mut view);
-        view.time = self.nav.view;
+        ed.time = view.time;
         view.clamp_scroll();
         ed.row_height = view.row_height;
         ed.scroll = view.scroll;
@@ -141,12 +135,13 @@ impl App {
         // What to draw.
         let notes = notes_of(&clip);
         let free = modifiers.alt;
-        let step = self.grid_cell(clip.start).1 - self.grid_cell(clip.start).0;
+        let cell = self.grid_cell_at_zoom(clip.start, view.time.zoom);
+        let step = cell.1 - cell.0;
         let content = lumen_project::edit::content_length(&clip);
         let mut preview = Preview::default();
         let mut gesture_pitch = None;
         if let (Some(g), Some(p)) = (&ed.gesture, ctx.input(|i| i.pointer.latest_pos())) {
-            let snap = |t: Ticks| self.snapped(t, free);
+            let snap = |t: Ticks| self.snapped_at_zoom(t, free, view.time.zoom);
             let env = Env {
                 view: &view,
                 notes,
@@ -158,14 +153,10 @@ impl App {
             preview = resolved.preview(&g.picked, &env);
             preview.chip = self.chip_text(&resolved, &preview, &clip);
             gesture_pitch = preview.ghosts.first().map(|n| i32::from(n.pitch()));
-            if let Resolved::Move { pitch, .. } = resolved
-                && let Some(n) = notes.get(g.grabbed)
-            {
-                let sounding = (i32::from(n.pitch()) + pitch).clamp(0, 127) as u8;
-                if ed.auditioned != Some(sounding) {
-                    ed.auditioned = Some(sounding);
-                    self.audition_note(clip.id, sounding, n.velocity());
-                }
+            if let Resolved::Move { .. } = resolved {
+                // Every moved note sounds at its new pitch, as a chord; only
+                // the ones whose pitch changed are struck again.
+                self.audition_moved(clip.id, &tones_of(&preview.ghosts));
             }
         }
         let hover = if ed.gesture.is_none() {
@@ -282,9 +273,12 @@ impl App {
         );
         row.add_space(theme::space::M);
         row.label(
-            egui::RichText::new(format!("Grid {}", self.grid_label()))
-                .color(theme::p().text_hint)
-                .size(theme::size::CAPTION),
+            egui::RichText::new(format!(
+                "Grid {}",
+                self.grid_label_at(ed.time.left, ed.time.zoom)
+            ))
+            .color(theme::p().text_hint)
+            .size(theme::size::CAPTION),
         );
         row.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let mut popped = ed.popped;
@@ -305,21 +299,20 @@ impl App {
         });
     }
 
-    /// The wheel over the editor: Ctrl+wheel zooms time (the arrangement's
-    /// zoom), Shift+wheel or a sideways swipe scrolls time, Alt+wheel sizes
-    /// the rows, the wheel scrolls pitch.
-    fn editor_wheel(&mut self, ctx: &egui::Context, over: Option<Pos2>, view: &mut EditorView) {
+    /// The wheel over the editor: Ctrl+wheel zooms time, Shift+wheel or a
+    /// sideways swipe scrolls time (egui turns Shift into a horizontal
+    /// scroll), Alt+wheel sizes the rows, the wheel scrolls pitch. Time is
+    /// the editor's own view: the arrangement does not move (ADR-0048).
+    fn editor_wheel(&self, ctx: &egui::Context, over: Option<Pos2>, view: &mut EditorView) {
         let Some(pointer) = over else {
             return;
         };
         let (delta, zoom, modifiers) =
             ctx.input(|i| (i.smooth_scroll_delta, i.zoom_delta(), i.modifiers));
-        let limits = self.zoom_limits(view.body.width());
+        let limits = self.zoom_limits_at(view.body.width(), view.time.left);
         if zoom != 1.0 {
             let anchor = pointer.x - view.body.left();
-            let time = self.nav.view.zoomed(anchor, f64::from(zoom), limits);
-            self.nav.set(time);
-            self.transport.follow_paused = true;
+            view.time = view.time.zoomed(anchor, f64::from(zoom), limits);
         } else if modifiers.alt {
             let wheel = if delta.y != 0.0 { delta.y } else { delta.x };
             if wheel != 0.0 {
@@ -331,13 +324,60 @@ impl App {
             }
         } else {
             if delta.x != 0.0 {
-                let time = self.nav.view.scrolled(delta.x, limits);
-                self.nav.set(time);
-                self.transport.follow_paused = true;
+                view.time = view.time.scrolled(delta.x, limits);
             }
             if delta.y != 0.0 {
                 view.scroll -= delta.y;
             }
+        }
+    }
+
+    /// Frames the editor on `clip` (its first draw, or a new clip): the
+    /// clip's span fitted to the body's width, its middle pitch centred.
+    /// The view is the editor's own; the arrangement does not move.
+    fn frame_editor(&self, ed: &mut NoteEditor, clip: &Clip, body: Rect) {
+        ed.framed_for = Some(clip.id);
+        let limits = self.zoom_limits_at(body.width(), clip.start.as_quarters());
+        ed.time = fit_clip(clip.start, clip.length, body.width(), limits);
+        let notes = notes_of(clip);
+        let middle = if notes.is_empty() {
+            60
+        } else {
+            let mut pitches: Vec<i32> = notes.iter().map(|n| i32::from(n.pitch())).collect();
+            pitches.sort_unstable();
+            pitches[pitches.len() / 2]
+        };
+        ed.scroll = scroll_to_centre(middle, ed.row_height, body.height());
+    }
+
+    /// The zoom keys (+ and -) while the editor has the keyboard: the roll
+    /// zooms around the pointer over it, else around the playhead when that
+    /// is in view, else around the middle of the body.
+    fn editor_zoom_keys(&self, ed: &mut NoteEditor, view: &mut EditorView, pointer: Option<Pos2>) {
+        if ed.zooms.is_empty() {
+            return;
+        }
+        let body = view.body;
+        let anchor = pointer.filter(|p| body.contains(*p)).map_or_else(
+            || {
+                let x = view
+                    .time
+                    .x(body.left(), self.transport.playhead().as_quarters());
+                if body.x_range().contains(x) {
+                    x
+                } else {
+                    body.center().x
+                }
+            },
+            |p| p.x,
+        );
+        let limits = self.zoom_limits_at(body.width(), view.time.left);
+        for zoom in ed.zooms.drain(..) {
+            let factor = match zoom {
+                EditorZoom::In => KEY_ZOOM,
+                EditorZoom::Out => 1.0 / KEY_ZOOM,
+            };
+            view.time = view.time.zoomed(anchor - body.left(), factor, limits);
         }
     }
 
@@ -348,7 +388,7 @@ impl App {
             && let Some(p) = response.interact_pointer_pos()
         {
             let free = response.ctx.input(|i| i.modifiers.alt);
-            let at = self.snapped(view.absolute_at(p.x), free);
+            let at = self.snapped_at_zoom(view.absolute_at(p.x), free, view.time.zoom);
             self.transport.locate(at.max(Ticks::ZERO));
             self.transport.follow_paused = true;
         }
@@ -536,7 +576,7 @@ impl App {
                 {
                     self.grid.snap = !self.grid.snap;
                 }
-                let label = format!("Grid: {}", self.grid_label());
+                let label = format!("Grid: {}", self.grid_label_at(ed.time.left, ed.time.zoom));
                 widgets::submenu(ui, label, |ui| self.grid_menu(ui));
             }
         });
@@ -593,9 +633,10 @@ impl App {
         if (at - gesture.origin).length() > DRAG_THRESHOLD {
             gesture.dragging = true;
         }
-        let step = self.grid_cell(clip.start).1 - self.grid_cell(clip.start).0;
+        let cell = self.grid_cell_at_zoom(clip.start, view.time.zoom);
+        let step = cell.1 - cell.0;
         let content = lumen_project::edit::content_length(clip);
-        let snap = |t: Ticks| self.snapped(t, free);
+        let snap = |t: Ticks| self.snapped_at_zoom(t, free, view.time.zoom);
         let env = Env {
             view,
             notes,
@@ -624,7 +665,6 @@ impl App {
         // Released.
         let resolved = gesture.resolve(at, &env);
         let gesture = ed.gesture.take().expect("a gesture was just used");
-        ed.auditioned = None;
         self.end_audition();
         let base = self.document.project().clone();
         let id = clip.id;
@@ -734,7 +774,16 @@ impl App {
                         copy: modifiers.command,
                     },
                 };
-                self.audition_note(clip.id, notes[i].pitch(), notes[i].velocity());
+                // A move previews every picked note as a chord; a resize, the
+                // note grabbed.
+                let heard: Vec<_> = match zone {
+                    Zone::Body => lumen_project::edit::notes::picked(&picked, notes.len())
+                        .iter()
+                        .map(|&j| notes[j])
+                        .collect(),
+                    _ => vec![notes[i]],
+                };
+                self.audition_notes(clip.id, &tones_of(&heard));
                 ed.gesture = Some(Gesture {
                     kind,
                     origin: p,

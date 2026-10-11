@@ -26,7 +26,7 @@ mod note_selection;
 mod note_time;
 pub mod notes;
 
-pub use clipboard::{Clipboard, copy_clips, copy_range, paste};
+pub use clipboard::{Clipboard, copy_clips, copy_range, landing_tracks, paste};
 pub use note_selection::NoteSelection;
 pub use note_time::{content_length, repeats, shown, to_arrangement, to_clip_time};
 

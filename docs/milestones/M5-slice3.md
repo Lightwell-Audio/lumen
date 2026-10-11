@@ -34,9 +34,11 @@ are design previews, not an implemented Rust editor or audio test.
   resizes, empty drag selects a marquee, Ctrl-drag copies, Shift adds to
   selection and Alt bypasses snapping. B toggles Draw when computer
   keyboard mode and text entry do not own the key.
-- Grid settings and horizontal zoom stay synchronized with arrangement;
-  pitch scroll and row height belong to the editor. Position conversions
-  account for the clip start, trim offset and loop source.
+- Grid settings stay shared with the arrangement. Horizontal zoom and
+  scroll belong to the editor (amended 2026-10-11, owner decision, ADR-0048):
+  the roll has its own view, fitted to a clip when it opens. Pitch scroll
+  and row height are the editor's too. Position conversions account for
+  the clip start, trim offset and loop source.
 - Note operations include add, delete, move, resize, split, glue, mute,
   duplicate, nudge, transpose and legato. Glue combines selected touching
   or overlapping notes of the same pitch; legato extends each selected

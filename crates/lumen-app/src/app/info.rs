@@ -46,6 +46,11 @@ impl Held {
         alt: true,
         shift: false,
     };
+    pub const CTRL_SHIFT: Held = Held {
+        ctrl: true,
+        shift: true,
+        alt: false,
+    };
 
     /// The modifiers held now (Ctrl is Cmd on macOS, as for shortcuts).
     pub(crate) fn of(modifiers: egui::Modifiers) -> Self {

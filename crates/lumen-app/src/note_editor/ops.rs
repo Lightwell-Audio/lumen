@@ -8,6 +8,7 @@ use lumen_project::model::Id;
 
 use super::{NoteEditor, notes_of};
 use crate::App;
+use crate::audition::Tone;
 
 /// An edit of the open clip's picked notes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,19 +105,36 @@ impl App {
     }
 
     /// A pitch sounds on the track of `clip` (the clip being edited) while
-    /// a note is picked, drawn or moved (slice 3d): one note at a time, let
-    /// go after a moment or when the gesture ends.
+    /// a note is picked or drawn (slice 3d): one note at a time, let go after
+    /// a moment or when the gesture ends.
     pub(crate) fn audition_note(&mut self, clip: Id, pitch: u8, velocity: u8) {
-        let track = self
-            .document
+        self.audition_notes(clip, &[Tone { pitch, velocity }]);
+    }
+
+    /// The notes `tones` sound on the track of `clip` as a chord: a fresh
+    /// preview, letting go of the last (a press on picked notes).
+    pub(crate) fn audition_notes(&mut self, clip: Id, tones: &[Tone]) {
+        if let Some(track) = self.clip_track(clip) {
+            self.audition_tones(track, tones, true);
+        }
+    }
+
+    /// The moved notes of a gesture now sound at `tones`, in the order the
+    /// gesture gave them: only the ones whose pitch changed are struck again.
+    pub(crate) fn audition_moved(&mut self, clip: Id, tones: &[Tone]) {
+        if let Some(track) = self.clip_track(clip) {
+            self.audition_tones(track, tones, false);
+        }
+    }
+
+    /// The track whose clips hold `clip`.
+    fn clip_track(&self, clip: Id) -> Option<Id> {
+        self.document
             .project()
             .tracks
             .iter()
             .find(|t| t.clips.iter().any(|c| c.id == clip))
-            .map(|t| t.id);
-        if let Some(track) = track {
-            self.audition_play(track, pitch, velocity);
-        }
+            .map(|t| t.id)
     }
 
     /// The audition ends: the gesture ended or was cancelled, or the

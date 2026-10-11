@@ -1,15 +1,17 @@
 //! Where notes are on the screen (M5 slice 3c): the editor's geometry. The
-//! horizontal axis is the arrangement's [`TimeView`] (zoom and scroll are
-//! shared with it), the vertical one is pitch, scrolled and sized by the
-//! editor alone. A note's start is in clip time (ticks from the clip's
-//! start, `lumen_project::edit::note_time`).
+//! horizontal axis is the editor's own [`TimeView`] (zoom and scroll are
+//! the editor's, not the arrangement's: owner decision, ADR-0048), the
+//! vertical one is pitch, scrolled and sized by the editor alone. Both use
+//! the same beats as the arrangement, so a clip sits at the same place in
+//! both. A note's start is in clip time (ticks from the clip's start,
+//! `lumen_project::edit::note_time`).
 
 use eframe::egui::{Pos2, Rect, pos2};
 use lumen_core::time::Ticks;
 use lumen_project::model::Note;
 
 use crate::ruler;
-use crate::timeview::TimeView;
+use crate::timeview::{Limits, TimeView};
 
 /// Pitches there are: 0 to 127.
 pub(crate) const PITCHES: i32 = 128;
@@ -25,13 +27,26 @@ pub(crate) const RULER_HEIGHT: f32 = 20.0;
 /// third of the note's width.
 pub(crate) const EDGE: f32 = 6.0;
 
-/// What the editor shows: the note area, the shared time axis and the
-/// pitch scroll.
+/// The view that frames a clip when it opens: its span (`start` to
+/// `start + length`) across `width` points, with the small margin
+/// [`TimeView::fit`] leaves either side.
+pub(crate) fn fit_clip(start: Ticks, length: Ticks, width: f32, limits: Limits) -> TimeView {
+    TimeView::fit(
+        start.as_quarters(),
+        (start + length).as_quarters(),
+        width,
+        limits,
+    )
+}
+
+/// What the editor shows: the note area, its own time axis and the pitch
+/// scroll.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct EditorView {
     /// The area notes are drawn in (right of the key column, below the
     /// ruler).
     pub body: Rect,
+    /// The editor's zoom and scroll (its own, not the arrangement's).
     pub time: TimeView,
     /// Where the open clip starts on the arrangement.
     pub clip_start: Ticks,
@@ -218,5 +233,52 @@ mod tests {
         v.scroll = s;
         let mid = v.body.center().y;
         assert_eq!(v.pitch_at(mid), 60);
+    }
+
+    fn limits(width: f32) -> Limits {
+        Limits {
+            min: 0.001,
+            max: 1e6,
+            end: 1e9,
+            width,
+        }
+    }
+
+    #[test]
+    fn a_clip_opens_framed_with_a_little_margin_either_side() {
+        // Beats 4 to 12 across 800 points: the span fills the width, with
+        // the same small margin on each side.
+        let view = fit_clip(Ticks::quarters(4), Ticks::quarters(8), 800.0, limits(800.0));
+        let (left, right) = (view.x(0.0, 4.0), view.x(0.0, 12.0));
+        assert!(left > 0.0 && right < 800.0, "{left} {right}");
+        assert!(left < 40.0, "a little margin, not much: {left}");
+        assert!(
+            (left - (800.0 - right)).abs() < 1e-3,
+            "centred: {left} vs {}",
+            800.0 - right
+        );
+    }
+
+    #[test]
+    fn a_clip_at_the_start_is_framed_from_the_start() {
+        let view = fit_clip(Ticks::ZERO, Ticks::quarters(8), 800.0, limits(800.0));
+        assert_eq!(view.left, 0.0);
+        assert_eq!(view.x(0.0, 0.0), 0.0);
+    }
+
+    #[test]
+    fn an_empty_clip_still_gets_a_usable_view() {
+        let view = fit_clip(Ticks::quarters(4), Ticks::ZERO, 800.0, limits(800.0));
+        assert!(view.zoom.is_finite() && view.zoom > 0.0, "{view:?}");
+    }
+
+    #[test]
+    fn the_fitted_zoom_respects_the_limits() {
+        let capped = Limits {
+            max: 100.0,
+            ..limits(800.0)
+        };
+        let view = fit_clip(Ticks::quarters(4), Ticks::quarters(1), 800.0, capped);
+        assert_eq!(view.zoom, 100.0);
     }
 }
