@@ -2,7 +2,7 @@
 //! the choices as menus, shared by the track menu and the mixer strip's
 //! From and To rows, and the Monitor switch.
 
-use eframe::egui::{Id as EguiId, Rect, Ui};
+use eframe::egui::{Color32, FontId, Id as EguiId, Rect, Ui};
 use lumen_devices::Preset;
 use lumen_project::model::{FromSource, Id, MidiFrom, MidiTo, Monitor, Track, TrackKind};
 
@@ -10,7 +10,7 @@ use super::Arrangement;
 use super::strip_output::row_button;
 use crate::app::hardware::{MenuInputs, MenuPorts};
 use crate::document::Document;
-use crate::widgets;
+use crate::{theme, widgets};
 
 /// A MIDI input as a strip shows it: "All ins", "Keyboard" or the port's
 /// name, then the channel if one is chosen.
@@ -154,6 +154,26 @@ pub(super) fn monitor_row(ui: &mut Ui, doc: &mut Document, ids: &[Id], current: 
     }
 }
 
+/// Whether "From" and "To" fit before their values in a strip's rows of
+/// width `row`: when either does not, both rows show the values alone (the
+/// tooltips and names say which is which), so the pair reads alike.
+fn prefixes_fit(ui: &Ui, row: Rect, track: &Track) -> bool {
+    let from = from_text(&track.midi_from, &MenuInputs::of(ui.ctx()));
+    let to = to_text(track, &MenuPorts::of(ui.ctx()));
+    let font = FontId::proportional(theme::size::CAPTION);
+    // The room `row_button` gives text.
+    let room = row.width() - 20.0;
+    [format!("From  {from}"), format!("To  {to}")]
+        .into_iter()
+        .all(|text| {
+            ui.painter()
+                .layout_no_wrap(text, font.clone(), Color32::WHITE)
+                .size()
+                .x
+                <= room
+        })
+}
+
 impl Arrangement {
     /// A MIDI strip's From row; a click opens the choices.
     pub(super) fn input_row(
@@ -171,7 +191,11 @@ impl Arrangement {
             row,
             id,
             "from",
-            &format!("From  {text}"),
+            &if prefixes_fit(ui, row, track) {
+                format!("From  {text}")
+            } else {
+                text
+            },
             &name,
             "Where this track listens",
         );
@@ -199,7 +223,11 @@ impl Arrangement {
             row,
             id,
             "to",
-            &format!("To  {text}"),
+            &if prefixes_fit(ui, row, track) {
+                format!("To  {text}")
+            } else {
+                text
+            },
             &name,
             "What this track plays",
         );

@@ -206,7 +206,17 @@ pub fn listening(track: &model::Track, inputs: &Inputs, silent: bool) -> Listen 
     if !on || silent {
         return Listen::OFF;
     }
-    let sources = match &track.midi_from.source {
+    Listen {
+        sources: from_sources(track, inputs),
+        channel: track.midi_from.channel,
+    }
+}
+
+/// The sources a track's MIDI From takes, whether or not it listens now
+/// (the header light counts their traffic, so its memory does not jump
+/// when the track starts to listen).
+pub fn from_sources(track: &model::Track, inputs: &Inputs) -> u64 {
+    match &track.midi_from.source {
         FromSource::All => {
             inputs
                 .ports
@@ -216,10 +226,6 @@ pub fn listening(track: &model::Track, inputs: &Inputs, silent: bool) -> Listen 
         }
         FromSource::Keyboard => 1 << KEYBOARD,
         FromSource::Port(name) => inputs.bit(name),
-    };
-    Listen {
-        sources,
-        channel: track.midi_from.channel,
     }
 }
 

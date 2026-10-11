@@ -300,6 +300,19 @@ impl Arrangement {
         } else {
             FontId::proportional(theme::size::BODY)
         };
+        // A track that listens keeps room for its light (the header's
+        // name; the strip has none).
+        let rect = if !in_strip && self.live.listens(track, heard) {
+            Rect::from_min_max(
+                rect.min,
+                pos2(
+                    (rect.right() - super::listen_light::ROOM).max(rect.left()),
+                    rect.bottom(),
+                ),
+            )
+        } else {
+            rect
+        };
         // A folded group says how many tracks it hides, after its name.
         let (rect, count) = match count {
             Some(n) => {
@@ -395,6 +408,9 @@ impl Arrangement {
                 palette.text_hint
             },
         );
+        if !in_strip {
+            self.live.paint(ui, track, heard, drawn);
+        }
         if let Some((count, _)) = count {
             let at = pos2(drawn.right() + 6.0, rect.center().y - count.size().y / 2.0);
             painter.galley(at, count, palette.text_hint);

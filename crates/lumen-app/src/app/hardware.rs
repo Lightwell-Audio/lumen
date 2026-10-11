@@ -86,6 +86,27 @@ impl App {
         crate::midi_play::Inputs { selected, ports }
     }
 
+    /// Lends the headers what they need for their listening lights: which
+    /// inputs are on, and how much has come from each.
+    pub(crate) fn lend_live_input(&mut self) {
+        let inputs = self.listen_inputs();
+        let counts = self
+            .midi
+            .ports()
+            .into_iter()
+            .filter(|p| p.info.id.direction == Direction::Input)
+            .filter_map(|p| Some((p.slot?, self.midi.activity(&p.info.id))))
+            .collect();
+        self.arrangement.live = crate::arrangement::Live {
+            inputs,
+            counts,
+            keyboard: self
+                .live_keys
+                .as_ref()
+                .map_or(0, crate::live::LiveKeys::activity),
+        };
+    }
+
     /// Called every frame after the engine's lists are sent.
     pub(crate) fn update_midi_hardware(&mut self, ctx: &egui::Context) {
         // The live feed (inputs and the computer keyboard) goes to the

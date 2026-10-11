@@ -256,6 +256,7 @@ report: {}",
         );
         self.time_format_button(ui, time_corner);
         self.arrangement.additive_solo = self.settings.mixing.additive_solo;
+        self.lend_live_input();
         self.lend_cue_controls();
         // New, moved and deleted tracks glide (M4.5).
         self.arrangement.begin_frame(

@@ -26,6 +26,7 @@ mod info;
 mod keyboard;
 mod keys;
 mod light;
+mod live_lights;
 mod locators;
 mod looping;
 mod meters;

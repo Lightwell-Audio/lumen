@@ -56,7 +56,9 @@ fn direction_key(direction: Direction) -> &'static str {
 }
 
 impl Midi {
-    pub fn start(source: Source, saved: &settings::Midi) -> Self {
+    /// `wake` is called from a driver's thread when a playing message
+    /// arrives, so the interface can sleep between them.
+    pub fn start(source: Source, saved: &settings::Midi, wake: lumen_midi::Waker) -> Self {
         let uses: HashMap<PortId, Use> = saved
             .ports
             .iter()
@@ -81,20 +83,22 @@ impl Midi {
             .collect();
         let system = match source {
             Source::Off => None,
-            Source::System => Some(MidiSystem::start(
+            Source::System => Some(MidiSystem::start_with_waker(
                 || {
                     lumen_midi::midir_host::MidirHost::new(PRODUCT_NAME)
                         .map(|h| Box::new(h) as Box<dyn lumen_midi::Backend>)
                 },
                 uses,
                 lumen_midi::system::POLL,
+                Some(wake),
             )),
             Source::Test(fake) => {
                 let backend = fake.backend();
-                Some(MidiSystem::start(
+                Some(MidiSystem::start_with_waker(
                     move || Ok(Box::new(backend)),
                     uses,
                     Duration::from_millis(20),
+                    Some(wake),
                 ))
             }
         };

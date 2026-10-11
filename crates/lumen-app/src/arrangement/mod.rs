@@ -33,6 +33,7 @@ pub mod handles;
 mod header_row;
 mod headers;
 mod levels;
+mod listen_light;
 mod menus;
 mod midi_io;
 mod nesting;
@@ -49,6 +50,8 @@ mod strip_output;
 pub(crate) mod strips;
 mod tracks;
 mod waves;
+
+pub(crate) use listen_light::{Live, shown as listen_light_shown};
 
 pub use drop::FileDrop;
 pub use samples::Update as StripUpdate;
@@ -288,6 +291,9 @@ pub struct Arrangement {
     pub(crate) cue: CueControls,
     /// The additive-solo preference (M4 slice 4), set by the app.
     pub(crate) additive_solo: bool,
+    /// What live input there is and how much has come, lent by the app each
+    /// frame for the headers' listening lights (M5 slice 2e).
+    pub(crate) live: Live,
     /// Every track's meter and the master's loudness (M4 slice 5), moved
     /// on by the app each frame.
     pub(crate) meters: crate::meters::Meters,
