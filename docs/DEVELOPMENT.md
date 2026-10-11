@@ -278,6 +278,10 @@ cargo run --release -p lumen-app -- --stress --bench-frames "$env:TEMP\frames.js
 cargo run --release -p lumen-app -- --stress --bench-frames "$env:TEMP\frames.json" --bench-size 3440x1380
 ```
 
+Add `--bench-editor` to measure with the stress project's 100,000-note clip
+open in the clip editor (M5 slice 3): the editor follows the scroll and
+zoom, and its pitches scroll with the tracks.
+
 It opens the generated quality-bar project (200 tracks, 20,000 clips) with
 vsync off, scrolls and zooms it, and reports p50, p95, p99 and the worst
 frame per phase, then the repaints during 3 s idle and what caused them.

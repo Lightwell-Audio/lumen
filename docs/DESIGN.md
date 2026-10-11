@@ -130,6 +130,11 @@ Windows** are in the app menu (click **Lumen** at the left of the transport bar)
 | `selected_row` | `#223449` | `#DBE7F8` | A selected track header |
 | `selected_control` | `#434D5E` | `#FFFFFF` | Controls on a selected row |
 | `clip_body` | `#262A31` | `#FFFFFF` | Clip body (the title bar and waveform carry the track colour) |
+| `lane_black` | `#16181C` | `#ECEEF1` | Piano-roll lanes of black-key pitches (M5 slice 3) |
+| `lane_split` | `#2E323A` | `#D2D6DC` | The faint lines between B and C, and E and F, in the piano roll |
+| `key_white` | `#C9CDD4` | `#FFFFFF` | Piano-roll white keys |
+| `key_black` | `#0E1013` | `#3A3F4A` | Piano-roll black keys |
+| `key_text` | `#3A3F4A` | `#5A6170` | The C labels on the keys |
 | `well` | `#141619` | `#D6DAE0` | Inset wells: fader grooves, meter and loudness backgrounds; below every surface in both themes (M4.5) |
 | `shadow` | black at 38% | black at 14% | The one shadow, under windows and popovers |
 | `core` | `#FFFFFF` | `#1F6FD1` | The centre of a light (§6a); on light the accent: light on paper is ink |

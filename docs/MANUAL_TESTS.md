@@ -2005,6 +2005,12 @@ physical output unplug/reconnect was not tested.
   in step 8, a held pad changes tone at once, with no click and no
   re-attack, and Ctrl+Z glides back.
 
+**Follow-up rerun (2026-10-11, owner):** jump (step 5), loop wrap (step 6),
+and preset glide/undo (step 8) passed. The Monitor badge check also passed:
+In, Off and Auto showed the expected badge states. The badge crowded the
+track name and caused truncation; accepted for this run, with the name still
+readable.
+
 **Also new (MT-MIDI-3 re-run, step 4):** a MIDI track set to Monitor In
 shows a blue speaker before M, Off a slashed grey one, Auto nothing. Click
 it to cycle In → Off → Auto; Tab reaches it before M and Space cycles it.
@@ -2084,3 +2090,66 @@ described. The physical controller did not expose a channel selector, so the
 channel-filter subtest was not verifiable. At ASIO 128 samples, external
 MIDI output latency was noticeable. The Auto monitor hollow ring was
 understandable but less clear than the In/Off states.
+
+### MT-MIDI-4 · MIDI clips and the piano roll (needs a human, ears and two monitors if you have them)
+Slice 3 of M5 (ADR-0047). **Status: waiting for the owner.** In PowerShell,
+from the repository root:
+
+```powershell
+cargo run --release -p lumen-app -- tests\projects\midi-demo.lumen
+```
+
+1. **Open a clip.** Double-click the **Chords** clip: the detail panel
+   opens on the **Clip** tab with a piano roll: piano keys on the left
+   (black keys darker and shorter, "C4" on middle C), darker lanes for
+   the black keys, notes in the track's colour, lighter where velocity is
+   high. Bars 5 to 8 (the loop's repeats) are drawn fainter and cannot be
+   picked. The clip tab's zoom follows the arrangement's: zoom the
+   arrangement (Ctrl+wheel) and the roll's bars widen with it. Wheel over
+   the roll scrolls the pitches.
+2. **Notes on clips.** In the arrangement, MIDI clips show their notes as
+   thin lines under the title bar. Judge whether they read well; they are
+   bands (32 per track), not one row per semitone.
+3. **Pick, move, resize.** Click a note: it gets an outline and you hear
+   it once (short). The playhead does not move. Hover a note: small
+   handles appear at its ends. Drag it up two rows and right one beat: it
+   follows the pointer with a chip saying its pitch and position, and you
+   hear each new pitch. Release: one undo step (Ctrl+Z puts it back). Drag
+   an end to resize. Shift-click to pick more, drag a box over empty space
+   to pick several, Ctrl-drag to copy. Hold Alt while dragging to ignore
+   the grid. Press Esc during a drag: it snaps back and nothing changes.
+4. **Edit while it plays.** Press Space and, while the loop plays, drag a
+   note somewhere else. While you hold it, the loop still plays the note
+   where it was; on release it plays the new place. Delete a note that is
+   sounding, mute one (0), transpose one (Up): nothing keeps ringing.
+5. **Draw.** Press **B** (the Draw button lights). Click an empty spot:
+   a note one grid step long appears and sounds. Click and drag right: the
+   new note grows with the pointer, snapped. Click an existing note: it is
+   removed. Press B again for the pointer.
+6. **The keys.** Pick a few notes with the pointer still over the roll:
+   **Up/Down** transpose a semitone, **Shift+Up/Down** an octave,
+   **Left/Right** nudge a grid step (**Alt** finely), **Ctrl+D**
+   duplicates after them, **0** mutes (grey) and unmutes, **Delete**
+   removes, **Ctrl+A** picks all, **Ctrl+E** splits at the playhead,
+   **Ctrl+J** glues touching notes of one pitch, **L** makes them legato.
+   Each is one Ctrl+Z. Move the pointer back over the arrangement: the
+   same keys act on clips and tracks again. Right-click a note and empty
+   space in the roll: menus with these commands and their keys. Ctrl+K
+   finds them all ("notes", "MIDI clip").
+7. **Make clips.** Double-click an empty spot on the **Lead** track's
+   lane: a one-bar clip appears, snapped, and opens. Select a time range
+   on Lead (drag in an empty part of the lane) and press
+   **Ctrl+Shift+M**: a clip fills the range.
+8. **Keyboard only.** Click a MIDI clip, press **Enter**: it opens. Press
+   **F6** until the Clip tab has focus, then Ctrl+A, the arrows and Delete
+   work without touching the mouse.
+9. **Pop out.** Click **Pop out** (or Ctrl+Shift+E): the editor opens in
+   its own window and the Clip tab shows **Dock editor**. Move it to your
+   second monitor, resize it, check it looks sharp there (DPI), and edit
+   notes in it with mouse and keys. Close the window: the editor docks
+   back. (Its size and place are not remembered yet.)
+10. **Looks.** Settings → light theme, then 150% and 200% scale: check the
+    roll, the keys and the picked notes in each. Report anything that
+    looks off.
+11. **Save and reopen.** Ctrl+S, close Lumen, reopen the project: every
+    note edit, the muted notes and the new clips are there.

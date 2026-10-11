@@ -56,6 +56,7 @@ irreversible or external) · *Superseded*.
 | [0044](#adr-0044--midi-devices-and-clip-events) | MIDI devices (`lumen-midi`, midir, a worker thread) and clip events (format v11) | Accepted 2026-10-10 | No |
 | [0045](#adr-0045--hearing-midi-the-event-path-the-synth-and-midi-to-m5-slice-1-format-v12) | Hearing MIDI: the event path, the synth (`lumen-devices`) and MIDI To (format v12) | Accepted 2026-10-10 | No |
 | [0046](#adr-0046--playing-live-midi-from-monitoring-the-computer-keyboard-and-the-midi-chip-m5-slice-2-format-v13) | Playing live: live input in the engine, MIDI From and Monitor (format v13), the computer keyboard, the MIDI chip | Accepted 2026-10-11 | No |
+| [0047](#adr-0047--midi-clips-and-the-piano-roll-m5-slice-3-format-v14) | MIDI clips and the piano roll: note edits and mute (format v14), notes on the GPU, the clip editor and its pop-out, auditioning | Accepted 2026-10-11 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -114,6 +115,7 @@ irreversible or external) · *Superseded*.
 | Menus with settings (M4.5, after MT-POL-2, 2026-10-10) | Chosen from an interactive mock-up (X1): **C, fades when you leave**: a change leaves the menu open; once changed, the pointer leaving it starts a 0.4 s wait, then a fade; coming back cancels it; Esc, a click elsewhere and commands close it at once. Over A (stays until dismissed) and B (lingers 1.2 s, then fades). Every menu fades out instead of vanishing. |
 | Hearing MIDI (M5 slice 1, 2026-10-10) | Asked before building, all as recommended: the built-in synth's default sound is **S1 warm poly** (two saws ±7 cents, 12 dB low-pass at 2.4 kHz, A 5 ms · D 300 ms · S 70 % · R 250 ms, 16 voices, oldest stolen) over clean keys and a square pluck; until the device chain, the sound changes through **E1 presets in a menu** (Poly, Keys, Bass, Pluck, Pad; track menu and palette) over a small knob card or a fixed patch; **T1 MIDI To is one or the other** (instrument or a port and channel, Ableton) over layering both; **H1 chase notes and controllers** on Play and jumps (Live 11 default) over controllers only (Cubase default). Plan in `docs/milestones/M5.md`, slice 1. |
 | Playing live (M5 slice 2, 2026-10-11) | Chosen from specimens (the "MIDI: Playing Live" design canvas), all as recommended: **L A the selected MIDI track listens** without being armed (a hollow arm ring), plus every armed track (Ableton's auto-arm), over armed tracks only; **J A steady timing**, each live message placed at its driver stamp one buffer later, over playing at the next buffer; **C B a MIDI chip with in and out lights** and a popover whose rows show each port's traffic with Track and Remote pills, unplugged ports dimmed, over a word and one light; **K A a lit keycap button and a readout** (`C3–C4 · vel 100`) for the computer keyboard, over a mini keyboard in the bar; **H B a light by the name** of each listening MIDI track, over none; **R A MIDI From and Monitor in the track menu and on the mixer strip**, over an I/O block on tall headers. The computer keyboard toggles with **Ctrl+Shift+K** (M stays Set locator). Plan in `docs/milestones/M5.md`, slice 2. |
+| Piano roll (M5 slice 3, 2026-10-11) | Chosen from live specimens (the "Lumen Piano Roll Specimens" artifact), all as recommended: **Look A, studio keys** (a piano-key column, darker lanes for black keys, notes in the track's colour shaded by velocity, an outline on selected notes, handles on hover) over a labelled pitch rail; **Draw A, a click adds one grid step and dragging sets its length** (Ableton) over drag-to-paint; **Live A, preview then commit**: notes follow the pointer and pitches are auditioned, the playing clip changes once on release, over changing it continuously. Built by Sonnet agents at medium effort in worktrees (the owner's request). Plan in `docs/milestones/M5-slice3.md`. |
 | MT-MIDI-2 and MT-MIDI-3 follow-ups (2026-10-11) | **MA a monitor badge** on MIDI track headers, only when Monitor is not Auto (a speaker in accent for In, slashed grey for Off; click cycles), over the arm showing all three or an IN/OFF word ("MIDI: Playing Live" canvas, boards M). **Held notes glide to a new preset** at once (no retrigger), over keeping the old sound or retriggering. **The GS Wavetable latency is deferred**: a per-port output offset to be built later, recorded in KNOWN_ISSUES. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
@@ -3945,3 +3947,132 @@ with a quick way to switch ports.
   `project_parse` at the baseline's own commit, from glibc's allocator), so
   the CI container is the authority; the baseline was not changed.
 - Unverified: timing with a real controller (MT-MIDI-3).
+
+## ADR-0047 — MIDI clips and the piano roll (M5 slice 3, format v14)
+
+**Status:** Accepted 2026-10-11 (M5 slice 3). Owner choices Look A, Draw A
+and Live A are in the owner-decisions table ("Piano roll"), chosen from
+live specimens. Built in four parts (3a to 3d) by Sonnet agents in
+worktrees, merged and checked by the integrator.
+
+### Context
+Slices 1 and 2 made MIDI audible and playable, but notes could only come
+from the demo project. The requirements ask for a piano roll that draws,
+selects, moves, resizes, splits, glues, mutes, duplicates, nudges,
+transposes and makes notes legato, with audition and zoom synchronized
+with the arrangement; the quality bar asks for 100,000 notes at 60 fps or
+better. C2 (M5 plan) put the editor in the detail panel's Clip tab with a
+way to pop it out into its own window.
+
+### Decision
+- **Note mute, format v14.** `Note(start, length, pitch, velocity, muted)`;
+  `Note::new` makes an unmuted note. An unmuted note saves as before
+  (`[start, length, pitch, velocity]`), a muted one adds `true`; loading
+  takes both. The v13 to v14 migration changes no data. Muted notes stay in
+  the model and are skipped where clips become engine events
+  (`midi_play.rs`).
+- **Note edits are pure transforms** in `lumen_project::edit::notes` (add,
+  delete, move, copy, nudge, transpose, resize either end, split, glue,
+  mute, duplicate, legato) on a clip's notes and a selection of indices;
+  each returns the indices of the notes it leaves picked. Groups are
+  clamped as a whole (start ≥ 0, end ≤ the content's length, pitch 0–127).
+  Notes stay sorted by start, then pitch. Controller and other events are
+  never touched by note edits. Legato only lengthens (to the next onset of
+  any pitch, or the content's end), so overlaps stay. Glue joins picked
+  notes of one pitch that touch or overlap, with the first note's
+  velocity. Positions: `content_length`, `to_clip_time`, `to_arrangement`
+  (`edit/note_time.rs`); MIDI clips have no hidden offset, since trim and
+  slip move the notes themselves.
+- **Selection by index, checked by pointer.** `NoteSelection` holds the
+  clip's `Arc` with the indices. `refresh` keeps them while the clip is the
+  same or its notes are equal (a rename or recolour), and clears them
+  otherwise (undo, redo, the clip gone).
+- **Edits through `Document`** (`document/notes.rs`, `midi_clips.rs`), each
+  one undo step, refused on locked, missing or audio clips.
+  `create_midi_clip(track, NewClip::Range | Bar)` follows the clips'
+  overlap rule and refuses to cut a locked clip.
+- **Notes on the GPU** (`piano_roll/`). The roll reuses `lumen-render`'s
+  instanced boxes with its own layers and drawing targets per surface
+  (`Surface::Docked`, `Surface::Window`), so the docked editor and a
+  pop-out never rebuild each other. Instances are rebuilt only when the
+  clip, the picks or the colour change; pan and zoom move the view, and a
+  new row height uploads a 128-slot row table. Boxes are in absolute
+  quarter notes, sharing the arrangement's `TimeView` exactly. Loop repeats
+  play as the engine plays them (notes that start inside a repeat, cut at
+  its end) and are drawn at half strength, never pickable. Out-of-view
+  boxes collapse in the vertex shader rather than being culled in the
+  builder, which would rebuild on every scroll. New tokens: `key_white`,
+  `key_black`, `key_text`, `lane_black`, `lane_split`.
+- **Mini notes** on MIDI clips in the arrangement: a sibling box layer
+  drawn after the clip bodies, rebuilt with them. The renderer places
+  boxes by row slot, so each MIDI track gets 32 thin bands and a clip's
+  pitch range maps onto them (centred under 16 semitones): notes read as
+  lines, not semitone-high boxes.
+- **The clip editor** (`note_editor/`): the state (clip, tool, picks,
+  gesture, pitch scroll and row height, the box cache), `gesture.rs` (pure
+  arithmetic for move, copy, resize, marquee and draw), `paint.rs` (the egui
+  overlay over the GPU roll: dimming outside the clip, hover handles, the
+  moved notes' preview, marquee, lit key, playhead, ruler), `ui.rs` (input),
+  `ops.rs` (note commands and the audition hook), `window.rs` (the pop-out
+  viewport). `app/detail.rs` holds the detail tabs, out of `lib.rs`.
+  **Live A:** a gesture previews over the committed notes and changes the
+  document once, on release, as one undo step; Esc cancels with no change;
+  the GPU boxes are not rebuilt during a drag. **Draw A:** with Draw (B) a
+  click adds one grid step at the cell start, dragging sets the end, a
+  click on a note removes it. With the pointer: click picks without moving
+  the playhead, Shift adds, Ctrl-drag copies, the ends resize, a box picks,
+  Alt ignores the grid; the ruler moves the playhead. Double-clicking a
+  MIDI clip opens it; double-clicking an empty MIDI lane makes a snapped
+  one-bar clip and opens it.
+- **Commands** (area MIDI): Create MIDI clip (Ctrl+Shift+M; the time range,
+  else a bar at the playhead on the selected MIDI track), Edit MIDI clip
+  (Enter), Pop out clip editor (Ctrl+Shift+E), Draw tool (B), Split notes
+  (Ctrl+E), Glue notes (Ctrl+J), Legato (L), nudge finely (Alt+Left/Right),
+  and palette-only transpose and nudge. **Keys by context:** while the
+  editor holds the keyboard (the pointer over it, the Detail pane focused,
+  or the pop-out focused), Delete, Ctrl+D, 0, Ctrl+A, Esc, Up/Down,
+  Shift+Up/Down and Left/Right act on notes (delete, duplicate, mute, pick
+  all, cancel then unpick, transpose a semitone or an octave, nudge a grid
+  step); elsewhere they keep their meaning. No default chord clashes
+  (`no_two_default_shortcuts_clash`).
+- **Auditioning is a live source** (`AUDITION = SOURCES - 2` in
+  `lumen-engine/src/midi/live.rs`). `LiveIn` carries an optional track; an
+  audition message sounds only on that track, whether or not it listens,
+  through its instrument or MIDI To port. The source has its own tracker,
+  so a preview and a clip note or a held key on the same pitch each let go
+  of their own. `audition.rs` plays one preview at a time for 250 ms, and
+  lets go when the gesture ends or is cancelled, the editor changes clip
+  or closes, the transport stops, the window loses focus, the setting is
+  turned off, or Panic (which forgets it). The setting is
+  `settings.midi.audition`, on by default (an added field). The editor
+  passes the clip to the hook: its state is lifted out of `App` during a
+  gesture, so reading the open clip from `App` found none (caught by E2E
+  `pressing_a_note_auditions_it_and_escape_lets_go`).
+- **Two hanging-note fixes found on the way.** In the engine, events on one
+  frame sort note-offs first, so a note played and released on the same
+  frame stayed on; the off now lands a frame after its on
+  (`apart_from_its_on`). In `midi_out.rs`, the scheduler kept one
+  "sounding" flag per key, so a clip note and a preview on the same key
+  sent two ons and one off; it now counts ons per key and answers each.
+- **Benchmark:** `--stress` adds a 201st track, "Dense", with one 400-beat
+  clip of 100,000 notes over six octaves; `--bench-editor` opens it in the
+  clip editor for the run, its pitches scrolled with the tracks.
+
+### Consequences
+- Every edit to notes is one named, undoable `Document` method; the editor
+  never edits in a closure and never changes the document per frame.
+- The GPU roll costs nothing per frame beyond the view while panning and
+  zooming; a gesture costs at most one rebuild at its start and end.
+- Index-based picks are simple and fast, but any change to a clip's notes
+  from elsewhere clears them (deliberate: stale indices would pick the
+  wrong notes).
+- Hit-testing is a linear scan of the clip's notes per pointer event,
+  about 0.1 ms at 100,000 notes.
+- Not built (KNOWN_ISSUES): the pop-out's size and place are not saved; no
+  auto-scroll at the editor's edges while dragging; notes can be created
+  only with the mouse (every other note edit is keyboard-reachable); no UI
+  for the audition setting yet; a preview on a muted hardware track still
+  sends.
+- Measured: see the slice 3 row in PROGRESS.md.
+- Unverified: the real second window and the pop-out's DPI and
+  multi-monitor behaviour, and previews on real hardware (MT-MIDI-4).

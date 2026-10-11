@@ -390,7 +390,28 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-11: **M5 slice 2 (playing live) is built** on
+**Last updated:** 2026-10-11: **M5 slice 3 (MIDI clips and the piano
+roll) is built** on `m5-midi` (ADR-0047; the owner's Look A studio keys,
+Draw A click-adds-then-drag-length, Live A preview-then-commit, chosen from
+the "Lumen Piano Roll Specimens" artifact; plan `docs/milestones/M5-slice3.md`).
+Format **v14** (`Note` has a mute flag: `Note::new` for unmuted;
+`note.muted()`); note edits are pure transforms in
+`lumen_project::edit::notes` returning the new picks, applied through
+`document/notes.rs` and `midi_clips.rs`; picks are indices checked by
+`NoteSelection::refresh`. Notes draw on the GPU in `piano_roll/` (a layer
+per `canvas::Surface`, rebuilt only on content or pick changes; mini notes
+on arrangement clips). The editor is `note_editor/` (Clip tab and pop-out,
+`app/detail.rs`); while it holds the keyboard, Delete, Ctrl+D, 0, Ctrl+A,
+Esc and the arrows act on notes. Auditioning is the live source
+`AUDITION` (`audition.rs`); its editor hook takes the clip, because the
+editor's state is lifted out of `App` during a gesture. `--bench-editor`
+measures with the 100,000-note clip open; it has not been run yet (the
+owner's release Lumen was open). Built by Sonnet agents in worktrees
+(created from `main`: reset them to `m5-midi` first), merged here.
+MT-MIDI-4 waits for the owner. Next: slice 4 (velocity and controller
+lanes), specimens first.
+
+Before it, 2026-10-11: **M5 slice 2 (playing live) is built** on
 `m5-midi` (ADR-0046; owner's L A, J A, C B, K A, H B, R A and Ctrl+Shift+K,
 chosen on the "MIDI: Playing Live" design canvas). Live input reaches the
 engine through `LiveInput` (`lumen-engine/src/midi/live.rs`: `Listen`, a
@@ -675,7 +696,7 @@ escapes and quotes several times.
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
 - **M4.5 Polish pass: built 2026-10-10; slices 1–4 done, slices 5 and 6
-  built (MT-POL-5 and MT-POL-6 wait).** M5 under way: slices 0, 1 and 2 built (`docs/milestones/M5.md`).
+  built (MT-POL-5 and MT-POL-6 wait).** M5 under way: slices 0 to 3 built (`docs/milestones/M5.md`).
 - **M4 Mixer, Routing & Groups: complete 2026-10-10**; the review's fixes
   are merged (PR #3).
 - **M3 Arrangement & Project System: complete, approved 2026-10-09.** Slices 1–3 done:
