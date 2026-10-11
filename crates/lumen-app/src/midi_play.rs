@@ -14,9 +14,12 @@ use std::sync::Arc;
 use lumen_core::midi::Msg;
 use lumen_devices::{Preset, Synth, synth};
 use lumen_engine::{
-    InstrumentSpec, MidiClip, MidiControl, MidiNote, MidiTrack, Target, control_list, note_list,
+    InstrumentSpec, KEYBOARD, Listen, MidiClip, MidiControl, MidiNote, MidiTrack, Target,
+    control_list, note_list,
 };
-use lumen_project::model::{self, ClipContent, EventKind, Id, Project, TrackKind};
+use lumen_project::model::{
+    self, ClipContent, EventKind, FromSource, Id, Monitor, Project, TrackKind,
+};
 
 /// A clip's translated lists, kept while the clip itself is unchanged.
 struct Cached {
@@ -160,12 +163,77 @@ fn instrument(track: &model::Track) -> Option<InstrumentSpec> {
     })
 }
 
+/// What decides which tracks play what is played live (M5 slice 2): the
+/// selected tracks and the inputs switched on for tracks. Compared each
+/// frame, so the engine's list is sent again only when one changes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Inputs {
+    /// The selected tracks.
+    pub selected: Vec<Id>,
+    /// Each input switched on for tracks: its id name and its slot.
+    pub ports: Vec<(String, u16)>,
+}
+
+impl Inputs {
+    /// The bit of the input called `name`, if it is present and switched
+    /// on for tracks (and its slot fits a mask).
+    fn bit(&self, name: &str) -> u64 {
+        self.ports
+            .iter()
+            .find(|(n, _)| n == name)
+            .map_or(0, |&(_, slot)| slot_bit(slot))
+    }
+}
+
+fn slot_bit(slot: u16) -> u64 {
+    if slot < u16::from(KEYBOARD) {
+        1 << slot
+    } else {
+        0
+    }
+}
+
+/// What a MIDI track plays of the live input. It listens when its monitor is
+/// In, or Auto while it is armed or selected (the owner's L A); never when
+/// Off. A track sent to a MIDI output that is muted or silenced by a solo
+/// sends nothing, so it does not listen (`silent`).
+pub fn listening(track: &model::Track, inputs: &Inputs, silent: bool) -> Listen {
+    let on = match track.monitor {
+        Monitor::In => true,
+        Monitor::Auto => track.armed || inputs.selected.contains(&track.id),
+        Monitor::Off => false,
+    };
+    if !on || silent {
+        return Listen::OFF;
+    }
+    let sources = match &track.midi_from.source {
+        FromSource::All => {
+            inputs
+                .ports
+                .iter()
+                .fold(0, |bits, &(_, slot)| bits | slot_bit(slot))
+                | 1 << KEYBOARD
+        }
+        FromSource::Keyboard => 1 << KEYBOARD,
+        FromSource::Port(name) => inputs.bit(name),
+    };
+    Listen {
+        sources,
+        channel: track.midi_from.channel,
+    }
+}
+
 /// What the engine plays: every MIDI track's unmuted clips, in start
 /// order, to the track's instrument or its MIDI output. A track sent to an
 /// output that is muted (or silenced by another track's solo) plays
 /// nothing, so it sends nothing and lets go of what it sounded; one sent to
 /// the instrument leaves muting to the mixer, which silences the audio.
-pub fn engine_midi(project: &Project, ports: &mut PortTable, cache: &mut Cache) -> Vec<MidiTrack> {
+pub fn engine_midi(
+    project: &Project,
+    inputs: &Inputs,
+    ports: &mut PortTable,
+    cache: &mut Cache,
+) -> Vec<MidiTrack> {
     cache.retain(project);
     let heard = lumen_project::solo::hearing(project);
     let mut tracks = Vec::new();
@@ -200,7 +268,10 @@ pub fn engine_midi(project: &Project, ports: &mut PortTable, cache: &mut Cache) 
                 }
             })
             .collect();
-        tracks.push(MidiTrack::new(track.id.0, target, instrument(track), clips));
+        tracks.push(
+            MidiTrack::new(track.id.0, target, instrument(track), clips)
+                .listening(listening(track, inputs, silent)),
+        );
     }
     tracks
 }
@@ -261,7 +332,12 @@ mod tests {
         );
         clip.loop_length = Some(q(4));
         let (project, track) = project_with(clip);
-        let tracks = engine_midi(&project, &mut PortTable::default(), &mut Cache::default());
+        let tracks = engine_midi(
+            &project,
+            &Inputs::default(),
+            &mut PortTable::default(),
+            &mut Cache::default(),
+        );
         assert_eq!(tracks.len(), 1);
         let t = &tracks[0];
         assert_eq!(t.id, track.0);
@@ -298,7 +374,12 @@ mod tests {
         let mut muted = midi_clip(vec![Note(Ticks::ZERO, Ticks::quarters(1), 60, 100)], vec![]);
         muted.muted = true;
         let (project, _) = project_with(muted);
-        let tracks = engine_midi(&project, &mut PortTable::default(), &mut Cache::default());
+        let tracks = engine_midi(
+            &project,
+            &Inputs::default(),
+            &mut PortTable::default(),
+            &mut Cache::default(),
+        );
         assert!(
             tracks[0].clips.is_empty(),
             "the track stays, so its notes are released"
@@ -309,6 +390,7 @@ mod tests {
         assert!(
             engine_midi(
                 doc.project(),
+                &Inputs::default(),
                 &mut PortTable::default(),
                 &mut Cache::default()
             )
@@ -316,13 +398,81 @@ mod tests {
         );
     }
 
+    fn midi_track(f: impl FnOnce(&mut model::Track)) -> model::Track {
+        let mut track = model::Track::new(Id(5), "M", TrackKind::Midi, model::Color(0));
+        f(&mut track);
+        track
+    }
+
+    fn inputs(selected: &[Id]) -> Inputs {
+        Inputs {
+            selected: selected.to_vec(),
+            ports: vec![("Keys".into(), 0), ("Pads".into(), 3), ("Far".into(), 70)],
+        }
+    }
+
+    #[test]
+    fn a_track_listens_when_in_or_auto_and_armed_or_selected_never_when_off() {
+        let none = inputs(&[]);
+        let sel = inputs(&[Id(5)]);
+        let auto = midi_track(|_| {});
+        assert_eq!(listening(&auto, &none, false), Listen::OFF);
+        assert_ne!(listening(&auto, &sel, false), Listen::OFF);
+        let armed = midi_track(|t| t.armed = true);
+        assert_ne!(listening(&armed, &none, false), Listen::OFF);
+        let on = midi_track(|t| t.monitor = Monitor::In);
+        assert_ne!(listening(&on, &none, false), Listen::OFF);
+        let off = midi_track(|t| {
+            t.monitor = Monitor::Off;
+            t.armed = true;
+        });
+        assert_eq!(listening(&off, &sel, false), Listen::OFF);
+        // A track sent to a muted or silenced output sends nothing.
+        assert_eq!(listening(&on, &sel, true), Listen::OFF);
+    }
+
+    #[test]
+    fn sources_are_the_inputs_the_track_names() {
+        let sel = inputs(&[Id(5)]);
+        let all = listening(&midi_track(|_| {}), &sel, false);
+        assert_eq!(
+            all.sources,
+            1 | 1 << 3 | 1 << KEYBOARD,
+            "slot 70 does not fit"
+        );
+        let keys = midi_track(|t| t.midi_from.source = FromSource::Keyboard);
+        assert_eq!(listening(&keys, &sel, false).sources, 1 << KEYBOARD);
+        let port = |name: &str, channel| {
+            midi_track(|t| {
+                t.midi_from = model::MidiFrom {
+                    source: FromSource::Port(name.into()),
+                    channel,
+                }
+            })
+        };
+        let pads = listening(&port("Pads", Some(2)), &sel, false);
+        assert_eq!((pads.sources, pads.channel), (1 << 3, Some(2)));
+        // Unplugged, or not switched on for tracks: nothing, until it is.
+        assert_eq!(listening(&port("Gone", None), &sel, false).sources, 0);
+    }
+
     #[test]
     fn an_unchanged_clip_keeps_its_lists() {
         let clip = midi_clip(vec![Note(Ticks::ZERO, Ticks::quarters(1), 60, 100)], vec![]);
         let (project, _) = project_with(clip);
         let mut cache = Cache::default();
-        let a = engine_midi(&project, &mut PortTable::default(), &mut cache);
-        let b = engine_midi(&project, &mut PortTable::default(), &mut cache);
+        let a = engine_midi(
+            &project,
+            &Inputs::default(),
+            &mut PortTable::default(),
+            &mut cache,
+        );
+        let b = engine_midi(
+            &project,
+            &Inputs::default(),
+            &mut PortTable::default(),
+            &mut cache,
+        );
         assert!(Arc::ptr_eq(&a[0].clips[0].notes, &b[0].clips[0].notes));
     }
 }

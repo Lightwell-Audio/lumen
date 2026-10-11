@@ -6,7 +6,7 @@ use eframe::egui;
 use lumen_core::pan::PanLaw;
 use lumen_core::time::Ticks;
 use lumen_devices::Preset;
-use lumen_project::model::TrackKind;
+use lumen_project::model::{FromSource, MidiFrom, Monitor, TrackKind};
 
 use super::editing::Edit;
 use super::navigate::ViewStep;
@@ -160,7 +160,12 @@ impl App {
             | Command::InstrumentBass
             | Command::InstrumentPluck
             | Command::InstrumentPad
-            | Command::MidiToInstrument => need(
+            | Command::MidiToInstrument
+            | Command::MidiFromAll
+            | Command::MidiFromKeyboard
+            | Command::MonitorIn
+            | Command::MonitorAuto
+            | Command::MonitorOff => need(
                 !self.selected_midi_tracks().is_empty(),
                 "Select a MIDI track first",
             ),
@@ -249,6 +254,32 @@ impl App {
             Command::MidiToInstrument => {
                 let ids = self.selected_midi_tracks();
                 self.document.set_midi_to(&ids, None);
+            }
+            Command::MidiFromAll | Command::MidiFromKeyboard => {
+                let ids = self.selected_midi_tracks();
+                let source = if command == Command::MidiFromAll {
+                    FromSource::All
+                } else {
+                    FromSource::Keyboard
+                };
+                self.document.set_midi_from(
+                    &ids,
+                    MidiFrom {
+                        source,
+                        channel: None,
+                    },
+                );
+            }
+            Command::MonitorIn | Command::MonitorAuto | Command::MonitorOff => {
+                let ids = self.selected_midi_tracks();
+                self.document.set_monitor(
+                    &ids,
+                    match command {
+                        Command::MonitorIn => Monitor::In,
+                        Command::MonitorAuto => Monitor::Auto,
+                        _ => Monitor::Off,
+                    },
+                );
             }
             Command::ToggleFollow => self.transport.toggle_follow(),
             Command::Undo => self.undo(false),

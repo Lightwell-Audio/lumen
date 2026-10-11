@@ -5,7 +5,7 @@
 //! and choosing an instrument switches the track back to it.
 
 use lumen_devices::Preset;
-use lumen_project::model::{Device, Id, MidiTo, TrackKind};
+use lumen_project::model::{Device, FromSource, Id, MidiFrom, MidiTo, Monitor, TrackKind};
 
 use super::Document;
 
@@ -73,6 +73,46 @@ impl Document {
             return;
         }
         self.edit_tracks(&label, &midi, |track| track.midi_to = to.clone());
+    }
+
+    /// Chooses which inputs MIDI tracks among `ids` listen to (format v13).
+    pub fn set_midi_from(&mut self, ids: &[Id], from: MidiFrom) {
+        let midi: Vec<Id> = self
+            .project()
+            .tracks
+            .iter()
+            .filter(|t| t.kind == TrackKind::Midi && ids.contains(&t.id))
+            .map(|t| t.id)
+            .collect();
+        if midi.is_empty()
+            || from.channel.is_some_and(|c| c > 15)
+            || matches!(&from.source, FromSource::Port(p) if p.is_empty())
+        {
+            return;
+        }
+        let source = match &from.source {
+            FromSource::All => "All inputs".to_owned(),
+            FromSource::Keyboard => "Computer keyboard".to_owned(),
+            FromSource::Port(name) => name.clone(),
+        };
+        let label = match from.channel {
+            Some(c) => format!("MIDI From: {source} \u{b7} Ch {}", c + 1),
+            None => format!("MIDI From: {source}"),
+        };
+        self.edit_tracks(&label, &midi, |track| track.midi_from = from.clone());
+    }
+
+    /// Sets when tracks among `ids` monitor their input (format v13).
+    pub fn set_monitor(&mut self, ids: &[Id], monitor: Monitor) {
+        let label = format!(
+            "Monitor: {}",
+            match monitor {
+                Monitor::In => "In",
+                Monitor::Auto => "Auto",
+                Monitor::Off => "Off",
+            }
+        );
+        self.edit_tracks(&label, ids, |track| track.monitor = monitor);
     }
 }
 
@@ -169,6 +209,47 @@ mod tests {
         doc.set_midi_to(&[midi], Some(to("Port", 16)));
         doc.set_midi_to(&[midi], Some(to("", 0)));
         assert_eq!(doc.state(), state);
+    }
+
+    fn from(source: FromSource, channel: Option<u8>) -> MidiFrom {
+        MidiFrom { source, channel }
+    }
+
+    #[test]
+    fn midi_from_and_monitor_are_one_undo_step_each() {
+        let (mut doc, id) = doc();
+        let port = from(FromSource::Port("Keystep 37".into()), Some(1));
+        doc.set_midi_from(&[id], port.clone());
+        assert_eq!(track(&doc, id).midi_from, port);
+        doc.set_midi_from(&[id], MidiFrom::default());
+        doc.set_monitor(&[id], Monitor::In);
+        assert_eq!(track(&doc, id).monitor, Monitor::In);
+        assert_eq!(doc.undo().as_deref(), Some("Monitor: In"));
+        assert_eq!(track(&doc, id).monitor, Monitor::Auto);
+        assert_eq!(doc.undo().as_deref(), Some("MIDI From: All inputs"));
+        assert_eq!(track(&doc, id).midi_from, port);
+        assert_eq!(
+            doc.undo().as_deref(),
+            Some("MIDI From: Keystep 37 \u{b7} Ch 2")
+        );
+        assert!(track(&doc, id).midi_from.is_default());
+        doc.set_midi_from(&[id], from(FromSource::Keyboard, None));
+        assert_eq!(doc.undo().as_deref(), Some("MIDI From: Computer keyboard"));
+    }
+
+    #[test]
+    fn midi_from_is_for_midi_tracks_and_bad_values_change_nothing() {
+        let mut doc = Document::new(crate::empty_project());
+        let audio = doc.add_track(TrackKind::Audio, None);
+        let midi = doc.add_track(TrackKind::Midi, None);
+        let state = doc.state();
+        doc.set_midi_from(&[audio], from(FromSource::Keyboard, None));
+        doc.set_midi_from(&[midi], from(FromSource::All, Some(16)));
+        doc.set_midi_from(&[midi], from(FromSource::Port(String::new()), None));
+        assert_eq!(doc.state(), state);
+        // Monitor is kept on every kind of track.
+        doc.set_monitor(&[audio], Monitor::Off);
+        assert_eq!(track(&doc, audio).monitor, Monitor::Off);
     }
 
     #[test]

@@ -7,7 +7,7 @@
 
 use eframe::egui::{Painter, Rect, pos2, vec2};
 use lumen_project::groups;
-use lumen_project::model::{Project, Track, TrackKind};
+use lumen_project::model::{Id, Monitor, Project, Track, TrackKind};
 
 use super::{clip_color, color_of, indent};
 use crate::theme;
@@ -30,12 +30,31 @@ pub(super) enum Arm {
     Off,
     Partly,
     All,
+    /// Not armed, but a MIDI track on Auto monitoring that plays what is
+    /// played because it is selected (M5 slice 2): a hollow ring.
+    Listening,
 }
 
 impl Arm {
     /// Whether the button reads as armed (and a click disarms).
     pub(super) fn on(self) -> bool {
         self == Arm::All
+    }
+}
+
+/// What the arm button shows for the track at `index`: its arm state, or
+/// the hollow ring of a selected MIDI track that listens on Auto.
+pub(super) fn arm_look(project: &Project, index: usize, selected: &[Id]) -> Arm {
+    let track = &project.tracks[index];
+    match arm_state(project, index) {
+        Arm::Off
+            if track.kind == TrackKind::Midi
+                && track.monitor == Monitor::Auto
+                && selected.contains(&track.id) =>
+        {
+            Arm::Listening
+        }
+        arm => arm,
     }
 }
 
@@ -198,5 +217,22 @@ mod tests {
         assert_eq!(arm_state(&project, 0), Arm::All, "nested ones count");
         project.tracks.truncate(1);
         assert_eq!(arm_state(&project, 0), Arm::Off, "an empty group");
+    }
+
+    #[test]
+    fn a_selected_midi_track_on_auto_shows_the_hollow_ring_until_armed() {
+        let mut project = crate::empty_project();
+        let midi = std::sync::Arc::new(Track::new(Id(1), "m", TrackKind::Midi, Color(0)));
+        let audio = std::sync::Arc::new(Track::new(Id(2), "a", TrackKind::Audio, Color(0)));
+        project.tracks = vec![midi, audio];
+        assert_eq!(arm_look(&project, 0, &[]), Arm::Off);
+        assert_eq!(arm_look(&project, 0, &[Id(1)]), Arm::Listening);
+        assert!(!Arm::Listening.on(), "a click arms it");
+        assert_eq!(arm_look(&project, 1, &[Id(2)]), Arm::Off, "audio tracks");
+        std::sync::Arc::make_mut(&mut project.tracks[0]).monitor = Monitor::In;
+        assert_eq!(arm_look(&project, 0, &[Id(1)]), Arm::Off);
+        std::sync::Arc::make_mut(&mut project.tracks[0]).monitor = Monitor::Auto;
+        std::sync::Arc::make_mut(&mut project.tracks[0]).armed = true;
+        assert_eq!(arm_look(&project, 0, &[Id(1)]), Arm::All, "a real arm");
     }
 }

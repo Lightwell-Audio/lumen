@@ -89,6 +89,20 @@ pub fn validate(project: &Project) -> Result<(), String> {
                 return Err(format!("{}: MIDI To names no port or a bad channel", at()));
             }
         }
+        if !track.midi_from.is_default() {
+            if track.kind != TrackKind::Midi {
+                return Err(format!("{}: MIDI From on a track that is not MIDI", at()));
+            }
+            let from = &track.midi_from;
+            if from.channel.is_some_and(|c| c > 15)
+                || matches!(&from.source, crate::model::FromSource::Port(p) if p.is_empty())
+            {
+                return Err(format!(
+                    "{}: MIDI From names no port or a bad channel",
+                    at()
+                ));
+            }
+        }
         for device in &track.devices {
             if !ids.insert(device.id) {
                 return Err(format!(

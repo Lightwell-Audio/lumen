@@ -397,6 +397,7 @@ impl eframe::App for App {
             }
         }
         let cue = self.cue();
+        let inputs = self.listen_inputs();
         self.lanes.update(
             rate,
             &ctx,
@@ -407,6 +408,7 @@ impl eframe::App for App {
                 mixer: &mut self.transport.audio.mixer,
             },
             &cue,
+            &inputs,
         );
         self.sync_document(&ctx);
         let meters_moving = self.update_meters();

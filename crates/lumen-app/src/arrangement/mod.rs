@@ -34,6 +34,7 @@ mod header_row;
 mod headers;
 mod levels;
 mod menus;
+mod midi_io;
 mod nesting;
 mod pinned;
 mod reorder;

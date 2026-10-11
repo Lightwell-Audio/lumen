@@ -159,7 +159,7 @@ fn select_track(lumen: &mut Lumen) {
 }
 
 /// Opens the palette, types `query` and runs the first match.
-fn palette(lumen: &mut Lumen, query: &str) {
+pub fn palette(lumen: &mut Lumen, query: &str) {
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen.key(Modifiers::COMMAND, Key::A);
     lumen.harness.event(Event::Text(query.into()));

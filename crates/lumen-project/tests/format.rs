@@ -11,8 +11,8 @@ use lumen_core::pan::PanLaw;
 use lumen_core::time::{PPQ, TempoPoint, Ticks};
 use lumen_project::migrate::CURRENT_VERSION;
 use lumen_project::model::{
-    Clip, ClipContent, ClipEvent, Color, Device, EventKind, Id, Level, Media, MidiTo, Note, Output,
-    PluginRef, Project, Send, TimeSignature, Track, TrackKind,
+    Clip, ClipContent, ClipEvent, Color, Device, EventKind, FromSource, Id, Level, Media, MidiFrom,
+    MidiTo, Monitor, Note, Output, PluginRef, Project, Send, TimeSignature, Track, TrackKind,
 };
 use lumen_project::model::{Marker, TransportState, ViewState};
 use lumen_project::testing::{TempDir, small_project, synthetic};
@@ -405,6 +405,71 @@ fn golden_v12_file_loads_forever() {
     assert_eq!(project, golden_v12_expected());
     let bass = project.tracks.iter().find(|t| t.name == "Bass").unwrap();
     assert_eq!(bass.instrument().and_then(Device::preset), Some("keys"));
+}
+
+/// The model the v13 golden file must always load as: v12 with the Bass
+/// track listening to one port on channel 3, and monitoring In.
+fn golden_v13_expected() -> Project {
+    let mut project = Project {
+        name: "Golden v13".into(),
+        ..golden_v12_expected()
+    };
+    let bass = project
+        .tracks
+        .iter_mut()
+        .find(|t| t.name == "Bass")
+        .expect("the golden project has a Bass track");
+    let bass = Arc::make_mut(bass);
+    bass.midi_from = MidiFrom {
+        source: FromSource::Port("Keystep 37".into()),
+        channel: Some(2),
+    };
+    bass.monitor = Monitor::In;
+    project
+}
+
+#[test]
+fn golden_v13_file_loads_forever() {
+    let path = fixture("v13/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        // Written once, when version 13 was introduced; never rewritten.
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v13_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v13 golden file must load");
+    assert_eq!(project, golden_v13_expected());
+}
+
+#[test]
+fn midi_inputs_belong_on_midi_tracks_and_are_checked() {
+    let good = golden_v13_expected();
+    assert!(from_bytes(&to_bytes(&good).unwrap()).is_ok());
+    let audio = good
+        .tracks
+        .iter()
+        .position(|t| t.kind == TrackKind::Audio)
+        .unwrap();
+    let bass = good.tracks.iter().position(|t| t.name == "Bass").unwrap();
+    let refused = |edit: &dyn Fn(&mut Project)| {
+        let mut project = good.clone();
+        edit(&mut project);
+        to_bytes(&project).map_or(true, |bytes| from_bytes(&bytes).is_err())
+    };
+    assert!(refused(&|p| Arc::make_mut(&mut p.tracks[audio])
+        .midi_from = MidiFrom {
+        source: FromSource::Keyboard,
+        channel: None
+    }));
+    assert!(refused(&|p| Arc::make_mut(&mut p.tracks[bass])
+        .midi_from
+        .channel = Some(16)));
+    assert!(refused(&|p| Arc::make_mut(&mut p.tracks[bass])
+        .midi_from
+        .source = FromSource::Port(String::new())));
+    // Monitor is allowed on any kind of track.
+    let mut monitored = good.clone();
+    Arc::make_mut(&mut monitored.tracks[audio]).monitor = Monitor::Off;
+    assert!(from_bytes(&to_bytes(&monitored).unwrap()).is_ok());
 }
 
 #[test]

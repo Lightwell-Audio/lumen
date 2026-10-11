@@ -223,6 +223,8 @@ fn same_track(x: &Arc<Track>, y: &Arc<Track>) -> bool {
         armed,
         devices,
         midi_to,
+        midi_from,
+        monitor,
         clips,
     } = &**x;
     let bits = |a: f32, b: f32| a.to_bits() == b.to_bits();
@@ -246,6 +248,8 @@ fn same_track(x: &Arc<Track>, y: &Arc<Track>) -> bool {
         && *armed == y.armed
         && *devices == y.devices
         && *midi_to == y.midi_to
+        && *midi_from == y.midi_from
+        && *monitor == y.monitor
         && clips.len() == y.clips.len()
         && clips
             .iter()
@@ -378,7 +382,7 @@ mod tests {
         // edits recorded nothing.
         use crate::model::{Level, Output, Send};
         type Change = fn(&mut Project);
-        let changes: [Change; 7] = [
+        let changes: [Change; 9] = [
             |p| p.pan_law = lumen_core::pan::PanLaw::Linear,
             |p| {
                 Arc::make_mut(&mut p.tracks[2]).midi_to = Some(crate::model::MidiTo {
@@ -386,6 +390,13 @@ mod tests {
                     channel: 3,
                 });
             },
+            |p| {
+                Arc::make_mut(&mut p.tracks[2]).midi_from = crate::model::MidiFrom {
+                    source: crate::model::FromSource::Keyboard,
+                    channel: Some(1),
+                };
+            },
+            |p| Arc::make_mut(&mut p.tracks[2]).monitor = crate::model::Monitor::In,
             |p| Arc::make_mut(&mut p.master).gain_db = -1.0,
             |p| Arc::make_mut(&mut p.tracks[2]).output = Output::Master,
             |p| Arc::make_mut(&mut p.tracks[2]).invert = true,

@@ -482,7 +482,11 @@ pub(super) fn arm_button(
     let palette = theme::p();
     let response = ui
         .interact(rect, id.with("arm"), Sense::click())
-        .on_hover_text("Arm for recording (recording arrives in Milestone 9)");
+        .on_hover_text(if arm == Arm::Listening {
+            "Listening because selected \u{b7} click to arm for recording"
+        } else {
+            "Arm for recording (recording arrives in Milestone 9)"
+        });
     response.widget_info(|| {
         egui::WidgetInfo::selected(
             egui::WidgetType::Checkbox,
@@ -531,6 +535,11 @@ pub(super) fn arm_button(
                 Stroke::new(1.5, palette.record.gamma_multiply(0.6)),
             ));
             p.circle_filled(center, 4.5, palette.record);
+        } else if arm == Arm::Listening {
+            // Listening only because it is selected: a hollow record-red
+            // ring, no fill and no glow, so it is not mistaken for an arm.
+            p.circle_filled(center, radius, look.fill.lerp_to_gamma(look.hover, hover));
+            p.circle_stroke(center, 4.5, Stroke::new(1.5, palette.record));
         } else {
             // At rest a quiet grey dot, red only under the pointer: record
             // red means recording (the interface audit's T5, the owner's A;

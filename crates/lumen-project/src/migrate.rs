@@ -20,7 +20,7 @@ pub const FIRST_VERSION: u64 = 1;
 /// `MIGRATIONS[i]` upgrades version `FIRST_VERSION + i` to the next one.
 pub const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10,
-    v10_to_v11, v11_to_v12,
+    v10_to_v11, v11_to_v12, v12_to_v13,
 ];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
@@ -309,6 +309,14 @@ fn v10_to_v11(document: Value) -> Result<Value, String> {
 /// have no instrument and stay silent until one is chosen: they could hold
 /// no notes before v11, so nothing that sounded goes quiet.
 fn v11_to_v12(document: Value) -> Result<Value, String> {
+    Ok(document)
+}
+
+/// v13 (M5 slice 2): a MIDI track says which inputs it listens to
+/// (`midi_from`) and every track says when it monitors (`monitor`). Both are
+/// written only when not the default (all inputs, all channels; Auto), which
+/// is what an older file means.
+fn v12_to_v13(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 

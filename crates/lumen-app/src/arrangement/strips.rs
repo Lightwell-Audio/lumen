@@ -118,7 +118,13 @@ impl Arrangement {
         ui.painter().rect_filled(area, 0.0, palette.canvas);
         let heard = lumen_project::solo::hearing(doc.project());
         let look = StripLook {
-            sections: Sections::fitting(area.height()),
+            sections: Sections::fitting(
+                area.height(),
+                doc.project()
+                    .tracks
+                    .iter()
+                    .any(|t| t.kind == TrackKind::Midi),
+            ),
             heard: &heard,
             keymap,
         };
