@@ -7,3 +7,4 @@
 
 pub(crate) mod geometry;
 pub(crate) mod gesture;
+pub(crate) mod paint;
