@@ -53,6 +53,8 @@ irreversible or external) · *Superseded*.
 | [0041](#adr-0041--sidechains-and-delay-compensation-m4-slice-6) | Sidechains and delay compensation: devices and taps in the graph, delay lines, read ahead, the D1 readout | Accepted 2026-10-10 | No |
 | [0042](#adr-0042--the-m4-exit-walkthrough-and-known-issues-m4-slice-7) | The M4 exit walkthrough; edits taken while stopped; session locks for autosaves; submenu names; the pipeline cache off the UI thread | Accepted 2026-10-10 | No |
 | [0043](#adr-0043--the-light-layer-and-the-mark) | The light layer (five levels of light) and the mark (Dawn in Sunrise): the playhead beam, meter heads, the mark as a master meter, the window icon | Accepted 2026-10-10 | No |
+| [0044](#adr-0044--midi-devices-and-clip-events) | MIDI devices (`lumen-midi`, midir, a worker thread) and clip events (format v11) | Accepted 2026-10-10 | No |
+| [0045](#adr-0045--hearing-midi-the-event-path-the-synth-and-midi-to-m5-slice-1-format-v12) | Hearing MIDI: the event path, the synth (`lumen-devices`) and MIDI To (format v12) | Accepted 2026-10-10 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -3668,3 +3670,161 @@ roll and recording are built on it.
   engine side of MIDI (slice 1).
 - midir is MIT, so no licensing decision is needed.
 
+
+## ADR-0045 — Hearing MIDI: the event path, the synth and MIDI To (M5 slice 1, format v12)
+
+**Status:** Accepted 2026-10-10 (M5 slice 1). Owner choices S1, E1, T1, H1
+are in the owner-decisions table ("Hearing MIDI").
+
+### Context
+Until now a MIDI track could be added and held no sound. Slice 1 makes MIDI
+audible, with nothing hanging, before recording and the piano roll are built
+on it: MIDI events through the mixer graph with sample offsets, a built-in
+instrument (VST3 arrives in M6), and a way to send a track to hardware.
+
+### Decision
+- **The message.** `lumen_core::midi::Msg`, three bytes, `Copy`, with the
+  standard decoding (a note-on with velocity 0 is a note-off) and `Event`
+  (a message at a frame in a block). Both sides share it, so the engine
+  stays on core.
+- **The event path** (`lumen-engine/src/midi/`). MIDI clips reach the engine
+  as their own track list (`MidiTrack`: clips with notes and controller
+  messages in ticks, loop period, target, instrument, a tracker), built on
+  the UI side by the pure, tested `lumen-app/src/midi_play.rs`, swapped
+  whole through a queue, old lists returned to be freed (as clip lists
+  are). Clips that did not change keep their note lists (an `Arc` per clip,
+  so the engine's comparison is a pointer check). `MidiPlayer` is a
+  `TrackSource` played beside the audio clips (`Layered`): each block it
+  works out which events fall in the block from ticks through the timeline
+  (an event belongs to the block holding `sample_at(tick)`; the window of
+  ticks is widened by two ticks so rounding cannot lose one), sorts them
+  (note-offs, controllers, note-ons at one frame) and hands them to the
+  instrument, whose audio is added to the track's bus. Volume, pan, sends,
+  groups, solo, cue, meters and delay compensation therefore apply as they
+  do to audio. Tempo changes move notes with the music because positions are
+  recomputed from ticks every block.
+- **Notes never hang** (risk R1). One tracker per track
+  (`midi/hold.rs`) holds every sounding note with where it came from. Stop
+  and pause, a jump, a loop wrap, an edit that removes or moves a sounding
+  note, a clip mute, a change of instrument or output, a track leaving the
+  list and Panic all release exactly what sounds. **Chase** (H1): Play and
+  every jump start the notes already sounding at the new position and
+  apply the latest controllers, pitch bend, pressure and program before it
+  (a clip that has ended still leaves its controllers). The pedal and the
+  bend are reset on release. After an edit the held notes are brought in
+  line with the new data (`sync`) without retriggering what is unchanged.
+  `Source` gains `stopped`, `panic` and `ringing` (default no-ops);
+  `RenderContext` gains `mode` (Play, Scrub, Ring) and `stream`.
+  While stopped and `ringing()` the engine renders with `Mode::Ring`, which
+  only instruments answer: a release tail rings out instead of being cut,
+  and note-offs reach their port. Scrubbing plays no MIDI.
+- **Instruments.** `lumen-devices` (new crate: real-time-safe DSP on
+  `lumen-core` only, grown by M8) holds the `Instrument` trait and the
+  **synth**: 16 voices, oldest stolen with a 2 ms fade, two polyBLEP
+  oscillators, a 12 dB state-variable low-pass, ADSR, sample-accurate
+  sub-blocks between events, pitch bend of two semitones, CC 1 and channel
+  pressure opening the filter by up to an octave and a half, sustain pedal,
+  CC 120/121/123, program changes 0 to 4 for the presets. The five presets
+  (E1) are Poly (S1, the default), Keys, Bass, Pluck and Pad. A note keeps
+  the sound it began with when the preset changes. Voices carry across list
+  swaps by track id (the instrument box and the tracker swap pointers), so
+  an edit elsewhere never cuts a sounding note.
+- **Layering amended.** `lumen-engine` depends on `lumen-core`, `lumen-rt`
+  and `lumen-devices`; `lumen-devices` depends on `lumen-core` alone. The
+  rule in the architecture skill and ARCHITECTURE.md says so.
+- **Format v12.** The instrument is a built-in device on the track:
+  `{"format": "builtin", "name": "synth"}` (the stable id; never the product
+  name) with its preset's stable name as the device's state (`"poly"`,
+  `"keys"`, `"bass"`, `"pluck"`, `"pad"`). A track may name a MIDI output:
+  `midi_to: {port, channel}` (channel 0 to 15), written only when set and
+  remembered while the port is unplugged. The migration changes nothing in
+  a file (the fields are optional); a frozen golden fixture holds a synth
+  and an output. Validation refuses a synth or output on a track that is not
+  MIDI, a bad channel, an empty port name or an unreadable preset;
+  `history::unchanged` compares `midi_to`. New MIDI tracks get the synth on
+  Poly; MIDI tracks in older projects have none and stay silent until one
+  is chosen (they could hold no notes before v11). Duplicating a track gives
+  the copy its own device id.
+- **Edits** (one undo step each): `Document::set_instrument(ids, preset)`
+  ("Instrument: Pad", "Remove instrument") and `set_midi_to(ids, output)`
+  ("MIDI To: Synth 3", "MIDI To: Instrument"). The track menu has
+  **Instrument** (the five presets and None) and **MIDI To** (Instrument,
+  then each output with Channel 1 to 16), built from `widgets::submenu` and
+  `menu_toggle`. Palette commands: Instrument: Poly, Keys, Bass, Pluck, Pad;
+  MIDI To: Instrument; Panic (no default key).
+- **MIDI To** (T1: the instrument or a port, one or the other). Events for
+  a port track leave the engine on a lock-free queue (`MidiOut::At`), each
+  stamped with the **device frame at which it is heard**: the block's frame
+  count, the frame within it and the delay compensation's read ahead.
+  `lumen-app/src/midi_out.rs` turns frames into time on its own thread. The
+  audio callback publishes `(frame, time)` each block (a sequence-numbered
+  atomic record; a clock read and atomics, nothing else); callbacks only run
+  late, so the earliest `time - frame/rate` over the last 256 blocks is the
+  time of frame 0, and the device's reported output latency is added so
+  hardware sounds with the audio of the same frame. A `Scheduler` holds
+  messages in order and the notes it has sent on; the engine's `Flush`
+  (stop, panic) drops what has not gone and lets go of what has, and a
+  note-off for a note that is not sounding is not sent a second time (found
+  by E2E). A port that is not open drops its messages and is forgotten. The
+  sender thread starts with the first track that names a port. If the audio
+  stream stands still for a second (the device was lost, Audio was switched
+  off) it lets go of every note it sent on. Outputs that
+  tracks name are switched on for tracks automatically and remembered in
+  the settings (the user would otherwise hear nothing and see no reason).
+  Port numbers are an append-only table of names, so a number keeps its port
+  for the whole run.
+- **Defaults taken** (standard behaviour): stop, a jump, a loop wrap, a clip
+  mute, an edit that removes or moves a sounding note, a change of
+  instrument or MIDI To and Panic release notes (the synth's tail rings
+  out; Panic cuts it, and sends All Notes Off and All Sound Off, CC 123 and
+  120, on every channel of every port in use, from the engine and again
+  from the app in case the engine is not running). Track mute and solo act
+  on the instrument's audio (the mixer), as in Ableton: the synth keeps
+  receiving notes, so unmuting mid-note is heard; a MIDI To track that is
+  muted or silenced by solo sends nothing and lets go of what it sounded.
+  Choosing an instrument on a track that plays to an output switches it
+  back to the instrument (one undo step). The synth listens on every
+  channel. Bank selects pass through to ports and are ignored by the synth.
+  Limits per track: 128 held notes and 1,024 queued events per block, past
+  which new ones are dropped and counted (`MidiPlayer::dropped`, zero in
+  every test).
+
+### Consequences
+- Engine tests (`tests/midi.rs`, 14): note starts and ends to the sample at
+  five tempo and rate pairs (20 to 999 BPM, 44.1 to 96 kHz, blocks of 64 to
+  480); across a tempo change; loop wraps; stop; jump with chase; chase of
+  controllers; edits; target changes; hardware stamps; panic; a randomised
+  run of 400 commands in which every note-on has its off; the synth through
+  the mixer from its exact sample; the release tail after stop; an edit
+  elsewhere not cutting a sounding note. The allocation guard
+  (`tests/realtime.rs`) runs 32 tracks with loops, jumps, stops, list swaps
+  and Panic with zero heap operations, and RTSan passes the same test in
+  WSL. Synth tests (10): exact frames, independence from how blocks are cut
+  (bit-identical), envelopes, pedal, bend, stealing, presets, a random storm
+  that stays finite. 11 E2E scenarios (`tests/e2e/midi_play.rs`) cover what
+  is heard, the menus, the hardware port and each way a note could hang.
+- **Cost.** `engine_synth_64` (64 MIDI tracks each playing a four-note chord
+  that repeats every beat and rings past it, about 256 voices, through the
+  64-track routed mix) runs a 128-frame block in about 0.36 ms in a release
+  build on the development machine, 13.5 % of the 2.67 ms a block lasts at
+  48 kHz; the first version took 0.86 ms before the pan gains were computed
+  once per note. Its baseline in `perf/baseline.json` is 8,249,464,908
+  instructions per 1,000 blocks (a new scenario, so no earlier number to
+  regress from, added by hand rather than with `--update`, which would also
+  have moved the other baselines by their under-1 % drift); the existing
+  scenarios moved by under 1 %.
+- **Timing.** The sender's scheduling is tested with injected times and
+  against the fake backend: messages keep order and spacing, and arrive
+  about 1.5 ms after plan at worst (asserted under 4 ms; the plan's goal is
+  2 ms). Real hardware timing has not been measured: no MIDI interface is on
+  the test machine (MT-MIDI-2 asks the owner to listen to Windows' GS
+  Wavetable Synth).
+- **Not built** (later slices or other milestones): MIDI From, monitoring
+  and thru and the computer keyboard (slice 2); notes drawn and edited
+  (slice 3), so the demo project is generated by code; knobs on the synth
+  (the device chain, M6/M8); MIDI clock out (slice 7).
+- A visual need was not met by existing widgets and is not built: the MIDI
+  To menu lists sixteen channels per output as rows, which is long; a
+  compact grid would be nicer and needs a mock-up first. A track whose
+  output is unplugged shows nothing on screen, only "(not connected)" in its
+  menu.

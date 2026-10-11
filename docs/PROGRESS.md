@@ -2,7 +2,8 @@
 
 ## Status
 
-**Current milestone:** 4.5 — Polish pass, a mid milestone before M5
+**Current milestone:** 5 - MIDI and the piano roll (plan: [milestones/M5.md](milestones/M5.md)), approved 2026-10-10. **Slices 0 and 1 are built**: the device layer and format v11, then MIDI you can hear (the event path, the built-in synth, MIDI To, format v12; ADR-0045). MT-MIDI-1 and MT-MIDI-2 wait for the owner. Next: slice 2 (playing live: MIDI From, monitoring, the computer keyboard).
+**Before it:** 4.5 — Polish pass, a mid milestone before M5
 (plan: [milestones/M4.5.md](milestones/M4.5.md)), approved 2026-10-10
 from the interface audit's mock-ups. **All six slices built**; every audit
 finding is built. MT-POL-5 and MT-POL-6 wait for the owner. The report is
@@ -28,13 +29,20 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 3 | Arrangement & Project System | ✅ Complete, approved 2026-10-09 | Plan: `docs/milestones/M3.md` |
 | 4 | Mixer, Routing & Groups | ✅ Complete 2026-10-10 (review fixes merged, PR #3) | Plan: `docs/milestones/M4.md` |
 | 4.5 | Polish pass (mid milestone: the interface audit's fixes) | 🟡 Built 2026-10-10; MT-POL-5 and 6 wait | Plan: `docs/milestones/M4.5.md`; audit: `docs/audits/2026-10-10-design.md` |
-| 5 | MIDI & Piano Roll | 🟡 Approved 2026-10-10; slice 0 built | Plan: `docs/milestones/M5.md` |
+| 5 | MIDI & Piano Roll | 🟡 Approved 2026-10-10; slices 0 and 1 built | Plan: `docs/milestones/M5.md` |
 | 6 | VST3 Hosting & Device System | 🔲 | |
 | 7 | Automation, Envelopes & Advanced Editing | 🔲 | |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | |
 | 9 | Recording, Media, Export & Production Workflow | 🔲 | |
 | 10 | Hardening, Performance & Release | 🔲 | |
 | S | Stretch goals (unscheduled; pulled into a milestone only with owner approval) | 🔲 | VST3 scanning and hosting on macOS and Linux |
+
+## Milestone 5 slices
+
+| # | Slice | Status | Commits |
+|---|---|---|---|
+| 0 | MIDI devices and the model: `lumen-midi` (midir), the MIDI page of the settings, format v11 (controller, bend, pressure and program events in clips); ADR-0044 | ✅ Built 2026-10-10; MT-MIDI-1 waits for the owner (needs a MIDI device) | `32a751a`, `5fa36c3` |
+| 1 | Hearing MIDI (ADR-0045): **1a** the event path in the engine (sample-exact events, the note tracker, chase, every release case, hardware queue); **1b** the built-in synth in the new `lumen-devices` crate (five presets), format v12 (instrument device and MIDI To on the track), `set_instrument` and `set_midi_to`, the track menu's Instrument and MIDI To, palette commands; **1c** MIDI To timing and its tests; **1d** Panic, E2E (11 scenarios), the demo project for MT-MIDI-2, perf scenario `engine_synth_64`, records | ✅ Built 2026-10-10; MT-MIDI-2 waits for the owner | `19babb4`, `d1a0761`, `22ac950`, `25b48a5`, `b856d79` |
 
 ## Milestone 4.5 slices
 
@@ -151,8 +159,8 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
 | Record, overdub, replace, count-in, punch, thru, channel filter, computer keyboard | M | 🔲 | 5 |
-| Notes never hang; panic command | M | 🔲 | 5 |
-| Sustain, pitch bend, aftertouch, program and bank change, MIDI clock out | M | 🔲 | 5 |
+| Notes never hang; panic command | M | 🟡 Built in slice 1 (ADR-0045): a tracker per track lets go on stop, jump, loop wrap, edit, mute, change of output and Panic; hardware gets note-offs and All Notes Off / All Sound Off on every channel. Engine tests (14, including 400 random commands with every note-on answered), allocation guard, RTSan, and 11 E2E scenarios on a fake port. Unverified: a real MIDI device and real synth hardware (MT-MIDI-2) | 5 |
+| Sustain, pitch bend, aftertouch, program and bank change, MIDI clock out | M | 🟡 Played from clips by the synth and sent to ports (slice 1; bank selects pass through to ports, the synth ignores them); chased on Play and jumps. Clip data can only be made by the demo project until the piano roll (slice 3). MIDI clock out in slice 7 | 5 |
 | Piano roll: draw, select, move, resize, split, glue, mute, duplicate, nudge, transpose, legato, audition, velocity and controller lanes, synced zoom | M | 🔲 | 5 |
 | Scale highlight and snap, fold, ghost notes, multi-clip editing, step input | S | 🔲 | 5 |
 | Quantize: grids, modes, strength, swing, sensitivity, iterative, one-key apply, live-preview popover, humanize, legato, fixed length, transpose, scale-constrain, reverse | M | 🔲 | 5 |
@@ -227,7 +235,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Floating editors: remembered position and size, resizing, high-DPI, keyboard focus | M | 🔲 | 6 |
 | Crash and hang isolation with recovery; separate-process isolation by 1.0 | M | 🔲 | 6, 10 |
 | Device chain: cards, bypass, presets, parameter strip, reorder, copy between tracks, ordering rules | M | 🔲 | 6 |
-| Built-ins: utility, parametric EQ with analyzer, compressor with sidechain, limiter, delay, reverb, polysynth, sampler | M | 🔲 | 8 |
+| Built-ins: utility, parametric EQ with analyzer, compressor with sidechain, limiter, delay, reverb, polysynth, sampler | M | 🟡 The polysynth exists as a fixed-preset instrument (M5 slice 1, ADR-0045: 16 voices, five presets, no knobs yet); the rest in M8 | 8 |
 | Spectrum analyzer, tuner | S | 🔲 | 8 |
 | Device browser: categories, vendors, search, favourites, recents, drag, double-click | M | 🔲 | 6 |
 | CLAP hosting; racks with macros | L | 🔲 | — |
@@ -246,7 +254,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Test tone, CPU load, dropout counter, Audio On/Off | M | ✅ All four in the audio panel (M2 slice 7, ADR-0020); test tone also in the audio settings window (slice 8) | 2 |
 | ASIO control panel; driver resets and rate/buffer changes without losing the session; busy/missing messages | M | ✅ Control panel button; resets (MT-AUDIO-2); busy, lost and failed banners with Try again / Audio settings; missing saved device falls back with a notice; a device that fails to start returns to the previous one. MT-APP-6 passes | 2 |
 | Runtime changes never crash; restore a working configuration; persisted settings | M | ✅ Driver and device switches at run time move the engine to a fresh control thread; refused changes revert with the reason; settings saved atomically once a setup works. MT-APP-6 passes | 2 |
-| MIDI devices: enable toggles, hot-plug, per-track MIDI From/To, virtual ports | M | 🟡 Device layer and the MIDI page of the settings are built (M5 slice 0, ADR-0044): inputs and outputs listed, Track and Remote switches saved, hot-plug and replug, opened off the UI thread, a busy port says so. Per-track From/To in slices 1 and 2; virtual ports are not built (WinMM has none; recorded in KNOWN_ISSUES) | 5 |
+| MIDI devices: enable toggles, hot-plug, per-track MIDI From/To, virtual ports | M | 🟡 Device layer and the MIDI page of the settings are built (M5 slice 0, ADR-0044): inputs and outputs listed, Track and Remote switches saved, hot-plug and replug, opened off the UI thread, a busy port says so. **MIDI To** per track is built (slice 1, ADR-0045: a port and channel from the track menu, timed against the audio clock, outputs switched on automatically; tested on the fake backend, hardware timing unverified). MIDI From in slice 2; virtual ports are not built (WinMM has none; recorded in KNOWN_ISSUES) | 5 |
 
 ## §6.10 Projects, media and export
 
@@ -291,7 +299,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Computer keyboard as MIDI input | M | 🔲 |
 | Loop recording into takes; capture MIDI | S | 🔲 |
 | Piano roll, velocity and controller lanes, quantize, humanize, transpose, legato | M | 🔲 |
-| MIDI thru, channel filter, panic, sustain/bend/aftertouch, program/bank | M | 🔲 |
+| MIDI thru, channel filter, panic, sustain/bend/aftertouch, program/bank | M | 🟡 Panic, sustain, bend, pressure and program done (slice 1); thru and channel filter in slice 2 |
 | SMF import/export; MIDI learn | M | 🔲 |
 | Drum maps, drum editor, step sequencer | M | 🔲 |
 | MIDI effects; on-screen keyboard | S | 🔲 |
@@ -326,7 +334,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Resizable, collapsible panels with remembered layout; full screen; high-DPI; light and dark | M | 🟡 Resizable panels that slide open and closed; layout saved with each project; dark, light and match-system themes; interface size 100–200% (M3 slices 2–3). Full screen later |
 | Keyboard-only core flows; accessible control names. Shift+Tab settled by the owner (ADR-0015): it moves focus back in a text field or an open window, and toggles the detail panel elsewhere. | M | 🟡 M3 7d: F6 and Shift+F6 move the keyboard between named panes; shortcuts keep working with a control focused (only its own keys stay with it). M3 slice 8 and its review: the exit flow works from the keyboard alone (Import audio…, clips chosen with the arrows); Tab order is transport, browser, detail, arrangement (egui's panel order, recorded in ADR-0033), and F6 goes in reading order. The accessibility pass and the Narrator check in M10 |
 | Detachable mixer and editor windows; hover help; welcome screen | S | 🔲 |
-| CPU, disk and dropout indicators; Audio On/Off; panic | M | 🟡 CPU (peak per second), dropouts, Audio On/Off and panic done (M2 slice 7). Disk indicator with disk streaming (M9); MIDI all-notes-off joins panic in M5 |
+| CPU, disk and dropout indicators; Audio On/Off; panic | M | 🟡 CPU (peak per second), dropouts, Audio On/Off and panic done (M2 slice 7). Disk indicator with disk streaming (M9). MIDI all-notes-off joined panic in M5 slice 1: the engine cuts every instrument and sends CC 123 and 120 on every channel of every MIDI output in use, and the app sends them directly too (a palette command and the audio panel button) |
 | Crash report file; logging with "reveal logs" | M | 🟡 Crash reports (owner request, M3 6c): a panic on any thread writes what failed, where, the backtrace, the version, the system and the thread to `%LOCALAPPDATA%\Lumen\Crashes`; the next start offers it (Show report, Dismiss). Logging and "reveal logs" later |
 | Device hot-unplug, sleep/resume, rate-change handling | M | 🟡 Unplug and replug recover on ASIO and WASAPI (MT-AUDIO-1, -4); driver resets on ASIO (MT-AUDIO-2). Sleep/resume and Windows format and rate changes recover too (MT-AUDIO-6). Banners for these states (slice 8). macOS and Linux untested on hardware |
 | Single instance; file association; open by double-click or drop | M | 🟡 `lumen <file>.lumen` opens a project (M3 slice 3c). File association with a project file icon in M9 (per user), system-wide by the installer in M10 |

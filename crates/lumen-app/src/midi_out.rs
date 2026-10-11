@@ -39,6 +39,9 @@ const BUSY: Duration = Duration::from_millis(1);
 const QUIET: Duration = Duration::from_millis(4);
 /// "Lately": this long after the last message.
 const LATELY: Duration = Duration::from_millis(500);
+/// The audio stream standing still this long (the device was lost, or Audio
+/// was switched off) lets go of every note sent on.
+const STALL: Duration = Duration::from_secs(1);
 
 /// Nanoseconds the frame `frame` lasts from frame 0 at `rate`.
 fn frame_ns(frame: u64, rate: u32) -> i64 {
@@ -199,6 +202,11 @@ impl Scheduler {
     pub fn is_empty(&self) -> bool {
         self.queue.is_empty()
     }
+
+    /// Notes have been sent on and not yet off.
+    pub fn has_sounding(&self) -> bool {
+        !self.sounding.is_empty()
+    }
 }
 
 /// What the app tells the thread.
@@ -287,6 +295,8 @@ fn run(mut parts: Parts, stop: &AtomicBool, latency: &AtomicU32) {
     let mut map = ClockMap::default();
     let mut scheduler = Scheduler::default();
     let mut active = Instant::now();
+    // When the stream last moved, to notice it standing still.
+    let mut moved = (0_u64, Instant::now());
     let send = |scheduler: &mut Scheduler, ports: &[PortId], port: u16, msg: Msg| {
         let Some(id) = ports.get(usize::from(port)) else {
             return;
@@ -312,6 +322,16 @@ fn run(mut parts: Parts, stop: &AtomicBool, latency: &AtomicU32) {
         let clock = parts.clock.read();
         if let Some((frame, nanos, rate)) = clock {
             map.observe(frame, nanos, rate);
+        }
+        if let Some((frame, _, _)) = clock
+            && frame != moved.0
+        {
+            moved = (frame, Instant::now());
+        }
+        if scheduler.has_sounding() && moved.1.elapsed() > STALL {
+            for (port, msg) in scheduler.flush() {
+                send(&mut scheduler, &ports, port, msg);
+            }
         }
         let now = parts.clock.now();
         while let Ok(message) = parts.queue.pop() {
@@ -536,7 +556,24 @@ mod sender_tests {
         let mut rig = rig();
         rig.output.set_latency(480);
         let base = Instant::now();
-        rig.clock.publish(0, 48_000);
+        // Blocks of 128 frames at the pace of real time, as a device runs.
+        let running = Arc::new(AtomicBool::new(true));
+        let ticker = {
+            let (clock, running) = (Arc::clone(&rig.clock), Arc::clone(&running));
+            let start = clock.now();
+            thread::spawn(move || {
+                while running.load(Ordering::Relaxed) {
+                    let elapsed = (clock.now() - start).max(0) as u128;
+                    let frame = elapsed * 48_000 / 1_000_000_000 / 128 * 128;
+                    clock.publish(frame as u64, 48_000);
+                    thread::sleep(Duration::from_micros(2_666));
+                }
+            })
+        };
+        // The engine publishes a block before it sends anything.
+        while rig.clock.read().is_none() {
+            thread::sleep(Duration::from_millis(1));
+        }
         // A note every 100 ms, each held for 50 ms, ten of them.
         for k in 1..=10_u64 {
             let key = 60 + k as u8;
@@ -571,6 +608,8 @@ mod sender_tests {
                 "message {i} went out early"
             );
         }
+        running.store(false, Ordering::Relaxed);
+        ticker.join().unwrap();
         eprintln!("worst lateness: {worst:?}");
         assert!(worst < Duration::from_millis(4), "worst lateness {worst:?}");
         // Spacing: the gaps between notes follow the frames.
@@ -599,6 +638,21 @@ mod sender_tests {
         assert_eq!(sent[1].1, Msg::note_off(2, 60).bytes());
         thread::sleep(Duration::from_millis(60));
         assert_eq!(rig.fake.sent().len(), 2, "the waiting note never goes");
+    }
+
+    #[test]
+    fn a_stream_that_stops_lets_go_of_the_notes_sent_on() {
+        let mut rig = rig();
+        rig.clock.publish(0, 48_000);
+        rig.queue.push(at(0, Msg::note_on(0, 60, 90))).unwrap();
+        wait_for(&rig.fake, 1);
+        // The device is lost: no more blocks, and no note-off from the engine.
+        let started = Instant::now();
+        wait_for(&rig.fake, 2);
+        let sent = rig.fake.sent();
+        assert_eq!(sent.len(), 2, "the note was released");
+        assert_eq!(sent[1].1, Msg::note_off(0, 60).bytes());
+        assert!(started.elapsed() >= Duration::from_millis(900));
     }
 
     #[test]

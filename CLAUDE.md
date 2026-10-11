@@ -402,7 +402,26 @@ current grid). **Slice 0 is built** (ADR-0044): `crates/lumen-midi` (midir;
 `ClipEvent`/`EventKind`; use `ClipContent::midi()` for an empty clip; edits
 cut events like notes). E2E `midi`; `--midi off|test:fake`;
 `Launch::with_midi(FakeControl)`. MT-MIDI-1 waits for the owner (needs a
-MIDI device). Next: slice 1 (the event path and the built-in synth).
+MIDI device). **Slice 1 is built** (ADR-0045; owner's S1, E1, T1, H1): `lumen_core::midi`
+(`Msg`), the new `crates/lumen-devices` (the `Instrument` trait and the
+synth with five presets; the engine may depend on it: layering amended),
+`lumen-engine/src/midi/` (`hold.rs` the note tracker, chase and every
+release; `player.rs`; `Layered` plays it beside the clip player;
+`Source::{stopped, panic, ringing}`, `RenderContext::{mode, stream}` and
+`Mode::Ring`, which renders tails while stopped), **format v12** (the
+synth is a built-in device named `synth` with its preset in `state`;
+`Track::midi_to`), `Document::set_instrument` and `set_midi_to`,
+`midi_play.rs` (project to engine, pure, with a port table), `midi_out.rs`
+(hardware timing: `StreamClock`, `ClockMap`, `Scheduler`, the sender
+thread), `app/hardware.rs`, the track menu's Instrument and MIDI To and the
+palette's presets and Panic. E2E `midi_play` watches a fake port: every
+note-on needs its off. `tests/projects/midi-demo.lumen` (from
+`lumen_project::testing::midi_demo`; regenerate with
+`LUMEN_WRITE_FIXTURES=1`) is for MT-MIDI-2. Perf scenario `engine_synth_64`
+(0.36 ms a block, 13.5 %; baseline added by hand). Unverified: timing on
+real MIDI hardware. Next: the owner's MT-MIDI-1 and MT-MIDI-2, then slice 2
+(MIDI From, monitoring, the computer keyboard, the MIDI chip).
+
 Before it, 2026-10-10: **M4.5, a polish pass, is approved and
 under way** on `m4.5-polish` (plan `docs/milestones/M4.5.md`). The owner
 merged the M4 review fixes (PR #3; CI did not run because of GitHub
@@ -634,7 +653,7 @@ escapes and quotes several times.
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
 - **M4.5 Polish pass: built 2026-10-10; slices 1–4 done, slices 5 and 6
-  built (MT-POL-5 and MT-POL-6 wait).** M5 proposed (`docs/milestones/M5.md`).
+  built (MT-POL-5 and MT-POL-6 wait).** M5 under way: slices 0 and 1 built (`docs/milestones/M5.md`).
 - **M4 Mixer, Routing & Groups: complete 2026-10-10**; the review's fixes
   are merged (PR #3).
 - **M3 Arrangement & Project System: complete, approved 2026-10-09.** Slices 1–3 done:

@@ -1904,3 +1904,74 @@ such as loopMIDI. Run `cargo run --release -p lumen-app`.
 **Expected:** as described. Record what your device is called, and whether
 WinMM shows it once or twice.
 
+### MT-MIDI-2 · Hearing MIDI (needs a human and ears; Windows' GS Wavetable Synth is the "hardware")
+Slice 1 of M5. Notes cannot be drawn until the piano roll (slice 3), so the
+project is made by code. **Status: waits for the owner.** In PowerShell,
+from the repository root:
+
+```powershell
+cargo run --release -p lumen-app -- tests\projects\midi-demo.lumen
+```
+
+(If Lumen opens empty, use **Open…** and choose
+`tests\projects\midi-demo.lumen`.) The project is 120 BPM, eight bars, five
+MIDI tracks: **Chords** (Poly), **Pad** (Pad), **Bass** (Bass), **Lead**
+(Keys) and **Hardware** (Pluck, sent to *Microsoft GS Wavetable Synth*,
+channel 1). The loop brace covers bars 1 to 4 and is off.
+
+1. **Chords and the pedal.** Press Space. You hear an A minor, F, C and G
+   chord, one per bar, repeating in bars 5 to 8, over a held pad and a bass
+   line. In bar 3 the C chord is only a beat long but rings for the whole
+   bar: the sustain pedal is down from the start of bar 3 to the start of bar 4. It must stop
+   cleanly when the pedal comes up, not hang.
+2. **The Hardware track.** Without anything else, you also hear a plucked
+   arpeggio in bars 1 and 2 (and again in 3 and 4) from the Windows
+   synthesiser, with a different, GM sound. The first time, Lumen switches
+   the output on itself: open **Audio and MIDI settings… → MIDI** and see
+   Microsoft GS Wavetable Synth under Outputs with Track on. Does the
+   arpeggio line up with the other tracks, or is it early or late? Note
+   roughly how many milliseconds (clap along to the bass) and which way.
+3. **Bend and filter.** In bar 5 the Lead plays a long note that bends up
+   two semitones over four beats while the filter opens, then falls back.
+4. **Chase.** Stop. Click the ruler in the middle of bar 6 and press Space:
+   the pad is there at once (its note began in bar 1, so playback starts it
+   part-way), and so are the notes of the other tracks that are held at that
+   point.
+5. **Jump.** While playing, click the ruler somewhere else a few times: no
+   stuck notes, no clicks other than the usual 2 ms crossfade.
+6. **Loop wrap.** Click the loop brace above bars 1 to 4 to turn the loop on, and play: the loop repeats bars 1 to
+   4. The pad and the Chords' notes are cut at each wrap and start again
+   with the loop. No note rings across the wrap.
+7. **Stop.** Press Space: the sound fades out with each instrument's
+   release (a quarter of a second for Poly), and the Hardware track goes
+   silent. Nothing keeps sounding afterwards.
+8. **Presets from the menu.** Right-click the Chords track name:
+   **Instrument ▸** shows Poly (ticked), Keys, Bass, Pluck, Pad and None.
+   Choose each while the song plays: the next notes take the new sound; the
+   notes already sounding finish as they were. Ctrl+Z undoes the choice
+   ("Instrument: Pad").
+9. **MIDI To.** Right-click the Pad track: **MIDI To ▸** lists
+   **Instrument** (ticked) and **Microsoft GS Wavetable Synth ▸** with
+   Channel 1 to 16. Choose Channel 1 while playing: the pad now comes from
+   the Windows synthesiser and stops being heard from Lumen's synth, with no
+   stuck note on either. Choose **Instrument** to go back. If your system
+   has other MIDI outputs, they are listed too.
+10. **Mute and solo.** Mute the Hardware track: it falls silent and its
+    notes are not sent. Solo Bass: only the bass is heard (the Hardware
+    track is silenced because it is not soloed). Unmute and unsolo.
+11. **Panic.** While playing, open the command palette (Ctrl+K), type
+    "Panic" and press Enter, or use **Panic** in the audio panel: everything
+    stops at once, including the Windows synthesiser, and nothing rings.
+12. **Unplug.** If you have a USB MIDI output (or loopMIDI), assign the
+    Hardware track to it, play, unplug it: Lumen keeps playing. Plug it in
+    again: it works once more. Its name stays in the track menu as "(not
+    connected)" meanwhile.
+13. **Save and reopen.** Save the project under a new name, reopen it: the
+    instruments and outputs are as you left them.
+
+**Expected:** as described. **Record:** how far the Hardware track is out of
+time with the rest (step 2) and in which direction, at which audio buffer
+size and driver; whether the MIDI To menu's sixteen channel rows are too long
+to use comfortably (a compact grid would need a mock-up first); any stuck
+note or click.
+

@@ -36,7 +36,7 @@ short form: the rules, and the checks that keep them.
 6. **Third-party native code (plugins, drivers being probed) runs where its
    crash cannot take Lumen down**: a child process.
 7. **Layering:** `lumen-core` at the bottom; `lumen-engine` depends only on
-   core and rt; `lumen-project` only on core; `lumen-audio`, `lumen-media`
+   core, rt and `lumen-devices` (real-time DSP on core alone, ADR-0045); `lumen-project` only on core; `lumen-audio`, `lumen-media`
    and `lumen-render` stand alone; only `lumen-app` joins them. No cycles,
    and no UI types below the app.
 8. **The product name lives in `lumen_core::product`.** User-visible text
