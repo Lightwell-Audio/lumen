@@ -197,7 +197,7 @@ impl App {
             piano_roll::draw::RollNotes {
                 boxes: boxes.0,
                 generation: boxes.1,
-                under: |painter: &egui::Painter| paint::paint_note_shadows(painter, &view, notes),
+                under: |_: &egui::Painter| {},
             },
         );
         if ed.gesture.is_none() {
@@ -207,7 +207,6 @@ impl App {
             notes,
             preview: &preview,
             boxed: &ed.boxed,
-            colour,
             clip_length: clip.length,
             hover: hover.map(|(i, _)| i),
             picked: ed.picked(),

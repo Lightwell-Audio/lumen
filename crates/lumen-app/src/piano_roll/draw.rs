@@ -50,6 +50,13 @@ fn visible(rect: Rect, scroll: f32, row_height: f32, ppp: f32) -> Vec<(u8, f32)>
         .collect()
 }
 
+/// Whether the white keys meet on `pitch`'s top edge. Higher pitches sit
+/// higher on screen, so B's top edge is B|C and E's is E|F, shared with the
+/// C and F rows above.
+pub(crate) fn split_on_top(pitch: u8) -> bool {
+    matches!(pitch % 12, 11 | 4)
+}
+
 /// The lanes behind the notes: black-key pitches a little darker than
 /// white-key ones, and faint lines where the white keys meet (B|C and
 /// E|F). The grid's vertical lines go over them.
@@ -64,15 +71,17 @@ pub(crate) fn lanes(painter: &Painter, rect: Rect, scroll: f32, row_height: f32)
             let row = Rect::from_x_y_ranges(rect.x_range(), top..=bottom);
             painter.rect_filled(row, 0.0, p.lane_black);
         }
-        // The line sits on the bottom edge of B and of E: below them.
-        if matches!(pitch % 12, 11 | 4) {
-            painter.hline(rect.x_range(), bottom, Stroke::new(1.0, p.lane_split));
+        if split_on_top(pitch) {
+            painter.hline(rect.x_range(), top, Stroke::new(1.0, p.lane_split));
         }
     }
 }
 
 /// How much of the key column's width a black key takes.
 pub(crate) const BLACK_KEY: f32 = 0.62;
+/// The corner radius of the shadow a black key casts (a 1 pt offset, so it
+/// stays inside the key's own rounding).
+const KEY_SHADOW_RADIUS: f32 = 1.5;
 
 /// The key column, as a real keyboard: white keys in an ivory gradient
 /// (darker at the left, as if lit from the right), the white keys' dividers
@@ -87,15 +96,14 @@ pub(crate) fn keys(painter: &Painter, rect: Rect, scroll: f32, row_height: f32) 
     let black_width = (rect.width() * BLACK_KEY).round();
     let divider = Stroke::new(1.0, p.key_text.gamma_multiply(0.5));
     let rows = visible(rect, scroll, row_height, ppp);
-    // White keys meet at B|C and E|F (a row edge) and behind each black key
-    // (its row's middle).
+    // White keys meet at B|C and E|F (a row's top edge) and behind each black
+    // key (its row's middle).
     for &(pitch, top) in &rows {
-        let bottom = top + row_height;
         if is_black(pitch) {
             let middle = ((top + row_height / 2.0) * ppp).round() / ppp;
             painter.hline(rect.left() + black_width..=rect.right(), middle, divider);
-        } else if matches!(pitch % 12, 11 | 4) {
-            painter.hline(rect.x_range(), bottom, divider);
+        } else if split_on_top(pitch) {
+            painter.hline(rect.x_range(), top, divider);
         }
     }
     for &(pitch, top) in &rows {
@@ -108,8 +116,8 @@ pub(crate) fn keys(painter: &Painter, rect: Rect, scroll: f32, row_height: f32) 
             // The shadow a black key throws onto the white keys.
             painter.rect_filled(
                 key.translate(vec2(1.0, 1.0)).expand2(vec2(0.5, 0.0)),
-                1.5,
-                theme::p().shade,
+                KEY_SHADOW_RADIUS,
+                p.shade,
             );
             let face = (
                 p.key_black.lerp_to_gamma(Color32::BLACK, 0.45),
@@ -147,7 +155,8 @@ pub(crate) struct RollView {
 }
 
 /// The notes layer of [`roll`]: the shared boxes and their generation, and
-/// what draws under them (note shadows).
+/// what draws under them (a hook between the grid and the notes; the
+/// notes themselves cast no shadow, as only windows and popovers do).
 pub(crate) struct RollNotes<F> {
     pub boxes: Arc<Vec<BoxInstance>>,
     pub generation: u64,
@@ -155,8 +164,8 @@ pub(crate) struct RollNotes<F> {
 }
 
 /// Draws the whole roll in `rect`: lanes, the grid's vertical lines,
-/// whatever `under_notes` draws (note shadows), the notes, and the key
-/// column (`key_width` wide, on the left).
+/// whatever `under` draws, the notes, and the key column (`key_width` wide,
+/// on the left).
 ///
 /// Per frame the caller supplies the view and the shared `boxes`; the
 /// boxes only change with `generation` (the clip's content or the
@@ -220,5 +229,21 @@ mod tests {
         let rows = visible(rect, 15.0, 10.0, 1.0);
         assert_eq!(rows[0], (126, 5.0));
         assert_eq!(visible(rect, content_height(10.0), 10.0, 1.0).len(), 0);
+    }
+
+    #[test]
+    fn white_key_splits_sit_on_the_top_edge_of_b_and_e() {
+        // Pitches 127 down to 28 at 10 points a row.
+        let rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(100.0, 1000.0));
+        let rows = visible(rect, 0.0, 10.0, 1.0);
+        let top_of = |pitch: u8| rows.iter().find(|r| r.0 == pitch).unwrap().1;
+        // C5 is one row above B4: C5's bottom edge is B4's top edge, the B|C
+        // split. The old line sat on B4's bottom, which is B4|A#4.
+        assert_eq!(top_of(71), top_of(72) + 10.0);
+        assert_eq!(top_of(70) - top_of(71), 10.0);
+        // F4 is one row above E4: the E|F split is E4's top edge.
+        assert_eq!(top_of(64), top_of(65) + 10.0);
+        assert!(split_on_top(71) && split_on_top(64));
+        assert!(!split_on_top(72) && !split_on_top(65) && !split_on_top(70));
     }
 }

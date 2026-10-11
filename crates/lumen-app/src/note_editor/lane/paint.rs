@@ -271,7 +271,12 @@ fn draw_stem(painter: &Painter, base: f32, head: Pos2, colour: Color32, radius: 
     let stem = if lit { palette.accent } else { colour };
     painter.line_segment([pos2(head.x, base), head], Stroke::new(STEM_WIDTH, stem));
     if lit {
-        painter.circle(head, radius, palette.text, Stroke::new(1.5, palette.accent));
+        painter.circle(
+            head,
+            radius,
+            palette.text,
+            Stroke::new(theme::stroke::LIT, palette.accent),
+        );
     } else {
         painter.circle_filled(head, radius, colour);
     }

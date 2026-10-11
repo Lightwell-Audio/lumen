@@ -16,8 +16,8 @@ use super::gesture::Preview;
 use super::view::{EditorView, pitch_name};
 use crate::{light, theme, widgets};
 
-/// Most notes that get a shadow, velocity bar or glow in one frame; past
-/// this the GPU notes stand alone (a zoomed-out roll of thousands).
+/// Most notes that get a velocity bar or glow in one frame; past this the
+/// GPU notes stand alone (a zoomed-out roll of thousands).
 const MAX_DECORATED: usize = 4000;
 /// Notes shorter than this many points tall get no velocity bar.
 const BAR_MIN_ROW: f32 = 10.0;
@@ -36,44 +36,12 @@ pub(crate) struct Scene<'a> {
     pub preview: &'a Preview,
     /// Notes a marquee would pick, outlined.
     pub boxed: &'a [usize],
-    /// The note colour: the clip's.
-    pub colour: Color32,
     /// How long the clip is.
     pub clip_length: Ticks,
     /// The note under the pointer.
     pub hover: Option<usize>,
     /// The picked notes: they glow.
     pub picked: &'a [usize],
-}
-
-/// The soft shadow under every note, drawn between the grid and the GPU
-/// notes: two offset layers, faint, so the notes lift off the lane.
-pub(crate) fn paint_note_shadows(painter: &Painter, view: &EditorView, notes: &[Note]) {
-    if view.row_height < BAR_MIN_ROW - 2.0 {
-        return;
-    }
-    let painter = painter.with_clip_rect(view.body.intersect(painter.clip_rect()));
-    let mut drawn = 0;
-    for note in notes.iter().filter(|n| view.shows(**n)) {
-        if note.muted() {
-            continue;
-        }
-        drawn += 1;
-        if drawn > MAX_DECORATED {
-            break;
-        }
-        let rect = view.note_rect(*note).shrink2(vec2(0.0, 0.5));
-        painter.rect_filled(
-            rect.translate(vec2(0.0, 2.0)).expand(0.5),
-            NOTE_RADIUS + 1.0,
-            theme::p().shade.gamma_multiply(0.5),
-        );
-        painter.rect_filled(
-            rect.translate(vec2(0.0, 1.0)),
-            NOTE_RADIUS,
-            theme::p().shade.gamma_multiply(0.9),
-        );
-    }
 }
 
 /// Over the GPU notes: each note's thin velocity bar along its bottom edge
@@ -145,7 +113,7 @@ pub(crate) fn paint_overlay(painter: &Painter, view: &EditorView, scene: &Scene<
         {
             painter.rect_filled(
                 view.note_rect(*note),
-                2.0,
+                NOTE_RADIUS,
                 palette.canvas.gamma_multiply(0.7),
             );
         }
@@ -153,7 +121,7 @@ pub(crate) fn paint_overlay(painter: &Painter, view: &EditorView, scene: &Scene<
     if let Some(note) = scene.hover.and_then(|i| scene.notes.get(i)) {
         painter.rect_filled(
             view.note_rect(*note),
-            2.0,
+            NOTE_RADIUS,
             Color32::WHITE.gamma_multiply(0.18),
         );
     }
@@ -163,20 +131,17 @@ pub(crate) fn paint_overlay(painter: &Painter, view: &EditorView, scene: &Scene<
         {
             painter.rect_stroke(
                 view.note_rect(*note),
-                2.0,
+                NOTE_RADIUS,
                 Stroke::new(1.5, palette.accent),
                 StrokeKind::Inside,
             );
         }
     }
+    // A note being drawn is a wash of accent (`.lm-note.is-ghost`) inside a
+    // dashed accent outline: no fill from the clip, so the lane shows through.
     for ghost in &scene.preview.ghosts {
         let rect = view.note_rect(*ghost).shrink2(vec2(0.0, 0.5));
-        let fill = scene
-            .colour
-            .gamma_multiply(0.55 + 0.45 * f32::from(ghost.velocity()) / 127.0)
-            .lerp_to_gamma(Color32::WHITE, 0.25)
-            .gamma_multiply(0.85);
-        painter.rect_filled(rect, NOTE_RADIUS, fill.gamma_multiply(0.7));
+        painter.rect_filled(rect, NOTE_RADIUS, palette.accent.gamma_multiply(0.12));
         dashed_outline(&painter, rect, Stroke::new(1.5, palette.accent));
         if rect.width() >= 30.0 && view.row_height >= 12.0 {
             painter.text(
@@ -184,7 +149,7 @@ pub(crate) fn paint_overlay(painter: &Painter, view: &EditorView, scene: &Scene<
                 Align2::LEFT_CENTER,
                 pitch_name(i32::from(ghost.pitch())),
                 FontId::proportional(theme::size::SCALE),
-                theme::text_on(fill),
+                palette.text,
             );
         }
     }
@@ -290,9 +255,10 @@ pub(crate) fn paint_ruler(
             Level::Sub => {}
         }
     }
+    // The ruler's bottom edge is a hairline (`.lm-ruler`), not a strong border.
     painter.hline(
         strip.x_range(),
         strip.bottom(),
-        Stroke::new(1.0, palette.border_strong),
+        Stroke::new(1.0, palette.border),
     );
 }
