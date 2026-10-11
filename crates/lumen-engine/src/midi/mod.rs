@@ -26,7 +26,7 @@ mod hold;
 mod live;
 mod player;
 
-pub use live::{KEYBOARD, Listen, LiveIn, LiveInput, SOURCES};
+pub use live::{AUDITION, INPUT_SLOTS, KEYBOARD, Listen, LiveIn, LiveInput, SOURCES};
 pub use player::{MidiHandle, MidiPlayer, midi_player};
 
 use std::sync::Arc;

@@ -24,6 +24,14 @@ use super::hold::MAX_HELD;
 pub const SOURCES: u8 = 64;
 /// The computer keyboard's source number.
 pub const KEYBOARD: u8 = SOURCES - 1;
+/// The audition source (the piano roll's note preview, M5 slice 3d): its
+/// messages carry the track they sound on ([`LiveIn::track`]) and are
+/// played there whether or not the track listens. Like every source it has
+/// its own notes, so a preview on a pitch a held key or a clip is playing
+/// lets go only of itself.
+pub const AUDITION: u8 = SOURCES - 2;
+/// Inputs take slots below this.
+pub const INPUT_SLOTS: u8 = AUDITION;
 
 /// A live message, to be heard at device frame `frame` (the callback's
 /// frame count: `RenderContext::device`).
@@ -32,6 +40,9 @@ pub struct LiveIn {
     pub frame: u64,
     /// The input's slot (below [`KEYBOARD`]), or [`KEYBOARD`].
     pub source: u8,
+    /// For [`AUDITION`]: the id of the track it sounds on. Other sources go
+    /// to the tracks that listen.
+    pub track: Option<u64>,
     pub msg: Msg,
 }
 

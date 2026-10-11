@@ -308,8 +308,19 @@ fn midi_never_touches_the_heap() {
                     take(LiveIn {
                         frame: self.next,
                         source: 3,
+                        track: None,
                         msg,
                     });
+                    // The piano roll's preview, on an instrument track and
+                    // on a hardware one.
+                    for track in [5, 4] {
+                        take(LiveIn {
+                            frame: self.next,
+                            source: lumen_engine::AUDITION,
+                            track: Some(track),
+                            msg,
+                        });
+                    }
                 }
                 self.on = !self.on;
                 self.next += 333;

@@ -11,10 +11,10 @@ use lumen_core::midi::{Event, Kind, Msg, cc};
 use lumen_core::time::Ticks;
 use lumen_devices::Instrument;
 use lumen_engine::{
-    Command, Destination, Engine, EngineHandle, InstrumentSpec, KEYBOARD, Layered, Listen, LiveIn,
-    LiveInput, MidiClip, MidiHandle, MidiNote, MidiOut, MidiPlayer, MidiTrack, Mixer, MixerHandle,
-    NodeSpec, Routing, Target, Timeline, clip_player, control_list, engine, midi_player, mixer,
-    note_list,
+    AUDITION, Command, Destination, Engine, EngineHandle, InstrumentSpec, KEYBOARD, Layered,
+    Listen, LiveIn, LiveInput, MidiClip, MidiHandle, MidiNote, MidiOut, MidiPlayer, MidiTrack,
+    Mixer, MixerHandle, NodeSpec, Routing, Target, Timeline, clip_player, control_list, engine,
+    midi_player, mixer, note_list,
 };
 
 const MASTER: u64 = 100;
@@ -68,10 +68,21 @@ struct Script(Arc<Mutex<VecDeque<LiveIn>>>);
 
 impl Script {
     fn send(&self, frame: u64, source: u8, msg: Msg) {
-        self.0
-            .lock()
-            .unwrap()
-            .push_back(LiveIn { frame, source, msg });
+        self.0.lock().unwrap().push_back(LiveIn {
+            frame,
+            source,
+            track: None,
+            msg,
+        });
+    }
+
+    fn audition(&self, frame: u64, track: u64, msg: Msg) {
+        self.0.lock().unwrap().push_back(LiveIn {
+            frame,
+            source: AUDITION,
+            track: Some(track),
+            msg,
+        });
     }
 }
 
@@ -274,6 +285,87 @@ fn a_live_note_and_a_clip_note_on_one_key_each_end_by_their_own_off() {
         vec![(24_000, 1), (30_000, 1), (40_000, -1), (48_000, -1)]
     );
     assert_eq!(rig.held_live(A), 0);
+}
+
+#[test]
+fn an_audition_sounds_on_its_track_alone_and_never_ends_another_sources_note() {
+    let q = Ticks::quarters;
+    let log = Log::default();
+    let clip = MidiClip {
+        id: 9,
+        start: Ticks::ZERO,
+        length: q(8),
+        period: None,
+        notes: note_list(vec![MidiNote {
+            start: q(1),
+            length: q(1),
+            pitch: 60,
+            velocity: 100,
+        }]),
+        controls: control_list(Vec::new()),
+    };
+    // A listens to the keys and has the clip; B listens to nothing.
+    let mut rig = rig(
+        vec![
+            track(A, &log, keys_on(None), vec![clip]),
+            track(B, &log, Listen::OFF, Vec::new()),
+        ],
+        &log,
+    );
+    rig.transport.send(Command::Play).unwrap();
+    // The clip's note on pitch 60 runs 24,000 to 48,000; a held key on it
+    // 26,000 to 46,000. Previews of pitch 60 on A: 30,000 to 32,000, and
+    // 47,000 to 50,000 (across the clip's end). One on B, which does not
+    // listen: 31,000 to 33,000.
+    rig.live.send(26_000, KEYS, Msg::note_on(0, 60, 100));
+    rig.live.audition(30_000, A, Msg::note_on(0, 60, 80));
+    rig.live.audition(31_000, B, Msg::note_on(0, 60, 80));
+    rig.live.audition(32_000, A, Msg::note_off(0, 60));
+    rig.live.audition(33_000, B, Msg::note_off(0, 60));
+    rig.live.send(46_000, KEYS, Msg::note_off(0, 60));
+    rig.live.audition(47_000, A, Msg::note_on(0, 60, 80));
+    rig.live.audition(50_000, A, Msg::note_off(0, 60));
+    let found = impulses(&rig.run(52_000, 128));
+    // Every source ends its own note, at its own frame.
+    assert_eq!(
+        found,
+        vec![
+            (24_000, 1),
+            (26_000, 1),
+            (30_000, 1),
+            (31_000, 1),
+            (32_000, -1),
+            (33_000, -1),
+            (46_000, -1),
+            (47_000, 1),
+            (48_000, -1),
+            (50_000, -1),
+        ]
+    );
+    assert_eq!(notes_of(&rig.log(), B), vec![(true, 0, 60), (false, 0, 60)]);
+    assert_eq!(rig.held_live(A), 0);
+    assert_eq!(rig.held_live(B), 0);
+    // A stray off with nothing sounding sends nothing.
+    let before = notes_of(&rig.log(), A).len();
+    rig.live.audition(52_100, A, Msg::note_off(0, 60));
+    rig.run(512, 128);
+    assert_eq!(notes_of(&rig.log(), A).len(), before);
+}
+
+#[test]
+fn a_note_played_and_let_go_within_one_frame_is_not_left_sounding() {
+    let log = Log::default();
+    let mut rig = rig(vec![track(A, &log, Listen::OFF, Vec::new())], &log);
+    // Events on one frame order offs first, so an on and off on one frame
+    // (a preview retriggered at once) must keep the off after its on.
+    rig.run(256, 128);
+    rig.live.audition(300, A, Msg::note_on(0, 60, 80));
+    rig.live.audition(300, A, Msg::note_off(0, 60));
+    assert_eq!(impulses(&rig.run(512, 128)), vec![(44, 1), (45, -1)]);
+    // And on the last frame of a part.
+    rig.live.audition(1_279, A, Msg::note_on(0, 61, 80));
+    rig.live.audition(1_279, A, Msg::note_off(0, 61));
+    assert_eq!(impulses(&rig.run(512, 128)), vec![(510, 1), (511, -1)]);
 }
 
 #[test]
