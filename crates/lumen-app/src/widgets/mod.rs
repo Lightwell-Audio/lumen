@@ -22,6 +22,7 @@ pub mod knob;
 pub mod mark;
 mod menu;
 pub mod meter;
+pub mod raised;
 mod scroll_bar;
 mod signature;
 mod toggle;
@@ -37,7 +38,13 @@ pub use menu::Menu;
 pub(crate) use menu::note_change;
 pub use scroll_bar::{Axis, ScrollBar, scroll_bar};
 pub use signature::time_signature;
-pub use toggle::{Choice, Tab, choice_row, menu_caption, segmented, switch, tabs, toggle_button};
+#[allow(
+    unused_imports,
+    reason = "segmented_styled is foundation API for the next slices (ADR-0046)"
+)]
+pub use toggle::{
+    Choice, Tab, choice_row, menu_caption, segmented, segmented_styled, switch, tabs, toggle_button,
+};
 
 /// A floating window in the design system (DESIGN §5): no system title
 /// bar; our own title row with the title in the display face and, when it

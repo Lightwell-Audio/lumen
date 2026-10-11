@@ -150,11 +150,20 @@ pub fn rect(painter: &Painter, light: Light, rect: Rect, radius: f32, color: Col
 
 /// Only a light's halo, outside `rect` (a lit button keeps its own fill).
 pub fn halo_around(painter: &Painter, light: Light, rect: Rect, radius: f32, color: Color32) {
+    glow(painter, light, rect, radius, color, 1.0);
+}
+
+/// [`halo_around`] faded by `t` (0 to 1): a lit control's glow as it lights
+/// and goes out. Nothing is drawn at 0.
+pub fn glow(painter: &Painter, light: Light, rect: Rect, radius: f32, color: Color32, t: f32) {
+    if t <= 0.0 {
+        return;
+    }
     for &(reach, a) in light.halo {
         painter.rect_stroke(
             rect,
             radius,
-            Stroke::new(reach, color.gamma_multiply(alpha(a, 1.0))),
+            Stroke::new(reach, color.gamma_multiply(alpha(a, t))),
             egui::StrokeKind::Outside,
         );
     }

@@ -352,9 +352,9 @@ strokes are 4 wide and the third reflection goes.
 | Widget | Rest | Hover | Pressed | Active / on | Disabled |
 |---|---|---|---|---|---|
 | Icon button (transport) | icon `text`, no fill | `control_hover` fill (`FAST`) | `control_press` | `accent` icon on `accent_muted` | `text_disabled` icon |
-| Button | `control` fill, `body` text | `control_hover` | `control_press` | — | `text_disabled` text, no fill change |
-| Toggle (Browser, Detail; `widgets::toggle_button`) | as Button: `control` fill, never bare text (M4.5) | as Button | as Button | `accent_muted` fill, `accent` text | — |
-| Tabs (the detail panel; `widgets::tabs`) | words in `text_secondary`, 16 pt apart | `text` | — | `text`, over a 2 pt `accent` underline that slides to it (`GLIDE`) | `text_disabled`, with when it arrives on hover |
+| Button (`widgets::raised::button`, ADR-0046) | raised: `control` fill lifting top to bottom, 1 px light top edge, `border`, soft drop shadow | `control_hover` | sunken: `control_press`, inset shadow, 1 px lower | — | `text_disabled` text, no fill change |
+| Toggle (Browser, Detail; `widgets::toggle_button`) | as Button, never bare text (M4.5) | as Button | as Button | lit: the accent gradient, `text_on` letters, `light::LIT` glow (cross-fades, `FAST`) | — |
+| Tabs (the detail panel; `widgets::tabs`) | words in `text_secondary`, 16 pt apart | `text` | — | `text`, over a 2 pt `accent` underline with a `light::LIT` glow that slides to it (`GLIDE`) | `text_disabled`, with when it arrives on hover |
 | Time signature (`widgets::time_signature`) | one field, "4 / 4", `control` fill | the half under the pointer brightens: the beats left, the unit right | — | drag or wheel changes the half under the pointer; click and type "7/8"; double-click 4/4 | — |
 | Empty state (`widgets::empty_state`) | centred: a 16 pt icon in `text_hint`, the title in medium `text_secondary`, a caption hint, the action as a button with its keys in the tooltip | | | | |
 | Field (tempo, meter) | `raised` fill | `border_strong` outline | — | `accent` outline while editing | — |
@@ -362,10 +362,20 @@ strokes are 4 wide and the third reflection goes.
 | Popover / window | `overlay`, `border_strong`, shadow | | | | |
 | Notice | `warning` text, wrapped, with Dismiss | | | | |
 | Switch (on/off) | a 30 × 16 pt pill in `control_press`, the knob `text_secondary`; its label at the left of a row as wide as there is room for | the pill lightens (`FAST`) | — | the knob glides right (`GLIDE`), `accent` on `accent_muted` | `text_disabled` |
-| Segmented (2–5 choices) | one `control` track, labels in `text_secondary` | label in `text` | — | an `accent_muted` thumb that slides to the choice (`GLIDE`), label in `accent` | label in `text_disabled`, with why on hover |
+| Segmented (2–5 choices; `widgets::segmented`, `segmented_styled`) | a sunken `well` track (inset shadow), optional icon then label on one centre line, `text_secondary` | label in `text` | — | a raised thumb (`theme::thumb`) that slides to the choice (`GLIDE`), label in `text`; `segmented_styled(.., Some(Tone::Accent))` lights the thumb | label in `text_disabled`, with why on hover |
 | Choice row (longer lists, such as a device's channel pairs) | a 24 pt row, `text` | `control` wash | — | `accent_muted` fill, `accent` text | — |
 
 Keyboard focus shows as a 2 pt `accent` ring on every focusable control.
+
+**Premium control look (ADR-0046).** Raised controls (`widgets::raised`):
+the control fill lifted a little top to bottom (`theme::lift`), a 1 px
+light edge inside the top (`theme::edge_light`), the `border`, a soft drop
+shadow (`theme::control_shadow`). Pressed sinks: an inset shadow, 1 px
+lower. On is lit by `theme::Tone`: `Accent` (on, chosen), `Warning` (solo),
+`Record` (arm), each a gradient from `theme::lit` with `text_on` letters and
+a glow that is a light level (`raised::glow_level`: `LIT`, and `FLARE` for
+record); `Recessed` (mute on) is the well's colour with `text_hint`
+letters. M and S on headers and strips are raised buttons in this look.
 
 egui's checkboxes and radio buttons are not used (M4.5, the interface
 audit's T3): on/off is a switch (`widgets::switch`), two to five choices a

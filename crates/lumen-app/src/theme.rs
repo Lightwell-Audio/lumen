@@ -206,6 +206,102 @@ pub fn controls(selected: bool) -> Controls {
     }
 }
 
+/// Which colour a lit control burns (the premium control look, ADR-0046).
+/// State is never colour alone: the shape and the label stay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tone {
+    /// On, selected, chosen: the single accent.
+    Accent,
+    /// Solo.
+    Warning,
+    /// Arm and record.
+    #[allow(
+        dead_code,
+        reason = "used by the arm button when it migrates (ADR-0046)"
+    )]
+    Record,
+    /// Mute on: recessed and dark with hint text, not lit.
+    Recessed,
+}
+
+/// A lit control's paint: a gradient from `top` to `bottom`, a darker
+/// `edge`, and `text` that keeps its contrast on both ends.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LitFill {
+    pub top: Color32,
+    pub bottom: Color32,
+    pub edge: Color32,
+    pub text: Color32,
+}
+
+impl Tone {
+    /// The colour a lit control burns; `None` for [`Tone::Recessed`].
+    pub fn colour(self) -> Option<Color32> {
+        self.colour_in(p())
+    }
+
+    fn colour_in(self, c: &Palette) -> Option<Color32> {
+        match self {
+            Tone::Accent => Some(c.accent),
+            Tone::Warning => Some(c.warning),
+            Tone::Record => Some(c.record),
+            Tone::Recessed => None,
+        }
+    }
+}
+
+/// The paint of a lit control of `tone` (the mock-ups' gradient: lighter
+/// above, deeper below). `Recessed` has none and gets the well's colours.
+pub fn lit(tone: Tone) -> LitFill {
+    lit_in(p(), tone)
+}
+
+fn lit_in(c: &Palette, tone: Tone) -> LitFill {
+    let base = tone.colour_in(c).unwrap_or(c.well);
+    LitFill {
+        top: base.lerp_to_gamma(Color32::WHITE, 0.18),
+        bottom: base.lerp_to_gamma(Color32::BLACK, 0.12),
+        edge: base.lerp_to_gamma(Color32::BLACK, 0.30),
+        text: text_on(base),
+    }
+}
+
+/// A raised control's gradient ends for a surface `fill`: a little lighter
+/// above, a little deeper below.
+pub fn lift(fill: Color32) -> (Color32, Color32) {
+    (
+        fill.lerp_to_gamma(Color32::WHITE, 0.05),
+        fill.lerp_to_gamma(Color32::BLACK, 0.04),
+    )
+}
+
+/// The 1 px light along the top inside edge of a raised control.
+pub fn edge_light() -> Color32 {
+    Color32::WHITE.gamma_multiply(if is_light() { 0.8 } else { 0.07 })
+}
+
+/// The same edge on a lit control, where it is stronger.
+pub fn edge_light_lit() -> Color32 {
+    Color32::WHITE.gamma_multiply(if is_light() { 0.5 } else { 0.35 })
+}
+
+/// The soft drop shadow under a raised control (and the inset one in a
+/// pressed or sunken one, `scale` of it).
+pub fn control_shadow(scale: f32) -> Color32 {
+    Color32::BLACK.gamma_multiply(if is_light() { 0.10 } else { 0.35 } * scale)
+}
+
+/// The raised thumb of a segmented control, over its sunken well: the
+/// pressed grey on dark, white on light (the well is as dark as the pressed
+/// grey there).
+pub fn thumb() -> Color32 {
+    thumb_in(p(), is_light())
+}
+
+fn thumb_in(c: &Palette, light: bool) -> Color32 {
+    if light { c.overlay } else { c.control_press }
+}
+
 /// A waveform inside a clip of `track` colour: brightened on the dark
 /// clip body so it reads (owner's choice: dark clips with bright
 /// waveforms); on the light theme's white body, the colour itself.
@@ -578,6 +674,25 @@ mod tests {
     fn clip_names_read_on_every_clip_colour() {
         for color in CLIP_COLORS.into_iter().chain([CLIP_MUTED]) {
             assert!(contrast(CLIP_TEXT, color) >= 3.0, "{color:?}");
+        }
+    }
+
+    #[test]
+    fn lit_controls_keep_their_letters_in_both_themes() {
+        for (name, c, light) in [("dark", DARK, false), ("light", LIGHT, true)] {
+            for tone in [Tone::Accent, Tone::Warning, Tone::Record] {
+                let fill = lit_in(&c, tone);
+                for end in [fill.top, fill.bottom] {
+                    let ratio = contrast(fill.text, end);
+                    assert!(ratio >= 3.0, "{name} {tone:?} {end:?}: {ratio}");
+                }
+                // The edge separates the control from the surface under it.
+                assert!(contrast(fill.edge, c.header) >= 1.2, "{name} {tone:?} edge");
+            }
+            // The raised thumb stands out from its well, and reads on it.
+            let thumb = thumb_in(&c, light);
+            assert!(contrast(thumb, c.well) >= 1.2, "{name} thumb");
+            assert!(contrast(c.text, thumb) >= 4.5, "{name} thumb text");
         }
     }
 

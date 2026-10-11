@@ -4319,3 +4319,36 @@ to this record when they are in.
 
 **Unverified:** the timing and audibility of drawn bends and controllers on real
 hardware and on the built-in synth (MT-MIDI-5).
+
+## ADR-0051 — Premium control look (approved from canvas mock-ups 2026-10-11)
+
+**Status:** Accepted 2026-10-11 (owner, from interactive mock-ups on the
+design canvas: button states and the clip tab).
+
+### Context
+Controls were flat fills; "on" was a flat `accent_muted` with accent text.
+The owner wanted a more finished, tactile interface that every surface
+(transport, headers, mixer strips, note editor, dialogs) inherits.
+
+### Decision
+- Raised controls: fill with a slight top-to-bottom lift, a 1 px light top
+  edge, `border`, soft drop shadow; hover steps to `control_hover`;
+  pressed is sunken (inset shadow) and 1 px lower.
+- On is lit: accent gradient with `text_on` letters; solo in the warning
+  colour, arm and record in the record colour; mute on is recessed with hint
+  letters. State keeps its label, icon or shape, never colour alone.
+- Segmented controls sit sunken in a `well` track with a raised thumb that
+  still glides; they take an optional icon (centred on the label's line,
+  snapped to pixels). Tabs keep the sliding underline and gain a glow.
+- The shared layer is `widgets/raised.rs` (`Face`, `paint`, `paint_sunken`,
+  `button`, `icon_button`), `theme::{Tone, lit, lift, edge_light, thumb}`.
+
+### Consequences
+- Glow levels used: `light::LIT` (accent, solo, tab underline) and
+  `light::FLARE` (record); no new level. `light::glow` fades a halo by `t`.
+- Changed now: `toggle_button`, `segmented`, `tabs`, the M, S and cue
+  buttons. Not yet: egui's own buttons and menu buttons (flat, from
+  `theme::apply`), the arm button's round face, switches, the note editor.
+  Call sites adopt `raised::button`/`icon_button` as they migrate.
+- Gradients are a small mesh per control; Reduce motion only removes the
+  cross-fades. Unverified on a GPU window.

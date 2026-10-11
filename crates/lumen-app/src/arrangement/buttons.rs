@@ -4,12 +4,15 @@
 //! group (M), or heard through a soloed group (S) (the owner's choice,
 //! slice 4).
 
-use eframe::egui::{self, Align2, Color32, Id as EguiId, Rect, Sense, Stroke, Ui};
+use eframe::egui::{self, Align2, Id as EguiId, Rect, Sense, Stroke, Ui};
+use eframe::emath::GuiRounding as _;
 use lumen_project::model::Track;
 use lumen_project::solo::Hearing;
 
 use super::Arrangement;
 use crate::document::Document;
+use crate::theme::Tone;
+use crate::widgets::raised;
 use crate::{fonts, motion, theme};
 
 /// The M and S buttons; S is a headphone button on Cue.
@@ -44,7 +47,9 @@ impl Arrangement {
         // the headphones instead (the owner's C1).
         let cueing = self.cue.cueing();
         let cued = self.cued.contains(&track.id);
-        let toggle = |ui: &mut Ui, r: Rect, button: Toggle, on_fill: Color32| {
+        let toggle = |ui: &mut Ui, r: Rect, button: Toggle, tone: Tone| {
+            // The ring and letter of a hollow button: the tone's colour.
+            let accent = tone.colour().unwrap_or(palette.start_marker);
             let (what, label, on, implied) = match button {
                 Toggle::Mute => ("mute", "Mute", track.mute, hears.silenced),
                 Toggle::Solo => ("solo", "Solo", track.solo, hears.soloed_through),
@@ -83,32 +88,34 @@ impl Arrangement {
                 )
             });
             let hover = motion::hover(ui.ctx(), id.with(what).with("hover"), response.hovered());
-            let rest = look.fill.lerp_to_gamma(look.hover, hover);
             // Lighting up and going out cross-fade (`FAST`, M4.5).
             let lit = motion::hover(ui.ctx(), id.with(what).with("lit"), on);
+            // The premium look (ADR-0046): raised; solo lit amber, cue lit
+            // in the accent, mute on recessed with hint letters.
+            let face = raised::Face::new(look)
+                .hover(hover)
+                .pressed(response.is_pointer_button_down_on())
+                .lit(lit, tone);
+            let r = r.round_to_pixels(ui.pixels_per_point());
+            let body = raised::paint(ui.painter(), r, theme::radius::SMALL, &face);
             let p = ui.painter();
-            let text = if lit > 0.0 && (on || !implied) {
-                p.rect_filled(r, theme::radius::SMALL, rest.lerp_to_gamma(on_fill, lit));
-                look.text.lerp_to_gamma(theme::text_on(on_fill), lit)
-            } else if implied {
+            let mut text = face.text();
+            if implied && !on {
                 // Hollow: the state's colour as a ring, the letter in it.
-                p.rect_filled(r, theme::radius::SMALL, rest.gamma_multiply(0.5));
+                p.rect_filled(r, theme::radius::SMALL, look.fill.gamma_multiply(0.5));
                 p.rect_stroke(
                     r.shrink(0.75),
                     theme::radius::SMALL,
-                    Stroke::new(1.5, on_fill),
+                    Stroke::new(1.5, accent),
                     egui::StrokeKind::Middle,
                 );
-                on_fill
-            } else {
-                p.rect_filled(r, theme::radius::SMALL, rest);
-                look.text
-            };
+                text = accent;
+            }
             if button == Toggle::Cue {
-                crate::icons::draw_headphones(p, r.center(), text);
+                crate::icons::draw_headphones(p, body.center(), text);
             } else {
                 p.text(
-                    r.center(),
+                    body.center(),
                     Align2::CENTER_CENTER,
                     &label[..1],
                     fonts::medium(theme::size::CAPTION),
@@ -117,14 +124,14 @@ impl Arrangement {
             }
             response.clicked()
         };
-        if toggle(ui, mute_rect, Toggle::Mute, palette.start_marker) {
+        if toggle(ui, mute_rect, Toggle::Mute, Tone::Recessed) {
             doc.set_mute(&self.targets(track.id), !track.mute);
         }
         // Ableton's way by default: a click solos (or cues) this track
         // alone, Ctrl+click adds it; the additive preference swaps them.
         let exclusive = modifiers.command == additive;
         if cueing {
-            if toggle(ui, solo_rect, Toggle::Cue, palette.accent) {
+            if toggle(ui, solo_rect, Toggle::Cue, Tone::Accent) {
                 let targets = self.targets(track.id);
                 if exclusive {
                     self.cued.retain(|id| targets.contains(id));
@@ -137,7 +144,7 @@ impl Arrangement {
                     }
                 }
             }
-        } else if toggle(ui, solo_rect, Toggle::Solo, palette.accent) {
+        } else if toggle(ui, solo_rect, Toggle::Solo, Tone::Warning) {
             doc.set_solo(&self.targets(track.id), !track.solo, exclusive);
         }
     }

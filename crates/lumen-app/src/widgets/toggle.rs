@@ -8,7 +8,11 @@ use eframe::egui::{
     self, Align2, FontId, Id as EguiId, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2,
 };
 
-use crate::{motion, theme};
+use eframe::emath::GuiRounding as _;
+
+use super::raised;
+use crate::theme::Tone;
+use crate::{light, motion, theme};
 
 /// A switch's track: the knob travels along it.
 const TRACK: egui::Vec2 = vec2(30.0, 16.0);
@@ -193,6 +197,9 @@ pub struct Choice<'a, T> {
     /// Its accessible name, when the label alone is ambiguous ("Fade in:
     /// Linear" beside "Fade out: Linear").
     pub name: Option<&'a str>,
+    /// An icon before the label, drawn centred on the point it is given in
+    /// the colour given; on the same line as the label.
+    pub icon: Option<fn(&egui::Painter, egui::Pos2, egui::Color32)>,
 }
 
 impl<'a, T> Choice<'a, T> {
@@ -203,7 +210,17 @@ impl<'a, T> Choice<'a, T> {
             enabled: true,
             tip: None,
             name: None,
+            icon: None,
         }
+    }
+
+    #[allow(
+        dead_code,
+        reason = "foundation API: call sites adopt icons in the next slices (ADR-0046)"
+    )]
+    pub fn icon(mut self, icon: fn(&egui::Painter, egui::Pos2, egui::Color32)) -> Self {
+        self.icon = Some(icon);
+        self
     }
 
     pub fn named(mut self, name: &'a str) -> Self {
@@ -232,6 +249,24 @@ pub fn segmented<T: PartialEq + Copy>(
     value: T,
     choices: &[Choice<'_, T>],
 ) -> Option<T> {
+    segmented_styled(ui, id, value, choices, None)
+}
+
+/// Width of a choice's icon.
+const ICON: f32 = 12.0;
+/// Gap between a choice's icon and its label.
+const ICON_GAP: f32 = 6.0;
+
+/// [`segmented`] with a `lit` thumb: the accent gradient and glow (the
+/// mock-ups' accent variant, for a mode that is on) instead of the neutral
+/// raised thumb.
+pub fn segmented_styled<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    id: EguiId,
+    value: T,
+    choices: &[Choice<'_, T>],
+    lit: Option<Tone>,
+) -> Option<T> {
     let palette = theme::p();
     let pad = theme::space::S;
     let font = FontId::proportional(theme::size::BODY);
@@ -244,7 +279,18 @@ pub fn segmented<T: PartialEq + Copy>(
         .collect();
     let inset = theme::space::XXS;
     let height = theme::size::CONTROL_SMALL;
-    let widths: Vec<f32> = galleys.iter().map(|g| g.size().x + 2.0 * pad).collect();
+    let widths: Vec<f32> = galleys
+        .iter()
+        .zip(choices)
+        .map(|(g, c)| {
+            let icon = if c.icon.is_some() {
+                ICON + ICON_GAP
+            } else {
+                0.0
+            };
+            g.size().x + icon + 2.0 * pad
+        })
+        .collect();
     let total = widths.iter().sum::<f32>() + 2.0 * inset;
     let side = menu_inset(ui);
     let (row, _) = ui.allocate_exact_size(vec2(total + side, height), Sense::hover());
@@ -290,11 +336,12 @@ pub fn segmented<T: PartialEq + Copy>(
         return picked;
     }
     let ctx = ui.ctx().clone();
+    let ppp = ui.pixels_per_point();
     let painter = ui.painter();
     let controls = theme::controls(false);
-    painter.rect_filled(rect, theme::radius::SMALL, controls.fill);
-    // The thumb slides to the chosen segment, the newly picked one at once
-    // so the click lands where it is drawn.
+    raised::paint_sunken(painter, rect.round_to_pixels(ppp), theme::radius::MEDIUM);
+    // The raised thumb slides to the chosen segment, the newly picked one
+    // at once so the click lands where it is drawn.
     let target = picked
         .and_then(|p| choices.iter().position(|c| c.value == p))
         .or_else(|| choices.iter().position(|c| c.value == value));
@@ -302,41 +349,56 @@ pub fn segmented<T: PartialEq + Copy>(
         let to = segments[index].0;
         let left = motion::glide(&ctx, id.with("thumb left"), to.left(), true);
         let right = motion::glide(&ctx, id.with("thumb right"), to.right(), true);
-        let thumb = Rect::from_x_y_ranges(left..=right, to.y_range());
-        painter.rect_filled(thumb, theme::radius::SMALL - 1, palette.accent_muted);
+        let thumb = Rect::from_x_y_ranges(left..=right, to.y_range()).round_to_pixels(ppp);
+        let mut face = raised::Face::new(theme::Controls {
+            fill: theme::thumb(),
+            hover: theme::thumb(),
+            press: theme::thumb(),
+            text: palette.text,
+        });
+        if let Some(tone) = lit {
+            face = face.lit(1.0, tone);
+        }
+        raised::paint(painter, thumb, theme::radius::SMALL, &face);
     }
     for ((segment, response, chosen), (choice, galley)) in
         segments.iter().zip(choices.iter().zip(galleys))
     {
+        let on = *chosen || picked == Some(choice.value);
         let colour = if !choice.enabled {
             palette.text_disabled
-        } else if *chosen || picked == Some(choice.value) {
-            palette.accent
+        } else if on {
+            lit.map_or(palette.text, |tone| theme::lit(tone).text)
         } else if response.hovered() {
             palette.text
         } else {
             controls.text
         };
+        // Icon and label share one centre line, snapped to whole pixels.
+        let icon = if choice.icon.is_some() {
+            ICON + ICON_GAP
+        } else {
+            0.0
+        };
+        let content = galley.size().x + icon;
+        let left = (segment.center().x - content / 2.0).round();
+        let mid = segment.center().y.round();
+        if let Some(draw) = choice.icon {
+            draw(painter, pos2(left + ICON / 2.0, mid), colour);
+        }
         painter.galley_with_override_text_color(
-            segment.center() - galley.size() / 2.0,
+            pos2(left + icon, mid - (galley.size().y / 2.0).round()),
             galley,
             colour,
         );
-        if response.has_focus() {
-            painter.rect_stroke(
-                *segment,
-                theme::radius::SMALL,
-                Stroke::new(2.0, palette.accent),
-                StrokeKind::Inside,
-            );
-        }
+        raised::focus_ring(painter, response, *segment);
     }
     picked
 }
 
-/// A button that stays lit while `on` (Browser, Detail): a button's fill
-/// when off, the accent on `accent_muted` when on, so off still reads as a
-/// button (the interface audit's T4: egui's toggle had no fill when off).
+/// A button that stays lit while `on` (Browser, Detail): raised like every
+/// button when off, the accent gradient with its glow when on (ADR-0046;
+/// the interface audit's T4: off still reads as a button).
 pub fn toggle_button(ui: &mut Ui, on: &mut bool, label: &str) -> egui::Response {
     let palette = theme::p();
     let galley = ui.painter().layout_no_wrap(
@@ -358,27 +420,12 @@ pub fn toggle_button(ui: &mut Ui, on: &mut bool, label: &str) -> egui::Response 
     if !ui.is_rect_visible(rect) {
         return response;
     }
-    let hover = motion::hover(ui.ctx(), response.id.with("hover"), response.hovered());
-    let controls = theme::controls(false);
-    let (fill, text) = if state {
-        (palette.accent_muted, palette.accent)
-    } else {
-        (
-            controls.fill.lerp_to_gamma(controls.hover, hover),
-            palette.text,
-        )
-    };
-    let painter = ui.painter();
-    painter.rect_filled(rect, theme::radius::SMALL, fill);
-    painter.galley_with_override_text_color(rect.center() - galley.size() / 2.0, galley, text);
-    if response.has_focus() {
-        painter.rect_stroke(
-            rect,
-            theme::radius::SMALL,
-            Stroke::new(2.0, palette.accent),
-            StrokeKind::Inside,
-        );
-    }
+    let lit = motion::hover(ui.ctx(), response.id.with("lit"), state);
+    let face = raised::face_of(ui, &response).lit(lit, Tone::Accent);
+    let rect = rect.round_to_pixels(ui.pixels_per_point());
+    let body = raised::paint(ui.painter(), rect, theme::radius::SMALL, &face);
+    raised::centre_galley(ui.painter(), body, galley, face.text());
+    raised::focus_ring(ui.painter(), &response, rect);
     response
 }
 
@@ -463,6 +510,7 @@ pub fn tabs(ui: &mut Ui, id: EguiId, chosen: usize, tabs: &[Tab<'_>]) -> Option<
         let left = motion::glide(&ctx, id.with("underline left"), rect.left(), true);
         let right = motion::glide(&ctx, id.with("underline right"), rect.right(), true);
         let line = Rect::from_min_max(pos2(left, rect.bottom() - 2.0), pos2(right, rect.bottom()));
+        light::glow(ui.painter(), light::LIT, line, 1.0, palette.accent, 1.0);
         ui.painter().rect_filled(line, 1.0, palette.accent);
     }
     picked
