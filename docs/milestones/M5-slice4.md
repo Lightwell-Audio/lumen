@@ -1,7 +1,9 @@
 # M5 slice 4 — velocity and controller lanes
 
-**Status (2026-10-11):** Proposed; waiting for the owner's choices V, L, T
-and R. MT-MIDI-4 (slice 3) is still open. Specimens: the private artifact
+**Status (2026-10-11):** Approved. The owner took every recommendation:
+**V A** stems and heads, **L A** one lane with a switcher, **T A** tools in
+the lane header, **R B** smooth 1/64 for Line, Curve and bend (Pencil
+follows the grid). MT-MIDI-4 (slice 3) is still open. Specimens: the private artifact
 "Lumen Controller Lane Specimens" (live; drag in the lanes).
 
 ## Scope (from M5.md, slice 4)

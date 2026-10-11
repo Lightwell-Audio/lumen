@@ -22,9 +22,11 @@ use crate::model::EventKind;
 use crate::model::{Clip, ClipContent, ClipEvent, Id, Note, Project};
 
 mod clipboard;
+pub mod events;
 mod note_selection;
 mod note_time;
 pub mod notes;
+pub mod velocity;
 
 pub use clipboard::{Clipboard, copy_clips, copy_range, landing_tracks, paste};
 pub use note_selection::NoteSelection;
