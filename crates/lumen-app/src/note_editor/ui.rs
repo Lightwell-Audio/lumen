@@ -725,7 +725,7 @@ impl App {
             }
             (Tool::Draw, None) => {
                 let abs = view.absolute_at(p.x);
-                let (cell_start, cell_end) = self.grid_cell(abs);
+                let (cell_start, cell_end) = self.grid_cell_at_zoom(abs, view.time.zoom);
                 let at = if free || !self.grid.snap {
                     abs
                 } else {

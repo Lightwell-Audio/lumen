@@ -267,7 +267,10 @@ fn a_click_with_the_draw_tool_adds_a_note_of_one_grid_step() {
     click(&mut lumen, p, Modifiers::NONE);
     let after = notes(&lumen);
     assert_eq!(after.len(), before + 1);
-    let (cell, end) = lumen.app().grid_cell_at(beat(6.3));
+    let (cell, end) = lumen
+        .app()
+        .editor_grid_cell_at(beat(6.3))
+        .expect("the editor has drawn");
     let drawn = after.iter().find(|n| n.pitch() == 65).expect("drawn");
     assert_eq!(drawn.start(), cell);
     assert_eq!(drawn.length(), end - cell);
@@ -306,7 +309,10 @@ fn dragging_left_with_the_draw_tool_keeps_the_cell_pressed() {
     // Pressed in the grid cell at beat 6, dragged left to beat 4: the note
     // runs from the pointer's snapped place to the end of the pressed cell,
     // so the cell pressed is part of it.
-    let (_, press_end) = lumen.app().grid_cell_at(beat(6.1));
+    let (_, press_end) = lumen
+        .app()
+        .editor_grid_cell_at(beat(6.1))
+        .expect("the editor has drawn");
     let from = at(&lumen, beat(6.1), 62);
     let to = at(&lumen, beat(4.0), 62);
     lumen.drag(from, to, Modifiers::NONE);
@@ -529,7 +535,10 @@ fn the_edit_keys_each_make_one_undo_step() {
     pick_all(&mut lumen);
     lumen.key(Modifiers::NONE, Key::ArrowRight);
     let step = {
-        let (a, b) = lumen.app().grid_cell_at(Ticks::ZERO);
+        let (a, b) = lumen
+            .app()
+            .editor_grid_cell_at(Ticks::ZERO)
+            .expect("the editor has drawn");
         b - a
     };
     assert_eq!(notes(&lumen)[0].start(), step);
@@ -893,4 +902,29 @@ fn the_roll_zooms_and_scrolls_on_its_own() {
         "+ zooms the arrangement"
     );
     assert_eq!(lumen.app().editor_view(), Some(roll3), "the roll stays");
+}
+
+#[test]
+fn drawing_snaps_to_the_rolls_grid_not_the_arrangements() {
+    let mut lumen = launch("notes-draw-roll-grid");
+    open(&mut lumen);
+    let body = lumen.app().editor_body().unwrap();
+    let roll = Pos2::new(body.left() + body.width() * 0.8, body.center().y);
+    // Zoom the roll in alone, so its automatic grid is finer than the
+    // arrangement's.
+    wheel(&mut lumen, roll, 6, Modifiers::COMMAND);
+    let (a0, a1) = lumen.app().grid_cell_at(beat(6.1));
+    let (r0, r1) = lumen.app().editor_grid_cell_at(beat(6.1)).unwrap();
+    assert!(
+        r1 - r0 < a1 - a0,
+        "the roll's cells are finer: {r0:?} {a0:?}"
+    );
+    lumen.key(Modifiers::NONE, Key::B);
+    let p = at(&lumen, beat(6.1), 62);
+    click(&mut lumen, p, Modifiers::NONE);
+    let drawn = notes(&lumen)
+        .into_iter()
+        .find(|n| n.pitch() == 62)
+        .expect("drawn");
+    assert_eq!((drawn.start(), drawn.end()), (r0, r1), "the roll's cell");
 }

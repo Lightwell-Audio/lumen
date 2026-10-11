@@ -711,6 +711,12 @@ impl App {
     pub fn grid_cell_at(&self, t: Ticks) -> (Ticks, Ticks) {
         self.grid_cell(t)
     }
+
+    /// [`Self::grid_cell_at`] as the piano roll's own zoom sets it.
+    pub fn editor_grid_cell_at(&self, t: Ticks) -> Option<(Ticks, Ticks)> {
+        let zoom = self.note_editor.last_view?.time.zoom;
+        Some(self.grid_cell_at_zoom(t, zoom))
+    }
 }
 
 /// The piano roll's body drawn on its own with a sample clip (slice 3b),

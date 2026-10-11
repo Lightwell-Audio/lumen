@@ -48,7 +48,7 @@ impl App {
             .first()
             .and_then(|&i| notes_of(&clip).get(i))
             .map_or(Ticks::ZERO, |n| n.start());
-        let (a, b) = self.grid_cell(clip.start + first);
+        let (a, b) = self.grid_cell_at_zoom(clip.start + first, editor.time.zoom);
         (b - a).max(MIN_NOTE)
     }
 

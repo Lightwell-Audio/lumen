@@ -550,7 +550,14 @@ impl App {
             Command::TripletGrid => self.grid.toggle_triplet(),
             Command::SnapToGrid => self.grid.snap = !self.grid.snap,
             Command::FixedGrid => {
-                let step = self.grid_step();
+                // Fix the grid the pointer's view shows: the roll's own
+                // zoom while the editor holds the keys.
+                let step = if note_keys {
+                    let t = self.note_editor.time;
+                    self.grid_step_at(t.left, t.zoom)
+                } else {
+                    self.grid_step()
+                };
                 self.grid.toggle_fixed(step);
             }
             Command::SetLocator => self.set_locator(),
