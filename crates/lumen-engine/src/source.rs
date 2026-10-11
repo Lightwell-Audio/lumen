@@ -83,6 +83,9 @@ pub struct RenderContext<'a> {
     /// This is the 2 ms rendered ahead of a jump, to crossfade from (the
     /// engine fades it out). Meters and recorders should ignore it.
     pub tail: bool,
+    /// With `tail`: playback is about to stop, not jump. Instruments go on
+    /// ringing after a stop, so they add nothing to this tail.
+    pub stopping: bool,
     pub mode: Mode,
     /// The device's frame count (frames the engine has processed) at which
     /// the first frame of this part is heard, before the device's own

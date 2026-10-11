@@ -232,3 +232,24 @@ fn presets_have_stable_ids() {
         assert_eq!(Preset::from_number(p.number()), Some(p));
     }
 }
+
+#[test]
+fn a_preview_is_what_comes_next_and_leaves_the_synth_where_it_was() {
+    let mut a = Synth::new(Preset::Poly);
+    let mut b = Synth::new(Preset::Poly);
+    let events = [on(0, 60, 100), on(0, 64, 100)];
+    render(&mut a, &events, 2_000, 128);
+    render(&mut b, &events, 2_000, 128);
+    // `a` previews 96 frames; `b` really plays them.
+    let (mut pl, mut pr) = (vec![0.0; 96], vec![0.0; 96]);
+    a.preview(RATE, &mut pl, &mut pr);
+    let (bl, br) = render(&mut b, &[], 96, 96);
+    assert_eq!((&pl, &pr), (&bl, &br), "the preview is what plays next");
+    // Nothing moved: `a` now plays those same frames.
+    let (al, ar) = render(&mut a, &[], 96, 96);
+    assert_eq!((&al, &ar), (&bl, &br), "and the synth did not advance");
+    // Another rate adds nothing.
+    let (mut xl, mut xr) = (vec![0.0; 16], vec![0.0; 16]);
+    a.preview(44_100, &mut xl, &mut xr);
+    assert!(xl.iter().chain(&xr).all(|v| *v == 0.0));
+}

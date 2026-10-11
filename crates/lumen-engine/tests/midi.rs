@@ -847,3 +847,115 @@ fn an_edit_elsewhere_does_not_cut_the_synth_that_is_sounding() {
     assert!(out[..500].iter().any(|v| v.abs() > 0.01), "still sounding");
     assert_eq!(rig.engine.source().tracks().1.held(TRACK), 1);
 }
+
+// ---- Jumps and loop wraps never pop (owner, MT-MIDI-2) ----
+
+/// A chord that sounds for most of the project, then another: the owner
+/// jumped about and looped the midi-demo's bars 1 to 4 on ASIO at 128.
+fn chord_rig(rate: u32) -> Rig {
+    let q = Ticks::quarters;
+    let log = Log::default();
+    let synth = InstrumentSpec {
+        kind: lumen_devices::synth::KIND,
+        preset: 0,
+        instrument: Box::new(lumen_devices::Synth::new(lumen_devices::Preset::Poly)),
+    };
+    let half = Ticks(q(1).0 / 2);
+    let chord = |at: Ticks, length: i64| {
+        [60u8, 64, 67]
+            .into_iter()
+            .map(|p| note(at, q(length), p))
+            .collect::<Vec<_>>()
+    };
+    // The one before the loop end has just begun when the loop wraps.
+    let mut notes = chord(Ticks::ZERO, 2);
+    notes.extend(chord(Ticks(q(3).0 + half.0), 6));
+    notes.extend(chord(q(10), 8));
+    notes.extend(chord(q(18), 6));
+    let track = MidiTrack::new(
+        TRACK,
+        Target::Instrument,
+        Some(synth),
+        vec![clip(1, Ticks::ZERO, q(32), notes)],
+    );
+    rig(Timeline::default(), rate, vec![track], &log)
+}
+
+fn steepest_step(x: &[f32]) -> f32 {
+    x.windows(2)
+        .map(|w| (w[1] - w[0]).abs())
+        .fold(0.0, f32::max)
+}
+
+/// The steepest step of the project playing straight through: what the
+/// sound does by itself, attacks of the loudest chords included.
+fn straight(rate: u32) -> f32 {
+    let mut rig = chord_rig(rate);
+    rig.play();
+    let out = rig.run(rate as usize * 8, 128);
+    steepest_step(&out)
+}
+
+/// The largest step right at a jump (4 frames either side), at 8 places
+/// along the sound's wave: a click is the wave's value where it was cut,
+/// so one place proves little. One value per variant.
+fn pops(rate: u32, block: usize, wrap: bool) -> Vec<f32> {
+    let q = Ticks::quarters;
+    let timeline = Timeline::default();
+    let mut around = Vec::new();
+    for v in 0..8usize {
+        let mut rig = chord_rig(rate);
+        let mut worst = 0.0f32;
+        if wrap {
+            // Loop beats 0 to 4, give or take a few ticks: the wrap falls
+            // on another part of the wave each time.
+            let end = q(4) + Ticks(v as i64 * 183);
+            let lap = timeline.sample_at(end, rate) as usize;
+            rig.transport
+                .send(Command::SetLoop(Region::new(Ticks::ZERO, end, true)))
+                .unwrap();
+            rig.play();
+            let out = rig.run(2 * lap + 3_000, block);
+            for k in 1..=2 {
+                worst = worst.max(steepest_step(&out[k * lap - 4..k * lap + 4]));
+            }
+        } else {
+            rig.play();
+            let mut tail = rig.run(rate as usize / 2 + v * 113, block);
+            // Click the ruler: into a held chord, a gap, another chord.
+            for beat in [5, 12, 1, 4, 14] {
+                rig.transport.send(Command::Locate(q(beat))).unwrap();
+                let out = rig.run(3_000 + v * 91, block);
+                // The command lands on the next block's first frame.
+                let mut join = tail[tail.len() - 4..].to_vec();
+                join.extend_from_slice(&out[..4]);
+                worst = worst.max(steepest_step(&join));
+                tail = out;
+            }
+        }
+        around.push(worst);
+    }
+    around
+}
+
+#[test]
+fn a_jump_or_loop_wrap_under_a_held_chord_does_not_pop() {
+    let mut bad = Vec::new();
+    for rate in [44_100, 48_000, 96_000] {
+        let steady = straight(rate);
+        for block in [64, 128, 480] {
+            for wrap in [false, true] {
+                let worst = pops(rate, block, wrap).into_iter().fold(0.0, f32::max);
+                println!(
+                    "rate {rate} block {block} wrap {wrap}: straight {steady:.4} worst at the jump {worst:.4}"
+                );
+                if worst > steady * 0.75 {
+                    bad.push(format!(
+                        "rate {rate} block {block} wrap {wrap}: step {worst} vs {steady}"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
+}

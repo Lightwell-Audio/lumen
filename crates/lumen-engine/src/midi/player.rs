@@ -429,9 +429,41 @@ fn render_instrument(
     }
 }
 
+/// Adds the next frames of what the track's instrument sounds now to its
+/// bus, without moving the instrument on.
+fn preview_instrument(
+    track: &mut MidiTrack,
+    id: u64,
+    (frames, rate): (usize, u32),
+    buses: &mut Buses<'_>,
+) {
+    let Some(spec) = track.instrument.as_mut().filter(|s| s.instrument.active()) else {
+        return;
+    };
+    let mut left = [0.0f32; CHUNK];
+    let mut right = [0.0f32; CHUNK];
+    spec.instrument
+        .preview(rate, &mut left[..frames], &mut right[..frames]);
+    if let Some(mut bus) = buses.track(id) {
+        for (side, samples) in [(0, &left), (1, &right)] {
+            for (to, from) in bus.channel(side).iter_mut().zip(samples) {
+                *to += from;
+            }
+        }
+    }
+}
+
 impl TrackSource for MidiPlayer {
     fn render(&mut self, cx: &RenderContext<'_>, buses: &mut Buses<'_>) {
         if cx.tail {
+            if !cx.stopping {
+                // Ahead of a jump: what rings goes on, faded out by the
+                // engine while the new position fades in.
+                let frames = buses.frames();
+                for track in &mut self.current.tracks {
+                    preview_instrument(track, track.id, (frames, cx.sample_rate), buses);
+                }
+            }
             return;
         }
         let clock = Clock {

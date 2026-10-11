@@ -437,6 +437,7 @@ impl<T: TrackSource> Source for Mixer<T> {
                 sample_rate,
                 start: self.cursor,
                 tail: true,
+                stopping: false,
                 mode: Mode::Play,
                 stream: 0,
                 device: 0,
