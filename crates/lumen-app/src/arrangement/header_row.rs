@@ -67,7 +67,7 @@ impl Arrangement {
         let hears = hearing.of(track.id);
         let heard = hears.output;
         let group = track.kind == TrackKind::Group;
-        let arm = nesting::arm_state(doc.project(), index);
+        let arm = nesting::arm_look(doc.project(), index, &self.selected);
         let inside = lumen_project::groups::span(&doc.project().tracks, index).len() - 1;
         let collapsed = self.collapsed.contains(&track.id);
 

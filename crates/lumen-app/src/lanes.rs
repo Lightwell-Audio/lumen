@@ -58,7 +58,7 @@ pub struct Lanes {
     dirty: bool,
     /// The project state the engine's MIDI tracks were built from, and
     /// whether they need sending again (M5 slice 1).
-    midi_built: Option<u64>,
+    midi_built: Option<(u64, crate::midi_play::Inputs)>,
     midi_dirty: bool,
     midi_cache: crate::midi_play::Cache,
     /// The MIDI outputs tracks name, by the numbers the engine uses.
@@ -260,6 +260,7 @@ impl Lanes {
         doc: &mut Document,
         engine: Handles<'_>,
         cue: &crate::routing::Cue,
+        inputs: &crate::midi_play::Inputs,
     ) {
         let Handles { clips, midi, mixer } = engine;
         self.rate = rate;
@@ -287,14 +288,23 @@ impl Lanes {
             self.dirty = clips.set(list).is_err();
             self.built = Some(doc.state());
         }
-        if self.midi_dirty || self.midi_built != Some(doc.state()) {
+        // Sent again when the project, the selection or the inputs change
+        // (which tracks listen to what), never every frame.
+        let midi_wanted = (doc.state(), inputs);
+        if self.midi_dirty
+            || self
+                .midi_built
+                .as_ref()
+                .is_none_or(|(s, i)| (*s, i) != midi_wanted)
+        {
             let tracks = crate::midi_play::engine_midi(
                 doc.project(),
+                inputs,
                 &mut self.midi_ports,
                 &mut self.midi_cache,
             );
             self.midi_dirty = midi.set(tracks).is_err();
-            self.midi_built = Some(doc.state());
+            self.midi_built = Some((doc.state(), inputs.clone()));
         }
         // The routing follows the clips, never ahead of them: a deleted
         // track's clips fade out while its node is still there, and a new

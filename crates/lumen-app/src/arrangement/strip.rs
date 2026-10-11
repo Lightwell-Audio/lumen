@@ -54,6 +54,8 @@ const MARKS: [f32; 6] = [0.0, -48.0, 6.0, -12.0, -24.0, -6.0];
 /// Which optional sections a strip shows, for the panel's height.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Sections {
+    /// A MIDI track's From and To rows, above the output.
+    pub io: bool,
     pub output: bool,
     pub trim: bool,
     pub sends: bool,
@@ -62,13 +64,15 @@ pub(super) struct Sections {
 impl Sections {
     /// The sections that fit `height`, folding sends away first, then trim
     /// and polarity, then the output (the owner's B7).
-    pub(super) fn fitting(height: f32) -> Self {
+    pub(super) fn fitting(height: f32, midi: bool) -> Self {
         let mut s = Sections {
+            io: midi,
             output: true,
             trim: true,
             sends: true,
         };
         for fold in [
+            |s: &mut Sections| s.io = false,
             |s: &mut Sections| s.sends = false,
             |s: &mut Sections| s.trim = false,
             |s: &mut Sections| s.output = false,
@@ -83,7 +87,12 @@ impl Sections {
 
     /// The height everything but the fader takes.
     fn fixed(self) -> f32 {
-        let optional = [(self.output, ROW), (self.trim, ROW), (self.sends, SENDS)];
+        let optional = [
+            (self.io, 2.0 * ROW + GAP),
+            (self.output, ROW),
+            (self.trim, ROW),
+            (self.sends, SENDS),
+        ];
         TOP + NAME
             + optional
                 .iter()
@@ -109,6 +118,7 @@ impl Sections {
     /// The shortest strip: everything folded and the shortest travel.
     pub(super) fn min_height() -> f32 {
         Sections {
+            io: false,
             output: false,
             trim: false,
             sends: false,
@@ -238,6 +248,17 @@ impl Arrangement {
         self.strip_name(ui, doc, &track, (x, y), (id, heard));
         y += NAME + GAP;
 
+        if look.sections.io {
+            // A MIDI track's From and To (the other kinds leave the room
+            // empty, so every fader keeps its place).
+            if track.kind == TrackKind::Midi {
+                let from = Rect::from_x_y_ranges(x, y..=y + ROW);
+                self.input_row(ui, doc, &track, from, id);
+                let to = Rect::from_x_y_ranges(x, y + ROW + GAP..=y + 2.0 * ROW + GAP);
+                self.output_row(ui, doc, &track, to, id);
+            }
+            y += 2.0 * ROW + 2.0 * GAP;
+        }
         if look.sections.output {
             self.output_button(ui, doc, &track, Rect::from_x_y_ranges(x, y..=y + ROW), id);
             y += ROW + GAP;
@@ -335,7 +356,7 @@ impl Arrangement {
             );
         }
         if arms && let Some(i) = index {
-            let arm = nesting::arm_state(doc.project(), i);
+            let arm = nesting::arm_look(doc.project(), i, &self.selected);
             let name = format!("{} in the mixer", track.name);
             if headers::arm_button(ui, next(), id, &name, arm, controls) {
                 doc.set_armed(&self.targets(track.id), !arm.on());
@@ -723,22 +744,24 @@ mod tests {
 
     #[test]
     fn a_short_panel_folds_sends_then_trim_then_the_output() {
-        let all = Sections::fitting(1_000.0);
-        assert!(all.output && all.trim && all.sends);
+        let all = Sections::fitting(1_000.0, true);
+        assert!(all.io && all.output && all.trim && all.sends);
+        assert!(!Sections::fitting(1_000.0, false).io);
         assert!(all.travel(1_000.0) > TRAVEL_MIN);
         // Just short of room for the sends: they go first.
         let full = Sections {
+            io: false,
             output: true,
             trim: true,
             sends: true,
         };
         let h = full.fixed() + TRAVEL_MIN - 1.0;
-        let s = Sections::fitting(h);
+        let s = Sections::fitting(h, false);
         assert!(!s.sends && s.trim && s.output, "{s:?}");
         // Shorter still: trim, then the output.
-        let s = Sections::fitting(h - SENDS - GAP - ROW);
+        let s = Sections::fitting(h - SENDS - GAP - ROW, false);
         assert!(!s.sends && !s.trim && s.output, "{s:?}");
-        let s = Sections::fitting(Sections::min_height());
+        let s = Sections::fitting(Sections::min_height(), true);
         assert!(!s.sends && !s.trim && !s.output);
         assert_eq!(s.travel(Sections::min_height()), TRAVEL_MIN);
     }

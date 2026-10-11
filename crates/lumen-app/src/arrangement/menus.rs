@@ -3,10 +3,9 @@
 
 use eframe::egui::{self, Sense, Stroke, Ui, vec2};
 use lumen_devices::Preset;
-use lumen_project::model::{Id, MidiTo, TrackKind};
+use lumen_project::model::{Id, TrackKind};
 
-use super::{Arrangement, color_from};
-use crate::app::hardware::MenuPorts;
+use super::{Arrangement, color_from, midi_io};
 use crate::commands::{Command, Keymap};
 use crate::document::Document;
 use crate::{theme, widgets};
@@ -142,7 +141,8 @@ impl Arrangement {
             .instrument()
             .map(|d| d.preset().and_then(Preset::from_id).unwrap_or_default());
         let to = track.midi_to.clone();
-        let ports = MenuPorts::of(ui.ctx());
+        let from = track.midi_from.clone();
+        let monitor = track.monitor;
         widgets::submenu(ui, "Instrument", |ui| {
             for p in Preset::ALL {
                 if widgets::menu_toggle(ui, p.name(), None, to.is_none() && preset == Some(p))
@@ -158,39 +158,13 @@ impl Arrangement {
                 ui.close();
             }
         });
-        widgets::submenu(ui, "MIDI To", |ui| {
-            if widgets::menu_toggle(ui, "Instrument", None, to.is_none()).clicked() {
-                doc.set_midi_to(&midi, None);
-                ui.close();
-            }
-            ui.separator();
-            if ports.0.is_empty() {
-                widgets::menu_item(ui, "No MIDI outputs", None, false);
-            }
-            for port in &ports.0 {
-                let label = if port.present {
-                    port.label.clone()
-                } else {
-                    format!("{} (not connected)", port.label)
-                };
-                widgets::submenu(ui, label, |ui| {
-                    for channel in 0..16_u8 {
-                        let chosen = to
-                            .as_ref()
-                            .is_some_and(|t| t.port == port.id && t.channel == channel);
-                        let name = format!("Channel {}", channel + 1);
-                        if widgets::menu_toggle(ui, &name, None, chosen).clicked() {
-                            let out = MidiTo {
-                                port: port.id.clone(),
-                                channel,
-                            };
-                            doc.set_midi_to(&midi, Some(out));
-                            ui.close();
-                        }
-                    }
-                });
-            }
+        widgets::submenu(ui, "MIDI From", |ui| {
+            midi_io::from_menu(ui, doc, &midi, &from);
         });
+        widgets::submenu(ui, "MIDI To", |ui| {
+            midi_io::to_menu(ui, doc, &midi, &to);
+        });
+        midi_io::monitor_row(ui, doc, &midi, monitor);
     }
 
     /// "Add … track" entries, adding after `after`.

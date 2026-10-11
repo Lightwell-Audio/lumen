@@ -174,6 +174,12 @@ impl App {
             .collect()
     }
 
+    /// Sets MIDI From on the selected MIDI tracks, as the menu would.
+    pub fn set_midi_from(&mut self, from: lumen_project::model::MidiFrom) {
+        let ids = self.selected_midi_tracks();
+        self.document.set_midi_from(&ids, from);
+    }
+
     /// Plays `msg` live, as the computer keyboard does (M5 slice 2).
     pub fn play_live(&mut self, msg: lumen_core::midi::Msg) -> bool {
         self.play_key(msg)

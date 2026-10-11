@@ -37,6 +37,58 @@ fn would_loop(project: &Project, id: Id, output: Output) -> bool {
     rules::has_loop(&trial)
 }
 
+/// A strip's row that opens a menu (the output, and a MIDI track's From and
+/// To): `text` shortened to fit beside an arrow, named `name`, with `tip` on
+/// hover. `salt` tells the rows of one strip apart.
+pub(super) fn row_button(
+    ui: &mut Ui,
+    row: Rect,
+    id: EguiId,
+    salt: &str,
+    text: &str,
+    name: &str,
+    tip: &str,
+) -> egui::Response {
+    let palette = *theme::p();
+    let response = ui
+        .interact(row, id.with(salt), Sense::click())
+        .on_hover_text(tip);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, name));
+    let hover = motion::hover(ui.ctx(), id.with((salt, "hover")), response.hovered());
+    let painter = ui.painter();
+    painter.rect_filled(
+        row,
+        theme::radius::SMALL,
+        palette.control.lerp_to_gamma(palette.control_hover, hover),
+    );
+    let font = FontId::proportional(theme::size::CAPTION);
+    let room = row.width() - 20.0;
+    let shown = if painter
+        .layout_no_wrap(text.to_owned(), font.clone(), Color32::WHITE)
+        .size()
+        .x
+        > room
+    {
+        super::sends::shorten(painter, text, font.clone(), room)
+    } else {
+        text.to_owned()
+    };
+    painter.text(
+        pos2(row.left() + 5.0, row.center().y),
+        Align2::LEFT_CENTER,
+        shown,
+        font,
+        palette.text_secondary,
+    );
+    widgets::draw_arrow(
+        painter,
+        pos2(row.right() - 8.0, row.center().y),
+        1.0,
+        palette.text_hint,
+    );
+    response
+}
+
 impl Arrangement {
     /// Where the track plays to; a click opens the choices.
     pub(super) fn output_button(
@@ -47,48 +99,16 @@ impl Arrangement {
         row: Rect,
         id: EguiId,
     ) {
-        let palette = *theme::p();
         let text = destination_text(doc.project(), track);
-        let response = ui
-            .interact(row, id.with("output"), Sense::click())
-            .on_hover_text("Where this track plays to");
-        response.widget_info(|| {
-            egui::WidgetInfo::labeled(
-                egui::WidgetType::ComboBox,
-                true,
-                format!("{} output in the mixer: {text}", track.name),
-            )
-        });
-        let hover = motion::hover(ui.ctx(), id.with("output hover"), response.hovered());
-        let painter = ui.painter();
-        painter.rect_filled(
+        let name = format!("{} output in the mixer: {text}", track.name);
+        let response = row_button(
+            ui,
             row,
-            theme::radius::SMALL,
-            palette.control.lerp_to_gamma(palette.control_hover, hover),
-        );
-        let font = FontId::proportional(theme::size::CAPTION);
-        let shown = if painter
-            .layout_no_wrap(text.clone(), font.clone(), Color32::WHITE)
-            .size()
-            .x
-            > row.width() - 20.0
-        {
-            super::sends::shorten(painter, &text, font.clone(), row.width() - 20.0)
-        } else {
-            text
-        };
-        painter.text(
-            pos2(row.left() + 5.0, row.center().y),
-            Align2::LEFT_CENTER,
-            shown,
-            font,
-            palette.text_secondary,
-        );
-        widgets::draw_arrow(
-            painter,
-            pos2(row.right() - 8.0, row.center().y),
-            1.0,
-            palette.text_hint,
+            id,
+            "output",
+            &text,
+            &name,
+            "Where this track plays to",
         );
         widgets::Menu::below(&response).show(|ui| {
             ui.set_min_width(160.0);

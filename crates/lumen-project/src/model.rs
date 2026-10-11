@@ -229,6 +229,14 @@ pub struct Track {
     /// instrument stays on the track for switching back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub midi_to: Option<MidiTo>,
+    /// Which MIDI inputs a MIDI track listens to (format v13). Written only
+    /// when not "all inputs, all channels".
+    #[serde(default, skip_serializing_if = "MidiFrom::is_default")]
+    pub midi_from: MidiFrom,
+    /// When the track listens to its input (format v13). Stored on every
+    /// kind of track; audio tracks use it from M9.
+    #[serde(default, skip_serializing_if = "Monitor::is_default")]
+    pub monitor: Monitor,
     #[serde(default)]
     pub clips: Vec<Arc<Clip>>,
 }
@@ -253,6 +261,8 @@ impl Track {
             armed: false,
             devices: Vec::new(),
             midi_to: None,
+            midi_from: MidiFrom::default(),
+            monitor: Monitor::default(),
             clips: Vec::new(),
         }
     }
@@ -363,6 +373,56 @@ impl<'de> Deserialize<'de> for Level {
 pub struct MidiTo {
     pub port: String,
     pub channel: u8,
+}
+
+/// Which inputs feed a MIDI track (format v13).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FromSource {
+    /// Every input switched on for tracks, and the computer keyboard.
+    #[default]
+    All,
+    /// The computer keyboard only.
+    Keyboard,
+    /// One input port, by the name the system gave it. It may be unplugged:
+    /// the name is kept so the track finds the device again.
+    Port(String),
+}
+
+/// A MIDI track's input (format v13): a source and a channel from 0 (shown
+/// as 1) to 15, or every channel.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct MidiFrom {
+    #[serde(default)]
+    pub source: FromSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<u8>,
+}
+
+impl MidiFrom {
+    /// All inputs, all channels: the default, which is not written.
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// When a track passes its input through to its output (format v13).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Monitor {
+    /// While the track is armed or selected.
+    #[default]
+    Auto,
+    /// Always.
+    In,
+    /// Never.
+    Off,
+}
+
+impl Monitor {
+    pub fn is_default(&self) -> bool {
+        *self == Self::Auto
+    }
 }
 
 /// The stable name of the built-in synth in `PluginRef::Builtin` (format

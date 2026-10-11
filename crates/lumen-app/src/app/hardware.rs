@@ -38,6 +38,19 @@ impl MenuPorts {
     }
 }
 
+/// The inputs for the track menu: every input present, then any a MIDI track
+/// of this project listens to that is not plugged in. In the egui context
+/// like [`MenuPorts`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct MenuInputs(pub Vec<MenuPort>);
+
+impl MenuInputs {
+    pub(crate) fn of(ctx: &egui::Context) -> Self {
+        ctx.data(|d| d.get_temp::<MenuInputs>(egui::Id::new("menu-midi-inputs")))
+            .unwrap_or_default()
+    }
+}
+
 impl App {
     /// Gives the selected MIDI tracks the synth on `preset`.
     pub(crate) fn choose_instrument(&mut self, preset: Preset) {
@@ -56,6 +69,21 @@ impl App {
     /// False when it could not go (no engine yet, or the queue is full).
     pub(crate) fn play_key(&mut self, msg: lumen_core::midi::Msg) -> bool {
         self.live_keys.as_mut().is_some_and(|keys| keys.send(msg))
+    }
+
+    /// What decides which tracks listen: the selection and the inputs
+    /// switched on for tracks.
+    pub(crate) fn listen_inputs(&self) -> crate::midi_play::Inputs {
+        let mut selected = self.arrangement.selected.clone();
+        selected.sort();
+        let ports = self
+            .midi
+            .ports()
+            .into_iter()
+            .filter(|p| p.info.id.direction == Direction::Input && p.using.track)
+            .filter_map(|p| Some((p.info.id.name.clone(), p.slot?)))
+            .collect();
+        crate::midi_play::Inputs { selected, ports }
     }
 
     /// Called every frame after the engine's lists are sent.
@@ -103,6 +131,10 @@ impl App {
             // plug-in notice, or the device is away).
             self.midi_checked = Some(state);
         }
+        let inputs = self.menu_inputs();
+        if MenuInputs::of(ctx) != inputs {
+            ctx.data_mut(|d| d.insert_temp(egui::Id::new("menu-midi-inputs"), inputs));
+        }
         let menu = self.menu_ports();
         if MenuPorts::of(ctx) != menu {
             ctx.data_mut(|d| d.insert_temp(egui::Id::new("menu-midi-outputs"), menu));
@@ -135,6 +167,40 @@ impl App {
             }
         }
         listed
+    }
+
+    fn menu_inputs(&self) -> MenuInputs {
+        let mut ports: Vec<MenuPort> = self
+            .midi
+            .ports()
+            .into_iter()
+            .filter(|p| p.info.id.direction == Direction::Input)
+            .map(|p| MenuPort {
+                id: p.info.id.name.clone(),
+                label: p.info.name.clone(),
+                present: true,
+            })
+            .collect();
+        let named: BTreeSet<String> = self
+            .document
+            .project()
+            .tracks
+            .iter()
+            .filter_map(|t| match &t.midi_from.source {
+                lumen_project::model::FromSource::Port(name) => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
+        for name in named {
+            if !ports.iter().any(|p| p.id == name) {
+                ports.push(MenuPort {
+                    label: name.clone(),
+                    id: name,
+                    present: false,
+                });
+            }
+        }
+        MenuInputs(ports)
     }
 
     fn menu_ports(&self) -> MenuPorts {
