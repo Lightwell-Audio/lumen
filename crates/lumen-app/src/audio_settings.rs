@@ -374,8 +374,7 @@ impl Window {
                     }
                 }
             }
-            if ui
-                .small_button("⟳")
+            if crate::widgets::raised::button(ui, "⟳")
                 .on_hover_text("Look for devices again (after plugging one in or out)")
                 .clicked()
             {
@@ -426,11 +425,13 @@ impl Window {
                 ui.multiply_opacity(shown);
                 row(ui, "", |ui| {
                     // Leaves room for the Dismiss button.
-                    let label = warning(ui, &notice, 72.0);
+                    let label = warning(ui, &notice, 84.0);
                     if let Some(detail) = &audio.notice_detail {
                         label.on_hover_text(detail);
                     }
-                    if audio.notice.is_some() && ui.small_button("Dismiss").clicked() {
+                    if audio.notice.is_some()
+                        && crate::widgets::raised::button(ui, "Dismiss").clicked()
+                    {
                         actions.push(Action::DismissNotice);
                     }
                 });

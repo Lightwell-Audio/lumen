@@ -296,8 +296,7 @@ impl Transport {
             }
             ui.separator();
         }
-        if ui
-            .button("MIDI settings\u{2026}")
+        if widgets::raised::button(ui, "MIDI settings\u{2026}")
             .on_hover_text("Open the audio and MIDI settings on the MIDI page")
             .clicked()
         {
@@ -326,8 +325,14 @@ impl Transport {
                 )
             });
             let palette = theme::p();
-            ui.painter()
-                .rect_filled(rect, theme::radius::SMALL, palette.accent_muted);
+            // Lit like a toggle that is on (`Tone::On`), and fixed.
+            let face = widgets::raised::Face::new(theme::controls(false)).lit(1.0, theme::Tone::On);
+            widgets::raised::paint(
+                ui.painter(),
+                rect,
+                theme::radius::for_height(rect.height()),
+                &face,
+            );
             ui.painter().text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,

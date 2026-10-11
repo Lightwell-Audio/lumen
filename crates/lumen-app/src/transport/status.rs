@@ -39,10 +39,10 @@ impl Transport {
             } else {
                 theme::p().text_secondary
             };
+            // Martian Mono like the other readouts (the Transport card).
             ui.label(
                 RichText::new(format!("CPU {cpu:.0}%"))
-                    .small()
-                    .monospace()
+                    .font(egui::FontId::monospace(theme::size::BODY))
                     .color(color),
             )
             .on_hover_text(
@@ -67,7 +67,7 @@ impl Transport {
         let gap = super::fit::gap(ui);
         let small = egui::TextStyle::Small.resolve(ui.style());
         let cpu = if self.audio.meters().is_some() {
-            let font = egui::FontId::monospace(small.size);
+            let font = egui::FontId::monospace(theme::size::BODY);
             super::fit::text_width(ui, "CPU 100%", font) + gap
         } else {
             0.0
@@ -78,7 +78,7 @@ impl Transport {
             .map_or(0.0, |episode| {
                 let font = egui::FontId::proportional(theme::size::CAPTION);
                 let text = format!("\u{26A0} {}", dropouts::chip(episode));
-                super::fit::text_width(ui, &text, font) + 2.0 * (theme::space::S - 1.0) + gap
+                super::fit::text_width(ui, &text, font) + 2.0 * theme::space::S + gap
             });
         let compensation = match self.audio.status {
             Status::Running { .. } => {
@@ -117,18 +117,28 @@ impl Transport {
             egui::FontId::proportional(theme::size::CAPTION),
             theme::p().warning.gamma_multiply(shown),
         );
-        let pad = egui::vec2(theme::space::S - 1.0, 2.0);
-        let (rect, response) =
-            ui.allocate_exact_size(galley.size() + 2.0 * pad, egui::Sense::click());
+        // A pill, 20 pt tall (the Notices card).
+        let size = egui::vec2(
+            galley.size().x + 2.0 * theme::space::S,
+            theme::size::CONTROL_SMALL,
+        );
+        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
         let painter = ui.painter();
         painter.rect(
             rect,
-            theme::radius::SMALL,
+            theme::radius::FULL,
             theme::warning_fill().gamma_multiply(shown),
-            egui::Stroke::new(1.0, theme::warning_edge().gamma_multiply(shown)),
+            egui::Stroke::new(
+                theme::stroke::HAIRLINE,
+                theme::warning_edge().gamma_multiply(shown),
+            ),
             egui::StrokeKind::Inside,
         );
-        painter.galley(rect.min + pad, galley, theme::p().warning);
+        painter.galley(
+            (rect.center() - galley.size() / 2.0).round(),
+            galley,
+            theme::p().warning,
+        );
         let name = format!("Audio: {}", dropouts::chip(episode));
         response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
         Some(
@@ -217,8 +227,7 @@ impl Transport {
         {
             self.audio.set_on(on);
         }
-        if ui
-            .button("Audio and MIDI settings…")
+        if crate::widgets::raised::button(ui, "Audio and MIDI settings…")
             .on_hover_text("Choose the driver, device, sample rate, buffer and channels")
             .clicked()
         {

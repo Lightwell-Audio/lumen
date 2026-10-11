@@ -1,8 +1,9 @@
 //! The clip header strip (M5 slice 5, the owner's approved mock-up): the
 //! clip's colour bar, name and "N bars · N notes"; the Pointer/Draw tools; the
 //! grid chip; and the Lane and Pop out icon buttons at the right. Every
-//! control is a premium raised control (ADR-0046, ADR-0051) and icons and
-//! letters share one pixel-snapped centre line.
+//! control is a raised control (the design system, ADR-0052): a toggle that
+//! is on is `Tone::On`, and only the chosen tool is filled accent. Icons
+//! and letters share one pixel-snapped centre line.
 
 use std::sync::Arc;
 
@@ -215,7 +216,12 @@ impl App {
         if row.is_rect_visible(rect) {
             let face = raised::face_of(row, &response);
             let rect = rect.round_to_pixels(row.pixels_per_point());
-            let body = raised::paint(row.painter(), rect, theme::radius::SMALL, &face);
+            let body = raised::paint(
+                row.painter(),
+                rect,
+                theme::radius::for_height(rect.height()),
+                &face,
+            );
             let painter = row.painter();
             let mid = body.center().y.round();
             let mut x = (body.left() + theme::space::S).round();
@@ -261,8 +267,9 @@ fn separator(row: &mut Ui) {
     row.painter().rect_filled(rect, 0.0, theme::p().border);
 }
 
-/// A raised icon button that stays lit while `on` (the accent gradient and
-/// its glow, cross-fading), named `name` for assistive technology.
+/// A raised icon button that stays lit while `on` (`Tone::On`: `accent_muted`,
+/// an accent icon and hairline, cross-fading), named `name` for assistive
+/// technology.
 fn icon_toggle(
     ui: &mut Ui,
     name: &str,
@@ -276,9 +283,14 @@ fn icon_toggle(
     });
     if ui.is_rect_visible(rect) {
         let lit = motion::hover(ui.ctx(), response.id.with("lit"), on);
-        let face = raised::face_of(ui, &response).lit(lit, Tone::Accent);
+        let face = raised::face_of(ui, &response).lit(lit, Tone::On);
         let rect = rect.round_to_pixels(ui.pixels_per_point());
-        let body = raised::paint(ui.painter(), rect, theme::radius::SMALL, &face);
+        let body = raised::paint(
+            ui.painter(),
+            rect,
+            theme::radius::for_height(rect.height()),
+            &face,
+        );
         draw(ui.painter(), body.center().round(), face.text());
         raised::focus_ring(ui.painter(), &response, rect);
     }

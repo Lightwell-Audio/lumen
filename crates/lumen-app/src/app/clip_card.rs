@@ -151,7 +151,7 @@ fn swatch(
     let hot = response.hovered() || response.has_focus();
     if on || hot {
         let stroke = Stroke::new(
-            1.5,
+            theme::stroke::LIT,
             if on {
                 palette.accent
             } else {
@@ -189,7 +189,7 @@ fn track_pill(ui: &mut egui::Ui, track: egui::Color32, on: bool) -> egui::Respon
     let hover = crate::motion::hover(ui.ctx(), response.id.with("hover"), response.hovered());
     let controls = theme::controls(false);
     let painter = ui.painter();
-    let round = (rect.height() / 2.0) as u8;
+    let round = theme::radius::FULL;
     painter.rect_filled(
         rect,
         round,
@@ -209,7 +209,7 @@ fn track_pill(ui: &mut egui::Ui, track: egui::Color32, on: bool) -> egui::Respon
         painter.rect_stroke(
             rect,
             round,
-            Stroke::new(1.5, palette.accent),
+            Stroke::new(theme::stroke::LIT, palette.accent),
             egui::StrokeKind::Inside,
         );
     }
@@ -444,14 +444,19 @@ impl App {
             .order(egui::Order::Foreground)
             .fixed_pos(at)
             .show(ctx, |ui| {
+                // A floating card: radius XL; the pinned card keeps its
+                // accent outline (the owner's P1).
                 egui::Frame::popup(ui.style())
-                    .stroke(Stroke::new(1.0, palette.accent))
+                    .corner_radius(theme::radius::XL)
+                    .stroke(Stroke::new(theme::stroke::HAIRLINE, palette.accent))
                     .show(ui, |ui| {
                         ui.set_width(CARD_WIDTH);
                         close = self.card_contents(ui, &clip, track, &tempo);
                     });
             });
         self.clip_props.size = Some(shown.response.rect.size());
+        // The lit top edge a floating window has (the design system).
+        widgets::window_lip(ctx, shown.response.layer_id, shown.response.rect);
         // Esc while typing cancels the typing; the next one closes.
         let typing = self.typing || ctx.text_edit_focused();
         if close || (!typing && ctx.input(|i| i.key_pressed(Key::Escape))) {
@@ -600,8 +605,8 @@ impl App {
 
     /// The card's Mute and Lock toggles.
     fn card_toggles(&mut self, ui: &mut egui::Ui, clip: &Clip) {
-        // Framed buttons that light when on, so off still reads as a
-        // control.
+        // Framed buttons that light when on (`Tone::On`), so off still reads
+        // as a control.
         let mut muted = clip.muted;
         if widgets::toggle_button(ui, &mut muted, "Mute clip")
             .on_hover_text("Mute or unmute this clip (0)")

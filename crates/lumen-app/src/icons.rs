@@ -278,27 +278,29 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
     }
 }
 
-/// A transport-bar button showing `icon`. `active` marks a toggle that is on
-/// (or Play while playing). The accessible name is `label`; the tooltip adds
-/// the shortcut as keycaps and a hint (`tip`).
 /// Lights a transport button that is sounding now (Play while playing):
-/// the [`light::BEAM`] level's halo around it and its icon in the core
-/// colour (ADR-0043). Drawn over the button `button` returned.
-pub fn beam(ui: &Ui, rect: egui::Rect, icon: Icon) {
-    let painter = ui.painter();
-    let c = theme::p();
+/// the `light::BEAM` level's halo around it (ADR-0043). Drawn over the
+/// button `button` returned; the button itself gives the icon its core
+/// colour and the fill its `accent_muted`.
+pub fn beam(ui: &Ui, rect: egui::Rect) {
     crate::light::halo_around(
-        painter,
+        ui.painter(),
         crate::light::BEAM,
         rect,
-        f32::from(theme::radius::SMALL),
-        c.accent,
+        f32::from(theme::radius::for_height(rect.height())),
+        theme::p().accent,
     );
-    for shape in shapes(icon, rect.shrink(4.0), c.core) {
-        painter.add(shape);
-    }
 }
 
+/// A transport-bar button showing `icon` (the design system's Transport
+/// card, ADR-0052). `active` marks a toggle that is on (or Play while
+/// playing, Record while recording). The accessible name is `label`; the
+/// tooltip adds the shortcut as keycaps and a hint (`tip`).
+///
+/// It is quiet: no fill and no border at rest, a `text_secondary` icon;
+/// hover lays Ember over it; pressed it sinks; on it is [`Tone::On`]
+/// (`accent_muted`, accent icon, a 38% hairline), Play while playing has the
+/// icon in `core`, and Record while recording is [`Tone::Record`].
 pub fn button(
     ui: &mut Ui,
     icon: Icon,
@@ -308,7 +310,7 @@ pub fn button(
     enabled: bool,
     disabled_reason: &str,
 ) -> Response {
-    let size = Vec2::new(30.0, 24.0);
+    let size = Vec2::splat(theme::size::TRANSPORT_ICON);
     let sense = if enabled {
         Sense::click()
     } else {
@@ -320,24 +322,31 @@ pub fn button(
     });
     if ui.is_rect_visible(rect) {
         let c = theme::p();
-        // Raised like every control (ADR-0046); hover and being lit
-        // cross-fade (motion: FAST).
+        // Hover and being lit cross-fade (motion: FAST).
         let hot = enabled && (response.hovered() || response.has_focus());
         let lit = crate::motion::hover(ui.ctx(), response.id.with("lit"), active);
         let hover = crate::motion::hover(ui.ctx(), response.id.with("hover"), hot);
+        let tone = if icon == Icon::Record {
+            theme::Tone::Record
+        } else {
+            theme::Tone::On
+        };
         let face = crate::widgets::raised::Face::new(theme::controls(false))
             .hover(hover)
             .pressed(enabled && response.is_pointer_button_down_on())
-            .lit(lit, crate::theme::Tone::Accent);
+            .lit(lit, tone)
+            .enabled(enabled);
         let rect = rect.round_to_pixels(ui.pixels_per_point());
-        let body = crate::widgets::raised::paint(ui.painter(), rect, theme::radius::SMALL, &face);
-        let color = match (enabled, icon) {
-            (false, _) => c.text_disabled,
-            (true, Icon::Record) => c.record,
-            (true, _) => face.text(),
+        let radius = theme::radius::for_height(rect.height());
+        let body = paint_quiet(ui.painter(), rect, radius, &face);
+        // Play while playing reads in the core colour, like the playhead.
+        let color = if matches!(icon, Icon::Play | Icon::Pause) {
+            face.text().lerp_to_gamma(c.core, lit)
+        } else {
+            face.text()
         };
         // The icon sits on the body's centre, in whole pixels.
-        let icon_rect = Rect::from_center_size(body.center().round(), Vec2::new(22.0, 16.0));
+        let icon_rect = Rect::from_center_size(body.center().round(), Vec2::splat(ICON_SIZE));
         for shape in shapes(icon, icon_rect, color) {
             ui.painter().add(shape);
         }
@@ -362,6 +371,49 @@ pub fn button(
         format!("{label}. {disabled_reason}")
     };
     crate::widgets::tip(response, &label, tip.keys, tip.hint)
+}
+
+/// The icon's side on a transport button: the 16 pt grid of every icon.
+const ICON_SIZE: f32 = 16.0;
+
+/// A quiet button's body (the Button card's `lm-quiet`): nothing at rest,
+/// an Ember wash on hover, the sunk look while pressed, and its `tone`
+/// fading in as it lights (no gradient, an `On` hairline; Record also
+/// glows). Returns the rect the icon is centred in.
+fn paint_quiet(
+    painter: &Painter,
+    rect: Rect,
+    radius: u8,
+    face: &crate::widgets::raised::Face,
+) -> Rect {
+    use crate::widgets::raised;
+    if !face.enabled {
+        return rect;
+    }
+    if face.pressed {
+        return raised::paint(painter, rect, radius, face);
+    }
+    let c = theme::p();
+    let r = f32::from(radius);
+    let on = theme::lit(face.tone);
+    if face.lit > 0.0 {
+        if let Some(glow) = face.tone.glow() {
+            crate::light::glow(painter, crate::light::FLARE, rect, r, glow, face.lit);
+        }
+        painter.rect_filled(rect, r, on.top.gamma_multiply(face.lit));
+    }
+    if face.hover > 0.0 {
+        painter.rect_filled(rect, r, c.ember.gamma_multiply(face.hover));
+    }
+    if face.lit > 0.0 {
+        painter.rect_stroke(
+            rect,
+            r,
+            Stroke::new(theme::stroke::HAIRLINE, on.edge.gamma_multiply(face.lit)),
+            egui::StrokeKind::Inside,
+        );
+    }
+    rect
 }
 
 /// The close button's size.

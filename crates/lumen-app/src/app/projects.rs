@@ -416,21 +416,21 @@ impl App {
             return;
         };
         let ctx = ui.ctx().clone();
-        egui::Panel::top("file banner").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let warning = theme::p().warning;
-                ui.label(RichText::new("\u{26A0}").color(warning));
-                ui.label(RichText::new(&message).color(warning));
-                if message.starts_with("Not saved")
-                    && raised::button(ui, "Save as\u{2026}").clicked()
-                {
-                    self.save(&ctx, true);
-                }
-                if raised::button(ui, "Dismiss").clicked() {
-                    self.file_notice = None;
-                }
+        egui::Panel::top("file banner")
+            .frame(super::view::notice_panel_frame())
+            .show(ui, |ui| {
+                super::view::notice_card(ui, |ui| {
+                    ui.label(&message);
+                    if message.starts_with("Not saved")
+                        && raised::primary_button(ui, "Save as\u{2026}").clicked()
+                    {
+                        self.save(&ctx, true);
+                    }
+                    if raised::button(ui, "Dismiss").clicked() {
+                        self.file_notice = None;
+                    }
+                });
             });
-        });
     }
 }
 

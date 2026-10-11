@@ -442,7 +442,28 @@ impl eframe::App for App {
             self.show_detail = !self.show_detail;
         }
 
-        egui::Panel::top("transport").show(ui, |ui| self.transport(ui));
+        // The transport bar (the Transport card, ADR-0052): 44 pt on `app`
+        // with a 1 pt `edge_light` along its top inside edge; the panel's
+        // separator line is the `border` hairline under it.
+        let bar_fill = theme::p().app;
+        let edge_light = theme::edge_light();
+        egui::Panel::top("transport")
+            .exact_size(theme::size::TRANSPORT_BAR)
+            .resizable(false)
+            .frame(
+                egui::Frame::new()
+                    .fill(bar_fill)
+                    .inner_margin(egui::Margin::symmetric(theme::space::M as i8, 0)),
+            )
+            .show(ui, |ui| {
+                let bar = ui.max_rect();
+                ui.painter().hline(
+                    bar.x_range(),
+                    bar.top() + 0.5 * theme::stroke::HAIRLINE,
+                    egui::Stroke::new(theme::stroke::HAIRLINE, edge_light),
+                );
+                self.transport(ui);
+            });
         self.device_banner(ui);
         self.crash_banner(ui);
         self.file_banner(ui);

@@ -38,6 +38,39 @@ const EMPTY_MARK_SIZE: f32 = 48.0;
 /// The mark's size in the transport bar.
 const MARK_SIZE: f32 = 22.0;
 
+/// The panel frame of a banner under the transport: `app` ground with room
+/// around the notice card inside it.
+pub(crate) fn notice_panel_frame() -> egui::Frame {
+    egui::Frame::new()
+        .fill(theme::p().app)
+        .inner_margin(egui::Margin::symmetric(
+            theme::space::M as i8,
+            theme::space::S as i8,
+        ))
+}
+
+/// A notice (the Notices card, ADR-0052): `raised` ground with a 1 pt
+/// `warning` hairline at 45%, radius `LARGE`, the warning icon, then
+/// `add` on one row. Say what happened and what is safe; buttons are
+/// `raised::button`, at most one `primary_button` for the main action.
+pub(crate) fn notice_card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+    egui::Frame::new()
+        .fill(theme::p().raised)
+        .stroke(Stroke::new(theme::stroke::HAIRLINE, theme::warning_edge()))
+        .corner_radius(theme::radius::LARGE)
+        .inner_margin(egui::Margin::symmetric(
+            theme::space::M as i8,
+            theme::space::S as i8,
+        ))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("\u{26A0}").color(theme::p().warning));
+                add(ui);
+            });
+        });
+}
+
 fn settled(glided: f32, exact: f64) -> f64 {
     if (f64::from(glided) - exact).abs() < 1e-3 {
         exact
@@ -688,24 +721,29 @@ report: {}",
             return;
         };
         let live = open;
-        let shown = egui::Panel::top("device banner").show_collapsible(ui, &mut open, |ui| {
-            ui.horizontal(|ui| {
-                let warning = theme::p().warning;
-                ui.label(RichText::new("⚠").color(warning));
-                ui.label(RichText::new(&message).color(warning));
-                ui.add_enabled_ui(live, |ui| {
-                    if retry
-                        && self.transport.audio.can_switch()
-                        && raised::button(ui, "Try again").clicked()
-                    {
-                        self.transport.audio.set_on(true);
-                    }
-                    if raised::button(ui, "Audio and MIDI settings…").clicked() {
-                        self.transport.settings_window.open = true;
-                    }
+        let shown = egui::Panel::top("device banner")
+            .frame(notice_panel_frame())
+            .show_collapsible(ui, &mut open, |ui| {
+                notice_card(ui, |ui| {
+                    ui.label(&message);
+                    ui.add_enabled_ui(live, |ui| {
+                        // The main action is the one primary: Try again when
+                        // it is offered, else the settings.
+                        let can_retry = retry && self.transport.audio.can_switch();
+                        if can_retry && raised::primary_button(ui, "Try again").clicked() {
+                            self.transport.audio.set_on(true);
+                        }
+                        let settings = if can_retry {
+                            raised::button(ui, "Audio and MIDI settings…")
+                        } else {
+                            raised::primary_button(ui, "Audio and MIDI settings…")
+                        };
+                        if settings.clicked() {
+                            self.transport.settings_window.open = true;
+                        }
+                    });
                 });
             });
-        });
         if shown.is_none() {
             self.banner = None;
         }
