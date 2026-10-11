@@ -203,9 +203,23 @@ impl Arrangement {
         kind.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Label, true, kind_name(track.kind))
         });
+        // A MIDI track whose Monitor is not Auto shows a badge before M.
+        let badge = super::monitor_badge::shown(&track).then(|| {
+            Rect::from_center_size(
+                pos2(
+                    mute_rect.left() - BUTTON_GAP - theme::size::BADGE_W / 2.0,
+                    mid,
+                ),
+                vec2(theme::size::BADGE_W, theme::size::BADGE_H),
+            )
+            .round_to_pixels(ppp)
+        });
         let mut name_rect = Rect::from_min_max(
             pos2(left + NAME_X, mid - 10.0),
-            pos2(mute_rect.left() - 6.0, mid + 10.0),
+            pos2(
+                badge.map_or(mute_rect.left(), |b| b.left()) - 6.0,
+                mid + 10.0,
+            ),
         );
         // A return's letter (A, B, C), in its colour: its sends carry
         // the same letter and colour (slice 4).
@@ -243,6 +257,11 @@ impl Arrangement {
             });
         }
 
+        if let Some(badge) = badge
+            && let Some(next) = super::monitor_badge::badge(ui, badge, id, &track, look, selected)
+        {
+            doc.set_monitor(&self.targets(track.id), next);
+        }
         self.mute_solo(
             ui,
             doc,

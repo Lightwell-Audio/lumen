@@ -203,7 +203,11 @@ Sentence case for every label ("Audio settings", not
   `CONTROL_SMALL` 20 pt in dense rows (M, S and arm on headers and strips,
   switches, segmented controls, strip rows, the clip card's rows); knobs
   `KNOB` 24 pt and, in lists, `KNOB_SMALL` 18 pt. A module never invents its
-  own size for these.
+  own size for these. The Monitor badge on a MIDI header (`BADGE_W` 16 ×
+  `BADGE_H` 14 pt) is a speaker before M, shown only when Monitor is In
+  (accent on `accent_muted`, a hairline when the row is selected, no glow)
+  or Off (struck-through speaker, hint grey); Auto shows nothing. A click
+  cycles In, Off, Auto.
 - **Radius:** `SMALL 4` (buttons, inputs, clips), `MEDIUM 6` (popovers),
   `LARGE 8` (windows).
 - **Elevation:** only windows and popovers float. They get `overlay` fill,

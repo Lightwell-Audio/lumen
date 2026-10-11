@@ -1160,3 +1160,120 @@ fn transport_fit() {
         }
     }
 }
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn monitor_sweep() {
+    // The Monitor badge (M5 slice 2 fix): In, Off and Auto beside long
+    // names, rows unselected and selected, an audio track with none, at the
+    // smallest window too.
+    use egui_kittest::kittest::Queryable;
+    use lumen_midi::fake::FakeControl;
+    use lumen_project::model::{Color, Id, Monitor, Track, TrackKind};
+    use lumen_project::testing::{midi_track, project_of};
+
+    for (appearance, scale, size) in [
+        ("dark", 1.0, vec2(1280.0, 760.0)),
+        ("light", 1.0, vec2(1280.0, 760.0)),
+        ("dark", 1.5, vec2(1280.0, 760.0)),
+        ("light", 1.5, vec2(1280.0, 760.0)),
+        ("dark", 2.0, vec2(1280.0, 760.0)),
+        ("light", 2.0, vec2(1280.0, 760.0)),
+        ("dark", 1.0, vec2(960.0, 540.0)),
+        ("light", 1.0, vec2(960.0, 540.0)),
+    ] {
+        let tag = format!("{appearance}-{}-{}", (scale * 100.0) as u32, size.x as u32);
+        let fake = FakeControl::new();
+        let dir = TempDir::new("shots-monitor");
+        let mut lead = midi_track(31, "Lead", "poly", (0, 8), None, vec![], vec![]);
+        lead.monitor = Monitor::In;
+        let mut pad = midi_track(51, "Pad", "poly", (0, 8), None, vec![], vec![]);
+        pad.monitor = Monitor::Off;
+        let mut long = midi_track(
+            71,
+            "Long Name Pad Strings Choir Layer",
+            "poly",
+            (0, 8),
+            None,
+            vec![],
+            vec![],
+        );
+        long.monitor = Monitor::In;
+        let mut long_off = midi_track(
+            91,
+            "Another Very Long Track Name",
+            "poly",
+            (0, 8),
+            None,
+            vec![],
+            vec![],
+        );
+        long_off.monitor = Monitor::Off;
+        let project = project_of(
+            "Monitor",
+            vec![
+                midi_track(1, "Keys", "poly", (0, 8), None, vec![], vec![]),
+                lead,
+                pad,
+                long,
+                long_off,
+                Track::new(Id(111), "Vox", TrackKind::Audio, Color(0x4F81BD)),
+            ],
+        );
+        let path = dir.path().join("song.lumen");
+        lumen_project::save(&project, &path, &Default::default()).expect("save");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .with_midi(fake)
+            .opening(path);
+        let mut h = Harness::builder()
+            .with_size(size)
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        for _ in 0..60 {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        h.run_steps(30);
+        save(&mut h, &format!("monitor-rest-{tag}"));
+        // Select the In track, then the Off track: the badge on a selected row.
+        let r = h.get_by_label_contains("Track Lead,").rect();
+        left_click(&mut h, pos(r, 0.3, 0.5));
+        h.run_steps(40);
+        save(&mut h, &format!("monitor-in-selected-{tag}"));
+        let r = h.get_by_label_contains("Track Pad,").rect();
+        left_click(&mut h, pos(r, 0.3, 0.5));
+        h.run_steps(40);
+        save(&mut h, &format!("monitor-off-selected-{tag}"));
+        // Hover the In badge.
+        let badge = h.get_by_label("Monitor Lead: In").rect();
+        h.hover_at(badge.center());
+        h.run_steps(30);
+        save(&mut h, &format!("monitor-hover-{tag}"));
+    }
+}
+
+/// A left click at `p` (the header's centre can be on a badge).
+fn left_click(h: &mut Harness<'static, App>, p: Pos2) {
+    h.hover_at(p);
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(Event::PointerButton {
+            pos: p,
+            button: eframe::egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+}

@@ -37,6 +37,7 @@ mod midi_from;
 mod midi_play;
 mod mixer;
 mod mixing;
+mod monitor_badge;
 mod motion;
 mod navigation;
 mod palette;
