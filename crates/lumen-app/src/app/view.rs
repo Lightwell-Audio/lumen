@@ -108,6 +108,13 @@ report: {}",
                 .max_rect(rect)
                 .layout(egui::Layout::left_to_right(egui::Align::Center))
         };
+        let midi = crate::transport::MidiView::gather(
+            &self.midi,
+            &self.settings.midi,
+            self.live_keys
+                .as_ref()
+                .map_or(0, crate::live::LiveKeys::activity),
+        );
         ui.scope_builder(row(left), |ui| {
             // Whatever does not fit is cut off here rather than drawn over
             // the panel toggles.
@@ -127,6 +134,9 @@ report: {}",
             self.set_info(info);
         }
         let toggles = ui.scope_builder(row(right), |ui| {
+            // The MIDI chip sits with the panel toggles, so it stays in view
+            // however narrow the window: the transport is cut off first.
+            self.transport.midi_chip(ui, &midi);
             ui.separator();
             let keys = self.keymap.keys(Command::OpenPalette);
             if icons::button(

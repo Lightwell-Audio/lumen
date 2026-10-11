@@ -603,6 +603,63 @@ fn light_layer() {
     }
 }
 
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn midi_chip() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_midi::{Direction, fake::FakeControl};
+    for (appearance, scale, width) in [
+        ("dark", 1.0, 1280.0),
+        ("light", 1.5, 1280.0),
+        ("dark", 1.0, 960.0),
+    ] {
+        let fake = FakeControl::new();
+        fake.plug(Direction::Input, "Arturia KeyStep 37");
+        fake.plug(Direction::Input, "loopMIDI Port");
+        fake.plug(Direction::Output, "Microsoft GS Wavetable Synth");
+        let dir = TempDir::new("shots-chip");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .with_midi(fake.clone());
+        let mut h = Harness::builder()
+            .with_size(vec2(width, 480.0))
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(10);
+        let tag = format!("{appearance}-{scale}-{width}");
+        if width < 1000.0 {
+            save(&mut h, &format!("chip-{tag}"));
+            continue;
+        }
+        h.get_by_label("MIDI: 0 inputs, 0 outputs").click();
+        h.run_steps(30);
+        h.get_by_label("Track Arturia KeyStep 37 input in the MIDI panel")
+            .click();
+        h.run_steps(3);
+        h.get_by_label("Remote Arturia KeyStep 37 input in the MIDI panel")
+            .click();
+        h.get_by_label("Track Microsoft GS Wavetable Synth output in the MIDI panel")
+            .click();
+        for _ in 0..60 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            h.run_steps(1);
+        }
+        fake.send_to_input("Arturia KeyStep 37", 1, &[0x90, 60, 100]);
+        h.run_steps(8);
+        save(&mut h, &format!("chip-{tag}"));
+    }
+}
+
 /// A left click at `p`.
 fn click(h: &mut Harness<'static, App>, p: Pos2) {
     h.hover_at(p);

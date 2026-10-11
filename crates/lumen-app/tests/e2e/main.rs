@@ -30,6 +30,7 @@ mod locators;
 mod looping;
 mod meters;
 mod midi;
+mod midi_chip;
 mod midi_from;
 mod midi_play;
 mod mixer;

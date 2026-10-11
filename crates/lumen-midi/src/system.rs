@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use crate::activity::Activity;
 use crate::backend::{Backend, Connection, Output};
 use crate::types::{Direction, MidiError, PortId, PortInfo, Short, Timed, Use};
 
@@ -43,6 +44,8 @@ pub struct PortState {
 #[derive(Default)]
 struct Shared {
     ports: Vec<PortState>,
+    /// Each present output's counter in [`Activity`].
+    out_slots: HashMap<PortId, u16>,
     unavailable: Option<String>,
 }
 
@@ -58,6 +61,7 @@ pub struct MidiSystem {
     events: Receiver<PortEvent>,
     shared: Arc<Mutex<Shared>>,
     input: Option<rtrb::Consumer<Timed>>,
+    activity: Arc<Activity>,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -75,14 +79,16 @@ impl MidiSystem {
         let (event_tx, events) = mpsc::channel();
         let shared = Arc::new(Mutex::new(Shared::default()));
         let (producer, input) = rtrb::RingBuffer::new(QUEUE);
+        let activity = Arc::new(Activity::default());
         let worker = {
             let shared = shared.clone();
+            let activity = activity.clone();
             thread::Builder::new()
                 .name("lumen-midi".into())
                 .spawn(move || {
                     match make() {
                         Ok(backend) => {
-                            Worker::new(backend, uses, shared, event_tx, producer)
+                            Worker::new(backend, uses, shared, event_tx, producer, activity)
                                 .run(&command_rx, poll);
                         }
                         Err(e) => lock(&shared).unavailable = Some(e.to_string()),
@@ -95,6 +101,7 @@ impl MidiSystem {
             events,
             shared,
             input: Some(input),
+            activity,
             worker,
         }
     }
@@ -116,6 +123,25 @@ impl MidiSystem {
             .iter()
             .find(|p| p.info.id == *id)
             .and_then(|p| p.slot)
+    }
+
+    /// How many playing messages (notes, controllers, bend, pressure,
+    /// program; not clock) have passed through the port since start. A
+    /// change from one look to the next is a flash on the activity lights.
+    pub fn activity(&self, id: &PortId) -> u32 {
+        let shared = lock(&self.shared);
+        match id.direction {
+            Direction::Input => shared
+                .ports
+                .iter()
+                .find(|p| p.info.id == *id)
+                .and_then(|p| p.slot)
+                .map_or(0, |s| self.activity.input_count(s)),
+            Direction::Output => shared
+                .out_slots
+                .get(id)
+                .map_or(0, |s| self.activity.output_count(*s)),
+        }
     }
 
     /// Plugging, unplugging and failures since the last call.
@@ -200,6 +226,8 @@ struct Worker {
     /// Ports that would not open; tried again when switched or replugged.
     failed: HashMap<PortId, String>,
     slots: HashMap<PortId, u16>,
+    out_slots: HashMap<PortId, u16>,
+    activity: Arc<Activity>,
     shared: Arc<Mutex<Shared>>,
     events: Sender<PortEvent>,
     producer: Producer,
@@ -212,6 +240,7 @@ impl Worker {
         shared: Arc<Mutex<Shared>>,
         events: Sender<PortEvent>,
         producer: rtrb::Producer<Timed>,
+        activity: Arc<Activity>,
     ) -> Self {
         Self {
             backend,
@@ -221,6 +250,8 @@ impl Worker {
             outputs: HashMap::new(),
             failed: HashMap::new(),
             slots: HashMap::new(),
+            out_slots: HashMap::new(),
+            activity,
             shared,
             events,
             producer: Arc::new(Mutex::new(producer)),
@@ -257,10 +288,17 @@ impl Worker {
                 self.failed.remove(&id);
             }
             Command::Send(id, message) => {
-                if let Some(out) = self.outputs.get_mut(&id)
-                    && let Err(e) = out.send(message.as_slice())
-                {
-                    let _ = self.events.send(PortEvent::Failed(id, e.to_string()));
+                if let Some(out) = self.outputs.get_mut(&id) {
+                    match out.send(message.as_slice()) {
+                        Ok(()) => {
+                            if let Some(slot) = self.out_slots.get(&id) {
+                                self.activity.output(*slot, message.as_slice());
+                            }
+                        }
+                        Err(e) => {
+                            let _ = self.events.send(PortEvent::Failed(id, e.to_string()));
+                        }
+                    }
                 }
             }
             Command::Rescan => {}
@@ -317,8 +355,10 @@ impl Worker {
             Direction::Input => {
                 let slot = self.slot(id);
                 let producer = self.producer.clone();
+                let activity = self.activity.clone();
                 let sink: crate::backend::InputSink = Box::new(move |stamp_us, bytes| {
                     let arrived = std::time::Instant::now();
+                    activity.input(slot, bytes);
                     if let Some(message) = Short::from_bytes(bytes)
                         && let Ok(mut p) = producer.lock()
                     {
@@ -346,6 +386,12 @@ impl Worker {
     }
 
     fn publish(&mut self) {
+        for info in self.present.clone() {
+            if info.id.direction == Direction::Output && !self.out_slots.contains_key(&info.id) {
+                let next = self.out_slots.len() as u16;
+                self.out_slots.insert(info.id, next);
+            }
+        }
         let ports: Vec<PortState> = self
             .present
             .clone()
@@ -361,7 +407,9 @@ impl Worker {
                 }
             })
             .collect();
-        lock(&self.shared).ports = ports;
+        let mut shared = lock(&self.shared);
+        shared.ports = ports;
+        shared.out_slots = self.out_slots.clone();
     }
 }
 
@@ -502,6 +550,28 @@ mod tests {
         midi.send(out.clone(), Short::from_bytes(&[0x90, 64, 90]).unwrap());
         until("sent", || fake.sent().len() == 1);
         assert_eq!(fake.sent()[0], (out, vec![0x90, 64, 90]));
+    }
+
+    #[test]
+    fn traffic_is_counted_per_port_without_the_clock() {
+        let fake = FakeControl::new();
+        fake.plug(Direction::Input, "Keys");
+        fake.plug(Direction::Output, "Synth");
+        let out = FakeControl::id(Direction::Output, "Synth");
+        let midi = system(
+            &fake,
+            HashMap::from([(input("Keys"), ON), (out.clone(), ON)]),
+        );
+        until("open", || {
+            fake.open_inputs() == 1 && fake.opens(Direction::Output, "Synth") == 1
+        });
+        assert_eq!(midi.activity(&input("Keys")), 0);
+        assert!(fake.send_to_input("Keys", 1, &[0x90, 60, 100]));
+        assert!(fake.send_to_input("Keys", 2, &[0xF8]));
+        assert_eq!(midi.activity(&input("Keys")), 1);
+        midi.send(out.clone(), Short::from_bytes(&[0x90, 64, 90]).unwrap());
+        midi.send(out.clone(), Short::from_bytes(&[0xF8]).unwrap());
+        until("counted", || midi.activity(&out) == 1);
     }
 
     #[test]

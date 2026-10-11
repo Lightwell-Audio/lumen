@@ -118,13 +118,24 @@ struct Keyed {
 pub struct LiveKeys {
     tx: rtrb::Producer<Keyed>,
     clock: Arc<StreamClock>,
+    /// Messages sent so far: the activity light compares it frame to frame.
+    sent: u32,
 }
 
 impl LiveKeys {
     /// Sends `msg` as played now. False if the queue is full.
     pub fn send(&mut self, msg: Msg) -> bool {
         let nanos = self.clock.now();
-        self.tx.push(Keyed { nanos, msg }).is_ok()
+        let sent = self.tx.push(Keyed { nanos, msg }).is_ok();
+        if sent {
+            self.sent = self.sent.wrapping_add(1);
+        }
+        sent
+    }
+
+    /// How many messages have been sent (for the activity light).
+    pub fn activity(&self) -> u32 {
+        self.sent
     }
 }
 
@@ -168,7 +179,7 @@ pub fn live(input: Option<rtrb::Consumer<Timed>>, clock: Arc<StreamClock>) -> (L
             pending: [empty; PENDING],
             len: 0,
         },
-        LiveKeys { tx, clock },
+        LiveKeys { tx, clock, sent: 0 },
     )
 }
 

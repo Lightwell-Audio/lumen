@@ -8,6 +8,7 @@
 //!   plugging and unplugging, and opens and closes ports as the user's
 //!   switches say, so enumeration and opening never touch the UI thread.
 
+pub mod activity;
 pub mod backend;
 pub mod fake;
 pub mod midir_host;
