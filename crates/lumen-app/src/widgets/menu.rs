@@ -13,7 +13,8 @@ use eframe::egui::{
     epaint::ClippedShape, vec2,
 };
 
-use crate::motion;
+use super::raised;
+use crate::{motion, theme};
 
 /// How long after the pointer leaves a changed menu it starts to fade.
 const LEAVE_DELAY: f64 = 0.4;
@@ -196,8 +197,17 @@ impl<'r> Menu<'r> {
             store(&ctx, id, State::default());
             return None;
         };
-        // What it looks like now, to fade from when it closes.
+        // The edge light along the menu's top inside edge (the design
+        // system's Menu card: a floating surface has one), painted before the
+        // picture is taken so the fade keeps it.
         let layer = shown_menu.response.layer_id;
+        raised::lip(
+            &ctx.layer_painter(layer),
+            shown_menu.response.rect,
+            theme::radius::LARGE,
+            theme::p().edge_light,
+        );
+        // What it looks like now, to fade from when it closes.
         let picture: Vec<ClippedShape> = ctx.graphics(|g| {
             g.get(layer)
                 .map(|list| list.all_entries().cloned().collect())

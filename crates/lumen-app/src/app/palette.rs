@@ -7,7 +7,8 @@
 //! explains the chosen entry. Shortcuts show as K5 keycaps.
 
 use eframe::egui::{
-    self, Align2, Color32, FontId, Key, Modifiers, RichText, Sense, Stroke, text::LayoutJob, vec2,
+    self, Align2, Color32, FontId, Key, Modifiers, RichText, Sense, Stroke, Vec2, text::LayoutJob,
+    vec2,
 };
 use lumen_core::time::Ticks;
 use lumen_project::model::Id;
@@ -459,10 +460,13 @@ impl App {
             .order(egui::Order::Foreground)
             .anchor(Align2::CENTER_TOP, vec2(0.0, TOP))
             .show(ctx, |ui| {
-                egui::Frame::popup(ui.style())
+                // A window-sized floating surface (the Palette card):
+                // `radius::XL`, `overlay`, `border_strong` and the edge
+                // light along its top inside edge.
+                let frame = egui::Frame::popup(ui.style())
                     .fill(palette.overlay)
-                    .stroke(Stroke::new(1.0, palette.border_strong))
-                    .corner_radius(theme::radius::LARGE)
+                    .stroke(Stroke::new(theme::stroke::HAIRLINE, palette.border_strong))
+                    .corner_radius(theme::radius::XL)
                     .inner_margin(theme::space::S)
                     .show(ui, |ui| {
                         ui.set_width(WIDTH);
@@ -472,6 +476,12 @@ impl App {
                         ui.separator();
                         self.palette_strip(ui, rows.get(self.palette.chosen));
                     });
+                widgets::raised::lip(
+                    ui.painter(),
+                    frame.response.rect,
+                    theme::radius::XL,
+                    palette.edge_light,
+                );
             });
         if let Some(i) = picked
             && let Some(row) = rows.get(i)
@@ -484,7 +494,8 @@ impl App {
 
     fn palette_field(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            let (rect, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
+            let (rect, _) =
+                ui.allocate_exact_size(Vec2::splat(theme::size::CONTROL_SMALL), Sense::hover());
             ui.painter().extend(icons::shapes(
                 icons::Icon::Search,
                 rect,
@@ -549,7 +560,7 @@ impl App {
                                 .color(palette.text_hint),
                         );
                     }
-                    let (response, rekey) = self.palette_row(ui, row);
+                    let (response, rekey) = self.palette_row(ui, row, i == self.palette.chosen);
                     if i == self.palette.chosen {
                         chosen_rect = Some(response.rect);
                     }
@@ -592,8 +603,15 @@ impl App {
     }
 
     /// A row; with the chord slot whose keycaps were clicked, to record
-    /// new keys for it.
-    fn palette_row(&self, ui: &mut egui::Ui, row: &Row) -> (egui::Response, Option<usize>) {
+    /// new keys for it. The `chosen` row is under the list's sliding
+    /// highlight, so its keycaps step up; a hovered row that is not chosen
+    /// (the pointer rests while the arrow keys move) is Ember.
+    fn palette_row(
+        &self,
+        ui: &mut egui::Ui,
+        row: &Row,
+        chosen: bool,
+    ) -> (egui::Response, Option<usize>) {
         let mut rekey = None;
         let palette = *theme::p();
         let (rect, response) =
@@ -614,6 +632,10 @@ impl App {
             return (response, None);
         }
         // The chosen row's fill is drawn by the list, sliding (M4.5).
+        if response.hovered() && !chosen {
+            ui.painter()
+                .rect_filled(rect, theme::radius::MEDIUM, palette.ember);
+        }
         let text = if row.ready.is_ok() {
             palette.text
         } else {
@@ -634,6 +656,7 @@ impl App {
                         &chord.modifier_names(),
                         chord.key_name(),
                         area.light(),
+                        chosen,
                     );
                     caps.widget_info(|| {
                         egui::WidgetInfo::labeled(
@@ -708,6 +731,7 @@ impl App {
                             &chord.modifier_names(),
                             chord.key_name(),
                             area.light(),
+                            false,
                         );
                         caps.widget_info(|| {
                             egui::WidgetInfo::labeled(

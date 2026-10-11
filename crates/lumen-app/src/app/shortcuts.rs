@@ -9,6 +9,7 @@ use eframe::egui::{self, Align2, FontId, Key, Rect, RichText, Sense, Stroke, Vec
 use eframe::emath::GuiRounding as _;
 
 use crate::commands::{ALL, Area, Chord, Command};
+use crate::widgets::raised;
 use crate::{App, theme, widgets};
 
 /// The window's width.
@@ -16,6 +17,17 @@ const WIDTH: f32 = 820.0;
 /// The keyboard: the main block is 15 key widths, the arrows and the keys
 /// above them 3, with half a key between.
 const KEYBOARD_UNITS: f32 = 18.5;
+/// The space between two keys on the map, and the letters' inset in a key.
+const KEY_GAP: f32 = 3.0;
+const KEY_INSET: f32 = 4.0;
+/// The light under a command's key on the map: as in the keycaps (K5), its
+/// halo and its height.
+const KEY_LIGHT_HEIGHT: f32 = 2.0;
+const KEY_LIGHT_HALO: f32 = 1.5;
+const KEY_LIGHT_HALO_ALPHA: f32 = 0.3;
+/// An area's light beside its name: in the layer row and in a heading.
+const AREA_LIGHT: Vec2 = vec2(8.0, 3.0);
+const AREA_DOT: f32 = 8.0;
 
 /// A chord being recorded for a command, in the window or the palette.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -320,8 +332,9 @@ impl App {
                             .size(theme::size::CAPTION)
                             .color(palette.text_hint),
                     );
-                    let (rect, _) = ui.allocate_exact_size(vec2(8.0, 3.0), Sense::hover());
-                    ui.painter().rect_filled(rect, 1.0, area.light());
+                    let (rect, _) = ui.allocate_exact_size(AREA_LIGHT, Sense::hover());
+                    ui.painter()
+                        .rect_filled(rect, AREA_LIGHT.y / 2.0, area.light());
                 }
             });
         });
@@ -335,7 +348,7 @@ impl App {
         let held = ui.input(|i| i.modifiers);
         let width = ui.available_width();
         let unit = width / KEYBOARD_UNITS;
-        let gap = 3.0;
+        let gap = KEY_GAP;
         let height = unit * 0.95;
         let (area, _) = ui.allocate_exact_size(vec2(width, height * 6.0), Sense::hover());
         let ppp = ui.pixels_per_point();
@@ -357,6 +370,15 @@ impl App {
                     (palette.raised, palette.text_hint)
                 };
                 ui.painter().rect_filled(rect, theme::radius::SMALL, fill);
+                if on {
+                    // One accent hairline, as every control that is on has.
+                    ui.painter().rect_stroke(
+                        rect,
+                        theme::radius::SMALL,
+                        Stroke::new(theme::stroke::HAIRLINE, theme::lit(theme::Tone::On).edge),
+                        egui::StrokeKind::Inside,
+                    );
+                }
                 ui.painter().text(
                     rect.center(),
                     Align2::CENTER_CENTER,
@@ -386,27 +408,41 @@ impl App {
                     painter.rect_stroke(
                         rect,
                         theme::radius::SMALL,
-                        Stroke::new(1.0, palette.border_strong),
+                        Stroke::new(theme::stroke::HAIRLINE, palette.border_strong),
                         egui::StrokeKind::Inside,
                     );
                     let light = c.info().area.light();
                     let bar = Rect::from_min_max(
-                        pos2(rect.left() + 4.0, rect.bottom() - 4.0),
-                        pos2(rect.right() - 4.0, rect.bottom() - 2.0),
+                        pos2(rect.left() + KEY_INSET, rect.bottom() - KEY_INSET),
+                        pos2(
+                            rect.right() - KEY_INSET,
+                            rect.bottom() - KEY_INSET + KEY_LIGHT_HEIGHT,
+                        ),
                     );
-                    painter.rect_filled(bar.expand(1.5), 2.0, light.gamma_multiply(0.3));
-                    painter.rect_filled(bar, 1.0, light);
-                    let room = rect.width() - 8.0;
+                    painter.rect_filled(
+                        bar.expand(KEY_LIGHT_HALO),
+                        KEY_LIGHT_HEIGHT,
+                        light.gamma_multiply(KEY_LIGHT_HALO_ALPHA),
+                    );
+                    painter.rect_filled(bar, KEY_LIGHT_HEIGHT / 2.0, light);
+                    let room = rect.width() - 2.0 * KEY_INSET;
                     let label = elided(painter, map_key.label, palette.text, room);
-                    painter.galley(rect.left_top() + vec2(4.0, 2.0), label, palette.text);
+                    painter.galley(
+                        rect.left_top() + vec2(KEY_INSET, theme::space::XXS),
+                        label,
+                        palette.text,
+                    );
                     let name = elided(painter, c.name(), palette.text_secondary, room);
-                    let at = pos2(rect.left() + 4.0, rect.bottom() - 6.0 - name.size().y);
+                    let at = pos2(
+                        rect.left() + KEY_INSET,
+                        rect.bottom() - KEY_INSET - theme::space::XXS - name.size().y,
+                    );
                     painter.galley(at, name, palette.text_secondary);
                 }
                 None => {
                     painter.rect_filled(rect, theme::radius::SMALL, palette.raised);
                     painter.text(
-                        rect.left_top() + vec2(4.0, 2.0),
+                        rect.left_top() + vec2(KEY_INSET, theme::space::XXS),
                         Align2::LEFT_TOP,
                         map_key.label,
                         FontId::proportional(theme::size::CAPTION),
@@ -414,13 +450,13 @@ impl App {
                     );
                 }
             }
+            // Hover is Ember, washed over the key; the accent ring is the
+            // keyboard's focus.
             if response.hovered() {
-                painter.rect_stroke(
-                    rect,
-                    theme::radius::SMALL,
-                    Stroke::new(1.5, palette.accent),
-                    egui::StrokeKind::Inside,
-                );
+                painter.rect_filled(rect, theme::radius::SMALL, palette.ember);
+            }
+            if response.has_focus() {
+                raised::paint_focus(painter, rect, theme::radius::SMALL);
             }
         };
         for (row, keys) in MAIN.iter().enumerate() {
@@ -478,7 +514,7 @@ impl App {
             ui.label(RichText::new("Keymap: Ableton").color(palette.text_hint));
             if ui
                 .add_enabled(!self.keymap.saved().is_empty(), |ui: &mut egui::Ui| {
-                    crate::widgets::raised::button(ui, "Reset all")
+                    raised::button(ui, "Reset all")
                 })
                 .on_hover_text("Every shortcut back to its default")
                 .clicked()
@@ -544,7 +580,7 @@ impl App {
         let palette = *theme::p();
         let rebind = self.rebind.filter(|r| r.command == command);
         ui.horizontal(|ui| {
-            ui.set_min_height(28.0);
+            ui.set_min_height(theme::size::CONTROL + theme::space::XS);
             ui.label(command.name());
             if !self.keymap.is_default(command) {
                 ui.label(
@@ -555,8 +591,7 @@ impl App {
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if !self.keymap.is_default(command)
-                    && ui
-                        .small_button("\u{21BA}")
+                    && raised::button(ui, "\u{21BA}")
                         .on_hover_text("Back to the default")
                         .clicked()
                 {
@@ -569,13 +604,12 @@ impl App {
                     if rebind.clash.is_some() {
                         return;
                     }
-                    if ui.small_button("Cancel").clicked() {
+                    if raised::button(ui, "Cancel").clicked() {
                         self.rebind = None;
                     }
                     if let Some(slot) = rebind.slot
                         && rebind.clash.is_none()
-                        && ui
-                            .small_button("Remove")
+                        && raised::button(ui, "Remove")
                             .on_hover_text("Take this shortcut away")
                             .clicked()
                     {
@@ -586,7 +620,7 @@ impl App {
                     ui.label(RichText::new("Press keys\u{2026}").color(palette.accent));
                     return;
                 }
-                let add = ui.small_button("+").on_hover_text("Add a shortcut");
+                let add = raised::button(ui, "+").on_hover_text("Add a shortcut");
                 add.widget_info(|| {
                     egui::WidgetInfo::labeled(
                         egui::WidgetType::Button,
@@ -604,6 +638,7 @@ impl App {
                         &chord.modifier_names(),
                         chord.key_name(),
                         command.info().area.light(),
+                        false,
                     );
                     let caps = caps.on_hover_text("Click, then press new keys");
                     caps.widget_info(|| {
@@ -629,10 +664,10 @@ impl App {
                     RichText::new(format!("{} is used by {}.", chord.text(), other.name()))
                         .color(palette.warning),
                 );
-                if ui.small_button("Reassign").clicked() {
+                if raised::button(ui, "Reassign").clicked() {
                     self.reassign_clash();
                 }
-                if ui.small_button("Cancel").clicked() {
+                if raised::button(ui, "Cancel").clicked() {
                     self.rebind = None;
                 }
             });
@@ -680,9 +715,12 @@ fn area_heading(ui: &mut egui::Ui, area: Area) {
     let palette = theme::p();
     ui.add_space(theme::space::XS);
     ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
-        ui.painter()
-            .rect_filled(rect.shrink(1.0), 2.0, area.light());
+        let (rect, _) = ui.allocate_exact_size(Vec2::splat(AREA_DOT), Sense::hover());
+        ui.painter().rect_filled(
+            rect.shrink(theme::stroke::HAIRLINE),
+            theme::radius::SMALL / 2,
+            area.light(),
+        );
         ui.label(
             RichText::new(area.name())
                 .size(theme::size::CAPTION)
