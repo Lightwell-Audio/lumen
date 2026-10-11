@@ -51,15 +51,22 @@ impl App {
         (b - a).max(MIN_NOTE)
     }
 
-    /// Where Split cuts: the pointer's place in the editor, else the
-    /// playhead, as clip time.
+    /// Where the keyboard's Split (Ctrl+E, the palette) cuts, as clip time:
+    /// the playhead's place while the playhead is inside the clip. Only when
+    /// it is outside does the pointer's place over the roll count (and only
+    /// inside the clip); otherwise there is no split point. The context
+    /// menu's "Split here" uses the pointer's place from when it opened
+    /// (`NoteEditor::menu_at`), never this.
     pub(crate) fn split_point(&self) -> Option<Ticks> {
         let ed = &self.note_editor;
         let (clip, _) = self.editor_clip(ed.clip?)?;
-        if let Some((local, _)) = ed.pointer_at.filter(|_| ed.hovered_before) {
+        if let Some((local, _)) = edit::to_clip_time(&clip, self.transport.position()) {
             return Some(local);
         }
-        edit::to_clip_time(&clip, self.transport.position()).map(|(local, _)| local)
+        ed.pointer_at
+            .filter(|_| ed.hovered_before)
+            .map(|(local, _)| local)
+            .filter(|t| *t >= Ticks::ZERO && *t < clip.length)
     }
 
     pub(crate) fn apply_note_op(&mut self, editor: &mut NoteEditor, op: NoteOp) {

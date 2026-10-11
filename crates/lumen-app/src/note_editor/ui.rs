@@ -458,10 +458,11 @@ impl App {
             } else {
                 ed.menu_for = MenuFor::Empty;
             }
+            ed.menu_at = ed.pointer_at.map(|(t, _)| t);
         }
         let picked = !ed.picked().is_empty();
-        let at = ed.pointer_at.map(|(t, _)| t);
-        let split_at = at.filter(|t| *t >= Ticks::ZERO && *t < clip.length);
+        // Where the pointer was when the menu opened, not where it is now.
+        let split_at = ed.menu_at.filter(|t| *t >= Ticks::ZERO && *t < clip.length);
         widgets::Menu::context(response).show(|ui| {
             let keys = |s: &Self, c| s.keymap.keys(c);
             let mut op = None;

@@ -76,6 +76,10 @@ pub(crate) struct NoteEditor {
     /// The editor's keys are live: set at the start of each frame.
     pub live: bool,
     pub menu_for: MenuFor,
+    /// The clip time under the pointer when the menu was opened: "Split
+    /// here" cuts there. Latched, because while the menu is used the pointer
+    /// is over the menu, not the roll, so `pointer_at` is empty.
+    pub menu_at: Option<Ticks>,
     /// The last pitch auditioned while a gesture ran (slice 3d).
     pub auditioned: Option<u8>,
     /// Notes a marquee in progress would pick.

@@ -486,22 +486,42 @@ fn the_edit_keys_each_make_one_undo_step() {
     assert_eq!(notes(&lumen), original);
 }
 
+/// Moves the playhead by clicking the editor's ruler, above the roll.
+fn playhead_to(lumen: &mut Lumen, t: Ticks) {
+    let body = lumen.app().editor_body().unwrap();
+    let x = at(lumen, t, 60).x;
+    click(lumen, Pos2::new(x, body.top() - 8.0), Modifiers::NONE);
+    lumen.frames(5);
+    assert_eq!(lumen.app().playhead(), t);
+}
+
+/// The two halves of the C5 note (beats 4 to 6) after a split, in order.
+fn c5_halves(lumen: &Lumen) -> Vec<Note> {
+    let mut halves: Vec<Note> = notes(lumen)
+        .into_iter()
+        .filter(|n| n.pitch() == 72)
+        .collect();
+    halves.sort_by_key(|n| n.start());
+    assert_eq!(halves.len(), 2, "the C5 note was cut in two");
+    halves
+}
+
 #[test]
 fn split_and_glue_cut_and_join_notes() {
     let mut lumen = launch("notes-split");
     open(&mut lumen);
     let original = notes(&lumen);
-    // Pick the long note (C5, beats 4 to 6) and split it at the pointer.
+    // Pick the long note (C5, beats 4 to 6). The playhead is at beat 5, so
+    // Ctrl+E cuts there, with the pointer resting on the note at beat 4.5.
+    playhead_to(&mut lumen, q(5));
     let mid = at(&lumen, beat(4.5), 72);
     click(&mut lumen, mid, Modifiers::NONE);
-    let cut = at(&lumen, beat(5.0), 72);
-    hover(&mut lumen, cut);
     lumen.key(Modifiers::COMMAND, Key::E);
     let after = notes(&lumen);
     assert_eq!(after.len(), 5);
-    let halves: Vec<_> = after.iter().filter(|n| n.pitch() == 72).collect();
-    assert_eq!(halves.len(), 2);
+    let halves = c5_halves(&lumen);
     assert_eq!(halves[0].end(), halves[1].start());
+    assert_eq!(halves[0].end(), q(5), "cut at the playhead");
     assert_eq!(
         lumen.app().editor_picked().len(),
         2,
@@ -513,6 +533,62 @@ fn split_and_glue_cut_and_join_notes() {
     undo(&mut lumen);
     undo(&mut lumen);
     assert_eq!(notes(&lumen), original);
+}
+
+#[test]
+fn ctrl_e_cuts_the_picked_notes_at_the_playhead_not_under_the_pointer() {
+    let mut lumen = launch("notes-split-playhead");
+    open(&mut lumen);
+    playhead_to(&mut lumen, q(5));
+    let on_note = at(&lumen, beat(4.5), 72);
+    click(&mut lumen, on_note, Modifiers::NONE);
+    assert_eq!(lumen.app().editor_picked(), [3]);
+    // The pointer moves over the roll at beat 4.25, somewhere else again.
+    let elsewhere = at(&lumen, beat(4.25), 72);
+    hover(&mut lumen, elsewhere);
+    lumen.key(Modifiers::COMMAND, Key::E);
+    let halves = c5_halves(&lumen);
+    assert_eq!(halves[0].start(), q(4));
+    assert_eq!(halves[0].end(), q(5), "cut at the playhead, beat 5");
+    assert_eq!(halves[1].end(), q(6));
+    assert_eq!(lumen.app().playhead(), q(5), "the playhead did not move");
+}
+
+#[test]
+fn ctrl_e_cuts_at_the_pointer_when_the_playhead_is_outside_the_clip() {
+    let mut lumen = launch("notes-split-pointer");
+    open(&mut lumen);
+    // The clip runs from beat 0 to 8: the playhead at beat 8 is past its end.
+    playhead_to(&mut lumen, q(8));
+    let on_note = at(&lumen, beat(4.5), 72);
+    click(&mut lumen, on_note, Modifiers::NONE);
+    hover(&mut lumen, on_note);
+    lumen.key(Modifiers::COMMAND, Key::E);
+    let halves = c5_halves(&lumen);
+    let cut = halves[0].end().0;
+    assert!(
+        (cut - beat(4.5).0).abs() < Q / 4,
+        "cut under the pointer, near beat 4.5, not at beat 8: {cut}"
+    );
+}
+
+#[test]
+fn split_here_in_the_menu_cuts_where_the_pointer_was_clicked() {
+    let mut lumen = launch("notes-split-menu");
+    open(&mut lumen);
+    // The playhead is at beat 5; the menu's cut is where the pointer was.
+    playhead_to(&mut lumen, q(5));
+    let on_note = at(&lumen, beat(4.5), 72);
+    lumen.right_click(on_note);
+    assert_eq!(lumen.app().editor_picked(), [3]);
+    lumen.harness.get_by_label_contains("Split here").click();
+    lumen.frames(5);
+    let halves = c5_halves(&lumen);
+    let cut = halves[0].end().0;
+    assert!(
+        (cut - beat(4.5).0).abs() < Q / 4,
+        "the menu cut near beat 4.5, not at the playhead: {cut}"
+    );
 }
 
 #[test]

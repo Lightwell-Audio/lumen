@@ -159,7 +159,11 @@ impl App {
             }
             Command::SplitNotes => need(
                 self.notes_are_picked() && self.split_point().is_some(),
-                "Select notes first",
+                if self.notes_are_picked() {
+                    "Move the playhead into the clip, or point at the clip editor"
+                } else {
+                    "Select notes first"
+                },
             ),
             Command::GlueNotes
             | Command::LegatoNotes

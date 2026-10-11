@@ -277,7 +277,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::OpenClipEditor, "midi.open_editor", "Edit MIDI clip", Area::Midi, &[plain(Key::Enter)], "Opens the selected MIDI clip in the clip editor, in the detail panel."),
     info(Command::PopOutEditor, "midi.pop_out_editor", "Pop out clip editor", Area::Midi, &[ctrl_shift(Key::E)], "Moves the clip editor into its own window, or docks it back into the detail panel."),
     info(Command::DrawTool, "midi.draw_tool", "Draw tool", Area::Midi, &[plain(Key::B)], "Switches the clip editor between the pointer and the draw tool: click to add a note, drag to set its length, click a note to remove it."),
-    info(Command::SplitNotes, "midi.split_notes", "Split notes", Area::Midi, &[ctrl(Key::E)], "Cuts the selected notes in two at the pointer in the clip editor, or at the playhead."),
+    info(Command::SplitNotes, "midi.split_notes", "Split notes", Area::Midi, &[ctrl(Key::E)], "Cuts the selected notes in two at the playhead. If the playhead is outside the clip, cuts at the pointer over the clip editor instead."),
     info(Command::GlueNotes, "midi.glue_notes", "Glue notes", Area::Midi, &[ctrl(Key::J)], "Joins selected notes of one pitch that touch or overlap into one."),
     info(Command::LegatoNotes, "midi.legato", "Legato", Area::Midi, &[plain(Key::L)], "Lengthens each selected note to the start of the next one."),
     info(Command::TransposeUp, "midi.transpose_up", "Transpose up", Area::Midi, &[], "Moves the selected notes up a semitone. In the clip editor the Up arrow does it."),
