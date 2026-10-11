@@ -35,6 +35,36 @@ use super::{Document, plural};
 /// included). A longer span is drawn at a coarser step; see [`span_step`].
 pub const MAX_SPAN_EVENTS: usize = 4000;
 
+/// How an edit takes part in a drag: the project the gesture began from and the
+/// key that merges its frames into one undo step. `Drag::default()` is a one-shot edit.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Drag<'a> {
+    /// The project the gesture began from; `None` edits the project as it is.
+    pub base: Option<&'a Project>,
+    /// The key that merges the gesture's frames into one undo step.
+    pub merge: Option<&'a str>,
+}
+
+/// A line or curve between two (tick, value) ends, shaped by a curve.
+#[derive(Debug, Clone, Copy)]
+pub struct Line<'a, V> {
+    /// The start of the line: a tick and a value.
+    pub from: (Ticks, V),
+    /// The end of the line: a tick and a value.
+    pub to: (Ticks, V),
+    /// The shape of the line between its ends.
+    pub curve: &'a Curve,
+}
+
+/// How far a group of points moves.
+#[derive(Debug, Clone, Copy)]
+pub struct Shift {
+    /// The move in ticks.
+    pub time: Ticks,
+    /// The move in the lane's value.
+    pub value: i32,
+}
+
 impl Document {
     /// Runs `change` on the notes and the events of the unlocked MIDI clip
     /// `clip` (starting from `base` when given) as one step, with the clip's
@@ -143,20 +173,22 @@ impl Document {
     /// Sets the picked notes' velocities along a line from `from` to `to`
     /// (each a tick and a velocity) shaped by `curve`. A drag, from `base`.
     /// Returns the picked indices.
-    #[allow(clippy::too_many_arguments)] // The contract the lane UI calls; eight fields, not worth a struct yet.
     pub fn ramp_velocities(
         &mut self,
-        base: Option<&Project>,
+        drag: Drag<'_>,
         clip: Id,
         selection: &[usize],
-        from: (Ticks, u8),
-        to: (Ticks, u8),
-        curve: &Curve,
-        merge: Option<&str>,
+        line: Line<'_, u8>,
     ) -> Vec<usize> {
-        self.edit_velocities("Ramp velocities", base, merge, clip, selection, |notes| {
-            vel::ramp(notes, selection, from, to, curve)
-        })
+        let Line { from, to, curve } = line;
+        self.edit_velocities(
+            "Ramp velocities",
+            drag.base,
+            drag.merge,
+            clip,
+            selection,
+            |notes| vel::ramp(notes, selection, from, to, curve),
+        )
     }
 
     /// Adds `delta` to the picked notes' velocities (clamped to 1..=127).
@@ -200,22 +232,20 @@ impl Document {
     /// Moves the picked points of `lane` by `time` ticks and `value` as a
     /// group, clamped as a whole (see `events::move_points`); a drag, from
     /// `base`. Returns the moved points' indices.
-    #[allow(clippy::too_many_arguments)] // The contract the lane UI calls; eight fields, not worth a struct yet.
     pub fn move_lane_points(
         &mut self,
-        base: &Project,
+        drag: Drag<'_>,
         clip: Id,
         lane: ev::Lane,
         selection: &[usize],
-        time: Ticks,
-        value: i32,
-        merge: Option<&str>,
+        shift: Shift,
     ) -> Vec<usize> {
         let label = plural(selection.len(), "Move point", "Move {} points");
+        let Shift { time, value } = shift;
         self.edit_events(
             &label,
-            Some(base),
-            merge,
+            drag.base,
+            drag.merge,
             clip,
             selection,
             |events, length| ev::move_points(events, lane, selection, time, value, length),
@@ -236,24 +266,21 @@ impl Document {
     /// The line replaces the lane's points between its two ends, clipped to
     /// the clip; the rest of the lane and every other lane stay. A drag, from
     /// `base`. Returns the points it added.
-    #[allow(clippy::too_many_arguments)] // The contract the lane UI calls; nine fields, not worth a struct yet.
     pub fn draw_lane_span(
         &mut self,
-        base: Option<&Project>,
+        drag: Drag<'_>,
         clip: Id,
         lane: ev::Lane,
-        from: (Ticks, i32),
-        to: (Ticks, i32),
-        curve: &Curve,
+        line: Line<'_, i32>,
         step: Ticks,
-        merge: Option<&str>,
     ) -> Vec<usize> {
+        let Line { from, to, curve } = line;
         let label = if curve.is_linear() {
             "Draw line"
         } else {
             "Draw curve"
         };
-        self.edit_events(label, base, merge, clip, &[], |events, length| {
+        self.edit_events(label, drag.base, drag.merge, clip, &[], |events, length| {
             let last = length - Ticks(1);
             let (lo, hi) = (from.0.min(to.0), from.0.max(to.0));
             if length <= Ticks::ZERO || hi < Ticks::ZERO || lo > last {
@@ -501,13 +528,14 @@ mod tests {
         assert_eq!(velocities(&doc), [45, 50, 10]);
         assert_eq!(
             doc.ramp_velocities(
-                None,
+                Drag::default(),
                 clip,
                 &[0, 1, 2],
-                (q(0), 20),
-                (q(2), 100),
-                &Curve::LINEAR,
-                None
+                Line {
+                    from: (q(0), 20),
+                    to: (q(2), 100),
+                    curve: &Curve::LINEAR
+                }
             ),
             [0, 1, 2]
         );
@@ -538,7 +566,19 @@ mod tests {
 
         let base = doc.project().clone();
         assert_eq!(
-            doc.move_lane_points(&base, clip, CC7, &[0, 5], t(PPQ / 2), 5, None),
+            doc.move_lane_points(
+                Drag {
+                    base: Some(&base),
+                    merge: None
+                },
+                clip,
+                CC7,
+                &[0, 5],
+                Shift {
+                    time: t(PPQ / 2),
+                    value: 5
+                }
+            ),
             [0, 5]
         );
         assert_eq!(
@@ -561,14 +601,15 @@ mod tests {
         let (mut doc, clip) = standard();
         let before = content(&doc).1;
         let added = doc.draw_lane_span(
-            None,
+            Drag::default(),
             clip,
             CC7,
-            (t(0), 0),
-            (q(2), 100),
-            &Curve::LINEAR,
+            Line {
+                from: (t(0), 0),
+                to: (q(2), 100),
+                curve: &Curve::LINEAR,
+            },
             ev::GRID,
-            None,
         );
         let events = content(&doc).1;
         let ramp = points(&events, CC7);
@@ -603,14 +644,15 @@ mod tests {
     fn a_curve_is_drawn_with_its_own_shape() {
         let (mut doc, clip) = standard();
         doc.draw_lane_span(
-            None,
+            Drag::default(),
             clip,
             CC7,
-            (t(0), 0),
-            (q(2), 127),
-            &Curve::SLOW,
+            Line {
+                from: (t(0), 0),
+                to: (q(2), 127),
+                curve: &Curve::SLOW,
+            },
             ev::GRID,
-            None,
         );
         assert_eq!(doc.undo().as_deref(), Some("Draw curve"));
     }
@@ -676,13 +718,14 @@ mod tests {
                 "Ramp velocities",
                 Box::new(move |d| {
                     d.ramp_velocities(
-                        None,
+                        Drag::default(),
                         clip,
                         &[0, 1, 2],
-                        (q(0), 10),
-                        (q(2), 120),
-                        &Curve::LINEAR,
-                        None,
+                        Line {
+                            from: (q(0), 10),
+                            to: (q(2), 120),
+                            curve: &Curve::LINEAR,
+                        },
                     );
                 }),
             ),
@@ -714,14 +757,38 @@ mod tests {
                 "Move 2 points",
                 Box::new(move |d| {
                     let base = d.project().clone();
-                    d.move_lane_points(&base, clip, CC7, &[0, 4], t(PPQ / 2), 5, None);
+                    d.move_lane_points(
+                        Drag {
+                            base: Some(&base),
+                            merge: None,
+                        },
+                        clip,
+                        CC7,
+                        &[0, 4],
+                        Shift {
+                            time: t(PPQ / 2),
+                            value: 5,
+                        },
+                    );
                 }),
             ),
             (
                 "Move point",
                 Box::new(move |d| {
                     let base = d.project().clone();
-                    d.move_lane_points(&base, clip, CC7, &[0], t(PPQ / 2), 5, None);
+                    d.move_lane_points(
+                        Drag {
+                            base: Some(&base),
+                            merge: None,
+                        },
+                        clip,
+                        CC7,
+                        &[0],
+                        Shift {
+                            time: t(PPQ / 2),
+                            value: 5,
+                        },
+                    );
                 }),
             ),
             (
@@ -740,14 +807,15 @@ mod tests {
                 "Draw line",
                 Box::new(move |d| {
                     d.draw_lane_span(
-                        None,
+                        Drag::default(),
                         clip,
                         CC7,
-                        (t(0), 0),
-                        (q(2), 100),
-                        &Curve::LINEAR,
+                        Line {
+                            from: (t(0), 0),
+                            to: (q(2), 100),
+                            curve: &Curve::LINEAR,
+                        },
                         ev::GRID,
-                        None,
                     );
                 }),
             ),
@@ -794,13 +862,17 @@ mod tests {
         let base = doc.project().clone();
         for end in [50, 90, 120] {
             doc.ramp_velocities(
-                Some(&base),
+                Drag {
+                    base: Some(&base),
+                    merge: Some("ramp drag"),
+                },
                 clip,
                 &[0, 1],
-                (q(0), 10),
-                (q(1), end),
-                &Curve::LINEAR,
-                Some("ramp drag"),
+                Line {
+                    from: (q(0), 10),
+                    to: (q(1), end),
+                    curve: &Curve::LINEAR,
+                },
             );
         }
         doc.seal();
@@ -810,14 +882,18 @@ mod tests {
 
         for end in [t(PPQ), t(2 * PPQ), t(3 * PPQ)] {
             doc.draw_lane_span(
-                Some(&base),
+                Drag {
+                    base: Some(&base),
+                    merge: Some("line drag"),
+                },
                 clip,
                 CC7,
-                (t(0), 0),
-                (end, 127),
-                &Curve::LINEAR,
+                Line {
+                    from: (t(0), 0),
+                    to: (end, 127),
+                    curve: &Curve::LINEAR,
+                },
                 ev::GRID,
-                Some("line drag"),
             );
         }
         doc.seal();
@@ -837,20 +913,36 @@ mod tests {
         assert_eq!(doc.set_velocities_each(None, clip, &[(1, 9)], None), [1]);
         assert_eq!(
             doc.ramp_velocities(
-                Some(&base),
+                Drag {
+                    base: Some(&base),
+                    merge: None
+                },
                 clip,
                 &sel,
-                (t(0), 1),
-                (q(1), 9),
-                &Curve::LINEAR,
-                None
+                Line {
+                    from: (t(0), 1),
+                    to: (q(1), 9),
+                    curve: &Curve::LINEAR
+                }
             ),
             sel
         );
         assert_eq!(doc.offset_velocities(clip, &sel, 5), sel);
         assert_eq!(doc.scale_velocities(clip, &sel, 50), sel);
         assert_eq!(
-            doc.move_lane_points(&base, clip, CC7, &[0], t(5), 3, None),
+            doc.move_lane_points(
+                Drag {
+                    base: Some(&base),
+                    merge: None
+                },
+                clip,
+                CC7,
+                &[0],
+                Shift {
+                    time: t(5),
+                    value: 3
+                }
+            ),
             [0]
         );
         assert_eq!(doc.delete_lane_points(clip, &[0]), [0]);
@@ -860,14 +952,18 @@ mod tests {
         );
         assert!(
             doc.draw_lane_span(
-                Some(&base),
+                Drag {
+                    base: Some(&base),
+                    merge: None
+                },
                 clip,
                 CC7,
-                (t(0), 0),
-                (q(1), 127),
-                &Curve::LINEAR,
-                q(1),
-                None
+                Line {
+                    from: (t(0), 0),
+                    to: (q(1), 127),
+                    curve: &Curve::LINEAR
+                },
+                q(1)
             )
             .is_empty()
         );
@@ -911,14 +1007,15 @@ mod tests {
         // A pitch bend sweep of 15,000 ticks at a step of one tick would be
         // 15,000 events; the cap draws it every four ticks.
         doc.draw_lane_span(
-            None,
+            Drag::default(),
             clip,
             ev::Lane::PitchBend,
-            (t(0), -8192),
-            (t(15_000), 8191),
-            &Curve::LINEAR,
+            Line {
+                from: (t(0), -8192),
+                to: (t(15_000), 8191),
+                curve: &Curve::LINEAR,
+            },
             t(1),
-            None,
         );
         let events = content(&doc).1;
         let found = points(&events, ev::Lane::PitchBend);
@@ -963,14 +1060,15 @@ mod tests {
         let state = doc.state();
         let last = 16 * PPQ;
         let sel = doc.draw_lane_span(
-            None,
+            Drag::default(),
             clip,
             CC7,
-            (t(last + 10), 0),
-            (t(last + 20), 127),
-            &Curve::LINEAR,
+            Line {
+                from: (t(last + 10), 0),
+                to: (t(last + 20), 127),
+                curve: &Curve::LINEAR,
+            },
             t(1),
-            None,
         );
         assert!(sel.is_empty());
         assert_eq!(doc.state(), state);
@@ -981,14 +1079,15 @@ mod tests {
         let (mut doc, clip) = doc_with(vec![], vec![]);
         let last = 16 * PPQ - 1;
         doc.draw_lane_span(
-            None,
+            Drag::default(),
             clip,
             CC7,
-            (t(last - 10), 0),
-            (t(last + 100), 127),
-            &Curve::LINEAR,
+            Line {
+                from: (t(last - 10), 0),
+                to: (t(last + 100), 127),
+                curve: &Curve::LINEAR,
+            },
             t(1),
-            None,
         );
         let found = points(&content(&doc).1, CC7);
         assert!(!found.is_empty());
