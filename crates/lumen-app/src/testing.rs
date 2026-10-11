@@ -570,6 +570,70 @@ pub fn clip_colour(index: usize) -> lumen_project::model::Color {
     crate::arrangement::color_from(crate::theme::CLIP_COLORS[index])
 }
 
+/// The clip editor (M5 slice 3c), for the end-to-end tests.
+impl App {
+    /// The clip open in the editor.
+    pub fn editor_open_clip(&self) -> Option<Id> {
+        self.note_editor.clip
+    }
+
+    /// The draw tool is chosen (else the pointer).
+    pub fn editor_draw_tool(&self) -> bool {
+        self.note_editor.tool == crate::note_editor::Tool::Draw
+    }
+
+    /// The picked notes, as indices into the open clip's notes.
+    pub fn editor_picked(&self) -> Vec<usize> {
+        self.note_editor.picked().to_vec()
+    }
+
+    /// The editor is in its own window.
+    pub fn editor_popped(&self) -> bool {
+        self.note_editor.popped
+    }
+
+    /// A gesture is in progress (a button is down in the notes).
+    pub fn editor_gesture(&self) -> bool {
+        self.note_editor.gesture.is_some()
+    }
+
+    /// The detail panel shows the Clip tab.
+    pub fn clip_tab_shown(&self) -> bool {
+        self.detail_tab == crate::app::detail::DetailTab::Clip
+    }
+
+    /// Where the notes are drawn, if the editor has been.
+    pub fn editor_body(&self) -> Option<egui::Rect> {
+        self.note_editor.last_view.map(|v| v.body)
+    }
+
+    /// The point at the start of clip time `local`, in the row of `pitch`
+    /// (the row's middle), where the editor drew it last.
+    pub fn editor_point(&self, local: Ticks, pitch: u8) -> Option<egui::Pos2> {
+        let v = self.note_editor.last_view?;
+        let y = v.row_top(i32::from(pitch)) + v.row_height / 2.0;
+        Some(egui::pos2(v.x_of(local), y))
+    }
+
+    /// Makes `pitch` visible in the editor, as scrolling would.
+    pub fn editor_show_pitch(&mut self, pitch: u8) {
+        if let Some(v) = self.note_editor.last_view {
+            self.note_editor.scroll = crate::note_editor::view::scroll_to_centre(
+                i32::from(pitch),
+                v.row_height,
+                v.body.height(),
+            );
+        }
+    }
+}
+
+impl App {
+    /// The grid step that `t` falls in now (`[start, end)`).
+    pub fn grid_cell_at(&self, t: Ticks) -> (Ticks, Ticks) {
+        self.grid_cell(t)
+    }
+}
+
 /// The piano roll's body drawn on its own with a sample clip (slice 3b),
 /// for the shots harness: the real roll arrives with slice 3c.
 pub struct PianoRollDemo {

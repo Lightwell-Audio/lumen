@@ -98,6 +98,21 @@ pub(crate) enum Command {
     SaveAs,
     ImportAudio,
     OpenShortcuts,
+    CreateMidiClip,
+    OpenClipEditor,
+    PopOutEditor,
+    DrawTool,
+    SplitNotes,
+    GlueNotes,
+    LegatoNotes,
+    TransposeUp,
+    TransposeDown,
+    OctaveUp,
+    OctaveDown,
+    NudgeEarlier,
+    NudgeLater,
+    NudgeEarlierFine,
+    NudgeLaterFine,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -258,6 +273,21 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::SaveAs, "file.save_as", "Save as…", Area::File, &[ctrl_shift(Key::S)], "Saves the project under a new name or place."),
     info(Command::ImportAudio, "file.import_audio", "Import audio…", Area::File, &[ctrl_shift(Key::I)], "Adds audio files onto the selected audio track at the playhead, or onto new tracks after the selection."),
     info(Command::OpenShortcuts, "file.shortcuts", "Keyboard shortcuts", Area::File, &[], "Shows every shortcut on a keyboard, and changes them."),
+    info(Command::CreateMidiClip, "midi.create_clip", "Create MIDI clip", Area::Midi, &[ctrl_shift(Key::M)], "Puts an empty MIDI clip on the selected MIDI track: over the time range if there is one, else one bar at the edit position. Opens it in the clip editor."),
+    info(Command::OpenClipEditor, "midi.open_editor", "Edit MIDI clip", Area::Midi, &[plain(Key::Enter)], "Opens the selected MIDI clip in the clip editor, in the detail panel."),
+    info(Command::PopOutEditor, "midi.pop_out_editor", "Pop out clip editor", Area::Midi, &[ctrl_shift(Key::E)], "Moves the clip editor into its own window, or docks it back into the detail panel."),
+    info(Command::DrawTool, "midi.draw_tool", "Draw tool", Area::Midi, &[plain(Key::B)], "Switches the clip editor between the pointer and the draw tool: click to add a note, drag to set its length, click a note to remove it."),
+    info(Command::SplitNotes, "midi.split_notes", "Split notes", Area::Midi, &[ctrl(Key::E)], "Cuts the selected notes in two at the pointer in the clip editor, or at the playhead."),
+    info(Command::GlueNotes, "midi.glue_notes", "Glue notes", Area::Midi, &[ctrl(Key::J)], "Joins selected notes of one pitch that touch or overlap into one."),
+    info(Command::LegatoNotes, "midi.legato", "Legato", Area::Midi, &[plain(Key::L)], "Lengthens each selected note to the start of the next one."),
+    info(Command::TransposeUp, "midi.transpose_up", "Transpose up", Area::Midi, &[], "Moves the selected notes up a semitone. In the clip editor the Up arrow does it."),
+    info(Command::TransposeDown, "midi.transpose_down", "Transpose down", Area::Midi, &[], "Moves the selected notes down a semitone. In the clip editor the Down arrow does it."),
+    info(Command::OctaveUp, "midi.octave_up", "Transpose up an octave", Area::Midi, &[], "Moves the selected notes up an octave. In the clip editor Shift+Up does it."),
+    info(Command::OctaveDown, "midi.octave_down", "Transpose down an octave", Area::Midi, &[], "Moves the selected notes down an octave. In the clip editor Shift+Down does it."),
+    info(Command::NudgeEarlier, "midi.nudge_earlier", "Nudge notes earlier", Area::Midi, &[], "Moves the selected notes one grid step earlier. In the clip editor the Left arrow does it."),
+    info(Command::NudgeLater, "midi.nudge_later", "Nudge notes later", Area::Midi, &[], "Moves the selected notes one grid step later. In the clip editor the Right arrow does it."),
+    info(Command::NudgeEarlierFine, "midi.nudge_earlier_fine", "Nudge notes earlier, finely", Area::Midi, &[alt(Key::ArrowLeft)], "Moves the selected notes earlier by the shortest note, a 128th."),
+    info(Command::NudgeLaterFine, "midi.nudge_later_fine", "Nudge notes later, finely", Area::Midi, &[alt(Key::ArrowRight)], "Moves the selected notes later by the shortest note, a 128th."),
 ];
 
 const fn info(
@@ -307,7 +337,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::OpenShortcuts as usize + 1,
+            Command::NudgeLaterFine as usize + 1,
             ALL.len(),
             "a command is missing"
         );

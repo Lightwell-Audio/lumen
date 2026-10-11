@@ -57,7 +57,6 @@ struct Roll {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Surface {
     Docked,
-    #[expect(dead_code, reason = "the pop-out window (slice 3c) draws on it")]
     Window,
 }
 

@@ -35,13 +35,6 @@ pub struct Resize {
     pub min: Ticks,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "M5 slice 3c wires the piano roll to these; remove this line then"
-    )
-)]
 impl Document {
     /// Whether the notes of `clip` can be edited now: it is a MIDI clip and
     /// not locked.
@@ -255,13 +248,6 @@ impl Document {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "M5 slice 3c wires the piano roll to these; remove this line then"
-    )
-)]
 fn is_midi(clip: &Clip) -> bool {
     matches!(clip.content, ClipContent::Midi { .. })
 }
