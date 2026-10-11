@@ -637,11 +637,19 @@ pub fn value_field(
         ui.data_mut(|d| d.insert_temp(typing_id, kind.text(value).replace(" dB", "")));
     }
     let hover = motion::hover(ui.ctx(), id.with("hover"), response.hovered());
+    // A field, not a button: sunk in its well, with a hairline that lights
+    // on hover (ADR-0051).
+    let rect = rect.round_to_pixels(ui.pixels_per_point());
     let p = ui.painter();
-    p.rect_filled(
+    raised::paint_sunken(p, rect, theme::radius::SMALL);
+    p.rect_stroke(
         rect,
         theme::radius::SMALL,
-        controls.fill.lerp_to_gamma(controls.hover, hover),
+        Stroke::new(
+            1.0,
+            palette.border_strong.lerp_to_gamma(controls.hover, hover),
+        ),
+        egui::StrokeKind::Inside,
     );
     p.text(
         rect.center(),

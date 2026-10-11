@@ -367,39 +367,33 @@ pub fn button(
 /// The close button's size.
 pub const CLOSE_SIZE: f32 = 22.0;
 
-/// A window's close button: an X with the same hover fade as the
-/// transport buttons.
+/// A window's close button (ADR-0051): a bare X at rest, and a small raised
+/// control on hover that sinks while pressed. The focus ring is 2 pt.
 pub fn close_button(ui: &mut Ui) -> Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(CLOSE_SIZE), egui::Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Close"));
     if ui.is_rect_visible(rect) {
-        let c = theme::p();
+        let rect = rect.round_to_pixels(ui.pixels_per_point());
         let hover = crate::motion::hover(
             ui.ctx(),
             response.id.with("hover"),
             response.hovered() || response.has_focus(),
         );
-        if hover > 0.0 {
-            ui.painter().rect_filled(
-                rect,
-                theme::radius::SMALL,
-                c.control_hover.gamma_multiply(hover),
-            );
-        }
-        if response.has_focus() {
-            ui.painter().rect_stroke(
-                rect,
-                theme::radius::SMALL,
-                Stroke::new(1.5, c.accent),
-                egui::StrokeKind::Inside,
-            );
-        }
-        let x = rect.shrink(6.5);
-        let stroke = Stroke::new(1.5, c.text_secondary.lerp_to_gamma(c.text, hover));
+        let face = crate::widgets::raised::Face::new(theme::controls(false))
+            .hover(hover)
+            .pressed(response.is_pointer_button_down_on());
+        let body = if hover > 0.0 || face.pressed {
+            crate::widgets::raised::paint(ui.painter(), rect, theme::radius::SMALL, &face)
+        } else {
+            rect
+        };
+        let x = body.shrink(6.5);
+        let stroke = Stroke::new(1.5, face.text());
         ui.painter()
             .line_segment([x.left_top(), x.right_bottom()], stroke);
         ui.painter()
             .line_segment([x.right_top(), x.left_bottom()], stroke);
+        crate::widgets::raised::focus_ring(ui.painter(), &response, rect);
     }
     response.on_hover_text("Close (Esc)")
 }

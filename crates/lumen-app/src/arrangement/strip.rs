@@ -22,7 +22,8 @@ use super::{Arrangement, color_of, headers, nesting, pinned};
 use crate::commands::Keymap;
 use crate::document::Document;
 use crate::meters::FLOOR_DB;
-use crate::widgets::{self, SliderKind, fader, meter};
+use crate::theme::Tone;
+use crate::widgets::{self, SliderKind, fader, meter, raised};
 use crate::{fonts, light, motion, theme};
 
 /// A strip's width: wide enough for a track name of about eleven characters
@@ -449,19 +450,26 @@ impl Arrangement {
         if db != track.gain_db {
             doc.set_volume(track.id, db);
         }
+        // The held peak is a button: a click clears it (ADR-0051, raised).
         let peak = Rect::from_x_y_ranges(x.max - half..=x.max, y..=y + ROW);
         let hold = reading.hold_db();
-        painter.rect_filled(
-            peak,
+        let response = self.clear_clip_on_click(ui, peak, track, id.with("peak"));
+        let hover = motion::hover(ui.ctx(), id.with("peak hover"), response.hovered());
+        let mut face = raised::Face::new(theme::controls(false))
+            .hover(hover)
+            .pressed(response.is_pointer_button_down_on());
+        if reading.clipped {
+            // A clip light needs you: it flares in the record colour.
+            face = face.lit(1.0, Tone::Record);
+        }
+        let body = raised::paint(
+            &painter,
+            peak.round_to_pixels(ui.pixels_per_point()),
             theme::radius::SMALL,
-            if reading.clipped {
-                palette.record
-            } else {
-                controls.fill
-            },
+            &face,
         );
         painter.text(
-            peak.center(),
+            body.center(),
             Align2::CENTER_CENTER,
             if hold > FLOOR_DB {
                 widgets::readout_db(hold)
@@ -469,13 +477,9 @@ impl Arrangement {
                 "\u{2014}".into()
             },
             FontId::monospace(theme::size::CAPTION),
-            if reading.clipped {
-                theme::text_on(palette.record)
-            } else {
-                palette.text_secondary
-            },
+            face.text(),
         );
-        self.clear_clip_on_click(ui, peak, track, id.with("peak"));
+        raised::focus_ring(ui.painter(), &response, peak);
         y + ROW + GAP
     }
 
@@ -718,7 +722,13 @@ impl Arrangement {
 
     /// A click on a clip light or a held peak clears it; Alt+click clears
     /// every one.
-    fn clear_clip_on_click(&mut self, ui: &mut Ui, area: Rect, track: &Track, id: EguiId) {
+    fn clear_clip_on_click(
+        &mut self,
+        ui: &mut Ui,
+        area: Rect,
+        track: &Track,
+        id: EguiId,
+    ) -> egui::Response {
         let response = ui
             .interact(area, id, Sense::click())
             .on_hover_cursor(CursorIcon::PointingHand);
@@ -739,6 +749,7 @@ impl Arrangement {
                 self.meters.clear_clip(track.id.0);
             }
         }
+        response
     }
 }
 
