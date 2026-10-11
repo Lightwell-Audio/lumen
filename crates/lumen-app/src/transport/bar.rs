@@ -485,9 +485,9 @@ fn solo_chip(ui: &mut Ui, doc: &mut crate::document::Document, keymap: &Keymap) 
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, soloed > 0, "Clear all solos")
     });
-    // Raised like every control; lit amber like the S buttons it clears.
+    // Raised like every control; filled accent like the S buttons it clears.
     let lit = crate::motion::hover(ui.ctx(), response.id.with("lit"), soloed > 0);
-    let face = crate::widgets::raised::face_of(ui, &response).lit(lit, crate::theme::Tone::Warning);
+    let face = crate::widgets::raised::face_of(ui, &response).lit(lit, crate::theme::Tone::Accent);
     let rect = rect
         .shrink2(egui::vec2(0.0, 2.0))
         .round_to_pixels(ui.pixels_per_point());

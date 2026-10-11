@@ -13,6 +13,11 @@ use super::Arrangement;
 use crate::document::Document;
 use crate::theme::Tone;
 use crate::widgets::raised;
+
+/// How strongly a hollow M and S fill with their colour (the design
+/// system's `.is-hollow-m` and `.is-hollow-s`).
+const HOLLOW_MUTE: f32 = 0.14;
+const HOLLOW_SOLO: f32 = 0.12;
 use crate::{fonts, motion, theme};
 
 /// The M and S buttons; S is a headphone button on Cue.
@@ -48,8 +53,12 @@ impl Arrangement {
         let cueing = self.cue.cueing();
         let cued = self.cued.contains(&track.id);
         let toggle = |ui: &mut Ui, r: Rect, button: Toggle, tone: Tone| {
-            // The ring and letter of a hollow button: the tone's colour.
-            let accent = tone.colour().unwrap_or(palette.start_marker);
+            // The ring and letter of a hollow button: mute's grey for M, the
+            // accent for S and cue; its fill the same colour, faint.
+            let (accent, faint) = match button {
+                Toggle::Mute => (palette.mute, HOLLOW_MUTE),
+                Toggle::Solo | Toggle::Cue => (palette.accent, HOLLOW_SOLO),
+            };
             let (what, label, on, implied) = match button {
                 Toggle::Mute => ("mute", "Mute", track.mute, hears.silenced),
                 Toggle::Solo => ("solo", "Solo", track.solo, hears.soloed_through),
@@ -102,7 +111,7 @@ impl Arrangement {
             let mut text = face.text();
             if implied && !on {
                 // Hollow: the state's colour as a ring, the letter in it.
-                p.rect_filled(r, theme::radius::SMALL, look.fill.gamma_multiply(0.5));
+                p.rect_filled(r, theme::radius::SMALL, accent.gamma_multiply(faint));
                 p.rect_stroke(
                     r.shrink(0.75),
                     theme::radius::SMALL,
@@ -124,7 +133,7 @@ impl Arrangement {
             }
             response.clicked()
         };
-        if toggle(ui, mute_rect, Toggle::Mute, Tone::Recessed) {
+        if toggle(ui, mute_rect, Toggle::Mute, Tone::Mute) {
             doc.set_mute(&self.targets(track.id), !track.mute);
         }
         // Ableton's way by default: a click solos (or cues) this track
@@ -144,7 +153,7 @@ impl Arrangement {
                     }
                 }
             }
-        } else if toggle(ui, solo_rect, Toggle::Solo, Tone::Warning) {
+        } else if toggle(ui, solo_rect, Toggle::Solo, Tone::Accent) {
             doc.set_solo(&self.targets(track.id), !track.solo, exclusive);
         }
     }

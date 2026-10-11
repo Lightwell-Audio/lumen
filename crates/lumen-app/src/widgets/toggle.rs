@@ -370,9 +370,10 @@ pub fn segmented_styled<T: PartialEq + Copy>(
         let right = motion::glide(&ctx, id.with("thumb right"), to.right(), true);
         let thumb = Rect::from_x_y_ranges(left..=right, to.y_range()).round_to_pixels(ppp);
         let mut face = raised::Face::new(theme::Controls {
-            fill: theme::thumb(),
-            hover: theme::thumb(),
-            press: theme::thumb(),
+            fill: palette.thumb,
+            fill_hi: palette.thumb_hi,
+            hover: palette.thumb,
+            press: palette.thumb,
             text: palette.text,
         });
         if let Some(tone) = lit {

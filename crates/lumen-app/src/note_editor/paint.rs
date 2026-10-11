@@ -66,12 +66,12 @@ pub(crate) fn paint_note_shadows(painter: &Painter, view: &EditorView, notes: &[
         painter.rect_filled(
             rect.translate(vec2(0.0, 2.0)).expand(0.5),
             NOTE_RADIUS + 1.0,
-            theme::control_shadow(0.5),
+            theme::p().shade.gamma_multiply(0.5),
         );
         painter.rect_filled(
             rect.translate(vec2(0.0, 1.0)),
             NOTE_RADIUS,
-            theme::control_shadow(0.9),
+            theme::p().shade.gamma_multiply(0.9),
         );
     }
 }

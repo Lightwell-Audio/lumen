@@ -109,7 +109,7 @@ pub(crate) fn keys(painter: &Painter, rect: Rect, scroll: f32, row_height: f32) 
             painter.rect_filled(
                 key.translate(vec2(1.0, 1.0)).expand2(vec2(0.5, 0.0)),
                 1.5,
-                theme::control_shadow(1.2),
+                theme::p().shade,
             );
             let face = (
                 p.key_black.lerp_to_gamma(Color32::BLACK, 0.45),

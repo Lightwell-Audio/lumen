@@ -581,7 +581,7 @@ fn half_ring(center: egui::Pos2, radius: f32) -> Vec<egui::Pos2> {
 }
 
 /// Seconds per breath of the armed ring.
-const ARM_BREATH: f32 = 2.4;
+const ARM_BREATH: f32 = motion::BREATH;
 
 /// The space between M, S and the arm button. The armed glow (`FLARE`, 6 pt)
 /// and S's lit glow (3 pt) meet in it as faint halos only.

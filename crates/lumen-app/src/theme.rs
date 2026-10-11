@@ -75,6 +75,33 @@ pub struct Palette {
     /// centre. Its water is the accent.
     pub sun: Color32,
     pub sun_core: Color32,
+    /// The material (the design system's Material card, ADR-0052): the
+    /// deepest layer, under `well` (behind the window, scrims, the app
+    /// icon's base).
+    pub ground: Color32,
+    /// The top of a raised control's gradient, `control_hi` to `control` (a
+    /// 3% step); never flat.
+    pub control_hi: Color32,
+    /// The chosen piece of a segmented control: a raised thumb in the well,
+    /// `thumb_hi` to `thumb`, with `text` letters.
+    pub thumb_hi: Color32,
+    pub thumb: Color32,
+    /// The 1 pt line along the top inside edge of every raised surface.
+    pub edge_light: Color32,
+    /// The 1 pt lip along the top inside edge of a well or a pressed
+    /// control.
+    pub shade: Color32,
+    /// Light level 1 (Ember): `text` at 8%, washed over what the pointer is
+    /// on. Raised controls, rows and segmented pieces hover with it.
+    pub ember: Color32,
+    /// A filled accent control (the one primary of a view, a lit S): a
+    /// gradient from `accent_hi` to `accent_lo`, `on_accent` letters.
+    pub accent_hi: Color32,
+    pub accent_lo: Color32,
+    pub on_accent: Color32,
+    /// A lit M, and its letter.
+    pub mute: Color32,
+    pub on_mute: Color32,
 }
 
 pub const DARK: Palette = Palette {
@@ -114,6 +141,18 @@ pub const DARK: Palette = Palette {
     key_text: Color32::from_rgb(0x3A, 0x3F, 0x4A),
     lane_black: Color32::from_rgb(0x16, 0x18, 0x1C),
     lane_split: Color32::from_rgb(0x2E, 0x32, 0x3A),
+    ground: Color32::from_rgb(0x11, 0x13, 0x16),
+    control_hi: Color32::from_rgb(0x38, 0x3C, 0x46),
+    thumb_hi: Color32::from_rgb(0x4A, 0x51, 0x60),
+    thumb: Color32::from_rgb(0x3E, 0x45, 0x51),
+    edge_light: Color32::from_rgba_unmultiplied_const(0xFF, 0xFF, 0xFF, 0x12),
+    shade: Color32::from_black_alpha(0x80),
+    ember: Color32::from_rgba_unmultiplied_const(0xE6, 0xE8, 0xEC, 0x14),
+    accent_hi: Color32::from_rgb(0x5D, 0xAE, 0xFF),
+    accent_lo: Color32::from_rgb(0x3F, 0x8F, 0xEA),
+    on_accent: Color32::from_rgb(0x06, 0x18, 0x2E),
+    mute: Color32::from_rgb(0xC8, 0xCC, 0xD4),
+    on_mute: Color32::from_rgb(0x0B, 0x0D, 0x10),
 };
 
 pub const LIGHT: Palette = Palette {
@@ -153,6 +192,18 @@ pub const LIGHT: Palette = Palette {
     key_text: Color32::from_rgb(0x5A, 0x61, 0x70),
     lane_black: Color32::from_rgb(0xEC, 0xEE, 0xF1),
     lane_split: Color32::from_rgb(0xD2, 0xD6, 0xDC),
+    ground: Color32::from_rgb(0xE7, 0xE9, 0xED),
+    control_hi: Color32::from_rgb(0xEE, 0xF0, 0xF3),
+    thumb_hi: Color32::from_rgb(0xFF, 0xFF, 0xFF),
+    thumb: Color32::from_rgb(0xF3, 0xF4, 0xF6),
+    edge_light: Color32::from_rgba_unmultiplied_const(0xFF, 0xFF, 0xFF, 0xCC),
+    shade: Color32::from_rgba_unmultiplied_const(0x1C, 0x1F, 0x24, 0x24),
+    ember: Color32::from_rgba_unmultiplied_const(0x1C, 0x1F, 0x24, 0x14),
+    accent_hi: Color32::from_rgb(0x2A, 0x74, 0xD4),
+    accent_lo: Color32::from_rgb(0x1A, 0x62, 0xBD),
+    on_accent: Color32::WHITE,
+    mute: Color32::from_rgb(0x5A, 0x61, 0x70),
+    on_mute: Color32::WHITE,
 };
 
 /// Track and clip colours: muted, medium lightness, so white names read on
@@ -176,7 +227,12 @@ pub const CLIP_COLORS: [Color32; 12] = [
 /// surfaces, stepped up on a selected row so it keeps its edge.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Controls {
+    /// The bottom of a raised control's gradient (flat controls use it
+    /// alone).
     pub fill: Color32,
+    /// The top of a raised control's gradient: `control_hi`; on a selected
+    /// row the same as `fill` (the step-up is flat).
+    pub fill_hi: Color32,
     pub hover: Color32,
     /// Pressed, and the filled part of a slider.
     pub press: Color32,
@@ -192,6 +248,7 @@ pub fn controls(selected: bool) -> Controls {
         let step = |from: Color32| from.lerp_to_gamma(c.text, 0.08);
         Controls {
             fill: c.selected_control,
+            fill_hi: c.selected_control,
             hover: step(c.selected_control),
             press: step(step(c.selected_control)),
             text: c.text,
@@ -199,6 +256,7 @@ pub fn controls(selected: bool) -> Controls {
     } else {
         Controls {
             fill: c.control,
+            fill_hi: c.control_hi,
             hover: c.control_hover,
             press: c.control_press,
             text: c.text_secondary,
@@ -206,96 +264,99 @@ pub fn controls(selected: bool) -> Controls {
     }
 }
 
-/// Which colour a lit control burns (the premium control look, ADR-0046).
-/// State is never colour alone: the shape and the label stay.
+/// How a control that is on looks (the design system, ADR-0052, replacing
+/// ADR-0051's lit tones). State is never colour alone: the shape and the
+/// label stay. Filled controls do not glow: their fill is their light.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tone {
-    /// On, selected, chosen: the single accent.
+    /// A toggle, pill or chip that is on: `accent_muted`, `accent` letters
+    /// and one accent hairline at 38%.
+    On,
+    /// Filled accent: the one primary of a view, a lit S, the chosen tool.
     Accent,
-    /// Solo.
-    Warning,
-    /// Arm and record.
+    /// A lit M: `mute` with `on_mute` letters.
+    Mute,
+    /// Record while recording: record red over the control, a 45% hairline
+    /// and the Flare (the one lit control that glows).
     Record,
-    /// Mute on: recessed and dark with hint text, not lit.
-    Recessed,
 }
 
-/// A lit control's paint: a gradient from `top` to `bottom`, a darker
-/// `edge`, and `text` that keeps its contrast on both ends.
+/// A lit control's paint: a gradient from `top` to `bottom`, its `edge`
+/// line, the `light` along its top inside edge (none on an `On` control)
+/// and its `text`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LitFill {
     pub top: Color32,
     pub bottom: Color32,
     pub edge: Color32,
+    pub light: Color32,
     pub text: Color32,
 }
 
-impl Tone {
-    /// The colour a lit control burns; `None` for [`Tone::Recessed`].
-    pub fn colour(self) -> Option<Color32> {
-        self.colour_in(p())
-    }
+/// The edge light of a filled control: one stronger line, white at 35%.
+pub const EDGE_ON_FILL: Color32 = Color32::from_rgba_unmultiplied_const(0xFF, 0xFF, 0xFF, 0x59);
+/// How strong the accent hairline of something that is on is.
+pub const ON_HAIRLINE: f32 = 0.38;
+/// The hairline of a recording control, in record red.
+const RECORD_HAIRLINE: f32 = 0.45;
+/// How much record red tints a recording control's fill.
+const RECORD_TINT: f32 = 0.18;
 
-    fn colour_in(self, c: &Palette) -> Option<Color32> {
+impl Tone {
+    /// The colour of the light a lit control of this tone gives, if any:
+    /// only recording glows.
+    pub fn glow(self) -> Option<Color32> {
         match self {
-            Tone::Accent => Some(c.accent),
-            Tone::Warning => Some(c.warning),
-            Tone::Record => Some(c.record),
-            Tone::Recessed => None,
+            Tone::Record => Some(p().record),
+            _ => None,
         }
     }
 }
 
-/// The paint of a lit control of `tone` (the mock-ups' gradient: lighter
-/// above, deeper below). `Recessed` has none and gets the well's colours.
+/// The paint of a control of `tone` that is on.
 pub fn lit(tone: Tone) -> LitFill {
     lit_in(p(), tone)
 }
 
 fn lit_in(c: &Palette, tone: Tone) -> LitFill {
-    let base = tone.colour_in(c).unwrap_or(c.well);
-    LitFill {
-        top: base.lerp_to_gamma(Color32::WHITE, 0.18),
-        bottom: base.lerp_to_gamma(Color32::BLACK, 0.12),
-        edge: base.lerp_to_gamma(Color32::BLACK, 0.30),
-        text: text_on(base),
+    match tone {
+        Tone::On => LitFill {
+            top: c.accent_muted,
+            bottom: c.accent_muted,
+            edge: c.accent.gamma_multiply(ON_HAIRLINE),
+            light: Color32::TRANSPARENT,
+            text: c.accent,
+        },
+        Tone::Accent => LitFill {
+            top: c.accent_hi,
+            bottom: c.accent_lo,
+            edge: c.accent_lo,
+            light: EDGE_ON_FILL,
+            text: c.on_accent,
+        },
+        Tone::Mute => LitFill {
+            top: c.mute,
+            bottom: c.mute,
+            edge: c.mute,
+            light: EDGE_ON_FILL,
+            text: c.on_mute,
+        },
+        Tone::Record => {
+            let fill = c.control.lerp_to_gamma(c.record, RECORD_TINT);
+            LitFill {
+                top: fill,
+                bottom: fill,
+                edge: c.record.gamma_multiply(RECORD_HAIRLINE),
+                light: Color32::TRANSPARENT,
+                text: c.record,
+            }
+        }
     }
 }
 
-/// A raised control's gradient ends for a surface `fill`: a little lighter
-/// above, a little deeper below.
-pub fn lift(fill: Color32) -> (Color32, Color32) {
-    (
-        fill.lerp_to_gamma(Color32::WHITE, 0.05),
-        fill.lerp_to_gamma(Color32::BLACK, 0.04),
-    )
-}
-
-/// The 1 px light along the top inside edge of a raised control.
+/// The 1 pt light along the top inside edge of a raised surface.
 pub fn edge_light() -> Color32 {
-    Color32::WHITE.gamma_multiply(if is_light() { 0.8 } else { 0.07 })
-}
-
-/// The same edge on a lit control, where it is stronger.
-pub fn edge_light_lit() -> Color32 {
-    Color32::WHITE.gamma_multiply(if is_light() { 0.5 } else { 0.35 })
-}
-
-/// The soft drop shadow under a raised control (and the inset one in a
-/// pressed or sunken one, `scale` of it).
-pub fn control_shadow(scale: f32) -> Color32 {
-    Color32::BLACK.gamma_multiply(if is_light() { 0.10 } else { 0.35 } * scale)
-}
-
-/// The raised thumb of a segmented control, over its sunken well: the
-/// pressed grey on dark, white on light (the well is as dark as the pressed
-/// grey there).
-pub fn thumb() -> Color32 {
-    thumb_in(p(), is_light())
-}
-
-fn thumb_in(c: &Palette, light: bool) -> Color32 {
-    if light { c.overlay } else { c.control_press }
+    p().edge_light
 }
 
 /// A waveform inside a clip of `track` colour: brightened on the dark
@@ -369,15 +430,50 @@ pub mod space {
     pub const XS: f32 = 4.0;
     pub const S: f32 = 8.0;
     pub const M: f32 = 12.0;
-    /// Between tabs, and around an empty state's parts.
+    /// Panel toolbar insets, and around an empty state's parts.
     pub const L: f32 = 16.0;
+    /// Between groups in a panel; welcome and first-run layouts.
+    pub const XL: f32 = 24.0;
+    /// Section gaps on first-run screens.
+    pub const XXL: f32 = 32.0;
 }
 
-/// Corner radii.
+/// Corner radii, by the height of what they round (`DESIGN.md` §5): a
+/// piece inside a trough takes the trough's radius less its 2 pt inset.
 pub mod radius {
+    /// 20 pt controls and troughs, clips, notes, keycaps, chips in 20 pt
+    /// rows.
     pub const SMALL: u8 = 4;
+    /// 24 pt controls, inputs, menu rows.
     pub const MEDIUM: u8 = 6;
+    /// 30 pt controls, popovers and menus.
     pub const LARGE: u8 = 8;
+    /// Windows, cards, the command palette.
+    pub const XL: u8 = 12;
+    /// Pills: switches, lane tabs, chips (egui clamps it to half the
+    /// height).
+    pub const FULL: u8 = 255;
+
+    /// The radius of a control `height` points tall.
+    pub fn for_height(height: f32) -> u8 {
+        if height >= super::size::CONTROL_LARGE - 0.5 {
+            LARGE
+        } else if height >= super::size::CONTROL - 0.5 {
+            MEDIUM
+        } else {
+            SMALL
+        }
+    }
+}
+
+/// Line widths (`DESIGN.md` §5).
+pub mod stroke {
+    /// Separators, outlines, edge lights and lips.
+    pub const HAIRLINE: f32 = 1.0;
+    /// The crisp line of a Lit or Flare light, and icons.
+    pub const LIT: f32 = 1.5;
+    /// The keyboard focus ring, and a Beam's line.
+    pub const FOCUS: f32 = 2.0;
 }
 
 /// Type sizes (`DESIGN.md` §4).
@@ -385,13 +481,19 @@ pub mod size {
     /// Numbers on meter scales and knob values, a step under `CAPTION`
     /// (M4 slice 5).
     pub const SCALE: f32 = 10.0;
+    /// Ruler numbers, units after a readout, clip meta, in the monospace.
+    pub const MONO_SMALL: f32 = 10.0;
     pub const CAPTION: f32 = 11.0;
+    /// The letters on K5 keycaps: the caption size.
+    pub const KEYCAP: f32 = CAPTION;
     pub const BODY: f32 = 13.0;
     pub const TITLE: f32 = 15.0;
     pub const HEADING: f32 = 16.0;
     /// The loudness column's integrated LUFS, the one figure read from
     /// across the room (M4 slice 5, the owner's L2).
     pub const READOUT: f32 = 20.0;
+    /// Welcome and first-run titles, in Unbounded.
+    pub const DISPLAY: f32 = 24.0;
     /// The "Lumen" wordmark in the transport bar (Unbounded is wide).
     pub const WORDMARK: f32 = 14.0;
     /// The info line's height along the bottom of the window (M4 slice 0).
@@ -402,6 +504,16 @@ pub mod size {
     /// header sliders (the interface audit's S4: 18, 19, 20 and 22 were in
     /// use).
     pub const CONTROL_SMALL: f32 = 20.0;
+    /// Detail-panel toolbars (the tool switch) and the transport's readouts.
+    pub const CONTROL_LARGE: f32 = 30.0;
+    /// Transport icon buttons (square).
+    pub const TRANSPORT_ICON: f32 = 28.0;
+    /// The transport bar's height.
+    pub const TRANSPORT_BAR: f32 = 44.0;
+    /// Track heights move in steps of this: folded 2, unfolded 4 to 14.
+    pub const TRACK_STEP: f32 = 22.0;
+    /// The track header column's default width (resizable to 480).
+    pub const HEADER_COLUMN: f32 = 204.0;
     /// The Monitor badge on a MIDI track's header (a speaker, only when
     /// Monitor is not Auto): width and height.
     pub const BADGE_W: f32 = 16.0;
@@ -535,11 +647,11 @@ fn build_style(style: &mut egui::Style, c: &Palette, light: bool, animation_time
     };
     v.panel_fill = c.app;
     v.window_fill = c.overlay;
-    v.window_stroke = Stroke::new(1.0, c.border_strong);
-    v.window_corner_radius = CornerRadius::same(radius::LARGE);
+    v.window_stroke = Stroke::new(stroke::HAIRLINE, c.border_strong);
+    v.window_corner_radius = CornerRadius::same(radius::XL);
     // One flat window surface: no separately tinted title bar.
     v.window_highlight_topmost = false;
-    v.menu_corner_radius = CornerRadius::same(radius::MEDIUM);
+    v.menu_corner_radius = CornerRadius::same(radius::LARGE);
     let shadow = Shadow {
         offset: [0, 6],
         blur: 18,
@@ -549,6 +661,8 @@ fn build_style(style: &mut egui::Style, c: &Palette, light: bool, animation_time
     v.window_shadow = shadow;
     v.popup_shadow = shadow;
     v.extreme_bg_color = c.raised;
+    // Fields are wells cut into the surface (the Field card).
+    v.text_edit_bg_color = Some(c.well);
     v.faint_bg_color = c.raised;
     v.code_bg_color = c.raised;
     v.warn_fg_color = c.warning;
@@ -559,7 +673,8 @@ fn build_style(style: &mut egui::Style, c: &Palette, light: bool, animation_time
     v.selection.bg_fill = c.accent_muted;
     v.selection.stroke = Stroke::new(1.0, c.accent);
 
-    let radius = CornerRadius::same(radius::SMALL);
+    // egui's own widgets are 24 pt controls (`interact_size`).
+    let radius = CornerRadius::same(radius::MEDIUM);
     let w = &mut v.widgets;
     // Non-interactive: labels, separators, frames.
     w.noninteractive.bg_fill = c.app;
@@ -571,22 +686,25 @@ fn build_style(style: &mut egui::Style, c: &Palette, light: bool, animation_time
     // slider rails with `bg_fill`, a step stronger so they read as controls.
     w.inactive.bg_fill = c.control_press;
     w.inactive.weak_bg_fill = c.control;
-    w.inactive.bg_stroke = Stroke::NONE;
+    // A raised control's 1 pt outline.
+    w.inactive.bg_stroke = Stroke::new(stroke::HAIRLINE, c.border);
     w.inactive.fg_stroke = Stroke::new(1.0, c.text);
     w.inactive.corner_radius = radius;
     // Under the pointer.
-    w.hovered.bg_fill = c.control_hover;
-    w.hovered.weak_bg_fill = c.control_hover;
-    w.hovered.bg_stroke = Stroke::new(1.0, c.border_strong);
-    w.hovered.fg_stroke = Stroke::new(1.5, c.text);
+    // Hover is Ember: the text colour washed over the fill, never another
+    // fill.
+    w.hovered.bg_fill = c.control_press.blend(c.ember);
+    w.hovered.weak_bg_fill = c.control.blend(c.ember);
+    w.hovered.bg_stroke = Stroke::new(stroke::HAIRLINE, c.border_strong);
+    w.hovered.fg_stroke = Stroke::new(stroke::HAIRLINE, c.text);
     w.hovered.corner_radius = radius;
     w.hovered.expansion = 0.0;
     // Pressed, or focused from the keyboard: the accent outline is the
     // focus ring.
     w.active.bg_fill = c.control_press;
     w.active.weak_bg_fill = c.control_press;
-    w.active.bg_stroke = Stroke::new(1.5, c.accent);
-    w.active.fg_stroke = Stroke::new(2.0, c.text);
+    w.active.bg_stroke = Stroke::new(stroke::FOCUS, c.accent);
+    w.active.fg_stroke = Stroke::new(stroke::HAIRLINE, c.text);
     w.active.corner_radius = radius;
     w.active.expansion = 0.0;
     // Open menus and combo boxes.
@@ -677,21 +795,50 @@ mod tests {
 
     #[test]
     fn lit_controls_keep_their_letters_in_both_themes() {
-        for (name, c, light) in [("dark", DARK, false), ("light", LIGHT, true)] {
-            for tone in [Tone::Accent, Tone::Warning, Tone::Record] {
+        for (name, c) in [("dark", DARK), ("light", LIGHT)] {
+            for tone in [Tone::Accent, Tone::Mute] {
                 let fill = lit_in(&c, tone);
                 for end in [fill.top, fill.bottom] {
                     let ratio = contrast(fill.text, end);
-                    assert!(ratio >= 3.0, "{name} {tone:?} {end:?}: {ratio}");
+                    assert!(ratio >= 4.5, "{name} {tone:?} {end:?}: {ratio}");
                 }
-                // The edge separates the control from the surface under it.
-                assert!(contrast(fill.edge, c.header) >= 1.2, "{name} {tone:?} edge");
             }
+            // On: accent letters on accent_muted (the source values, kept:
+            // 4.4:1 dark, 3.9:1 light; 13 pt and up).
+            let on = lit_in(&c, Tone::On);
+            assert!(contrast(on.text, on.top) >= 3.5, "{name} on");
+            let rec = lit_in(&c, Tone::Record);
+            assert!(contrast(rec.text, rec.top) >= 3.0, "{name} record");
             // The raised thumb stands out from its well, and reads on it.
-            let thumb = thumb_in(&c, light);
-            assert!(contrast(thumb, c.well) >= 1.2, "{name} thumb");
-            assert!(contrast(c.text, thumb) >= 4.5, "{name} thumb text");
+            for thumb in [c.thumb_hi, c.thumb] {
+                assert!(contrast(thumb, c.well) >= 1.2, "{name} thumb");
+                assert!(contrast(c.text, thumb) >= 4.5, "{name} thumb text");
+            }
         }
+    }
+
+    #[test]
+    fn surfaces_step_lighter_as_they_rise() {
+        fn luma(c: Color32) -> u32 {
+            u32::from(c.r()) * 2126 + u32::from(c.g()) * 7152 + u32::from(c.b()) * 722
+        }
+        for (name, c) in [("dark", DARK), ("light", LIGHT)] {
+            assert!(luma(c.ground) < luma(c.app), "{name} ground");
+            assert!(luma(c.control_hi) > luma(c.control), "{name} control");
+            assert!(luma(c.accent_hi) > luma(c.accent_lo), "{name} accent");
+            assert!(luma(c.thumb_hi) >= luma(c.thumb), "{name} thumb");
+            assert!(contrast(c.text_secondary, c.control) >= 4.5, "{name}");
+            // The gradient's lighter top is a 3% step: 4.2:1 on dark.
+            assert!(contrast(c.text_secondary, c.control_hi) >= 4.0, "{name}");
+        }
+        assert!(luma(DARK.ground) < luma(DARK.well));
+    }
+
+    #[test]
+    fn radii_follow_the_control_height() {
+        assert_eq!(radius::for_height(size::CONTROL_SMALL), radius::SMALL);
+        assert_eq!(radius::for_height(size::CONTROL), radius::MEDIUM);
+        assert_eq!(radius::for_height(size::CONTROL_LARGE), radius::LARGE);
     }
 
     #[test]

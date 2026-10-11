@@ -1,16 +1,22 @@
-//! The premium control look (ADR-0046, approved by the owner from canvas
-//! mock-ups): controls are raised, lit when on, and sink when pressed.
+//! The design system's material (its Material and Button cards, ADR-0052,
+//! which replaces ADR-0051's lit look): controls are raised, sink when
+//! pressed, and when on are `accent_muted` with an accent hairline; the
+//! one primary, a lit S and the chosen tool are filled accent; a lit M is
+//! `mute`.
 //!
-//! - **Raised**: the control fill with a slight lift from top to bottom, a
-//!   1 px light edge along the top inside, a `border` line and a soft drop
-//!   shadow. Hover steps to the hover fill; pressed is sunken (an inset
-//!   shadow) and drawn 1 px lower.
-//! - **Lit** (on): the accent, warning or record gradient with a stronger
-//!   light edge and a glow that is one of the light layer's levels
-//!   ([`glow_level`]), never a one-off. Letters come from `theme::text_on`.
-//! - **Recessed** (mute on): the well's colour, an inset shadow and hint
-//!   letters.
-//! - **Sunken** ([`paint_sunken`]): the well under a segmented control.
+//! - **Raised**: a two-stop vertical gradient, `control_hi` to `control` (a
+//!   3% step), a 1 pt `border` (`border_strong` under the pointer) and a
+//!   1 pt `edge_light` along the top inside edge. Hover is Ember (`ember`
+//!   over the fill), never another fill. No shadow: only windows and
+//!   popovers float.
+//! - **Pressed**: sunk, flat `control_press` with the 1 pt `shade` lip; the
+//!   content moves 1 pt down, the box stays.
+//! - **On** ([`Tone`]): `accent_muted`, accent letters, a 38% accent
+//!   hairline; filled accent and mute get a stronger edge light; filled
+//!   controls do not glow (their fill is their light), only recording does.
+//! - **Sunk** ([`paint_sunken`]): `well` with the `shade` lip, for troughs,
+//!   grooves and meters; fields add a border ([`paint_field`]).
+//! - **Disabled**: a flat `control` fill and `text_disabled` letters.
 //!
 //! State is never colour alone: callers keep the label, icon or shape.
 
@@ -20,7 +26,7 @@ use eframe::egui::{
 };
 use eframe::emath::GuiRounding as _;
 
-use crate::theme::{self, Tone};
+use crate::theme::{self, Tone, radius, stroke};
 use crate::{light, motion};
 
 /// How a control looks this frame.
@@ -35,6 +41,7 @@ pub struct Face {
     /// cross-fades).
     pub lit: f32,
     pub tone: Tone,
+    pub enabled: bool,
 }
 
 impl Face {
@@ -45,8 +52,15 @@ impl Face {
             hover: 0.0,
             pressed: false,
             lit: 0.0,
-            tone: Tone::Accent,
+            tone: Tone::On,
+            enabled: true,
         }
+    }
+
+    /// Greyed out: flat, `text_disabled` letters.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
     }
 
     pub fn hover(mut self, hover: f32) -> Self {
@@ -68,127 +82,114 @@ impl Face {
 
     /// The colour of letters and icons on this face.
     pub fn text(&self) -> Color32 {
-        let rest = self.surface.text.lerp_to_gamma(theme::p().text, self.hover);
-        match self.tone {
-            Tone::Recessed => rest.lerp_to_gamma(theme::p().text_hint, self.lit),
-            tone => rest.lerp_to_gamma(theme::lit(tone).text, self.lit),
+        let c = theme::p();
+        if !self.enabled {
+            return c.text_disabled;
         }
+        let rest = self
+            .surface
+            .text
+            .lerp_to_gamma(c.text, if self.pressed { 1.0 } else { self.hover });
+        rest.lerp_to_gamma(theme::lit(self.tone).text, self.lit)
     }
 }
 
-/// The light level a lit control of `tone` glows at: the chosen level for
-/// the accent and solo, the needs-you level for record.
-pub fn glow_level(tone: Tone) -> light::Light {
-    match tone {
-        Tone::Record => light::FLARE,
-        _ => light::LIT,
-    }
-}
-
-/// Draws a raised control in `rect` (snap it to pixels first) and returns
-/// the rect its content is centred in: 1 px lower while pressed.
+/// Draws a control in `rect` (snap it to pixels first): raised, pressed,
+/// on or disabled as `face` says. Returns the rect its content is centred
+/// in: 1 pt lower while pressed.
 pub fn paint(painter: &Painter, rect: Rect, radius: u8, face: &Face) -> Rect {
     let c = theme::p();
     let r = f32::from(radius);
-    let recessed = face.tone == Tone::Recessed;
-    let lit = if recessed { 0.0 } else { face.lit };
-    let sunk = if recessed { face.lit } else { 0.0 };
-    let rest = face
-        .surface
-        .fill
-        .lerp_to_gamma(face.surface.hover, face.hover);
-    let (rest_top, rest_bottom) = theme::lift(rest);
-    let fill = theme::lit(face.tone);
-    let top = rest_top.lerp_to_gamma(fill.top, lit);
-    let bottom = rest_bottom.lerp_to_gamma(fill.bottom, lit);
-    let border = c.border.lerp_to_gamma(fill.edge, lit);
-
+    if !face.enabled {
+        painter.rect_filled(rect, r, face.surface.fill);
+        return rect;
+    }
     if face.pressed {
-        let body = rect.translate(vec2(0.0, 1.0));
-        painter.rect_filled(body, r, face.surface.press);
-        inset_shadow(painter, body, r, 1.0);
-        painter.rect_stroke(body, r, Stroke::new(1.0, border), StrokeKind::Inside);
-        return body;
-    }
-    if sunk > 0.0 {
-        // Mute on: the well, sunk in, with a fading raised look.
-        let body = rect;
-        painter.rect_filled(body, r, rest.lerp_to_gamma(c.well, sunk));
-        inset_shadow(painter, body, r, sunk);
-        painter.rect_stroke(body, r, Stroke::new(1.0, c.border), StrokeKind::Inside);
-        if sunk < 1.0 {
-            painter.rect_stroke(
-                body.shrink(1.0),
-                r,
-                Stroke::new(1.0, theme::edge_light().gamma_multiply(1.0 - sunk)),
-                StrokeKind::Inside,
-            );
-        }
-        return body;
-    }
-    // Drop shadow, then a glow when lit.
-    painter.rect_filled(
-        rect.translate(vec2(0.0, 1.0)),
-        r,
-        theme::control_shadow(1.0),
-    );
-    if lit > 0.0 {
-        light::glow(
-            painter,
-            glow_level(face.tone),
+        painter.rect_filled(rect, r, face.surface.press);
+        lip(painter, rect, radius, c.shade);
+        painter.rect_stroke(
             rect,
             r,
-            face.tone.colour().unwrap_or(c.accent),
-            lit,
+            Stroke::new(stroke::HAIRLINE, c.border),
+            StrokeKind::Inside,
         );
+        return rect.translate(vec2(0.0, stroke::HAIRLINE));
     }
-    painter.rect_filled(rect, r, top.lerp_to_gamma(bottom, 0.5));
-    gradient(painter, rect.shrink(1.0), (r - 1.0).max(0.0), top, bottom);
-    // The 1 px light edge along the top, inside the border.
-    let edge = theme::edge_light().lerp_to_gamma(theme::edge_light_lit(), lit);
-    painter.hline(
-        (rect.left() + r)..=(rect.right() - r),
-        rect.top() + 1.5,
-        Stroke::new(1.0, edge),
-    );
-    painter.rect_stroke(rect, r, Stroke::new(1.0, border), StrokeKind::Inside);
-    rect
-}
-
-/// A well that controls sit sunken in (a segmented control's track): the
-/// `well` colour, an inset shadow and a hairline of light along the bottom.
-pub fn paint_sunken(painter: &Painter, rect: Rect, radius: u8) {
-    let r = f32::from(radius);
-    painter.rect_filled(rect, r, theme::p().well);
-    inset_shadow(painter, rect, r, 1.0);
+    let on = theme::lit(face.tone);
+    let lit = face.lit;
+    let top = face.surface.fill_hi.lerp_to_gamma(on.top, lit);
+    let bottom = face.surface.fill.lerp_to_gamma(on.bottom, lit);
+    if lit > 0.0
+        && let Some(colour) = face.tone.glow()
+    {
+        light::glow(painter, light::FLARE, rect, r, colour, lit);
+    }
+    gradient(painter, rect, r, top, bottom);
+    if face.hover > 0.0 {
+        painter.rect_filled(rect, r, c.ember.gamma_multiply(face.hover));
+    }
+    let edge_light = c.edge_light.lerp_to_gamma(on.light, lit);
+    lip(painter, rect, radius, edge_light);
+    let border = c
+        .border
+        .lerp_to_gamma(c.border_strong, face.hover)
+        .lerp_to_gamma(on.edge, lit);
     painter.rect_stroke(
         rect,
         r,
-        Stroke::new(1.0, theme::p().border),
+        Stroke::new(stroke::HAIRLINE, border),
+        StrokeKind::Inside,
+    );
+    rect
+}
+
+/// A well cut into the surface (a segmented control's trough, a groove, a
+/// meter): `well` with the `shade` lip along its top.
+pub fn paint_sunken(painter: &Painter, rect: Rect, radius: u8) {
+    painter.rect_filled(rect, f32::from(radius), theme::p().well);
+    lip(painter, rect, radius, theme::p().shade);
+}
+
+/// A field (a value field, a readout): sunk, with a 1 pt `border` that
+/// strengthens to `border_strong` by `hover`.
+pub fn paint_field(painter: &Painter, rect: Rect, radius: u8, hover: f32) {
+    let c = theme::p();
+    paint_sunken(painter, rect, radius);
+    painter.rect_stroke(
+        rect,
+        f32::from(radius),
+        Stroke::new(
+            stroke::HAIRLINE,
+            c.border.lerp_to_gamma(c.border_strong, hover),
+        ),
         StrokeKind::Inside,
     );
 }
 
-/// A shadow just inside the top edge of `rect`, two lines deep.
-fn inset_shadow(painter: &Painter, rect: Rect, radius: f32, scale: f32) {
-    let x = (rect.left() + radius)..=(rect.right() - radius);
+/// A 1 pt line in `colour` along the top inside edge of `rect`, clear of
+/// its rounded corners: the edge light on what is raised, the lip on what
+/// is sunk.
+pub fn lip(painter: &Painter, rect: Rect, radius: u8, colour: Color32) {
+    if colour.a() == 0 {
+        return;
+    }
+    let inset = f32::from(radius).min(rect.width() / 2.0).max(1.0);
     painter.hline(
-        x.clone(),
-        rect.top() + 1.5,
-        Stroke::new(1.0, theme::control_shadow(1.4 * scale)),
-    );
-    painter.hline(
-        x,
-        rect.top() + 2.5,
-        Stroke::new(1.0, theme::control_shadow(0.6 * scale)),
+        (rect.left() + inset)..=(rect.right() - inset),
+        rect.top() + 1.5 * stroke::HAIRLINE,
+        Stroke::new(stroke::HAIRLINE, colour),
     );
 }
 
 /// A vertical gradient inside a rounded rectangle: a convex fan with the
 /// colour set per vertex.
-fn gradient(painter: &Painter, rect: Rect, radius: f32, top: Color32, bottom: Color32) {
+pub fn gradient(painter: &Painter, rect: Rect, radius: f32, top: Color32, bottom: Color32) {
     const STEPS: usize = 4;
     if rect.height() <= 0.0 || rect.width() <= 0.0 {
+        return;
+    }
+    if top == bottom {
+        painter.rect_filled(rect, radius, top);
         return;
     }
     let r = radius.min(rect.width() / 2.0).min(rect.height() / 2.0);
@@ -218,14 +219,24 @@ fn gradient(painter: &Painter, rect: Rect, radius: f32, top: Color32, bottom: Co
     painter.add(Shape::mesh(mesh));
 }
 
-/// A raised button named `label`, sized to its letters.
+/// A raised button named `label`, sized to its letters (24 pt, radius
+/// 6).
 pub fn button(ui: &mut Ui, label: &str) -> Response {
     button_inked(ui, label, None)
+}
+
+/// The one primary button of a view: filled accent, `on_accent` letters.
+pub fn primary_button(ui: &mut Ui, label: &str) -> Response {
+    button_face(ui, label, None, Some(Tone::Accent))
 }
 
 /// [`button`] with its letters in `ink` (Panic's record red), still on one
 /// pixel-snapped centred line.
 pub fn button_inked(ui: &mut Ui, label: &str, ink: Option<Color32>) -> Response {
+    button_face(ui, label, ink, None)
+}
+
+fn button_face(ui: &mut Ui, label: &str, ink: Option<Color32>, lit: Option<Tone>) -> Response {
     let galley = ui.painter().layout_no_wrap(
         label.to_owned(),
         egui::FontId::proportional(theme::size::BODY),
@@ -235,18 +246,22 @@ pub fn button_inked(ui: &mut Ui, label: &str, ink: Option<Color32>) -> Response 
         galley.size().x + 2.0 * theme::space::M,
         theme::size::CONTROL,
     );
+    let enabled = ui.is_enabled();
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
     if ui.is_rect_visible(rect) {
-        let face = face_of(ui, &response);
+        let mut face = face_of(ui, &response).enabled(enabled);
+        if let Some(tone) = lit {
+            face = face.lit(1.0, tone);
+        }
         let rect = rect.round_to_pixels(ui.pixels_per_point());
-        let body = paint(ui.painter(), rect, theme::radius::SMALL, &face);
-        centre_galley(
-            ui.painter(),
-            body,
-            galley,
-            ink.unwrap_or_else(|| face.text()),
-        );
+        let radius = radius::for_height(rect.height());
+        let body = paint(ui.painter(), rect, radius, &face);
+        let colour = match ink {
+            Some(ink) if enabled => ink,
+            _ => face.text(),
+        };
+        centre_galley(ui.painter(), body, galley, colour);
         focus_ring(ui.painter(), &response, rect);
     }
     response
@@ -265,7 +280,7 @@ pub fn icon_button(
     if ui.is_rect_visible(rect) {
         let face = face_of(ui, &response);
         let rect = rect.round_to_pixels(ui.pixels_per_point());
-        let body = paint(ui.painter(), rect, theme::radius::SMALL, &face);
+        let body = paint(ui.painter(), rect, radius::for_height(rect.height()), &face);
         draw(ui.painter(), body.center(), face.text());
         focus_ring(ui.painter(), &response, rect);
     }
@@ -292,28 +307,28 @@ pub fn centre_galley(
     painter.galley_with_override_text_color(at, galley, colour);
 }
 
-/// The 2 pt accent ring of keyboard focus, around `rect`.
+/// The 2 pt accent ring of keyboard focus, 2 pt outside `rect`, rounded
+/// to follow the control (its radius taken from its height).
 pub fn focus_ring(painter: &Painter, response: &Response, rect: Rect) {
     if response.has_focus() {
-        painter.rect_stroke(
-            rect,
-            theme::radius::SMALL,
-            Stroke::new(2.0, theme::p().accent),
-            StrokeKind::Inside,
-        );
+        paint_focus(painter, rect, radius::for_height(rect.height()));
     }
+}
+
+/// The focus ring around `rect` of corner `radius`, drawn now.
+pub fn paint_focus(painter: &Painter, rect: Rect, radius: u8) {
+    let gap = stroke::FOCUS;
+    painter.rect_stroke(
+        rect.expand(gap + stroke::FOCUS),
+        f32::from(radius) + gap + stroke::FOCUS,
+        Stroke::new(stroke::FOCUS, theme::p().accent),
+        StrokeKind::Inside,
+    );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn glows_are_light_layer_levels() {
-        assert_eq!(glow_level(Tone::Accent), light::LIT);
-        assert_eq!(glow_level(Tone::Warning), light::LIT);
-        assert_eq!(glow_level(Tone::Record), light::FLARE);
-    }
 
     #[test]
     fn letters_follow_the_lit_amount() {
@@ -322,7 +337,16 @@ mod tests {
         let on = face.lit(1.0, Tone::Accent).text();
         assert_eq!(on, theme::lit(Tone::Accent).text);
         assert_ne!(off, on);
-        let mute = face.lit(1.0, Tone::Recessed).text();
-        assert_eq!(mute, theme::p().text_hint);
+        let mute = face.lit(1.0, Tone::Mute).text();
+        assert_eq!(mute, theme::p().on_mute);
+        assert_eq!(face.enabled(false).text(), theme::p().text_disabled);
+    }
+
+    #[test]
+    fn only_recording_glows() {
+        assert!(Tone::On.glow().is_none());
+        assert!(Tone::Accent.glow().is_none());
+        assert!(Tone::Mute.glow().is_none());
+        assert!(Tone::Record.glow().is_some());
     }
 }

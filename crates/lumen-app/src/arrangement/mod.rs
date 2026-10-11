@@ -65,14 +65,14 @@ use lumen_project::model::{Clip, Color, Id, Track};
 
 /// Width of the header column, unless dragged (MT-MIX-3 run 1: names were
 /// cut short); double-clicking its edge comes back to this.
-pub const HEADER_WIDTH: f32 = 204.0;
+pub const HEADER_WIDTH: f32 = crate::theme::size::HEADER_COLUMN;
 
 /// The widest the header column can be dragged.
 pub const MAX_HEADER_WIDTH: f32 = 480.0;
 
 /// Track heights come in steps of this (owner request): elements drawn by
 /// height later (automation lanes, meters) can rely on whole steps.
-pub const STEP: f32 = 22.0;
+pub const STEP: f32 = crate::theme::size::TRACK_STEP;
 
 /// A folded track: two steps.
 pub const FOLDED: f32 = 2.0 * STEP;

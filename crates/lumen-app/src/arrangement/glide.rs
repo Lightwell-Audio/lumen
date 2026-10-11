@@ -13,7 +13,7 @@ use lumen_project::model::{Clip, Id, Project};
 use crate::motion;
 
 /// How long the accent wash on what undo or redo changed takes to fade.
-pub(super) const WASH: f64 = 0.6;
+pub(super) const WASH: f64 = motion::WASH as f64;
 /// The wash's strength as it starts.
 pub(super) const WASH_ALPHA: f32 = 0.42;
 
