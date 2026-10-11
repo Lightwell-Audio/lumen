@@ -31,7 +31,7 @@ use crate::arrangement::select::TimeRange;
 use crate::timeview::TimeView;
 use crate::{App, document::NewClip};
 
-pub(crate) use ops::NoteOp;
+pub(crate) use ops::{NoteOp, VELOCITY_STEP};
 
 /// What a click or drag in the notes does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

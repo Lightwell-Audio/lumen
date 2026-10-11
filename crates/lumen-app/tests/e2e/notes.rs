@@ -359,7 +359,7 @@ fn clicking_a_note_picks_it_without_moving_the_playhead() {
     let p = at(&lumen, beat(2.5), 67);
     click(&mut lumen, p, Modifiers::SHIFT);
     assert_eq!(lumen.app().editor_picked(), [1, 2]);
-    let empty = at(&lumen, beat(6.5), 58);
+    let empty = at(&lumen, beat(6.5), 62);
     click(&mut lumen, empty, Modifiers::NONE);
     assert!(lumen.app().editor_picked().is_empty());
 }
@@ -703,7 +703,7 @@ fn the_context_menu_acts_on_notes() {
     lumen.frames(3);
     assert_eq!(notes(&lumen).len(), 3);
     // The empty editor has its own menu.
-    let empty = at(&lumen, beat(6.5), 58);
+    let empty = at(&lumen, beat(6.5), 62);
     lumen.right_click(empty);
     assert!(
         lumen

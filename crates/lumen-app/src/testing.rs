@@ -715,6 +715,13 @@ impl App {
         Some(egui::pos2(v.x_of(local), v.y_of(value)))
     }
 
+    /// Where the bend handle's dot is, when a curve was just drawn.
+    pub fn lane_bend_dot(&self) -> Option<egui::Pos2> {
+        let v = self.note_editor.last_lane?;
+        let b = self.note_editor.lane.bend?;
+        Some(crate::note_editor::lane::paint::bend_dot(&v, &b))
+    }
+
     /// A gesture is in progress in the lane.
     pub fn lane_gesture(&self) -> bool {
         self.note_editor.lane.gesture.is_some()

@@ -129,6 +129,20 @@ impl LaneState {
         self.bend_for = Some(clip.clone());
     }
 
+    /// Shows another lane: what belonged to the old one is dropped.
+    pub fn choose(&mut self, kind: LaneKind) {
+        self.kind = kind;
+        self.gesture = None;
+        self.bend = None;
+        self.picked.clear();
+    }
+
+    /// Uses another tool: a curve just drawn can no longer be bent.
+    pub fn use_tool(&mut self, tool: LaneTool) {
+        self.tool = tool;
+        self.bend = None;
+    }
+
     /// Ends a gesture without changing anything. True if one was running.
     pub fn cancel_gesture(&mut self) -> bool {
         self.gesture.take().is_some()

@@ -14,7 +14,9 @@ use super::panes;
 use super::projects::Next;
 use crate::arrangement::select::ClipStep;
 use crate::commands::{Chord, Command};
-use crate::note_editor::{EditorZoom, NoteOp, Tool};
+use crate::note_editor::lane::geometry::LaneKind;
+use crate::note_editor::lane::gesture::LaneTool;
+use crate::note_editor::{EditorZoom, NoteOp, Tool, VELOCITY_STEP};
 use crate::{App, widgets};
 
 impl App {
@@ -113,7 +115,7 @@ impl App {
                 "Select clips, a time range or tracks",
             ),
             Command::Delete => need(
-                clips || tracks || locator || notes,
+                clips || tracks || locator || notes || self.lane_keys_picked(),
                 "Select clips, a time range, tracks or a locator",
             ),
             Command::DeleteTime | Command::InsertTime => need(
@@ -184,7 +186,17 @@ impl App {
             | Command::NudgeEarlier
             | Command::NudgeLater
             | Command::NudgeEarlierFine
-            | Command::NudgeLaterFine => need(self.notes_are_picked(), "Select notes first"),
+            | Command::NudgeLaterFine
+            | Command::RaiseVelocity
+            | Command::LowerVelocity => need(self.notes_are_picked(), "Select notes first"),
+            Command::ToggleLane
+            | Command::LaneVelocity
+            | Command::LaneModWheel
+            | Command::LanePitchBend
+            | Command::LanePressure
+            | Command::LanePencil
+            | Command::LaneLine
+            | Command::LaneCurve => need(self.note_editor.clip.is_some(), "Open a MIDI clip first"),
             Command::MoveTracksUp | Command::MoveTracksDown => need(tracks, "Select tracks first"),
             Command::GroupTracks => need(
                 self.arrangement.selected.iter().any(|id| {
@@ -293,6 +305,7 @@ impl App {
         let clips = self.clips_chosen();
         let clip = !self.arrangement.clips.is_empty();
         let notes = self.note_keys_picked();
+        let lane_points = self.lane_keys_picked();
         let note_keys = self.note_keys();
         if command == Command::Deselect && self.note_editor.cancel_gesture() {
             self.end_audition();
@@ -352,6 +365,7 @@ impl App {
             Command::Paste => self.edit(Edit::Paste),
             // With the clip editor holding the keyboard and notes picked,
             // the keys that act on a selection act on them.
+            Command::Delete if lane_points => self.lane_delete(),
             Command::Delete if notes => self.note_op(NoteOp::Delete),
             Command::Duplicate if notes => self.note_op(NoteOp::Duplicate),
             Command::MuteClips if notes => self.note_op(NoteOp::ToggleMute),
@@ -395,6 +409,18 @@ impl App {
                 direction: 1,
                 fine: true,
             }),
+            Command::RaiseVelocity => self.note_op(NoteOp::Velocity(VELOCITY_STEP)),
+            Command::LowerVelocity => self.note_op(NoteOp::Velocity(-VELOCITY_STEP)),
+            Command::ToggleLane => {
+                self.note_editor.lane.hidden = !self.note_editor.lane.hidden;
+            }
+            Command::LaneVelocity => self.note_editor.lane.choose(LaneKind::Velocity),
+            Command::LaneModWheel => self.note_editor.lane.choose(LaneKind::Controller(1)),
+            Command::LanePitchBend => self.note_editor.lane.choose(LaneKind::PitchBend),
+            Command::LanePressure => self.note_editor.lane.choose(LaneKind::Pressure),
+            Command::LanePencil => self.note_editor.lane.use_tool(LaneTool::Pencil),
+            Command::LaneLine => self.note_editor.lane.use_tool(LaneTool::Line),
+            Command::LaneCurve => self.note_editor.lane.use_tool(LaneTool::Curve),
             Command::GlueNotes => self.note_op(NoteOp::Glue),
             Command::LegatoNotes => self.note_op(NoteOp::Legato),
             Command::SplitNotes => {

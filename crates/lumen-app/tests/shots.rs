@@ -1407,7 +1407,7 @@ fn note_editor() {
                     App::new(cc, launch)
                 });
             h.run_steps(60);
-            h.state_mut().set_detail_size(420.0);
+            h.state_mut().set_detail_size(560.0);
             h.run_steps(10);
             let id = h.state().project().tracks[0].clips[0].id;
             let r = h.state().clip_rect(&h.ctx, id).expect("in view");
@@ -1424,9 +1424,9 @@ fn note_editor() {
                     .expect("the editor drew");
                 pos2(p.x + 12.0, p.y)
             };
-            let first = point(&h, 4, 53);
+            let first = point(&h, 4, 57);
             click(&mut h, first);
-            let hover = point(&h, 12, 55);
+            let hover = point(&h, 12, 60);
             h.hover_at(hover);
             h.run_steps(5);
             save(
@@ -1434,5 +1434,76 @@ fn note_editor() {
                 &format!("note-editor-{appearance}-{}", (scale * 100.0) as u32),
             );
         }
+    }
+}
+
+/// The velocity and controller lane under the clip editor (M5 slice 4b):
+/// the velocity lane with a stroke drawn across it, and the mod wheel lane
+/// with a curve just drawn, its dot showing; dark at 100 and 200%, light at
+/// 100%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn clip_lane() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_core::time::Ticks;
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/projects/midi-demo.lumen");
+    for (appearance, scale) in [("dark", 1.0_f32), ("light", 1.0), ("dark", 2.0)] {
+        let dir = TempDir::new("shots-lane");
+        let copy = dir.path().join("midi-demo.lumen");
+        std::fs::copy(&fixture, &copy).expect("the MIDI demo project");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .opening(copy);
+        let mut h = Harness::builder()
+            .with_size(vec2(1400.0, 860.0))
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(60);
+        h.state_mut().set_detail_size(560.0);
+        h.run_steps(10);
+        let id = h.state().project().tracks[0].clips[0].id;
+        let r = h.state().clip_rect(&h.ctx, id).expect("in view");
+        let at = pos(r, 0.1, 0.6);
+        click(&mut h, at);
+        click(&mut h, at);
+        h.run_steps(20);
+        let lane = |h: &Harness<'static, App>, beat: f64, value: i32| {
+            h.state()
+                .lane_point(Ticks((beat * lumen_core::time::PPQ as f64) as i64), value)
+                .expect("the lane drew")
+        };
+        // A stroke across the velocity stems.
+        let (a, b) = (lane(&h, 4.0, 40), lane(&h, 12.0, 110));
+        drag(&mut h, a, b);
+        h.hover_at(lane(&h, 9.0, 60));
+        h.run_steps(5);
+        save(
+            &mut h,
+            &format!("lane-velocity-{appearance}-{}", (scale * 100.0) as u32),
+        );
+        // A curve in the mod wheel lane.
+        h.get_by_label("Mod wheel tab").click();
+        h.run_steps(5);
+        h.get_by_label("Lane curve tool").click();
+        h.run_steps(5);
+        let (a, b) = (lane(&h, 3.0, 10), lane(&h, 13.0, 120));
+        drag(&mut h, a, b);
+        h.hover_at(lane(&h, 8.0, 100));
+        h.run_steps(5);
+        save(
+            &mut h,
+            &format!("lane-curve-{appearance}-{}", (scale * 100.0) as u32),
+        );
     }
 }

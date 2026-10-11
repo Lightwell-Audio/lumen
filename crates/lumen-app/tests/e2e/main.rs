@@ -27,6 +27,7 @@ mod groups;
 mod info;
 mod keyboard;
 mod keys;
+mod lanes;
 mod light;
 mod live_lights;
 mod locators;

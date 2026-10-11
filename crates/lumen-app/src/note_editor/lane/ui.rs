@@ -6,8 +6,8 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use eframe::egui::{
-    self, Align, Color32, CursorIcon, Layout, PointerButton, Pos2, Rect, Sense, Ui, UiBuilder,
-    pos2, vec2,
+    self, Align, Color32, CursorIcon, Layout, PointerButton, Pos2, Rect, Sense, Stroke, Ui,
+    UiBuilder, pos2, vec2,
 };
 use lumen_core::grid::Line as GridLine;
 use lumen_core::time::Ticks;
@@ -97,6 +97,22 @@ struct Live {
 }
 
 impl App {
+    /// The editor's keys are live and points of a controller lane are
+    /// picked, the last place pressed being the lane: Delete means them.
+    pub(crate) fn lane_keys_picked(&self) -> bool {
+        let ed = &self.note_editor;
+        ed.live && ed.lane.focus && ed.lane.kind != LaneKind::Velocity && !ed.lane.picked.is_empty()
+    }
+
+    /// Deletes the picked points of the lane: one undo step.
+    pub(crate) fn lane_delete(&mut self) {
+        let Some(id) = self.note_editor.clip else {
+            return;
+        };
+        let picked = std::mem::take(&mut self.note_editor.lane.picked);
+        self.document.delete_lane_points(id, &picked);
+    }
+
     /// Draws the lane in `inp.area` and runs its pointer.
     pub(in crate::note_editor) fn draw_lane(
         &mut self,
@@ -113,6 +129,19 @@ impl App {
             pos2(inp.view.body.left(), area.bottom()),
         );
         let plot = Rect::from_min_max(pos2(inp.view.body.left(), header.bottom()), area.max);
+        let palette = theme::p();
+        let painter = ui.painter().clone();
+        painter.rect_filled(header, 0.0, palette.raised);
+        painter.hline(
+            header.x_range(),
+            header.top(),
+            Stroke::new(1.0, palette.border_strong),
+        );
+        painter.hline(
+            header.x_range(),
+            header.bottom(),
+            Stroke::new(1.0, palette.border),
+        );
         self.lane_header(ui, header, ed);
         ed.lane.sync(clip);
         let lview = LaneView {
@@ -167,7 +196,6 @@ impl App {
             },
             _ => LaneHover::None,
         };
-        let painter = ui.painter().clone();
         paint::paint_scale(&painter, &lview, column);
         let scene = LaneScene {
             notes,
@@ -250,10 +278,7 @@ impl App {
         let chosen = all.iter().position(|k| *k == ed.lane.kind).unwrap_or(0);
         let tab_id = ui.id().with("lane tabs");
         if let Some(i) = widgets::tabs(&mut row, tab_id, chosen, &tabs) {
-            ed.lane.kind = all[i];
-            ed.lane.gesture = None;
-            ed.lane.bend = None;
-            ed.lane.picked.clear();
+            ed.lane.choose(all[i]);
         }
         row.add_space(theme::space::S);
         let mut unused = false;
@@ -268,10 +293,7 @@ impl App {
                 }
                 if widgets::menu_item(ui, &kind.name(), None, true).clicked() {
                     ed.lane.extra.push(n);
-                    ed.lane.kind = kind;
-                    ed.lane.gesture = None;
-                    ed.lane.bend = None;
-                    ed.lane.picked.clear();
+                    ed.lane.choose(kind);
                 }
             }
         });
@@ -290,8 +312,7 @@ impl App {
             if let Some(tool) =
                 widgets::segmented(ui, ui.id().with("lane tool"), ed.lane.tool, &choices)
             {
-                ed.lane.tool = tool;
-                ed.lane.bend = None;
+                ed.lane.use_tool(tool);
             }
             ui.add_space(theme::space::S);
         });

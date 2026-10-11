@@ -27,7 +27,12 @@ pub(crate) enum NoteOp {
         direction: i32,
         fine: bool,
     },
+    /// Raise (positive) or lower the velocities by this much.
+    Velocity(i32),
 }
+
+/// How much Raise velocity and Lower velocity change a velocity.
+pub(crate) const VELOCITY_STEP: i32 = 8;
 
 impl App {
     /// Runs `op` on the editor's state, which is in `self`.
@@ -89,6 +94,7 @@ impl App {
             NoteOp::Glue => doc.glue_notes(clip, &picked),
             NoteOp::Legato => doc.legato_notes(clip, &picked),
             NoteOp::Transpose(semitones) => doc.transpose_notes(clip, &picked, semitones),
+            NoteOp::Velocity(delta) => doc.offset_velocities(clip, &picked, delta),
             NoteOp::Nudge { direction, fine } => {
                 let step = if fine {
                     MIN_NOTE

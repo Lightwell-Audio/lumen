@@ -17,11 +17,6 @@
 //! edit: nothing changes and the selection given comes back (none, for an
 //! edit that takes none).
 
-#![allow(
-    dead_code,
-    reason = "the lane and velocity UI (M5 slice 4b) is the first caller; until then these are tested, not used"
-)]
-
 use std::sync::Arc;
 
 use lumen_core::curve::Curve;
@@ -138,22 +133,6 @@ impl Document {
         })
     }
 
-    /// Sets the picked notes' velocity to `velocity` (clamped to 1..=127).
-    /// Muted notes are set too. Returns the picked indices.
-    pub fn set_velocity(
-        &mut self,
-        base: Option<&Project>,
-        clip: Id,
-        selection: &[usize],
-        velocity: u8,
-        merge: Option<&str>,
-    ) -> Vec<usize> {
-        let label = plural(selection.len(), "Set velocity", "Set {} velocities");
-        self.edit_velocities(&label, base, merge, clip, selection, |notes| {
-            vel::set(notes, selection, velocity)
-        })
-    }
-
     /// Sets each listed note's velocity (the pencil in the velocity lane;
     /// a later entry for the same note wins). A drag, from `base`. Refused,
     /// it answers with the indices named in `changes`.
@@ -201,31 +180,6 @@ impl Document {
         };
         self.edit_velocities(label, None, None, clip, selection, |notes| {
             vel::offset(notes, selection, delta)
-        })
-    }
-
-    /// Scales the picked notes' velocities by `percent` (100 changes
-    /// nothing). Returns the picked indices.
-    pub fn scale_velocities(&mut self, clip: Id, selection: &[usize], percent: u32) -> Vec<usize> {
-        self.edit_velocities("Scale velocities", None, None, clip, selection, |notes| {
-            vel::scale(notes, selection, percent)
-        })
-    }
-
-    /// Puts a point on `lane` at `at` with `value`, replacing the lane's point
-    /// on that tick (see `events::set_point`). A drag, from `base` when
-    /// given. Returns the point's index.
-    pub fn set_lane_point(
-        &mut self,
-        base: Option<&Project>,
-        clip: Id,
-        lane: ev::Lane,
-        at: Ticks,
-        value: i32,
-        merge: Option<&str>,
-    ) -> Vec<usize> {
-        self.edit_events("Draw point", base, merge, clip, &[], |events, length| {
-            ev::set_point(events, lane, at, value, length)
         })
     }
 
@@ -296,10 +250,9 @@ impl Document {
     /// Draws the points of `lane` as the pencil does: each `(tick, value)` is
     /// one event, and the lane's points between the first and the last tick
     /// are replaced by them. Points are sorted by tick, a later one on the
-    /// same tick wins, and ticks are clamped into the clip (as
-    /// [`set_lane_point`](Self::set_lane_point) does). Empty `points` change
-    /// nothing and record no step. A drag, from `base`. Returns the added
-    /// points' indices.
+    /// same tick wins, and ticks are clamped into the clip, as the pencil does.
+    /// Empty `points` change nothing and record no step. A drag, from `base`.
+    /// Returns the added points' indices.
     pub fn draw_lane_points(
         &mut self,
         base: Option<&Project>,
@@ -515,17 +468,18 @@ mod tests {
     fn each_velocity_edit_changes_the_notes_and_leaves_the_events() {
         let (mut doc, clip) = standard();
         let events0 = content(&doc).1;
-        assert_eq!(doc.set_velocity(None, clip, &[0, 2], 90, None), [0, 2]);
+        assert_eq!(
+            doc.set_velocities_each(None, clip, &[(0, 90), (2, 90)], None),
+            [0, 2]
+        );
         assert_eq!(velocities(&doc), [90, 80, 90]);
         assert_eq!(doc.offset_velocities(clip, &[1], -30), [1]);
         assert_eq!(velocities(&doc), [90, 50, 90]);
-        assert_eq!(doc.scale_velocities(clip, &[0], 50), [0]);
-        assert_eq!(velocities(&doc), [45, 50, 90]);
         assert_eq!(
             doc.set_velocities_each(None, clip, &[(2, 10), (9, 5)], None),
             [2]
         );
-        assert_eq!(velocities(&doc), [45, 50, 10]);
+        assert_eq!(velocities(&doc), [90, 50, 10]);
         assert_eq!(
             doc.ramp_velocities(
                 Drag::default(),
@@ -554,13 +508,19 @@ mod tests {
         let notes0 = content(&doc).0;
 
         // A point on a tick with a bend: it goes after the events on its tick.
-        assert_eq!(doc.set_lane_point(None, clip, CC7, q(2), 5, None), [4]);
+        assert_eq!(
+            doc.draw_lane_points(None, clip, CC7, &[(q(2), 5)], None),
+            [4]
+        );
         assert_eq!(
             points(&content(&doc).1, CC7),
             [(0, 10), (2 * PPQ, 5), (3 * PPQ, 60)]
         );
         // A point on an existing point of its lane replaces it.
-        assert_eq!(doc.set_lane_point(None, clip, CC7, q(3), 90, None), [5]);
+        assert_eq!(
+            doc.draw_lane_points(None, clip, CC7, &[(q(3), 90)], None),
+            [5]
+        );
         assert_eq!(points(&content(&doc).1, CC7)[2], (3 * PPQ, 90));
         assert_eq!(content(&doc).0, notes0, "notes are untouched by lane edits");
 
@@ -697,15 +657,9 @@ mod tests {
         type Edit = (&'static str, Box<dyn Fn(&mut Document)>);
         let edits: Vec<Edit> = vec![
             (
-                "Set 2 velocities",
+                "Draw velocities",
                 Box::new(move |d| {
-                    d.set_velocity(None, clip, &[0, 1], 77, None);
-                }),
-            ),
-            (
-                "Set velocity",
-                Box::new(move |d| {
-                    d.set_velocity(None, clip, &[2], 9, None);
+                    d.set_velocities_each(None, clip, &[(0, 77), (1, 77)], None);
                 }),
             ),
             (
@@ -742,15 +696,9 @@ mod tests {
                 }),
             ),
             (
-                "Scale velocities",
+                "Draw controller",
                 Box::new(move |d| {
-                    d.scale_velocities(clip, &[1], 50);
-                }),
-            ),
-            (
-                "Draw point",
-                Box::new(move |d| {
-                    d.set_lane_point(None, clip, CC7, q(2), 5, None);
+                    d.draw_lane_points(None, clip, CC7, &[(q(2), 5)], None);
                 }),
             ),
             (
@@ -847,12 +795,12 @@ mod tests {
         let base = doc.project().clone();
         let mut last = Vec::new();
         for value in [20, 50, 90] {
-            last = doc.set_lane_point(Some(&base), clip, CC7, q(2), value, Some("pencil"));
+            last = doc.draw_lane_points(Some(&base), clip, CC7, &[(q(2), value)], Some("pencil"));
         }
         doc.seal();
         assert_eq!(last, [4]);
         assert_eq!(content(&doc).1[4], cc(2 * PPQ, 7, 90));
-        assert_eq!(doc.undo().as_deref(), Some("Draw point"));
+        assert_eq!(doc.undo().as_deref(), Some("Draw controller"));
         assert_eq!(*doc.project(), base, "the whole drag was one step");
     }
 
@@ -909,8 +857,7 @@ mod tests {
         let state = doc.state();
         let base = before.clone();
         let sel = [1_usize];
-        assert_eq!(doc.set_velocity(None, clip, &sel, 9, None), sel);
-        assert_eq!(doc.set_velocities_each(None, clip, &[(1, 9)], None), [1]);
+        assert_eq!(doc.set_velocities_each(None, clip, &[(1, 9)], None), sel);
         assert_eq!(
             doc.ramp_velocities(
                 Drag {
@@ -928,7 +875,6 @@ mod tests {
             sel
         );
         assert_eq!(doc.offset_velocities(clip, &sel, 5), sel);
-        assert_eq!(doc.scale_velocities(clip, &sel, 50), sel);
         assert_eq!(
             doc.move_lane_points(
                 Drag {
@@ -946,10 +892,6 @@ mod tests {
             [0]
         );
         assert_eq!(doc.delete_lane_points(clip, &[0]), [0]);
-        assert!(
-            doc.set_lane_point(Some(&base), clip, CC7, t(5), 9, None)
-                .is_empty()
-        );
         assert!(
             doc.draw_lane_span(
                 Drag {
@@ -975,7 +917,7 @@ mod tests {
         assert_eq!(*doc.project(), before);
 
         doc.set_clips_locked(&[clip], false);
-        doc.set_velocity(None, clip, &sel, 9, None);
+        doc.set_velocities_each(None, clip, &[(1, 9)], None);
         assert_eq!(velocities(&doc), [40, 9, 120]);
     }
 
@@ -985,18 +927,14 @@ mod tests {
         let audio = with_audio_clip(&mut doc);
         let state = doc.state();
         let sel = [0_usize];
-        assert_eq!(doc.set_velocity(None, audio, &sel, 9, None), sel);
-        assert_eq!(doc.scale_velocities(audio, &sel, 50), sel);
+        assert_eq!(doc.set_velocities_each(None, audio, &[(0, 9)], None), sel);
+        assert_eq!(doc.offset_velocities(audio, &sel, 5), sel);
         assert_eq!(doc.delete_lane_points(audio, &sel), sel);
-        assert!(
-            doc.set_lane_point(None, audio, CC7, t(5), 9, None)
-                .is_empty()
-        );
         assert!(
             doc.draw_lane_points(None, audio, CC7, &[(t(5), 9)], None)
                 .is_empty()
         );
-        assert_eq!(doc.set_velocity(None, Id(777), &sel, 9, None), sel);
+        assert_eq!(doc.set_velocities_each(None, Id(777), &[(0, 9)], None), sel);
         assert_eq!(doc.delete_lane_points(Id(777), &sel), sel);
         assert_eq!(doc.state(), state);
     }
