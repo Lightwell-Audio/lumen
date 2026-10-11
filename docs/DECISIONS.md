@@ -4305,9 +4305,13 @@ with pencil, line and curve tools. Curves reuse the fades' free curves
   is clean.
 
 ### Measurements
-Not measured. The frame times with the 100,000-note clip and a lane open were
-not taken: `--bench-editor` needs a real window and GPU, and it was not run for
-this slice. Stems are cached per clip version and drawing is limited to the
+Frame times are not measured. `--stress --bench-frames --bench-editor` was run
+once in a cloud container under Xvfb on a software Vulkan device (lavapipe, no
+GPU): about 7 fps and p99 227 to 243 ms, which says nothing about real
+hardware and is not comparable with the earlier runs. One thing it does show:
+idle was 3 repaints in 3 s, the same as before the lane, so the lane adds no
+repaints when nothing moves. It was not checked whether the lane was open in
+that run's editor. Stems are cached per clip version and drawing is limited to the
 visible part, which should keep the lane cheap, but that is unproven. MT-MIDI-5
 step 12 asks the owner to run `--stress --bench-frames --bench-editor` at
 1600 × 900 and 3440 × 1380; the p99 per phase and the idle repaints are added
