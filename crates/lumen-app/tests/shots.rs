@@ -975,13 +975,16 @@ fn polish_sweep() {
             h.key_press_modifiers(Modifiers::ALT, Key::Enter);
             h.run_steps(30);
             save(&mut h, &name("card"));
+            // The first Escape leaves the name field; the second closes the card.
+            h.key_press(Key::Escape);
+            h.run_steps(30);
             h.key_press(Key::Escape);
             h.run_steps(30);
             // Audio settings: choice rows and the test tone's switch.
             let lumen = h.get_by_label("Lumen").rect();
             click(&mut h, lumen.center());
             h.run_steps(30);
-            h.get_by_label("Audio settings\u{2026}").click();
+            h.get_by_label("Audio and MIDI settings\u{2026}").click();
             h.run_steps(30);
             save(&mut h, &name("audio"));
         }
