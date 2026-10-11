@@ -2137,9 +2137,11 @@ cargo run --release -p lumen-app -- tests\projects\midi-demo.lumen
    space in the roll: menus with these commands and their keys. Ctrl+K
    finds them all ("notes", "MIDI clip").
 7. **Make clips.** Double-click an empty spot on the **Lead** track's
-   lane: a one-bar clip appears, snapped, and opens. Select a time range
-   on Lead (drag in an empty part of the lane) and press
-   **Ctrl+Shift+M**: a clip fills the range.
+   lane: a one-bar clip appears, snapped, and opens. Start dragging from the
+   lower half of that Lead clip to select a Lead-only range (an empty-lane
+   drag makes a clip marquee). Press **Ctrl+Shift+M**: a second clip fills
+   the range. A time-ruler drag selects all tracks and clears track selection,
+   so it is not suitable for checking clip placement specifically on Lead.
 8. **Keyboard only.** Click a MIDI clip, press **Enter**: it opens. Press
    **F6** until the Clip tab has focus, then Ctrl+A, the arrows and Delete
    work without touching the mouse.
@@ -2151,5 +2153,57 @@ cargo run --release -p lumen-app -- tests\projects\midi-demo.lumen
 10. **Looks.** Settings → light theme, then 150% and 200% scale: check the
     roll, the keys and the picked notes in each. Report anything that
     looks off.
-11. **Save and reopen.** Ctrl+S, close Lumen, reopen the project: every
-    note edit, the muted notes and the new clips are there.
+11. **Save and reopen.** Save the demo under a new name (to preserve the
+    fixture), close Lumen, reopen that copy: every note edit, the muted notes
+    and the new clips are there.
+
+**Run (2026-10-11, owner, in progress):** step 1 passed. The owner noted
+that arrangement zoom is mirrored in the piano roll and questioned whether
+that should be the final behavior. The current spec calls for synchronized
+zoom; revisit this UX choice at the slice close. Step 2 passed: MIDI note
+bands in the arrangement read clearly enough. In step 3, click, audition,
+move, undo and resize worked. The owner would like the selection outline to
+look better and suggested a bracket cursor for resizing; review both at the
+slice close. Shift-click multi-select works, but when moving multiple notes,
+only the grabbed note auditions rather than all moved notes; assess whether
+this is the desired preview behavior at the slice close. Box selection works,
+but its blue border is hard to distinguish over light-blue notes; improve
+the selection-preview contrast. Ctrl-drag copy and undo worked, and Alt-drag
+successfully bypassed the grid. Esc cancelled a drag and restored the note.
+Step 4: playback continued unchanged while dragging a note, and the next loop
+pass played the note at its new position after release. Deleting a sounding
+note stopped it without hanging. Mute and unmute worked. The owner also
+noticed that touching a note under the playhead auditions it and suppresses
+its scheduled playback for that pass, then the note returns on the next
+trigger; review whether this is intended. Transposing a note with Up while
+playing worked and sounded good. In step 5, Draw mode lit and clicking an
+empty spot created an audible one-grid-step note.
+Dragging grew the note and clicking an existing note removed it; B returned
+to the pointer tool. The owner noticed notes can only be drawn left to right;
+assess whether reverse-direction drawing should be supported. Shift+Up and
+Shift+Down transposed a selected note by an octave and back (step 6).
+Left/Right nudged by a grid step and Alt+Left/Right provided fine nudging.
+Ctrl+D duplicated selected notes after the originals.
+The 0 shortcut muted notes with the grey appearance and unmuted them again.
+Delete removed the selected note and Ctrl+A selected all notes in the clip.
+Ctrl+E failed the split-at-playhead check: the split did not occur at the
+playhead and appeared random. Investigate before passing MT-MIDI-4.
+Ctrl+J joined touching same-pitch notes successfully.
+L made selected notes legato, and note/empty-space context menus showed
+relevant commands and shortcuts.
+Ctrl+K found the relevant commands for both "notes" and "MIDI clip".
+In step 7, double-clicking an empty Lead lane created and opened a snapped
+one-bar clip. The owner noted that a time range is discoverable from the
+time ruler (across all tracks) and the lower half of an existing clip (one
+track); the prior instruction to drag in empty space was incorrect (empty
+space draws a clip marquee). The owner found that ruler selection clears the
+selected track, so the Lead-specific clip creation check uses the clip-half
+gesture. Ctrl+Shift+M then created a second clip on Lead filling that range.
+Step 8 passed: Enter opened the selected MIDI clip, and keyboard-only
+navigation and note actions worked with the Clip tab focused.
+Step 9 passed: the editor popped out, looked good, and docked back on close.
+Step 10: the piano roll, keys and selected notes looked good in the light
+theme and remained clear and sharp at 150% and 200% scale.
+Step 11 passed: a renamed copy saved and reopened with note edits, muted
+notes and new clips intact. MT-MIDI-4 remains blocked from passing by the
+Ctrl+E split failure recorded above.
