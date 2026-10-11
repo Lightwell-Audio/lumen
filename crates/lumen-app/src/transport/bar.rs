@@ -15,7 +15,7 @@ use crate::{position, theme, widgets};
 use super::Transport;
 
 /// What the status needs after the controls: its dot and a little room.
-const KEYBOARD_STATUS_ROOM: f32 = 28.0;
+const KEYBOARD_STATUS_ROOM: f32 = theme::space::M + theme::space::L;
 
 impl Transport {
     fn follow_button(&mut self, ui: &mut egui::Ui, keymap: &Keymap) {

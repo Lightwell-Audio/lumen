@@ -988,3 +988,148 @@ fn mixer_edges() {
         save(&mut h, &format!("edges-middle-{appearance}"));
     }
 }
+
+/// A right click at `p`.
+fn right_click(h: &mut Harness<'static, App>, p: Pos2) {
+    h.hover_at(p);
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(Event::PointerButton {
+            pos: p,
+            button: eframe::egui::PointerButton::Secondary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn live_sweep() {
+    // M5 slice 2e: the chip and its popover, the keyboard button with its
+    // readout, the hollow listening ring, header lights, the track menu with
+    // MIDI From and Monitor, and the mixer strip's From and To rows.
+    use egui_kittest::kittest::Queryable;
+    use lumen_midi::{Direction, fake::FakeControl};
+    use lumen_project::model::{Color, Id, Monitor, Track, TrackKind};
+    use lumen_project::testing::{midi_track, project_of};
+
+    for (appearance, scale, size) in [
+        ("dark", 1.0, vec2(1280.0, 760.0)),
+        ("light", 1.0, vec2(1280.0, 760.0)),
+        ("dark", 1.5, vec2(1280.0, 760.0)),
+        ("light", 1.5, vec2(1280.0, 760.0)),
+        ("dark", 2.0, vec2(1280.0, 760.0)),
+        ("light", 2.0, vec2(1280.0, 760.0)),
+        ("dark", 1.0, vec2(960.0, 540.0)),
+        ("light", 1.0, vec2(960.0, 540.0)),
+    ] {
+        let tag = format!("{appearance}-{}-{}", (scale * 100.0) as u32, size.x as u32);
+        let fake = FakeControl::new();
+        fake.plug(Direction::Input, "Arturia KeyStep 37");
+        fake.plug(Direction::Output, "Microsoft GS Wavetable Synth");
+        let dir = TempDir::new("shots-live");
+        let mut lead = midi_track(11, "Lead", "poly", (0, 8), None, vec![], vec![]);
+        lead.monitor = Monitor::In;
+        let mut long = midi_track(
+            31,
+            "Long Name Pad Strings Choir Layer",
+            "poly",
+            (0, 8),
+            None,
+            vec![],
+            vec![],
+        );
+        long.monitor = Monitor::In;
+        let project = project_of(
+            "Live",
+            vec![
+                midi_track(1, "Keys", "poly", (0, 8), None, vec![], vec![]),
+                lead,
+                long,
+                Track::new(Id(21), "Vox", TrackKind::Audio, Color(0x4F81BD)),
+            ],
+        );
+        let path = dir.path().join("song.lumen");
+        lumen_project::save(&project, &path, &Default::default()).expect("save");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .with_midi(fake.clone())
+            .opening(path);
+        let mut h = Harness::builder()
+            .with_size(size)
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        for _ in 0..60 {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        // Ports on for tracks, through the chip's popover.
+        h.get_by_label("MIDI: 0 inputs, 0 outputs").click();
+        h.run_steps(30);
+        h.get_by_label("Track Arturia KeyStep 37 input in the MIDI panel")
+            .click();
+        h.run_steps(3);
+        h.get_by_label("Track Microsoft GS Wavetable Synth output in the MIDI panel")
+            .click();
+        for _ in 0..60 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            h.run_steps(1);
+        }
+        // The popover with traffic.
+        fake.send_to_input("Arturia KeyStep 37", 1, &[0x90, 60, 100]);
+        h.run_steps(6);
+        save(&mut h, &format!("live-popover-{tag}"));
+        h.key_press(Key::Escape);
+        h.run_steps(40);
+        // Keyboard mode on, Keys selected (the hollow ring), a key held.
+        h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::K);
+        h.run_steps(30);
+        h.get_by_label_contains("Track Keys,").click();
+        h.run_steps(40);
+        save(&mut h, &format!("live-rest-{tag}"));
+        h.event(Event::Key {
+            key: Key::A,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        });
+        h.run_steps(4);
+        save(&mut h, &format!("live-lit-{tag}"));
+        h.event(Event::Key {
+            key: Key::A,
+            physical_key: None,
+            pressed: false,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        });
+        h.run_steps(60);
+        // The track menu with MIDI From open.
+        let keys = h.get_by_label_contains("Track Keys,").rect();
+        right_click(&mut h, pos(keys, 0.5, 0.2));
+        h.run_steps(30);
+        h.get_by_label("MIDI From").click();
+        h.run_steps(30);
+        save(&mut h, &format!("live-menu-{tag}"));
+        h.key_press(Key::Escape);
+        h.run_steps(5);
+        h.key_press(Key::Escape);
+        h.run_steps(30);
+        // The mixer strips (the panel is open; tall enough for From and To).
+        h.state_mut().set_detail_size(size.y * 0.55);
+        h.run_steps(60);
+        save(&mut h, &format!("live-mixer-{tag}"));
+    }
+}

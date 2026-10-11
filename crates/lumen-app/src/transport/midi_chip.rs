@@ -3,8 +3,6 @@
 //! traffic, and the popover that lists every port with its own light and
 //! its Track and Remote switches.
 
-use std::time::Duration;
-
 use eframe::egui::{self, Id, Pos2, Sense, Stroke, Ui, vec2};
 use lumen_midi::{Direction, PortId, Use};
 
@@ -22,9 +20,6 @@ const NAME_WIDTH: f32 = 150.0;
 const PANEL_WIDTH: f32 = 300.0;
 /// A light's radius at rest.
 const LIGHT: f32 = 2.5;
-/// How often to look at the counters while an input is open (the drivers
-/// cannot wake the interface themselves).
-const WATCH: Duration = Duration::from_millis(50);
 
 /// One port as the chip shows it.
 #[derive(Debug, Clone)]
@@ -203,10 +198,8 @@ impl Transport {
                 .output
                 .max(light::flash(&ctx, light_id(&row.id), row.count));
         }
-        // Counters change without the interface hearing of it.
-        if view.inputs.iter().any(|r| r.present && r.on()) {
-            ctx.request_repaint_after(WATCH);
-        }
+        // Nothing to poll: the drivers wake the interface themselves
+        // (`MidiSystem` waker), so an idle input costs no frames.
 
         let (rect, response) =
             ui.allocate_exact_size(vec2(WIDTH, theme::size::CONTROL_SMALL), Sense::click());

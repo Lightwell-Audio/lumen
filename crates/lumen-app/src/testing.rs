@@ -186,6 +186,12 @@ impl App {
         self.document.set_midi_from(&ids, from);
     }
 
+    /// Sets Monitor on the selected MIDI tracks, as the menu would.
+    pub fn set_monitor_of_selected(&mut self, monitor: lumen_project::model::Monitor) {
+        let ids = self.selected_midi_tracks();
+        self.document.set_monitor(&ids, monitor);
+    }
+
     /// Plays `msg` live, as the computer keyboard does (M5 slice 2).
     pub fn play_live(&mut self, msg: lumen_core::midi::Msg) -> bool {
         self.play_key(msg)
@@ -271,6 +277,12 @@ impl App {
             self.transport.midi_lights.input,
             self.transport.midi_lights.output,
         )
+    }
+
+    /// How bright the light after a MIDI track's name was when last drawn
+    /// (0 at rest, and always 0 while the track does not listen).
+    pub fn header_light(&self, ctx: &egui::Context, track: Id) -> f32 {
+        crate::arrangement::listen_light_shown(ctx, track)
     }
 
     /// How bright the popover's light for a port was when last drawn

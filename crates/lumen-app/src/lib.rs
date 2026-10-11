@@ -656,7 +656,14 @@ impl App {
         let saved_appearance = saved.appearance.clone();
         let keymap = commands::Keymap::from_saved(&saved.commands.shortcuts);
         let palette = app::palette::Palette::with_recent(&saved.commands.recent);
-        let midi = midi::Midi::start(launch.midi, &saved.midi);
+        let midi = {
+            let ctx = cc.egui_ctx.clone();
+            midi::Midi::start(
+                launch.midi,
+                &saved.midi,
+                std::sync::Arc::new(move || ctx.request_repaint()),
+            )
+        };
         let mut app = App {
             transport,
             midi,

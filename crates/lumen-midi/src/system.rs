@@ -19,6 +19,11 @@ use crate::types::{Direction, MidiError, PortId, PortInfo, Short, Timed, Use};
 /// How often the worker looks for plugged and unplugged devices.
 pub const POLL: Duration = Duration::from_millis(500);
 
+/// Called from a driver's thread after it counts a playing message, so an
+/// interface that sleeps when idle can wake and show it. It must be cheap
+/// and safe to call from any thread.
+pub type Waker = Arc<dyn Fn() + Send + Sync>;
+
 /// Room for messages between the drivers and whoever consumes them.
 const QUEUE: usize = 4096;
 
@@ -75,6 +80,17 @@ impl MidiSystem {
         uses: HashMap<PortId, Use>,
         poll: Duration,
     ) -> Self {
+        Self::start_with_waker(make, uses, poll, None)
+    }
+
+    /// As [`start`](Self::start), with a `waker` the drivers call after
+    /// each playing message they count (the activity lights' wake-up).
+    pub fn start_with_waker(
+        make: impl FnOnce() -> Result<Box<dyn Backend>, MidiError> + Send + 'static,
+        uses: HashMap<PortId, Use>,
+        poll: Duration,
+        waker: Option<Waker>,
+    ) -> Self {
         let (commands, command_rx) = mpsc::channel();
         let (event_tx, events) = mpsc::channel();
         let shared = Arc::new(Mutex::new(Shared::default()));
@@ -88,8 +104,10 @@ impl MidiSystem {
                 .spawn(move || {
                     match make() {
                         Ok(backend) => {
-                            Worker::new(backend, uses, shared, event_tx, producer, activity)
-                                .run(&command_rx, poll);
+                            let mut worker =
+                                Worker::new(backend, uses, shared, event_tx, producer, activity);
+                            worker.waker = waker;
+                            worker.run(&command_rx, poll);
                         }
                         Err(e) => lock(&shared).unavailable = Some(e.to_string()),
                     };
@@ -231,6 +249,7 @@ struct Worker {
     shared: Arc<Mutex<Shared>>,
     events: Sender<PortEvent>,
     producer: Producer,
+    waker: Option<Waker>,
 }
 
 impl Worker {
@@ -255,6 +274,7 @@ impl Worker {
             shared,
             events,
             producer: Arc::new(Mutex::new(producer)),
+            waker: None,
         }
     }
 
@@ -356,9 +376,15 @@ impl Worker {
                 let slot = self.slot(id);
                 let producer = self.producer.clone();
                 let activity = self.activity.clone();
+                let waker = self.waker.clone();
                 let sink: crate::backend::InputSink = Box::new(move |stamp_us, bytes| {
                     let arrived = std::time::Instant::now();
                     activity.input(slot, bytes);
+                    if let Some(wake) = &waker
+                        && crate::activity::counts(bytes)
+                    {
+                        wake();
+                    }
                     if let Some(message) = Short::from_bytes(bytes)
                         && let Ok(mut p) = producer.lock()
                     {
@@ -572,6 +598,32 @@ mod tests {
         midi.send(out.clone(), Short::from_bytes(&[0x90, 64, 90]).unwrap());
         midi.send(out.clone(), Short::from_bytes(&[0xF8]).unwrap());
         until("counted", || midi.activity(&out) == 1);
+    }
+
+    #[test]
+    fn a_playing_message_wakes_the_interface_and_clock_does_not() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let fake = FakeControl::new();
+        fake.plug(Direction::Input, "Keys");
+        let woken = Arc::new(AtomicU32::new(0));
+        let waker: Waker = {
+            let woken = woken.clone();
+            Arc::new(move || {
+                woken.fetch_add(1, Ordering::Relaxed);
+            })
+        };
+        let backend = fake.backend();
+        let _midi = MidiSystem::start_with_waker(
+            move || Ok(Box::new(backend)),
+            HashMap::from([(input("Keys"), ON)]),
+            FAST,
+            Some(waker),
+        );
+        until("open", || fake.open_inputs() == 1);
+        assert!(fake.send_to_input("Keys", 1, &[0xF8]));
+        assert_eq!(woken.load(Ordering::Relaxed), 0);
+        assert!(fake.send_to_input("Keys", 2, &[0x90, 60, 100]));
+        assert_eq!(woken.load(Ordering::Relaxed), 1);
     }
 
     #[test]
