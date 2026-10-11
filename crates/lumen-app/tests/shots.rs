@@ -1133,3 +1133,30 @@ fn live_sweep() {
         save(&mut h, &format!("live-mixer-{tag}"));
     }
 }
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn transport_fit() {
+    // The transport bar at 960, 1280 and 1600 wide with the computer
+    // keyboard's mode on, cropped to the bar.
+    for appearance in ["dark", "light"] {
+        for scale in [1.0, 2.0] {
+            for width in [960.0, 1280.0, 1600.0] {
+                let height = if width == 960.0 { 540.0 } else { 760.0 };
+                let dir = TempDir::new("shots-bar");
+                let mut h = bare_scaled(&dir, appearance, scale, vec2(width, height));
+                h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::K);
+                h.run_steps(40);
+                let image = h.render().expect("render");
+                let out = PathBuf::from(std::env::var("SHOTS").expect("SHOTS names a folder"));
+                image
+                    .save(out.join(format!(
+                        "bar-{appearance}-{}-{}.png",
+                        (scale * 100.0) as u32,
+                        width as u32
+                    )))
+                    .expect("save");
+            }
+        }
+    }
+}

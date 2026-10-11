@@ -12,10 +12,12 @@ use crate::audio::Status;
 use crate::icons::{self, Icon};
 use crate::{position, theme, widgets};
 
-use super::Transport;
+use super::{Transport, fit};
 
-/// What the status needs after the controls: its dot and a little room.
-const KEYBOARD_STATUS_ROOM: f32 = theme::space::M + theme::space::L;
+/// The keyboard readout's type.
+fn keyboard_font() -> egui::FontId {
+    egui::FontId::monospace(theme::size::CAPTION)
+}
 
 impl Transport {
     fn follow_button(&mut self, ui: &mut egui::Ui, keymap: &Keymap) {
@@ -91,37 +93,52 @@ impl Transport {
             self.keyboard_clicked = true;
         }
         self.keyboard_readout_shown = false;
-        if let Some(readout) = self.keyboard_readout.clone() {
+        if let (Some(readout), true) = (self.keyboard_readout.clone(), self.fit.plan.keyboard) {
+            let before = ui.cursor().left();
             let c = theme::p();
-            let galley = ui.painter().layout_no_wrap(
-                readout.clone(),
-                egui::FontId::monospace(theme::size::CAPTION),
-                c.text,
-            );
+            let galley = ui
+                .painter()
+                .layout_no_wrap(readout.clone(), keyboard_font(), c.text);
             let size = galley.size() + egui::vec2(2.0 * theme::space::S, 6.0);
-            // In the smallest window the tempo, meter and position come
-            // first: the readout gives way, and the info line says it.
-            let room = ui.clip_rect().right() - ui.cursor().left();
-            let spacing = ui.spacing().item_spacing.x;
-            if size.x + spacing + self.keyboard_rest + KEYBOARD_STATUS_ROOM <= room {
-                let (rect, well) = ui.allocate_exact_size(size, egui::Sense::hover());
-                well.widget_info(|| {
-                    egui::WidgetInfo::labeled(
-                        egui::WidgetType::Label,
-                        true,
-                        format!("Computer keyboard: {readout}"),
-                    )
-                });
-                ui.painter().rect_filled(rect, theme::radius::SMALL, c.well);
-                ui.painter()
-                    .galley(rect.center() - galley.size() / 2.0, galley, c.text);
-                self.keyboard_readout_shown = true;
-            }
+            let (rect, well) = ui.allocate_exact_size(size, egui::Sense::hover());
+            well.widget_info(|| {
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::Label,
+                    true,
+                    format!("Computer keyboard: {readout}"),
+                )
+            });
+            ui.painter().rect_filled(rect, theme::radius::SMALL, c.well);
+            ui.painter()
+                .galley(rect.center() - galley.size() / 2.0, galley, c.text);
+            self.keyboard_readout_shown = true;
+            self.fit.took(ui, before);
         }
-        self.keyboard_from = ui.cursor().left();
+    }
+
+    /// The widths of the optional pieces, for `fit` (see its order).
+    fn wants(&self, ui: &Ui) -> fit::Wants {
+        let gap = fit::gap(ui);
+        let keyboard = self.keyboard_readout.as_ref().map_or(0.0, |readout| {
+            fit::text_width(ui, readout, keyboard_font()) + 2.0 * theme::space::S + gap
+        });
+        let (cpu, dropout, compensation) = self.status_wants(ui);
+        fit::Wants {
+            dropout,
+            compensation,
+            cpu,
+            keyboard,
+        }
     }
 
     pub fn ui(&mut self, ui: &mut Ui, doc: &mut crate::document::Document, keymap: &Keymap) {
+        // What fits: the optional pieces give way in `fit`'s order, then
+        // the bar tightens.
+        let wants = self.wants(ui);
+        let plan = self.fit.begin(ui, wants);
+        if plan.compact {
+            ui.spacing_mut().item_spacing.x = fit::COMPACT_GAP;
+        }
         let state = self.state();
         let running = matches!(self.audio.status, Status::Running { .. });
         let no_audio = "No audio device is running";
@@ -318,7 +335,7 @@ impl Transport {
                     .update_while_editing(false)
                     .speed(0.1)
                     .fixed_decimals(2)
-                    .suffix(" BPM"),
+                    .suffix(if plan.compact { "" } else { " BPM" }),
             )
             .on_hover_text("Tempo, 20–999 BPM");
         tempo.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::DragValue, true, "Tempo"));
@@ -344,9 +361,12 @@ impl Transport {
         ui.separator();
 
         self.position_field(ui, state);
-        self.keyboard_rest = (ui.min_rect().right() - self.keyboard_from).max(0.0);
-        ui.separator();
+        // Compact, the dot follows the position without a divider.
+        if !plan.compact {
+            ui.separator();
+        }
         self.status(ui, doc.project());
+        self.fit.finish(ui);
     }
 
     fn position_field(&mut self, ui: &mut Ui, state: TransportSnapshot) {

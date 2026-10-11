@@ -31,23 +31,66 @@ impl Transport {
             self.cpu_peak = meters.take_peak_load();
             self.cpu_taken = Some(Instant::now());
         }
-        let cpu = (self.cpu_peak * 100.0).round();
-        let color = if self.cpu_peak > 0.7 {
-            theme::p().warning
-        } else {
-            theme::p().text_secondary
-        };
-        ui.label(
-            RichText::new(format!("CPU {cpu:.0}%"))
-                .small()
-                .monospace()
-                .color(color),
-        )
-        .on_hover_text(
-            "Audio processing time as a share of the time each buffer allows, \
+        if self.fit.plan.cpu {
+            let before = ui.cursor().left();
+            let cpu = (self.cpu_peak * 100.0).round();
+            let color = if self.cpu_peak > 0.7 {
+                theme::p().warning
+            } else {
+                theme::p().text_secondary
+            };
+            ui.label(
+                RichText::new(format!("CPU {cpu:.0}%"))
+                    .small()
+                    .monospace()
+                    .color(color),
+            )
+            .on_hover_text(
+                "Audio processing time as a share of the time each buffer allows, \
                  at its peak over the last second. Above 100% the audio drops out",
-        );
-        self.dropout_chip(ui)
+            );
+            self.fit.took(ui, before);
+        }
+        if !self.fit.plan.dropout {
+            return None;
+        }
+        let before = ui.cursor().left();
+        let chip = self.dropout_chip(ui);
+        self.fit.took(ui, before);
+        chip
+    }
+
+    /// The widths the CPU readout, the dropout chip and the delay
+    /// compensation readout want in the bar (0 when one has nothing to
+    /// show), for `fit`.
+    pub(super) fn status_wants(&self, ui: &Ui) -> (f32, f32, f32) {
+        let gap = super::fit::gap(ui);
+        let small = egui::TextStyle::Small.resolve(ui.style());
+        let cpu = if self.audio.meters().is_some() {
+            let font = egui::FontId::monospace(small.size);
+            super::fit::text_width(ui, "CPU 100%", font) + gap
+        } else {
+            0.0
+        };
+        let dropout = self
+            .dropouts
+            .showing(Instant::now())
+            .map_or(0.0, |episode| {
+                let font = egui::FontId::proportional(theme::size::CAPTION);
+                let text = format!("\u{26A0} {}", dropouts::chip(episode));
+                super::fit::text_width(ui, &text, font) + 2.0 * (theme::space::S - 1.0) + gap
+            });
+        let compensation = match self.audio.status {
+            Status::Running { .. } => {
+                let rate = self.state().sample_rate;
+                let frames = self.audio.mixer.compensation().frames;
+                compensation::readout(frames, rate).map_or(0.0, |extra| {
+                    super::fit::text_width(ui, &format!(" \u{b7} {extra}"), small)
+                })
+            }
+            _ => 0.0,
+        };
+        (cpu, dropout, compensation)
     }
 
     /// "Dropout" or "Dropouts ×3" in amber while dropouts are recent; it
@@ -300,13 +343,8 @@ impl Transport {
         if let Some(meters) = self.audio.meters() {
             self.dropouts.update(meters.dropouts(), Instant::now());
         }
-        // In a narrow window the CPU readout gives way first; the status dot
-        // (the way into the audio panel) always stays.
-        let chip = if ui.available_width() > 120.0 {
-            self.health(ui)
-        } else {
-            None
-        };
+        // What shows beyond the dot is `fit`'s to say (transport/fit.rs).
+        let chip = self.health(ui);
         let (text, color, tip) = match &self.audio.status {
             Status::Starting => (
                 "Starting audio…".to_owned(),
@@ -329,7 +367,11 @@ impl Transport {
         };
         // A dot that always fits shows the state at a glance; the text
         // shortens in narrow windows, and the tooltip always has all of it.
+        let hidden_dropouts =
+            !self.fit.plan.dropout && self.dropouts.showing(Instant::now()).is_some();
         let dot = match self.audio.status {
+            // The dropout chip gave way: the dot says so.
+            Status::Running { .. } if hidden_dropouts => theme::p().warning,
             Status::Running { .. } => theme::p().accent,
             Status::Starting => theme::p().text_hint,
             Status::Lost(_) | Status::Off(_) => theme::p().warning,
@@ -363,66 +405,60 @@ impl Transport {
             None => format!("Audio: {text}"),
         };
         response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
-        // In a narrow bar the device's details shorten first, so the
-        // compensation stays readable.
-        let tail = extra.as_ref().map(|extra| {
-            let mut tail = egui::text::LayoutJob::default();
-            let small = egui::TextStyle::Small.resolve(ui.style());
-            let section = |colour| egui::TextFormat::simple(small.clone(), colour);
-            tail.append(" · ", 0.0, section(theme::p().text_hint));
-            tail.append(extra, 0.0, section(theme::p().text));
-            ui.fonts_mut(|fonts| fonts.layout_job(tail))
-        });
+        // The compensation readout, a step brighter than the device text.
+        let tail = extra
+            .as_ref()
+            .filter(|_| self.fit.plan.compensation)
+            .map(|extra| {
+                let mut tail = egui::text::LayoutJob::default();
+                let small = egui::TextStyle::Small.resolve(ui.style());
+                let section = |colour| egui::TextFormat::simple(small.clone(), colour);
+                tail.append(" · ", 0.0, section(theme::p().text_hint));
+                tail.append(extra, 0.0, section(theme::p().text));
+                ui.fonts_mut(|fonts| fonts.layout_job(tail))
+            });
+        let device_room = self.fit.plan.device;
+        let before = ui.cursor().left();
         let label = ui
             .scope(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
-                // The bar is cut off before the panel toggles: what shows
-                // is up to there.
-                let shown = ui
-                    .available_width()
-                    .min(ui.clip_rect().right() - ui.cursor().min.x)
-                    .max(0.0);
-                let tail_width = tail.as_ref().map_or(0.0, |t| t.size().x);
-                // The device keeps at least its ellipsis.
-                let room = (shown - tail_width).max(2.0 * theme::space::M);
-                let device = ui
-                    .scope(|ui| {
-                        ui.set_max_width(room);
-                        ui.add(
-                            egui::Label::new(RichText::new(text).small().color(color))
-                                .truncate()
-                                .sense(egui::Sense::click()),
-                        )
-                    })
-                    .inner;
-                match tail {
-                    Some(tail) => {
-                        let left = ui.clip_rect().right() - ui.cursor().min.x;
-                        let compensation = ui
-                            .scope(|ui| {
-                                ui.set_max_width(left.max(0.0));
-                                ui.add(
-                                    egui::Label::new(tail)
-                                        .truncate()
-                                        .sense(egui::Sense::click()),
-                                )
-                            })
-                            .inner;
-                        device.union(compensation)
-                    }
-                    None => device,
+                let mut label: Option<egui::Response> = None;
+                if device_room > 0.0 {
+                    let device = ui
+                        .scope(|ui| {
+                            ui.set_max_width(device_room);
+                            ui.add(
+                                egui::Label::new(RichText::new(text).small().color(color))
+                                    .truncate()
+                                    .sense(egui::Sense::click()),
+                            )
+                        })
+                        .inner;
+                    label = Some(device);
                 }
+                if let Some(tail) = tail {
+                    let compensation = ui.add(egui::Label::new(tail).sense(egui::Sense::click()));
+                    label = Some(match label {
+                        Some(device) => device.union(compensation),
+                        None => compensation,
+                    });
+                }
+                label
             })
             .inner
-            .on_hover_text(tip.as_str());
-        if extra.is_some() && label.hovered() {
+            .map(|label| label.on_hover_text(tip.as_str()));
+        self.fit.took(ui, before);
+        if extra.is_some() && label.as_ref().is_some_and(|l| l.hovered()) {
             self.info = Some(Info::new(compensation::about(project, &found, rate)).on(
                 Held::NONE,
                 Mouse::Click,
                 "open the audio panel",
             ));
         }
-        let mut response = response.on_hover_text(tip).union(label);
+        let mut response = response.on_hover_text(tip);
+        if let Some(label) = label {
+            response = response.union(label);
+        }
         if let Some(chip) = chip {
             response = response.union(chip);
         }
