@@ -174,6 +174,11 @@ impl App {
             .collect()
     }
 
+    /// Plays `msg` live, as the computer keyboard does (M5 slice 2).
+    pub fn play_live(&mut self, msg: lumen_core::midi::Msg) -> bool {
+        self.play_key(msg)
+    }
+
     /// What the test device has played since the last call, frame by
     /// frame: the main pair's left and right, then the cue pair's (M4
     /// slice 4; silent without a cue pair).

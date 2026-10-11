@@ -217,6 +217,7 @@ impl Scrubber {
             tail: false,
             mode: crate::source::Mode::Scrub,
             stream: 0,
+            device: 0,
         };
         let mut out = Output::new(data, at.stride, at.offset, at.count, at.channels);
         read.source.render(&cx, &mut out);
@@ -268,6 +269,7 @@ impl Scrubber {
             tail: false,
             mode: crate::source::Mode::Scrub,
             stream: 0,
+            device: 0,
         };
         let mut out = Output::new(&mut self.scratch, SPAN, 0, span, channels);
         read.source.render(&cx, &mut out);

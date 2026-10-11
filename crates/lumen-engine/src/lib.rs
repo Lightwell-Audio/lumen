@@ -32,8 +32,9 @@ pub use clips::{Clip, ClipAudio, ClipPlayer, ClipShape, ClipsHandle, FadeFrames,
 pub use engine::{Command, Engine, EngineHandle, Region, engine};
 pub use metronome::{ClickSound, MetronomeSettings};
 pub use midi::{
-    InstrumentSpec, MidiClip, MidiControl, MidiHandle, MidiNote, MidiOut, MidiPlayer, MidiTrack,
-    Target, control_list, midi_player, note_list,
+    InstrumentSpec, KEYBOARD, Listen, LiveIn, LiveInput, MidiClip, MidiControl, MidiHandle,
+    MidiNote, MidiOut, MidiPlayer, MidiTrack, SOURCES as LIVE_SOURCES, Target, control_list,
+    midi_player, note_list,
 };
 pub use mixer::{
     Bus, Buses, Compensation, CueOut, Destination, Device, Layered, Level, MAX_DEVICE_LATENCY,

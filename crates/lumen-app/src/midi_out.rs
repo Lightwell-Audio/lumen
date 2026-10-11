@@ -44,7 +44,7 @@ const LATELY: Duration = Duration::from_millis(500);
 const STALL: Duration = Duration::from_secs(1);
 
 /// Nanoseconds the frame `frame` lasts from frame 0 at `rate`.
-fn frame_ns(frame: u64, rate: u32) -> i64 {
+pub(crate) fn frame_ns(frame: u64, rate: u32) -> i64 {
     (u128::from(frame) * 1_000_000_000 / u128::from(rate.max(1))) as i64
 }
 
@@ -57,6 +57,9 @@ pub struct StreamClock {
     frame: AtomicU64,
     nanos: AtomicU64,
     rate: AtomicU32,
+    /// The block's length in frames (live input is heard one block after
+    /// it is played, slice 2).
+    block: AtomicU32,
 }
 
 impl StreamClock {
@@ -67,6 +70,7 @@ impl StreamClock {
             frame: AtomicU64::new(0),
             nanos: AtomicU64::new(0),
             rate: AtomicU32::new(48_000),
+            block: AtomicU32::new(0),
         })
     }
 
@@ -75,19 +79,39 @@ impl StreamClock {
         self.epoch.elapsed().as_nanos() as i64
     }
 
-    /// Called at the start of an audio block with the frames processed so
-    /// far. Real-time safe: atomics and a clock read.
-    pub fn publish(&self, frame: u64, rate: u32) {
-        let nanos = self.epoch.elapsed().as_nanos() as u64;
+    /// Nanoseconds from the clock's start to `at` (negative before it).
+    pub fn nanos_of(&self, at: Instant) -> i64 {
+        match at.checked_duration_since(self.epoch) {
+            Some(after) => after.as_nanos() as i64,
+            None => -(self.epoch.duration_since(at).as_nanos() as i64),
+        }
+    }
+
+    /// Called at the start of an audio block of `frames` with the frames
+    /// processed so far. Real-time safe: atomics and a clock read.
+    pub fn publish(&self, frame: u64, frames: usize, rate: u32) {
+        let nanos = self.epoch.elapsed().as_nanos() as i64;
+        self.publish_at(frame, frames, rate, nanos);
+    }
+
+    /// [`publish`](Self::publish) at a given time (tests inject times).
+    pub fn publish_at(&self, frame: u64, frames: usize, rate: u32, nanos: i64) {
         self.seq.fetch_add(1, Ordering::AcqRel);
         self.frame.store(frame, Ordering::Release);
-        self.nanos.store(nanos, Ordering::Release);
+        self.nanos.store(nanos.max(0) as u64, Ordering::Release);
         self.rate.store(rate, Ordering::Release);
+        self.block.store(frames as u32, Ordering::Release);
         self.seq.fetch_add(1, Ordering::AcqRel);
     }
 
-    /// The latest `(frame, nanos, rate)`, or `None` before the first block.
-    fn read(&self) -> Option<(u64, i64, u32)> {
+    /// The instant `nanos` after the clock's start (tests).
+    #[cfg(test)]
+    pub fn instant_at(&self, nanos: i64) -> Instant {
+        self.epoch + Duration::from_nanos(nanos.max(0) as u64)
+    }
+
+    /// The latest block: `(frame, nanos, rate, frames)`.
+    pub fn read_block(&self) -> Option<(u64, i64, u32, u32)> {
         for _ in 0..8 {
             let before = self.seq.load(Ordering::Acquire);
             if before == 0 {
@@ -99,11 +123,17 @@ impl StreamClock {
             let frame = self.frame.load(Ordering::Acquire);
             let nanos = self.nanos.load(Ordering::Acquire) as i64;
             let rate = self.rate.load(Ordering::Acquire);
+            let block = self.block.load(Ordering::Acquire);
             if self.seq.load(Ordering::Acquire) == before {
-                return Some((frame, nanos, rate));
+                return Some((frame, nanos, rate, block));
             }
         }
         None
+    }
+
+    /// The latest `(frame, nanos, rate)`, or `None` before the first block.
+    fn read(&self) -> Option<(u64, i64, u32)> {
+        self.read_block().map(|(f, n, r, _)| (f, n, r))
     }
 }
 
@@ -469,7 +499,7 @@ mod tests {
     fn the_stream_clock_reads_what_was_published() {
         let clock = StreamClock::new();
         assert_eq!(clock.read(), None);
-        clock.publish(12_800, 48_000);
+        clock.publish(12_800, 128, 48_000);
         let (frame, nanos, rate) = clock.read().unwrap();
         assert_eq!((frame, rate), (12_800, 48_000));
         assert!(nanos >= 0 && nanos <= clock.now());
@@ -565,7 +595,7 @@ mod sender_tests {
                 while running.load(Ordering::Relaxed) {
                     let elapsed = (clock.now() - start).max(0) as u128;
                     let frame = elapsed * 48_000 / 1_000_000_000 / 128 * 128;
-                    clock.publish(frame as u64, 48_000);
+                    clock.publish(frame as u64, 128, 48_000);
                     thread::sleep(Duration::from_micros(2_666));
                 }
             })
@@ -623,7 +653,7 @@ mod sender_tests {
     #[test]
     fn a_flush_lets_go_of_the_notes_sent_and_forgets_the_rest() {
         let mut rig = rig();
-        rig.clock.publish(0, 48_000);
+        rig.clock.publish(0, 128, 48_000);
         rig.queue.push(at(0, Msg::note_on(2, 60, 90))).unwrap();
         // Far in the future: never heard.
         rig.queue
@@ -643,7 +673,7 @@ mod sender_tests {
     #[test]
     fn a_stream_that_stops_lets_go_of_the_notes_sent_on() {
         let mut rig = rig();
-        rig.clock.publish(0, 48_000);
+        rig.clock.publish(0, 128, 48_000);
         rig.queue.push(at(0, Msg::note_on(0, 60, 90))).unwrap();
         wait_for(&rig.fake, 1);
         // The device is lost: no more blocks, and no note-off from the engine.
@@ -658,7 +688,7 @@ mod sender_tests {
     #[test]
     fn a_port_that_goes_away_drops_its_messages_without_trouble() {
         let mut rig = rig();
-        rig.clock.publish(0, 48_000);
+        rig.clock.publish(0, 128, 48_000);
         rig.queue.push(at(0, Msg::note_on(0, 60, 90))).unwrap();
         wait_for(&rig.fake, 1);
         rig.fake.unplug(Direction::Output, "Synth");

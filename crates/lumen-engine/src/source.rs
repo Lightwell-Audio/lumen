@@ -90,6 +90,11 @@ pub struct RenderContext<'a> {
     /// ahead while playing. MIDI sent to hardware is timed from it (M5
     /// slice 1).
     pub stream: u64,
+    /// The device's frame count at the first frame of this part as the
+    /// callback counts it: the block's start and the frame within it,
+    /// without the read ahead. Live input is placed against it (M5 slice
+    /// 2). Zero where no live input is played (scrubbing, tails).
+    pub device: u64,
 }
 
 /// Why playback jumped, so sources can choose whether to fade in.

@@ -48,6 +48,7 @@ mod icons;
 mod lanes;
 mod launch;
 mod light;
+mod live;
 mod media;
 mod meters;
 mod midi;
@@ -131,6 +132,9 @@ pub struct App {
     midi: midi::Midi,
     /// Times MIDI to hardware outputs; starts with the first one a track names.
     midi_out: Option<midi_out::Output>,
+    /// Sends the computer keyboard's notes into the engine, once the live
+    /// feed is handed over (slice 2).
+    live_keys: Option<live::LiveKeys>,
     /// Counts changes to the MIDI ports, and what the used outputs were last
     /// checked against (document, its state, port changes).
     midi_ports_seen: u64,
@@ -652,6 +656,7 @@ impl App {
             transport,
             midi,
             midi_out: None,
+            live_keys: None,
             midi_ports_seen: 0,
             midi_checked: None,
             lanes,

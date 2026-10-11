@@ -80,6 +80,9 @@ pub struct Timed {
     pub slot: u16,
     /// The driver's timestamp in microseconds, from an origin of its own.
     pub stamp_us: u64,
+    /// When it reached Lumen: with the stamp, the time it was played
+    /// (stamps keep the spacing; arrival anchors them to the clock).
+    pub arrived: std::time::Instant,
     pub message: Short,
 }
 

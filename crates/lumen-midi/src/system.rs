@@ -318,12 +318,14 @@ impl Worker {
                 let slot = self.slot(id);
                 let producer = self.producer.clone();
                 let sink: crate::backend::InputSink = Box::new(move |stamp_us, bytes| {
+                    let arrived = std::time::Instant::now();
                     if let Some(message) = Short::from_bytes(bytes)
                         && let Ok(mut p) = producer.lock()
                     {
                         let _ = p.push(Timed {
                             slot,
                             stamp_us,
+                            arrived,
                             message,
                         });
                     }

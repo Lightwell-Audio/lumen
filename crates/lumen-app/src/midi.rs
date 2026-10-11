@@ -115,6 +115,11 @@ impl Midi {
         ports
     }
 
+    /// Messages from every open input, once: the live feed takes them.
+    pub fn take_input(&mut self) -> Option<rtrb::Consumer<lumen_midi::Timed>> {
+        self.system.as_mut().and_then(MidiSystem::take_input)
+    }
+
     /// A handle that sends from other threads, if MIDI is on.
     pub fn sender(&self) -> Option<lumen_midi::MidiSender> {
         self.system.as_ref().map(MidiSystem::sender)

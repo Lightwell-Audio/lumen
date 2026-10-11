@@ -375,7 +375,7 @@ impl Audio {
         let callback: Box<dyn AudioCallback> = Box::new(move |block: &mut Block<'_>| {
             let (rate, channels, frames) = (block.sample_rate, block.output_channels, block.frames);
             // MIDI to hardware is timed against this clock (midi_out.rs).
-            stream.publish(processed, rate);
+            stream.publish(processed, frames, rate);
             processed += frames as u64;
             engine.process(rate, block.outputs, channels, frames);
             if let Some(tap) = &mut tap {

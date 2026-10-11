@@ -358,6 +358,7 @@ impl<T: TrackSource> Source for Mixer<T> {
             let part_cx = RenderContext {
                 start: cx.start + done as i64,
                 stream: cx.stream + done as u64,
+                device: cx.device + done as u64,
                 ..*cx
             };
             self.plan.clear(n);
@@ -438,6 +439,7 @@ impl<T: TrackSource> Source for Mixer<T> {
                 tail: true,
                 mode: Mode::Play,
                 stream: 0,
+                device: 0,
             };
             let length = fade_frames(sample_rate).min(CHUNK);
             if let Some(mut tail) = self.plan.input_tail(length) {

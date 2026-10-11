@@ -16,6 +16,7 @@
 use lumen_core::midi::{Event, Msg, cc};
 use lumen_core::time::Ticks;
 
+use super::live::LiveState;
 use super::{MidiClip, MidiNote};
 use crate::timeline::Timeline;
 
@@ -60,6 +61,8 @@ pub(super) struct TrackState {
     pub bend: bool,
     /// Events and notes dropped for lack of room.
     pub dropped: u32,
+    /// Live notes, apart from the clips' (slice 2).
+    pub live: LiveState,
 }
 
 impl TrackState {
@@ -70,6 +73,7 @@ impl TrackState {
             sustain: false,
             bend: false,
             dropped: 0,
+            live: LiveState::new(),
         }
     }
 
@@ -117,6 +121,14 @@ impl TrackState {
             _ => {}
         }
         self.push(Event { offset, msg });
+    }
+
+    /// Lets go of the live notes, pedal and bend at the start of the next
+    /// part.
+    pub fn release_live(&mut self) {
+        let mut live = std::mem::replace(&mut self.live, LiveState::empty());
+        live.release_all(|event| self.push(event));
+        self.live = live;
     }
 
     /// Lets go of everything held, and of the pedal and the bend, at the

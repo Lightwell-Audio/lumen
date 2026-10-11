@@ -286,9 +286,39 @@ fn midi_never_touches_the_heap() {
     use lumen_devices::Instrument;
     use lumen_engine::testing::routed;
     use lumen_engine::{
-        InstrumentSpec, Layered, MidiClip, MidiControl, MidiNote, MidiTrack, Target, clip_player,
-        control_list, midi_player, mixer, note_list,
+        InstrumentSpec, Layered, Listen, LiveIn, LiveInput, MidiClip, MidiControl, MidiNote,
+        MidiTrack, Target, clip_player, control_list, midi_player, mixer, note_list,
     };
+
+    /// Plays a chord on and off every few hundred frames, from its own
+    /// counter: live input that allocates nothing.
+    struct Player {
+        next: u64,
+        on: bool,
+    }
+    impl LiveInput for Player {
+        fn pull(&mut self, _start: u64, end: u64, take: &mut dyn FnMut(LiveIn)) {
+            while self.next < end {
+                for key in [60, 64, 67] {
+                    let msg = if self.on {
+                        lumen_core::midi::Msg::note_off(0, key)
+                    } else {
+                        lumen_core::midi::Msg::note_on(0, key, 100)
+                    };
+                    take(LiveIn {
+                        frame: self.next,
+                        source: 3,
+                        msg,
+                    });
+                }
+                self.on = !self.on;
+                self.next += 333;
+            }
+        }
+        fn waiting(&self) -> bool {
+            false
+        }
+    }
 
     /// Does per-sample work for every sounding note, with state, like a
     /// real instrument, and allocates nothing.
@@ -368,6 +398,11 @@ fn midi_never_touches_the_heap() {
                     }),
                     vec![clip],
                 )
+                // Half the edits change what the tracks listen to.
+                .listening(Listen {
+                    sources: 1 << 3,
+                    channel: (variant % 2 == 1).then_some(0),
+                })
             })
             .collect()
     };
@@ -377,6 +412,9 @@ fn midi_never_touches_the_heap() {
     let (mut routing, source) = mixer(Layered(players, player));
     let (mut handle, mut engine) = engine(Timeline::default(), source, 48_000);
     midi.set(tracks(0)).ok().unwrap();
+    midi.set_live(Box::new(Player { next: 0, on: false }))
+        .ok()
+        .unwrap();
     assert!(routing.set(&routed(32, 0)).unwrap());
     handle
         .send(Command::SetLoop(Region::new(
@@ -392,6 +430,13 @@ fn midi_never_touches_the_heap() {
         if block % 150 == 75 {
             midi.collect_garbage();
             let _ = midi.set(tracks(block % 5));
+        }
+        if block % 1_000 == 999 {
+            // A new live input (the app gives one when MIDI restarts).
+            let _ = midi.set_live(Box::new(Player {
+                next: block as u64 * 128,
+                on: false,
+            }));
         }
         match block % 900 {
             300 => handle.send(Command::Locate(Ticks::quarters(2))).unwrap(),

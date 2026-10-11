@@ -15,13 +15,18 @@
 //! sounding at the new position start at once, and the latest controllers
 //! before it are applied first.
 //!
+//! Tracks that listen also play live input (`live`, slice 2): a
+//! [`LiveInput`] from the app gives each part its messages at their frame.
+//!
 //! Like clip lists, track lists are replaced whole through a queue; the
 //! old list goes back to be freed on the UI side. Tracker, instrument and
 //! voices carry across by track id, as pointers swap.
 
 mod hold;
+mod live;
 mod player;
 
+pub use live::{KEYBOARD, Listen, LiveIn, LiveInput, SOURCES};
 pub use player::{MidiHandle, MidiPlayer, midi_player};
 
 use std::sync::Arc;
@@ -118,6 +123,8 @@ pub struct MidiTrack {
     pub clips: Vec<MidiClip>,
     pub instrument: Option<InstrumentSpec>,
     pub target: Target,
+    /// The live input it plays ([`Listen::OFF`] for none).
+    pub listen: Listen,
     state: Box<TrackState>,
     /// Set when the list arrives: the track differs from the one it replaces,
     /// so its notes are brought in line with the position.
@@ -138,9 +145,16 @@ impl MidiTrack {
             clips,
             instrument,
             target,
+            listen: Listen::OFF,
             state: Box::new(TrackState::new()),
             dirty: true,
         }
+    }
+
+    /// The same track, playing the live input `listen` takes.
+    pub fn listening(mut self, listen: Listen) -> Self {
+        self.listen = listen;
+        self
     }
 
     /// The channel its events carry.

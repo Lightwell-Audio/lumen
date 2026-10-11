@@ -5,6 +5,7 @@
 use lumen_core::midi::{Event, Msg, cc};
 
 use super::hold::{self, Clock, MAX_EVENTS};
+use super::live::{LiveIn, LiveInput};
 use super::{MidiOut, MidiTrack, Target};
 use crate::mixer::{Buses, CHUNK, TrackSource};
 use crate::source::{Jump, Mode, RenderContext};
@@ -33,11 +34,16 @@ impl MidiSet {
     }
 }
 
+/// A live input on its way to the audio thread, or back to be freed.
+type Feed = Box<dyn LiveInput>;
+
 /// UI side: replaces the tracks and frees old lists. May allocate.
 pub struct MidiHandle {
     incoming: rtrb::Producer<Box<MidiSet>>,
     retired: rtrb::Consumer<Box<MidiSet>>,
     output: Option<rtrb::Consumer<MidiOut>>,
+    feeds: rtrb::Producer<Feed>,
+    old_feeds: rtrb::Consumer<Feed>,
 }
 
 impl MidiHandle {
@@ -55,7 +61,18 @@ impl MidiHandle {
         while self.retired.pop().is_ok() {
             freed += 1;
         }
+        while self.old_feeds.pop().is_ok() {
+            freed += 1;
+        }
         freed
+    }
+
+    /// Gives the audio side the live input to play (replacing any before
+    /// it). Returns it if the queue is full (call again later).
+    pub fn set_live(&mut self, feed: Box<dyn LiveInput>) -> Result<(), Box<dyn LiveInput>> {
+        self.feeds
+            .push(feed)
+            .map_err(|rtrb::PushError::Full(feed)| feed)
     }
 
     /// The messages for hardware, once: the app's sender takes them.
@@ -102,6 +119,12 @@ pub struct MidiPlayer {
     /// The device frame at the end of the last part rendered: when to
     /// stamp messages sent outside a part.
     clock: u64,
+    feeds: rtrb::Consumer<Feed>,
+    old_feeds: rtrb::Producer<Feed>,
+    /// The live input, if the app gave one.
+    live: Option<Feed>,
+    /// A replaced live input that did not fit in its queue back yet.
+    old_feed: Option<Feed>,
 }
 
 /// Creates the MIDI pair, starting with no tracks. Allocates, so call it
@@ -110,11 +133,15 @@ pub fn midi_player() -> (MidiHandle, MidiPlayer) {
     let (incoming_tx, incoming_rx) = rtrb::RingBuffer::new(QUEUE);
     let (retired_tx, retired_rx) = rtrb::RingBuffer::new(QUEUE + 1);
     let (out_tx, out_rx) = rtrb::RingBuffer::new(OUT_QUEUE);
+    let (feeds_tx, feeds_rx) = rtrb::RingBuffer::new(2);
+    let (old_feeds_tx, old_feeds_rx) = rtrb::RingBuffer::new(3);
     (
         MidiHandle {
             incoming: incoming_tx,
             retired: retired_rx,
             output: Some(out_rx),
+            feeds: feeds_tx,
+            old_feeds: old_feeds_rx,
         },
         MidiPlayer {
             incoming: incoming_rx,
@@ -126,6 +153,10 @@ pub fn midi_player() -> (MidiHandle, MidiPlayer) {
                 dropped: 0,
             },
             clock: 0,
+            feeds: feeds_rx,
+            old_feeds: old_feeds_tx,
+            live: None,
+            old_feed: None,
         },
     )
 }
@@ -145,6 +176,57 @@ impl MidiPlayer {
             .iter()
             .find(|t| t.id == track)
             .map_or(0, |t| t.state.held.len())
+    }
+
+    /// Live notes held on a track now (tests).
+    pub fn held_live(&self, track: u64) -> usize {
+        self.current
+            .tracks
+            .iter()
+            .find(|t| t.id == track)
+            .map_or(0, |t| t.state.live.len())
+    }
+
+    /// Takes a new live input if one arrived, handing the old one back.
+    /// Real-time safe.
+    fn take_feed(&mut self) {
+        if let Some(old) = self.old_feed.take()
+            && let Err(rtrb::PushError::Full(old)) = self.old_feeds.push(old)
+        {
+            self.old_feed = Some(old);
+            return;
+        }
+        if let Ok(feed) = self.feeds.pop()
+            && let Some(old) = self.live.replace(feed)
+            && let Err(rtrb::PushError::Full(old)) = self.old_feeds.push(old)
+        {
+            self.old_feed = Some(old);
+        }
+    }
+
+    /// Hands each track that listens the live messages for the part from
+    /// device frame `start`, `frames` long.
+    fn play_live(&mut self, start: u64, frames: usize) {
+        let Some(live) = self.live.as_mut() else {
+            return;
+        };
+        let tracks = &mut self.current.tracks;
+        let last = frames.saturating_sub(1) as u64;
+        live.pull(start, start + frames as u64, &mut |m: LiveIn| {
+            let offset = m.frame.saturating_sub(start).min(last) as u32;
+            for track in tracks.iter_mut() {
+                if !track.sounds() || !track.listen.takes(m.source, m.msg) {
+                    continue;
+                }
+                let out = match track.target {
+                    Target::Port { channel, .. } => Some(channel),
+                    Target::Instrument => None,
+                };
+                if let Some(msg) = track.state.live.take(m.source, m.msg, out) {
+                    track.state.push(Event { offset, msg });
+                }
+            }
+        });
     }
 
     /// Takes the newest track list if one arrived. With `at` (the clock and
@@ -194,6 +276,7 @@ impl MidiPlayer {
             {
                 let channel = track.channel();
                 track.state.release_all(channel);
+                track.state.release_live();
                 self.out.forward(track, clock);
             }
         }
@@ -213,6 +296,11 @@ impl MidiPlayer {
                 (Some(a), Some(b)) if a.kind == b.kind
             );
             let rerouted = track.target != before.target || !same_kind;
+            // Live notes let go when the track stops listening or listens
+            // to something else (here, or on the old output if rerouted).
+            if rerouted || track.listen != before.listen {
+                before.state.release_live();
+            }
             if rerouted {
                 // What sounded on the old output lets go there.
                 let channel = before.channel();
@@ -351,10 +439,13 @@ impl TrackSource for MidiPlayer {
             rate: cx.sample_rate,
         };
         self.take_new((cx.mode == Mode::Play).then_some((clock, cx.start)));
+        self.take_feed();
         self.clock = cx.stream + buses.frames() as u64;
         if cx.mode == Mode::Scrub {
+            // Live input waits until the scrub ends.
             return;
         }
+        self.play_live(cx.device, buses.frames());
         for track in &mut self.current.tracks {
             run_track(track, cx, buses, &mut self.out, clock);
         }
@@ -378,6 +469,7 @@ impl TrackSource for MidiPlayer {
 
     fn idle(&mut self) {
         self.take_new(None);
+        self.take_feed();
     }
 
     fn stopped(&mut self) {
@@ -399,6 +491,7 @@ impl TrackSource for MidiPlayer {
             state.events.clear();
             state.sustain = false;
             state.bend = false;
+            state.live.clear();
             if let Some(spec) = track.instrument.as_mut() {
                 spec.instrument.silence();
             }
@@ -420,10 +513,11 @@ impl TrackSource for MidiPlayer {
     }
 
     fn ringing(&self) -> bool {
-        self.current.tracks.iter().any(|t| {
-            !t.state.events.is_empty()
-                || t.instrument.as_ref().is_some_and(|i| i.instrument.active())
-        })
+        self.live.as_ref().is_some_and(|l| l.waiting())
+            || self.current.tracks.iter().any(|t| {
+                !t.state.events.is_empty()
+                    || t.instrument.as_ref().is_some_and(|i| i.instrument.active())
+            })
     }
 }
 

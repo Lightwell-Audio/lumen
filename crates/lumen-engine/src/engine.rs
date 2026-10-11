@@ -282,6 +282,7 @@ impl<S: Source> Engine<S> {
                     tail: false,
                     mode: Mode::Ring,
                     stream: self.stream,
+                    device: self.stream,
                 };
                 let mut out = Output::new(data, frames, 0, frames, channels);
                 self.source.render(&cx, &mut out);
@@ -324,6 +325,7 @@ impl<S: Source> Engine<S> {
                 tail: false,
                 mode: Mode::Play,
                 stream: self.stream + offset as u64 + self.lookahead.max(0) as u64,
+                device: self.stream + offset as u64,
             };
             let mut out = Output::new(data, frames, offset, n, channels);
             self.source.render(&cx, &mut out);
@@ -465,6 +467,7 @@ impl<S: Source> Engine<S> {
             tail: true,
             mode: Mode::Play,
             stream: 0,
+            device: 0,
         };
         let mut out = Output::new(buffer, MAX_FADE, 0, frames, channels);
         self.source.render(&cx, &mut out);
