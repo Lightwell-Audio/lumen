@@ -154,7 +154,7 @@ overview p99 ≤ 8.3 ms; idle < 0.5%; first frame < 1 s warm.
 
 **Last run (2026-10-05, twice):** normal views and the GPU path pass (p99 ≤ 6.1 ms; second run ≤ 4.4 ms). The plain-egui 100k-note overview fails (20.0 / 15.2 ms). Idle 0.00% / 0.47%, which is borderline against the 0.5% bar. First frame 545 / 490 ms.
 
-### MT-UI-2 · Accessibility tree (screen-reader part ⏸️ deferred by the owner)
+### MT-UI-2 · Accessibility tree
 1. `target/release/ui-stress --close-after 60`
 2. Inspect with Accessibility Insights for Windows, or start Narrator
    (Ctrl+Win+Enter) and Tab through the transport and track headers.
@@ -164,7 +164,10 @@ track toggles as "Mute Track N" / "Solo Track N" check boxes with their
 state.
 
 **Last run (2026-10-05):** tree verified programmatically through UI
-Automation (58 named elements), twice. **Still needs a human:** listening through Narrator.
+Automation (58 named elements), twice.
+
+**Narrator run (2026-10-12, owner):** pass. The transport and track headers
+were checked by tabbing through them with Narrator.
 
 ### MT-UI-3 · Visual quality at 100%, 150%, 200% (needs a human)
 1. Run `target/release/ui-stress` at each Windows display scale.
@@ -214,7 +217,8 @@ disabled controls show "Arrives in Milestone N" on hover.
 
 **Last run (2026-10-06):** pass. 394 ms warm / 1,110 ms cold. Screenshot
 checked; UI Automation shows 21 elements, disabled controls as disabled.
-Interactive checks of zoom, scroll and Shift+Tab not yet done by a human.
+Interactive checks of zoom, scroll, Shift+Tab and the panel toggles passed
+(owner, 2026-10-12).
 
 ---
 
@@ -484,8 +488,9 @@ files at 44.1 kHz and 48 kHz, in more than one format (WAV, FLAC, MP3, Ogg).
   scrubbing request).
 
 **Run 2 (2026-10-06, owner):** pass. No pop on loop wraps, stops or
-locates; the drag indicator and the hover card work. The 64-sample
-dropout check (step 9) was not reported separately.
+locates; the drag indicator and the hover card work.
+**Run 3 (2026-10-12, owner):** pass. The 64-sample dropout check (step 9)
+passed.
 
 Automated: `--open-audio` with a 5 s WAV loads
 in 38 ms and redraws at 2.5 bars; the rate change to 44.1 kHz converts again
@@ -520,7 +525,8 @@ Run `cargo run --release -p lumen-app -- --audio asio:"Focusrite USB ASIO"`.
   continuing, and Stop leaving the playhead in place (ADR-0017 revised).
 
 **Run 2 (2026-10-06, owner):** pass: test tone, Audio On/Off and Panic.
-The 64-sample dropout check (step 4) was not reported separately.
+**Run 3 (2026-10-12, owner):** pass. At 64 samples, the dropout count
+stayed at 0 while the long file and metronome played for one minute.
 
 ### MT-APP-5 · Start marker and playhead (needs a human)
 1. Click the ruler at bar 3: the grey arrow (the start marker, bottom of the
@@ -1862,6 +1868,9 @@ Slice 5 of M4.5: findings M1, M4, M2, M3, U2 and M5. Run
 
 **Expected:** as described, in both themes.
 
+**Owner walkthrough (2026-10-12):** pass. Motion and reduced-motion
+behavior looked good; no issues reported.
+
 
 ### MT-POL-6 · The close (needs a human)
 Slice 6 of M4.5: what the design sweep (`shots::polish_sweep`, both
@@ -1884,6 +1893,9 @@ themes at 100%, 150% and 200%) changed. Run
    end only the far edge fades. Check both themes.
 
 **Expected:** as described.
+
+**Owner walkthrough (2026-10-12):** pass. Menu alignment and mixer edge
+fades looked good; no issues reported.
 
 ### MT-MIDI-1 · MIDI devices (needs a human and a MIDI device)
 Slice 0 of M5. Needs a USB MIDI keyboard or controller, or a virtual port
@@ -2093,7 +2105,7 @@ MIDI output latency was noticeable. The Auto monitor hollow ring was
 understandable but less clear than the In/Off states.
 
 ### MT-MIDI-4 · MIDI clips and the piano roll (needs a human, ears and two monitors if you have them)
-Slice 3 of M5 (ADR-0047). **Status: waiting for the owner.** In PowerShell,
+Slice 3 of M5 (ADR-0047). **Status: follow-up passed 2026-10-12.** In PowerShell,
 from the repository root:
 
 ```powershell
@@ -2217,11 +2229,17 @@ Step 9 passed: the editor popped out, looked good, and docked back on close.
 Step 10: the piano roll, keys and selected notes looked good in the light
 theme and remained clear and sharp at 150% and 200% scale.
 Step 11 passed: a renamed copy saved and reopened with note edits, muted
-notes and new clips intact. MT-MIDI-4 remains blocked from passing by the
-Ctrl+E split failure recorded above.
+notes and new clips intact. At that time, MT-MIDI-4 was blocked from passing
+by the Ctrl+E split failure recorded above; the follow-up below rechecked
+the corrected behavior.
+
+**Follow-up (2026-10-12, owner):** pass after rechecking the MIDI clip and
+piano-roll interactions, including the corrected split behavior. One note
+in a clip did not fire through the Poly synth once; the owner could not
+reproduce it. Logged in `docs/KNOWN_ISSUES.md` for follow-up if it recurs.
 
 ### MT-MIDI-5 · Velocity and controller lanes (needs a human; a MIDI controller helps but is not required)
-Slice 4 of M5 (ADR-0050). **Status: waiting for the owner.** In PowerShell,
+Slice 4 of M5 (ADR-0050). **Status: passed 2026-10-12.** In PowerShell,
 from the repository root:
 
 ```powershell
@@ -2291,7 +2309,8 @@ cargo run --release -p lumen-app -- tests\projects\midi-demo.lumen
 **Expected:** each step does what is described. Every gesture is one undo
 step, and the clip changes only when you let go.
 
-**Run 1: waiting for the owner.**
+**Run 1 (2026-10-12, owner):** pass. Velocity and controller lane gestures,
+undo, keyboard commands, display, frame-time checks and save/reopen passed.
 
 ### MT-UX-1 · Clip gestures, playback selection and control spacing
 
@@ -2322,7 +2341,10 @@ solo states were inspected in both themes at 100%, 150% and 200%.
 The first parallel test run hit existing audition/MIDI scheduling checks;
 they passed when rerun without concurrent GPU rendering. Builds and test
 temporary files used `D:/Projects/lumen/target/codex-61b4` because C: was
-full. The owner's manual listening/interaction check remains available.
+full. The owner's manual listening/interaction check remained available.
+
+**Owner walkthrough (2026-10-12):** pass. Clip gestures, playback selection,
+lane control spacing and the global Solo button checks passed.
 
 ### MT-DS-1 · The design system's look (needs a human; both themes)
 
@@ -2355,5 +2377,7 @@ open a project with a few audio and MIDI tracks, a group and a return.
 9. Repeat 1–8 on the light theme and at 150% and 200% scale.
 
 Results:
-- (waiting for the owner)
+- **Owner walkthrough (2026-10-12):** pass. The design system checks looked
+  good, including the light theme and larger interface scales; no issues
+  reported.
 
