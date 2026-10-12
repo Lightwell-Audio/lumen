@@ -429,7 +429,7 @@ is built** on `m5-midi` (ADR-0050; the owner took every recommendation from
 the live "Lumen Controller Lane Specimens" artifact: V A stems with round
 heads, L A one lane with a tab switcher, T A Pencil, Line and Curve in the
 lane's header, R B a 1/64 event density for Line, Curve and bend with the
-Pencil on the grid; plan `docs/milestones/M5-slice4.md`). **No format change**
+Pencil on the grid; plan `docs/milestones/M5.md`). **No format change**
 (v14; controller events have been in clips since v11). Pure edits:
 `lumen_project::edit::velocity` and `edit::events` (a drawn line is plain
 events, only repeated values dropped: MIDI has no ramps); undoable
@@ -456,7 +456,7 @@ build, `mesa-vulkan-drivers` for GPU tests and shots, and `xvfb`,
 Before it, 2026-10-11: **M5 slice 3 (MIDI clips and the piano
 roll) is built** on `m5-midi` (ADR-0047; the owner's Look A studio keys,
 Draw A click-adds-then-drag-length, Live A preview-then-commit, chosen from
-the "Lumen Piano Roll Specimens" artifact; plan `docs/milestones/M5-slice3.md`).
+the "Lumen Piano Roll Specimens" artifact; plan `docs/milestones/M5.md`).
 Format **v14** (`Note` has a mute flag: `Note::new` for unmuted;
 `note.muted()`); note edits are pure transforms in
 `lumen_project::edit::notes` returning the new picks, applied through
