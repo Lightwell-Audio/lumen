@@ -390,7 +390,20 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-12: **owner bug fixes** on `m5-midi`: a click on
+**Last updated:** 2026-10-12: **M5 slices 0 to 4 are built and their manual
+tests have passed** (MT-MIDI-1 to 5; follow-up findings are in
+MANUAL_TESTS and KNOWN_ISSUES). The slice 3 and 4 plans are folded into
+`docs/milestones/M5.md` (the separate files are gone). `m5-midi` was
+squashed and force-updated upstream; an older local copy is the branch
+`backup/m5-midi-pre-sync`, safe to delete. **Next: slice 5, quantize and
+its tools** (C5: the current grid, start only, 100%, no swing; Q applies
+the last settings, Shift+Q opens the options popover with a live preview;
+humanize, legato, fixed length, transpose, scale-constrain, reverse).
+Specimens first (the quantize popover), as at the start of each slice.
+Reuse: slice 3's legato; slice 4's `velocity::set`, `velocity::scale` and
+`events::set_point` are tested and uncalled, humanize is their first user.
+
+Before it, 2026-10-12: **owner bug fixes** on `m5-midi`: a click on
 a clip's header while stopped locates to the clip's start; the bar ruler's
 cursor is a grab hand; dropdown and sends lists pad their scrolled rows by
 `raised::FOCUS_OUTSET` (`raised::ring_room`) so focus rings are whole; tabs
@@ -444,14 +457,14 @@ when the lane was the last place pressed. Engine golden check for controller
 and bend timing: `tests/midi.rs`
 `drawn_controllers_and_bends_land_on_their_exact_sample_in_order`. E2E
 `lanes` (18 scenarios), shot `clip_lane`. **Frame times with the 100,000-note
-clip and the lane open are not measured here** (see below); MT-MIDI-5 waits.
+clip and the lane open are not measured here** (see below); MT-MIDI-5 passed 2026-10-12.
 Built by **Haiku subagents** under the new delegation policy
 (`.claude/skills/references/delegation.md`: the parent specifies, integrates
 and verifies; Haiku for bounded work), the parent wrote the UI wiring. In a
 Linux cloud container, install `libasound2-dev libudev-dev pkg-config` to
 build, `mesa-vulkan-drivers` for GPU tests and shots, and `xvfb`,
 `libxkbcommon-x11-0` to run the smoke tests under `xvfb-run -a`. Next: slice 5
-(quantize and its tools), specimens first; the owner's MT-MIDI-5 (and 4).
+(quantize and its tools), specimens first; (MT-MIDI-4 and 5 have passed).
 
 Before it, 2026-10-11: **M5 slice 3 (MIDI clips and the piano
 roll) is built** on `m5-midi` (ADR-0047; the owner's Look A studio keys,
@@ -471,7 +484,7 @@ editor's state is lifted out of `App` during a gesture. `--bench-editor`
 measures with the 100,000-note clip open: p99 at most 1.82 ms at
 1600 × 900 and 2.22 ms at 3440 × 1380, idle 3 repaints in 3 s. Built by Sonnet agents in worktrees
 (created from `main`: reset them to `m5-midi` first), merged here.
-MT-MIDI-4 waits for the owner.
+MT-MIDI-4 passed 2026-10-12.
 
 Before it, 2026-10-11: **M5 slice 2 (playing live) is built** on
 `m5-midi` (ADR-0046; owner's L A, J A, C B, K A, H B, R A and Ctrl+Shift+K,
@@ -490,8 +503,7 @@ slice was built by **Sonnet agents in worktrees** (the owner's request:
 orchestrate with Sonnet), reviewed and merged here; worktrees build their
 own `target/`, so watch the disk (`.claude/worktrees/` is excluded in
 `.git/info/exclude`). The perf gate reads ~+5% high in this cloud sandbox
-(Ubuntu 24.04 glibc); trust CI's 26.04 container. MT-MIDI-3 waits for the
-owner, after MT-MIDI-1 and 2. Next: slice 3 (MIDI clips and the piano roll),
+(Ubuntu 24.04 glibc); trust CI's 26.04 container. MT-MIDI-3 passed. Next: slice 3 (MIDI clips and the piano roll),
 specimens first; the "MIDI Clips & Editing" canvas holds earlier
 explorations for it.
 
@@ -758,7 +770,7 @@ escapes and quotes several times.
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
 - **M4.5 Polish pass: built 2026-10-10; slices 1–4 done, slices 5 and 6
-  built (MT-POL-5 and MT-POL-6 wait).** M5 under way: slices 0 to 4 built (`docs/milestones/M5.md`).
+  built (MT-POL-5 and MT-POL-6 wait).** M5 under way: slices 0 to 4 built and tested by the owner, slice 5 next (`docs/milestones/M5.md`).
 - **M4 Mixer, Routing & Groups: complete 2026-10-10**; the review's fixes
   are merged (PR #3).
 - **M3 Arrangement & Project System: complete, approved 2026-10-09.** Slices 1–3 done:
