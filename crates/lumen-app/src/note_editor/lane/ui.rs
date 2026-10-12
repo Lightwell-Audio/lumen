@@ -12,7 +12,7 @@ use eframe::egui::{
 use lumen_core::grid::Line as GridLine;
 use lumen_core::time::Ticks;
 use lumen_project::edit::events as ev;
-use lumen_project::model::Clip;
+use lumen_project::model::{Clip, Note};
 
 use super::geometry::{HIT, LaneKind, LaneView};
 use super::gesture::{Env, Kind, LaneGesture, LaneTool, Resolved, boxed_stems};
@@ -188,8 +188,13 @@ impl App {
         let hover = match over {
             Some(p) if ed.lane.gesture.is_none() && inp.editable => match lview.kind {
                 LaneKind::Velocity => lview
-                    .nearest_stem(&cache.stems, p.x)
-                    .map_or(LaneHover::None, LaneHover::Stem),
+                    .head_at(notes, &cache.stems, ed.picked(), p)
+                    .and_then(|note| {
+                        let at = notes.get(note)?.start();
+                        let stem = cache.stems.binary_search_by_key(&at, |(t, _)| *t).ok()?;
+                        Some(LaneHover::Head { stem, note })
+                    })
+                    .unwrap_or(LaneHover::None),
                 _ => lview
                     .point_at(events, p)
                     .and_then(|i| cache.points.binary_search_by_key(&i, |q| q.index).ok())
@@ -213,7 +218,7 @@ impl App {
         };
         paint::paint_lane(&painter, &lview, &scene);
         if let (Some(chip), Some(p)) = (
-            self.lane_chip(&lview, &live.resolved),
+            self.lane_chip(&lview, &live.resolved, grabbed_head(ed)),
             ctx.input(|i| i.pointer.latest_pos()),
         ) {
             widgets::draw_hint(&painter, p + vec2(14.0, -16.0), &chip, plot);
@@ -235,11 +240,19 @@ impl App {
     }
 
     /// The chip beside the pointer while a gesture runs.
-    fn lane_chip(&self, view: &LaneView, resolved: &Resolved) -> Option<String> {
+    fn lane_chip(
+        &self,
+        view: &LaneView,
+        resolved: &Resolved,
+        grabbed: Option<usize>,
+    ) -> Option<String> {
         let kind = view.kind;
         match resolved {
+            // Dragging heads shows the one pressed; a stroke, the last set.
             Resolved::Velocities(changes) => changes
-                .last()
+                .iter()
+                .rfind(|&&(note, _)| grabbed.is_none_or(|g| g == note))
+                .or(changes.last())
                 .map(|&(_, v)| value_text(LaneKind::Velocity, i32::from(v))),
             Resolved::Points(points) => points.last().map(|&(_, v)| value_text(kind, v)),
             Resolved::Span { from, to, .. } => Some(format!(
@@ -345,7 +358,13 @@ impl App {
             && !egui::Popup::is_any_open(ctx)
         {
             ed.lane.focus = true;
-            let kind = start_kind(ed, view, events, p, modifiers.shift);
+            let kind = start_kind(ed, view, notes, events, p, modifiers.shift);
+            if let Kind::Heads { grabbed, .. } = &kind
+                && !ed.picked().contains(grabbed)
+            {
+                // A head pressed outside the picks picks it alone.
+                self.select_notes(ed, vec![*grabbed]);
+            }
             ed.lane.gesture = Some(LaneGesture::new(kind, p));
         }
         let Some(gesture) = &mut ed.lane.gesture else {
@@ -406,7 +425,11 @@ impl App {
         match (resolved, lane) {
             (Resolved::Velocities(changes), _) if !changes.is_empty() => {
                 let indices = self.document.set_velocities_each(None, id, &changes, None);
-                self.select_notes(ed, indices);
+                match &gesture.kind {
+                    // Dragging heads keeps the picks, now of the new clip.
+                    Kind::Heads { group, .. } => self.select_notes(ed, group.clone()),
+                    _ => self.select_notes(ed, indices),
+                }
             }
             (Resolved::Points(points), Some(lane)) if !points.is_empty() => {
                 picked = self
@@ -493,10 +516,21 @@ impl App {
     }
 }
 
-/// What a press at `p` in the lane starts.
+/// The note whose head the running gesture drags, if it drags heads.
+fn grabbed_head(ed: &NoteEditor) -> Option<usize> {
+    match ed.lane.gesture.as_ref()?.kind {
+        Kind::Heads { grabbed, .. } => Some(grabbed),
+        _ => None,
+    }
+}
+
+/// What a press at `p` in the lane starts. In the velocity lane a press on a
+/// head drags the heads: the picked notes' when it is one of them, else that
+/// note's alone.
 fn start_kind(
     ed: &mut NoteEditor,
     view: &LaneView,
+    notes: &[Note],
     events: &[lumen_project::model::ClipEvent],
     p: Pos2,
     shift: bool,
@@ -517,6 +551,18 @@ fn start_kind(
             ed.lane.picked.clone()
         };
         return Kind::Box { base };
+    }
+    if view.kind == LaneKind::Velocity
+        && let Some(cache) = &ed.lane.cache
+        && let Some(grabbed) = view.head_at(notes, &cache.stems, ed.picked(), p)
+    {
+        let picked = ed.picked();
+        let group = if picked.contains(&grabbed) {
+            picked.to_vec()
+        } else {
+            vec![grabbed]
+        };
+        return Kind::Heads { grabbed, group };
     }
     if view.kind != LaneKind::Velocity
         && let Some(i) = view.point_at(events, p)

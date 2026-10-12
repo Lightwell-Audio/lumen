@@ -390,7 +390,18 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-12: **the owner's Lumen design system is
+**Last updated:** 2026-10-12: **owner bug fixes** on `m5-midi`: a click on
+a clip's header while stopped locates to the clip's start; the bar ruler's
+cursor is a grab hand; dropdown and sends lists pad their scrolled rows by
+`raised::FOCUS_OUTSET` (`raised::ring_room`) so focus rings are whole; tabs
+and segmented controls glide their chosen *index* between live rects
+(`toggle::slide_between`), so a moving strip carries them; the velocity
+lane draws a head per note, a press on a head drags it (and every picked
+note, relative), `LaneView::head_at` picks among overlapping heads; a
+Pointer double-click on empty roll space draws a note (ADR-0047 and
+ADR-0050 amendments). E2E 289 pass. Built by Sonnet subagents.
+
+Before it, 2026-10-12: **the owner's Lumen design system is
 applied** on `m5-midi` (ADR-0052; DESIGN.md v2, §5a Material). The design
 system is a Design System artifact (tokens, a Material card, a card per
 component); where it and DESIGN.md differ, it wins. Asked where it and

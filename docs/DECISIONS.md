@@ -4102,6 +4102,19 @@ a clip note that starts during a preview of its key is not handled, and
 the playhead the check reads can differ from the port's timing by the
 output latency.
 
+### Amendment (2026-10-12): double-click draws with the pointer
+
+Owner bug report: a double-click on empty space in the roll, with the
+Pointer tool, should draw a note. A second press on empty space, within
+egui's double-click delay and click distance of the first
+(`input_options.max_double_click_delay` and `max_click_dist`; the first press
+is remembered in `NoteEditor::last_empty_press`), starts the Draw tool's
+press: the same grid cell, length by dragging, audition and one undo step
+(`start_draw`). The note is picked on release. Shift keeps the marquee. A
+press on a note, with the Draw tool, or any drag forgets the first press, so
+a double-click on a note keeps its meaning and two slow or distant clicks add
+nothing. The info line lists "double-click: add a note" after the marquee.
+
 ## ADR-0048 — The clip editor's own zoom and scroll (M5 slice 3 amendment)
 
 **Status:** Accepted 2026-10-11, owner decision. It amends the M5 slice 3
@@ -4321,6 +4334,37 @@ to this record when they are in.
 
 **Unverified:** the timing and audibility of drawn bends and controllers on real
 hardware and on the built-in synth (MT-MIDI-5).
+
+### Amendment (2026-10-12, owner bug reports): a head for every note, and group drags
+
+Two reports: velocities of several notes could not be changed together, and
+the velocity of one note could not be changed when notes overlapped.
+- **A head per note.** A stem is still one per start, but every note of it
+  draws its own head at its own velocity (a chord at 100 and 60 shows two
+  heads). Heads are drawn in note order, so the higher index is on top; each
+  is lit when picked, greyed when muted, and larger when hovered. The stem
+  runs to the loudest head, lit up to the loudest picked one.
+- **The head-grab rule.** `LaneView::head_at` answers which note a press
+  grabs: among the notes of the stems within `HIT` of the pointer in x, those
+  whose own head is within `HIT` of it. A picked note whose head covers the
+  pointer (within `HEAD_RADIUS`) comes first, then the nearest head, then the
+  higher note index. Hover uses the same rule (`LaneHover::Head`), so the head
+  that lights is the one that would be grabbed.
+- **Group drag.** A press on a head starts `Kind::Heads` instead of the
+  Pencil. Its group is the picked notes when the grabbed note is one of them,
+  else the grabbed note alone, which is then picked. Dragging moves each
+  note's own velocity by the pointer's travel in values from the press
+  (relative, so a grab does not jump), each clamped to 1..=127; the document
+  changes once, on release, as one undo step through `set_velocities_each`, and
+  the picks are kept. Notes the clamp leaves unchanged are not part of the
+  edit. The chip shows the grabbed note's new value. A press away from any
+  head, and Shift, behave as before (the Pencil strokes and the box).
+- **Tests.** Unit tests for `head_at` (a chord, equal heads, a picked note
+  that covers, the nearest, nothing beyond `HIT`, stems close together) and
+  for `heads` (shared delta, a single unpicked note, relative grab, no travel,
+  clamping). E2E in `tests/e2e/lanes.rs`: group drag with its undo, clamping at
+  1 and 127, an unpicked head, a relative grab, a chord, coincident heads and
+  a near start.
 
 ## ADR-0051 — Premium control look (approved from canvas mock-ups 2026-10-11)
 

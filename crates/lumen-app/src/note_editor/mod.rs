@@ -107,6 +107,9 @@ pub(crate) struct NoteEditor {
     pub menu_at: Option<Ticks>,
     /// Notes a marquee in progress would pick.
     pub boxed: Vec<usize>,
+    /// When and where the pointer last pressed on empty space in the roll
+    /// (egui's clock): a second press soon and near draws a note.
+    pub last_empty_press: Option<(f64, egui::Pos2)>,
     /// The roll's note boxes, kept until the clip or the picks change.
     boxes: Option<NoteBoxes>,
     generation: u64,

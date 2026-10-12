@@ -41,6 +41,11 @@ fn project(events: Vec<ClipEvent>, port: bool) -> Project {
         Note::new(q(2), q(1), 67, 100),
         Note::new(q(4), q(2), 72, 100),
     ];
+    project_with(notes, events, port)
+}
+
+/// [`project`] with the clip's `notes` in place of the four.
+fn project_with(notes: Vec<Note>, events: Vec<ClipEvent>, port: bool) -> Project {
     let mut track = midi_track(1, "Keys", "poly", (0, 8), None, notes, events);
     if port {
         track.midi_to = Some(MidiTo {
@@ -54,10 +59,18 @@ fn project(events: Vec<ClipEvent>, port: bool) -> Project {
 }
 
 fn launch(name: &str, events: Vec<ClipEvent>) -> Lumen {
+    launch_project(name, project(events, false))
+}
+
+/// [`launch`] with a clip of `notes`.
+fn launch_notes(name: &str, notes: Vec<Note>) -> Lumen {
+    launch_project(name, project_with(notes, vec![], false))
+}
+
+fn launch_project(name: &str, project: Project) -> Lumen {
     let dir = TempDir::new(&format!("e2e-{name}"));
     let path = dir.path().join("song.lumen");
-    lumen_project::save(&project(events, false), &path, &Default::default())
-        .expect("save the test project");
+    lumen_project::save(&project, &path, &Default::default()).expect("save the test project");
     let mut lumen = Lumen::start_with(dir, move |l| l.opening(path));
     lumen.wait_for("the project", |app| app.project().tracks.len() == 1);
     lumen.app_mut().set_detail_size(560.0);
@@ -470,4 +483,127 @@ fn the_number_keys_choose_the_lane_tool() {
     assert!(lumen.is_on("Lane curve tool"));
     lumen.key(Modifiers::NONE, Key::Num1);
     assert!(lumen.is_on("Lane pencil tool"));
+}
+
+/// Picks notes 0 and 1 of the four, after giving note 1 velocity 70 (a
+/// drag of its own head): velocities are then `[100, 70, 100, 100]`.
+fn pick_first_two(lumen: &mut Lumen) {
+    lumen.drag(at(lumen, 1.0, 100), at(lumen, 1.0, 70), Modifiers::NONE);
+    assert_eq!(velocities(lumen), [100, 70, 100, 100]);
+    lumen.drag(at(lumen, 1.5, 120), at(lumen, -0.2, 60), Modifiers::SHIFT);
+    assert_eq!(lumen.app().editor_picked(), [0, 1]);
+}
+
+#[test]
+fn dragging_the_head_of_a_picked_note_moves_every_picked_velocity_by_the_same_amount() {
+    let mut lumen = launch("lane-heads", vec![]);
+    pick_first_two(&mut lumen);
+    lumen.drag(at(&lumen, 1.0, 70), at(&lumen, 1.0, 40), Modifiers::NONE);
+    assert_eq!(velocities(&lumen), [70, 40, 100, 100], "both moved by -30");
+    assert_eq!(lumen.app().editor_picked(), [0, 1], "the picks are kept");
+    undo(&mut lumen);
+    assert_eq!(
+        velocities(&lumen),
+        [100, 70, 100, 100],
+        "one undo step restores them all"
+    );
+}
+
+#[test]
+fn dragging_picked_heads_stops_each_note_at_the_ends_of_the_range() {
+    let mut lumen = launch("lane-heads-clamp", vec![]);
+    pick_first_two(&mut lumen);
+    lumen.drag(at(&lumen, 1.0, 70), at(&lumen, 1.0, 127), Modifiers::NONE);
+    assert_eq!(velocities(&lumen), [127, 127, 100, 100], "+57 stops at 127");
+    undo(&mut lumen);
+    // Undo lets the picks go: pick the two again.
+    lumen.drag(at(&lumen, 1.5, 120), at(&lumen, -0.2, 60), Modifiers::SHIFT);
+    assert_eq!(lumen.app().editor_picked(), [0, 1]);
+    lumen.drag(at(&lumen, 0.0, 100), at(&lumen, 0.0, 1), Modifiers::NONE);
+    assert_eq!(velocities(&lumen), [1, 1, 100, 100], "-99 stops at 1");
+    assert_eq!(lumen.app().editor_picked(), [0, 1]);
+}
+
+#[test]
+fn dragging_an_unpicked_head_picks_it_and_changes_only_it_relatively() {
+    let mut lumen = launch("lane-heads-alone", vec![]);
+    pick_first_two(&mut lumen);
+    // Grabbed a little below the head of note 2 and dragged 10 values down.
+    let head = at(&lumen, 2.0, 100);
+    let travel = at(&lumen, 2.0, 90).y - head.y;
+    let from = Pos2::new(head.x, head.y + 6.0);
+    lumen.drag(from, from + vec2(0.0, travel), Modifiers::NONE);
+    let v = velocities(&lumen);
+    assert_eq!((v[0], v[1], v[3]), (100, 70, 100), "the others stay: {v:?}");
+    assert!((89..=91).contains(&v[2]), "relative, no jump: {v:?}");
+    assert_eq!(lumen.app().editor_picked(), [2], "only the grabbed note");
+}
+
+#[test]
+fn a_head_drag_is_relative_to_where_it_was_grabbed() {
+    let mut lumen = launch("lane-heads-relative", vec![]);
+    // Grabbed 6 points below the head (inside the hit distance), then dragged
+    // down 10 values' worth: the velocity falls by the travel, it does not
+    // jump to the pointer.
+    let head = at(&lumen, 1.0, 100);
+    let travel = at(&lumen, 1.0, 90).y - at(&lumen, 1.0, 100).y;
+    let from = Pos2::new(head.x, head.y + 6.0);
+    lumen.drag(from, from + vec2(0.0, travel), Modifiers::NONE);
+    let v = velocities(&lumen);
+    assert_eq!(v[0], 100);
+    assert!((89..=91).contains(&v[1]), "moved by the travel: {v:?}");
+}
+
+/// A clip whose notes overlap in the lane: a chord at beat 0 (100 and 60),
+/// two at beat 1 with equal velocity, and two a few points apart at beat 2.
+fn overlapping() -> Vec<Note> {
+    vec![
+        Note::new(q(0), q(1), 60, 100),
+        Note::new(q(0), q(1), 64, 60),
+        Note::new(q(1), q(1), 60, 90),
+        Note::new(q(1), q(1), 64, 90),
+        Note::new(q(2), q(1), 67, 100),
+        Note::new(Ticks(2 * PPQ + PPQ / 20), q(1), 71, 50),
+    ]
+}
+
+#[test]
+fn each_note_of_a_chord_has_its_own_head() {
+    let mut lumen = launch_notes("lane-chord", overlapping());
+    lumen.drag(at(&lumen, 0.0, 60), at(&lumen, 0.0, 30), Modifiers::NONE);
+    assert_eq!(
+        velocities(&lumen),
+        [100, 30, 90, 90, 100, 50],
+        "only the quieter note of the chord changed"
+    );
+    assert_eq!(lumen.app().editor_picked(), [1]);
+    undo(&mut lumen);
+    lumen.drag(at(&lumen, 0.0, 100), at(&lumen, 0.0, 120), Modifiers::NONE);
+    assert_eq!(velocities(&lumen), [120, 60, 90, 90, 100, 50]);
+}
+
+#[test]
+fn heads_that_coincide_give_the_one_drawn_on_top() {
+    let mut lumen = launch_notes("lane-coincide", overlapping());
+    lumen.drag(at(&lumen, 1.0, 90), at(&lumen, 1.0, 60), Modifiers::NONE);
+    assert_eq!(
+        velocities(&lumen),
+        [100, 60, 90, 60, 100, 50],
+        "the higher note, and only it"
+    );
+}
+
+#[test]
+fn a_head_next_to_another_start_changes_only_its_own_note() {
+    let mut lumen = launch_notes("lane-near", overlapping());
+    let apart = (at(&lumen, 2.05, 50).x - at(&lumen, 2.0, 50).x).abs();
+    assert!(
+        apart > 1.0 && apart < 8.0,
+        "the two stems are closer than the 8 point hit distance: {apart}"
+    );
+    lumen.drag(at(&lumen, 2.05, 50), at(&lumen, 2.05, 20), Modifiers::NONE);
+    assert_eq!(velocities(&lumen), [100, 60, 90, 90, 100, 20]);
+    undo(&mut lumen);
+    lumen.drag(at(&lumen, 2.0, 100), at(&lumen, 2.0, 70), Modifiers::NONE);
+    assert_eq!(velocities(&lumen), [100, 60, 90, 90, 70, 50]);
 }

@@ -64,6 +64,9 @@ pub(crate) enum Kind {
     Move { grabbed: usize, picked: Vec<usize> },
     /// A box from the press; `base` are the picks kept when it adds (Shift).
     Box { base: Vec<usize> },
+    /// Dragging the velocity heads of `group` (ascending note indices): every
+    /// note moves by the pointer's travel, `grabbed` being the head pressed.
+    Heads { grabbed: usize, group: Vec<usize> },
     /// Dragging the handle dot of a line just drawn from `from` to `to`, to
     /// shape its curve.
     Bend {
@@ -144,6 +147,7 @@ impl LaneGesture {
             _ if !self.dragging => Resolved::Nothing,
             Kind::Line => line(env, self.origin, pointer),
             Kind::Move { grabbed, .. } => shift_points(env, *grabbed, self.origin, pointer),
+            Kind::Heads { group, .. } => heads(env, group, self.origin, pointer),
             Kind::Bend { from, to } => bend(env, *from, *to, pointer),
         }
     }
@@ -214,6 +218,30 @@ fn velocity_pencil(
     }
     changes.sort_unstable_by_key(|&(note, _)| note);
     changes
+}
+
+/// The velocity heads of `group` dragged from `origin` to `pointer`: each
+/// note keeps its own velocity plus the pointer's travel in values (clamped to
+/// 1..=127 per note), so a grab does not jump. Notes the clamp leaves as they
+/// were are left out.
+fn heads(env: &Env<'_>, group: &[usize], origin: Pos2, pointer: Pos2) -> Resolved {
+    let delta = env.view.value_at(pointer.y) - env.view.value_at(origin.y);
+    if delta == 0 {
+        return Resolved::Nothing;
+    }
+    let changes: Vec<(usize, u8)> = group
+        .iter()
+        .filter_map(|&i| {
+            let was = env.notes.get(i)?.velocity();
+            let now = clamp_velocity(i32::from(was) + delta);
+            (now != was).then_some((i, now))
+        })
+        .collect();
+    if changes.is_empty() {
+        Resolved::Nothing
+    } else {
+        Resolved::Velocities(changes)
+    }
 }
 
 /// The velocity a stem at `x` takes from the stroke segment `prev` to `cur`,
@@ -650,6 +678,118 @@ mod tests {
         assert_eq!(
             resolved,
             Resolved::Velocities(vec![(0, 55), (1, 55), (2, 100)])
+        );
+    }
+
+    /// A chord at beat 1 (100 and 60) and a lone note at beat 2 (30).
+    fn chord_world() -> World {
+        let mut world = World::new(lane(LaneKind::Velocity));
+        world.notes = vec![note(1.0, 60, 100), note(1.0, 64, 60), note(2.0, 60, 30)];
+        world
+    }
+
+    #[test]
+    fn a_dragged_head_moves_every_note_of_its_group_by_the_same_amount() {
+        let world = chord_world();
+        let snap = free;
+        let press = at(&world.view, 1.0, 60);
+        let pointer = at(&world.view, 1.0, 40);
+        let kind = Kind::Heads {
+            grabbed: 1,
+            group: vec![1, 2],
+        };
+        let mut gesture = LaneGesture::new(kind, press);
+        gesture.feed(pointer);
+        assert_eq!(
+            gesture.resolve(pointer, &world.env(&snap)),
+            Resolved::Velocities(vec![(1, 40), (2, 10)])
+        );
+    }
+
+    #[test]
+    fn dragging_an_unpicked_head_changes_only_that_note() {
+        let world = chord_world();
+        let snap = free;
+        let press = at(&world.view, 1.0, 60);
+        let pointer = at(&world.view, 1.0, 80);
+        let kind = Kind::Heads {
+            grabbed: 1,
+            group: vec![1],
+        };
+        let mut gesture = LaneGesture::new(kind, press);
+        gesture.feed(pointer);
+        assert_eq!(
+            gesture.resolve(pointer, &world.env(&snap)),
+            Resolved::Velocities(vec![(1, 80)])
+        );
+    }
+
+    #[test]
+    fn a_head_drag_is_relative_so_a_grab_off_the_head_does_not_jump() {
+        let world = chord_world();
+        let snap = free;
+        // Pressed 10 values above the head and dragged 5 down: it drops by 5.
+        let press = at(&world.view, 1.0, 70);
+        let pointer = at(&world.view, 1.0, 65);
+        let kind = Kind::Heads {
+            grabbed: 1,
+            group: vec![1],
+        };
+        let mut gesture = LaneGesture::new(kind, press);
+        gesture.feed(pointer);
+        assert_eq!(
+            gesture.resolve(pointer, &world.env(&snap)),
+            Resolved::Velocities(vec![(1, 55)])
+        );
+    }
+
+    #[test]
+    fn a_head_press_without_travel_in_value_changes_nothing() {
+        let world = chord_world();
+        let snap = free;
+        let press = at(&world.view, 1.0, 60);
+        let kind = Kind::Heads {
+            grabbed: 1,
+            group: vec![1],
+        };
+        let mut gesture = LaneGesture::new(kind, press);
+        let nudge = pos2(press.x + 1.0, press.y + 1.0);
+        gesture.feed(nudge);
+        assert!(!gesture.dragging);
+        assert_eq!(gesture.resolve(nudge, &world.env(&snap)), Resolved::Nothing);
+        let sideways = pos2(press.x + 30.0, press.y);
+        gesture.feed(sideways);
+        assert_eq!(
+            gesture.resolve(sideways, &world.env(&snap)),
+            Resolved::Nothing,
+            "no travel in value"
+        );
+    }
+
+    #[test]
+    fn head_drags_clamp_each_note_into_one_to_127() {
+        let world = chord_world();
+        let snap = free;
+        let press = at(&world.view, 1.0, 60);
+        let up = at(&world.view, 1.0, 100);
+        let kind = Kind::Heads {
+            grabbed: 1,
+            group: vec![0, 1, 2],
+        };
+        let mut gesture = LaneGesture::new(kind.clone(), press);
+        gesture.feed(up);
+        // +40: 100 stops at 127, 60 goes to 100, 30 to 70.
+        assert_eq!(
+            gesture.resolve(up, &world.env(&snap)),
+            Resolved::Velocities(vec![(0, 127), (1, 100), (2, 70)])
+        );
+        let down = at(&world.view, 1.0, 1);
+        let mut gesture = LaneGesture::new(kind, press);
+        gesture.feed(down);
+        // -59: 100 to 41, 60 to 1, 30 stops at 1.
+        assert_eq!(
+            gesture.resolve(down, &world.env(&snap)),
+            Resolved::Velocities(vec![(0, 41), (1, 1), (2, 1)])
         );
     }
 

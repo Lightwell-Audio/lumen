@@ -11,12 +11,14 @@ use std::ops::Range;
 use eframe::egui::{Pos2, Rect, pos2};
 use lumen_core::time::{PPQ, Ticks};
 use lumen_project::edit::events::Lane;
-use lumen_project::model::ClipEvent;
+use lumen_project::model::{ClipEvent, Note};
 
 use crate::timeview::TimeView;
 
 /// How near (points) a stem or a point must be to be hit.
 pub(crate) const HIT: f32 = 8.0;
+/// The radius (points) of a velocity head; a pointer this close covers it.
+pub(crate) const HEAD_RADIUS: f32 = 4.0;
 /// Points kept clear of the plotting area's top and bottom edges.
 pub(crate) const INSET: f32 = 8.0;
 /// Points beyond the body's sides that still count as visible.
@@ -134,20 +136,39 @@ impl LaneView {
         f64::from(high) - frac * f64::from(high - low)
     }
 
-    /// The index into `stems` of the stem nearest `x`, if one lies within
-    /// [`HIT`] points. `stems` must be in time order, as
-    /// `velocity::stems` gives them (x rises with time). A tie goes to the
-    /// earlier stem.
-    pub fn nearest_stem(&self, stems: &[(Ticks, Vec<usize>)], x: f32) -> Option<usize> {
-        let after = stems.partition_point(|(at, _)| self.x_of(*at) < x);
-        let before = after.checked_sub(1);
-        let after = (after < stems.len()).then_some(after);
-        [before, after]
-            .into_iter()
-            .flatten()
-            .map(|i| (i, (self.x_of(stems[i].0) - x).abs()))
-            .filter(|&(_, distance)| distance <= HIT)
-            .min_by(|a, b| a.1.total_cmp(&b.1))
+    /// The note whose velocity head a press at `p` grabs in the velocity
+    /// lane: among the notes of the stems within [`HIT`] points of `p` in x,
+    /// those whose own head lies within [`HIT`] points of `p`. A picked note
+    /// whose head covers the pointer (within [`HEAD_RADIUS`]) comes first,
+    /// then the nearest head; a tie goes to the higher note index, which is
+    /// the head drawn on top.
+    pub fn head_at(
+        &self,
+        notes: &[Note],
+        stems: &[(Ticks, Vec<usize>)],
+        picked: &[usize],
+        p: Pos2,
+    ) -> Option<usize> {
+        let near = self.stems_between(stems, p.x - HIT, p.x + HIT);
+        stems[near]
+            .iter()
+            .flat_map(|(at, members)| {
+                let x = self.x_of(*at);
+                members.iter().filter_map(move |&i| {
+                    let note = notes.get(i)?;
+                    let head = pos2(x, self.y_of(i32::from(note.velocity())));
+                    let distance = head.distance(p);
+                    (distance <= HIT).then_some((i, distance))
+                })
+            })
+            .max_by(|a, b| {
+                let covers =
+                    |&(i, distance): &(usize, f32)| distance <= HEAD_RADIUS && picked.contains(&i);
+                covers(a)
+                    .cmp(&covers(b))
+                    .then(b.1.total_cmp(&a.1))
+                    .then(a.0.cmp(&b.0))
+            })
             .map(|(i, _)| i)
     }
 
@@ -390,30 +411,118 @@ mod tests {
         assert_eq!(LaneKind::Pressure.lane(), Some(Lane::Pressure));
     }
 
-    #[test]
-    fn the_nearest_stem_is_hit_within_hit_points_only() {
-        let view = fixture(LaneKind::Velocity);
-        let stems = four_stems();
-        // Stems at x 100, 140, 180, 220.
-        assert_eq!(view.nearest_stem(&stems, 136.0), Some(1));
-        assert_eq!(view.nearest_stem(&stems, 148.0), Some(1), "exactly HIT");
-        assert_eq!(view.nearest_stem(&stems, 148.01), None, "just beyond HIT");
-        assert_eq!(view.nearest_stem(&stems, 152.0), None);
-        assert_eq!(view.nearest_stem(&stems, 92.0), Some(0));
-        assert_eq!(view.nearest_stem(&stems, 500.0), None);
-        assert_eq!(view.nearest_stem(&[], 140.0), None);
+    /// Where the lane draws `notes[i]`'s head.
+    fn head(view: &LaneView, notes: &[Note], i: usize) -> Pos2 {
+        pos2(
+            view.x_of(notes[i].start()),
+            view.y_of(i32::from(notes[i].velocity())),
+        )
     }
 
     #[test]
-    fn a_tie_between_stems_goes_to_the_earlier_one() {
+    fn each_note_of_a_chord_has_its_own_head_to_grab() {
         let view = fixture(LaneKind::Velocity);
         let notes = [
-            Note::new(beats(1.0), beats(1.0), 60, 64),
-            Note::new(beats(1.25), beats(1.0), 60, 64),
+            Note::new(beats(1.0), beats(1.0), 60, 100),
+            Note::new(beats(1.0), beats(1.0), 64, 60),
         ];
         let stems = stems_of(&notes);
-        // x 140 and 150: x 145 is five points from each.
-        assert_eq!(view.nearest_stem(&stems, 145.0), Some(0));
+        assert_eq!(
+            view.head_at(&notes, &stems, &[], head(&view, &notes, 0)),
+            Some(0)
+        );
+        assert_eq!(
+            view.head_at(&notes, &stems, &[], head(&view, &notes, 1)),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn equal_heads_on_top_of_each_other_give_the_higher_index() {
+        let view = fixture(LaneKind::Velocity);
+        let notes = [
+            Note::new(beats(1.0), beats(1.0), 60, 90),
+            Note::new(beats(1.0), beats(1.0), 64, 90),
+        ];
+        let stems = stems_of(&notes);
+        let p = head(&view, &notes, 0);
+        assert_eq!(view.head_at(&notes, &stems, &[], p), Some(1));
+    }
+
+    #[test]
+    fn a_picked_note_whose_head_covers_the_pointer_beats_a_nearer_one() {
+        let view = fixture(LaneKind::Velocity);
+        // Heads 6 points apart (127 steps over 184 points: about 4 values).
+        let notes = [
+            Note::new(beats(1.0), beats(1.0), 60, 90),
+            Note::new(beats(1.0), beats(1.0), 64, 86),
+        ];
+        let stems = stems_of(&notes);
+        let (upper, lower) = (head(&view, &notes, 0), head(&view, &notes, 1));
+        let apart = lower.y - upper.y;
+        assert!(apart > HEAD_RADIUS && apart < 2.0 * HEAD_RADIUS);
+        // 3.5 points below the upper head: inside its radius, nearer the lower.
+        let p = pos2(upper.x, upper.y + 3.5);
+        assert!(p.distance(lower) < p.distance(upper));
+        assert_eq!(view.head_at(&notes, &stems, &[0], p), Some(0));
+        assert_eq!(
+            view.head_at(&notes, &stems, &[], p),
+            Some(1),
+            "unpicked: nearest"
+        );
+        assert_eq!(view.head_at(&notes, &stems, &[1], p), Some(1));
+    }
+
+    #[test]
+    fn the_nearest_head_wins_and_none_is_hit_beyond_hit() {
+        let view = fixture(LaneKind::Velocity);
+        let notes = [
+            Note::new(beats(1.0), beats(1.0), 60, 120),
+            Note::new(beats(1.0), beats(1.0), 64, 40),
+        ];
+        let stems = stems_of(&notes);
+        let (top, bottom) = (head(&view, &notes, 0), head(&view, &notes, 1));
+        assert_eq!(
+            view.head_at(&notes, &stems, &[], pos2(top.x + 3.0, top.y + 2.0)),
+            Some(0)
+        );
+        assert_eq!(
+            view.head_at(&notes, &stems, &[], pos2(bottom.x - 3.0, bottom.y)),
+            Some(1)
+        );
+        // Between the heads, far from both.
+        let middle = pos2(top.x, (top.y + bottom.y) / 2.0);
+        assert_eq!(view.head_at(&notes, &stems, &[], middle), None);
+        // On the stem, in x, but beyond HIT of the head in y.
+        assert_eq!(
+            view.head_at(&notes, &stems, &[], pos2(top.x, top.y + HIT + 0.5)),
+            None
+        );
+        // Beside the stem beyond HIT in x.
+        assert_eq!(
+            view.head_at(&notes, &stems, &[], pos2(top.x + HIT + 0.5, top.y)),
+            None
+        );
+        assert_eq!(view.head_at(&[], &[], &[], top), None);
+    }
+
+    #[test]
+    fn heads_of_nearby_stems_are_told_apart_by_their_own_position() {
+        let view = fixture(LaneKind::Velocity);
+        // 0.1 beat is 4 points apart: both stems are within HIT of the press.
+        let notes = [
+            Note::new(beats(1.0), beats(1.0), 60, 100),
+            Note::new(beats(1.1), beats(1.0), 64, 50),
+        ];
+        let stems = stems_of(&notes);
+        assert_eq!(
+            view.head_at(&notes, &stems, &[], head(&view, &notes, 0)),
+            Some(0)
+        );
+        assert_eq!(
+            view.head_at(&notes, &stems, &[], head(&view, &notes, 1)),
+            Some(1)
+        );
     }
 
     #[test]

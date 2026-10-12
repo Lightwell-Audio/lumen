@@ -465,6 +465,7 @@ impl App {
                 .key(Command::Delete, "delete"),
             (Tool::Pointer, None) => Info::new(format!("Piano roll {pitch}"))
                 .on(Held::NONE, Mouse::Drag, "select with a box")
+                .on(Held::NONE, Mouse::DoubleClick, "add a note")
                 .on(Held::NONE, Mouse::RightClick, "menu")
                 .key(Command::DrawTool, "draw tool"),
         };
@@ -616,7 +617,18 @@ impl App {
             && let Some(p) = over_body
             && !egui::Popup::is_any_open(ctx)
         {
-            self.start_note_gesture(ed, view, clip, p, modifiers);
+            let (delay, dist) = ctx.options(|o| {
+                (
+                    o.input_options.max_double_click_delay,
+                    o.input_options.max_click_dist,
+                )
+            });
+            let timing = Timing {
+                now: ctx.input(|i| i.time),
+                delay,
+                dist,
+            };
+            self.start_note_gesture(ed, view, clip, p, modifiers, timing);
         }
         let Some(gesture) = &mut ed.gesture else {
             return;
@@ -624,6 +636,8 @@ impl App {
         let at = latest.unwrap_or(gesture.origin);
         if (at - gesture.origin).length() > DRAG_THRESHOLD {
             gesture.dragging = true;
+            // A drag is not the first press of a double-click.
+            ed.last_empty_press = None;
         }
         let cell = self.grid_cell_at_zoom(clip.start, view.time.zoom);
         let step = cell.1 - cell.0;
@@ -704,11 +718,15 @@ impl App {
         clip: &Arc<Clip>,
         p: Pos2,
         modifiers: egui::Modifiers,
+        timing: Timing,
     ) {
         let notes = notes_of(clip);
         let hit = view.note_at(notes, p);
         let free = modifiers.alt;
         let id = clip.id;
+        // Only a press on empty space with the pointer can start a
+        // double-click, so any other press forgets the last one.
+        let previous = ed.last_empty_press.take();
         match (ed.tool, hit) {
             (Tool::Draw, Some((i, _))) => {
                 // A click on a note removes it.
@@ -716,39 +734,7 @@ impl App {
                 self.select_notes(ed, removed);
             }
             (Tool::Draw, None) => {
-                let abs = view.absolute_at(p.x);
-                let (cell_start, cell_end) = self.grid_cell_at_zoom(abs, view.time.zoom);
-                let at = if free || !self.grid.snap {
-                    abs
-                } else {
-                    cell_start
-                };
-                let start = at - clip.start;
-                let end = if free || !self.grid.snap {
-                    start
-                } else {
-                    cell_end - clip.start
-                };
-                let content = lumen_project::edit::content_length(clip);
-                if start < Ticks::ZERO || start >= content {
-                    return;
-                }
-                let pitch = view.pitch_at(p.y).clamp(0, 127) as u8;
-                self.audition_note(clip.id, pitch, super::gesture::DRAW_VELOCITY);
-                ed.gesture = Some(Gesture {
-                    kind: Kind::Draw {
-                        start,
-                        end,
-                        pitch,
-                        step: (cell_end - cell_start).max(MIN_NOTE),
-                    },
-                    origin: p,
-                    clip: clip.clone(),
-                    grabbed: 0,
-                    picked: Vec::new(),
-                    dragging: true,
-                });
-                self.select_notes(ed, Vec::new());
+                self.start_draw(ed, view, clip, p, free);
             }
             (Tool::Pointer, Some((i, zone))) => {
                 let mut picked = ed.picked().to_vec();
@@ -792,6 +778,15 @@ impl App {
                 });
             }
             (Tool::Pointer, None) => {
+                // A second press on empty space, soon and near enough, draws
+                // a note as the Draw tool does.
+                if !modifiers.shift
+                    && timing.is_double(previous, p)
+                    && self.start_draw(ed, view, clip, p, free)
+                {
+                    return;
+                }
+                ed.last_empty_press = Some((timing.now, p));
                 let base = if modifiers.shift {
                     ed.picked().to_vec()
                 } else {
@@ -808,6 +803,75 @@ impl App {
                 });
             }
         }
+    }
+
+    /// Starts drawing a note where the pointer is (the Draw tool's press,
+    /// and a double-click with the pointer): in the grid cell under it, or
+    /// exactly there with Alt or no snapping; dragging sets its length. The
+    /// note is made on release. False when the press is outside the clip.
+    fn start_draw(
+        &mut self,
+        ed: &mut NoteEditor,
+        view: &EditorView,
+        clip: &Arc<Clip>,
+        p: Pos2,
+        free: bool,
+    ) -> bool {
+        let abs = view.absolute_at(p.x);
+        let (cell_start, cell_end) = self.grid_cell_at_zoom(abs, view.time.zoom);
+        let at = if free || !self.grid.snap {
+            abs
+        } else {
+            cell_start
+        };
+        let start = at - clip.start;
+        let end = if free || !self.grid.snap {
+            start
+        } else {
+            cell_end - clip.start
+        };
+        let content = lumen_project::edit::content_length(clip);
+        if start < Ticks::ZERO || start >= content {
+            return false;
+        }
+        let pitch = view.pitch_at(p.y).clamp(0, 127) as u8;
+        self.audition_note(clip.id, pitch, super::gesture::DRAW_VELOCITY);
+        ed.gesture = Some(Gesture {
+            kind: Kind::Draw {
+                start,
+                end,
+                pitch,
+                step: (cell_end - cell_start).max(MIN_NOTE),
+            },
+            origin: p,
+            clip: clip.clone(),
+            grabbed: 0,
+            picked: Vec::new(),
+            dragging: true,
+        });
+        self.select_notes(ed, Vec::new());
+        true
+    }
+}
+
+/// When a press happened, and what egui counts as a double-click (its
+/// input options): the longest wait between presses, and the farthest they
+/// may be apart.
+#[derive(Debug, Clone, Copy)]
+struct Timing {
+    now: f64,
+    delay: f64,
+    dist: f32,
+}
+
+impl Timing {
+    /// Whether a press at `at` now is the second of a double-click that
+    /// began with `previous`, the time and place of the last press on empty
+    /// space.
+    fn is_double(self, previous: Option<(f64, Pos2)>, at: Pos2) -> bool {
+        previous.is_some_and(|(time, place)| {
+            (0.0..=self.delay).contains(&(self.now - time)) && (at - place).length() <= self.dist
+        })
     }
 }
 
@@ -826,6 +890,40 @@ fn length_text(length: Ticks) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn timing(now: f64) -> Timing {
+        Timing {
+            now,
+            delay: 0.3,
+            dist: 6.0,
+        }
+    }
+
+    #[test]
+    fn a_second_press_soon_and_near_is_a_double_click() {
+        let first = Some((10.0, pos2(100.0, 100.0)));
+        assert!(timing(10.2).is_double(first, pos2(103.0, 102.0)));
+        assert!(
+            timing(10.29).is_double(first, pos2(100.0, 100.0)),
+            "just inside the delay"
+        );
+        assert!(
+            !timing(10.31).is_double(first, pos2(100.0, 100.0)),
+            "too late"
+        );
+        assert!(
+            !timing(10.1).is_double(first, pos2(110.0, 100.0)),
+            "too far"
+        );
+        assert!(
+            !timing(9.0).is_double(first, pos2(100.0, 100.0)),
+            "before it"
+        );
+        assert!(
+            !timing(10.1).is_double(None, pos2(100.0, 100.0)),
+            "no first press"
+        );
+    }
 
     #[test]
     fn lengths_read_in_beats() {

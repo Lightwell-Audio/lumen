@@ -11,7 +11,7 @@ use lumen_core::grid::{Level, Line};
 use lumen_core::time::Ticks;
 use lumen_project::model::Note;
 
-use super::geometry::{LaneKind, LaneView};
+use super::geometry::{HEAD_RADIUS, LaneKind, LaneView};
 use super::gesture::Resolved;
 use crate::theme;
 
@@ -19,7 +19,7 @@ use crate::theme;
 /// spacing under which only the louder of two is drawn.
 const STEM_MARGIN: f32 = 8.0;
 const STEM_WIDTH: f32 = 2.0;
-const STEM_RADIUS: f32 = 4.0;
+const STEM_RADIUS: f32 = HEAD_RADIUS;
 const STEM_RADIUS_HOVER: f32 = 5.0;
 const STEM_SPACING: f32 = 3.0;
 /// The controller trace: its stroke, and its fill's alpha over the accent.
@@ -60,8 +60,8 @@ pub(crate) struct LanePoint {
 pub(crate) enum LaneHover {
     #[default]
     None,
-    /// An index into `LaneScene::stems`.
-    Stem(usize),
+    /// The velocity head of `note`, on the stem `LaneScene::stems[stem]`.
+    Head { stem: usize, note: usize },
     /// An index into `LaneScene::points`.
     Point(usize),
 }
@@ -224,8 +224,10 @@ fn draw_outside_clip(painter: &Painter, view: &LaneView, clip_length: Ticks) {
     }
 }
 
-/// The velocity lane: one stem per visible start, lit when picked, greyed
-/// when muted, thinned so no more than one stem sits in each [`STEM_SPACING`].
+/// The velocity lane: one stem per visible start, thinned so no more than one
+/// stem sits in each [`STEM_SPACING`], with a head for every note of the
+/// stem at its own velocity (lit when picked, greyed when muted, bigger when
+/// hovered). Heads are drawn in note order, so the higher index is on top.
 fn draw_stems(painter: &Painter, view: &LaneView, scene: &LaneScene<'_>) {
     let body = view.body;
     let picked = Members::new(scene.picked_notes);
@@ -235,41 +237,94 @@ fn draw_stems(painter: &Painter, view: &LaneView, scene: &LaneScene<'_>) {
         body.right() + STEM_MARGIN,
     );
     let marks = range.filter_map(|index| {
-        let (at, notes) = scene.stems.get(index)?;
-        let note = scene.notes.get(*notes.first()?)?;
+        let (at, members) = scene.stems.get(index)?;
+        let velocity = members
+            .iter()
+            .filter_map(|&note| scene.notes.get(note))
+            .map(|n| n.velocity())
+            .max()?;
         Some(StemMark {
             index,
             x: view.x_of(*at),
-            velocity: note.velocity(),
+            velocity,
         })
     });
-    let base = view.y_of(view.kind.rest());
-    let hovered = match scene.hover {
-        LaneHover::Stem(index) => Some(index),
-        _ => None,
+    let (hovered_stem, hovered_note) = match scene.hover {
+        LaneHover::Head { stem, note } => (Some(stem), Some(note)),
+        _ => (None, None),
     };
-    for mark in thin_stems(marks, hovered) {
-        let (lit, muted) = stem_state(scene, &picked, mark.index);
-        let colour = if muted {
+    for mark in thin_stems(marks, hovered_stem) {
+        draw_chord(painter, view, scene, &picked, mark, hovered_note);
+    }
+}
+
+/// One stem from the baseline up to its loudest head (lit up to the loudest
+/// picked one), and the heads of its notes.
+fn draw_chord(
+    painter: &Painter,
+    view: &LaneView,
+    scene: &LaneScene<'_>,
+    picked: &Members<'_>,
+    mark: StemMark,
+    hovered: Option<usize>,
+) {
+    let palette = theme::p();
+    let Some((_, members)) = scene.stems.get(mark.index) else {
+        return;
+    };
+    let base = pos2(mark.x, view.y_of(view.kind.rest()));
+    let head_of = |velocity: u8| pos2(mark.x, view.y_of(i32::from(velocity)));
+    let all_muted = members
+        .iter()
+        .all(|&n| scene.notes.get(n).is_some_and(|n| n.muted()));
+    let stem = if all_muted {
+        theme::CLIP_MUTED
+    } else {
+        scene.colour
+    };
+    painter.line_segment(
+        [base, head_of(mark.velocity)],
+        Stroke::new(STEM_WIDTH, stem),
+    );
+    let loudest_picked = members
+        .iter()
+        .filter(|&&n| picked.contains(n))
+        .filter_map(|&n| scene.notes.get(n))
+        .map(|n| n.velocity())
+        .max();
+    if let Some(velocity) = loudest_picked {
+        painter.line_segment(
+            [base, head_of(velocity)],
+            Stroke::new(STEM_WIDTH, palette.accent),
+        );
+    }
+    for &n in members {
+        let Some(note) = scene.notes.get(n) else {
+            continue;
+        };
+        let colour = if note.muted() {
             theme::CLIP_MUTED
         } else {
             scene.colour
         };
-        let radius = if hovered == Some(mark.index) {
+        let radius = if hovered == Some(n) {
             STEM_RADIUS_HOVER
         } else {
             STEM_RADIUS
         };
-        let head = pos2(mark.x, view.y_of(i32::from(mark.velocity)));
-        draw_stem(painter, base, head, colour, radius, lit);
+        draw_head(
+            painter,
+            head_of(note.velocity()),
+            colour,
+            radius,
+            picked.contains(n),
+        );
     }
 }
 
-/// One stem from the baseline to its head; lit, an accent stem and ring.
-fn draw_stem(painter: &Painter, base: f32, head: Pos2, colour: Color32, radius: f32, lit: bool) {
+/// One head; lit, a light disc with an accent ring.
+fn draw_head(painter: &Painter, head: Pos2, colour: Color32, radius: f32, lit: bool) {
     let palette = theme::p();
-    let stem = if lit { palette.accent } else { colour };
-    painter.line_segment([pos2(head.x, base), head], Stroke::new(STEM_WIDTH, stem));
     if lit {
         painter.circle(
             head,
@@ -280,19 +335,6 @@ fn draw_stem(painter: &Painter, base: f32, head: Pos2, colour: Color32, radius: 
     } else {
         painter.circle_filled(head, radius, colour);
     }
-}
-
-/// Whether any of a stem's notes is picked, and whether its first is muted.
-fn stem_state(scene: &LaneScene<'_>, picked: &Members<'_>, index: usize) -> (bool, bool) {
-    let Some((_, notes)) = scene.stems.get(index) else {
-        return (false, false);
-    };
-    let lit = notes.iter().any(|&note| picked.contains(note));
-    let muted = notes
-        .first()
-        .and_then(|&note| scene.notes.get(note))
-        .is_some_and(|note| note.muted());
-    (lit, muted)
 }
 
 /// The controller lanes: the step trace, its fill and the event dots.

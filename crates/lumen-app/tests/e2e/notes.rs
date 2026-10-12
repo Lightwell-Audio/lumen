@@ -975,3 +975,78 @@ fn drawing_snaps_to_the_rolls_grid_not_the_arrangements() {
         .expect("drawn");
     assert_eq!((drawn.start(), drawn.end()), (r0, r1), "the roll's cell");
 }
+
+#[test]
+fn double_clicking_empty_roll_space_with_the_pointer_adds_a_note() {
+    let mut lumen = launch("notes-double");
+    open(&mut lumen);
+    assert!(!lumen.app().editor_draw_tool(), "the pointer is the tool");
+    let before = notes(&lumen).len();
+    let p = at(&lumen, beat(6.3), 65);
+    lumen.double_click(p);
+    let after = notes(&lumen);
+    assert_eq!(after.len(), before + 1, "exactly one note");
+    let (cell, end) = lumen
+        .app()
+        .editor_grid_cell_at(beat(6.3))
+        .expect("the editor has drawn");
+    let drawn = after.iter().find(|n| n.pitch() == 65).expect("drawn");
+    assert_eq!(drawn.start(), cell, "in the cell under the pointer");
+    assert_eq!(drawn.length(), end - cell);
+    let at = after.iter().position(|n| n.pitch() == 65);
+    assert_eq!(lumen.app().editor_picked(), [at.expect("drawn")]);
+    undo(&mut lumen);
+    assert_eq!(notes(&lumen).len(), before, "one undo step");
+}
+
+#[test]
+fn double_clicking_empty_space_and_dragging_sets_the_length() {
+    let mut lumen = launch("notes-double-drag");
+    open(&mut lumen);
+    let from = at(&lumen, beat(5.0) + Ticks(10), 62);
+    let to = at(&lumen, beat(7.0), 62);
+    lumen.frames(40);
+    // Click once, then press again and drag.
+    click(&mut lumen, from, Modifiers::NONE);
+    lumen.harness.hover_at(from);
+    lumen.harness.drag_at(from);
+    lumen.frames(2);
+    for step in 1..=8 {
+        lumen
+            .harness
+            .hover_at(from + (to - from) * (step as f32 / 8.0));
+        lumen.frames(1);
+    }
+    lumen.harness.drop_at(to);
+    lumen.frames(3);
+    let drawn = notes(&lumen)
+        .into_iter()
+        .find(|n| n.pitch() == 62)
+        .expect("drawn");
+    assert_eq!((drawn.start(), drawn.length()), (q(5), q(2)));
+}
+
+#[test]
+fn double_clicking_a_note_does_not_add_one() {
+    let mut lumen = launch("notes-double-note");
+    open(&mut lumen);
+    let before = notes(&lumen).len();
+    lumen.double_click(at(&lumen, beat(1.5), 64));
+    assert_eq!(notes(&lumen).len(), before);
+}
+
+#[test]
+fn two_slow_or_distant_clicks_are_not_a_double_click() {
+    let mut lumen = launch("notes-not-double");
+    open(&mut lumen);
+    let before = notes(&lumen).len();
+    let p = at(&lumen, beat(6.3), 65);
+    click(&mut lumen, p, Modifiers::NONE);
+    lumen.frames(40);
+    click(&mut lumen, p, Modifiers::NONE);
+    assert_eq!(notes(&lumen).len(), before, "too far apart in time");
+    lumen.frames(40);
+    click(&mut lumen, p, Modifiers::NONE);
+    click(&mut lumen, p + vec2(40.0, 0.0), Modifiers::NONE);
+    assert_eq!(notes(&lumen).len(), before, "too far apart in space");
+}
