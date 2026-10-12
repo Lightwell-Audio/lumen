@@ -29,6 +29,13 @@ pub(crate) enum NoteOp {
     },
     /// Raise (positive) or lower the velocities by this much.
     Velocity(i32),
+    /// Quantize with the last settings (slice 5); with nothing picked, every
+    /// note. So are the four below.
+    Quantize,
+    Humanize,
+    FixedLength,
+    ScaleConstrain,
+    Reverse,
 }
 
 /// How much Raise velocity and Lower velocity change a velocity.
@@ -86,6 +93,42 @@ impl App {
                 .editor_clip(clip)
                 .map(|(c, _)| edit::notes::all(notes_of(&c)))
                 .unwrap_or_default(),
+            NoteOp::Quantize
+            | NoteOp::Humanize
+            | NoteOp::FixedLength
+            | NoteOp::ScaleConstrain
+            | NoteOp::Reverse => {
+                let Some((open, _)) = self.editor_clip(clip) else {
+                    return;
+                };
+                let all = picked.is_empty();
+                let targets = super::quantize::targets(&picked, &open);
+                let step = self.editing_step(editor, &open);
+                let next = match op {
+                    NoteOp::Quantize => {
+                        let settings = editor.quantize.options.settings(step);
+                        self.document.quantize_notes(clip, &targets, &settings)
+                    }
+                    NoteOp::Humanize => {
+                        let humanize = self.humanize_with(editor);
+                        self.document.humanize_notes(clip, &targets, &humanize)
+                    }
+                    NoteOp::FixedLength => self.document.fixed_length_notes(clip, &targets, step),
+                    NoteOp::ScaleConstrain => self.document.scale_constrain_notes(
+                        clip,
+                        &targets,
+                        editor.quantize.root,
+                        editor.quantize.scale.0,
+                    ),
+                    _ => self.document.reverse_notes(clip, &targets),
+                };
+                // Nothing was picked: nothing is afterwards.
+                let next = if all { Vec::new() } else { next };
+                if let Some(selection) = &mut editor.selection {
+                    selection.rebind(self.document.project(), next);
+                }
+                return;
+            }
             _ if picked.is_empty() => return,
             NoteOp::Delete => doc.delete_notes(clip, &picked),
             NoteOp::Duplicate => doc.duplicate_notes(clip, &picked),

@@ -449,6 +449,7 @@ impl Arrangement {
             widgets::SliderStyle {
                 look,
                 lift: METER_LIFT,
+                comet: false,
             },
         );
         if db != track.gain_db {

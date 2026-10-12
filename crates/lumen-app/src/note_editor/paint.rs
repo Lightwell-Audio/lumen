@@ -42,6 +42,8 @@ pub(crate) struct Scene<'a> {
     pub hover: Option<usize>,
     /// The picked notes: they glow.
     pub picked: &'a [usize],
+    /// What the quantize options would move: where each note was and went.
+    pub trails: &'a [super::quantize::Trail],
 }
 
 /// Over the GPU notes: each note's thin velocity bar along its bottom edge
@@ -152,6 +154,20 @@ pub(crate) fn paint_overlay(painter: &Painter, view: &EditorView, scene: &Scene<
                 palette.text,
             );
         }
+    }
+    // Ghost trails (the owner's A): a dashed outline where a note was, and a
+    // line along its bottom to where it goes. The note itself is already
+    // drawn at its new place.
+    for trail in scene.trails.iter().filter(|t| view.shows(t.from) || view.shows(t.to)) {
+        let from = view.note_rect(trail.from).shrink2(vec2(0.0, 0.5));
+        let to = view.note_rect(trail.to).shrink2(vec2(0.0, 0.5));
+        dashed_outline(&painter, from, Stroke::new(1.0, palette.text_hint));
+        let y = from.bottom() + 1.5;
+        painter.hline(
+            from.left().min(to.left())..=from.left().max(to.left()),
+            y,
+            Stroke::new(1.0, palette.accent.gamma_multiply(0.6)),
+        );
     }
     if let Some(rect) = scene.preview.marquee {
         painter.rect(

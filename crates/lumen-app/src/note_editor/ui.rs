@@ -137,10 +137,22 @@ impl App {
         }
 
         // What to draw.
-        let notes = notes_of(&clip);
         let free = modifiers.alt;
         let cell = self.grid_cell_at_zoom(clip.start, view.time.zoom);
         let step = cell.1 - cell.0;
+        // While the quantize options are open the clip is drawn as Apply
+        // would leave it, with a trail from each note that moves.
+        let options_open = ed
+            .quantize
+            .button
+            .is_some_and(|id| widgets::Menu::is_open_for(&ctx, id));
+        let picks = ed.picked().to_vec();
+        let shown = ed.quantize.shown(options_open, &clip, &picks, step);
+        let drawn: std::sync::Arc<lumen_project::model::Clip> = shown
+            .as_ref()
+            .map_or_else(|| clip.clone(), |s| s.clip.clone());
+        let trails: &[super::quantize::Trail] = shown.as_ref().map_or(&[], |s| s.trails.as_slice());
+        let notes = notes_of(&drawn);
         let content = lumen_project::edit::content_length(&clip);
         let mut preview = Preview::default();
         let mut gesture_pitch = None;
@@ -175,7 +187,7 @@ impl App {
         let painter = ui.painter().clone();
         // The GPU roll: its boxes are rebuilt only when the clip or the
         // picked notes change, never for a gesture's frames.
-        let boxes = ed.boxes_for(&clip, colour);
+        let boxes = ed.boxes_for(&drawn, colour);
         let p = theme::p();
         let look = canvas::GridLook {
             grid: self.grid,
@@ -210,6 +222,7 @@ impl App {
             clip_length: clip.length,
             hover: hover.map(|(i, _)| i),
             picked: ed.picked(),
+            trails,
         };
         paint::paint_overlay(&painter, &view, &scene);
         if let Some(lit) = gesture_pitch.or_else(|| over_body.map(|p| view.pitch_at(p.y))) {
@@ -546,11 +559,19 @@ impl App {
                     row(ui, "Transpose down", None, picked, NoteOp::Transpose(-1));
                     row(ui, "Up an octave", None, picked, NoteOp::Transpose(12));
                     row(ui, "Down an octave", None, picked, NoteOp::Transpose(-12));
+                    ui.separator();
+                    if let Some(tool) = self.tools_menu(ui, ed) {
+                        op = Some(tool);
+                    }
                 }
                 MenuFor::Empty => {
                     let all = keys(self, Command::SelectAll);
                     let has = !notes_of(clip).is_empty();
                     row(ui, "Select all", all.as_ref(), has, NoteOp::SelectAll);
+                    ui.separator();
+                    if let Some(tool) = self.tools_menu(ui, ed) {
+                        op = Some(tool);
+                    }
                 }
             }
             if let Some(op) = op {

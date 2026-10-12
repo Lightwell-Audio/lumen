@@ -166,7 +166,14 @@ impl App {
                 self.selected_midi_clip().is_some(),
                 "Select a MIDI clip first",
             ),
-            Command::PopOutEditor | Command::DrawTool => {
+            Command::PopOutEditor
+            | Command::DrawTool
+            | Command::Quantize
+            | Command::QuantizeOptions
+            | Command::HumanizeNotes
+            | Command::FixedLengthNotes
+            | Command::ScaleConstrainNotes
+            | Command::ReverseNotes => {
                 need(self.note_editor.clip.is_some(), "Open a MIDI clip first")
             }
             Command::SplitNotes => need(
@@ -411,6 +418,12 @@ impl App {
             }),
             Command::RaiseVelocity => self.note_op(NoteOp::Velocity(VELOCITY_STEP)),
             Command::LowerVelocity => self.note_op(NoteOp::Velocity(-VELOCITY_STEP)),
+            Command::Quantize => self.note_op(NoteOp::Quantize),
+            Command::QuantizeOptions => self.open_quantize_options(ctx),
+            Command::HumanizeNotes => self.note_op(NoteOp::Humanize),
+            Command::FixedLengthNotes => self.note_op(NoteOp::FixedLength),
+            Command::ScaleConstrainNotes => self.note_op(NoteOp::ScaleConstrain),
+            Command::ReverseNotes => self.note_op(NoteOp::Reverse),
             Command::ToggleLane => {
                 self.note_editor.lane.hidden = !self.note_editor.lane.hidden;
             }

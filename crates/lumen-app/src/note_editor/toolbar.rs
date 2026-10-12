@@ -79,6 +79,9 @@ impl App {
             ed.tool = tool;
         }
         self.grid_chip(&mut row, ed);
+        if editable {
+            self.quantize_button(&mut row, ed, clip);
+        }
 
         row.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = theme::space::S;

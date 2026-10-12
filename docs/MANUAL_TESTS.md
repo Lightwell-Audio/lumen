@@ -2381,3 +2381,38 @@ Results:
   good, including the light theme and larger interface scales; no issues
   reported.
 
+
+### MT-MIDI-6 · Quantize (needs a human and ears)
+Slice 5 of M5 (ADR-0054). **Status: waits.** In PowerShell, from the
+repository root:
+
+```powershell
+cargo run --release -p lumen-app -- tests\projects\midi-demo.lumen
+```
+
+1. **Open the options.** Double-click the **Chords** clip, then press
+   **Shift+Q** (or press the **Quantize** button). A popover opens under the
+   button with Grid, a Straight / Triplet / Dotted choice, Quantize (Start,
+   End, Both, Length), and three sliders: **Strength**, **Swing** and
+   **Window**. The sliders are comets: a trail that brightens to a glowing
+   head. Check the popover at 100%, 150% and 200%, dark and light.
+2. **Ghost trails.** Change a setting (Strength to 50%, Swing up). Notes that
+   would move slide to their new place; a dashed outline stays where each was
+   recorded, with a line along its bottom to the new place. Notes that stay
+   have no outline. Judge whether it reads well when notes are dense.
+3. **Nothing changes yet.** While the popover is open, press Ctrl+Z (nothing
+   to undo) and look at the arrangement: the clip's notes are as recorded.
+   Press **Esc**: the popover closes and the notes are as they were.
+4. **Apply.** Reopen, press **Apply**: the notes move, the popover closes,
+   one Ctrl+Z restores them exactly.
+5. **Q.** With nothing picked press **Q**: every note quantizes with the last
+   settings. Pick two notes and press Q: only those. Set Strength to 50% and
+   press Q three times: the notes close in on the grid each time.
+6. **Modes and window.** Try End, Both and Length, a triplet grid, and a
+   narrow Window (notes far from a line stay put). Listen to the result.
+7. **Tools.** Right-click the roll: **Humanize**, **Fixed length**,
+   **Reverse**, and **Constrain to scale** with a root and a scale. Each is
+   one undo step, works on the picked notes (or every note), and sounds as
+   expected. Press Ctrl+K and type "humanize", "reverse", "scale".
+8. **Slider feel.** Drag a comet slider (Shift for fine), double-click it
+   (back to its default), click it and type a value, use the wheel.

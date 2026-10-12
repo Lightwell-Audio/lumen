@@ -351,7 +351,11 @@ pub fn value_slider(
         value,
         kind,
         name,
-        SliderStyle { look, lift: 0.0 },
+        SliderStyle {
+            look,
+            lift: 0.0,
+            comet: false,
+        },
     )
 }
 
@@ -363,6 +367,36 @@ pub struct SliderStyle {
     /// Points the value text is raised, for a slider that draws something
     /// along its bottom (a header's level meter).
     pub lift: f32,
+    /// Draw the filled part as the send knob's comet (M5 slice 5, the
+    /// owner's request): a trail of the accent that brightens towards a
+    /// glowing head, in place of the grey fill and the line handle. Only
+    /// the one-sided kinds (not Pan or Trim) take it.
+    pub comet: bool,
+}
+
+/// [`value_slider`] drawn as a comet.
+pub fn comet_slider(
+    ui: &mut Ui,
+    rect: Rect,
+    id: EguiId,
+    value: f32,
+    kind: SliderKind,
+    name: &str,
+    look: theme::Controls,
+) -> f32 {
+    value_slider_styled(
+        ui,
+        rect,
+        id,
+        value,
+        kind,
+        name,
+        SliderStyle {
+            look,
+            lift: 0.0,
+            comet: true,
+        },
+    )
 }
 
 /// [`value_slider`] drawn with `style`.
@@ -375,7 +409,7 @@ pub fn value_slider_styled(
     name: &str,
     style: SliderStyle,
 ) -> f32 {
-    let SliderStyle { look, lift } = style;
+    let SliderStyle { look, lift, comet } = style;
     let palette = *theme::p();
     let (lo, hi) = kind.range();
     let typing_id = id.with("typing");
@@ -512,16 +546,20 @@ pub fn value_slider_styled(
         | SliderKind::Millis { .. }
         | SliderKind::Percent { .. } => {
             let x = x_at(out);
-            // `press` to `fill`, cut off square at the value; the well's
-            // rounded corners shape its left end.
-            raised::gradient(
-                &p.with_clip_rect(Rect::from_min_max(rect.min, pos2(x, rect.bottom()))),
-                rect,
-                f32::from(radius),
-                look.press,
-                look.fill,
-            );
-            draw_handle(p, x, rect.shrink2(vec2(0.0, 3.0)).y_range(), text_rect);
+            if comet {
+                draw_comet(p, rect, x, hover.max(f32::from(response.dragged())));
+            } else {
+                // `press` to `fill`, cut off square at the value; the
+                // well's rounded corners shape its left end.
+                raised::gradient(
+                    &p.with_clip_rect(Rect::from_min_max(rect.min, pos2(x, rect.bottom()))),
+                    rect,
+                    f32::from(radius),
+                    look.press,
+                    look.fill,
+                );
+                draw_handle(p, x, rect.shrink2(vec2(0.0, 3.0)).y_range(), text_rect);
+            }
         }
         SliderKind::Pan | SliderKind::Trim => {
             let center = rect.center().x;
@@ -553,6 +591,37 @@ pub fn value_slider_styled(
         raised::paint_focus(p, rect, radius);
     }
     out
+}
+
+/// The comet (the send knob's look, laid flat): a trail of the accent,
+/// faint at the left and full at the head, a soft glow round the head and
+/// a bright core. `hot` (0 to 1) swells the glow while the pointer is on
+/// the slider.
+fn draw_comet(p: &Painter, rect: Rect, x: f32, hot: f32) {
+    let palette = *theme::p();
+    let inner = rect.shrink2(vec2(2.0, 4.0));
+    if x - inner.left() >= 1.0 {
+        let pieces = 24;
+        let width = x - inner.left();
+        for i in 0..pieces {
+            let (a, b) = (i as f32 / pieces as f32, (i + 1) as f32 / pieces as f32);
+            let alpha = 0.18 + 0.82 * b * b;
+            let piece = Rect::from_x_y_ranges(
+                inner.left() + width * a..=inner.left() + width * b + 0.5,
+                inner.y_range(),
+            );
+            p.rect_filled(piece, 0.0, palette.accent.gamma_multiply(alpha));
+        }
+    }
+    let y = rect.center().y;
+    let head = pos2(x.max(inner.left()), y);
+    let r = inner.height() / 2.0;
+    let glow = 1.0 + hot;
+    for (radius, alpha) in [(r * 2.6 * glow, 0.14), (r * 1.7 * glow, 0.3)] {
+        p.circle_filled(head, radius, palette.accent.gamma_multiply(alpha));
+    }
+    p.circle_filled(head, r, palette.core);
+    p.circle_filled(head, r * 0.62, palette.accent);
 }
 
 /// How far from the value's text a slider's handle starts to open, in

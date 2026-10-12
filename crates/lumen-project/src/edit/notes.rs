@@ -57,9 +57,9 @@ pub fn all(notes: &[Note]) -> Vec<usize> {
 }
 
 /// Notes tagged with whether they are part of the result.
-type Tagged = Vec<(Note, bool)>;
+pub(super) type Tagged = Vec<(Note, bool)>;
 
-fn tag(notes: &[Note], picked: &[usize]) -> Tagged {
+pub(super) fn tag(notes: &[Note], picked: &[usize]) -> Tagged {
     let mut tagged: Tagged = notes.iter().map(|&n| (n, false)).collect();
     for &i in picked {
         tagged[i].1 = true;
@@ -68,7 +68,7 @@ fn tag(notes: &[Note], picked: &[usize]) -> Tagged {
 }
 
 /// Writes `tagged` back, in order, and returns where the tagged notes are.
-fn finish(notes: &mut Vec<Note>, mut tagged: Tagged) -> Vec<usize> {
+pub(super) fn finish(notes: &mut Vec<Note>, mut tagged: Tagged) -> Vec<usize> {
     if !tagged.is_sorted_by_key(|(n, _)| (n.start(), n.pitch())) {
         tagged.sort_by_key(|(n, _)| (n.start(), n.pitch()));
     }

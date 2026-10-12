@@ -61,6 +61,9 @@ pub struct Menu<'r> {
     response: &'r Response,
     opens: Opens,
     keep_open: bool,
+    /// Stays open when the pointer leaves after a change (a popover whose
+    /// effect is looked at elsewhere: the quantize options).
+    stays: bool,
 }
 
 impl<'r> Menu<'r> {
@@ -71,6 +74,7 @@ impl<'r> Menu<'r> {
             response,
             opens: Opens::Below,
             keep_open: true,
+            stays: false,
         }
     }
 
@@ -81,6 +85,7 @@ impl<'r> Menu<'r> {
             response,
             opens: Opens::Context,
             keep_open: false,
+            stays: false,
         }
     }
 
@@ -88,6 +93,42 @@ impl<'r> Menu<'r> {
     pub fn keeping_open(mut self) -> Self {
         self.keep_open = true;
         self
+    }
+
+    /// The menu stays open when the pointer leaves it after a change; only
+    /// Esc, a click elsewhere or a command closes it.
+    pub fn staying(mut self) -> Self {
+        self.keep_open = true;
+        self.stays = true;
+        self
+    }
+
+    /// Opens the menu of the control with `response_id` from code (a key).
+    pub fn open_for(ctx: &egui::Context, response_id: EguiId) {
+        let id = state_id(response_id);
+        let state = load(ctx, id);
+        if !state.open || state.closing.is_some() {
+            store(
+                ctx,
+                id,
+                State {
+                    open: true,
+                    ..State::default()
+                },
+            );
+            ctx.request_repaint();
+        }
+    }
+
+    /// Closes the menu of the control with `response_id` from code.
+    pub fn close_for(ctx: &egui::Context, response_id: EguiId) {
+        let id = state_id(response_id);
+        let mut state = load(ctx, id);
+        if state.open && state.closing.is_none() {
+            state.closing = Some(ctx.input(|i| i.time));
+            store(ctx, id, state);
+            ctx.request_repaint();
+        }
     }
 
     /// Whether the menu of the control with `response_id` is open (not
@@ -227,7 +268,7 @@ impl<'r> Menu<'r> {
             // Esc, a click elsewhere or a command closed it.
             begin_closing(&mut state);
             Popup::close_id(&ctx, popup_id);
-        } else if state.changed {
+        } else if state.changed && !self.stays {
             // Once changed, it closes when the pointer leaves it.
             let area = shown_menu.response.rect.expand(LEAVE_SLOP);
             let on_it = ctx.pointer_hover_pos().is_some_and(|p| area.contains(p))

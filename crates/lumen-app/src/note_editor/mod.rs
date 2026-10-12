@@ -19,6 +19,7 @@ mod glyphs;
 pub(crate) mod lane;
 mod ops;
 pub(crate) mod paint;
+pub(crate) mod quantize;
 mod toolbar;
 pub(crate) mod ui;
 pub(crate) mod view;
@@ -73,6 +74,8 @@ pub(crate) struct NoteEditor {
     pub gesture: Option<gesture::Gesture>,
     /// The velocity and controller lane under the roll (slice 4b).
     pub lane: lane::LaneState,
+    /// Quantize, its popover and the tools (slice 5).
+    pub quantize: quantize::QuantizeState,
     /// Where the lane was drawn last (tests).
     pub last_lane: Option<lane::geometry::LaneView>,
     /// The editor is in its own window.

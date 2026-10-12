@@ -18,7 +18,7 @@
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
-use lumen_project::edit::{self, notes as ops};
+use lumen_project::edit::{self, note_tools as tools, notes as ops, quantize};
 use lumen_project::model::{Clip, ClipContent, Id, Note, Project};
 
 use super::{Document, plural};
@@ -244,6 +244,63 @@ impl Document {
         let label = plural(selection.len(), "Legato", "Legato on {} notes");
         self.edit_notes(&label, None, None, clip, selection, |notes, length| {
             ops::legato(notes, selection, length)
+        })
+    }
+
+    /// Quantizes the picked notes with `settings` (slice 5), as one step.
+    pub fn quantize_notes(
+        &mut self,
+        clip: Id,
+        selection: &[usize],
+        settings: &quantize::Settings,
+    ) -> Vec<usize> {
+        let label = plural(selection.len(), "Quantize note", "Quantize {} notes");
+        self.edit_notes(&label, None, None, clip, selection, |notes, length| {
+            quantize::quantize(notes, selection, length, settings)
+        })
+    }
+
+    /// Loosens the timing and velocity of the picked notes at random,
+    /// repeatably from `humanize.seed`.
+    pub fn humanize_notes(
+        &mut self,
+        clip: Id,
+        selection: &[usize],
+        humanize: &tools::Humanize,
+    ) -> Vec<usize> {
+        let label = plural(selection.len(), "Humanize note", "Humanize {} notes");
+        self.edit_notes(&label, None, None, clip, selection, |notes, length| {
+            tools::humanize(notes, selection, length, humanize)
+        })
+    }
+
+    /// Gives every picked note the length `len`.
+    pub fn fixed_length_notes(&mut self, clip: Id, selection: &[usize], len: Ticks) -> Vec<usize> {
+        let label = plural(selection.len(), "Fix note length", "Fix length of {} notes");
+        self.edit_notes(&label, None, None, clip, selection, |notes, length| {
+            tools::fixed_length(notes, selection, length, len)
+        })
+    }
+
+    /// Moves the picked notes onto the nearest pitch of `scale` from `root`.
+    pub fn scale_constrain_notes(
+        &mut self,
+        clip: Id,
+        selection: &[usize],
+        root: u8,
+        scale: tools::Scale,
+    ) -> Vec<usize> {
+        let label = plural(selection.len(), "Constrain note", "Constrain {} notes to scale");
+        self.edit_notes(&label, None, None, clip, selection, |notes, _| {
+            tools::scale_constrain(notes, selection, root, scale)
+        })
+    }
+
+    /// Mirrors the picked notes in time.
+    pub fn reverse_notes(&mut self, clip: Id, selection: &[usize]) -> Vec<usize> {
+        let label = plural(selection.len(), "Reverse note", "Reverse {} notes");
+        self.edit_notes(&label, None, None, clip, selection, |notes, _| {
+            tools::reverse(notes, selection)
         })
     }
 }

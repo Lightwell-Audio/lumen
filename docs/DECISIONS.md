@@ -4487,3 +4487,46 @@ selection remains available from the body, empty lanes and time ruler.
 Regression coverage must distinguish header/body drags, preserve the
 editing handles, and check both stopped and playing click behavior.
 
+
+## ADR-0054 — Quantize and its tools (M5 slice 5, no format change)
+
+### Context
+Slice 5 adds quantize (grid, four modes, strength, swing, sensitivity
+window, iterative use), a one-key apply, an options popover with a live
+preview, and related tools (humanize, fixed length, scale constrain,
+reverse; legato and transpose exist from slice 3). The owner chose from the
+"Lumen Quantize Specimens" artifact: **ghost trails** for the preview (the
+recorded position stays as a dashed outline, the new one is solid, a line
+shows the move), **comet sliders** in the popover (the send knob's trail and
+glowing head laid flat), **Q with nothing picked quantizes every note in the
+clip**, and **"restore recorded timing" deferred**.
+
+### Decision
+- The arithmetic is pure and in `lumen_project::edit` (`quantize`,
+  `note_tools`), working on picked indices under the slice 3 selection
+  contract. Each note is moved independently, so the preview is the same
+  function applied per note (the order is kept, so picks keep their indices).
+- `Document::{quantize,humanize,fixed_length,scale_constrain,reverse}_notes`
+  are one undo step each; locked and audio clips refuse them.
+- **Q** applies the last settings (`Options` in `note_editor/quantize.rs`),
+  **Shift+Q** opens the popover below a toolbar Quantize button. The popover
+  uses `Menu::staying` (no fade when the pointer leaves) and
+  `Menu::open_for` / `close_for`. While it is open the roll draws a stand-in
+  clip with the quantized notes and the trails; the document changes only on
+  Apply. Esc or a click elsewhere leaves it untouched.
+- **Iterative quantize is strength below 100% applied again.** A separate
+  switch (in the mock-up) would do nothing a repeat of Q does not, so the
+  popover has none.
+- **Comet sliders** are `SliderStyle::comet` / `widgets::comet_slider`: the
+  same slider with a trail brightening to a glowing head. Only the popover
+  uses them; the other value sliders keep the line handle until the owner
+  asks.
+- The tools' amounts are fixed for now (humanize 1/64 note and 8 velocity,
+  different offsets on each press; fixed length is the grid step; scale and
+  root chosen from the context menu and remembered).
+
+### Consequences
+No persisted change (format v14). The options live for the session. A
+popover for the tools' amounts, quantize of clips selected in the arrangement
+(without opening the editor), and saving the options in the settings file are
+follow-ups (KNOWN_ISSUES).

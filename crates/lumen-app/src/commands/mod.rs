@@ -123,6 +123,12 @@ pub(crate) enum Command {
     LaneCurve,
     RaiseVelocity,
     LowerVelocity,
+    Quantize,
+    QuantizeOptions,
+    HumanizeNotes,
+    FixedLengthNotes,
+    ScaleConstrainNotes,
+    ReverseNotes,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -308,6 +314,12 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::LaneCurve, "midi.lane_curve", "Lane curve", Area::Midi, &[plain(Key::Num3)], "Draws a line in the lane, then drag its dot to bend it."),
     info(Command::RaiseVelocity, "midi.raise_velocity", "Raise velocity", Area::Midi, &[], "Raises the velocity of the selected notes by 8."),
     info(Command::LowerVelocity, "midi.lower_velocity", "Lower velocity", Area::Midi, &[], "Lowers the velocity of the selected notes by 8."),
+    info(Command::Quantize, "midi.quantize", "Quantize", Area::Midi, &[plain(Key::Q)], "Moves the selected notes (every note if none are selected) toward the grid with the last quantize settings."),
+    info(Command::QuantizeOptions, "midi.quantize_options", "Quantize options", Area::Midi, &[shift(Key::Q)], "Opens the quantize settings, and shows what they will do before you apply them."),
+    info(Command::HumanizeNotes, "midi.humanize", "Humanize notes", Area::Midi, &[], "Loosens the timing and velocity of the selected notes (every note if none are selected) a little, at random."),
+    info(Command::FixedLengthNotes, "midi.fixed_length", "Fixed length", Area::Midi, &[], "Gives the selected notes (every note if none are selected) the length of one grid step."),
+    info(Command::ScaleConstrainNotes, "midi.scale_constrain", "Constrain to scale", Area::Midi, &[], "Moves the selected notes (every note if none are selected) onto the last scale chosen from the editor's menu, C major to begin with."),
+    info(Command::ReverseNotes, "midi.reverse", "Reverse notes", Area::Midi, &[], "Plays the selected notes (every note if none are selected) backwards: the last becomes the first."),
 ];
 
 const fn info(
@@ -357,7 +369,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::LowerVelocity as usize + 1,
+            Command::ReverseNotes as usize + 1,
             ALL.len(),
             "a command is missing"
         );
