@@ -1540,3 +1540,78 @@ fn clip_lane() {
         }
     }
 }
+
+/// The quantize options open over the piano roll (M5 slice 5): the comet
+/// sliders and the ghost trails, both themes at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn quantize_popover() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_core::time::{PPQ, Ticks};
+    use lumen_project::model::Note;
+    use lumen_project::testing::{midi_track, project_of};
+    // A part played loose: the notes sit a little off the beat.
+    let beats = [
+        (0.04, 60),
+        (0.55, 64),
+        (1.03, 67),
+        (1.47, 64),
+        (2.06, 60),
+        (2.55, 62),
+        (3.0, 65),
+        (3.53, 69),
+        (4.07, 60),
+        (4.46, 64),
+        (5.02, 67),
+        (5.58, 72),
+    ];
+    let notes: Vec<Note> = beats
+        .iter()
+        .map(|&(b, p)| Note::new(Ticks((b * PPQ as f64) as i64), Ticks(PPQ / 2), p, 100))
+        .collect();
+    let project = project_of(
+        "Loose",
+        vec![midi_track(1, "Keys", "poly", (0, 8), None, notes, vec![])],
+    );
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new("shots-quantize");
+            let copy = dir.path().join("loose.lumen");
+            lumen_project::save(&project, &copy, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(copy);
+            let mut h = Harness::builder()
+                .with_size(vec2(1400.0, 860.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(60);
+            h.state_mut().set_detail_size(560.0);
+            h.run_steps(10);
+            let id = h.state().project().tracks[0].clips[0].id;
+            h.hover_at(pos2(1000.0, 400.0));
+            h.run_steps(10);
+            let r = h.state().clip_rect(&h.ctx, id).expect("in view");
+            let at = pos(r, 0.1, 0.1);
+            click(&mut h, at);
+            click(&mut h, at);
+            h.run_steps(20);
+            h.get_by_label("Quantize").click();
+            h.run_steps(20);
+            save(
+                &mut h,
+                &format!("quantize-{appearance}-{}", (scale * 100.0) as u32),
+            );
+        }
+    }
+}

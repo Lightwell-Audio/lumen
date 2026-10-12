@@ -614,8 +614,9 @@ fn draw_comet(p: &Painter, rect: Rect, x: f32, hot: f32) {
         }
     }
     let y = rect.center().y;
-    let head = pos2(x.max(inner.left()), y);
     let r = inner.height() / 2.0;
+    // The head stays inside the slider at both ends.
+    let head = pos2(x.clamp(inner.left() + r, inner.right() - r), y);
     let glow = 1.0 + hot;
     for (radius, alpha) in [(r * 2.6 * glow, 0.14), (r * 1.7 * glow, 0.3)] {
         p.circle_filled(head, radius, palette.accent.gamma_multiply(alpha));

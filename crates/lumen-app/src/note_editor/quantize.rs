@@ -340,12 +340,13 @@ impl App {
                 1 + Division::ALL.iter().position(|d| *d == g).unwrap_or(0)
             });
             let shown = o.grid_label(editing);
-            if let Some(pick) = Dropdown::new("Quantize grid", &shown, 132.0).show(
-                ui,
-                id.with("grid"),
-                &names,
-                Some(chosen),
-            ) {
+            if let Some(pick) = Dropdown::new(
+                "Quantize grid",
+                &shown,
+                WIDTH - LABEL - theme::space::S,
+            )
+            .show(ui, id.with("grid"), &names, Some(chosen))
+            {
                 o.grid = pick.checked_sub(1).map(|i| Division::ALL[i]);
                 changed = true;
             }
@@ -406,7 +407,6 @@ impl App {
         }
 
         // What it will do.
-        let settings = o.settings(editing);
         let picked = ed.picked().to_vec();
         let (moved, total, largest) = match ed.quantize.cache.as_ref() {
             Some(c) => (c.shown.trails.len(), c.shown.looked_at, c.shown.largest),
@@ -415,12 +415,9 @@ impl App {
         let ms = self.ticks_to_ms(largest);
         ui.add_space(theme::space::S);
         ui.label(
-            egui::RichText::new(format!(
-                "{moved} of {total} notes move, largest {ms} ms (grid {} ticks)",
-                settings.step.0
-            ))
-            .monospace()
-            .size(theme::size::MONO_SMALL),
+            egui::RichText::new(format!("{moved} of {total} notes move, largest {ms} ms"))
+                .monospace()
+                .size(theme::size::MONO_SMALL),
         );
         ui.label(
             egui::RichText::new(if picked.is_empty() {

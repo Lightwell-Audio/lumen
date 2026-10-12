@@ -390,7 +390,26 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-12: **M5 slices 0 to 4 are built and their manual
+**Last updated:** 2026-10-12: **M5 slice 5 (quantize and its tools) is
+built** on `m5-midi` (ADR-0054; plan in `docs/milestones/M5.md`; owner:
+ghost-trail preview, comet sliders in the popover, Q on every note when none
+are picked, restore-recorded-timing deferred). Pure edits in
+`lumen_project::edit::{quantize, note_tools}`; `Document::{quantize,
+humanize, fixed_length, scale_constrain, reverse}_notes`; the UI is
+`note_editor/quantize.rs` (the Quantize button and popover, `Options`, the
+stand-in clip the roll draws while the popover is open, ghost trails in
+`paint.rs`); `widgets::comet_slider` (`SliderStyle::comet`) and
+`Menu::{staying, open_for, close_for}` are new shared pieces. Q applies the
+last settings, Shift+Q opens the popover; there is no Iterative switch
+(strength below 100% applied again is iterative). Options are not saved yet
+(KNOWN_ISSUES). E2E `quantize` (7), shot `quantize_popover`, workspace tests
+pass (E2E 296). **Not run:** the WSL perf gate and the macOS cross-clippy.
+**MT-MIDI-6 waits for the owner.** Built with Haiku subagents for the pure
+edits, Document tests and E2E; the parent did the UI. Cloud container: run
+`apt-get update` first, then install `libasound2-dev libudev-dev pkg-config
+mesa-vulkan-drivers xvfb libxkbcommon-x11-0`. Next: slice 6 (recording MIDI).
+
+Before it, 2026-10-12: **M5 slices 0 to 4 are built and their manual
 tests have passed** (MT-MIDI-1 to 5; follow-up findings are in
 MANUAL_TESTS and KNOWN_ISSUES). The slice 3 and 4 plans are folded into
 `docs/milestones/M5.md` (the separate files are gone). `m5-midi` was
