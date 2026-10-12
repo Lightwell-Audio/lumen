@@ -21,6 +21,7 @@ use lumen_project::model::Project;
 use crate::audio::{Audio, Choice};
 
 pub use bar::punch_menu;
+pub use fit::divider;
 pub use midi_chip::{Lights as MidiLights, View as MidiView};
 
 pub struct Transport {

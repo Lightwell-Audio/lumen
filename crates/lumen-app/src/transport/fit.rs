@@ -141,5 +141,13 @@ pub fn gap(ui: &Ui) -> f32 {
     ui.spacing().item_spacing.x
 }
 
+/// A divider between two groups in the bar: a hairline with only the bar's
+/// gaps either side (egui's own leaves 6 pt more), so the controls still sit
+/// 8 apart across it (or 4 in the compact bar) and the bar stays within the
+/// 960 pt minimum window (DESIGN §2).
+pub fn divider(ui: &mut Ui) {
+    ui.add(egui::Separator::default().spacing(theme::stroke::HAIRLINE));
+}
+
 /// The compact spacing between the bar's pieces.
 pub const COMPACT_GAP: f32 = theme::space::XS;

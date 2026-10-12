@@ -350,7 +350,7 @@ impl Transport {
                     self.send(Command::SetMetronome(self.metronome));
                 }
             });
-        ui.separator();
+        fit::divider(ui);
 
         // Tempo, in a 30 pt well: the value in Martian Mono, its unit in
         // `text_hint` (the Transport card).
@@ -433,12 +433,12 @@ impl Transport {
         ) {
             doc.set_time_signature(beats, unit, Some("meter"));
         }
-        ui.separator();
+        fit::divider(ui);
 
         self.position_field(ui, state, plan.compact);
         // Compact, the dot follows the position without a divider.
         if !plan.compact {
-            ui.separator();
+            fit::divider(ui);
         }
         self.status(ui, doc.project());
         self.fit.finish(ui);

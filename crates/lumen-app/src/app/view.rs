@@ -182,7 +182,7 @@ report: {}",
             ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
             self.transport_mark(ui);
             self.app_menu(ui);
-            ui.separator();
+            crate::transport::divider(ui);
             self.transport.keyboard_readout =
                 self.keyboard.is_on().then(|| self.keyboard.readout());
             self.transport.ui(ui, &mut self.document, &self.keymap);
@@ -198,7 +198,7 @@ report: {}",
             // The MIDI chip sits with the panel toggles, so it stays in view
             // however narrow the window: the transport is cut off first.
             self.transport.midi_chip(ui, &midi);
-            ui.separator();
+            crate::transport::divider(ui);
             let keys = self.keymap.keys(Command::OpenPalette);
             if icons::button(
                 ui,
