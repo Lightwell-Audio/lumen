@@ -121,11 +121,11 @@ impl App {
         });
         widgets::Menu::context(&response).show(|ui| self.view_menu(ui));
         if self.drag_ruler(&response, at.canvas) {
-            ui.ctx().set_cursor_icon(CursorIcon::ZoomIn);
+            ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
             return;
         }
         if let Some(pointer) = response.hover_pos() {
-            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+            ui.ctx().set_cursor_icon(CursorIcon::Grab);
             self.set_info(
                 Info::new("Bar ruler")
                     .on(Held::NONE, Mouse::Click, "move the playhead")

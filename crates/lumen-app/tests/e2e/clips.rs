@@ -353,6 +353,33 @@ fn a_click_on_the_lanes_moves_the_playhead_while_stopped() {
     assert_eq!(lumen.app().playhead(), Ticks::ZERO);
 }
 
+/// Owner, M5: a click on a clip's header while stopped puts the playhead
+/// at the clip's start, wherever along the header it lands; a click on
+/// its body still locates to the clicked place.
+#[test]
+fn a_click_on_a_clip_header_moves_the_playhead_to_its_start_while_stopped() {
+    let (mut lumen, kick, _) = with_two_clips("header-click-locate");
+    let zoom = lumen.app().view().zoom as f32;
+    let from = header(rect(&lumen, kick));
+    lumen.drag(
+        from,
+        Pos2::new(from.x + 4.3 * zoom, from.y),
+        Modifiers::NONE,
+    );
+    let (_, start) = place(&lumen, kick);
+    assert_eq!(start, Ticks::quarters(4));
+    let a = rect(&lumen, kick);
+    // Alt places freely, so a click a quarter in would land there.
+    let p = Pos2::new(a.left() + 1.0 * zoom, a.top() + 6.0);
+    lumen.drag(p, p, Modifiers::ALT);
+    lumen.wait_for("the playhead", |app| app.playhead() == start);
+    // The body still locates where it is clicked.
+    let b = Pos2::new(a.left() + 1.0 * zoom, a.bottom() - 6.0);
+    lumen.drag(b, b, Modifiers::ALT);
+    let near = |t: Ticks| (t.0 - Ticks::quarters(5).0).abs() < Ticks::quarters(1).0 / 8;
+    lumen.wait_for("the playhead", |app| near(app.playhead()));
+}
+
 #[test]
 fn playing_clip_and_lane_clicks_select_without_seeking() {
     let (mut lumen, kick, snare) = with_two_clips("playing-click-select");

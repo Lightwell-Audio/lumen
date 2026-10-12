@@ -164,6 +164,14 @@ impl App {
             && let Some(p) = response.interact_pointer_pos()
         {
             let hit = self.hit(&ctx, p, canvas);
+            // A click on a clip's header (its title strip) locates to the
+            // clip's start rather than to the clicked spot.
+            let header_start = hit
+                .filter(|h| h.region == ClipRegion::Header && h.handle.is_none())
+                .and_then(|h| {
+                    let track = self.document.project().tracks.get(h.track)?;
+                    track.clips.iter().find(|c| c.id == h.clip).map(|c| c.start)
+                });
             let clips = &mut self.arrangement.clips;
             match hit {
                 Some(hit) if modifiers.command => {
@@ -181,12 +189,14 @@ impl App {
             self.arrangement.range = None;
             self.selected_clips_now();
             // While stopped, a plain lane click also locates (snapped;
-            // Alt places freely). While playing, selecting or editing
-            // clips must leave playback running from its current place.
-            // Ctrl and Shift clicks only build a selection.
+            // Alt places freely), and a click on a clip's header locates to
+            // the clip's start. While playing, selecting or editing clips
+            // must leave playback running from its current place. Ctrl and
+            // Shift clicks only build a selection.
             if !adding {
                 if !self.transport.state().playing {
-                    let target = self.snapped(self.ticks_at(canvas, p.x), modifiers.alt);
+                    let target = header_start
+                        .unwrap_or_else(|| self.snapped(self.ticks_at(canvas, p.x), modifiers.alt));
                     self.transport.locate(target.max(Ticks::ZERO));
                     self.transport.follow_paused = true;
                 }
@@ -301,6 +311,7 @@ impl App {
                 },
                 Info::new(format!("Clip {name}"))
                     .on(Held::NONE, Mouse::Drag, "move")
+                    .on(Held::NONE, Mouse::Click, "go to its start")
                     .on(Held::CTRL, Mouse::Drag, "copy")
                     .on(Held::CTRL_ALT, Mouse::Drag, "slip the audio")
                     .key(Command::Duplicate, "duplicate")
