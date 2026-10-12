@@ -1280,10 +1280,14 @@ fn monitor_sweep() {
         left_click(&mut h, pos(r, 0.3, 0.5));
         h.run_steps(40);
         save(&mut h, &format!("monitor-in-selected-{tag}"));
-        let r = h.get_by_label_contains("Track Pad,").rect();
-        left_click(&mut h, pos(r, 0.3, 0.5));
-        h.run_steps(40);
-        save(&mut h, &format!("monitor-off-selected-{tag}"));
+        // At 960 x 540 the mixer leaves room for two rows (the 44 pt
+        // transport bar, ADR-0052): Pad is out of view there.
+        if let Some(pad) = h.query_by_label_contains("Track Pad,") {
+            let r = pad.rect();
+            left_click(&mut h, pos(r, 0.3, 0.5));
+            h.run_steps(40);
+            save(&mut h, &format!("monitor-off-selected-{tag}"));
+        }
         // Hover the In badge.
         let badge = h.get_by_label("Monitor Lead: In").rect();
         h.hover_at(badge.center());
