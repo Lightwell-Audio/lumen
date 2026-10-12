@@ -4558,3 +4558,23 @@ the start is headed for), so a short note grows to a step. Strength and the
 window still scale the move. Start and Length are unchanged. The popover says
 that these modes change note lengths. Unit tests in `edit/quantize.rs`
 (`end_mode_never_leaves_a_note_shorter_than_a_step` and four more).
+
+### Amendment (2026-10-12, matched to Ableton from the owner's test)
+The owner ran one scenario in Ableton and in Lumen (two adjacent eighth
+notes at 1.3 and 1.3.3, grid 1/4) and the results differed. Lumen's rules
+had no source (they were written from memory); they now follow Ableton's
+observed behaviour, and the previous amendment's "one step minimum" is
+withdrawn:
+- **A tie goes to the later line**: a note exactly halfway moves forward
+  (1.3.3 goes to 1.4). It went to the earlier line.
+- **End** pulls the end to its nearest line and leaves the start. If that
+  line is at or before the start, the end goes to the first line after the
+  start (so nothing collapses). An end already on the grid stays (the old
+  floor had pushed the second note's end from 1.4 to 2.0).
+- **Both** is Ableton's order: Start first (the length stays), then the end
+  of the note as it now is. Adjacent notes stay adjacent. They had been
+  quantized independently from their original positions and overlapped.
+Unit tests `ableton_start_*`, `ableton_end_*` and `ableton_both_*` in
+`edit/quantize.rs` are the owner's scenario. Still unverified against
+Ableton: swing in quantize, the window, what Ctrl+U does with no selection,
+and a note that collapses in End (Lumen takes the next line).

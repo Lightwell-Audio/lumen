@@ -466,7 +466,7 @@ impl App {
         );
         if changes_lengths(ed.quantize.options.mode) {
             ui.label(
-                egui::RichText::new("This changes note lengths; none gets shorter than one step")
+                egui::RichText::new("This changes note lengths")
                     .small()
                     .weak(),
             );

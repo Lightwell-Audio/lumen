@@ -6,23 +6,20 @@
 //!
 //! Grid line `i` sits at `i * step`. With swing, every odd line is delayed by
 //! `swing * step / 2`, so the grid stays in order for any swing up to 1.
-//! A position's target is its nearest line, with ties going to the earlier
-//! line. A position is pulled toward its target by `strength` only when the
+//! A position's target is its nearest line, with ties going to the later
+//! line (Ableton: a note exactly halfway moves forward). A position is pulled toward its target by `strength` only when the
 //! distance to it is within `window * step / 2` (plus one tick, for rounding).
 //! A window of 1.0 is off: every position is pulled.
 //!
 //! # Modes
 //!
 //! - `Start`: the start is pulled; the length stays.
-//! - `End`: the end is pulled; the start stays, so the length changes.
-//! - `StartAndEnd`: both are pulled, each to its own nearest line.
-//!
-//!   In both of these a note is never quantized shorter than one step: an end
-//!   whose nearest line would leave the note shorter than a step (a note
-//!   played shorter than the grid, whose start and end would otherwise snap
-//!   to the same line) goes to the first line a step or more after the
-//!   start, which for `StartAndEnd` is the line the start is headed for.
-//!   Strength and the window still scale the move.
+//! - `End`: the end is pulled; the start stays, so the length changes. If the
+//!   nearest line is at or before the start, the end goes to the first line
+//!   after the start, so a note never collapses.
+//! - `StartAndEnd`: Ableton's order: the start is pulled first (the length
+//!   stays), then the end of the note as it now is is pulled to its nearest
+//!   line. Two adjacent notes therefore stay adjacent.
 //! - `Length`: the length moves toward the nearest whole number of steps
 //!   (halves round up, at least one step). The start stays; swing and the
 //!   window do not apply.
@@ -140,23 +137,21 @@ impl Grid {
         k * self.step + if k.rem_euclid(2) == 1 { self.delay } else { 0 }
     }
 
-    /// The nearest line to `p`. The lines around `p`'s own cell are tried in
-    /// order, so a tie goes to the earlier line (`min_by_key` keeps the
-    /// first minimum).
+    /// The nearest line to `p`; a tie goes to the later line (Ableton).
     fn nearest(&self, p: i64) -> i64 {
         let cell = (2 * p + self.step).div_euclid(2 * self.step);
         (cell - 1..=cell + 1)
             .map(|k| self.line(k))
-            .min_by_key(|line| (line - p).abs())
+            .min_by_key(|line| ((line - p).abs(), -line))
             .unwrap_or(p)
     }
 
-    /// The first line at or after `p`.
-    fn line_at_or_after(&self, p: i64) -> i64 {
+    /// The first line after `p`.
+    fn line_after(&self, p: i64) -> i64 {
         // Lines only ever move forward (a swing delay is at most half a
         // step), so the search ends within a few lines.
         let mut k = p.div_euclid(self.step) - 1;
-        while self.line(k) < p {
+        while self.line(k) <= p {
             k += 1;
         }
         self.line(k)
@@ -178,17 +173,15 @@ impl Grid {
         toward(p, self.target(p).unwrap_or(p), self.strength)
     }
 
-    /// A note end pulled toward its line, for a note whose start will be at
-    /// `start` (the line the start is headed for). A note is never quantized
-    /// shorter than one step: an end whose nearest line would leave it
-    /// shorter goes to the first line a step or more after the start, so a
-    /// note shorter than the grid grows to a step instead of collapsing.
+    /// A note end pulled toward its line, for a note that starts at `start`.
+    /// A line at or before the start would collapse the note, so the end goes
+    /// to the first line after the start instead.
     fn pull_end(&self, end: i64, start: i64) -> i64 {
         let Some(line) = self.target(end) else {
             return end;
         };
-        let line = if line - start < self.step {
-            self.line_at_or_after(start + self.step)
+        let line = if line <= start {
+            self.line_after(start)
         } else {
             line
         };
@@ -239,8 +232,9 @@ fn quantized(note: Note, length: Ticks, grid: &Grid, mode: Mode) -> Note {
         }
         Mode::End => (start, grid.pull_end(end, start)),
         Mode::StartAndEnd => {
-            let headed = grid.target(start).unwrap_or(start);
-            (grid.pull(start), grid.pull_end(end, headed))
+            // Start first, keeping the length; then the end as it now is.
+            let start = grid.pull(start);
+            (start, grid.pull_end(start + len, start))
         }
         Mode::Length => {
             let target = whole_steps(len, grid.step);
@@ -434,10 +428,10 @@ mod tests {
         // 1000 ticks after the first triplet line.
         let n = one(note(t + 1_000, PPQ / 10, 60), &triplet);
         assert_eq!(n.start(), Ticks(t));
-        // An straight eighth (half a beat) is equally near the first and
-        // second triplet lines: the earlier one wins.
+        // A straight eighth (half a beat) is equally near the first and
+        // second triplet lines: the later one wins (Ableton).
         let n = one(note(PPQ / 2, PPQ / 10, 60), &triplet);
-        assert_eq!(n.start(), Ticks(t));
+        assert_eq!(n.start(), Ticks(2 * t));
     }
 
     #[test]
@@ -503,42 +497,93 @@ mod tests {
         assert!(notes.iter().all(|n| n.start() == Ticks(S)));
     }
 
-    // A note shorter than the grid, as played loose: its start is a little
-    // after line 1 (S), its end 50 ticks later. Without a floor its start
-    // and end snap to the same line and the note collapses.
+    // The owner's test in Ableton (two adjacent eighth notes, grid 1/4): the
+    // first starts on beat 3 (1.3), the second half a beat later (1.3.3),
+    // exactly between lines 3 and 4. Positions are in beats from the start.
+    fn pair() -> Vec<Note> {
+        vec![
+            Note::new(Ticks(beat(2)), Ticks(PPQ / 2), 60, 100),
+            Note::new(Ticks(beat(2) + PPQ / 2), Ticks(PPQ / 2), 64, 100),
+        ]
+    }
+
+    fn quarters(mode: Mode) -> Settings {
+        Settings {
+            step: Ticks(PPQ),
+            mode,
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn ableton_start_keeps_the_first_note_and_moves_the_halfway_note_forward() {
+        let mut notes = pair();
+        quantize(&mut notes, &[0, 1], LEN, &quarters(Mode::Start));
+        assert_eq!(notes[0].start(), Ticks(beat(2)));
+        assert_eq!(notes[1].start(), Ticks(beat(3)));
+        assert_eq!(notes[1].length(), Ticks(PPQ / 2));
+    }
+
+    #[test]
+    fn ableton_end_stretches_the_first_note_and_leaves_the_second() {
+        let mut notes = pair();
+        quantize(&mut notes, &[0, 1], LEN, &quarters(Mode::End));
+        // 1.3 to 1.4, and the second note already ends on the grid.
+        assert_eq!(notes[0].start(), Ticks(beat(2)));
+        assert_eq!(notes[0].end(), Ticks(beat(3)));
+        assert_eq!(notes[1].start(), Ticks(beat(2) + PPQ / 2));
+        assert_eq!(notes[1].end(), Ticks(beat(3)));
+    }
+
+    #[test]
+    fn ableton_both_does_start_then_end_and_the_notes_stay_adjacent() {
+        let mut notes = pair();
+        quantize(&mut notes, &[0, 1], LEN, &quarters(Mode::StartAndEnd));
+        // First 1.3 to 1.4; second starts on 1.4 (start step, length kept)
+        // then its end, now half a beat past 1.4, goes up to 2.1.
+        assert_eq!(
+            (notes[0].start(), notes[0].end()),
+            (Ticks(beat(2)), Ticks(beat(3)))
+        );
+        assert_eq!(
+            (notes[1].start(), notes[1].end()),
+            (Ticks(beat(3)), Ticks(beat(4)))
+        );
+    }
+
+    // A note shorter than the grid, played loose: start a little after
+    // line 1 (S), its end 50 ticks later.
     fn short() -> Note {
         note(S + 100, 50, 60)
     }
 
     #[test]
-    fn end_mode_never_leaves_a_note_shorter_than_a_step() {
+    fn an_end_that_would_land_before_the_start_goes_to_the_next_line() {
         let mut notes = vec![short()];
         quantize(&mut notes, &[0], LEN, &mode(Mode::End));
-        // The end's nearest line (S) would leave it shorter than a step, so
-        // it goes to the first line a step or more after the start: 3S.
-        assert_eq!(notes[0].start(), Ticks(S + 100));
-        assert_eq!(notes[0].end(), Ticks(3 * S));
-        assert!(notes[0].length().0 >= S);
+        // Its nearest line (S) is before the start: the end takes 2S instead
+        // of leaving a hairline.
+        assert_eq!(notes[0], note(S + 100, S - 100, 60));
+    }
+
+    #[test]
+    fn an_end_already_on_the_grid_is_left_alone() {
+        let mut notes = vec![note(S + 100, S - 100, 60)];
+        quantize(&mut notes, &[0], LEN, &mode(Mode::End));
+        assert_eq!(notes[0], note(S + 100, S - 100, 60));
     }
 
     #[test]
     fn both_mode_turns_a_short_note_into_one_step_on_the_grid() {
         let mut notes = vec![short()];
         quantize(&mut notes, &[0], LEN, &mode(Mode::StartAndEnd));
-        // Start to S; end would be S too, so it goes to 2S.
+        // Start to S (length 50 kept, end S+50 would snap back to S), so the
+        // end takes the next line: 2S.
         assert_eq!(notes[0], note(S, S, 60));
     }
 
     #[test]
-    fn long_notes_still_quantize_both_ends_independently() {
-        let mut notes = vec![note(S + 40, 2 * S - 10, 60)];
-        quantize(&mut notes, &[0], LEN, &mode(Mode::StartAndEnd));
-        // Start S, end (3S + 30) -> 3S: two steps long, no floor needed.
-        assert_eq!(notes[0], note(S, 2 * S, 60));
-    }
-
-    #[test]
-    fn a_partial_strength_grows_a_short_note_part_of_the_way() {
+    fn a_partial_strength_moves_start_then_end_part_of_the_way() {
         let mut notes = vec![short()];
         let half = Settings {
             mode: Mode::StartAndEnd,
@@ -546,10 +591,10 @@ mod tests {
             ..Settings::default()
         };
         quantize(&mut notes, &[0], LEN, &half);
-        // Start halfway from S+100 to S; end halfway from S+150 to 2S.
+        // Start halfway from S+100 to S; the end (S+100 after that) halfway
+        // to 2S, the line after the start.
         assert_eq!(notes[0].start(), Ticks(S + 50));
-        assert_eq!(notes[0].end(), Ticks((S + 150 + 2 * S) / 2));
-        assert!(notes[0].length().0 > 50, "grew, did not shrink");
+        assert_eq!(notes[0].end(), Ticks((S + 100 + 2 * S) / 2));
     }
 
     #[test]
