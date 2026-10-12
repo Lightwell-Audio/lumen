@@ -390,7 +390,30 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-11: **M5 slice 4 (velocity and controller lanes)
+**Last updated:** 2026-10-12: **the owner's Lumen design system is
+applied** on `m5-midi` (ADR-0052; DESIGN.md v2, §5a Material). The design
+system is a Design System artifact (tokens, a Material card, a card per
+component); where it and DESIGN.md differ, it wins. Asked where it and
+ADR-0051 differed, the owner chose it on all four: on = `Tone::On`
+(`accent_muted`, a 38% accent hairline, no glow); solo, the primary and the
+chosen tool = `Tone::Accent` (filled, no halo; amber only warns); a lit M =
+`Tone::Mute`; raised controls = `control_hi` to `control`, edge light,
+border, Ember hover, no drop shadow, radius by height
+(`radius::for_height`); the arm is round again. New tokens in `theme.rs`
+(`ground`, `control_hi`, `thumb_hi`/`thumb`, `edge_light`, `shade`, `ember`,
+`accent_hi`/`accent_lo`/`on_accent`, `mute`/`on_mute`, radius `XL`/`FULL`,
+`stroke::*`, `CONTROL_LARGE`, `TRANSPORT_ICON`, `TRANSPORT_BAR` 44,
+`TRACK_STEP`, `HEADER_COLUMN`, `MONO_SMALL`, `KEYCAP`; `motion::{WASH,
+BREATH}`); `widgets/raised.rs` paints the material (`paint`, `paint_sunken`,
+`paint_field`, `lip`, `primary_button`, `paint_focus`). Built by Sonnet and
+Haiku subagents (audits, fixes, visual checks of the shots). Also fixed: the
+piano roll's B|C and E|F lines sat one row low. 1157 tests, E2E 273, smoke 6
+and all shots pass. Open: MT-DS-1 (the owner's look check), the record icon's
+2.7:1 and menu rows' 33 pt and 4 pt gap (KNOWN_ISSUES). Use
+`transport::divider` for dividers in the bar (egui's adds 6 pt and the bar
+must fit at 960).
+
+Before it, 2026-10-11: **M5 slice 4 (velocity and controller lanes)
 is built** on `m5-midi` (ADR-0050; the owner took every recommendation from
 the live "Lumen Controller Lane Specimens" artifact: V A stems with round
 heads, L A one lane with a tab switcher, T A Pencil, Line and Curve in the
