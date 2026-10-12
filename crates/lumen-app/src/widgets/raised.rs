@@ -315,12 +315,38 @@ pub fn focus_ring(painter: &Painter, response: &Response, rect: Rect) {
     }
 }
 
+/// How far outside its control the focus ring reaches: the gap and the
+/// ring's own stroke. Anything that clips its contents (a scroll area) pads
+/// them by this much so a focused first or last row keeps its whole ring.
+pub const FOCUS_OUTSET: f32 = stroke::FOCUS + stroke::FOCUS;
+
+/// `rect` grown up and down by [`FOCUS_OUTSET`]: what to scroll into view
+/// for a focused row, so its ring is not cut at the scroll area's edge.
+pub fn ring_rect(rect: Rect) -> Rect {
+    rect.expand2(vec2(0.0, FOCUS_OUTSET))
+}
+
+/// Runs `add` with [`FOCUS_OUTSET`] of room above and below, for the
+/// contents of a vertical scroll area: it clips to its inner rect, which
+/// would cut the focus ring of the first and last row. The room is part of
+/// the scrolled content (add [`ring_room_height`] to a `max_height`).
+pub fn ring_room<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    egui::Frame::NONE
+        .inner_margin(egui::Margin::symmetric(0, FOCUS_OUTSET as i8))
+        .show(ui, add)
+        .inner
+}
+
+/// The height [`ring_room`] adds to its contents.
+pub const fn ring_room_height() -> f32 {
+    2.0 * FOCUS_OUTSET
+}
+
 /// The focus ring around `rect` of corner `radius`, drawn now.
 pub fn paint_focus(painter: &Painter, rect: Rect, radius: u8) {
-    let gap = stroke::FOCUS;
     painter.rect_stroke(
-        rect.expand(gap + stroke::FOCUS),
-        f32::from(radius) + gap + stroke::FOCUS,
+        rect.expand(FOCUS_OUTSET),
+        f32::from(radius) + FOCUS_OUTSET,
         Stroke::new(stroke::FOCUS, theme::p().accent),
         StrokeKind::Inside,
     );

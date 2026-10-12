@@ -107,23 +107,27 @@ impl<'a> Dropdown<'a> {
                 .max_height(theme::size::MENU_LIST)
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
-                    for (i, option) in options.iter().enumerate() {
-                        let on = chosen == Some(i);
-                        let row = choice_row(ui, option.as_ref(), on);
-                        if focus_pending && on {
-                            row.request_focus();
-                        }
-                        if row.gained_focus() {
-                            row.scroll_to_me(None);
-                        }
-                        rows.push(row.id);
-                        if row.clicked() {
-                            if !on {
-                                menu_pick = Some(i);
+                    // Room for the first and last row's focus ring: the
+                    // scroll area clips to its inner rect.
+                    raised::ring_room(ui, |ui| {
+                        for (i, option) in options.iter().enumerate() {
+                            let on = chosen == Some(i);
+                            let row = choice_row(ui, option.as_ref(), on);
+                            if focus_pending && on {
+                                row.request_focus();
                             }
-                            ui.close();
+                            if row.gained_focus() {
+                                ui.scroll_to_rect(raised::ring_rect(row.rect), None);
+                            }
+                            rows.push(row.id);
+                            if row.clicked() {
+                                if !on {
+                                    menu_pick = Some(i);
+                                }
+                                ui.close();
+                            }
                         }
-                    }
+                    });
                 });
             if moved != 0 {
                 move_focus(ui.ctx(), &rows_before, moved);

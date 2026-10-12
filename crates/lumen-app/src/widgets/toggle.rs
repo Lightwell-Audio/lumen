@@ -398,9 +398,16 @@ pub fn segmented_styled<T: PartialEq + Copy>(
         .and_then(|p| choices.iter().position(|c| c.value == p))
         .or_else(|| choices.iter().position(|c| c.value == value));
     if let Some(index) = target {
+        // Glide the *index* and slide between the live segments, so a strip
+        // that itself moves (a panel being resized) carries the thumb along
+        // rigidly; only a change of choice glides.
         let to = segments[index].0;
-        let left = motion::glide(&ctx, id.with("thumb left"), to.left(), true);
-        let right = motion::glide(&ctx, id.with("thumb right"), to.right(), true);
+        let spans: Vec<(f32, f32)> = segments
+            .iter()
+            .map(|(segment, ..)| (segment.left(), segment.right()))
+            .collect();
+        let at = motion::glide(&ctx, id.with("thumb at"), index as f32, true);
+        let (left, right) = slide_between(&spans, at);
         let thumb = Rect::from_x_y_ranges(left..=right, to.y_range()).round_to_pixels(ppp);
         // `thumb_hi` to `thumb` with an edge light and no border; a tool is
         // filled in its tone, its stronger edge light on top.
@@ -562,7 +569,8 @@ pub fn tabs(ui: &mut Ui, id: EguiId, chosen: usize, tabs: &[Tab<'_>]) -> Option<
     let palette = theme::p();
     let gap = theme::space::XS;
     let mut picked = None;
-    let mut chosen_rect = None;
+    let mut spans = Vec::with_capacity(tabs.len());
+    let mut bottom = 0.0;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = gap;
         for (i, tab) in tabs.iter().enumerate() {
@@ -612,22 +620,162 @@ pub fn tabs(ui: &mut Ui, id: EguiId, chosen: usize, tabs: &[Tab<'_>]) -> Option<
             if response.clicked() && !selected {
                 picked = Some(i);
             }
-            if Some(i) == picked.or(Some(chosen)) {
-                chosen_rect = Some(rect);
-            }
+            spans.push((rect.left(), rect.right()));
+            bottom = rect.bottom();
         }
     });
-    if let Some(rect) = chosen_rect {
+    // The tab just picked counts as chosen, so the click lands where it is
+    // drawn.
+    let index = picked.unwrap_or(chosen);
+    if index < spans.len() {
+        // Glide the *index* and slide between the live tabs, so a strip
+        // that itself moves (a panel being resized) carries the underline
+        // along rigidly; only a change of choice glides.
         let ctx = ui.ctx().clone();
-        let left = motion::glide(&ctx, id.with("underline left"), rect.left(), true);
-        let right = motion::glide(&ctx, id.with("underline right"), rect.right(), true);
+        let at = motion::glide(&ctx, id.with("underline at"), index as f32, true);
+        let (left, right) = slide_between(&spans, at);
         let inset = theme::space::M;
         let line = Rect::from_min_max(
-            pos2(left + inset, rect.bottom() - 2.0),
-            pos2(right - inset, rect.bottom()),
+            pos2(left + inset, bottom - 2.0),
+            pos2(right - inset, bottom),
         );
         light::glow(ui.painter(), light::LIT, line, 1.0, palette.accent, 1.0);
         ui.painter().rect_filled(line, 1.0, palette.accent);
     }
     picked
+}
+
+/// The left and right edges at position `at` along `spans` (each a tab's or
+/// segment's left and right): `at` 0 is the first span, 1 the second, and in
+/// between each edge is blended. Clamped to the list; empty gives zeros.
+fn slide_between(spans: &[(f32, f32)], at: f32) -> (f32, f32) {
+    let Some(last) = spans.len().checked_sub(1) else {
+        return (0.0, 0.0);
+    };
+    let at = at.clamp(0.0, last as f32);
+    let i = (at.floor() as usize).min(last);
+    let j = (i + 1).min(last);
+    let t = at - i as f32;
+    let (a, b) = (spans[i], spans[j]);
+    (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sliding_lands_on_each_span_and_blends_between() {
+        let spans = [(0.0, 10.0), (14.0, 44.0), (48.0, 60.0)];
+        assert_eq!(slide_between(&spans, 0.0), (0.0, 10.0));
+        assert_eq!(slide_between(&spans, 1.0), (14.0, 44.0));
+        assert_eq!(slide_between(&spans, 2.0), (48.0, 60.0));
+        assert_eq!(slide_between(&spans, 0.5), (7.0, 27.0));
+        assert_eq!(slide_between(&spans, 1.5), (31.0, 52.0));
+    }
+
+    #[test]
+    fn sliding_is_clamped_to_the_list() {
+        let spans = [(0.0, 10.0), (14.0, 44.0)];
+        assert_eq!(slide_between(&spans, -3.0), (0.0, 10.0));
+        assert_eq!(slide_between(&spans, 7.0), (14.0, 44.0));
+    }
+
+    /// One frame at `t` seconds of `draw` in a strip whose left edge is
+    /// at `x`: every shape it painted.
+    fn frame(
+        ctx: &egui::Context,
+        t: f64,
+        x: f32,
+        draw: &mut dyn FnMut(&mut Ui),
+    ) -> Vec<egui::Shape> {
+        let input = egui::RawInput {
+            time: Some(t),
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(input, |ui| {
+            let area = Rect::from_min_size(pos2(x, 20.0), vec2(400.0, 100.0));
+            ui.scope_builder(egui::UiBuilder::new().max_rect(area), |ui| draw(ui));
+        });
+        output.textures_delta.clear();
+        output.shapes.into_iter().map(|s| s.shape).collect()
+    }
+
+    fn context() -> egui::Context {
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        // Fonts take effect from the next frame.
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        ctx
+    }
+
+    /// The left edge of the 2 pt accent underline among `shapes`.
+    fn underline_left(shapes: &[egui::Shape]) -> f32 {
+        shapes
+            .iter()
+            .find_map(|s| match s {
+                egui::Shape::Rect(r)
+                    if r.fill == theme::p().accent && (r.rect.height() - 2.0).abs() < 1e-3 =>
+                {
+                    Some(r.rect.left())
+                }
+                _ => None,
+            })
+            .expect("the underline was painted")
+    }
+
+    /// The left edge of the thumb (the only gradient mesh) among `shapes`.
+    fn thumb_left(shapes: &[egui::Shape]) -> f32 {
+        shapes
+            .iter()
+            .find_map(|s| match s {
+                egui::Shape::Mesh(m) => Some(m.calc_bounds().left()),
+                _ => None,
+            })
+            .expect("the thumb was painted")
+    }
+
+    #[test]
+    fn a_moving_tab_strip_carries_the_underline_rigidly() {
+        let ctx = context();
+        let tab = |label| Tab {
+            label,
+            disabled_because: None,
+            tip: "",
+        };
+        let list = [tab("Clip"), tab("Mixer")];
+        let mut draw = |ui: &mut Ui| {
+            tabs(ui, EguiId::new("tabs"), 1, &list);
+        };
+        let first = underline_left(&frame(&ctx, 0.0, 0.0, &mut draw));
+        let still = underline_left(&frame(&ctx, 0.016, 0.0, &mut draw));
+        assert_eq!(first, still);
+        // The strip moves 37 pt (a panel resizes): so does the underline,
+        // at once, with no glide of its own.
+        let moved = underline_left(&frame(&ctx, 0.032, 37.0, &mut draw));
+        assert!((moved - still - 37.0).abs() < 1e-3, "{still} -> {moved}");
+    }
+
+    #[test]
+    fn a_moving_segmented_control_carries_the_thumb_rigidly() {
+        let ctx = context();
+        let list = [Choice::new(0, "Pointer"), Choice::new(1, "Draw")];
+        let mut draw = |ui: &mut Ui| {
+            segmented(ui, EguiId::new("tool"), 1, &list);
+        };
+        let first = thumb_left(&frame(&ctx, 0.0, 0.0, &mut draw));
+        let still = thumb_left(&frame(&ctx, 0.016, 0.0, &mut draw));
+        assert_eq!(first, still);
+        let moved = thumb_left(&frame(&ctx, 0.032, 37.0, &mut draw));
+        assert!((moved - still - 37.0).abs() < 1e-3, "{still} -> {moved}");
+    }
+
+    #[test]
+    fn one_span_and_none() {
+        assert_eq!(slide_between(&[(5.0, 9.0)], 0.0), (5.0, 9.0));
+        assert_eq!(slide_between(&[(5.0, 9.0)], 3.0), (5.0, 9.0));
+        assert_eq!(slide_between(&[], 1.0), (0.0, 0.0));
+    }
 }
