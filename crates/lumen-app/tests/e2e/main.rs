@@ -48,6 +48,7 @@ mod palette;
 mod playback;
 mod pops;
 mod properties;
+mod quantize;
 mod returns;
 mod rulers;
 mod scrubbing;

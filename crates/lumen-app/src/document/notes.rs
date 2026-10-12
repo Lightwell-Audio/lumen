@@ -290,7 +290,11 @@ impl Document {
         root: u8,
         scale: tools::Scale,
     ) -> Vec<usize> {
-        let label = plural(selection.len(), "Constrain note", "Constrain {} notes to scale");
+        let label = plural(
+            selection.len(),
+            "Constrain note",
+            "Constrain {} notes to scale",
+        );
         self.edit_notes(&label, None, None, clip, selection, |notes, _| {
             tools::scale_constrain(notes, selection, root, scale)
         })
@@ -399,6 +403,30 @@ mod tests {
             }),
             Box::new(move |d| {
                 d.legato_notes(clip, &[1]);
+            }),
+            Box::new(move |d| {
+                let grid = quantize::Settings {
+                    step: q(4),
+                    ..quantize::Settings::default()
+                };
+                d.quantize_notes(clip, &[2], &grid);
+            }),
+            Box::new(move |d| {
+                let timing = tools::Humanize {
+                    timing: q(1),
+                    velocity: 10,
+                    seed: 3,
+                };
+                d.humanize_notes(clip, &[0, 1, 2], &timing);
+            }),
+            Box::new(move |d| {
+                d.fixed_length_notes(clip, &[0, 1], q(1));
+            }),
+            Box::new(move |d| {
+                d.scale_constrain_notes(clip, &[2], 0, tools::Scale::Minor);
+            }),
+            Box::new(move |d| {
+                d.reverse_notes(clip, &[0, 1, 2]);
             }),
         ];
         for edit in edits {
@@ -544,6 +572,26 @@ mod tests {
                 .is_empty(),
             "no note drawn"
         );
+        // The four note tools and quantize refuse too. Each would change the
+        // notes if the clip were open, so the refusal is what keeps them.
+        let both = [0_usize, 1];
+        let grid = quantize::Settings {
+            step: q(4),
+            ..quantize::Settings::default()
+        };
+        assert_eq!(doc.quantize_notes(clip, &both, &grid), both);
+        let humanize = tools::Humanize {
+            timing: q(1),
+            velocity: 20,
+            seed: 5,
+        };
+        assert_eq!(doc.humanize_notes(clip, &both, &humanize), both);
+        assert_eq!(doc.fixed_length_notes(clip, &both, q(1)), both);
+        assert_eq!(
+            doc.scale_constrain_notes(clip, &both, 1, tools::Scale::Major),
+            both
+        );
+        assert_eq!(doc.reverse_notes(clip, &both), both);
         assert_eq!(doc.state(), state);
         assert_eq!(*doc.project(), before);
         // Unlocked again, the same edit works.
@@ -552,12 +600,63 @@ mod tests {
         assert_eq!(content(&doc).0.len(), 1);
     }
 
+    /// An audio clip on a new audio track, which every note edit must refuse.
+    fn with_audio_clip(doc: &mut Document) -> Id {
+        doc.add_track(TrackKind::Audio, None);
+        let clip = doc.fresh_id();
+        doc.apply("audio clip", None, |p| {
+            if let Some(track) = p.tracks.last_mut() {
+                Arc::make_mut(track).clips.push(Arc::new(Clip {
+                    id: clip,
+                    name: "Audio".into(),
+                    start: q(0),
+                    length: q(4),
+                    muted: false,
+                    color: None,
+                    locked: false,
+                    fade_in: Default::default(),
+                    fade_out: Default::default(),
+                    loop_length: None,
+                    content: ClipContent::Audio {
+                        media: Id(0),
+                        offset: 0,
+                        gain_db: 0.0,
+                    },
+                }));
+            }
+        });
+        clip
+    }
+
     #[test]
     fn a_missing_clip_or_an_audio_clip_is_refused() {
-        let (mut doc, _) = doc_with(vec![n(0, 1, 60)]);
+        let (mut doc, _) = doc_with(vec![n(0, 1, 60), n(2, 1, 62)]);
+        let audio = with_audio_clip(&mut doc);
         let state = doc.state();
-        assert_eq!(doc.delete_notes(Id(777), &[0]), [0]);
+        let before = doc.project().clone();
+        let sel = [0_usize, 1];
+        let grid = quantize::Settings {
+            step: q(4),
+            ..quantize::Settings::default()
+        };
+        let humanize = tools::Humanize {
+            timing: q(1),
+            velocity: 20,
+            seed: 5,
+        };
+        for clip in [Id(777), audio] {
+            assert_eq!(doc.delete_notes(clip, &sel), sel);
+            assert_eq!(doc.quantize_notes(clip, &sel, &grid), sel);
+            assert_eq!(doc.humanize_notes(clip, &sel, &humanize), sel);
+            assert_eq!(doc.fixed_length_notes(clip, &sel, q(1)), sel);
+            assert_eq!(
+                doc.scale_constrain_notes(clip, &sel, 1, tools::Scale::Major),
+                sel
+            );
+            assert_eq!(doc.reverse_notes(clip, &sel), sel);
+        }
         assert_eq!(doc.state(), state);
+        assert_eq!(*doc.project(), before);
     }
 
     #[test]
@@ -626,5 +725,134 @@ mod tests {
         doc.delete_clips(&[clip]);
         assert!(!selection.refresh(doc.project()));
         assert!(selection.is_empty());
+    }
+
+    /// `tenths` of a beat, exact in ticks (PPQ is a multiple of ten).
+    fn tenths(tenths: i64) -> Ticks {
+        Ticks(PPQ * tenths / 10)
+    }
+
+    #[test]
+    fn quantize_snaps_starts_to_the_grid_and_leaves_events() {
+        // With the default settings (a sixteenth grid), 0.1 beat is nearest 0.
+        let (mut doc, clip) = doc_with(vec![Note::new(tenths(1), q(1), 60, 100)]);
+        assert_eq!(
+            doc.quantize_notes(clip, &[0], &quantize::Settings::default()),
+            [0]
+        );
+        assert_eq!(content(&doc).0, [Note::new(q(0), q(1), 60, 100)]);
+
+        // On a quarter grid: 0.1 beat goes to 0, and 2.6 beats (0.4 from
+        // beat 3, 0.6 from beat 2) goes to 3.
+        let (mut doc, clip) = doc_with(vec![
+            Note::new(tenths(1), q(1), 60, 100),
+            Note::new(tenths(26), q(1), 62, 100),
+        ]);
+        let events0 = content(&doc).1;
+        let grid = quantize::Settings {
+            step: q(1),
+            ..quantize::Settings::default()
+        };
+        assert_eq!(doc.quantize_notes(clip, &[0, 1], &grid), [0, 1]);
+        let (notes, events) = content(&doc);
+        assert_eq!(
+            notes,
+            [
+                Note::new(q(0), q(1), 60, 100),
+                Note::new(q(3), q(1), 62, 100),
+            ]
+        );
+        assert_eq!(events, events0);
+        doc.undo();
+        assert_eq!(content(&doc).0[1].start(), tenths(26));
+    }
+
+    #[test]
+    fn fixed_length_gives_each_picked_note_the_length_and_leaves_the_rest() {
+        let (mut doc, clip) = doc_with(vec![n(0, 2, 60), n(4, 3, 62), n(8, 4, 64)]);
+        let events0 = content(&doc).1;
+        assert_eq!(doc.fixed_length_notes(clip, &[0, 1], q(1)), [0, 1]);
+        let (notes, events) = content(&doc);
+        assert_eq!(notes, [n(0, 1, 60), n(4, 1, 62), n(8, 4, 64)]);
+        assert_eq!(events, events0);
+    }
+
+    #[test]
+    fn reverse_mirrors_the_picked_notes_within_their_span() {
+        // Span 0 to 6 beats. The note at 0 (length 2) mirrors to start at 4,
+        // the one at 2 (length 2) stays where it is (2 to 4), and the one at
+        // 5 (length 1) goes to 0. Pitches and lengths are kept.
+        let (mut doc, clip) = doc_with(vec![n(0, 2, 60), n(2, 2, 62), n(5, 1, 64)]);
+        let events0 = content(&doc).1;
+        assert_eq!(doc.reverse_notes(clip, &[0, 1, 2]), [0, 1, 2]);
+        let (notes, events) = content(&doc);
+        assert_eq!(notes, [n(0, 1, 64), n(2, 2, 62), n(4, 2, 60)]);
+        assert_eq!(events, events0);
+    }
+
+    #[test]
+    fn scale_constrain_moves_c_sharp_to_c_in_c_major() {
+        // C# sits between C and D, and a tie goes down: C. D is in the scale.
+        let (mut doc, clip) = doc_with(vec![n(0, 1, 61), n(2, 1, 62)]);
+        let events0 = content(&doc).1;
+        assert_eq!(
+            doc.scale_constrain_notes(clip, &[0, 1], 0, tools::Scale::Major),
+            [0, 1]
+        );
+        let (notes, events) = content(&doc);
+        assert_eq!(notes, [n(0, 1, 60), n(2, 1, 62)]);
+        assert_eq!(events, events0);
+
+        // C in D major: C# and B are both in the scale, and the tie goes down
+        // to B (59).
+        let (mut doc, clip) = doc_with(vec![n(0, 1, 60)]);
+        doc.scale_constrain_notes(clip, &[0], 2, tools::Scale::Major);
+        assert_eq!(content(&doc).0, [n(0, 1, 59)]);
+    }
+
+    #[test]
+    fn humanize_without_a_range_changes_nothing_and_timing_stays_in_the_clip() {
+        let (mut doc, clip) = doc_with(vec![n(0, 1, 60), n(4, 1, 62), n(15, 1, 64)]);
+        let events0 = content(&doc).1;
+        let before = doc.project().clone();
+        let none = tools::Humanize {
+            timing: Ticks::ZERO,
+            velocity: 0,
+            seed: 1,
+        };
+        assert_eq!(doc.humanize_notes(clip, &[0, 1, 2], &none), [0, 1, 2]);
+        assert_eq!(*doc.project(), before, "no range, so no change and no step");
+
+        let timing = tools::Humanize {
+            timing: q(2),
+            velocity: 0,
+            seed: 1,
+        };
+        let sel = doc.humanize_notes(clip, &[0, 1, 2], &timing);
+        let (notes, events) = content(&doc);
+        assert_eq!(events, events0);
+        assert_eq!(sel.len(), 3);
+        let mut pitches: Vec<u8> = sel.iter().map(|&i| notes[i].pitch()).collect();
+        pitches.sort_unstable();
+        assert_eq!(pitches, [60, 62, 64]);
+        let original = |pitch: u8| match pitch {
+            60 => q(0),
+            62 => q(4),
+            _ => q(15),
+        };
+        assert!(
+            notes
+                .iter()
+                .any(|note| note.start() != original(note.pitch())),
+            "at least one start moved"
+        );
+        for note in &notes {
+            assert!(
+                note.start() >= Ticks::ZERO && note.end() <= q(16),
+                "{note:?} stays in the clip"
+            );
+            assert_eq!(note.length(), q(1));
+            assert_eq!(note.velocity(), 100, "velocity has no range");
+        }
     }
 }

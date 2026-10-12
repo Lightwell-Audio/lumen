@@ -476,7 +476,12 @@ impl App {
         };
         row(ui, "Quantize", quantize.as_ref(), super::NoteOp::Quantize);
         row(ui, "Humanize", humanize.as_ref(), super::NoteOp::Humanize);
-        row(ui, "Fixed length", fixed.as_ref(), super::NoteOp::FixedLength);
+        row(
+            ui,
+            "Fixed length",
+            fixed.as_ref(),
+            super::NoteOp::FixedLength,
+        );
         row(ui, "Reverse", reverse.as_ref(), super::NoteOp::Reverse);
         let mut scale_op = None;
         widgets::submenu(ui, "Constrain to scale", |ui| {
@@ -510,10 +515,7 @@ impl App {
 }
 
 fn label(ui: &mut Ui, text: &str) {
-    let (rect, _) = ui.allocate_exact_size(
-        vec2(LABEL, theme::size::CONTROL),
-        egui::Sense::hover(),
-    );
+    let (rect, _) = ui.allocate_exact_size(vec2(LABEL, theme::size::CONTROL), egui::Sense::hover());
     ui.painter().text(
         rect.left_center(),
         egui::Align2::LEFT_CENTER,
