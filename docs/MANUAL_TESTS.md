@@ -2383,7 +2383,7 @@ Results:
 
 
 ### MT-MIDI-6 · Quantize (needs a human and ears)
-Slice 5 of M5 (ADR-0054). **Status: waits.** In PowerShell, from the
+Slice 5 of M5 (ADR-0054). **Status: passed 2026-10-12 (run 2).** In PowerShell, from the
 repository root:
 
 ```powershell
@@ -2422,3 +2422,5 @@ Grid dropdown closed the popover; the slider trail ran past its head at 100%;
 too much glow on the head; unclear which grid Q uses (now a readout beside
 the button and a toast). **Re-run: steps 1, 5 and 8 again**, and check the
 readout beside Quantize changes with the popover's settings.
+
+**Run 2 (2026-10-12, owner): passed.** Steps 1, 5 and 8 re-run and passed.
