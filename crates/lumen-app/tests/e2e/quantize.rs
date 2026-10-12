@@ -508,3 +508,82 @@ fn controller_events_are_never_touched() {
     assert_eq!(notes(&lumen), notes0, "every step taken back");
     assert_eq!(events(&lumen), events0, "the events came back untouched");
 }
+
+#[test]
+fn choosing_a_grid_in_the_popover_keeps_the_popover_open() {
+    let mut lumen = launch("quantize-grid-pick", vec![]);
+    let before = notes(&lumen);
+    let label = lumen.app().undo_label().map(str::to_owned);
+    open_popover(&mut lumen);
+
+    lumen.harness.get_by_label_contains("Quantize grid").click();
+    lumen.frames(10);
+    lumen.click("1/8");
+    lumen.frames(30);
+
+    assert!(
+        lumen.shows("Apply"),
+        "the popover stays open after a grid is picked"
+    );
+    assert!(lumen.shows("Strength: 100%"), "its sliders are still there");
+    assert!(
+        lumen
+            .harness
+            .query_by_label_contains("Quantize grid: 1/8")
+            .is_some(),
+        "the dropdown now reads 1/8"
+    );
+    assert_eq!(notes(&lumen), before, "nothing in the document changed");
+    assert_eq!(lumen.app().undo_label().map(str::to_owned), label);
+}
+
+#[test]
+fn the_label_beside_quantize_says_what_q_will_do() {
+    let mut lumen = launch("quantize-label", vec![]);
+    assert!(
+        lumen.shows("1/16"),
+        "with the popover closed, the grid Q uses is told"
+    );
+
+    open_popover(&mut lumen);
+    lumen.click("Triplet grid");
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.frames(40);
+    assert!(!lumen.shows("Apply"), "Esc closed the popover");
+    assert!(lumen.shows("1/16T"), "a triplet grid is told with a T");
+
+    open_popover(&mut lumen);
+    lumen.click("Quantize note ends");
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.frames(40);
+    assert!(
+        lumen.shows("1/16T · ends"),
+        "the mode is told after the grid"
+    );
+
+    open_popover(&mut lumen);
+    set_strength(&mut lumen, "50");
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.frames(40);
+    assert!(
+        lumen.shows("1/16T · ends · 50%"),
+        "a strength below 100% is told last"
+    );
+}
+
+#[test]
+fn q_with_nothing_picked_says_what_it_quantized_in_a_note() {
+    let mut lumen = launch("quantize-toast", vec![]);
+
+    roll_key(&mut lumen, Modifiers::NONE, Key::Q);
+
+    assert_eq!(
+        lumen.app().note(),
+        Some("Quantized 4 notes to 1/16"),
+        "the note after Q"
+    );
+    assert!(
+        lumen.shows("Quantized 4 notes to 1/16"),
+        "the note is on screen"
+    );
+}

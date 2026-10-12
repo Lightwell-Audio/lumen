@@ -600,6 +600,10 @@ pub fn value_slider_styled(
 fn draw_comet(p: &Painter, rect: Rect, x: f32, hot: f32) {
     let palette = *theme::p();
     let inner = rect.shrink2(vec2(2.0, 4.0));
+    let r = inner.height() / 2.0;
+    // The head stays inside the slider at both ends, and the trail ends at
+    // it (at 100% the trail ran on past the head to the edge).
+    let x = x.clamp(inner.left() + r, inner.right() - r);
     if x - inner.left() >= 1.0 {
         let pieces = 24;
         let width = x - inner.left();
@@ -613,12 +617,11 @@ fn draw_comet(p: &Painter, rect: Rect, x: f32, hot: f32) {
             p.rect_filled(piece, 0.0, palette.accent.gamma_multiply(alpha));
         }
     }
-    let y = rect.center().y;
-    let r = inner.height() / 2.0;
-    // The head stays inside the slider at both ends.
-    let head = pos2(x.clamp(inner.left() + r, inner.right() - r), y);
-    let glow = 1.0 + hot;
-    for (radius, alpha) in [(r * 2.6 * glow, 0.14), (r * 1.7 * glow, 0.3)] {
+    let head = pos2(x, rect.center().y);
+    // A restrained glow (owner: too much): one soft ring, a little more
+    // while the pointer is on it.
+    let glow = 1.0 + 0.25 * hot;
+    for (radius, alpha) in [(r * 1.9 * glow, 0.10), (r * 1.4 * glow, 0.22)] {
         p.circle_filled(head, radius, palette.accent.gamma_multiply(alpha));
     }
     p.circle_filled(head, r, palette.core);

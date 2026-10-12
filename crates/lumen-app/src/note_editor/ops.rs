@@ -107,7 +107,20 @@ impl App {
                 let next = match op {
                     NoteOp::Quantize => {
                         let settings = editor.quantize.options.settings(step);
-                        self.document.quantize_notes(clip, &targets, &settings)
+                        let next = self.document.quantize_notes(clip, &targets, &settings);
+                        let what = editor.quantize.options.summary(step);
+                        self.toast = Some((
+                            format!(
+                                "Quantized {} to {what}",
+                                if targets.len() == 1 {
+                                    "1 note".to_owned()
+                                } else {
+                                    format!("{} notes", targets.len())
+                                }
+                            ),
+                            std::time::Instant::now(),
+                        ));
+                        next
                     }
                     NoteOp::Humanize => {
                         let humanize = self.humanize_with(editor);

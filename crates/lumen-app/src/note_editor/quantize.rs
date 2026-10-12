@@ -127,6 +127,32 @@ impl Options {
         }
     }
 
+    /// What Q will do, short: the grid ("1/16", "1/8T", "1/16."), then only
+    /// what is not the default: the mode, strength and swing.
+    pub fn summary(&self, editing: Ticks) -> String {
+        let base = self
+            .grid
+            .map_or_else(|| step_name(editing), |d| d.label().to_owned());
+        let mut text = match self.kind {
+            Kind::Straight => base,
+            Kind::Triplet => format!("{base}T"),
+            Kind::Dotted => format!("{base}."),
+        };
+        match self.mode {
+            Mode::Start => {}
+            Mode::End => text.push_str(" · ends"),
+            Mode::StartAndEnd => text.push_str(" · both"),
+            Mode::Length => text.push_str(" · length"),
+        }
+        if self.strength < 1.0 {
+            text.push_str(&format!(" · {:.0}%", self.strength * 100.0));
+        }
+        if self.swing > 0.0 {
+            text.push_str(&format!(" · swing {:.0}%", self.swing * 100.0));
+        }
+        text
+    }
+
     /// The grid as the popover's dropdown names it.
     fn grid_label(&self, editing: Ticks) -> String {
         match self.grid {
@@ -306,6 +332,16 @@ impl App {
             Some("Q applies the last settings; this shows what it will do first"),
         );
         let editing = self.editing_step(ed, clip);
+        // What Q does is told beside the button, so it is known with the
+        // popover closed (owner, MT-MIDI-6: "what subdivision is it?").
+        let summary = ed.quantize.options.summary(editing);
+        row.label(
+            egui::RichText::new(&summary)
+                .monospace()
+                .size(theme::size::CAPTION)
+                .color(theme::p().text_secondary),
+        )
+        .on_hover_text(format!("Q quantizes to {summary}"));
         let id = response.id;
         let mut apply = false;
         widgets::Menu::below(&response).staying().show(|ui| {

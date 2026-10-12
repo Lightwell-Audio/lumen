@@ -35,6 +35,33 @@ pub(crate) fn note_change(ui: &Ui) {
     ui.ctx().data_mut(|d| d.insert_temp(change_key(), true));
 }
 
+/// Where the menus drawn this pass are noted, so a staying menu can tell
+/// that a click landed in a menu opened from inside it (a dropdown in a
+/// popover), not outside.
+fn drawn_id() -> EguiId {
+    EguiId::new("lumen menus drawn")
+}
+
+fn note_drawn(ctx: &egui::Context, id: EguiId) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| {
+        let drawn = d.get_temp_mut_or_default::<(u64, Vec<EguiId>)>(drawn_id());
+        if drawn.0 != pass {
+            *drawn = (pass, Vec::new());
+        }
+        drawn.1.push(id);
+    });
+}
+
+/// Whether a menu other than `id` was drawn this pass.
+fn other_drawn(ctx: &egui::Context, id: EguiId) -> bool {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data(|d| {
+        d.get_temp::<(u64, Vec<EguiId>)>(drawn_id())
+            .is_some_and(|(at, ids)| at == pass && ids.iter().any(|i| *i != id))
+    })
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 struct State {
     open: bool,
@@ -224,6 +251,7 @@ impl<'r> Menu<'r> {
             Opens::Context => Popup::menu(self.response).at_position(state.at.unwrap_or_default()),
         };
         let mut open = true;
+        note_drawn(&ctx, id);
         ctx.data_mut(|d| d.remove::<bool>(change_key()));
         let shown_menu = popup
             .open_bool(&mut open)
@@ -264,7 +292,10 @@ impl<'r> Menu<'r> {
             )
         });
         state.changed |= changed;
-        if !open && !opened_now {
+        if !open && !opened_now && self.stays && other_drawn(&ctx, id) {
+            // A click in a menu opened from inside this one (a dropdown in
+            // a popover) is not a click elsewhere.
+        } else if !open && !opened_now {
             // Esc, a click elsewhere or a command closed it.
             begin_closing(&mut state);
             Popup::close_id(&ctx, popup_id);
