@@ -1365,8 +1365,9 @@ audio files (drums, bass, a vocal, anything) and group the first two
 1. **Solo and the hollow M:** play, and click S on the bass. Only the bass
    is heard. The other tracks' M buttons show a hollow ring and their
    names dim: silent, but not muted by you. The transport shows a lit
-   "S" chip. Ctrl+click S on the vocal: both are heard, the chip reads
-   "S 2". Click the chip: every solo clears, in one undo step.
+   circular "S" chip. Ctrl+click S on the vocal: both are heard, and
+   hovering the chip reports two solos. Click it: every solo clears,
+   in one undo step.
 2. **Solo a group:** click S on the group. Its tracks show a hollow S
    (heard through the group) and play; the others are silent. Mute one
    track inside: it goes silent although the group is soloed (mute beats
@@ -2291,6 +2292,37 @@ cargo run --release -p lumen-app -- tests\projects\midi-demo.lumen
 step, and the clip changes only when you let go.
 
 **Run 1: waiting for the owner.**
+
+### MT-UX-1 · Clip gestures, playback selection and control spacing
+
+1. Open a project with audio and MIDI clips. Drag a clip's title/header:
+   it moves; Ctrl-drag copies. Undo restores the original arrangement.
+2. Drag from the waveform or MIDI-note body, including just below its
+   title: a time range forms and the clip stays put. Repeat from empty
+   lane space. No dashed halfway divider appears when hovering a clip.
+3. Check trim, loop extension, audio fades and gain handles still work.
+4. While stopped, click a clip or empty lane: the playhead moves to the
+   snapped time. Double-click a MIDI clip to open its editor.
+5. Start playback. Click clip headers, clip bodies and empty lanes:
+   selection changes but playback continues without jumping. Ctrl-click
+   still adds/removes clips from selection. Click the ruler and scrub
+   strip: these deliberately seek while playback continues.
+6. In the velocity/controller panel, check the pills have clear vertical
+   margins and both the left tabs and right tools have horizontal insets.
+7. The transport's global S button stays circular with zero, one and
+   multiple soloed tracks. Check its count hint, clearing solos and
+   keyboard focus. Repeat the visual checks in both themes at 100%,
+   150% and 200% scale.
+
+**Agent verification (2026-10-11):** all 428 application unit tests and
+277 end-to-end tests and all six real-binary smoke tests pass; application
+clippy (`--all-targets -D warnings`) and formatting pass. GPU screenshots
+of the lane and zero/one/multiple
+solo states were inspected in both themes at 100%, 150% and 200%.
+The first parallel test run hit existing audition/MIDI scheduling checks;
+they passed when rerun without concurrent GPU rendering. Builds and test
+temporary files used `D:/Projects/lumen/target/codex-61b4` because C: was
+full. The owner's manual listening/interaction check remains available.
 
 ### MT-DS-1 · The design system's look (needs a human; both themes)
 

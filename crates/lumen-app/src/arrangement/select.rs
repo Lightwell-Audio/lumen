@@ -1,5 +1,4 @@
-//! Clip selection and moving (M3 slice 6a), in the owner's split-clip
-//! model: a clip's top half moves it (Ctrl copies), its bottom half selects
+//! Clip selection and moving: a clip's header moves it (Ctrl copies), its body selects
 //! a time range (slice 6b). A drag in empty lanes selects a time range on
 //! the tracks it spans (ADR-0049); Ctrl+Shift there draws a clip marquee.
 //!
@@ -15,13 +14,10 @@ use lumen_project::model::{ClipContent, Id, Project, TrackKind};
 
 use super::clips::INSET;
 use super::handles::{ClipHandles, Handle};
-use super::{Arrangement, RowKind, Zone};
+use super::{Arrangement, RowKind, TITLE, Zone};
 use crate::document::ClipMove;
 use crate::timeview::TimeView;
 
-/// Each half of a clip is at least this tall, so both stay easy to hit on
-/// short tracks (the owner's split-clip choice).
-pub const MIN_HALF: f32 = 11.0;
 /// Within this many points of a clip's side, a drag trims it (slice 6c; a
 /// quarter of the clip when it is narrow).
 pub const EDGE_ZONE: f32 = 6.0;
@@ -101,30 +97,25 @@ pub fn edge_at(rect: Rect, x: f32) -> Option<Edge> {
     }
 }
 
-/// Which half of a clip the pointer is over.
+/// Which visible part of a clip the pointer is over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Half {
+pub enum ClipRegion {
     /// Moves the clip.
-    Top,
+    Header,
     /// Selects a time range.
-    Bottom,
+    Body,
 }
 
-/// Where the line between the halves of a clip `rect` falls.
-pub fn split_y(rect: Rect) -> f32 {
-    let mid = rect.center().y;
-    if rect.height() < 2.0 * MIN_HALF {
-        mid
-    } else {
-        mid.clamp(rect.top() + MIN_HALF, rect.bottom() - MIN_HALF)
-    }
+/// The bottom of the rendered title bar, including on short tracks.
+pub fn title_bottom(rect: Rect) -> f32 {
+    rect.top() + TITLE.min(rect.height())
 }
 
-pub fn half_at(rect: Rect, y: f32) -> Half {
-    if y < split_y(rect) {
-        Half::Top
+pub fn region_at(rect: Rect, y: f32) -> ClipRegion {
+    if y < title_bottom(rect) {
+        ClipRegion::Header
     } else {
-        Half::Bottom
+        ClipRegion::Body
     }
 }
 
@@ -136,8 +127,8 @@ pub struct ClipHit {
     pub clip: Id,
     /// Where it is drawn.
     pub rect: Rect,
-    pub half: Half,
-    /// A side close enough to trim, which wins over the halves.
+    pub region: ClipRegion,
+    /// A side close enough to trim, which wins over the regions.
     pub edge: Option<Edge>,
     /// A fade or gain handle (slice 6d): fade handles win over the sides,
     /// the sides over the gain line.
@@ -148,7 +139,7 @@ pub struct ClipHit {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Hover {
     pub clip: Id,
-    pub half: Half,
+    pub region: ClipRegion,
     pub edge: Option<Edge>,
     pub handle: Option<Handle>,
 }
@@ -157,7 +148,7 @@ impl From<&ClipHit> for Hover {
     fn from(hit: &ClipHit) -> Self {
         Self {
             clip: hit.clip,
-            half: hit.half,
+            region: hit.region,
             edge: hit.edge,
             handle: hit.handle,
         }
@@ -192,7 +183,7 @@ pub enum Gesture {
     },
     /// A marquee from `from`; clips selected before it (Ctrl or Shift) stay.
     Marquee { from: Pos2, kept: BTreeSet<Id> },
-    /// A time range from `at` on track `track` (a clip's bottom half, or an
+    /// A time range from `at` on track `track` (a clip's body, or an
     /// empty lane); it spans the tracks down to the pointer's.
     Range { at: Ticks, track: usize },
     /// Trimming a side of `clip`; with `looping` (Shift at the start) the
@@ -374,7 +365,7 @@ impl Arrangement {
         out
     }
 
-    /// The clip under `pointer`, and which half. Later clips win where
+    /// The clip under `pointer`, and which region. Later clips win where
     /// clips overlap, as they are drawn on top.
     pub fn clip_at(
         &self,
@@ -404,7 +395,7 @@ impl Arrangement {
                     track,
                     clip,
                     rect,
-                    half: half_at(rect, pointer.y),
+                    region: region_at(rect, pointer.y),
                     edge: if handle.is_some() { None } else { edge },
                     handle,
                 }
@@ -540,13 +531,17 @@ mod tests {
     }
 
     #[test]
-    fn halves_split_in_the_middle_but_stay_hittable() {
-        let tall = Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 80.0));
-        assert_eq!(split_y(tall), 40.0);
-        assert_eq!(half_at(tall, 39.0), Half::Top);
-        assert_eq!(half_at(tall, 41.0), Half::Bottom);
-        let short = Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 18.0));
-        assert_eq!(split_y(short), 9.0, "too short for 11 each: halve it");
+    fn gesture_regions_follow_the_rendered_title_on_every_track_height() {
+        for height in [10.0, 18.0, 80.0, 200.0] {
+            let rect = Rect::from_min_size(pos2(0.0, 20.0), vec2(100.0, height));
+            let bottom = 20.0 + TITLE.min(height);
+            assert_eq!(title_bottom(rect), bottom);
+            assert_eq!(region_at(rect, bottom - 0.1), ClipRegion::Header);
+            if height > TITLE {
+                assert_eq!(region_at(rect, bottom), ClipRegion::Body);
+                assert_eq!(region_at(rect, bottom + 0.1), ClipRegion::Body);
+            }
+        }
     }
 
     #[test]

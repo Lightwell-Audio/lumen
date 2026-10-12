@@ -1,5 +1,4 @@
-//! Clip editing on the lanes (M3 slice 6), in the owner's split-clip
-//! model: a clip's top half moves it (Ctrl+drag copies), its bottom half
+//! Clip editing on the lanes: a clip's header moves it (Ctrl+drag copies), its body
 //! selects a time range, and a drag in empty lanes selects a time range on
 //! the tracks it spans (ADR-0049; Ctrl+Shift+drag draws a clip marquee
 //! instead). A range and the track selection travel together. Clicks select
@@ -17,7 +16,7 @@ use super::info::{Held, Info, Mouse};
 use super::navigate::ViewStep;
 use crate::arrangement::Arrangement;
 use crate::arrangement::select::{
-    ClipStep, Edge, EmptyLaneDrag, Gesture, Half, Hover, TimeRange, clip_step, drag_moves,
+    ClipRegion, ClipStep, Edge, EmptyLaneDrag, Gesture, Hover, TimeRange, clip_step, drag_moves,
     empty_lane_drag,
 };
 use crate::commands::Command;
@@ -181,14 +180,16 @@ impl App {
             }
             self.arrangement.range = None;
             self.selected_clips_now();
-            // A plain click anywhere on the lanes also moves the playhead
-            // there (snapped; Alt places freely), as in Ableton (owner,
-            // MT-APP-14 run 2). Ctrl and Shift clicks only build a
-            // selection.
+            // While stopped, a plain lane click also locates (snapped;
+            // Alt places freely). While playing, selecting or editing
+            // clips must leave playback running from its current place.
+            // Ctrl and Shift clicks only build a selection.
             if !adding {
-                let target = self.snapped(self.ticks_at(canvas, p.x), modifiers.alt);
-                self.transport.locate(target.max(Ticks::ZERO));
-                self.transport.follow_paused = true;
+                if !self.transport.state().playing {
+                    let target = self.snapped(self.ticks_at(canvas, p.x), modifiers.alt);
+                    self.transport.locate(target.max(Ticks::ZERO));
+                    self.transport.follow_paused = true;
+                }
                 // The clicked track is where Paste lands now; the headers'
                 // selection gives way to it.
                 self.arrangement.insert = self.lane_track(&ctx, canvas, p);
@@ -220,7 +221,7 @@ impl App {
             };
         }
 
-        // The H1 hover: which half is under the pointer, and what it does.
+        // The H1 hover: which region is under the pointer, and what it does.
         // Not while a menu is open: the hint would sit on it.
         if self.arrangement.gesture.is_some() || egui::Popup::is_any_open(&ctx) {
             return;
@@ -236,7 +237,15 @@ impl App {
                 Info::new("Lanes")
                     .on(Held::NONE, Mouse::Drag, "select time")
                     .on(Held::CTRL_SHIFT, Mouse::Drag, "select clips")
-                    .on(Held::NONE, Mouse::Click, "move the playhead")
+                    .on(
+                        Held::NONE,
+                        Mouse::Click,
+                        if self.transport.state().playing {
+                            "clear selection"
+                        } else {
+                            "move the playhead"
+                        },
+                    )
                     .on(Held::NONE, Mouse::RightClick, "menu")
                     .key(Command::Paste, "paste"),
             );
@@ -259,7 +268,7 @@ impl App {
         let name = format!("\u{201C}{}\u{201D}", clip.name);
         let slip = modifiers.command && modifiers.alt;
         // The cursor shows what a drag does now; the info line says it all.
-        let (cursor, info) = match (hit.edge, hit.half) {
+        let (cursor, info) = match (hit.edge, hit.region) {
             _ if clip.locked => (
                 CursorIcon::NotAllowed,
                 Info::new(format!("Locked clip {name}")).on(
@@ -282,7 +291,7 @@ impl App {
                 CursorIcon::ResizeHorizontal,
                 Info::new(format!("Start of {name}")).on(Held::NONE, Mouse::Drag, "trim"),
             ),
-            (None, Half::Top) => (
+            (None, ClipRegion::Header) => (
                 if slip {
                     CursorIcon::ResizeColumn
                 } else if modifiers.command {
@@ -298,10 +307,11 @@ impl App {
                     .key(Command::MuteClips, "mute")
                     .key(Command::ClipProperties, "properties"),
             ),
-            (None, Half::Bottom) => (
+            (None, ClipRegion::Body) => (
                 CursorIcon::Text,
-                Info::new(format!("Clip {name}, lower half"))
+                Info::new(format!("Clip {name}, body"))
                     .on(Held::NONE, Mouse::Drag, "select time")
+                    .on(Held::CTRL_SHIFT, Mouse::Drag, "select clips")
                     .key(Command::LoopSelection, "loop the selection"),
             ),
         };
@@ -388,7 +398,7 @@ impl App {
                 looping: edge == Edge::End && modifiers.shift,
             });
         }
-        if hit.half == Half::Top && modifiers.command && modifiers.alt {
+        if hit.region == ClipRegion::Header && modifiers.command && modifiers.alt {
             if locked {
                 return None;
             }
@@ -401,12 +411,8 @@ impl App {
                 at: self.ticks_at(canvas, origin.x),
             });
         }
-        if hit.half == Half::Bottom {
-            self.arrangement.clips.clear();
-            return Some(Gesture::Range {
-                at: self.ticks_at(canvas, origin.x),
-                track: hit.track,
-            });
+        if hit.region == ClipRegion::Body {
+            return self.empty_lane_gesture(ctx, origin, canvas, modifiers);
         }
         if !self.arrangement.clips.contains(&hit.clip) {
             if !adding {
@@ -559,7 +565,7 @@ impl App {
                 }
                 self.arrangement.hover = Some(Hover {
                     clip,
-                    half: Half::Top,
+                    region: ClipRegion::Header,
                     edge: Some(edge),
                     handle: None,
                 });

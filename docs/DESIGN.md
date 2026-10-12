@@ -561,14 +561,14 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
 
 ### Clip selection (M3 slice 6, owner's choices S3 and H1)
 
-The split-clip model: a clip's top half moves it (Ctrl copies), its bottom
-half selects a time range, empty lanes draw a marquee.
-- **Hover (H1):** the half under the pointer brightens (`text` at 8%), a
-  dashed line (`text` at 35%, 4 on, 3 off) marks the split, and a hint
-  chip (`widgets::draw_hint`) says "drag to move · Ctrl copies" (move
-  mark) or "drag to select time" (double arrow). Cursors: grab, copy, or
-  an I-beam; locked clips show "locked" and a not-allowed cursor. Each
-  half is at least 11 pt tall.
+The clip's visible title/header moves it (Ctrl copies); its waveform or
+MIDI-note body selects a time range, just like empty lane space. Ctrl+Shift
+in empty lanes draws a clip marquee (ADR-0049). The header/body model
+replaces the old arbitrary halfway division (owner, ADR-0053).
+- **Hover:** the header or body under the pointer brightens (`text` at
+  8%), with no dashed halfway divider. The info line describes moving or
+  selecting time. Cursors: grab, copy, or an I-beam; locked clips show
+  "locked" and a not-allowed cursor.
 - **Selected clips (S3):** an `accent` glow (`widgets::draw_glow_rect`):
   a crisp 1.5 pt line with soft layers at 28% and 12% outside it.
 - **Time range:** `accent` at 16% over the lanes it spans, with 1 pt
@@ -580,7 +580,7 @@ half selects a time range, empty lanes draw a marquee.
   Within 6 pt of a side (a quarter of a narrow clip) the side glows as a
   rail, `accent` 3 pt at 60% over 6 pt at 15%, with a resize cursor and
   the chip "drag to trim · Shift loops" ("drag to loop" with Shift).
-  Ctrl+Alt over the top half: "drag to slip the audio".
+  Ctrl+Alt over the header: "drag to slip the audio".
 - **Fades and gain (owner's choices F3 with the glow, and G1; slice 6d):**
   on audio clips at least 28 pt wide with a wave area of 10 pt or more.
   - At rest a fade is a quiet curve (`text` at 45%, 1 pt) over the
@@ -648,8 +648,10 @@ half selects a time range, empty lanes draw a marquee.
 - **The grid behind clips** (G1): clip bodies are drawn at 55% opacity,
   so the grid shows through at about half its strength; the title bar,
   border and waveform stay solid.
-- **A click on the lanes** moves the playhead there (snapped; Alt
-  freely), as a ruler click does; on a clip it selects it too.
+- **A click on the lanes** moves the playhead there only while stopped
+  (snapped; Alt freely); on a clip it selects it too. During playback,
+  clip and empty-lane clicks keep playback running from its current
+  position. Ruler and scrub-strip clicks can still seek while playing.
 - **Dropping files** (from the system): over an audio track's lane, the
   lane washes in `accent` at 8% with a 1 pt edge at 50%, and a ghost clip
   (dashed `accent` outline over `accent` at 14%, the file's name, or "3
@@ -668,9 +670,10 @@ Chosen from interactive specimens (ADR-0038):
   and its name and type icon dim. A track heard because its group is
   soloed shows a **hollow S** in the accent. Lit buttons mean the user set
   them on that track.
-- **The S chip** in the transport, after Follow: quiet grey "S" while
-  nothing is soloed, the accent with "S" (or "S 2", "S 3") while anything
-  is; a click clears every solo.
+- **The S chip** in the transport, after Follow: a pixel-snapped 20 pt
+  circle, quiet grey "S" while nothing is soloed and accent with "S"
+  while anything is. Its hint gives the solo count; a click clears every
+  solo. The focus ring follows the circle.
 - **Returns and the master (A1):** pinned at the bottom under a 7 pt
   divider (`raised`, strong edges, a 28 × 2 pt grip; it glows with the
   accent while hovered or dragged, as edges do), then a 22 pt "Returns"
@@ -795,7 +798,9 @@ Chosen from interactive specimens:
 Chosen from live specimens (ADR-0050). The lane sits under the piano roll in
 the clip editor, in the Clip tab and the pop-out, and shares the roll's zoom
 and grid.
-- **Header:** 26 pt on `raised`, a 1 pt `border_strong` rule along its top and
+- **Header:** 32 pt (`CONTROL` + twice `space::XS`) on `raised`, with 4 pt
+  vertical margins around the 24 pt pills and 8 pt horizontal insets;
+  a 1 pt `border_strong` rule along its top and
   a 1 pt `border` rule along its bottom. The tabs (Velocity, Mod wheel, Pitch
   bend, Pressure, "+ CC") sit at the left; the tools Pencil, Line and Curve
   at the right.

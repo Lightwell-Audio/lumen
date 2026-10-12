@@ -11,7 +11,7 @@ fn undo_glides_a_clip_back_and_washes_it() {
     let (mut lumen, kick, _) = with_two_clips("glide-undo");
     let ctx = lumen.harness.ctx.clone();
     let before = lumen.app().project().tracks[0].clips[0].start;
-    // Drag the kick's top half two bars on.
+    // Drag the kick's header two bars on.
     let a = rect(&lumen, kick);
     let from = pos2(a.center().x, a.top() + 6.0);
     lumen.drag(from, from + eframe::egui::vec2(200.0, 0.0), Modifiers::NONE);

@@ -149,6 +149,53 @@ fn double_clicking_a_midi_clip_opens_it_in_the_clip_tab() {
 }
 
 #[test]
+fn the_midi_clip_body_above_the_old_midpoint_selects_time_and_the_header_moves() {
+    let mut lumen = launch("notes-header-body");
+    // Fit tracks to the available lane height so the body has visible
+    // space above the former midpoint even with compact default tracks.
+    lumen.key(Modifiers::NONE, Key::H);
+    lumen.frames(40);
+    let ctx = lumen.harness.ctx.clone();
+    let r = lumen.app().clip_rect(&ctx, KEYS_CLIP).unwrap();
+    // Just below the visible 15 pt title, still above the old midpoint.
+    let y = r.top() + 20.0;
+    assert!(y < r.center().y);
+    lumen.drag(
+        Pos2::new(r.left() + 60.0, y),
+        Pos2::new(r.left() + 180.0, y),
+        Modifiers::NONE,
+    );
+    let (start, end, _) = lumen.app().time_range().expect("the body selects time");
+    assert_eq!((start, end), (q(1), q(3)));
+    assert_eq!(lumen.app().project().tracks[0].clips[0].start, q(0));
+
+    let from = Pos2::new(r.left() + 60.0, r.top() + 14.0);
+    lumen.drag(from, from + vec2(120.0, 0.0), Modifiers::NONE);
+    assert_eq!(lumen.app().project().tracks[0].clips[0].start, q(2));
+    assert!(lumen.app().time_range().is_none());
+    assert_eq!(lumen.app().selected_clips(), [KEYS_CLIP]);
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert_eq!(lumen.app().project().tracks[0].clips[0].start, q(0));
+}
+
+#[test]
+fn playing_double_click_opens_the_midi_editor_without_rewinding() {
+    let mut lumen = launch("notes-open-playing");
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::F);
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("playback past the click position", |app| {
+        app.is_playing() && app.playhead() > q(5)
+    });
+    let before = lumen.app().playhead();
+    open(&mut lumen);
+    lumen.listen(std::time::Duration::ZERO, 256);
+    assert!(lumen.app().is_playing());
+    assert!(lumen.app().playhead() >= before);
+    assert_eq!(lumen.app().selected_clips(), [KEYS_CLIP]);
+    assert!(lumen.shows("Note editor: Keys"));
+}
+
+#[test]
 fn the_clip_tab_is_an_empty_state_until_a_clip_is_opened() {
     let mut lumen = launch("notes-empty");
     lumen.click("Clip tab");
@@ -197,7 +244,7 @@ fn the_create_command_uses_the_time_range_when_there_is_one() {
     let mut lumen = launch("notes-create-range");
     let ctx = lumen.harness.ctx.clone();
     let r = lumen.app().clip_rect(&ctx, KEYS_CLIP).unwrap();
-    // The bottom half of a clip selects time: beat 1 to beat 3.
+    // The body of a clip selects time: beat 1 to beat 3.
     let y = r.bottom() - 6.0;
     lumen.drag(
         Pos2::new(r.left() + 60.0, y),

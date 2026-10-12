@@ -228,7 +228,7 @@ pub struct Arrangement {
     pub clips: BTreeSet<Id>,
     /// The clip drag or marquee in progress.
     pub gesture: Option<select::Gesture>,
-    /// The clip under the pointer, its half and the side it would trim,
+    /// The clip under the pointer, its region and the side it would trim,
     /// for the H1 hover and the L3 handles.
     pub hover: Option<select::Hover>,
     /// The marquee being drawn, on screen.

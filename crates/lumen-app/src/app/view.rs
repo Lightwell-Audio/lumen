@@ -365,7 +365,7 @@ report: {}",
             egui::WidgetInfo::labeled(
                 egui::WidgetType::Other,
                 true,
-                "Lanes: click to move the playhead, drag clips, or drag below a clip's middle to select time",
+                "Lanes: click to move the playhead while stopped, drag clip headers to move, or drag clip bodies and empty lanes to select time",
             )
         });
         self.clip_editing(ui, &hover, canvas, &painter);

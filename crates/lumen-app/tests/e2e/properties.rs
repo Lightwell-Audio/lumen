@@ -45,7 +45,7 @@ pub(super) fn clip(lumen: &Lumen, id: Id) -> Clip {
         .expect("the clip exists")
 }
 
-/// Clicks `clip`'s top half, selecting it.
+/// Clicks `clip`'s header, selecting it.
 pub(super) fn select(lumen: &mut Lumen, id: Id) {
     let r = rect(lumen, id);
     let p = Pos2::new(r.left() + 12.0, r.top() + 6.0);

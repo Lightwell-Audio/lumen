@@ -4415,3 +4415,31 @@ to the accent.
 - The fixtures, screenshots and E2E names are unchanged; the owner checks
   the look in MT-DS-1.
 
+## ADR-0053 — Clip headers move; bodies select time
+
+**Date:** 2026-10-11. **Status:** accepted by the owner.
+
+### Context
+Empty timeline space already selects arbitrary time ranges (ADR-0049).
+The clip's old upper/lower-half division adds an invisible boundary that
+does not follow the visible title bar. Selecting clips during playback
+also unexpectedly seeks the transport.
+
+### Decision
+Dragging the visible clip header moves it; Ctrl-drag copies and Ctrl+Alt
+drags slip audio. Dragging the waveform or MIDI-note body selects time,
+as empty lane space does. Existing trim, fade and gain handles retain
+their priority. Remove the dashed halfway divider and describe the
+header/body gestures in the info line.
+
+Plain clip and lane clicks seek only while stopped. While playing they
+update selection without changing playback position; ruler and scrub
+strip clicks still seek. This supersedes the split-clip interaction and
+halfway hover retained by ADR-0052.
+
+### Consequences
+The move target follows the visible title at every track height. Range
+selection remains available from the body, empty lanes and time ruler.
+Regression coverage must distinguish header/body drags, preserve the
+editing handles, and check both stopped and playing click behavior.
+

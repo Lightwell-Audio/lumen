@@ -574,23 +574,26 @@ pub fn punch_menu(ui: &mut Ui, doc: &mut crate::document::Document) {
 }
 
 /// The solo chip (the owner's D3, M4 slice 4): an "S" that lights while
-/// anything is soloed, with the count when more than one track is; a click
-/// clears every solo. Quiet and inactive while nothing is.
+/// anything is soloed, with the count in its hint; a click clears every
+/// solo. Quiet and inactive while nothing is.
 fn solo_chip(ui: &mut Ui, doc: &mut crate::document::Document, keymap: &Keymap) {
     let palette = *theme::p();
     let soloed = doc.project().tracks.iter().filter(|t| t.solo).count();
-    let text = match soloed {
-        0 | 1 => "S".to_owned(),
-        n => format!("S {n}"),
-    };
+    let text = "S";
     let font = crate::fonts::medium(theme::size::CAPTION);
-    let galley = ui.painter().layout_no_wrap(text, font, palette.text);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_owned(), font, palette.text);
     let height = theme::size::CONTROL_SMALL;
-    let width = (galley.size().x + 2.0 * theme::space::S).max(height);
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(height, height), egui::Sense::click());
     let keys = keymap.keys(Run::ClearSolos);
     let response = if soloed > 0 {
-        crate::widgets::tip(response, "Clear all solos", keys.as_ref(), None)
+        crate::widgets::tip(
+            response,
+            &format!("Clear all solos ({soloed})"),
+            keys.as_ref(),
+            None,
+        )
     } else {
         response.on_hover_text("Nothing is soloed")
     };
@@ -601,7 +604,7 @@ fn solo_chip(ui: &mut Ui, doc: &mut crate::document::Document, keymap: &Keymap) 
     // (the Transport card, ADR-0052).
     let lit = crate::motion::hover(ui.ctx(), response.id.with("lit"), soloed > 0);
     let face = crate::widgets::raised::face_of(ui, &response).lit(lit, crate::theme::Tone::Accent);
-    // A pill, 20 pt tall.
+    // A 20 pt circle; the count remains available in the tooltip.
     let rect = rect.round_to_pixels(ui.pixels_per_point());
     let body = crate::widgets::raised::paint(ui.painter(), rect, theme::radius::FULL, &face);
     let ink = if soloed > 0 {
@@ -610,7 +613,9 @@ fn solo_chip(ui: &mut Ui, doc: &mut crate::document::Document, keymap: &Keymap) 
         palette.text_hint
     };
     crate::widgets::raised::centre_galley(ui.painter(), body, galley, ink);
-    crate::widgets::raised::focus_ring(ui.painter(), &response, rect);
+    if response.has_focus() {
+        crate::widgets::raised::paint_focus(ui.painter(), rect, theme::radius::FULL);
+    }
     if soloed > 0 && response.clicked() {
         doc.clear_solos();
     }

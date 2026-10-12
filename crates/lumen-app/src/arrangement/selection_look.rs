@@ -1,6 +1,6 @@
 //! How the clip selection is drawn (M3 slice 6a, the owner's S3 and H1):
-//! selected clips glow, the hovered clip's half brightens with a dashed
-//! line at the split, a time range is a band with accent brackets, and the
+//! selected clips glow, the hovered header or body brightens,
+//! a time range is a band with accent brackets, and the
 //! marquee is a soft rounded box. Split from `clips.rs` (M4 review M1).
 
 use eframe::egui::{self, Painter, Rect, Stroke, pos2, vec2};
@@ -16,8 +16,8 @@ use crate::{light, theme};
 
 impl Arrangement {
     /// The selection, in the owner's choices: selected clips glow (S3),
-    /// the hovered clip's half brightens with a dashed line at the split
-    /// (H1), a time range is a band with accent brackets along its top, and
+    /// the hovered header or body brightens,
+    /// a time range is a band with accent brackets along its top, and
     /// the marquee is a soft rounded box.
     pub(super) fn draw_selection(
         &self,
@@ -169,24 +169,18 @@ impl Arrangement {
                         Stroke::new(3.0, palette.accent.gamma_multiply(0.6)),
                     );
                 } else if let Some(select::Hover {
-                    half,
+                    region,
                     edge: None,
                     handle: None,
                     ..
                 }) = hovered
                 {
-                    let split = select::split_y(rect);
-                    let wash = match half {
-                        select::Half::Top => rect.with_max_y(split),
-                        select::Half::Bottom => rect.with_min_y(split),
+                    let title_bottom = select::title_bottom(rect);
+                    let wash = match region {
+                        select::ClipRegion::Header => rect.with_max_y(title_bottom),
+                        select::ClipRegion::Body => rect.with_min_y(title_bottom),
                     };
                     painter.rect_filled(wash, 0.0, palette.text.gamma_multiply(light::EMBER_WASH));
-                    painter.add(egui::Shape::dashed_line(
-                        &[pos2(rect.left(), split), pos2(rect.right(), split)],
-                        Stroke::new(1.0, palette.text.gamma_multiply(0.35)),
-                        4.0,
-                        3.0,
-                    ));
                 }
                 if selected {
                     draw_glow_rect(&painter, rect, f32::from(theme::radius::SMALL));

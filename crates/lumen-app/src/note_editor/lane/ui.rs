@@ -26,7 +26,7 @@ use crate::widgets::{self, Choice, Pill};
 use crate::{App, theme};
 
 /// The height of the lane's header: the tabs and the tools.
-pub(crate) const HEADER: f32 = 26.0;
+pub(crate) const HEADER: f32 = theme::size::CONTROL + 2.0 * theme::space::XS;
 /// The plotting area's shortest height (points).
 const MIN_PLOT: f32 = 48.0;
 /// ...and tallest.
@@ -259,11 +259,10 @@ impl App {
     fn lane_header(&mut self, ui: &mut Ui, header: Rect, ed: &mut NoteEditor) {
         let mut row = ui.new_child(
             UiBuilder::new()
-                .max_rect(header)
+                .max_rect(header.shrink2(vec2(theme::space::S, theme::space::XS)))
                 .layout(Layout::left_to_right(Align::Center)),
         );
         row.set_clip_rect(header.intersect(ui.clip_rect()));
-        row.add_space(theme::space::M);
         let all = kinds(&ed.lane);
         let names: Vec<String> = all.iter().map(|k| k.name()).collect();
         let tips: Vec<String> = names.iter().map(|n| format!("Edit {n}")).collect();
@@ -312,7 +311,6 @@ impl App {
             {
                 ed.lane.use_tool(tool);
             }
-            ui.add_space(theme::space::S);
         });
     }
 
