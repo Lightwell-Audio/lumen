@@ -2416,3 +2416,9 @@ cargo run --release -p lumen-app -- tests\projects\midi-demo.lumen
    expected. Press Ctrl+K and type "humanize", "reverse", "scale".
 8. **Slider feel.** Drag a comet slider (Shift for fine), double-click it
    (back to its default), click it and type a value, use the wheel.
+
+**Run 1 (2026-10-12, owner):** four findings, fixed (ADR-0054 amendment): the
+Grid dropdown closed the popover; the slider trail ran past its head at 100%;
+too much glow on the head; unclear which grid Q uses (now a readout beside
+the button and a toast). **Re-run: steps 1, 5 and 8 again**, and check the
+readout beside Quantize changes with the popover's settings.

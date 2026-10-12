@@ -4530,3 +4530,20 @@ No persisted change (format v14). The options live for the session. A
 popover for the tools' amounts, quantize of clips selected in the arrangement
 (without opening the editor), and saving the options in the settings file are
 follow-ups (KNOWN_ISSUES).
+
+### Amendment (2026-10-12, MT-MIDI-6 run 1)
+The owner found four things, all fixed:
+- Choosing a Grid in the popover closed it: a click in a menu opened from a
+  `Menu::staying` menu counted as a click elsewhere. A staying menu now
+  stays open while another menu is drawn in the same pass (`note_drawn`,
+  `other_drawn` in `widgets/menu.rs`).
+- At 100% the comet's trail ran past its head; it now ends at the head.
+- The head's glow was too strong; one soft ring, 0.10 and 0.22 alpha.
+- It was not clear what grid Q uses. The editor has its own adaptive grid, so
+  the toolbar now shows what Q does beside the Quantize button ("1/16",
+  "1/8T · ends · 50%"), and Q shows a toast ("Quantized 4 notes to 1/16").
+  This label and toast were not mocked up first; the owner can veto or
+  restyle them.
+E2E: `choosing_a_grid_in_the_popover_keeps_the_popover_open` (fails without
+the fix), `the_label_beside_quantize_says_what_q_will_do`,
+`q_with_nothing_picked_says_what_it_quantized_in_a_note`.
