@@ -464,6 +464,13 @@ impl App {
             .small()
             .weak(),
         );
+        if changes_lengths(ed.quantize.options.mode) {
+            ui.label(
+                egui::RichText::new("This changes note lengths; none gets shorter than one step")
+                    .small()
+                    .weak(),
+            );
+        }
         ui.add_space(theme::space::S);
         let mut apply = false;
         ui.horizontal(|ui| {
@@ -545,6 +552,11 @@ impl App {
             seed: ed.quantize.humanized,
         }
     }
+}
+
+/// End, Both and Length change how long notes are.
+fn changes_lengths(mode: Mode) -> bool {
+    mode != Mode::Start
 }
 
 fn label(ui: &mut Ui, text: &str) {

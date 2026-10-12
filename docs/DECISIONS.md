@@ -4547,3 +4547,14 @@ The owner found four things, all fixed:
 E2E: `choosing_a_grid_in_the_popover_keeps_the_popover_open` (fails without
 the fix), `the_label_beside_quantize_says_what_q_will_do`,
 `q_with_nothing_picked_says_what_it_quantized_in_a_note`.
+
+### Amendment (2026-10-12, MT-MIDI-6 run 1, notes shorter than the grid)
+The owner saw End and Both turn short notes into slivers: a note shorter
+than the grid has its start and end snap to the same line, and the 1/128
+floor made it a hairline. In End and Both a note is now never quantized
+shorter than one step: an end whose nearest line would leave it shorter goes
+to the first line a step or more after the start (for Both, after the line
+the start is headed for), so a short note grows to a step. Strength and the
+window still scale the move. Start and Length are unchanged. The popover says
+that these modes change note lengths. Unit tests in `edit/quantize.rs`
+(`end_mode_never_leaves_a_note_shorter_than_a_step` and four more).

@@ -16,6 +16,13 @@
 //! - `Start`: the start is pulled; the length stays.
 //! - `End`: the end is pulled; the start stays, so the length changes.
 //! - `StartAndEnd`: both are pulled, each to its own nearest line.
+//!
+//!   In both of these a note is never quantized shorter than one step: an end
+//!   whose nearest line would leave the note shorter than a step (a note
+//!   played shorter than the grid, whose start and end would otherwise snap
+//!   to the same line) goes to the first line a step or more after the
+//!   start, which for `StartAndEnd` is the line the start is headed for.
+//!   Strength and the window still scale the move.
 //! - `Length`: the length moves toward the nearest whole number of steps
 //!   (halves round up, at least one step). The start stays; swing and the
 //!   window do not apply.
@@ -144,17 +151,48 @@ impl Grid {
             .unwrap_or(p)
     }
 
+    /// The first line at or after `p`.
+    fn line_at_or_after(&self, p: i64) -> i64 {
+        // Lines only ever move forward (a swing delay is at most half a
+        // step), so the search ends within a few lines.
+        let mut k = p.div_euclid(self.step) - 1;
+        while self.line(k) < p {
+            k += 1;
+        }
+        self.line(k)
+    }
+
+    /// The line `p` is pulled toward, or `None` when it is outside the
+    /// window.
+    fn target(&self, p: i64) -> Option<i64> {
+        let line = self.nearest(p);
+        match self.range {
+            Some(range) if ((line - p).abs() as f64) > range => None,
+            _ => Some(line),
+        }
+    }
+
     /// `p` pulled toward its nearest line, or `p` itself when it is outside
     /// the window.
     fn pull(&self, p: i64) -> i64 {
-        let line = self.nearest(p);
-        if self
-            .range
-            .is_some_and(|range| ((line - p).abs() as f64) > range)
-        {
-            return p;
-        }
-        toward(p, line, self.strength)
+        toward(p, self.target(p).unwrap_or(p), self.strength)
+    }
+
+    /// A note end pulled toward its line, for a note whose start will be at
+    /// `start` (the line the start is headed for). A note is never quantized
+    /// shorter than one step: an end whose nearest line would leave it
+    /// shorter goes to the first line a step or more after the start, so a
+    /// note shorter than the grid grows to a step instead of collapsing.
+    fn pull_end(&self, end: i64, start: i64) -> i64 {
+        let Some(line) = self.target(end) else {
+            return end;
+        };
+        let line = if line - start < self.step {
+            self.line_at_or_after(start + self.step)
+        } else {
+            line
+        };
+        toward(end, line, self.strength)
     }
 }
 
@@ -199,8 +237,11 @@ fn quantized(note: Note, length: Ticks, grid: &Grid, mode: Mode) -> Note {
             let start = grid.pull(start);
             (start, start + len)
         }
-        Mode::End => (start, grid.pull(end)),
-        Mode::StartAndEnd => (grid.pull(start), grid.pull(end)),
+        Mode::End => (start, grid.pull_end(end, start)),
+        Mode::StartAndEnd => {
+            let headed = grid.target(start).unwrap_or(start);
+            (grid.pull(start), grid.pull_end(end, headed))
+        }
         Mode::Length => {
             let target = whole_steps(len, grid.step);
             (start, start + toward(len, target, grid.strength))
@@ -460,5 +501,67 @@ mod tests {
         assert_eq!(notes[sel[1]].pitch(), 72);
         assert_eq!(notes[1].pitch(), 50);
         assert!(notes.iter().all(|n| n.start() == Ticks(S)));
+    }
+
+    // A note shorter than the grid, as played loose: its start is a little
+    // after line 1 (S), its end 50 ticks later. Without a floor its start
+    // and end snap to the same line and the note collapses.
+    fn short() -> Note {
+        note(S + 100, 50, 60)
+    }
+
+    #[test]
+    fn end_mode_never_leaves_a_note_shorter_than_a_step() {
+        let mut notes = vec![short()];
+        quantize(&mut notes, &[0], LEN, &mode(Mode::End));
+        // The end's nearest line (S) would leave it shorter than a step, so
+        // it goes to the first line a step or more after the start: 3S.
+        assert_eq!(notes[0].start(), Ticks(S + 100));
+        assert_eq!(notes[0].end(), Ticks(3 * S));
+        assert!(notes[0].length().0 >= S);
+    }
+
+    #[test]
+    fn both_mode_turns_a_short_note_into_one_step_on_the_grid() {
+        let mut notes = vec![short()];
+        quantize(&mut notes, &[0], LEN, &mode(Mode::StartAndEnd));
+        // Start to S; end would be S too, so it goes to 2S.
+        assert_eq!(notes[0], note(S, S, 60));
+    }
+
+    #[test]
+    fn long_notes_still_quantize_both_ends_independently() {
+        let mut notes = vec![note(S + 40, 2 * S - 10, 60)];
+        quantize(&mut notes, &[0], LEN, &mode(Mode::StartAndEnd));
+        // Start S, end (3S + 30) -> 3S: two steps long, no floor needed.
+        assert_eq!(notes[0], note(S, 2 * S, 60));
+    }
+
+    #[test]
+    fn a_partial_strength_grows_a_short_note_part_of_the_way() {
+        let mut notes = vec![short()];
+        let half = Settings {
+            mode: Mode::StartAndEnd,
+            strength: 0.5,
+            ..Settings::default()
+        };
+        quantize(&mut notes, &[0], LEN, &half);
+        // Start halfway from S+100 to S; end halfway from S+150 to 2S.
+        assert_eq!(notes[0].start(), Ticks(S + 50));
+        assert_eq!(notes[0].end(), Ticks((S + 150 + 2 * S) / 2));
+        assert!(notes[0].length().0 > 50, "grew, did not shrink");
+    }
+
+    #[test]
+    fn a_short_note_outside_the_window_is_left_alone_in_end_mode() {
+        let mut notes = vec![note(S + 100, S / 2 - 10, 60)];
+        let narrow = Settings {
+            mode: Mode::End,
+            window: 0.2,
+            ..Settings::default()
+        };
+        // Its end (S + S/2 + 90) is far from any line: untouched.
+        quantize(&mut notes, &[0], LEN, &narrow);
+        assert_eq!(notes[0], note(S + 100, S / 2 - 10, 60));
     }
 }
