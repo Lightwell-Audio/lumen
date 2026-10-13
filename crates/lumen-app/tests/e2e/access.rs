@@ -328,3 +328,27 @@ fn a_closing_menu_asks_for_the_frames_its_fade_needs() {
         "the fade's next frame is asked for"
     );
 }
+
+/// The record controls are named (M5 slice 6d): Record and Overdub in the
+/// bar, Overdub a toggle that is on after a click; the metronome's menu has
+/// the count-in choices and the record-only switch, which stay where they
+/// are as they are changed (the menu stays open).
+#[test]
+fn the_record_controls_are_named_and_the_count_in_is_in_the_metronome_menu() {
+    let mut lumen = Lumen::start("access-record");
+    assert!(lumen.shows("Record"), "the Record button is named");
+    assert!(!lumen.is_on("Overdub"), "Overdub starts off");
+    lumen.click("Overdub");
+    assert!(lumen.is_on("Overdub"), "a click switches Overdub on");
+    lumen.click("Overdub");
+    assert!(!lumen.is_on("Overdub"), "and off again");
+
+    let metronome = lumen.harness.get_by_label("Metronome").rect().center();
+    lumen.right_click(metronome);
+    assert!(lumen.shows("Count-in"), "the menu names its count-in");
+    lumen.click("Count-in: 1 bar");
+    assert!(lumen.shows("Only while recording"), "the menu stays open");
+    assert!(!lumen.is_on("Only while recording"));
+    lumen.click("Only while recording");
+    assert!(lumen.is_on("Only while recording"), "the switch is on");
+}

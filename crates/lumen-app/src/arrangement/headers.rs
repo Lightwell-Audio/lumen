@@ -502,7 +502,7 @@ pub(super) fn arm_button(
         .on_hover_text(if arm == Arm::Listening {
             "Listening because selected \u{b7} click to arm for recording"
         } else {
-            "Arm for recording (recording arrives in Milestone 9)"
+            "Arm for recording (MIDI tracks record now; audio recording arrives in Milestone 9)"
         });
     response.widget_info(|| {
         egui::WidgetInfo::selected(
