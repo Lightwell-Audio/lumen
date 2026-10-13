@@ -1646,3 +1646,73 @@ fn quantize_popover() {
         }
     }
 }
+
+/// The owner's MT-MIDI-7 run 3 finding: clips on one track an octave apart,
+/// and two different melodies, must look different. Each track's clips
+/// share one layout, so pitch is height across the whole track.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn mini_notes_octaves() {
+    use lumen_core::time::Ticks;
+    use lumen_project::model::{Clip, Note};
+    use lumen_project::testing::{midi_track, project_of};
+    use std::sync::Arc;
+    let q = Ticks::quarters;
+    let clip_of = |track: &lumen_project::model::Track, id, start, notes| {
+        let mut clip: Clip = (*track.clips[0]).clone();
+        clip.id = lumen_project::model::Id(id);
+        clip.start = q(start);
+        clip.length = q(6);
+        clip.content = lumen_project::model::ClipContent::Midi {
+            notes,
+            events: Vec::new(),
+        };
+        Arc::new(clip)
+    };
+    // Track 1: one note an octave apart in two clips.
+    let mut octave = midi_track(1, "Octave", "poly", (0, 6), None, Vec::new(), vec![]);
+    octave.clips = vec![
+        clip_of(&octave, 10, 0, vec![Note::new(q(0), q(5), 60, 100)]),
+        clip_of(&octave, 11, 8, vec![Note::new(q(0), q(5), 72, 100)]),
+    ];
+    // Track 2: two melodies that differ.
+    let melody = |pitches: &[u8]| {
+        pitches
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| Note::new(q(i as i64), q(1), p, 100))
+            .collect::<Vec<_>>()
+    };
+    let mut tunes = midi_track(4, "Tunes", "poly", (0, 6), None, Vec::new(), vec![]);
+    tunes.clips = vec![
+        clip_of(&tunes, 20, 0, melody(&[60, 62, 64, 65, 67, 69])),
+        clip_of(&tunes, 21, 8, melody(&[67, 64, 60, 55, 52, 48])),
+    ];
+    let mut project = project_of("Octaves", vec![octave, tunes]);
+    for id in [1, 4] {
+        project
+            .view
+            .track_heights
+            .insert(lumen_project::model::Id(id), 220.0);
+        project.view.expanded.insert(lumen_project::model::Id(id));
+    }
+    project.view.detail_open = false;
+    for appearance in ["dark", "light"] {
+        let dir = TempDir::new("shots-octaves");
+        let path = dir.path().join("octaves.lumen");
+        lumen_project::save(&project, &path, &Default::default()).expect("save");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .opening(path);
+        let mut h = Harness::builder()
+            .with_size(vec2(1200.0, 640.0))
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(60);
+        save(&mut h, &format!("mini-notes-octaves-{appearance}"));
+    }
+}

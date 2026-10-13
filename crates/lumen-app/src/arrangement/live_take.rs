@@ -20,9 +20,6 @@ pub(crate) struct LiveNote {
     pub end: Ticks,
     pub pitch: u8,
     pub velocity: u8,
-    /// The pitch range of the clip it lands in, which places it in the
-    /// clip's body as the committed clip will (`piano_roll::mini::Fit`).
-    pub range: (u8, u8),
 }
 
 /// One recording track's part of the take.
@@ -33,6 +30,10 @@ pub(crate) struct LiveTrack {
     /// Overdub: where the take is over no clip, and so is a new clip. Replace
     /// leaves it empty; its take is one clip over the whole range.
     pub gaps: Vec<(Ticks, Ticks)>,
+    /// The pitch range the track's notes are laid out to: its clips and the
+    /// take's notes, as the track will have once the take is in
+    /// (`piano_roll::mini::Fit`). None before a note is played.
+    pub range: Option<(u8, u8)>,
 }
 
 /// The take under way: where it begins, how far it has reached, and what
@@ -73,7 +74,6 @@ mod tests {
             end: Ticks(end),
             pitch,
             velocity: 100,
-            range: (pitch, pitch),
         }
     }
 
@@ -86,6 +86,7 @@ mod tests {
                 track: Id(3),
                 notes: vec![note(100, 200, 64), note(150, 900, 48), note(300, 310, 90)],
                 gaps: vec![(Ticks(100), Ticks(400))],
+                range: Some((48, 90)),
             }],
         }
     }

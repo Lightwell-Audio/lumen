@@ -650,14 +650,17 @@ fn the_take_follows_the_playhead_and_what_it_cuts_keeps_its_ids() {
     assert!(lumen.app().live_take().is_none(), "gone when it stops");
 }
 
-/// The take's notes are drawn where the committed clip will draw them: to
-/// the pitch range of the whole take (owner, MT-MIDI-7 run 2: the notes
-/// jumped when recording stopped).
+/// The take's notes are drawn where its clip will draw them: on the
+/// track's layout, which covers the clips already there and what is played
+/// (owner, MT-MIDI-7 runs 2 and 3: notes jumped when recording stopped, and
+/// clips an octave apart looked the same).
 #[test]
-fn the_take_is_drawn_to_the_range_its_clip_will_have() {
+fn the_take_is_laid_out_as_its_track_will_be() {
     let fake = keyboard();
-    let project = project_of("Record", vec![track(None, true)]);
+    let old = vec![Note::new(beats(6.0), beats(1.0), 48, 100)];
+    let project = project_of("Record", vec![track(Some(old), true)]);
     let mut lumen = launch("live-range", &project, &fake);
+    assert_eq!(lumen.app().track_pitch_range(0), Some((48, 48)));
     let keys = Keys::new(&fake);
     record(&mut lumen);
     keys.on(60, 90);
@@ -667,18 +670,17 @@ fn the_take_is_drawn_to_the_range_its_clip_will_have() {
     reach(&mut lumen, beats(1.0));
     lumen.frames(2);
     assert_eq!(
-        lumen.app().live_ranges(),
-        vec![(60, 72); 2],
-        "both notes share the take's range"
+        lumen.app().live_range(),
+        Some((48, 72)),
+        "the take shares the track's layout, the old clip's note included"
     );
     keys.off(72);
     reach(&mut lumen, beats(1.5));
     stop(&mut lumen);
-    let pitches: Vec<u8> = all_placed(&lumen).iter().map(|n| n.pitch).collect();
     assert_eq!(
-        (pitches.iter().min(), pitches.iter().max()),
-        (Some(&60), Some(&72)),
-        "the clip spans the same range"
+        lumen.app().track_pitch_range(0),
+        Some((48, 72)),
+        "the same layout once the take is in"
     );
 }
 

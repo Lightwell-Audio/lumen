@@ -21,13 +21,18 @@ pub(super) struct MiniNotes {
     pub tracks: Vec<usize>,
 }
 
-/// The mini notes of every MIDI clip in `project`. A clip being recorded
+/// The mini notes of every MIDI clip in `project`, each track's clips on
+/// one fit. A clip being recorded
 /// shows its notes in the lighter record red (3-A).
 pub(super) fn build(project: &Project, recording: Option<&RecordingLook>) -> MiniNotes {
     let mut out = MiniNotes::default();
     let palette = theme::p();
     for (index, track) in project.tracks.iter().enumerate() {
         let mut dense = None;
+        let Some((lo, hi)) = mini::track_range(&track.clips) else {
+            continue;
+        };
+        let fit = mini::Fit::new(lo, hi);
         for clip in &track.clips {
             let ClipContent::Midi { notes, .. } = &clip.content else {
                 continue;
@@ -50,7 +55,7 @@ pub(super) fn build(project: &Project, recording: Option<&RecordingLook>) -> Min
                     loop_length: clip.loop_length,
                     notes,
                 },
-                n as u32,
+                (n as u32, fit),
                 color,
             );
         }

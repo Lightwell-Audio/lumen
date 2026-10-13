@@ -390,7 +390,13 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-13 (latest): **MT-MIDI-7 run 2 fixes, clip
+**Last updated:** 2026-10-13 (run 3): **one note layout per track.**
+Clips fitted on their own drew one-note clips an octave apart at the same
+height; now every MIDI clip on a track shares one `mini::Fit` over the
+pitches all of them play (`mini::track_range`, at least 48 semitones,
+centred), and the take uses it too (`LiveTrack::range`; `live_ranges` is
+gone). Shot `mini_notes_octaves`. **MT-MIDI-7 run 4 (steps 22, 23) waits for
+the owner.** Before it, 2026-10-13 (latest): **MT-MIDI-7 run 2 fixes, clip
 previews as Ableton's** on `m5-midi` (ADR-0055 amendment "clip previews as
 Ableton's"). Notes inside arrangement clips now have the piano roll's
 proportions: 128 bands a track (`mini::BANDS`), a clip's range divided evenly

@@ -99,7 +99,7 @@ impl Session {
     /// The take as far as it has gone, for the arrangement to draw every
     /// frame: the notes played (a held one up to the playhead) and, in
     /// Overdub, where it is over no clip.
-    fn live(&self, head: Ticks) -> LiveTake {
+    fn live(&self, head: Ticks, project: &lumen_project::model::Project) -> LiveTake {
         let now = head.max(self.start);
         let (from, to) = (self.start, self.end(head));
         // Punch cuts what is kept, so what is drawn.
@@ -125,32 +125,31 @@ impl Session {
                     }
                     _ => Vec::new(),
                 };
-                let clips = match base {
-                    Some(base) if overdub => base.clips.as_slice(),
-                    _ => &[],
-                };
-                // The gaps as far as the notes reach (a held note's start
-                // can be ahead of `to` by a frame).
-                let reach = match base {
-                    Some(base) if overdub && to.max(now) > from => {
-                        lumen_project::edit::record::gaps(base, (from, to.max(now)))
-                    }
-                    _ => Vec::new(),
-                };
-                let starts: Vec<(Ticks, u8)> = shown.iter().map(|n| (n.start, n.pitch)).collect();
-                let ranges = live_ranges(&starts, overdub, clips, &reach);
+                // The track's fit, as it will be once the take is in: its
+                // clips (as committed so far) and what has been played.
+                let range = shown.iter().fold(
+                    project
+                        .tracks
+                        .iter()
+                        .find(|t| t.id == track)
+                        .and_then(|t| crate::piano_roll::mini::track_range(&t.clips)),
+                    |range, n| crate::piano_roll::mini::union(range, Some((n.pitch, n.pitch))),
+                );
                 let notes = shown
                     .iter()
-                    .zip(ranges)
-                    .map(|(n, range)| LiveNote {
+                    .map(|n| LiveNote {
                         start: n.start,
                         end: n.start + n.length,
                         pitch: n.pitch,
                         velocity: n.velocity,
-                        range,
                     })
                     .collect();
-                LiveTrack { track, notes, gaps }
+                LiveTrack {
+                    track,
+                    notes,
+                    gaps,
+                    range,
+                }
             })
             .collect();
         LiveTake {
@@ -169,80 +168,6 @@ impl Session {
             _ => head.max(self.start),
         }
     }
-}
-
-/// The pitch range each of a take's live notes is drawn to (`notes`: where
-/// each starts and its pitch), so it sits where it will once committed
-/// (`piano_roll::mini::Fit`). A Replace take is one clip, so one range for
-/// all. An Overdub merges into the MIDI clips under it, each keeping a range
-/// of its own notes and the new ones, and each gap between them (`gaps`)
-/// becomes a clip of its own.
-fn live_ranges(
-    notes: &[(Ticks, u8)],
-    overdub: bool,
-    clips: &[std::sync::Arc<lumen_project::model::Clip>],
-    gaps: &[(Ticks, Ticks)],
-) -> Vec<(u8, u8)> {
-    use crate::piano_roll::mini::{pitch_range, union};
-    use crate::piano_roll::notes::ClipNotes;
-    use lumen_project::model::ClipContent;
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    enum Region {
-        Clip(usize),
-        Gap(usize),
-        Alone,
-    }
-    let region = |at: Ticks| {
-        if !overdub {
-            return Region::Gap(0);
-        }
-        if let Some(i) = clips.iter().position(|c| {
-            matches!(c.content, ClipContent::Midi { .. })
-                && c.start <= at
-                && at < c.start + c.length
-        }) {
-            return Region::Clip(i);
-        }
-        gaps.iter()
-            .position(|&(a, b)| a <= at && at < b)
-            .map_or(Region::Alone, Region::Gap)
-    };
-    let regions: Vec<Region> = notes.iter().map(|&(at, _)| region(at)).collect();
-    let mut known: Vec<(Region, Option<(u8, u8)>)> = Vec::new();
-    let mut out = Vec::with_capacity(notes.len());
-    for (&(_, pitch), &r) in notes.iter().zip(&regions) {
-        if r == Region::Alone {
-            out.push((pitch, pitch));
-            continue;
-        }
-        let range = match known.iter().find(|(k, _)| *k == r) {
-            Some(&(_, range)) => range,
-            None => {
-                let own = match r {
-                    Region::Clip(i) => match &clips[i].content {
-                        ClipContent::Midi { notes, .. } => pitch_range(&ClipNotes {
-                            start: clips[i].start,
-                            length: clips[i].length,
-                            loop_length: clips[i].loop_length,
-                            notes,
-                        }),
-                        ClipContent::Audio { .. } => None,
-                    },
-                    _ => None,
-                };
-                let played = notes
-                    .iter()
-                    .zip(&regions)
-                    .filter(|&(_, &k)| k == r)
-                    .fold(None, |range, (&(_, p), _)| union(range, Some((p, p))));
-                let range = union(own, played);
-                known.push((r, range));
-                range
-            }
-        };
-        out.push(range.unwrap_or((pitch, pitch)));
-    }
-    out
 }
 
 impl App {
@@ -385,7 +310,7 @@ impl App {
             .session
             .as_ref()
             .filter(|_| self.transport.state().playing)
-            .map(|session| session.live(head));
+            .map(|session| session.live(head, self.document.project()));
     }
 
     /// Keeps what the engine kept, commits the take when it is due, and ends
@@ -525,61 +450,5 @@ impl App {
         if let Some(autosave) = self.autosave.as_mut() {
             autosave.set_delay(crate::autosave::DELAY);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use lumen_project::model::{Clip, ClipContent, Note};
-    use std::sync::Arc;
-
-    fn q(n: i64) -> Ticks {
-        Ticks::quarters(n)
-    }
-
-    fn clip(start: i64, length: i64, pitches: &[u8]) -> Arc<Clip> {
-        Arc::new(Clip {
-            id: lumen_project::model::Id(1),
-            name: "c".into(),
-            start: q(start),
-            length: q(length),
-            muted: false,
-            color: None,
-            locked: false,
-            fade_in: Default::default(),
-            fade_out: Default::default(),
-            loop_length: None,
-            content: ClipContent::Midi {
-                notes: pitches
-                    .iter()
-                    .map(|&p| Note::new(q(0), q(1), p, 100))
-                    .collect(),
-                events: Vec::new(),
-            },
-        })
-    }
-
-    #[test]
-    fn a_replace_take_is_one_range() {
-        let notes = [(q(0), 60), (q(8), 72), (q(9), 64)];
-        let clips = [clip(0, 4, &[30])];
-        assert_eq!(
-            live_ranges(&notes, false, &clips, &[]),
-            vec![(60, 72); 3],
-            "Replace ignores the clips it cuts away"
-        );
-    }
-
-    #[test]
-    fn an_overdub_fits_each_clip_with_its_own_notes_and_each_gap_alone() {
-        // A clip from 0 to 4 holding 40 and 50; a gap from 4 to 8.
-        let clips = [clip(0, 4, &[40, 50])];
-        let gaps = [(q(4), q(8))];
-        let notes = [(q(1), 60), (q(5), 70), (q(6), 72), (q(9), 80)];
-        assert_eq!(
-            live_ranges(&notes, true, &clips, &gaps),
-            vec![(40, 60), (70, 72), (70, 72), (80, 80)]
-        );
     }
 }

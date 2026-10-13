@@ -204,16 +204,15 @@ impl App {
         Some((take.from, take.to, notes))
     }
 
-    /// The pitch range each note of the take is drawn to, on the first track
-    /// recording (the clip it lands in; `piano_roll::mini::Fit`).
-    pub fn live_ranges(&self) -> Vec<(u8, u8)> {
-        let Some(take) = self.arrangement.live_take.as_ref() else {
-            return Vec::new();
-        };
-        take.tracks
-            .first()
-            .map(|t| t.notes.iter().map(|n| n.range).collect())
-            .unwrap_or_default()
+    /// The pitch range the take is laid out to on the first track recording:
+    /// the track's (`piano_roll::mini::Fit`). None before a note is played.
+    pub fn live_range(&self) -> Option<(u8, u8)> {
+        self.arrangement.live_take.as_ref()?.tracks.first()?.range
+    }
+
+    /// The pitch range every MIDI clip on track `index` is laid out to.
+    pub fn track_pitch_range(&self, index: usize) -> Option<(u8, u8)> {
+        crate::piano_roll::mini::track_range(&self.project().tracks.get(index)?.clips)
     }
 
     /// Whether Overdub is on: a take merges into the clip under it (M5

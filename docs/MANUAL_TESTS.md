@@ -2428,7 +2428,7 @@ readout beside Quantize changes with the popover's settings.
 
 
 ### MT-MIDI-7 · Recording MIDI (needs a human and a MIDI controller; the computer keyboard also works)
-Slice 6 of M5 (ADR-0055). **Status: run 3 waits for the owner.** Start
+Slice 6 of M5 (ADR-0055). **Status: run 4 waits for the owner.** Start
 Lumen from the repository root:
 
 ```powershell
@@ -2541,3 +2541,18 @@ amendment "clip previews as Ableton's", and waiting for run 3:
 21. **Still.** Record over an existing clip, Overdub off and on. Expect the
     clip under and after the take to stay still, with no sliding or jitter,
     while recording and as it stops.
+
+**Run 3 (owner, 2026-10-13, steps 19 to 21 in part)** found that clips an
+octave apart drew their note at the same height, and different melodies
+looked the same: each clip was fitted and centred on its own. Fixed (ADR-0055
+amendment, "Superseded in part"): a track's clips share one layout. Run 4
+waits for the owner.
+
+**Run 4 steps (new, after run 3).**
+22. **Octaves.** On a tall MIDI track, record (or draw) one note in a clip,
+    then the same note an octave up in a second clip. Expect the second one
+    clearly higher. Record two different melodies in two clips: expect each
+    clip's shape to show where the pitch moves, as in Ableton.
+23. **Thin rows.** Say whether the notes' thickness (a track's range is at
+    least four octaves tall) reads as Ableton's at the default and a tall
+    track height.

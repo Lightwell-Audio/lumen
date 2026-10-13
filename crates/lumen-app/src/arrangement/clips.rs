@@ -724,16 +724,17 @@ fn draw_live_take(
     }
     let top = lane.top() + INSET + TITLE + WAVE_GAP;
     let room = lane.bottom() - INSET - WAVE_GAP - top;
-    if room <= 0.0 {
+    let Some((lo, hi)) = live.range.filter(|_| room > 0.0) else {
         return;
-    }
+    };
+    // The track's layout: the same bands the GPU draws its clips on.
+    let fit = mini::Fit::new(lo, hi);
     for note in &live.notes {
         let (x0, x1) = (x(note.start), x(note.end));
         if x1 < canvas.left() || x0 > canvas.right() {
             continue;
         }
-        // The committed clip's layout: the same bands the GPU draws it on.
-        let (a, b) = mini::Fit::new(note.range.0, note.range.1).span(note.pitch);
+        let (a, b) = fit.span(note.pitch);
         let (y0, y1) = (top + a * room, top + b * room);
         let rect = Rect::from_min_max(
             pos2(x0.max(canvas.left()), y0),

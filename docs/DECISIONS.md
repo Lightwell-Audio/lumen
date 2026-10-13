@@ -4846,6 +4846,21 @@ be once committed. Three findings, fixed:
    while recording, nor for the commit that ends it (`ClipGlides::update`'s
    `recording`).
 
+**Superseded in part (run 3, same day):** fitting each clip to its own range
+made a clip of one note, or one chord shape, sit mid-clip at any pitch, so
+clips an octave apart, and different melodies, looked the same. The owner's
+Ableton captures show one layout per track: now every MIDI clip on a track
+shares one `Fit` over the pitches all of them play (`mini::track_range`),
+padded to at least 48 semitones (four octaves, centred), so a pitch is at the
+same height in every clip of the track and notes are thin rows, as in
+Ableton. The take uses the track's fit too (`LiveTrack::range`: the track's
+clips as committed so far and the notes played), which replaces the
+per-region ranges above (`live_ranges` is gone). A note played outside the
+track's range refits the whole track, as in Ableton. In Replace, an old
+clip's notes in the second since the last commit still count until that
+commit cuts them. Shot `mini_notes_octaves`; E2E
+`the_take_is_laid_out_as_its_track_will_be`.
+
 Not changed: the clip editor shows the document's clip, so it updates at
 each commit (about once a second), not every frame, and in Replace the clip
 it had open is cut away by the take.
