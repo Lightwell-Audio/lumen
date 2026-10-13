@@ -118,6 +118,33 @@ impl TrackState {
         }
     }
 
+    /// Whether the clips' notes on `key` give way to the recording input:
+    /// the track records and its input holds the key down. A note played
+    /// over a clip's note of the same pitch wins it, as the take will once
+    /// committed (`lumen_project::edit::record`), so the old note neither
+    /// sounds under it nor ends it.
+    pub fn yields(&self, key: u8) -> bool {
+        self.recording && self.down.iter().any(|d| d.key == key)
+    }
+
+    /// Ends the clip notes sounding on `key` at `offset`: the recording
+    /// input has just played it.
+    pub fn give_way(&mut self, key: u8, offset: u32) {
+        let mut i = 0;
+        while i < self.held.len() {
+            let h = self.held[i];
+            if h.key == key {
+                self.push(Event {
+                    offset,
+                    msg: Msg::note_off(h.channel, h.key),
+                });
+                self.held.swap_remove(i);
+            } else {
+                i += 1;
+            }
+        }
+    }
+
     pub fn push(&mut self, event: Event) {
         if self.events.len() < MAX_EVENTS {
             self.events.push(event);
@@ -279,7 +306,7 @@ pub(super) fn gather(
                     break;
                 }
                 let at = clock.sample(base + note.start.0);
-                if (from..to).contains(&at) {
+                if (from..to).contains(&at) && !state.yields(note.pitch) {
                     state.start_note(
                         Held {
                             channel,
@@ -408,6 +435,7 @@ pub(super) fn chase_notes(
                 let owner = owner(clip, rep, note);
                 if on < pos
                     && off > pos
+                    && !state.yields(note.pitch)
                     && !state
                         .held
                         .iter()

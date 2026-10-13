@@ -4872,6 +4872,17 @@ later winning, so a loop pass over a note of the pass before (in Replace or
 Overdub) does not stack either. Tests: `edit/record.rs` (three), E2E
 `overdubbing_the_same_pitch_cuts_the_old_note`.
 
+That fixed what is kept, not what is heard while recording (owner): the
+engine plays the clip as the document has it, which gets the take about once
+a second, so the old note sounded on under the key played, and its note-off
+could cut it. The engine now applies the same rule as the key is played, on a
+recording track (`TrackState::yields` and `give_way` in `midi/hold.rs`): a
+key going down ends the clip's note sounding on it, and while the key is held
+the clip's notes on it neither start nor are chased; keys already held when
+recording begins give way too. Other keys, and tracks not recording, play as
+before. Engine test `tests/record.rs`
+`a_key_played_while_recording_ends_the_clips_note_on_that_key`.
+
 Not changed: the clip editor shows the document's clip, so it updates at
 each commit (about once a second), not every frame, and in Replace the clip
 it had open is cut away by the take.

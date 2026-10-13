@@ -397,7 +397,9 @@ pitches all of them play (`mini::track_range`, at least 48 semitones,
 centred), and the take uses it too (`LiveTrack::range`; `live_ranges` is
 gone). Shot `mini_notes_octaves`. Also: Overdub over the same pitch stacked
 notes; now a note played wins its pitch, as in Ableton
-(`edit::record::settle`, also between loop passes). **MT-MIDI-7 run 4 (steps
+(`edit::record::settle`, also between loop passes), and the engine applies
+the rule as keys are played while recording (`TrackState::yields`,
+`give_way`), so the old note stops sounding too. **MT-MIDI-7 run 4 (steps
 22 to 24) waits for the owner.** The WSL perf gate was not run for the
 `lumen-project` change. Before it, 2026-10-13 (latest): **MT-MIDI-7 run 2 fixes, clip
 previews as Ableton's** on `m5-midi` (ADR-0055 amendment "clip previews as

@@ -2,7 +2,7 @@
 //! track list, [`MidiPlayer`] on the audio thread reads it (a
 //! [`TrackSource`], played beside the audio clips).
 
-use lumen_core::midi::{Event, Msg, cc};
+use lumen_core::midi::{Event, Kind, Msg, cc};
 
 use super::capture::{self, Captured};
 use super::hold::{self, Clock, MAX_EVENTS};
@@ -258,6 +258,11 @@ impl MidiPlayer {
                         *lost = lost.saturating_add(1);
                     }
                 }
+                // And the clip's notes on those keys give way to them.
+                for i in 0..track.state.down.len() {
+                    let key = track.state.down[i].key;
+                    track.state.give_way(key, 0);
+                }
             }
             track.state.recording = on;
         }
@@ -268,6 +273,13 @@ impl MidiPlayer {
             for track in tracks.iter_mut() {
                 if m.source != AUDITION && track.record.takes(m.source, m.msg) {
                     track.state.press(m.source, m.msg);
+                    // A key played while recording wins its pitch: a clip
+                    // note sounding on it ends here (`TrackState::yields`).
+                    if let Kind::NoteOn { key, .. } = m.msg.kind()
+                        && track.state.recording
+                    {
+                        track.state.give_way(key, offset);
+                    }
                     // Recording keeps what the track takes, heard or not.
                     if cx.recording {
                         let (at, back) = capture::heard(cx, m.played);

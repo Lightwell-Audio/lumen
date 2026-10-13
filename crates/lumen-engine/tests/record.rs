@@ -10,8 +10,8 @@ use lumen_core::midi::Msg;
 use lumen_core::time::Ticks;
 use lumen_engine::{
     Captured, Command, Destination, Engine, EngineHandle, Layered, Listen, LiveIn, LiveInput,
-    MidiHandle, MidiPlayer, MidiTrack, Mixer, MixerHandle, NodeSpec, Region, Routing, Target,
-    Timeline, WRAP, clip_player, engine, midi_player, mixer,
+    MidiClip, MidiHandle, MidiNote, MidiOut, MidiPlayer, MidiTrack, Mixer, MixerHandle, NodeSpec,
+    Region, Routing, Target, Timeline, WRAP, clip_player, engine, midi_player, mixer,
 };
 
 const MASTER: u64 = 100;
@@ -55,6 +55,7 @@ struct Rig {
     engine: Engine<Mixer<Layered<lumen_engine::ClipPlayer, MidiPlayer>>>,
     live: Script,
     captured: rtrb::Consumer<Captured>,
+    output: rtrb::Consumer<MidiOut>,
     #[allow(dead_code)]
     midi: MidiHandle,
     #[allow(dead_code)]
@@ -75,6 +76,7 @@ fn rig(tracks: Vec<MidiTrack>) -> Rig {
     let live = Script::default();
     midi.set_live(Box::new(live.clone())).ok().unwrap();
     let captured = midi.take_captured().unwrap();
+    let output = midi.take_output().unwrap();
     let (mut routing, source) = mixer(Layered(players, player));
     let nodes = vec![
         NodeSpec::unity(MASTER, Destination::Hardware(0)),
@@ -96,6 +98,7 @@ fn rig(tracks: Vec<MidiTrack>) -> Rig {
         engine,
         live,
         captured,
+        output,
         midi,
         routing,
     }
@@ -359,4 +362,67 @@ fn recording_while_playing_starts_at_once() {
     rig.run(128, 128);
     let snap = rig.transport.transport();
     assert!(snap.recording && snap.playing && snap.count_in_total == 0);
+}
+
+/// Overdubbing a key a clip already plays there (owner, after MT-MIDI-7 run
+/// 3): the key played wins its pitch, as the take will once committed. The
+/// clip's note sounding on it ends as the key goes down, its own note-off
+/// later does not cut the played note, and a clip note on that key that
+/// would start while it is held does not.
+#[test]
+fn a_key_played_while_recording_ends_the_clips_note_on_that_key() {
+    let q = |beats: f64| Ticks((beats * lumen_core::time::PPQ as f64) as i64);
+    let note = |start: f64, length: f64| MidiNote {
+        start: q(start),
+        length: q(length),
+        pitch: 60,
+        velocity: 100,
+    };
+    let clip = MidiClip {
+        id: 9,
+        start: Ticks::ZERO,
+        length: q(8.0),
+        period: None,
+        notes: vec![note(0.0, 4.0), note(1.2, 0.1), note(5.0, 1.0)].into(),
+        controls: Vec::new().into(),
+    };
+    let track = MidiTrack::new(
+        A,
+        Target::Port {
+            port: 4,
+            channel: 0,
+        },
+        None,
+        vec![clip],
+    )
+    .listening(keys())
+    .recording(keys());
+    let mut rig = rig(vec![track]);
+    rig.transport.send(Command::Record { count_in: 0 }).unwrap();
+    rig.run(128, 128);
+    rig.live.send(BEAT, BEAT, Msg::note_on(0, 60, 90));
+    rig.live
+        .send(BEAT * 3 / 2, BEAT * 3 / 2, Msg::note_off(0, 60));
+    rig.run(BEAT as usize * 6, 128);
+    let mut sent = Vec::new();
+    while let Ok(MidiOut::At { frame, msg, .. }) = rig.output.pop() {
+        sent.push((frame, msg));
+    }
+    let start = sent.first().map_or(0, |&(f, _)| f);
+    let at = |(f, m): &(u64, Msg)| (f - start, *m);
+    let sent: Vec<(u64, Msg)> = sent.iter().map(at).collect();
+    assert_eq!(
+        sent,
+        vec![
+            (0, Msg::note_on(0, 60, 100)),
+            // The key goes down: the clip's note ends, the played one starts.
+            (BEAT, Msg::note_off(0, 60)),
+            (BEAT, Msg::note_on(0, 60, 90)),
+            (BEAT * 3 / 2, Msg::note_off(0, 60)),
+            // After the key is let go, the clip plays on as before.
+            (BEAT * 5, Msg::note_on(0, 60, 100)),
+            (BEAT * 6, Msg::note_off(0, 60)),
+        ],
+        "no clip note at 1.2 beats under the held key, and no off at 4"
+    );
 }

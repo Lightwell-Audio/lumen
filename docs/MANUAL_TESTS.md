@@ -2560,4 +2560,6 @@ waits for the owner.
     the same pitch over its middle. Expect the old note to end where the new
     one starts, with no second note stacked on it (open the clip to check).
     With Loop on, play the same pitch at the same place in two passes:
-    expect one note, the later pass's.
+    expect one note, the later pass's. **Listen too:** while you hold the key,
+    only it sounds (the old note stops as you press it, and does not cut your
+    note short); after you let go, the clip plays on as before.
