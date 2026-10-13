@@ -4734,6 +4734,61 @@ Specimens" canvas, on 2026-10-12:
 - Not run in this container: the WSL performance gate, the macOS cross-clippy,
   and `--bench-frames` with a take open.
 
+### Amendment: MT-MIDI-7 run 1 (2026-10-13)
+
+The owner recorded with a real keyboard and found three faults:
+1. **The take painted in chunks.** The clip only grew, and its notes only
+   appeared, at each commit (about once a second), unlike Ableton, which paints
+   the take as it is played.
+2. **The clips under the take were redrawn at the same interval.** Each commit
+   rebuilt the track from `base`, and the pieces a Replace cut off clips got
+   fresh ids every time, so the arrangement treated them as new clips.
+3. **Notes at the edges of the take were lost.** A key already down when
+   Record was pressed had no note-on in the take; and a note held across the
+   loop's end had its note-off earlier in time than its note-on, which became a
+   one-tick note, so a note changed just before the wrap was lost.
+
+Changes:
+- **The live take** (`arrangement/live_take.rs`, drawn by `clips.rs`
+  `draw_live_take`): every frame the app gives the arrangement the take as
+  captured so far (`Capture::so_far`, held notes ending at the playhead). It is
+  drawn over the lanes after the clips: in Replace an opaque record-red body
+  from the take's start to the playhead (covering whatever the document has of
+  it), in Overdub a body only over the gaps between the clips under it, and in
+  both the notes as they are played, in record red, a held one growing. The
+  document's commits are no longer what the eye follows. They stay about once a
+  second (and at each loop wrap, so the next pass plays what this one kept).
+- **Stable ids**: `Recording` remembers the ids a track's commits gave the
+  pieces they cut (`pieces`, per track), and the next commit gives the same
+  pieces the same ids in the same order. A clip a take only shortens stays the
+  clip it was; the Overdub gap clips keep their ids too (a KNOWN_ISSUES row is
+  gone).
+- **Held keys** (`lumen-engine` `midi/player.rs`, `hold.rs`): a track that can
+  record keeps the keys its input holds (`TrackState::down`, a preallocated
+  list), and when its recording begins (`cx.recording` turns on for it) the
+  player queues a note-on for each, as played at the start. `Capture::take`
+  starts a note that began before the range (these, and notes the output
+  latency put just before it) at the range's start.
+- **Loop passes**: `Captured` gains `pass`, which counts up at each loop wrap
+  (a message played just before a wrap is of the pass before), and a marker
+  (`source: WRAP`) is queued for each recording track at every wrap. The app's
+  `Capture::looping` cuts a note that was held across a wrap at the loop's end
+  and goes on from the loop's start, filling the loop for each whole pass in
+  between; notes still held at the stop end where the playhead is, in the pass
+  it is in.
+
+Tests: engine `tests/record.rs` (a held key is taken at the start; wraps mark
+passes for every recording track; the wrap case keeps its pass), `recorder.rs`
+(notes across one wrap, several, at the stop and with the off arriving after
+the marker; held notes at the start; `so_far`), `document/record.rs` (ids stable
+across commits), `arrangement/live_take.rs`, and E2E `record` (a key held when
+Record is pressed; a note held across the wrap; the take follows the playhead
+and the clips under it keep their ids).
+
+Not verified: how it looks and feels with a real controller (MT-MIDI-7 run 2),
+and the cost of the per-frame snapshot of a very long take (it copies the
+take's notes each frame; the frame benchmark has not been run with one).
+
 ### Not verified
 - Timing with a real MIDI controller, and with the computer keyboard as a
   source over real drivers (MT-MIDI-7, step 2).

@@ -494,6 +494,98 @@ fn a_held_note_is_closed_at_the_stop_and_nothing_hangs() {
     assert!(after < 1e-4, "still sounding after the stop: {after}");
 }
 
+/// A key already down when Record is pressed is part of the take, from the
+/// take's start (MT-MIDI-7, run 1).
+#[test]
+fn a_key_held_when_record_is_pressed_is_taken_from_the_start() {
+    let fake = keyboard();
+    let project = project_of("Record", vec![track(None, true)]);
+    let mut lumen = launch("held-at-start", &project, &fake);
+    let keys = Keys::new(&fake);
+    keys.on(60, 100);
+    lumen.frames(10);
+    record(&mut lumen);
+    reach(&mut lumen, beats(1.5));
+    keys.off(60);
+    reach(&mut lumen, beats(2.0));
+    stop(&mut lumen);
+
+    let notes = all_placed(&lumen);
+    assert_eq!(notes.len(), 1, "the held key is a note: {notes:?}");
+    assert_eq!(notes[0].pitch, 60);
+    assert_eq!(notes[0].start, Ticks::ZERO, "from the start of the take");
+    assert!(notes[0].end > beats(0.5), "it lasts until the key goes");
+}
+
+/// A note held across the loop's end is cut there and goes on from the
+/// loop's start, so a note changed just before the wrap is not lost
+/// (MT-MIDI-7, run 1).
+#[test]
+fn a_note_held_across_the_loop_wrap_goes_on_from_the_loop_start() {
+    let fake = keyboard();
+    let mut project = project_of("Record", vec![track(None, true)]);
+    project.transport.loop_start = Ticks::ZERO;
+    project.transport.loop_end = beats(2.0);
+    project.transport.loop_enabled = true;
+    let mut lumen = launch("loop-held", &project, &fake);
+    let keys = Keys::new(&fake);
+    record(&mut lumen);
+    reach(&mut lumen, beats(1.6));
+    keys.on(60, 90);
+    lumen.wait_for("the loop to wrap", |app| app.playhead() < beats(0.5));
+    reach(&mut lumen, beats(0.5));
+    keys.off(60);
+    reach(&mut lumen, beats(1.0));
+    stop(&mut lumen);
+
+    let notes = all_placed(&lumen);
+    assert_eq!(notes.len(), 2, "cut at the wrap: {notes:?}");
+    assert!(notes.iter().all(|n| n.pitch == 60));
+    let before = notes
+        .iter()
+        .find(|n| n.end == beats(2.0))
+        .expect("to the loop end");
+    let after = notes
+        .iter()
+        .find(|n| n.start == Ticks::ZERO)
+        .expect("from the loop start");
+    assert!(before.start >= beats(1.0), "it began late in the loop");
+    assert!(after.end > beats(0.1), "and went on into the next pass");
+}
+
+/// The take is drawn up to the playhead on every frame, and a clip it cuts
+/// keeps its identity between commits, so nothing under it is redrawn
+/// (MT-MIDI-7, run 1).
+#[test]
+fn the_take_follows_the_playhead_and_what_it_cuts_keeps_its_ids() {
+    let fake = keyboard();
+    let old = vec![Note::new(beats(6.0), beats(1.0), 52, 100)];
+    let project = project_of("Record", vec![track(Some(old), true)]);
+    let mut lumen = launch("live", &project, &fake);
+    let keys = Keys::new(&fake);
+    record(&mut lumen);
+    keys.on(60, 90);
+    reach(&mut lumen, beats(0.5));
+    let ids = |lumen: &Lumen| clips_of(lumen).iter().map(|c| c.id).collect::<Vec<_>>();
+    let mut seen = Vec::new();
+    for _ in 0..6 {
+        let before = lumen.app().playhead();
+        lumen.frames(1);
+        let (from, to, notes) = lumen.app().live_take().expect("a take under way");
+        assert_eq!(from, Ticks::ZERO);
+        assert!(to >= before, "it reaches the playhead: {to:?} < {before:?}");
+        assert_eq!(notes, 1, "the held key is a growing note");
+        seen.push(ids(&lumen));
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    stop(&mut lumen);
+    assert!(
+        seen.windows(2).all(|w| w[0] == w[1]),
+        "the clips keep their ids at every commit: {seen:?}"
+    );
+    assert!(lumen.app().live_take().is_none(), "gone when it stops");
+}
+
 /// With Loop on, recording goes round the loop and each pass layers into
 /// the same clip; the clip spans the loop.
 #[test]

@@ -390,7 +390,18 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-13: **M5 slice 6 (recording MIDI) is built** on `m5-midi` (ADR-0055; the plan and what changed from it are in `docs/milestones/M5.md`). Record (F9 or the button) keeps what the armed MIDI tracks play, after a count-in of none, 1, 2 or 4 bars; takes land as Replace or Overdub, one undo step per recording, committed about once a second, with autosave every 10 s while recording. Owner choices: loop passes layer, a clip runs from record start to stop, settings in the app file (no format change, still v14), and the 1-A, 2-B, 3-A look. Built by Haiku agents (take builder, settings, E2E, the bar and the clip look) and the parent (engine and recorder). Open: with Loop on a take starts at the loop's start; edits to the same track during a take are lost; no manual latency offset until M9 (KNOWN_ISSUES). Not run here: the WSL perf gate and the macOS cross-clippy. **MT-MIDI-7 waits for the owner.** Cloud container: `apt-get update`, then `libasound2-dev libudev-dev pkg-config mesa-vulkan-drivers xvfb libxkbcommon-x11-0`. Next: MT-MIDI-7, then slice 7 (files, learn and clock).
+**Last updated:** 2026-10-13 (later): **MT-MIDI-7 run 1 fixes** on `m5-midi`
+(ADR-0055 amendment). The owner's findings: the take painted in chunks,
+recording over a clip redrew it at every commit, and held keys and notes held
+across the loop wrap were lost. Now: the take is drawn every frame from the
+capture (`arrangement/live_take.rs`, `clips.rs` `draw_live_take`; commits stay
+about once a second and at each wrap); commits give the pieces they cut stable
+ids (`Recording::pieces`); the engine keeps the keys a recording track's input
+holds and queues them as note-ons when recording begins, numbers loop passes
+(`Captured::pass`, `WRAP` markers), and the app's `Capture::looping` cuts a
+note held across a wrap at the loop end and carries it on from the loop start.
+MT-MIDI-7 run 2 (steps 15 to 18) waits for the owner. Before it, 2026-10-13:
+**M5 slice 6 (recording MIDI) is built** on `m5-midi` (ADR-0055; the plan and what changed from it are in `docs/milestones/M5.md`). Record (F9 or the button) keeps what the armed MIDI tracks play, after a count-in of none, 1, 2 or 4 bars; takes land as Replace or Overdub, one undo step per recording, committed about once a second, with autosave every 10 s while recording. Owner choices: loop passes layer, a clip runs from record start to stop, settings in the app file (no format change, still v14), and the 1-A, 2-B, 3-A look. Built by Haiku agents (take builder, settings, E2E, the bar and the clip look) and the parent (engine and recorder). Open: with Loop on a take starts at the loop's start; edits to the same track during a take are lost; no manual latency offset until M9 (KNOWN_ISSUES). Not run here: the WSL perf gate and the macOS cross-clippy. **MT-MIDI-7 waits for the owner.** Cloud container: `apt-get update`, then `libasound2-dev libudev-dev pkg-config mesa-vulkan-drivers xvfb libxkbcommon-x11-0`. Next: MT-MIDI-7, then slice 7 (files, learn and clock).
 
 Before it, 2026-10-12: **M5 slice 5 (quantize and its tools) is
 built** on `m5-midi` (ADR-0054; plan in `docs/milestones/M5.md`; owner:

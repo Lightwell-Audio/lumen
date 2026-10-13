@@ -276,7 +276,7 @@ fn merge_content(clip: &mut Clip, (notes, events): Content) {
 }
 
 /// The parts of `range` that no clip of `track` covers, in time order.
-fn gaps(track: &Track, range: (Ticks, Ticks)) -> Vec<(Ticks, Ticks)> {
+pub fn gaps(track: &Track, range: (Ticks, Ticks)) -> Vec<(Ticks, Ticks)> {
     let (a, b) = range;
     let mut covered: Vec<(Ticks, Ticks)> = track
         .clips

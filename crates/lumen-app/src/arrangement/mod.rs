@@ -34,6 +34,7 @@ mod header_row;
 mod headers;
 mod levels;
 mod listen_light;
+pub(crate) mod live_take;
 mod menus;
 mod midi_io;
 mod mini_notes;
@@ -299,6 +300,8 @@ pub struct Arrangement {
     pub(crate) live: Live,
     /// The recording under way, if any, lent by the app each frame (slice 6d).
     pub(crate) recording: Option<recording_look::RecordingLook>,
+    /// The take as it grows, drawn every frame (after MT-MIDI-7).
+    pub(crate) live_take: Option<live_take::LiveTake>,
     /// Every track's meter and the master's loudness (M4 slice 5), moved
     /// on by the app each frame.
     pub(crate) meters: crate::meters::Meters,

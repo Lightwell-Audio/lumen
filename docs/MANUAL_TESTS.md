@@ -2495,3 +2495,25 @@ Connect a MIDI controller, or press **Ctrl+Shift+K** for the computer keyboard
 Record each step's result below as a run, with what was heard and seen. Steps
 2, 6, 12 and 13 are open questions as well as tests: the answers decide the
 KNOWN_ISSUES rows for the loop start, the notice's place and the bar's layout.
+
+**Run 1 (owner, 2026-10-13)** found three faults, fixed in ADR-0055's
+amendment and waiting for run 2:
+- the take painted in chunks instead of flowing with the playhead;
+- recording over an existing clip redrew the existing clip at the same
+  interval;
+- a key held when recording started was not captured, and a note changed just
+  before the loop wrapped was lost.
+
+**Run 2 steps (new, after run 1).**
+15. **Flow.** Record a few bars. Expect the red clip to reach the playhead
+    smoothly with no steps, and each note to appear as you press it and grow
+    while you hold it. Say whether it flows like Ableton's.
+16. **Over a clip.** Record over an existing clip, with Overdub off and then on.
+    Expect nothing under or beside the take to flicker or redraw while you
+    record.
+17. **Held key.** Hold a key, then press F9 (also with a count-in). Expect the
+    note in the take from its very start, lasting until you let go.
+18. **Loop wrap.** With Loop on over two bars, hold a note across the loop's end
+    and let go in the next pass; then change notes just before the wrap.
+    Expect the held note cut at the loop's end and carrying on from its start,
+    and the change just before the wrap kept in its own pass.

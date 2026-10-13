@@ -86,9 +86,15 @@ pub(crate) fn paint(
             tag: true,
         };
     }
+    take_paint(palette)
+}
+
+/// What a take being recorded is painted with: record red body, outline and
+/// notes, and the "REC" tag.
+pub(crate) fn take_paint(palette: &Palette) -> Paint {
     Paint {
         body: Some(palette.record.gamma_multiply(BODY_TINT)),
-        outline,
+        outline: Some(palette.record.gamma_multiply(OUTLINE)),
         notes: Some(palette.record_note),
         tag: true,
     }

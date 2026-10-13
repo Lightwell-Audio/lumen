@@ -11,7 +11,7 @@ use lumen_core::time::Ticks;
 use lumen_engine::{
     Captured, Command, Destination, Engine, EngineHandle, Layered, Listen, LiveIn, LiveInput,
     MidiHandle, MidiPlayer, MidiTrack, Mixer, MixerHandle, NodeSpec, Region, Routing, Target,
-    Timeline, clip_player, engine, midi_player, mixer,
+    Timeline, WRAP, clip_player, engine, midi_player, mixer,
 };
 
 const MASTER: u64 = 100;
@@ -163,6 +163,7 @@ fn only_recording_tracks_keep_input_and_only_while_recording() {
     ]);
     // Not recording yet: nothing is kept.
     rig.live.send(100, 100, Msg::note_on(0, 60, 100));
+    rig.live.send(200, 200, Msg::note_off(0, 60));
     rig.run(1_000, 128);
     assert!(rig.taken().is_empty());
 
@@ -200,8 +201,9 @@ fn the_count_in_holds_the_song_and_recording_starts_mid_block() {
     assert_eq!(snap.count_in_total, 4 * BEAT as i64);
     assert_eq!(snap.count_in_left, 4 * BEAT as i64 - 2_000);
 
-    // A note played in the count-in is not kept.
+    // A note played and let go in the count-in is not kept.
     rig.live.send(5_000, 5_000, Msg::note_on(0, 60, 100));
+    rig.live.send(5_100, 5_100, Msg::note_off(0, 60));
     rig.run(4 * BEAT as usize - 2_000 + 1_000, 77);
     let snap = rig.transport.transport();
     assert!(snap.playing && snap.recording && snap.count_in_left == 0);
@@ -285,11 +287,67 @@ fn a_note_played_just_before_the_loop_wraps_is_kept_at_the_loop_end() {
     rig.live.send(47_950, 48_070, Msg::note_on(0, 60, 100));
     rig.live.send(48_500, 48_500, Msg::note_off(0, 60));
     rig.run(50_000, 100);
-    let kept = rig.taken();
+    let kept: Vec<Captured> = rig
+        .taken()
+        .into_iter()
+        .filter(|c| c.source != WRAP)
+        .collect();
     assert_eq!(
         kept.iter().map(|c| c.at).collect::<Vec<_>>(),
         vec![47_950, 500]
     );
+    // The note began in the pass before the wrap, and ended after it.
+    assert_eq!(kept[1].pass, kept[0].pass + 1);
+}
+
+#[test]
+fn each_loop_wrap_marks_a_new_pass_for_every_recording_track() {
+    let mut rig = rig(vec![recorder(A), recorder(B)]);
+    rig.transport
+        .send(Command::SetLoop(Region::new(
+            Ticks::ZERO,
+            Ticks::quarters(2),
+            true,
+        )))
+        .unwrap();
+    rig.transport.send(Command::Record { count_in: 0 }).unwrap();
+    // Two and a half passes of the 48,000 frame loop.
+    rig.run(120_000, 128);
+    let marks: Vec<(u64, u32)> = rig
+        .taken()
+        .into_iter()
+        .filter(|c| c.source == WRAP)
+        .map(|c| (c.track, c.pass))
+        .collect();
+    assert_eq!(marks.len(), 4, "two wraps, two tracks: {marks:?}");
+    let first = marks.iter().map(|m| m.1).min().unwrap();
+    for track in [A, B] {
+        let passes: Vec<u32> = marks.iter().filter(|m| m.0 == track).map(|m| m.1).collect();
+        assert_eq!(passes, vec![first, first + 1]);
+    }
+}
+
+#[test]
+fn a_key_held_when_recording_begins_is_taken_at_the_start() {
+    let mut rig = rig(vec![recorder(A)]);
+    // Held before Record, and one let go before it.
+    rig.live.send(100, 100, Msg::note_on(0, 60, 90));
+    rig.live.send(150, 150, Msg::note_on(0, 62, 80));
+    rig.live.send(300, 300, Msg::note_off(0, 62));
+    rig.run(1_000, 128);
+    assert!(rig.taken().is_empty());
+    rig.transport.send(Command::Record { count_in: 0 }).unwrap();
+    rig.run(1_024, 128);
+    let kept = rig.taken();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(kept[0].msg, Msg::note_on(0, 60, 90));
+    assert!(kept[0].at < 200, "at the start: {}", kept[0].at);
+    // Letting go is kept like any other message.
+    rig.live.send(2_500, 2_500, Msg::note_off(0, 60));
+    rig.run(1_024, 128);
+    let kept = rig.taken();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].msg, Msg::note_off(0, 60));
 }
 
 #[test]

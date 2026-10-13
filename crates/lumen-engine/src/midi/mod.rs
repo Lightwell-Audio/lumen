@@ -27,7 +27,7 @@ mod hold;
 mod live;
 mod player;
 
-pub use capture::Captured;
+pub use capture::{Captured, WRAP};
 pub use live::{AUDITION, INPUT_SLOTS, KEYBOARD, Listen, LiveIn, LiveInput, SOURCES};
 pub use player::{MidiHandle, MidiPlayer, midi_player};
 

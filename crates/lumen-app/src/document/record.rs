@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use lumen_core::time::Ticks;
 use lumen_project::edit::record::{self, Blocked, Mode, Placement, Take};
-use lumen_project::model::{Id, Project};
+use lumen_project::model::{Id, Project, Track};
 
 use super::Document;
 use super::clips::fresh_ids;
@@ -20,12 +20,25 @@ pub struct Recording {
     base: Project,
     key: String,
     take_clips: HashMap<Id, Id>,
+    /// The ids each track's takes gave to the pieces of clips they cut, so
+    /// the next commit gives the same pieces the same ids: a clip that a
+    /// take only shortens stays the clip it was.
+    pieces: HashMap<Id, Vec<Id>>,
 }
 
 impl Recording {
     /// The clip a Replace take of `track` is, once it has been placed.
     pub fn take_clip(&self, track: Id) -> Option<Id> {
         self.take_clips.get(&track).copied()
+    }
+
+    /// The track `track` as it was when recording began.
+    pub fn base_track(&self, track: Id) -> Option<&Track> {
+        self.base
+            .tracks
+            .iter()
+            .find(|t| t.id == track)
+            .map(|t| &**t)
     }
 }
 
@@ -38,6 +51,7 @@ impl Document {
             base: self.project().clone(),
             key,
             take_clips: HashMap::new(),
+            pieces: HashMap::new(),
         }
     }
 
@@ -60,6 +74,22 @@ impl Document {
         // Placed on a copy first: a blocked take must not reach the history,
         // and an unchanged one makes no step.
         let mut next = self.project().clone();
+        // Ids for the pieces a take cuts: the ones the last commit used, in
+        // order, then new ones.
+        let pieces = rec.pieces.entry(track).or_default();
+        let mut used = 0;
+        let mut minted = fresh_ids(&mut self.next_id);
+        let mut fresh = || {
+            used += 1;
+            match pieces.get(used - 1) {
+                Some(&id) => id,
+                None => {
+                    let id = minted();
+                    pieces.push(id);
+                    id
+                }
+            }
+        };
         let placed = record::place(
             &mut next,
             &rec.base,
@@ -70,7 +100,7 @@ impl Document {
                 punch,
                 take_clip,
             },
-            &mut fresh_ids(&mut self.next_id),
+            &mut fresh,
         )?;
         self.history
             .apply("Record", Some(&rec.key), |project| *project = next);
@@ -165,6 +195,31 @@ mod tests {
         assert_eq!(doc.history().undo_label(), Some("Add MIDI track"));
         doc.redo();
         assert_eq!(*doc.project(), done, "redo brings the recording back");
+    }
+
+    #[test]
+    fn a_clip_a_take_cuts_keeps_the_same_ids_at_every_commit() {
+        let mut doc = Document::new(crate::empty_project());
+        let track = doc.add_track(TrackKind::Midi, None);
+        doc.create_midi_clip(track, NewClip::Range(q(0), q(16)))
+            .unwrap();
+        let mut rec = doc.begin_recording();
+        let mut layouts = Vec::new();
+        for end in [6, 8, 10] {
+            doc.record_take(
+                &mut rec,
+                track,
+                &take(4, end, vec![tn(4, 1, 60)]),
+                Mode::Replace,
+                None,
+            )
+            .unwrap();
+            let clips = &doc.project().tracks[0].clips;
+            layouts.push(clips.iter().map(|c| c.id).collect::<Vec<_>>());
+        }
+        assert_eq!(layouts[0].len(), 3, "the left part, the take, the right");
+        assert_eq!(layouts[0], layouts[1]);
+        assert_eq!(layouts[1], layouts[2]);
     }
 
     #[test]

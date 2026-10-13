@@ -137,6 +137,10 @@ pub struct MidiPlayer {
     capture: rtrb::Producer<Captured>,
     /// Messages lost because the app was not reading (a count, for tests).
     lost: u32,
+    /// How many times the loop has wrapped: the pass messages are kept in.
+    pass: u32,
+    /// The last part rendered had the transport recording.
+    recording: bool,
 }
 
 /// Creates the MIDI pair, starting with no tracks. Allocates, so call it
@@ -173,6 +177,8 @@ pub fn midi_player() -> (MidiHandle, MidiPlayer) {
             old_feed: None,
             capture: capture_tx,
             lost: 0,
+            pass: 0,
+            recording: false,
         },
     )
 }
@@ -225,31 +231,57 @@ impl MidiPlayer {
     /// Hands each track that listens the live messages for the part from
     /// device frame `start`, `frames` long.
     fn play_live(&mut self, cx: &RenderContext<'_>, frames: usize) {
+        self.recording = cx.recording;
         let Some(live) = self.live.as_mut() else {
             return;
         };
         let start = cx.device;
+        let pass = self.pass;
         let tracks = &mut self.current.tracks;
         let (capture, lost) = (&mut self.capture, &mut self.lost);
+        // A recording that begins takes the keys already held down, as
+        // played at its start, so a held note is not lost.
+        for track in tracks.iter_mut() {
+            let on = cx.recording && track.record.is_on();
+            if on && !track.state.recording {
+                let at = capture::heard(cx, start).0;
+                for down in &track.state.down {
+                    let msg = Msg::note_on(down.channel, down.key, down.velocity);
+                    let kept = capture.push(Captured {
+                        track: track.id,
+                        source: down.source,
+                        at,
+                        pass,
+                        msg,
+                    });
+                    if kept.is_err() {
+                        *lost = lost.saturating_add(1);
+                    }
+                }
+            }
+            track.state.recording = on;
+        }
         let last = frames.saturating_sub(1) as u64;
         let last32 = last as u32;
         live.pull(start, start + frames as u64, &mut |m: LiveIn| {
             let offset = m.frame.saturating_sub(start).min(last) as u32;
             for track in tracks.iter_mut() {
-                // Recording keeps what the track takes, heard or not.
-                if cx.recording
-                    && m.source != AUDITION
-                    && track.record.takes(m.source, m.msg)
-                    && capture
-                        .push(Captured {
+                if m.source != AUDITION && track.record.takes(m.source, m.msg) {
+                    track.state.press(m.source, m.msg);
+                    // Recording keeps what the track takes, heard or not.
+                    if cx.recording {
+                        let (at, back) = capture::heard(cx, m.played);
+                        let kept = capture.push(Captured {
                             track: track.id,
                             source: m.source,
-                            at: capture::heard(cx, m.played),
+                            at,
+                            pass: pass.wrapping_sub(u32::from(back)),
                             msg: m.msg,
-                        })
-                        .is_err()
-                {
-                    *lost = lost.saturating_add(1);
+                        });
+                        if kept.is_err() {
+                            *lost = lost.saturating_add(1);
+                        }
+                    }
                 }
                 if !track.sounds() {
                     continue;
@@ -391,6 +423,30 @@ impl MidiPlayer {
 }
 
 impl MidiPlayer {
+    /// The loop wrapped: the next messages are of a new pass, and each
+    /// recording track is told so.
+    fn wrapped(&mut self) {
+        self.pass = self.pass.wrapping_add(1);
+        if !self.recording {
+            return;
+        }
+        for track in &self.current.tracks {
+            if !track.record.is_on() {
+                continue;
+            }
+            let marker = Captured {
+                track: track.id,
+                source: capture::WRAP,
+                at: 0,
+                pass: self.pass,
+                msg: Msg([0, 0, 0]),
+            };
+            if self.capture.push(marker).is_err() {
+                self.lost = self.lost.saturating_add(1);
+            }
+        }
+    }
+
     /// Tells the sender to forget what it has not sent yet, if any track
     /// goes to hardware.
     fn flush_hardware(&mut self) {
@@ -553,8 +609,11 @@ impl TrackSource for MidiPlayer {
         }
     }
 
-    fn locate(&mut self, timeline: &Timeline, sample_rate: u32, sample: i64, _jump: Jump) {
+    fn locate(&mut self, timeline: &Timeline, sample_rate: u32, sample: i64, jump: Jump) {
         self.take_new(None);
+        if jump == Jump::LoopWrap {
+            self.wrapped();
+        }
         let clock = Clock {
             timeline,
             rate: sample_rate,
@@ -594,6 +653,7 @@ impl TrackSource for MidiPlayer {
             state.sustain = false;
             state.bend = false;
             state.live.clear();
+            state.down.clear();
             if let Some(spec) = track.instrument.as_mut() {
                 spec.instrument.silence();
             }

@@ -13,10 +13,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use eframe::egui::{self, Align2, Color32, FontId, Painter, Pos2, Rect, Stroke, pos2, vec2};
+use lumen_core::time::Ticks;
 use lumen_media::Peaks;
 use lumen_project::model::{Clip, ClipContent, Project, TrackKind};
 use lumen_render::{BoxInstance, RowSlot, WaveInstance, WaveStyle, beats, rgba};
 
+use super::live_take::{LiveTake, LiveTrack};
 use super::recording_look::{self, Paint, RecordingLook};
 use super::samples::{Geometry, Pixels, Strips};
 use super::waves::{Source, wave_instances};
@@ -25,6 +27,8 @@ use crate::canvas::{self, ClipFrame};
 use crate::document::{Document, audible};
 use crate::lanes::{Landing, Lanes};
 use crate::media::{Item, State};
+use crate::piano_roll::mini;
+use crate::piano_roll::notes::velocity_alpha;
 use crate::timeview::TimeView;
 use crate::widgets::{draw_edge_glow, gradient};
 use crate::{icons, theme};
@@ -346,6 +350,21 @@ impl Arrangement {
                             draw_name(painter, rect, lane, &look);
                         }
                     }
+                    // The take being recorded, as far as the playhead.
+                    if let Some(take) = self.live_take.as_ref()
+                        && let Some(live) = take.track(track.id)
+                    {
+                        let alpha = if heard { 1.0 } else { DIMMED };
+                        let lane_painter =
+                            painter.with_clip_rect(lane.intersect(painter.clip_rect()));
+                        draw_live_take(
+                            if row.clipped { &lane_painter } else { painter },
+                            (lane, canvas),
+                            time,
+                            (take, live),
+                            (color_of(track.color), alpha),
+                        );
+                    }
                     // Files dropped on this track, while they load (slice
                     // 6e), side by side from where they were dropped.
                     let landing: Vec<Landing> = lanes
@@ -666,6 +685,64 @@ fn draw_body(painter: &Painter, rect: Rect, look: &ClipLook<'_>) {
         Stroke::new(1.0, outline_color(&look.paint, look.color, alpha)),
         egui::StrokeKind::Inside,
     );
+}
+
+/// The take being recorded on one track (`live_take`): its body to the
+/// playhead, over whatever the document has of it, and its notes as played.
+fn draw_live_take(
+    painter: &Painter,
+    (lane, canvas): (Rect, Rect),
+    time: TimeView,
+    (take, live): (&LiveTake, &LiveTrack),
+    (color, alpha): (Color32, f32),
+) {
+    let palette = theme::p();
+    let x = |t: Ticks| time.x(canvas.left(), t.as_quarters());
+    let inner = lane.top() + INSET..=lane.bottom() - INSET;
+    let look = ClipLook {
+        name: "MIDI clip",
+        color,
+        state: ClipState::Ready,
+        progress: None,
+        alpha,
+        locked: false,
+        paint: recording_look::take_paint(palette),
+    };
+    for (a, b) in take.bodies(live) {
+        let (x0, x1) = (x(a), x(b));
+        if x1 < canvas.left() || x0 > canvas.right() {
+            continue;
+        }
+        let rect = Rect::from_x_y_ranges(x0..=x1, inner.clone());
+        // Opaque, so what the document has under the take (committed a
+        // second ago) cannot show its edge.
+        painter.rect_filled(rect, theme::radius::SMALL, palette.lane);
+        draw_body(painter, rect, &look);
+        if x1 - x0 >= NAME_MIN_WIDTH {
+            draw_name(painter, rect, lane, &look);
+        }
+    }
+    let Some((lo, hi)) = live.pitch_range() else {
+        return;
+    };
+    let top = lane.top() + INSET + TITLE + WAVE_GAP;
+    let unit = (lane.bottom() - INSET - WAVE_GAP - top) / mini::BANDS as f32;
+    if unit <= 0.0 {
+        return;
+    }
+    for note in &live.notes {
+        let (x0, x1) = (x(note.start), x(note.end));
+        if x1 < canvas.left() || x0 > canvas.right() {
+            continue;
+        }
+        let y = top + mini::band(note.pitch.min(127), lo, hi) as f32 * unit;
+        let rect = Rect::from_min_max(
+            pos2(x0.max(canvas.left()), y),
+            pos2(x1.max(x0 + 1.0).min(canvas.right()), y + unit.max(1.0)),
+        );
+        let strength = (0.45 + 0.55 * velocity_alpha(note.velocity)) * alpha;
+        painter.rect_filled(rect, 0.0, palette.record_note.gamma_multiply(strength));
+    }
 }
 
 /// A clip's name in its title bar, kept within the visible part of the

@@ -13,7 +13,7 @@
 //! block that holds `sample_at(tick)`; the window of ticks searched is
 //! widened by two ticks either side so rounding cannot lose one.
 
-use lumen_core::midi::{Event, Msg, cc};
+use lumen_core::midi::{Event, Kind, Msg, cc};
 use lumen_core::time::Ticks;
 
 use super::live::LiveState;
@@ -50,6 +50,16 @@ pub(super) struct Held {
     pub off_tick: Ticks,
 }
 
+/// A key a recording track's input holds down, so a recording that begins
+/// while it is held can take it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Down {
+    pub source: u8,
+    pub channel: u8,
+    pub key: u8,
+    pub velocity: u8,
+}
+
 /// Per track: the held notes and the events waiting for the next part.
 pub(super) struct TrackState {
     pub held: Vec<Held>,
@@ -63,6 +73,10 @@ pub(super) struct TrackState {
     pub dropped: u32,
     /// Live notes, apart from the clips' (slice 2).
     pub live: LiveState,
+    /// Keys the track's recording input holds down now (slice 6).
+    pub down: Vec<Down>,
+    /// The last part had the track recording.
+    pub recording: bool,
 }
 
 impl TrackState {
@@ -74,6 +88,33 @@ impl TrackState {
             bend: false,
             dropped: 0,
             live: LiveState::new(),
+            down: Vec::with_capacity(MAX_HELD),
+            recording: false,
+        }
+    }
+
+    /// Notes a key of the recording input going down or up.
+    pub fn press(&mut self, source: u8, msg: Msg) {
+        match msg.kind() {
+            Kind::NoteOn { key, velocity } => {
+                let channel = msg.channel();
+                self.down
+                    .retain(|d| !(d.source == source && d.channel == channel && d.key == key));
+                if self.down.len() < MAX_HELD {
+                    self.down.push(Down {
+                        source,
+                        channel,
+                        key,
+                        velocity,
+                    });
+                }
+            }
+            Kind::NoteOff { key, .. } => {
+                let channel = msg.channel();
+                self.down
+                    .retain(|d| !(d.source == source && d.channel == channel && d.key == key));
+            }
+            _ => {}
         }
     }
 

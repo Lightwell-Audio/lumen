@@ -195,6 +195,15 @@ impl App {
         self.is_recording()
     }
 
+    /// The take as the arrangement draws it each frame (after MT-MIDI-7):
+    /// where it begins and ends, and the notes played so far on the first
+    /// track recording. None when nothing records.
+    pub fn live_take(&self) -> Option<(Ticks, Ticks, usize)> {
+        let take = self.arrangement.live_take.as_ref()?;
+        let notes = take.tracks.first().map_or(0, |t| t.notes.len());
+        Some((take.from, take.to, notes))
+    }
+
     /// Whether Overdub is on: a take merges into the clip under it (M5
     /// slice 6; `settings.record`).
     pub fn overdub_on(&self) -> bool {
