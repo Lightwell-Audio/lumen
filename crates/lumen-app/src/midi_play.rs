@@ -175,6 +175,33 @@ pub struct Inputs {
     pub selected: Vec<Id>,
     /// Each input switched on for tracks: its id name and its slot.
     pub ports: Vec<(String, u16)>,
+    /// Tracks being recorded over (Replace): what they hold from the
+    /// take's start on is not played.
+    pub replacing: Vec<Replacing>,
+}
+
+/// A track a Replace take is being recorded on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Replacing {
+    pub track: Id,
+    /// Where the take begins: the clips there from then on fall silent.
+    pub from: Ticks,
+    /// The take's own clip, which plays on (loop passes hear each other).
+    pub take: Option<Id>,
+}
+
+impl Inputs {
+    /// The part of `clip` on `track` that plays: all of it, unless a Replace
+    /// take is over its end, which cuts it short or silences it. `None` when
+    /// nothing of it plays.
+    fn playing_length(&self, track: Id, clip: &model::Clip) -> Option<Ticks> {
+        let cut = self
+            .replacing
+            .iter()
+            .find(|r| r.track == track && r.take != Some(clip.id))
+            .map_or(clip.length, |r| clip.length.min(r.from - clip.start));
+        (cut.0 > 0).then_some(cut)
+    }
 }
 
 impl Inputs {
@@ -330,13 +357,13 @@ pub fn engine_midi(
             .clips
             .iter()
             .filter(|c| !silent && !c.muted && matches!(c.content, ClipContent::Midi { .. }))
-            .filter(|c| c.length.0 > 0)
-            .map(|clip| {
+            .filter_map(|clip| Some((clip, inputs.playing_length(track.id, clip)?)))
+            .map(|(clip, length)| {
                 let (notes, controls) = cache.lists(clip);
                 MidiClip {
                     id: clip.id.0,
                     start: clip.start,
-                    length: clip.length,
+                    length,
                     period: clip.loop_length.filter(|l| l.0 > 0),
                     notes,
                     controls,
@@ -518,7 +545,41 @@ mod tests {
         Inputs {
             selected: selected.to_vec(),
             ports: vec![("Keys".into(), 0), ("Pads".into(), 3), ("Far".into(), 70)],
+            replacing: Vec::new(),
         }
+    }
+
+    #[test]
+    fn a_replace_take_silences_the_clips_it_records_over_but_not_its_own() {
+        let mut clip = midi_clip(
+            vec![Note::new(Ticks::ZERO, Ticks::quarters(1), 60, 100)],
+            vec![],
+        );
+        clip.start = Ticks::quarters(4);
+        clip.length = Ticks::quarters(8);
+        clip.id = Id(7);
+        let mut inputs = Inputs::default();
+        // Nothing is being recorded: the clip plays whole.
+        assert_eq!(inputs.playing_length(Id(5), &clip), Some(clip.length));
+        // A take that begins inside the clip cuts it there.
+        inputs.replacing = vec![Replacing {
+            track: Id(5),
+            from: Ticks::quarters(6),
+            take: None,
+        }];
+        assert_eq!(
+            inputs.playing_length(Id(5), &clip),
+            Some(Ticks::quarters(2))
+        );
+        // One that begins at or before the clip's start silences it.
+        inputs.replacing[0].from = Ticks::quarters(4);
+        assert_eq!(inputs.playing_length(Id(5), &clip), None);
+        inputs.replacing[0].from = Ticks::ZERO;
+        assert_eq!(inputs.playing_length(Id(5), &clip), None);
+        // Another track is not touched, and neither is the take's own clip.
+        assert_eq!(inputs.playing_length(Id(6), &clip), Some(clip.length));
+        inputs.replacing[0].take = Some(Id(7));
+        assert_eq!(inputs.playing_length(Id(5), &clip), Some(clip.length));
     }
 
     #[test]

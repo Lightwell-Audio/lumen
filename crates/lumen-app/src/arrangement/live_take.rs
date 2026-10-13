@@ -32,19 +32,6 @@ pub(crate) struct LiveTrack {
     pub gaps: Vec<(Ticks, Ticks)>,
 }
 
-impl LiveTrack {
-    /// The lowest and highest pitch taken so far.
-    pub(crate) fn pitch_range(&self) -> Option<(u8, u8)> {
-        self.notes.iter().fold(None, |range, n| {
-            let p = n.pitch.min(127);
-            match range {
-                None => Some((p, p)),
-                Some((lo, hi)) => Some((lo.min(p), hi.max(p))),
-            }
-        })
-    }
-}
-
 /// The take under way: where it begins, how far it has reached, and what
 /// each recording track has played.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,18 +84,6 @@ mod tests {
                 gaps: vec![(Ticks(100), Ticks(400))],
             }],
         }
-    }
-
-    #[test]
-    fn the_pitch_range_is_what_was_played() {
-        let t = take(false);
-        assert_eq!(t.tracks[0].pitch_range(), Some((48, 90)));
-        let empty = LiveTrack {
-            track: Id(1),
-            notes: Vec::new(),
-            gaps: Vec::new(),
-        };
-        assert_eq!(empty.pitch_range(), None);
     }
 
     #[test]

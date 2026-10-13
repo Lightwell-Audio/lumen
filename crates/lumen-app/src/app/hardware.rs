@@ -141,7 +141,11 @@ impl App {
             .filter(|p| p.info.id.direction == Direction::Input && p.using.track)
             .filter_map(|p| Some((p.info.id.name.clone(), p.slot?)))
             .collect();
-        crate::midi_play::Inputs { selected, ports }
+        crate::midi_play::Inputs {
+            selected,
+            ports,
+            replacing: self.replacing(),
+        }
     }
 
     /// Lends the headers what they need for their listening lights: which

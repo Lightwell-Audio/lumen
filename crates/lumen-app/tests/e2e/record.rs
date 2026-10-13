@@ -24,11 +24,13 @@ use lumen_core::time::Ticks;
 use lumen_engine::TransportSnapshot;
 use lumen_midi::Direction;
 use lumen_midi::fake::FakeControl;
-use lumen_project::model::{Clip, ClipContent, Color, Device, Id, Note, Project, Track, TrackKind};
+use lumen_project::model::{
+    Clip, ClipContent, Color, Device, Id, MidiTo, Note, Project, Track, TrackKind,
+};
 use lumen_project::testing::{TempDir, midi_track, project_of};
 
 use super::Lumen;
-use super::midi_play::palette;
+use super::midi_play::{palette, wait_open};
 
 /// The fake keyboard's input port.
 const PORT: &str = "Keystation";
@@ -360,6 +362,68 @@ fn replace_cuts_the_clip_under_the_take() {
     let kept: Vec<u8> = all_placed(&lumen).iter().map(|n| n.pitch).collect();
     assert!(!kept.contains(&50), "the old note under the take is cut");
     assert!(kept.contains(&52), "the old note after the take stays");
+}
+
+/// A track with `old` over beats 0 to 8, armed and sent to the fake output
+/// "Synth" (so what plays can be counted), at a tempo that runs fast.
+fn heard_project(old: Vec<Note>) -> (Project, FakeControl) {
+    let fake = keyboard();
+    fake.plug(Direction::Output, "Synth");
+    let mut keys = track(Some(old), true);
+    keys.midi_to = Some(MidiTo {
+        port: "Synth".into(),
+        channel: 0,
+    });
+    let mut project = project_of("Record", vec![keys]);
+    project.tempo[0].bpm = 480.0;
+    (project, fake)
+}
+
+/// The pitches the output was sent note-ons for, in order.
+fn pitches_sent(fake: &FakeControl) -> Vec<u8> {
+    fake.sent()
+        .into_iter()
+        .map(|(_, bytes)| bytes)
+        .filter(|b| b[0] & 0xF0 == 0x90 && b[2] > 0)
+        .map(|b| b[1])
+        .collect()
+}
+
+/// Records from the start to beat 3 without playing anything, then stops,
+/// and returns the pitches the output was sent.
+fn record_over(name: &str, overdub: bool) -> Vec<u8> {
+    let old = vec![
+        Note::new(beats(1.0), beats(0.5), 50, 100),
+        Note::new(beats(6.0), beats(0.5), 52, 100),
+    ];
+    let (project, fake) = heard_project(old);
+    let mut lumen = launch(name, &project, &fake);
+    wait_open(&mut lumen, &fake);
+    if overdub {
+        palette(&mut lumen, "Overdub");
+        assert!(lumen.app().overdub_on(), "Overdub is on");
+    }
+    record(&mut lumen);
+    reach(&mut lumen, beats(3.0));
+    stop(&mut lumen);
+    pitches_sent(&fake)
+}
+
+/// In Replace the notes already in the clip under the take do not sound
+/// while it is recorded over (the owner, MT-MIDI-7); Overdub keeps them
+/// sounding, which also shows the output hears this test's clip at all.
+#[test]
+fn replace_does_not_play_the_old_notes_under_the_take_and_overdub_does() {
+    assert_eq!(
+        record_over("replace-silent", false),
+        Vec::<u8>::new(),
+        "Replace plays nothing of the clip it records over"
+    );
+    assert_eq!(
+        record_over("overdub-plays", true),
+        [50],
+        "Overdub plays the notes under the take"
+    );
 }
 
 /// Overdub merges the take into the clip under it: the old notes stay, the

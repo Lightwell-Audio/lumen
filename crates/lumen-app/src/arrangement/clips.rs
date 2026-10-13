@@ -722,9 +722,6 @@ fn draw_live_take(
             draw_name(painter, rect, lane, &look);
         }
     }
-    let Some((lo, hi)) = live.pitch_range() else {
-        return;
-    };
     let top = lane.top() + INSET + TITLE + WAVE_GAP;
     let unit = (lane.bottom() - INSET - WAVE_GAP - top) / mini::BANDS as f32;
     if unit <= 0.0 {
@@ -735,7 +732,7 @@ fn draw_live_take(
         if x1 < canvas.left() || x0 > canvas.right() {
             continue;
         }
-        let y = top + mini::band(note.pitch.min(127), lo, hi) as f32 * unit;
+        let y = top + mini::live_band(note.pitch.min(127)) as f32 * unit;
         let rect = Rect::from_min_max(
             pos2(x0.max(canvas.left()), y),
             pos2(x1.max(x0 + 1.0).min(canvas.right()), y + unit.max(1.0)),

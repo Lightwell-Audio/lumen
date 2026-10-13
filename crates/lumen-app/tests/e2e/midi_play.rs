@@ -95,7 +95,7 @@ fn stop(lumen: &mut Lumen) {
 }
 
 /// Waits for the fake output to be opened by the app.
-fn wait_open(lumen: &mut Lumen, fake: &FakeControl) {
+pub fn wait_open(lumen: &mut Lumen, fake: &FakeControl) {
     for _ in 0..1_500 {
         if fake.opens(Direction::Output, "Synth") > 0 {
             return;

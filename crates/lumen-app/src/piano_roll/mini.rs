@@ -47,6 +47,20 @@ pub(crate) fn band(pitch: u8, lo: u8, hi: u8) -> u32 {
     (BANDS - 1) - (up.clamp(0.0, (BANDS - 1) as f32) as u32)
 }
 
+/// The lowest pitch a take being recorded is drawn at (C1), and how many
+/// semitones each band holds: 64 semitones, C1 to D#6, across the bands.
+const LIVE_LOW: u8 = 24;
+const LIVE_PER_BAND: u8 = 2;
+
+/// The band (0 is the top) of `pitch` in a take being recorded. The layout is
+/// the same for every take, so a note does not move as more are played and
+/// the same pitch is at the same height in every clip; it is the piano
+/// roll's order (high above low), not a fit to the notes played so far.
+pub(crate) fn live_band(pitch: u8) -> u32 {
+    let up = pitch.saturating_sub(LIVE_LOW) / LIVE_PER_BAND;
+    (BANDS - 1) - u32::from(up).min(BANDS - 1)
+}
+
 /// The boxes of a clip's notes on `track` (a dense number among the tracks
 /// with notes: its bands are slots `track * BANDS ..`), in `color`.
 pub(crate) fn mini_instances(
@@ -118,6 +132,18 @@ mod tests {
             loop_length: None,
             notes,
         }
+    }
+
+    #[test]
+    fn a_live_note_keeps_its_band_whatever_else_is_played() {
+        // Higher pitches sit higher (smaller band), and the band depends on
+        // the pitch alone.
+        assert!(live_band(72) < live_band(60));
+        assert_eq!(live_band(60), live_band(60));
+        assert_eq!(live_band(60), live_band(61));
+        // Pitches off either end stay on the first and last band.
+        assert_eq!(live_band(0), BANDS - 1);
+        assert_eq!(live_band(127), 0);
     }
 
     #[test]

@@ -152,6 +152,31 @@ impl Session {
 }
 
 impl App {
+    /// The tracks a Replace take is recording over: what they held from the
+    /// take's start on is not played, so the old notes do not sound under
+    /// the new ones.
+    pub(crate) fn replacing(&self) -> Vec<crate::midi_play::Replacing> {
+        let Some(session) = self
+            .record
+            .session
+            .as_ref()
+            .filter(|s| s.mode == Mode::Replace)
+        else {
+            return Vec::new();
+        };
+        session
+            .tracks
+            .iter()
+            .map(|&track| crate::midi_play::Replacing {
+                track,
+                from: session
+                    .punch
+                    .map_or(session.start, |(a, _)| session.start.max(a)),
+                take: session.rec.take_clip(track),
+            })
+            .collect()
+    }
+
     /// Whether a recording is under way. Undo and redo wait for its end.
     pub(crate) fn is_recording(&self) -> bool {
         self.record.active()

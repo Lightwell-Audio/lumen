@@ -4789,6 +4789,34 @@ Not verified: how it looks and feels with a real controller (MT-MIDI-7 run 2),
 and the cost of the per-frame snapshot of a very long take (it copies the
 take's notes each frame; the frame benchmark has not been run with one).
 
+### Amendment: MT-MIDI-7 run 2 findings (2026-10-13)
+
+The owner found two more faults:
+1. **Replace still played the clip it recorded over.** The document only cuts
+   the old clip as the playhead passes (at a commit), so the engine had played
+   its notes before the cut. Now, while a Replace take is recorded, the app
+   leaves out of the engine's list whatever the track held from the take's
+   start on, except the take's own clip (which loop passes hear)
+   (`midi_play::Replacing`, in `Inputs`; `Inputs::playing_length` cuts a clip
+   that begins before the take at the take's start). Overdub is unchanged.
+   With punch in, the start is the brace's start. With punch out, content
+   after the brace comes back when the recording ends (about a frame after the
+   brace's end). The project itself is untouched.
+2. **A take's notes were centred and moved.** The live take fitted its notes
+   to the pitch range played so far, so the first note sat mid-clip and every
+   note outside the range moved the rest. It now draws on a fixed layout
+   (`mini::live_band`): high pitches above low, two semitones a band over C1 to
+   D#6 (pitches outside stay on the first or last band). A note keeps its place
+   as more are played. Finished clips are still fitted to their own range
+   (slice 3b), so a take refits when recording stops. Whether every clip
+   should use the fixed layout, so the same pitch is at the same height in all
+   of them, is for the owner to choose (it would change slice 3b's look).
+
+Tests: `midi_play.rs` (a Replace take silences and cuts the clips it records
+over, not its own), `piano_roll/mini.rs` (a live note's band depends on its
+pitch alone), E2E `record` (Replace sends the output none of the old notes;
+Overdub sends the one under the take).
+
 ### Not verified
 - Timing with a real MIDI controller, and with the computer keyboard as a
   source over real drivers (MT-MIDI-7, step 2).
