@@ -390,7 +390,14 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-13 (latest): **MT-MIDI-7 run 7's finding is
+**Last updated:** 2026-10-13 (latest): **resizing a playing MIDI clip no
+longer strikes its notes again** (ADR-0061, owner's report). The engine knew a
+held note by its clip's start and the note's length, which a resize changes
+on every frame of the drag; a held note is now known by the tick it began on
+and its key (`hold::Held::start`, `hold::renewed`), so a resize only moves
+its end. Engine test and E2E `midi_play::resizing_a_playing_clip_…` (both fail
+without the fix). **MT-MIDI-7 step 37 waits for the owner.** Before it,
+2026-10-13: **MT-MIDI-7 run 7's finding is
 fixed** (ADR-0060; owner: "looking great", one bug). Overdub begun before a
 clip and reaching it, or begun at its start, merged into that clip
 (ADR-0057); it now records a new clip wherever it begins, as Ableton does,

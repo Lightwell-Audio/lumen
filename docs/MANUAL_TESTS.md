@@ -2643,3 +2643,11 @@ clip. Fixed (ADR-0060): Overdub always records a new clip, as Ableton does.
     clip after it, the old clip untouched. (d) Recording across the whole of
     a clip: one new clip holding its notes and yours. Undo after each: one
     step brings the old clip back as it was.
+
+**Step 37 (new, after the owner's resize report; ADR-0061).**
+37. **Resizing while it plays.** Play a recorded MIDI clip with a long note
+    (a pad). While it sounds, drag the clip's end in and out over the note's
+    end, then its start in and out (not past the note). Expect the note to
+    sound once, without a new attack while dragging: it only ends earlier
+    when the end is drawn in before the note's end. Do the same on a looping
+    clip, and on a track sent to a MIDI output.

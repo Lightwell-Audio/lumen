@@ -8,11 +8,10 @@
 //!
 //! - a note held across a clip cut in two, or across the start of an Overdub begun
 //!   inside a clip, sustains instead of stopping at the seam;
-//! - the engine knows a sounding note by its clip, the clip's start and the
-//!   note's place in it (`hold.rs`). A run is known by its first clip, so
-//!   while a recording moves the seams after it once a commit (about once a
-//!   second), the notes playing keep their owner and are neither released
-//!   nor struck again;
+//! - the engine knows a sounding note by where it began on the timeline and
+//!   its key (`hold.rs`, ADR-0061), so while a recording moves the seams
+//!   after it once a commit (about once a second), or a clip is resized,
+//!   the notes playing are neither released nor struck again;
 //! - each note still belongs to the clip it begins in: the run tells the
 //!   engine where its clips meet (`MidiClip::seams`), so playing from a
 //!   clip's start, or from inside it, does not strike a note carried on into

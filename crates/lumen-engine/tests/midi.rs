@@ -1316,3 +1316,88 @@ fn drawn_controllers_and_bends_land_on_their_exact_sample_in_order() {
         assert_eq!(sent, wanted, "values and order at {bpm} bpm");
     }
 }
+
+#[test]
+fn resizing_a_clip_or_a_note_under_the_playhead_does_not_retrigger_it() {
+    // Owner: resizing a playing MIDI clip struck its notes again. The app
+    // sends each note cut at the clip's end, in ticks from its start, so
+    // a trimmed end changes the note's length and a trimmed start moves
+    // the clip and every note in it: the note is the same, and sounds on.
+    let q = Ticks::quarters;
+    let log = Log::default();
+    let make = |start: Ticks, end: Ticks, note_length: Ticks| {
+        MidiTrack::new(
+            TRACK,
+            Target::Instrument,
+            probe(&log),
+            vec![clip(
+                1,
+                start,
+                end - start,
+                vec![note(q(1) - start, note_length.min(end - q(1)), 60)],
+            )],
+        )
+    };
+    let mut rig = rig(
+        Timeline::default(),
+        48_000,
+        vec![make(Ticks::ZERO, q(16), q(12))],
+        &log,
+    );
+    rig.play();
+    // Two beats in (one into the note) at 120 BPM.
+    rig.run(48_000, 128);
+    assert_eq!(rig.engine.source().tracks().1.held(TRACK), 1);
+    let edits = [
+        // The end drawn in over the note, then out again, as a drag sends.
+        (Ticks::ZERO, q(10), q(12)),
+        (Ticks::ZERO, q(8), q(12)),
+        (Ticks::ZERO, q(14), q(12)),
+        // The start trimmed in (before the note), then back.
+        (Ticks(q(1).0 / 2), q(14), q(12)),
+        (Ticks(q(1).0 / 4), q(14), q(12)),
+        // The note itself made shorter and longer.
+        (Ticks(q(1).0 / 4), q(14), q(6)),
+        (Ticks(q(1).0 / 4), q(14), q(10)),
+    ];
+    for (start, end, length) in edits {
+        rig.midi.collect_garbage();
+        rig.midi.set(vec![make(start, end, length)]).ok().unwrap();
+        rig.run(512, 128);
+        assert_eq!(rig.engine.source().tracks().1.held(TRACK), 1);
+    }
+    let sent = rig.log();
+    assert_eq!(
+        (ons(&sent), offs(&sent)),
+        (1, 0),
+        "struck once, never let go"
+    );
+    // It ends where the last edit put its end: beat 11, frame 264,000.
+    let played = 48_000 + edits.len() * 512;
+    rig.run(264_000 - played - 256, 128);
+    let sent = rig.log();
+    assert_eq!((ons(&sent), offs(&sent)), (1, 0));
+    rig.run(1_024, 128);
+    let sent = rig.log();
+    assert_eq!((ons(&sent), offs(&sent)), (1, 1));
+    // The end drawn in past the playhead lets it go at once.
+    rig.midi.collect_garbage();
+    rig.midi
+        .set(vec![make(Ticks::ZERO, q(16), q(12))])
+        .ok()
+        .unwrap();
+    rig.run(512, 128);
+    assert_eq!(
+        ons(&rig.log()),
+        2,
+        "past beat 11: the note made longer again is chased"
+    );
+    rig.midi.collect_garbage();
+    rig.midi
+        .set(vec![make(Ticks::ZERO, q(11), q(12))])
+        .ok()
+        .unwrap();
+    rig.run(512, 128);
+    let sent = rig.log();
+    assert_eq!((ons(&sent), offs(&sent)), (2, 2));
+}

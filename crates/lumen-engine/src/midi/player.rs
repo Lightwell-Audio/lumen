@@ -351,7 +351,8 @@ impl MidiPlayer {
     }
 
     /// Moves what sounds from the old list into the new: trackers and
-    /// voices carry by track id, notes that an edit changed are released,
+    /// voices carry by track id, notes that an edit removed or moved are
+    /// released (`hold::sync`),
     /// and a track that left lets go of its notes.
     fn carry(&mut self, new: &mut MidiSet, at: Option<(Clock<'_>, i64)>) {
         let clock = self.clock;

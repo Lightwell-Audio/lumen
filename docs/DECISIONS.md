@@ -5285,3 +5285,40 @@ new clip).
 Not verified: by hand (MT-MIDI-7 run 8, step 36), the WSL perf gate
 (`lumen-project` changed; `place` is not in a perf scenario), the macOS
 cross-clippy (no platform code changed).
+
+## ADR-0061 — A sounding note is known by where it began
+
+**Status:** Accepted (owner's report) · **Date:** 2026-10-13
+
+**Context.** The owner found: while a recorded MIDI clip plays, resizing it
+strikes its notes again. The engine knew a held note by its clip id, the
+clip's start, its repeat and the note's start and length in the clip
+(`hold::Owner`), and an edit that changed any of them released the note,
+then the chase started it again at once. Resizing changes them while the
+note is the same: the app sends each note cut at its clip's end
+(`midi_runs::run_notes`), so dragging the end over a sounding note changes
+its length on every frame of the drag; trimming the start moves the clip and
+every note's place in it (format v15's window). A drag sends a new list each
+frame, so a note was struck many times (eight in the engine test).
+
+**Decision.** A held note is known by the absolute tick it began on and its
+key (`Held::start`). After an edit, `hold::sync` looks for a note on that key
+beginning at that tick in any clip of the track (in its window, in the repeat
+there) and only moves its end; a note gone, or now beginning elsewhere, is
+released as before and chased if it sounds at the position. The chase skips a
+note held by the same start and key. This covers both edges, a note's length
+changed in the piano roll, and runs splitting or joining at a seam (the note
+no longer depends on which clip heads its run).
+
+**Consequences.** Shortening a sounding note (in a clip, or by drawing the
+clip's end in) ends it where it now ends, at once if that is already past;
+lengthening it lets it ring on, as in Ableton. Moving a clip or a note still
+releases and re-chases what it moved. Two clips holding a note on the same
+key at the same tick (not possible on one track: covers cut) would share it.
+
+Tests: engine `midi::resizing_a_clip_or_a_note_under_the_playhead_does_not_retrigger_it`
+(both edges, the note's length; fails without the fix: 8 note-ons); E2E
+`midi_play::resizing_a_playing_clip_does_not_strike_its_notes_again` (drags
+both edges of a playing clip; the port gets one note-on).
+
+Not verified: by hand (MT-MIDI-7 step 37).

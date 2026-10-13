@@ -602,3 +602,47 @@ fn a_preset_chosen_from_the_menu_changes_the_note_being_held() {
     let back = left(&lumen.listen(Duration::from_millis(100), 9_600));
     assert!(brightness(&back) < b1 * 0.9, "darker again");
 }
+
+#[test]
+fn resizing_a_playing_clip_does_not_strike_its_notes_again() {
+    // Owner: resizing a MIDI clip while it played retriggered its notes.
+    // Both edges are dragged while a long note sounds: the end in over
+    // the note's end (cutting it shorter) and the start in before it
+    // (moving the clip); the port gets the note once, until Stop.
+    let fake = fake_with_output();
+    let project = to_port(vec![note(1, 50, 52)], None);
+    let mut lumen = launch("midi-resize-playing", &project, &fake);
+    lumen.app_mut().set_view(lumen_app::TimeView {
+        left: 0.0,
+        zoom: 15.0,
+    });
+    lumen.frames(10);
+    wait_open(&mut lumen, &fake);
+    play(&mut lumen);
+    until_sent(&mut lumen, &fake, "the note", |s| count(s, 0x90) == 1);
+    let clip = lumen.app().project().tracks[0].clips[0].id;
+    let ctx = lumen.harness.ctx.clone();
+    let r = lumen
+        .app()
+        .clip_rect(&ctx, clip)
+        .expect("the clip is in view");
+    let end = eframe::egui::Pos2::new(r.right() - 3.0, r.center().y);
+    lumen.drag(
+        end,
+        end - eframe::egui::vec2(16.0 * 15.0, 0.0),
+        Modifiers::ALT,
+    );
+    let start = eframe::egui::Pos2::new(r.left() + 3.0, r.center().y);
+    lumen.drag(start, start + eframe::egui::vec2(7.0, 0.0), Modifiers::ALT);
+    let c = &lumen.app().project().tracks[0].clips[0];
+    assert!(c.start > Ticks::ZERO && c.start < q(1), "{:?}", c.start);
+    assert!(c.start + c.length < q(51), "the end cuts the note");
+    assert!(lumen.app().is_playing());
+    lumen.frames(20);
+    assert_eq!(balance(&fake), (1, 0), "struck once and still sounding");
+    stop(&mut lumen);
+    until_sent(&mut lumen, &fake, "the note let go", |s| {
+        count(s, 0x80) == 1
+    });
+    assert_eq!(balance(&fake), (1, 1));
+}

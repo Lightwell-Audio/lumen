@@ -29,22 +29,13 @@ const MARGIN: i64 = 2;
 /// How many repeats back a chase looks for a controller.
 const CHASE_REPEATS: i64 = 64;
 
-/// Where a sounding note comes from, so an edit can tell whether the note
-/// still exists.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Owner {
-    pub clip: u64,
-    pub clip_start: Ticks,
-    pub rep: u32,
-    pub start: Ticks,
-    pub length: Ticks,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Held {
     pub channel: u8,
     pub key: u8,
-    pub owner: Owner,
+    /// Absolute tick where the note began: with the key, what tells the
+    /// note apart through an edit (see [`sync`]).
+    pub start: Ticks,
     pub on_sample: i64,
     /// Absolute tick of the note-off.
     pub off_tick: Ticks,
@@ -268,16 +259,6 @@ fn off_tick(base: i64, note: &MidiNote, span: i64) -> i64 {
     (base + (note.start.0 + note.length.0).min(span)).max(base + note.start.0 + 1)
 }
 
-fn owner(clip: &MidiClip, rep: i64, note: &MidiNote) -> Owner {
-    Owner {
-        clip: clip.id,
-        clip_start: clip.start,
-        rep: rep as u32,
-        start: note.start,
-        length: note.length,
-    }
-}
-
 /// Reads the part `from..to` (timeline samples): note-ons and controllers
 /// that fall in it, then the note-offs that come due. Events land in
 /// `state.events` at their frame within the part.
@@ -311,7 +292,7 @@ pub(super) fn gather(
                         Held {
                             channel,
                             key: note.pitch,
-                            owner: owner(clip, rep, note),
+                            start: Ticks(base + note.start.0),
                             on_sample: at,
                             off_tick: Ticks(off_tick(base, note, span)),
                         },
@@ -356,6 +337,13 @@ fn with_channel(msg: Msg, channel: u8) -> Msg {
 /// Brings the held notes in line with `clips` after an edit, at `pos`:
 /// notes that no longer exist are released, and notes that should be
 /// sounding but are not are started now.
+///
+/// A held note is known by where it began on the timeline and its key, not
+/// by its clip's start or its length: resizing a clip (either edge, which
+/// moves its start and cuts its notes' lengths anew) or changing a note's
+/// length leaves the note sounding, only ending where it now ends. Only a
+/// note that is gone or begins elsewhere is released (and chased again if
+/// it sounds at `pos`).
 pub(super) fn sync(
     clips: &[MidiClip],
     state: &mut TrackState,
@@ -383,24 +371,35 @@ pub(super) fn sync(
     chase_notes(clips, state, channel, clock, pos);
 }
 
-/// Where `held` ends now, if its note is still in `clips`.
+/// Where `held` ends now, if a note that began where it did on its key is
+/// still in `clips` (the longest, if several).
 fn renewed(clips: &[MidiClip], held: &Held) -> Option<i64> {
-    let o = held.owner;
-    let clip = clips
-        .iter()
-        .find(|c| c.id == o.clip && c.start == o.clip_start)?;
-    let period = period(clip);
-    let count = (clip.length.0 + period - 1) / period;
-    if i64::from(o.rep) >= count {
-        return None;
+    let at = held.start.0;
+    let mut off: Option<i64> = None;
+    for clip in clips {
+        if clip.start.0 > at {
+            break;
+        }
+        let period = period(clip);
+        let (rep, last) = repeats(clip, period, at, at);
+        if rep > last {
+            continue;
+        }
+        let base = clip.start.0 + rep * period;
+        let span = span(clip, period, rep);
+        let within = at - base;
+        if within >= span {
+            continue;
+        }
+        let i = clip.notes.partition_point(|n| n.start.0 < within);
+        for note in clip.notes[i..].iter().take_while(|n| n.start.0 == within) {
+            if note.pitch == held.key {
+                let end = off_tick(base, note, span);
+                off = Some(off.map_or(end, |o| o.max(end)));
+            }
+        }
     }
-    let note = clip
-        .notes
-        .iter()
-        .find(|n| n.start == o.start && n.length == o.length && n.pitch == held.key)?;
-    let base = clip.start.0 + i64::from(o.rep) * period;
-    let span = span(clip, period, i64::from(o.rep));
-    (note.start.0 < span).then(|| off_tick(base, note, span))
+    off
 }
 
 /// Where the clip the position `pos` is in begins, in ticks from the start
@@ -451,20 +450,20 @@ pub(super) fn chase_notes(
                 let on = clock.sample(base + note.start.0);
                 let off_t = off_tick(base, note, span);
                 let off = clock.sample(off_t).max(on + 1);
-                let owner = owner(clip, rep, note);
+                let start = Ticks(base + note.start.0);
                 if on < pos
                     && off > pos
                     && !state.yields(note.pitch)
                     && !state
                         .held
                         .iter()
-                        .any(|h| h.owner == owner && h.key == note.pitch)
+                        .any(|h| h.start == start && h.key == note.pitch)
                 {
                     state.start_note(
                         Held {
                             channel,
                             key: note.pitch,
-                            owner,
+                            start,
                             on_sample: on,
                             off_tick: Ticks(off_t),
                         },
