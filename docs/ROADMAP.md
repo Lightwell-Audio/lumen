@@ -192,7 +192,7 @@ Implement:
 - Fixed length
 - Transpose
 - Standard MIDI File import/export
-- MIDI learn
+- MIDI clock out
 
 ### Exit criteria
 
@@ -250,6 +250,7 @@ Implement:
 - Read/Write/Touch/Latch
 - Automation recording
 - Automation override/re-enable
+- MIDI learn with a mapping list (moved from M5, owner, 2026-10-13)
 - Clip envelopes
 - Point editing
 - Curves

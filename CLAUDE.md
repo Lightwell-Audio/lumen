@@ -390,7 +390,10 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-13 (latest): **resizing a playing MIDI clip no
+**Last updated:** 2026-10-13 (latest): **MIDI learn moved to M7** (owner),
+built with automation; M5 slice 7 is now MIDI files and clock out (plan in
+`docs/milestones/M5.md`; choices F1–F4 wait for the owner, then the build).
+Before it, 2026-10-13: **resizing a playing MIDI clip no
 longer strikes its notes again** (ADR-0061, owner's report). The engine knew a
 held note by its clip's start and the note's length, which a resize changes
 on every frame of the drag; a held note is now known by the tick it began on

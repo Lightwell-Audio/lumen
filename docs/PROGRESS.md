@@ -2,7 +2,7 @@
 
 ## Status
 
-**Current milestone:** 5 - MIDI and the piano roll (plan: [milestones/M5.md](milestones/M5.md)), approved 2026-10-10. **Slices 0, 1 and 2 are built**: the device layer and format v11, then MIDI you can hear (the event path, the built-in synth, MIDI To, format v12; ADR-0045), then playing live (live input in the engine, MIDI From and Monitor in format v13, the computer keyboard, the MIDI chip and header lights; ADR-0046). Owner manual runs on 2026-10-11: MT-MIDI-1 passed; MT-MIDI-2 and MT-MIDI-3 passed functionally with known issues recorded in `docs/KNOWN_ISSUES.md`. **Slice 3 is built** (MIDI clips and the piano roll; ADR-0047); MT-MIDI-4 waits. **Slice 4 is built** (velocity and controller lanes; ADR-0050); MT-MIDI-4 and MT-MIDI-5 passed 2026-10-12. **Slice 5 is done** (quantize and its tools, ADR-0054); MT-MIDI-6 passed 2026-10-12 on run 2. **Slice 6 is built** (recording MIDI, ADR-0055); MT-MIDI-7 waits for the owner. After run 3, MIDI clips became windows onto their notes (format v15, ADR-0056): covering, trimming or splitting a clip hides notes instead of deleting them. Next: MT-MIDI-7, then slice 7 (files, learn and clock).
+**Current milestone:** 5 - MIDI and the piano roll (plan: [milestones/M5.md](milestones/M5.md)), approved 2026-10-10. **Slices 0, 1 and 2 are built**: the device layer and format v11, then MIDI you can hear (the event path, the built-in synth, MIDI To, format v12; ADR-0045), then playing live (live input in the engine, MIDI From and Monitor in format v13, the computer keyboard, the MIDI chip and header lights; ADR-0046). Owner manual runs on 2026-10-11: MT-MIDI-1 passed; MT-MIDI-2 and MT-MIDI-3 passed functionally with known issues recorded in `docs/KNOWN_ISSUES.md`. **Slice 3 is built** (MIDI clips and the piano roll; ADR-0047); MT-MIDI-4 waits. **Slice 4 is built** (velocity and controller lanes; ADR-0050); MT-MIDI-4 and MT-MIDI-5 passed 2026-10-12. **Slice 5 is done** (quantize and its tools, ADR-0054); MT-MIDI-6 passed 2026-10-12 on run 2. **Slice 6 is built** (recording MIDI, ADR-0055); MT-MIDI-7 waits for the owner. After run 3, MIDI clips became windows onto their notes (format v15, ADR-0056): covering, trimming or splitting a clip hides notes instead of deleting them. Next: MT-MIDI-7, then slice 7 (MIDI files and clock out; MIDI learn moved to M7 by the owner on 2026-10-13).
 **Before it:** 4.5 — Polish pass, a mid milestone before M5
 (plan: [milestones/M4.5.md](milestones/M4.5.md)), approved 2026-10-10
 from the interface audit's mock-ups. **All six slices built**; every audit
@@ -170,8 +170,8 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Scale highlight and snap, fold, ghost notes, multi-clip editing, step input | S | 🔲 | 5 |
 | Quantize: grids, modes, strength, swing, sensitivity, iterative, one-key apply, live-preview popover, humanize, legato, fixed length, transpose, scale-constrain, reverse | M | ✅ 2026-10-12: slice 5 (ADR-0054) and MT-MIDI-6 passed on run 2: the grid, Start, End, Both and Length modes, strength, swing, window, Q with the last settings, the ghost-trail preview, and humanize, fixed length, reverse and constrain to scale. Legato and transpose are in the piano roll's tools (`edit/notes.rs`) | 5 |
 | Restore recorded timing, groove templates, audio quantize | S | 🔲 | 5, 7 |
-| Standard MIDI File import and export | M | 🔲 | 5 |
-| MIDI learn with mapping list | M | 🔲 | 5 |
+| Standard MIDI File import and export | M | 🔲 Planned for M5 slice 7 (type 0 and 1 in, clip and project out) | 5 |
+| MIDI learn with mapping list | M | 🔲 Moved to M7 with automation (owner, 2026-10-13) | 7 |
 | MIDI effects (arpeggiator, chord, scale, velocity, length) | S | 🔲 | 8 |
 | MPE, MIDI 2.0 | L | 🔲 | — |
 
@@ -284,7 +284,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Markers with names and navigation | M | ✅ 2026-10-08 M3 slice 5d: named locators on the strip, set or removed at the playhead (M, Set), jumped between (Ctrl+Left/Right, ◂ ▸, click a flag), dragged (snapped), renamed (double-click, F2), deleted; undoable, saved (format v4) |
 | Multiple time formats; editable position field | M | 🟡 Time formats in M3 5b (`timefmt.rs`: bars and beats, minutes and seconds, samples, timecode), and a Go to position field in the transport bar |
 | Edit cursor separate from playhead; scrubbing. **Owner request (2026-10-06), raised from S to M, Ableton-style:** click in the scrub strip to set the playback position; drag to scrub audibly; drag in the beat ruler vertically to zoom and horizontally to scroll. Locate-on-click in M2; scrub strip, audible scrubbing and ruler zoom in M3. | M | 🟡 Click-to-locate on the ruler done (M2 slice 5), snapping to the editing grid (M3 5a). Ruler drag: down or up zooms, sideways scrolls, the grabbed beat stays under the pointer (M3 5b). M3 5e: the scrub strip (the strip's top, around the locator flags): click jumps (snapped); drag plays the grid step under the pointer in a loop at normal pitch, Alt scrubs like tape (speed and pitch follow the hand); while playing, a drag jumps playback. An engine scrub mode, real-time safe (ADR-0030). An edit cursor separate from the playhead is still to come |
-| MIDI clock / MTC out | S | 🔲 |
+| MIDI clock / MTC out | S | 🔲 Clock out planned for M5 slice 7; MTC out deferred, unscheduled |
 | Clock / MTC in, Ableton Link | L | 🔲 |
 | Tracks: add, delete, duplicate, rename, recolour, reorder, multi-select | M | 🟡 All of these from the track menu, the "+ Add track" menu button and keys (Ctrl+T, Ctrl+Shift+T, Ctrl+D, Delete, F2, Alt+arrows), each one undo step (M3 slice 4a). Drag to reorder (slice 4d) |
 | Track types with routing, arm, monitor, polarity | M | 🔲 |
@@ -305,7 +305,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Loop recording into takes; capture MIDI | S | 🟡 Loop passes layer into one MIDI clip (M5 slice 6, ADR-0055); takes and Capture MIDI are M9 |
 | Piano roll, velocity and controller lanes, quantize, humanize, transpose, legato | M | 🟡 Built: the piano roll (slice 3, ADR-0047), the velocity and controller lanes (slice 4, ADR-0050) and quantize with humanize (slice 5, ADR-0054). MT-MIDI-4, MT-MIDI-5 and MT-MIDI-6 passed 2026-10-12; the row stays 🟡 until the rest of M5 is done |
 | MIDI thru, channel filter, panic, sustain/bend/aftertouch, program/bank | M | 🟡 Panic, sustain, bend, pressure and program done (slice 1); thru (to the instrument or the MIDI To port) and the channel filter in MIDI From done (slice 2, ADR-0046). Real-controller timing unverified (MT-MIDI-3) |
-| SMF import/export; MIDI learn | M | 🔲 |
+| SMF import/export; MIDI learn | M | 🔲 SMF in M5 slice 7; MIDI learn moved to M7 (owner, 2026-10-13) |
 | Drum maps, drum editor, step sequencer | M | 🔲 |
 | MIDI effects; on-screen keyboard | S | 🔲 |
 | MPE, MIDI 2.0 | L | 🔲 |
