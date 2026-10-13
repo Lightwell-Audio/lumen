@@ -130,6 +130,7 @@ Windows** are in the app menu (click **Lumen** at the left of the transport bar)
 | `on_accent` | `#06182E` | `#FFFFFF` | Letters and icons on filled accent |
 | `mute`, `on_mute` | `#C8CCD4`, `#0B0D10` | `#5A6170`, `#FFFFFF` | A lit M, and its letter |
 | `record` | `#E5484D` | `#D33A40` | Record only |
+| `record_note` | `#F27B7F` | `#E06066` | The notes of a clip being recorded: record red, lighter (M5 slice 6d) |
 | `warning` | `#F2B14C` | `#A86400` | Problems that need attention |
 | `grid_bar` | `#343842` | `#D9DCE1` | Bar lines |
 | `grid_beat` | `#262930` | `#ECEEF1` | Beat lines |

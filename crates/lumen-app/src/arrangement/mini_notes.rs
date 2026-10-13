@@ -7,6 +7,7 @@ use lumen_project::model::{ClipContent, Project};
 use lumen_render::{BoxInstance, RowSlot};
 
 use super::clips::{INSET, WAVE_GAP};
+use super::recording_look::{self, RecordingLook};
 use super::{TITLE, clip_color};
 use crate::piano_roll::mini::{self, BANDS, Body};
 use crate::piano_roll::notes::ClipNotes;
@@ -20,9 +21,11 @@ pub(super) struct MiniNotes {
     pub tracks: Vec<usize>,
 }
 
-/// The mini notes of every MIDI clip in `project`.
-pub(super) fn build(project: &Project) -> MiniNotes {
+/// The mini notes of every MIDI clip in `project`. A clip being recorded
+/// shows its notes in the lighter record red (3-A).
+pub(super) fn build(project: &Project, recording: Option<&RecordingLook>) -> MiniNotes {
     let mut out = MiniNotes::default();
+    let palette = theme::p();
     for (index, track) in project.tracks.iter().enumerate() {
         let mut dense = None;
         for clip in &track.clips {
@@ -36,6 +39,9 @@ pub(super) fn build(project: &Project) -> MiniNotes {
                 out.tracks.push(index);
                 out.tracks.len() - 1
             });
+            let color = recording_look::paint(recording, track.id, clip, palette)
+                .notes
+                .unwrap_or_else(|| theme::wave(clip_color(track, clip)));
             mini::mini_instances(
                 &mut out.boxes,
                 &ClipNotes {
@@ -45,7 +51,7 @@ pub(super) fn build(project: &Project) -> MiniNotes {
                     notes,
                 },
                 n as u32,
-                theme::wave(clip_color(track, clip)),
+                color,
             );
         }
     }
@@ -108,7 +114,7 @@ mod tests {
             100,
         )]))];
         project.tracks = vec![Arc::new(track), Arc::new(with)];
-        let built = build(&project);
+        let built = build(&project, None);
         assert_eq!(built.tracks, [1]);
         assert_eq!(built.boxes.len(), 1);
         assert!(built.boxes[0].row < BANDS);
@@ -119,5 +125,38 @@ mod tests {
         let table = rows(&built.tracks, &slots, 1.0);
         assert_eq!(table.len(), BANDS as usize);
         assert!(table[0].top >= 100.0 + INSET + TITLE);
+    }
+
+    #[test]
+    fn a_recording_clips_notes_are_record_red() {
+        let mut project = lumen_project::testing::synthetic(1, 1, 0, 0, 0);
+        let mut track = (*project.tracks[0]).clone();
+        let mut c = clip(vec![Note::new(
+            Ticks::quarters(1),
+            Ticks::quarters(1),
+            60,
+            100,
+        )]);
+        c.id = Id(5);
+        track.clips = vec![Arc::new(c)];
+        let track_id = track.id;
+        project.tracks = vec![Arc::new(track)];
+        let look = RecordingLook {
+            tracks: vec![track_id],
+            from: Ticks::quarters(4),
+            until: Ticks::quarters(8),
+            overdub: false,
+            take_clips: vec![Id(5)],
+        };
+        let red = build(&project, Some(&look));
+        let plain = build(&project, None);
+        assert_eq!(red.boxes.len(), 1);
+        assert_ne!(red.boxes[0].body, plain.boxes[0].body);
+        // Not recording: the same boxes as with no recording at all.
+        let other = RecordingLook {
+            take_clips: vec![Id(9)],
+            ..look
+        };
+        assert_eq!(build(&project, Some(&other)), plain);
     }
 }

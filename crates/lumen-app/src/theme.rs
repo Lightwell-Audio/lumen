@@ -32,6 +32,9 @@ pub struct Palette {
     pub accent_muted: Color32,
     /// Record is the one semantic exception to the single accent.
     pub record: Color32,
+    /// Record red lightened for the notes of a clip being recorded (3-A):
+    /// lighter than `record`, so notes read on the take's tinted body.
+    pub record_note: Color32,
     /// Problems that need attention (device lost, could not start).
     pub warning: Color32,
     pub grid_bar: Color32,
@@ -121,6 +124,7 @@ pub const DARK: Palette = Palette {
     accent: Color32::from_rgb(0x4F, 0xA3, 0xFF),
     accent_muted: Color32::from_rgb(0x24, 0x3A, 0x55),
     record: Color32::from_rgb(0xE5, 0x48, 0x4D),
+    record_note: Color32::from_rgb(0xF2, 0x7B, 0x7F),
     warning: Color32::from_rgb(0xF2, 0xB1, 0x4C),
     grid_bar: Color32::from_rgb(0x34, 0x38, 0x42),
     grid_beat: Color32::from_rgb(0x26, 0x29, 0x30),
@@ -172,6 +176,7 @@ pub const LIGHT: Palette = Palette {
     accent: Color32::from_rgb(0x1F, 0x6F, 0xD1),
     accent_muted: Color32::from_rgb(0xD5, 0xE5, 0xFA),
     record: Color32::from_rgb(0xD3, 0x3A, 0x40),
+    record_note: Color32::from_rgb(0xE0, 0x60, 0x66),
     warning: Color32::from_rgb(0xA8, 0x64, 0x00),
     grid_bar: Color32::from_rgb(0xD9, 0xDC, 0xE1),
     grid_beat: Color32::from_rgb(0xEC, 0xEE, 0xF1),
@@ -784,6 +789,23 @@ mod tests {
     fn clip_names_read_on_every_clip_colour() {
         for color in CLIP_COLORS.into_iter().chain([CLIP_MUTED]) {
             assert!(contrast(CLIP_TEXT, color) >= 3.0, "{color:?}");
+        }
+    }
+
+    #[test]
+    fn recording_notes_are_lighter_red_than_the_record_red() {
+        fn luma(c: Color32) -> u32 {
+            u32::from(c.r()) * 2126 + u32::from(c.g()) * 7152 + u32::from(c.b()) * 722
+        }
+        for (name, c) in [("dark", DARK), ("light", LIGHT)] {
+            assert!(luma(c.record_note) > luma(c.record), "{name} note red");
+            // Still red: the red channel leads both others.
+            assert!(
+                c.record_note.r() > c.record_note.g() && c.record_note.r() > c.record_note.b(),
+                "{name} note red hue"
+            );
+            // Notes stand out from a take's body (a faint red over the clip body).
+            assert!(contrast(c.record_note, c.clip_body) >= 2.0, "{name} notes");
         }
     }
 

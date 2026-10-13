@@ -79,10 +79,13 @@ struct Session {
 
 impl Session {
     /// What the arrangement draws as being recorded.
-    fn look(&self) -> RecordingLook {
+    fn look(&self, head: Ticks, bar: Ticks) -> RecordingLook {
+        let reached = self.end(head);
+        let bar = bar.0.max(1);
         RecordingLook {
             tracks: self.tracks.clone(),
             from: self.start,
+            until: Ticks((reached.0 / bar + 1) * bar),
             overdub: self.mode == Mode::Overdub,
             take_clips: self
                 .tracks
@@ -200,7 +203,18 @@ impl App {
     /// arrangement which clips are being recorded.
     pub(crate) fn update_recording(&mut self) {
         self.step_recording();
-        self.arrangement.recording = self.record.session.as_ref().map(Session::look);
+        let head = self.transport.state().ticks;
+        let signature = self.document.project().time_signature;
+        let bar = lumen_core::meter::Meter {
+            numerator: u32::from(signature.numerator),
+            denominator: u32::from(signature.denominator),
+        }
+        .bar();
+        self.arrangement.recording = self
+            .record
+            .session
+            .as_ref()
+            .map(|session| session.look(head, bar));
     }
 
     /// Keeps what the engine kept, commits the take when it is due, and ends

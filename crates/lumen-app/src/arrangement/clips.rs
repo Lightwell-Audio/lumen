@@ -17,6 +17,7 @@ use lumen_media::Peaks;
 use lumen_project::model::{Clip, ClipContent, Project, TrackKind};
 use lumen_render::{BoxInstance, RowSlot, WaveInstance, WaveStyle, beats, rgba};
 
+use super::recording_look::{self, Paint, RecordingLook};
 use super::samples::{Geometry, Pixels, Strips};
 use super::waves::{Source, wave_instances};
 use super::{Arrangement, Row, RowKind, TITLE, Zone, clip_color, color_of};
@@ -50,6 +51,9 @@ const LOCK_ICON: f32 = 9.0;
 const LOCK_MIN_WIDTH: f32 = 30.0;
 /// A locked clip's clamps: bars this wide at both ends (the owner's K3).
 pub(super) const CLAMP: f32 = 3.0;
+/// The "REC" tag's dot: its radius, and the room it takes before the name.
+const TAG_DOT: f32 = 3.0;
+const TAG_ROOM: f32 = 11.0;
 
 /// A clip's left and right edges in `view`.
 pub(super) fn span(view: TimeView, canvas: Rect, clip: &Clip) -> (f32, f32) {
@@ -81,6 +85,9 @@ pub(super) struct GpuClips {
     /// The document state, media revision, device rate and palette the
     /// boxes show.
     built: Option<(u64, u64, u32, theme::Palette)>,
+    /// The recording the boxes show (none while nothing records, so the
+    /// check costs nothing then).
+    built_recording: Option<RecordingLook>,
     /// A clip is fading in or loading: rebuild next frame too.
     moving: bool,
 }
@@ -317,7 +324,13 @@ impl Arrangement {
                         if x1 - x0 < NAME_MIN_WIDTH {
                             continue;
                         }
-                        let mut look = look_of(clip, clip_color(track, clip), lanes, ctx);
+                        let paint = recording_look::paint(
+                            self.recording.as_ref(),
+                            track.id,
+                            clip,
+                            &palette,
+                        );
+                        let mut look = look_of(clip, clip_color(track, clip), paint, lanes, ctx);
                         if !heard {
                             look.alpha *= DIMMED;
                         }
@@ -359,6 +372,7 @@ impl Arrangement {
                             progress: lanes.library.progress(id),
                             alpha: lanes.shown(id, ctx),
                             locked: false,
+                            paint: Paint::default(),
                         };
                         draw_body(painter, rect, &look);
                         draw_name(painter, rect, lane, &look);
@@ -389,6 +403,7 @@ impl Arrangement {
                         progress,
                         alpha: shown,
                         locked: false,
+                        paint: Paint::default(),
                     };
                     draw_body(painter, rect, &look);
                     draw_name(painter, rect, lane, &look);
@@ -425,9 +440,15 @@ impl Arrangement {
         let palette = *theme::p();
         let rate = lanes.rate();
         let key = (state, lanes.revision(), rate, palette);
-        if self.gpu.built == Some(key) && !self.gpu.moving && !gliding {
+        let recording = self.recording.as_ref();
+        if self.gpu.built == Some(key)
+            && self.gpu.built_recording.as_ref() == recording
+            && !self.gpu.moving
+            && !gliding
+        {
             return;
         }
+        let recording = recording.cloned();
         // Any file loading (an import, or an opened project's media) has a
         // progress fill to keep moving.
         // A glide rebuilds once more after it lands.
@@ -436,7 +457,8 @@ impl Arrangement {
         let mut boxes = Vec::with_capacity(count);
         for (row, track) in project.tracks.iter().enumerate() {
             for clip in &track.clips {
-                let look = look_of(clip, clip_color(track, clip), lanes, ctx);
+                let paint = recording_look::paint(recording.as_ref(), track.id, clip, &palette);
+                let look = look_of(clip, clip_color(track, clip), paint, lanes, ctx);
                 moving |= look.alpha < 1.0;
                 boxes.push(clip_box(clip, row as u32, &look, &palette));
             }
@@ -447,11 +469,12 @@ impl Arrangement {
         gpu.geometry = waves.iter().map(|w| w.geometry).collect();
         gpu.waves = Arc::new(waves.into_iter().map(|w| w.instance).collect());
         gpu.strips.reset();
-        let mini = super::mini_notes::build(project);
+        let mini = super::mini_notes::build(project, recording.as_ref());
         gpu.mini = Arc::new(mini.boxes);
         gpu.mini_tracks = mini.tracks;
         gpu.generation += 1;
         gpu.built = Some(key);
+        gpu.built_recording = recording;
         gpu.moving = moving;
     }
 
@@ -521,12 +544,15 @@ struct ClipLook<'a> {
     alpha: f32,
     /// Locked (the owner's K3, slice 6e): a padlock ends the title bar.
     locked: bool,
+    /// What a recording gives the clip (3-A): none for a clip not recording.
+    paint: Paint,
 }
 
 /// A project clip's look, before dimming for its track.
 fn look_of<'a>(
     clip: &'a Clip,
     color: Color32,
+    paint: Paint,
     lanes: &mut Lanes,
     ctx: &egui::Context,
 ) -> ClipLook<'a> {
@@ -548,6 +574,25 @@ fn look_of<'a>(
         progress,
         alpha: lanes.shown(key, ctx),
         locked: clip.locked,
+        paint,
+    }
+}
+
+/// A clip body's colour at `alpha`: the clip body at the grid's opacity,
+/// unless a recording gives it a colour (the record red take).
+fn body_color(paint: &Paint, palette: &theme::Palette, alpha: f32) -> Color32 {
+    match paint.body {
+        Some(color) => color.gamma_multiply(alpha),
+        None => palette.clip_body.gamma_multiply(BODY_OPACITY * alpha),
+    }
+}
+
+/// A clip's outline at `alpha`: the track colour at 60%, unless a recording
+/// gives it the record red.
+fn outline_color(paint: &Paint, track: Color32, alpha: f32) -> Color32 {
+    match paint.outline {
+        Some(color) => color.gamma_multiply(alpha),
+        None => track.gamma_multiply(0.6 * alpha),
     }
 }
 
@@ -580,9 +625,9 @@ fn clip_box(clip: &Clip, row: u32, look: &ClipLook<'_>, palette: &theme::Palette
         start: beats(clip.start.as_quarters()),
         end: beats((clip.start + clip.length).as_quarters()),
         row,
-        body: straight(palette.clip_body.gamma_multiply(BODY_OPACITY * a)),
+        body: straight(body_color(&look.paint, palette, a)),
         bar: straight(bar.gamma_multiply(a)),
-        border: straight(look.color.gamma_multiply(0.6 * a)),
+        border: straight(outline_color(&look.paint, look.color, a)),
         fill: straight(look.color.gamma_multiply(0.25 * a)),
         progress: match look.state {
             ClipState::Loading => look.progress.unwrap_or(0.0),
@@ -599,11 +644,7 @@ fn draw_body(painter: &Painter, rect: Rect, look: &ClipLook<'_>) {
     let radius = theme::radius::SMALL;
     let alpha = look.alpha;
     let (bar, _) = bar_and_label(look, palette);
-    painter.rect_filled(
-        rect,
-        radius,
-        palette.clip_body.gamma_multiply(BODY_OPACITY * alpha),
-    );
+    painter.rect_filled(rect, radius, body_color(&look.paint, palette, alpha));
     if let (ClipState::Loading, Some(p)) = (look.state, look.progress) {
         let done = Rect::from_min_size(rect.min, vec2(rect.width() * p, rect.height()));
         painter.rect_filled(done, radius, look.color.gamma_multiply(0.25 * alpha));
@@ -622,7 +663,7 @@ fn draw_body(painter: &Painter, rect: Rect, look: &ClipLook<'_>) {
     painter.rect_stroke(
         rect,
         radius,
-        Stroke::new(1.0, look.color.gamma_multiply(0.6 * alpha)),
+        Stroke::new(1.0, outline_color(&look.paint, look.color, alpha)),
         egui::StrokeKind::Inside,
     );
 }
@@ -639,6 +680,21 @@ fn draw_name(painter: &Painter, rect: Rect, lane: Rect, look: &ClipLook<'_>) {
     let (_, label) = bar_and_label(look, palette);
     let alpha = look.alpha;
     let mut room = visible.shrink2(vec2(4.0, 0.0));
+    // A recording's tag: a drawn dot (the UI font has no "●") and "REC" in
+    // front of the name, so the state never rests on colour alone.
+    let (label, text_left) = if look.paint.tag {
+        painter.circle_filled(
+            pos2(visible.left() + 5.0 + TAG_DOT, title.center().y),
+            TAG_DOT,
+            theme::CLIP_TEXT.gamma_multiply(alpha),
+        );
+        (
+            format!("REC \u{00B7} {label}"),
+            visible.left() + 5.0 + TAG_ROOM,
+        )
+    } else {
+        (label, visible.left() + 5.0)
+    };
     if look.locked && visible.width() >= LOCK_MIN_WIDTH {
         let side = LOCK_ICON;
         let at = Rect::from_center_size(
@@ -653,7 +709,7 @@ fn draw_name(painter: &Painter, rect: Rect, lane: Rect, look: &ClipLook<'_>) {
         room.max.x = at.left() - 3.0;
     }
     painter.with_clip_rect(room).text(
-        pos2(visible.left() + 5.0, title.center().y),
+        pos2(text_left, title.center().y),
         Align2::LEFT_CENTER,
         label,
         FontId::proportional(theme::size::CAPTION),
