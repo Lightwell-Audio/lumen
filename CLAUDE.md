@@ -390,7 +390,9 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-12: **M5 slice 5 (quantize and its tools) is
+**Last updated:** 2026-10-13: **M5 slice 6 (recording MIDI) is built** on `m5-midi` (ADR-0055; the plan and what changed from it are in `docs/milestones/M5.md`). Record (F9 or the button) keeps what the armed MIDI tracks play, after a count-in of none, 1, 2 or 4 bars; takes land as Replace or Overdub, one undo step per recording, committed about once a second, with autosave every 10 s while recording. Owner choices: loop passes layer, a clip runs from record start to stop, settings in the app file (no format change, still v14), and the 1-A, 2-B, 3-A look. Built by Haiku agents (take builder, settings, E2E, the bar and the clip look) and the parent (engine and recorder). Open: with Loop on a take starts at the loop's start; edits to the same track during a take are lost; no manual latency offset until M9 (KNOWN_ISSUES). Not run here: the WSL perf gate and the macOS cross-clippy. **MT-MIDI-7 waits for the owner.** Cloud container: `apt-get update`, then `libasound2-dev libudev-dev pkg-config mesa-vulkan-drivers xvfb libxkbcommon-x11-0`. Next: MT-MIDI-7, then slice 7 (files, learn and clock).
+
+Before it, 2026-10-12: **M5 slice 5 (quantize and its tools) is
 built** on `m5-midi` (ADR-0054; plan in `docs/milestones/M5.md`; owner:
 ghost-trail preview, comet sliders in the popover, Q on every note when none
 are picked, restore-recorded-timing deferred). Pure edits in
@@ -789,7 +791,7 @@ escapes and quotes several times.
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
 - **M4.5 Polish pass: built 2026-10-10; slices 1–4 done, slices 5 and 6
-  built (MT-POL-5 and MT-POL-6 wait).** M5 under way: slices 0 to 4 built and tested by the owner, slice 5 next (`docs/milestones/M5.md`).
+  built (MT-POL-5 and MT-POL-6 wait).** M5 under way: slices 0 to 6 built; MT-MIDI-7 waits for the owner, then slice 7 (`docs/milestones/M5.md`).
 - **M4 Mixer, Routing & Groups: complete 2026-10-10**; the review's fixes
   are merged (PR #3).
 - **M3 Arrangement & Project System: complete, approved 2026-10-09.** Slices 1–3 done:
@@ -909,7 +911,7 @@ escapes and quotes several times.
 - Where to look:
   - `docs/PROGRESS.md`: every requirement's status, slice tables and the
     milestone reports;
-  - `docs/DECISIONS.md`: ADR-0001 to ADR-0033, plus the table of owner
+  - `docs/DECISIONS.md`: ADR-0001 to ADR-0055, plus the table of owner
     decisions;
   - `docs/MANUAL_TESTS.md`: hardware tests with every run's results;
   - `docs/KNOWN_ISSUES.md`: problems found and not fixed yet, and where

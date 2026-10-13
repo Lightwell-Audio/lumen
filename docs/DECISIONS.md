@@ -58,6 +58,7 @@ irreversible or external) · *Superseded*.
 | [0046](#adr-0046--playing-live-midi-from-monitoring-the-computer-keyboard-and-the-midi-chip-m5-slice-2-format-v13) | Playing live: live input in the engine, MIDI From and Monitor (format v13), the computer keyboard, the MIDI chip | Accepted 2026-10-11 | No |
 | [0047](#adr-0047--midi-clips-and-the-piano-roll-m5-slice-3-format-v14) | MIDI clips and the piano roll: note edits and mute (format v14), notes on the GPU, the clip editor and its pop-out, auditioning | Accepted 2026-10-11 | No |
 | [0052](#adr-0052--the-design-system-replaces-adr-0051s-lit-look) | The design system's material and tokens replace ADR-0051's lit look | Accepted 2026-10-11 | No |
+| [0055](#adr-0055--recording-midi-m5-slice-6-no-format-change) | Recording MIDI (M5 slice 6, no format change): the engine's Record with a count-in, live capture with its timeline sample, a pure take builder (Replace, Overdub, loops, punch) and one undo step per take | Accepted 2026-10-13 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -123,6 +124,7 @@ irreversible or external) · *Superseded*.
 | Velocity and controller lanes (M5 slice 4, 2026-10-11) | Chosen from live specimens (the "Lumen Controller Lane Specimens" artifact), all as recommended: **V A stems with round heads**, one per note start, over filled bars as wide as their notes; **L A one lane at a time with a tab switcher** (Velocity, Mod wheel, Pitch bend, Pressure, "+ CC") over a stack of lanes with Add and Remove; **T A Pencil, Line and Curve in the lane\'s own header** over modifier-only drawing; **R B Line, Curve and bend write an event every 1/64 note, dropping only repeated values, and the Pencil follows the grid when snapping is on** over every tool following the 1/16 grid. Plan in `docs/milestones/M5.md`. ADR-0050. |
 | MT-MIDI-2 and MT-MIDI-3 follow-ups (2026-10-11) | **MA a monitor badge** on MIDI track headers, only when Monitor is not Auto (a speaker in accent for In, slashed grey for Off; click cycles), over the arm showing all three or an IN/OFF word ("MIDI: Playing Live" canvas, boards M). **Held notes glide to a new preset** at once (no retrigger), over keeping the old sound or retriggering. **The GS Wavetable latency is deferred**: a per-port output offset to be built later, recorded in KNOWN_ISSUES. |
 | Design system over ADR-0051 (2026-10-11) | The owner's **Lumen design system** (a Design System artifact: tokens, a Material card and a card per component) is the reference for tokens, components and widgets. Asked where it and ADR-0051 differ, the owner chose **the design system on all four**: **on** is `accent_muted` with accent letters and a 38% accent hairline, no glow; **solo** (and the primary, the chosen tool) is filled accent (`accent_hi` to `accent_lo`, no halo; amber only warns); a **lit M** is the `mute` grey with `on_mute` letters; **raised** controls are `control_hi` to `control` with an edge light and a border, Ember on hover, no drop shadow, radius by height; the **arm** is round with a grey dot at rest. ADR-0052. |
+| Recording MIDI (M5 slice 6, 2026-10-12) | Asked and chosen (the plan in `docs/milestones/M5.md`, and the "Lumen Recording Specimens" canvas): **Replace by default, with an Overdub switch** (C4, as planned); **loop passes layer** into one clip in both modes (separate takes are M9); **recording settings in the app settings file**, not the project, so no format change; **a clip runs exactly from record start to stop**, not to the bar line (the owner's choice over the recommended bar-line end); **1-A** the count-in on the position field, counting up through negative bars, and Record pulsing on each beat, with no new widget; **2-B** an Overdub button beside Record, and the count-in and "Metronome only while recording" in the metronome's menu; **3-A** a clip being recorded is record red with a "REC" tag and drops into its track colour on stop. Count-in and record-only for MIDI move from M9 (the 2026-10-06 row) to this slice; audio recording stays M9. ADR-0055. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
 | Logo and light (2026-10-10) | Chosen from rendered specimens on the identity canvas (a Design artifact): four marks, then six colourways. **D, Dawn, in Sunrise**: a sun rising over a horizon, its reflection breaking into a waveform; an amber sun (`#FFC46B`) over water in the accent. **The light layer holds** (five levels: Unlit, Ember, Lit, Beam, Flare, and five rules), and **the mark is a meter** (the sun rises with the master's level, red while recording), with every proposed use of light: the playhead beam, Play's beam, meter heads, the mark above an empty arrangement. ADR-0043. A guitarist-first direction was pitched and set aside by the owner. |
@@ -4578,3 +4580,164 @@ Unit tests `ableton_start_*`, `ableton_end_*` and `ableton_both_*` in
 `edit/quantize.rs` are the owner's scenario. Still unverified against
 Ableton: swing in quantize, the window, what Ctrl+U does with no selection,
 and a note that collapses in End (Lumen takes the next line).
+
+## ADR-0055 — Recording MIDI (M5 slice 6, no format change)
+
+### Context
+Before slice 6 the Record button was inert, F9 was unbound, and nothing kept
+live input. Slice 6 records MIDI: Record plays from the play marker and keeps
+what the armed MIDI tracks are sent; the take lands as a clip in Replace or
+Overdub mode; a count-in of 0, 1, 2 or 4 bars with the metronome clicking; a
+record-only metronome; punch from the loop brace's switches. The owner chose
+from the plan (`docs/milestones/M5.md`, slice 6) and the "Lumen Recording
+Specimens" canvas, on 2026-10-12:
+- **Replace by default, with an Overdub switch** (C4, the plan's choice).
+- **Loop passes layer**: with Loop on, every pass adds to the same clip, in
+  Replace and Overdub alike. Separate takes are M9.
+- **Settings live in the app settings file** (`settings.record`: count-in,
+  record-only metronome, Overdub), not in the project, so no format change
+  (v14 stays).
+- **A clip runs exactly from record start to stop**, not rounded to a bar
+  line (the owner took this over the recommended bar-line end).
+- **1-A**: the count-in shows on the position field, which counts up through
+  negative bars to 1.1.1, and on Record, which pulses on each beat. No new
+  widget. **2-B**: Overdub is a toggle beside Record; the count-in and "only
+  while recording" are in the metronome's menu. **3-A**: a clip being recorded
+  is record red (body, outline, notes, a "REC" tag) and drops into its track
+  colour on stop.
+
+### Decision
+- **Engine** (`lumen-engine`, `engine.rs`): `Command::Record { count_in }` and
+  `Command::EndRecord`. Record from stop holds the song at the play marker
+  while the metronome clicks (the first beat of each bar accented), whether or
+  not the metronome is on; live instruments still sound. Playback and
+  recording start mid-block, on the exact frame, when the count-in ends.
+  Record while playing starts at once. Play is ignored while counting. Stop,
+  Pause, Locate while counting and Panic cancel a count-in (Stop and Panic
+  also end recording). EndRecord ends recording and playback carries on.
+  `RenderContext::{recording, looping}` tell the tracks; `LiveIn::played` is the
+  device frame a message was played at, before the feed's one block of delay.
+- **Capture** (`midi/capture.rs`, `player.rs`): a track with `recording(Listen)`
+  set (its MIDI From; Monitor does not matter) keeps every message it takes
+  as `Captured { track, source, at, msg }`, where `at` is the timeline sample
+  heard when it was played: the part's start less the read ahead, plus the
+  device frames since, wrapped into the loop when played just before a wrap,
+  and never below 0. The app takes off the output latency. The queue is
+  lock-free, 8,192 deep; a loss is counted in `MidiPlayer::dropped()`.
+  `MidiHandle::take_captured` hands the consumer over once. An armed track
+  with Monitor Off records and plays nothing. The snapshot publishes
+  `recording`, `count_in_left` and `count_in_total` (frames).
+- **Take builder** (`lumen_project::edit::record`): `place(project, base,
+  track, take, Placement { mode, punch, take_clip }, fresh)` starts again from
+  `base`, the project as it was when recording began, so a growing take
+  committed repeatedly gives the same result as one commit of the final take.
+  *Replace*: a new clip over the range, and `overwrite` cuts what is under it.
+  *Overdub*: merged into the MIDI clips under the range (a looping clip takes
+  the take at its place in the loop, so passes layer), and a new clip for each
+  gap no clip covers that holds notes or events. Audio clips count as covered.
+  A locked clip overlapping the range gives `Blocked`. Notes are cut at the
+  range's end and the clip's end and keep at least a tick; a note that starts
+  before the range is dropped.
+- **Document** (`document/record.rs`): `begin_recording` and `record_take`. All
+  takes of one recording share a merge key, so the recording is one undo step.
+  A blocked take changes nothing; an unchanged one makes no step. Undo and redo
+  are refused while recording ("Stop recording first").
+- **Recorder** (`app/record.rs`, `recorder.rs`): each frame the app drains the
+  queue into `recorder::Capture`, which pairs note-on and note-off by channel
+  and key, drops the channel (clips have none, and playback sends channel 0),
+  keeps controllers, bend, channel pressure and program (with no bank) as clip
+  events, and drops key pressure and system messages. A note still held is not
+  in a take until it ends; at the stop `close_all` ends it. Takes are committed
+  about once a second while playing and recording. Autosave's delay is 10 s
+  while recording (60 s otherwise).
+- **Range**: the take starts where the playhead was when Record was pressed
+  (the marker when stopped, after the count-in) and ends where it is when
+  recording stops. With Loop on and the playhead inside the loop, the take
+  starts at the loop's start; once playback has wrapped, it covers the whole
+  loop. This is what the code does; see Consequences.
+- **Punch** uses the loop brace's switches (`punch_in`, `punch_out` in the
+  project's transport, Ableton-style). With punch in, the take keeps nothing before the
+  brace's start; with punch out, nothing after its end. With punch out, recording ends at the brace's end (or at
+  the first wrap) while playback carries on. Auto-punch needs no switch.
+- **Settings** (`record_settings.rs`, `settings.record`): `count_in` is Off,
+  1, 2 or 4 bars, read as bars times the project's numerator when Record is
+  pressed; `only_while_recording` keeps the metronome silent except while
+  recording and in the count-in (the app gates the engine's metronome in
+  `Transport::send`); `overdub`. Names are stored as words, an unknown word
+  reads as Off, and every field has a default, so no version change.
+- **Commands** (`commands/`): Record (F9), Overdub, Count-in: off, 1, 2 and 4
+  bars, and Metronome only while recording, in the palette and the menus. F9
+  while counting in cancels the count-in and stops; F9 while recording ends
+  it and playback carries on.
+- **Interface**: the Record button (`transport/bar.rs`; the pure helpers in
+  `transport/record.rs`) shows the record glyph at rest, a hollow ring that
+  pulses on each count-in beat, and a lit fill while recording; its tooltip
+  names the count-in. The arrangement (`arrangement/recording_look.rs`) paints
+  a take in record red. In Replace the take's clip has its body tinted (20%),
+  its outline at 78%, its notes in `record_note`, and a "REC · name" tag. In
+  Overdub the clip already there keeps its body and notes and takes the red
+  outline and tag; its new notes are not yet red. Clips return to their track
+  colour when recording ends.
+- **Not in this slice**: recording armed audio tracks (M9). Record with no armed
+  MIDI track does not start, and sets a notice ("Arm a MIDI track to record.")
+  that the audio panel and the Audio settings window show. The plan said the
+  info line; the notice is where the app already reports audio problems.
+- **No format change** (v14). The project holds nothing new.
+
+### Consequences
+- A crash costs the notes still held and about a second of finished notes at
+  most; autosave (10 s while recording) holds the rest. The recovery path is
+  checked by hand only (MT-MIDI-7); no E2E scenario kills the app.
+- Each commit copies the take's notes and rebuilds the recorded track from its
+  base. The cost grows with the take and is not measured for long takes.
+- While a take is recording, an edit to the same track other than the take is
+  lost at the next commit, because the track is rebuilt from `base`. Other
+  tracks are safe. Blocking such edits, or merging them, is for the owner to
+  choose (KNOWN_ISSUES).
+- Clips a recording makes in Overdub gaps, after the first, get new ids at each
+  commit. The take's own clip keeps its id. The UI must not hold these ids.
+- The output latency is taken off automatically. There is no manual offset
+  until audio recording (M9).
+- With Loop on, a take can begin at the loop's start, earlier than the playhead
+  was when Record was pressed. The owner has not judged this yet (MT-MIDI-7,
+  step 6). The "start to stop" rule holds with Loop off.
+- Interface figures, as built: compact wells pad 4 pt (`space::XS`) and the
+  position well's inner gap is 4 pt compact; the keyboard readout shows from
+  1,320 pt wide (`barfit`), where it showed from 1,280 pt before. The owner
+  has not seen these (MT-MIDI-7, step 13).
+
+### Tests
+- Engine `tests/record.rs` (8): notes kept at the sample they were played, at
+  any block size; only recording tracks keep input, and only while recording;
+  the count-in holds the song and recording starts mid-block; the accent on
+  each bar's first beat; Stop and Locate end a count-in without moving the song;
+  Stop ends recording and the next Play does not record; a note played just
+  before the loop wraps lands at the loop end; recording while playing starts
+  at once.
+- `midi/capture.rs` (5 unit tests on `heard`). Allocation guard
+  `tests/realtime.rs`, `midi_never_touches_the_heap`, sends Record (with and
+  without a count-in), EndRecord, Locate, Stop, Play and Panic.
+- `lumen-project` `edit/record.rs` (11): Replace, Overdub merging, gap clips,
+  looping clips, punch, lengths, a growing take equal to one call, locked
+  clips, empty takes.
+- `document/record.rs` (4), `recorder.rs` (17), `transport/record.rs` (7),
+  `arrangement/recording_look.rs` (4), `record_settings.rs` (6), and the
+  recording listen rule in `midi_play.rs`.
+- E2E `tests/e2e/record.rs` (9 scenarios): a take starts at the marker and ends
+  where playback stops; a take is one undo step and undo is refused while
+  recording; Replace cuts the clip under it; Overdub keeps the notes and adds to
+  the same clip; a count-in holds the playhead and keeps what is played during
+  it out; no armed track means nothing starts and it says so; a held note is
+  closed at the stop; loop passes layer into one clip spanning the loop; punch
+  out ends the take at the brace and playback carries on.
+- `tests/shots_recording.rs` (ignored; needs a GPU and writes shots).
+- Not run in this container: the WSL performance gate, the macOS cross-clippy,
+  and `--bench-frames` with a take open.
+
+### Not verified
+- Timing with a real MIDI controller, and with the computer keyboard as a
+  source over real drivers (MT-MIDI-7, step 2).
+- The count-in pulse and the negative-bar count on screen: unit tests only.
+- The light theme and 150% and 200% scale of the new controls and the record
+  look.
+- Frame times with a take open, on the 200-track stress project.

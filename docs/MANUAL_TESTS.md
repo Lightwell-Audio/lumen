@@ -2424,3 +2424,74 @@ the button and a toast). **Re-run: steps 1, 5 and 8 again**, and check the
 readout beside Quantize changes with the popover's settings.
 
 **Run 2 (2026-10-12, owner): passed.** Steps 1, 5 and 8 re-run and passed.
+
+
+
+### MT-MIDI-7 · Recording MIDI (needs a human and a MIDI controller; the computer keyboard also works)
+Slice 6 of M5 (ADR-0055). **Status: waits for the owner; not run yet.** Start
+Lumen from the repository root:
+
+```powershell
+cargo run --release -p lumen-app
+```
+
+Set up: open `tests\projects\midi-demo.lumen`, or a new project with a MIDI
+track. Arm one MIDI track (its arm button) and set its Monitor to Auto or In.
+Connect a MIDI controller, or press **Ctrl+Shift+K** for the computer keyboard
+(a mode: the keys play notes). Turn the metronome off.
+
+1. **Count-in.** In the metronome's menu choose **Count-in: 1 bar**. Press
+   **F9**. Expect: the Record button rings and pulses on each beat; the
+   position field counts up through −1.1.1 to 1.1.1; four clicks sound with
+   the metronome off, the first of them accented; the song waits at the play
+   marker. Then recording and playback start together.
+2. **Timing.** Play a simple part on the beat (quarter notes, then eighths).
+   Stop, and look at the clip: each note should sit where you heard the beat.
+   Repeat with the buffer at 64, then 128, then 512 (Audio settings). Say
+   whether anything is early or late, and at which buffer.
+3. **Clip extent and colour.** Start at the marker, play for a few seconds,
+   stop in the middle of a beat. Expect: the clip runs from the start point to
+   the stop point, not to the bar line. While recording it is record red with
+   a "REC · name" tag and light-red notes; on stop it returns to its track
+   colour.
+4. **Undo.** Press **Ctrl+Z** once: the whole take goes. **Ctrl+Shift+Z**
+   brings it back. While recording, Ctrl+Z is refused ("Stop recording first").
+5. **Replace and Overdub.** Put a MIDI clip with notes where you will record.
+   With Overdub off, record over it: the old notes under the take are gone.
+   Turn **Overdub** on (the button beside Record) and record again: the new
+   notes are added to the same clip and the old ones stay. Say whether the
+   record red reads clearly in Overdub, where only the outline and the tag
+   are red.
+6. **Loop.** Turn on Loop over two bars and press F9. Let it go round three
+   passes: expect one clip, each pass layered in. Then press F9 with the
+   playhead inside the loop, but not at its start: say where the clip begins.
+   In this build it begins at the loop's start. Is that what you expect?
+7. **Punch.** Set the loop brace's punch in and punch out switches and record
+   across the brace. Expect: notes before the brace's start are not kept; at
+   the brace's end recording ends and playback carries on.
+8. **Metronome only while recording.** Turn the metronome on and choose
+   **Metronome only while recording**. While stopped and while playing without
+   recording: silent. While recording, and in a count-in: it sounds.
+9. **F9 again.** While recording, F9 ends recording and playback carries on.
+   During a count-in, F9 cancels the count-in and stops; nothing plays.
+10. **Crash.** Record for about twenty seconds, then end Lumen in Task Manager
+    (End task). Reopen it: the recovery offers the take up to about ten seconds
+    before the end. Notes that were still held are lost; that is expected.
+11. **Monitor Off.** Set the armed track's Monitor to Off and record. Expect:
+    notes appear in the clip, and nothing sounds while recording.
+12. **Nothing armed.** Disarm every MIDI track and press F9. Expect: nothing
+    starts, and a notice appears in the audio panel: "Arm a MIDI track to
+    record." Say whether the notice is where you would look for it.
+13. **Layout.** Make the window as narrow as it goes (960 pt wide). Expect:
+    Record, Overdub, tempo, the position and the audio dot are whole and do not
+    overlap. The keyboard readout ("Computer keyboard") appears from about
+    1,320 pt. At 1,280 pt, 1,320 pt and 1,600 pt: say whether the bar reads
+    well, and whether the position well's inner spacing (4 pt when compact) is
+    too tight.
+14. **Light theme and scale.** Switch to the light theme and check the Record
+    button (ringing, recording), Overdub, and a take in record red. Repeat at
+    150% and 200% scale.
+
+Record each step's result below as a run, with what was heard and seen. Steps
+2, 6, 12 and 13 are open questions as well as tests: the answers decide the
+KNOWN_ISSUES rows for the loop start, the notice's place and the bar's layout.
