@@ -28,6 +28,7 @@ mod note_time;
 pub mod note_tools;
 pub mod notes;
 pub mod quantize;
+pub mod record;
 pub mod velocity;
 
 pub use clipboard::{Clipboard, copy_clips, copy_range, landing_tracks, paste};

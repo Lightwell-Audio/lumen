@@ -1,0 +1,232 @@
+//! Recording MIDI into the document (M5 slice 6b). A recording is one undo
+//! step however many takes it commits: every [`Document::record_take`] of it
+//! merges into the same step. The placing is `lumen_project::edit::record`,
+//! whose documentation says what a take becomes.
+
+use std::collections::HashMap;
+
+use lumen_core::time::Ticks;
+use lumen_project::edit::record::{self, Blocked, Mode, Placement, Take};
+use lumen_project::model::{Id, Project};
+
+use super::Document;
+use super::clips::fresh_ids;
+
+/// A recording in progress: the project as it was when it began, the merge
+/// key that makes its takes one undo step, and the clip each track's take
+/// goes into.
+#[derive(Debug)]
+pub struct Recording {
+    base: Project,
+    key: String,
+    take_clips: HashMap<Id, Id>,
+}
+
+impl Document {
+    /// Starts a recording on the project as it is now. Every take of it is
+    /// placed from this snapshot, and they are all one undo step.
+    pub fn begin_recording(&mut self) -> Recording {
+        let key = format!("record-{}", self.fresh_id().0);
+        Recording {
+            base: self.project().clone(),
+            key,
+            take_clips: HashMap::new(),
+        }
+    }
+
+    /// Places `take` on the MIDI track `track` as part of `rec`, merged into
+    /// the recording's undo step. Returns the ids of the clips made or
+    /// changed. A locked clip in the way gives `Blocked`, and then nothing
+    /// changes and no step is made.
+    pub fn record_take(
+        &mut self,
+        rec: &mut Recording,
+        track: Id,
+        take: &Take,
+        mode: Mode,
+        punch: Option<(Ticks, Ticks)>,
+    ) -> Result<Vec<Id>, Blocked> {
+        let take_clip = *rec
+            .take_clips
+            .entry(track)
+            .or_insert_with(|| self.fresh_id());
+        // Placed on a copy first: a blocked take must not reach the history,
+        // and an unchanged one makes no step.
+        let mut next = self.project().clone();
+        let placed = record::place(
+            &mut next,
+            &rec.base,
+            track,
+            take,
+            Placement {
+                mode,
+                punch,
+                take_clip,
+            },
+            &mut fresh_ids(&mut self.next_id),
+        )?;
+        self.history
+            .apply("Record", Some(&rec.key), |project| *project = next);
+        Ok(placed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use lumen_core::time::PPQ;
+    use lumen_project::edit::record::TakeNote;
+    use lumen_project::model::{ClipContent, Note, TrackKind};
+
+    use super::super::midi_clips::NewClip;
+    use super::*;
+
+    fn q(n: i64) -> Ticks {
+        Ticks(PPQ * n)
+    }
+
+    fn tn(start: i64, length: i64, pitch: u8) -> TakeNote {
+        TakeNote {
+            start: q(start),
+            length: q(length),
+            pitch,
+            velocity: 100,
+        }
+    }
+
+    fn take(start: i64, end: i64, notes: Vec<TakeNote>) -> Take {
+        Take {
+            start: q(start),
+            end: q(end),
+            notes,
+            events: Vec::new(),
+        }
+    }
+
+    /// The notes of clip `clip`, wherever it is.
+    fn notes_of(doc: &Document, clip: Id) -> Vec<Note> {
+        let found = doc
+            .project()
+            .tracks
+            .iter()
+            .flat_map(|t| t.clips.iter())
+            .find(|c| c.id == clip)
+            .expect("the clip is in the project");
+        match &found.content {
+            ClipContent::Midi { notes, .. } => notes.clone(),
+            ClipContent::Audio { .. } => unreachable!("a MIDI clip"),
+        }
+    }
+
+    #[test]
+    fn a_recording_of_several_commits_on_two_tracks_is_one_undo_step() {
+        let mut doc = Document::new(crate::empty_project());
+        let one = doc.add_track(TrackKind::Midi, None);
+        let two = doc.add_track(TrackKind::Midi, None);
+        let before = doc.project().clone();
+        let mut rec = doc.begin_recording();
+        let growing = [
+            take(0, 1, vec![tn(0, 1, 60)]),
+            take(0, 2, vec![tn(0, 1, 60), tn(1, 1, 62)]),
+            take(0, 3, vec![tn(0, 1, 60), tn(1, 1, 62), tn(2, 1, 64)]),
+        ];
+        for part in &growing {
+            doc.record_take(&mut rec, one, part, Mode::Replace, None)
+                .unwrap();
+            doc.record_take(
+                &mut rec,
+                two,
+                &take(0, 3, vec![tn(2, 1, 36)]),
+                Mode::Replace,
+                None,
+            )
+            .unwrap();
+        }
+        let done = doc.project().clone();
+        assert_eq!(doc.history().undo_label(), Some("Record"));
+        assert_eq!(lumen_project::validate(&done), Ok(()));
+        assert_eq!(
+            done.tracks[0].clips.len(),
+            1,
+            "one clip per take, not three"
+        );
+        assert_eq!(notes_of(&doc, done.tracks[0].clips[0].id).len(), 3);
+
+        doc.undo();
+        assert_eq!(*doc.project(), before, "the whole recording is one step");
+        assert_eq!(doc.history().undo_label(), Some("Add MIDI track"));
+        doc.redo();
+        assert_eq!(*doc.project(), done, "redo brings the recording back");
+    }
+
+    #[test]
+    fn overdub_merges_a_take_into_the_clip_under_it() {
+        let mut doc = Document::new(crate::empty_project());
+        let track = doc.add_track(TrackKind::Midi, None);
+        let clip = doc
+            .create_midi_clip(track, NewClip::Range(q(0), q(4)))
+            .unwrap();
+        let old = Note::new(q(0), q(1), 48, 90);
+        doc.apply("Fill", None, |p| {
+            let t = Arc::make_mut(&mut p.tracks[0]);
+            let c = Arc::make_mut(&mut t.clips[0]);
+            if let ClipContent::Midi { notes, .. } = &mut c.content {
+                *notes = vec![old];
+            }
+        });
+        let mut rec = doc.begin_recording();
+        let placed = doc.record_take(
+            &mut rec,
+            track,
+            &take(1, 3, vec![tn(2, 1, 64)]),
+            Mode::Overdub,
+            None,
+        );
+        assert_eq!(placed, Ok(vec![clip]));
+        assert_eq!(notes_of(&doc, clip), [old, Note::new(q(2), q(1), 64, 100)]);
+        assert_eq!(doc.history().undo_label(), Some("Record"));
+    }
+
+    #[test]
+    fn an_overdub_with_nothing_to_add_makes_no_step() {
+        let mut doc = Document::new(crate::empty_project());
+        let track = doc.add_track(TrackKind::Midi, None);
+        let mut rec = doc.begin_recording();
+        let state = doc.state();
+        let placed = doc.record_take(&mut rec, track, &take(0, 4, vec![]), Mode::Overdub, None);
+        assert_eq!(placed, Ok(vec![]));
+        assert_eq!(doc.state(), state);
+    }
+
+    #[test]
+    fn a_locked_clip_in_the_way_is_refused_with_no_history_entry() {
+        let mut doc = Document::new(crate::empty_project());
+        let track = doc.add_track(TrackKind::Midi, None);
+        let clip = doc
+            .create_midi_clip(track, NewClip::Range(q(0), q(4)))
+            .unwrap();
+        doc.set_clips_locked(&[clip], true);
+        let mut rec = doc.begin_recording();
+        let state = doc.state();
+        let label = doc.history().undo_label().map(str::to_owned);
+        for mode in [Mode::Replace, Mode::Overdub] {
+            let refused =
+                doc.record_take(&mut rec, track, &take(1, 3, vec![tn(1, 1, 60)]), mode, None);
+            assert_eq!(refused, Err(Blocked), "{mode:?}");
+        }
+        assert_eq!(doc.state(), state, "nothing changed");
+        assert_eq!(doc.history().undo_label(), label.as_deref());
+
+        // Beside the locked clip the take goes in, as one step.
+        let placed = doc.record_take(
+            &mut rec,
+            track,
+            &take(4, 6, vec![tn(4, 1, 60)]),
+            Mode::Replace,
+            None,
+        );
+        assert!(placed.is_ok());
+        assert_eq!(doc.history().undo_label(), Some("Record"));
+    }
+}

@@ -25,6 +25,9 @@ mod lanes;
 mod midi_clips;
 mod mixer;
 mod notes;
+// Until the recorder (M5 slice 6c) calls it, only the tests do.
+#[allow(dead_code)]
+mod record;
 pub use clips::{CLIP_GAIN, ClipMove};
 pub use groups::Place;
 pub use import::{DropInto, Imported, import_place};
@@ -32,6 +35,8 @@ pub use lanes::{Drag, Line, Shift};
 pub use midi_clips::NewClip;
 pub use mixer::{MAX_RETURNS, Refused};
 pub use notes::Resize;
+#[allow(unused_imports)] // The recorder names the type (M5 slice 6c).
+pub use record::Recording;
 
 /// Track colours, cycled for new tracks (`theme::CLIP_COLORS`, as `#RRGGBB`).
 fn track_color(index: usize) -> Color {
