@@ -395,8 +395,11 @@ Clips fitted on their own drew one-note clips an octave apart at the same
 height; now every MIDI clip on a track shares one `mini::Fit` over the
 pitches all of them play (`mini::track_range`, at least 48 semitones,
 centred), and the take uses it too (`LiveTrack::range`; `live_ranges` is
-gone). Shot `mini_notes_octaves`. **MT-MIDI-7 run 4 (steps 22, 23) waits for
-the owner.** Before it, 2026-10-13 (latest): **MT-MIDI-7 run 2 fixes, clip
+gone). Shot `mini_notes_octaves`. Also: Overdub over the same pitch stacked
+notes; now a note played wins its pitch, as in Ableton
+(`edit::record::settle`, also between loop passes). **MT-MIDI-7 run 4 (steps
+22 to 24) waits for the owner.** The WSL perf gate was not run for the
+`lumen-project` change. Before it, 2026-10-13 (latest): **MT-MIDI-7 run 2 fixes, clip
 previews as Ableton's** on `m5-midi` (ADR-0055 amendment "clip previews as
 Ableton's"). Notes inside arrangement clips now have the piano roll's
 proportions: 128 bands a track (`mini::BANDS`), a clip's range divided evenly

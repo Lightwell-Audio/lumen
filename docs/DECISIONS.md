@@ -4861,6 +4861,17 @@ clip's notes in the second since the last commit still count until that
 commit cuts them. Shot `mini_notes_octaves`; E2E
 `the_take_is_laid_out_as_its_track_will_be`.
 
+**Overdubbing the same pitch (after run 3):** an Overdub only appended the
+take's notes to the clip, so playing a pitch the clip already held there
+stacked a second note on the first (and the two fought over one key when
+played). Now a note played wins its pitch, as in Ableton
+(`edit::record::settle`): an old note of the same pitch still sounding where
+the new one starts is cut there, one that starts under it is dropped, and
+other pitches are untouched. A take's own notes settle the same way, the
+later winning, so a loop pass over a note of the pass before (in Replace or
+Overdub) does not stack either. Tests: `edit/record.rs` (three), E2E
+`overdubbing_the_same_pitch_cuts_the_old_note`.
+
 Not changed: the clip editor shows the document's clip, so it updates at
 each commit (about once a second), not every frame, and in Replace the clip
 it had open is cut away by the take.

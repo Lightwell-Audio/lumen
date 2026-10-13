@@ -2556,3 +2556,8 @@ waits for the owner.
 23. **Thin rows.** Say whether the notes' thickness (a track's range is at
     least four octaves tall) reads as Ableton's at the default and a tall
     track height.
+24. **Same pitch in Overdub.** Draw a long note, turn Overdub on and record
+    the same pitch over its middle. Expect the old note to end where the new
+    one starts, with no second note stacked on it (open the clip to check).
+    With Loop on, play the same pitch at the same place in two passes:
+    expect one note, the later pass's.

@@ -20,7 +20,9 @@
 //! - [`Mode::Replace`]: the take is a new clip over the range. What is under
 //!   it is cut away, as every clip put down is (`super::overwrite`).
 //! - [`Mode::Overdub`]: the take merges into the MIDI clips under the range.
-//!   Each part of the range no clip covers and that holds a note or event
+//!   A note played over an old one of the same pitch wins it, as in Ableton:
+//!   the old note is cut where the new one starts, or dropped when it starts
+//!   under it (`settle`). Each part of the range no clip covers and that holds a note or event
 //!   gets a new clip. Audio clips count as covered, so a take over one is
 //!   dropped there.
 //!
@@ -268,11 +270,42 @@ fn merge_content(clip: &mut Clip, (notes, events): Content) {
         events: all_events,
     } = &mut clip.content
     {
-        all_notes.extend(notes);
-        all_notes.sort_by_key(|n| (n.start(), n.pitch()));
+        *all_notes = settle(std::mem::take(all_notes), notes);
         all_events.extend(events);
         all_events.sort_by_key(|e| e.at);
     }
+}
+
+/// `new` notes laid over `old` ones, as Ableton overdubs: a note played wins
+/// its pitch. An earlier note of the same pitch still sounding where it
+/// starts is cut there, and one that starts under it is dropped, so no two
+/// notes of a pitch overlap (they would also fight over one key when
+/// played). New notes settle among themselves the same way, the later one
+/// winning: a loop pass over a note of the last one. Notes of other pitches
+/// are untouched. Returns the notes sorted by start, then pitch.
+fn settle(old: Vec<Note>, mut new: Vec<Note>) -> Vec<Note> {
+    let mut by_pitch: Vec<Vec<Note>> = vec![Vec::new(); 128];
+    for n in old {
+        by_pitch[usize::from(n.pitch().min(127))].push(n);
+    }
+    new.sort_by_key(|n| n.start());
+    for n in new {
+        let lane = &mut by_pitch[usize::from(n.pitch().min(127))];
+        lane.retain_mut(|r| {
+            if r.start() < n.start() {
+                if r.end() > n.start() {
+                    r.1 = n.start() - r.start();
+                }
+                true
+            } else {
+                r.start() >= n.end()
+            }
+        });
+        lane.push(n);
+    }
+    let mut all: Vec<Note> = by_pitch.into_iter().flatten().collect();
+    all.sort_by_key(|n| (n.start(), n.pitch()));
+    all
 }
 
 /// The parts of `range` that no clip of `track` covers, in time order.
@@ -304,7 +337,7 @@ pub fn gaps(track: &Track, range: (Ticks, Ticks)) -> Vec<(Ticks, Ticks)> {
 /// or its loop length). A note is cut where the content ends.
 fn fill(take: &Take, (from, to): (Ticks, Ticks), start: Ticks, period: Ticks) -> Content {
     let period = period.max(Ticks(1));
-    let mut notes: Vec<Note> = take
+    let notes: Vec<Note> = take
         .notes
         .iter()
         .filter(|n| (from..to).contains(&n.start))
@@ -315,7 +348,7 @@ fn fill(take: &Take, (from, to): (Ticks, Ticks), start: Ticks, period: Ticks) ->
             Note::new(at, n.length.max(MIN_NOTE).min(room), n.pitch, n.velocity)
         })
         .collect();
-    notes.sort_by_key(|n| (n.start(), n.pitch()));
+    let notes = settle(Vec::new(), notes);
     let mut events: Vec<ClipEvent> = take
         .events
         .iter()
@@ -432,6 +465,56 @@ mod tests {
             next += 1;
             id
         }
+    }
+
+    #[test]
+    fn a_note_played_again_wins_its_pitch() {
+        // An old 60 from 0 to 4; the take plays 60 again at 2: the old one
+        // is cut at 2, not stacked under the new one.
+        assert_eq!(
+            settle(vec![note(0, 4, 60)], vec![note(2, 1, 60)]),
+            vec![note(0, 2, 60), note(2, 1, 60)]
+        );
+        // An old note that starts under the new one goes; one that starts
+        // after it ends stays; other pitches are left alone.
+        assert_eq!(
+            settle(
+                vec![note(3, 1, 60), note(6, 1, 60), note(3, 2, 64)],
+                vec![note(2, 3, 60)],
+            ),
+            vec![note(2, 3, 60), note(3, 2, 64), note(6, 1, 60)]
+        );
+        // Played on the same start: the new note replaces the old.
+        assert_eq!(
+            settle(vec![note(1, 2, 60)], vec![Note::new(q(1), q(1), 60, 30)]),
+            vec![Note::new(q(1), q(1), 60, 30)]
+        );
+    }
+
+    #[test]
+    fn new_notes_settle_among_themselves_the_later_winning() {
+        // A loop pass over a note of the pass before.
+        assert_eq!(
+            settle(Vec::new(), vec![note(3, 1, 60), note(1, 4, 60)]),
+            vec![note(1, 2, 60), note(3, 1, 60)]
+        );
+    }
+
+    #[test]
+    fn an_overdub_over_the_same_pitch_cuts_the_old_note() {
+        let base_project = base(vec![clip(10, 0, 8, vec![note(0, 4, 60), note(0, 4, 67)])]);
+        let mut p = base_project.clone();
+        put(
+            &mut p,
+            &base_project,
+            &take(0, 8, vec![tn(2, 1, 60)]),
+            Mode::Overdub,
+        )
+        .expect("placed");
+        let ClipContent::Midi { notes, .. } = &p.tracks[0].clips[0].content else {
+            panic!("a MIDI clip");
+        };
+        assert_eq!(notes, &vec![note(0, 2, 60), note(0, 4, 67), note(2, 1, 60)]);
     }
 
     /// Places `take` on track 1 as a Replace or an Overdub with the take clip

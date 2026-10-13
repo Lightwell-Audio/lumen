@@ -456,6 +456,35 @@ fn overdub_keeps_the_notes_and_adds_to_the_same_clip() {
     assert_eq!(pitches, [50, 60, 52], "old and new notes, in order");
 }
 
+/// Overdub: playing a pitch the clip already holds there wins it, as in
+/// Ableton. The old note is cut where the new one starts, not left stacked
+/// under it (owner, after MT-MIDI-7 run 3).
+#[test]
+fn overdubbing_the_same_pitch_cuts_the_old_note() {
+    let fake = keyboard();
+    let old = vec![Note::new(Ticks::ZERO, beats(4.0), 60, 100)];
+    let project = project_of("Record", vec![track(Some(old), true)]);
+    let mut lumen = launch("overdub-same", &project, &fake);
+    palette(&mut lumen, "Overdub");
+    assert!(lumen.app().overdub_on(), "Overdub is on");
+    let keys = Keys::new(&fake);
+    record(&mut lumen);
+    reach(&mut lumen, beats(1.0));
+    keys.on(60, 90);
+    reach(&mut lumen, beats(1.5));
+    keys.off(60);
+    reach(&mut lumen, beats(2.0));
+    stop(&mut lumen);
+
+    let notes = all_placed(&lumen);
+    assert_eq!(notes.len(), 2, "the old note and the new: {notes:?}");
+    assert!(notes.iter().all(|n| n.pitch == 60));
+    let (first, second) = (&notes[0], &notes[1]);
+    assert_eq!(first.start, Ticks::ZERO, "the old note keeps its start");
+    assert_eq!(first.end, second.start, "and ends where the new one begins");
+    assert_eq!(second.velocity, 90, "the one played");
+}
+
 /// A one-bar count-in: the playhead waits at the marker while the metronome
 /// counts, the transport says it is recording and not playing, and what is
 /// played during the count-in is not kept.
