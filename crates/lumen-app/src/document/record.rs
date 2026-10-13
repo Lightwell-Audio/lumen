@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use lumen_core::time::Ticks;
 use lumen_project::edit::record::{self, Blocked, Mode, Placement, Take};
-use lumen_project::model::{Id, Project, Track};
+use lumen_project::model::{Id, Project};
 
 use super::Document;
 use super::clips::fresh_ids;
@@ -31,28 +31,69 @@ impl Recording {
     pub fn take_clip(&self, track: Id) -> Option<Id> {
         self.take_clips.get(&track).copied()
     }
-
-    /// The track `track` as it was when recording began.
-    pub fn base_track(&self, track: Id) -> Option<&Track> {
-        self.base
-            .tracks
-            .iter()
-            .find(|t| t.id == track)
-            .map(|t| &**t)
-    }
 }
 
 impl Document {
-    /// Starts a recording on the project as it is now. Every take of it is
-    /// placed from this snapshot, and they are all one undo step.
-    pub fn begin_recording(&mut self) -> Recording {
+    /// Starts a recording on the project as it is now, on `tracks`. Every
+    /// take of it is placed from this snapshot, and they are all one undo
+    /// step. Each track's take clip has its id from the start, so the take
+    /// drawn before the first commit is already that clip.
+    pub fn begin_recording(&mut self, tracks: &[Id]) -> Recording {
         let key = format!("record-{}", self.fresh_id().0);
+        let take_clips = tracks.iter().map(|&t| (t, self.fresh_id())).collect();
         Recording {
             base: self.project().clone(),
             key,
-            take_clips: HashMap::new(),
+            take_clips,
             pieces: HashMap::new(),
         }
+    }
+
+    /// The project as it will be once `takes` (a take per track) are
+    /// committed as part of `rec`: what the arrangement draws on every
+    /// frame of a recording, between the commits. Nothing changes and no
+    /// step is made. Pieces the commits have not cut yet are given ids past
+    /// the document's counter, which are not used by anything. A track whose
+    /// take a locked clip blocks is drawn as it was.
+    pub fn preview_takes(
+        &self,
+        rec: &Recording,
+        takes: &[(Id, Take)],
+        mode: Mode,
+        punch: Option<(Ticks, Ticks)>,
+    ) -> Project {
+        let mut next = self.project().clone();
+        let mut spare = self.next_id;
+        for (track, take) in takes {
+            let Some(&take_clip) = rec.take_clips.get(track) else {
+                continue;
+            };
+            let pieces = rec.pieces.get(track).map_or(&[][..], Vec::as_slice);
+            let mut used = 0;
+            let mut fresh = || {
+                used += 1;
+                pieces.get(used - 1).copied().unwrap_or_else(|| {
+                    spare += 1;
+                    Id(spare - 1)
+                })
+            };
+            let placement = Placement {
+                mode,
+                punch,
+                take_clip,
+            };
+            if record::place(&mut next, &rec.base, *track, take, placement, &mut fresh).is_err() {
+                // Blocked: `place` left the track as the recording began;
+                // draw it as the document has it.
+                if let (Some(slot), Some(now)) = (
+                    next.tracks.iter_mut().find(|t| t.id == *track),
+                    self.project().tracks.iter().find(|t| t.id == *track),
+                ) {
+                    *slot = std::sync::Arc::clone(now);
+                }
+            }
+        }
+        next
     }
 
     /// Places `take` on the MIDI track `track` as part of `rec`, merged into
@@ -162,7 +203,7 @@ mod tests {
         let one = doc.add_track(TrackKind::Midi, None);
         let two = doc.add_track(TrackKind::Midi, None);
         let before = doc.project().clone();
-        let mut rec = doc.begin_recording();
+        let mut rec = doc.begin_recording(&[]);
         let growing = [
             take(0, 1, vec![tn(0, 1, 60)]),
             take(0, 2, vec![tn(0, 1, 60), tn(1, 1, 62)]),
@@ -203,7 +244,7 @@ mod tests {
         let track = doc.add_track(TrackKind::Midi, None);
         doc.create_midi_clip(track, NewClip::Range(q(0), q(16)))
             .unwrap();
-        let mut rec = doc.begin_recording();
+        let mut rec = doc.begin_recording(&[]);
         let mut layouts = Vec::new();
         for end in [6, 8, 10] {
             doc.record_take(
@@ -237,11 +278,11 @@ mod tests {
                 *notes = vec![old];
             }
         });
-        let mut rec = doc.begin_recording();
+        let mut rec = doc.begin_recording(&[]);
         let placed = doc.record_take(
             &mut rec,
             track,
-            &take(1, 3, vec![tn(2, 1, 64)]),
+            &take(0, 3, vec![tn(2, 1, 64)]),
             Mode::Overdub,
             None,
         );
@@ -251,10 +292,32 @@ mod tests {
     }
 
     #[test]
+    fn the_preview_is_what_the_commit_makes_and_changes_nothing() {
+        for mode in [Mode::Replace, Mode::Overdub] {
+            let mut doc = Document::new(crate::empty_project());
+            let track = doc.add_track(TrackKind::Midi, None);
+            doc.create_midi_clip(track, NewClip::Range(q(0), q(8)))
+                .unwrap();
+            let mut rec = doc.begin_recording(&[track]);
+            let early = take(2, 3, vec![tn(2, 1, 60)]);
+            doc.record_take(&mut rec, track, &early, mode, None)
+                .unwrap();
+            let state = doc.state();
+            // Between commits: the take has grown.
+            let grown = take(2, 5, vec![tn(2, 1, 60), tn(4, 1, 64)]);
+            let preview = doc.preview_takes(&rec, &[(track, grown.clone())], mode, None);
+            assert_eq!(doc.state(), state, "{mode:?}: no step");
+            doc.record_take(&mut rec, track, &grown, mode, None)
+                .unwrap();
+            assert_eq!(&preview, doc.project(), "{mode:?}");
+        }
+    }
+
+    #[test]
     fn an_overdub_with_nothing_to_add_makes_no_step() {
         let mut doc = Document::new(crate::empty_project());
         let track = doc.add_track(TrackKind::Midi, None);
-        let mut rec = doc.begin_recording();
+        let mut rec = doc.begin_recording(&[]);
         let state = doc.state();
         let placed = doc.record_take(&mut rec, track, &take(0, 4, vec![]), Mode::Overdub, None);
         assert_eq!(placed, Ok(vec![]));
@@ -269,7 +332,7 @@ mod tests {
             .create_midi_clip(track, NewClip::Range(q(0), q(4)))
             .unwrap();
         doc.set_clips_locked(&[clip], true);
-        let mut rec = doc.begin_recording();
+        let mut rec = doc.begin_recording(&[]);
         let state = doc.state();
         let label = doc.history().undo_label().map(str::to_owned);
         for mode in [Mode::Replace, Mode::Overdub] {

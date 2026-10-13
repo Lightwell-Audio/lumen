@@ -390,7 +390,22 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-13 (after run 3): **a MIDI clip is a window
+**Last updated:** 2026-10-13 (latest): **the owner's four recording and
+trim points are fixed** (ADR-0057). MIDI clip edges keep the distance they
+were picked up at (`Gesture::Trim::grab`), trims do not glide, and a track's
+note layout counts hidden notes (`mini::track_range`). Overdub begun inside a
+non-looping MIDI clip is a new clip from the playhead to the stop carrying the
+old notes there; begun at or before a clip, the clip grows (start back, end
+on) and takes the take (`edit::record`: `begun_inside`, `extended`,
+`heard_in`). With Loop on a take begins at the playhead (`Session::from`).
+While recording the arrangement draws `Document::preview_takes` every frame
+(the project as the next commit makes it); the recording tracks are on their
+own GPU layers (`canvas.rs` `live`, `live_mini`), the main layers skip
+commits. `live_take.rs` is gone; E2E use `drawn_clips`. E2E 322, smoke 6
+pass (`xvfb-run -a`); `midi_out` sender timing flakes in this container on
+the unchanged code too (KNOWN_ISSUES). Not run: the WSL perf gate, macOS
+cross-clippy. **MT-MIDI-7 runs 4 and 5 (steps 22 to 30) wait for the
+owner.** Before it, 2026-10-13 (after run 3): **a MIDI clip is a window
 onto its notes** (format v15, ADR-0056; the owner chose Ableton's window over
 stacked clips). Trims, covers (moves, copies, Replace recording), splits and
 slips only move notes in clip time; notes before the clip's start (negative)

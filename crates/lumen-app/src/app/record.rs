@@ -10,9 +10,10 @@
 //! the last commit makes the clip run exactly from where recording began to
 //! where it ended.
 //!
-//! The take's range is its start to where the playhead was (so a clip runs
-//! exactly start to stop); with Loop on it is the loop's whole region, and
-//! every pass layers into it. Punch in and out (the brace's switches) cut
+//! The take's range is where recording began (the playhead) to where the
+//! playhead is (so a clip runs exactly start to stop), with Loop on too;
+//! once the loop wraps it is the loop's whole region, and every pass layers
+//! into it. Punch in and out (the brace's switches) cut
 //! the take, and punch out ends recording at the brace's end while playback
 //! carries on.
 
@@ -24,7 +25,6 @@ use lumen_project::edit::record::Mode;
 use lumen_project::model::{Id, TrackKind};
 
 use crate::App;
-use crate::arrangement::live_take::{LiveNote, LiveTake, LiveTrack};
 use crate::arrangement::recording_look::RecordingLook;
 use crate::document::Recording;
 use crate::recorder::Capture;
@@ -61,7 +61,7 @@ struct Session {
     document: u64,
     /// The armed MIDI tracks it records on.
     tracks: Vec<Id>,
-    /// Where the take begins.
+    /// Where recording began: the playhead (or the play marker).
     start: Ticks,
     /// The loop region, when the take layers its passes.
     looped: Option<(Ticks, Ticks)>,
@@ -85,7 +85,7 @@ impl Session {
         let bar = bar.0.max(1);
         RecordingLook {
             tracks: self.tracks.clone(),
-            from: self.start,
+            from: self.from(),
             until: Ticks((reached.0 / bar + 1) * bar),
             overdub: self.mode == Mode::Overdub,
             take_clips: self
@@ -96,68 +96,24 @@ impl Session {
         }
     }
 
-    /// The take as far as it has gone, for the arrangement to draw every
-    /// frame: the notes played (a held one up to the playhead) and, in
-    /// Overdub, where it is over no clip.
-    fn live(&self, head: Ticks, project: &lumen_project::model::Project) -> LiveTake {
-        let now = head.max(self.start);
-        let (from, to) = (self.start, self.end(head));
-        // Punch cuts what is kept, so what is drawn.
-        let (from, to) = match self.punch {
-            Some((a, b)) => (from.max(a), to.min(b)),
-            None => (from, to),
-        };
-        let overdub = self.mode == Mode::Overdub;
-        let tracks = self
-            .tracks
-            .iter()
-            .map(|&track| {
-                let take = self.capture.so_far(track.0, (self.start, to), now);
-                let shown: Vec<_> = take
-                    .notes
-                    .iter()
-                    .filter(|n| n.start + n.length > from && n.start < to.max(now))
-                    .collect();
-                let base = self.rec.base_track(track);
-                let gaps = match base {
-                    Some(base) if overdub && to > from => {
-                        lumen_project::edit::record::gaps(base, (from, to))
-                    }
-                    _ => Vec::new(),
-                };
-                // The track's fit, as it will be once the take is in: its
-                // clips (as committed so far) and what has been played.
-                let range = shown.iter().fold(
-                    project
-                        .tracks
-                        .iter()
-                        .find(|t| t.id == track)
-                        .and_then(|t| crate::piano_roll::mini::track_range(&t.clips)),
-                    |range, n| crate::piano_roll::mini::union(range, Some((n.pitch, n.pitch))),
-                );
-                let notes = shown
-                    .iter()
-                    .map(|n| LiveNote {
-                        start: n.start,
-                        end: n.start + n.length,
-                        pitch: n.pitch,
-                        velocity: n.velocity,
-                    })
-                    .collect();
-                LiveTrack {
-                    track,
-                    notes,
-                    gaps,
-                    range,
-                }
-            })
-            .collect();
-        LiveTake {
-            from,
-            to: to.max(from),
-            overdub,
-            tracks,
+    /// Where the take's range begins: where recording began, or the loop's
+    /// start once it has wrapped (each pass then covers the whole loop).
+    fn from(&self) -> Ticks {
+        match self.looped {
+            Some((start, _)) if self.wrapped => start,
+            _ => self.start,
         }
+    }
+
+    /// Each track's take as far as it has gone, the notes still held running
+    /// to the playhead: what the arrangement draws on every frame.
+    fn takes_so_far(&self, head: Ticks) -> Vec<(Id, lumen_project::edit::record::Take)> {
+        let now = head.max(self.start);
+        let range = (self.from(), self.end(head));
+        self.tracks
+            .iter()
+            .map(|&track| (track, self.capture.so_far(track.0, range, now)))
+            .collect()
     }
 
     /// Where the take ends now: the playhead, or the whole loop once it has
@@ -190,7 +146,7 @@ impl App {
                 track,
                 from: session
                     .punch
-                    .map_or(session.start, |(a, _)| session.start.max(a)),
+                    .map_or(session.from(), |(a, _)| session.from().max(a)),
                 take: session.rec.take_clip(track),
             })
             .collect()
@@ -238,10 +194,6 @@ impl App {
         let looped = (region.loop_enabled && region.loop_end > region.loop_start)
             .then_some((region.loop_start, region.loop_end))
             .filter(|&(_, end)| start < end);
-        let begin = match looped {
-            Some((from, _)) if start >= from => from,
-            _ => start,
-        };
         let punch = (region.punch_in || region.punch_out).then_some((
             if region.punch_in {
                 region.loop_start
@@ -262,7 +214,7 @@ impl App {
                 .beats(u32::from(project.time_signature.numerator))
         };
         let now = Instant::now();
-        let rec = self.document.begin_recording();
+        let rec = self.document.begin_recording(&tracks);
         self.record.session = Some(Session {
             rec,
             capture: Capture::looping(looped),
@@ -273,13 +225,13 @@ impl App {
             },
             document: self.document.session(),
             tracks,
-            start: begin,
+            start,
             looped,
             punch,
             asked: now,
             seen: false,
             committed: now - COMMIT_EVERY,
-            last: begin,
+            last: start,
             wrapped: false,
             punched_out: false,
         });
@@ -305,12 +257,34 @@ impl App {
             .session
             .as_ref()
             .map(|session| session.look(head, bar));
-        self.arrangement.live_take = self
+        // The project as the next commit will make it, drawn on every frame:
+        // the take and the clips it records over or into move with the
+        // playhead, not once a commit (MT-MIDI-7).
+        self.arrangement.preview = self
             .record
             .session
             .as_ref()
-            .filter(|_| self.transport.state().playing)
-            .map(|session| session.live(head, self.document.project()));
+            .filter(|_| self.transport.state().playing && self.transport.state().recording)
+            .map(|session| {
+                std::sync::Arc::new(self.document.preview_takes(
+                    &session.rec,
+                    &session.takes_so_far(head),
+                    session.mode,
+                    session.punch,
+                ))
+            });
+    }
+
+    /// The take under way for tests: where its range begins and ends, and
+    /// how many notes the first recording track has played (a held one
+    /// counted). None when nothing records.
+    pub(crate) fn take_so_far(&self) -> Option<(Ticks, Ticks, usize)> {
+        let session = self.record.session.as_ref()?;
+        self.arrangement.preview.as_ref()?;
+        let head = self.transport.state().ticks;
+        let takes = session.takes_so_far(head);
+        let notes = takes.first().map_or(0, |(_, t)| t.notes.len());
+        Some((session.from(), session.end(head), notes))
     }
 
     /// Keeps what the engine kept, commits the take when it is due, and ends
@@ -399,7 +373,7 @@ impl App {
     /// recording. False when a locked clip is in the way.
     fn commit(&mut self, session: &mut Session, end: Ticks) -> bool {
         for &track in &session.tracks {
-            let take = session.capture.take(track.0, (session.start, end));
+            let take = session.capture.take(track.0, (session.from(), end));
             if self
                 .document
                 .record_take(&mut session.rec, track, &take, session.mode, session.punch)

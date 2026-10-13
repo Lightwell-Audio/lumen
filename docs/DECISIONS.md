@@ -126,6 +126,7 @@ irreversible or external) · *Superseded*.
 | Design system over ADR-0051 (2026-10-11) | The owner's **Lumen design system** (a Design System artifact: tokens, a Material card and a card per component) is the reference for tokens, components and widgets. Asked where it and ADR-0051 differ, the owner chose **the design system on all four**: **on** is `accent_muted` with accent letters and a 38% accent hairline, no glow; **solo** (and the primary, the chosen tool) is filled accent (`accent_hi` to `accent_lo`, no halo; amber only warns); a **lit M** is the `mute` grey with `on_mute` letters; **raised** controls are `control_hi` to `control` with an edge light and a border, Ember on hover, no drop shadow, radius by height; the **arm** is round with a grey dot at rest. ADR-0052. |
 | Recording MIDI (M5 slice 6, 2026-10-12) | Asked and chosen (the plan in `docs/milestones/M5.md`, and the "Lumen Recording Specimens" canvas): **Replace by default, with an Overdub switch** (C4, as planned); **loop passes layer** into one clip in both modes (separate takes are M9); **recording settings in the app settings file**, not the project, so no format change; **a clip runs exactly from record start to stop**, not to the bar line (the owner's choice over the recommended bar-line end); **1-A** the count-in on the position field, counting up through negative bars, and Record pulsing on each beat, with no new widget; **2-B** an Overdub button beside Record, and the count-in and "Metronome only while recording" in the metronome's menu; **3-A** a clip being recorded is record red with a "REC" tag and drops into its track colour on stop. Count-in and record-only for MIDI move from M9 (the 2026-10-06 row) to this slice; audio recording stays M9. ADR-0055. |
 | Covered MIDI clips (M5, 2026-10-13, after MT-MIDI-7 run 3) | Asked, from two variants: **A, Ableton's window** (chosen, as recommended): a clip covered, trimmed or split keeps every note, hidden outside its edges, and shows them when an edge is dragged back; moving the top clip away leaves a gap, as in Ableton. B (stacked clips that reappear by themselves) was set aside. Overdub across clips: "exactly like Ableton"; the owner will reproduce what they saw. Format v15. ADR-0056. |
+| Recording edges and MIDI trims (M5, 2026-10-13, the owner's four points) | Asked for directly: MIDI clip edges that drag without jitter or offset; Overdub begun at or before a clip extends that clip and merges into it; recording begun in the middle of a clip makes a new clip from the playhead to the stop; and the clip recorded over redraws continuously, not at commits. Built as stated (no variants pitched: the owner gave the behaviour). ADR-0057. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
 | Logo and light (2026-10-10) | Chosen from rendered specimens on the identity canvas (a Design artifact): four marks, then six colourways. **D, Dawn, in Sunrise**: a sun rising over a horizon, its reflection breaking into a waveform; an amber sun (`#FFC46B`) over water in the accent. **The light layer holds** (five levels: Unlit, Ember, Lit, Beam, Flare, and five rules), and **the mark is a meter** (the sun rises with the master's level, red while recording), with every proposed use of light: the playhead beam, Play's beam, meter heads, the mark above an empty arrangement. ADR-0043. A guitarist-first direction was pitched and set aside by the owner. |
@@ -4967,3 +4968,96 @@ level and already does what Ableton does: notes merge into every clip they
 pass through and a gap gets a new clip. The owner will reproduce what they saw
 before anything changes there.
 
+## ADR-0057 — Recording at clip edges, and MIDI trims that follow the hand
+
+**Status:** Accepted (owner's request) · **Date:** 2026-10-13
+
+**Context.** The owner reported four faults with MIDI clips and recording:
+1. Dragging a MIDI clip's left or right edge jittered and landed off the
+   pointer.
+2. Overdub begun at or before an existing clip made a separate clip beside it
+   instead of growing the clip.
+3. Recording begun in the middle of a clip should make a new clip from the
+   playhead to where recording stops.
+4. While recording over a clip, the clip under the take redrew in chunks
+   (about once a second), not continuously.
+
+**Causes found.**
+1. Three things. (a) The trim gesture put the edge at the pointer's time, so an
+   edge picked up a few points inside jumped by that much on the first move.
+   (b) A start trim moves `start` and shortens `length`, and the clip glides
+   (M4.5) only offset `start`: each snapped step drew the clip at its old start
+   with its new length, so the right edge and the notes inside (in clip time)
+   jumped and slid back. (c) The track's note layout (`mini::track_range`)
+   counted only notes in each clip's window, so a trim that hid or showed a
+   note rescaled every clip's notes on the track.
+2. Overdub's rule (ADR-0055) gave every uncovered part of the range a new clip.
+3. With Loop on, a take pressed inside the loop started at the loop's start
+   (a KNOWN_ISSUES row); with Overdub, a take begun inside a clip merged into
+   it.
+4. The arrangement drew the document (committed about once a second) and laid
+   the take over it (`live_take.rs`). In Overdub the clip under the take only
+   got the new notes, its new edges and its new layout at each commit.
+
+**Decisions.**
+1. `Gesture::Trim` keeps `grab`, the edge's distance from the pointer when it
+   was picked up; the edge goes to the pointer plus `grab`, then snaps. Only a
+   moved clip glides (its length unchanged); a trimmed one lands at once.
+   `mini::track_range` counts every note a clip holds, hidden ones too, so the
+   layout holds while an edge is dragged (and stays the same before and after
+   a split or cover).
+2. and 3. `edit::record` Overdub now depends on where the range begins:
+   - **inside a MIDI clip that does not loop**: a new clip over the range, as in
+     Replace, carrying what the clips under it played there (their windows,
+     every repeat, muted clips excepted) with the take settled over it (a note
+     played wins its pitch). It takes the name and colour of the clip it began
+     in. What it covers is cut away and stays hidden in the pieces (ADR-0056).
+   - **otherwise** (at or before a clip, or on an empty lane): the take merges
+     into the clips under it, and they grow over the rest of the range instead
+     of leaving pieces beside them: a part after a MIDI clip extends its end,
+     the part before the first clip moves its start back (notes moved later in
+     clip time, so they sound where they did; not for a looping clip, whose
+     loop would shift). Only a part no MIDI clip borders gets a new clip, when
+     it holds something. Extension happens even with nothing played there, so
+     the clip runs from record start to stop as a Replace take does.
+   - A looping clip still layers each pass into its loop, wherever the take
+     begins.
+   With Loop on, a take begins at the playhead (`Session::from`), and covers
+   the whole loop only once it has wrapped.
+4. While recording, the app builds `Document::preview_takes` every frame: the
+   project as the next commit will make it, from each track's take so far (held
+   notes running to the playhead), with the ids the commits use (pieces already
+   cut keep theirs; new ones are the ids the next commit will mint), and no
+   history step. The arrangement draws it instead of the document. The tracks
+   being recorded go on two GPU box layers of their own (`canvas.rs` `live`,
+   `live_mini`), rebuilt every frame; the main layers leave those tracks out
+   and, while recording, are keyed on the other tracks' identities rather than
+   the document's state, so neither the frames nor the commits rebuild them.
+   `live_take.rs` and its CPU drawing are gone.
+
+**Measured** (release, the 200-track stress project, in the cloud container):
+the preview and the live layers cost about 0.19 ms a frame when recording a
+normal MIDI track, and about 7.5 ms when recording into the 100,000-note clip
+(its notes are copied and settled each frame); KNOWN_ISSUES.
+
+**Consequences.** What the arrangement shows while recording is exactly what
+the commit will hold. Overdub begun inside a clip splits it, so an empty take
+there still leaves three clips (the sound is unchanged). Recording before a
+clip can show its hidden notes (ADR-0056) when its start moves back over them,
+as dragging its edge would. With Loop on and a take begun inside a clip, the
+first pass is a new clip and, after the wrap, the whole loop follows the rule
+for where the loop starts.
+
+Tests: `edit/record.rs` (begun at, inside and before clips; past ends and
+between clips; muted and looping clips; growing takes match one call),
+`document/record.rs` (the preview equals the commit and makes no step),
+`glide.rs` (a trimmed start lands at once), `mini.rs` (hidden notes count in
+the layout); E2E `midi_trim` (start and end edges picked up inside; the layout
+holds; all three fail without the fix) and `record` (Overdub before a clip
+grows it; inside one makes a new clip from the playhead; Record pressed inside
+the loop begins at the playhead; the clip recorded into is drawn growing on
+every frame).
+
+Not verified: the look and feel by hand (MT-MIDI-7 run 5), frame times on a
+GPU, and the WSL perf gate (`lumen-project` changed; `place` is not in a perf
+scenario).

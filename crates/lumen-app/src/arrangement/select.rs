@@ -187,12 +187,15 @@ pub enum Gesture {
     /// empty lane); it spans the tracks down to the pointer's.
     Range { at: Ticks, track: usize },
     /// Trimming a side of `clip`; with `looping` (Shift at the start) the
-    /// end extends by repeating.
+    /// end extends by repeating. `grab` is how far the edge was from the
+    /// pointer when it was picked up, so the edge keeps that distance
+    /// instead of jumping to the pointer.
     Trim {
         base: Arc<Project>,
         clip: Id,
         edge: Edge,
         looping: bool,
+        grab: Ticks,
     },
     /// Sliding `clip`'s content, picked up at `at` (Ctrl+Alt).
     Slip {

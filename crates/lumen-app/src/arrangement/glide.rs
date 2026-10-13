@@ -1,6 +1,6 @@
 //! Clips glide to where an edit puts them (the interface audit's M1;
 //! DESIGN §6 "clips settling"): undo, redo, commands and the snapped steps
-//! of a drag. What is heard changes at once; only the drawing travels, and
+//! of a drag (moves, not trims: a trimmed edge follows the hand). What is heard changes at once; only the drawing travels, and
 //! clicks go by where the clip is, not where it is drawn. After undo or
 //! redo, what changed is also washed in the accent for a moment (M4).
 
@@ -96,7 +96,12 @@ impl ClipGlides {
         let mut now_clips = HashMap::with_capacity(self.clips.len());
         for clip in all_clips(project) {
             if let Some(before) = self.clips.get(&clip.id) {
-                if before.start != clip.start && duration > 0.0 {
+                // Only a moved clip glides. A trimmed start lands at once:
+                // its length has already changed, so gliding the start
+                // alone would shake the other edge and the notes inside
+                // (MIDI notes are in clip time) on every step of the drag.
+                let moved = before.start != clip.start && before.length == clip.length;
+                if moved && duration > 0.0 {
                     let shown = before.start.0 + self.offset_at(clip.id, now);
                     self.gliding.insert(
                         clip.id,
@@ -233,6 +238,29 @@ mod tests {
         glides.update(2.0, (1, 2), &moved, (false, false));
         assert!(!glides.moving());
         assert_eq!(start_of(&glides.shown(&moved, 2.0)), 1000, "and lands");
+    }
+
+    #[test]
+    fn a_trimmed_start_lands_at_once() {
+        let mut glides = ClipGlides::default();
+        let before = project(0);
+        glides.update(0.0, (1, 1), &before, (false, false));
+        // The start edge dragged later: the start moves and the clip is
+        // shorter, the end staying put.
+        let mut trimmed = before.clone();
+        {
+            let track = trimmed
+                .tracks
+                .iter_mut()
+                .find(|t| !t.clips.is_empty())
+                .expect("a track with clips");
+            let clip = std::sync::Arc::make_mut(&mut std::sync::Arc::make_mut(track).clips[0]);
+            clip.start = Ticks(480);
+            clip.length = Ticks(clip.length.0 - 480);
+        }
+        glides.update(1.0, (1, 2), &trimmed, (true, false));
+        assert!(!glides.moving(), "a trim does not glide");
+        assert_eq!(start_of(&glides.shown(&trimmed, 1.0)), 480);
     }
 
     #[test]

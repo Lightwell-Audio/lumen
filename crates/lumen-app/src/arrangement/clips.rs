@@ -13,12 +13,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use eframe::egui::{self, Align2, Color32, FontId, Painter, Pos2, Rect, Stroke, pos2, vec2};
-use lumen_core::time::Ticks;
 use lumen_media::Peaks;
 use lumen_project::model::{Clip, ClipContent, Project, TrackKind};
 use lumen_render::{BoxInstance, RowSlot, WaveInstance, WaveStyle, beats, rgba};
 
-use super::live_take::{LiveTake, LiveTrack};
 use super::recording_look::{self, Paint, RecordingLook};
 use super::samples::{Geometry, Pixels, Strips};
 use super::waves::{Source, wave_instances};
@@ -27,8 +25,6 @@ use crate::canvas::{self, ClipFrame};
 use crate::document::{Document, audible};
 use crate::lanes::{Landing, Lanes};
 use crate::media::{Item, State};
-use crate::piano_roll::mini;
-use crate::piano_roll::notes::velocity_alpha;
 use crate::timeview::TimeView;
 use crate::widgets::{draw_edge_glow, gradient};
 use crate::{icons, theme};
@@ -94,6 +90,17 @@ pub(super) struct GpuClips {
     built_recording: Option<RecordingLook>,
     /// A clip is fading in or loading: rebuild next frame too.
     moving: bool,
+    /// The tracks left out of the boxes above because they are being
+    /// recorded: their clips and notes are `live` and `live_mini`, rebuilt
+    /// every frame from the take as far as it has gone (after MT-MIDI-7).
+    built_live: Vec<lumen_project::model::Id>,
+    /// While recording: the other tracks the boxes were built from, by
+    /// identity.
+    built_others: Vec<usize>,
+    live: Arc<Vec<BoxInstance>>,
+    live_mini: Arc<Vec<BoxInstance>>,
+    live_mini_tracks: Vec<usize>,
+    live_generation: u64,
 }
 
 impl GpuClips {
@@ -169,7 +176,13 @@ impl Arrangement {
         if self.glides.moving() {
             ctx.request_repaint();
         }
-        let shown = self.glides.shown(doc.project(), now);
+        // While recording, the take as far as it has gone (nothing glides
+        // then).
+        let preview = self.preview.clone();
+        let shown = match &preview {
+            Some(preview) => std::borrow::Cow::Borrowed(&**preview),
+            None => self.glides.shown(doc.project(), now),
+        };
         let project: &Project = &shown;
         let audible = audible(project);
         // The returns and master pinned at the bottom (slice 4) draw their
@@ -226,6 +239,7 @@ impl Arrangement {
         // Clip bodies, on the GPU.
         let gliding = self.glides.moving();
         self.refresh_boxes(ctx, doc.state(), project, lanes, gliding);
+        self.refresh_live(ctx, project, lanes);
         let ppp = ctx.pixels_per_point();
         // One slot per track, by its index (boxes and waves name their
         // track's index); tracks hidden in a folded group draw nothing.
@@ -272,6 +286,7 @@ impl Arrangement {
             },
         );
         let mini_rows = super::mini_notes::rows(&self.gpu.mini_tracks, &slots, ppp);
+        let live_mini_rows = super::mini_notes::rows(&self.gpu.live_mini_tracks, &slots, ppp);
         painter.add(canvas::clips_shape(
             canvas,
             ppp,
@@ -288,6 +303,10 @@ impl Arrangement {
                 mini: Arc::clone(&self.gpu.mini),
                 mini_rows,
                 mini_style: canvas::mini_style(ppp),
+                live: Arc::clone(&self.gpu.live),
+                live_mini: Arc::clone(&self.gpu.live_mini),
+                live_mini_rows,
+                live_generation: self.gpu.live_generation,
                 wave_style: WaveStyle {
                     top: (INSET + TITLE + WAVE_GAP) * ppp,
                     bottom: (INSET + WAVE_GAP) * ppp,
@@ -349,21 +368,6 @@ impl Arrangement {
                         } else {
                             draw_name(painter, rect, lane, &look);
                         }
-                    }
-                    // The take being recorded, as far as the playhead.
-                    if let Some(take) = self.live_take.as_ref()
-                        && let Some(live) = take.track(track.id)
-                    {
-                        let alpha = if heard { 1.0 } else { DIMMED };
-                        let lane_painter =
-                            painter.with_clip_rect(lane.intersect(painter.clip_rect()));
-                        draw_live_take(
-                            if row.clipped { &lane_painter } else { painter },
-                            (lane, canvas),
-                            time,
-                            (take, live),
-                            (color_of(track.color), alpha),
-                        );
                     }
                     // Files dropped on this track, while they load (slice
                     // 6e), side by side from where they were dropped.
@@ -460,11 +464,30 @@ impl Arrangement {
         let rate = lanes.rate();
         let key = (state, lanes.revision(), rate, palette);
         let recording = self.recording.as_ref();
-        if self.gpu.built == Some(key)
-            && self.gpu.built_recording.as_ref() == recording
-            && !self.gpu.moving
-            && !gliding
-        {
+        let live = self.live_tracks();
+        // While a take grows, commits change only the tracks being recorded,
+        // which these boxes leave out: the others are compared by identity
+        // instead of the document's state, so a commit rebuilds nothing here.
+        let others: Vec<usize> = if live.is_empty() {
+            Vec::new()
+        } else {
+            project
+                .tracks
+                .iter()
+                .filter(|t| !live.contains(&t.id))
+                .map(|t| Arc::as_ptr(t) as usize)
+                .collect()
+        };
+        let same = if live.is_empty() {
+            self.gpu.built == Some(key) && self.gpu.built_recording.as_ref() == recording
+        } else {
+            self.gpu
+                .built
+                .map(|(_, revision, rate, palette)| (revision, rate, palette))
+                == Some((key.1, key.2, key.3))
+                && self.gpu.built_others == others
+        };
+        if same && self.gpu.built_live == live && !self.gpu.moving && !gliding {
             return;
         }
         let recording = recording.cloned();
@@ -475,6 +498,9 @@ impl Arrangement {
         let count = project.tracks.iter().map(|t| t.clips.len()).sum();
         let mut boxes = Vec::with_capacity(count);
         for (row, track) in project.tracks.iter().enumerate() {
+            if live.contains(&track.id) {
+                continue;
+            }
             for clip in &track.clips {
                 let paint = recording_look::paint(recording.as_ref(), track.id, clip, &palette);
                 let look = look_of(clip, clip_color(track, clip), paint, lanes, ctx);
@@ -488,13 +514,59 @@ impl Arrangement {
         gpu.geometry = waves.iter().map(|w| w.geometry).collect();
         gpu.waves = Arc::new(waves.into_iter().map(|w| w.instance).collect());
         gpu.strips.reset();
-        let mini = super::mini_notes::build(project, recording.as_ref());
+        let mini = super::mini_notes::build(project, recording.as_ref(), |t| !live.contains(&t.id));
         gpu.mini = Arc::new(mini.boxes);
         gpu.mini_tracks = mini.tracks;
         gpu.generation += 1;
         gpu.built = Some(key);
         gpu.built_recording = recording;
+        gpu.built_live = live;
+        gpu.built_others = others;
         gpu.moving = moving;
+    }
+
+    /// The tracks drawn on the live layers: the ones being recorded, while
+    /// the take is drawn as it grows (none otherwise).
+    fn live_tracks(&self) -> Vec<lumen_project::model::Id> {
+        match (&self.preview, &self.recording) {
+            (Some(_), Some(look)) => look.tracks.clone(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Rebuilds the live layers: every frame while a take grows, from the
+    /// tracks being recorded only, so the cost is theirs, not the
+    /// project's. Emptied once when it ends.
+    fn refresh_live(&mut self, ctx: &egui::Context, project: &Project, lanes: &mut Lanes) {
+        let live = self.live_tracks();
+        if live.is_empty() {
+            if !self.gpu.live.is_empty() || !self.gpu.live_mini.is_empty() {
+                self.gpu.live = Arc::new(Vec::new());
+                self.gpu.live_mini = Arc::new(Vec::new());
+                self.gpu.live_mini_tracks.clear();
+                self.gpu.live_generation += 1;
+            }
+            return;
+        }
+        let palette = *theme::p();
+        let recording = self.recording.as_ref();
+        let mut boxes = Vec::new();
+        for (row, track) in project.tracks.iter().enumerate() {
+            if !live.contains(&track.id) {
+                continue;
+            }
+            for clip in &track.clips {
+                let paint = recording_look::paint(recording, track.id, clip, &palette);
+                let look = look_of(clip, clip_color(track, clip), paint, lanes, ctx);
+                boxes.push(clip_box(clip, row as u32, &look, &palette));
+            }
+        }
+        let mini = super::mini_notes::build(project, recording, |t| live.contains(&t.id));
+        let gpu = &mut self.gpu;
+        gpu.live = Arc::new(boxes);
+        gpu.live_mini = Arc::new(mini.boxes);
+        gpu.live_mini_tracks = mini.tracks;
+        gpu.live_generation += 1;
     }
 
     /// The file of the audio clip under `pointer`, for the hover card.
@@ -685,64 +757,6 @@ fn draw_body(painter: &Painter, rect: Rect, look: &ClipLook<'_>) {
         Stroke::new(1.0, outline_color(&look.paint, look.color, alpha)),
         egui::StrokeKind::Inside,
     );
-}
-
-/// The take being recorded on one track (`live_take`): its body to the
-/// playhead, over whatever the document has of it, and its notes as played.
-fn draw_live_take(
-    painter: &Painter,
-    (lane, canvas): (Rect, Rect),
-    time: TimeView,
-    (take, live): (&LiveTake, &LiveTrack),
-    (color, alpha): (Color32, f32),
-) {
-    let palette = theme::p();
-    let x = |t: Ticks| time.x(canvas.left(), t.as_quarters());
-    let inner = lane.top() + INSET..=lane.bottom() - INSET;
-    let look = ClipLook {
-        name: "MIDI clip",
-        color,
-        state: ClipState::Ready,
-        progress: None,
-        alpha,
-        locked: false,
-        paint: recording_look::take_paint(palette),
-    };
-    for (a, b) in take.bodies(live) {
-        let (x0, x1) = (x(a), x(b));
-        if x1 < canvas.left() || x0 > canvas.right() {
-            continue;
-        }
-        let rect = Rect::from_x_y_ranges(x0..=x1, inner.clone());
-        // Opaque, so what the document has under the take (committed a
-        // second ago) cannot show its edge.
-        painter.rect_filled(rect, theme::radius::SMALL, palette.lane);
-        draw_body(painter, rect, &look);
-        if x1 - x0 >= NAME_MIN_WIDTH {
-            draw_name(painter, rect, lane, &look);
-        }
-    }
-    let top = lane.top() + INSET + TITLE + WAVE_GAP;
-    let room = lane.bottom() - INSET - WAVE_GAP - top;
-    let Some((lo, hi)) = live.range.filter(|_| room > 0.0) else {
-        return;
-    };
-    // The track's layout: the same bands the GPU draws its clips on.
-    let fit = mini::Fit::new(lo, hi);
-    for note in &live.notes {
-        let (x0, x1) = (x(note.start), x(note.end));
-        if x1 < canvas.left() || x0 > canvas.right() {
-            continue;
-        }
-        let (a, b) = fit.span(note.pitch);
-        let (y0, y1) = (top + a * room, top + b * room);
-        let rect = Rect::from_min_max(
-            pos2(x0.max(canvas.left()), y0),
-            pos2(x1.max(x0 + 1.0).min(canvas.right()), y1.max(y0 + 1.0)),
-        );
-        let strength = (0.45 + 0.55 * velocity_alpha(note.velocity)) * alpha;
-        painter.rect_filled(rect, 0.0, palette.record_note.gamma_multiply(strength));
-    }
 }
 
 /// A clip's name in its title bar, kept within the visible part of the

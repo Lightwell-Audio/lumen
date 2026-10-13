@@ -3,7 +3,7 @@
 //! (`clips::refresh_boxes`), and where each track's bands sit this frame.
 //! Tracks without notes get no bands, so the row table stays small.
 
-use lumen_project::model::{ClipContent, Project};
+use lumen_project::model::{ClipContent, Project, Track};
 use lumen_render::{BoxInstance, RowSlot};
 
 use super::clips::{INSET, WAVE_GAP};
@@ -21,13 +21,20 @@ pub(super) struct MiniNotes {
     pub tracks: Vec<usize>,
 }
 
-/// The mini notes of every MIDI clip in `project`, each track's clips on
-/// one fit. A clip being recorded
-/// shows its notes in the lighter record red (3-A).
-pub(super) fn build(project: &Project, recording: Option<&RecordingLook>) -> MiniNotes {
+/// The mini notes of every MIDI clip in `project` on the tracks `keep`
+/// takes, each track's clips on one fit. A clip being recorded shows its
+/// notes in the lighter record red (3-A).
+pub(super) fn build(
+    project: &Project,
+    recording: Option<&RecordingLook>,
+    keep: impl Fn(&Track) -> bool,
+) -> MiniNotes {
     let mut out = MiniNotes::default();
     let palette = theme::p();
     for (index, track) in project.tracks.iter().enumerate() {
+        if !keep(track) {
+            continue;
+        }
         let mut dense = None;
         let Some((lo, hi)) = mini::track_range(&track.clips) else {
             continue;
@@ -119,7 +126,7 @@ mod tests {
             100,
         )]))];
         project.tracks = vec![Arc::new(track), Arc::new(with)];
-        let built = build(&project, None);
+        let built = build(&project, None, |_| true);
         assert_eq!(built.tracks, [1]);
         assert_eq!(built.boxes.len(), 1);
         assert!(built.boxes[0].row & 0xFF_FFFF < BANDS);
@@ -153,8 +160,8 @@ mod tests {
             overdub: false,
             take_clips: vec![Id(5)],
         };
-        let red = build(&project, Some(&look));
-        let plain = build(&project, None);
+        let red = build(&project, Some(&look), |_| true);
+        let plain = build(&project, None, |_| true);
         assert_eq!(red.boxes.len(), 1);
         assert_ne!(red.boxes[0].body, plain.boxes[0].body);
         // Not recording: the same boxes as with no recording at all.
@@ -162,6 +169,6 @@ mod tests {
             take_clips: vec![Id(9)],
             ..look
         };
-        assert_eq!(build(&project, Some(&other)), plain);
+        assert_eq!(build(&project, Some(&other), |_| true), plain);
     }
 }

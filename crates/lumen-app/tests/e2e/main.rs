@@ -38,6 +38,7 @@ mod midi;
 mod midi_chip;
 mod midi_from;
 mod midi_play;
+mod midi_trim;
 mod mixer;
 mod mixing;
 mod monitor_badge;

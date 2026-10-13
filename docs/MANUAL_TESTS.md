@@ -2428,7 +2428,7 @@ readout beside Quantize changes with the popover's settings.
 
 
 ### MT-MIDI-7 · Recording MIDI (needs a human and a MIDI controller; the computer keyboard also works)
-Slice 6 of M5 (ADR-0055). **Status: run 4 waits for the owner.** Start
+Slice 6 of M5 (ADR-0055). **Status: runs 4 and 5 wait for the owner.** Start
 Lumen from the repository root:
 
 ```powershell
@@ -2573,4 +2573,25 @@ waits for the owner.
     Ctrl+A to pick only those.
 26. **Overdub across clips.** With Overdub on, record across two clips with a
     gap between them. Say what you see if it is not: the new notes added to
-    each clip, the old ones kept, and a new clip only in the gap.
+    each clip, the old ones kept, and the first clip growing over the gap (ADR-0057; this replaces "a new clip only in
+    the gap").
+
+**Run 5 steps (new, after the owner's four points; ADR-0057).**
+27. **Edges.** Drag a MIDI clip's left edge, then its right, slowly and fast,
+    with the grid on and with Alt. Expect the edge to stay under the pointer
+    where you picked it up, the other edge and the notes to stay still (no
+    shake on each grid step), and the notes not to change height as the edge
+    passes over them.
+28. **Overdub before a clip.** Overdub on; put the marker a bar before a clip
+    and record into it, playing a note before the clip and one inside it, and
+    stop after the clip's end. Expect one clip, grown back to where you started
+    and on to where you stopped, holding both notes and its own.
+29. **Recording from the middle.** Play, and press F9 in the middle of a clip
+    (Overdub on, then off). Expect a new clip from where you pressed F9 to
+    where you stopped; in Overdub it also holds the old notes from there, and
+    the old clip goes on after it. With Loop on, press F9 inside the loop:
+    expect the clip to start where you pressed it until the loop wraps.
+30. **Smooth.** While recording over or into a clip (both modes), expect the
+    clip under the take, its edges and its notes to move with the playhead on
+    every frame, not in steps about once a second, and nothing to move when
+    you stop.

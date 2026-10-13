@@ -37,6 +37,13 @@ struct Resources {
     /// layer beside the clips, with its own row table.
     mini: BoxLayerId,
     mini_rows: Vec<RowSlot>,
+    /// The tracks being recorded, while a take grows (after MT-MIDI-7): their
+    /// clips and notes, rebuilt every frame on layers of their own so the
+    /// rest of the arrangement is not.
+    live: BoxLayerId,
+    live_mini: BoxLayerId,
+    live_generation: Option<u64>,
+    live_mini_rows: Vec<RowSlot>,
     /// The piano roll's grid and notes, one set per [`Surface`].
     rolls: [Roll; 2],
 }
@@ -219,6 +226,8 @@ pub fn install(
     let grid = renderer.add_layer(&state.device, &[RectInstance::new(0.0, 0.0, 0.0, 0)]);
     let clips = renderer.add_box_layer(&state.device);
     let mini = renderer.add_box_layer(&state.device);
+    let live = renderer.add_box_layer(&state.device);
+    let live_mini = renderer.add_box_layer(&state.device);
     let roll = |renderer: &mut Renderer| Roll {
         grid: renderer.add_layer(&state.device, &[RectInstance::new(0.0, 0.0, 0.0, 0)]),
         grid_lines: None,
@@ -241,6 +250,10 @@ pub fn install(
             atlas_full: false,
             mini,
             mini_rows: Vec::new(),
+            live,
+            live_mini,
+            live_generation: None,
+            live_mini_rows: Vec::new(),
             rolls,
         }));
     Ok(())
@@ -421,6 +434,13 @@ pub struct ClipFrame {
     pub mini: Arc<Vec<BoxInstance>>,
     pub mini_rows: Vec<RowSlot>,
     pub mini_style: BoxStyle,
+    /// The clips and notes of the tracks being recorded, drawn over the
+    /// rest (which leaves them out), rebuilt with `live_generation`; the
+    /// clips use `rows`, the notes `live_mini_rows`.
+    pub live: Arc<Vec<BoxInstance>>,
+    pub live_mini: Arc<Vec<BoxInstance>>,
+    pub live_mini_rows: Vec<RowSlot>,
+    pub live_generation: u64,
 }
 
 struct ClipsCallback {
@@ -462,7 +482,21 @@ impl egui_wgpu::CallbackTrait for ClipsCallback {
             r.renderer.update_boxes(device, queue, r.mini, &frame.mini);
             r.clips_generation = Some(frame.generation);
         }
+        if r.live_generation != Some(frame.live_generation) {
+            r.renderer.update_boxes(device, queue, r.live, &frame.live);
+            r.renderer
+                .update_boxes(device, queue, r.live_mini, &frame.live_mini);
+            r.live_generation = Some(frame.live_generation);
+        }
         r.renderer.update_rows(device, queue, r.clips, &frame.rows);
+        if !frame.live.is_empty() {
+            r.renderer.update_rows(device, queue, r.live, &frame.rows);
+        }
+        if r.live_mini_rows != frame.live_mini_rows {
+            r.renderer
+                .update_rows(device, queue, r.live_mini, &frame.live_mini_rows);
+            r.live_mini_rows.clone_from(&frame.live_mini_rows);
+        }
         if r.mini_rows != frame.mini_rows {
             r.renderer
                 .update_rows(device, queue, r.mini, &frame.mini_rows);
@@ -499,6 +533,20 @@ impl egui_wgpu::CallbackTrait for ClipsCallback {
                 },
                 BoxDraw {
                     layer: r.mini,
+                    area,
+                    view,
+                    style: frame.mini_style,
+                    waves: frame.wave_style,
+                },
+                BoxDraw {
+                    layer: r.live,
+                    area,
+                    view,
+                    style: frame.style,
+                    waves: frame.wave_style,
+                },
+                BoxDraw {
+                    layer: r.live_mini,
                     area,
                     view,
                     style: frame.mini_style,

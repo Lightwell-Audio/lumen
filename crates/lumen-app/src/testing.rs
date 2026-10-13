@@ -199,15 +199,34 @@ impl App {
     /// where it begins and ends, and the notes played so far on the first
     /// track recording. None when nothing records.
     pub fn live_take(&self) -> Option<(Ticks, Ticks, usize)> {
-        let take = self.arrangement.live_take.as_ref()?;
-        let notes = take.tracks.first().map_or(0, |t| t.notes.len());
-        Some((take.from, take.to, notes))
+        self.take_so_far()
     }
 
-    /// The pitch range the take is laid out to on the first track recording:
-    /// the track's (`piano_roll::mini::Fit`). None before a note is played.
+    /// The pitch range the first track recording is laid out to in what the
+    /// arrangement draws this frame, the take included
+    /// (`piano_roll::mini::Fit`). None before a note is played.
     pub fn live_range(&self) -> Option<(u8, u8)> {
-        self.arrangement.live_take.as_ref()?.tracks.first()?.range
+        let shown = self.arrangement.preview.as_ref()?;
+        let track = shown
+            .tracks
+            .iter()
+            .find(|t| t.armed && t.kind == lumen_project::model::TrackKind::Midi)?;
+        crate::piano_roll::mini::track_range(&track.clips)
+    }
+
+    /// The clips of track `index` as the arrangement draws them this frame:
+    /// while recording, the take placed as far as it has gone.
+    pub fn drawn_clips(&self, index: usize) -> Vec<std::sync::Arc<lumen_project::model::Clip>> {
+        let project = self
+            .arrangement
+            .preview
+            .as_deref()
+            .unwrap_or_else(|| self.project());
+        project
+            .tracks
+            .get(index)
+            .map(|t| t.clips.clone())
+            .unwrap_or_default()
     }
 
     /// The pitch range every MIDI clip on track `index` is laid out to.

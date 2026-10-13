@@ -388,17 +388,20 @@ impl App {
         if hit.handle.is_some() {
             return self.start_handle_gesture(&hit, origin, canvas);
         }
-        let locked = self
+        let grabbed = self
             .document
             .project()
             .tracks
             .get(hit.track)
-            .and_then(|t| t.clips.iter().find(|c| c.id == hit.clip))
-            .is_none_or(|c| c.locked);
+            .and_then(|t| t.clips.iter().find(|c| c.id == hit.clip));
+        let locked = grabbed.is_none_or(|c| c.locked);
         if let Some(edge) = hit.edge {
-            if locked {
-                return None;
-            }
+            let clip = grabbed.filter(|c| !c.locked)?;
+            let side = match edge {
+                Edge::Start => clip.start,
+                Edge::End => clip.start + clip.length,
+            };
+            let grab = side - self.ticks_at(canvas, origin.x);
             self.arrangement.clips = BTreeSet::from([hit.clip]);
             self.arrangement.range = None;
             self.selected_clips_now();
@@ -407,6 +410,7 @@ impl App {
                 clip: hit.clip,
                 edge,
                 looping: edge == Edge::End && modifiers.shift,
+                grab,
             });
         }
         if hit.region == ClipRegion::Header && modifiers.command && modifiers.alt {
@@ -556,8 +560,11 @@ impl App {
                 clip,
                 edge,
                 looping,
+                grab,
             } => {
-                let to = self.snapped(self.ticks_at(canvas, p.x), free);
+                // The edge keeps its distance from the pointer: picked up a
+                // few pixels inside, it does not jump to the pointer.
+                let to = self.snapped(self.ticks_at(canvas, p.x) + grab, free);
                 self.document
                     .trim_clip(&base, clip, edge, to, looping, Some("clip trim"));
                 if let Some(c) = self

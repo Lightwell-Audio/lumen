@@ -812,3 +812,186 @@ fn punch_out_ends_the_take_at_the_brace_and_playback_carries_on() {
     let pitches: Vec<u8> = placed(&clips[0]).iter().map(|n| n.pitch).collect();
     assert_eq!(pitches, [60], "only what was played inside the punch");
 }
+
+/// Starts playback with Space and waits until the playhead reaches `at`.
+fn play_to(lumen: &mut Lumen, at: Ticks) {
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("playback", |app| app.is_playing());
+    reach(lumen, at);
+}
+
+/// An armed MIDI track whose one clip (id 3) runs from beat `start` for
+/// `length` beats, holding `notes`.
+fn track_at((start, length): (i64, i64), notes: Vec<Note>) -> Track {
+    let mut track = midi_track(1, "Keys", "poly", (start, length), None, notes, vec![]);
+    track.armed = true;
+    track
+}
+
+/// Overdub begun before a clip grows that clip back to where recording
+/// began and merges the take into it, rather than leaving a separate clip
+/// beside it; its own notes stay where they sounded.
+#[test]
+fn overdub_begun_before_a_clip_grows_it_to_hold_the_take() {
+    let fake = keyboard();
+    let old = vec![Note::new(Ticks::ZERO, beats(1.0), 50, 100)];
+    let project = project_of("Record", vec![track_at((4, 4), old)]);
+    let mut lumen = launch("overdub-before", &project, &fake);
+    palette(&mut lumen, "Overdub");
+    let keys = Keys::new(&fake);
+    record(&mut lumen);
+    reach(&mut lumen, beats(1.0));
+    keys.on(60, 90);
+    reach(&mut lumen, beats(1.5));
+    keys.off(60);
+    reach(&mut lumen, beats(5.0));
+    stop(&mut lumen);
+
+    let clips = clips_of(&lumen);
+    assert_eq!(clips.len(), 1, "one clip, not a piece beside it: {clips:?}");
+    assert_eq!(clips[0].id, Id(3), "the clip already there");
+    assert_eq!(
+        clips[0].start,
+        Ticks::ZERO,
+        "grown back to where recording began"
+    );
+    assert_eq!(
+        clips[0].start + clips[0].length,
+        beats(8.0),
+        "its end is kept"
+    );
+    let notes = placed(&clips[0]);
+    let pitches: Vec<u8> = notes.iter().map(|n| n.pitch).collect();
+    assert_eq!(pitches, [60, 50], "the take, then the old note");
+    assert_eq!(notes[1].start, beats(4.0), "the old note has not moved");
+}
+
+/// Overdub begun in the middle of a clip is a new clip from the playhead
+/// to the stop. It carries what the old clip played there, and the old
+/// clip goes on after it.
+#[test]
+fn overdub_begun_inside_a_clip_is_a_new_clip_from_the_playhead_to_the_stop() {
+    let fake = keyboard();
+    let old = vec![
+        Note::new(beats(1.0), beats(0.5), 50, 100),
+        Note::new(beats(3.0), beats(0.5), 52, 100),
+        Note::new(beats(6.0), beats(0.5), 55, 100),
+    ];
+    let project = project_of("Record", vec![track(Some(old), true)]);
+    let mut lumen = launch("overdub-inside", &project, &fake);
+    palette(&mut lumen, "Overdub");
+    let keys = Keys::new(&fake);
+    play_to(&mut lumen, beats(2.0));
+    record(&mut lumen);
+    let began = lumen.app().live_take().expect("a take under way").0;
+    reach(&mut lumen, began + beats(0.5));
+    keys.on(60, 90);
+    reach(&mut lumen, began + beats(1.0));
+    keys.off(60);
+    reach(&mut lumen, beats(4.5));
+    let stopped = stop(&mut lumen);
+
+    let clips = clips_of(&lumen);
+    assert_eq!(clips.len(), 3, "before, the take, after: {clips:?}");
+    assert_eq!(
+        (clips[0].start, clips[0].start + clips[0].length),
+        (Ticks::ZERO, began),
+        "the old clip ends where recording began"
+    );
+    let take = &clips[1];
+    assert_eq!(take.start, began, "the new clip begins at the playhead");
+    assert!(began >= beats(2.0) && began < beats(3.0), "{began:?}");
+    assert_eq!(take.start + take.length, stopped, "and ends at the stop");
+    let mut pitches: Vec<u8> = placed(take).iter().map(|n| n.pitch).collect();
+    // In either order: the test device's clock drifts (see the top).
+    pitches.sort_unstable();
+    assert_eq!(
+        pitches,
+        [52, 60],
+        "the take, and the old note it passed over"
+    );
+    assert_eq!(clips[2].start, stopped, "the old clip goes on after it");
+    let after: Vec<u8> = placed(&clips[2]).iter().map(|n| n.pitch).collect();
+    assert_eq!(after, [55]);
+    let before: Vec<u8> = placed(&clips[0]).iter().map(|n| n.pitch).collect();
+    assert_eq!(before, [50]);
+}
+
+/// With Loop on, Record pressed inside the loop begins the take at the
+/// playhead, not at the loop's start; only after the wrap does it cover
+/// the whole loop.
+#[test]
+fn record_pressed_inside_the_loop_begins_at_the_playhead() {
+    let fake = keyboard();
+    let mut project = project_of("Record", vec![track(None, true)]);
+    project.transport.loop_start = Ticks::ZERO;
+    project.transport.loop_end = beats(4.0);
+    project.transport.loop_enabled = true;
+    let mut lumen = launch("loop-mid", &project, &fake);
+    let keys = Keys::new(&fake);
+    play_to(&mut lumen, beats(1.5));
+    record(&mut lumen);
+    let (began, _, _) = lumen.app().live_take().expect("a take under way");
+    assert!(began >= beats(1.5), "from the playhead: {began:?}");
+    reach(&mut lumen, began + beats(0.3));
+    keys.on(60, 90);
+    reach(&mut lumen, began + beats(0.8));
+    keys.off(60);
+    reach(&mut lumen, beats(3.0));
+    lumen.frames(1);
+    let drawn = lumen.app().drawn_clips(0);
+    assert_eq!(drawn.len(), 1);
+    assert_eq!(drawn[0].start, began, "drawn from the playhead too");
+    let stopped = stop(&mut lumen);
+    assert!(stopped < beats(4.0), "stopped before the wrap");
+
+    let clips = clips_of(&lumen);
+    assert_eq!(clips.len(), 1);
+    assert_eq!(
+        clips[0].start, began,
+        "the clip begins where Record was pressed"
+    );
+    assert_eq!(clips[0].start + clips[0].length, stopped);
+}
+
+/// While recording, the clips drawn are the take placed as far as it has
+/// gone, on every frame: a clip that Overdub grows reaches the playhead
+/// each frame rather than at each commit (about once a second), and the
+/// take's note is in it before any commit.
+#[test]
+fn the_clip_recorded_into_is_drawn_growing_on_every_frame() {
+    let fake = keyboard();
+    let old = vec![Note::new(Ticks::ZERO, beats(0.5), 50, 100)];
+    let project = project_of("Record", vec![track_at((0, 1), old)]);
+    let mut lumen = launch("overdub-grows", &project, &fake);
+    palette(&mut lumen, "Overdub");
+    let keys = Keys::new(&fake);
+    record(&mut lumen);
+    keys.on(60, 90);
+    reach(&mut lumen, beats(1.5));
+    let mut ends = Vec::new();
+    for _ in 0..12 {
+        let before = lumen.app().playhead();
+        lumen.frames(1);
+        let drawn = lumen.app().drawn_clips(0);
+        assert_eq!(drawn.len(), 1, "one clip, grown: {drawn:?}");
+        assert_eq!(drawn[0].id, Id(3));
+        let end = drawn[0].start + drawn[0].length;
+        assert!(
+            end >= before,
+            "it reaches the playhead: {end:?} < {before:?}"
+        );
+        let pitches: Vec<u8> = placed(&drawn[0]).iter().map(|n| n.pitch).collect();
+        assert_eq!(pitches, [50, 60], "the held note is drawn in it");
+        ends.push(end);
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    keys.off(60);
+    stop(&mut lumen);
+    let mut distinct = ends.clone();
+    distinct.dedup();
+    assert!(
+        distinct.len() > 6,
+        "the end moves on most frames, not once a commit: {ends:?}"
+    );
+}

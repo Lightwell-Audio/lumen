@@ -11,8 +11,9 @@
 //! pitch's bands. The notes are rebuilt only when the clips change (with
 //! the clip boxes), and panning and zooming only move the view.
 //!
-//! The take being recorded is drawn from the same fit (`Fit::bands`), so a
-//! note is where it will be once the take is committed.
+//! While recording, the arrangement draws the project with the take placed
+//! as far as it has gone (`Arrangement::preview`), so a note is drawn by
+//! this same layout, where it will be once the take is committed.
 
 use eframe::egui::Color32;
 use lumen_render::{BoxInstance, RowSlot, beats, spanning};
@@ -28,41 +29,22 @@ pub(crate) const BANDS: u32 = 128;
 /// to show where they move, as in Ableton, instead of filling the clips.
 const MIN_RANGE: u8 = 48;
 
-/// The lowest and highest pitch of the notes a clip plays, if any.
-pub(crate) fn pitch_range(clip: &ClipNotes<'_>) -> Option<(u8, u8)> {
-    let span = clip
-        .loop_length
-        .map(|p| p.0)
-        .filter(|&p| p > 0)
-        .unwrap_or(clip.length.0)
-        .min(clip.length.0);
-    clip.notes
-        .iter()
-        .filter(|n| n.start().0 >= 0 && n.start().0 < span)
-        .map(|n| n.pitch().min(127))
-        .fold(None, |range, p| match range {
-            None => Some((p, p)),
-            Some((lo, hi)) => Some((lo.min(p), hi.max(p))),
-        })
-}
-
-/// The lowest and highest pitch the MIDI clips in `clips` play (a track's
-/// clips: they share one [`Fit`]).
+/// The lowest and highest pitch of every note the MIDI clips in `clips`
+/// hold (a track's clips: they share one [`Fit`]). Notes hidden outside a
+/// clip's window count too, so trimming an edge over them never moves the
+/// track's layout while the edge is dragged.
 pub(crate) fn track_range(
     clips: &[std::sync::Arc<lumen_project::model::Clip>],
 ) -> Option<(u8, u8)> {
-    clips.iter().fold(None, |range, clip| match &clip.content {
-        lumen_project::model::ClipContent::Midi { notes, .. } => union(
-            range,
-            pitch_range(&ClipNotes {
-                start: clip.start,
-                length: clip.length,
-                loop_length: clip.loop_length,
-                notes,
-            }),
-        ),
-        _ => range,
-    })
+    clips
+        .iter()
+        .filter_map(|clip| match &clip.content {
+            lumen_project::model::ClipContent::Midi { notes, .. } => Some(notes),
+            _ => None,
+        })
+        .flatten()
+        .map(|n| n.pitch().min(127))
+        .fold(None, |range, p| union(range, Some((p, p))))
 }
 
 /// The union of two pitch ranges.
@@ -103,16 +85,6 @@ impl Fit {
         let a = edge(p + 1.0).clamp(0.0, (BANDS - 1) as f32) as u32;
         let b = (edge(p) as u32).clamp(a + 1, BANDS);
         (a, b - a - 1)
-    }
-
-    /// Where `pitch` is, as fractions of the band area from its top: the
-    /// same edges the GPU draws, for notes drawn on the CPU.
-    pub(crate) fn span(&self, pitch: u8) -> (f32, f32) {
-        let (first, extra) = self.bands(pitch);
-        (
-            first as f32 / BANDS as f32,
-            (first + extra + 1) as f32 / BANDS as f32,
-        )
     }
 }
 
@@ -191,14 +163,34 @@ mod tests {
     }
 
     #[test]
-    fn the_range_is_the_pitches_that_play() {
-        let notes = [
+    fn the_range_is_every_pitch_the_track_holds_hidden_notes_too() {
+        use lumen_project::model::{Clip, ClipContent, Id};
+        let midi = |notes: Vec<Note>| {
+            std::sync::Arc::new(Clip {
+                id: Id(1),
+                name: "c".into(),
+                start: q(0),
+                length: q(4),
+                muted: false,
+                color: None,
+                locked: false,
+                fade_in: Default::default(),
+                fade_out: Default::default(),
+                loop_length: None,
+                content: ClipContent::Midi {
+                    notes,
+                    events: Vec::new(),
+                },
+            })
+        };
+        let notes = vec![
             Note::new(q(0), q(1), 64, 90),
             Note::new(q(1), q(1), 48, 90),
+            // Past the clip's end, hidden: a trim over it keeps the layout.
             Note::new(q(9), q(1), 100, 90),
         ];
-        assert_eq!(pitch_range(&clip(&notes)), Some((48, 64)));
-        assert_eq!(pitch_range(&clip(&[])), None);
+        assert_eq!(track_range(&[midi(notes)]), Some((48, 100)));
+        assert_eq!(track_range(&[midi(Vec::new())]), None);
     }
 
     #[test]
@@ -259,15 +251,6 @@ mod tests {
         let row = BANDS as f32 / f32::from(MIN_RANGE);
         let apart = (low.0 - high.0) as f32;
         assert!((apart - 12.0 * row).abs() <= 1.0, "{apart} bands apart");
-    }
-
-    #[test]
-    fn the_cpu_span_is_the_gpu_bands() {
-        let fit = Fit::new(48, 72);
-        let (top, bottom) = fit.span(60);
-        let (first, extra) = fit.bands(60);
-        assert_eq!(top * BANDS as f32, first as f32);
-        assert_eq!(bottom * BANDS as f32, (first + extra + 1) as f32);
     }
 
     #[test]
