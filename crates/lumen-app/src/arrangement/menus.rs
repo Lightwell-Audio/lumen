@@ -36,7 +36,7 @@ impl Arrangement {
             doc.delete_tracks(&targets);
             self.selected.clear();
         }
-        if item(ui, "Import audio\u{2026}", Command::ImportAudio) {
+        if item(ui, "Import audio or MIDI\u{2026}", Command::Import) {
             self.selected = vec![id];
             self.import_requested = true;
         }

@@ -55,6 +55,8 @@ mod live;
 mod media;
 mod meters;
 mod midi;
+mod midi_export;
+mod midi_files;
 mod midi_out;
 mod midi_play;
 mod midi_runs;
@@ -158,8 +160,14 @@ pub struct App {
     /// Where dropped files go: under the pointer, snapped, or the playhead.
     drop_target: Ticks,
     /// Where dropped files go: new tracks, or the track under the pointer
-    /// (slice 6e).
-    drop_into: document::DropInto,
+    /// (slice 6e), for audio files and for MIDI files (M5 slice 7).
+    drop_into: document::Places,
+    /// MIDI files being read in the background (M5 slice 7).
+    midi_reader: midi_files::Reader,
+    /// An exported MIDI file being written (M5 slice 7).
+    midi_writing: Option<std::sync::mpsc::Receiver<Result<PathBuf, String>>>,
+    /// A MIDI file's tempo and meter, offered in a banner (M5 slice 7, F2).
+    tempo_offer: Option<app::midi_files::TempoOffer>,
     /// Where the pointer is while files are dragged in from the system.
     /// egui does not know: on Windows the window gets no pointer moves
     /// during the drag, and the window integration drops the position the
@@ -375,7 +383,7 @@ impl eframe::App for App {
         self.refresh_note_editor(&ctx);
         self.command_keys(&ctx);
         if std::mem::take(&mut self.arrangement.import_requested) {
-            self.run(&ctx, commands::Command::ImportAudio);
+            self.run(&ctx, commands::Command::Import);
         }
         self.poll_files(&ctx);
         self.autosave(&ctx);
@@ -397,15 +405,9 @@ impl eframe::App for App {
                     self.drop_into
                 )
             });
-            self.lanes.add_files(
-                dropped,
-                self.drop_target,
-                self.drop_into,
-                rate,
-                &ctx,
-                &mut self.document,
-            );
+            self.add_files(dropped, self.drop_target, self.drop_into, &ctx);
         }
+        self.poll_midi_files();
         if let Some(ms) = self.test_latency
             && let Some(first) = self.document.project().tracks.first()
         {
@@ -472,6 +474,7 @@ impl eframe::App for App {
         self.device_banner(ui);
         self.crash_banner(ui);
         self.file_banner(ui);
+        self.tempo_banner(ui);
         self.recovery_banner(ui);
         for action in self.transport.windows(&ctx, &self.midi) {
             self.midi.apply(&action);
@@ -695,10 +698,10 @@ impl App {
             midi_checked: None,
             lanes,
             drop_target: Ticks::ZERO,
-            drop_into: document::DropInto::NewTracks {
-                before: None,
-                group: None,
-            },
+            drop_into: document::Places::END,
+            midi_reader: Default::default(),
+            midi_writing: None,
+            tempo_offer: None,
             drag_pointer: None,
             system_cursor: None,
             settings: saved,

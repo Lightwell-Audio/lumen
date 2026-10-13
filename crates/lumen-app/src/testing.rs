@@ -491,7 +491,11 @@ impl App {
 
     /// Background work is in progress: a save, an open, or files loading.
     pub fn is_busy(&self) -> bool {
-        self.saving.is_some() || self.opening.is_some() || self.lanes.is_loading()
+        self.saving.is_some()
+            || self.opening.is_some()
+            || self.lanes.is_loading()
+            || self.midi_reader.busy()
+            || self.midi_writing.is_some()
     }
 
     /// A problem with saving or opening, as shown to the user.

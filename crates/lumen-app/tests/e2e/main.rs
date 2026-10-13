@@ -58,6 +58,7 @@ mod rulers;
 mod scrubbing;
 mod sends;
 mod shortcuts;
+mod smf;
 mod solo;
 mod walkthrough;
 mod walkthrough_mix;

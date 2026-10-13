@@ -237,7 +237,7 @@ pub struct Arrangement {
     /// The selected time range (selecting one clears the clip selection,
     /// and the other way round).
     pub range: Option<select::TimeRange>,
-    /// Import audio was chosen in a track's menu: the app runs it next
+    /// Import audio or MIDI was chosen in a track's menu: the app runs it next
     /// frame, onto that track (now the selection).
     pub(crate) import_requested: bool,
     /// The clip the arrow keys last chose (M3 review H2): where the next

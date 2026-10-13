@@ -10,12 +10,13 @@ use super::grid::draw_snap_guide;
 use super::rulers;
 use crate::arrangement::FileDrop;
 use crate::commands::Command;
-use crate::document::DropInto;
+use crate::document::{DropInto, Places};
 use crate::icons::{self, Icon};
 use crate::widgets::raised;
 use crate::{
     App, arrangement, audio, bench, canvas, lanes, light, media, motion, ruler, theme, widgets,
 };
+use lumen_project::model::TrackKind;
 
 /// A glided position, or the exact one once the glide has settled: the
 /// glide runs in f32, which is pixels off at sample-level zoom.
@@ -416,11 +417,12 @@ report: {}",
 
         // Dropped files land under the pointer (snapped; Alt places them
         // freely) when the system reports it, otherwise at the playhead, on
-        // new tracks at the end. Over an audio track's lane they land on it;
-        // near the line between two tracks they make new tracks there
-        // (slice 6e). The lane or the line, and a snap guide, show where
-        // while files are dragged over.
-        let (pointer, free, dragging) = ui.input(|i| {
+        // new tracks at the end. Over the lane of a track of their kind
+        // (audio or MIDI, M5 slice 7) they land on it; near the line between
+        // two tracks they make new tracks there (slice 6e). The lane or the
+        // line, and a snap guide, show where while files are dragged over:
+        // where MIDI files go when every file dragged is one.
+        let (pointer, free, dragging, all_midi) = ui.input(|i| {
             (
                 self.drag_pointer
                     .or_else(|| i.pointer.hover_pos())
@@ -436,6 +438,12 @@ report: {}",
                             .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
                     })
                     .collect::<Vec<_>>(),
+                !i.raw.hovered_files.is_empty()
+                    && i.raw.hovered_files.iter().all(|f| {
+                        f.path
+                            .as_deref()
+                            .is_some_and(crate::midi_files::is_midi_file)
+                    }),
             )
         });
         self.drop_target = match pointer {
@@ -443,20 +451,25 @@ report: {}",
             None => self.transport.state().ticks,
         };
         let pending = self.lanes.pending().len();
-        let (into, line) = match pointer {
-            Some(p) => {
-                self.arrangement
-                    .file_drop(ui.ctx(), self.document.project(), pending, canvas, p.y)
-            }
-            None => (
-                DropInto::NewTracks {
-                    before: None,
-                    group: None,
-                },
-                canvas.top(),
+        let place = |kind| match pointer {
+            Some(p) => self.arrangement.file_drop(
+                ui.ctx(),
+                self.document.project(),
+                pending,
+                canvas,
+                p.y,
+                kind,
             ),
+            None => (DropInto::END, canvas.top()),
         };
-        self.drop_into = into;
+        let (audio, audio_line) = place(TrackKind::Audio);
+        let (midi, midi_line) = place(TrackKind::Midi);
+        self.drop_into = Places { audio, midi };
+        let (into, line) = if all_midi {
+            (midi, midi_line)
+        } else {
+            (audio, audio_line)
+        };
         if !dragging.is_empty() && pointer.is_some() {
             let x = x_of(self.drop_target.as_quarters());
             draw_snap_guide(&painter, x, at.guides());
@@ -550,7 +563,11 @@ report: {}",
                 .collect()
         });
         if !hovered.is_empty() {
-            let supported = hovered.iter().filter(|p| media::is_audio_file(p)).count();
+            let midi = |p: &PathBuf| crate::midi_files::is_midi_file(p);
+            let supported = hovered
+                .iter()
+                .filter(|p| media::is_audio_file(p) || midi(p))
+                .count();
             let color = if supported > 0 {
                 theme::p().accent
             } else {
@@ -571,7 +588,10 @@ report: {}",
                         .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
                     match media::format_name(p) {
                         Some(format) => format!("✓  {name}  ({format})"),
-                        None => format!("✕  {name}  (not an audio file {PRODUCT_NAME} reads)"),
+                        None if midi(p) => format!("✓  {name}  (MIDI)"),
+                        None => {
+                            format!("✕  {name}  (not an audio or MIDI file {PRODUCT_NAME} reads)")
+                        }
                     }
                 })
                 .collect();
@@ -581,8 +601,15 @@ report: {}",
             let headline = match (supported, hovered.len()) {
                 (0, _) => "Nothing here can be added".to_owned(),
                 (n, total) if n == total => {
+                    let kind = if hovered.iter().all(midi) {
+                        "MIDI"
+                    } else if hovered.iter().any(midi) {
+                        "audio and MIDI"
+                    } else {
+                        "audio"
+                    };
                     format!(
-                        "Drop to add {n} audio file{}",
+                        "Drop to add {n} {kind} file{}",
                         if n == 1 { "" } else { "s" }
                     )
                 }
@@ -604,7 +631,7 @@ report: {}",
             empty_mark(&painter, text, look);
         } else if self.lanes.is_empty(self.document.project()) {
             // Or choose them (M3 review H1: importing was mouse-drag only).
-            let keys = self.keymap.keys(Command::ImportAudio);
+            let keys = self.keymap.keys(Command::Import);
             let state = widgets::EmptyState {
                 // The mark waits, half risen, over an empty arrangement
                 // (ADR-0043).
@@ -614,17 +641,17 @@ report: {}",
                     widgets::mark::paint(p, rect, widgets::mark::Look::WAITING);
                 }),
                 icon_size: EMPTY_MARK_SIZE,
-                title: "Drop audio files here",
-                hint: "WAV, AIFF, FLAC, MP3 or Ogg Vorbis",
+                title: "Drop audio or MIDI files here",
+                hint: "WAV, AIFF, FLAC, MP3, Ogg Vorbis or MIDI",
                 action: Some(widgets::EmptyAction {
-                    label: "Import audio\u{2026}",
+                    label: "Import audio or MIDI\u{2026}",
                     keys: keys.as_ref(),
-                    tip: "Choose audio files to add",
+                    tip: "Choose audio or MIDI files to add",
                 }),
             };
             let clicked = widgets::empty_state(ui, canvas, &state);
-            if clicked && self.availability(ui.ctx(), Command::ImportAudio).is_ok() {
-                self.run(&ui.ctx().clone(), Command::ImportAudio);
+            if clicked && self.availability(ui.ctx(), Command::Import).is_ok() {
+                self.run(&ui.ctx().clone(), Command::Import);
             }
         }
         // Last, so it sits over the headers; on their side of the edge

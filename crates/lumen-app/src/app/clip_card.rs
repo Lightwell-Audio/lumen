@@ -338,6 +338,14 @@ impl App {
             ui.close();
         }
         self.fade_menu(ui);
+        if self.availability(ui.ctx(), Command::ExportMidiClip).is_ok() {
+            let export = if several {
+                "Export MIDI clips\u{2026}"
+            } else {
+                "Export MIDI clip\u{2026}"
+            };
+            self.menu_command(ui, Command::ExportMidiClip, export);
+        }
         self.menu_command(ui, Command::ClipProperties, "Properties");
     }
 

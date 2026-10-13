@@ -142,7 +142,32 @@ impl App {
                 let t = &self.document.project().transport;
                 need(t.loop_end > t.loop_start, "There is no loop yet")
             }
-            Command::ImportAudio => need(self.dialog.is_none(), "A file dialog is open"),
+            Command::Import => need(self.dialog.is_none(), "A file dialog is open"),
+            Command::ExportMidiFile => match self.dialog {
+                Some(_) => need(false, "A file dialog is open"),
+                // Cheap enough for every frame: a MIDI track with an
+                // unmuted clip (an empty one is refused when it runs).
+                None => need(
+                    self.document
+                        .project()
+                        .tracks
+                        .iter()
+                        .any(|t| t.kind == TrackKind::Midi && t.clips.iter().any(|c| !c.muted)),
+                    "There are no MIDI clips to export",
+                ),
+            },
+            Command::ExportMidiClip => match self.dialog {
+                Some(_) => need(false, "A file dialog is open"),
+                None => need(
+                    self.document.project().tracks.iter().any(|t| {
+                        t.kind == TrackKind::Midi
+                            && t.clips
+                                .iter()
+                                .any(|c| self.arrangement.clips.contains(&c.id))
+                    }),
+                    "Select a MIDI clip first",
+                ),
+            },
             // An open menu or window takes Esc first (MT-APP-14 run 2; the
             // slice 8 accessibility test: Esc deselected a clip instead of
             // closing the shortcuts window).
@@ -625,7 +650,9 @@ impl App {
             Command::OpenProject => self.request(ctx, Next::Open(None)),
             Command::Save => self.save(ctx, false),
             Command::SaveAs => self.save(ctx, true),
-            Command::ImportAudio => self.import_audio(ctx),
+            Command::Import => self.import_files(ctx),
+            Command::ExportMidiFile => self.export_midi(ctx, false),
+            Command::ExportMidiClip => self.export_midi(ctx, true),
         }
         ctx.request_repaint();
     }

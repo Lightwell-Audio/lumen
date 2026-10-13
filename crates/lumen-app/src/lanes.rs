@@ -243,11 +243,17 @@ impl Lanes {
         }
         if !rejected.is_empty() {
             self.notice = Some(format!(
-                "Not added: {}. {} imports WAV, AIFF, FLAC, MP3 and Ogg Vorbis files",
+                "Not added: {}. {} imports WAV, AIFF, FLAC, MP3, Ogg Vorbis and MIDI files",
                 rejected.join(", "),
                 lumen_core::product::PRODUCT_NAME
             ));
         }
+    }
+
+    /// Shows a notice in the imports panel (M5 slice 7: MIDI files that
+    /// could not be added).
+    pub fn say(&mut self, notice: String) {
+        self.notice = Some(notice);
     }
 
     /// Applies finished loads (adding them to the project), loads media the
