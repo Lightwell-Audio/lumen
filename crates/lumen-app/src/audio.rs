@@ -362,7 +362,11 @@ impl Audio {
         let (midi, midi_play) = midi_player();
         let (mixer, source) = mixer(Layered(player, midi_play));
         let (engine_handle, mut engine) = engine(timeline, source, 48_000);
-        let testing = matches!(choice, Choice::Named { driver, .. } if driver == TEST_DRIVER);
+        let testing = match choice {
+            Choice::Named { driver, .. } => driver == TEST_DRIVER,
+            Choice::Saved(saved) => saved.driver == TEST_DRIVER,
+            Choice::Default => false,
+        };
         let (mut tap, heard) = if testing {
             let (tap, heard) = rtrb::RingBuffer::new(HEARD);
             (Some(tap), Some(heard))

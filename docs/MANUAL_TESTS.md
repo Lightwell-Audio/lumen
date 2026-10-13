@@ -2480,8 +2480,8 @@ Connect a MIDI controller, or press **Ctrl+Shift+K** for the computer keyboard
 11. **Monitor Off.** Set the armed track's Monitor to Off and record. Expect:
     notes appear in the clip, and nothing sounds while recording.
 12. **Nothing armed.** Disarm every MIDI track and press F9. Expect: nothing
-    starts, and a notice appears in the audio panel: "Arm a MIDI track to
-    record." Say whether the notice is where you would look for it.
+    starts, and a banner appears: "Arm a MIDI track to record." Say whether
+    the banner is where you would look for it.
 13. **Layout.** Make the window as narrow as it goes (960 pt wide). Expect:
     Record, Overdub, tempo, the position and the audio dot are whole and do not
     overlap. The keyboard readout ("Computer keyboard") appears from about

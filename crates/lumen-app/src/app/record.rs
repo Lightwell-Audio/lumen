@@ -134,7 +134,7 @@ impl App {
             .map(|t| t.id)
             .collect();
         if tracks.is_empty() {
-            self.transport.audio.notice = Some("Arm a MIDI track to record.".into());
+            self.file_notice = Some("Arm a MIDI track to record.".into());
             return;
         }
         let state = self.transport.state();
@@ -319,7 +319,7 @@ impl App {
         let end = session.end(head);
         session.capture.close_all(end);
         if !self.commit(&mut session, end) {
-            self.transport.audio.notice = Some(
+            self.file_notice = Some(
                 "A locked clip is in the way of the take, so the end of it was not kept.".into(),
             );
         }
@@ -328,7 +328,7 @@ impl App {
 
     /// A locked clip stopped the recording: it ends, and says why.
     fn finish_blocked(&mut self, session: Session) {
-        self.transport.audio.notice = Some(
+        self.file_notice = Some(
             "Recording stopped: a locked clip is in the way. Unlock it, or record elsewhere."
                 .into(),
         );

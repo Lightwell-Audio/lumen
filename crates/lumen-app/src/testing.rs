@@ -75,6 +75,24 @@ impl Launch {
         self
     }
 
+    /// Starts with the silent test device at a buffer of `frames`. The
+    /// device runs a block per poll, so a bigger buffer is a device nearer
+    /// real time, which scenarios that map driver time stamps to frames
+    /// need (recording).
+    pub fn with_audio_buffer(mut self, frames: u32) -> Self {
+        self.audio = audio::Choice::Saved(settings::AudioSettings {
+            driver: audio::TEST_DRIVER.into(),
+            device_id: "fake".into(),
+            device_name: "Fake device".into(),
+            sample_rate: None,
+            buffer_frames: Some(frames),
+            input_channels: Vec::new(),
+            output_channels: vec![0, 1],
+            cue_channels: Vec::new(),
+        });
+        self
+    }
+
     /// Starts with MIDI switched off, as `--midi off` does.
     pub fn with_midi_off(mut self) -> Self {
         self.midi = crate::midi::Source::Off;
@@ -188,10 +206,10 @@ impl App {
         self.settings.record.count_in.bars()
     }
 
-    /// The notice the audio status panel shows, such as "Arm a MIDI track to
-    /// record." (M5 slice 6).
+    /// The notice banner's text, such as "Arm a MIDI track to record."
+    /// (M5 slice 6).
     pub fn record_notice(&self) -> Option<&str> {
-        self.transport.audio.notice.as_deref()
+        self.file_notice.as_deref()
     }
 
     /// Where the playhead is drawn: smoothed while playing (`playhead.rs`).

@@ -57,7 +57,7 @@ impl FakeControl {
             buffer_sizes: BufferSizes {
                 min: 32,
                 max: 2048,
-                preferred: 512,
+                preferred: 128,
                 granularity: None,
             },
         })))
