@@ -161,6 +161,17 @@ impl App {
         self.transport.state()
     }
 
+    /// The output latency of the audio device, in frames: the playhead as
+    /// the engine renders it leads what is heard by this much (M5 slice 6,
+    /// the recorder's timing).
+    pub fn output_latency_frames(&self) -> i64 {
+        self.transport
+            .audio
+            .info
+            .as_ref()
+            .map_or(0, |info| i64::from(info.output_latency))
+    }
+
     /// Whether a recording is under way, or counting in to one (M5 slice 6).
     pub fn recording(&self) -> bool {
         self.is_recording()

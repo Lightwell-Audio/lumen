@@ -4,10 +4,16 @@
 //! over what is there, a held note is closed at the stop, loop passes layer,
 //! and punch out ends a take at the brace while playback carries on.
 //!
-//! Note times are checked against the playhead the test read just before it
-//! sent each message. The fake device stamps arrive as they were sent, and
-//! the test device plays a block per poll, so the tolerance is a few
-//! hundredths of a beat at 120 BPM.
+//! Note times are checked against where the player heard the playhead when
+//! the test sent each message: the playhead the test read just before it sent
+//! it, less the device's output latency (the playhead is drawn ahead of what
+//! is heard by that much), within a few hundredths of a beat at 120 BPM.
+//!
+//! Timing needs the test device to keep pace with the wall clock, which the
+//! recorder's clock map assumes (`live.rs`, `FrameMap`). The fake device
+//! plays 512-frame blocks on a 10 ms poll, about real time; a slower device
+//! drifts a note by beats within a loop pass, so timing failures there mean
+//! the device, not the recorder.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -71,15 +77,25 @@ fn clips_of(lumen: &Lumen) -> Vec<Arc<Clip>> {
     lumen.app().project().tracks[0].clips.clone()
 }
 
-/// Asserts `actual` is within [`TOLERANCE`] beats of `expected`.
+/// The device's output latency, in ticks at the current tempo.
+fn latency_ticks(lumen: &Lumen) -> i64 {
+    let rate = i64::from(snapshot(lumen).sample_rate.max(1));
+    // Samples in a beat at 120 BPM, the tempo these scenarios use.
+    let samples_per_beat = rate / 2;
+    lumen.app().output_latency_frames() * BEAT / samples_per_beat
+}
+
+/// Asserts `actual` is within [`TOLERANCE`] beats of where the player heard
+/// `rendered`, the playhead the test read when it sent the message.
 #[track_caller]
-fn assert_near(what: &str, actual: Ticks, expected: Ticks) {
-    let gap = (actual.0 - expected.0).abs() as f64 / BEAT as f64;
+fn assert_heard(lumen: &Lumen, what: &str, actual: Ticks, rendered: Ticks) {
+    let heard = Ticks(rendered.0 - latency_ticks(lumen));
+    let gap = (actual.0 - heard.0).abs() as f64 / BEAT as f64;
     assert!(
         gap <= TOLERANCE,
-        "{what}: at {:.3} beats, expected {:.3} (off by {gap:.3} beats)",
+        "{what}: at {:.3} beats, heard at {:.3} (off by {gap:.3} beats)",
         actual.0 as f64 / BEAT as f64,
-        expected.0 as f64 / BEAT as f64,
+        heard.0 as f64 / BEAT as f64,
     );
 }
 
@@ -255,10 +271,10 @@ fn a_take_starts_at_the_marker_and_ends_where_playback_stops() {
     let notes = placed(clip);
     let pitches: Vec<_> = notes.iter().map(|n| (n.pitch, n.velocity)).collect();
     assert_eq!(pitches, [(60, 90), (64, 110)], "pitches and velocities");
-    assert_near("the first note's start", notes[0].start, first_on);
-    assert_near("the first note's end", notes[0].end, first_off);
-    assert_near("the second note's start", notes[1].start, second_on);
-    assert_near("the second note's end", notes[1].end, second_off);
+    assert_heard(&lumen, "the first note's start", notes[0].start, first_on);
+    assert_heard(&lumen, "the first note's end", notes[0].end, first_off);
+    assert_heard(&lumen, "the second note's start", notes[1].start, second_on);
+    assert_heard(&lumen, "the second note's end", notes[1].end, second_off);
 }
 
 /// The whole take is one undo step: Undo removes it, Redo brings it back.
@@ -418,8 +434,8 @@ fn a_count_in_holds_the_playhead_and_keeps_nothing_played_during_it() {
     let notes = all_placed(&lumen);
     let pitches: Vec<u8> = notes.iter().map(|n| n.pitch).collect();
     assert_eq!(pitches, [60], "the note played in the count-in is not kept");
-    assert_near("the note's start", notes[0].start, first_on);
-    assert_near("the note's end", notes[0].end, first_off);
+    assert_heard(&lumen, "the note's start", notes[0].start, first_on);
+    assert_heard(&lumen, "the note's end", notes[0].end, first_off);
 }
 
 /// Record with nothing armed does not start, and says why.
@@ -501,8 +517,8 @@ fn loop_passes_layer_into_one_clip_that_spans_the_loop() {
     let notes = placed(&clips[0]);
     let pitches: Vec<u8> = notes.iter().map(|n| n.pitch).collect();
     assert_eq!(pitches, [60, 64], "both passes are there, in order");
-    assert_near("the first pass's note", notes[0].start, first_on);
-    assert_near("the second pass's note", notes[1].start, second_on);
+    assert_heard(&lumen, "the first pass's note", notes[0].start, first_on);
+    assert_heard(&lumen, "the second pass's note", notes[1].start, second_on);
 }
 
 /// Punch out ends the take at the brace's end while playback carries on:
