@@ -1475,6 +1475,89 @@ fn note_editor() {
     }
 }
 
+/// The clip editor showing notes outside the clip's window (ADR-0059): a
+/// clip from beat 4 to 8 with notes before its start, past its end and one
+/// running over its end, zoomed out so all show; the one past the end
+/// picked. Both themes at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn hidden_notes_editor() {
+    use lumen_core::time::Ticks;
+    use lumen_project::model::Note;
+    let q = Ticks::quarters;
+    let notes = vec![
+        Note::new(q(-2), q(1), 60, 100),
+        Note::new(q(0), q(1), 62, 100),
+        Note::new(q(1), q(1), 64, 90),
+        Note::new(q(3), q(2), 67, 110),
+        Note::new(q(6), q(1), 65, 100),
+    ];
+    let mut project = lumen_project::testing::project_of(
+        "Hidden",
+        vec![lumen_project::testing::midi_track(
+            1,
+            "Keys",
+            "poly",
+            (4, 4),
+            None,
+            notes,
+            vec![],
+        )],
+    );
+    project.transport.loop_end = q(16);
+    project.transport.loop_enabled = true;
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new("shots-hidden");
+            let path = dir.path().join("hidden.lumen");
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(vec2(1400.0, 860.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(60);
+            h.state_mut().set_detail_size(560.0);
+            h.run_steps(10);
+            let id = h.state().project().tracks[0].clips[0].id;
+            let r = h.state().clip_rect(&h.ctx, id).expect("in view");
+            let at = pos(r, 0.5, 0.6);
+            click(&mut h, at);
+            click(&mut h, at);
+            h.run_steps(20);
+            let body = h.state().editor_body().expect("the editor drew");
+            h.hover_at(body.center());
+            h.run_steps(2);
+            for _ in 0..3 {
+                h.key_press(Key::Minus);
+                h.run_steps(3);
+            }
+            h.state_mut().editor_show_pitch(64);
+            h.run_steps(5);
+            let past = h.state().editor_point(q(6), 65).expect("drawn");
+            click(&mut h, pos2(past.x + 6.0, past.y));
+            h.hover_at(body.center());
+            h.run_steps(5);
+            save(
+                &mut h,
+                &format!("hidden-notes-{appearance}-{}", (scale * 100.0) as u32),
+            );
+        }
+    }
+}
+
 /// The velocity and controller lane under the clip editor (M5 slice 4b):
 /// the velocity lane with a stroke drawn across it, and the mod wheel lane
 /// with a curve just drawn, its dot showing, plus the solo chip states;

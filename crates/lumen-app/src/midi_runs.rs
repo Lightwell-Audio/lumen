@@ -12,7 +12,11 @@
 //!   note's place in it (`hold.rs`). A run is known by its first clip, so
 //!   while a recording moves the seams after it once a commit (about once a
 //!   second), the notes playing keep their owner and are neither released
-//!   nor struck again.
+//!   nor struck again;
+//! - each note still belongs to the clip it begins in: the run tells the
+//!   engine where its clips meet (`MidiClip::seams`), so playing from a
+//!   clip's start, or from inside it, does not strike a note carried on into
+//!   it from the clip before; only playing through the seam sounds it.
 //!
 //! Lengths are worked out here, so each note reaches the engine already cut
 //! where it stops (a looping clip, always a run of its own, keeps its notes
@@ -240,6 +244,9 @@ impl Cache {
             period,
             notes,
             controls,
+            // Where each clip after the first begins: a chase there starts
+            // only that clip's own notes.
+            seams: run[1..].iter().map(|m| m.clip.start - head.start).collect(),
         }
     }
 
@@ -353,6 +360,12 @@ mod tests {
         let found = runs(whole(&clips));
         assert_eq!(found.len(), 1, "touching clips play as one");
         assert_eq!(played(&found[0]), vec![(0, 1, 62), (2, 8, 60), (5, 1, 64)]);
+        let engine = Cache::default().clip(&found[0]);
+        assert_eq!(
+            &*engine.seams,
+            &[q(4), q(6)],
+            "the engine knows where each clip begins"
+        );
     }
 
     #[test]

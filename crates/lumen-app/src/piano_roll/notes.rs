@@ -40,6 +40,11 @@ pub(crate) struct ClipNotes<'a> {
     /// clip before it (`edit::seams`): they start before the clip and are
     /// drawn from its start, as they sound.
     pub carried: &'a [usize],
+    /// Also place the notes outside the clip's window, whole, at their own
+    /// times, and draw the content's notes whole past its end: the clip
+    /// editor shows them (in the dimmed time outside the clip) to be edited;
+    /// the arrangement does not (ADR-0059).
+    pub outside: bool,
 }
 
 /// One note placed on the timeline: `index` into the clip's notes, `rep`
@@ -96,6 +101,25 @@ impl ClipNotes<'_> {
             );
             made += 1;
         }
+        if self.outside {
+            let window = period.min(self.length.0);
+            for (index, &note) in self.notes.iter().enumerate() {
+                let at = note.start().0;
+                if (0..window).contains(&at) {
+                    continue;
+                }
+                f(
+                    Placed {
+                        index,
+                        rep: 0,
+                        start: Ticks(self.start.0 + at).as_quarters(),
+                        end: Ticks(self.start.0 + at + note.length().0.max(1)).as_quarters(),
+                    },
+                    note,
+                );
+                made += 1;
+            }
+        }
         for rep in 0..count {
             let base = self.start.0 + rep * period;
             let span = period.min(self.length.0 - rep * period);
@@ -104,7 +128,13 @@ impl ClipNotes<'_> {
                 if at < 0 || at >= span {
                     continue;
                 }
-                let end = (at + note.length().0).min(span).max(at + 1);
+                // The editor draws the content whole, past the window's
+                // end too, as it is edited; repeats are cut as they play.
+                let end = if self.outside && rep == 0 {
+                    at + note.length().0.max(1)
+                } else {
+                    (at + note.length().0).min(span).max(at + 1)
+                };
                 f(
                     Placed {
                         index,
@@ -246,6 +276,7 @@ mod tests {
             loop_length: None,
             notes,
             carried: &[],
+            outside: false,
         }
     }
 
@@ -287,6 +318,39 @@ mod tests {
         let built = note_instances(&clip(&notes), &BTreeSet::new(), &colors());
         assert_eq!(built.len(), 1, "notes from the clip's end on do not play");
         assert_eq!(end_of(&built[0]), 12.0);
+    }
+
+    #[test]
+    fn the_editor_places_notes_outside_the_window_whole() {
+        let notes = [
+            Note::new(q(-1), q(2), 59, 100),
+            Note::new(q(3), q(4), 60, 100),
+            Note::new(q(5), q(1), 62, 100),
+        ];
+        let editor = ClipNotes {
+            outside: true,
+            ..clip(&notes)
+        };
+        let picked = BTreeSet::from([2]);
+        let built = note_instances(&editor, &picked, &colors());
+        let mut spans: Vec<(f64, f64, u32)> = built
+            .iter()
+            .map(|b| (start_of(b), end_of(b), b.row))
+            .collect();
+        spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+        assert_eq!(
+            spans,
+            vec![(7.0, 9.0, 59), (11.0, 15.0, 60), (13.0, 14.0, 62)]
+        );
+        assert_ne!(
+            built.last().unwrap().border,
+            0,
+            "a hidden note can be picked"
+        );
+        // The arrangement's clip places only the window, cut at its end.
+        let built = note_instances(&clip(&notes), &BTreeSet::new(), &colors());
+        assert_eq!(built.len(), 1);
+        assert_eq!((start_of(&built[0]), end_of(&built[0])), (11.0, 12.0));
     }
 
     #[test]

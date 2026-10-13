@@ -92,12 +92,10 @@ impl LaneState {
             .is_some_and(|c| Arc::ptr_eq(&c.clip, clip) && c.kind == self.kind);
         if !fresh {
             let notes = super::notes_of(clip);
-            // Only what is in the clip's window (format v15).
-            let shows = |at| lumen_project::edit::in_window(clip, at);
+            // Every note and event, those outside the clip's window too: the
+            // editor shows the clip's whole content (ADR-0059).
             let stems = if self.kind == LaneKind::Velocity {
-                let mut stems = velocity::stems(notes);
-                stems.retain(|(at, _)| shows(*at));
-                stems
+                velocity::stems(notes)
             } else {
                 Vec::new()
             };
@@ -105,7 +103,6 @@ impl LaneState {
                 Some(lane) => events_of(clip)
                     .iter()
                     .enumerate()
-                    .filter(|(_, e)| shows(e.at))
                     .filter_map(|(index, e)| {
                         lane.value_of(e.kind).map(|value| LanePoint {
                             at: e.at,

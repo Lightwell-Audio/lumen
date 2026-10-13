@@ -60,6 +60,7 @@ irreversible or external) · *Superseded*.
 | [0052](#adr-0052--the-design-system-replaces-adr-0051s-lit-look) | The design system's material and tokens replace ADR-0051's lit look | Accepted 2026-10-11 | No |
 | [0055](#adr-0055--recording-midi-m5-slice-6-no-format-change) | Recording MIDI (M5 slice 6, no format change): the engine's Record with a count-in, live capture with its timeline sample, a pure take builder (Replace, Overdub, loops, punch) and one undo step per take | Accepted 2026-10-13 | No |
 | [0058](#adr-0058--notes-carry-on-across-seams-and-overdub-shows-its-clip-at-once) | Notes carry on across seams (touching MIDI clips that hold the same note play it as one), and Overdub shows its clip at once | Accepted 2026-10-13 | No |
+| [0059](#adr-0059--a-carried-note-belongs-to-its-clip-and-the-clip-editor-shows-hidden-notes) | A carried note belongs to the clip it began in (a chase there does not strike it), and the clip editor shows notes outside the window | Accepted 2026-10-13 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -5161,3 +5162,66 @@ and playback). Both E2E scenarios fail without the fix.
 
 Not verified: by hand (MT-MIDI-7 run 6), and the WSL perf gate (`lumen-project`
 changed; `place` is not in a perf scenario, and the engine is unchanged).
+
+## ADR-0059 — A carried note belongs to its clip, and the clip editor shows hidden notes
+
+**Status:** Accepted (owner's report) · **Date:** 2026-10-13
+
+**Context.** Two findings after ADR-0058:
+1. A note carried on across a seam (an Overdub begun inside a clip while it
+   sounded) was struck again when playback started at the new clip's start.
+2. Notes outside a clip's window were hidden in the clip editor as well as
+   on the arrangement (ADR-0056 had left this open). Ableton hides them on
+   the arrangement but shows them in the clip view, where they stay editable.
+
+**Causes found.**
+1. Touching clips play as one engine clip (a run, ADR-0058), so the carried
+   note is one long note there. Play and every jump **chase** (ADR-0045, H1):
+   a note sounding at the position starts at once. Started at the new clip,
+   the chase struck the note that began in the clip before.
+2. `EditorView::shows`, `LaneView`, the GPU note boxes (`ClipNotes::
+   each_placed`), Ctrl+A and the tools given no picks (`shown_notes`) all
+   kept to the window; the note edits clamped every note into `[0, length]`.
+
+**Choices.**
+1. **A note belongs to the clip it begins in.** `MidiClip::seams` (engine)
+   says where each clip of a run begins; `midi_runs` fills it. A chase starts
+   only notes that began in the clip the position is in (`hold::owning_start`;
+   a position on a seam is in the clip that begins there). Played through the
+   seam the note sounds on as before; played from the next clip (its start or
+   inside it) it does not sound, as in Ableton, where it is the clip before's.
+   Chase inside the clip a note began in is unchanged (H1).
+2. **The clip editor shows every note.** `EditorView::shows` checks only the
+   view; `ClipNotes::outside` (on in the editor, off on the arrangement)
+   places notes outside the window whole at their own times and draws the
+   content's notes whole past the window's end. They sit in the time the
+   editor already dims outside the clip, so they read as outside (no new
+   token or colour). The lane shows their velocity stems and controller
+   events. They can be picked, moved, resized, deleted and edited; Ctrl+A and
+   the tools given no picks take every note. The note edits allow a note to
+   stay as far outside as it already is, no further
+   (`edit::notes::time_room`, `resize`), so a hidden note can be dragged back
+   into the clip. Drawing a new note is still only inside the clip. The
+   arrangement still hides them and they still do not play.
+
+**Consequences.** The ADR-0058 known issue (the clip editor not showing a
+note carried into a clip) is closed: the carried copy shows, whole, starting
+in the dimmed time before the clip. `sounding_keys` (busy keys for hardware
+previews) still counts a carried note after playback started past its seam,
+where nothing sounds: at worst a preview of that key on a hardware track is
+skipped (KNOWN_ISSUES). The velocity lane does not dim the time outside the
+clip as the roll does (KNOWN_ISSUES, a look for the owner).
+
+Tests: engine `tests/midi.rs`
+(`play_from_the_next_clip_of_a_run_does_not_strike_a_note_carried_into_it`,
+fails without the fix), `midi_runs.rs` (seams), `edit/notes.rs` (a note
+outside moves back in but no further out), `piano_roll/notes.rs` (the editor
+places notes outside whole; the arrangement does not); E2E `overdub_seams`
+(played from the take's start the note is not struck) and `hidden_notes`
+(a note past the end is shown, picked, dragged back in, undone, and picked by
+Ctrl+A); both fail without the fix. Shot `hidden_notes_editor` (both themes,
+100 to 200%) looked at.
+
+Not verified: by hand (MT-MIDI-7 run 7), the WSL perf gate (the engine's
+chase changed; it runs on Play and jumps only, not per block).
+

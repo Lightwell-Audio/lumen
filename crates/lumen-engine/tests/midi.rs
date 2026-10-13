@@ -76,6 +76,7 @@ fn clip(id: u64, start: Ticks, length: Ticks, notes: Vec<MidiNote>) -> MidiClip 
         start,
         length,
         period: None,
+        seams: Default::default(),
         notes: note_list(notes),
         controls: control_list(Vec::new()),
     }
@@ -380,6 +381,54 @@ fn a_jump_releases_and_chases_the_note_under_the_new_position() {
     rig.run(1_000, 128);
     let sent = rig.log();
     assert_eq!(ons(&sent), offs(&sent));
+}
+
+/// A run of two touching clips meeting at beat 4 (the app joins them so a
+/// note carries on across): a note from beat 2 to 10 began in the first.
+fn seamed_track(log: &Log) -> MidiTrack {
+    let q = Ticks::quarters;
+    let mut c = clip(
+        1,
+        Ticks::ZERO,
+        q(16),
+        vec![note(q(2), q(8), 60), note(q(5), q(1), 64)],
+    );
+    c.seams = vec![q(4)].into();
+    MidiTrack::new(TRACK, Target::Instrument, probe(log), vec![c])
+}
+
+fn keys_on(sent: &[Msg]) -> Vec<u8> {
+    sent.iter()
+        .filter_map(|m| match m.kind() {
+            Kind::NoteOn { key, .. } => Some(key),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn play_from_the_next_clip_of_a_run_does_not_strike_a_note_carried_into_it() {
+    let q = Ticks::quarters;
+    // From the seam, and from inside the second clip: only its own note.
+    for at in [q(4), q(4) + Ticks(q(1).0 / 2)] {
+        let log = Log::default();
+        let mut rig = rig(Timeline::default(), 48_000, vec![seamed_track(&log)], &log);
+        rig.transport.send(Command::Locate(at)).unwrap();
+        rig.play();
+        rig.run(48_000, 128);
+        assert_eq!(keys_on(&rig.log()), vec![64], "from {at:?}");
+    }
+    // From inside the first clip the note is its own: chased, and it sounds
+    // on through the seam without a second strike.
+    let log = Log::default();
+    let mut rig = rig(Timeline::default(), 48_000, vec![seamed_track(&log)], &log);
+    rig.transport.send(Command::Locate(q(3))).unwrap();
+    rig.play();
+    // Beats 3 to 7 (two beats a second).
+    rig.run(96_000, 128);
+    let sent = rig.log();
+    assert_eq!(keys_on(&sent), vec![60, 64]);
+    assert_eq!(offs(&sent), 1, "only the short note has ended by beat 7");
 }
 
 #[test]

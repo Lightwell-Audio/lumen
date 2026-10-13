@@ -27,7 +27,10 @@
 //!   events are not touched.
 //!
 //! `length` is the clip's content length (see `super::content_length`):
-//! notes start inside `[0, length)` and are kept from running past it.
+//! edits keep notes inside `[0, length]`, or no further outside it than
+//! they already are. A note outside the clip's window (kept, hidden in the
+//! arrangement, ADR-0056) is shown by the clip editor (ADR-0059): it can be
+//! moved and resized there, and back into the clip, but not further out.
 
 use lumen_core::time::{PPQ, Ticks};
 
@@ -122,13 +125,17 @@ pub fn delete(notes: &mut Vec<Note>, selection: &[usize]) -> Vec<usize> {
 }
 
 /// How far a group may move in time: the whole group stays inside
-/// `[0, length]`. A note that already runs past the end can still move
-/// earlier, but not later.
+/// `[0, length]`, or no further out than it is. A note that already runs
+/// past the end can still move earlier, but not later; one before the start
+/// later, but not earlier.
 fn time_room(notes: &[Note], picked: &[usize], length: Ticks) -> (Ticks, Ticks) {
     let first = picked.iter().map(|&i| notes[i].start()).min();
     let last = picked.iter().map(|&i| notes[i].end()).max();
     match (first, last) {
-        (Some(first), Some(last)) => (Ticks::ZERO - first, (length - last).max(Ticks::ZERO)),
+        (Some(first), Some(last)) => (
+            (Ticks::ZERO - first).min(Ticks::ZERO),
+            (length - last).max(Ticks::ZERO),
+        ),
         _ => (Ticks::ZERO, Ticks::ZERO),
     }
 }
@@ -230,7 +237,8 @@ pub fn transpose(notes: &mut Vec<Note>, selection: &[usize], semitones: i32) -> 
 /// Drags one edge of the picked notes by `by`: the end edge changes their
 /// lengths, the start edge their starts and lengths (the ends stay). As a
 /// group, so every note keeps at least `min` and none runs past `length`
-/// or before zero; the notes keep their differences while the edge is
+/// or before zero (no further than it already is, for a note outside the
+/// clip's window); the notes keep their differences while the edge is
 /// within those limits.
 pub fn resize(
     notes: &mut Vec<Note>,
@@ -245,14 +253,20 @@ pub fn resize(
     let by = match end {
         End::End => {
             let lowest = picked.iter().map(|&i| min - notes[i].length()).max();
-            let highest = picked.iter().map(|&i| length - notes[i].end()).min();
+            let highest = picked
+                .iter()
+                .map(|&i| (length - notes[i].end()).max(Ticks::ZERO))
+                .min();
             match (lowest, highest) {
                 (Some(lowest), Some(highest)) => by.min(highest).max(lowest),
                 _ => return Vec::new(),
             }
         }
         End::Start => {
-            let lowest = picked.iter().map(|&i| Ticks::ZERO - notes[i].start()).max();
+            let lowest = picked
+                .iter()
+                .map(|&i| (Ticks::ZERO - notes[i].start()).min(Ticks::ZERO))
+                .max();
             let highest = picked.iter().map(|&i| notes[i].length() - min).min();
             match (lowest, highest) {
                 (Some(lowest), Some(highest)) => by.min(highest).max(lowest),
@@ -473,6 +487,27 @@ mod tests {
         let mut notes = vec![n(0, 1, 60), n(1, 1, 62), n(2, 1, 64)];
         assert!(delete(&mut notes, &[2, 0, 0, 9]).is_empty());
         assert_eq!(notes, [n(1, 1, 62)]);
+    }
+
+    #[test]
+    fn a_note_outside_the_clip_moves_back_in_but_no_further_out() {
+        // Hidden before the clip's start, and past its end (ADR-0059).
+        let mut notes = vec![n(-3, 2, 60), n(LEN.0 / q(1).0 + 1, 1, 62)];
+        move_notes(&mut notes, &[0], q(-5), 0, LEN);
+        assert_eq!(notes[0], n(-3, 2, 60), "no further out");
+        move_notes(&mut notes, &[0], q(4), 0, LEN);
+        assert_eq!(notes[0], n(1, 2, 60), "back in the clip");
+        let past = notes[1].start();
+        move_notes(&mut notes, &[1], q(2), 0, LEN);
+        assert_eq!(notes[1].start(), past, "no later past the end");
+        move_notes(&mut notes, &[1], q(-3), 0, LEN);
+        assert_eq!(notes[1].start(), past - q(3));
+        // Its edges move too, the start no earlier than it is.
+        let mut notes = vec![n(-3, 2, 60)];
+        resize(&mut notes, &[0], End::Start, q(-1), q(1), LEN);
+        assert_eq!(notes[0], n(-3, 2, 60));
+        resize(&mut notes, &[0], End::End, q(4), q(1), LEN);
+        assert_eq!(notes[0], n(-3, 6, 60));
     }
 
     #[test]

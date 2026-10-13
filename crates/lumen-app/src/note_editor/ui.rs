@@ -88,7 +88,6 @@ impl App {
             body,
             time: ed.time,
             clip_start: clip.start,
-            window: lumen_project::edit::content_length(&clip).min(clip.length),
             row_height: ed.row_height,
             scroll: ed.scroll,
         };

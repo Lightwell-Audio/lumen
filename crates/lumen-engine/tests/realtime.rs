@@ -386,6 +386,7 @@ fn midi_never_touches_the_heap() {
                     start: Ticks::ZERO,
                     length: Ticks::quarters(16),
                     period: Some(Ticks::quarters(3)),
+                    seams: Default::default(),
                     notes: note_list(notes),
                     controls: control_list(controls),
                 };

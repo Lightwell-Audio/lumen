@@ -65,6 +65,7 @@ pub(super) fn build(
                     loop_length: clip.loop_length,
                     notes,
                     carried,
+                    outside: false,
                 },
                 (n as u32, fit),
                 color,

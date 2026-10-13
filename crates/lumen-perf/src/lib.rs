@@ -260,6 +260,7 @@ fn playing_synths(tracks: u64) -> SynthPlayer {
                     start: Ticks::ZERO,
                     length: q(64),
                     period: Some(q(1)),
+                    seams: Default::default(),
                     notes: lumen_engine::note_list(notes),
                     controls: lumen_engine::control_list(Vec::new()),
                 }],

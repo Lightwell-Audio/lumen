@@ -82,6 +82,13 @@ pub struct MidiClip {
     pub period: Option<Ticks>,
     pub notes: Arc<[MidiNote]>,
     pub controls: Arc<[MidiControl]>,
+    /// Where the clips after the first begin, in ticks from `start`, when
+    /// this is a run of touching clips played as one (the app joins clips
+    /// that meet, so a note carries on across where they meet). Sorted;
+    /// empty for a single clip. A chase starts only the notes that began in
+    /// the clip the position is in: a note carried on from the clip before
+    /// is not struck at the next one's start.
+    pub seams: Arc<[Ticks]>,
 }
 
 impl MidiClip {
@@ -93,6 +100,7 @@ impl MidiClip {
             && self.period == other.period
             && (Arc::ptr_eq(&self.notes, &other.notes) || self.notes == other.notes)
             && (Arc::ptr_eq(&self.controls, &other.controls) || self.controls == other.controls)
+            && self.seams == other.seams
     }
 }
 

@@ -91,7 +91,7 @@ impl App {
         let next = match op {
             NoteOp::SelectAll => self
                 .editor_clip(clip)
-                .map(|(c, _)| edit::shown_notes(&c))
+                .map(|(c, _)| (0..notes_of(&c).len()).collect())
                 .unwrap_or_default(),
             NoteOp::Quantize
             | NoteOp::Humanize

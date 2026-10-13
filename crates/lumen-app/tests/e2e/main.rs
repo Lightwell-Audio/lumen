@@ -25,6 +25,7 @@ mod fades;
 mod files;
 mod grid;
 mod groups;
+mod hidden_notes;
 mod info;
 mod keyboard;
 mod keys;

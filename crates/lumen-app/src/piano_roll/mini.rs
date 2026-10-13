@@ -160,6 +160,7 @@ mod tests {
             loop_length: None,
             notes,
             carried: &[],
+            outside: false,
         }
     }
 

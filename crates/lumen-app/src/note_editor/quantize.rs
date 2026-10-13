@@ -227,10 +227,11 @@ const ROOTS: [&str; 12] = [
     "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
 ];
 
-/// The notes an edit works on: the picked ones, or every note.
+/// The notes an edit works on: the picked ones, or every note the editor
+/// shows (all of the clip's, those outside its window too; ADR-0059).
 pub(crate) fn targets(picked: &[usize], clip: &Clip) -> Vec<usize> {
     if picked.is_empty() {
-        edit::shown_notes(clip)
+        (0..notes_of(clip).len()).collect()
     } else {
         picked.to_vec()
     }

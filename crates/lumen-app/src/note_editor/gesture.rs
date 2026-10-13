@@ -220,7 +220,6 @@ mod tests {
                 zoom: 100.0,
             },
             clip_start: Ticks::ZERO,
-            window: Ticks::quarters(64),
             row_height: 10.0,
             scroll: 0.0,
         }

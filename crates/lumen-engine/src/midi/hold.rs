@@ -403,8 +403,22 @@ fn renewed(clips: &[MidiClip], held: &Held) -> Option<i64> {
     (note.start.0 < span).then(|| off_tick(base, note, span))
 }
 
+/// Where the clip the position `pos` is in begins, in ticks from the start
+/// of `clip`, a run of touching clips (`MidiClip::seams`): zero for a
+/// single clip. A seam counts from its own sample, so a position on it is
+/// in the clip that begins there.
+fn owning_start(clip: &MidiClip, clock: Clock<'_>, pos: i64) -> i64 {
+    clip.seams
+        .iter()
+        .rev()
+        .find(|s| clock.sample(clip.start.0 + s.0) <= pos)
+        .map_or(0, |s| s.0)
+}
+
 /// Starts the notes that sound at `pos` (began before it, end after it)
-/// and are not held.
+/// and are not held. In a run of touching clips, only notes that began in
+/// the clip `pos` is in: one carried on from the clip before belongs to
+/// that clip, so playing from the next one does not strike it again.
 pub(super) fn chase_notes(
     clips: &[MidiClip],
     state: &mut TrackState,
@@ -425,7 +439,12 @@ pub(super) fn chase_notes(
             let span = span(clip, period, rep);
             let limit = at - base + MARGIN;
             let end = clip.notes.partition_point(|n| n.start.0 <= limit);
-            for note in &clip.notes[..end] {
+            let owned = match clip.period {
+                Some(_) => 0,
+                None => owning_start(clip, clock, pos),
+            };
+            let first = clip.notes[..end].partition_point(|n| n.start.0 < owned);
+            for note in &clip.notes[first..end] {
                 if note.start.0 >= span {
                     break;
                 }

@@ -50,6 +50,7 @@ pub(crate) fn sample_boxes(color: egui::Color32) -> Vec<BoxInstance> {
             loop_length: Some(q(8)),
             notes: &notes,
             carried: &[],
+            outside: false,
         },
         &selected,
         &NoteColors::new(color),

@@ -2428,7 +2428,7 @@ readout beside Quantize changes with the popover's settings.
 
 
 ### MT-MIDI-7 · Recording MIDI (needs a human and a MIDI controller; the computer keyboard also works)
-Slice 6 of M5 (ADR-0055). **Status: runs 4, 5 and 6 wait for the owner.** Start
+Slice 6 of M5 (ADR-0055). **Status: runs 4, 5, 6 and 7 wait for the owner.** Start
 Lumen from the repository root:
 
 ```powershell
@@ -2612,3 +2612,15 @@ waits for the owner.
     with no cut where recording began and no new attack about once a second.
     Then play a key of the same pitch while recording over it: expect the old
     note to stop there and yours to win.
+
+**Run 7 steps (new, after the owner's two clip points; ADR-0059).**
+34. **Play from the new clip.** After step 32, click the new clip's header
+    (the playhead goes to its start) and press Space. Expect the long note
+    not to sound: it began in the clip before. Play from before the
+    boundary: expect it to sound once, through the boundary.
+35. **Hidden notes in the Clip tab.** Shorten a MIDI clip (drag its end in)
+    so a note falls outside it, and open the clip. Expect the arrangement
+    clip not to show it and not to play it, and the Clip tab to show it in
+    the dimmed time past the clip (zoom out with − if needed). Click it,
+    drag it back inside the clip: expect it to show on the arrangement and
+    play. Ctrl+A in the Clip tab picks it too. Check both themes.

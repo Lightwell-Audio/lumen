@@ -9,6 +9,8 @@
 //! 3. That note sustains while recording and when played back: it is
 //!    struck once and let go once, not cut at the boundary or struck again
 //!    at each commit (about once a second).
+//! 4. Played from the new clip's start, the note is not struck again: it
+//!    belongs to the clip it began in (ADR-0059).
 
 use lumen_core::time::Ticks;
 use lumen_project::edit::seams;
@@ -100,6 +102,28 @@ fn a_note_held_where_overdub_begins_sustains_across_the_new_clip() {
         (on - before.0, off - before.1),
         (1, 0),
         "one note through both boundaries"
+    );
+    stop(&mut lumen);
+
+    // Played from the take's start (a click on its header puts the playhead
+    // there), the note is not struck: it began in the clip before.
+    let take = clips[1].clone();
+    let ctx = lumen.harness.ctx.clone();
+    let r = lumen
+        .app()
+        .clip_rect(&ctx, take.id)
+        .expect("the take is in view");
+    let header = eframe::egui::pos2(r.left() + 12.0, r.top() + 6.0);
+    lumen.drag(header, header, eframe::egui::Modifiers::NONE);
+    lumen.wait_for("the playhead at the take", move |app| {
+        app.playhead() == take.start
+    });
+    let before = ons_and_offs(&fake, 50);
+    play_to(&mut lumen, beats(28.0));
+    assert_eq!(
+        ons_and_offs(&fake, 50).0,
+        before.0,
+        "not struck again where the take begins"
     );
     stop(&mut lumen);
 }

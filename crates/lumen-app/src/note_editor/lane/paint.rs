@@ -686,7 +686,6 @@ mod tests {
                 zoom: 40.0,
             },
             clip_start: Ticks::ZERO,
-            window: Ticks::quarters(64),
             kind,
         }
     }

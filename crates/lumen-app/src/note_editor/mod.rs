@@ -149,6 +149,7 @@ impl NoteEditor {
                 loop_length: clip.loop_length,
                 notes: notes_of(clip),
                 carried: &[],
+                outside: true,
             };
             let boxes = crate::piano_roll::notes::note_instances(
                 &notes,

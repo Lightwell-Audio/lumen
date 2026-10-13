@@ -383,6 +383,7 @@ fn a_key_played_while_recording_ends_the_clips_note_on_that_key() {
         start: Ticks::ZERO,
         length: q(8.0),
         period: None,
+        seams: Default::default(),
         notes: vec![note(0.0, 4.0), note(1.2, 0.1), note(5.0, 1.0)].into(),
         controls: Vec::new().into(),
     };

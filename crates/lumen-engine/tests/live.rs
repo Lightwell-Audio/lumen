@@ -267,6 +267,7 @@ fn a_live_note_and_a_clip_note_on_one_key_each_end_by_their_own_off() {
         start: Ticks::ZERO,
         length: q(8),
         period: None,
+        seams: Default::default(),
         notes: note_list(vec![MidiNote {
             start: q(1),
             length: q(1),
@@ -298,6 +299,7 @@ fn an_audition_sounds_on_its_track_alone_and_never_ends_another_sources_note() {
         start: Ticks::ZERO,
         length: q(8),
         period: None,
+        seams: Default::default(),
         notes: note_list(vec![MidiNote {
             start: q(1),
             length: q(1),
@@ -395,6 +397,7 @@ fn a_preview_of_a_clip_notes_key_on_the_audition_channel_leaves_the_clip_note_so
         start: Ticks::ZERO,
         length: q(8),
         period: None,
+        seams: Default::default(),
         notes: note_list(vec![MidiNote {
             start: q(1),
             length: q(7),

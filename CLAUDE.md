@@ -390,8 +390,19 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-13 (latest): **the owner's Overdub report is
-fixed** (ADR-0058). Overdub over an empty lane makes its clip at once, empty
+**Last updated:** 2026-10-13 (latest): **the owner's two clip points are
+fixed** (ADR-0059). A note carried on across a seam belongs to the clip it
+began in: the engine knows where a run's clips meet (`MidiClip::seams`) and a
+chase starts only notes that began in the clip the position is in
+(`hold::owning_start`), so playing from the next clip does not strike it.
+The clip editor shows every note, those outside the window too, in its
+dimmed time (`EditorView::shows`, `ClipNotes::outside`, the lane, Ctrl+A);
+note edits let a note stay as far outside as it is and come back in
+(`edit::notes::time_room`, `resize`). The arrangement still hides them. E2E
+`hidden_notes`, `overdub_seams` (fail without the fix); E2E 325, smoke 6;
+shot `hidden_notes_editor`. Not run: WSL perf gate, macOS cross-clippy.
+**MT-MIDI-7 run 7 (steps 34, 35) waits for the owner.** Before it,
+2026-10-13: **the owner's Overdub report is fixed** (ADR-0058). Overdub over an empty lane makes its clip at once, empty
 until a note is played. Notes **carry on across seams**: where a clip begins
 exactly where the one before it ends and holds the same note (hidden before
 its start), the note sounds and is drawn through (`edit::seams`). Overdub
@@ -984,7 +995,7 @@ escapes and quotes several times.
 - Where to look:
   - `docs/PROGRESS.md`: every requirement's status, slice tables and the
     milestone reports;
-  - `docs/DECISIONS.md`: ADR-0001 to ADR-0055, plus the table of owner
+  - `docs/DECISIONS.md`: ADR-0001 to ADR-0059, plus the table of owner
     decisions;
   - `docs/MANUAL_TESTS.md`: hardware tests with every run's results;
   - `docs/KNOWN_ISSUES.md`: problems found and not fixed yet, and where
