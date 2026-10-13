@@ -98,6 +98,12 @@ pub struct RenderContext<'a> {
     /// without the read ahead. Live input is placed against it (M5 slice
     /// 2). Zero where no live input is played (scrubbing, tails).
     pub device: u64,
+    /// The transport is recording: sources that keep what arrives (MIDI
+    /// input) capture it with its timeline position (M5 slice 6).
+    pub recording: bool,
+    /// The active loop as `[start, end)` samples, so live input played just
+    /// before a wrap is placed at the loop's end.
+    pub looping: Option<(i64, i64)>,
 }
 
 /// Why playback jumped, so sources can choose whether to fade in.

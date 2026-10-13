@@ -307,6 +307,7 @@ fn midi_never_touches_the_heap() {
                     };
                     take(LiveIn {
                         frame: self.next,
+                        played: self.next,
                         source: 3,
                         track: None,
                         msg,
@@ -316,6 +317,7 @@ fn midi_never_touches_the_heap() {
                     for track in [5, 4] {
                         take(LiveIn {
                             frame: self.next,
+                            played: self.next,
                             source: lumen_engine::AUDITION,
                             track: Some(track),
                             msg,
@@ -414,12 +416,22 @@ fn midi_never_touches_the_heap() {
                     sources: 1 << 3,
                     channel: (variant % 2 == 1).then_some(0),
                 })
+                // And every other track records what it is sent.
+                .recording(if id % 2 == 0 {
+                    Listen {
+                        sources: 1 << 3,
+                        channel: None,
+                    }
+                } else {
+                    Listen::OFF
+                })
             })
             .collect()
     };
     let (_clips, players) = clip_player();
     let (mut midi, player) = midi_player();
     let mut output = midi.take_output().unwrap();
+    let mut captured = midi.take_captured().unwrap();
     let (mut routing, source) = mixer(Layered(players, player));
     let (mut handle, mut engine) = engine(Timeline::default(), source, 48_000);
     midi.set(tracks(0)).ok().unwrap();
@@ -450,7 +462,12 @@ fn midi_never_touches_the_heap() {
             }));
         }
         match block % 900 {
+            100 => handle.send(Command::Record { count_in: 0 }).unwrap(),
             300 => handle.send(Command::Locate(Ticks::quarters(2))).unwrap(),
+            400 => handle.send(Command::EndRecord).unwrap(),
+            // Stopped (after 700), a count-in begins and Play is ignored
+            // until Panic ends it.
+            705 => handle.send(Command::Record { count_in: 1 }).unwrap(),
             500 => handle.send(Command::Pause).unwrap(),
             520 => handle.send(Command::Continue).unwrap(),
             700 => handle.send(Command::Stop).unwrap(),
@@ -462,6 +479,7 @@ fn midi_never_touches_the_heap() {
         let ((), heap) = count_rt_violations(|| engine.process(48_000, &mut data, 2, 128));
         assert_eq!(heap, 0, "heap operation in process() at block {block}");
         while output.pop().is_ok() {}
+        while captured.pop().is_ok() {}
         let _ = handle.transport();
         routing.collect_garbage();
     }

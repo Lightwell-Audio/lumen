@@ -22,10 +22,12 @@
 //! old list goes back to be freed on the UI side. Tracker, instrument and
 //! voices carry across by track id, as pointers swap.
 
+mod capture;
 mod hold;
 mod live;
 mod player;
 
+pub use capture::Captured;
 pub use live::{AUDITION, INPUT_SLOTS, KEYBOARD, Listen, LiveIn, LiveInput, SOURCES};
 pub use player::{MidiHandle, MidiPlayer, midi_player};
 
@@ -125,6 +127,9 @@ pub struct MidiTrack {
     pub target: Target,
     /// The live input it plays ([`Listen::OFF`] for none).
     pub listen: Listen,
+    /// The live input it keeps while the transport records
+    /// ([`Listen::OFF`] for none): a recording track need not listen.
+    pub record: Listen,
     state: Box<TrackState>,
     /// Set when the list arrives: the track differs from the one it replaces,
     /// so its notes are brought in line with the position.
@@ -146,6 +151,7 @@ impl MidiTrack {
             instrument,
             target,
             listen: Listen::OFF,
+            record: Listen::OFF,
             state: Box::new(TrackState::new()),
             dirty: true,
         }
@@ -154,6 +160,13 @@ impl MidiTrack {
     /// The same track, playing the live input `listen` takes.
     pub fn listening(mut self, listen: Listen) -> Self {
         self.listen = listen;
+        self
+    }
+
+    /// The same track, keeping the live input `record` takes while the
+    /// transport records (M5 slice 6).
+    pub fn recording(mut self, record: Listen) -> Self {
+        self.record = record;
         self
     }
 

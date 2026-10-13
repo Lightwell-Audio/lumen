@@ -38,6 +38,9 @@ pub const INPUT_SLOTS: u8 = AUDITION;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LiveIn {
     pub frame: u64,
+    /// The device frame it was played at, before the feed's delay: where a
+    /// recording puts it (M5 slice 6). Not after `frame`.
+    pub played: u64,
     /// The input's slot (below [`KEYBOARD`]), or [`KEYBOARD`].
     pub source: u8,
     /// For [`AUDITION`]: the id of the track it sounds on. Other sources go

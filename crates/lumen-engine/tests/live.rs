@@ -70,6 +70,7 @@ impl Script {
     fn send(&self, frame: u64, source: u8, msg: Msg) {
         self.0.lock().unwrap().push_back(LiveIn {
             frame,
+            played: frame,
             source,
             track: None,
             msg,
@@ -79,6 +80,7 @@ impl Script {
     fn audition(&self, frame: u64, track: u64, msg: Msg) {
         self.0.lock().unwrap().push_back(LiveIn {
             frame,
+            played: frame,
             source: AUDITION,
             track: Some(track),
             msg,

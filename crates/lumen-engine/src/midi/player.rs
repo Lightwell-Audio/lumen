@@ -4,6 +4,7 @@
 
 use lumen_core::midi::{Event, Msg, cc};
 
+use super::capture::{self, Captured};
 use super::hold::{self, Clock, MAX_EVENTS};
 use super::live::{AUDITION, LiveIn, LiveInput};
 use super::{MidiOut, MidiTrack, Target};
@@ -44,6 +45,7 @@ pub struct MidiHandle {
     output: Option<rtrb::Consumer<MidiOut>>,
     feeds: rtrb::Producer<Feed>,
     old_feeds: rtrb::Consumer<Feed>,
+    captured: Option<rtrb::Consumer<Captured>>,
 }
 
 impl MidiHandle {
@@ -73,6 +75,12 @@ impl MidiHandle {
         self.feeds
             .push(feed)
             .map_err(|rtrb::PushError::Full(feed)| feed)
+    }
+
+    /// The messages recording tracks kept, once: the app's recorder takes
+    /// them (M5 slice 6).
+    pub fn take_captured(&mut self) -> Option<rtrb::Consumer<Captured>> {
+        self.captured.take()
     }
 
     /// The messages for hardware, once: the app's sender takes them.
@@ -125,6 +133,10 @@ pub struct MidiPlayer {
     live: Option<Feed>,
     /// A replaced live input that did not fit in its queue back yet.
     old_feed: Option<Feed>,
+    /// Where recorded messages go.
+    capture: rtrb::Producer<Captured>,
+    /// Messages lost because the app was not reading (a count, for tests).
+    lost: u32,
 }
 
 /// Creates the MIDI pair, starting with no tracks. Allocates, so call it
@@ -135,6 +147,7 @@ pub fn midi_player() -> (MidiHandle, MidiPlayer) {
     let (out_tx, out_rx) = rtrb::RingBuffer::new(OUT_QUEUE);
     let (feeds_tx, feeds_rx) = rtrb::RingBuffer::new(2);
     let (old_feeds_tx, old_feeds_rx) = rtrb::RingBuffer::new(3);
+    let (capture_tx, capture_rx) = rtrb::RingBuffer::new(capture::QUEUE);
     (
         MidiHandle {
             incoming: incoming_tx,
@@ -142,6 +155,7 @@ pub fn midi_player() -> (MidiHandle, MidiPlayer) {
             output: Some(out_rx),
             feeds: feeds_tx,
             old_feeds: old_feeds_rx,
+            captured: Some(capture_rx),
         },
         MidiPlayer {
             incoming: incoming_rx,
@@ -157,6 +171,8 @@ pub fn midi_player() -> (MidiHandle, MidiPlayer) {
             old_feeds: old_feeds_tx,
             live: None,
             old_feed: None,
+            capture: capture_tx,
+            lost: 0,
         },
     )
 }
@@ -166,7 +182,9 @@ impl MidiPlayer {
     /// queue, a full output queue). Zero in any sane project.
     pub fn dropped(&self) -> u32 {
         let tracks: u32 = self.current.tracks.iter().map(|t| t.state.dropped).sum();
-        tracks.saturating_add(self.out.dropped)
+        tracks
+            .saturating_add(self.out.dropped)
+            .saturating_add(self.lost)
     }
 
     /// Notes held on a track now (tests).
@@ -206,16 +224,33 @@ impl MidiPlayer {
 
     /// Hands each track that listens the live messages for the part from
     /// device frame `start`, `frames` long.
-    fn play_live(&mut self, start: u64, frames: usize) {
+    fn play_live(&mut self, cx: &RenderContext<'_>, frames: usize) {
         let Some(live) = self.live.as_mut() else {
             return;
         };
+        let start = cx.device;
         let tracks = &mut self.current.tracks;
+        let (capture, lost) = (&mut self.capture, &mut self.lost);
         let last = frames.saturating_sub(1) as u64;
         let last32 = last as u32;
         live.pull(start, start + frames as u64, &mut |m: LiveIn| {
             let offset = m.frame.saturating_sub(start).min(last) as u32;
             for track in tracks.iter_mut() {
+                // Recording keeps what the track takes, heard or not.
+                if cx.recording
+                    && m.source != AUDITION
+                    && track.record.takes(m.source, m.msg)
+                    && capture
+                        .push(Captured {
+                            track: track.id,
+                            source: m.source,
+                            at: capture::heard(cx, m.played),
+                            msg: m.msg,
+                        })
+                        .is_err()
+                {
+                    *lost = lost.saturating_add(1);
+                }
                 if !track.sounds() {
                     continue;
                 }
@@ -512,7 +547,7 @@ impl TrackSource for MidiPlayer {
             // Live input waits until the scrub ends.
             return;
         }
-        self.play_live(cx.device, buses.frames());
+        self.play_live(cx, buses.frames());
         for track in &mut self.current.tracks {
             run_track(track, cx, buses, &mut self.out, clock);
         }

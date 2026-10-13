@@ -441,6 +441,8 @@ impl<T: TrackSource> Source for Mixer<T> {
                 mode: Mode::Play,
                 stream: 0,
                 device: 0,
+                recording: false,
+                looping: None,
             };
             let length = fade_frames(sample_rate).min(CHUNK);
             if let Some(mut tail) = self.plan.input_tail(length) {

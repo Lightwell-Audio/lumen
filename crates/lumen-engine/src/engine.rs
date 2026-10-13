@@ -40,7 +40,7 @@ use lumen_core::time::Ticks;
 use lumen_rt::DenormalGuard;
 
 use crate::declick::{Declick, MAX_FADE, fade_frames};
-use crate::metronome::{self, Metronome, MetronomeSettings, TestTone};
+use crate::metronome::{self, CountIn, Metronome, MetronomeSettings, TestTone};
 use crate::playhead::Playhead;
 use crate::scrub::{ScrubStyle, Scrubber};
 use crate::snapshot::{Shared, TransportSnapshot};
@@ -85,6 +85,17 @@ pub enum Command {
     /// Stop where playback is; when already stopped, return to the start.
     Stop,
     Locate(Ticks),
+    /// Play from the play marker and record (M5 slice 6): MIDI tracks that
+    /// record keep what arrives, with its timeline position. First the song
+    /// waits at the marker for `count_in` metronome beats (0 for none),
+    /// clicking whether or not the metronome is on. While already playing,
+    /// recording starts at once. Stop, Pause, Locate while counting and
+    /// Panic end it.
+    Record {
+        count_in: u32,
+    },
+    /// Stop recording and carry on playing.
+    EndRecord,
     SetLoop(Region),
     SetPunch(Region),
     SetMetronome(MetronomeSettings),
@@ -178,6 +189,10 @@ pub struct Engine<S> {
     /// Frames processed since the engine was made: the device clock MIDI
     /// out is timed against (`RenderContext::stream`).
     stream: u64,
+    /// Recording, or counting in to it.
+    recording: bool,
+    /// The song waits at the play marker while these beats click.
+    counting: Option<CountIn>,
 }
 
 /// Creates the engine pair. Allocates, so call it off the audio thread.
@@ -215,6 +230,8 @@ pub fn engine<S: Source>(
         test_tone: TestTone::default(),
         scrub: Scrubber::default(),
         stream: 0,
+        recording: false,
+        counting: None,
     };
     engine.publish();
     let handle = EngineHandle {
@@ -261,9 +278,10 @@ impl<S: Source> Engine<S> {
         self.follow_latency(channels);
         self.apply_commands(channels);
         let rate = self.sample_rate;
+        let counted = self.count_in(data, channels, frames);
         if self.playing {
-            self.render(data, channels, frames);
-        } else {
+            self.render(data, channels, frames, counted);
+        } else if counted == 0 {
             if self.scrub.active() {
                 self.scrub.render(
                     &mut self.source,
@@ -284,6 +302,8 @@ impl<S: Source> Engine<S> {
                     mode: Mode::Ring,
                     stream: self.stream,
                     device: self.stream,
+                    recording: false,
+                    looping: None,
                 };
                 let mut out = Output::new(data, frames, 0, frames, channels);
                 self.source.render(&cx, &mut out);
@@ -303,11 +323,59 @@ impl<S: Source> Engine<S> {
         self.publish();
     }
 
-    fn render(&mut self, data: &mut [f32], channels: usize, frames: usize) {
+    /// The count-in's part of this block: the song waits at the play marker
+    /// while the metronome clicks, and a live instrument still sounds. When
+    /// the beats are done, playback starts mid-block and recording with it.
+    /// Returns the frames used.
+    fn count_in(&mut self, data: &mut [f32], channels: usize, frames: usize) -> usize {
+        let Some(mut count) = self.counting else {
+            return 0;
+        };
+        let rate = self.sample_rate;
+        let n = (frames as i64).min(count.left()).max(0) as usize;
+        if self.source.ringing() {
+            let cx = RenderContext {
+                timeline: &self.timeline,
+                sample_rate: rate,
+                start: self.position,
+                tail: false,
+                stopping: false,
+                mode: Mode::Ring,
+                stream: self.stream,
+                device: self.stream,
+                recording: false,
+                looping: None,
+            };
+            let mut out = Output::new(data, frames, 0, n, channels);
+            self.source.render(&cx, &mut out);
+        } else {
+            self.source.idle(rate, n);
+        }
+        if self.declick.active() {
+            self.declick.apply(data, frames, channels, 0, n);
+        }
+        let window = metronome::Window {
+            stride: frames,
+            channels,
+            offset: 0,
+            count: n,
+        };
+        self.metronome.count(&mut count, rate, data, window);
+        if count.left() > 0 {
+            self.counting = Some(count);
+        } else {
+            self.counting = None;
+            self.start();
+        }
+        n
+    }
+
+    /// Renders the block from frame `from` (earlier frames were a count-in).
+    fn render(&mut self, data: &mut [f32], channels: usize, frames: usize, from: usize) {
         // Without latency the playhead is the render position, and the
         // `Playhead` is left alone (the transport gate counts every step).
         let latent = self.lookahead != 0;
-        let mut offset = 0;
+        let mut offset = from;
         while offset < frames {
             let mut n = frames - offset;
             // The render position wraps at the loop end if it is before it.
@@ -328,6 +396,8 @@ impl<S: Source> Engine<S> {
                 mode: Mode::Play,
                 stream: self.stream + offset as u64 + self.lookahead.max(0) as u64,
                 device: self.stream + offset as u64,
+                recording: self.recording,
+                looping: self.loop_samples,
             };
             let mut out = Output::new(data, frames, offset, n, channels);
             self.source.render(&cx, &mut out);
@@ -442,6 +512,7 @@ impl<S: Source> Engine<S> {
     fn halt(&mut self, channels: usize) {
         self.capture(channels, true);
         self.playing = false;
+        self.recording = false;
         self.ahead = self.position;
         self.source.stopped();
     }
@@ -478,6 +549,8 @@ impl<S: Source> Engine<S> {
             mode: Mode::Play,
             stream: 0,
             device: 0,
+            recording: false,
+            looping: None,
         };
         let mut out = Output::new(buffer, MAX_FADE, 0, frames, channels);
         self.source.render(&cx, &mut out);
@@ -492,7 +565,8 @@ impl<S: Source> Engine<S> {
             };
             match command {
                 Command::Play | Command::Continue => {
-                    if !self.playing {
+                    // A count-in already leads to playing.
+                    if !self.playing && self.counting.is_none() {
                         self.scrub.end();
                         self.ahead = if command == Command::Play {
                             self.sample_at(self.play_marker)
@@ -502,13 +576,17 @@ impl<S: Source> Engine<S> {
                         self.start();
                     }
                 }
+                Command::Record { count_in } => self.record(count_in),
+                Command::EndRecord => self.recording = false,
                 Command::Pause => {
-                    if self.playing {
+                    if self.cancel_count_in() {
+                    } else if self.playing {
                         self.halt(channels);
                     }
                 }
                 Command::Stop => {
-                    if self.playing {
+                    if self.cancel_count_in() {
+                    } else if self.playing {
                         self.halt(channels);
                     } else {
                         self.play_marker = Ticks::ZERO;
@@ -518,6 +596,7 @@ impl<S: Source> Engine<S> {
                 Command::Locate(at) => {
                     self.play_marker = at;
                     let sample = self.sample_at(at);
+                    self.cancel_count_in();
                     if self.playing {
                         self.declicked(channels, |engine| {
                             engine.ahead = sample;
@@ -554,6 +633,8 @@ impl<S: Source> Engine<S> {
                 Command::TestTone(on) => self.test_tone.on = on,
                 Command::Panic => {
                     self.playing = false;
+                    self.recording = false;
+                    self.counting = None;
                     self.ahead = self.position;
                     self.declick.clear();
                     self.metronome.silence();
@@ -563,6 +644,41 @@ impl<S: Source> Engine<S> {
                 }
             }
         }
+    }
+
+    /// Starts recording (Command::Record).
+    fn record(&mut self, count_in: u32) {
+        if self.playing {
+            self.recording = true;
+        } else if self.counting.is_none() {
+            self.scrub.end();
+            let marker = self.sample_at(self.play_marker);
+            self.recording = true;
+            if count_in == 0 {
+                self.ahead = marker;
+                self.start();
+                return;
+            }
+            self.place(marker);
+            let meter = self.timeline.meter.meter_at(self.play_marker);
+            let beat = self.sample_at(self.play_marker + meter.beat()) - marker;
+            self.counting = Some(CountIn {
+                beat: beat.max(1),
+                beats: count_in,
+                per_bar: meter.numerator.max(1),
+                done: 0,
+            });
+        }
+    }
+
+    /// Ends a count-in and the recording that waits behind it. Whether
+    /// there was one.
+    fn cancel_count_in(&mut self) -> bool {
+        let was = self.counting.take().is_some();
+        if was {
+            self.recording = false;
+        }
+        was
     }
 
     fn swap_timeline(&mut self, channels: usize) {
@@ -662,6 +778,9 @@ impl<S: Source> Engine<S> {
                 && self
                     .punch_samples
                     .is_some_and(|(start, end)| (start..end).contains(&self.position)),
+            recording: self.recording,
+            count_in_left: self.counting.map_or(0, |c| c.left()),
+            count_in_total: self.counting.map_or(0, |c| c.total()),
         }
     }
 

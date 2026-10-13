@@ -178,6 +178,7 @@ pub fn live(input: Option<rtrb::Consumer<Timed>>, clock: Arc<StreamClock>) -> (L
     let (tx, keys) = rtrb::RingBuffer::new(KEYS_QUEUE);
     let empty = LiveIn {
         frame: 0,
+        played: 0,
         source: 0,
         track: None,
         msg: Msg::default(),
@@ -197,16 +198,21 @@ pub fn live(input: Option<rtrb::Consumer<Timed>>, clock: Arc<StreamClock>) -> (L
 }
 
 impl LiveFeed {
-    /// The frame at which a message played at `nanos` is heard.
-    fn place(&self, nanos: i64, block: Option<Block>, start: u64) -> u64 {
+    /// The frame at which a message played at `nanos` is heard, and the
+    /// frame it was played at (the clock's, before the feed's block of
+    /// delay), which a recording puts it at.
+    fn place(&self, nanos: i64, block: Option<Block>, start: u64) -> (u64, u64) {
         let Some(block) = block else {
-            return start;
+            return (start, start);
         };
         match self.frames.frame_at(nanos, block.rate) {
-            Some(frame) => (frame + block.frames)
-                .min(block.start + 2 * block.frames)
-                .max(start),
-            None => start,
+            Some(played) => (
+                (played + block.frames)
+                    .min(block.start + 2 * block.frames)
+                    .max(start),
+                played,
+            ),
+            None => (start, start),
         }
     }
 
@@ -257,10 +263,11 @@ impl LiveInput for LiveFeed {
                 if self.stale(played, msg) {
                     continue;
                 }
-                let frame = self.place(played, block, start);
+                let (frame, at) = self.place(played, block, start);
                 self.queue(
                     LiveIn {
                         frame,
+                        played: at,
                         source,
                         track: None,
                         msg,
@@ -274,10 +281,11 @@ impl LiveInput for LiveFeed {
             if self.stale(keyed.nanos, keyed.msg) {
                 continue;
             }
-            let frame = self.place(keyed.nanos, block, start);
+            let (frame, at) = self.place(keyed.nanos, block, start);
             self.queue(
                 LiveIn {
                     frame,
+                    played: at,
                     source: if keyed.track.is_some() {
                         AUDITION
                     } else {
@@ -371,6 +379,10 @@ mod tests {
         }
         let frames: Vec<u64> = heard.iter().map(|m| m.frame).collect();
         assert_eq!(frames, vec![228, 461, 738, 1_128]);
+        // Where the notes were played, without the block of delay: where a
+        // recording puts them.
+        let played: Vec<u64> = heard.iter().map(|m| m.played).collect();
+        assert_eq!(played, vec![100, 333, 610, 1_000]);
         assert!(heard.iter().all(|m| m.source == 2));
     }
 

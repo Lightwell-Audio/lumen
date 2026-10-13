@@ -32,7 +32,7 @@ pub use clips::{Clip, ClipAudio, ClipPlayer, ClipShape, ClipsHandle, FadeFrames,
 pub use engine::{Command, Engine, EngineHandle, Region, engine};
 pub use metronome::{ClickSound, MetronomeSettings};
 pub use midi::{
-    AUDITION, INPUT_SLOTS, InstrumentSpec, KEYBOARD, Listen, LiveIn, LiveInput, MidiClip,
+    AUDITION, Captured, INPUT_SLOTS, InstrumentSpec, KEYBOARD, Listen, LiveIn, LiveInput, MidiClip,
     MidiControl, MidiHandle, MidiNote, MidiOut, MidiPlayer, MidiTrack, SOURCES as LIVE_SOURCES,
     Target, control_list, midi_player, note_list,
 };
