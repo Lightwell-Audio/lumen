@@ -159,6 +159,7 @@ mod tests {
             length: q(4),
             loop_length: None,
             notes,
+            carried: &[],
         }
     }
 

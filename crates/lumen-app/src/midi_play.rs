@@ -4,125 +4,17 @@
 //! port) and which instrument plays them. Pure, like `lanes::engine_clips`
 //! and `routing::routing`, so the translation is tested.
 //!
-//! Clips that did not change keep their note lists (shared by clip, so the
-//! engine's comparison is a pointer check and a 100,000-note clip is not
-//! copied on every edit elsewhere).
+//! Clips that meet at a seam play as one run, so a note held across the
+//! seam sustains (`midi_runs`, ADR-0058). Runs that did not change keep
+//! their note lists (shared, so the engine's comparison is a pointer check
+//! and a 100,000-note clip is not copied on every edit elsewhere).
 
-use std::collections::HashMap;
-use std::sync::Arc;
-
-use lumen_core::midi::Msg;
 use lumen_core::time::Ticks;
 use lumen_devices::{Preset, Synth, synth};
-use lumen_engine::{
-    INPUT_SLOTS, InstrumentSpec, KEYBOARD, Listen, MidiClip, MidiControl, MidiNote, MidiTrack,
-    Target, control_list, note_list,
-};
-use lumen_project::edit;
-use lumen_project::model::{
-    self, ClipContent, EventKind, FromSource, Id, Monitor, Project, TrackKind,
-};
+use lumen_engine::{INPUT_SLOTS, InstrumentSpec, KEYBOARD, Listen, MidiTrack, Target};
+use lumen_project::model::{self, ClipContent, FromSource, Id, Monitor, Project, TrackKind};
 
-/// A clip's translated lists, kept while the clip itself is unchanged.
-struct Cached {
-    /// The model clip they were built from (also keeps its address from
-    /// being reused while the entry lives).
-    source: Arc<model::Clip>,
-    notes: Arc<[MidiNote]>,
-    controls: Arc<[MidiControl]>,
-}
-
-/// Translated clips by clip id.
-#[derive(Default)]
-pub struct Cache {
-    clips: HashMap<Id, Cached>,
-}
-
-impl Cache {
-    /// The lists for `clip`, rebuilt only if it changed.
-    fn lists(&mut self, clip: &Arc<model::Clip>) -> (Arc<[MidiNote]>, Arc<[MidiControl]>) {
-        if let Some(c) = self.clips.get(&clip.id)
-            && (Arc::ptr_eq(&c.source, clip) || *c.source == **clip)
-        {
-            return (Arc::clone(&c.notes), Arc::clone(&c.controls));
-        }
-        let ClipContent::Midi { notes, events } = &clip.content else {
-            return (note_list(Vec::new()), control_list(Vec::new()));
-        };
-        // Only what is in the clip's window plays: a clip keeps the notes
-        // its edges have hidden (format v15).
-        let shows = |at| lumen_project::edit::in_window(clip, at);
-        let notes = note_list(
-            notes
-                .iter()
-                .filter(|n| !n.muted() && shows(n.start()))
-                .map(|n| MidiNote {
-                    start: n.start(),
-                    length: n.length(),
-                    pitch: n.pitch(),
-                    velocity: n.velocity(),
-                })
-                .collect(),
-        );
-        let controls = control_list(
-            events
-                .iter()
-                .filter(|e| shows(e.at))
-                .flat_map(control)
-                .collect(),
-        );
-        self.clips.insert(
-            clip.id,
-            Cached {
-                source: Arc::clone(clip),
-                notes: Arc::clone(&notes),
-                controls: Arc::clone(&controls),
-            },
-        );
-        (notes, controls)
-    }
-
-    /// Forgets clips that are not in `project` any more.
-    fn retain(&mut self, project: &Project) {
-        let live: std::collections::HashSet<Id> = project
-            .tracks
-            .iter()
-            .flat_map(|t| t.clips.iter().map(|c| c.id))
-            .collect();
-        if self.clips.len() > live.len() {
-            self.clips.retain(|id, _| live.contains(id));
-        }
-    }
-}
-
-/// A clip event as the messages that carry it (a program change with a
-/// bank sends the bank first).
-fn control(event: &model::ClipEvent) -> Vec<MidiControl> {
-    let at = event.at;
-    let msg = |m: Msg| MidiControl { at, msg: m };
-    match event.kind {
-        EventKind::Controller { number, value } => vec![msg(Msg::controller(0, number, value))],
-        EventKind::PitchBend { value } => vec![msg(Msg::pitch_bend(0, value))],
-        EventKind::Pressure { value } => vec![msg(Msg::pressure(0, value))],
-        EventKind::Program { program, bank } => {
-            let mut out = Vec::new();
-            if let Some(bank) = bank {
-                out.push(msg(Msg::controller(
-                    0,
-                    lumen_core::midi::cc::BANK_MSB,
-                    (bank >> 7) as u8,
-                )));
-                out.push(msg(Msg::controller(
-                    0,
-                    lumen_core::midi::cc::BANK_LSB,
-                    (bank & 127) as u8,
-                )));
-            }
-            out.push(msg(Msg::program(0, program)));
-            out
-        }
-    }
-}
+pub use crate::midi_runs::Cache;
 
 /// The MIDI outputs the engine's port numbers stand for, by name. Names are
 /// only ever added, so a number keeps its port for the whole run; the
@@ -282,36 +174,9 @@ pub fn from_sources(track: &model::Track, inputs: &Inputs) -> u64 {
 }
 
 /// The keys the track's own clips hold at arrangement time `at`, as the
-/// engine plays them (`hold.rs`): a note sounds from its start up to its
-/// end, within its repeat of the clip's content, and only while its clip is
-/// unmuted and `at` is inside the clip. A muted note holds nothing. Each key
-/// once.
+/// engine plays them: see `midi_runs::sounding_keys`.
 pub fn sounding_keys(track: &model::Track, at: Ticks) -> Vec<u8> {
-    let mut keys = Vec::new();
-    for clip in &track.clips {
-        if clip.muted || clip.length.0 <= 0 {
-            continue;
-        }
-        let ClipContent::Midi { notes, .. } = &clip.content else {
-            continue;
-        };
-        // The position in the clip's content: a note of a loop sounds in
-        // each repeat, and never past its repeat's end (the engine cuts it).
-        let Some((local, _)) = edit::to_clip_time(clip, at) else {
-            continue;
-        };
-        // Notes outside the clip's window are hidden and do not play.
-        let shows = |n: &&model::Note| edit::in_window(clip, n.start());
-        for note in notes.iter().filter(|n| !n.muted()).filter(shows) {
-            // A zero-length note sounds for one tick, as the engine plays it.
-            let start = note.start().0;
-            let end = start + note.length().0.max(1);
-            if (start..end).contains(&local.0) && !keys.contains(&note.pitch()) {
-                keys.push(note.pitch());
-            }
-        }
-    }
-    keys
+    crate::midi_runs::sounding_keys(track, at)
 }
 
 /// The keys a track's own clips sound on its MIDI output now, while the
@@ -364,22 +229,19 @@ pub fn engine_midi(
             ),
             None => (Target::Instrument, false),
         };
-        let clips = track
+        let members = track
             .clips
             .iter()
             .filter(|c| !silent && !c.muted && matches!(c.content, ClipContent::Midi { .. }))
-            .filter_map(|clip| Some((clip, inputs.playing_length(track.id, clip)?)))
-            .map(|(clip, length)| {
-                let (notes, controls) = cache.lists(clip);
-                MidiClip {
-                    id: clip.id.0,
-                    start: clip.start,
-                    length,
-                    period: clip.loop_length.filter(|l| l.0 > 0),
-                    notes,
-                    controls,
-                }
-            })
+            .filter_map(|clip| {
+                Some(crate::midi_runs::Member {
+                    clip,
+                    length: inputs.playing_length(track.id, clip)?,
+                })
+            });
+        let clips = crate::midi_runs::runs(members)
+            .iter()
+            .map(|run| cache.clip(run))
             .collect();
         tracks.push(
             MidiTrack::new(track.id.0, target, instrument(track), clips)
@@ -392,9 +254,10 @@ pub fn engine_midi(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use lumen_core::midi::Kind;
-    use lumen_core::time::Ticks;
-    use lumen_project::model::{Clip, ClipEvent, Note};
+    use lumen_project::model::{Clip, ClipEvent, EventKind, Note};
 
     use super::*;
     use crate::document::Document;

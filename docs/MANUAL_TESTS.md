@@ -2428,7 +2428,7 @@ readout beside Quantize changes with the popover's settings.
 
 
 ### MT-MIDI-7 · Recording MIDI (needs a human and a MIDI controller; the computer keyboard also works)
-Slice 6 of M5 (ADR-0055). **Status: runs 4 and 5 wait for the owner.** Start
+Slice 6 of M5 (ADR-0055). **Status: runs 4, 5 and 6 wait for the owner.** Start
 Lumen from the repository root:
 
 ```powershell
@@ -2595,3 +2595,20 @@ waits for the owner.
     clip under the take, its edges and its notes to move with the playhead on
     every frame, not in steps about once a second, and nothing to move when
     you stop.
+
+**Run 6 steps (new, after the owner's Overdub report; ADR-0058).**
+31. **The clip shows at once.** Overdub on; put the marker where the armed
+    MIDI track has no clip and press F9. Wait a few seconds without playing.
+    Expect a clip from where recording began, growing with the playhead,
+    before any note. Stop: expect it to stay, empty.
+32. **A held note across the boundary.** Overdub on; put a long note (a pad,
+    a few bars) in a clip, play from before it, and press F9 while it
+    sounds. Expect the note drawn as one line through the new clip, not cut
+    where recording began. Stop, then drag the boundary between the old clip
+    and the new one (either edge) and back: expect the note to stay whole
+    where the clips meet, and to be cut only where you pull them apart.
+33. **It sustains.** As in 32, listen while recording and after, playing it
+    back from before the note: expect it to sound once, for its full length,
+    with no cut where recording began and no new attack about once a second.
+    Then play a key of the same pitch while recording over it: expect the old
+    note to stop there and yours to win.

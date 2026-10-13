@@ -40,7 +40,10 @@ pub(super) fn build(
             continue;
         };
         let fit = mini::Fit::new(lo, hi);
-        for clip in &track.clips {
+        // Notes held across a seam are drawn on into the next clip, as
+        // they sound (ADR-0058).
+        let carried = lumen_project::edit::seams::carried(track);
+        for (clip, carried) in track.clips.iter().zip(&carried) {
             let ClipContent::Midi { notes, .. } = &clip.content else {
                 continue;
             };
@@ -61,6 +64,7 @@ pub(super) fn build(
                     length: clip.length,
                     loop_length: clip.loop_length,
                     notes,
+                    carried,
                 },
                 (n as u32, fit),
                 color,
@@ -137,6 +141,40 @@ mod tests {
         let table = rows(&built.tracks, &slots, 1.0);
         assert_eq!(table.len(), BANDS as usize);
         assert!(table[0].top >= 100.0 + INSET + TITLE);
+    }
+
+    #[test]
+    fn a_note_held_across_a_seam_is_drawn_on_into_the_next_clip() {
+        // A note from beat 6 to 10, split at 8: both pieces keep it, so the
+        // second draws its tail from its start (the owner's boundary case).
+        let q = Ticks::quarters;
+        let mut project = lumen_project::testing::synthetic(1, 1, 0, 0, 0);
+        let mut track = (*project.tracks[0]).clone();
+        let left = clip(vec![Note::new(q(2), q(4), 60, 100)]);
+        let right = Clip {
+            id: Id(2),
+            start: q(8),
+            ..clip(vec![Note::new(q(-2), q(4), 60, 100)])
+        };
+        track.clips = vec![Arc::new(left), Arc::new(right.clone())];
+        project.tracks = vec![Arc::new(track.clone())];
+        let built = build(&project, None, |_| true);
+        let spans: Vec<(f64, f64)> = built
+            .boxes
+            .iter()
+            .map(|b| {
+                let at = |v: [f32; 2]| f64::from(v[0]) + f64::from(v[1]);
+                (at(b.start), at(b.end))
+            })
+            .collect();
+        assert_eq!(spans, vec![(6.0, 8.0), (8.0, 10.0)]);
+        // Moved away from the first clip, the second keeps its note hidden.
+        track.clips[1] = Arc::new(Clip {
+            start: q(9),
+            ..right
+        });
+        project.tracks = vec![Arc::new(track)];
+        assert_eq!(build(&project, None, |_| true).boxes.len(), 1);
     }
 
     #[test]

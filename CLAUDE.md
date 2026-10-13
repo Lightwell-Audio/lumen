@@ -390,8 +390,22 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-13 (latest): **the owner's four recording and
-trim points are fixed** (ADR-0057). MIDI clip edges keep the distance they
+**Last updated:** 2026-10-13 (latest): **the owner's Overdub report is
+fixed** (ADR-0058). Overdub over an empty lane makes its clip at once, empty
+until a note is played. Notes **carry on across seams**: where a clip begins
+exactly where the one before it ends and holds the same note (hidden before
+its start), the note sounds and is drawn through (`edit::seams`). Overdub
+begun inside a clip carries what was heard whole (`record::carry`: a note
+sounding at the record start keeps its start before the new clip; nothing is
+cut at the take's end), so it sustains through recording and its commits.
+Playback joins touching clips into one engine clip, a run known by its first
+clip (`midi_runs.rs`; `midi_play` uses it, the engine is unchanged), so a
+held note keeps its owner while the seams after it move. Mini notes draw
+carried notes (`ClipNotes::carried`); the clip editor does not yet
+(KNOWN_ISSUES). E2E `overdub_seams` (both fail without the fix); E2E 324,
+smoke 6 pass. Not run: the WSL perf gate, macOS cross-clippy. **MT-MIDI-7 run
+6 (steps 31 to 33) waits for the owner.** Before it, 2026-10-13: **the
+owner's four recording and trim points are fixed** (ADR-0057). MIDI clip edges keep the distance they
 were picked up at (`Gesture::Trim::grab`), trims do not glide, and a track's
 note layout counts hidden notes (`mini::track_range`). Overdub begun inside a
 non-looping MIDI clip is a new clip from the playhead to the stop carrying the

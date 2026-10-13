@@ -46,22 +46,22 @@ const BAR: i64 = Ticks::quarters(4).0;
 const TOLERANCE: f64 = 1.0;
 
 /// A position in beats, as ticks.
-fn beats(x: f64) -> Ticks {
+pub(super) fn beats(x: f64) -> Ticks {
     Ticks((x * BEAT as f64).round() as i64)
 }
 
 /// A note of a clip, at absolute project ticks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Placed {
-    start: Ticks,
-    end: Ticks,
-    pitch: u8,
-    velocity: u8,
+pub(super) struct Placed {
+    pub(super) start: Ticks,
+    pub(super) end: Ticks,
+    pub(super) pitch: u8,
+    pub(super) velocity: u8,
 }
 
 /// The notes of `clip` in its window (what plays and shows), at absolute
 /// project ticks, in the order stored.
-fn placed(clip: &Clip) -> Vec<Placed> {
+pub(super) fn placed(clip: &Clip) -> Vec<Placed> {
     let ClipContent::Midi { notes, .. } = &clip.content else {
         return Vec::new();
     };
@@ -82,7 +82,7 @@ fn all_placed(lumen: &Lumen) -> Vec<Placed> {
     clips_of(lumen).iter().flat_map(|c| placed(c)).collect()
 }
 
-fn clips_of(lumen: &Lumen) -> Vec<Arc<Clip>> {
+pub(super) fn clips_of(lumen: &Lumen) -> Vec<Arc<Clip>> {
     lumen.app().project().tracks[0].clips.clone()
 }
 
@@ -141,7 +141,7 @@ impl Keys {
 }
 
 /// A fake keyboard with one input, plugged in before Lumen starts.
-fn keyboard() -> FakeControl {
+pub(super) fn keyboard() -> FakeControl {
     let fake = FakeControl::new();
     fake.plug(Direction::Input, PORT);
     fake
@@ -149,7 +149,7 @@ fn keyboard() -> FakeControl {
 
 /// An armed (or not) MIDI track with the synth on Poly: empty, or with a
 /// clip of `notes` over beats 0 to 8.
-fn track(notes: Option<Vec<Note>>, armed: bool) -> Track {
+pub(super) fn track(notes: Option<Vec<Note>>, armed: bool) -> Track {
     let mut track = match notes {
         Some(notes) => midi_track(1, "Keys", "poly", (0, 8), None, notes, vec![]),
         None => {
@@ -164,7 +164,7 @@ fn track(notes: Option<Vec<Note>>, armed: bool) -> Track {
 
 /// Starts Lumen with `project`, and the fake keyboard switched on for tracks
 /// (as the settings' MIDI page does).
-fn launch(name: &str, project: &Project, fake: &FakeControl) -> Lumen {
+pub(super) fn launch(name: &str, project: &Project, fake: &FakeControl) -> Lumen {
     let dir = TempDir::new(&format!("e2e-record-{name}"));
     let path = dir.path().join("song.lumen");
     lumen_project::save(project, &path, &Default::default()).expect("save the test project");
@@ -209,7 +209,7 @@ fn switch_on_for_tracks(lumen: &mut Lumen, fake: &FakeControl, port: &str) {
 }
 
 /// Record (F9) from stop, with no count-in: runs until the playhead moves.
-fn record(lumen: &mut Lumen) {
+pub(super) fn record(lumen: &mut Lumen) {
     lumen.key(Modifiers::NONE, Key::F9);
     lumen.wait_for("the take to start", |app| {
         app.recording() && app.is_playing()
@@ -217,7 +217,7 @@ fn record(lumen: &mut Lumen) {
 }
 
 /// Runs until the playhead reaches `at`, and returns where it is.
-fn reach(lumen: &mut Lumen, at: Ticks) -> Ticks {
+pub(super) fn reach(lumen: &mut Lumen, at: Ticks) -> Ticks {
     lumen.wait_for(&format!("beat {}", at.0 as f64 / BEAT as f64), move |app| {
         app.playhead() >= at
     });
@@ -226,7 +226,7 @@ fn reach(lumen: &mut Lumen, at: Ticks) -> Ticks {
 
 /// Space stops playback, which ends the take. Returns where the playhead
 /// stopped.
-fn stop(lumen: &mut Lumen) -> Ticks {
+pub(super) fn stop(lumen: &mut Lumen) -> Ticks {
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("the take to end", |app| {
         !app.recording() && !app.is_playing()
@@ -383,7 +383,7 @@ fn replace_cuts_the_clip_under_the_take() {
 
 /// A track with `old` over beats 0 to 8, armed and sent to the fake output
 /// "Synth" (so what plays can be counted), at a tempo that runs fast.
-fn heard_project(old: Vec<Note>) -> (Project, FakeControl) {
+pub(super) fn heard_project(old: Vec<Note>) -> (Project, FakeControl) {
     let fake = keyboard();
     fake.plug(Direction::Output, "Synth");
     let mut keys = track(Some(old), true);
@@ -814,7 +814,7 @@ fn punch_out_ends_the_take_at_the_brace_and_playback_carries_on() {
 }
 
 /// Starts playback with Space and waits until the playhead reaches `at`.
-fn play_to(lumen: &mut Lumen, at: Ticks) {
+pub(super) fn play_to(lumen: &mut Lumen, at: Ticks) {
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.is_playing());
     reach(lumen, at);
@@ -822,7 +822,7 @@ fn play_to(lumen: &mut Lumen, at: Ticks) {
 
 /// An armed MIDI track whose one clip (id 3) runs from beat `start` for
 /// `length` beats, holding `notes`.
-fn track_at((start, length): (i64, i64), notes: Vec<Note>) -> Track {
+pub(super) fn track_at((start, length): (i64, i64), notes: Vec<Note>) -> Track {
     let mut track = midi_track(1, "Keys", "poly", (start, length), None, notes, vec![]);
     track.armed = true;
     track

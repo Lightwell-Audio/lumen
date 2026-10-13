@@ -59,6 +59,7 @@ irreversible or external) · *Superseded*.
 | [0047](#adr-0047--midi-clips-and-the-piano-roll-m5-slice-3-format-v14) | MIDI clips and the piano roll: note edits and mute (format v14), notes on the GPU, the clip editor and its pop-out, auditioning | Accepted 2026-10-11 | No |
 | [0052](#adr-0052--the-design-system-replaces-adr-0051s-lit-look) | The design system's material and tokens replace ADR-0051's lit look | Accepted 2026-10-11 | No |
 | [0055](#adr-0055--recording-midi-m5-slice-6-no-format-change) | Recording MIDI (M5 slice 6, no format change): the engine's Record with a count-in, live capture with its timeline sample, a pure take builder (Replace, Overdub, loops, punch) and one undo step per take | Accepted 2026-10-13 | No |
+| [0058](#adr-0058--notes-carry-on-across-seams-and-overdub-shows-its-clip-at-once) | Notes carry on across seams (touching MIDI clips that hold the same note play it as one), and Overdub shows its clip at once | Accepted 2026-10-13 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -5061,3 +5062,102 @@ every frame).
 Not verified: the look and feel by hand (MT-MIDI-7 run 5), frame times on a
 GPU, and the WSL perf gate (`lumen-project` changed; `place` is not in a perf
 scenario).
+
+## ADR-0058 — Notes carry on across seams, and Overdub shows its clip at once
+
+**Status:** Accepted (owner's report) · **Date:** 2026-10-13
+
+**Context.** The owner reported three faults with MIDI Arrangement Overdub,
+with two screenshots of the boundary case:
+1. Overdub begun on an armed track with no clip at the playhead showed no clip
+   until the first note was played.
+2. Overdub begun inside a clip over a note already sounding: the note looked
+   cut off at the new clip's start, and came and went as the boundary was
+   moved or resized.
+3. While recording that way, existing notes sustaining across the new clip's
+   start were cut off, and sounded like short stabs.
+
+**Causes found.**
+1. `edit::record` Overdub gave a part of the range that no MIDI clip borders a
+   new clip only "when it holds something" (ADR-0057), so an empty take over an
+   empty lane placed nothing: neither the preview drawn every frame nor the
+   commits showed a clip.
+2. The clip begun inside an existing one carried only the old notes that
+   *start* inside the take's range (`heard_in`). The note sounding at the
+   record start stayed in the old clip, which the new clip cuts there: the
+   note was kept (ADR-0056) but hidden past the old clip's end. Moving the
+   boundary showed or hid it.
+3. Three things. (a) That same note ended at the old clip's new end, the
+   record start. (b) The carried notes were cut at the take's current end,
+   and a commit (about once a second) moves that end: each commit changed the
+   notes, so the engine (which knows a held note by its clip, the clip's
+   start and the note's start and length, `hold.rs`) let them go and struck
+   them again. (c) The rest of the clip recorded over is a piece that starts
+   at the take's end, so its start also moved with every commit, and a note
+   it was sounding was let go and struck again for the same reason.
+
+**Options** for the sustain (behaviour; the owner's report asked for the
+outcome, "existing notes continue to play for their full duration unless the
+new input or an intentional clip boundary changes them").
+- **A. Notes carry on across seams.** Where one clip begins exactly where the
+  one before it ends and *holds the same note* (same pitch and arrangement
+  start, kept hidden before its start, as a split's right piece and the
+  Overdub clip do), the note sounds and is drawn on through the boundary. A
+  clip that does not hold it (one moved up against another, a note cut where
+  a new one was played) still cuts it there, as Ableton cuts a note at its
+  clip's end.
+- **B. Play whatever a window shows, including the part of a note that
+  starts before it.** Simpler, but it changes ADR-0056's Ableton rule for
+  every trimmed clip (a trimmed start would sound the tail of a note), and
+  still strikes the note again at the seam.
+- **C. Overdub merges into the clip it begins in** instead of making a new
+  clip. Avoids the seam, but goes against the owner's choice in ADR-0057
+  (point 3: a new clip from the playhead).
+
+**Choice: A.**
+- `edit::seams` (pure, `lumen-project`): `is_seam`, `carried_on` and
+  `carried(track)`, the notes each clip carries on from the clip before.
+  Only unmuted clips that do not loop meet at seams; muted notes carry nothing.
+- **Recording.** `record::overdub_from_inside` carries what was heard
+  *whole* (`carry`): a note sounding at the record start keeps its start
+  before the new clip (hidden), and a note running past the take's end is not
+  cut there. So both carry on across the seams with the pieces around the new
+  clip, and every commit leaves them as they were. A note played over a
+  carried one of the same pitch still wins it (`settle`), which ends the
+  carried note there and so stops it carrying on. Overdub over a part no MIDI
+  clip borders now makes the clip at once, empty until a note is played, as
+  Replace always has (this amends ADR-0057's "when it holds something").
+- **Playback.** `midi_runs` (app): touching clips play as one engine clip, a
+  *run*, known by its first clip. Note lengths are worked out there: cut at
+  the clip's end unless the next clip carries the note on. A run's first clip
+  keeps its id and start while a recording moves the seams after it, so the
+  notes playing keep their owner in the engine across commits and are neither
+  released nor struck again. The engine is unchanged. `sounding_keys` reads
+  the same runs.
+- **Drawing.** The arrangement's mini notes draw a carried note from the
+  clip's start (`ClipNotes::carried`), so the note reads as one line across
+  the boundary, as it sounds.
+
+**Consequences.** A note held across a cut that leaves two touching pieces
+(an Overdub begun inside a clip, and clip split when M7 builds it) sustains
+through it instead of stopping there, so a cut does not change what is heard. Clips that merely touch
+play as one engine clip: an edit that separates two touching clips while a
+note of the second is sounding lets it go and starts it again (it changes
+owner), where before it carried on. The clip editor (piano roll) does not show
+carried notes; they are edited in the clip where they start (KNOWN_ISSUES).
+
+Tests: `edit/seams.rs` (splits carry on, other notes and gaps do not, muted
+and looping clips carry nothing), `edit/record.rs` (a sounding note carried
+whole and on through both seams; carried notes unchanged as the take grows; a
+note played over a carried one ends it; an empty Overdub over an empty lane is
+a clip at once), `document/record.rs`, `midi_runs.rs` (a split note plays
+whole; a clip that does not hold it cuts it; apart and looping clips are runs
+of their own; a run cut short by Replace stops; a run is the same engine clip
+while the seams after it move; sounding keys follow a seam), `mini_notes.rs`
+(a carried note is drawn into the next clip, and not once the clip is moved
+away); E2E `overdub_seams` (the empty Overdub clip shows before any note; a
+note held where Overdub begins is struck once, through recording, two commits
+and playback). Both E2E scenarios fail without the fix.
+
+Not verified: by hand (MT-MIDI-7 run 6), and the WSL perf gate (`lumen-project`
+changed; `place` is not in a perf scenario, and the engine is unchanged).

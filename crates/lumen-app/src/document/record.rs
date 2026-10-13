@@ -315,13 +315,31 @@ mod tests {
 
     #[test]
     fn an_overdub_with_nothing_to_add_makes_no_step() {
+        // An empty take over a clip, begun at its start, merges nothing.
         let mut doc = Document::new(crate::empty_project());
         let track = doc.add_track(TrackKind::Midi, None);
+        doc.create_midi_clip(track, NewClip::Range(q(0), q(8)))
+            .unwrap();
         let mut rec = doc.begin_recording(&[]);
         let state = doc.state();
         let placed = doc.record_take(&mut rec, track, &take(0, 4, vec![]), Mode::Overdub, None);
         assert_eq!(placed, Ok(vec![]));
         assert_eq!(doc.state(), state);
+    }
+
+    #[test]
+    fn an_empty_overdub_over_an_empty_lane_is_an_empty_clip_at_once() {
+        // The clip shows from the start of recording, before any note.
+        let mut doc = Document::new(crate::empty_project());
+        let track = doc.add_track(TrackKind::Midi, None);
+        let mut rec = doc.begin_recording(&[track]);
+        let placed = doc.record_take(&mut rec, track, &take(0, 4, vec![]), Mode::Overdub, None);
+        assert_eq!(placed, Ok(vec![rec.take_clip(track).unwrap()]));
+        let clips = &doc.project().tracks[0].clips;
+        assert_eq!(
+            (clips.len(), clips[0].start, clips[0].length),
+            (1, q(0), q(4))
+        );
     }
 
     #[test]

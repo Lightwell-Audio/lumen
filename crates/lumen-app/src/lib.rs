@@ -57,6 +57,7 @@ mod meters;
 mod midi;
 mod midi_out;
 mod midi_play;
+mod midi_runs;
 mod midi_settings;
 mod motion;
 mod note_editor;

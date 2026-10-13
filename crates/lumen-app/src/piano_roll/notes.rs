@@ -36,6 +36,10 @@ pub(crate) struct ClipNotes<'a> {
     pub length: Ticks,
     pub loop_length: Option<Ticks>,
     pub notes: &'a [Note],
+    /// Notes (by index) that carry on into the clip across a seam with the
+    /// clip before it (`edit::seams`): they start before the clip and are
+    /// drawn from its start, as they sound.
+    pub carried: &'a [usize],
 }
 
 /// One note placed on the timeline: `index` into the clip's notes, `rep`
@@ -66,8 +70,9 @@ impl ClipNotes<'_> {
 
     /// Every note as it plays, the way the engine reads the clip
     /// (`midi/hold.rs`): each repeat plays the notes that start inside it,
-    /// cut at the repeat's end, and at least a tick long. Calls `f` for
-    /// each, repeat by repeat, until [`MAX_BOXES`].
+    /// cut at the repeat's end, and at least a tick long; notes carried on
+    /// into the clip play from its start. Calls `f` for each, repeat by
+    /// repeat, until [`MAX_BOXES`].
     pub fn each_placed(&self, mut f: impl FnMut(Placed, Note)) {
         if self.length.0 <= 0 {
             return;
@@ -75,6 +80,22 @@ impl ClipNotes<'_> {
         let period = self.period();
         let count = ((self.length.0 + period - 1) / period).min(MAX_REPEATS);
         let mut made = 0;
+        for &index in self.carried {
+            let Some(&note) = self.notes.get(index) else {
+                continue;
+            };
+            let end = note.end().0.min(period.min(self.length.0)).max(1);
+            f(
+                Placed {
+                    index,
+                    rep: 0,
+                    start: self.start.as_quarters(),
+                    end: Ticks(self.start.0 + end).as_quarters(),
+                },
+                note,
+            );
+            made += 1;
+        }
         for rep in 0..count {
             let base = self.start.0 + rep * period;
             let span = period.min(self.length.0 - rep * period);
@@ -224,6 +245,7 @@ mod tests {
             length: q(4),
             loop_length: None,
             notes,
+            carried: &[],
         }
     }
 
