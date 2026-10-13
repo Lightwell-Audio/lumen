@@ -204,6 +204,18 @@ impl App {
         Some((take.from, take.to, notes))
     }
 
+    /// The pitch range each note of the take is drawn to, on the first track
+    /// recording (the clip it lands in; `piano_roll::mini::Fit`).
+    pub fn live_ranges(&self) -> Vec<(u8, u8)> {
+        let Some(take) = self.arrangement.live_take.as_ref() else {
+            return Vec::new();
+        };
+        take.tracks
+            .first()
+            .map(|t| t.notes.iter().map(|n| n.range).collect())
+            .unwrap_or_default()
+    }
+
     /// Whether Overdub is on: a take merges into the clip under it (M5
     /// slice 6; `settings.record`).
     pub fn overdub_on(&self) -> bool {

@@ -117,7 +117,7 @@ mod tests {
         let built = build(&project, None);
         assert_eq!(built.tracks, [1]);
         assert_eq!(built.boxes.len(), 1);
-        assert!(built.boxes[0].row < BANDS);
+        assert!(built.boxes[0].row & 0xFF_FFFF < BANDS);
         let slots = [
             RowSlot::new(0.0, 100.0, 1.0),
             RowSlot::new(100.0, 100.0, 1.0),

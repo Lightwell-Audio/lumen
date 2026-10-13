@@ -1380,6 +1380,37 @@ fn mini_notes() {
             });
         h.run_steps(60);
         save(&mut h, &format!("mini-notes-{appearance}"));
+        // A tall Chords track: every pitch a row, neighbours touching, as
+        // in the piano roll.
+        let dir = TempDir::new("shots-mini-tall");
+        let copy = dir.path().join("midi-demo.lumen");
+        let text = std::fs::read_to_string(&fixture).expect("the MIDI demo project");
+        let tall = text
+            .replacen(
+                "\"track_heights\": {}",
+                "\"track_heights\": { \"0000000000000001\": 260.0 }",
+                1,
+            )
+            .replacen(
+                "\"expanded\": []",
+                "\"expanded\": [\"0000000000000001\"]",
+                1,
+            );
+        assert_ne!(tall, text, "the fixture names its track heights");
+        std::fs::write(&copy, tall).expect("a copy");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .opening(copy);
+        let mut h = Harness::builder()
+            .with_size(vec2(1200.0, 640.0))
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(60);
+        save(&mut h, &format!("mini-notes-tall-{appearance}"));
     }
 }
 

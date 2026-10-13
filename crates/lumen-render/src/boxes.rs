@@ -17,6 +17,8 @@ use crate::{Area, Beats, Prepared, Renderer, View, beats, pipeline};
 
 /// One box: a time range (timeline units, as [`View::left`]) on row slot
 /// `row`, with straight-alpha colours (`0xAABBGGRR`, from [`crate::rgba`]).
+/// `row`'s low 24 bits are the slot; its top 8 bits, when set, are how many
+/// further slots below it the box also covers (see [`spanning`]).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct BoxInstance {
@@ -31,6 +33,13 @@ pub struct BoxInstance {
     /// Covers the body's left `progress` (0 to 1): a loading file.
     pub fill: u32,
     pub progress: f32,
+}
+
+/// A box's `row` for one that starts on slot `first` and covers `extra`
+/// further slots below it (at most 255; slots up to 2^24).
+pub fn spanning(first: u32, extra: u32) -> u32 {
+    debug_assert!(first < 1 << 24);
+    (first & 0xFF_FFFF) | (extra.min(255) << 24)
 }
 
 /// Where a row slot is: its top and height in content pixels (before the

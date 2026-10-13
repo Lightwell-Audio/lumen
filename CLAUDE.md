@@ -390,7 +390,19 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-13 (later): **MT-MIDI-7 run 1 fixes** on `m5-midi`
+**Last updated:** 2026-10-13 (latest): **MT-MIDI-7 run 2 fixes, clip
+previews as Ableton's** on `m5-midi` (ADR-0055 amendment "clip previews as
+Ableton's"). Notes inside arrangement clips now have the piano roll's
+proportions: 128 bands a track (`mini::BANDS`), a clip's range divided evenly
+by `mini::Fit` (padded to 16, centred), a note spanning its row's bands (a box
+may span row slots: the top 8 bits of `BoxInstance::row`,
+`lumen_render::spanning`). The take is drawn from the same fit
+(`LiveNote::range`, `record.rs` `live_ranges`), so nothing moves on stop; the
+fixed `live_band` layout is gone. Nothing glides while recording, nor for the
+commit that ends it (`ClipGlides::update`). E2E 314, smoke 6 (under
+`xvfb-run -a` in the container). **MT-MIDI-7 run 3 (steps 19 to 21) waits for
+the owner.** Open: the clip editor follows commits (about once a second), not
+every frame. Before it, 2026-10-13 (later): **MT-MIDI-7 run 1 fixes** on `m5-midi`
 (ADR-0055 amendment). The owner's findings: the take painted in chunks,
 recording over a clip redrew it at every commit, and held keys and notes held
 across the loop wrap were lost. Now: the take is drawn every frame from the

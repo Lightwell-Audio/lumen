@@ -20,6 +20,9 @@ pub(crate) struct LiveNote {
     pub end: Ticks,
     pub pitch: u8,
     pub velocity: u8,
+    /// The pitch range of the clip it lands in, which places it in the
+    /// clip's body as the committed clip will (`piano_roll::mini::Fit`).
+    pub range: (u8, u8),
 }
 
 /// One recording track's part of the take.
@@ -70,6 +73,7 @@ mod tests {
             end: Ticks(end),
             pitch,
             velocity: 100,
+            range: (pitch, pitch),
         }
     }
 

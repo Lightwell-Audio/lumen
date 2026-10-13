@@ -650,6 +650,38 @@ fn the_take_follows_the_playhead_and_what_it_cuts_keeps_its_ids() {
     assert!(lumen.app().live_take().is_none(), "gone when it stops");
 }
 
+/// The take's notes are drawn where the committed clip will draw them: to
+/// the pitch range of the whole take (owner, MT-MIDI-7 run 2: the notes
+/// jumped when recording stopped).
+#[test]
+fn the_take_is_drawn_to_the_range_its_clip_will_have() {
+    let fake = keyboard();
+    let project = project_of("Record", vec![track(None, true)]);
+    let mut lumen = launch("live-range", &project, &fake);
+    let keys = Keys::new(&fake);
+    record(&mut lumen);
+    keys.on(60, 90);
+    reach(&mut lumen, beats(0.5));
+    keys.off(60);
+    keys.on(72, 90);
+    reach(&mut lumen, beats(1.0));
+    lumen.frames(2);
+    assert_eq!(
+        lumen.app().live_ranges(),
+        vec![(60, 72); 2],
+        "both notes share the take's range"
+    );
+    keys.off(72);
+    reach(&mut lumen, beats(1.5));
+    stop(&mut lumen);
+    let pitches: Vec<u8> = all_placed(&lumen).iter().map(|n| n.pitch).collect();
+    assert_eq!(
+        (pitches.iter().min(), pitches.iter().max()),
+        (Some(&60), Some(&72)),
+        "the clip spans the same range"
+    );
+}
+
 /// With Loop on, recording goes round the loop and each pass layers into
 /// the same clip; the clip spans the loop.
 #[test]

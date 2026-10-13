@@ -2428,7 +2428,7 @@ readout beside Quantize changes with the popover's settings.
 
 
 ### MT-MIDI-7 · Recording MIDI (needs a human and a MIDI controller; the computer keyboard also works)
-Slice 6 of M5 (ADR-0055). **Status: waits for the owner; not run yet.** Start
+Slice 6 of M5 (ADR-0055). **Status: run 3 waits for the owner.** Start
 Lumen from the repository root:
 
 ```powershell
@@ -2517,3 +2517,27 @@ amendment and waiting for run 2:
     and let go in the next pass; then change notes just before the wrap.
     Expect the held note cut at the loop's end and carrying on from its start,
     and the change just before the wrap kept in its own pass.
+
+**Run 2 (owner, 2026-10-13)** found three faults, fixed in ADR-0055's
+amendment "clip previews as Ableton's", and waiting for run 3:
+- notes inside clips did not have the piano roll's proportions (thin notes
+  with uneven gaps between neighbouring pitches), and a take's notes moved
+  when recording stopped;
+- notes did not seem to appear live, and where they were drawn while
+  recording did not match where they landed;
+- recording over an existing clip, the clip slid in place at every commit.
+
+**Run 3 steps (new, after run 2).**
+19. **Proportions.** Make a MIDI track tall and open one of its clips in the
+    Clip tab. Expect the clip's notes on the arrangement to look like a small
+    piano roll: every pitch the same height, neighbouring pitches touching,
+    higher pitches higher, as in Ableton. Add a note above the clip's highest
+    one: the clip refits (as in Ableton).
+20. **Live is final.** Record a few bars with notes far apart (a low note,
+    then a high one). Expect each note to appear as you press it, the take to
+    refit when you play outside its range, and nothing to move when you stop.
+    With Overdub on over an existing clip, the same: the new notes sit among
+    the old ones as they will once stopped.
+21. **Still.** Record over an existing clip, Overdub off and on. Expect the
+    clip under and after the take to stay still, with no sliding or jitter,
+    while recording and as it stops.

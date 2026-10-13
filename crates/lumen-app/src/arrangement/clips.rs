@@ -164,7 +164,7 @@ impl Arrangement {
             now,
             (doc.session(), doc.state()),
             doc.project(),
-            self.gesture.is_some(),
+            (self.gesture.is_some(), self.recording.is_some()),
         );
         if self.glides.moving() {
             ctx.request_repaint();
@@ -723,8 +723,8 @@ fn draw_live_take(
         }
     }
     let top = lane.top() + INSET + TITLE + WAVE_GAP;
-    let unit = (lane.bottom() - INSET - WAVE_GAP - top) / mini::BANDS as f32;
-    if unit <= 0.0 {
+    let room = lane.bottom() - INSET - WAVE_GAP - top;
+    if room <= 0.0 {
         return;
     }
     for note in &live.notes {
@@ -732,10 +732,12 @@ fn draw_live_take(
         if x1 < canvas.left() || x0 > canvas.right() {
             continue;
         }
-        let y = top + mini::live_band(note.pitch.min(127)) as f32 * unit;
+        // The committed clip's layout: the same bands the GPU draws it on.
+        let (a, b) = mini::Fit::new(note.range.0, note.range.1).span(note.pitch);
+        let (y0, y1) = (top + a * room, top + b * room);
         let rect = Rect::from_min_max(
-            pos2(x0.max(canvas.left()), y),
-            pos2(x1.max(x0 + 1.0).min(canvas.right()), y + unit.max(1.0)),
+            pos2(x0.max(canvas.left()), y0),
+            pos2(x1.max(x0 + 1.0).min(canvas.right()), y1.max(y0 + 1.0)),
         );
         let strength = (0.45 + 0.55 * velocity_alpha(note.velocity)) * alpha;
         painter.rect_filled(rect, 0.0, palette.record_note.gamma_multiply(strength));

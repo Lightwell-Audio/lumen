@@ -1,21 +1,28 @@
 //! Notes inside arrangement clips (M5 slice 3b): a mini piano roll fitted
 //! to each clip's pitch range, drawn on the GPU beside the clip bodies.
 //!
-//! The box layer places a box vertically only by its row slot, so a track
+//! The box layer places a box vertically only by its row slots, so a track
 //! gets [`BANDS`] slots, thin horizontal bands under its clips' title bars,
-//! and a clip maps its own pitch range onto them (`band`). The notes are
-//! rebuilt only when the clips change (with the clip boxes), and panning
-//! and zooming only move the view.
+//! and a clip divides them evenly among the pitches of its range ([`Fit`]):
+//! as in Ableton's arrangement, every pitch is a row of the same height and
+//! neighbouring pitches touch, as they do in the piano roll. A note covers
+//! its pitch's bands. The notes are rebuilt only when the clips change (with
+//! the clip boxes), and panning and zooming only move the view.
+//!
+//! The take being recorded is drawn from the same fit (`Fit::bands`), so a
+//! note is where it will be once the take is committed.
 
 use eframe::egui::Color32;
-use lumen_render::{BoxInstance, RowSlot, beats};
+use lumen_render::{BoxInstance, RowSlot, beats, spanning};
 
 use super::notes::{ClipNotes, pack, velocity_alpha};
 
-/// Bands a track's clips are divided into, top to bottom.
-pub(crate) const BANDS: u32 = 32;
+/// Bands a track's clips are divided into, top to bottom: fine enough that
+/// every one of the 128 pitches gets at least one, and that rows of any
+/// range are even to within a band.
+pub(crate) const BANDS: u32 = 128;
 /// A clip's pitch range is shown at least this many semitones tall, so one
-/// or two notes sit mid-clip instead of filling it.
+/// or two notes sit mid-clip as thin rows instead of filling it.
 const MIN_RANGE: u8 = 16;
 
 /// The lowest and highest pitch of the notes a clip plays, if any.
@@ -36,29 +43,55 @@ pub(crate) fn pitch_range(clip: &ClipNotes<'_>) -> Option<(u8, u8)> {
         })
 }
 
-/// The band (0 is the top) of `pitch` in a clip whose notes span `lo` to
-/// `hi`: the range is centred when narrower than [`MIN_RANGE`], and
-/// squeezed into the bands when wider than they are.
-pub(crate) fn band(pitch: u8, lo: u8, hi: u8) -> u32 {
-    let span = f32::from(hi.saturating_sub(lo)) + 1.0;
-    let padded = span.max(f32::from(MIN_RANGE));
-    let first = f32::from(lo) - (padded - span) / 2.0;
-    let up = ((f32::from(pitch) - first) / (padded - 1.0) * (BANDS - 1) as f32).round();
-    (BANDS - 1) - (up.clamp(0.0, (BANDS - 1) as f32) as u32)
+/// The union of two pitch ranges.
+pub(crate) fn union(a: Option<(u8, u8)>, b: Option<(u8, u8)>) -> Option<(u8, u8)> {
+    match (a, b) {
+        (Some((a0, a1)), Some((b0, b1))) => Some((a0.min(b0), a1.max(b1))),
+        (a, None) => a,
+        (None, b) => b,
+    }
 }
 
-/// The lowest pitch a take being recorded is drawn at (C1), and how many
-/// semitones each band holds: 64 semitones, C1 to D#6, across the bands.
-const LIVE_LOW: u8 = 24;
-const LIVE_PER_BAND: u8 = 2;
+/// How a clip's pitch range sits in its body: `rows` equal rows (the range,
+/// padded to [`MIN_RANGE`] and centred), the bottom one at pitch `first`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Fit {
+    first: f32,
+    rows: f32,
+}
 
-/// The band (0 is the top) of `pitch` in a take being recorded. The layout is
-/// the same for every take, so a note does not move as more are played and
-/// the same pitch is at the same height in every clip; it is the piano
-/// roll's order (high above low), not a fit to the notes played so far.
-pub(crate) fn live_band(pitch: u8) -> u32 {
-    let up = pitch.saturating_sub(LIVE_LOW) / LIVE_PER_BAND;
-    (BANDS - 1) - u32::from(up).min(BANDS - 1)
+impl Fit {
+    /// The fit of notes spanning `lo` to `hi`.
+    pub(crate) fn new(lo: u8, hi: u8) -> Self {
+        let (lo, hi) = (lo.min(hi), hi.max(lo));
+        let span = f32::from(hi - lo) + 1.0;
+        let rows = span.max(f32::from(MIN_RANGE));
+        Self {
+            first: f32::from(lo) - (rows - span) / 2.0,
+            rows,
+        }
+    }
+
+    /// The bands (0 is the top) `pitch` covers: the first, and how many more
+    /// below it. Higher pitches are higher up.
+    pub(crate) fn bands(&self, pitch: u8) -> (u32, u32) {
+        let top = self.first + self.rows;
+        let edge = |p: f32| (((top - p) / self.rows) * BANDS as f32).round();
+        let p = f32::from(pitch.min(127));
+        let a = edge(p + 1.0).clamp(0.0, (BANDS - 1) as f32) as u32;
+        let b = (edge(p) as u32).clamp(a + 1, BANDS);
+        (a, b - a - 1)
+    }
+
+    /// Where `pitch` is, as fractions of the band area from its top: the
+    /// same edges the GPU draws, for notes drawn on the CPU.
+    pub(crate) fn span(&self, pitch: u8) -> (f32, f32) {
+        let (first, extra) = self.bands(pitch);
+        (
+            first as f32 / BANDS as f32,
+            (first + extra + 1) as f32 / BANDS as f32,
+        )
+    }
 }
 
 /// The boxes of a clip's notes on `track` (a dense number among the tracks
@@ -72,6 +105,7 @@ pub(crate) fn mini_instances(
     let Some((lo, hi)) = pitch_range(clip) else {
         return;
     };
+    let fit = Fit::new(lo, hi);
     clip.each_placed(|placed, note| {
         let ghost = if placed.rep > 0 { 0.6 } else { 1.0 };
         let c = pack(
@@ -81,7 +115,10 @@ pub(crate) fn mini_instances(
         out.push(BoxInstance {
             start: beats(placed.start),
             end: beats(placed.end),
-            row: track * BANDS + band(note.pitch().min(127), lo, hi),
+            row: {
+                let (band, extra) = fit.bands(note.pitch());
+                spanning(track * BANDS + band, extra)
+            },
             body: c,
             bar: c,
             border: 0,
@@ -135,18 +172,6 @@ mod tests {
     }
 
     #[test]
-    fn a_live_note_keeps_its_band_whatever_else_is_played() {
-        // Higher pitches sit higher (smaller band), and the band depends on
-        // the pitch alone.
-        assert!(live_band(72) < live_band(60));
-        assert_eq!(live_band(60), live_band(60));
-        assert_eq!(live_band(60), live_band(61));
-        // Pitches off either end stay on the first and last band.
-        assert_eq!(live_band(0), BANDS - 1);
-        assert_eq!(live_band(127), 0);
-    }
-
-    #[test]
     fn the_range_is_the_pitches_that_play() {
         let notes = [
             Note::new(q(0), q(1), 64, 90),
@@ -159,18 +184,58 @@ mod tests {
 
     #[test]
     fn a_wide_range_fills_the_bands_high_notes_on_top() {
-        assert_eq!(band(84, 36, 84), 0);
-        assert_eq!(band(36, 36, 84), BANDS - 1);
-        assert!(band(60, 36, 84) > band(72, 36, 84));
+        let fit = Fit::new(36, 84);
+        assert_eq!(fit.bands(84).0, 0);
+        let (first, extra) = fit.bands(36);
+        assert_eq!(first + extra, BANDS - 1);
+        assert!(fit.bands(60).0 > fit.bands(72).0);
+    }
+
+    #[test]
+    fn every_pitch_is_an_even_row_and_neighbours_touch() {
+        // The piano roll's proportions: one row per semitone, no gaps.
+        for (lo, hi) in [(60, 60), (60, 67), (36, 84), (0, 127), (10, 100)] {
+            let fit = Fit::new(lo, hi);
+            let heights: Vec<u32> = (lo..=hi).map(|p| fit.bands(p).1 + 1).collect();
+            let (min, max) = (heights.iter().min(), heights.iter().max());
+            assert!(max.unwrap() - min.unwrap() <= 1, "{lo}..{hi}: {heights:?}");
+            for p in lo..hi {
+                let (above, _) = fit.bands(p + 1);
+                let (first, extra) = fit.bands(p);
+                assert_eq!(
+                    above + fit.bands(p + 1).1 + 1,
+                    first,
+                    "{p} touches {}",
+                    p + 1
+                );
+                assert!(first + extra < BANDS);
+            }
+        }
     }
 
     #[test]
     fn a_narrow_range_is_centred() {
-        let only = band(60, 60, 60);
-        assert!((14..=17).contains(&only), "one note sits mid-clip: {only}");
-        assert!(band(62, 60, 62) < band(60, 60, 62));
+        let (only, extra) = Fit::new(60, 60).bands(60);
+        let middle = only + extra / 2;
+        assert!(
+            (60..=68).contains(&middle),
+            "one note sits mid-clip: {middle}"
+        );
+        assert!(Fit::new(60, 62).bands(62).0 < Fit::new(60, 62).bands(60).0);
         // Still in bounds at the ends of the keyboard.
-        assert!(band(0, 0, 0) < BANDS && band(127, 127, 127) < BANDS);
+        for p in [0, 127] {
+            let (first, extra) = Fit::new(p, p).bands(p);
+            assert!(first + extra < BANDS);
+        }
+    }
+
+    #[test]
+    fn the_cpu_span_is_the_gpu_bands() {
+        let fit = Fit::new(48, 72);
+        let (top, bottom) = fit.span(60);
+        let (first, extra) = fit.bands(60);
+        assert_eq!(top * BANDS as f32, first as f32);
+        assert_eq!(bottom * BANDS as f32, (first + extra + 1) as f32);
     }
 
     #[test]
@@ -182,8 +247,12 @@ mod tests {
         let mut out = Vec::new();
         mini_instances(&mut out, &clip(&notes), 3, Color32::RED);
         assert_eq!(out.len(), 2);
-        assert!(out.iter().all(|b| b.row / BANDS == 3));
-        assert!(out[0].row > out[1].row, "the higher note is higher up");
+        let slot = |b: &BoxInstance| b.row & 0xFF_FFFF;
+        assert!(out.iter().all(|b| slot(b) / BANDS == 3));
+        assert!(
+            slot(&out[0]) > slot(&out[1]),
+            "the higher note is higher up"
+        );
     }
 
     #[test]

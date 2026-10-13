@@ -4817,6 +4817,46 @@ over, not its own), `piano_roll/mini.rs` (a live note's band depends on its
 pitch alone), E2E `record` (Replace sends the output none of the old notes;
 Overdub sends the one under the take).
 
+### Amendment: clip previews as Ableton's (2026-10-13, after MT-MIDI-7 run 2)
+
+The owner chose Ableton's arrangement preview for every MIDI clip and for the
+take, which settles the question left open above: notes inside a clip are
+fitted to its own pitch range, and the take is drawn exactly as its clip will
+be once committed. Three findings, fixed:
+1. **Clip previews did not have the piano roll's proportions.** The 32 bands
+   a track had were shared by a range padded to 16 semitones, so a semitone
+   was about two bands, rounded: notes one band tall with uneven gaps between
+   neighbours. Now a track has 128 bands (`mini::BANDS`) and a clip divides
+   them evenly among the pitches of its range (`mini::Fit`, still padded to
+   16 and centred): each pitch is a row of the same height (to within a band)
+   and neighbouring pitches touch. A note covers its row's bands: a box may
+   now span several row slots, given in the top 8 bits of its `row`
+   (`lumen_render::spanning`; `boxes.wgsl` reads the last slot's bottom).
+   Clip boxes and the piano roll's notes never set those bits.
+2. **The take moved when recording stopped.** The fixed live layout
+   (`mini::live_band`) is gone. Each live note carries the range of the clip
+   it lands in (`LiveNote::range`, from `record.rs` `live_ranges`): the whole
+   take in Replace; in Overdub the clip under it (its own notes and the new
+   ones) or the gap it is in. It is drawn on the same bands as the GPU
+   (`Fit::span`), so stopping changes nothing on screen. As in Ableton, a
+   note outside the range played so far refits the take.
+3. **A clip recorded over slid in place.** Each commit cuts the clips under
+   the take, and a moved clip glides to its new place (M4.5's M1), so the
+   remainder of a clip under a Replace take slid every second. Nothing glides
+   while recording, nor for the commit that ends it (`ClipGlides::update`'s
+   `recording`).
+
+Not changed: the clip editor shows the document's clip, so it updates at
+each commit (about once a second), not every frame, and in Replace the clip
+it had open is cut away by the take.
+
+Tests: `piano_roll/mini.rs` (even rows that touch; the CPU span is the GPU's
+bands), `app/record.rs` (a Replace take is one range; an Overdub fits each
+clip and each gap), `arrangement/glide.rs` (nothing glides while recording or
+for the last commit), E2E `record`
+(`the_take_is_drawn_to_the_range_its_clip_will_have`), shot `mini_notes`
+(now with a tall track).
+
 ### Not verified
 - Timing with a real MIDI controller, and with the computer keyboard as a
   source over real drivers (MT-MIDI-7, step 2).
