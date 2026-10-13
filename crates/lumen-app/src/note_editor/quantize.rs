@@ -230,7 +230,7 @@ const ROOTS: [&str; 12] = [
 /// The notes an edit works on: the picked ones, or every note.
 pub(crate) fn targets(picked: &[usize], clip: &Clip) -> Vec<usize> {
     if picked.is_empty() {
-        edit::notes::all(notes_of(clip))
+        edit::shown_notes(clip)
     } else {
         picked.to_vec()
     }

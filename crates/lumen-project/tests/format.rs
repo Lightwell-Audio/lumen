@@ -476,6 +476,64 @@ fn golden_v14_file_loads_forever() {
     assert_eq!(project, golden_v14_expected());
 }
 
+/// The model the v15 golden file must always load as: v14 with the MIDI
+/// clip keeping a note before its start and one past its end, hidden (a
+/// clip is a window onto its notes, as in Ableton).
+fn golden_v15_expected() -> Project {
+    let mut project = Project {
+        name: "Golden v15".into(),
+        ..golden_v14_expected()
+    };
+    let track = project
+        .tracks
+        .iter_mut()
+        .find(|t| {
+            t.clips
+                .iter()
+                .any(|c| matches!(c.content, ClipContent::Midi { .. }))
+        })
+        .expect("the golden project has a MIDI clip");
+    for clip in &mut Arc::make_mut(track).clips {
+        let clip = Arc::make_mut(clip);
+        let past = clip.length + Ticks::quarters(1);
+        if let ClipContent::Midi { notes, .. } = &mut clip.content {
+            notes.insert(
+                0,
+                Note::new(Ticks::quarters(-2), Ticks::quarters(1), 40, 80),
+            );
+            notes.push(Note::new(past, Ticks::quarters(1), 41, 81));
+        }
+    }
+    project
+}
+
+#[test]
+fn golden_v15_file_loads_forever() {
+    let path = fixture("v15/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        // Written once, when version 15 was introduced; never rewritten.
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v15_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v15 golden file must load");
+    assert_eq!(project, golden_v15_expected());
+    let clip = project
+        .tracks
+        .iter()
+        .flat_map(|t| &t.clips)
+        .find(|c| matches!(c.content, ClipContent::Midi { .. }))
+        .unwrap();
+    let ClipContent::Midi { notes, .. } = &clip.content else {
+        unreachable!()
+    };
+    let shown = lumen_project::edit::shown_notes(clip);
+    assert!(!shown.contains(&0), "the note before the start is hidden");
+    assert!(
+        !shown.contains(&(notes.len() - 1)),
+        "and the one past the end"
+    );
+}
+
 #[test]
 fn a_muted_note_is_written_with_a_fifth_element_and_others_as_before() {
     let text = String::from_utf8(to_bytes(&golden_v14_expected()).unwrap()).unwrap();

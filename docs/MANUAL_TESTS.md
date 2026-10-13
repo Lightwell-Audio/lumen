@@ -2563,3 +2563,14 @@ waits for the owner.
     expect one note, the later pass's. **Listen too:** while you hold the key,
     only it sounds (the old note stops as you press it, and does not cut your
     note short); after you let go, the clip plays on as before.
+25. **Covered clips keep their notes** (ADR-0056). Put a MIDI clip with notes
+    on a track, and drag a second clip over the middle of it. Expect the first
+    clip cut where the second sits, as before. Drag the second clip away,
+    then drag the first clip's end (or start) back over the gap: expect its
+    notes there again, exactly as they were, and playing. Repeat with a
+    Replace recording over part of a clip, and with Split, if you use it.
+    Open a cut clip in the Clip tab: expect only the notes inside it, and
+    Ctrl+A to pick only those.
+26. **Overdub across clips.** With Overdub on, record across two clips with a
+    gap between them. Say what you see if it is not: the new notes added to
+    each clip, the old ones kept, and a new clip only in the gap.

@@ -33,7 +33,9 @@ pub mod velocity;
 
 pub use clipboard::{Clipboard, copy_clips, copy_range, landing_tracks, paste};
 pub use note_selection::NoteSelection;
-pub use note_time::{content_length, repeats, shown, to_arrangement, to_clip_time};
+pub use note_time::{
+    content_length, in_window, repeats, shown, shown_notes, to_arrangement, to_clip_time,
+};
 
 /// Times before and after any clip, for "everything before" and "everything
 /// after" (far from overflow).
@@ -63,18 +65,9 @@ pub fn slice(project: &Project, tempo: &TempoMap, clip: &Clip, a: Ticks, b: Tick
             }
         }
         ClipContent::Midi { notes, events } => {
-            *notes = notes
-                .iter()
-                .filter_map(|n| {
-                    let (from, to) = (
-                        n.start().max(cut),
-                        (n.start() + n.length()).min(cut + part.length),
-                    );
-                    (from < to && n.start() >= cut)
-                        .then(|| Note(from - cut, to - from, n.pitch(), n.velocity(), n.muted()))
-                })
-                .collect();
-            shift_events(events, cut, part.length);
+            // A window onto the same notes: nothing outside it is lost.
+            shift_notes(notes, cut);
+            shift_events(events, cut);
         }
     }
     if start != clip.start {
@@ -225,8 +218,8 @@ pub fn trim(
                     .max(0);
                 }
                 ClipContent::Midi { notes, events } => {
-                    shift_notes(notes, moved, c.length);
-                    shift_events(events, moved, c.length);
+                    shift_notes(notes, moved);
+                    shift_events(events, moved);
                 }
             }
         }
@@ -244,11 +237,8 @@ pub fn trim(
                 );
                 new_end = new_end.min(latest.max(clip.start + MIN_LENGTH));
             }
+            // A MIDI clip's notes past its new end are kept, hidden.
             c.length = new_end - clip.start;
-            if let ClipContent::Midi { notes, events } = &mut c.content {
-                shift_notes(notes, Ticks::ZERO, c.length);
-                shift_events(events, Ticks::ZERO, c.length);
-            }
         }
     }
     c.fade_in.length = c.fade_in.length.min(c.length);
@@ -256,35 +246,20 @@ pub fn trim(
     c
 }
 
-/// Notes `by` earlier in a clip now `length` long: those that start outside
-/// it go, those running past its end are cut there.
-fn shift_notes(notes: &mut Vec<Note>, by: Ticks, length: Ticks) {
-    *notes = notes
-        .iter()
-        .filter_map(|n| {
-            let start = n.start() - by;
-            (start >= Ticks::ZERO && start < length).then(|| {
-                Note(
-                    start,
-                    n.length().min(length - start),
-                    n.pitch(),
-                    n.velocity(),
-                    n.muted(),
-                )
-            })
-        })
-        .collect();
+/// Notes `by` earlier in their clip (its start moved later by `by`). None is
+/// dropped or shortened: those now outside the clip's window are hidden
+/// (`note_time::in_window`), and come back when an edge is dragged back.
+fn shift_notes(notes: &mut [Note], by: Ticks) {
+    for n in notes {
+        n.0 = n.0 - by;
+    }
 }
 
-/// Events `by` earlier in a clip now `length` long: those outside it go.
-fn shift_events(events: &mut Vec<ClipEvent>, by: Ticks, length: Ticks) {
-    *events = events
-        .iter()
-        .filter_map(|e| {
-            let at = e.at - by;
-            (at >= Ticks::ZERO && at < length).then_some(ClipEvent { at, ..*e })
-        })
-        .collect();
+/// Events `by` earlier in their clip, kept as notes are.
+fn shift_events(events: &mut [ClipEvent], by: Ticks) {
+    for e in events {
+        e.at = e.at - by;
+    }
 }
 
 /// `clip` with its content slid `by` (later when positive) inside it,
@@ -308,8 +283,8 @@ pub fn slip(project: &Project, tempo: &TempoMap, clip: &Clip, by: Ticks) -> Clip
             *offset = (*offset - moved).clamp(0, last.max(0));
         }
         ClipContent::Midi { notes, events } => {
-            shift_notes(notes, Ticks::ZERO - by, clip.length);
-            shift_events(events, Ticks::ZERO - by, clip.length);
+            shift_notes(notes, Ticks::ZERO - by);
+            shift_events(events, Ticks::ZERO - by);
         }
     }
     c
@@ -530,7 +505,9 @@ mod tests {
     }
 
     #[test]
-    fn a_midi_slice_keeps_the_notes_that_start_inside_cut_at_its_end() {
+    fn a_midi_slice_is_a_window_that_keeps_every_note() {
+        // Ableton's window (format v15): the slice from 4 to 6 shows the note
+        // at 5 and keeps the others, hidden, so nothing is lost.
         let p = song();
         let mut clip = (*p.tracks[1].clips[0]).clone();
         clip.content = ClipContent::Midi {
@@ -553,13 +530,64 @@ mod tests {
         assert_eq!(
             part.content,
             ClipContent::Midi {
-                notes: vec![Note::new(q(1), q(1), 62, 90)],
-                events: vec![ClipEvent {
-                    at: q(1),
-                    kind: EventKind::Pressure { value: 20 },
-                }],
+                notes: vec![
+                    Note::new(q(-3), q(1), 60, 100),
+                    Note::new(q(1), q(2), 62, 90),
+                ],
+                events: vec![
+                    ClipEvent {
+                        at: q(-3),
+                        kind: EventKind::Pressure { value: 10 },
+                    },
+                    ClipEvent {
+                        at: q(1),
+                        kind: EventKind::Pressure { value: 20 },
+                    },
+                ],
             }
         );
+        assert_eq!(shown_notes(&part), vec![1], "only the note at 5 shows");
+        // Dragging its start back to the original's shows the first again,
+        // where it was.
+        let back = trim(&p, &tempo_of(&p), &part, Edge::Start, clip.start, false);
+        let ClipContent::Midi { notes, .. } = &back.content else {
+            unreachable!()
+        };
+        assert_eq!(notes[0], Note::new(q(1), q(1), 60, 100));
+        assert_eq!(shown_notes(&back), vec![0, 1]);
+    }
+
+    #[test]
+    fn trimming_a_midi_clip_hides_notes_and_dragging_back_shows_them() {
+        let p = song();
+        let mut clip = (*p.tracks[1].clips[0]).clone();
+        let notes = vec![
+            Note::new(q(1), q(1), 60, 100),
+            Note::new(q(6), q(1), 62, 90),
+        ];
+        clip.content = ClipContent::Midi {
+            notes: notes.clone(),
+            events: Vec::new(),
+        };
+        let short = trim(
+            &p,
+            &tempo_of(&p),
+            &clip,
+            Edge::End,
+            clip.start + q(4),
+            false,
+        );
+        assert_eq!(shown_notes(&short), vec![0], "the note at 6 is hidden");
+        let long = trim(
+            &p,
+            &tempo_of(&p),
+            &short,
+            Edge::End,
+            clip.start + clip.length,
+            false,
+        );
+        assert_eq!(long.content, clip.content, "and comes back intact");
+        assert_eq!(crate::validate(&p), Ok(()));
     }
 
     #[test]

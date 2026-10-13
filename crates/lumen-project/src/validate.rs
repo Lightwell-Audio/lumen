@@ -160,15 +160,16 @@ pub fn validate(project: &Project) -> Result<(), String> {
                     }
                 }
                 ClipContent::Midi { notes, events } => {
+                    // Notes and events may lie outside the clip's window,
+                    // before its start or past its end (format v15).
                     for (n, event) in events.iter().enumerate() {
-                        if event.at < Ticks::ZERO || !event.kind.in_range() {
+                        if !event.kind.in_range() {
                             return Err(format!("{}: event {n} is out of range", at()));
                         }
                     }
                     for (n, note) in notes.iter().enumerate() {
                         if note.pitch() > 127
                             || !(1..=127).contains(&note.velocity())
-                            || note.start() < Ticks::ZERO
                             || note.length() <= Ticks::ZERO
                         {
                             return Err(format!("{}: note {n} is out of range", at()));

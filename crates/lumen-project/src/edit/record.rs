@@ -371,6 +371,7 @@ fn relative(t: Ticks, start: Ticks, period: Ticks) -> Ticks {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::edit::shown_notes;
     use crate::model::Color;
 
     fn q(n: i64) -> Ticks {
@@ -589,9 +590,19 @@ mod tests {
                 (Id(900), q(4), q(4)),
             ]
         );
-        assert_eq!(clip_of(&p, 10).content, midi(vec![note(1, 1, 60)]));
+        // The pieces of the old clip are windows onto all its notes (format
+        // v15): each shows its own, and keeps the other's hidden.
+        assert_eq!(
+            clip_of(&p, 10).content,
+            midi(vec![note(1, 1, 60), note(5, 1, 64)])
+        );
+        assert_eq!(shown_notes(clip_of(&p, 10)), vec![0]);
         assert_eq!(clip_of(&p, 50).content, midi(vec![note(1, 1, 62)]));
-        assert_eq!(clip_of(&p, 900).content, midi(vec![note(1, 1, 64)]));
+        assert_eq!(
+            clip_of(&p, 900).content,
+            midi(vec![note(-3, 1, 60), note(1, 1, 64)])
+        );
+        assert_eq!(shown_notes(clip_of(&p, 900)), vec![1]);
         assert_eq!(crate::validate(&p), Ok(()));
     }
 

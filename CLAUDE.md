@@ -390,7 +390,17 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-13 (run 3): **one note layout per track.**
+**Last updated:** 2026-10-13 (after run 3): **a MIDI clip is a window
+onto its notes** (format v15, ADR-0056; the owner chose Ableton's window over
+stacked clips). Trims, covers (moves, copies, Replace recording), splits and
+slips only move notes in clip time; notes before the clip's start (negative)
+or past its content are kept, hidden (`edit::in_window`, `shown_notes`).
+Playback (`midi_play`), the clip editor (`EditorView::window`), the lane
+(`LaneView::window`) and "every note" (Ctrl+A, tools with no picks) read only
+the window. Overdub across clips already merges as Ableton does at the
+project level; the owner will reproduce what they saw (MT-MIDI-7 step 26).
+**MT-MIDI-7 run 4 (steps 22 to 26) waits for the owner.** The WSL perf gate
+was not run. Before it, 2026-10-13 (run 3): **one note layout per track.**
 Clips fitted on their own drew one-note clips an octave apart at the same
 height; now every MIDI clip on a track shares one `mini::Fit` over the
 pitches all of them play (`mini::track_range`, at least 48 semitones,

@@ -96,6 +96,9 @@ pub(crate) struct LaneView {
     pub time: TimeView,
     /// Where the open clip starts on the arrangement.
     pub clip_start: Ticks,
+    /// How long the clip's window is in clip time: events outside it are
+    /// kept but hidden, and are not picked (format v15).
+    pub window: Ticks,
     /// What the lane shows.
     pub kind: LaneKind,
 }
@@ -181,6 +184,7 @@ impl LaneView {
         events
             .iter()
             .enumerate()
+            .filter(|(_, event)| self.in_window(event.at))
             .filter_map(|(i, event)| {
                 let value = lane.value_of(event.kind)?;
                 let distance = self.position(event.at, value).distance(p);
@@ -200,11 +204,18 @@ impl LaneView {
             .iter()
             .enumerate()
             .filter(|(_, event)| {
-                lane.value_of(event.kind)
-                    .is_some_and(|value| rect.contains(self.position(event.at, value)))
+                self.in_window(event.at)
+                    && lane
+                        .value_of(event.kind)
+                        .is_some_and(|value| rect.contains(self.position(event.at, value)))
             })
             .map(|(i, _)| i)
             .collect()
+    }
+
+    /// Whether clip time `local` is in the clip's window (see `window`).
+    pub fn in_window(&self, local: Ticks) -> bool {
+        local >= Ticks::ZERO && local < self.window
     }
 
     /// Whether clip time `local` could show: inside the body's x range with
@@ -259,6 +270,7 @@ mod tests {
                 zoom: 40.0,
             },
             clip_start: Ticks::ZERO,
+            window: Ticks::quarters(64),
             kind,
         }
     }

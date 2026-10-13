@@ -49,10 +49,13 @@ impl Cache {
         let ClipContent::Midi { notes, events } = &clip.content else {
             return (note_list(Vec::new()), control_list(Vec::new()));
         };
+        // Only what is in the clip's window plays: a clip keeps the notes
+        // its edges have hidden (format v15).
+        let shows = |at| lumen_project::edit::in_window(clip, at);
         let notes = note_list(
             notes
                 .iter()
-                .filter(|n| !n.muted())
+                .filter(|n| !n.muted() && shows(n.start()))
                 .map(|n| MidiNote {
                     start: n.start(),
                     length: n.length(),
@@ -61,7 +64,13 @@ impl Cache {
                 })
                 .collect(),
         );
-        let controls = control_list(events.iter().flat_map(control).collect());
+        let controls = control_list(
+            events
+                .iter()
+                .filter(|e| shows(e.at))
+                .flat_map(control)
+                .collect(),
+        );
         self.clips.insert(
             clip.id,
             Cached {
@@ -291,7 +300,9 @@ pub fn sounding_keys(track: &model::Track, at: Ticks) -> Vec<u8> {
         let Some((local, _)) = edit::to_clip_time(clip, at) else {
             continue;
         };
-        for note in notes.iter().filter(|n| !n.muted()) {
+        // Notes outside the clip's window are hidden and do not play.
+        let shows = |n: &&model::Note| edit::in_window(clip, n.start());
+        for note in notes.iter().filter(|n| !n.muted()).filter(shows) {
             // A zero-length note sounds for one tick, as the engine plays it.
             let start = note.start().0;
             let end = start + note.length().0.max(1);
@@ -501,6 +512,36 @@ mod tests {
             panic!("a MIDI clip");
         };
         assert_eq!(notes.len(), 3, "the model keeps the muted note");
+    }
+
+    #[test]
+    fn notes_outside_a_clips_window_stay_in_it_but_do_not_play() {
+        // Format v15: a clip trimmed or covered keeps its notes, hidden. One
+        // before its start (running into it), one past its end.
+        let q = Ticks::quarters;
+        let clip = midi_clip(
+            vec![
+                Note::new(q(-1), q(2), 59, 100),
+                Note::new(q(0), q(1), 60, 100),
+                Note::new(q(9), q(1), 61, 100),
+            ],
+            vec![ClipEvent {
+                at: q(-1),
+                kind: EventKind::Pressure { value: 9 },
+            }],
+        );
+        let (project, _) = project_with(clip);
+        let tracks = engine_midi(
+            &project,
+            &Inputs::default(),
+            &mut PortTable::default(),
+            &mut Cache::default(),
+        );
+        let pitches: Vec<_> = tracks[0].clips[0].notes.iter().map(|n| n.pitch).collect();
+        assert_eq!(pitches, vec![60]);
+        assert!(tracks[0].clips[0].controls.is_empty());
+        let start = project.tracks[0].clips[0].start;
+        assert_eq!(sounding_keys(&project.tracks[0], start), vec![60]);
     }
 
     #[test]

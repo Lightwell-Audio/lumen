@@ -50,6 +50,10 @@ pub(crate) struct EditorView {
     pub time: TimeView,
     /// Where the open clip starts on the arrangement.
     pub clip_start: Ticks,
+    /// How long the clip's window onto its notes is in clip time (its
+    /// content, or the clip when shorter): notes outside it are kept but
+    /// hidden, and are neither drawn nor picked (format v15).
+    pub window: Ticks,
     /// Points a pitch's row is tall.
     pub row_height: f32,
     /// Points scrolled down from the top of pitch 127.
@@ -108,8 +112,12 @@ impl EditorView {
         )
     }
 
-    /// Whether `note` could show: inside the body's times and pitches.
+    /// Whether `note` could show: in the clip's window, and inside the
+    /// body's times and pitches.
     pub fn shows(&self, note: Note) -> bool {
+        if note.start() < Ticks::ZERO || note.start() >= self.window {
+            return false;
+        }
         let r = self.note_rect(note);
         r.right() >= self.body.left()
             && r.left() <= self.body.right()
@@ -128,7 +136,10 @@ impl EditorView {
         // drawn on top.
         let (i, note) = notes.iter().enumerate().rev().find(|(_, n)| {
             let r = self.note_rect(**n);
-            i32::from(n.pitch()) == pitch && p.x >= r.left() - 1.0 && p.x <= r.right() + 1.0
+            self.shows(**n)
+                && i32::from(n.pitch()) == pitch
+                && p.x >= r.left() - 1.0
+                && p.x <= r.right() + 1.0
         })?;
         let rect = self.note_rect(*note);
         let edge = EDGE.min(rect.width() / 3.0);
@@ -175,6 +186,7 @@ mod tests {
                 zoom: 40.0,
             },
             clip_start: Ticks::quarters(4),
+            window: Ticks::quarters(64),
             row_height: 10.0,
             scroll: 600.0,
         }

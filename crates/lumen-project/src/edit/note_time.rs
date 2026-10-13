@@ -1,11 +1,17 @@
 //! Where a MIDI clip's notes sit on the arrangement (M5 slice 3a).
 //!
-//! A note's start is in **clip time**: ticks from the clip's start. MIDI
-//! clips keep no hidden content offset (trimming the start or slipping moves
-//! the notes themselves, `edit::trim` and `edit::slip`), so the one thing
-//! between clip time and the arrangement is looping: with a `loop_length`,
-//! the clip's content is that long and repeats from the clip's start for as
-//! long as the clip lasts; without one, the content is the clip.
+//! A note's start is in **clip time**: ticks from the clip's start. Trimming
+//! the start or slipping moves the notes themselves (`edit::trim` and
+//! `edit::slip`), so the one thing between clip time and the arrangement is
+//! looping: with a `loop_length`, the clip's content is that long and
+//! repeats from the clip's start for as long as the clip lasts; without one,
+//! the content is the clip.
+//!
+//! **A clip is a window onto its notes** (format v15, as in Ableton): edits
+//! that shorten, cover or split a clip move its edges and never delete a
+//! note. Notes before the clip's start (a negative start) or at or past its
+//! content's end are kept but hidden: not played, not drawn, not picked
+//! ([`in_window`]). Dragging an edge back shows them again.
 //!
 //! The piano roll edits one content, and shows its repeats beside it.
 
@@ -17,6 +23,24 @@ use crate::model::Clip;
 /// the clip. Notes live in `[0, content_length)`.
 pub fn content_length(clip: &Clip) -> Ticks {
     clip.loop_length.filter(|l| l.0 > 0).unwrap_or(clip.length)
+}
+
+/// Whether a note starting at clip time `start` is in the clip's window, and
+/// so plays and shows: from the clip's start to the end of its content (or
+/// of the clip, when that is shorter).
+pub fn in_window(clip: &Clip, start: Ticks) -> bool {
+    start >= Ticks::ZERO && start < content_length(clip).min(clip.length)
+}
+
+/// The indices of the notes in the clip's window (see [`in_window`]): what
+/// "every note" means for picking all and for tools given no picks.
+pub fn shown_notes(clip: &Clip) -> Vec<usize> {
+    match &clip.content {
+        crate::model::ClipContent::Midi { notes, .. } => (0..notes.len())
+            .filter(|&i| in_window(clip, notes[i].start()))
+            .collect(),
+        crate::model::ClipContent::Audio { .. } => Vec::new(),
+    }
 }
 
 /// Where the arrangement time `t` falls in the clip's content, with the

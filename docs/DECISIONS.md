@@ -125,6 +125,7 @@ irreversible or external) · *Superseded*.
 | MT-MIDI-2 and MT-MIDI-3 follow-ups (2026-10-11) | **MA a monitor badge** on MIDI track headers, only when Monitor is not Auto (a speaker in accent for In, slashed grey for Off; click cycles), over the arm showing all three or an IN/OFF word ("MIDI: Playing Live" canvas, boards M). **Held notes glide to a new preset** at once (no retrigger), over keeping the old sound or retriggering. **The GS Wavetable latency is deferred**: a per-port output offset to be built later, recorded in KNOWN_ISSUES. |
 | Design system over ADR-0051 (2026-10-11) | The owner's **Lumen design system** (a Design System artifact: tokens, a Material card and a card per component) is the reference for tokens, components and widgets. Asked where it and ADR-0051 differ, the owner chose **the design system on all four**: **on** is `accent_muted` with accent letters and a 38% accent hairline, no glow; **solo** (and the primary, the chosen tool) is filled accent (`accent_hi` to `accent_lo`, no halo; amber only warns); a **lit M** is the `mute` grey with `on_mute` letters; **raised** controls are `control_hi` to `control` with an edge light and a border, Ember on hover, no drop shadow, radius by height; the **arm** is round with a grey dot at rest. ADR-0052. |
 | Recording MIDI (M5 slice 6, 2026-10-12) | Asked and chosen (the plan in `docs/milestones/M5.md`, and the "Lumen Recording Specimens" canvas): **Replace by default, with an Overdub switch** (C4, as planned); **loop passes layer** into one clip in both modes (separate takes are M9); **recording settings in the app settings file**, not the project, so no format change; **a clip runs exactly from record start to stop**, not to the bar line (the owner's choice over the recommended bar-line end); **1-A** the count-in on the position field, counting up through negative bars, and Record pulsing on each beat, with no new widget; **2-B** an Overdub button beside Record, and the count-in and "Metronome only while recording" in the metronome's menu; **3-A** a clip being recorded is record red with a "REC" tag and drops into its track colour on stop. Count-in and record-only for MIDI move from M9 (the 2026-10-06 row) to this slice; audio recording stays M9. ADR-0055. |
+| Covered MIDI clips (M5, 2026-10-13, after MT-MIDI-7 run 3) | Asked, from two variants: **A, Ableton's window** (chosen, as recommended): a clip covered, trimmed or split keeps every note, hidden outside its edges, and shows them when an edge is dragged back; moving the top clip away leaves a gap, as in Ableton. B (stacked clips that reappear by themselves) was set aside. Overdub across clips: "exactly like Ableton"; the owner will reproduce what they saw. Format v15. ADR-0056. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
 | Logo and light (2026-10-10) | Chosen from rendered specimens on the identity canvas (a Design artifact): four marks, then six colourways. **D, Dawn, in Sunrise**: a sun rising over a horizon, its reflection breaking into a waveform; an amber sun (`#FFC46B`) over water in the accent. **The light layer holds** (five levels: Unlit, Ember, Lit, Beam, Flare, and five rules), and **the mark is a meter** (the sun rises with the master's level, red while recording), with every proposed use of light: the playhead beam, Play's beam, meter heads, the mark above an empty arrangement. ADR-0043. A guitarist-first direction was pitched and set aside by the owner. |
@@ -4901,3 +4902,68 @@ for the last commit), E2E `record`
 - The light theme and 150% and 200% scale of the new controls and the record
   look.
 - Frame times with a take open, on the 200-track stress project.
+
+## ADR-0056 — A MIDI clip is a window onto its notes (format v15)
+
+**Context.** The owner asked that covering one MIDI clip with another stop
+deleting the covered notes, as in Ableton (after MT-MIDI-7 run 3). Lumen cut a
+MIDI clip's content to its edges whenever it was trimmed, covered (moves,
+copies, trims and Replace recording all cut what they cover, slice 6c's
+Ableton rule), split or slipped (`edit::shift_notes`): the notes outside were
+dropped. Audio clips were already windows onto their file, so this was MIDI
+only.
+
+**Options** (pitched to the owner; the owner chose A).
+- **A. Ableton's window.** The covered clip is still trimmed or split where
+  the new clip sits, but an edge only moves the clip's window: its notes are
+  never deleted, and dragging the edge back shows them again. Moving the top
+  clip away leaves a gap, as in Ableton.
+- **B. Stacked clips** (the request read literally, closer to Cubase): clips
+  overlap, the top one plays and hides the one under it, and moving the top
+  clip away brings the lower one back by itself. A stacking order, masked
+  drawing, an engine that plays only the top clip and hit-testing through
+  overlaps, for audio clips too.
+
+**Choice: A.** A note's start stays in clip time (ticks from the clip's
+start), so visible notes keep their positions and no offset field is needed.
+A note is in the clip's **window** when it starts at or after 0 and before the
+end of the clip's content (its loop length, or the clip when shorter;
+`edit::in_window`, `edit::shown_notes`). Outside the window it is kept but
+hidden. Trims, slices (covering, splitting, time-range edits, the clipboard)
+and slips now only move notes in clip time (`shift_notes`, `shift_events`
+drop and shorten nothing). A note that starts in the window and runs past its
+end is kept whole and cut when played, as before.
+
+**Format v15.** Validation now allows a note or event to start before its
+clip (a negative start); the migration from v14 changes nothing (an older
+file holds no hidden note). Golden fixture `tests/fixtures/v15/golden.lumen`
+holds a note before the window and one past it.
+
+**What reads the window.** Playback (`midi_play` sends only notes and events
+in the window; `sounding_keys` agrees), the arrangement's mini notes and the
+piano roll (`ClipNotes::each_placed` and `pitch_range` already kept to it),
+the clip editor's view (`EditorView::window`: `shows` and `note_at`, so box
+select and clicks skip hidden notes), the lane under the roll
+(`LaneView::window`; its stems and points are built from the window), and
+"every note" for Ctrl+A and the tools given no picks (`shown_notes`).
+
+**Consequences.** Clips can carry notes nobody sees: a clip split many times
+keeps every note in each piece, as in Ableton. Recording's same-pitch rule
+(`edit::record::settle`) may shorten a hidden note that overlaps a played one
+in time; that note does not play either way. Join (M7) must take the left
+piece's notes before its end and the right piece's from its start, so split
+then join returns the original. The clip editor does not yet show hidden
+notes greyed outside the clip, as Ableton's does.
+
+Tests: `edit/mod.rs` (a slice is a window that keeps every note; trimming
+hides and dragging back shows), `edit/record.rs` (Replace keeps the covered
+notes in the pieces), `document/clips.rs`
+(`a_covered_midi_clip_keeps_its_notes_and_shows_them_when_extended`),
+`midi_play.rs` (notes outside the window do not play), `tests/format.rs`
+(v15 golden), E2E `record` (Replace keeps the covered note, hidden).
+
+Overdub across clips (the owner's second point) was checked at the project
+level and already does what Ableton does: notes merge into every clip they
+pass through and a gap gets a new clip. The owner will reproduce what they saw
+before anything changes there.
+

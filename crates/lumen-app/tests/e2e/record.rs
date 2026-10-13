@@ -59,13 +59,15 @@ struct Placed {
     velocity: u8,
 }
 
-/// The notes of `clip`, at absolute project ticks, in the order stored.
+/// The notes of `clip` in its window (what plays and shows), at absolute
+/// project ticks, in the order stored.
 fn placed(clip: &Clip) -> Vec<Placed> {
     let ClipContent::Midi { notes, .. } = &clip.content else {
         return Vec::new();
     };
     notes
         .iter()
+        .filter(|n| lumen_project::edit::in_window(clip, n.start()))
         .map(|n| Placed {
             start: clip.start + n.start(),
             end: clip.start + n.start() + n.length(),
@@ -362,6 +364,21 @@ fn replace_cuts_the_clip_under_the_take() {
     let kept: Vec<u8> = all_placed(&lumen).iter().map(|n| n.pitch).collect();
     assert!(!kept.contains(&50), "the old note under the take is cut");
     assert!(kept.contains(&52), "the old note after the take stays");
+    // Cut as Ableton does: the piece after the take is a window onto the old
+    // clip's notes, so the one under the take is kept there, hidden.
+    let after = clips_of(&lumen)
+        .into_iter()
+        .find(|c| c.start == stopped)
+        .expect("the rest of the old clip");
+    let ClipContent::Midi { notes, .. } = &after.content else {
+        panic!("a MIDI clip");
+    };
+    assert!(
+        notes
+            .iter()
+            .any(|n| n.pitch() == 50 && n.start() < Ticks::ZERO),
+        "the covered note is kept before the piece's start: {notes:?}"
+    );
 }
 
 /// A track with `old` over beats 0 to 8, armed and sent to the fake output

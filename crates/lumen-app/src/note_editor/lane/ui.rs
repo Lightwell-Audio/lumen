@@ -149,6 +149,7 @@ impl App {
             body: plot,
             time: inp.view.time,
             clip_start: inp.view.clip_start,
+            window: inp.view.window,
             kind: ed.lane.kind,
         };
         ed.last_lane = Some(lview);

@@ -447,6 +447,76 @@ mod tests {
         assert_eq!(doc.project().tracks[0].clips[0].id, kick);
     }
 
+    /// The owner's request (Ableton's arrangement): a MIDI clip dropped on
+    /// another cuts it, but only its window. Moving the top clip away and
+    /// dragging the covered clip's end back brings its notes back intact.
+    #[test]
+    fn a_covered_midi_clip_keeps_its_notes_and_shows_them_when_extended() {
+        use lumen_project::model::{ClipContent, Note};
+        let q = Ticks::quarters;
+        let mut keys = lumen_project::testing::midi_track(
+            1,
+            "Keys",
+            "poly",
+            (0, 8),
+            None,
+            vec![
+                Note::new(q(1), q(1), 60, 100),
+                Note::new(q(5), q(2), 62, 90),
+            ],
+            vec![],
+        );
+        let mut top = (*keys.clips[0]).clone();
+        top.id = Id(50);
+        top.start = q(8);
+        top.length = q(4);
+        top.content = ClipContent::Midi {
+            notes: vec![Note::new(q(0), q(1), 70, 100)],
+            events: vec![],
+        };
+        keys.clips.push(Arc::new(top));
+        let project = lumen_project::testing::project_of("Cover", vec![keys]);
+        let under = project.tracks[0].clips[0].clone();
+        let original = under.content.clone();
+        let mut doc = Document::new(project);
+        let track = doc.project().tracks[0].id;
+        let place = |doc: &mut Document, start| {
+            let base = doc.project().clone();
+            let to = ClipMove {
+                clip: Id(50),
+                track,
+                start: q(start),
+            };
+            doc.move_clips(&base, &[to], None);
+        };
+        let clip = |doc: &Document, id| {
+            (*doc.project().tracks[0]
+                .clips
+                .iter()
+                .find(|c| c.id == id)
+                .unwrap())
+            .clone()
+        };
+
+        // Dropped over beats 4 to 8 of the clip under it: that clip now ends
+        // at 4, and the note at 5 is hidden, not gone.
+        place(&mut doc, 4);
+        let cut = clip(&doc, under.id);
+        assert_eq!(cut.length, q(4));
+        assert_eq!(cut.content, original, "every note kept");
+        assert_eq!(edit::shown_notes(&cut), vec![0], "the note at 5 hidden");
+        assert_eq!(lumen_project::validate(doc.project()), Ok(()));
+
+        // The top clip moved away, then the old clip's end dragged back.
+        place(&mut doc, 12);
+        let base = doc.project().clone();
+        doc.trim_clip(&base, under.id, edit::Edge::End, q(8), false, None);
+        let back = clip(&doc, under.id);
+        assert_eq!(back.length, q(8));
+        assert_eq!(back.content, original, "intact");
+        assert_eq!(edit::shown_notes(&back), vec![0, 1], "and it shows again");
+    }
+
     #[test]
     fn fades_and_gain_are_single_steps_and_stay_in_range() {
         let mut doc = Document::new(crate::empty_project());
