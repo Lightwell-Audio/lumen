@@ -665,6 +665,59 @@ fn midi_chip() {
     }
 }
 
+/// MIDI files and clock (M5 slice 7): the tracks and the tempo offer a
+/// dropped song file makes, and the MIDI page with Sync and its delay.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn midi_files_and_clock() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_midi::{Direction, fake::FakeControl};
+    let groove = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/smf/groove-480.mid");
+    for (appearance, scale) in [("dark", 1.0), ("light", 1.5), ("dark", 2.0)] {
+        let fake = FakeControl::new();
+        fake.plug(Direction::Output, "Drum machine");
+        let dir = TempDir::new("shots-smf");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .with_midi(fake.clone());
+        let mut h = Harness::builder()
+            .with_size(vec2(1280.0, 760.0))
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(10);
+        h.input_mut().dropped_files =
+            vec![std::sync::Arc::new(Dropped(groove.clone())) as eframe::egui::DroppedFileHandle];
+        for _ in 0..60 {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            h.run_steps(1);
+        }
+        let tag = format!("{appearance}-{scale}");
+        save(&mut h, &format!("smf-tempo-offer-{tag}"));
+        h.get_by_label("Lumen").click();
+        h.run_steps(5);
+        h.get_by_label("Audio and MIDI settings\u{2026}").click();
+        h.run_steps(5);
+        h.get_by_label("MIDI tab").click();
+        for _ in 0..60 {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            h.run_steps(1);
+        }
+        h.get_by_label("Sync Drum machine output").click();
+        h.run_steps(20);
+        save(&mut h, &format!("midi-sync-{tag}"));
+    }
+}
+
 /// A left click at `p`.
 fn click(h: &mut Harness<'static, App>, p: Pos2) {
     h.hover_at(p);

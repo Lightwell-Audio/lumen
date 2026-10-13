@@ -5323,3 +5323,88 @@ Tests: engine `midi::resizing_a_clip_or_a_note_under_the_playhead_does_not_retri
 both edges of a playing clip; the port gets one note-on).
 
 Not verified: by hand (MT-MIDI-7 step 37).
+
+## ADR-0062 — Standard MIDI Files and MIDI clock out
+
+**Status:** Accepted (plan approved, owner's F1–F4 A) · **Date:** 2026-10-13
+
+**Context.** M5 slice 7 (plan in `docs/milestones/M5.md`, after MIDI learn
+moved to M7): Standard MIDI Files in and out, and MIDI clock to hardware.
+Clips hold notes and events in ticks at 1,411,200 PPQ with no channel; the
+project has a tempo map and one time signature; the MIDI To sender already
+times messages to the audio a port is heard with.
+
+**Decision.**
+- **Reading and writing** are pure, in `lumen_project::smf`, on `midly`
+  (Unlicense, a public-domain dedication; a `cargo-deny` exception, recorded
+  in THIRD_PARTY_NOTICES). Type 0 and 1 are read; type 2 is refused. Each
+  file track is split by channel into parts. Common divisions come in
+  exactly, others round to the nearest tick; SMPTE files are converted
+  through their own tempo (120 BPM until a tempo event). A note-on with
+  velocity 0 ends a note, a second strike of a sounding key ends the first,
+  a note on and off at one tick lasts one file tick, notes still on end with
+  their track. A bank select (CC 0 and 32) at a program change's tick on its
+  channel becomes the change's bank. Release velocity, polyphonic
+  aftertouch, sysex and meta text other than track names are dropped; only
+  the first time signature is kept. Tempos are clamped to 20–999 BPM.
+  Files are written at **960 PPQ**: a type 1 file has a conductor track
+  (tempo map, time signature), then a named track per part; order at one
+  tick is meta, note-offs, controllers and programs (a bank before its
+  program), note-ons.
+- **Import (F1, F2).** Files are read off the UI thread
+  (`midi_files::Reader`). Dropped on a MIDI track's lane, or imported with
+  a MIDI track chosen, every part becomes one clip there
+  (`Document::import_midi_clip`), cutting what it covers; dropped between
+  tracks or on empty lanes, each part becomes a MIDI track with the synth
+  (`import_midi_tracks`; a name shared by several parts gets " ch N").
+  Clips are whole bars of the project's meter. Notes are placed in beats;
+  a file whose tempo or meter differs offers them in a banner, and "Use its
+  tempo" applies the map and first meter as one step (`use_file_tempo`).
+  Drops compute a place for each kind (`document::Places`): audio files on
+  audio lanes, MIDI files on MIDI lanes. Import audio… became **Import audio
+  or MIDI…**, keeping its id (`file.import_audio`) so saved shortcuts hold.
+- **Export.** What is written is **what plays** (`midi_export.rs`, through
+  `midi_runs`): the clip window, notes carried across seams as one note,
+  muted notes left out, a looping clip's repeats baked and cut where each
+  repeat ends. **Export MIDI clip…** writes the selected MIDI clips as one
+  type 0 part from the first one's start, with the tempo from there;
+  **Export MIDI file…** writes the project's MIDI tracks (unmuted clips) as
+  type 1, each on its MIDI To channel (channel 1 for the synth). The bytes
+  are made when the command runs; the write is atomic and off the UI thread
+  (`lumen_project::write_atomic`, the save's commit protocol).
+- **Clock (F3, F4).** An output's **Sync** switch (a new `Use::sync`, which
+  opens an output, not an input) and, while on, a delay field (−20 to
+  +50 ms; `settings.midi`, added fields). The **engine** makes the clock,
+  not the sender as the plan said: only the engine knows which song
+  position each device frame plays, through loops and the delay
+  compensation's read-ahead. `midi/clock.rs` is a pure generator on the
+  tempo map, tested on its own and run by the player for the ports in
+  `MidiHandle::set_sync` (a bit mask, ports 0–63, an atomic). It sends 24
+  clocks a quarter, each on the sample of its tick; Start from the song's
+  start; otherwise the Song Position Pointer of the **next** sixteenth and
+  Continue, with clocks held until that sixteenth, so the first clock is
+  the pointer's and a follower lines up exactly; Stop, SPP and Continue at a
+  loop wrap or a jump; Stop on stop; nothing while stopped or counting in;
+  a tempo change carries the count on. The sender moves a port's system
+  messages (not its notes) by its delay, and sends Stop to a port whose
+  clock runs when the stream stands still or the sender ends. Clock bytes
+  never flash the MIDI chip (`activity::counts`, slice 2).
+
+**Consequences.** Channels are lost when a file's parts merge into one clip
+(the model has no channel). Positions finer than 1/960 quarter move by at
+most half a step on export (about 0.26 ms at 120 BPM). A negative clock
+delay is limited by the output latency (the sender cannot send before it
+is told). The pointer reaches 16,383 sixteenths (1,023 bars of 4/4);
+ports past the 64th get no clock. Turning Sync off while playing sends no
+Stop. MTC out is deferred.
+
+Tests: `lumen-project/tests/smf.rs` (hand-made files in `tests/smf/` from
+`make.py`, a golden file Lumen wrote, rounding), `document/midi_import.rs`,
+`midi_export.rs`, `app/midi_files.rs`, engine `midi/clock.rs` and
+`tests/midi.rs` (`a_synced_port_gets_start_clocks…`), the no-allocation
+run with Sync switched on and off, the sender's delay and stall, Sync
+opening an output; E2E `smf` (4) and `clock` (exact clock counts between
+transport messages across a tempo change and loop wraps).
+
+Not verified: a file from another DAW in and out, and clock against real
+hardware or another app (MT-MIDI-8).

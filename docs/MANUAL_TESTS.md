@@ -2651,3 +2651,65 @@ clip. Fixed (ADR-0060): Overdub always records a new clip, as Ableton does.
     sound once, without a new attack while dragging: it only ends earlier
     when the end is drawn in before the note's end. Do the same on a looping
     clip, and on a track sent to a MIDI output.
+
+### MT-MIDI-8 · MIDI files and clock out (needs a human; another DAW or a MIDI file from one; loopMIDI or a drum machine for steps 9–14)
+Slice 7 of M5 (ADR-0062). **Status: run 1 waits for the owner.** Start
+Lumen from the repository root:
+
+```powershell
+cargo run --release -p lumen-app
+```
+
+**MIDI files**
+
+1. **A song file between tracks.** Take a multi-track `.mid` from another
+   DAW (or any type 1 song file). Drag it from Explorer onto the empty
+   arrangement. Expect: while dragging, the overlay says "Drop to add 1 MIDI
+   file" and lists it as (MIDI); dropped, one MIDI track per part, each named
+   after its track in the file, each with the synth and one clip of whole
+   bars. Play: it sounds like the source (the synth's sound aside).
+2. **The tempo offer.** If the file's tempo or meter differs from the
+   project's, a banner says so ("… is at 98 BPM, in 6/8. Its notes follow
+   this project's tempo."). Click **Use its tempo** (or tempo and meter).
+   Expect: the transport shows the file's tempo; the notes stay on their
+   beats; Ctrl+Z undoes it in one step. Dismiss closes the banner.
+3. **Onto a MIDI track.** Drag the same file onto a MIDI track's lane, a few
+   bars in. Expect: the lane lights with a ghost clip; dropped, one clip
+   there holding every part. Ctrl+Z removes it in one step.
+4. **Import from the keyboard.** Select a MIDI track, put the playhead at
+   bar 5, press **Ctrl+Shift+I** and choose a `.mid`. Expect: the dialog
+   offers "Audio and MIDI", "Audio" and "MIDI"; the file lands on the
+   selected track at the playhead. With an audio track selected, it makes a
+   new MIDI track after it instead.
+5. **A file Lumen cannot read.** Rename any small file to `bad.mid` and drop
+   it. Expect: a notice in the bottom-left says why, nothing is added.
+6. **Export a clip.** Right-click a MIDI clip (a looping one is best):
+   **Export MIDI clip…**. Save it, then drag that `.mid` into the other DAW.
+   Expect: the same notes, its loop repeats written out, starting at the
+   file's start; held notes across clip seams as one note.
+7. **Export the project.** App menu (Lumen) → **Export MIDI file…**. Open it
+   in the other DAW. Expect: one track per MIDI track that plays, named as
+   in Lumen, on its MIDI To channel, with Lumen's tempo and time signature.
+   A toast says "Exported … .mid".
+8. **Round trip.** Drop the file from step 7 back into Lumen on empty lanes.
+   Expect: the same notes as the tracks it came from.
+
+**Clock** (loopMIDI: create a port "loopMIDI Port", then in the other DAW
+or a MIDI monitor, take clock from it; or connect a drum machine's MIDI in)
+
+9. **Sync.** Lumen → Audio and MIDI settings → MIDI tab. Expect: each
+   output has Track and **Sync** switches; turning Sync on shows a delay
+   field at "0 ms". Close the window.
+10. **Start.** Play from bar 1. Expect: the follower starts with Lumen and
+    holds its tempo; change Lumen's tempo while playing: it follows.
+11. **From elsewhere.** Stop, put the playhead in the middle of bar 3, play.
+    Expect: the follower starts at the next sixteenth, in time.
+12. **Loop and jump.** Turn on a loop over two bars and play through it;
+    then press Home while playing. Expect: at each wrap and jump the
+    follower jumps with Lumen and stays in time.
+13. **Stop.** Stop. Expect: the follower stops. The MIDI chip did not flash
+    for clock while playing (it flashes for notes only).
+14. **Delay.** If the follower runs early or late against Lumen's audio, set
+    the delay (click it and type, or wheel over it; −20 to +50 ms) until it
+    lines up. Expect: a later delay moves the follower later; the setting
+    is kept after a restart.

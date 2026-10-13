@@ -390,11 +390,36 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-13 (latest): **MIDI learn moved to M7** (owner),
-built with automation; M5 slice 7 is now MIDI files and clock out (plan in
-`docs/milestones/M5.md`; the owner took every recommendation, F1–F4 A).
-Next: build slice 7 (7a SMF in pure code first). Commits on this branch
-carry no `Claude-Session:` trailer (the owner's PR rule).
+**Last updated:** 2026-10-13 (latest): **M5 slice 7 is built** (MIDI files
+and clock out, ADR-0062; owner's F1–F4 A). `lumen_project::smf` (on `midly`,
+Unlicense with a deny exception) reads type 0 and 1 into parts split by
+channel and writes type 0 or 1 at 960 PPQ (`tests/smf/`: hand-made files from
+`make.py`, the golden `lumen-960.mid`, written once with
+`LUMEN_WRITE_FIXTURES=1`). Import: `midi_files.rs` reads off the UI thread;
+`app/midi_files.rs` places files (on a MIDI track one clip,
+`Document::import_midi_clip`; between tracks a track per part,
+`import_midi_tracks`) and offers the file's tempo in a banner
+(`use_file_tempo`); drops keep a place per kind (`document::Places`; `drop_place`
+takes the kind). **Import audio or MIDI…** is `Command::Import` (id still
+`file.import_audio`). Export: `midi_export.rs` (what plays: windows, seams,
+loops baked), **Export MIDI clip…** and **Export MIDI file…**, written with
+`lumen_project::write_atomic`. Clock: `Use::sync` and a delay per output
+(`settings.midi` ports' `sync`, `sync_delay_ms`; `midi_settings::Shown`), the
+engine's `midi/clock.rs` (`MidiHandle::set_sync`, a port bit mask), the
+sender's delay (`Output::set_sync_delays`) and stall Stop. **The command enum
+must stay in `commands::ALL`'s order** (`ALL[command as usize]`; a test
+checks it: a misplaced variant ran Create MIDI clip for Export). E2E `smf`
+(4) and `clock` (1); E2E 331, smoke 6 pass (`xvfb-run -a`; the container
+needed `libxkbcommon-x11-0` for smoke). Valgrind is in this container:
+`cargo build --release -p lumen-perf && target/release/perf-gate` runs the
+gate; slice 7 is flat against its base, but `project_parse` reads +5.83%
+over the baseline here at the base too (KNOWN_ISSUES). Not run: macOS
+cross-clippy. **MT-MIDI-8 waits for the owner** (with MT-MIDI-7). Next: the
+owner's manual tests, then slice 8 (the close: exit walkthrough E2E, the
+`lumen-review` review, the report). Commits on this branch carry no
+`Claude-Session:` trailer (the owner's PR rule).
+Before it, 2026-10-13: **MIDI learn moved to M7** (owner),
+built with automation; M5 slice 7 became MIDI files and clock out.
 Before it, 2026-10-13: **resizing a playing MIDI clip no
 longer strikes its notes again** (ADR-0061, owner's report). The engine knew a
 held note by its clip's start and the note's length, which a resize changes
