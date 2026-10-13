@@ -16,6 +16,13 @@
 //!   sent on, so a stop (a `Flush` from the engine), a port that went away
 //!   or a track that changed port can let go of exactly those.
 //!
+//! - MIDI clock (M5 slice 7) comes from the engine like any message; a
+//!   port's Sync delay moves its clock and transport messages (not its
+//!   notes) later or earlier ([`Order::Delays`]). An earlier one can only
+//!   be as early as the output latency: the thread cannot send before it
+//!   is told. A port left running when the stream stands still or the
+//!   sender ends gets Stop.
+//!
 //! Timing against real hardware is by construction, not measured here (no
 //! interface with a MIDI port is on the test machine); the scheduling and
 //! the clock mapping are tested with injected times.
@@ -177,6 +184,8 @@ pub struct Scheduler {
     /// preview) can sound one key, and each note-on is answered by one
     /// note-off.
     sounding: HashMap<(u16, u8, u8), u32>,
+    /// Ports sent Start or Continue and not Stop since (bit per port).
+    running: u64,
 }
 
 impl Scheduler {
@@ -203,6 +212,12 @@ impl Scheduler {
     /// for a note that is not sounding (a flush already let it go, or its
     /// note-on never went out), which is not sent a second time.
     fn note(&mut self, port: u16, msg: Msg) -> bool {
+        let bit = 1_u64.checked_shl(u32::from(port)).unwrap_or(0);
+        match msg {
+            Msg::START | Msg::CONTINUE => self.running |= bit,
+            Msg::STOP => self.running &= !bit,
+            _ => {}
+        }
         match msg.kind() {
             Kind::NoteOn { key, .. } => {
                 *self.sounding.entry((port, msg.channel(), key)).or_insert(0) += 1;
@@ -238,14 +253,34 @@ impl Scheduler {
         offs
     }
 
+    /// Stop for every port whose clock is running (the stream stood
+    /// still, or the sender ends).
+    pub fn stop_running(&mut self) -> Vec<(u16, Msg)> {
+        let mut out = Vec::new();
+        let mut left = std::mem::take(&mut self.running);
+        while left != 0 {
+            out.push((left.trailing_zeros() as u16, Msg::STOP));
+            left &= left - 1;
+        }
+        out
+    }
+
     /// A port went away: its messages and notes are forgotten.
     pub fn forget_port(&mut self, port: u16) {
         self.queue.retain(|_, (p, _)| *p != port);
         self.sounding.retain(|(p, _, _), _| *p != port);
+        if let Some(bit) = 1_u64.checked_shl(u32::from(port)) {
+            self.running &= !bit;
+        }
     }
 
     pub fn is_empty(&self) -> bool {
         self.queue.is_empty()
+    }
+
+    /// A port's clock was started and not stopped.
+    pub fn clock_running(&self) -> bool {
+        self.running != 0
     }
 
     /// Notes have been sent on and not yet off.
@@ -258,6 +293,8 @@ impl Scheduler {
 enum Order {
     /// The port names the engine's port numbers stand for.
     Ports(Vec<String>),
+    /// Each port's Sync delay in nanoseconds, by port number (M5 slice 7).
+    Delays(Vec<i64>),
 }
 
 /// The sender: owns the thread that times and sends MIDI to hardware.
@@ -269,6 +306,7 @@ pub struct Output {
     /// Waiting for the first port before the thread starts.
     parts: Option<Parts>,
     sent: Vec<String>,
+    delays: Vec<i64>,
 }
 
 struct Parts {
@@ -299,6 +337,17 @@ impl Output {
                 orders: receiver,
             }),
             sent: Vec::new(),
+            delays: Vec::new(),
+        }
+    }
+
+    /// Each port's Sync delay in milliseconds, by port number: its clock
+    /// and transport messages go that much later (earlier when negative).
+    pub fn set_sync_delays(&mut self, ms: &[i32]) {
+        let delays: Vec<i64> = ms.iter().map(|&ms| i64::from(ms) * 1_000_000).collect();
+        if delays != self.delays {
+            self.delays.clone_from(&delays);
+            let _ = self.orders.send(Order::Delays(delays));
         }
     }
 
@@ -337,6 +386,7 @@ impl Drop for Output {
 
 fn run(mut parts: Parts, stop: &AtomicBool, latency: &AtomicU32) {
     let mut ports: Vec<PortId> = Vec::new();
+    let mut delays: Vec<i64> = Vec::new();
     let mut map = ClockMap::default();
     let mut scheduler = Scheduler::default();
     let mut active = Instant::now();
@@ -355,14 +405,19 @@ fn run(mut parts: Parts, stop: &AtomicBool, latency: &AtomicU32) {
         }
     };
     while !stop.load(Ordering::Relaxed) {
-        while let Ok(Order::Ports(names)) = parts.orders.try_recv() {
-            ports = names
-                .into_iter()
-                .map(|name| PortId {
-                    direction: Direction::Output,
-                    name,
-                })
-                .collect();
+        while let Ok(order) = parts.orders.try_recv() {
+            match order {
+                Order::Ports(names) => {
+                    ports = names
+                        .into_iter()
+                        .map(|name| PortId {
+                            direction: Direction::Output,
+                            name,
+                        })
+                        .collect();
+                }
+                Order::Delays(by_port) => delays = by_port,
+            }
         }
         let clock = parts.clock.read();
         if let Some((frame, nanos, rate)) = clock {
@@ -373,8 +428,10 @@ fn run(mut parts: Parts, stop: &AtomicBool, latency: &AtomicU32) {
         {
             moved = (frame, Instant::now());
         }
-        if scheduler.has_sounding() && moved.1.elapsed() > STALL {
-            for (port, msg) in scheduler.flush() {
+        if (scheduler.has_sounding() || scheduler.clock_running()) && moved.1.elapsed() > STALL {
+            let mut lost = scheduler.flush();
+            lost.extend(scheduler.stop_running());
+            for (port, msg) in lost {
                 send(&mut scheduler, &ports, port, msg);
             }
         }
@@ -389,7 +446,11 @@ fn run(mut parts: Parts, stop: &AtomicBool, latency: &AtomicU32) {
                             map.due(frame, rate, lag)
                         })
                         .unwrap_or(now);
-                    scheduler.push(due, port, msg);
+                    let delay = match msg.is_system() {
+                        true => delays.get(usize::from(port)).copied().unwrap_or(0),
+                        false => 0,
+                    };
+                    scheduler.push(due + delay, port, msg);
                 }
                 MidiOut::Flush => {
                     for (port, msg) in scheduler.flush() {
@@ -404,8 +465,10 @@ fn run(mut parts: Parts, stop: &AtomicBool, latency: &AtomicU32) {
         let busy = !scheduler.is_empty() || active.elapsed() < LATELY;
         thread::sleep(if busy { BUSY } else { QUIET });
     }
-    // Let go of whatever is still sounding.
-    for (port, msg) in scheduler.flush() {
+    // Let go of whatever is still sounding, and stop running clocks.
+    let mut last = scheduler.flush();
+    last.extend(scheduler.stop_running());
+    for (port, msg) in last {
         send(&mut scheduler, &ports, port, msg);
     }
 }
@@ -467,6 +530,24 @@ mod tests {
         s.push(0, 0, on(61));
         s.due(10);
         assert_eq!(s.flush(), vec![(0, off(61)), (0, off(61))]);
+    }
+
+    #[test]
+    fn a_port_whose_clock_runs_gets_stop_when_the_stream_stands_still() {
+        let mut s = Scheduler::default();
+        s.push(0, 2, Msg::START);
+        s.push(1, 2, Msg::CLOCK);
+        s.push(1, 5, Msg::song_position(4));
+        s.push(1, 5, Msg::CONTINUE);
+        s.due(10);
+        assert!(s.clock_running());
+        assert_eq!(s.stop_running(), vec![(2, Msg::STOP), (5, Msg::STOP)]);
+        assert!(!s.clock_running());
+        // Stopped by the engine: nothing more to stop.
+        s.push(20, 2, Msg::CONTINUE);
+        s.push(30, 2, Msg::STOP);
+        s.due(40);
+        assert!(s.stop_running().is_empty());
     }
 
     #[test]
@@ -573,6 +654,7 @@ mod sender_tests {
             Use {
                 track: true,
                 remote: false,
+                sync: false,
             },
         )]);
         let backend = fake.backend();
@@ -753,5 +835,30 @@ mod sender_tests {
         rig.queue.push(at(0, Msg::note_on(0, 61, 90))).unwrap();
         wait_for(&rig.fake, 2);
         assert_eq!(rig.fake.sent().len(), 2);
+    }
+
+    /// The owner's F4: a port's Sync delay moves its clock and transport
+    /// messages, not its notes; and a clock left running gets Stop when the
+    /// stream stands still.
+    #[test]
+    fn the_sync_delay_moves_the_clock_not_the_notes_and_a_stall_stops_it() {
+        let mut rig = rig();
+        rig.output.set_sync_delays(&[30]);
+        // Frame 0 is heard now; the clock goes 30 ms after it.
+        rig.clock.publish(0, 128, 48_000);
+        rig.queue.push(at(0, Msg::START)).unwrap();
+        rig.queue.push(at(0, Msg::note_on(0, 60, 90))).unwrap();
+        wait_for(&rig.fake, 2);
+        let sent = rig.fake.sent_timed();
+        assert_eq!(sent[0].1, Msg::note_on(0, 60, 90).bytes(), "the note first");
+        assert_eq!(sent[1].1, Msg::START.bytes());
+        let gap = sent[1].2 - sent[0].2;
+        assert!(gap >= Duration::from_millis(20), "{gap:?}");
+        // The stream stands still: the note lets go and the clock stops.
+        wait_for(&rig.fake, 4);
+        let sent = rig.fake.sent();
+        let tail: Vec<&[u8]> = sent[2..].iter().map(|(_, b)| b.as_slice()).collect();
+        assert!(tail.contains(&Msg::note_off(0, 60).bytes()));
+        assert!(tail.contains(&Msg::STOP.bytes()));
     }
 }

@@ -153,7 +153,7 @@ impl Transport {
     pub fn windows(
         &mut self,
         ctx: &egui::Context,
-        midi: &crate::midi::Midi,
+        midi: crate::midi_settings::Shown<'_>,
     ) -> Vec<crate::midi::Action> {
         use crate::audio_settings::Action;
         let mut asked = std::mem::take(&mut self.midi_asked);

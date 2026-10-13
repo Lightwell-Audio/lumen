@@ -31,18 +31,21 @@ pub struct PortInfo {
     pub name: String,
 }
 
-/// What a port is for. An input with either switch on is opened.
+/// What a port is for. An input opens for tracks or remote control, an
+/// output for tracks or MIDI clock.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Use {
     /// Tracks may take notes from it (or send to it, for an output).
     pub track: bool,
-    /// Controls may be mapped from it (MIDI learn, M5 slice 7).
+    /// Controls may be mapped from it (MIDI learn, M7).
     pub remote: bool,
+    /// An output that gets MIDI clock while the song plays (M5 slice 7).
+    pub sync: bool,
 }
 
 impl Use {
     pub fn any(self) -> bool {
-        self.track || self.remote
+        self.track || self.remote || self.sync
     }
 }
 

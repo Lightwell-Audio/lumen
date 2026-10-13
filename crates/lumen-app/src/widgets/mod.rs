@@ -250,6 +250,10 @@ pub enum SliderKind {
     /// A level as a share, 0 to 1 shown as 0–100%, filled from the left;
     /// resets to `default` (the metronome's volume, M4.5).
     Percent { default: f32 },
+    /// A time offset in whole milliseconds, earlier (negative) or later,
+    /// from `min_ms` to `max_ms`; resets to 0 (a MIDI clock's delay, M5
+    /// slice 7).
+    Offset { min_ms: f32, max_ms: f32 },
 }
 
 impl SliderKind {
@@ -269,6 +273,7 @@ impl SliderKind {
             SliderKind::Millis { max_ms } => (0.0, max_ms.max(0.0)),
             SliderKind::Trim => (-24.0, 24.0),
             SliderKind::Percent { .. } => (0.0, 1.0),
+            SliderKind::Offset { min_ms, max_ms } => (min_ms, max_ms),
         }
     }
 
@@ -280,6 +285,7 @@ impl SliderKind {
             SliderKind::Percent { .. } => 0.05,
             SliderKind::Pan => 0.05,
             SliderKind::Millis { max_ms } => (max_ms / 100.0).max(1.0),
+            SliderKind::Offset { .. } => 1.0,
         }
     }
 
@@ -289,6 +295,11 @@ impl SliderKind {
             SliderKind::Percent { .. } => format!("{:.0}%", value * 100.0),
             SliderKind::Pan => pan_text(value),
             SliderKind::Millis { .. } => ms_text(value),
+            SliderKind::Offset { .. } => match value.round() as i32 {
+                0 => "0 ms".to_owned(),
+                ms if ms > 0 => format!("+{ms} ms"),
+                ms => format!("\u{2212}{} ms", -ms),
+            },
         }
     }
 
@@ -305,6 +316,14 @@ impl SliderKind {
                 .parse::<f32>()
                 .ok()
                 .map(|p| p / 100.0),
+            SliderKind::Offset { .. } => text
+                .trim_end_matches("MS")
+                .trim()
+                .trim_start_matches('+')
+                .replace(',', ".")
+                .parse::<f32>()
+                .ok()
+                .map(f32::round),
             SliderKind::Millis { .. } => {
                 let text = text.replace(',', ".");
                 if let Some(ms) = text.strip_suffix("MS") {
@@ -460,6 +479,9 @@ pub fn value_slider_styled(
             SliderKind::Percent { .. } => {
                 "Drag or wheel (Shift for fine), double-click for the default, or click and type"
             }
+            SliderKind::Offset { .. } => {
+                "Delay: drag or wheel (Shift for fine), double-click for none, or click and type"
+            }
         });
     response.widget_info(|| {
         egui::WidgetInfo::slider(
@@ -544,7 +566,8 @@ pub fn value_slider_styled(
         SliderKind::Volume
         | SliderKind::ClipGain
         | SliderKind::Millis { .. }
-        | SliderKind::Percent { .. } => {
+        | SliderKind::Percent { .. }
+        | SliderKind::Offset { .. } => {
             let x = x_at(out);
             if comet {
                 draw_comet(p, rect, x, hover.max(f32::from(response.dragged())));
@@ -844,6 +867,23 @@ pub fn draw_glow_rect(painter: &Painter, rect: Rect, radius: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_offset_reads_and_writes_signed_milliseconds() {
+        let kind = SliderKind::Offset {
+            min_ms: -20.0,
+            max_ms: 50.0,
+        };
+        assert_eq!(kind.text(0.0), "0 ms");
+        assert_eq!(kind.text(12.0), "+12 ms");
+        assert_eq!(kind.text(-7.0), "\u{2212}7 ms");
+        for typed in ["-7", "\u{2212}7 ms", "-7ms"] {
+            assert_eq!(kind.parse(typed), Some(-7.0), "{typed}");
+        }
+        assert_eq!(kind.parse("+12 ms"), Some(12.0));
+        assert_eq!(kind.parse("3,6"), Some(4.0), "whole milliseconds");
+        assert_eq!(kind.range(), (-20.0, 50.0));
+    }
 
     #[test]
     fn a_handle_opens_around_the_value_as_it_nears_it() {

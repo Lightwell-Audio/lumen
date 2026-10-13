@@ -16,6 +16,7 @@ mod audition;
 mod barfit;
 mod chrome;
 mod clips;
+mod clock;
 mod commands;
 mod compensation;
 mod cue;

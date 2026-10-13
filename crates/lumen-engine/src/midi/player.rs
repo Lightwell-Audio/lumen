@@ -2,9 +2,13 @@
 //! track list, [`MidiPlayer`] on the audio thread reads it (a
 //! [`TrackSource`], played beside the audio clips).
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use lumen_core::midi::{Event, Kind, Msg, cc};
 
 use super::capture::{self, Captured};
+use super::clock::ClockOut;
 use super::hold::{self, Clock, MAX_EVENTS};
 use super::live::{AUDITION, LiveIn, LiveInput};
 use super::{MidiOut, MidiTrack, Target};
@@ -46,9 +50,16 @@ pub struct MidiHandle {
     feeds: rtrb::Producer<Feed>,
     old_feeds: rtrb::Consumer<Feed>,
     captured: Option<rtrb::Consumer<Captured>>,
+    sync: Arc<AtomicU64>,
 }
 
 impl MidiHandle {
+    /// The ports that get MIDI clock (M5 slice 7): bit `n` for port `n`,
+    /// ports 0 to 63.
+    pub fn set_sync(&self, ports: u64) {
+        self.sync.store(ports, Ordering::Relaxed);
+    }
+
     /// Sends a new track list. Returns it if the queue is full (call again
     /// next frame).
     pub fn set(&mut self, tracks: Vec<MidiTrack>) -> Result<(), Vec<MidiTrack>> {
@@ -141,6 +152,11 @@ pub struct MidiPlayer {
     pass: u32,
     /// The last part rendered had the transport recording.
     recording: bool,
+    /// The ports that get MIDI clock, as [`MidiHandle::set_sync`] set them.
+    sync: Arc<AtomicU64>,
+    /// The ports the clock was last sent to.
+    synced: u64,
+    clock_out: ClockOut,
 }
 
 /// Creates the MIDI pair, starting with no tracks. Allocates, so call it
@@ -152,6 +168,7 @@ pub fn midi_player() -> (MidiHandle, MidiPlayer) {
     let (feeds_tx, feeds_rx) = rtrb::RingBuffer::new(2);
     let (old_feeds_tx, old_feeds_rx) = rtrb::RingBuffer::new(3);
     let (capture_tx, capture_rx) = rtrb::RingBuffer::new(capture::QUEUE);
+    let sync = Arc::new(AtomicU64::new(0));
     (
         MidiHandle {
             incoming: incoming_tx,
@@ -160,6 +177,7 @@ pub fn midi_player() -> (MidiHandle, MidiPlayer) {
             feeds: feeds_tx,
             old_feeds: old_feeds_rx,
             captured: Some(capture_rx),
+            sync: Arc::clone(&sync),
         },
         MidiPlayer {
             incoming: incoming_rx,
@@ -179,6 +197,9 @@ pub fn midi_player() -> (MidiHandle, MidiPlayer) {
             lost: 0,
             pass: 0,
             recording: false,
+            sync,
+            synced: 0,
+            clock_out: ClockOut::default(),
         },
     )
 }
@@ -461,16 +482,53 @@ impl MidiPlayer {
     }
 
     /// Tells the sender to forget what it has not sent yet, if any track
-    /// goes to hardware.
+    /// goes to hardware or any port gets the clock.
     fn flush_hardware(&mut self) {
         let ports = self
             .current
             .tracks
             .iter()
             .any(|t| matches!(t.target, Target::Port { .. }));
-        if ports {
+        if ports || self.synced != 0 {
             self.out.push(MidiOut::Flush);
         }
+    }
+
+    /// Sends `msg` to every port in `ports` at device frame `frame`.
+    fn to_synced(out: &mut Out, ports: u64, frame: u64, msg: Msg) {
+        let mut left = ports;
+        while left != 0 {
+            let port = left.trailing_zeros() as u16;
+            out.at(frame, port, msg);
+            left &= left - 1;
+        }
+    }
+
+    /// The clock's messages for a part being played (M5 slice 7). Ports
+    /// that turn Sync on while playing pick the song up from here.
+    fn play_clock(&mut self, cx: &RenderContext<'_>, frames: usize) {
+        let ports = self.sync.load(Ordering::Relaxed);
+        if ports != self.synced {
+            if ports == 0 {
+                self.clock_out.reset();
+            } else if self.clock_out.running() || self.synced == 0 {
+                self.clock_out.locate(Jump::Play);
+            }
+            self.synced = ports;
+        }
+        if ports == 0 {
+            return;
+        }
+        let (out, stream) = (&mut self.out, cx.stream);
+        self.clock_out.part(
+            cx.timeline,
+            cx.sample_rate,
+            cx.start,
+            frames,
+            |offset, msg| {
+                Self::to_synced(out, ports, stream + u64::from(offset), msg);
+            },
+        );
     }
 }
 
@@ -617,6 +675,9 @@ impl TrackSource for MidiPlayer {
             return;
         }
         self.play_live(cx, buses.frames());
+        if cx.mode == Mode::Play {
+            self.play_clock(cx, buses.frames());
+        }
         for track in &mut self.current.tracks {
             run_track(track, cx, buses, &mut self.out, clock);
         }
@@ -627,6 +688,7 @@ impl TrackSource for MidiPlayer {
         if jump == Jump::LoopWrap {
             self.wrapped();
         }
+        self.clock_out.locate(jump);
         let clock = Clock {
             timeline,
             rate: sample_rate,
@@ -648,6 +710,9 @@ impl TrackSource for MidiPlayer {
 
     fn stopped(&mut self) {
         self.flush_hardware();
+        if self.clock_out.stop() {
+            Self::to_synced(&mut self.out, self.synced, self.clock, Msg::STOP);
+        }
         for track in &mut self.current.tracks {
             let channel = track.channel();
             track.state.release_all(channel);

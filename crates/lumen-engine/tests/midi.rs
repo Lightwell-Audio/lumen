@@ -1401,3 +1401,65 @@ fn resizing_a_clip_or_a_note_under_the_playhead_does_not_retrigger_it() {
     let sent = rig.log();
     assert_eq!((ons(&sent), offs(&sent)), (2, 2));
 }
+
+/// MIDI clock out (M5 slice 7): a port with Sync gets Start, 24 clocks a
+/// quarter on their frames, Stop, the pointer and Continue at a loop wrap,
+/// and Stop when playback stops.
+#[test]
+fn a_synced_port_gets_start_clocks_on_their_frames_the_loop_wrap_and_stop() {
+    use lumen_engine::{CLOCK_TICKS, Region};
+    let log = Log::default();
+    let timeline = Timeline::default();
+    let mut rig = rig(timeline.clone(), 48_000, Vec::new(), &log);
+    rig.midi.set_sync(1 << 2);
+    rig.transport
+        .send(Command::SetLoop(Region::new(
+            Ticks::ZERO,
+            Ticks::quarters(4),
+            true,
+        )))
+        .unwrap();
+    rig.run(100, 100);
+    rig.play();
+    // A bar and a half: the loop wraps once.
+    rig.run(144_000, 128);
+    rig.transport.send(Command::Stop).unwrap();
+    rig.run(256, 128);
+    let mut sent = Vec::new();
+    while let Ok(m) = rig.output.pop() {
+        sent.push(m);
+    }
+    let at = |k: i64| 100 + timeline.sample_at(Ticks(k * CLOCK_TICKS), 48_000) as u64;
+    let msgs: Vec<(u64, Msg)> = sent
+        .iter()
+        .filter_map(|m| match *m {
+            MidiOut::At { frame, port, msg } => {
+                assert_eq!(port, 2, "only the synced port");
+                Some((frame, msg))
+            }
+            MidiOut::Flush => None,
+        })
+        .collect();
+    assert_eq!(msgs[0], (100, Msg::START));
+    for k in 0..96 {
+        assert_eq!(msgs[1 + k as usize], (at(k), Msg::CLOCK), "clock {k}");
+    }
+    // The wrap: two seconds in.
+    let wrap = 100 + 96_000;
+    assert_eq!(
+        msgs[97..100],
+        [
+            (wrap, Msg::STOP),
+            (wrap, Msg::song_position(0)),
+            (wrap, Msg::CONTINUE)
+        ]
+    );
+    assert_eq!(msgs[100], (wrap, Msg::CLOCK));
+    let clocks = msgs.iter().filter(|(_, m)| *m == Msg::CLOCK).count();
+    assert_eq!(clocks, 96 + 48, "a bar and a half");
+    assert_eq!(msgs.last().map(|m| m.1), Some(Msg::STOP));
+    assert!(
+        sent.contains(&MidiOut::Flush),
+        "the stop flushes what waits"
+    );
+}

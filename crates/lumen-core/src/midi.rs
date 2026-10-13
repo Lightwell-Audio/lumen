@@ -1,6 +1,7 @@
-//! A MIDI channel message of up to three bytes, shared by the engine, the
-//! devices and the app (M5 slice 1). Plain data: no allocation, so it can
-//! travel on the audio thread.
+//! A MIDI message of up to three bytes, shared by the engine, the devices
+//! and the app (M5 slice 1): channel messages, and the system messages of
+//! MIDI clock (M5 slice 7). Plain data: no allocation, so it can travel on
+//! the audio thread.
 
 /// Controller numbers Lumen's built-in devices answer to.
 pub mod cc {
@@ -16,8 +17,9 @@ pub mod cc {
     pub const ALL_NOTES_OFF: u8 = 123;
 }
 
-/// A channel message: status byte (kind and channel), then up to two data
-/// bytes. Program change and channel pressure use one.
+/// A message: status byte (kind and channel), then up to two data bytes.
+/// Program change and channel pressure use one; the clock's real-time
+/// messages none; Song Position Pointer two.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Msg(pub [u8; 3]);
 
@@ -84,6 +86,27 @@ impl Msg {
         Self([0xE0 | (channel & 15), (raw & 127) as u8, (raw >> 7) as u8])
     }
 
+    /// MIDI clock: 24 a quarter note while the song plays.
+    pub const CLOCK: Msg = Msg([0xF8, 0, 0]);
+    /// Start the song from its beginning, at the next clock.
+    pub const START: Msg = Msg([0xFA, 0, 0]);
+    /// Carry on from the Song Position Pointer, at the next clock.
+    pub const CONTINUE: Msg = Msg([0xFB, 0, 0]);
+    pub const STOP: Msg = Msg([0xFC, 0, 0]);
+
+    /// Song Position Pointer: where the song is, in sixteenth notes (six
+    /// clocks each) from its start, up to 16,383.
+    pub fn song_position(sixteenths: u16) -> Self {
+        let at = sixteenths.min(0x3FFF);
+        Self([0xF2, (at & 127) as u8, (at >> 7) as u8])
+    }
+
+    /// Whether this is a system message (clock, transport, position) rather
+    /// than a channel's.
+    pub fn is_system(self) -> bool {
+        self.0[0] >= 0xF0
+    }
+
     /// The channel, 0 to 15.
     pub fn channel(self) -> u8 {
         self.0[0] & 15
@@ -91,10 +114,14 @@ impl Msg {
 
     /// How many of the three bytes mean something.
     pub fn len(self) -> usize {
-        match self.0[0] >> 4 {
-            0xC | 0xD => 2,
-            0x8..=0xB | 0xE => 3,
-            _ => 1,
+        match self.0[0] {
+            0xF2 => 3,
+            0xF1 | 0xF3 => 2,
+            status => match status >> 4 {
+                0xC | 0xD => 2,
+                0x8..=0xB | 0xE => 3,
+                _ => 1,
+            },
         }
     }
 
@@ -196,5 +223,9 @@ mod tests {
         assert_eq!(Msg::program(0, 1).len(), 2);
         assert_eq!(Msg::pressure(0, 1).bytes().len(), 2);
         assert_eq!(Msg([0xF8, 0, 0]).len(), 1);
+        assert_eq!(Msg::STOP.bytes(), [0xFC]);
+        assert_eq!(Msg::song_position(200).bytes(), [0xF2, 200 - 128, 1]);
+        assert_eq!(Msg::song_position(u16::MAX).bytes(), [0xF2, 127, 127]);
+        assert!(Msg::CLOCK.is_system() && !Msg::program(15, 0).is_system());
     }
 }

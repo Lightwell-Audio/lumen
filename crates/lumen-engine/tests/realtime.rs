@@ -436,6 +436,8 @@ fn midi_never_touches_the_heap() {
     let (mut routing, source) = mixer(Layered(players, player));
     let (mut handle, mut engine) = engine(Timeline::default(), source, 48_000);
     midi.set(tracks(0)).ok().unwrap();
+    // Two ports get MIDI clock (M5 slice 7).
+    midi.set_sync(0b101);
     midi.set_live(Box::new(Player { next: 0, on: false }))
         .ok()
         .unwrap();
@@ -454,6 +456,10 @@ fn midi_never_touches_the_heap() {
         if block % 150 == 75 {
             midi.collect_garbage();
             let _ = midi.set(tracks(block % 5));
+        }
+        if block % 2_000 == 1_000 {
+            // Sync switched on and off while playing.
+            midi.set_sync(if block % 4_000 == 1_000 { 0 } else { 0b101 });
         }
         if block % 1_000 == 999 {
             // A new live input (the app gives one when MIDI restarts).

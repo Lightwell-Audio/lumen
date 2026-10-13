@@ -97,6 +97,7 @@ impl View {
                     using: Use {
                         track: port.track,
                         remote: port.remote,
+                        sync: port.sync,
                     },
                     failed: false,
                     count: 0,

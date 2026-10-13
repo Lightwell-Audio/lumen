@@ -476,11 +476,22 @@ impl eframe::App for App {
         self.file_banner(ui);
         self.tempo_banner(ui);
         self.recovery_banner(ui);
-        for action in self.transport.windows(&ctx, &self.midi) {
+        let shown = midi_settings::Shown {
+            midi: &self.midi,
+            saved: &self.settings.midi,
+        };
+        for action in self.transport.windows(&ctx, shown) {
             self.midi.apply(&action);
-            if let midi::Action::Use(id, using) = &action {
-                midi::Midi::remember(&mut self.settings.midi, id, *using);
-                self.settings_changed = Some(Instant::now());
+            match &action {
+                midi::Action::Use(id, using) => {
+                    midi::Midi::remember(&mut self.settings.midi, id, *using);
+                    self.settings_changed = Some(Instant::now());
+                }
+                midi::Action::SyncDelay(name, ms) => {
+                    midi::Midi::set_sync_delay(&mut self.settings.midi, name, *ms);
+                    self.settings_changed = Some(Instant::now());
+                }
+                midi::Action::Rescan => {}
             }
         }
         if self.midi.poll() {

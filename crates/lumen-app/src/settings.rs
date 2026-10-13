@@ -222,6 +222,21 @@ pub struct MidiPort {
     pub track: bool,
     #[serde(default)]
     pub remote: bool,
+    /// An output that gets MIDI clock (M5 slice 7; an added field).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub sync: bool,
+    /// How much later than the song the clock goes, in milliseconds,
+    /// −20 to +50 (the owner's F4; an added field).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub sync_delay_ms: i32,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+fn is_zero(n: &i32) -> bool {
+    *n == 0
 }
 
 /// The MIDI page of the settings: an added field with a default, so older
@@ -472,12 +487,24 @@ mod tests {
                 track_colour_meters: true,
             },
             midi: Midi {
-                ports: vec![MidiPort {
-                    direction: "input".into(),
-                    name: "Keys".into(),
-                    track: true,
-                    remote: true,
-                }],
+                ports: vec![
+                    MidiPort {
+                        direction: "input".into(),
+                        name: "Keys".into(),
+                        track: true,
+                        remote: true,
+                        sync: false,
+                        sync_delay_ms: 0,
+                    },
+                    MidiPort {
+                        direction: "output".into(),
+                        name: "Drum machine".into(),
+                        track: false,
+                        remote: false,
+                        sync: true,
+                        sync_delay_ms: -7,
+                    },
+                ],
                 audition: false,
             },
             record: RecordSettings {

@@ -257,7 +257,7 @@ impl Window {
         &mut self,
         ctx: &egui::Context,
         audio: &Audio,
-        midi: &crate::midi::Midi,
+        midi: crate::midi_settings::Shown<'_>,
         test_tone: bool,
     ) -> Vec<Action> {
         let mut actions = Vec::new();

@@ -196,8 +196,13 @@ impl App {
                 Arc::clone(&self.transport.audio.clock),
             ));
         }
+        // MIDI clock (M5 slice 7): outputs with Sync on get it from the
+        // engine, each moved by its delay in the sender.
+        let (sync, delays) = self.sync_ports();
+        self.transport.audio.midi.set_sync(sync);
         if let Some(out) = &mut self.midi_out {
             out.set_ports(self.lanes.midi_ports.names());
+            out.set_sync_delays(&delays);
             let latency = self.transport.audio.info.as_ref();
             out.set_latency(latency.map_or(0, |i| i.output_latency));
         }
@@ -222,6 +227,29 @@ impl App {
         if MenuPorts::of(ctx) != menu {
             ctx.data_mut(|d| d.insert_temp(egui::Id::new("menu-midi-outputs"), menu));
         }
+    }
+
+    /// The outputs with Sync on, as the engine's port bits (ports 0 to 63),
+    /// and each port's clock delay in milliseconds, by port number.
+    fn sync_ports(&mut self) -> (u64, Vec<i32>) {
+        let mut bits = 0_u64;
+        let mut delays = Vec::new();
+        for port in self.midi.ports() {
+            let id = &port.info.id;
+            if id.direction != Direction::Output || !port.using.sync {
+                continue;
+            }
+            let index = usize::from(self.lanes.midi_ports.index(&id.name));
+            if index >= 64 {
+                continue;
+            }
+            bits |= 1 << index;
+            if delays.len() <= index {
+                delays.resize(index + 1, 0);
+            }
+            delays[index] = Midi::sync_delay(&self.settings.midi, &id.name);
+        }
+        (bits, delays)
     }
 
     /// Switches on for tracks every present output a track sends to.

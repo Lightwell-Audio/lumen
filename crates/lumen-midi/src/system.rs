@@ -356,8 +356,8 @@ impl Worker {
             let id = info.id;
             let using = self.uses.get(&id).copied().unwrap_or_default();
             let wanted = match id.direction {
-                Direction::Input => using.any(),
-                Direction::Output => using.track,
+                Direction::Input => using.track || using.remote,
+                Direction::Output => using.track || using.sync,
             };
             let open = self.inputs.contains_key(&id) || self.outputs.contains_key(&id);
             if !wanted {
@@ -470,6 +470,7 @@ mod tests {
     const ON: Use = Use {
         track: true,
         remote: false,
+        sync: false,
     };
 
     #[test]
@@ -508,11 +509,31 @@ mod tests {
                 Use {
                     track: false,
                     remote: true,
+                    sync: false,
                 },
             )]),
         );
         until("open", || fake.open_inputs() == 1);
         assert!(midi.ports()[0].using.remote);
+    }
+
+    #[test]
+    fn sync_alone_opens_an_output_but_not_an_input() {
+        let fake = FakeControl::new();
+        fake.plug(Direction::Output, "Drums");
+        fake.plug(Direction::Input, "Keys");
+        let sync = Use {
+            sync: true,
+            ..Use::default()
+        };
+        let output = FakeControl::id(Direction::Output, "Drums");
+        let midi = system(
+            &fake,
+            HashMap::from([(output, sync), (input("Keys"), sync)]),
+        );
+        until("open", || fake.opens(Direction::Output, "Drums") == 1);
+        assert_eq!(fake.open_inputs(), 0, "an input has no clock to send");
+        drop(midi);
     }
 
     #[test]
