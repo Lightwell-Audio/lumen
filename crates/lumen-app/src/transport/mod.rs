@@ -9,6 +9,7 @@ mod compensation;
 mod dropouts;
 mod fit;
 mod midi_chip;
+mod record;
 mod status;
 
 use std::time::{Duration, Instant};
@@ -88,6 +89,10 @@ pub struct Transport {
     pub(crate) keyboard_readout_shown: bool,
     /// What fits in the bar (`fit.rs`).
     fit: fit::Fit,
+    /// Commands the bar's controls asked for this frame (Record, Overdub,
+    /// the count-in, record-only metronome), for the app to run: the bar has
+    /// no access to the app's settings or its command dispatch.
+    pub(crate) requests: Vec<crate::commands::Command>,
 }
 
 fn timeline_of(project: &Project) -> Timeline {
@@ -139,6 +144,7 @@ impl Transport {
             keyboard_clicked: false,
             keyboard_readout_shown: false,
             fit: Default::default(),
+            requests: Vec::new(),
         }
     }
 

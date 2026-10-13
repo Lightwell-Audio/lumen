@@ -23,7 +23,6 @@ impl CountIn {
     ];
 
     /// The number of bars the count-in lasts.
-    #[allow(dead_code, reason = "the recorder (M5 slice 6c) calls it when wired")]
     pub fn bars(self) -> u32 {
         match self {
             CountIn::Off => 0,
@@ -34,15 +33,11 @@ impl CountIn {
     }
 
     /// The beats the count-in lasts in a bar of `numerator` beats.
-    #[allow(dead_code, reason = "the recorder (M5 slice 6c) calls it when wired")]
     pub fn beats(self, numerator: u32) -> u32 {
         self.bars().saturating_mul(numerator)
     }
 
-    #[allow(
-        dead_code,
-        reason = "the settings page (M5 slice 6c) shows it when wired"
-    )]
+    /// The name shown on the metronome menu and in the palette.
     pub fn name(self) -> &'static str {
         match self {
             CountIn::Off => "Off",

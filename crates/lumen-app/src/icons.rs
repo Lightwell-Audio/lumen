@@ -20,6 +20,8 @@ pub enum Icon {
     Pause,
     Stop,
     Record,
+    /// Counting in (M5 slice 6d): the record ring, hollow, that pulses.
+    RecordRing,
     Loop,
     Metronome,
     /// Follow the playhead: a playhead line with an arrow.
@@ -43,16 +45,19 @@ pub enum Icon {
     Speaker,
     /// Monitor Off: the speaker, struck through.
     SpeakerOff,
+    /// Overdub (M5 slice 6d): layers, a stack of three.
+    Layers,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 17] = [
+    pub const ALL: [Icon; 19] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
         Icon::Stop,
         Icon::Record,
+        Icon::RecordRing,
         Icon::Loop,
         Icon::Metronome,
         Icon::Follow,
@@ -65,6 +70,7 @@ impl Icon {
         Icon::Din,
         Icon::Speaker,
         Icon::SpeakerOff,
+        Icon::Layers,
     ];
 }
 
@@ -113,6 +119,20 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             color,
         )],
         Icon::Record => vec![Shape::circle_filled(g.p(8.0, 8.0), 4.75 * g.unit, color)],
+        // The ring's outer edge is the filled dot's radius: the stroke is
+        // centred 0.8 units inside it.
+        Icon::RecordRing => vec![Shape::circle_stroke(g.p(8.0, 8.0), 3.95 * g.unit, stroke)],
+        Icon::Layers => vec![
+            Shape::closed_line(
+                vec![g.p(8.0, 2.0), g.p(14.0, 5.0), g.p(8.0, 8.0), g.p(2.0, 5.0)],
+                stroke,
+            ),
+            Shape::line(vec![g.p(2.0, 8.5), g.p(8.0, 11.5), g.p(14.0, 8.5)], stroke),
+            Shape::line(
+                vec![g.p(2.0, 11.5), g.p(8.0, 14.5), g.p(14.0, 11.5)],
+                stroke,
+            ),
+        ],
         Icon::ToStart => vec![
             Shape::rect_filled(g.rect(3.0, 3.0, 5.0, 13.0), 0.3 * g.unit, color),
             Shape::convex_polygon(
@@ -310,6 +330,54 @@ pub fn button(
     enabled: bool,
     disabled_reason: &str,
 ) -> Response {
+    button_look(
+        ui,
+        icon,
+        label,
+        tip,
+        Look {
+            active,
+            enabled,
+            disabled_reason,
+            ..Look::default()
+        },
+    )
+}
+
+/// How a transport button is in its state and painted (the Record button's
+/// states, M5 slice 6d). The fields left at their default keep [`button`]'s
+/// look.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Look<'a> {
+    /// A toggle that is on (Record while recording, Overdub when on).
+    pub active: bool,
+    pub enabled: bool,
+    /// Said after the label when disabled.
+    pub disabled_reason: &'a str,
+    /// The tone it lights in (default: Record for the record glyph, On for
+    /// the rest).
+    pub tone: Option<theme::Tone>,
+    /// The icon's colour, in place of the face's text.
+    pub ink: Option<Color32>,
+    /// How lit, 0 to 1, in place of the cross-fade from `active` (a pulse
+    /// that is not a state).
+    pub lit: Option<f32>,
+}
+
+/// [`button`] with its state and look given by `look`.
+pub fn button_look(
+    ui: &mut Ui,
+    icon: Icon,
+    label: &str,
+    tip: crate::widgets::Tip<'_>,
+    look: Look<'_>,
+) -> Response {
+    let Look {
+        active,
+        enabled,
+        disabled_reason,
+        ..
+    } = look;
     let size = Vec2::splat(theme::size::TRANSPORT_ICON);
     let sense = if enabled {
         Sense::click()
@@ -324,13 +392,15 @@ pub fn button(
         let c = theme::p();
         // Hover and being lit cross-fade (motion: FAST).
         let hot = enabled && (response.hovered() || response.has_focus());
-        let lit = crate::motion::hover(ui.ctx(), response.id.with("lit"), active);
+        let lit = look
+            .lit
+            .unwrap_or_else(|| crate::motion::hover(ui.ctx(), response.id.with("lit"), active));
         let hover = crate::motion::hover(ui.ctx(), response.id.with("hover"), hot);
-        let tone = if icon == Icon::Record {
+        let tone = look.tone.unwrap_or(if icon == Icon::Record {
             theme::Tone::Record
         } else {
             theme::Tone::On
-        };
+        });
         let face = crate::widgets::raised::Face::new(theme::controls(false))
             .hover(hover)
             .pressed(enabled && response.is_pointer_button_down_on())
@@ -343,7 +413,7 @@ pub fn button(
         let color = if matches!(icon, Icon::Play | Icon::Pause) {
             face.text().lerp_to_gamma(c.core, lit)
         } else {
-            face.text()
+            look.ink.unwrap_or_else(|| face.text())
         };
         // The icon sits on the body's centre, in whole pixels.
         let icon_rect = Rect::from_center_size(body.center().round(), Vec2::splat(ICON_SIZE));

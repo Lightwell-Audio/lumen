@@ -13,6 +13,10 @@ const TIME: &str = "0:00.000";
 const DOT: &str = "Audio: ";
 const CHIP: &str = "MIDI: ";
 const READOUT: &str = "Computer keyboard: ";
+/// The narrowest window that shows the keyboard readout again. Record and
+/// Overdub (M5 slice 6d) are essentials, so the essentials take 1280 to 1320
+/// pt; the readout gives way below that.
+const READOUT_ROOM: f32 = 1320.0;
 
 /// The node's rect; of several (the Browser's toggle and its pane), the
 /// one in the bar.
@@ -76,6 +80,8 @@ fn the_position_is_whole_and_clear_in_the_smallest_window() {
     // Every control stays reachable.
     for name in [
         "Go to start",
+        "Record",
+        "Overdub",
         "Metronome",
         "Follow playhead",
         "Computer keyboard plays notes",
@@ -97,6 +103,10 @@ fn what_gave_way_comes_back_with_room_in_the_order_it_left() {
         resize(&mut lumen, (width, 760.0));
         assert_clear(&lumen, width);
         let readout = lumen.harness.query_by_label_contains(READOUT).is_some();
-        assert_eq!(readout, width >= 1280.0, "the keyboard readout at {width}");
+        assert_eq!(
+            readout,
+            width >= READOUT_ROOM,
+            "the keyboard readout at {width}"
+        );
     }
 }

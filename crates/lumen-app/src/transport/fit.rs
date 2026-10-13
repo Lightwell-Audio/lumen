@@ -1,10 +1,10 @@
 //! How the transport bar fits its room: one rule for every width.
 //!
-//! The bar's essentials are the buttons, tempo, meter, the position (bars
-//! and time) and the audio status dot; the MIDI chip and the panel toggles
-//! sit apart at the right and always stay. Everything else is optional, and
-//! gives way in a fixed order as the window narrows, so nothing is ever cut
-//! or drawn over:
+//! The bar's essentials are the buttons (Record and Overdub among them, as
+//! Play is), tempo, meter, the position (bars and time) and the audio status
+//! dot; the MIDI chip and the panel toggles sit apart at the right and always
+//! stay. Everything else is optional, and gives way in a fixed order as the
+//! window narrows, so nothing is ever cut or drawn over:
 //!
 //! 1. the device text shortens, then goes (the dot's tooltip has it all);
 //! 2. the computer keyboard's readout goes (the info line carries it);
@@ -12,7 +12,9 @@
 //! 4. the delay compensation readout goes;
 //! 5. the dropout chip goes (the dot's tooltip and the audio panel say it);
 //! 6. only then the essentials themselves tighten (compact: tempo without
-//!    " BPM", closer spacing).
+//!    " BPM", closer spacing). Record and Overdub never give way on their
+//!    own: they are the essentials that tighten with the rest, so they sit
+//!    in the bar at every width the bar fits (`barfit`).
 //!
 //! The pieces are measured, not guessed: each frame the bar notes how wide
 //! its essentials came out, and the next frame spends the room that is left

@@ -155,6 +155,34 @@ impl App {
         self.transport.state().ticks
     }
 
+    /// The engine's transport as of its last block: recording, count-in and
+    /// playing flags, and the sample and tick positions (M5 slice 6).
+    pub fn transport_state(&self) -> lumen_engine::TransportSnapshot {
+        self.transport.state()
+    }
+
+    /// Whether a recording is under way, or counting in to one (M5 slice 6).
+    pub fn recording(&self) -> bool {
+        self.is_recording()
+    }
+
+    /// Whether Overdub is on: a take merges into the clip under it (M5
+    /// slice 6; `settings.record`).
+    pub fn overdub_on(&self) -> bool {
+        self.settings.record.overdub
+    }
+
+    /// The count-in's length in bars, zero for none (M5 slice 6).
+    pub fn count_in_bars(&self) -> u32 {
+        self.settings.record.count_in.bars()
+    }
+
+    /// The notice the audio status panel shows, such as "Arm a MIDI track to
+    /// record." (M5 slice 6).
+    pub fn record_notice(&self) -> Option<&str> {
+        self.transport.audio.notice.as_deref()
+    }
+
     /// Where the playhead is drawn: smoothed while playing (`playhead.rs`).
     pub fn drawn_playhead(&self) -> Ticks {
         self.transport.playhead()

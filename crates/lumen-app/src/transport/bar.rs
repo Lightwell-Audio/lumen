@@ -10,10 +10,15 @@ use lumen_core::time::Ticks;
 use lumen_engine::{ClickSound, Command, TransportSnapshot};
 
 use crate::audio::Status;
-use crate::icons::{self, Icon};
-use crate::{position, theme, widgets};
+use crate::icons::{self, Icon, Look};
+use crate::record_settings::{CountIn, RecordSettings};
+use crate::{motion, position, theme, widgets};
 
+use super::record::{self, Phase};
 use super::{Transport, fit};
+
+/// Overdub's tooltip: what the switch decides about a take.
+const OVERDUB_HINT: &str = "Replace: a take replaces what is under it. Overdub: a take adds to it.";
 
 /// The keyboard readout's type.
 fn keyboard_font() -> egui::FontId {
@@ -32,10 +37,11 @@ fn unit_font() -> egui::FontId {
 }
 
 /// The room beside a readout's values inside its well (`.lm-display`:
-/// `space_m`; the compact bar tightens it to `space_s`).
+/// `space_m`; the compact bar tightens it to `space_xs`, so Record and
+/// Overdub fit beside the position at 960).
 fn well_pad(compact: bool) -> f32 {
     if compact {
-        theme::space::S
+        theme::space::XS
     } else {
         theme::space::M
     }
@@ -146,6 +152,93 @@ impl Transport {
         }
     }
 
+    /// The Record button (M5 slice 6d, the owner's 1-A): the record glyph in
+    /// red at rest; a hollow ring that pulses on each count-in beat; filled
+    /// and lit with the Flare while recording. A click, or F9, asks the app
+    /// for Record (which counts in, cancels a count-in, or ends a take).
+    fn record_button(
+        &mut self,
+        ui: &mut Ui,
+        keymap: &Keymap,
+        state: TransportSnapshot,
+        record: RecordSettings,
+        beats: u32,
+    ) {
+        let keys = keymap.keys(Run::Record);
+        let count_in = format!("Count-in: {}", record.count_in.name());
+        let red = theme::p().record;
+        let base = Look {
+            enabled: true,
+            tone: Some(theme::Tone::Record),
+            ..Look::default()
+        };
+        let (icon, look) = match record::phase(&state) {
+            Phase::Rest => (
+                Icon::Record,
+                Look {
+                    ink: Some(red.gamma_multiply(record::REST_INK)),
+                    ..base
+                },
+            ),
+            Phase::CountingIn => (
+                Icon::RecordRing,
+                Look {
+                    active: true,
+                    ink: Some(red),
+                    lit: Some(record::count_in_lit(
+                        state.count_in_left,
+                        state.count_in_total,
+                        beats,
+                        motion::reduced(),
+                    )),
+                    ..base
+                },
+            ),
+            Phase::Recording => (
+                Icon::Record,
+                Look {
+                    active: true,
+                    ..base
+                },
+            ),
+        };
+        let response = icons::button_look(
+            ui,
+            icon,
+            "Record",
+            Tip {
+                keys: keys.as_ref(),
+                hint: Some(count_in.as_str()),
+            },
+            look,
+        );
+        if response.clicked() {
+            self.requests.push(Run::Record);
+        }
+    }
+
+    /// The Overdub switch (M5 slice 6d, the owner's 2-B): on, a take adds to
+    /// the clip under it; off, Replace overwrites it. A click asks the app
+    /// for Overdub.
+    fn overdub_button(&mut self, ui: &mut Ui, keymap: &Keymap, record: RecordSettings) {
+        let keys = keymap.keys(Run::Overdub);
+        let overdub = icons::button(
+            ui,
+            Icon::Layers,
+            "Overdub",
+            Tip {
+                keys: keys.as_ref(),
+                hint: Some(OVERDUB_HINT),
+            },
+            record.overdub,
+            true,
+            "",
+        );
+        if overdub.clicked() {
+            self.requests.push(Run::Overdub);
+        }
+    }
+
     /// The widths of the optional pieces, for `fit` (see its order).
     fn wants(&self, ui: &Ui) -> fit::Wants {
         let gap = fit::gap(ui);
@@ -161,7 +254,13 @@ impl Transport {
         }
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, doc: &mut crate::document::Document, keymap: &Keymap) {
+    pub fn ui(
+        &mut self,
+        ui: &mut Ui,
+        doc: &mut crate::document::Document,
+        keymap: &Keymap,
+        record: RecordSettings,
+    ) {
         // What fits: the optional pieces give way in `fit`'s order, then
         // the bar tightens.
         let wants = self.wants(ui);
@@ -170,6 +269,11 @@ impl Transport {
             ui.spacing_mut().item_spacing.x = fit::COMPACT_GAP;
         }
         let state = self.state();
+        // The count-in's beats, in the meter the song plays at (the engine
+        // counts the same beats).
+        let beats = record
+            .count_in
+            .beats(self.timeline.meter.meter_at(state.marker).numerator);
         let running = matches!(self.audio.status, Status::Running { .. });
         let no_audio = "No audio device is running";
         let (start, play) = (keymap.keys(Run::GoToStart), keymap.keys(Run::PlayStop));
@@ -244,15 +348,8 @@ impl Transport {
             };
             self.send(command);
         }
-        icons::button(
-            ui,
-            Icon::Record,
-            "Record",
-            Tip::default(),
-            false,
-            false,
-            "Recording arrives in Milestone 9",
-        );
+        self.record_button(ui, keymap, state, record, beats);
+        self.overdub_button(ui, keymap, record);
         let looped = doc.project().transport;
         let loop_button = icons::button(
             ui,
@@ -276,7 +373,7 @@ impl Transport {
             "Metronome",
             Tip {
                 keys: None,
-                hint: Some("Right-click for volume, sound and output"),
+                hint: Some("Right-click for volume, sound, count-in and output"),
             },
             self.metronome.enabled,
             true,
@@ -323,6 +420,21 @@ impl Transport {
                 {
                     self.metronome.sound = sound;
                     changed = true;
+                }
+                // The count-in and the record-only switch are the palette's
+                // settings: the choices ask the app for their commands.
+                ui.separator();
+                widgets::menu_caption(ui, "Count-in");
+                let counts = CountIn::ALL
+                    .map(|c| widgets::Choice::new(c, c.name()).named(record::count_in_name(c)));
+                if let Some(count_in) =
+                    widgets::segmented(ui, ui.id().with("count in"), record.count_in, &counts)
+                {
+                    self.requests.push(record::count_in_command(count_in));
+                }
+                let mut only = record.only_while_recording;
+                if widgets::switch(ui, &mut only, "Only while recording", true).clicked() {
+                    self.requests.push(Run::RecordOnlyMetronome);
                 }
                 // Its own output, never through the master (the owner's D6):
                 // the main pair, or the cue pair for the headphones.
@@ -445,12 +557,29 @@ impl Transport {
     }
 
     /// The position, in a 30 pt well: bars and beats, then the time, both
-    /// Martian Mono. Clicking the bars types a place to go to.
+    /// Martian Mono. Clicking the bars types a place to go to. While counting
+    /// in, it counts up through the bars before 1 in the secondary colour
+    /// (M5 slice 6d).
     fn position_field(&mut self, ui: &mut Ui, state: TransportSnapshot, compact: bool) {
-        let bbt = position::format_bbt(&self.timeline, state.ticks);
-        let time = crate::timefmt::format(
+        let counting = state.count_in_total > 0;
+        let shown = if counting {
+            record::count_in_ticks(
+                &self.timeline,
+                state.marker,
+                state.count_in_left,
+                state.sample_rate,
+            )
+        } else {
+            state.ticks
+        };
+        let bbt = if counting {
+            record::count_in_text(&self.timeline, shown)
+        } else {
+            position::format_bbt(&self.timeline, state.ticks)
+        };
+        let time = record::time_text(
             self.time_format,
-            self.timeline.tempo.seconds_at(state.ticks),
+            self.timeline.tempo.seconds_at(shown),
             state.sample_rate,
         );
         if let Some(text) = &mut self.editing {
@@ -487,21 +616,27 @@ impl Transport {
         } else {
             let c = theme::p();
             let pad = well_pad(compact);
+            let bars_colour = if counting { c.text_secondary } else { c.text };
             let bars = ui
                 .painter()
-                .layout_no_wrap(format!("{bbt:>7}"), value_font(), c.text);
+                .layout_no_wrap(format!("{bbt:>7}"), value_font(), bars_colour);
             let clock = ui
                 .painter()
                 .layout_no_wrap(time.clone(), value_font(), c.text_secondary);
             let (bars_w, clock_w) = (bars.size().x, clock.size().x);
             let well_id = ui.id().with("position well");
-            let well = readout_well(ui, well_id, 2.0 * pad + bars_w + theme::space::S + clock_w);
+            let gap = if compact {
+                theme::space::XS
+            } else {
+                theme::space::S
+            };
+            let well = readout_well(ui, well_id, 2.0 * pad + bars_w + gap + clock_w);
             let bars_rect = egui::Rect::from_min_size(
                 egui::pos2(well.left() + pad, well.top()),
                 egui::vec2(bars_w, well.height()),
             );
             let clock_rect = egui::Rect::from_min_size(
-                egui::pos2(bars_rect.right() + theme::space::S, well.top()),
+                egui::pos2(bars_rect.right() + gap, well.top()),
                 egui::vec2(clock_w, well.height()),
             );
             let field = ui
@@ -518,7 +653,7 @@ impl Transport {
                 (rect.center() - galley.size() / 2.0).round()
             };
             let (at_bars, at_clock) = (centre(bars_rect, &bars), centre(clock_rect, &clock));
-            ui.painter().galley(at_bars, bars, c.text);
+            ui.painter().galley(at_bars, bars, bars_colour);
             ui.painter().galley(at_clock, clock, c.text_secondary);
             if field.has_focus() {
                 widgets::raised::paint_focus(ui.painter(), well, theme::radius::LARGE);
@@ -536,7 +671,7 @@ impl Transport {
 
 /// Loop and punch switches: the loop button's and the loop brace's
 /// right-click menus. Punch in and out act at the loop's edges, as in
-/// Ableton (recording arrives in Milestone 9).
+/// Ableton.
 pub fn punch_menu(ui: &mut Ui, doc: &mut crate::document::Document) {
     let t = doc.project().transport;
     if ui
@@ -567,7 +702,7 @@ pub fn punch_menu(ui: &mut Ui, doc: &mut crate::document::Document) {
         ui.close();
     }
     ui.label(
-        RichText::new("Recording, which punch controls, arrives in Milestone 9")
+        RichText::new("A take keeps only what is inside the punch range.")
             .weak()
             .small(),
     );

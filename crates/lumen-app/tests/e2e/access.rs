@@ -225,6 +225,8 @@ fn tab_walks_the_window_in_reading_order() {
         "Go to start",
         "Stop",
         "Play from the start marker",
+        "Record",
+        "Overdub",
         "Loop",
         "Metronome",
         "Follow playhead",

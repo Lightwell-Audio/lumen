@@ -185,7 +185,12 @@ report: {}",
             crate::transport::divider(ui);
             self.transport.keyboard_readout =
                 self.keyboard.is_on().then(|| self.keyboard.readout());
-            self.transport.ui(ui, &mut self.document, &self.keymap);
+            self.transport
+                .ui(ui, &mut self.document, &self.keymap, self.settings.record);
+            // What the bar's controls asked for: Record, Overdub, the count-in.
+            for command in std::mem::take(&mut self.transport.requests) {
+                self.run(ui.ctx(), command);
+            }
             if std::mem::take(&mut self.transport.keyboard_clicked) {
                 let on = !self.keyboard.is_on();
                 self.set_computer_keyboard(on);
