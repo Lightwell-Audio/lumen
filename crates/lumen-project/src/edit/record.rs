@@ -19,41 +19,30 @@
 //!
 //! - [`Mode::Replace`]: the take is a new clip over the range. What is under
 //!   it is cut away, as every clip put down is (`super::overwrite`).
-//! - [`Mode::Overdub`]: what happens depends on where the range begins.
-//!   - **Inside a MIDI clip** (after its start, before its end; a clip that
-//!     does not loop): the take is a new clip from there to where it ends,
-//!     as in Replace, but the new clip carries the notes and events the
-//!     clips under it played there, so nothing heard is lost. Carried notes
-//!     stay whole: one already sounding where the take begins keeps its
-//!     start before the new clip (hidden), and one running past the take's
-//!     end is not cut, so both carry on across the seams with the pieces
-//!     around the new clip (`super::seams`) and sustain as they did. It
-//!     takes the name and colour of the clip it began in.
-//!   - **Otherwise** (at or before a clip's start, or over empty lane): the
-//!     take merges into the MIDI clips under the range, and those clips grow
-//!     to hold it instead of leaving pieces beside them. The part of the
-//!     range after a MIDI clip extends that clip's end; the part before the
-//!     first clip extends its start back (a clip that does not loop). A part
-//!     no MIDI clip borders (empty lane, or beside an audio clip) gets a new
-//!     clip, empty until something is played, so the clip shows from the
-//!     moment recording begins, as a Replace take's does. Audio clips count
-//!     as covered, so a take over one is dropped there.
+//! - [`Mode::Overdub`]: also a new clip over the range, wherever it begins
+//!   (inside a clip, at a clip's start, before one or over empty lane), as
+//!   Ableton records in the arrangement: what is under it is cut away, so
+//!   the clips recorded over stay clips of their own beside it, holding
+//!   what they covered hidden (format v15). The new clip carries the notes
+//!   and events the clips under it played there, so nothing heard is lost.
+//!   Carried notes stay whole: one already sounding where the take begins
+//!   keeps its start before the new clip (hidden), and one running past the
+//!   take's end is not cut, so both carry on across the seams with the
+//!   clips around the new one (`super::seams`) and sustain as they did.
+//!   Begun inside a clip, the new clip takes its name and colour. The clip
+//!   is there from the moment recording begins, empty until something is
+//!   played, as a Replace take's is.
 //!
 //!   A note played over an old one of the same pitch wins it, as in Ableton:
 //!   the old note is cut where the new one starts, or dropped when it starts
-//!   under it (`settle`).
-//!
-//! A looping clip takes the take at its place in the loop, so every pass
-//! layers into the same loop (beginning inside one merges too).
+//!   under it (`settle`). With Loop on, every pass layers into the same clip.
 
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
 
 use super::notes::MIN_NOTE;
-use super::{
-    content_length, in_window, overwrite, repeats, shift_events, shift_notes, shown, to_arrangement,
-};
+use super::{in_window, overwrite, repeats, shown, to_arrangement};
 use crate::model::{Clip, ClipContent, ClipEvent, EventKind, Id, Note, Project, Track, TrackKind};
 
 /// How a take lands on the clips under its range.
@@ -61,8 +50,8 @@ use crate::model::{Clip, ClipContent, ClipEvent, EventKind, Id, Note, Project, T
 pub enum Mode {
     /// A new clip over the range; what is under it is cut away.
     Replace,
-    /// Merged into the MIDI clips under the range, and a new clip where no
-    /// clip is.
+    /// A new clip over the range that also carries what the clips under it
+    /// played there; what is under it is cut away.
     Overdub,
 }
 
@@ -94,7 +83,7 @@ pub struct Take {
 }
 
 /// How a take is placed: the mode, the punch range that cuts it, and the id
-/// of the clip a Replace takes (or the first gap clip of an Overdub).
+/// of the clip the take is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Placement {
     pub mode: Mode,
@@ -114,9 +103,9 @@ pub struct Blocked;
 /// becomes `base`'s. A locked clip overlapping the range returns [`Blocked`],
 /// with the track as `base` has it.
 ///
-/// `fresh` gives ids for the parts of clips a Replace cuts in two, and for
-/// further gap clips. Calling it again with the same `base` and `take_clip`
-/// and a longer take gives what one call with the final take would.
+/// `fresh` gives ids for the parts of clips the take cuts in two. Calling it
+/// again with the same `base` and `take_clip` and a longer take gives what
+/// one call with the final take would.
 pub fn place(
     project: &mut Project,
     base: &Project,
@@ -226,83 +215,11 @@ fn overdub(
     project: &mut Project,
     track: Id,
     source: &Track,
-    range: (Ticks, Ticks),
+    (a, b): (Ticks, Ticks),
     take: &Take,
     take_clip: Id,
     fresh: &mut impl FnMut() -> Id,
 ) -> Vec<Id> {
-    if let Some(begun_in) = begun_inside(source, range.0) {
-        let dub = Dub {
-            track,
-            source,
-            range,
-            take,
-            take_clip,
-        };
-        return overdub_from_inside(project, &dub, begun_in, fresh);
-    }
-    let (source, mut ids) = extended(source, range);
-    if let Some(t) = track_mut(project, track) {
-        t.clips.clone_from(&source.clips);
-    }
-    for id in merge_into_clips(project, track, &source, range, take) {
-        if !ids.contains(&id) {
-            ids.push(id);
-        }
-    }
-    let mut first = Some(take_clip);
-    let mut created = Vec::new();
-    for (from, to) in gaps(&source, range) {
-        let content = fill(take, (from, to), from, to - from);
-        let id = match first.take() {
-            Some(id) => id,
-            None => fresh(),
-        };
-        ids.push(id);
-        created.push(new_clip(id, from, to - from, content));
-    }
-    add_clips(project, track, created);
-    ids
-}
-
-/// Where a take goes: its track (as `base` has it), the range and the id
-/// of the clip it makes.
-#[derive(Clone, Copy)]
-struct Dub<'a> {
-    track: Id,
-    source: &'a Track,
-    range: (Ticks, Ticks),
-    take: &'a Take,
-    take_clip: Id,
-}
-
-/// The MIDI clip that does not loop and has `t` strictly inside it, if any:
-/// an Overdub begun there is a new clip.
-fn begun_inside(track: &Track, t: Ticks) -> Option<&Clip> {
-    track
-        .clips
-        .iter()
-        .map(|c| &**c)
-        .find(|c| is_midi(c) && c.loop_length.is_none() && c.start < t && t < c.start + c.length)
-}
-
-/// An Overdub begun inside `begun_in`: a new clip over the range holding
-/// what the clips under it played there and the take, the new notes winning
-/// their pitches. What it covers is cut away, as a Replace's clip does (the
-/// covered notes stay hidden in the pieces, format v15).
-fn overdub_from_inside(
-    project: &mut Project,
-    dub: &Dub<'_>,
-    begun_in: &Clip,
-    fresh: &mut impl FnMut() -> Id,
-) -> Vec<Id> {
-    let Dub {
-        track,
-        source,
-        range: (a, b),
-        take,
-        take_clip,
-    } = *dub;
     let heard = heard_in(source, (a, b));
     let old_notes = carry(&heard, (a, b));
     let (_, mut events) = fill(&heard, (a, b), a, b - a);
@@ -310,11 +227,23 @@ fn overdub_from_inside(
     events.extend(new_events);
     events.sort_by_key(|e| e.at);
     let mut clip = new_clip(take_clip, a, b - a, (settle(old_notes, new_notes), events));
-    clip.name.clone_from(&begun_in.name);
-    clip.color = begun_in.color;
+    if let Some(begun_in) = begun_in(source, a) {
+        clip.name.clone_from(&begun_in.name);
+        clip.color = begun_in.color;
+    }
     add_clips(project, track, vec![clip]);
     overwrite(project, &[take_clip], fresh);
     vec![take_clip]
+}
+
+/// The MIDI clip that plays at `t` (from its start, before its end), if
+/// any: an Overdub begun there takes its name and colour.
+fn begun_in(track: &Track, t: Ticks) -> Option<&Clip> {
+    track
+        .clips
+        .iter()
+        .map(|c| &**c)
+        .find(|c| is_midi(c) && c.start <= t && t < c.start + c.length)
 }
 
 /// What the MIDI clips of `track` that are not muted play in `[a, b)`: the
@@ -387,91 +316,6 @@ fn carry(heard: &Take, (a, b): (Ticks, Ticks)) -> Vec<Note> {
     notes
 }
 
-/// `track` with its MIDI clips grown over the parts of `range` beside them
-/// that no clip covers (Overdub begun at or before a clip): a part after a
-/// clip extends its end, a part before a clip that does not loop moves its
-/// start back, its notes staying where they sound. Returns the track and
-/// the ids of the clips grown.
-fn extended(track: &Track, range: (Ticks, Ticks)) -> (Track, Vec<Id>) {
-    let mut out = track.clone();
-    let mut ids = Vec::new();
-    for (from, to) in gaps(track, range) {
-        let before = out
-            .clips
-            .iter_mut()
-            .find(|c| is_midi(c) && c.start + c.length == from && overlaps(c, range));
-        if let Some(clip) = before {
-            let clip = Arc::make_mut(clip);
-            clip.length = to - clip.start;
-            ids.push(clip.id);
-            continue;
-        }
-        let after = out
-            .clips
-            .iter_mut()
-            .find(|c| is_midi(c) && c.loop_length.is_none() && c.start == to && overlaps(c, range));
-        if let Some(clip) = after {
-            let clip = Arc::make_mut(clip);
-            let by = clip.start - from;
-            clip.start = from;
-            clip.length = clip.length + by;
-            if let ClipContent::Midi { notes, events } = &mut clip.content {
-                // Later in clip time by as much as the start moved back.
-                shift_notes(notes, Ticks::ZERO - by);
-                shift_events(events, Ticks::ZERO - by);
-            }
-            ids.push(clip.id);
-        }
-    }
-    out.clips.sort_by_key(|c| c.start);
-    (out, ids)
-}
-
-/// Merges the take into each MIDI clip under the range that it has notes or
-/// events for. Returns the ids of the clips changed.
-fn merge_into_clips(
-    project: &mut Project,
-    track: Id,
-    source: &Track,
-    range: (Ticks, Ticks),
-    take: &Take,
-) -> Vec<Id> {
-    let edits: Vec<(Id, Content)> = source
-        .clips
-        .iter()
-        .filter(|c| is_midi(c) && overlaps(c, range))
-        .filter_map(|c| {
-            let within = (c.start.max(range.0), (c.start + c.length).min(range.1));
-            let content = fill(take, within, c.start, content_length(c));
-            (!content.0.is_empty() || !content.1.is_empty()).then_some((c.id, content))
-        })
-        .collect();
-    let Some(t) = track_mut(project, track) else {
-        return Vec::new();
-    };
-    edits
-        .into_iter()
-        .filter_map(|(id, content)| {
-            let clip = Arc::make_mut(t.clips.iter_mut().find(|c| c.id == id)?);
-            merge_content(clip, content);
-            Some(id)
-        })
-        .collect()
-}
-
-/// Adds `(notes, events)` to a MIDI clip's content, keeping both in order.
-fn merge_content(clip: &mut Clip, (notes, events): Content) {
-    if let ClipContent::Midi {
-        notes: all_notes,
-        events: all_events,
-    } = &mut clip.content
-    {
-        *all_notes = settle(std::mem::take(all_notes), notes);
-        all_events.extend(events);
-        all_events.sort_by_key(|e| e.at);
-    }
-}
-
 /// `new` notes laid over `old` ones, as Ableton overdubs: a note played wins
 /// its pitch. An earlier note of the same pitch still sounding where it
 /// starts is cut there, and one that starts under it is dropped, so no two
@@ -502,30 +346,6 @@ fn settle(old: Vec<Note>, mut new: Vec<Note>) -> Vec<Note> {
     let mut all: Vec<Note> = by_pitch.into_iter().flatten().collect();
     all.sort_by_key(|n| (n.start(), n.pitch()));
     all
-}
-
-/// The parts of `range` that no clip of `track` covers, in time order.
-pub fn gaps(track: &Track, range: (Ticks, Ticks)) -> Vec<(Ticks, Ticks)> {
-    let (a, b) = range;
-    let mut covered: Vec<(Ticks, Ticks)> = track
-        .clips
-        .iter()
-        .filter(|c| overlaps(c, range))
-        .map(|c| (c.start.max(a), (c.start + c.length).min(b)))
-        .collect();
-    covered.sort_by_key(|&(from, _)| from);
-    let mut gaps = Vec::new();
-    let mut cursor = a;
-    for (from, to) in covered {
-        if from > cursor {
-            gaps.push((cursor, from));
-        }
-        cursor = cursor.max(to);
-    }
-    if cursor < b {
-        gaps.push((cursor, b));
-    }
-    gaps
 }
 
 /// The take's notes and events starting in `[from, to)`, as the content of a
@@ -803,8 +623,11 @@ mod tests {
     }
 
     #[test]
-    fn overdub_begun_at_a_clips_start_merges_into_it_and_keeps_its_notes() {
-        let base = base(vec![clip(10, 0, 8, vec![note(0, 1, 48)])]);
+    fn overdub_begun_at_a_clips_start_is_a_new_clip_and_the_rest_stays_its_own() {
+        // The owner's case: begun exactly at a clip's start, the take is a
+        // new clip carrying what the old one played there, and the rest of
+        // the old clip stays a clip of its own after it.
+        let base = base(vec![clip(10, 0, 8, vec![note(0, 1, 48), note(5, 1, 50)])]);
         let mut p = base.clone();
         let placed = put(
             &mut p,
@@ -812,12 +635,12 @@ mod tests {
             &take(0, 4, vec![tn(3, 1, 64)]),
             Mode::Overdub,
         );
-        assert_eq!(placed, Ok(vec![Id(10)]));
-        assert_eq!(spans(&p), [(Id(10), q(0), q(8))]);
-        assert_eq!(
-            clip_of(&p, 10).content,
-            midi(vec![note(0, 1, 48), note(3, 1, 64)])
-        );
+        assert_eq!(placed, Ok(vec![Id(50)]));
+        assert_eq!(spans(&p), [(Id(50), q(0), q(4)), (Id(10), q(4), q(4))]);
+        let new = clip_of(&p, 50);
+        assert_eq!(new.content, midi(vec![note(0, 1, 48), note(3, 1, 64)]));
+        assert_eq!(new.name, "c10", "named after the clip it began in");
+        assert_eq!(shown_notes(clip_of(&p, 10)), vec![1]);
         assert_eq!(crate::validate(&p), Ok(()));
     }
 
@@ -971,8 +794,12 @@ mod tests {
     }
 
     #[test]
-    fn overdub_begun_before_a_clip_moves_its_start_back_and_its_notes_stay() {
-        let base = base(vec![clip(10, 4, 4, vec![note(0, 1, 48)])]);
+    fn overdub_begun_before_a_clip_and_reaching_it_is_a_new_clip_beside_it() {
+        // The owner's case: begun before a clip and running into it, the
+        // take is a new clip from the record start, carrying the old notes
+        // it reaches; the old clip keeps the rest as a clip of its own and
+        // does not move or grow.
+        let base = base(vec![clip(10, 4, 4, vec![note(0, 1, 48), note(3, 1, 50)])]);
         let mut p = base.clone();
         let placed = put(
             &mut p,
@@ -980,19 +807,58 @@ mod tests {
             &take(2, 6, vec![tn(2, 1, 60), tn(5, 1, 64)]),
             Mode::Overdub,
         );
-        assert_eq!(placed, Ok(vec![Id(10)]));
-        assert_eq!(spans(&p), [(Id(10), q(2), q(6))], "one clip, grown");
+        assert_eq!(placed, Ok(vec![Id(50)]));
+        assert_eq!(spans(&p), [(Id(50), q(2), q(4)), (Id(10), q(6), q(2))]);
+        let new = clip_of(&p, 50);
         assert_eq!(
-            clip_of(&p, 10).content,
+            new.content,
             midi(vec![note(0, 1, 60), note(2, 1, 48), note(3, 1, 64)]),
             "the old note still sounds at 4"
         );
+        assert_eq!(new.name, "MIDI clip");
+        assert_eq!(shown_notes(clip_of(&p, 10)), vec![1]);
         assert_eq!(crate::validate(&p), Ok(()));
     }
 
     #[test]
-    fn overdub_past_a_clips_end_extends_it_and_a_gap_between_clips_joins_the_first() {
-        let base = base(vec![clip(10, 0, 2, vec![]), clip(11, 4, 2, vec![])]);
+    fn overdub_stopped_before_a_clip_leaves_it_alone() {
+        let base = base(vec![clip(10, 4, 4, vec![note(0, 1, 48)])]);
+        for end in [3, 4] {
+            let mut p = base.clone();
+            let t = take(1, end, vec![tn(2, 1, 60)]);
+            assert_eq!(put(&mut p, &base, &t, Mode::Overdub), Ok(vec![Id(50)]));
+            assert_eq!(
+                spans(&p),
+                [(Id(50), q(1), q(end - 1)), (Id(10), q(4), q(4))]
+            );
+            assert_eq!(clip_of(&p, 10), &*base.tracks[0].clips[0]);
+        }
+    }
+
+    #[test]
+    fn overdub_begun_at_a_clips_end_is_a_new_clip_after_it() {
+        let base = base(vec![clip(10, 0, 2, vec![note(0, 1, 48)])]);
+        let mut p = base.clone();
+        let placed = put(
+            &mut p,
+            &base,
+            &take(2, 4, vec![tn(3, 1, 60)]),
+            Mode::Overdub,
+        );
+        assert_eq!(placed, Ok(vec![Id(50)]));
+        assert_eq!(spans(&p), [(Id(10), q(0), q(2)), (Id(50), q(2), q(2))]);
+        assert_eq!(clip_of(&p, 10), &*base.tracks[0].clips[0]);
+        assert_eq!(clip_of(&p, 50).content, midi(vec![note(1, 1, 60)]));
+    }
+
+    #[test]
+    fn overdub_over_whole_clips_carries_what_they_played_into_one_clip() {
+        // Clips the take covers end to end are recorded over, as in Replace,
+        // but what they played is in the new clip.
+        let base = base(vec![
+            clip(10, 0, 2, vec![note(1, 1, 48)]),
+            clip(11, 4, 2, vec![note(0, 1, 50)]),
+        ]);
         let mut p = base.clone();
         let placed = put(
             &mut p,
@@ -1000,10 +866,17 @@ mod tests {
             &take(0, 8, vec![tn(3, 1, 60), tn(7, 1, 62)]),
             Mode::Overdub,
         );
-        assert_eq!(placed, Ok(vec![Id(10), Id(11)]));
-        assert_eq!(spans(&p), [(Id(10), q(0), q(4)), (Id(11), q(4), q(4))]);
-        assert_eq!(clip_of(&p, 10).content, midi(vec![note(3, 1, 60)]));
-        assert_eq!(clip_of(&p, 11).content, midi(vec![note(3, 1, 62)]));
+        assert_eq!(placed, Ok(vec![Id(50)]));
+        assert_eq!(spans(&p), [(Id(50), q(0), q(8))]);
+        assert_eq!(
+            clip_of(&p, 50).content,
+            midi(vec![
+                note(1, 1, 48),
+                note(3, 1, 60),
+                note(4, 1, 50),
+                note(7, 1, 62)
+            ])
+        );
         assert_eq!(crate::validate(&p), Ok(()));
     }
 
@@ -1028,46 +901,49 @@ mod tests {
     }
 
     #[test]
-    fn overdub_before_a_looping_clip_leaves_its_start_alone() {
+    fn overdub_before_a_looping_clip_leaves_its_loop_alone() {
         let looped = Clip {
             loop_length: Some(q(2)),
-            ..clip(10, 4, 4, vec![])
+            ..clip(10, 4, 4, vec![note(0, 1, 48)])
         };
         let base = base(vec![looped]);
         let mut p = base.clone();
         put(
             &mut p,
             &base,
-            &take(2, 5, vec![tn(2, 1, 60)]),
+            &take(2, 4, vec![tn(2, 1, 60)]),
             Mode::Overdub,
         )
         .unwrap();
         assert_eq!(spans(&p), [(Id(50), q(2), q(2)), (Id(10), q(4), q(4))]);
+        assert_eq!(clip_of(&p, 10), &*base.tracks[0].clips[0]);
     }
 
     #[test]
-    fn overdub_in_a_looping_clip_wraps_each_pass_into_the_loop() {
+    fn overdub_in_a_looping_clip_is_a_new_clip_carrying_its_repeats() {
         let looped = Clip {
             loop_length: Some(q(2)),
-            ..clip(10, 0, 8, vec![])
+            ..clip(10, 0, 8, vec![note(1, 1, 48)])
         };
         let base = base(vec![looped]);
         let mut p = base.clone();
-        // Four and five quarters are the loop's first and second beat.
         let placed = put(
             &mut p,
             &base,
             &take(4, 6, vec![tn(4, 3, 60), tn(5, 1, 67)]),
             Mode::Overdub,
         );
-        assert_eq!(placed, Ok(vec![Id(10)]));
-        assert_eq!(spans(&p), [(Id(10), q(0), q(8))]);
-        assert_eq!(clip_of(&p, 10).loop_length, Some(q(2)));
-        // The long note is cut at the loop's end, the second one wraps.
+        assert_eq!(placed, Ok(vec![Id(50)]));
+        let at_50 = spans(&p).iter().position(|s| s.0 == Id(50)).unwrap();
+        assert_eq!(spans(&p)[at_50], (Id(50), q(4), q(2)));
+        assert_eq!(spans(&p).len(), 3, "the loop before and after it stays");
+        // The repeat at 4 played its note at 5; the long note is cut at the
+        // take's end.
         assert_eq!(
-            clip_of(&p, 10).content,
-            midi(vec![note(0, 2, 60), note(1, 1, 67)])
+            clip_of(&p, 50).content,
+            midi(vec![note(0, 2, 60), note(1, 1, 48), note(1, 1, 67)])
         );
+        assert_eq!(crate::validate(&p), Ok(()));
     }
 
     #[test]
@@ -1143,7 +1019,7 @@ mod tests {
 
     #[test]
     fn calls_with_a_growing_take_match_one_call_with_the_final_take() {
-        // Begun inside a clip, and (Overdub) before one, which then grows.
+        // Begun inside a clip, and (Overdub) before one.
         let cases = [(Mode::Replace, 0), (Mode::Overdub, 0), (Mode::Overdub, 4)];
         for (mode, at) in cases {
             let base = base(vec![clip(10, at, 8, vec![note(0, 1, 48)])]);
@@ -1203,15 +1079,15 @@ mod tests {
     #[test]
     fn empty_takes_and_ranges_change_only_what_they_must() {
         let base = base(vec![clip(10, 0, 8, vec![note(1, 1, 48)])]);
-        // An empty take from the clip's start merges nothing.
+        // An empty take from the clip's start is a new clip there, holding
+        // what the old one played.
         let mut p = base.clone();
         assert_eq!(
             put(&mut p, &base, &take(0, 4, vec![]), Mode::Overdub),
-            Ok(vec![])
+            Ok(vec![Id(50)])
         );
-        assert_eq!(p, base);
-        // Begun inside the clip it is still a new clip from there, holding
-        // what the old one played.
+        assert_eq!(clip_of(&p, 50).content, midi(vec![note(1, 1, 48)]));
+        // Begun inside the clip too.
         let mut p = base.clone();
         assert_eq!(
             put(&mut p, &base, &take(1, 4, vec![]), Mode::Overdub),

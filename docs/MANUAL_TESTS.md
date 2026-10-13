@@ -2428,7 +2428,7 @@ readout beside Quantize changes with the popover's settings.
 
 
 ### MT-MIDI-7 · Recording MIDI (needs a human and a MIDI controller; the computer keyboard also works)
-Slice 6 of M5 (ADR-0055). **Status: runs 4, 5, 6 and 7 wait for the owner.** Start
+Slice 6 of M5 (ADR-0055). **Status: run 8 waits for the owner.** Start
 Lumen from the repository root:
 
 ```powershell
@@ -2574,7 +2574,7 @@ waits for the owner.
 26. **Overdub across clips.** With Overdub on, record across two clips with a
     gap between them. Say what you see if it is not: the new notes added to
     each clip, the old ones kept, and the first clip growing over the gap (ADR-0057; this replaces "a new clip only in
-    the gap").
+    the gap"). **Superseded by step 36 (ADR-0060).**
 
 **Run 5 steps (new, after the owner's four points; ADR-0057).**
 27. **Edges.** Drag a MIDI clip's left edge, then its right, slowly and fast,
@@ -2586,6 +2586,7 @@ waits for the owner.
     and record into it, playing a note before the clip and one inside it, and
     stop after the clip's end. Expect one clip, grown back to where you started
     and on to where you stopped, holding both notes and its own.
+    **Superseded by step 36 (ADR-0060).**
 29. **Recording from the middle.** Play, and press F9 in the middle of a clip
     (Overdub on, then off). Expect a new clip from where you pressed F9 to
     where you stopped; in Overdub it also holds the old notes from there, and
@@ -2624,3 +2625,21 @@ waits for the owner.
     the dimmed time past the clip (zoom out with − if needed). Click it,
     drag it back inside the clip: expect it to show on the arrangement and
     play. Ctrl+A in the Clip tab picks it too. Check both themes.
+
+**Run 7 (owner, 2026-10-13):** "looking great", with one finding: Overdub
+begun before a clip and reaching its start, or begun exactly at its start,
+merged the take into the old clip (ADR-0057) instead of recording a new
+clip. Fixed (ADR-0060): Overdub always records a new clip, as Ableton does.
+
+**Run 8 steps (new, after run 7; ADR-0060).**
+36. **Overdub at clip edges.** Overdub on. (a) Put the marker a bar before a
+    clip with notes, press F9, play a note before the clip and one inside
+    it, and stop in the middle of the clip. Expect a new clip from where you
+    pressed F9 to where you stopped, holding your two notes and the old
+    clip's notes it passed over (they sound where they did), and the rest of
+    the old clip after it as a clip of its own, its start not moved. (b) The
+    same from exactly the clip's start: a new clip from there to the stop,
+    the rest of the old clip after it. (c) Begun right at a clip's end: a new
+    clip after it, the old clip untouched. (d) Recording across the whole of
+    a clip: one new clip holding its notes and yours. Undo after each: one
+    step brings the old clip back as it was.

@@ -443,10 +443,12 @@ fn replace_does_not_play_the_old_notes_under_the_take_and_overdub_does() {
     );
 }
 
-/// Overdub merges the take into the clip under it: the old notes stay, the
-/// new ones join them, and it is the same clip.
+/// Overdub begun at a clip's start records a new clip, as Ableton does, and
+/// does not merge into the clip already there (owner, after MT-MIDI-7 run
+/// 7): the new clip carries the old notes it passed over along with the
+/// take, and the rest of the old clip stays a clip of its own after it.
 #[test]
-fn overdub_keeps_the_notes_and_adds_to_the_same_clip() {
+fn overdub_begun_at_a_clips_start_is_a_new_clip_and_the_old_one_stays_its_own() {
     let fake = keyboard();
     let old = vec![
         Note::new(Ticks::ZERO, beats(1.0), 50, 100),
@@ -463,14 +465,27 @@ fn overdub_keeps_the_notes_and_adds_to_the_same_clip() {
     reach(&mut lumen, beats(1.5));
     keys.off(60);
     reach(&mut lumen, beats(3.0));
-    stop(&mut lumen);
+    let stopped = stop(&mut lumen);
 
     let clips = clips_of(&lumen);
-    assert_eq!(clips.len(), 1, "no new clip");
-    assert_eq!(clips[0].id, Id(3), "the clip already there");
-    assert_eq!(clips[0].length, beats(8.0), "its length is kept");
-    let pitches: Vec<u8> = placed(&clips[0]).iter().map(|n| n.pitch).collect();
-    assert_eq!(pitches, [50, 60, 52], "old and new notes, in order");
+    assert_eq!(clips.len(), 2, "the take, then the old clip: {clips:?}");
+    let take = &clips[0];
+    assert_ne!(take.id, Id(3), "a new clip");
+    assert_eq!(
+        (take.start, take.start + take.length),
+        (Ticks::ZERO, stopped),
+        "from the record start to the stop"
+    );
+    let pitches: Vec<u8> = placed(take).iter().map(|n| n.pitch).collect();
+    assert_eq!(pitches, [50, 60], "the old note it passed over, the take");
+    assert_eq!(clips[1].id, Id(3), "the clip already there");
+    assert_eq!(
+        (clips[1].start, clips[1].start + clips[1].length),
+        (stopped, beats(8.0)),
+        "its rest stays where it was"
+    );
+    let after: Vec<u8> = placed(&clips[1]).iter().map(|n| n.pitch).collect();
+    assert_eq!(after, [52]);
 }
 
 /// Overdub: playing a pitch the clip already holds there wins it, as in
@@ -828,13 +843,18 @@ pub(super) fn track_at((start, length): (i64, i64), notes: Vec<Note>) -> Track {
     track
 }
 
-/// Overdub begun before a clip grows that clip back to where recording
-/// began and merges the take into it, rather than leaving a separate clip
-/// beside it; its own notes stay where they sounded.
+/// Overdub begun before a clip and running into it records a new clip from
+/// where recording began, as Ableton does, and does not merge into or grow
+/// the clip already there (owner, after MT-MIDI-7 run 7). The old note it
+/// passes over sounds and stays where it was, in the new clip; the rest of
+/// the old clip stays a clip of its own.
 #[test]
-fn overdub_begun_before_a_clip_grows_it_to_hold_the_take() {
+fn overdub_begun_before_a_clip_is_a_new_clip_beside_it() {
     let fake = keyboard();
-    let old = vec![Note::new(Ticks::ZERO, beats(1.0), 50, 100)];
+    let old = vec![
+        Note::new(Ticks::ZERO, beats(1.0), 50, 100),
+        Note::new(beats(2.0), beats(1.0), 52, 100),
+    ];
     let project = project_of("Record", vec![track_at((4, 4), old)]);
     let mut lumen = launch("overdub-before", &project, &fake);
     palette(&mut lumen, "Overdub");
@@ -845,25 +865,30 @@ fn overdub_begun_before_a_clip_grows_it_to_hold_the_take() {
     reach(&mut lumen, beats(1.5));
     keys.off(60);
     reach(&mut lumen, beats(5.0));
-    stop(&mut lumen);
+    let stopped = stop(&mut lumen);
+    assert!(stopped < beats(6.0), "stopped before the old note at 6");
 
     let clips = clips_of(&lumen);
-    assert_eq!(clips.len(), 1, "one clip, not a piece beside it: {clips:?}");
-    assert_eq!(clips[0].id, Id(3), "the clip already there");
+    assert_eq!(clips.len(), 2, "the take, then the old clip: {clips:?}");
+    let take = &clips[0];
+    assert_ne!(take.id, Id(3), "a new clip");
     assert_eq!(
-        clips[0].start,
-        Ticks::ZERO,
-        "grown back to where recording began"
+        (take.start, take.start + take.length),
+        (Ticks::ZERO, stopped),
+        "from where recording began to the stop"
     );
-    assert_eq!(
-        clips[0].start + clips[0].length,
-        beats(8.0),
-        "its end is kept"
-    );
-    let notes = placed(&clips[0]);
+    let notes = placed(take);
     let pitches: Vec<u8> = notes.iter().map(|n| n.pitch).collect();
     assert_eq!(pitches, [60, 50], "the take, then the old note");
     assert_eq!(notes[1].start, beats(4.0), "the old note has not moved");
+    assert_eq!(clips[1].id, Id(3), "the clip already there");
+    assert_eq!(
+        (clips[1].start, clips[1].start + clips[1].length),
+        (stopped, beats(8.0)),
+        "neither grown nor moved: only what was recorded over is cut"
+    );
+    let after: Vec<u8> = placed(&clips[1]).iter().map(|n| n.pitch).collect();
+    assert_eq!(after, [52]);
 }
 
 /// Overdub begun in the middle of a clip is a new clip from the playhead
@@ -955,9 +980,9 @@ fn record_pressed_inside_the_loop_begins_at_the_playhead() {
 }
 
 /// While recording, the clips drawn are the take placed as far as it has
-/// gone, on every frame: a clip that Overdub grows reaches the playhead
-/// each frame rather than at each commit (about once a second), and the
-/// take's note is in it before any commit.
+/// gone, on every frame: the Overdub clip reaches the playhead each frame
+/// rather than at each commit (about once a second), and the take's note is
+/// in it before any commit, beside the old note it carries.
 #[test]
 fn the_clip_recorded_into_is_drawn_growing_on_every_frame() {
     let fake = keyboard();
@@ -974,8 +999,8 @@ fn the_clip_recorded_into_is_drawn_growing_on_every_frame() {
         let before = lumen.app().playhead();
         lumen.frames(1);
         let drawn = lumen.app().drawn_clips(0);
-        assert_eq!(drawn.len(), 1, "one clip, grown: {drawn:?}");
-        assert_eq!(drawn[0].id, Id(3));
+        assert_eq!(drawn.len(), 1, "the take covers the old clip: {drawn:?}");
+        assert_eq!(drawn[0].start, Ticks::ZERO);
         let end = drawn[0].start + drawn[0].length;
         assert!(
             end >= before,

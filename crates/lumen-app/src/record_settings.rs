@@ -85,8 +85,8 @@ pub struct RecordSettings {
     /// The metronome sounds only while recording and in the count-in, even
     /// when it is otherwise off or on.
     pub only_while_recording: bool,
-    /// Overdub merges a take into what is recorded already; off, Replace
-    /// overwrites it.
+    /// Overdub: a take's new clip also holds what was recorded there
+    /// already; off, Replace overwrites it.
     pub overdub: bool,
 }
 

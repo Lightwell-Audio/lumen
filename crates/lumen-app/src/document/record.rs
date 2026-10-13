@@ -264,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn overdub_merges_a_take_into_the_clip_under_it() {
+    fn overdub_is_a_new_clip_carrying_the_notes_of_the_clip_under_it() {
         let mut doc = Document::new(crate::empty_project());
         let track = doc.add_track(TrackKind::Midi, None);
         let clip = doc
@@ -278,7 +278,7 @@ mod tests {
                 *notes = vec![old];
             }
         });
-        let mut rec = doc.begin_recording(&[]);
+        let mut rec = doc.begin_recording(&[track]);
         let placed = doc.record_take(
             &mut rec,
             track,
@@ -286,8 +286,13 @@ mod tests {
             Mode::Overdub,
             None,
         );
-        assert_eq!(placed, Ok(vec![clip]));
-        assert_eq!(notes_of(&doc, clip), [old, Note::new(q(2), q(1), 64, 100)]);
+        let new = rec.take_clip(track).unwrap();
+        assert_eq!(placed, Ok(vec![new]));
+        assert_ne!(new, clip);
+        assert_eq!(notes_of(&doc, new), [old, Note::new(q(2), q(1), 64, 100)]);
+        let clips = &doc.project().tracks[0].clips;
+        let spans: Vec<_> = clips.iter().map(|c| (c.id, c.start, c.length)).collect();
+        assert_eq!(spans, [(new, q(0), q(3)), (clip, q(3), q(1))]);
         assert_eq!(doc.history().undo_label(), Some("Record"));
     }
 
@@ -311,20 +316,6 @@ mod tests {
                 .unwrap();
             assert_eq!(&preview, doc.project(), "{mode:?}");
         }
-    }
-
-    #[test]
-    fn an_overdub_with_nothing_to_add_makes_no_step() {
-        // An empty take over a clip, begun at its start, merges nothing.
-        let mut doc = Document::new(crate::empty_project());
-        let track = doc.add_track(TrackKind::Midi, None);
-        doc.create_midi_clip(track, NewClip::Range(q(0), q(8)))
-            .unwrap();
-        let mut rec = doc.begin_recording(&[]);
-        let state = doc.state();
-        let placed = doc.record_take(&mut rec, track, &take(0, 4, vec![]), Mode::Overdub, None);
-        assert_eq!(placed, Ok(vec![]));
-        assert_eq!(doc.state(), state);
     }
 
     #[test]

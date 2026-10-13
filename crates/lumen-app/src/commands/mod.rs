@@ -217,7 +217,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::GoToStart, "transport.go_to_start", "Go to start", Area::Transport, &[plain(Key::Home)], "Moves the playhead to the start of the song."),
     info(Command::Panic, "transport.panic", "Panic: silence everything", Area::Transport, &[], "Stops playback and cuts every sound, MIDI notes included; sends All Notes Off on every channel of every MIDI output in use."),
     info(Command::Record, "transport.record", "Record", Area::Transport, &[plain(Key::F9)], "Records the armed MIDI tracks from the play marker, after the count-in; press again to stop recording."),
-    info(Command::Overdub, "transport.overdub", "Overdub", Area::Transport, &[], "Switches between Replace (a take replaces the clip under it) and Overdub (a take is added to it)."),
+    info(Command::Overdub, "transport.overdub", "Overdub", Area::Transport, &[], "Switches between Replace (a take replaces the clip under it) and Overdub (a take keeps what is under it and adds to it)."),
     info(Command::CountInOff, "transport.count_in_off", "Count-in: off", Area::Transport, &[], "Starts recording at once."),
     info(Command::CountInOneBar, "transport.count_in_one_bar", "Count-in: 1 bar", Area::Transport, &[], "Clicks one bar before recording starts."),
     info(Command::CountInTwoBars, "transport.count_in_two_bars", "Count-in: 2 bars", Area::Transport, &[], "Clicks two bars before recording starts."),

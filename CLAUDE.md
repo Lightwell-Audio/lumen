@@ -390,7 +390,15 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-13 (latest): **the owner's two clip points are
+**Last updated:** 2026-10-13 (latest): **MT-MIDI-7 run 7's finding is
+fixed** (ADR-0060; owner: "looking great", one bug). Overdub begun before a
+clip and reaching it, or begun at its start, merged into that clip
+(ADR-0057); it now records a new clip wherever it begins, as Ableton does,
+carrying what the clips under it played (`edit::record::overdub`, the old
+"begun inside" rule for every take), and what it covers is cut away so the
+old clips stay their own. Clip growing and merging are gone. E2E `record`
+(two scenarios fail without the fix). **MT-MIDI-7 run 8 (step 36) waits for
+the owner.** Before it, 2026-10-13: **the owner's two clip points are
 fixed** (ADR-0059). A note carried on across a seam belongs to the clip it
 began in: the engine knows where a run's clips meet (`MidiClip::seams`) and a
 chase starts only notes that began in the clip the position is in
@@ -401,7 +409,7 @@ note edits let a note stay as far outside as it is and come back in
 (`edit::notes::time_room`, `resize`). The arrangement still hides them. E2E
 `hidden_notes`, `overdub_seams` (fail without the fix); E2E 325, smoke 6;
 shot `hidden_notes_editor`. Not run: WSL perf gate, macOS cross-clippy.
-**MT-MIDI-7 run 7 (steps 34, 35) waits for the owner.** Before it,
+MT-MIDI-7 run 7 passed but for ADR-0060's finding. Before it,
 2026-10-13: **the owner's Overdub report is fixed** (ADR-0058). Overdub over an empty lane makes its clip at once, empty
 until a note is played. Notes **carry on across seams**: where a clip begins
 exactly where the one before it ends and holds the same note (hidden before

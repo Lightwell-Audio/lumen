@@ -129,6 +129,7 @@ irreversible or external) · *Superseded*.
 | Recording MIDI (M5 slice 6, 2026-10-12) | Asked and chosen (the plan in `docs/milestones/M5.md`, and the "Lumen Recording Specimens" canvas): **Replace by default, with an Overdub switch** (C4, as planned); **loop passes layer** into one clip in both modes (separate takes are M9); **recording settings in the app settings file**, not the project, so no format change; **a clip runs exactly from record start to stop**, not to the bar line (the owner's choice over the recommended bar-line end); **1-A** the count-in on the position field, counting up through negative bars, and Record pulsing on each beat, with no new widget; **2-B** an Overdub button beside Record, and the count-in and "Metronome only while recording" in the metronome's menu; **3-A** a clip being recorded is record red with a "REC" tag and drops into its track colour on stop. Count-in and record-only for MIDI move from M9 (the 2026-10-06 row) to this slice; audio recording stays M9. ADR-0055. |
 | Covered MIDI clips (M5, 2026-10-13, after MT-MIDI-7 run 3) | Asked, from two variants: **A, Ableton's window** (chosen, as recommended): a clip covered, trimmed or split keeps every note, hidden outside its edges, and shows them when an edge is dragged back; moving the top clip away leaves a gap, as in Ableton. B (stacked clips that reappear by themselves) was set aside. Overdub across clips: "exactly like Ableton"; the owner will reproduce what they saw. Format v15. ADR-0056. |
 | Recording edges and MIDI trims (M5, 2026-10-13, the owner's four points) | Asked for directly: MIDI clip edges that drag without jitter or offset; Overdub begun at or before a clip extends that clip and merges into it; recording begun in the middle of a clip makes a new clip from the playhead to the stop; and the clip recorded over redraws continuously, not at commits. Built as stated (no variants pitched: the owner gave the behaviour). ADR-0057. |
+| Overdub at clip edges (M5, 2026-10-13, MT-MIDI-7 run 7) | Asked for directly, reversing part of the row above: Overdub begun before a clip and reaching its start, or begun exactly at its start, records a **new clip** and does not merge into or grow the clip there, as Ableton records in the arrangement; the new clip carries the track's existing notes along with the take, and the old clip stays a clip of its own. Built as stated. ADR-0060. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
 | Logo and light (2026-10-10) | Chosen from rendered specimens on the identity canvas (a Design artifact): four marks, then six colourways. **D, Dawn, in Sunrise**: a sun rising over a horizon, its reflection breaking into a waveform; an amber sun (`#FFC46B`) over water in the accent. **The light layer holds** (five levels: Unlit, Ember, Lit, Beam, Flare, and five rules), and **the mark is a meter** (the sun rises with the master's level, red while recording), with every proposed use of light: the playhead beam, Play's beam, meter heads, the mark above an empty arrangement. ADR-0043. A guitarist-first direction was pitched and set aside by the owner. |
@@ -4972,7 +4973,8 @@ before anything changes there.
 
 ## ADR-0057 — Recording at clip edges, and MIDI trims that follow the hand
 
-**Status:** Accepted (owner's request) · **Date:** 2026-10-13
+**Status:** Accepted (owner's request); decisions 2 and 3's Overdub merge
+superseded by ADR-0060 · **Date:** 2026-10-13
 
 **Context.** The owner reported four faults with MIDI clips and recording:
 1. Dragging a MIDI clip's left or right edge jittered and landed off the
@@ -5225,3 +5227,61 @@ Ctrl+A); both fail without the fix. Shot `hidden_notes_editor` (both themes,
 Not verified: by hand (MT-MIDI-7 run 7), the WSL perf gate (the engine's
 chase changed; it runs on Play and jumps only, not per block).
 
+## ADR-0060 — Overdub always records a new clip
+
+**Status:** Accepted (owner's report, MT-MIDI-7 run 7) · **Date:** 2026-10-13
+
+**Context.** The owner found, in run 7: Overdub begun before an existing MIDI
+clip that reaches its start, or begun exactly at its start, merged the take
+into that clip (ADR-0057: the clip grew back to the record start, or took the
+new notes). The owner asked for Ableton's arrangement recording instead:
+recording makes new clips; with MIDI Arrangement Overdub on, the new clip
+includes the track's existing MIDI along with the new input; the existing
+clip is kept as its own clip, not merged with the new one.
+
+**Cause.** ADR-0057 chose the merge on the owner's earlier request ("Overdub
+begun at or before a clip extends that clip and merges into it"). Only a take
+begun strictly inside a clip that does not loop made a new clip.
+
+**Decision.** `edit::record` Overdub now makes one new clip over the range
+wherever it begins, the rule ADR-0057 and ADR-0058 built for a take begun
+inside a clip:
+- the new clip carries what the clips under the range played there (their
+  windows, every repeat of a looping clip, muted clips and notes excepted),
+  whole, so a note sounding at the record start or running past the stop
+  carries on across the seams (ADR-0058), with the take settled over it (a
+  note played wins its pitch);
+- what it covers is cut away from the clips under it (`overwrite`), as a
+  Replace take's is: the parts outside the range stay clips of their own, in
+  place, keeping what was covered hidden (format v15). A clip the range covers
+  end to end is recorded over; its notes are in the new clip;
+- begun in a clip (from its start, before its end) the new clip takes that
+  clip's name and colour; otherwise it is "MIDI clip";
+- the clip is there from the moment recording begins, empty until something
+  is played (ADR-0058, unchanged).
+Clip growing (`extended`), merging into clips (`merge_into_clips`) and the
+gap rule (`gaps`) are gone. A looping clip no longer takes the take into its
+loop: Ableton records a new clip there too, carrying the repeats it covers.
+With Loop on, every transport pass still layers into the one take clip
+(ADR-0055).
+
+**Consequences.** Overdub and Replace place the same clips; they differ only
+in whether the new clip carries what was there. An empty Overdub over a clip
+is now a step (a new clip holding the old notes, the old clip cut around it),
+where a take begun at a clip's start used to change nothing. Audio clips on a
+MIDI track under the range are cut as Replace cuts them (they used to count as
+covered and keep the take out). The recording look is unchanged: in Overdub
+the take's clip keeps its body and takes the red outline and tag.
+
+Tests: `edit/record.rs` (begun at a clip's start, before a clip and reaching
+it, stopped before a clip, at a clip's end, across whole clips, before and
+inside a looping clip, an empty take at a clip's start), `document/record.rs`
+(the Overdub clip is new and the old one stays); E2E `record`
+(`overdub_begun_at_a_clips_start_is_a_new_clip_and_the_old_one_stays_its_own`,
+`overdub_begun_before_a_clip_is_a_new_clip_beside_it`; both fail without the
+fix; `the_clip_recorded_into_is_drawn_growing_on_every_frame` now follows the
+new clip).
+
+Not verified: by hand (MT-MIDI-7 run 8, step 36), the WSL perf gate
+(`lumen-project` changed; `place` is not in a perf scenario), the macOS
+cross-clippy (no platform code changed).
