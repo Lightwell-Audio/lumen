@@ -392,7 +392,9 @@ it first in a new session, and update it at the end of every slice.
 
 **Last updated:** 2026-10-13 (latest): **MIDI learn moved to M7** (owner),
 built with automation; M5 slice 7 is now MIDI files and clock out (plan in
-`docs/milestones/M5.md`; choices F1–F4 wait for the owner, then the build).
+`docs/milestones/M5.md`; the owner took every recommendation, F1–F4 A).
+Next: build slice 7 (7a SMF in pure code first). Commits on this branch
+carry no `Claude-Session:` trailer (the owner's PR rule).
 Before it, 2026-10-13: **resizing a playing MIDI clip no
 longer strikes its notes again** (ADR-0061, owner's report). The engine knew a
 held note by its clip's start and the note's length, which a resize changes
