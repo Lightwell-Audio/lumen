@@ -24,6 +24,7 @@ use lumen_project::edit::record::Mode;
 use lumen_project::model::{Id, TrackKind};
 
 use crate::App;
+use crate::arrangement::recording_look::RecordingLook;
 use crate::document::Recording;
 use crate::recorder::Capture;
 
@@ -77,6 +78,20 @@ struct Session {
 }
 
 impl Session {
+    /// What the arrangement draws as being recorded.
+    fn look(&self) -> RecordingLook {
+        RecordingLook {
+            tracks: self.tracks.clone(),
+            from: self.start,
+            overdub: self.mode == Mode::Overdub,
+            take_clips: self
+                .tracks
+                .iter()
+                .filter_map(|&track| self.rec.take_clip(track))
+                .collect(),
+        }
+    }
+
     /// Where the take ends now: the playhead, or the whole loop once it has
     /// wrapped.
     fn end(&self, head: Ticks) -> Ticks {
@@ -181,9 +196,16 @@ impl App {
         self.transport.record(beats);
     }
 
-    /// Every frame: keeps what the engine kept, commits the take when it is
-    /// due, and ends the recording when the engine has stopped it.
+    /// Every frame: records (see [`Self::step_recording`]) and tells the
+    /// arrangement which clips are being recorded.
     pub(crate) fn update_recording(&mut self) {
+        self.step_recording();
+        self.arrangement.recording = self.record.session.as_ref().map(Session::look);
+    }
+
+    /// Keeps what the engine kept, commits the take when it is due, and ends
+    /// the recording when the engine has stopped it.
+    fn step_recording(&mut self) {
         if self.record.queue.is_none() {
             self.record.queue = self.transport.audio.midi.take_captured();
         }

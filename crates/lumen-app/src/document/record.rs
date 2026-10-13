@@ -22,6 +22,13 @@ pub struct Recording {
     take_clips: HashMap<Id, Id>,
 }
 
+impl Recording {
+    /// The clip a Replace take of `track` is, once it has been placed.
+    pub fn take_clip(&self, track: Id) -> Option<Id> {
+        self.take_clips.get(&track).copied()
+    }
+}
+
 impl Document {
     /// Starts a recording on the project as it is now. Every take of it is
     /// placed from this snapshot, and they are all one undo step.

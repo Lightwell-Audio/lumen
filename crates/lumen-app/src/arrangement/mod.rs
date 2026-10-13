@@ -40,6 +40,7 @@ mod mini_notes;
 mod monitor_badge;
 mod nesting;
 mod pinned;
+pub(crate) mod recording_look;
 mod reorder;
 mod row_glide;
 mod rows;
@@ -296,6 +297,8 @@ pub struct Arrangement {
     /// What live input there is and how much has come, lent by the app each
     /// frame for the headers' listening lights (M5 slice 2e).
     pub(crate) live: Live,
+    /// The recording under way, if any, lent by the app each frame (slice 6d).
+    pub(crate) recording: Option<recording_look::RecordingLook>,
     /// Every track's meter and the master's loudness (M4 slice 5), moved
     /// on by the app each frame.
     pub(crate) meters: crate::meters::Meters,
