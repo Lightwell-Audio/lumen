@@ -40,6 +40,9 @@ pub struct Transport {
     /// Bytes of clip audio in memory, shown in the audio panel.
     pub clip_memory: usize,
     pub metronome: MetronomeSettings,
+    /// The metronome is held silent although it is on, because it sounds
+    /// only while recording (M5 slice 6): the engine is sent `enabled` off.
+    metronome_gated: bool,
     /// How the arrangement follows the playhead (saved in settings), and
     /// whether that is paused by scrolling by hand (until Play).
     pub follow: crate::settings::Follow,
@@ -113,6 +116,7 @@ impl Transport {
             error: None,
             settle_until: None,
             metronome: MetronomeSettings::default(),
+            metronome_gated: false,
             follow: crate::settings::Follow::Page,
             follow_paused: false,
             follow_last: crate::settings::Follow::Page,
@@ -179,7 +183,8 @@ impl Transport {
     /// Whether the UI should redraw every frame: while playing, and briefly
     /// after a command until the engine has applied it.
     pub fn animating(&self) -> bool {
-        self.state().playing || self.settle_until.is_some_and(|t| Instant::now() < t)
+        let state = self.state();
+        state.playing || state.recording || self.settle_until.is_some_and(|t| Instant::now() < t)
     }
 
     fn settle(&mut self) {
@@ -188,7 +193,12 @@ impl Transport {
         self.settle_until = Some(Instant::now() + Duration::from_millis(300));
     }
 
-    fn send(&mut self, command: Command) {
+    fn send(&mut self, mut command: Command) {
+        if let Command::SetMetronome(settings) = &mut command
+            && self.metronome_gated
+        {
+            settings.enabled = false;
+        }
         crate::trace::log(|| format!("send {command:?}"));
         self.settle();
         // A full queue means the engine is not running; the UI shows why.
@@ -215,6 +225,34 @@ impl Transport {
     pub fn restore_metronome(&mut self, settings: MetronomeSettings) {
         self.metronome = settings;
         self.send(Command::SetMetronome(settings));
+    }
+
+    /// Starts recording from the play marker, after `count_in` beats of
+    /// clicks when stopped (M5 slice 6).
+    pub fn record(&mut self, count_in: u32) {
+        if !self.state().playing {
+            self.played_from_stop = true;
+        }
+        self.send(Command::Record { count_in });
+    }
+
+    /// Stops (a count-in too), without the Stop-twice rule of [`Self::play_stop`].
+    pub fn stop(&mut self) {
+        self.send(Command::Stop);
+    }
+
+    /// Ends recording; playback carries on.
+    pub fn end_record(&mut self) {
+        self.send(Command::EndRecord);
+    }
+
+    /// Holds the metronome silent (or lets it sound) while it is on but only
+    /// meant for recording. Resends it when this changes.
+    pub fn gate_metronome(&mut self, gated: bool) {
+        if gated != self.metronome_gated {
+            self.metronome_gated = gated;
+            self.send(Command::SetMetronome(self.metronome));
+        }
     }
 
     /// Shift+Space: stop where playback is, or continue from the playhead.

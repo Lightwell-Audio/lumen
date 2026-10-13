@@ -21,6 +21,7 @@ pub(crate) mod palette;
 pub(crate) mod panes;
 pub(crate) mod preferences;
 pub(crate) mod projects;
+pub(crate) mod record;
 pub(crate) mod recovery;
 pub(crate) mod regions;
 pub(crate) mod rulers;

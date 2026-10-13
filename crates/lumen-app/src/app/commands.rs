@@ -17,6 +17,7 @@ use crate::commands::{Chord, Command};
 use crate::note_editor::lane::geometry::LaneKind;
 use crate::note_editor::lane::gesture::LaneTool;
 use crate::note_editor::{EditorZoom, NoteOp, Tool, VELOCITY_STEP};
+use crate::record_settings::CountIn;
 use crate::{App, widgets};
 
 impl App {
@@ -103,6 +104,7 @@ impl App {
         let notes = self.note_keys_picked();
         let need = |ok: bool, why| if ok { Ok(()) } else { Err(why) };
         match command {
+            Command::Undo | Command::Redo if self.is_recording() => Err("Stop recording first"),
             Command::Undo => need(self.document.history().can_undo(), "Nothing to undo"),
             Command::Redo => need(self.document.history().can_redo(), "Nothing to redo"),
             Command::Cut | Command::Copy => need(clips, "Select clips or a time range first"),
@@ -270,6 +272,13 @@ impl App {
             | Command::PauseContinue
             | Command::GoToStart
             | Command::Panic
+            | Command::Record
+            | Command::Overdub
+            | Command::CountInOff
+            | Command::CountInOneBar
+            | Command::CountInTwoBars
+            | Command::CountInFourBars
+            | Command::RecordOnlyMetronome
             | Command::ComputerKeyboard
             | Command::ToggleFollow
             | Command::AddAudioTrack
@@ -325,6 +334,16 @@ impl App {
             Command::PauseContinue => self.transport.pause_continue(),
             Command::GoToStart => self.transport.locate(Ticks::ZERO),
             Command::Panic => self.panic(),
+            Command::Record => self.toggle_record(),
+            Command::Overdub => self.settings.record.overdub = !self.settings.record.overdub,
+            Command::CountInOff => self.settings.record.count_in = CountIn::Off,
+            Command::CountInOneBar => self.settings.record.count_in = CountIn::OneBar,
+            Command::CountInTwoBars => self.settings.record.count_in = CountIn::TwoBars,
+            Command::CountInFourBars => self.settings.record.count_in = CountIn::FourBars,
+            Command::RecordOnlyMetronome => {
+                let record = &mut self.settings.record;
+                record.only_while_recording = !record.only_while_recording;
+            }
             Command::ComputerKeyboard => {
                 let on = !self.keyboard.is_on();
                 self.set_computer_keyboard(on);

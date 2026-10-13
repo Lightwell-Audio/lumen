@@ -66,6 +66,8 @@ mod piano_roll;
 mod playhead;
 mod position;
 mod probe;
+mod record_settings;
+mod recorder;
 mod routing;
 mod ruler;
 mod settings;
@@ -140,6 +142,8 @@ pub struct App {
     /// Sends the computer keyboard's notes into the engine, once the live
     /// feed is handed over (slice 2).
     live_keys: Option<live::LiveKeys>,
+    /// Recording MIDI (M5 slice 6).
+    record: app::record::Record,
     /// The piano roll's note preview (M5 slice 3d).
     audition: audition::Audition,
     /// Counts changes to the MIDI ports, and what the used outputs were last
@@ -483,6 +487,7 @@ impl eframe::App for App {
             self.transport.audio.notice = Some(notice);
         }
         self.update_midi_hardware(&ctx);
+        self.update_recording();
         self.update_audition(&ctx);
         self.history_window(&ctx);
         self.prompt_window(&ctx);
@@ -682,6 +687,7 @@ impl App {
             midi,
             midi_out: None,
             live_keys: None,
+            record: Default::default(),
             audition: audition::Audition::default(),
             midi_ports_seen: 0,
             keyboard: Default::default(),

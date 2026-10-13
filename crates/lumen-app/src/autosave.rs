@@ -105,6 +105,11 @@ impl Autosave {
         }
     }
 
+    /// Changes the delay: shorter while recording, so a crash costs seconds.
+    pub fn set_delay(&mut self, delay: Duration) {
+        self.delay = delay;
+    }
+
     /// A shorter delay (tests).
     pub fn with_delay(mut self, delay: Duration) -> Self {
         self.delay = delay;

@@ -1,7 +1,8 @@
 //! User settings that survive restarts: the audio device and the metronome
-//! (M2 slice 8), the appearance (M3 slice 2), and changed shortcuts and the
-//! palette's recent commands (M3 slice 7). Preferences proper (paths and
-//! the rest) join them in M9.
+//! (M2 slice 8), the appearance (M3 slice 2), changed shortcuts and the
+//! palette's recent commands (M3 slice 7), and the record settings (M5
+//! slice 6c, in `record_settings.rs`). Preferences proper (paths and the
+//! rest) join them in M9.
 //!
 //! The file is versioned JSON in the user's settings folder. It is written
 //! atomically (to a temporary file, then renamed), so a crash never leaves
@@ -14,6 +15,8 @@ use std::path::{Path, PathBuf};
 use lumen_core::product::PRODUCT_NAME;
 use lumen_engine::{ClickSound, MetronomeSettings};
 use serde::{Deserialize, Serialize};
+
+use crate::record_settings::RecordSettings;
 
 pub const VERSION: u32 = 1;
 
@@ -255,6 +258,10 @@ pub struct Settings {
     pub commands: Commands,
     pub mixing: Mixing,
     pub midi: Midi,
+    /// The count-in, record-only metronome and Overdub (M5 slice 6c): an
+    /// added section with defaults, so older files read as before (no
+    /// version change).
+    pub record: RecordSettings,
 }
 
 impl Default for Settings {
@@ -270,6 +277,7 @@ impl Default for Settings {
             commands: Commands::default(),
             mixing: Mixing::default(),
             midi: Midi::default(),
+            record: RecordSettings::default(),
         }
     }
 }
@@ -396,6 +404,7 @@ impl Drop for Writer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::record_settings::CountIn;
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir =
@@ -471,6 +480,11 @@ mod tests {
                 }],
                 audition: false,
             },
+            record: RecordSettings {
+                count_in: CountIn::TwoBars,
+                only_while_recording: true,
+                overdub: true,
+            },
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path), (settings.clone(), None));
@@ -530,5 +544,37 @@ mod tests {
         assert_eq!(settings.audio, None);
         // Files from before slice 4d: Follow on, by page (owner's default).
         assert_eq!(settings.follow, Follow::Page);
+    }
+
+    #[test]
+    fn a_file_from_before_the_record_settings_reads_them_as_defaults() {
+        let dir = temp_dir("record-missing");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"version": 1, "midi": {"ports": [], "audition": false}}"#,
+        )
+        .unwrap();
+        let (settings, warning) = load(&path);
+        assert_eq!(warning, None);
+        assert_eq!(settings.record, RecordSettings::default());
+        assert!(!settings.midi.audition, "the other sections still load");
+    }
+
+    #[test]
+    fn an_unknown_count_in_in_the_file_loads_as_off() {
+        let dir = temp_dir("record-unknown");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"version": 1, "record": {"count_in": "eight_bars", "overdub": true}}"#,
+        )
+        .unwrap();
+        let (settings, warning) = load(&path);
+        assert_eq!(warning, None);
+        assert_eq!(settings.record.count_in, CountIn::Off);
+        assert!(settings.record.overdub);
     }
 }

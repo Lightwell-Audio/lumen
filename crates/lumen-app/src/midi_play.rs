@@ -215,6 +215,19 @@ pub fn listening(track: &model::Track, inputs: &Inputs, silent: bool) -> Listen 
     }
 }
 
+/// What an armed MIDI track keeps of the live input while the transport
+/// records (M5 slice 6): what its MIDI From takes, whether or not it listens
+/// (a track with its monitor Off still records). Nothing when not armed.
+pub fn recording(track: &model::Track, inputs: &Inputs) -> Listen {
+    if !track.armed {
+        return Listen::OFF;
+    }
+    Listen {
+        sources: from_sources(track, inputs),
+        channel: track.midi_from.channel,
+    }
+}
+
 /// The sources a track's MIDI From takes, whether or not it listens now
 /// (the header light counts their traffic, so its memory does not jump
 /// when the track starts to listen).
@@ -332,7 +345,8 @@ pub fn engine_midi(
             .collect();
         tracks.push(
             MidiTrack::new(track.id.0, target, instrument(track), clips)
-                .listening(listening(track, inputs, silent)),
+                .listening(listening(track, inputs, silent))
+                .recording(recording(track, inputs)),
         );
     }
     tracks
@@ -525,6 +539,23 @@ mod tests {
         assert_eq!(listening(&off, &sel, false), Listen::OFF);
         // A track sent to a muted or silenced output sends nothing.
         assert_eq!(listening(&on, &sel, true), Listen::OFF);
+    }
+
+    #[test]
+    fn an_armed_track_records_what_its_midi_from_takes_even_with_monitor_off() {
+        let none = inputs(&[]);
+        let idle = midi_track(|_| {});
+        assert_eq!(recording(&idle, &none), Listen::OFF);
+        let armed = midi_track(|t| {
+            t.armed = true;
+            t.monitor = Monitor::Off;
+            t.midi_from.channel = Some(4);
+        });
+        assert_eq!(listening(&armed, &none, false), Listen::OFF);
+        let record = recording(&armed, &none);
+        assert_eq!(record.channel, Some(4));
+        assert_eq!(record.sources, from_sources(&armed, &none));
+        assert_ne!(record.sources, 0);
     }
 
     #[test]
