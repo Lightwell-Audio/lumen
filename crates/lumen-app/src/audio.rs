@@ -5,7 +5,9 @@
 
 use std::sync::Arc;
 use std::sync::mpsc::Receiver;
+use std::time::Duration;
 
+use lumen_audio::fake::Pace;
 use lumen_audio::{
     AudioCallback, AudioError, AudioSystem, Backend, Block, DeviceEvent, DeviceId,
     Status as Meters, StreamConfig, StreamInfo, Timing,
@@ -114,18 +116,34 @@ pub fn backend(driver: &str) -> Option<MakeBackend> {
         // A silent device for automated tests (`--audio test:fake`, the E2E
         // suite): it runs the engine a block every few milliseconds without
         // sound hardware. Not in `DRIVERS`, so users never see it.
-        TEST_DRIVER => Some(|| {
-            Box::new(lumen_audio::fake::FakeBackend(
-                lumen_audio::fake::FakeControl::new(),
-            ))
-        }),
+        TEST_DRIVER => Some(|| test_backend(Pace::Every(TEST_BLOCK_EVERY))),
+        // The same, in real time (see `FakeDevice::pace`): for scenarios that
+        // map wall-clock stamps to frames (recording).
+        TEST_PACED_DRIVER => Some(|| test_backend(Pace::RealTime)),
         _ => None,
     }
+}
+
+/// How often the silent test device runs a block (the supervisor polls every
+/// 10 ms): a busy machine that polls late gets the blocks it missed.
+const TEST_BLOCK_EVERY: Duration = Duration::from_millis(10);
+
+fn test_backend(pace: Pace) -> Box<dyn Backend> {
+    let control = lumen_audio::fake::FakeControl::new();
+    control.set(|device| device.pace = Some(pace));
+    Box::new(lumen_audio::fake::FakeBackend(control))
+}
+
+/// Whether `driver` is one of the silent test devices.
+fn is_test(driver: &str) -> bool {
+    driver == TEST_DRIVER || driver == TEST_PACED_DRIVER
 }
 
 pub const DEFAULT_DRIVER: &str = if cfg!(windows) { "wasapi" } else { "cpal" };
 /// The silent test device's driver key.
 pub const TEST_DRIVER: &str = "test";
+/// The silent test device that keeps to real time.
+pub const TEST_PACED_DRIVER: &str = "test-paced";
 
 /// A device found for a choice.
 struct Resolved {
@@ -363,8 +381,8 @@ impl Audio {
         let (mixer, source) = mixer(Layered(player, midi_play));
         let (engine_handle, mut engine) = engine(timeline, source, 48_000);
         let testing = match choice {
-            Choice::Named { driver, .. } => driver == TEST_DRIVER,
-            Choice::Saved(saved) => saved.driver == TEST_DRIVER,
+            Choice::Named { driver, .. } => is_test(driver),
+            Choice::Saved(saved) => is_test(&saved.driver),
             Choice::Default => false,
         };
         let (mut tap, heard) = if testing {

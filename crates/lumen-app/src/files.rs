@@ -306,9 +306,12 @@ mod tests {
         let mut request = request(&doc, loose, false);
         request.normalize_project_path = true;
         let saved = save_now(request).unwrap();
+        // The worker names the file by its canonical path, which differs
+        // from the temp folder's spelling (Windows short names, macOS's
+        // /private/var): the same file is what counts.
         assert_eq!(
-            saved.path,
-            tmp.path().join("Song").join("Song.lumen"),
+            std::fs::canonicalize(&saved.path).unwrap(),
+            std::fs::canonicalize(tmp.path().join("Song").join("Song.lumen")).unwrap(),
             "Save As resolves the folder on the save worker"
         );
         // Inside a folder named after the project: used as is.

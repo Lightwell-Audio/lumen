@@ -75,13 +75,13 @@ impl Launch {
         self
     }
 
-    /// Starts with the silent test device at a buffer of `frames`. The
-    /// device runs a block per poll, so a bigger buffer is a device nearer
-    /// real time, which scenarios that map driver time stamps to frames
-    /// need (recording).
+    /// Starts with the silent test device at a buffer of `frames`, kept to
+    /// real time: it makes up for a poll that came late, so on a busy
+    /// machine the playhead stays with the wall-clock stamps that scenarios
+    /// give live input (recording). A bigger buffer is a coarser clock.
     pub fn with_audio_buffer(mut self, frames: u32) -> Self {
         self.audio = audio::Choice::Saved(settings::AudioSettings {
-            driver: audio::TEST_DRIVER.into(),
+            driver: audio::TEST_PACED_DRIVER.into(),
             device_id: "fake".into(),
             device_name: "Fake device".into(),
             sample_rate: None,
@@ -495,6 +495,7 @@ impl App {
             || self.opening.is_some()
             || self.lanes.is_loading()
             || self.midi_reader.busy()
+            || self.midi_exporting.is_some()
             || self.midi_writing.is_some()
     }
 

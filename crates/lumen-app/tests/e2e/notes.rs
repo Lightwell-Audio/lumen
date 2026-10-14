@@ -11,7 +11,7 @@ use lumen_core::time::{PPQ, Ticks};
 use lumen_project::model::{ClipContent, Id, Note, Project, Track, TrackKind};
 use lumen_project::testing::{TempDir, midi_track, project_of};
 
-use super::Lumen;
+use super::{Lumen, keys};
 
 const Q: i64 = PPQ;
 
@@ -418,8 +418,7 @@ fn the_ruler_moves_the_playhead() {
     let body = lumen.app().editor_body().unwrap();
     let x = at(&lumen, q(2), 60).x;
     click(&mut lumen, Pos2::new(x, body.top() - 8.0), Modifiers::NONE);
-    lumen.frames(5);
-    assert_eq!(lumen.app().playhead(), q(2));
+    lumen.wait_for("the playhead", |app| app.playhead() == q(2));
 }
 
 #[test]
@@ -618,8 +617,8 @@ fn playhead_to(lumen: &mut Lumen, t: Ticks) {
     let body = lumen.app().editor_body().unwrap();
     let x = at(lumen, t, 60).x;
     click(lumen, Pos2::new(x, body.top() - 8.0), Modifiers::NONE);
-    lumen.frames(5);
-    assert_eq!(lumen.app().playhead(), t);
+    // The playhead is the engine's, which a slow device moves a poll later.
+    lumen.wait_for("the playhead", |app| app.playhead() == t);
 }
 
 /// The two halves of the C5 note (beats 4 to 6) after a split, in order.
@@ -745,7 +744,7 @@ fn the_context_menu_acts_on_notes() {
         [1],
         "the note was picked first"
     );
-    assert!(lumen.shows("Duplicate Ctrl+D"));
+    assert!(lumen.shows(&keys("Duplicate Ctrl+D")));
     lumen.harness.get_by_label("Delete Delete").click();
     lumen.frames(3);
     assert_eq!(notes(&lumen).len(), 3);
