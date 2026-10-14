@@ -525,3 +525,67 @@ fn lists_queued_behind_a_full_retire_queue_are_never_freed_here() {
         assert_eq!(heap, 0, "heap operation in process() at block {block}");
     }
 }
+
+/// Review M5 M2: the built-in synth renders, steals voices, glides between
+/// presets, bends, holds the pedal and silences without touching the heap.
+#[test]
+fn the_synth_never_touches_the_heap() {
+    use lumen_core::midi::{Event, Msg};
+    use lumen_devices::{Instrument, Preset, Synth};
+
+    assert!(guard_is_active(), "guarded allocator not installed");
+    let mut synth = Synth::new(Preset::Poly);
+    let (mut left, mut right) = (vec![0.0; 128], vec![0.0; 128]);
+    let mut events = Vec::with_capacity(64);
+    for block in 0..3_000_u32 {
+        events.clear();
+        let key = 36 + (block % 48) as u8;
+        // More notes than voices, so voices are stolen.
+        for (n, offset) in [0, 31, 64, 97].into_iter().enumerate() {
+            events.push(Event {
+                offset,
+                msg: Msg::note_on((n % 2) as u8, key + n as u8 * 4, 100),
+            });
+        }
+        if block >= 8 {
+            events.push(Event {
+                offset: 100,
+                msg: Msg::note_off(0, key - 8),
+            });
+        }
+        match block % 500 {
+            50 => events.push(Event {
+                offset: 10,
+                msg: Msg::program(0, ((block / 500) % 5) as u8),
+            }),
+            100 => events.push(Event {
+                offset: 0,
+                msg: Msg::controller(0, 64, 127),
+            }),
+            200 => events.push(Event {
+                offset: 0,
+                msg: Msg::controller(0, 64, 0),
+            }),
+            300 => events.push(Event {
+                offset: 5,
+                msg: Msg::pitch_bend(0, 4_000),
+            }),
+            400 => events.push(Event {
+                offset: 0,
+                msg: Msg::controller(0, 123, 0),
+            }),
+            _ => {}
+        }
+        events.sort_by_key(|e| e.offset);
+        left.fill(0.0);
+        right.fill(0.0);
+        let ((), heap) = count_rt_violations(|| {
+            synth.render(48_000, &events, &mut left, &mut right);
+            if block % 1_000 == 999 {
+                synth.silence();
+            }
+        });
+        assert_eq!(heap, 0, "heap operation in the synth at block {block}");
+    }
+    assert!(synth.voices() > 0 || !synth.active());
+}
