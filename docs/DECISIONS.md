@@ -5464,6 +5464,19 @@ are now an error that the export reports ("Not exported: ..."). Export MIDI
 builds the model and the bytes on a worker (`midi_files::export`), as the
 other disk and heavy work, and asks where to save when it is done.
 
+**Found by the second macOS run.** `LiveFeed` placed each message with a
+frame map whose base is the earliest `time - frame` over 256 blocks. When
+that earliest block leaves the window the base jumps, and a later message
+maps before an earlier one of the same source: a note-on could overtake the
+note-off of its key (`audition::escape_during_a_chord…`, "key 68 struck while
+sounding"). A source's messages now never go before the one placed before
+them (`LiveFeed::floor`; unit test
+`a_sources_messages_keep_their_order_when_the_frame_map_moves`, which fails
+without it). `record()` waits for the take to be drawn before a test reads it.
+Persisted MIDI clock delays are clamped where they are read
+(`Midi::sync_delay`), so a settings file cannot hold the sender's queue far
+into the future.
+
 **Consequences.** Unloaded, the default test device runs a little faster
 than before (a block every 10 ms exactly, not 10 ms plus the poll's work).
 The paced device is a coarser model of a driver than a thread with its own

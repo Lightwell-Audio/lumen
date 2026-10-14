@@ -120,7 +120,9 @@ impl App {
                 self.settings_changed = Some(Instant::now());
             }
             ui.separator();
-            if ui.button("Audio and MIDI settings…").clicked() {
+            if crate::widgets::menu_item(ui, "Audio and MIDI settings\u{2026}", None, true)
+                .clicked()
+            {
                 self.transport.settings_window.open = true;
                 ui.close();
             }

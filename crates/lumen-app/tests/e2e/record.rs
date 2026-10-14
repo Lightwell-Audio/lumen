@@ -214,6 +214,8 @@ pub(super) fn record(lumen: &mut Lumen) {
     lumen.wait_for("the take to start", |app| {
         app.recording() && app.is_playing()
     });
+    // The arrangement draws the take a frame after the engine reports it.
+    lumen.wait_for("the take to be drawn", |app| app.live_take().is_some());
 }
 
 /// Slows `project` to 30 BPM: a beat is two seconds, so the stretch between

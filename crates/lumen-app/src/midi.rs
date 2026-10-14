@@ -207,7 +207,9 @@ impl Midi {
             .ports
             .iter()
             .find(|p| p.direction == key && p.name == id.name)
-            .map_or(0, |p| p.sync_delay_ms);
+            .map_or(0, |p| {
+                p.sync_delay_ms.clamp(SYNC_DELAY_MS.0, SYNC_DELAY_MS.1)
+            });
         saved
             .ports
             .retain(|p| !(p.direction == key && p.name == id.name));
@@ -223,13 +225,18 @@ impl Midi {
         }
     }
 
-    /// The clock delay saved for the output `name`, in milliseconds.
+    /// The clock delay saved for the output `name`, in milliseconds, within
+    /// the limits of [`SYNC_DELAY_MS`]: a settings file edited by hand, or
+    /// written by another version, can hold any number, and a far-off delay
+    /// would make the sender keep every clock message until then.
     pub fn sync_delay(saved: &settings::Midi, name: &str) -> i32 {
         saved
             .ports
             .iter()
             .find(|p| p.direction == "output" && p.name == name)
-            .map_or(0, |p| p.sync_delay_ms)
+            .map_or(0, |p| {
+                p.sync_delay_ms.clamp(SYNC_DELAY_MS.0, SYNC_DELAY_MS.1)
+            })
     }
 
     /// Saves the clock delay of the output `name` (a port with Sync on is
@@ -249,6 +256,31 @@ impl Midi {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_saved_clock_delay_is_read_within_its_limits() {
+        let port = |ms| settings::MidiPort {
+            direction: "output".into(),
+            name: "Drum machine".into(),
+            track: false,
+            remote: false,
+            sync: true,
+            sync_delay_ms: ms,
+        };
+        let delay = |ms| {
+            Midi::sync_delay(
+                &settings::Midi {
+                    ports: vec![port(ms)],
+                    ..Default::default()
+                },
+                "Drum machine",
+            )
+        };
+        assert_eq!(delay(-7), -7);
+        assert_eq!(delay(i32::MAX), SYNC_DELAY_MS.1);
+        assert_eq!(delay(i32::MIN), SYNC_DELAY_MS.0);
+        assert_eq!(Midi::sync_delay(&settings::Midi::default(), "Absent"), 0);
+    }
 
     #[test]
     fn switches_are_remembered_by_port_and_forgotten_when_off() {

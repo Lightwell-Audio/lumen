@@ -20,7 +20,7 @@
 use std::sync::Arc;
 
 use lumen_core::midi::{Kind, Msg};
-use lumen_engine::{AUDITION, INPUT_SLOTS, KEYBOARD, LiveIn, LiveInput};
+use lumen_engine::{AUDITION, INPUT_SLOTS, KEYBOARD, LIVE_SOURCES, LiveIn, LiveInput};
 use lumen_midi::Timed;
 
 use crate::midi_out::{StreamClock, frame_ns};
@@ -168,6 +168,9 @@ pub struct LiveFeed {
     clock: Arc<StreamClock>,
     frames: FrameMap,
     stamps: [StampMap; INPUT_SLOTS as usize],
+    /// For each source, the frame and played frame of the last message it
+    /// had placed: the next is never before them.
+    floor: [(u64, u64); LIVE_SOURCES as usize],
     /// Sorted by frame; `len` used.
     pending: [LiveIn; PENDING],
     len: usize,
@@ -190,6 +193,7 @@ pub fn live(input: Option<rtrb::Consumer<Timed>>, clock: Arc<StreamClock>) -> (L
             clock: Arc::clone(&clock),
             frames: FrameMap::new(),
             stamps: [StampMap::default(); INPUT_SLOTS as usize],
+            floor: [(0, 0); LIVE_SOURCES as usize],
             pending: [empty; PENDING],
             len: 0,
         },
@@ -223,7 +227,16 @@ impl LiveFeed {
 
     /// Queues `message` in frame order, or gives it at once if the queue
     /// is full.
-    fn queue(&mut self, message: LiveIn, take: &mut dyn FnMut(LiveIn)) {
+    fn queue(&mut self, mut message: LiveIn, take: &mut dyn FnMut(LiveIn)) {
+        // One source's messages keep the order they came in. The frame map
+        // is an estimate that moves between blocks (its window forgets its
+        // earliest sample), so a later message can map before an earlier
+        // one; a note-on must never overtake the note-off of its key.
+        if let Some(floor) = self.floor.get_mut(usize::from(message.source)) {
+            message.frame = message.frame.max(floor.0);
+            message.played = message.played.max(floor.1);
+            *floor = (message.frame, message.played);
+        }
         if self.len == PENDING {
             take(message);
             return;
@@ -436,6 +449,34 @@ mod tests {
         // (The offset creeps up by 1/256 of a later gap: a few µs here.)
         let played = map.played(5 * MS, 66 * MS);
         assert!((played - 65 * MS).abs() < MS / 100, "{played}");
+    }
+
+    #[test]
+    fn a_sources_messages_keep_their_order_when_the_frame_map_moves() {
+        let clock = StreamClock::new();
+        let (mut tx, rx) = rtrb::RingBuffer::new(8);
+        let (mut feed, _keys) = live(Some(rx), Arc::clone(&clock));
+        block(&mut feed, &clock, 0, 0);
+        // A note-off played at 20 ms is taken by block 1 and waits for its
+        // frame, two blocks on.
+        clock.publish_at(128, 128, 48_000, 21 * MS);
+        tx.push(timed(&clock, 1, 20_000, 20 * MS, Msg::note_off(0, 60)))
+            .unwrap();
+        let mut got = Vec::new();
+        feed.pull(128, 256, &mut |m| got.push(m));
+        assert!(got.is_empty());
+        // The next block restarts the frame map far later (a rate change
+        // forgets the window), so a note-on played at 39 ms maps to a frame
+        // before the waiting note-off's.
+        clock.publish_at(256, 128, 44_100, 100 * MS);
+        tx.push(timed(&clock, 1, 39_000, 39 * MS, Msg::note_on(0, 60, 100)))
+            .unwrap();
+        feed.pull(256, 384, &mut |m| got.push(m));
+        feed.pull(384, 512, &mut |m| got.push(m));
+        feed.pull(512, 640, &mut |m| got.push(m));
+        let kinds: Vec<Msg> = got.iter().map(|m| m.msg).collect();
+        assert_eq!(kinds, vec![Msg::note_off(0, 60), Msg::note_on(0, 60, 100)]);
+        assert!(got[0].frame <= got[1].frame);
     }
 
     #[test]

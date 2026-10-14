@@ -421,10 +421,19 @@ fn keys_on(fake: &FakeControl) -> Vec<u8> {
 #[track_caller]
 fn check_balance(fake: &FakeControl, quiet: bool) {
     let mut held = std::collections::BTreeSet::new();
-    for m in sent(fake) {
+    let log = sent(fake);
+    for m in &log {
         match m[0] & 0xF0 {
-            0x90 => assert!(held.insert(m[1]), "key {} struck while sounding", m[1]),
-            0x80 => assert!(held.remove(&m[1]), "key {} let go while silent", m[1]),
+            0x90 => assert!(
+                held.insert(m[1]),
+                "key {} struck while sounding; the port got {log:?}",
+                m[1]
+            ),
+            0x80 => assert!(
+                held.remove(&m[1]),
+                "key {} let go while silent; the port got {log:?}",
+                m[1]
+            ),
             _ => {}
         }
     }
