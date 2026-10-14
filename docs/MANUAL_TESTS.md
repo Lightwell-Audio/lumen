@@ -2725,3 +2725,23 @@ or a MIDI monitor, take clock from it; or connect a drum machine's MIDI in)
     the delay (click it and type, or wheel over it; −20 to +50 ms) until it
     lines up. Expect: a later delay moves the follower later; the setting
     is kept after a restart.
+
+### MT-MIDI-9 · M5 exit walkthrough (needs a human; MIDI controller and output)
+Slice 8 of M5. Start Lumen from the repository root:
+
+```powershell
+cargo run --release -p lumen-app
+```
+
+1. Create a MIDI track, arm it, and choose a MIDI output or the built-in
+   instrument. Record a short phrase from a controller, then stop.
+2. Open the take in the piano roll. Move one note off the grid, quantize with
+   **Q**, and undo and redo once. Expect: the note snaps to the current grid,
+   and Undo/Redo restore the two versions exactly.
+3. Save the project, close Lumen, reopen it, and play from the start. Expect:
+   the recorded notes, pitches, velocities and timing match the saved version,
+   and playback is heard through the selected instrument or MIDI output.
+4. Repeat with Overdub enabled on an existing clip. Save and reopen again;
+   expect the original and new notes to remain as heard before saving.
+
+**Status:** waits for the owner's run.

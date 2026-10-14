@@ -24,6 +24,7 @@ impl App {
             |file| files::SaveRequest {
                 project: self.stamped(),
                 path: file,
+                normalize_project_path: false,
                 media_files: self.document.media_files.clone(),
                 copy_imported: false,
                 keep_backups: 0,

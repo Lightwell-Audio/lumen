@@ -390,7 +390,11 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-13 (latest): **M5 slice 7 is built** (MIDI files
+**Last updated:** 2026-10-13 (latest): **M5 slice 8 is underway**. The new
+`tests/e2e/midi_walkthrough.rs` covers record → quantize → save/reopen → play;
+the preliminary review moved Save As folder probing to the save worker.
+MT-MIDI-9 and the full repository review/report remain. Tests and platform
+gates have not yet been run for slice 8. **M5 slice 7 is built** (MIDI files
 and clock out, ADR-0062; owner's F1–F4 A). `lumen_project::smf` (on `midly`,
 Unlicense with a deny exception) reads type 0 and 1 into parts split by
 channel and writes type 0 or 1 at 960 PPQ (`tests/smf/`: hand-made files from
@@ -418,10 +422,8 @@ needed `libxkbcommon-x11-0` for smoke). Valgrind is in this container:
 `cargo build --release -p lumen-perf && target/release/perf-gate` runs the
 gate; slice 7 is flat against its base, but `project_parse` reads +5.83%
 over the baseline here at the base too (KNOWN_ISSUES). Not run: macOS
-cross-clippy. **MT-MIDI-8 waits for the owner** (with MT-MIDI-7). Next: the
-owner's manual tests, then slice 8 (the close: exit walkthrough E2E, the
-`lumen-review` review, the report). Commits on this branch carry no
-`Claude-Session:` trailer (the owner's PR rule).
+cross-clippy. **MT-MIDI-8 waits for the owner** (with MT-MIDI-7). Commits on
+this branch carry no `Claude-Session:` trailer (the owner's PR rule).
 Before it, 2026-10-13: **MIDI learn moved to M7** (owner),
 built with automation; M5 slice 7 became MIDI files and clock out.
 Before it, 2026-10-13: **resizing a playing MIDI clip no

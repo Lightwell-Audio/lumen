@@ -37,7 +37,7 @@ how the parts fit.
 | Design system | Semantic colour tokens (dark and light), type, spacing and motion, in `theme.rs`, `motion.rs` and `fonts.rs`; spec in `docs/DESIGN.md` | ADR-0023 |
 | Real-time engine | Allocation-free, block-size-invariant; transport, tempo and meter maps, declick crossfades, clip player, MIDI player and the built-in instruments, the mixer graph (a plan compiled on the UI side), metronome | ADR-0003, 0017, 0019, 0020, 0035, 0045 |
 | Audio devices | Lumen's own backend layer: native ASIO over COM, WASAPI shared and exclusive, cpal for macOS and Linux; a supervisor that recovers from loss, resets and sleep | ADR-0006, 0016, 0021 |
-| Projects | Folder with versioned JSON (format v7), migrations over untyped JSON, atomic saves, rolling backups, relative media paths | ADR-0004 |
+| Projects | Folder with versioned JSON (format v15), migrations over untyped JSON, atomic saves, rolling backups, relative media paths | ADR-0004 |
 | Undo | Shared snapshots: tracks and clips in `Arc`, every step a cheap copy | ADR-0024 |
 | Time | Integer ticks at 1,411,200 PPQ, with one rounding rule to samples | ADR-0009 |
 | Plugins (M6) | `vst3` crate bindings, sandboxed host processes, out-of-process scanning | ADR-0005 |

@@ -110,13 +110,13 @@ fn assert_heard(lumen: &Lumen, what: &str, actual: Ticks, rendered: Ticks) {
 
 /// The fake keyboard: messages stamped as the driver would, when they are
 /// played.
-struct Keys {
+pub(super) struct Keys {
     fake: FakeControl,
     epoch: Instant,
 }
 
 impl Keys {
-    fn new(fake: &FakeControl) -> Self {
+    pub(super) fn new(fake: &FakeControl) -> Self {
         Self {
             fake: fake.clone(),
             epoch: Instant::now(),
@@ -131,11 +131,11 @@ impl Keys {
         );
     }
 
-    fn on(&self, pitch: u8, velocity: u8) {
+    pub(super) fn on(&self, pitch: u8, velocity: u8) {
         self.send(&[0x90, pitch, velocity]);
     }
 
-    fn off(&self, pitch: u8) {
+    pub(super) fn off(&self, pitch: u8) {
         self.send(&[0x80, pitch, 0]);
     }
 }

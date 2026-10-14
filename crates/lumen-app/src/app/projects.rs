@@ -177,10 +177,19 @@ impl App {
     }
 
     pub(crate) fn start_save(&mut self, path: PathBuf) {
+        self.start_save_with(path, false);
+    }
+
+    pub(crate) fn start_save_as(&mut self, chosen: PathBuf) {
+        self.start_save_with(chosen, true);
+    }
+
+    fn start_save_with(&mut self, path: PathBuf, normalize_project_path: bool) {
         trace::log(|| format!("files: saving {}", path.display()));
         self.saving = Some(files::save(files::SaveRequest {
             project: self.stamped(),
             path,
+            normalize_project_path,
             media_files: self.document.media_files.clone(),
             copy_imported: self.settings.projects.copy_imported,
             keep_backups: lumen_project::SaveOptions::default().keep_backups,
@@ -260,7 +269,7 @@ impl App {
             self.dialog = None;
             match result {
                 FileDialog::SaveAs(Some(chosen)) => {
-                    self.start_save(files::project_file_for(&chosen));
+                    self.start_save_as(chosen);
                 }
                 FileDialog::Open(Some(path)) => self.proceed(ctx, Next::Open(Some(path))),
                 FileDialog::Import { paths, at, into } => {

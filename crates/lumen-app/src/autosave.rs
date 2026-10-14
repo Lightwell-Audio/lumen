@@ -355,6 +355,7 @@ mod tests {
         files::SaveRequest {
             project: doc.project().clone(),
             path: file,
+            normalize_project_path: false,
             media_files: doc.media_files.clone(),
             copy_imported: false,
             keep_backups: 0,
