@@ -5473,6 +5473,10 @@ sounding"). A source's messages now never go before the one placed before
 them (`LiveFeed::floor`; unit test
 `a_sources_messages_keep_their_order_when_the_frame_map_moves`, which fails
 without it). `record()` waits for the take to be drawn before a test reads it.
+A full pending queue now hands over what waits, in order, before the newest
+message (it handed the newest first, so a note-off could pass its note-on).
+`MidirHost` finds a port in the one listing its names came from (a hot-plug
+between two listings could panic `swap_remove` or open another device).
 Persisted MIDI clock delays are clamped where they are read
 (`Midi::sync_delay`), so a settings file cannot hold the sender's queue far
 into the future.

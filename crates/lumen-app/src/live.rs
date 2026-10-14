@@ -238,6 +238,12 @@ impl LiveFeed {
             *floor = (message.frame, message.played);
         }
         if self.len == PENDING {
+            // Overloaded: everything waiting goes first, in order, then this
+            // one, so a note-off is never given before its note-on.
+            for waiting in &self.pending[..self.len] {
+                take(*waiting);
+            }
+            self.len = 0;
             take(message);
             return;
         }
@@ -477,6 +483,37 @@ mod tests {
         let kinds: Vec<Msg> = got.iter().map(|m| m.msg).collect();
         assert_eq!(kinds, vec![Msg::note_off(0, 60), Msg::note_on(0, 60, 100)]);
         assert!(got[0].frame <= got[1].frame);
+    }
+
+    #[test]
+    fn a_full_queue_gives_what_waits_before_the_newest_message() {
+        let clock = StreamClock::new();
+        let (mut tx, rx) = rtrb::RingBuffer::new(1_024);
+        let (mut feed, _keys) = live(Some(rx), Arc::clone(&clock));
+        block(&mut feed, &clock, 0, 0);
+        clock.publish_at(128, 128, 48_000, 11 * MS);
+        // A note-on and its note-off, over and over: more than the queue
+        // holds, all taken by one block.
+        let sent: Vec<Msg> = (0..=PENDING)
+            .map(|i| {
+                let key = 40 + (i / 2 % 40) as u8;
+                if i % 2 == 0 {
+                    Msg::note_on(0, key, 100)
+                } else {
+                    Msg::note_off(0, key)
+                }
+            })
+            .collect();
+        for (i, msg) in sent.iter().enumerate() {
+            let at = 10_000 + i as u64;
+            tx.push(timed(&clock, 1, at, at as i64 * 1_000, *msg))
+                .unwrap();
+        }
+        let mut got = Vec::new();
+        feed.pull(128, 256, &mut |m| got.push(m.msg));
+        feed.pull(256, 384, &mut |m| got.push(m.msg));
+        feed.pull(384, 512, &mut |m| got.push(m.msg));
+        assert_eq!(got, sent, "arrival order, nothing lost or overtaken");
     }
 
     #[test]

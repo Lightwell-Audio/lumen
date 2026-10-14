@@ -2,7 +2,9 @@
 
 use std::collections::HashMap;
 
-use midir::{MidiInput, MidiInputConnection, MidiOutput, MidiOutputConnection};
+use midir::{
+    MidiInput, MidiInputConnection, MidiInputPort, MidiOutput, MidiOutputConnection, MidiOutputPort,
+};
 
 use crate::backend::{Backend, Connection, InputSink, Output};
 use crate::types::{Direction, MidiError, PortId, PortInfo};
@@ -34,22 +36,35 @@ fn numbered(raw: impl Iterator<Item = String>) -> Vec<String> {
     .collect()
 }
 
-fn input_names(input: &MidiInput) -> Vec<String> {
-    numbered(
-        input
-            .ports()
+/// Every input port with its numbered name, from one listing: a device
+/// plugged or unplugged between two listings would otherwise shift the
+/// index found in the first onto another port in the second.
+fn input_ports(input: &MidiInput) -> Vec<(String, MidiInputPort)> {
+    let ports = input.ports();
+    let names = numbered(
+        ports
             .iter()
             .map(|p| input.port_name(p).unwrap_or_else(|_| "MIDI input".into())),
-    )
+    );
+    names.into_iter().zip(ports).collect()
 }
 
-fn output_names(output: &MidiOutput) -> Vec<String> {
-    numbered(
-        output
-            .ports()
+/// Every output port with its numbered name, from one listing.
+fn output_ports(output: &MidiOutput) -> Vec<(String, MidiOutputPort)> {
+    let ports = output.ports();
+    let names = numbered(
+        ports
             .iter()
             .map(|p| output.port_name(p).unwrap_or_else(|_| "MIDI output".into())),
-    )
+    );
+    names.into_iter().zip(ports).collect()
+}
+
+/// The port named `wanted`, if the listing has it.
+fn named<P>(listing: Vec<(String, P)>, wanted: &str) -> Option<P> {
+    listing
+        .into_iter()
+        .find_map(|(name, port)| (name == wanted).then_some(port))
 }
 
 struct Open(#[allow(dead_code, reason = "held so the port stays open")] MidiInputConnection<()>);
@@ -80,10 +95,12 @@ impl Backend for MidirHost {
                 .collect::<Vec<_>>()
         };
         if let Ok(input) = MidiInput::new(&self.client) {
-            out.extend(ports(Direction::Input, input_names(&input)));
+            let names = input_ports(&input).into_iter().map(|(name, _)| name);
+            out.extend(ports(Direction::Input, names.collect()));
         }
         if let Ok(output) = MidiOutput::new(&self.client) {
-            out.extend(ports(Direction::Output, output_names(&output)));
+            let names = output_ports(&output).into_iter().map(|(name, _)| name);
+            out.extend(ports(Direction::Output, names.collect()));
         }
         out
     }
@@ -96,11 +113,8 @@ impl Backend for MidirHost {
         let mut input =
             MidiInput::new(&self.client).map_err(|e| MidiError::Unavailable(e.to_string()))?;
         input.ignore(midir::Ignore::None);
-        let index = input_names(&input)
-            .iter()
-            .position(|n| *n == id.name)
+        let port = named(input_ports(&input), &id.name)
             .ok_or_else(|| MidiError::Open(format!("{} is not connected", id.name)))?;
-        let port = input.ports().swap_remove(index);
         let connection = input
             .connect(
                 &port,
@@ -115,11 +129,8 @@ impl Backend for MidirHost {
     fn open_output(&mut self, id: &PortId) -> Result<Box<dyn Output>, MidiError> {
         let output =
             MidiOutput::new(&self.client).map_err(|e| MidiError::Unavailable(e.to_string()))?;
-        let index = output_names(&output)
-            .iter()
-            .position(|n| *n == id.name)
+        let port = named(output_ports(&output), &id.name)
             .ok_or_else(|| MidiError::Open(format!("{} is not connected", id.name)))?;
-        let port = output.ports().swap_remove(index);
         let connection = output
             .connect(&port, "output")
             .map_err(|e| MidiError::Open(e.to_string()))?;
@@ -129,7 +140,15 @@ impl Backend for MidirHost {
 
 #[cfg(test)]
 mod tests {
-    use super::numbered;
+    use super::{named, numbered};
+
+    #[test]
+    fn a_port_is_found_by_its_numbered_name_in_the_listing_it_came_from() {
+        let listing = vec![("Keys".to_owned(), 7), ("Keys 2".to_owned(), 9)];
+        assert_eq!(named(listing.clone(), "Keys 2"), Some(9));
+        assert_eq!(named(listing.clone(), "Keys"), Some(7));
+        assert_eq!(named(listing, "Pad"), None);
+    }
 
     #[test]
     fn repeated_names_are_numbered() {
