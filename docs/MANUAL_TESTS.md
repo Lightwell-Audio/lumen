@@ -2765,5 +2765,11 @@ cargo run --release -p lumen-app
    and playback is heard through the selected instrument or MIDI output.
 4. Repeat with Overdub enabled on an existing clip. Save and reopen again;
    expect the original and new notes to remain as heard before saving.
+5. Switch on the computer keyboard (Ctrl+Shift+K) and open a clip in the
+   editor's own window (the pop-out). With the pop-out focused, press **A**,
+   **S** and **D**, and **L** while a note is picked. Expect: A, S and D play
+   notes and sound until released, and L plays a note instead of applying
+   Legato. Click the main window while holding a key: the note lets go. (The
+   headless tests embed the pop-out and cannot reach this path.)
 
 **Status:** waits for the owner's run.

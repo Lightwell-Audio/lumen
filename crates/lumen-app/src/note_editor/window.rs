@@ -42,8 +42,12 @@ impl App {
                 self.note_editor.window_focused = false;
             } else {
                 // The window has its own keyboard: the editor's keys are
-                // read here, as the main window's are in `App::ui`.
+                // read here, as the main window's are in `App::ui`, the
+                // computer keyboard's notes first so a letter plays instead
+                // of running a command, and a release or the window losing
+                // focus lets go of what sounds.
                 let ctx = ui.ctx().clone();
+                self.computer_keyboard_keys(&ctx);
                 self.command_keys(&ctx);
                 egui::CentralPanel::default().show(ui, |ui| {
                     let area = ui.max_rect();
