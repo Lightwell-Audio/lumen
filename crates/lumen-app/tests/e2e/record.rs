@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use eframe::egui::{Key, Modifiers};
-use lumen_core::time::Ticks;
+use lumen_core::time::{TempoPoint, Ticks};
 use lumen_engine::TransportSnapshot;
 use lumen_midi::Direction;
 use lumen_midi::fake::FakeControl;
@@ -216,6 +216,17 @@ pub(super) fn record(lumen: &mut Lumen) {
     });
 }
 
+/// Slows `project` to 30 BPM: a beat is two seconds, so the stretch between
+/// one playhead position and the next (a key sent after `reach`, a stop
+/// before the loop wraps) is wide enough that a busy machine does not take
+/// it. For scenarios that race the loop's end.
+pub(super) fn slowly(project: &mut Project) {
+    project.tempo = vec![TempoPoint {
+        at: Ticks::ZERO,
+        bpm: 30.0,
+    }];
+}
+
 /// Runs until the playhead reaches `at`, and returns where it is.
 pub(super) fn reach(lumen: &mut Lumen, at: Ticks) -> Ticks {
     lumen.wait_for(&format!("beat {}", at.0 as f64 / BEAT as f64), move |app| {
@@ -392,7 +403,9 @@ pub(super) fn heard_project(old: Vec<Note>) -> (Project, FakeControl) {
         channel: 0,
     });
     let mut project = project_of("Record", vec![keys]);
-    project.tempo[0].bpm = 480.0;
+    // Fast enough for a short test, slow enough that the stop after beat 3
+    // is not late for the note at beat 6 on a busy machine.
+    project.tempo[0].bpm = 240.0;
     (project, fake)
 }
 
@@ -652,6 +665,7 @@ fn a_note_held_across_the_loop_wrap_goes_on_from_the_loop_start() {
     project.transport.loop_start = Ticks::ZERO;
     project.transport.loop_end = beats(2.0);
     project.transport.loop_enabled = true;
+    slowly(&mut project);
     let mut lumen = launch("loop-held", &project, &fake);
     let keys = Keys::new(&fake);
     record(&mut lumen);
@@ -779,9 +793,10 @@ fn loop_passes_layer_into_one_clip_that_spans_the_loop() {
     let pitches: Vec<u8> = notes.iter().map(|n| n.pitch).collect();
     assert_eq!(pitches, [60, 64], "both passes are there, in order");
     assert_heard(&lumen, "the first pass's note", notes[0].start, first_on);
-    // After a wrap the unpaced test device's clock has drifted a pass's
-    // worth, so only where the note sits in the loop is checked; the exact
-    // wrap placement is the engine's `tests/record.rs`.
+    // Where a note sits after a wrap depends on how the stream clock was
+    // mapped across it (the paced test device runs blocks it owes in a
+    // burst), so only that it is in the loop is checked; the exact wrap
+    // placement is the engine's `tests/record.rs`.
     let _ = second_on;
     assert!(
         notes[1].start > beats(0.5) && notes[1].start < beats(2.0),
@@ -952,6 +967,7 @@ fn record_pressed_inside_the_loop_begins_at_the_playhead() {
     project.transport.loop_start = Ticks::ZERO;
     project.transport.loop_end = beats(4.0);
     project.transport.loop_enabled = true;
+    slowly(&mut project);
     let mut lumen = launch("loop-mid", &project, &fake);
     let keys = Keys::new(&fake);
     play_to(&mut lumen, beats(1.5));
