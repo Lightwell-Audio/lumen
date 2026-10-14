@@ -454,6 +454,60 @@ fn a_note_played_and_let_go_within_one_frame_is_not_left_sounding() {
 }
 
 #[test]
+fn messages_landing_on_one_frame_keep_the_order_they_came_in() {
+    let log = Log::default();
+    let mut rig = rig(vec![track(A, &log, Listen::OFF, Vec::new())], &log);
+    // A slow device takes several of the app's messages in one block, all
+    // on one frame: a key struck, let go, struck and let go, and a chord
+    // swapped for another that shares a key. Each note-on must follow the
+    // note-off before it, whatever the sort of one frame's events.
+    rig.run(256, 128);
+    let key = |on: bool, k: u8| {
+        if on {
+            Msg::note_on(15, k, 80)
+        } else {
+            Msg::note_off(15, k)
+        }
+    };
+    let sent = [
+        (true, 69),
+        (false, 69),
+        (true, 69),
+        (false, 69),
+        (true, 62),
+        (true, 69),
+        (false, 62),
+        (false, 69),
+        (true, 64),
+        (true, 69),
+        (false, 64),
+        (false, 69),
+    ];
+    for (on, k) in sent {
+        rig.live.audition(300, A, key(on, k));
+    }
+    rig.run(512, 128);
+    let heard: Vec<(bool, u8)> = notes_of(&rig.log(), A)
+        .into_iter()
+        .map(|(on, _, k)| (on, k))
+        .collect();
+    // Per key, the order sent: on, off, on, off, ...
+    for k in [62, 64, 69] {
+        let sent: Vec<bool> = sent
+            .iter()
+            .filter(|(_, n)| *n == k)
+            .map(|(o, _)| *o)
+            .collect();
+        let got: Vec<bool> = heard
+            .iter()
+            .filter(|(_, n)| *n == k)
+            .map(|(o, _)| *o)
+            .collect();
+        assert_eq!(got, sent, "key {k}: {heard:?}");
+    }
+}
+
+#[test]
 fn stop_and_jumps_leave_live_notes_alone() {
     let log = Log::default();
     let mut rig = rig(vec![track(A, &log, keys_on(None), Vec::new())], &log);

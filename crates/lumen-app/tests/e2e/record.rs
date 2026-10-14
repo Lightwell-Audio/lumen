@@ -545,7 +545,10 @@ fn a_count_in_holds_the_playhead_and_keeps_nothing_played_during_it() {
     let keys = Keys::new(&fake);
 
     lumen.key(Modifiers::NONE, Key::F9);
-    lumen.frames(5);
+    // The engine answers a block later, and a busy machine makes that long.
+    lumen.wait_for("the count-in to begin", |app| {
+        app.transport_state().count_in_left > 0
+    });
     let counting = snapshot(&lumen);
     assert!(counting.recording, "recording, counting in: {counting:?}");
     assert!(!counting.playing, "not playing yet");
@@ -562,12 +565,11 @@ fn a_count_in_holds_the_playhead_and_keeps_nothing_played_during_it() {
 
     keys.on(72, 100);
     keys.off(72);
-    lumen.frames(20);
+    let before = counting.count_in_left;
+    lumen.wait_for("the count-in to run down", move |app| {
+        app.transport_state().count_in_left < before
+    });
     let later = snapshot(&lumen);
-    assert!(
-        later.count_in_left < counting.count_in_left,
-        "the count-in runs down"
-    );
     assert!(!later.playing, "still counting in");
 
     lumen.wait_for("the count-in to end", |app| app.is_playing());

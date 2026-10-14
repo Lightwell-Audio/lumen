@@ -5473,6 +5473,15 @@ sounding"). A source's messages now never go before the one placed before
 them (`LiveFeed::floor`; unit test
 `a_sources_messages_keep_their_order_when_the_frame_map_moves`, which fails
 without it). `record()` waits for the take to be drawn before a test reads it.
+The third macOS run showed the same symptom (struck ON, ON, ON, then the offs)
+from the engine: live events taken in one block share a frame, events on a
+frame sort offs before ons, and `apart_from_its_on` places a note-off one
+frame after its own note-on, so the next chord's note-on, left on the
+original frame, passed it. `MidiPlayer::play_live` now places each live
+message no earlier than the one before it in the block (test
+`messages_landing_on_one_frame_keep_the_order_they_came_in`, which fails
+without it). The count-in test waits for the engine's answer instead of
+five frames.
 A full pending queue now hands over what waits, in order, before the newest
 message (it handed the newest first, so a note-off could pass its note-on).
 `MidirHost` finds a port in the one listing its names came from (a hot-plug

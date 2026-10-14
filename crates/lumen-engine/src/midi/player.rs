@@ -289,8 +289,13 @@ impl MidiPlayer {
         }
         let last = frames.saturating_sub(1) as u64;
         let last32 = last as u32;
+        // The frame the previous live message ended up on: messages taken in
+        // one block go no earlier than it, so their order is kept. A
+        // note-off is placed after its note-on (`apart_from_its_on`), and a
+        // later note-on left on the frame it came with would pass it.
+        let mut floor = 0_u32;
         live.pull(start, start + frames as u64, &mut |m: LiveIn| {
-            let offset = m.frame.saturating_sub(start).min(last) as u32;
+            let offset = (m.frame.saturating_sub(start).min(last) as u32).max(floor);
             for track in tracks.iter_mut() {
                 if m.source != AUDITION && track.record.takes(m.source, m.msg) {
                     track.state.press(m.source, m.msg);
@@ -333,6 +338,7 @@ impl MidiPlayer {
                 };
                 if let Some(msg) = track.state.live.take(m.source, m.msg, out) {
                     let offset = apart_from_its_on(&mut track.state.events, msg, offset, last32);
+                    floor = floor.max(offset);
                     track.state.push(Event { offset, msg });
                 }
             }
