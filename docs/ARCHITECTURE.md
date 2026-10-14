@@ -4,6 +4,12 @@
 `docs/DECISIONS.md` hold the reasoning and the evidence. This page shows
 how the parts fit.
 
+Recording-window correction (2026-10-14, ADR-0064): `app/record.rs` keeps
+capture running past punch-out; `recorder.rs` snapshots full timing;
+`edit/record.rs` places hidden captured content behind the clip window.
+`midi_runs.rs` caches bounded Replace suppression, including loop repeats,
+and `midi/capture.rs` distinguishes first loop entry from a real wrap.
+
 ## Processes and threads
 
 ```text

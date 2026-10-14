@@ -150,6 +150,10 @@ pub struct MidiPlayer {
     lost: u32,
     /// How many times the loop has wrapped: the pass messages are kept in.
     pass: u32,
+    /// A loop has wrapped since the last play, locate, or reposition.
+    /// Delayed live input before the loop start belongs to the previous pass
+    /// only while this is true.
+    wrapped_since_locate: bool,
     /// The last part rendered had the transport recording.
     recording: bool,
     /// The ports that get MIDI clock, as [`MidiHandle::set_sync`] set them.
@@ -196,6 +200,7 @@ pub fn midi_player() -> (MidiHandle, MidiPlayer) {
             capture: capture_tx,
             lost: 0,
             pass: 0,
+            wrapped_since_locate: false,
             recording: false,
             sync,
             synced: 0,
@@ -265,7 +270,7 @@ impl MidiPlayer {
         for track in tracks.iter_mut() {
             let on = cx.recording && track.record.is_on();
             if on && !track.state.recording {
-                let at = capture::heard(cx, start).0;
+                let at = capture::heard(cx, start, self.wrapped_since_locate).0;
                 for down in &track.state.down {
                     let msg = Msg::note_on(down.channel, down.key, down.velocity);
                     let kept = capture.push(Captured {
@@ -308,7 +313,7 @@ impl MidiPlayer {
                     }
                     // Recording keeps what the track takes, heard or not.
                     if cx.recording {
-                        let (at, back) = capture::heard(cx, m.played);
+                        let (at, back) = capture::heard(cx, m.played, self.wrapped_since_locate);
                         let kept = capture.push(Captured {
                             track: track.id,
                             source: m.source,
@@ -697,6 +702,7 @@ impl TrackSource for MidiPlayer {
         if jump == Jump::LoopWrap {
             self.wrapped();
         }
+        self.wrapped_since_locate = jump == Jump::LoopWrap;
         self.clock_out.locate(jump);
         let clock = Clock {
             timeline,

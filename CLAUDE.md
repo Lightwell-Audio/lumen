@@ -403,7 +403,15 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-14 (latest): **CI fixes on `m5-midi`** (PR 14;
+**Last updated:** 2026-10-14: **MIDI recording window correction**
+(ADR-0064; `docs/milestones/M5-recording-window.md`). Capture continues
+until Stop or Record-off; loop/punch boundaries mask full hidden MIDI
+content rather than discard it. Replace playback resumes at punch-out;
+first loop entry preserves delayed pre-loop messages. No format change.
+MT-MIDI-7 step 7 has the owner verification steps. M5 closeout remains
+pending; no new milestone has started.
+
+Before it, 2026-10-14: **CI fixes on `m5-midi`** (PR 14;
 ADR-0063). Run 166 failed on all three systems because the silent test
 device ran one block per poll and fell behind the wall clock on a busy
 runner. It now keeps its pace (`FakeDevice::pace`: `Pace::Every` for `test`,

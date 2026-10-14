@@ -5544,3 +5544,36 @@ The paced device is a coarser model of a driver than a thread with its own
 clock; it is enough for stamps, not for jitter. macOS was not available to
 run: its fixes are reasoned from the logs and from the Linux reproduction
 (the first macOS CI run after this change shows whether they hold).
+
+## ADR-0064 — MIDI recording brackets mask continuous capture
+
+**Context.** Owner correction, 2026-10-14: punch-out ended capture and
+placing a take discarded notes and controllers outside its visible range.
+The loop and punch brackets must act as a non-destructive window.
+
+**Choice.** Record captures continuously after the count-in until Stop,
+Record-off or an existing safety stop. Capture snapshots preserve note
+times and lengths independently of the visible range. Replace and Overdub
+place the full supported MIDI performance in existing hidden clip content;
+only the active window overwrites arrangement clips. Active notes retain
+the existing same-pitch layering rules. Notes and events outside the
+window remain available to the clip editor and ordinary edge trims.
+Replace playback suppression ends at punch-out. A delayed message before
+the first loop entry is mapped to the previous pass only after a real wrap.
+
+The recording highlight stays inside those same brackets. Held-note
+previews use the current pass's head after a wrap. Turning Loop off during
+a take keeps the original visible window while capture continues beyond
+it; held notes close at the actual stop, preserving their tails there.
+Bounded Replace playback splits a looping clip into at most three engine
+clips: a periodic prefix, a partial cycle after punch-out, and a periodic
+suffix. Whole patterns stay shared in the cache, so cost depends on the
+pattern size rather than the number of loop repeats.
+
+**Consequences.** No schema or new controls are needed. Loop passes keep
+layering into one clip, and recording remains one undo step. Because the
+model requires positive clip lengths, nonempty capture wholly outside the
+window uses a one-tick clip inside its nearest edge; that tick can split
+an existing clip and respects the locked-clip guard. Unsupported MIDI
+message kinds retain their existing behavior. Hardware timing and the
+manual listening checks are pending in MT-MIDI-7 step 7.

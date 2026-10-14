@@ -304,6 +304,69 @@ fn a_note_played_just_before_the_loop_wraps_is_kept_at_the_loop_end() {
 }
 
 #[test]
+fn delayed_input_before_the_first_loop_entry_keeps_its_preloop_position() {
+    let mut rig = rig(vec![recorder(A)]);
+    rig.transport
+        .send(Command::SetLoop(Region::new(
+            Ticks::quarters(1),
+            Ticks::quarters(3),
+            true,
+        )))
+        .unwrap();
+    rig.transport.send(Command::Record { count_in: 0 }).unwrap();
+    rig.run(BEAT as usize + 128, 128);
+
+    // The key went down 50 frames before loop start. Its input stamp reaches
+    // the recorder 70 frames later, after the playhead entered the loop but
+    // before the first loop wrap.
+    rig.live
+        .send(BEAT - 50, BEAT + 20, Msg::note_on(0, 60, 100));
+    rig.run(512, 128);
+    let kept: Vec<Captured> = rig
+        .taken()
+        .into_iter()
+        .filter(|c| c.source != WRAP)
+        .collect();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(kept[0].at, (BEAT - 50) as i64);
+}
+
+#[test]
+fn a_previous_playback_wrap_does_not_shift_the_next_sessions_first_loop_entry() {
+    let mut rig = rig(vec![recorder(A)]);
+    rig.transport
+        .send(Command::SetLoop(Region::new(
+            Ticks::quarters(1),
+            Ticks::quarters(3),
+            true,
+        )))
+        .unwrap();
+    rig.transport.send(Command::Play).unwrap();
+    rig.run((4 * BEAT) as usize, 128);
+    rig.transport.send(Command::Stop).unwrap();
+    rig.run(128, 128);
+    rig.transport.send(Command::Locate(Ticks::ZERO)).unwrap();
+    rig.transport.send(Command::Record { count_in: 0 }).unwrap();
+    rig.run(BEAT as usize + 128, 128);
+
+    // Input frames are device-relative across transport stops and starts.
+    let session_start = 4 * BEAT + 128;
+    rig.live.send(
+        session_start + BEAT - 50,
+        session_start + BEAT + 20,
+        Msg::note_on(0, 60, 100),
+    );
+    rig.run(512, 128);
+    let kept: Vec<Captured> = rig
+        .taken()
+        .into_iter()
+        .filter(|c| c.source != WRAP)
+        .collect();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(kept[0].at, (BEAT - 50) as i64);
+}
+
+#[test]
 fn each_loop_wrap_marks_a_new_pass_for_every_recording_track() {
     let mut rig = rig(vec![recorder(A), recorder(B)]);
     rig.transport

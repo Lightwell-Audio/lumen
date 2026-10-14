@@ -2,7 +2,7 @@
 //! MIDI tracks from the play marker, after the count-in, from notes a fake
 //! keyboard sends. Each take is one undo step, Replace and Overdub place it
 //! over what is there, a held note is closed at the stop, loop passes layer,
-//! and punch out ends a take at the brace while playback carries on.
+//! and punch boundaries mask the take while capture continues.
 //!
 //! Note times are checked against where the player heard the playhead when
 //! the test sent each message: the playhead the test read just before it sent
@@ -377,7 +377,7 @@ fn replace_cuts_the_clip_under_the_take() {
     let kept: Vec<u8> = all_placed(&lumen).iter().map(|n| n.pitch).collect();
     assert!(!kept.contains(&50), "the old note under the take is cut");
     assert!(kept.contains(&52), "the old note after the take stays");
-    // Cut as Ableton does: the piece after the take is a window onto the old
+    // The piece after the take is a window onto the old
     // clip's notes, so the one under the take is kept there, hidden.
     let after = clips_of(&lumen)
         .into_iter()
@@ -458,7 +458,7 @@ fn replace_does_not_play_the_old_notes_under_the_take_and_overdub_does() {
     );
 }
 
-/// Overdub begun at a clip's start records a new clip, as Ableton does, and
+/// Overdub begun at a clip's start records a new clip and
 /// does not merge into the clip already there (owner, after MT-MIDI-7 run
 /// 7): the new clip carries the old notes it passed over along with the
 /// take, and the rest of the old clip stays a clip of its own after it.
@@ -503,8 +503,8 @@ fn overdub_begun_at_a_clips_start_is_a_new_clip_and_the_old_one_stays_its_own() 
     assert_eq!(after, [52]);
 }
 
-/// Overdub: playing a pitch the clip already holds there wins it, as in
-/// Ableton. The old note is cut where the new one starts, not left stacked
+/// Overdub: playing a pitch the clip already holds there wins it.
+/// The old note is cut where the new one starts, not left stacked
 /// under it (owner, after MT-MIDI-7 run 3).
 #[test]
 fn overdubbing_the_same_pitch_cuts_the_old_note() {
@@ -808,43 +808,165 @@ fn loop_passes_layer_into_one_clip_that_spans_the_loop() {
     );
 }
 
-/// Punch out ends the take at the brace's end while playback carries on:
-/// what is played after it is not kept.
+/// Punch masks the clip, while notes and controllers outside both edges
+/// remain in its content. Widening the clip recovers the performance.
 #[test]
-fn punch_out_ends_the_take_at_the_brace_and_playback_carries_on() {
+fn punch_masks_the_take_and_keeps_the_full_performance_until_stop() {
     let fake = keyboard();
     let mut project = project_of("Record", vec![track(None, true)]);
-    project.transport.loop_start = Ticks::ZERO;
-    project.transport.loop_end = beats(2.0);
+    project.transport.loop_start = beats(2.0);
+    project.transport.loop_end = beats(4.0);
     project.transport.loop_enabled = false;
-    project.transport.punch_in = false;
+    project.transport.punch_in = true;
     project.transport.punch_out = true;
+    slowly(&mut project);
     let mut lumen = launch("punch", &project, &fake);
     let keys = Keys::new(&fake);
     record(&mut lumen);
 
     reach(&mut lumen, beats(0.5));
-    keys.on(60, 90);
+    keys.send(&[0xB0, 1, 10]);
+    keys.on(48, 80);
     reach(&mut lumen, beats(1.0));
-    keys.off(60);
-    lumen.wait_for("punch out", |app| !app.recording());
-    assert!(
-        lumen.app().is_playing(),
-        "playback carries on past punch out"
-    );
-
+    keys.off(48);
     reach(&mut lumen, beats(2.5));
-    keys.on(72, 100);
-    keys.off(72);
+    keys.send(&[0xB0, 1, 50]);
+    keys.on(60, 90);
     reach(&mut lumen, beats(3.0));
+    keys.off(60);
+    reach(&mut lumen, beats(4.5));
+    assert!(lumen.app().recording(), "capture continues past punch out");
+    keys.send(&[0xB0, 1, 100]);
+    keys.on(72, 100);
+    reach(&mut lumen, beats(5.0));
+    keys.off(72);
+    reach(&mut lumen, beats(5.5));
     stop(&mut lumen);
 
     let clips = clips_of(&lumen);
     assert_eq!(clips.len(), 1, "one clip");
-    assert_eq!(clips[0].start, Ticks::ZERO);
+    assert_eq!(clips[0].start, beats(2.0));
     assert_eq!(clips[0].length, beats(2.0), "it ends at the brace's end");
     let pitches: Vec<u8> = placed(&clips[0]).iter().map(|n| n.pitch).collect();
     assert_eq!(pitches, [60], "only what was played inside the punch");
+    let ClipContent::Midi { notes, events } = &clips[0].content else {
+        panic!("MIDI take");
+    };
+    assert_eq!(
+        notes.iter().map(|n| n.pitch()).collect::<Vec<_>>(),
+        [48, 60, 72]
+    );
+    assert!(notes[0].start() < Ticks::ZERO, "pre-punch note is hidden");
+    assert!(
+        notes[2].start() > clips[0].length,
+        "post-punch note is hidden"
+    );
+    assert_eq!(events.len(), 3, "controllers on both sides are retained");
+    assert!(events[0].at < Ticks::ZERO);
+    assert!(events[2].at > clips[0].length);
+
+    let recorded = lumen.app().project().clone();
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert!(
+        clips_of(&lumen).is_empty(),
+        "one undo removes the whole capture"
+    );
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
+    assert_eq!(lumen.app().project(), &recorded);
+
+    let dir = TempDir::new("e2e-punch-roundtrip");
+    let path = dir.path().join("recorded.lumen");
+    lumen_project::save(&recorded, &path, &Default::default()).unwrap();
+    assert_eq!(lumen_project::load(&path).unwrap(), recorded);
+
+    lumen.app_mut().set_view(lumen_app::TimeView {
+        left: 0.0,
+        zoom: 60.0,
+    });
+    lumen.frames(30);
+    let ctx = lumen.harness.ctx.clone();
+    let rect = lumen.app().clip_rect(&ctx, clips[0].id).unwrap();
+    let at = eframe::egui::pos2(rect.left() + 4.0, rect.center().y);
+    lumen.drag(at, at - eframe::egui::vec2(120.0, 0.0), Modifiers::ALT);
+    let rect = lumen.app().clip_rect(&ctx, clips[0].id).unwrap();
+    let at = eframe::egui::pos2(rect.right() - 4.0, rect.center().y);
+    lumen.drag(at, at + eframe::egui::vec2(120.0, 0.0), Modifiers::ALT);
+    let widened = clips_of(&lumen);
+    assert_eq!(
+        placed(&widened[0])
+            .iter()
+            .map(|n| n.pitch)
+            .collect::<Vec<_>>(),
+        [48, 60, 72]
+    );
+}
+
+/// A pre-loop performance remains hidden after the first wrap, and punch
+/// out does not end the capture when the transport loops.
+#[test]
+fn looping_with_punch_keeps_pre_loop_capture_and_records_the_next_pass() {
+    let fake = keyboard();
+    let mut project = project_of("Record", vec![track(None, true)]);
+    project.transport.loop_start = beats(2.0);
+    project.transport.loop_end = beats(4.0);
+    project.transport.loop_enabled = true;
+    project.transport.punch_in = true;
+    project.transport.punch_out = true;
+    slowly(&mut project);
+    let mut lumen = launch("loop-window", &project, &fake);
+    let keys = Keys::new(&fake);
+    record(&mut lumen);
+    reach(&mut lumen, beats(0.5));
+    keys.on(48, 80);
+    keys.send(&[0xB0, 1, 10]);
+    reach(&mut lumen, beats(1.0));
+    keys.off(48);
+    reach(&mut lumen, beats(2.5));
+    keys.on(60, 90);
+    reach(&mut lumen, beats(3.0));
+    keys.off(60);
+    reach(&mut lumen, beats(3.5));
+    lumen.wait_for("the loop wrap", |app| app.playhead() < beats(2.5));
+    assert!(
+        lumen.app().recording(),
+        "punch-out is a window, even at a wrap"
+    );
+    reach(&mut lumen, beats(2.25));
+    keys.on(64, 100);
+    reach(&mut lumen, beats(3.0));
+    keys.off(64);
+    reach(&mut lumen, beats(3.5));
+    // Disable looping during the next pass and keep a note held past the
+    // former loop end. Its full tail must survive behind the mask.
+    lumen.click("Loop");
+    reach(&mut lumen, beats(4.5));
+    keys.on(76, 100);
+    reach(&mut lumen, beats(5.0));
+    let stopped = stop(&mut lumen);
+    let clips = clips_of(&lumen);
+    assert_eq!(clips.len(), 1);
+    assert_eq!((clips[0].start, clips[0].length), (beats(2.0), beats(2.0)));
+    let ClipContent::Midi { notes, events } = &clips[0].content else {
+        panic!("MIDI take");
+    };
+    assert_eq!(
+        notes.iter().map(|n| n.pitch()).collect::<Vec<_>>(),
+        [48, 64, 60, 76]
+    );
+    assert!(notes[0].start() < Ticks::ZERO);
+    assert!(events[0].at < Ticks::ZERO);
+    let tail = notes.iter().find(|n| n.pitch() == 76).unwrap();
+    assert_eq!(clips[0].start + tail.end(), stopped);
+    assert!(
+        tail.length() > beats(0.25),
+        "held tail was not clamped to the mask"
+    );
+    let mut active = placed(&clips[0])
+        .iter()
+        .map(|n| n.pitch)
+        .collect::<Vec<_>>();
+    active.sort_unstable();
+    assert_eq!(active, [60, 64]);
 }
 
 /// Starts playback with Space and waits until the playhead reaches `at`.
@@ -863,7 +985,7 @@ pub(super) fn track_at((start, length): (i64, i64), notes: Vec<Note>) -> Track {
 }
 
 /// Overdub begun before a clip and running into it records a new clip from
-/// where recording began, as Ableton does, and does not merge into or grow
+/// where recording began and does not merge into or grow
 /// the clip already there (owner, after MT-MIDI-7 run 7). The old note it
 /// passes over sounds and stays where it was, in the new clip; the rest of
 /// the old clip stays a clip of its own.

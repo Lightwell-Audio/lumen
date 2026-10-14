@@ -59,6 +59,13 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 
 ## Milestone 5 slices
 
+2026-10-14 recording correction (ADR-0064;
+[plan](milestones/M5-recording-window.md)): MIDI capture continues outside
+loop/punch brackets until Stop or Record-off. Full notes and controllers
+remain as hidden clip content; widening edges recovers them. Replace
+playback resumes after punch-out. Automated verification is recorded in
+the correction plan; the hardware walkthrough in MT-MIDI-7 step 7 waits.
+
 | # | Slice | Status | Commits |
 |---|---|---|---|
 | 0 | MIDI devices and the model: `lumen-midi` (midir), the MIDI page of the settings, format v11 (controller, bend, pressure and program events in clips); ADR-0044 | ✅ Built 2026-10-10; MT-MIDI-1 passed 2026-10-11 | `32a751a`, `5fa36c3` |

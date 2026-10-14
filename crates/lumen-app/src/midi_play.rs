@@ -85,8 +85,11 @@ pub struct Inputs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Replacing {
     pub track: Id,
-    /// Where the take begins: the clips there from then on fall silent.
+    /// Where the take begins: earlier material is masked until `until`.
     pub from: Ticks,
+    /// Where punch-out ends the Replace window. `None` means recording has
+    /// no known end yet, so old material stays silent after `from`.
+    pub until: Option<Ticks>,
     /// The take's own clip, which plays on (loop passes hear each other).
     pub take: Option<Id>,
 }
@@ -100,8 +103,24 @@ impl Inputs {
             .replacing
             .iter()
             .find(|r| r.track == track && r.take != Some(clip.id))
+            .filter(|r| r.until.is_none())
             .map_or(clip.length, |r| clip.length.min(r.from - clip.start));
         (cut.0 > 0).then_some(cut)
+    }
+
+    /// A bounded Replace window masks notes inside the recording interval,
+    /// while retaining the clip on both sides. The take remains audible.
+    fn suppression(&self, track: Id) -> Option<crate::midi_runs::Suppression> {
+        self.replacing
+            .iter()
+            .find(|r| r.track == track)
+            .and_then(|r| {
+                r.until.map(|until| crate::midi_runs::Suppression {
+                    from: r.from,
+                    until,
+                    exempt: r.take,
+                })
+            })
     }
 }
 
@@ -239,10 +258,16 @@ pub fn engine_midi(
                     length: inputs.playing_length(track.id, clip)?,
                 })
             });
-        let clips = crate::midi_runs::runs(members)
-            .iter()
-            .map(|run| cache.clip(run))
-            .collect();
+        let suppression = inputs.suppression(track.id);
+        let mut clips = Vec::new();
+        for run in crate::midi_runs::runs(members).iter() {
+            clips.extend(
+                cache
+                    .clip_with_suppression(run, suppression)
+                    .iter()
+                    .cloned(),
+            );
+        }
         tracks.push(
             MidiTrack::new(track.id.0, target, instrument(track), clips)
                 .listening(listening(track, inputs, silent))
@@ -469,6 +494,7 @@ mod tests {
         inputs.replacing = vec![Replacing {
             track: Id(5),
             from: Ticks::quarters(6),
+            until: None,
             take: None,
         }];
         assert_eq!(
@@ -484,6 +510,33 @@ mod tests {
         assert_eq!(inputs.playing_length(Id(6), &clip), Some(clip.length));
         inputs.replacing[0].take = Some(Id(7));
         assert_eq!(inputs.playing_length(Id(5), &clip), Some(clip.length));
+    }
+
+    #[test]
+    fn bounded_replace_keeps_the_clip_for_playback_on_both_sides() {
+        let mut clip = midi_clip(vec![], vec![]);
+        clip.start = Ticks::quarters(0);
+        clip.length = Ticks::quarters(12);
+        clip.id = Id(7);
+        let inputs = Inputs {
+            replacing: vec![Replacing {
+                track: Id(5),
+                from: Ticks::quarters(4),
+                until: Some(Ticks::quarters(8)),
+                take: None,
+            }],
+            ..Inputs::default()
+        };
+        assert_eq!(inputs.playing_length(Id(5), &clip), Some(clip.length));
+        assert_eq!(
+            inputs.suppression(Id(5)),
+            Some(crate::midi_runs::Suppression {
+                from: Ticks::quarters(4),
+                until: Ticks::quarters(8),
+                exempt: None,
+            })
+        );
+        assert_eq!(inputs.playing_length(Id(6), &clip), Some(clip.length));
     }
 
     #[test]

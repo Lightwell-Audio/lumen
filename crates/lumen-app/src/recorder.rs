@@ -25,8 +25,8 @@
 //!   held across the loop's end is cut there and goes on at the loop's start,
 //!   as many times as it is held across it (the engine numbers the passes,
 //!   `Captured::pass`).
-//! - A note that began before the take (a key held when recording started) is
-//!   taken from the take's start.
+//! - The take's range is only a visible window. Notes and events outside it
+//!   keep their original times and lengths in the underlying clip.
 
 use std::collections::BTreeMap;
 
@@ -192,10 +192,8 @@ impl Capture {
     /// The take so far for `track` over `range` (start and end ticks): the
     /// notes that have ended and every event, as [`Capture::push`] kept them.
     /// Notes still held are not in it. Notes are sorted by start, then pitch.
-    /// The range is carried, not applied: placing the take cuts it to the
-    /// range. A note that began before the range and goes on into it (the
-    /// output latency put it there, or its key was held when recording
-    /// began) starts at the range's start instead. A track with nothing yet
+    /// The range is carried, not applied: placing the take uses it as a
+    /// visible window over the full performance. A track with nothing yet
     /// gives an empty take with that range.
     pub fn take(&self, track: u64, range: (Ticks, Ticks)) -> Take {
         self.snapshot(track, range, None)
@@ -218,13 +216,6 @@ impl Capture {
                 open.finish(pitch, held, (now, lane.pass), self.looped);
             }
             notes.extend(open.notes);
-        }
-        for note in &mut notes {
-            let end = note.start + note.length;
-            if note.start < range.0 && end > range.0 {
-                note.start = range.0;
-                note.length = end - range.0;
-            }
         }
         notes.sort_by_key(|n| (n.start, n.pitch));
         Take {
@@ -680,18 +671,18 @@ mod tests {
     }
 
     #[test]
-    fn a_note_that_began_before_the_range_starts_at_the_range() {
+    fn a_note_that_began_before_the_range_keeps_its_full_timing() {
         let mut c = Capture::new();
         // Held when recording began at tick 500 (the latency put it at 400).
         c.push(&cap(1, 40, Msg::note_on(0, 60, 90)), 0, &ticks);
         c.push(&cap(1, 70, Msg::note_off(0, 60)), 0, &ticks);
-        // And one that ended before the range: left for placing to drop.
+        // And one that ended before the range: kept as hidden content.
         c.push(&cap(1, 10, Msg::note_on(0, 62, 90)), 0, &ticks);
         c.push(&cap(1, 20, Msg::note_off(0, 62)), 0, &ticks);
         let t = c.take(1, (Ticks(500), Ticks(900)));
         assert_eq!(
             t.notes,
-            vec![note(100, 100, 62, 90), note(500, 200, 60, 90)]
+            vec![note(100, 100, 62, 90), note(400, 300, 60, 90)]
         );
     }
 }
