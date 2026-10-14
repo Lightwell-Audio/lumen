@@ -1,5 +1,7 @@
 //! Writing a Standard MIDI File.
 
+use std::fmt;
+
 use lumen_core::time::{PPQ, Ticks};
 use midly::num::{u4, u7, u15, u24, u28};
 use midly::{
@@ -35,11 +37,33 @@ enum Rank {
     On,
 }
 
+/// Why a file could not be written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WriteError {
+    /// Two events lie further apart than a MIDI file can say: its delta
+    /// times are 28 bits, so at [`DIVISION`] about 78 hours. Projects may
+    /// reach much further, and such a gap has no event that fills it.
+    TooSparse,
+}
+
+impl fmt::Display for WriteError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            WriteError::TooSparse => f.write_str(
+                "two events are further apart than a MIDI file can hold (about 78 hours)",
+            ),
+        }
+    }
+}
+
+impl std::error::Error for WriteError {}
+
 /// One event before deltas: its tick at [`DIVISION`], its rank, the event.
 type Timed<'a> = (u64, Rank, TrackEventKind<'a>);
 
-/// A file's bytes, at [`DIVISION`] ticks per quarter note.
-pub fn write(file: &MidiFile, layout: Layout) -> Vec<u8> {
+/// A file's bytes, at [`DIVISION`] ticks per quarter note, or why they
+/// cannot be made.
+pub fn write(file: &MidiFile, layout: Layout) -> Result<Vec<u8>, WriteError> {
     let mut conductor: Vec<Timed<'static>> = Vec::new();
     for point in &file.tempo {
         let micros = (60_000_000.0 / point.bpm)
@@ -68,15 +92,15 @@ pub fn write(file: &MidiFile, layout: Layout) -> Vec<u8> {
             for part in &file.tracks {
                 events.extend(part_events(part));
             }
-            vec![finish(events)]
+            vec![finish(events)?]
         }
         Layout::Parallel => {
-            let mut tracks = vec![finish(conductor)];
+            let mut tracks = vec![finish(conductor)?];
             for part in &file.tracks {
                 let mut events: Vec<Timed<'_>> =
                     part.name.as_deref().map(name_event).into_iter().collect();
                 events.extend(part_events(part));
-                tracks.push(finish(events));
+                tracks.push(finish(events)?);
             }
             tracks
         }
@@ -92,7 +116,7 @@ pub fn write(file: &MidiFile, layout: Layout) -> Vec<u8> {
     let mut bytes = Vec::new();
     smf.write_std(&mut bytes)
         .expect("writing to a Vec cannot fail, and every count and length is in range");
-    bytes
+    Ok(bytes)
 }
 
 fn name_event(name: &str) -> Timed<'_> {
@@ -171,23 +195,24 @@ fn part_events(part: &FileTrack) -> Vec<Timed<'static>> {
 
 /// Events sorted into a track, with its end. The sort is stable, so events
 /// of one rank at one tick keep their order (a bank select before its
-/// program change).
-fn finish(mut events: Vec<Timed<'_>>) -> Vec<TrackEvent<'_>> {
+/// program change). A gap too long for a delta time is an error.
+fn finish(mut events: Vec<Timed<'_>>) -> Result<Vec<TrackEvent<'_>>, WriteError> {
     events.sort_by_key(|&(at, rank, _)| (at, rank));
     let mut last = 0;
-    let mut track: Vec<TrackEvent<'_>> = events
-        .into_iter()
-        .map(|(at, _, kind)| {
-            let delta = u28::new((at - last) as u32);
-            last = at;
-            TrackEvent { delta, kind }
-        })
-        .collect();
+    let mut track = Vec::with_capacity(events.len() + 1);
+    for (at, _, kind) in events {
+        let delta = u32::try_from(at - last)
+            .ok()
+            .and_then(u28::try_from)
+            .ok_or(WriteError::TooSparse)?;
+        last = at;
+        track.push(TrackEvent { delta, kind });
+    }
     track.push(TrackEvent {
         delta: u28::new(0),
         kind: TrackEventKind::Meta(MetaMessage::EndOfTrack),
     });
-    track
+    Ok(track)
 }
 
 /// A position at [`DIVISION`], rounded to the nearest; never before zero.

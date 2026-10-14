@@ -220,7 +220,7 @@ fn golden() -> MidiFile {
 #[test]
 fn the_golden_file_is_written_as_before_and_reads_back_exactly() {
     let path = file("lumen-960.mid");
-    let bytes = smf::write(&golden(), Layout::Parallel);
+    let bytes = smf::write(&golden(), Layout::Parallel).unwrap();
     if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
         // Written once, when the writer was introduced; never rewritten.
         fs::write(&path, &bytes).unwrap();
@@ -231,7 +231,7 @@ fn the_golden_file_is_written_as_before_and_reads_back_exactly() {
 
 #[test]
 fn a_type_0_file_round_trips_its_parts_by_channel() {
-    let bytes = smf::write(&golden(), Layout::Single);
+    let bytes = smf::write(&golden(), Layout::Single).unwrap();
     let mut read = smf::read(&bytes).unwrap();
     let mut expected = golden();
     for part in &mut expected.tracks {
@@ -261,7 +261,7 @@ fn positions_finer_than_the_division_round_to_the_nearest_step() {
         }],
         ..MidiFile::default()
     };
-    let read = smf::read(&smf::write(&file, Layout::Single)).unwrap();
+    let read = smf::read(&smf::write(&file, Layout::Single).unwrap()).unwrap();
     assert_eq!(
         read.tracks[0].notes,
         vec![
@@ -291,7 +291,38 @@ fn overlapping_strikes_of_one_pitch_keep_their_lengths_on_round_trip() {
         ..MidiFile::default()
     };
     for layout in [Layout::Single, Layout::Parallel] {
-        let read = smf::read(&smf::write(&file, layout)).unwrap();
+        let read = smf::read(&smf::write(&file, layout).unwrap()).unwrap();
         assert_eq!(read.tracks[0].notes, expected, "{layout:?}");
+    }
+}
+
+/// Delta times are 28 bits: a gap past that is refused, not truncated into a
+/// different position (a project may reach 2^52 ticks).
+#[test]
+fn a_gap_too_long_for_a_delta_time_is_an_error_not_a_wrong_position() {
+    let step = lumen_core::time::PPQ / i64::from(smf::DIVISION);
+    let longest = (1_i64 << 28) - 1;
+    let with_gap = |steps: i64| MidiFile {
+        tracks: vec![FileTrack {
+            notes: vec![
+                note(Ticks::ZERO, q(1, 1), 60, 100),
+                note(Ticks(steps * step), q(1, 1), 62, 100),
+            ],
+            ..FileTrack::default()
+        }],
+        ..MidiFile::default()
+    };
+    for layout in [Layout::Single, Layout::Parallel] {
+        // The largest delta that fits is written; one step past it is not.
+        let fits = with_gap(longest);
+        assert!(smf::write(&fits, layout).is_ok(), "{layout:?}: fits");
+        let past = with_gap(longest + i64::from(smf::DIVISION) + 1);
+        assert_eq!(
+            smf::write(&past, layout),
+            Err(smf::WriteError::TooSparse),
+            "{layout:?}: past 28 bits"
+        );
+        let far = with_gap(1 << 40);
+        assert_eq!(smf::write(&far, layout), Err(smf::WriteError::TooSparse));
     }
 }

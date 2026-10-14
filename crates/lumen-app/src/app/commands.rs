@@ -145,6 +145,7 @@ impl App {
             Command::Import => need(self.dialog.is_none(), "A file dialog is open"),
             Command::ExportMidiFile => match self.dialog {
                 Some(_) => need(false, "A file dialog is open"),
+                None if self.midi_exporting.is_some() => need(false, "An export is under way"),
                 // Cheap enough for every frame: a MIDI track with an
                 // unmuted clip (an empty one is refused when it runs).
                 None => need(
@@ -158,6 +159,7 @@ impl App {
             },
             Command::ExportMidiClip => match self.dialog {
                 Some(_) => need(false, "A file dialog is open"),
+                None if self.midi_exporting.is_some() => need(false, "An export is under way"),
                 None => need(
                     self.document.project().tracks.iter().any(|t| {
                         t.kind == TrackKind::Midi

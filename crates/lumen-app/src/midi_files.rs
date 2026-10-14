@@ -8,9 +8,11 @@ use std::sync::mpsc::{self, Receiver};
 
 use eframe::egui;
 use lumen_core::time::Ticks;
-use lumen_project::smf::{self, MidiFile};
+use lumen_project::model::{Id, Project};
+use lumen_project::smf::{self, Layout, MidiFile};
 
 use crate::document::DropInto;
+use crate::midi_export;
 
 /// The extensions read as Standard MIDI Files.
 pub const EXTENSIONS: &[&str] = &["mid", "midi", "smf"];
@@ -95,6 +97,67 @@ pub fn read_file(path: &Path) -> Result<MidiFile, String> {
     smf::read(&bytes).map_err(|e| e.to_string())
 }
 
+/// What an export writes.
+pub enum Export {
+    /// The selected MIDI clips as one part (type 0).
+    Clips(Vec<Id>),
+    /// Every MIDI track (type 1).
+    Project,
+}
+
+/// An exported file's bytes, made in the background, and what the save
+/// dialog asks about it.
+pub struct Exported {
+    pub bytes: Vec<u8>,
+    /// The dialog's title.
+    pub title: &'static str,
+    /// The file's name offered, without its extension.
+    pub name: String,
+}
+
+/// Makes the file for `what` on a thread of its own: gathering every note
+/// and writing the bytes take time in proportion to the project, which the
+/// frame loop must not wait for. The answer is the file, or why not.
+pub fn export(
+    project: Project,
+    name: String,
+    what: Export,
+    ctx: &egui::Context,
+) -> Receiver<Result<Exported, String>> {
+    let (tx, rx) = mpsc::channel();
+    let ctx = ctx.clone();
+    std::thread::Builder::new()
+        .name("lumen-midi-export".into())
+        .spawn(move || {
+            let _ = tx.send(make(&project, name, what));
+            ctx.request_repaint();
+        })
+        .expect("spawn MIDI exporter");
+    rx
+}
+
+fn make(project: &Project, name: String, what: Export) -> Result<Exported, String> {
+    let (file, layout, title) = match &what {
+        Export::Clips(ids) => (
+            midi_export::clips_file(project, ids),
+            Layout::Single,
+            "Export MIDI clip",
+        ),
+        Export::Project => (
+            midi_export::project_file(project),
+            Layout::Parallel,
+            "Export MIDI file",
+        ),
+    };
+    let file = file.ok_or("there are no MIDI notes to export")?;
+    let name = match (&what, file.tracks.first()) {
+        (Export::Clips(_), Some(part)) => part.name.clone().unwrap_or_else(|| "MIDI clip".into()),
+        _ => name,
+    };
+    let bytes = smf::write(&file, layout).map_err(|e| e.to_string())?;
+    Ok(Exported { bytes, title, name })
+}
+
 /// Writes `bytes` to `path` in the background, atomically; the answer is
 /// the path written, or why not.
 pub fn write(
@@ -147,7 +210,11 @@ mod tests {
             }],
             ..MidiFile::default()
         };
-        let written = write(path.clone(), smf::write(&file, smf::Layout::Single), &ctx);
+        let written = write(
+            path.clone(),
+            smf::write(&file, smf::Layout::Single).unwrap(),
+            &ctx,
+        );
         assert_eq!(written.recv().unwrap(), Ok(path.clone()));
 
         let mut reader = Reader::default();

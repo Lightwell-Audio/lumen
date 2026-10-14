@@ -90,6 +90,7 @@ impl App {
             drop_target: Ticks::ZERO,
             drop_into: document::Places::END,
             midi_reader: Default::default(),
+            midi_exporting: None,
             midi_writing: None,
             tempo_offer: None,
             drag_pointer: None,

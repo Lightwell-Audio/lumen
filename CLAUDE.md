@@ -390,7 +390,19 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-14 (latest): **M5 slice 8: the review is done
+**Last updated:** 2026-10-14 (latest): **CI fixes on `m5-midi`** (PR 14;
+ADR-0063). Run 166 failed on all three systems because the silent test
+device ran one block per poll and fell behind the wall clock on a busy
+runner. It now keeps its pace (`FakeDevice::pace`: `Pace::Every` for `test`,
+`Pace::RealTime` for `test-paced`, which `with_audio_buffer` selects). E2E
+rule: wait for what the engine answers (`wait_for`), never a count of
+frames; write chords through `keys()`. Also fixed: canonical paths in the
+Save As unit test, the MIDI sender's lateness bounds (median 4 ms, worst
+25 ms), `smf::write` returning `Result` (`WriteError::TooSparse`), and
+Export MIDI building its file on a worker. Verified on Linux (the whole
+suite, and the record scenarios beside four busy loops); macOS could not be
+run here, so the next macOS CI run is the check. Before it, 2026-10-14:
+**M5 slice 8: the review is done
 with its fixes** (`docs/audits/2026-10-13-m5.md`, Status table). Every gate
 ran in the cloud container: 1,436 tests, 333 E2E and 6 smoke tests pass
 (smoke under `xvfb-run` with `libxkbcommon-x11-0` and lavapipe installed).

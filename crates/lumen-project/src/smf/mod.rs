@@ -11,7 +11,7 @@ mod read;
 mod write;
 
 pub use read::{ReadError, read};
-pub use write::{DIVISION, Layout, write};
+pub use write::{DIVISION, Layout, WriteError, write};
 
 use lumen_core::time::{TempoPoint, Ticks};
 

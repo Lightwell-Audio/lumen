@@ -164,6 +164,9 @@ pub struct App {
     drop_into: document::Places,
     /// MIDI files being read in the background (M5 slice 7).
     midi_reader: midi_files::Reader,
+    /// An exported MIDI file being made, before the dialog asks where it
+    /// goes (M5 slice 7).
+    midi_exporting: Option<std::sync::mpsc::Receiver<Result<midi_files::Exported, String>>>,
     /// An exported MIDI file being written (M5 slice 7).
     midi_writing: Option<std::sync::mpsc::Receiver<Result<PathBuf, String>>>,
     /// A MIDI file's tempo and meter, offered in a banner (M5 slice 7, F2).
@@ -407,7 +410,7 @@ impl eframe::App for App {
             });
             self.add_files(dropped, self.drop_target, self.drop_into, &ctx);
         }
-        self.poll_midi_files();
+        self.poll_midi_files(&ctx);
         if let Some(ms) = self.test_latency
             && let Some(first) = self.document.project().tracks.first()
         {

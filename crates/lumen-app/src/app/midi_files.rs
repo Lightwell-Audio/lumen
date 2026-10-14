@@ -11,13 +11,11 @@ use lumen_core::time::{TempoPoint, Ticks};
 use lumen_project::model::{TimeSignature, TrackKind};
 use lumen_project::smf::MidiFile;
 
-use lumen_project::smf::{self, Layout};
-
 use super::projects::{FileDialog, documents_folder};
 use crate::App;
 use crate::document::{DropInto, Places};
+use crate::midi_files;
 use crate::widgets::raised;
-use crate::{midi_export, midi_files};
 
 /// A file's tempo and meter, offered after it came in (F2).
 #[derive(Debug, Clone, PartialEq)]
@@ -104,8 +102,22 @@ impl App {
     }
 
     /// Places the MIDI files read since the last frame, each one undo
-    /// step, and reports an export that finished.
-    pub(crate) fn poll_midi_files(&mut self) {
+    /// step, asks where an export made in the background goes, and reports
+    /// one that finished.
+    pub(crate) fn poll_midi_files(&mut self, ctx: &egui::Context) {
+        // The dialog waits for any other to close: it would replace it.
+        if self.dialog.is_none()
+            && let Some(done) = self
+                .midi_exporting
+                .as_ref()
+                .and_then(|rx| rx.try_recv().ok())
+        {
+            self.midi_exporting = None;
+            match done {
+                Ok(made) => self.ask_midi_destination(ctx, made),
+                Err(why) => self.lanes.say(format!("Not exported: {why}")),
+            }
+        }
         if let Some(done) = self.midi_writing.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.midi_writing = None;
             match done {
@@ -177,30 +189,28 @@ impl App {
 
     /// Export MIDI clip… (`clips`, the selected MIDI clips, type 0) or
     /// Export MIDI file… (the project's MIDI tracks, type 1): the bytes
-    /// are made now, then the system's save dialog asks where they go.
+    /// are made in the background, then the system's save dialog asks where
+    /// they go (`poll_midi_files`).
     pub(crate) fn export_midi(&mut self, ctx: &egui::Context, clips: bool) {
-        if self.dialog.is_some() {
+        if self.dialog.is_some() || self.midi_exporting.is_some() {
             return;
         }
-        let project = self.document.project();
-        let (file, layout, title) = if clips {
-            let ids: Vec<_> = self.arrangement.clips.iter().copied().collect();
-            let file = midi_export::clips_file(project, &ids);
-            (file, Layout::Single, "Export MIDI clip")
+        let what = if clips {
+            midi_files::Export::Clips(self.arrangement.clips.iter().copied().collect())
         } else {
-            let file = midi_export::project_file(project);
-            (file, Layout::Parallel, "Export MIDI file")
+            midi_files::Export::Project
         };
-        let Some(file) = file else {
-            self.lanes
-                .say("Not exported: there are no MIDI notes to export".into());
-            return;
-        };
-        let name = match (clips, file.tracks.first()) {
-            (true, Some(part)) => part.name.clone().unwrap_or_else(|| "MIDI clip".into()),
-            _ => self.document.name(),
-        };
-        let bytes = smf::write(&file, layout);
+        self.midi_exporting = Some(midi_files::export(
+            self.document.project().clone(),
+            self.document.name(),
+            what,
+            ctx,
+        ));
+    }
+
+    /// Asks where an export made in the background goes.
+    fn ask_midi_destination(&mut self, ctx: &egui::Context, made: midi_files::Exported) {
+        let midi_files::Exported { bytes, title, name } = made;
         let start = self
             .document
             .path
