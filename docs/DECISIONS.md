@@ -5341,7 +5341,8 @@ times messages to the audio a port is heard with.
   file track is split by channel into parts. Common divisions come in
   exactly, others round to the nearest tick; SMPTE files are converted
   through their own tempo (120 BPM until a tempo event). A note-on with
-  velocity 0 ends a note, a second strike of a sounding key ends the first,
+  velocity 0 ends a note; overlapping strikes on one key pair with note-offs
+  in start order (owner's round-trip report, 2026-10-13),
   a note on and off at one tick lasts one file tick, notes still on end with
   their track. A bank select (CC 0 and 32) at a program change's tick on its
   channel becomes the change's bank. Release velocity, polyphonic
@@ -5389,6 +5390,17 @@ times messages to the audio a port is heard with.
   messages (not its notes) by its delay, and sends Stop to a port whose
   clock runs when the stream stands still or the sender ends. Clock bytes
   never flash the MIDI chip (`activity::counts`, slice 2).
+
+**Round-trip follow-up (2026-10-13).** The owner exported the blue MIDI clip
+and reimported it as a purple clip: some notes were shorter. The reader
+ended an earlier same-pitch note at the next note-on, discarding its real
+note-off. `smf/read.rs` now queues unmatched note-ons per key and channel
+and consumes them FIFO on note-off (including zero-velocity note-ons).
+Every unmatched note closes at track end. Regression coverage includes
+type 0 and 1 round trips, the hand-made overlapping-strike fixture, and
+the app's export/reimport workflow. Ordinary SMF note-offs have no note
+identity: nested same-channel, same-pitch overlaps are ambiguous; FIFO
+uses start order rather than inventing a release at the next attack.
 
 **Consequences.** Channels are lost when a file's parts merge into one clip
 (the model has no channel). Positions finer than 1/960 quarter move by at

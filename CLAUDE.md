@@ -403,7 +403,11 @@ channel and writes type 0 or 1 at 960 PPQ (`tests/smf/`: hand-made files from
 takes the kind). **Import audio or MIDI…** is `Command::Import` (id still
 `file.import_audio`). Export: `midi_export.rs` (what plays: windows, seams,
 loops baked), **Export MIDI clip…** and **Export MIDI file…**, written with
-`lumen_project::write_atomic`. Clock: `Use::sync` and a delay per output
+`lumen_project::write_atomic`. **Round-trip fix (owner, 2026-10-13):** SMF
+reading queues overlapping note-ons per key/channel and pairs offs FIFO,
+instead of shortening the earlier note at a new attack (ADR-0062 follow-up;
+project regressions and app export/reimport E2E). Source-file recheck pending.
+Clock: `Use::sync` and a delay per output
 (`settings.midi` ports' `sync`, `sync_delay_ms`; `midi_settings::Shown`), the
 engine's `midi/clock.rs` (`MidiHandle::set_sync`, a port bit mask), the
 sender's delay (`Output::set_sync_delays`) and stall Stop. **The command enum

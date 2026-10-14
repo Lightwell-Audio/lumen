@@ -65,9 +65,10 @@ fn a_type_0_file_splits_by_channel_with_running_status_and_odd_note_endings() {
             note(Ticks::ZERO, q(1, 1), 60, 100),
             // Ended by a note-on with velocity 0, under running status.
             note(q(1, 1), q(1, 1), 64, 90),
-            // Struck again before its note-off: the second strike ends it.
-            note(q(2, 1), q(1, 2), 62, 80),
-            note(q(5, 2), q(1, 2), 62, 70),
+            // Overlapping strikes: the off ends the oldest; the second
+            // has no off and ends with the track.
+            note(q(2, 1), q(1, 1), 62, 80),
+            note(q(5, 2), q(11, 2), 62, 70),
         ]
     );
     assert_eq!(
@@ -270,4 +271,27 @@ fn positions_finer_than_the_division_round_to_the_nearest_step() {
         ]
     );
     assert!(read.tempo.is_empty(), "no tempo given, none written");
+}
+
+#[test]
+fn overlapping_strikes_of_one_pitch_keep_their_lengths_on_round_trip() {
+    let expected = vec![
+        note(q(0, 1), q(4, 1), 60, 100),
+        note(q(1, 1), q(4, 1), 60, 80),
+        note(q(2, 1), q(4, 1), 60, 70),
+        // Touching the last overlapping note: off must precede on.
+        note(q(6, 1), q(1, 1), 60, 90),
+        note(q(6, 1), q(1, 1), 64, 110),
+    ];
+    let file = MidiFile {
+        tracks: vec![FileTrack {
+            notes: expected.clone(),
+            ..FileTrack::default()
+        }],
+        ..MidiFile::default()
+    };
+    for layout in [Layout::Single, Layout::Parallel] {
+        let read = smf::read(&smf::write(&file, layout)).unwrap();
+        assert_eq!(read.tracks[0].notes, expected, "{layout:?}");
+    }
 }

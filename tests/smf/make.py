@@ -31,8 +31,8 @@ def meta(kind, data):
 # Tempo 100 BPM, then 140 BPM at quarter 8; 3/4. Channel 1 (0): a bank
 # select (MSB 1, LSB 2) and program 5 at 0; notes 60 (quarter 0, one
 # quarter), 64 (quarter 1, ended by a zero-velocity note-on under running
-# status), 62 struck twice (quarters 2 and 2.5, the second ending the first,
-# itself ended at quarter 3); a pitch bend of +4096 at quarter 3; channel
+# status), 62 struck twice (quarters 2 and 2.5, the first ended at quarter 3,
+# the second left on until the track ends); a pitch bend of +4096 at quarter 3; channel
 # pressure 90 at quarter 3; polyphonic aftertouch and a sysex (both
 # dropped). Channel 10 (9): kick 36 at quarters 0 and 1 (eighth notes,
 # running status), and an open hi-hat 46 at quarter 3 never released (it
@@ -54,7 +54,7 @@ groove = [
     (240, bytes([0x90, 64, 0])),  # zero-velocity note-on ends 64
     (0, bytes([62, 80])),  # running status: 62 on at quarter 2
     (0, bytes([0xA0, 62, 50])),  # poly aftertouch, dropped
-    (240, bytes([0x90, 62, 70])),  # 62 again at 2.5: ends the first
+    (240, bytes([0x90, 62, 70])),  # 62 again at 2.5: overlaps the first
     (0, bytes([0xF0, 3, 0x7E, 0x7F, 0xF7])),  # sysex, dropped
     (240, bytes([0x80, 62, 64])),
     (0, bytes([0xE0, 0x00, 0x60])),  # bend 0x3000 = +4096

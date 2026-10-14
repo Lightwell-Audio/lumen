@@ -208,3 +208,57 @@ fn exported_files_read_back_as_they_play() {
     let first = file.tracks[0].notes[0];
     assert_eq!(first.start(), Ticks::ZERO);
 }
+
+/// Two same-pitch notes overlap, and the short second note ends after the
+/// long first note. Their note-offs therefore need FIFO pairing on import.
+#[test]
+fn exporting_and_reimporting_overlapping_same_pitch_notes_keeps_durations() {
+    let dir = TempDir::new("e2e-smf-overlapping");
+    let path = dir.path().join("overlapping.lumen");
+    let expected = vec![
+        Note::new(Ticks::ZERO, Ticks::quarters(3), 36, 91),
+        Note::new(Ticks::quarters(2), Ticks::quarters(2), 36, 73),
+    ];
+    let project = lumen_project::testing::project_of(
+        "Overlapping",
+        vec![lumen_project::testing::midi_track(
+            1,
+            "Bass",
+            "poly",
+            (0, 8),
+            None,
+            expected.clone(),
+            vec![],
+        )],
+    );
+    lumen_project::save(&project, &path, &Default::default()).unwrap();
+    let mut lumen = Lumen::start_with(dir, move |l| l.opening(path));
+    lumen.wait_for("the project", |app| app.project().tracks.len() == 1);
+    lumen.frames(30);
+
+    for (name, command) in [
+        ("overlapping-file", "Export MIDI file"),
+        ("overlapping-clip", "Export MIDI clip"),
+    ] {
+        let out = lumen.dir().join(format!("{name}.mid"));
+        if command == "Export MIDI clip" {
+            select(&mut lumen, lumen_project::model::Id(3));
+        }
+        lumen.app_mut().answer_next_dialog(vec![out.clone()]);
+        palette(&mut lumen, command);
+        let written = out.clone();
+        lumen.wait_for("the exported file", move |app| {
+            !app.is_busy() && written.exists()
+        });
+        assert_eq!(read(&out).tracks[0].notes, expected, "{command}");
+
+        // Reimport the actual exported bytes through the dropped-file flow.
+        let mut imported = Lumen::start(&format!("smf-{name}-reimport"));
+        imported.drop_files(std::slice::from_ref(&out));
+        imported.wait_for("the imported MIDI track", |app| {
+            app.project().tracks.len() == 1
+        });
+        imported.frames(30);
+        assert_eq!(notes(imported.app().project(), 0), expected, "{command}");
+    }
+}

@@ -2692,7 +2692,19 @@ cargo run --release -p lumen-app
    in Lumen, on its MIDI To channel, with Lumen's tempo and time signature.
    A toast says "Exported … .mid".
 8. **Round trip.** Drop the file from step 7 back into Lumen on empty lanes.
-   Expect: the same notes as the tracks it came from.
+   Expect: the same notes as the tracks it came from. Also export a clip
+   with overlapping notes of the same pitch whose ends follow their start
+   order, then reimport it: both note lengths and velocities should match.
+   Align the original and imported clips' starts before comparing them.
+
+**Run 1 finding (owner, 2026-10-13):** exported the blue MIDI clip and
+reimported it as purple; some notes became shorter (attached screenshot).
+Fixed the importer's same-pitch retrigger truncation (ADR-0062 follow-up).
+The owner's source-file recheck is pending.
+Automated checks for the fix: all 251 project tests, all five SMF app E2E
+scenarios (clip and project export/reimport), all six real-binary smoke
+tests, and workspace clippy pass. Full E2E: 327/332; the five audition and
+recording failures also reproduce with the original reader (KNOWN_ISSUES).
 
 **Clock** (loopMIDI: create a port "loopMIDI Port", then in the other DAW
 or a MIDI monitor, take clock from it; or connect a drum machine's MIDI in)

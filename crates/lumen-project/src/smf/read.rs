@@ -1,6 +1,6 @@
 //! Reading a Standard MIDI File.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 
 use lumen_core::time::{MAX_BPM, MIN_BPM, PPQ, TempoPoint, Ticks};
@@ -39,9 +39,9 @@ const DEFAULT_MICROS: u32 = 500_000;
 /// others round to the nearest tick. SMPTE-timed files are converted
 /// through their own tempo.
 ///
-/// A note-on with velocity 0 is a note-off; a note-on over a sounding note
-/// of the same key ends the first; notes still on at the end of their track
-/// end there. A bank select (CC 0 and 32) at the same tick as a program
+/// A note-on with velocity 0 is a note-off; overlapping strikes of the same
+/// key are paired with note-offs in start order; notes still on at the end
+/// of their track end there. A bank select (CC 0 and 32) at the same tick as a program
 /// change on its channel becomes the change's bank.
 pub fn read(bytes: &[u8]) -> Result<MidiFile, ReadError> {
     let smf = Smf::parse(bytes).map_err(|e| ReadError::Malformed(e.to_string()))?;
@@ -180,8 +180,8 @@ fn read_track(
 /// One channel of a track being read.
 #[derive(Default)]
 struct Part {
-    /// Per key, the note sounding: where it began and its velocity.
-    sounding: BTreeMap<u8, (u64, u8)>,
+    /// Per key, unmatched note-ons in start order: tick and velocity.
+    sounding: BTreeMap<u8, VecDeque<(u64, u8)>>,
     notes: Vec<Note>,
     events: Vec<ClipEvent>,
     /// A bank select waiting for a program change at its tick: the tick,
@@ -201,8 +201,10 @@ impl Part {
         match message {
             MidiMessage::NoteOn { key, vel } if vel.as_int() > 0 => {
                 let key = key.as_int();
-                self.end_note(key, at, base);
-                self.sounding.insert(key, (at, vel.as_int()));
+                self.sounding
+                    .entry(key)
+                    .or_default()
+                    .push_back((at, vel.as_int()));
             }
             MidiMessage::NoteOn { key, .. } | MidiMessage::NoteOff { key, .. } => {
                 self.end_note(key.as_int(), at, base);
@@ -271,11 +273,15 @@ impl Part {
         });
     }
 
-    /// Ends `key`'s sounding note, if any, at `at`.
+    /// Ends `key`'s oldest unmatched note, if any, at `at`.
     fn end_note(&mut self, key: u8, at: u64, base: &Timebase) {
-        let Some((start, velocity)) = self.sounding.remove(&key) else {
+        let Some(queue) = self.sounding.get_mut(&key) else {
             return;
         };
+        let (start, velocity) = queue.pop_front().expect("only nonempty queues are kept");
+        if queue.is_empty() {
+            self.sounding.remove(&key);
+        }
         let begin = base.at(start);
         // A note on and off at one tick is a trigger: it lasts one tick of
         // the file.
@@ -288,7 +294,9 @@ impl Part {
     fn close(&mut self, end: u64, base: &Timebase) {
         let keys: Vec<u8> = self.sounding.keys().copied().collect();
         for key in keys {
-            self.end_note(key, end, base);
+            while self.sounding.contains_key(&key) {
+                self.end_note(key, end, base);
+            }
         }
     }
 }
@@ -383,6 +391,33 @@ fn signature(numerator: u8, power: u8) -> Option<TimeSignature> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overlapping_notes_pair_with_zero_velocity_offs_and_all_unreleased_notes_close() {
+        let base = Timebase::Beats(960);
+        let mut part = Part::default();
+        let on = |velocity: u8| MidiMessage::NoteOn {
+            key: 60.into(),
+            vel: velocity.into(),
+        };
+        // An unmatched off is harmless. Later overlapping notes remain
+        // open until their own off, or until the track ends.
+        part.take(0, on(0_u8), &base);
+        part.take(0, on(100), &base);
+        part.take(960, on(90), &base);
+        part.take(1920, on(80), &base);
+        part.take(2880, on(0), &base);
+        part.close(3840, &base);
+        assert_eq!(
+            part.notes,
+            [
+                Note::new(Ticks::ZERO, Ticks::quarters(3), 60, 100),
+                Note::new(Ticks::quarters(1), Ticks::quarters(3), 60, 90),
+                Note::new(Ticks::quarters(2), Ticks::quarters(2), 60, 80),
+            ]
+        );
+        assert!(part.sounding.is_empty());
+    }
 
     #[test]
     fn common_divisions_come_in_exactly_and_others_round_to_the_nearest_tick() {
