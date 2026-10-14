@@ -2706,6 +2706,28 @@ scenarios (clip and project export/reimport), all six real-binary smoke
 tests, and workspace clippy pass. Full E2E: 327/332; the five audition and
 recording failures also reproduce with the original reader (KNOWN_ISSUES).
 
+**Run 2 finding (owner, 2026-10-14):** importing
+`FF4_I_LOVE_YOU_THEME.mid` left some ocarina notes silent, including the
+second E5; Play at a note's start could miss it. Export/reimport of that
+track appeared to fix it. Source inspection found valid notes. Fixed the
+engine's sample-rounding search bounds (ADR-0062 follow-up); the synthetic
+import-and-listen scenario fails before the fix and passes afterward.
+Automated verification: all 1,453 workspace tests, including 334 E2E and
+seven real-time allocation checks, all six real-binary smoke tests, and
+workspace clippy pass on Windows. The WSL instruction-count gate passes
+all nine scenarios; the largest increase is +1.50%, below the +2% limit.
+
+**Source-file recheck (pending owner):**
+1. Import the original file into a new project at the song start, accept
+   its tempo, solo **Ocarina!!!**, and play through the two E5s at quarters
+   65 and 66 (bars **17.2.1** and **17.3.1** in 4/4). Expect both to sound.
+2. Stop, type each of those positions into the transport, and Play.
+   Expect the corresponding E5 immediately, once. Repeat at the earlier
+   note starts and after changing the buffer size to 64, 128 and 512.
+3. Export/reimport the track, align its start and use the same tempo map.
+   Expect the original and reimported notes to behave alike. Also reopen
+   an existing project containing the original import and check it directly.
+
 **Clock** (loopMIDI: create a port "loopMIDI Port", then in the other DAW
 or a MIDI monitor, take clock from it; or connect a drum machine's MIDI in)
 

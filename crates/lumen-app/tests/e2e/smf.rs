@@ -262,3 +262,39 @@ fn exporting_and_reimporting_overlapping_same_pitch_notes_keeps_durations() {
         assert_eq!(notes(imported.app().project(), 0), expected, "{command}");
     }
 }
+
+/// Owner's imported-ocarina report: sample rounding must not hide a note
+/// when Play begins exactly at its onset, including the second E5.
+#[test]
+fn imported_notes_sound_when_play_starts_exactly_at_their_onsets() {
+    use std::time::Duration;
+
+    let mut lumen = Lumen::start("smf-rounded-onset");
+    lumen.drop_files(&[sample("rounded-onset-192.mid")]);
+    lumen.wait_for("the imported track", |app| app.project().tracks.len() == 1);
+    lumen.frames(30);
+    lumen.click("Use its tempo");
+    assert_eq!(notes(lumen.app().project(), 0).len(), 2);
+
+    for (position, beat) in [("17.2.1", 65), ("17.3.1", 66)] {
+        lumen.harness.get_by_label_contains("Position ").click();
+        lumen.frames(3);
+        lumen.key(Modifiers::COMMAND, Key::A);
+        lumen.harness.event(Event::Text(position.into()));
+        lumen.key(Modifiers::NONE, Key::Enter);
+        // The engine reports the tick nearest the located sample.
+        lumen.wait_for("the note onset", |app| {
+            (app.playhead().0 - Ticks::quarters(beat).0).abs() < 100
+        });
+        lumen.key(Modifiers::NONE, Key::Space);
+        lumen.wait_for("playback", |app| app.is_playing());
+        let heard = lumen.listen(Duration::from_millis(30), 2_000);
+        let peak = heard
+            .iter()
+            .fold(0.0_f32, |peak, f| peak.max(f[0].abs()).max(f[1].abs()));
+        assert!(peak > 0.01, "the note at {position} was silent: {peak}");
+        lumen.key(Modifiers::NONE, Key::Space);
+        lumen.wait_for("stop", |app| !app.is_playing());
+        lumen.listen(Duration::from_millis(1_500), 128);
+    }
+}

@@ -5402,6 +5402,49 @@ the app's export/reimport workflow. Ordinary SMF note-offs have no note
 identity: nested same-channel, same-pitch overlaps are ambiguous; FIFO
 uses start order rather than inventing a release at the next attack.
 
+**Imported-note playback follow-up (2026-10-14).** The owner reported
+missing ocarina notes in `FF4_I_LOVE_YOU_THEME.mid`, especially the second
+E5, and silence when Play began on a note. Investigation plan: inspect
+the source events, compare their imported ticks with sample scheduling,
+reproduce both onset playback and continuous block boundaries, then run
+the regression, real-time, workspace and smoke checks.
+
+The source has separate, valid note-on/off pairs at 192 PPQ; import scales
+them exactly. With the file's tempo map at 48 kHz, the second E5 at quarter
+66 maps to sample 1,311,086. Converting that sample back gives a position
+27 Lumen ticks later. The engine searched from the inverse sample tick
+minus only two ticks, omitting the note if its sample began a block. Chase
+correctly left an onset at the play position to normal scheduling, so
+neither path started it. This also affects continuous playback when an
+onset lands at a block boundary.
+
+`midi::hold::gather` now widens the candidate search by one sample before
+converting to ticks, retaining the exact half-open sample check. No notes,
+tempo data or persisted format change; no allocation or locks added.
+The same rule covers controller events. A larger fixed tick margin was
+rejected because the required margin depends on tempo and sample rate.
+
+Regression coverage: every tick rounding to a block's first sample at five
+tempos (20–999 BPM) and four rates (22.05–192 kHz), both clip-relative
+and absolute starts; the source's second-E5 timing on Play and a continuous
+block boundary; a synthetic SMF with the same timing geometry and two
+isolated test tones, imported and heard through the E2E app. Both unit
+and E2E reproductions fail with the old search bounds and pass with the fix.
+The original song remains outside the repository. Re-export/reimport is
+not a reliable timing fix: these 192-PPQ positions survive 960-PPQ export
+exactly; changed project tempo or clip placement can change sample
+alignment. The owner's precise round-trip conditions remain unverified.
+Manual recheck: MT-MIDI-8 run 2.
+
+Verification: `cargo fmt --all`, workspace clippy with `-D warnings`,
+all 1,453 workspace tests (including 334 E2E and seven real-time allocation
+checks), and all six real-binary smoke tests pass on Windows. Independent
+focused review found no actionable issues. The WSL instruction-count gate
+passes all nine scenarios against the existing baseline: the largest
+increase is +1.50% (transport), with the 64-track synth at +1.36%, below
+the +2% limit. No performance baseline changed. Listening to the original
+file on the owner's hardware remains unverified.
+
 **Consequences.** Channels are lost when a file's parts merge into one clip
 (the model has no channel). Positions finer than 1/960 quarter move by at
 most half a step on export (about 0.26 ms at 120 BPM). A negative clock

@@ -11,7 +11,8 @@
 //! Positions are worked out from ticks every block, through the timeline,
 //! so tempo changes move notes with the music. An event belongs to the
 //! block that holds `sample_at(tick)`; the window of ticks searched is
-//! widened by two ticks either side so rounding cannot lose one.
+//! widened by one sample either side before converting to ticks, so the
+//! nearest-sample rounding cannot lose an event on a block boundary.
 
 use lumen_core::midi::{Event, Kind, Msg, cc};
 use lumen_core::time::Ticks;
@@ -269,8 +270,12 @@ pub(super) fn gather(
     clock: Clock<'_>,
     (from, to): (i64, i64),
 ) {
-    let lo = clock.tick(from) - MARGIN;
-    let hi = clock.tick(to) + MARGIN;
+    // A sample represents a range of ticks. Its inverse is the centre of
+    // that range, so a fixed tick margin can miss events that round to
+    // `from` but lie before that centre. Bound the search in samples; the
+    // exact sample check below still assigns every event to just one part.
+    let lo = clock.tick(from.saturating_sub(1)) - MARGIN;
+    let hi = clock.tick(to.saturating_add(1)) + MARGIN;
     for clip in clips {
         if clip.start.0 > hi {
             break;
@@ -552,6 +557,128 @@ pub(super) fn sort_events(events: &mut [Event]) {
         {
             events.swap(j - 1, j);
             j -= 1;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{control_list, note_list};
+    use lumen_core::meter::Meter;
+
+    fn clip(start: Ticks, note: Ticks) -> MidiClip {
+        MidiClip {
+            id: 1,
+            start,
+            length: Ticks::quarters(8),
+            period: None,
+            seams: Default::default(),
+            notes: note_list(vec![MidiNote {
+                start: note,
+                length: Ticks::quarters(1),
+                pitch: 76,
+                velocity: 110,
+            }]),
+            controls: control_list(vec![super::super::MidiControl {
+                at: note,
+                msg: Msg::controller(0, 11, 90),
+            }]),
+        }
+    }
+
+    #[test]
+    fn events_rounding_to_a_blocks_first_sample_are_never_skipped_or_repeated() {
+        for bpm in [20.0, 97.3, 120.0, 150.0, 999.0] {
+            for rate in [22_050, 44_100, 48_000, 192_000] {
+                let timeline = Timeline::constant(bpm, Meter::FOUR_FOUR);
+                let clock = Clock {
+                    timeline: &timeline,
+                    rate,
+                };
+                let sample = 1_000;
+                // Every tick that rounds to this sample belongs to its
+                // block, even when it is before that sample's inverse tick.
+                for tick in clock.tick(sample - 1)..=clock.tick(sample + 1) {
+                    if clock.sample(tick) != sample {
+                        continue;
+                    }
+                    for start in [Ticks::ZERO, Ticks(tick)] {
+                        let clips = [clip(start, Ticks(tick) - start)];
+                        let mut state = TrackState::new();
+                        gather(&clips, &mut state, 0, clock, (sample - 128, sample));
+                        assert!(state.events.is_empty());
+                        gather(&clips, &mut state, 0, clock, (sample, sample + 128));
+                        assert_eq!(
+                            state.events.len(),
+                            2,
+                            "{bpm} BPM, {rate} Hz, tick {tick}, clip {start:?}"
+                        );
+                        assert!(state.events.iter().all(|e| e.offset == 0));
+                        state.events.clear();
+                        gather(&clips, &mut state, 0, clock, (sample + 128, sample + 256));
+                        assert!(state.events.is_empty(), "no duplicate event");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_note_at_the_reported_ocarina_onset_sounds_on_play_and_at_a_block_boundary() {
+        use lumen_core::time::{TempoMap, TempoPoint};
+
+        // Timing geometry from the owner's 192-PPQ file, without its
+        // musical content. The second E5 starts at quarter 66.
+        let timeline = Timeline::new(
+            TempoMap::new(
+                [
+                    (0, 400_000),
+                    (52, 428_571),
+                    (54, 500_000),
+                    (60, 500_000),
+                    (62, 428_571),
+                    (64, 400_000),
+                ]
+                .into_iter()
+                .map(|(beat, micros)| TempoPoint {
+                    at: Ticks::quarters(beat),
+                    bpm: 60_000_000.0 / f64::from(micros),
+                })
+                .collect(),
+            )
+            .unwrap(),
+            Timeline::default().meter,
+        );
+        let clock = Clock {
+            timeline: &timeline,
+            rate: 48_000,
+        };
+        let tick = Ticks::quarters(66);
+        let sample = clock.sample(tick.0);
+        assert_eq!(sample, 1_311_086);
+        assert_eq!(clock.tick(sample) - tick.0, 27);
+        let mut c = clip(Ticks::ZERO, tick);
+        c.length = Ticks::quarters(80);
+        let clips = [c];
+        for starting in [false, true] {
+            let mut state = TrackState::new();
+            if starting {
+                chase_notes(&clips, &mut state, 0, clock, sample);
+            } else {
+                gather(&clips, &mut state, 0, clock, (sample - 128, sample));
+            }
+            assert!(state.events.is_empty());
+            gather(&clips, &mut state, 0, clock, (sample, sample + 128));
+            assert_eq!(state.held.len(), 1, "the E5 sounds (starting={starting})");
+            assert_eq!(
+                state
+                    .events
+                    .iter()
+                    .filter(|e| matches!(e.msg.kind(), Kind::NoteOn { .. }))
+                    .count(),
+                1
+            );
         }
     }
 }

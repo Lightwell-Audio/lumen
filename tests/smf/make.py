@@ -84,3 +84,20 @@ open("smpte-25.mid", "wb").write(header(1, 2, division) + track(conductor) + tra
 # sequential.mid: type 2 (separate songs), which Lumen refuses.
 song = [(0, bytes([0x90, 60, 100])), (96, bytes([0x80, 60, 0]))]
 open("sequential.mid", "wb").write(header(2, 2, (96).to_bytes(2, "big")) + track(song) + track(song))
+
+# rounded-onset-192.mid: synthetic regression for the owner's ocarina
+# report. Only the tempo/tick geometry is reproduced, with two isolated
+# E5 test tones. At 48 kHz, quarter 66 rounds to sample 1,311,086, whose
+# inverse tick is 27 ticks after the note. A two-tick search margin loses it.
+tempos = [(0, 400000), (9984, 428571), (384, 500000),
+          (1152, 500000), (384, 428571), (384, 400000)]
+conductor = [(delta, meta(0x51, micros.to_bytes(3, "big"))) for delta, micros in tempos]
+tones = [
+    (0, meta(0x03, b"Rounded onsets")),
+    (12480, bytes([0x98, 76, 110])),
+    (160, bytes([0x88, 76, 0])),
+    (32, bytes([0x98, 76, 110])),
+    (1104, bytes([0x88, 76, 0])),
+]
+open("rounded-onset-192.mid", "wb").write(
+    header(1, 2, (192).to_bytes(2, "big")) + track(conductor) + track(tones))

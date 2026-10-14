@@ -39,7 +39,7 @@ how the parts fit.
 | Audio devices | Lumen's own backend layer: native ASIO over COM, WASAPI shared and exclusive, cpal for macOS and Linux; a supervisor that recovers from loss, resets and sleep | ADR-0006, 0016, 0021 |
 | Projects | Folder with versioned JSON (format v15), migrations over untyped JSON, atomic saves, rolling backups, relative media paths | ADR-0004 |
 | Undo | Shared snapshots: tracks and clips in `Arc`, every step a cheap copy | ADR-0024 |
-| Time | Integer ticks at 1,411,200 PPQ, with one rounding rule to samples | ADR-0009 |
+| Time | Integer ticks at 1,411,200 PPQ, with one rounding rule to samples; MIDI searches sample-expanded tick bounds and assigns events by their exact sample, including at a block's start | ADR-0009, 0062 follow-up |
 | Plugins (M6) | `vst3` crate bindings, sandboxed host processes, out-of-process scanning | ADR-0005 |
 | Real-time safety | Allocation guard in tests; RealtimeSanitizer in Linux CI with live canaries | ADR-0010 |
 | Performance | divan wall-clock benchmarks, plus instruction-count gates under Callgrind in CI (+2%) | ADR-0011, 0022 |
