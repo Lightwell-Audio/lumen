@@ -5454,8 +5454,8 @@ count of frames.
 **Also fixed in the same run.** `files::tests::save_as_...` compared a
 canonical path with a temp folder's own spelling (Windows short names, macOS
 `/private/var`); it compares canonical paths. The MIDI sender's lateness test
-asserted a 4 ms worst case on a shared runner; it holds the median to 4 ms
-and the worst to 25 ms. The note menu E2E wrote `Ctrl+D` on macOS.
+asserted a 4 ms worst case on a shared runner; it holds the median to 8 ms
+and the worst to 25 ms (macOS measured 5 ms and 17 ms). The note menu E2E wrote `Ctrl+D` on macOS.
 
 **Review fixes (PR 14).** `smf::write` returns `Result<_, WriteError>`:
 two events further apart than a 28-bit delta (about 78 hours at 960 per

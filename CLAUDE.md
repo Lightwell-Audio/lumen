@@ -397,7 +397,7 @@ runner. It now keeps its pace (`FakeDevice::pace`: `Pace::Every` for `test`,
 `Pace::RealTime` for `test-paced`, which `with_audio_buffer` selects). E2E
 rule: wait for what the engine answers (`wait_for`), never a count of
 frames; write chords through `keys()`. Also fixed: canonical paths in the
-Save As unit test, the MIDI sender's lateness bounds (median 4 ms, worst
+Save As unit test, the MIDI sender's lateness bounds (median 8 ms, worst
 25 ms), `smf::write` returning `Result` (`WriteError::TooSparse`), and
 Export MIDI building its file on a worker. Verified on Linux (the whole
 suite, and the record scenarios beside four busy loops); macOS could not be
