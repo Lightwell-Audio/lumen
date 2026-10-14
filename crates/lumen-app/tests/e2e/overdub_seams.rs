@@ -94,6 +94,12 @@ fn a_note_held_where_overdub_begins_sustains_across_the_new_clip() {
     assert_eq!(carried[2].len(), 1, "and so does the rest of the clip");
 
     // Played back from the start, it sounds once from beat 1 to beat 31.
+    // The stop lets the held note go, and the sender thread delivers that
+    // off a moment later: count from when it has reached the port, or a slow
+    // machine counts it against this pass.
+    lumen.wait_for("the stop's note-off at the port", |_| {
+        ons_and_offs(&fake, 50).1 >= 1
+    });
     let before = ons_and_offs(&fake, 50);
     lumen.click("Go to start");
     play_to(&mut lumen, beats(28.0));
