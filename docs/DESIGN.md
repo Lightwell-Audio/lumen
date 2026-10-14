@@ -10,8 +10,8 @@ strokes, the on states and the egui style built from them), `motion.rs`
 Every screen takes its values from there. A colour or duration written
 inline in UI code is a bug.
 
-The direction comes from `CLAUDE.md` §5: Ableton's arrangement-first
-workflow, with FL Studio's clarity but not its density. Minimal and quiet
+The direction comes from `CLAUDE.md` §5: an arrangement-first
+workflow, with clear content and restrained visual density. Minimal and quiet
 chrome, strong contrast on content, one accent colour, and motion that is
 restrained and purposeful.
 
@@ -503,7 +503,7 @@ B's clips. The owner refined the design after MT-APP-9 run 1.
     at 55%) on the control fill, turning red under the pointer (`FAST`):
     record red means recording;
   - the lane gets a red wash, strongest at the left, with thin red edges.
-- **Folding and resizing** (as in Ableton):
+- **Folding and resizing**:
   - heights come in **22 pt steps**, so anything later drawn by track
     height (automation lanes, meters) lines up;
   - folded is 2 steps (44 pt); unfolded starts at 4 steps (88 pt) and
@@ -612,7 +612,7 @@ replaces the old arbitrary halfway division (owner, ADR-0053).
 ### Clip properties (M3 slice 6e, owner's choices M1, K3 and P1)
 
 - **Muted (M1):** the title bar, border and waveform turn `CLIP_MUTED`
-  grey, as in Ableton. Key 0 mutes or unmutes the selected clips.
+  grey. Key 0 mutes or unmutes the selected clips.
 - **Locked (K3):** a padlock (`icons::Icon::Lock`, 9 pt) ends the title
   bar, and 3 pt clamp bars (`text` at 55%) stand at both ends; a locked
   clip shows no fade or gain handles, and hovering it says "locked".
@@ -858,7 +858,7 @@ The Clip tab uses the shared controls (§5a, ADR-0052).
 - **Zoom** glides (`GLIDE`) for keys and fits; the wheel and pinch follow
   the hand directly. Down to 8 points per sample, where the waveform is a
   line through the samples; out to the whole song with 10% of room (at
-  least 32 bars), as in Ableton.
+  least 32 bars).
 - **Grid** lines never sit closer than 12 points: beat lines drop out
   first, then bar lines thin to every 2nd, 4th, 8th... bar.
 - **Follow** is a transport-bar toggle (a playhead line with an arrow).
@@ -894,7 +894,7 @@ The Clip tab uses the shared controls (§5a, ADR-0052).
 
 ## 7d. Rulers (M3 slice 5b, layout A)
 
-Chosen by the owner from rendered specimens (Ableton's split):
+Chosen by the owner from rendered specimens:
 - **Locator strip** (24 pt, `app`), three layers:
   - the **loop brace**, a 7 pt band at the strip's bottom edge
     (`accent_muted` with `accent` edges when the loop is on, `control`
@@ -975,7 +975,7 @@ Chosen by the owner from rendered specimens (Ableton's split):
     plain on `raised` with hint text; modifier keys light in
     `accent_muted` while their layer shows; hovering outlines a key in the
     accent, and a click searches the list for its chord;
-  - a search field (names and shortcuts), "Keymap: Ableton" and Reset
+  - a search field (names and shortcuts), the current keymap name and Reset
     all;
   - the list, by area under a light and name: the command, "changed" in
     hint text when it differs from the default, its K5 keycaps (click to

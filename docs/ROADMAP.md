@@ -107,7 +107,7 @@ Implement:
 - Undo/redo
 - Command palette
 - Core keyboard shortcuts
-- **Motion system** (owner request, 2026-10-06: fluid, Apple-like feel),
+- **Motion system** (owner request, 2026-10-06: fluid feel),
   part of the design system:
   - motion tokens (a few durations and spring-like easing curves);
   - rules for what animates (panels opening and closing, hover and press
@@ -291,7 +291,7 @@ Implement:
 
 ### Drum system
 
-- Cubase-style drum maps
+- per-sound drum maps
 - Drum map presets
 - User-created maps
 - Input/output notes

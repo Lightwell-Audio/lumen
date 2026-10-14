@@ -4,6 +4,12 @@ Real third-party plugins tested against Lumen, stage by stage. A plugin is
 "compatible" only when every stage passes. Stages beyond scanning arrive with
 M6 (VST3 hosting).
 
+Third-party product and vendor names are anonymized under the owner's
+documentation rule (2026-10-14). Labels identify historical test records,
+not Lumen-owned test plugins. Results and measurements are unchanged;
+without the original binary identities these records alone cannot support
+reproduction or product-specific compatibility claims.
+
 **Stages:** Scan (module loads and its factory enumerates in a sandboxed
 process) · Instantiate · Process · State round trip · Editor · Automation.
 **Legend:** ✅ pass · ❌ fail · — not tested yet
@@ -14,31 +20,31 @@ processes, 30 s timeout, 10.4 s wall time.
 
 | Plugin | Vendor | Type (sub-categories) | Layout | moduleinfo | Scan | Scan time | Instantiate | Process | State | Editor |
 |---|---|---|---|---|---|---|---|---|---|---|
-| BBC Symphony Orchestra | Spitfire Audio | Instrument\|Synth | bundle | ✅ matches factory | ✅ | 452 ms | — | — | — | — |
-| Melodyne | Celemony | Fx | file | — | ✅ | 475 ms | — | — | — | — |
-| FM8 (+ FM8 FX) | Native Instruments | Instrument\|Synth; Fx | file | — | ✅ | 993 ms | — | — | — | — |
-| Gateway | Atkinson Advanced Modeling | Fx | bundle (no moduleinfo) | — | ✅ | 133 ms | — | — | — | — |
-| MODO BASS 2 | IK Multimedia | Instrument\|Synth | bundle | ✅ matches factory | ✅ | 141 ms | — | — | — | — |
-| Kontakt 8 | Native Instruments | Instrument | file | — | ✅ | 1,938 ms | — | — | — | — |
-| NAM Rig | Nouratone | Fx\|Fx\|Guitar | bundle | ✅ matches factory | ✅ | 48 ms | — | — | — | — |
-| Archetype Plini | Neural DSP | Fx\|Distortion\|Dynamics\|Reverb | file | — | ✅ | 478 ms | — | — | — | — |
-| Archetype Rabea X | Neural DSP | Fx\|Fx\|Distortion\|Dynamics\|Reverb | file | — | ✅ | 741 ms | — | — | — | — |
-| Archetype Tim Henson X | Neural DSP | Fx\|Fx\|Distortion\|Dynamics\|Reverb | file | — | ✅ | 721 ms | — | — | — | — |
-| Fortin Nameless Suite X | Neural DSP | Fx\|Fx\|Distortion\|Dynamics\|Reverb | file | — | ✅ | 418 ms | — | — | — | — |
-| Morgan Amps Suite | Neural DSP | Fx\|Fx\|Distortion\|Dynamics\|Reverb | file | — | ✅ | 794 ms | — | — | — | — |
-| Omnisphere | Spectrasonics | Instrument\|Synth | file | — | ✅ | 125 ms | — | — | — | — |
-| **Opus** | EastWest | — | file | — | ❌ `DllMain` failed (`ERROR_DLL_INIT_FAILED`) after 8.9 s | 8,851 ms | — | — | — | — |
-| Podolski | u-he | Instrument | file | — | ✅ | 226 ms | — | — | — | — |
-| Toneforge Ben Bruce | Joey Sturgis Tones | Fx | bundle | ✅ matches factory | ✅ | 140 ms | — | — | — | — |
-| EZbass | Toontrack | Instrument\|Bass | file | — | ✅ | 569 ms | — | — | — | — |
-| Toontrack Audio Sender | Toontrack | Fx\|Tools | file | — | ✅ | 44 ms | — | — | — | — |
-| TyrellN6 | u-he | Instrument | file | — | ✅ | 419 ms | ✅ in-process and isolated | ✅ 37 µs/block | ✅ round trip identical, incl. restore after a host crash | — |
-| Ozone 12 (main + 20 modules) | iZotope | Fx (EQ, Dynamics, Mastering, Spatial, Distortion) | file | — | ✅ all 21 | 84–145 ms each | — | — | — | — |
+| Test instrument A | third-party vendor | Instrument\|Synth | bundle | ✅ matches factory | ✅ | 452 ms | — | — | — | — |
+| Test effect A | third-party vendor | Fx | file | — | ✅ | 475 ms | — | — | — | — |
+| Test instrument B (+ companion effect) | third-party vendor | Instrument\|Synth; Fx | file | — | ✅ | 993 ms | — | — | — | — |
+| Test effect B | third-party vendor | Fx | bundle (no moduleinfo) | — | ✅ | 133 ms | — | — | — | — |
+| Test instrument C | third-party vendor | Instrument\|Synth | bundle | ✅ matches factory | ✅ | 141 ms | — | — | — | — |
+| Test instrument D | third-party vendor | Instrument | file | — | ✅ | 1,938 ms | — | — | — | — |
+| Test effect C | third-party vendor | Fx\|Fx\|Guitar | bundle | ✅ matches factory | ✅ | 48 ms | — | — | — | — |
+| Test effect D | third-party vendor | Fx\|Distortion\|Dynamics\|Reverb | file | — | ✅ | 478 ms | — | — | — | — |
+| Test effect E | third-party vendor | Fx\|Fx\|Distortion\|Dynamics\|Reverb | file | — | ✅ | 741 ms | — | — | — | — |
+| Test effect F | third-party vendor | Fx\|Fx\|Distortion\|Dynamics\|Reverb | file | — | ✅ | 721 ms | — | — | — | — |
+| Test effect G | third-party vendor | Fx\|Fx\|Distortion\|Dynamics\|Reverb | file | — | ✅ | 418 ms | — | — | — | — |
+| Test effect H | third-party vendor | Fx\|Fx\|Distortion\|Dynamics\|Reverb | file | — | ✅ | 794 ms | — | — | — | — |
+| Test instrument E | third-party vendor | Instrument\|Synth | file | — | ✅ | 125 ms | — | — | — | — |
+| **Test instrument I** | third-party vendor | — | file | — | ❌ `DllMain` failed (`ERROR_DLL_INIT_FAILED`) after 8.9 s | 8,851 ms | — | — | — | — |
+| Test instrument F | third-party vendor | Instrument | file | — | ✅ | 226 ms | — | — | — | — |
+| Test effect I | third-party vendor | Fx | bundle | ✅ matches factory | ✅ | 140 ms | — | — | — | — |
+| Test instrument G | third-party vendor | Instrument\|Bass | file | — | ✅ | 569 ms | — | — | — | — |
+| Test utility A | third-party vendor | Fx\|Tools | file | — | ✅ | 44 ms | — | — | — | — |
+| Test instrument H | third-party vendor | Instrument | file | — | ✅ | 419 ms | ✅ in-process and isolated | ✅ 37 µs/block | ✅ round trip identical, incl. restore after a host crash | — |
+| Test effect suite A (main + 20 modules) | third-party vendor | Fx (EQ, Dynamics, Mastering, Spatial, Distortion) | file | — | ✅ all 21 | 84–145 ms each | — | — | — | — |
 
 ## Open items
-- **Opus (EastWest):** fails inside its own `DllMain`. Check whether it loads
+- **Test instrument I (third-party vendor):** fails inside its own `DllMain`. Check whether it loads
   in another host on this machine (licensing or authorization state?) before
   treating this as a Lumen issue. M6.
-- **Gateway** ships a bundle without `moduleinfo.json`, and
-  **BBC Symphony Orchestra** puts it in `Contents/` instead of
+- **Test effect B** ships a bundle without `moduleinfo.json`, and
+  **Test instrument A** puts it in `Contents/` instead of
   `Contents/Resources/`. Discovery handles both.

@@ -27,7 +27,7 @@ irreversible or external) · *Superseded*.
 | [0013](#adr-0013--dependency-license-policy) | Dependency license policy | Accepted | No |
 | [0015](#adr-0015--shifttab-conflict) | Shift+Tab: detail panel versus backward focus | **Open** (decide with the shortcut system, M3) | Yes |
 | [0016](#adr-0016--wasapi-coreaudio-and-linux-backends) | WASAPI through the `wasapi` crate; CoreAudio and ALSA through cpal | Accepted 2026-10-06 | No |
-| [0017](#adr-0017--engine-transport-and-timeline) | Engine transport and timeline: Ableton-style stop, positions in ticks, live tempo and rate changes | Accepted 2026-10-06 | No |
+| [0017](#adr-0017--engine-transport-and-timeline) | Engine transport and timeline: transport stop behavior, positions in ticks, live tempo and rate changes | Accepted 2026-10-06 | No |
 | [0018](#adr-0018--transport-bar-icons-and-app-audio) | Transport bar: vector icons on egui's painter; the app opens the system default output until the device selector | Accepted 2026-10-06 | No |
 | [0019](#adr-0019--audio-files-and-clip-playback) | Audio files: symphonia + rubato into memory; clip player with edge and jump fades; one lane per file until M3 | Accepted 2026-10-06 (owner: memory now, streaming in M9) | No |
 | [0020](#adr-0020--metronome-test-tone-and-audio-health) | Metronome and test tone in the engine; dropouts from driver positions and delivery against real time | Accepted 2026-10-06 | No |
@@ -35,14 +35,14 @@ irreversible or external) · *Superseded*.
 | [0022](#adr-0022--performance-gates-by-instruction-count) | Performance gates: instruction counts under Callgrind in a pinned Linux container, compared with a committed baseline | Accepted 2026-10-07 | No |
 | [0023](#adr-0023--design-system-and-motion) | Design system and motion: semantic tokens with dark and light palettes, egui style built from them, our own window title rows, motion tokens with Reduce motion | Accepted 2026-10-07 | No |
 | [0024](#adr-0024--undo-by-shared-snapshots) | Undo by shared snapshots: every step is a cheap copy of the project that shares untouched tracks and clips | Accepted 2026-10-07 | No |
-| [0025](#adr-0025--tracks-folding-and-interim-volume-and-pan) | Tracks: owner-chosen header and clip design, Ableton-style folding and resizing, interim volume and pan until the mixer | Accepted 2026-10-07 | No |
+| [0025](#adr-0025--tracks-folding-and-interim-volume-and-pan) | Tracks: owner-chosen header and clip design, track folding and resizing, interim volume and pan until the mixer | Accepted 2026-10-07 | No |
 | [0026](#adr-0026--clips-on-the-gpu) | Clips on the GPU: a box layer with a per-frame row table; names in egui; measured first with a frame-time benchmark | Accepted 2026-10-07 | No |
 | [0027](#adr-0027--waveforms) | Waveforms: 8-bit peak pyramids built at load; drawn per pixel on the GPU from an atlas; disk cache in M9 | Accepted 2026-10-07 | No |
-| [0028](#adr-0028--navigating-the-arrangement) | Navigation: f64 view with split beats on the GPU, zoom to single samples, Ableton keys, Follow (page, on), drag to reorder, sample-level waveforms | Accepted 2026-10-07 | No |
+| [0028](#adr-0028--navigating-the-arrangement) | Navigation: f64 view with split beats on the GPU, zoom to single samples, the default key bindings, Follow (page, on), drag to reorder, sample-level waveforms | Accepted 2026-10-07 | No |
 | [0029](#adr-0029--end-to-end-smoke-tests) | End-to-end smoke tests: the whole app driven by egui_kittest in CI, plus real-binary smoke tests at the end of every slice; isolated settings, autosaves and a silent test device | Accepted 2026-10-08 | No |
 | [0030](#adr-0030--grid-rulers-loop-locators-and-scrubbing) | Grid, rulers, loop, locators and scrubbing (M3 slice 5): a grid model in core, the loop and punch as document edits, punch at the loop's edges, locator keys, both scrub styles in an engine scrub mode | Accepted 2026-10-08 | No |
 | [0031](#adr-0031--curves-for-fades-and-envelopes-format-v6) | Curves for fades and envelopes (format v6): a cubic Bézier from silence to full, edited by one free dot with Alt for S-shape, played from tables, drawn on the GPU | Accepted 2026-10-08 | No |
-| [0032](#adr-0032--clip-editing-m3-slice-6) | Clip editing (M3 slice 6): the split-clip model, drags redone from where they started, Ableton's overlap rule, clip properties and the pinned card, drops on a chosen track, Esc for the field being typed in | Accepted 2026-10-08 | No |
+| [0032](#adr-0032--clip-editing-m3-slice-6) | Clip editing (M3 slice 6): the split-clip model, drags redone from where they started, the clip overlap rule, clip properties and the pinned card, drops on a chosen track, Esc for the field being typed in | Accepted 2026-10-08 | No |
 | [0033](#adr-0033--commands-and-the-keymap-m3-slice-7) | Commands and the keymap (M3 slice 7): one table of commands, chords matched exactly, one command per key whatever is selected, one dispatcher | Accepted 2026-10-08 (7a) | No |
 | [0034](#adr-0034--the-info-line-m4-slice-0) | The info line (M4 slice 0): hover hints leave the pointer for one strip along the bottom of the window, with K5 keycaps and lit modifiers | Accepted 2026-10-09 | No |
 | [0035](#adr-0035--the-mixer-graph-m4-slice-1) | The mixer graph (M4 slice 1): a node per track with a stereo bus, compiled on the UI side into a flat ordered plan, swapped at a block edge with levels carried by id; plans of a new shape crossfade over 5 ms | Accepted 2026-10-09 | No |
@@ -69,6 +69,7 @@ irreversible or external) · *Superseded*.
 
 | Question | Decision |
 |---|---|
+| Product-neutral documentation (2026-10-14) | Do not use third-party products or vendors as design references, comparisons, endorsements or examples; describe the behavior directly. Preserve technical identifiers, exact protocol requirements, hardware names and required legal attribution. |
 | Lumen's licence (ADR-0039) | GPL-3.0-or-later, open source; the signed packaged binary is sold. Supersedes ADR-0012 (closed source). |
 | ASIO licensing (ADR-0006) | Sign Steinberg's free proprietary ASIO SDK agreement. Owner action; required before any distribution. |
 | UI (ADR-0002) | Lumen owns its rendering: a toolkit-independent `lumen-render` (wgpu instanced pipelines for dense content, Vello for vector graphics). The host (egui or a custom winit shell) is chosen after P-RENDER measures both. **Slint dropped** (2026-10-06): it tessellates shapes much as egui does, is harder to combine with custom GPU drawing, and needs a licence notice. Lyon rejected: CPU tessellation is the measured bottleneck. |
@@ -82,54 +83,54 @@ irreversible or external) · *Superseded*.
 | AAC / M4A import (2026-10-06) | Deferred: possible codec patent licensing for a commercial product needs checking first. WAV, AIFF, FLAC, MP3 and Ogg Vorbis ship. |
 | Audio input outside ASIO (M2 slice 8, 2026-10-06) | **WASAPI and macOS/Linux input deferred to M9**, built with recording, monitoring and input meters, where it can be tested end to end. ASIO input already works and is selectable in M2. Drift between separate input and output devices is handled with rubato's `Slip`. macOS and Linux input stays compile-only until that hardware is available. |
 | VST3 scanning and hosting on macOS and Linux | Stretch goal, unscheduled (owner, 2026-10-06). Windows is first-class; the CI isolation self-test stays Windows-only until then. |
-| Playheads (M2 slice 7, 2026-10-06) | Two, as in Ableton: a grey start marker on the ruler's bottom edge (where Play starts) and the blue playhead. Space plays from the marker and stops in place. |
-| Motion (2026-10-06) | Fluid, Apple-like motion: the motion system and a retrofit of the M2 UI in M3 (done in slice 2), and a polish pass in M10. |
+| Playheads (M2 slice 7, 2026-10-06) | Two: a grey start marker on the ruler's bottom edge (where Play starts) and the blue playhead. Space plays from the marker and stops in place. |
+| Motion (2026-10-06) | Fluid motion: the motion system and a retrofit of the M2 UI in M3 (done in slice 2), and a polish pass in M10. |
 | Metronome extras (2026-10-06) | Count-in, pre-roll and record-only with recording (M9); output routing with the mixer (M4). |
 | M2 close and M3 plan (2026-10-07) | M2 approved; M3 approved as proposed, unsplit, with the M2 performance gates as its slice 1. |
 | Typefaces (M3 slice 2, 2026-10-07) | Inter for the interface and Unbounded for titles, chosen from rendered specimens. The owner wants personality, not generic choices; visual options are shown as specimens before anything is built (ADR-0023). |
-| Track design (M3 slice 4, 2026-10-07) | Option A headers with option B's dark clips; type icons; Ableton-style folding and resizing in 22 pt steps; sliders with values inside, with pan saturating toward the edges; record arm that glows and breathes; a "+ Add track ▾" menu button with a double-click hint (DESIGN §7a, ADR-0025). |
+| Track design (M3 slice 4, 2026-10-07) | Option A headers with option B's dark clips; type icons; track folding and resizing in 22 pt steps; sliders with values inside, with pan saturating toward the edges; record arm that glows and breathes; a "+ Add track ▾" menu button with a double-click hint (DESIGN §7a, ADR-0025). |
 | macOS CI (2026-10-07, resumed 2026-10-10) | Paused on 2026-10-07 when the GitHub Actions minutes ran out. **Back on 2026-10-10** (owner): CI tests Windows, macOS (Apple silicon) and Linux again. A new push to a pull request cancels its superseded run to save minutes. The cross-target clippy (DEVELOPMENT.md) stays as a quick check before pushing macOS-specific code. |
 | Reviews (2026-10-07) | A full repository review at the end of every milestone, against CLAUDE.md, the architecture and the design system (the `lumen-architecture` and `lumen-design` skills), before the milestone report. |
-| Navigation (M3 slice 4d, 2026-10-07) | **Zoom to single samples**, as Ableton does; waveforms draw individual samples past the stored detail. **Follow playhead: page by default, on**; continuous is the second mode. Ableton-style keys: `+`/`-` zoom, X back, W fit width, H fit height, Alt+wheel a track's height. |
-| Rulers and scrubbing (M3 slice 5, 2026-10-08) | **Ruler layout A, Ableton split** (chosen from rendered specimens): locators and the loop brace in a strip above the bar ruler, a time ruler (minutes and seconds, samples or timecode) along the bottom of the arrangement. **Both scrub styles:** dragging in the scrub strip plays short loops of the grid step under the pointer at normal pitch (Ableton-style, for songwriting and arranging); holding Alt scrubs tape-style, audio following the hand's speed and pitch (for precise editing). |
+| Navigation (M3 slice 4d, 2026-10-07) | **Zoom to single samples**; waveforms draw individual samples past the stored detail. **Follow playhead: page by default, on**; continuous is the second mode. Keys: `+`/`-` zoom, X back, W fit width, H fit height, Alt+wheel a track's height. |
+| Rulers and scrubbing (M3 slice 5, 2026-10-08) | **Ruler layout A** (chosen from rendered specimens): locators and the loop brace in a strip above the bar ruler, a time ruler (minutes and seconds, samples or timecode) along the bottom of the arrangement. **Both scrub styles:** dragging in the scrub strip plays short loops of the grid step under the pointer at normal pitch (for songwriting and arranging); holding Alt scrubs tape-style, audio following the hand's speed and pitch (for precise editing). |
 | Drag hints (MT-APP-13 run 1, 2026-10-08) | Chosen from rendered specimens: **A1** the loop brace grows a bracket at the edge a drag will resize, lights when it will move, and a chip names the action; **B2** (on trial) the scrub strip washes the step a drag would play and shows a quiet hint ("drag to listen · Alt tape"), and a tape scrub shows its speed; **C1** the grid button always shows the size, with a magnet lit while snapping and struck through when not. |
-| Clip drag model (M3 slice 6, 2026-10-08) | **Split clip**, as in Bitwig, after comparing it with Ableton's (no marquee) and the classic model (range behind a modifier): the top half of a clip moves it (Ctrl copies), the bottom half selects a time range across tracks, empty lanes draw a marquee. Cursors and hints show which half is under the pointer. |
+| Clip drag model (M3 slice 6, 2026-10-08) | **Split clip** (chosen over a no-marquee variant and a classic model where a modifier draws a range): the top half of a clip moves it (Ctrl copies), the bottom half selects a time range across tracks, and empty lanes draw a marquee. Cursors and hints show which half is under the pointer. |
 | Selection look (M3 slice 6, 2026-10-08) | Chosen from rendered specimens: **S3 glow**, selected clips glow in the accent like the record arm, a time range is a band with accent brackets along its top, the marquee a soft rounded accent box ("some character"); **H1**, hovering a clip brightens the half under the pointer with a dashed line at the split. |
 | Fade and gain handles (M3 slice 6d, 2026-10-08) | Chosen from rendered specimens: **F3 with the glow**, a fade is a glowing accent curve with a round handle at its top and a dot that bends it; **G1**, clip gain is a glowing level line across the clip, dragged up or down, with the waveform shrinking under it and the dB beside the pointer. |
-| Free curves (M3 slice 6d, 2026-10-08) | The owner asked for curves that move freely, left and right as well as up and down, "as flexible as Ableton", to set the bar for automation later. Chosen from interactive specimens: **C3**, one free dot the curve passes through, with Alt-drag adding S-shape (over C1, the dot alone, and C2, two Bézier handles). Replaces the stepped bend (Slow, Linear, Fast). ADR-0031. |
-| Clip properties (M3 slice 6e, 2026-10-08) | Chosen from rendered specimens: **M1**, a muted clip drains to grey as in Ableton (name and waveform stay readable); **K3**, a locked clip shows a padlock in its title bar and light clamp bars at both ends; **P1**, the properties view is the hover card pinned beside its clip and edited in place (Alt+Enter, or Properties in the right-click menu), after seeing it in context, over a strip under the arrangement (P2) and a toolbar above the clip (P3). ADR-0032. |
-| Lanes menu and grid behind clips (MT-APP-14 run 2, 2026-10-08) | Chosen from rendered specimens: **A**, each right-click gets the menu for what it landed on, as in Ableton (a clip, a time range, or empty lanes; commands that cannot run are left out), over B (grouped submenus) and C (an action strip); **G1**, the grid shows through a see-through clip body, closest to Ableton (the owner: G1 unless there is a strong argument for G2; none held up), over G2 (lines drawn across clips) and G3 (bar lines only). The owner also asked for a click anywhere on the lanes to move the playhead, as in Ableton. ADR-0032. |
+| Free curves (M3 slice 6d, 2026-10-08) | The owner asked for automation curves with points that move freely in both time and value. Chosen from interactive specimens: **C3**, one free dot the curve passes through, with Alt-drag adding S-shape (over C1, the dot alone, and C2, two Bézier handles). Replaces the stepped bend (Slow, Linear, Fast). ADR-0031. |
+| Clip properties (M3 slice 6e, 2026-10-08) | Chosen from rendered specimens: **M1**, a muted clip drains to grey (name and waveform stay readable); **K3**, a locked clip shows a padlock in its title bar and light clamp bars at both ends; **P1**, the properties view is the hover card pinned beside its clip and edited in place (Alt+Enter, or Properties in the right-click menu), after seeing it in context, over a strip under the arrangement (P2) and a toolbar above the clip (P3). ADR-0032. |
+| Lanes menu and grid behind clips (MT-APP-14 run 2, 2026-10-08) | Chosen from rendered specimens: **A**, each right-click gets the menu for what it landed on (a clip, a time range, or empty lanes; commands that cannot run are left out), over B (grouped submenus) and C (an action strip); **G1**, the grid shows through a see-through clip body, the owner chose G1 unless there was a strong argument for G2; none held up, over G2 (lines drawn across clips) and G3 (bar lines only). The owner also asked for a click anywhere on the lanes to move the playhead. ADR-0032. |
 | Hints and tooltips (2026-10-08) | The owner noted that hints have piled up slice by slice: behaviour should come across without reading much (cursors, handle shapes, motion before text). **A dedicated UX pass**, scheduled when the next milestones are planned; until then new hints stay short. |
 | Split and tools (2026-10-08) | The owner asked to select a clip and drag it to cut it. **Split** is planned in M7 with the rest of the split work, and the drag-to-cut gesture is chosen there from rendered specimens. The tool model (pointer, draw, erase, split, mute, zoom; CLAUDE.md §5) is proposed for M7 with it, for the owner to confirm. |
 | Commands and shortcuts (M3 slice 7, 2026-10-08) | Chosen from interactive specimens: palette **P2 with P3's values** (context names such as "Duplicate 2 clips", commands that cannot run listed dimmed with the reason, a detail strip, typed values becoming actions); keycaps **K5 area light** after asking for more personality than the first round (plain modifiers, the main key outlined with a light in its area's colour); shortcut editor **E2 with E3** (a keyboard map lit by area over the list, plus rebinding from a palette result); **Shift+Tab depends on focus**, F6 and Shift+F6 between panes (ADR-0015). |
-| Clips from the keyboard (M3 review H2, 2026-10-08) | **The arrows follow the selection**, as in Logic and Cubase: with a clip selected ←/→ select the previous or next clip on its track and ↑/↓ the nearest clip on the track above or below, Shift adds; with tracks selected the arrows act on tracks as before (over Alt+←/→ only, and [ and ]). ADR-0033. |
+| Clips from the keyboard (M3 review H2, 2026-10-08) | **The arrows follow the selection**: with a clip selected ←/→ select the previous or next clip on its track and ↑/↓ the nearest clip on the track above or below, Shift adds; with tracks selected the arrows act on tracks as before (over Alt+←/→ only, and [ and ]). ADR-0033. |
 | M3 close (2026-10-09) | M3 approved after MT-APP-16 passed. The M4 plan (`docs/milestones/M4.md`) waits for approval and its three questions. |
-| M4 plan (2026-10-09) | Approved. **Solo: Ableton's by default** (a click solos only that track, Ctrl+click adds). **The UX pass on hints runs first**, as M4 slice 0. Pan law −3 dB constant power by default (the proposal, recorded as an assumption). |
-| Group tracks (M4 slice 3, 2026-10-09) | Chosen from rendered specimens and asked before building: **H1**, a group's tracks step in 12 pt a level with every enclosing group's colour rail running down beside them (over H2 tree lines and H3 a tinted block); **L1**, a group's lane shows a thin bar per track inside it in that track's colour (over L2 a summed band with a waveform and L3 ghost clips); **deleting a group deletes its tracks** (Ableton; Ungroup keeps them) over moving them up a level; **a group's arm button arms its tracks** (Cubase-style, half a ring when some are armed) over no arm on groups (Ableton). Also proposed and not objected to: the Ableton rules for Ctrl+G, Ctrl+Shift+G, the fold arrow, drops and groups holding no clips (ADR-0037). |
+| M4 plan (2026-10-09) | Approved. **Solo behavior** (a click solos only that track, Ctrl+click adds). **The UX pass on hints runs first**, as M4 slice 0. Pan law −3 dB constant power by default (the proposal, recorded as an assumption). |
+| Group tracks (M4 slice 3, 2026-10-09) | Chosen from rendered specimens and asked before building: **H1**, a group's tracks step in 12 pt a level with every enclosing group's colour rail running down beside them (over H2 tree lines and H3 a tinted block); **L1**, a group's lane shows a thin bar per track inside it in that track's colour (over L2 a summed band with a waveform and L3 ghost clips); **deleting a group deletes its tracks**; **a group's arm button arms its tracks** (half a ring when some are armed) over no arm on groups. Also proposed and not objected to: rules for Ctrl+G, Ctrl+Shift+G, the fold arrow, drops and groups holding no clips (ADR-0037). |
 | Group tracks, MT-MIX-3 run 1 (2026-10-09) | The owner's findings: **groups go three deep at most** (Group › Group › Group › tracks; "needing more than that probably doesn't do much"), refused with a note; **the track header column is resizable**, its width **saved per project** (over app-wide), 204 to 480 pt; soloing a track in a group must not silence it (a bug, fixed). ADR-0037 amendment. |
 | Routing in the model (M4 slice 2, 2026-10-09) | Asked before building: **a new send starts at −∞** (over 0 dB) and **post-fader** (over pre-fader); **deleting a return removes its sends** in the same undo step (over asking first); **the pan law is chosen from the mixer panel's menu** and the palette (over a project settings window, M9). |
 | Dropouts (2026-10-09) | Chosen from mockups: **A, recent and in words**: no chip while audio is healthy, "Dropouts ×3" in amber while they happen, fading after 10 s of clean audio, details in the audio panel; over B (a labelled total until reset) and C (an amber status dot). Driver resets no longer count (ADR-0020 update). |
-| Mixer behaviour (M4 slice 1, 2026-10-09) | Asked after the graph was built (the owner: variants first, before building): **centre −3 dB** (a hard-panned side at unity; projects from M3 play 3 dB quieter) over centre unity with +3 dB sides; **balance** panning of stereo tracks over a true stereo pan; **mute silences every send**, pre-fader ones too (Ableton) over pre-fader sends playing on (Pro Tools, Cubase); **post-fader sends after the pan** over before it. All four as built (ADR-0035). |
-| Pan law for stereo (after M4 slice 7, 2026-10-10) | **B**: stereo material keeps its level at the centre (balance), as in Ableton, Logic and Pro Tools; the project's pan law (−3 dB by default) applies only to tracks whose clips are all mono files. Chosen over keeping −3 dB on every track (every file played and measured 3 dB under its own level) and a 0 dB default. Projects from before play stereo tracks 3 dB louder. ADR-0042. |
-| Hints (M4 slice 0, 2026-10-09) | Chosen from interactive specimens: **an info line** along the bottom of the window (C, Ableton's Info View in spirit) over quiet chips (A) and rest-to-reveal (B), **with the K5 keycaps** the palette and menus use (the owner's addition, for consistency), **no chips for held keys** (the cursor and the lit action say it), full width (ADR-0034). |
-| Mute, solo, returns, master and cue (M4 slice 4, 2026-10-09) | The solo rules agreed as a table of 14 cases before building (`docs/milestones/M4.md` §5): solo keeps a soloed track's path open, **mute always beats solo** along the path, returns are solo-safe, **a soloed return plays wet only** (sends into it stay on, their tracks' outputs go silent), the master, metronome and cue are never touched by solo. **D1 A** a group's solo solos the group (its tracks show it hollow); **D2 A** additive solo is a preference (Ctrl+click then replaces); **D3 A** a lit "S" chip in the transport while anything is soloed, a click clears; **D4 A1** returns then the master pinned at the bottom under a divider, a "Returns" caption that folds them, returns lettered A, B, C and never grouped; **D5 C1** Ableton's Solo/Cue switch on the master, cue **pre-fader** to a chosen pair, unavailable with a note when that pair is the main one; **D6** the metronome has its own output (Main, Cue or a pair), never through the master; **D7** palette commands Solo and Mute selected tracks and Clear all solos, no default keys. Chosen from interactive specimens: **sends as K1 "comet" knobs** (a trail of light in the return's colour, brightening to a glowing head; a dot marks pre-fader; hovering a send lights its return and the reverse) over lantern, droplet and plain knobs; **a track silenced by another's solo shows a hollow M and a dimmed name** (hollow S inside a soloed group) over dimming the whole row. Asked while building 4d: **O1**, the cue output chosen in the audio settings beside the main pair, over Ableton's per-pair output configuration (so the metronome's output is Main or Cue); the owner's interface has two outputs, so cue is checked on the four-output test device. MT-MIX-4 runs 1 and 2, from mock-ups: **C4** knobs step up on selected rows, **O1** a "+N ▾" button drawn as "+ Add track ▾", **R2** an unfolded return lists its senders, **L4** its four loudest then "+N more", **S1** silent sends leave that list when let go; **12 returns at most**; the standard +6 dB of an empty return kept. |
+| Mixer behaviour (M4 slice 1, 2026-10-09) | Asked after the graph was built (the owner: variants first, before building): **centre −3 dB** (a hard-panned side at unity; projects from M3 play 3 dB quieter) over centre unity with +3 dB sides; **balance** panning of stereo tracks over a true stereo pan; **mute silences every send**, pre-fader ones too over pre-fader sends playing on; **post-fader sends after the pan** over before it. All four as built (ADR-0035). |
+| Pan law for stereo (after M4 slice 7, 2026-10-10) | **B**: stereo material keeps its level at the centre (balance); the project's pan law (−3 dB by default) applies only to tracks whose clips are all mono files. Chosen over keeping −3 dB on every track (every file played and measured 3 dB under its own level) and a 0 dB default. Projects from before play stereo tracks 3 dB louder. ADR-0042. |
+| Hints (M4 slice 0, 2026-10-09) | Chosen from interactive specimens: **an info line** along the bottom of the window (C, a persistent info line) over quiet chips (A) and rest-to-reveal (B), **with the K5 keycaps** the palette and menus use (the owner's addition, for consistency), **no chips for held keys** (the cursor and the lit action say it), full width (ADR-0034). |
+| Mute, solo, returns, master and cue (M4 slice 4, 2026-10-09) | The solo rules agreed as a table of 14 cases before building (`docs/milestones/M4.md` §5): solo keeps a soloed track's path open, **mute always beats solo** along the path, returns are solo-safe, **a soloed return plays wet only** (sends into it stay on, their tracks' outputs go silent), the master, metronome and cue are never touched by solo. **D1 A** a group's solo solos the group (its tracks show it hollow); **D2 A** additive solo is a preference (Ctrl+click then replaces); **D3 A** a lit "S" chip in the transport while anything is soloed, a click clears; **D4 A1** returns then the master pinned at the bottom under a divider, a "Returns" caption that folds them, returns lettered A, B, C and never grouped; **D5 C1** a Solo/Cue switch on the master, cue **pre-fader** to a chosen pair, unavailable with a note when that pair is the main one; **D6** the metronome has its own output (Main, Cue or a pair), never through the master; **D7** palette commands Solo and Mute selected tracks and Clear all solos, no default keys. Chosen from interactive specimens: **sends as K1 "comet" knobs** (a trail of light in the return's colour, brightening to a glowing head; a dot marks pre-fader; hovering a send lights its return and the reverse) over lantern, droplet and plain knobs; **a track silenced by another's solo shows a hollow M and a dimmed name** (hollow S inside a soloed group) over dimming the whole row. Asked while building 4d: **O1**, the cue output chosen in the audio settings beside the main pair, over a separate cue output pair (so the metronome's output is Main or Cue); the owner's interface has two outputs, so cue is checked on the four-output test device. MT-MIX-4 runs 1 and 2, from mock-ups: **C4** knobs step up on selected rows, **O1** a "+N ▾" button drawn as "+ Add track ▾", **R2** an unfolded return lists its senders, **L4** its four loudest then "+N more", **S1** silent sends leave that list when let go; **12 returns at most**; the standard +6 dB of an empty return kept. |
 | Mixer panel and meters (M4 slice 5, 2026-10-09) | Chosen from interactive specimens: **S1 console** strips (fader and meter side by side, 76 pt) over S2 light rail and S3 broad; sends **O2**, two knobs then a "+N ▾" list (over a grid of six, or every knob in a taller strip); meter colours **M1 accent by default, M2 track colour as a setting** (over M3 classic green); loudness **L2**, a column beside the master; header meters as well, **H2** inside the volume slider (over H1 at the edge and H3 the colour rail, which already carries arm and nesting). Behaviour, all as recommended: **B1** post-fader after the pan; **B2** peaks fall 20 dB/s, a 1.5 s hold, clip latched until clicked; **B3** a latching wheel; **B4** one fold with the arrangement; **B5** integrated loudness resets on Play from stop; **B6** any output pair; **B7** sections fold away in a short panel; **B8** strips drag to reorder, returns included. ADR-0040. |
-| Sidechains and delay compensation (M4 slice 6, 2026-10-10) | Behaviour asked before building: **read ahead** (what is heard lines up with the playhead; live input in M11 gets a reduced-latency monitoring option) over delaying everything and moving the drawn playhead; sidechain taps **Ableton's three** (Pre FX, Post FX by default, Post Mixer; FX taps ignore mute) over post-fader only; **sidechains saved with the first device** that uses them (format v11 then) over saving them now. The readout from rendered mock-ups: **D1**, only while there is compensation, at the end of the device line, the path in the info line, always in the audio panel (over D2 always shown and D3 folded into the latency). ADR-0041. |
+| Sidechains and delay compensation (M4 slice 6, 2026-10-10) | Behaviour asked before building: **read ahead** (what is heard lines up with the playhead; live input in M11 gets a reduced-latency monitoring option) over delaying everything and moving the drawn playhead; three sidechain taps (Pre FX, Post FX by default, Post Mixer; FX taps ignore mute) over post-fader only; **sidechains saved with the first device** that uses them (format v11 then) over saving them now. The readout from rendered mock-ups: **D1**, only while there is compensation, at the end of the device line, the path in the info line, always in the audio panel (over D2 always shown and D3 folded into the latency). ADR-0041. |
 | Interface audit (after M4, 2026-10-10) | Chosen from interactive mock-ups (`docs/audits/2026-10-10-design.md`): value fields take the surface's **control fill** (T1); a **`well` token** for grooves and meter wells (T2); a **switch and a segmented control** replace egui's checkboxes and radios (T3); **underline tabs**, toggles keep their fill when off (T4); the arm button **grey at rest**, red on hover (T5); numbers in **Martian Mono** at width 87.5 (S1, download asked when built); the slider handle **a solid line that opens into top and bottom ticks near its value** (S2, the owner's own variant C); fader scale labels thinned (S3); one size scale (S4); one empty-state widget with a ghost strip in the mixer (S5); swatches **2 × 6 with a "Track colour" pill**, paths shortened in the middle (S6); one time-signature field (S7); a **fading overlay scroll bar** (U2); undo shows an **accent wash and a glide** (M4); clips glide on release and undo, groups fold with a glide, rows glide, highlights slide (M1, M2, M3, M5). Built first, as **milestone 4.5**, recorded as a mid milestone (`docs/milestones/M4.5.md`). |
 | MIDI interaction exploration (before M5, 2026-10-11) | From a Design canvas of six MIDI pain points, each with a familiar and an experimental option: **every familiar option for now** (mini piano roll on clips, the piano roll in the detail panel, Capture MIDI in M9, Q and Shift+Q, a velocity lane, linked copies with M7's editing). **Content faces and chord detection move to M8** with drum maps. Velocity drawn inside notes is ruled out: short notes are too small. Table in `docs/milestones/M5.md` §4. |
 | Menus with settings (M4.5, after MT-POL-2, 2026-10-10) | Chosen from an interactive mock-up (X1): **C, fades when you leave**: a change leaves the menu open; once changed, the pointer leaving it starts a 0.4 s wait, then a fade; coming back cancels it; Esc, a click elsewhere and commands close it at once. Over A (stays until dismissed) and B (lingers 1.2 s, then fades). Every menu fades out instead of vanishing. |
-| Hearing MIDI (M5 slice 1, 2026-10-10) | Asked before building, all as recommended: the built-in synth's default sound is **S1 warm poly** (two saws ±7 cents, 12 dB low-pass at 2.4 kHz, A 5 ms · D 300 ms · S 70 % · R 250 ms, 16 voices, oldest stolen) over clean keys and a square pluck; until the device chain, the sound changes through **E1 presets in a menu** (Poly, Keys, Bass, Pluck, Pad; track menu and palette) over a small knob card or a fixed patch; **T1 MIDI To is one or the other** (instrument or a port and channel, Ableton) over layering both; **H1 chase notes and controllers** on Play and jumps (Live 11 default) over controllers only (Cubase default). Plan in `docs/milestones/M5.md`, slice 1. |
-| Playing live (M5 slice 2, 2026-10-11) | Chosen from specimens (the "MIDI: Playing Live" design canvas), all as recommended: **L A the selected MIDI track listens** without being armed (a hollow arm ring), plus every armed track (Ableton's auto-arm), over armed tracks only; **J A steady timing**, each live message placed at its driver stamp one buffer later, over playing at the next buffer; **C B a MIDI chip with in and out lights** and a popover whose rows show each port's traffic with Track and Remote pills, unplugged ports dimmed, over a word and one light; **K A a lit keycap button and a readout** (`C3–C4 · vel 100`) for the computer keyboard, over a mini keyboard in the bar; **H B a light by the name** of each listening MIDI track, over none; **R A MIDI From and Monitor in the track menu and on the mixer strip**, over an I/O block on tall headers. The computer keyboard toggles with **Ctrl+Shift+K** (M stays Set locator). Plan in `docs/milestones/M5.md`, slice 2. |
-| Piano roll (M5 slice 3, 2026-10-11) | Chosen from live specimens (the "Lumen Piano Roll Specimens" artifact), all as recommended: **Look A, studio keys** (a piano-key column, darker lanes for black keys, notes in the track's colour shaded by velocity, an outline on selected notes, handles on hover) over a labelled pitch rail; **Draw A, a click adds one grid step and dragging sets its length** (Ableton) over drag-to-paint; **Live A, preview then commit**: notes follow the pointer and pitches are auditioned, the playing clip changes once on release, over changing it continuously. Built by Sonnet agents at medium effort in worktrees (the owner's request). Plan in `docs/milestones/M5.md`. |
+| Hearing MIDI (M5 slice 1, 2026-10-10) | Asked before building, all as recommended: the built-in synth's default sound is **S1 warm poly** (two saws ±7 cents, 12 dB low-pass at 2.4 kHz, A 5 ms · D 300 ms · S 70 % · R 250 ms, 16 voices, oldest stolen) over clean keys and a square pluck; until the device chain, the sound changes through **E1 presets in a menu** (Poly, Keys, Bass, Pluck, Pad; track menu and palette) over a small knob card or a fixed patch; **T1 MIDI To has one destination at a time** (an instrument or an external port and channel), rather than layering both; **H1 chases notes and controllers** on Play and jumps, rather than chasing controllers only. Plan in `docs/milestones/M5.md`, slice 1. |
+| Playing live (M5 slice 2, 2026-10-11) | Chosen from specimens (the "MIDI: Playing Live" design canvas), all as recommended: **L A the selected MIDI track listens** without being armed (a hollow arm ring), plus every armed track (selection-based auto-arm), over armed tracks only; **J A steady timing**, each live message placed at its driver stamp one buffer later, over playing at the next buffer; **C B a MIDI chip with in and out lights** and a popover whose rows show each port's traffic with Track and Remote pills, unplugged ports dimmed, over a word and one light; **K A a lit keycap button and a readout** (`C3–C4 · vel 100`) for the computer keyboard, over a mini keyboard in the bar; **H B a light by the name** of each listening MIDI track, over none; **R A MIDI From and Monitor in the track menu and on the mixer strip**, over an I/O block on tall headers. The computer keyboard toggles with **Ctrl+Shift+K** (M stays Set locator). Plan in `docs/milestones/M5.md`, slice 2. |
+| Piano roll (M5 slice 3, 2026-10-11) | Chosen from live specimens (the "Lumen Piano Roll Specimens" artifact), all as recommended: **Look A, studio keys** (a piano-key column, darker lanes for black keys, notes in the track's colour shaded by velocity, an outline on selected notes, handles on hover) over a labelled pitch rail; **Draw A, a click adds one grid step and dragging sets its length** over drag-to-paint; **Live A, preview then commit**: notes follow the pointer and pitches are auditioned, the playing clip changes once on release, over changing it continuously. Built by Sonnet agents at medium effort in worktrees (the owner's request). Plan in `docs/milestones/M5.md`. |
 | Clip editor's view (M5 slice 3, 2026-10-11) | Owner: the piano roll zooms and scrolls on its own, independent of the arrangement; it is fitted to each clip it opens; grid settings stay shared. ADR-0048. |
 | Time selection in empty lanes (M5 amendment, 2026-10-11) | Owner (MT-MIDI-4): a drag in empty lanes selects time on the tracks it spans, snapped, as a clip's lower half does; the time ruler selects time on the selected tracks, or every track when none is selected, and keeps the selection. The clip marquee moved to Ctrl+Shift (the integrator's choice, for the owner to confirm). ADR-0049. |
 | Velocity and controller lanes (M5 slice 4, 2026-10-11) | Chosen from live specimens (the "Lumen Controller Lane Specimens" artifact), all as recommended: **V A stems with round heads**, one per note start, over filled bars as wide as their notes; **L A one lane at a time with a tab switcher** (Velocity, Mod wheel, Pitch bend, Pressure, "+ CC") over a stack of lanes with Add and Remove; **T A Pencil, Line and Curve in the lane\'s own header** over modifier-only drawing; **R B Line, Curve and bend write an event every 1/64 note, dropping only repeated values, and the Pencil follows the grid when snapping is on** over every tool following the 1/16 grid. Plan in `docs/milestones/M5.md`. ADR-0050. |
 | MT-MIDI-2 and MT-MIDI-3 follow-ups (2026-10-11) | **MA a monitor badge** on MIDI track headers, only when Monitor is not Auto (a speaker in accent for In, slashed grey for Off; click cycles), over the arm showing all three or an IN/OFF word ("MIDI: Playing Live" canvas, boards M). **Held notes glide to a new preset** at once (no retrigger), over keeping the old sound or retriggering. **The GS Wavetable latency is deferred**: a per-port output offset to be built later, recorded in KNOWN_ISSUES. |
 | Design system over ADR-0051 (2026-10-11) | The owner's **Lumen design system** (a Design System artifact: tokens, a Material card and a card per component) is the reference for tokens, components and widgets. Asked where it and ADR-0051 differ, the owner chose **the design system on all four**: **on** is `accent_muted` with accent letters and a 38% accent hairline, no glow; **solo** (and the primary, the chosen tool) is filled accent (`accent_hi` to `accent_lo`, no halo; amber only warns); a **lit M** is the `mute` grey with `on_mute` letters; **raised** controls are `control_hi` to `control` with an edge light and a border, Ember on hover, no drop shadow, radius by height; the **arm** is round with a grey dot at rest. ADR-0052. |
 | Recording MIDI (M5 slice 6, 2026-10-12) | Asked and chosen (the plan in `docs/milestones/M5.md`, and the "Lumen Recording Specimens" canvas): **Replace by default, with an Overdub switch** (C4, as planned); **loop passes layer** into one clip in both modes (separate takes are M9); **recording settings in the app settings file**, not the project, so no format change; **a clip runs exactly from record start to stop**, not to the bar line (the owner's choice over the recommended bar-line end); **1-A** the count-in on the position field, counting up through negative bars, and Record pulsing on each beat, with no new widget; **2-B** an Overdub button beside Record, and the count-in and "Metronome only while recording" in the metronome's menu; **3-A** a clip being recorded is record red with a "REC" tag and drops into its track colour on stop. Count-in and record-only for MIDI move from M9 (the 2026-10-06 row) to this slice; audio recording stays M9. ADR-0055. |
-| Covered MIDI clips (M5, 2026-10-13, after MT-MIDI-7 run 3) | Asked, from two variants: **A, Ableton's window** (chosen, as recommended): a clip covered, trimmed or split keeps every note, hidden outside its edges, and shows them when an edge is dragged back; moving the top clip away leaves a gap, as in Ableton. B (stacked clips that reappear by themselves) was set aside. Overdub across clips: "exactly like Ableton"; the owner will reproduce what they saw. Format v15. ADR-0056. |
+| Covered MIDI clips (M5, 2026-10-13, after MT-MIDI-7 run 3) | Asked, from two variants: **A, the clip window** (chosen, as recommended): a clip covered, trimmed or split keeps every note, hidden outside its edges, and shows them when an edge is dragged back; moving the top clip away leaves a gap. B (stacked clips that reappear by themselves) was set aside. Overdub across clips: the owner will reproduce the observed behavior before deciding whether to change it. Format v15. ADR-0056. |
 | Recording edges and MIDI trims (M5, 2026-10-13, the owner's four points) | Asked for directly: MIDI clip edges that drag without jitter or offset; Overdub begun at or before a clip extends that clip and merges into it; recording begun in the middle of a clip makes a new clip from the playhead to the stop; and the clip recorded over redraws continuously, not at commits. Built as stated (no variants pitched: the owner gave the behaviour). ADR-0057. |
-| Overdub at clip edges (M5, 2026-10-13, MT-MIDI-7 run 7) | Asked for directly, reversing part of the row above: Overdub begun before a clip and reaching its start, or begun exactly at its start, records a **new clip** and does not merge into or grow the clip there, as Ableton records in the arrangement; the new clip carries the track's existing notes along with the take, and the old clip stays a clip of its own. Built as stated. ADR-0060. |
+| Overdub at clip edges (M5, 2026-10-13, MT-MIDI-7 run 7) | Asked for directly, reversing part of the row above: Overdub begun before a clip and reaching its start, or begun exactly at its start, records a **new clip** and does not merge into or grow the clip there in the arrangement; the new clip carries the track's existing notes along with the take, and the old clip stays a clip of its own. Built as stated. ADR-0060. |
 | MIDI learn moved to M7 (M5, 2026-10-13) | Asked, as recommended: **MIDI learn and its mapping list move to M7**, built with automation, where M6 and M7 define the parameters it maps and a mapped controller writes automation through the same path as Lumen's controls (Touch and Latch). M5 slice 7 keeps Standard MIDI Files and MIDI clock out (plan in `docs/milestones/M5.md`). Its choices, asked in chat, all as recommended: **F1 A** a multi-track file dropped on a track merges into one clip there, dropped between tracks or on empty lanes makes one MIDI track per file track (type 0 split by channel); **F2 A** notes are placed in beats and the project tempo is untouched, with a notice offering "Use them" for the file's tempo map and first time signature (one undo step); **F3 A** clock runs only while playing; **F4 A** a Sync delay per port, −20 to +50 ms. MTC out [S] is deferred, unscheduled. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
@@ -150,7 +151,7 @@ that may crash or hang; 1.0 requires separate-process isolation.
 1. **Single process**, plugins in-process with exception guards. Simplest and
    lowest latency, but one bad plugin kills the session. Fails the 1.0
    requirement.
-2. **Main process plus sandboxed plugin host processes** (as in Bitwig).
+2. **Main process plus sandboxed plugin host processes**.
    Isolates plugins. Costs IPC per audio block and makes editor windows
    harder.
 3. **Engine in its own process, separate from the UI.** Protects audio from UI
@@ -203,7 +204,7 @@ The arrangement and piano roll must hold 60 fps minimum and 120 fps target with
 200 tracks, 20,000 clips and 100,000 notes. Other requirements: near-zero idle
 CPU; window usable within 2 s; high-DPI and 100–200% scaling; light and dark
 themes; keyboard navigation; accessible names; multiple windows; drag and drop
-from the OS; a polished custom look. Nearly every DAW-specific view (clips,
+from the OS; a polished custom look. Nearly every arrangement and editor view (clips,
 waveforms, notes, envelopes, meters, knobs) is custom-painted whatever the
 framework, so the framework mostly supplies windowing, input, text, layout,
 focus and accessibility.
@@ -360,8 +361,8 @@ enforced by tests.
    leaves cores idle once plugins are heavy.
 2. **Driver thread plus a real-time worker pool** processing independent graph
    nodes in parallel (MMCSS "Pro Audio" on Windows).
-3. Anticipative pre-rendering of non-live tracks with extra buffering (as in
-   Reaper). Big CPU wins later, but complex. The architecture should allow it,
+3. Anticipative pre-rendering of non-live tracks with extra buffering. This can
+   reduce CPU use, but adds complexity. The architecture should allow it,
    not require it.
 
 ### Decision (proposed)
@@ -425,12 +426,12 @@ backups, and hold plugin state (opaque binary, sometimes megabytes).
 |---|---|
 | **JSON** (serde_json) | Readable, diffable, universal tooling, fast. Binary blobs need base64. |
 | RON | Rust-native and readable; little tooling outside Rust. |
-| XML (gzipped, as in Ableton .als) | Verbose; awkward in Rust; gzip defeats "human-friendly". |
+| XML (gzipped .als) | Verbose; awkward in Rust; gzip defeats "human-friendly". |
 | SQLite | Transactional and incremental, but not human-readable. Schema migrations are well understood. |
 | Binary (bincode, MessagePack) | Fast and compact; opaque; brittle to evolve. |
 
 ### Decision (proposed)
-- A **project folder** (like Ableton's) containing `<name>.lumen`, a UTF-8,
+- A **project folder** containing `<name>.lumen`, a UTF-8,
   pretty-printed JSON document, plus `Samples/`, `Backups/` and
   `Recordings/`. Media paths are stored relative to the project folder, with
   the absolute path and a fingerprint kept as relink hints.
@@ -608,9 +609,8 @@ All pass criteria met.
 - **Real plugins: 39 of 40 installed modules enumerated** in sandboxed child
   processes (`LoadLibraryEx` → `InitDll` → `GetPluginFactory` → class info
   → `ExitDll`): 10.4 s wall time with 4 parallel processes (20.5 s of
-  per-module time). Kontakt 8, Omnisphere, FM8, u-he, 21 iZotope Ozone 12
-  modules, Neural DSP, Toontrack, Melodyne, Spitfire and IK all succeeded.
-  EastWest Opus failed in its own `DllMain` (`ERROR_DLL_INIT_FAILED`) after
+  per-module time). Test instruments D, E and B, a 21-module effect suite, Test effect A,
+  and several other modules succeeded. Test instrument I failed in its own `DllMain` (`ERROR_DLL_INIT_FAILED`) after
   8.9 s. It was cleanly classified, and the scanner was unaffected. See
   `docs/PLUGIN_COMPATIBILITY.md`.
 - **`moduleinfo.json` fast path:** present in 4 of 40 modules (one in the
@@ -624,7 +624,7 @@ All pass criteria met.
 
 Findings that shape M6:
 1. Scanning cost is dominated by plugin `InitDll` and `DllMain` work
-   (Kontakt 1.9 s, Opus 8.9 s), so the scanner must be parallel,
+   (Test instrument D 1.9 s, Test instrument I 8.9 s), so the scanner must be parallel,
    cached and non-blocking, exactly as specified.
 2. Most real plugins (35 of 40 here) still ship the legacy single-file
    layout. Discovery must keep supporting it.
@@ -637,7 +637,7 @@ Not covered: instantiation, processing, state, presets, editors (M6).
 A real third-party instrument hosted end to end, first in-process and then
 isolated. Built on the `vst3` crate with Lumen's own host-side COM objects
 (host application, event list, parameter changes, memory stream).
-u-he TyrellN6, 48 kHz, 128-sample blocks, MSVC release build.
+Test instrument H, 48 kHz, 128-sample blocks, MSVC release build.
 
 **In-process (step 1):** loads and activates in 21–370 ms (cold disk cache
 first). Middle C renders at peak −13.4 dBFS / RMS −21.9 dBFS, all samples
@@ -760,7 +760,7 @@ Verified by the owner later the same day:
 - **Hardware removal** is survived without a crash. Recreating buffers then
   fails with `ASE_NotPresent`, so M2 must keep the session and retry when the
   device comes back.
-- The Focusrite driver is **multi-client** (it streamed alongside Ableton),
+- The Focusrite driver is **multi-client** (it streamed alongside the driver and output device),
   so busy-driver error handling remains untested.
 
 ---
@@ -814,7 +814,7 @@ must return the original exactly. Tempo runs from 20 to 999 BPM, sample rates
 up to 192 kHz.
 
 ### Options considered
-1. Floating-point beats (`f64`), as in Ableton and Reaper. Precise enough, but
+1. Floating-point beats (`f64`). Precise enough, but
    not exact: tuplets like 1/3 are inexact and arithmetic is not associative.
 2. Integer ticks at a conventional resolution (480 or 960 PPQ). Exact for the
    grid, but coarser than one sample at fast tempos and high rates.
@@ -969,7 +969,7 @@ locally with cargo-deny 0.20.2):
 **Date:** 2026-10-06
 
 ### Context
-The spec (§5) assigns Shift+Tab to "toggle detail panel", as in Ableton.
+The spec (§5) assigns Shift+Tab to "toggle detail panel".
 Shift+Tab is also the standard way to move keyboard focus backwards, and the
 spec requires keyboard-only core workflows. In the M1 shell, egui handled
 both at once: focus moved into the detail panel as the panel was hidden, and
@@ -978,7 +978,7 @@ AccessKit panicked on the vanished focus target. That crash was fixed on
 whenever a panel is hidden.
 
 ### Options
-1. Keep Shift+Tab for the detail panel (Ableton users expect it) and give
+1. Keep Shift+Tab for the detail panel (as specified for the detail-panel toggle) and give
    backward focus another key, such as Ctrl+Shift+Tab or F6 / Shift+F6
    between panes.
 2. Keep standard Shift+Tab focus navigation and move the detail-panel toggle
@@ -1064,9 +1064,7 @@ codebase but are not tested on hardware yet.
 ### Context
 The transport must be sample-accurate, survive tempo and time-signature
 changes and device rate changes (MT-AUDIO-6 showed Windows can switch rate
-under a running stream), and behave the way producers coming from Ableton
-expect. The spec's Ableton-compatible shortcut set implies Ableton's
-transport semantics.
+under a running stream), and behave the way producers expect. The spec's default shortcut set defines the transport semantics.
 
 ### Decision
 - **State:** the engine keeps the play position in samples (what the device
@@ -1077,7 +1075,7 @@ transport semantics.
   (`ticks_at_sample` on the old mapping, `sample_at` on the new one), so the
   bar and beat stay put. Because the position lives on whole samples, a
   change can move it by up to half a sample.
-- **Semantics (as in Ableton Live; revised 2026-10-06 at the owner's
+- **Semantics (revised 2026-10-06 at the owner's
   request, MT-APP-4):** two positions, both drawn. The **start marker** is
   a neutral grey arrow at the ruler's bottom edge, on the ruler only, and is
   where Play starts. The **playhead** is the blue arrow at the top edge with
@@ -1238,7 +1236,7 @@ audio in memory for M2, disk streaming in M9; AAC/M4A deferred.
   - A ringing click carries on through wraps, locates and stops; only new
     beats start clicks.
   - Count-in, pre-roll and record-only belong to recording (M9). Count-in
-    applies to recording in Ableton too.
+    also applies to recording.
 - **Test tone:** 1 kHz at −20 dBFS on every output, whether playing or not,
   with 5 ms ramps.
 - **Panic:** stops at once and silences playback, the metronome, the test
@@ -1348,7 +1346,7 @@ WASAPI and macOS/Linux input deferred to M9.
 - **What the window offers:**
   - ASIO buffer sizes are shown read-only, with the driver's **Control
     panel** button. Most ASIO drivers (Focusrite included) take the buffer
-    size from their own panel, as in Ableton. A running ASIO driver reports
+    size from their own panel. A running ASIO driver reports
     only its current rate, so the window offers the standard rates and
     reverts if the driver refuses one.
   - WASAPI shared shows the Windows rate and period read-only; exclusive
@@ -1453,7 +1451,7 @@ gate on.
 
 ### Context
 `CLAUDE.md` §5 asks for a design system before the main UI is built. The
-owner asked for fluid, Apple-like motion (2026-10-06). The M2 UI used a
+owner asked for fluid motion (2026-10-06). The M2 UI used a
 handful of dark-only constants and egui's default style.
 
 ### Decision
@@ -1552,7 +1550,7 @@ edit too: MIDI, automation and plugin state.
   - a step limit (10,000 by default) drops the oldest steps.
 - Edits that change nothing record nothing.
 - Transport and view state (loop region, zoom, panels) are saved with the
-  project but are not undo steps, as in Ableton.
+  project but are not undo steps.
 - The `.lumen` format is unchanged by the `Arc`s (serde serialises them
   transparently).
 
@@ -1577,7 +1575,7 @@ edit too: MIDI, automation and plugin state.
 Slice 4 brings real tracks. The owner chose the look from rendered options
 (option A's headers with option B's clips, a round record button, and
 hints for armed and soloed tracks). During the slice they also asked for
-Ableton-style folding and vertical resizing.
+track folding and vertical resizing.
 
 ### Decision
 - **Design:** `docs/DESIGN.md` §7a, drawn by `arrangement.rs` with the
@@ -1782,7 +1780,7 @@ memory. Clips are already on the GPU with a per-frame row table
     pixel-snapped left edge, and the wave area's top and bottom are
     snapped too, so column *k* always shows the same frames at a given
     zoom. Scrolling then moves the waveform by whole pixels with its clip,
-    as in Ableton. Measured: a third of a pixel of scroll changed 3.5% of
+   . Measured: a third of a pixel of scroll changed 3.5% of
     the waveform's pixels before (8% at two thirds); after, the image is
     the same shifted by one pixel (21 of 138,000 pixels differ).
   - **Four or more buckets per pixel** (MT-APP-11 run 2: it shimmered
@@ -1842,14 +1840,14 @@ then.
 ### Context
 §6.1 asks for anchored zoom, zoom to fit, follow-playhead modes, pan,
 edge auto-scroll, and reordering tracks by drag. The owner chose zoom down
-to single samples (as Ableton does) and Follow by page, on by default
+to single samples (to single samples) and Follow by page, on by default
 (owner-decisions table).
 
 ### Decision
 - **One horizontal view, `TimeView`** (`timeview.rs`): the beat at the
   left edge and points per beat, in f64. Zooming about an anchor,
   scrolling, fitting, the limits and glides are pure functions, tested.
-- **Limits, as in Ableton** (after MT-APP-12 run 1): the song sets how
+- **Limits** (after MT-APP-12 run 1): the song sets how
   far out the view goes and how far right it scrolls. The furthest beat
   in use (the last clip's end, the playhead, the start marker, an enabled
   loop; at least 32 bars), with 10% of room after it, fills the width at
@@ -1869,7 +1867,7 @@ to single samples (as Ableton does) and Follow by page, on by default
   and waveform edges stay exact an hour into a song at 8 points per
   sample. The playhead and start marker use the exact position once
   their glide settles.
-- **Keys, as in Ableton:** Ctrl+wheel or a pinch zooms at the pointer
+- **Keys:** Ctrl+wheel or a pinch zooms at the pointer
   (one gesture is one step back); `+` and `-` glide around the pointer,
   else the playhead, else the middle; X steps back; W fits the song's
   width; H fits every track's height in whole 22 pt steps, and H again
@@ -1879,7 +1877,7 @@ to single samples (as Ableton does) and Follow by page, on by default
   Scrolling or zooming by hand, fitting, stepping back and clicking the
   ruler pause it; Play or the button resumes it. A Follow button (a
   playhead line with an arrow) toggles it, right-click chooses the mode,
-  Ctrl+Shift+F as in Ableton. Saved in settings.
+  Ctrl+Shift+F. Saved in settings.
 - **Reordering:** drag a header (the selection, or just that track); the
   dragged headers dim, an accent line across headers and lanes shows
   where they land, the list scrolls near its top and bottom edges, the
@@ -2014,7 +2012,7 @@ Both 1 and 3, in two layers:
 ### Context
 Slice 5 gives the arrangement its time tools: the editing grid and
 snapping, rulers in several formats, the loop brace and punch, named
-locators, and Ableton-style scrubbing (an owner request raised from S to
+locators, and arrangement scrubbing (an owner request raised from S to
 M). The owner chose ruler layout A and both scrub styles from rendered
 specimens (owner-decisions table, "Rulers and scrubbing"). This records
 the choices made inside those.
@@ -2024,28 +2022,28 @@ the choices made inside those.
   widths (6 to 64 points per line) or fixed from 8 bars to 1/64, with
   triplet and dotted feels and snap on or off. `snap`, `cell` (the step a
   time falls in) and `lines` are pure and tested, so clip editing (slice 6)
-  and the piano roll (M5) share one implementation. Ableton's keys:
+  and the piano roll (M5) share one implementation. the default keys:
   Ctrl+1 to Ctrl+5. Alt bypasses snapping everywhere. The grid is saved
   with the view (format v4).
 - **The loop and punch are document edits** (format v4 makes them part of
-  undo), as in Ableton: drawing, moving, resizing and toggling the loop
+  undo): drawing, moving, resizing and toggling the loop
   are undo steps, one per drag. The transport plays whatever the document
   says (`Transport::follow_loop`, every frame).
-- **Punch in and out sit at the loop's edges**, as in Ableton, instead of
+- **Punch in and out sit at the loop's edges**, instead of
   a second region: two switches in the loop's menus. Fewer things on the
   strip, and the loop already marks the take. Recording uses them in M9.
 - **Locators** are `Project.markers` (format v4), kept in time order. Keys
-  (Ableton-compatible where Ableton has one): **M** sets a locator at the
-  playhead or removes the one there (Ableton's "Set" button behaviour);
-  **Ctrl+Left / Ctrl+Right** jump to the previous or next one (Ableton
-  has no default; these are free in Lumen and match common DAWs);
+  (default bindings): **M** sets a locator at the
+  playhead or removes the one there (the Set action);
+  **Ctrl+Left / Ctrl+Right** jump to the previous or next one; these keys are
+  unbound by default and remain available for customization;
   **F2** renames and **Delete** removes the selected one, taking
   precedence over the track keys while a locator is selected. Default
   names are "Locator N". Marker ids share the project's id space.
 - **Scrubbing is an engine mode** (`Command::Scrub { at, style }`,
   `Command::EndScrub`; `lumen-engine/src/scrub.rs`), only while stopped;
   while playing, a drag on the scrub strip jumps playback from step to
-  step instead, as Ableton does.
+  step instead.
   - **Loop** (default): the grid cell under the pointer (`Grid::cell`,
     whether or not snapping is on), at least 50 ms, loops at normal speed;
     every pass and every change is enveloped over 2 ms.
@@ -2064,7 +2062,7 @@ the choices made inside those.
   most a third of the brace), and what a drag grabs is decided where the
   button went down, not where egui first reports the drag a few points
   later (that turned edge grabs into moves). Right-clicking the scrub
-  strip adds a locator there without moving the playhead, as in Ableton.
+  strip adds a locator there without moving the playhead.
 - **The strip** (24 pt) holds the scrub strip and locator flags in its top
   14 pt and the loop brace in its bottom 10 pt; flags take precedence over
   scrubbing, and the brace has its own band (DESIGN §7d).
@@ -2074,7 +2072,7 @@ the choices made inside those.
   stopped. The clip player already rendered by position; disk streaming
   (M9) must keep random access cheap or serve scrubs from a cache.
 - Loop and punch changes are undo steps: Ctrl+Z after drawing a loop
-  removes it, which matches Ableton.
+  removes it, as an undoable edit.
 - The performance gate covers the engine with the scrub mode idle: one
   branch per block.
 
@@ -2098,13 +2096,13 @@ the choices made inside those.
 
 ### Context
 Slice 6d first gave fades four named shapes, bent in steps. The owner
-asked for curves that move freely ("as flexible as Ableton") and that set
-the bar for envelopes in general, ahead of automation (M7). A fade's shape
+asked for curves with points that move freely in both time and value, setting
+the bar for envelopes in general ahead of automation (M7). A fade's shape
 must be stored, played on the audio thread, drawn on the GPU, and edited
 with one handle (the owner's choice C3).
 
 ### Options
-1. **More named shapes, or one bend amount** (Ableton's fade slope). Simple
+1. **More named shapes, or one bend amount** a single fade-slope control. Simple
    to store, but the bend cannot move left or right.
 2. **A curve through a stored point** (a spline through the handle's dot).
    Natural to edit, but S-curves need a second parameter anyway, and
@@ -2178,7 +2176,7 @@ curves, clip properties). ADR-0031 covers the curves.
 - **A drag redoes its edit from the project as the drag found it**, every
   frame, merged into one undo step: passing over a clip leaves it whole,
   and the result does not depend on the frame rate.
-- **Ableton's overlap rule:** a clip put down on others (moved, copied,
+- **the clip overlap rule:** a clip put down on others (moved, copied,
   trimmed, pasted, or dropped from Explorer onto a track) cuts away what
   it covers (`lumen_project::edit::overwrite`).
 - **Moved clips crossfade while playing** (5 ms in the engine), so
@@ -2191,7 +2189,7 @@ curves, clip properties). ADR-0031 covers the curves.
     a clip in place, so locked clips can still be muted, renamed and
     recoloured; moves, trims, slips, fades, gain and Delete leave them
     alone;
-  - rename: Ctrl+R (Ableton) or F2 opens a field in the title bar; a clip
+  - rename: Ctrl+R or F2 opens a field in the title bar; a clip
     out of view is renamed in its card instead;
   - colour: the twelve track colours as swatches, and "Track colour" to
     follow the track again. Clips now draw in their own colour (format v5
@@ -2239,7 +2237,7 @@ curves, clip properties). ADR-0031 covers the curves.
   showed the grid by about one level of 255 in the dark theme, where the
   body and the lanes are close in colour; 55% shows it at about half its
   strength outside clips.
-- **A click on the lanes moves the playhead** (owner, as in Ableton):
+- **A click on the lanes moves the playhead** (owner):
   snapped, Alt places freely, Follow pauses as for a ruler click; on a
   clip it also selects it; Ctrl and Shift clicks only build a selection.
 - **Esc belongs to the field being typed in.** egui takes a text field's
@@ -2276,8 +2274,7 @@ curves, clip properties). ADR-0031 covers the curves.
 Files dropped together onto new tracks joined the project in the order
 their loads finished, so dropping kick.wav and snare.wav could make the
 snare's track first (found in the M3 review: the E2E fixtures that drop
-two files failed now and then under load). Ableton keeps the dropped
-order. Files for new tracks now join from the front of their queue
+two files failed now and then under load). The drop order is now preserved. Files for new tracks now join from the front of their queue
 (`Lanes::join_loaded`): each once every file of its own drop and of
 earlier drops has loaded or failed, so a drop is one undo step and a fast
 file waits for a slower one dropped ahead of it, shown as a loading row
@@ -2317,7 +2314,7 @@ was written by hand next to the code that handled the key.
 Option 3.
 - `commands/mod.rs` holds every command once: a stable id
   (`edit.duplicate`, for saved keymaps), a name, an area (for grouping and
-  the K5 keycap light) and its default chords, Ableton's where it has one.
+  the K5 keycap light) and its default chords, where a default binding exists.
   A test keeps the table in the enum's order.
 - `commands/keys.rs`: a `Chord` is Ctrl (Cmd on macOS), Shift, Alt and a
   key, matched **exactly**: Alt+Up and Up are different chords, and
@@ -2390,8 +2387,8 @@ Option 3.
   change is needed. `Keymap::from_saved` skips ids and chords it does not
   know, and a saved chord wins over a default that clashes with it (a
   default a later version adds).
-- **Presets.** One keymap ships, Ableton's, shown by name in the window;
-  the FL-style preset is [L] (CLAUDE.md §7).
+- **Presets.** One default keymap ships and is shown by name in the window;
+  the alternative preset is [L] (CLAUDE.md §7).
 - **Menus and tooltips (7d)** read shortcuts from the keymap, never from
   text written next to them: `widgets::menu_item` (a label and K5
   keycaps; accessible as "Rename Ctrl+R", as egui's menu buttons are
@@ -2465,8 +2462,8 @@ Option 3.
 
 ### Amendment (2026-10-08, the end-of-milestone review: `docs/audits/2026-10-08-m3.md`)
 - **Import audio… (H1).** Importing was mouse-drag only, so the exit flow
-  could not be done from the keyboard. A File command, Ctrl+Shift+I (Pro
-  Tools' and Logic's; Ableton has none, and Ctrl+I is Insert time), in the
+  could not be done from the keyboard. A File command, Ctrl+Shift+I
+  (there is no default binding; Ctrl+I is Insert time), in the
   app menu, the palette, a track's menu and the empty arrangement. The
   system dialog runs on its own thread; the chosen files load as dropped
   files do, at the playhead, onto the selected audio track or the track of
@@ -2474,8 +2471,8 @@ Option 3.
   (`document::import_place`, which a track's menu reaches by selecting
   that track). Tests never open a real dialog: `Launch::for_test` answers
   them from `testing::answer_next_dialog`, or as cancelled.
-- **The arrows follow the selection (H2, the owner's choice, as in Logic
-  and Cubase).** With a clip selected, ←/→ select the clip before or
+- **The arrows follow the selection (H2, the owner's choice
+  ).** With a clip selected, ←/→ select the clip before or
   after it on its track and ↑/↓ the nearest clip in time on the closest
   track above or below that has clips; Shift adds to the selection (two
   new commands, Shift+←/→). With tracks selected the arrows act on
@@ -2682,7 +2679,7 @@ undoable and safe (risk R4: no edit may make the audio feed back).
 ### Decision
 - **Format v7.** `Project::master` holds the one master track, apart from
   `tracks` (which never holds a master), so each view chooses where to show
-  it (Ableton keeps it at the bottom; slice 4). `Project::pan_law`
+  it (slice 4 places it at the bottom). `Project::pan_law`
   (`lumen_core::pan::PanLaw`, now serializable). Each track gains `output`
   (`auto`, `master`, `{"track": id}` a group or return, `{"device": n}` a
   pair of device outputs), `sends` (to a return, a `level` in dB written as
@@ -2754,8 +2751,7 @@ the look and four behaviours from rendered specimens before building
 - **One order rule** (`lumen_project::groups`): a group's tracks follow it
   directly, nested ones inside theirs, so a group and everything in it is
   one run of the list (`span`). Validation rejects a list out of that
-  order, and returns or the master inside a group (`can_be_grouped`, as in
-  Ableton). Edits set parents and a rough order, then `normalize` puts
+  order, and returns or the master inside a group (`can_be_grouped`). Edits set parents and a rough order, then `normalize` puts
   every track back under its group, keeping the order of siblings. Helpers:
   `depth`, `ancestors` (stops on a cycle), `is_inside`, `with_contents`,
   `outermost`, `common_group`, `in_order`.
@@ -2952,8 +2948,7 @@ specimens, and O1 for the cue outputs (owner-decisions table).
   it to that pair at the cue level (`Routing::cue`, `NodeSpec::cue`; the
   level glides; a device without the pair does not hear it). The master's
   Solo/Cue switch (greyed without a cue pair; a click says to choose one in
-  Audio settings) turns the S buttons into headphone buttons (Ableton's
-  click and Ctrl+click), and its unfolded row gains the cue level. What is
+  Audio settings) turns the S buttons into headphone buttons (click and Ctrl+click), and its unfolded row gains the cue level. What is
   cued is session state (`Arrangement::cued`); the switch and level are
   settings (`Mixing::cue_mode`, `cue_volume_db`). The metronome plays on
   Main or Cue (`MetronomeSettings::channel`, settings `metronome.output`),
@@ -3028,8 +3023,7 @@ fader and mute, the metronome on the cue pair).
   knob there is being set (`Arrangement::held_send`); it goes when let
   go. The send stays on the track at −∞, pre- or post-fader as it was.
 - **Kept:** an empty return plays an unchanged copy of what is sent, so a
-  0 dB send adds +6 dB, as in every DAW (the owner chose the standard
-  behaviour).
+  0 dB send adds +6 dB (the owner chose this behavior).
 - E2E: four loudest then all from "+N more"; a send turned off leaves
   the list (held, it stays); twelve returns at most (unit test).
 
@@ -3067,7 +3061,7 @@ fader and mute, the metronome on the cue pair).
 
 | Licence | Can sell binaries | Forks must stay open | Notes |
 |---|---|---|---|
-| GPL-3.0-or-later | Yes | Yes | The GPL family is used this way by Blender and Ardour. Enables the ASIO GPLv3 route. Conflicts with Mac App Store terms. |
+| GPL-3.0-or-later | Yes | Yes | The GPL family is used this way by other open-source applications. Enables the ASIO GPLv3 route. Conflicts with Mac App Store terms. |
 | MPL-2.0 | Yes | Changed files only | Competitors can keep most of their code closed. Weaker protection. |
 | Apache-2.0 or MIT | Yes | No | Anyone can close the code and resell it. |
 | FSL-1.1 (source-available) | Yes, except competing use | No | Not OSI open source. Converts to Apache-2.0 after two years. Closes the ASIO GPL route. |
@@ -3320,7 +3314,7 @@ compensation").
     the node's sidechain input to what it delays, as a compressor's listen
     button does, so tests can hear a sidechain;
   - a node takes **sidechains** (`SidechainSpec { from, tap }`) into a
-    second bus. The taps are Ableton's three (owner): **Pre FX** (after
+    second bus. The owner chose three taps: **Pre FX** (after
     trim and polarity, before the devices), **Post FX** (the default, after
     the devices, before mute and the fader) and **Post Mixer** (after
     mute, fader and pan). Pre and Post FX ignore mute, so a muted ghost
@@ -3589,8 +3583,7 @@ for the known issues to be fixed where they can be now.
   and the new samples land between the old ones, where a loud master's
   waveform goes over full scale (its true peak, commonly +0.5 to +1.5
   dBTP); MP3 and Ogg decode to floating point and keep their overs too.
-  At −3 dB those overs were hidden; at unity the meter shows them, as
-  Ableton's does. A 44.1 kHz tone with samples at 0 dBFS and its waveform
+  At −3 dB those overs were hidden; at unity the meter shows them. A 44.1 kHz tone with samples at 0 dBFS and its waveform
   at +3 dB reads +3.0 dB (E2E
   `full_scale_reads_zero_and_a_converted_file_shows_its_true_peak`).
 
@@ -3798,7 +3791,7 @@ instrument (VST3 arrives in M6), and a way to send a track to hardware.
   out; Panic cuts it, and sends All Notes Off and All Sound Off, CC 123 and
   120, on every channel of every port in use, from the engine and again
   from the app in case the engine is not running). Track mute and solo act
-  on the instrument's audio (the mixer), as in Ableton: the synth keeps
+  on the instrument's audio (the mixer): the synth keeps
   receiving notes, so unmuting mid-note is heard; a MIDI To track that is
   muted or silenced by solo sends nothing and lets go of what it sounded.
   Choosing an instrument on a track that plays to an output switches it
@@ -3899,7 +3892,7 @@ with a quick way to switch ports.
   M9). Both are written only when not the default. No-op migration, golden
   fixture `v13`, validation, `history::unchanged`.
   `Document::set_midi_from` and `set_monitor`, one undo step each.
-- **Who listens (L A, Ableton's auto-arm).** Pure and tested in
+- **Who listens (L A, selection-based auto-arm).** Pure and tested in
   `midi_play::listening`: Monitor In always; Auto when armed **or
   selected**; Off never; a MIDI To track that is muted or silenced by solo
   never. The arm of a track that listens only because it is selected shows
@@ -4582,11 +4575,10 @@ window still scale the move. Start and Length are unchanged. The popover says
 that these modes change note lengths. Unit tests in `edit/quantize.rs`
 (`end_mode_never_leaves_a_note_shorter_than_a_step` and four more).
 
-### Amendment (2026-10-12, matched to Ableton from the owner's test)
-The owner ran one scenario in Ableton and in Lumen (two adjacent eighth
+### Amendment (2026-10-12, based on the owner's comparison test)
+The owner tested one scenario in both applications (two adjacent eighth
 notes at 1.3 and 1.3.3, grid 1/4) and the results differed. Lumen's rules
-had no source (they were written from memory); they now follow Ableton's
-observed behaviour, and the previous amendment's "one step minimum" is
+had no source (they were written from memory); the rules now follow the observed behavior, and the previous amendment's "one step minimum" is
 withdrawn:
 - **A tie goes to the later line**: a note exactly halfway moves forward
   (1.3.3 goes to 1.4). It went to the earlier line.
@@ -4594,12 +4586,12 @@ withdrawn:
   line is at or before the start, the end goes to the first line after the
   start (so nothing collapses). An end already on the grid stays (the old
   floor had pushed the second note's end from 1.4 to 2.0).
-- **Both** is Ableton's order: Start first (the length stays), then the end
+- **Both** quantizes in this order: Start first (the length stays), then the end
   of the note as it now is. Adjacent notes stay adjacent. They had been
   quantized independently from their original positions and overlapped.
 Unit tests `ableton_start_*`, `ableton_end_*` and `ableton_both_*` in
-`edit/quantize.rs` are the owner's scenario. Still unverified against
-Ableton: swing in quantize, the window, what Ctrl+U does with no selection,
+`edit/quantize.rs` are the owner's scenario. The owner has not yet verified
+swing in quantize, the window, what Ctrl+U does with no selection,
 and a note that collapses in End (Lumen takes the next line).
 
 ## ADR-0055 — Recording MIDI (M5 slice 6, no format change)
@@ -4677,7 +4669,7 @@ Specimens" canvas, on 2026-10-12:
   starts at the loop's start; once playback has wrapped, it covers the whole
   loop. This is what the code does; see Consequences.
 - **Punch** uses the loop brace's switches (`punch_in`, `punch_out` in the
-  project's transport, Ableton-style). With punch in, the take keeps nothing before the
+  project's transport). With punch in, the take keeps nothing before the
   brace's start; with punch out, nothing after its end. With punch out, recording ends at the brace's end (or at
   the first wrap) while playback carries on. Auto-punch needs no switch.
 - **Settings** (`record_settings.rs`, `settings.record`): `count_in` is Off,
@@ -4758,9 +4750,8 @@ Specimens" canvas, on 2026-10-12:
 ### Amendment: MT-MIDI-7 run 1 (2026-10-13)
 
 The owner recorded with a real keyboard and found three faults:
-1. **The take painted in chunks.** The clip only grew, and its notes only
-   appeared, at each commit (about once a second), unlike Ableton, which paints
-   the take as it is played.
+1. **The take painted in chunks.** The clip and its notes appeared only at each commit, about once a second,
+   rather than updating as recording progressed.
 2. **The clips under the take were redrawn at the same interval.** Each commit
    rebuilt the track from `base`, and the pieces a Replace cut off clips got
    fresh ids every time, so the arrangement treated them as new clips.
@@ -4838,10 +4829,10 @@ over, not its own), `piano_roll/mini.rs` (a live note's band depends on its
 pitch alone), E2E `record` (Replace sends the output none of the old notes;
 Overdub sends the one under the take).
 
-### Amendment: clip previews as Ableton's (2026-10-13, after MT-MIDI-7 run 2)
+### Amendment: MIDI clip previews (2026-10-13, after MT-MIDI-7 run 2)
 
-The owner chose Ableton's arrangement preview for every MIDI clip and for the
-take, which settles the question left open above: notes inside a clip are
+The owner chose one consistent arrangement preview for every MIDI clip and the
+take, settling the question left open above: notes inside a clip are
 fitted to its own pitch range, and the take is drawn exactly as its clip will
 be once committed. Three findings, fixed:
 1. **Clip previews did not have the piano roll's proportions.** The 32 bands
@@ -4859,7 +4850,7 @@ be once committed. Three findings, fixed:
    it lands in (`LiveNote::range`, from `record.rs` `live_ranges`): the whole
    take in Replace; in Overdub the clip under it (its own notes and the new
    ones) or the gap it is in. It is drawn on the same bands as the GPU
-   (`Fit::span`), so stopping changes nothing on screen. As in Ableton, a
+   (`Fit::span`), so stopping changes nothing on screen. A
    note outside the range played so far refits the take.
 3. **A clip recorded over slid in place.** Each commit cuts the clips under
    the take, and a moved clip glides to its new place (M4.5's M1), so the
@@ -4869,15 +4860,15 @@ be once committed. Three findings, fixed:
 
 **Superseded in part (run 3, same day):** fitting each clip to its own range
 made a clip of one note, or one chord shape, sit mid-clip at any pitch, so
-clips an octave apart, and different melodies, looked the same. The owner's
-Ableton captures show one layout per track: now every MIDI clip on a track
-shares one `Fit` over the pitches all of them play (`mini::track_range`),
-padded to at least 48 semitones (four octaves, centred), so a pitch is at the
-same height in every clip of the track and notes are thin rows, as in
-Ableton. The take uses the track's fit too (`LiveTrack::range`: the track's
+clips an octave apart, and different melodies, looked the same. The owner
+chose a shared pitch layout per track: every MIDI clip on a track shares one
+`Fit` over the pitches all of them play (`mini::track_range`), padded to at
+least 48 semitones (four octaves, centred), so a pitch is at the same height
+in every clip and notes are thin rows. The take uses the track's fit too
+(`LiveTrack::range`: the track's
 clips as committed so far and the notes played), which replaces the
 per-region ranges above (`live_ranges` is gone). A note played outside the
-track's range refits the whole track, as in Ableton. In Replace, an old
+track's range refits the whole track. In Replace, an old
 clip's notes in the second since the last commit still count until that
 commit cuts them. Shot `mini_notes_octaves`; E2E
 `the_take_is_laid_out_as_its_track_will_be`.
@@ -4885,7 +4876,7 @@ commit cuts them. Shot `mini_notes_octaves`; E2E
 **Overdubbing the same pitch (after run 3):** an Overdub only appended the
 take's notes to the clip, so playing a pitch the clip already held there
 stacked a second note on the first (and the two fought over one key when
-played). Now a note played wins its pitch, as in Ableton
+played). Now a note played wins its pitch
 (`edit::record::settle`): an old note of the same pitch still sounding where
 the new one starts is cut there, one that starts under it is dropped, and
 other pitches are untouched. A take's own notes settle the same way, the
@@ -4926,19 +4917,19 @@ for the last commit), E2E `record`
 ## ADR-0056 — A MIDI clip is a window onto its notes (format v15)
 
 **Context.** The owner asked that covering one MIDI clip with another stop
-deleting the covered notes, as in Ableton (after MT-MIDI-7 run 3). Lumen cut a
+deleting the covered notes (after MT-MIDI-7 run 3). Lumen cut a
 MIDI clip's content to its edges whenever it was trimmed, covered (moves,
 copies, trims and Replace recording all cut what they cover, slice 6c's
-Ableton rule), split or slipped (`edit::shift_notes`): the notes outside were
+clip-window rule), split or slipped (`edit::shift_notes`): the notes outside were
 dropped. Audio clips were already windows onto their file, so this was MIDI
 only.
 
 **Options** (pitched to the owner; the owner chose A).
-- **A. Ableton's window.** The covered clip is still trimmed or split where
+- **A. the clip window.** The covered clip is still trimmed or split where
   the new clip sits, but an edge only moves the clip's window: its notes are
   never deleted, and dragging the edge back shows them again. Moving the top
-  clip away leaves a gap, as in Ableton.
-- **B. Stacked clips** (the request read literally, closer to Cubase): clips
+  clip away leaves a gap.
+- **B. Stacked clips** (the request read literally): clips
   overlap, the top one plays and hides the one under it, and moving the top
   clip away brings the lower one back by itself. A stacking order, masked
   drawing, an engine that plays only the top clip and hit-testing through
@@ -4968,12 +4959,11 @@ select and clicks skip hidden notes), the lane under the roll
 "every note" for Ctrl+A and the tools given no picks (`shown_notes`).
 
 **Consequences.** Clips can carry notes nobody sees: a clip split many times
-keeps every note in each piece, as in Ableton. Recording's same-pitch rule
+keeps every note in each piece. Recording's same-pitch rule
 (`edit::record::settle`) may shorten a hidden note that overlaps a played one
 in time; that note does not play either way. Join (M7) must take the left
 piece's notes before its end and the right piece's from its start, so split
-then join returns the original. The clip editor does not yet show hidden
-notes greyed outside the clip, as Ableton's does.
+then join returns the original. The clip editor does not yet show hidden notes greyed outside the clip.
 
 Tests: `edit/mod.rs` (a slice is a window that keeps every note; trimming
 hides and dragging back shows), `edit/record.rs` (Replace keeps the covered
@@ -4983,7 +4973,7 @@ notes in the pieces), `document/clips.rs`
 (v15 golden), E2E `record` (Replace keeps the covered note, hidden).
 
 Overdub across clips (the owner's second point) was checked at the project
-level and already does what Ableton does: notes merge into every clip they
+level and already behaves as follows: notes merge into every clip they
 pass through and a gap gets a new clip. The owner will reproduce what they saw
 before anything changes there.
 
@@ -5123,10 +5113,9 @@ new input or an intentional clip boundary changes them").
   start, kept hidden before its start, as a split's right piece and the
   Overdub clip do), the note sounds and is drawn on through the boundary. A
   clip that does not hold it (one moved up against another, a note cut where
-  a new one was played) still cuts it there, as Ableton cuts a note at its
-  clip's end.
+  a new one was played) still cuts it at the clip's end.
 - **B. Play whatever a window shows, including the part of a note that
-  starts before it.** Simpler, but it changes ADR-0056's Ableton rule for
+  starts before it.** Simpler, but it changes ADR-0056's clip-window rule for
   every trimmed clip (a trimmed start would sound the tail of a note), and
   still strikes the note again at the seam.
 - **C. Overdub merges into the clip it begins in** instead of making a new
@@ -5189,8 +5178,9 @@ changed; `place` is not in a perf scenario, and the engine is unchanged).
 1. A note carried on across a seam (an Overdub begun inside a clip while it
    sounded) was struck again when playback started at the new clip's start.
 2. Notes outside a clip's window were hidden in the clip editor as well as
-   on the arrangement (ADR-0056 had left this open). Ableton hides them on
-   the arrangement but shows them in the clip view, where they stay editable.
+   on the arrangement (ADR-0056 had left this open). The owner expected notes
+   outside the window to remain hidden on the arrangement and visible and editable
+   in the clip view.
 
 **Causes found.**
 1. Touching clips play as one engine clip (a run, ADR-0058), so the carried
@@ -5207,7 +5197,7 @@ changed; `place` is not in a perf scenario, and the engine is unchanged).
    only notes that began in the clip the position is in (`hold::owning_start`;
    a position on a seam is in the clip that begins there). Played through the
    seam the note sounds on as before; played from the next clip (its start or
-   inside it) it does not sound, as in Ableton, where it is the clip before's.
+   inside it) it does not sound, because it belongs to the preceding clip.
    Chase inside the clip a note began in is unchanged (H1).
 2. **The clip editor shows every note.** `EditorView::shows` checks only the
    view; `ClipNotes::outside` (on in the editor, off on the arrangement)
@@ -5250,7 +5240,7 @@ chase changed; it runs on Play and jumps only, not per block).
 **Context.** The owner found, in run 7: Overdub begun before an existing MIDI
 clip that reaches its start, or begun exactly at its start, merged the take
 into that clip (ADR-0057: the clip grew back to the record start, or took the
-new notes). The owner asked for Ableton's arrangement recording instead:
+new notes). The owner asked for arrangement recording instead:
 recording makes new clips; with MIDI Arrangement Overdub on, the new clip
 includes the track's existing MIDI along with the new input; the existing
 clip is kept as its own clip, not merged with the new one.
@@ -5277,7 +5267,7 @@ inside a clip:
   is played (ADR-0058, unchanged).
 Clip growing (`extended`), merging into clips (`merge_into_clips`) and the
 gap rule (`gaps`) are gone. A looping clip no longer takes the take into its
-loop: Ableton records a new clip there too, carrying the repeats it covers.
+loop: recording creates a new clip there and carries the repeats it covers.
 With Loop on, every transport pass still layers into the one take clip
 (ADR-0055).
 
@@ -5328,7 +5318,7 @@ no longer depends on which clip heads its run).
 
 **Consequences.** Shortening a sounding note (in a clip, or by drawing the
 clip's end in) ends it where it now ends, at once if that is already past;
-lengthening it lets it ring on, as in Ableton. Moving a clip or a note still
+lengthening it lets it ring on. Moving a clip or a note still
 releases and re-chases what it moved. Two clips holding a note on the same
 key at the same tick (not possible on one track: covers cut) would share it.
 
@@ -5476,8 +5466,8 @@ run with Sync switched on and off, the sender's delay and stall, Sync
 opening an output; E2E `smf` (4) and `clock` (exact clock counts between
 transport messages across a tempo change and loop wraps).
 
-Not verified: a file from another DAW in and out, and clock against real
-hardware or another app (MT-MIDI-8).
+Not verified: importing and exporting external Standard MIDI Files, or MIDI clock
+synchronization with hardware or another application (MT-MIDI-8).
 
 ## ADR-0063 — The test audio device keeps its pace
 

@@ -8,11 +8,24 @@
 
 ---
 
+## Documentation naming rule (owner, 2026-10-14)
+
+Before writing or reviewing any documentation, read
+[lumen-documentation](.agents/skills/lumen-documentation/SKILL.md).
+Use product-neutral language: do not name third-party software products,
+plugins or vendors in comparisons, design references, endorsements or
+examples. State the behavior directly and use consistent anonymous labels
+for external plugin test records. Retain technical identifiers needed for
+accuracy (platforms, languages, tools, dependencies, APIs, formats,
+commands, paths and hardware identities), plus required legal attribution,
+license and trademark notices. This owner rule supersedes older naming
+and comparison wording without changing feature requirements.
+
 ## 1. Mission
 
 Build **Lumen**, a professional-grade desktop digital audio workstation written in **Rust**.
 
-It combines **Ableton Live's arrangement-first workflow** with a **cleaner, more polished interface in the spirit of FL Studio**. There is no Session view and no clip launcher: the arrangement is the whole product. It must host **VST3** instruments and effects through a robust, Ableton-style device system, support **ASIO** with a proper device selector, work with **MIDI devices and audio instruments**, and provide a full MIDI editor with **quantize**, **Cubase-style drum maps**, **group tracks**, **automation and envelopes**, and the standard editing actions (split, consolidate, fades and more).
+It combines **an arrangement-first workflow** with a **clean, polished interface**. There is no Session view and no clip launcher: the arrangement is the whole product. It must host **VST3** instruments and effects through a robust, horizontal device-chain system, support **ASIO** with a proper device selector, work with **MIDI devices and audio instruments**, and provide a full MIDI editor with **quantize**, **per-sound drum maps**, **group tracks**, **automation and envelopes**, and the standard editing actions (split, consolidate, fades and more).
 
 **Platforms:** Windows 10/11 is first-class (ASIO is mandatory). macOS and Linux follow from the same codebase.
 
@@ -96,7 +109,7 @@ These are outcomes to meet and measure, not instructions on how to reach them.
 - Collapsible **detail panel** at the bottom with tabs for device chain, clip editor (piano roll, drum editor, audio editor) and mixer.
 - Plugin editors open in floating windows.
 
-**Look and feel.** Minimalist and clean, dark by default with a light theme. Strong contrast on content (clips, notes, waveforms), quiet chrome, crisp vector icons, a single accent color, a muted track-color palette, restrained and purposeful motion. The clarity of FL Studio without its density. Before building the UI, produce a short **design system and key-flow spec** (layout, color, type, spacing, core widgets, the main workflows) and use it consistently everywhere.
+**Look and feel.** Minimalist and clean, dark by default with a light theme. Strong contrast on content (clips, notes, waveforms), quiet chrome, crisp vector icons, a single accent color, a muted track-color palette, restrained and purposeful motion. Clear content and restrained visual density. Before building the UI, produce a short **design system and key-flow spec** (layout, color, type, spacing, core widgets, the main workflows) and use it consistently everywhere.
 
 **Interaction principles**
 - Direct manipulation first: drag to move, trim edges, drag fade handles, draw notes and envelopes, double-click to open editors, right-click for context menus.
@@ -107,7 +120,7 @@ These are outcomes to meet and measure, not instructions on how to reach them.
 - Double-click resets a control to default; type-in values; fine adjustment with a modifier; mouse wheel adjustment; right-click a parameter for automation and MIDI mapping.
 - Searchable **command palette** (Ctrl/Cmd+K) covering every command; tooltips show shortcuts; fully customizable shortcuts with conflict detection.
 
-**Starting shortcuts** (all remappable; Ableton-compatible where sensible): Space play/stop · Ctrl/Cmd+Z / Shift+Z undo/redo · Ctrl/Cmd+D duplicate · Ctrl/Cmd+E split · Ctrl/Cmd+J consolidate · Ctrl/Cmd+G group / Shift ungroup · Q quantize, Shift+Q options · B draw mode · A automation view · Z / X zoom to selection / back · Ctrl/Cmd+L loop selection · Ctrl/Cmd+K command palette · Ctrl/Cmd+S save · Shift+Tab toggle detail panel · F9 record · 0 mute clip.
+**Starting shortcuts** (all remappable; default where sensible): Space play/stop · Ctrl/Cmd+Z / Shift+Z undo/redo · Ctrl/Cmd+D duplicate · Ctrl/Cmd+E split · Ctrl/Cmd+J consolidate · Ctrl/Cmd+G group / Shift ungroup · Q quantize, Shift+Q options · B draw mode · A automation view · Z / X zoom to selection / back · Ctrl/Cmd+L loop selection · Ctrl/Cmd+K command palette · Ctrl/Cmd+S save · Shift+Tab toggle detail panel · F9 record · 0 mute clip.
 
 **UX acceptance checklist (applies to every feature)**
 1. Works with mouse only and with keyboard only.
@@ -163,10 +176,10 @@ These are outcomes to meet and measure, not instructions on how to reach them.
 - MIDI effects (arpeggiator, chord, scale, velocity, note length). [S]
 - MPE and MIDI 2.0. [L]
 
-### 6.4 Drum maps (Cubase-style)
+### 6.4 Drum maps (per-sound)
 - A **drum map** assigns each sound: name, input note, output note, MIDI channel, output routing (the instrument or a specific instrument output), mute, solo, per-sound quantize, length override, color, and a choke group (for example open and closed hi-hat). [M]
 - Clips store the performance in terms of the drum map's input notes, so attaching, swapping or editing a map **never destroys the notes**. A separate destructive "convert to another map" command exists. [M]
-- Presets for General MIDI, GM2 and a common 808-style layout; user-created maps; import and export; the piano roll shows drum names instead of piano keys when a map is attached. Cubase drum map import [L]. [M]
+- Presets for General MIDI, GM2 and a common 808-style layout; user-created maps; import and export; the piano roll shows drum names instead of piano keys when a map is attached. Legacy drum-map format import [L]. [M]
 - **Drum editor** [M]: one lane per sound with audition, mute, solo, per-hit velocity and per-lane quantize; reorderable lanes; option to hide unused lanes.
 - **Step-sequencer view** [M] of the same clip: configurable step count and resolution, click to toggle, drag for velocity, accent modifier. Euclidean and random fill [L].
 - Multi-output instruments can route each sound to its own mixer track. [M]
@@ -210,7 +223,7 @@ All are commands with shortcuts, work on clip selection or time-range selection,
   - Every plugin parameter available for automation and MIDI mapping, with a generic parameter UI as fallback.
   - Plugin editors in floating windows that remember position and size, handle resizing, high-DPI and keyboard focus correctly (typing in plugin fields works).
   - Plugins that crash, hang or misbehave are isolated, flagged and recoverable with last known state. Strong isolation (separate process) is required by 1.0.
-- **Device chain** (Ableton-style) [M]: horizontal chain per track in the detail panel; each device is a collapsible card with power/bypass, name, preset menu and "open editor"; a compact parameter strip where the user chooses which parameters to show; drag to reorder; copy between tracks; instruments first, then MIDI and audio effects.
+- **Device chain** [M]: horizontal chain per track in the detail panel; each device is a collapsible card with power/bypass, name, preset menu and "open editor"; a compact parameter strip where the user chooses which parameters to show; drag to reorder; copy between tracks; instruments first, then MIDI and audio effects.
 - **Built-in essentials** [M]: utility (gain, pan, width, mono, polarity), parametric EQ with analyzer, compressor with sidechain, limiter, delay, reverb, a simple polyphonic synth, and a sampler (single- and multi-sample, drum-map aware). Spectrum analyzer and tuner [S].
 - Browser tab for devices with categories, vendors, search, favorites, recents; drag to a track or chain, double-click to add to the selected track. [M]
 - CLAP hosting, device racks with macros [L].
@@ -246,7 +259,7 @@ Everything every professional DAW is expected to have. Items marked [M] block 1.
 - [ ] [M] Markers with names and navigation
 - [ ] [M] Multiple time-display formats; editable position field
 - [ ] [S] Edit cursor distinct from playhead; scrubbing
-- [ ] [S] MIDI clock/MTC out · [L] clock/MTC in, Ableton Link
+- [ ] [S] MIDI clock/MTC out · [L] clock/MTC in, network tempo synchronization
 
 **Tracks and arrangement**
 - [ ] [M] Add, delete, duplicate, rename, recolor, reorder, multi-select
@@ -305,7 +318,7 @@ Everything every professional DAW is expected to have. Items marked [M] block 1.
 
 **Preferences**
 - [ ] [M] Audio and MIDI pages; plugin paths; file/cache locations; theme and UI scale; autosave interval; undo depth; default track behavior; record settings
-- [ ] [M] Shortcut editor with conflict detection and keymap presets (Ableton-compatible default) · [L] FL-style preset
+- [ ] [M] Shortcut editor with conflict detection and keymap presets (default) · [L] alternative preset
 - [ ] [M] First-run wizard (choose and test audio device, set plugin paths)
 - [ ] [S] Preferences import/export; localization-ready text
 
@@ -335,7 +348,7 @@ Everything every professional DAW is expected to have. Items marked [M] block 1.
 
 **Not in 1.0:** Session view and clip launching, notation, video, surround and Atmos, cloud collaboration, scripting, ARA, AU, LV2, mobile, bundled sample libraries.
 
-**Post-1.0 candidates:** CLAP hosting, MPE, device racks with macros, Ableton Link, control-surface support (Mackie/HUI), spectral editing, advanced comping, MP3/AAC export.
+**Post-1.0 candidates:** CLAP hosting, MPE, device racks with macros, network tempo synchronization, control-surface support (Mackie/HUI), spectral editing, advanced comping, MP3/AAC export.
 
 ---
 
@@ -459,7 +472,7 @@ without the fix). **MT-MIDI-7 step 37 waits for the owner.** Before it,
 2026-10-13: **MT-MIDI-7 run 7's finding is
 fixed** (ADR-0060; owner: "looking great", one bug). Overdub begun before a
 clip and reaching it, or begun at its start, merged into that clip
-(ADR-0057); it now records a new clip wherever it begins, as Ableton does,
+(ADR-0057); it now records a new clip wherever it begins,
 carrying what the clips under it played (`edit::record::overdub`, the old
 "begun inside" rule for every take), and what it covers is cut away so the
 old clips stay their own. Clip growing and merging are gone. E2E `record`
@@ -505,13 +518,13 @@ pass (`xvfb-run -a`); `midi_out` sender timing flakes in this container on
 the unchanged code too (KNOWN_ISSUES). Not run: the WSL perf gate, macOS
 cross-clippy. **MT-MIDI-7 runs 4 and 5 (steps 22 to 30) wait for the
 owner.** Before it, 2026-10-13 (after run 3): **a MIDI clip is a window
-onto its notes** (format v15, ADR-0056; the owner chose Ableton's window over
+onto its notes** (format v15, ADR-0056; the owner chose the clip window over
 stacked clips). Trims, covers (moves, copies, Replace recording), splits and
 slips only move notes in clip time; notes before the clip's start (negative)
 or past its content are kept, hidden (`edit::in_window`, `shown_notes`).
 Playback (`midi_play`), the clip editor (`EditorView::window`), the lane
 (`LaneView::window`) and "every note" (Ctrl+A, tools with no picks) read only
-the window. Overdub across clips already merges as Ableton does at the
+the window. Overdub across clips already merges at the
 project level; the owner will reproduce what they saw (MT-MIDI-7 step 26).
 **MT-MIDI-7 run 4 (steps 22 to 26) waits for the owner.** The WSL perf gate
 was not run. Before it, 2026-10-13 (run 3): **one note layout per track.**
@@ -520,14 +533,14 @@ height; now every MIDI clip on a track shares one `mini::Fit` over the
 pitches all of them play (`mini::track_range`, at least 48 semitones,
 centred), and the take uses it too (`LiveTrack::range`; `live_ranges` is
 gone). Shot `mini_notes_octaves`. Also: Overdub over the same pitch stacked
-notes; now a note played wins its pitch, as in Ableton
+notes; now a note played wins its pitch
 (`edit::record::settle`, also between loop passes), and the engine applies
 the rule as keys are played while recording (`TrackState::yields`,
 `give_way`), so the old note stops sounding too. **MT-MIDI-7 run 4 (steps
 22 to 24) waits for the owner.** The WSL perf gate was not run for the
 `lumen-project` change. Before it, 2026-10-13 (latest): **MT-MIDI-7 run 2 fixes, clip
-previews as Ableton's** on `m5-midi` (ADR-0055 amendment "clip previews as
-Ableton's"). Notes inside arrangement clips now have the piano roll's
+previews with shared track pitch ranges** on `m5-midi` (ADR-0055 amendment
+on clip previews). Notes inside arrangement clips now have the piano roll's
 proportions: 128 bands a track (`mini::BANDS`), a clip's range divided evenly
 by `mini::Fit` (padded to 16, centred), a note spanning its row's bands (a box
 may span row slots: the top 8 bits of `BoxInstance::row`,
@@ -689,7 +702,7 @@ explorations for it.
 Before it, 2026-10-10: **M5 (MIDI and the piano roll) is approved and
 under way** on `m5-midi` (plan `docs/milestones/M5.md`; owner choices: C1 a
 small built-in synth plus MIDI out, C2 the detail panel's Clip tab *and* a
-way to pop the piano roll out into its own window, C3 Ableton's keyboard
+way to pop the piano roll out into its own window, C3 the computer-keyboard MIDI layout
 layout as a transport mode, C4 replace with an overdub switch, C5 the
 current grid). **Slice 0 is built** (ADR-0044): `crates/lumen-midi` (midir;
 `MidiSystem` worker thread, fake backend), `app/midi.rs` and
@@ -835,7 +848,7 @@ report. Before it, 2026-10-10: **M4 slice 6 built** (sidechains and delay compen
 accessibility audit, the end-of-milestone review and every finding fixed
 or recorded). MT-APP-16 passed and **M3 is approved** (2026-10-09). The M3
 report is in PROGRESS.md and M4 is proposed in `docs/milestones/M4.md`.
-M4 is approved (Ableton's solo by default, −3 dB pan law). **Slice 0,
+M4 is approved (exclusive solo by default, −3 dB pan law). **Slice 0,
 the UX pass on hints, is built** (2026-10-09, ADR-0034): the owner chose an
 info line along the bottom of the window, with K5 keycaps, over chips by
 the pointer. Hovers call `App::set_info` (`app/info.rs`); only live values
@@ -919,7 +932,7 @@ claims its area and has a min and max). Frame times with the mixer on the
 repaints in 3 s as before; engine perf baseline updated for meters
 (+21.8% routed). MT-MIX-5 waits for the owner. **Slice 6, sidechains and
 delay compensation, is built** (ADR-0041; the owner chose read ahead,
-Ableton's three taps, saving sidechains with the first device that uses
+the three taps, saving sidechains with the first device that uses
 them (no format change now), and the D1 readout from mock-ups).
 `lumen_engine::mixer` is now `spec.rs` (routing types: `Device`,
 `SidechainSpec`, `Tap`), `compile.rs` (order, loops, compensation: every
@@ -982,10 +995,10 @@ escapes and quotes several times.
     drawn per pixel on the GPU; MT-APP-11 passed. The peak disk cache
     moved to M9 (owner approved).
   - **4d built** (ADR-0028): zoom to single samples (f64 view, split
-    beats on the GPU, sample-level waveforms), Ableton keys (`+`/`-`, X,
+    beats on the GPU, sample-level waveforms), the default keys (`+`/`-`, X,
     W, H, Alt+wheel), Follow (page by default, on), drag to reorder tracks.
     MT-APP-12 passed (run 2). **Slice 4 is done** (2026-10-08).
-  - MT-APP-12 run 1: zoom-out now stops at the song (as in Ableton) and
+  - MT-APP-12 run 1: zoom-out now stops at the song and
     the grid covers any view (`28b40d4`).
   - **End-to-end tests** (ADR-0029, 2026-10-08): `crates/lumen-app/tests/e2e/`
     drives the whole app headless in CI; `tests/smoke.rs` runs the real
@@ -997,12 +1010,12 @@ escapes and quotes several times.
     rulers in layout A (bar ruler on top, drag to zoom; a time ruler at
     the bottom in minutes and seconds, samples or timecode); the loop
     brace and punch as undoable document edits; named locators (M,
-    Ctrl+Left/Right, Set ◂ ▸); the scrub strip (Ableton-style loops of the
+    Ctrl+Left/Right, Set ◂ ▸); the scrub strip (short loops of the
     grid step, Alt for tape), with an engine scrub mode.
     MT-APP-13 passed in run 2 (after drag hints, the snap magnet and
     locators added on the strip). **Slice 5 is done.**
   - **Slice 6 done** (clip editing; owner's split-clip drag model,
-    S3 and H1 selection look, L3 handles, Ableton's overlap rule, F3 and
+    S3 and H1 selection look, L3 handles, the clip overlap rule, F3 and
     G1 for fades and gain): 6a selection and moving, 6b time ranges and
     edits, 6c trim, loop-extend and slip, 6d fades and clip gain are
     built. Fades bend along free curves (the owner's C3; format v6,
@@ -1016,7 +1029,7 @@ escapes and quotes several times.
     changes, all made: the right-click menu is for what was clicked (the
     owner's A, 11 rows on a clip instead of 33); the grid shows through
     clip bodies (G1, 55%); a click anywhere on the lanes moves the
-    playhead, as in Ableton. Run 3 passed except two findings, both
+    playhead. Run 3 passed except two findings, both
     fixed: the ✕ now sits level with the title's letters in every window
     (`widgets::title_row`), and drops between tracks work on Windows,
     where egui gets no pointer during a drag from Explorer (Lumen reads

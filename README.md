@@ -13,9 +13,8 @@
 
 Lumen is a desktop digital audio workstation written in Rust. It is built
 around one timeline: the arrangement is the whole product, and the browser,
-device chain, clip editors and mixer exist to support it. The aim is the
-arrangement-first workflow of Ableton Live with a cleaner, more polished
-interface in the spirit of FL Studio.
+device chain, clip editors and mixer exist to support it. The aim is
+an arrangement-first workflow with a clean, polished interface.
 
 > **Status: early development.** Lumen can play, record and edit MIDI, work
 > with audio clips, mix and save projects. Audio recording, VST3 hosting and
@@ -31,7 +30,7 @@ interface in the spirit of FL Studio.
   metronome, test tone, scrubbing and locators.
 - **Arrangement:** tracks with folding and resizing, audio clips with move,
   trim, slip, loop-extend, fades along free curves, clip gain and colour,
-  time-range selection, and the Ableton-style overlap rule.
+  time-range selection, and the clip overlap rule.
 - **Editing:** unlimited undo and redo, where each edit is one step; a
   command palette (Ctrl+K); a rebindable keyboard map with conflict checks.
 - **MIDI:** live input and monitoring, MIDI recording, a piano roll with
