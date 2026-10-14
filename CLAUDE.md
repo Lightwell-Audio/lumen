@@ -390,11 +390,22 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-13 (latest): **M5 slice 8 is underway**. The new
+**Last updated:** 2026-10-14 (latest): **M5 slice 8: the review is done
+with its fixes** (`docs/audits/2026-10-13-m5.md`, Status table). Every gate
+ran in the cloud container: 1,436 tests, 333 E2E and 6 smoke tests pass
+(smoke under `xvfb-run` with `libxkbcommon-x11-0` and lavapipe installed).
+Fixed: an audio-thread free in `take_new` (clips, MIDI, mixer: skip a
+queued list only while `retired.slots() >= 2`); the synth under the
+allocation guard; `validate::LONGEST` (2^52 ticks) bounds positions in
+projects and MIDI files; splits into `widgets/{dialog, slider, format}`,
+`app/startup.rs` (`App::new`), `note_editor/pointer.rs` and
+`lumen-devices/src/synth/{mod, voice}`; `lumen-audio`'s unused `lumen-rt`
+dependency removed. The perf gate here reads `project_parse` +5.84%, but
++4.90% at the baseline's own commit: this machine's offset (KNOWN_ISSUES).
+Next: the owner's MT-MIDI-7, 8 and 9 and the WSL gates, then the M5 report.
+Before it, 2026-10-13: **M5 slice 8 began**. The new
 `tests/e2e/midi_walkthrough.rs` covers record → quantize → save/reopen → play;
-the preliminary review moved Save As folder probing to the save worker.
-MT-MIDI-9 and the full repository review/report remain. Tests and platform
-gates have not yet been run for slice 8. **M5 slice 7 is built** (MIDI files
+the preliminary review moved Save As folder probing to the save worker. **M5 slice 7 is built** (MIDI files
 and clock out, ADR-0062; owner's F1–F4 A). `lumen_project::smf` (on `midly`,
 Unlicense with a deny exception) reads type 0 and 1 into parts split by
 channel and writes type 0 or 1 at 960 PPQ (`tests/smf/`: hand-made files from

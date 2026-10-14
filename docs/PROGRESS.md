@@ -2,7 +2,7 @@
 
 ## Status
 
-**Current milestone:** 5 - MIDI and the piano roll (plan: [milestones/M5.md](milestones/M5.md)), approved 2026-10-10. **Slices 0–7 are built**: MIDI devices and format v11; MIDI playback and instruments (ADR-0045); live MIDI (ADR-0046); clips and piano roll (ADR-0047); velocity and controller lanes (ADR-0050); quantize and tools (ADR-0054); MIDI recording (ADR-0055); MIDI files and clock out (ADR-0062). MIDI learn moved to M7 by the owner on 2026-10-13. Owner manual runs on 2026-10-11: MT-MIDI-1 passed; MT-MIDI-2 and MT-MIDI-3 passed functionally, with remaining issues in `docs/KNOWN_ISSUES.md`. MT-MIDI-4, 5 and 6 passed through 2026-10-12. MT-MIDI-7 and MT-MIDI-8 wait for the owner. **Slice 8 is underway:** its combined record, quantize, save/reopen and playback E2E scenario is added; MT-MIDI-9, the full repository review and milestone report remain.
+**Current milestone:** 5 - MIDI and the piano roll (plan: [milestones/M5.md](milestones/M5.md)), approved 2026-10-10. **Slices 0–7 are built**: MIDI devices and format v11; MIDI playback and instruments (ADR-0045); live MIDI (ADR-0046); clips and piano roll (ADR-0047); velocity and controller lanes (ADR-0050); quantize and tools (ADR-0054); MIDI recording (ADR-0055); MIDI files and clock out (ADR-0062). MIDI learn moved to M7 by the owner on 2026-10-13. Owner manual runs on 2026-10-11: MT-MIDI-1 passed; MT-MIDI-2 and MT-MIDI-3 passed functionally, with remaining issues in `docs/KNOWN_ISSUES.md`. MT-MIDI-4, 5 and 6 passed through 2026-10-12. MT-MIDI-7 and MT-MIDI-8 wait for the owner. **Slice 8 is underway:** its combined record, quantize, save/reopen and playback E2E scenario is added, and the full repository review is done with its fixes (`docs/audits/2026-10-13-m5.md`: two High, an audio-thread free and a UI-thread disk check, both fixed; module splits, the synth under the allocation guard, bounds on positions). MT-MIDI-7 to 9, the WSL gates and the milestone report remain.
 **Before it:** 4.5 — Polish pass, a mid milestone before M5
 (plan: [milestones/M4.5.md](milestones/M4.5.md)), approved 2026-10-10
 from the interface audit's mock-ups. **All six slices built**; every audit
@@ -29,7 +29,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 3 | Arrangement & Project System | ✅ Complete, approved 2026-10-09 | Plan: `docs/milestones/M3.md` |
 | 4 | Mixer, Routing & Groups | ✅ Complete 2026-10-10 (review fixes merged, PR #3) | Plan: `docs/milestones/M4.md` |
 | 4.5 | Polish pass (mid milestone: the interface audit's fixes) | 🟡 Built 2026-10-10; MT-POL-5 and 6 wait | Plan: `docs/milestones/M4.5.md`; audit: `docs/audits/2026-10-10-design.md` |
-| 5 | MIDI & Piano Roll | 🟡 Approved 2026-10-10; slices 0 to 7 built, slice 8 underway; MT-MIDI-7, MT-MIDI-8 and MT-MIDI-9 wait | Plan: `docs/milestones/M5.md` |
+| 5 | MIDI & Piano Roll | 🟡 Approved 2026-10-10; slices 0 to 7 built, slice 8 underway (review done); MT-MIDI-7, MT-MIDI-8 and MT-MIDI-9 wait | Plan: `docs/milestones/M5.md` |
 | 6 | VST3 Hosting & Device System | 🔲 | |
 | 7 | Automation, Envelopes & Advanced Editing | 🔲 | |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | |
