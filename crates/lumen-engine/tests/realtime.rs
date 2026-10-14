@@ -491,3 +491,37 @@ fn midi_never_touches_the_heap() {
         routing.collect_garbage();
     }
 }
+
+/// Review M5 H1: with the queue that takes old lists back full (the UI late
+/// to collect), two lists arriving in one block must still leave every old
+/// one to be freed off the audio thread, for clips, MIDI and the mixer.
+#[test]
+fn lists_queued_behind_a_full_retire_queue_are_never_freed_here() {
+    use lumen_engine::testing::routed;
+    use lumen_engine::{Layered, clip_player, midi_player, mixer};
+
+    assert!(guard_is_active(), "guarded allocator not installed");
+    let (mut clips, players) = clip_player();
+    let (mut midi, player) = midi_player();
+    let (mut routing, source) = mixer(Layered(players, player));
+    let (_handle, mut engine) = engine(Timeline::default(), source, 48_000);
+    let mut data = vec![0.0; 2 * 128];
+    let mut variant = 0;
+    // Nothing is collected: one list a block fills each retire queue, then
+    // two in one block meet it full, then the stashes drain one a block.
+    for block in 0..12_u32 {
+        let lists = match block {
+            0..5 => 1,
+            5 | 6 => 2,
+            _ => 0,
+        };
+        for _ in 0..lists {
+            variant += 1;
+            let _ = clips.set(Vec::new());
+            let _ = midi.set(Vec::new());
+            let _ = routing.set(&routed(2, variant));
+        }
+        let ((), heap) = count_rt_violations(|| engine.process(48_000, &mut data, 2, 128));
+        assert_eq!(heap, 0, "heap operation in process() at block {block}");
+    }
+}

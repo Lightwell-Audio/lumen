@@ -542,7 +542,10 @@ impl ClipPlayer {
         // Only the newest list matters: lists that queued up (while
         // stopped, or during a crossfade) go straight back unplayed, so a
         // drag's old positions never play late.
-        while self.stash.is_none()
+        // Skipping a list needs room for it and for the one it replaces
+        // in the end, or the stash would be overwritten and a list freed
+        // here; newer lists then wait a block.
+        while self.retired.slots() >= 2
             && let Ok(newer) = self.incoming.pop()
         {
             self.retire(std::mem::replace(&mut new, newer));

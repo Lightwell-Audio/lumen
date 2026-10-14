@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers};
 use lumen_app::TimeView;
-use lumen_midi::{Direction, fake::FakeControl};
+use lumen_midi::Direction;
 use lumen_project::model::{ClipContent, Color, Device, Id, MidiTo, Track, TrackKind};
 use lumen_project::testing::project_of;
 
