@@ -16,7 +16,7 @@ use lumen_project::model::{Id, Track, TrackKind};
 use lumen_project::solo::Heard;
 
 use super::headers::{
-    ARROW_X, BUTTON_GAP, ICON_X, NAME_X, arm_button, group_description, kind_name,
+    ARROW_X, BUTTON_GAP, ICON_X, NAME_X, SILENCED, arm_button, group_description, kind_name,
 };
 use super::nesting;
 use super::{Arrangement, BUTTON, FOLD_BELOW, FOLDED, MAX_HEIGHT, STEP, snap_height};
@@ -25,6 +25,11 @@ use crate::document::Document;
 use crate::icons::draw_type_icon;
 use crate::widgets::{self, draw_arrow, draw_edge_glow, gradient};
 use crate::{fonts, motion, theme};
+
+/// The armed wash: this strong at the rail, fading across this share of
+/// the header (the design system's `.is-armed`).
+const ARMED_WASH: f32 = 0.10;
+const ARMED_WASH_SPAN: f32 = 0.55;
 
 /// Where a header row is, and what it shows.
 pub(super) struct HeaderRow<'a> {
@@ -67,7 +72,7 @@ impl Arrangement {
         let hears = hearing.of(track.id);
         let heard = hears.output;
         let group = track.kind == TrackKind::Group;
-        let arm = nesting::arm_state(doc.project(), index);
+        let arm = nesting::arm_look(doc.project(), index, &self.selected);
         let inside = lumen_project::groups::span(&doc.project().tracks, index).len() - 1;
         let collapsed = self.collapsed.contains(&track.id);
 
@@ -108,10 +113,15 @@ impl Arrangement {
         // colour, or red with a glow into the header while armed.
         let left = nesting::draw_rails(&painter, rect, doc.project(), &track, arm.on());
         if arm.on() {
+            // The armed wash: `record` at 10%, fading out across the
+            // header's left 55% (the design system's `.is-armed`).
             gradient(
                 &painter,
-                Rect::from_min_size(pos2(left, rect.top()), vec2(28.0, rect.height())),
-                palette.record.gamma_multiply(0.30),
+                Rect::from_min_size(
+                    pos2(left, rect.top()),
+                    vec2((rect.right() - left) * ARMED_WASH_SPAN, rect.height()),
+                ),
+                palette.record.gamma_multiply(ARMED_WASH),
                 Color32::TRANSPARENT,
             );
         }
@@ -172,10 +182,8 @@ impl Arrangement {
         );
 
         // M, S and arm sit evenly spaced, snapped to whole pixels
-        // together: egui snaps rectangles but not circles, so an
-        // unsnapped arm button sat up to half a pixel off M and S, and
-        // its ring off its dot (owner, after slice 4a). The armed glow
-        // reaches `ARM_GLOW` beyond the button, inside the gap.
+        // together, so the arm button's dot sits on the same line as the
+        // letters of M and S (owner, after slice 4a).
         let ppp = ui.ctx().pixels_per_point();
         let button = |x: f32| {
             Rect::from_min_size(pos2(x, mid - BUTTON / 2.0), vec2(BUTTON, BUTTON))
@@ -193,7 +201,8 @@ impl Arrangement {
             if heard {
                 palette.text_secondary
             } else {
-                palette.text_hint
+                // Silenced: dimmed to 45% (the design system's `.is-dim`).
+                palette.text_secondary.gamma_multiply(SILENCED)
             },
         );
         let kind_hover = Rect::from_center_size(pos2(left + ICON_X, mid), vec2(16.0, 16.0));
@@ -203,9 +212,23 @@ impl Arrangement {
         kind.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Label, true, kind_name(track.kind))
         });
+        // A MIDI track whose Monitor is not Auto shows a badge before M.
+        let badge = super::monitor_badge::shown(&track).then(|| {
+            Rect::from_center_size(
+                pos2(
+                    mute_rect.left() - BUTTON_GAP - theme::size::BADGE_W / 2.0,
+                    mid,
+                ),
+                vec2(theme::size::BADGE_W, theme::size::BADGE_H),
+            )
+            .round_to_pixels(ppp)
+        });
         let mut name_rect = Rect::from_min_max(
             pos2(left + NAME_X, mid - 10.0),
-            pos2(mute_rect.left() - 6.0, mid + 10.0),
+            pos2(
+                badge.map_or(mute_rect.left(), |b| b.left()) - 6.0,
+                mid + 10.0,
+            ),
         );
         // A return's letter (A, B, C), in its colour: its sends carry
         // the same letter and colour (slice 4).
@@ -243,6 +266,11 @@ impl Arrangement {
             });
         }
 
+        if let Some(badge) = badge
+            && let Some(next) = super::monitor_badge::badge(ui, badge, id, &track, look)
+        {
+            doc.set_monitor(&self.targets(track.id), next);
+        }
         self.mute_solo(
             ui,
             doc,

@@ -23,6 +23,8 @@ serde_json = "1"
 windows-sys = "0.61"
 vst3 = "0.3"
 base64 = "0.22"
+# Standard MIDI Files (M5 slice 7): Unlicense, a public-domain dedication.
+midly = { version = "0.5", default-features = false, features = ["std"] }
 wasapi = "0.25"
 cpal = "0.18"
 rtsan-standalone = "0.3"
@@ -47,6 +49,8 @@ accesskit = "0.24"
 accesskit_winit = "0.32"
 lumen-render = { path = "crates/lumen-render" }
 lumen-audio = { path = "crates/lumen-audio" }
+lumen-midi = { path = "crates/lumen-midi" }
+lumen-devices = { path = "crates/lumen-devices" }
 lumen-project = { path = "crates/lumen-project" }
 lumen-engine = { path = "crates/lumen-engine" }
 lumen-media = { path = "crates/lumen-media" }

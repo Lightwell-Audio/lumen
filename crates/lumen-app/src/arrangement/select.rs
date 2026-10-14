@@ -1,6 +1,6 @@
-//! Clip selection and moving (M3 slice 6a), in the owner's split-clip
-//! model: a clip's top half moves it (Ctrl copies), its bottom half selects
-//! a time range (slice 6b), and a drag in empty lanes draws a marquee.
+//! Clip selection and moving: a clip's header moves it (Ctrl copies), its body selects
+//! a time range (slice 6b). A drag in empty lanes selects a time range on
+//! the tracks it spans (ADR-0049); Ctrl+Shift there draws a clip marquee.
 //!
 //! Hit-testing and the arithmetic of a drag are pure and tested here; the
 //! app turns them into document edits (`App::clip_editing`).
@@ -8,19 +8,16 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use eframe::egui::{self, Pos2, Rect, pos2};
+use eframe::egui::{self, Modifiers, Pos2, Rect, pos2};
 use lumen_core::time::Ticks;
 use lumen_project::model::{ClipContent, Id, Project, TrackKind};
 
 use super::clips::INSET;
 use super::handles::{ClipHandles, Handle};
-use super::{Arrangement, RowKind, Zone};
+use super::{Arrangement, RowKind, TITLE, Zone};
 use crate::document::ClipMove;
 use crate::timeview::TimeView;
 
-/// Each half of a clip is at least this tall, so both stay easy to hit on
-/// short tracks (the owner's split-clip choice).
-pub const MIN_HALF: f32 = 11.0;
 /// Within this many points of a clip's side, a drag trims it (slice 6c; a
 /// quarter of the clip when it is narrow).
 pub const EDGE_ZONE: f32 = 6.0;
@@ -100,30 +97,25 @@ pub fn edge_at(rect: Rect, x: f32) -> Option<Edge> {
     }
 }
 
-/// Which half of a clip the pointer is over.
+/// Which visible part of a clip the pointer is over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Half {
+pub enum ClipRegion {
     /// Moves the clip.
-    Top,
+    Header,
     /// Selects a time range.
-    Bottom,
+    Body,
 }
 
-/// Where the line between the halves of a clip `rect` falls.
-pub fn split_y(rect: Rect) -> f32 {
-    let mid = rect.center().y;
-    if rect.height() < 2.0 * MIN_HALF {
-        mid
-    } else {
-        mid.clamp(rect.top() + MIN_HALF, rect.bottom() - MIN_HALF)
-    }
+/// The bottom of the rendered title bar, including on short tracks.
+pub fn title_bottom(rect: Rect) -> f32 {
+    rect.top() + TITLE.min(rect.height())
 }
 
-pub fn half_at(rect: Rect, y: f32) -> Half {
-    if y < split_y(rect) {
-        Half::Top
+pub fn region_at(rect: Rect, y: f32) -> ClipRegion {
+    if y < title_bottom(rect) {
+        ClipRegion::Header
     } else {
-        Half::Bottom
+        ClipRegion::Body
     }
 }
 
@@ -135,8 +127,8 @@ pub struct ClipHit {
     pub clip: Id,
     /// Where it is drawn.
     pub rect: Rect,
-    pub half: Half,
-    /// A side close enough to trim, which wins over the halves.
+    pub region: ClipRegion,
+    /// A side close enough to trim, which wins over the regions.
     pub edge: Option<Edge>,
     /// A fade or gain handle (slice 6d): fade handles win over the sides,
     /// the sides over the gain line.
@@ -147,7 +139,7 @@ pub struct ClipHit {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Hover {
     pub clip: Id,
-    pub half: Half,
+    pub region: ClipRegion,
     pub edge: Option<Edge>,
     pub handle: Option<Handle>,
 }
@@ -156,7 +148,7 @@ impl From<&ClipHit> for Hover {
     fn from(hit: &ClipHit) -> Self {
         Self {
             clip: hit.clip,
-            half: hit.half,
+            region: hit.region,
             edge: hit.edge,
             handle: hit.handle,
         }
@@ -191,15 +183,19 @@ pub enum Gesture {
     },
     /// A marquee from `from`; clips selected before it (Ctrl or Shift) stay.
     Marquee { from: Pos2, kept: BTreeSet<Id> },
-    /// A time range from `at` on track `track` (a clip's bottom half).
+    /// A time range from `at` on track `track` (a clip's body, or an
+    /// empty lane); it spans the tracks down to the pointer's.
     Range { at: Ticks, track: usize },
     /// Trimming a side of `clip`; with `looping` (Shift at the start) the
-    /// end extends by repeating.
+    /// end extends by repeating. `grab` is how far the edge was from the
+    /// pointer when it was picked up, so the edge keeps that distance
+    /// instead of jumping to the pointer.
     Trim {
         base: Arc<Project>,
         clip: Id,
         edge: Edge,
         looping: bool,
+        grab: Ticks,
     },
     /// Sliding `clip`'s content, picked up at `at` (Ctrl+Alt).
     Slip {
@@ -242,10 +238,51 @@ impl TimeRange {
     /// The range between `a` and `b` (either order) over the tracks from
     /// index `from` to `to` (either order); `None` when it is empty.
     pub fn between(project: &Project, a: Ticks, b: Ticks, from: usize, to: usize) -> Option<Self> {
-        let (start, end) = (a.min(b).max(Ticks::ZERO), a.max(b).max(Ticks::ZERO));
         let (lo, hi) = (from.min(to), from.max(to));
-        let tracks: Vec<Id> = project.tracks.get(lo..=hi)?.iter().map(|t| t.id).collect();
-        (start < end).then_some(Self { start, end, tracks })
+        let ids: Vec<Id> = project.tracks.get(lo..=hi)?.iter().map(|t| t.id).collect();
+        Self::over(project, a, b, &ids)
+    }
+
+    /// The range between `a` and `b` (either order) on the tracks `ids`,
+    /// as many of them as the project has, top to bottom. `None` when it is
+    /// empty or none of `ids` is a track. Tracks need not be neighbours:
+    /// the ruler's range covers the selected ones.
+    pub fn over(project: &Project, a: Ticks, b: Ticks, ids: &[Id]) -> Option<Self> {
+        let (start, end) = (a.min(b).max(Ticks::ZERO), a.max(b).max(Ticks::ZERO));
+        let tracks: Vec<Id> = project
+            .tracks
+            .iter()
+            .map(|t| t.id)
+            .filter(|id| ids.contains(id))
+            .collect();
+        (start < end && !tracks.is_empty()).then_some(Self { start, end, tracks })
+    }
+
+    /// Whether the range is on exactly the tracks `selected` (in any order).
+    /// A range and the track selection go together: when they part, the
+    /// range goes.
+    pub fn covers_exactly(&self, selected: &[Id]) -> bool {
+        self.tracks.len() == selected.len() && self.tracks.iter().all(|t| selected.contains(t))
+    }
+}
+
+/// What a drag that starts in empty lane space does (ADR-0049).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmptyLaneDrag {
+    /// A time range on the tracks it spans: the default.
+    Range,
+    /// A clip marquee that keeps the clips already selected.
+    Marquee,
+}
+
+/// Ctrl+Shift (Cmd+Shift on macOS) draws a clip marquee in empty lanes.
+/// Shift or Ctrl alone do not: they make a time range, as the drag does
+/// everywhere else, so no modifier stands for two things.
+pub fn empty_lane_drag(modifiers: Modifiers) -> EmptyLaneDrag {
+    if modifiers.command && modifiers.shift {
+        EmptyLaneDrag::Marquee
+    } else {
+        EmptyLaneDrag::Range
     }
 }
 
@@ -331,7 +368,7 @@ impl Arrangement {
         out
     }
 
-    /// The clip under `pointer`, and which half. Later clips win where
+    /// The clip under `pointer`, and which region. Later clips win where
     /// clips overlap, as they are drawn on top.
     pub fn clip_at(
         &self,
@@ -361,7 +398,7 @@ impl Arrangement {
                     track,
                     clip,
                     rect,
-                    half: half_at(rect, pointer.y),
+                    region: region_at(rect, pointer.y),
                     edge: if handle.is_some() { None } else { edge },
                     handle,
                 }
@@ -457,6 +494,35 @@ mod tests {
     }
 
     #[test]
+    fn a_range_over_chosen_tracks_skips_the_ones_between() {
+        use TrackKind::Audio;
+        let p = project(&[Audio, Audio, Audio, Audio]);
+        let (a, b) = (Ticks::quarters(4), Ticks::quarters(8));
+        let r = TimeRange::over(&p, b, a, &[Id(3), Id(1)]).unwrap();
+        assert_eq!((r.start, r.end), (a, b));
+        assert_eq!(
+            r.tracks,
+            [Id(1), Id(3)],
+            "top to bottom, not the list's order"
+        );
+        assert!(r.covers_exactly(&[Id(3), Id(1)]));
+        assert!(!r.covers_exactly(&[Id(1)]), "a track more");
+        assert!(!r.covers_exactly(&[Id(1), Id(2)]), "another track");
+        assert!(TimeRange::over(&p, a, b, &[]).is_none(), "no tracks");
+        assert!(TimeRange::over(&p, a, a, &[Id(1)]).is_none(), "empty");
+    }
+
+    #[test]
+    fn an_empty_lane_drag_makes_a_range_unless_ctrl_shift_is_held() {
+        let ctrl_shift = Modifiers::COMMAND | Modifiers::SHIFT;
+        assert_eq!(empty_lane_drag(Modifiers::NONE), EmptyLaneDrag::Range);
+        assert_eq!(empty_lane_drag(Modifiers::SHIFT), EmptyLaneDrag::Range);
+        assert_eq!(empty_lane_drag(Modifiers::COMMAND), EmptyLaneDrag::Range);
+        assert_eq!(empty_lane_drag(Modifiers::ALT), EmptyLaneDrag::Range);
+        assert_eq!(empty_lane_drag(ctrl_shift), EmptyLaneDrag::Marquee);
+    }
+
+    #[test]
     fn sides_trim_within_a_few_points_or_a_quarter_of_a_narrow_clip() {
         let wide = Rect::from_min_size(pos2(100.0, 0.0), vec2(200.0, 40.0));
         assert_eq!(edge_at(wide, 104.0), Some(Edge::Start));
@@ -468,13 +534,17 @@ mod tests {
     }
 
     #[test]
-    fn halves_split_in_the_middle_but_stay_hittable() {
-        let tall = Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 80.0));
-        assert_eq!(split_y(tall), 40.0);
-        assert_eq!(half_at(tall, 39.0), Half::Top);
-        assert_eq!(half_at(tall, 41.0), Half::Bottom);
-        let short = Rect::from_min_size(pos2(0.0, 0.0), vec2(100.0, 18.0));
-        assert_eq!(split_y(short), 9.0, "too short for 11 each: halve it");
+    fn gesture_regions_follow_the_rendered_title_on_every_track_height() {
+        for height in [10.0, 18.0, 80.0, 200.0] {
+            let rect = Rect::from_min_size(pos2(0.0, 20.0), vec2(100.0, height));
+            let bottom = 20.0 + TITLE.min(height);
+            assert_eq!(title_bottom(rect), bottom);
+            assert_eq!(region_at(rect, bottom - 0.1), ClipRegion::Header);
+            if height > TITLE {
+                assert_eq!(region_at(rect, bottom), ClipRegion::Body);
+                assert_eq!(region_at(rect, bottom + 0.1), ClipRegion::Body);
+            }
+        }
     }
 
     #[test]
@@ -503,7 +573,7 @@ mod tests {
                     fade_in: Default::default(),
                     fade_out: Default::default(),
                     loop_length: None,
-                    content: ClipContent::Midi { notes: vec![] },
+                    content: ClipContent::midi(),
                 }));
             }
         }

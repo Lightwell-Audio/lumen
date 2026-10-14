@@ -5,14 +5,20 @@
 
 use std::sync::Arc;
 use std::sync::mpsc::Receiver;
+use std::time::Duration;
 
+use lumen_audio::fake::Pace;
 use lumen_audio::{
     AudioCallback, AudioError, AudioSystem, Backend, Block, DeviceEvent, DeviceId,
     Status as Meters, StreamConfig, StreamInfo, Timing,
 };
 use lumen_core::product::PRODUCT_NAME;
-use lumen_engine::{ClipsHandle, EngineHandle, MixerHandle, Timeline, clip_player, engine, mixer};
+use lumen_engine::{
+    ClipsHandle, EngineHandle, Layered, MidiHandle, MixerHandle, Timeline, clip_player, engine,
+    midi_player, mixer,
+};
 
+use crate::midi_out::StreamClock;
 use crate::settings::AudioSettings;
 
 /// What the test device's tap holds: 40 seconds of the fake device's
@@ -110,18 +116,34 @@ pub fn backend(driver: &str) -> Option<MakeBackend> {
         // A silent device for automated tests (`--audio test:fake`, the E2E
         // suite): it runs the engine a block every few milliseconds without
         // sound hardware. Not in `DRIVERS`, so users never see it.
-        TEST_DRIVER => Some(|| {
-            Box::new(lumen_audio::fake::FakeBackend(
-                lumen_audio::fake::FakeControl::new(),
-            ))
-        }),
+        TEST_DRIVER => Some(|| test_backend(Pace::Every(TEST_BLOCK_EVERY))),
+        // The same, in real time (see `FakeDevice::pace`): for scenarios that
+        // map wall-clock stamps to frames (recording).
+        TEST_PACED_DRIVER => Some(|| test_backend(Pace::RealTime)),
         _ => None,
     }
+}
+
+/// How often the silent test device runs a block (the supervisor polls every
+/// 10 ms): a busy machine that polls late gets the blocks it missed.
+const TEST_BLOCK_EVERY: Duration = Duration::from_millis(10);
+
+fn test_backend(pace: Pace) -> Box<dyn Backend> {
+    let control = lumen_audio::fake::FakeControl::new();
+    control.set(|device| device.pace = Some(pace));
+    Box::new(lumen_audio::fake::FakeBackend(control))
+}
+
+/// Whether `driver` is one of the silent test devices.
+fn is_test(driver: &str) -> bool {
+    driver == TEST_DRIVER || driver == TEST_PACED_DRIVER
 }
 
 pub const DEFAULT_DRIVER: &str = if cfg!(windows) { "wasapi" } else { "cpal" };
 /// The silent test device's driver key.
 pub const TEST_DRIVER: &str = "test";
+/// The silent test device that keeps to real time.
+pub const TEST_PACED_DRIVER: &str = "test-paced";
 
 /// A device found for a choice.
 struct Resolved {
@@ -294,6 +316,10 @@ pub struct Audio {
     pub engine: EngineHandle,
     /// Replaces the clips the engine plays.
     pub clips: ClipsHandle,
+    /// Replaces the MIDI tracks it plays (M5).
+    pub midi: MidiHandle,
+    /// Where the stream is and when, for timing MIDI to hardware.
+    pub clock: Arc<StreamClock>,
     /// Replaces the routing they play through (M4).
     pub mixer: MixerHandle,
     /// What the test device played, left and right frame by frame, for the
@@ -351,17 +377,28 @@ impl Audio {
     /// in [`Status`].
     pub fn start(choice: &Choice, timeline: Timeline) -> Self {
         let (clips, player) = clip_player();
-        let (mixer, source) = mixer(player);
+        let (midi, midi_play) = midi_player();
+        let (mixer, source) = mixer(Layered(player, midi_play));
         let (engine_handle, mut engine) = engine(timeline, source, 48_000);
-        let testing = matches!(choice, Choice::Named { driver, .. } if driver == TEST_DRIVER);
+        let testing = match choice {
+            Choice::Named { driver, .. } => is_test(driver),
+            Choice::Saved(saved) => is_test(&saved.driver),
+            Choice::Default => false,
+        };
         let (mut tap, heard) = if testing {
             let (tap, heard) = rtrb::RingBuffer::new(HEARD);
             (Some(tap), Some(heard))
         } else {
             (None, None)
         };
+        let clock = StreamClock::new();
+        let stream = Arc::clone(&clock);
+        let mut processed = 0_u64;
         let callback: Box<dyn AudioCallback> = Box::new(move |block: &mut Block<'_>| {
             let (rate, channels, frames) = (block.sample_rate, block.output_channels, block.frames);
+            // MIDI to hardware is timed against this clock (midi_out.rs).
+            stream.publish(processed, frames, rate);
+            processed += frames as u64;
             engine.process(rate, block.outputs, channels, frames);
             if let Some(tap) = &mut tap {
                 listen(tap, block.outputs, channels, frames);
@@ -372,6 +409,8 @@ impl Audio {
             parked: Some(callback),
             engine: engine_handle,
             clips,
+            midi,
+            clock,
             mixer,
             heard,
             status: Status::Off(String::new()),
@@ -740,6 +779,7 @@ impl Audio {
         }
         self.engine.collect_garbage();
         self.clips.collect_garbage();
+        self.midi.collect_garbage();
         self.mixer.collect_garbage();
         changed
     }

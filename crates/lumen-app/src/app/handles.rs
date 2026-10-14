@@ -15,7 +15,7 @@ use lumen_project::model::{Clip, ClipContent, Id};
 
 use super::info::{Held, Info, Mouse};
 use crate::arrangement::handles::{ClipHandles, Handle, bend, db_per_point};
-use crate::arrangement::select::{ClipHit, Edge, Gesture, Half, Hover};
+use crate::arrangement::select::{ClipHit, ClipRegion, Edge, Gesture, Hover};
 use crate::widgets;
 use crate::{App, ruler};
 
@@ -158,7 +158,7 @@ impl App {
         };
         self.arrangement.hover = Some(Hover {
             clip,
-            half: Half::Top,
+            region: ClipRegion::Header,
             edge: None,
             handle: Some(handle),
         });

@@ -166,6 +166,20 @@ cargo fmt --all
 cargo bench -p lumen-rt                  # real benchmark run (release profile)
 ```
 
+## Linux cloud containers
+
+A Linux cloud container needs system packages before the first build. The app
+needs `libasound2-dev` and `libudev-dev` to build; install them with
+`pkg-config`:
+
+```bash
+sudo apt-get install libasound2-dev libudev-dev pkg-config
+```
+
+The GPU tests and the screenshot tests also need a software Vulkan device,
+which is `mesa-vulkan-drivers` (lavapipe; CI's Linux job installs it too).
+The first `cargo test -p lumen-app --test e2e` takes minutes to build.
+
 ## End-to-end tests (ADR-0029)
 
 Run both **at the end of every slice**, and add scenarios for the
@@ -277,6 +291,10 @@ run:
 cargo run --release -p lumen-app -- --stress --bench-frames "$env:TEMP\frames.json"
 cargo run --release -p lumen-app -- --stress --bench-frames "$env:TEMP\frames.json" --bench-size 3440x1380
 ```
+
+Add `--bench-editor` to measure with the stress project's 100,000-note clip
+open in the clip editor (M5 slice 3): the editor follows the scroll and
+zoom, and its pitches scroll with the tracks.
 
 It opens the generated quality-bar project (200 tracks, 20,000 clips) with
 vsync off, scrolls and zooms it, and reports p50, p95, p99 and the worst

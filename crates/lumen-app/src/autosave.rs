@@ -105,6 +105,11 @@ impl Autosave {
         }
     }
 
+    /// Changes the delay: shorter while recording, so a crash costs seconds.
+    pub fn set_delay(&mut self, delay: Duration) {
+        self.delay = delay;
+    }
+
     /// A shorter delay (tests).
     pub fn with_delay(mut self, delay: Duration) -> Self {
         self.delay = delay;
@@ -350,6 +355,7 @@ mod tests {
         files::SaveRequest {
             project: doc.project().clone(),
             path: file,
+            normalize_project_path: false,
             media_files: doc.media_files.clone(),
             copy_imported: false,
             keep_backups: 0,

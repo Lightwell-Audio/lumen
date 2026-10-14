@@ -553,7 +553,7 @@ mod tests {
         assert!(ClipHandles::of(&clip, narrow, x).is_none());
         let short = Rect::from_min_max(pos2(0.0, 0.0), pos2(200.0, 24.0));
         assert!(ClipHandles::of(&clip, short, x).is_none());
-        clip.content = ClipContent::Midi { notes: Vec::new() };
+        clip.content = ClipContent::midi();
         let roomy = Rect::from_min_max(pos2(0.0, 0.0), pos2(200.0, 80.0));
         assert!(ClipHandles::of(&clip, roomy, x).is_none());
     }

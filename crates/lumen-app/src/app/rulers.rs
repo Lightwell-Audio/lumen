@@ -121,11 +121,11 @@ impl App {
         });
         widgets::Menu::context(&response).show(|ui| self.view_menu(ui));
         if self.drag_ruler(&response, at.canvas) {
-            ui.ctx().set_cursor_icon(CursorIcon::ZoomIn);
+            ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
             return;
         }
         if let Some(pointer) = response.hover_pos() {
-            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+            ui.ctx().set_cursor_icon(CursorIcon::Grab);
             self.set_info(
                 Info::new("Bar ruler")
                     .on(Held::NONE, Mouse::Click, "move the playhead")
@@ -219,8 +219,9 @@ impl App {
     }
 
     /// The time ruler along the bottom, in the chosen format.
-    /// Dragging the time ruler selects a time range on every track, so
-    /// empty bars can be chosen too (owner, slice 6b); a click moves the
+    /// Dragging the time ruler selects a time range on the selected tracks,
+    /// or on every track when none is selected, so empty bars can be chosen
+    /// too (owner, slice 6b; ADR-0049 keeps the selection). A click moves the
     /// playhead, as on the bar ruler. Both snap; Alt places freely.
     pub(crate) fn time_ruler_input(
         &mut self,
@@ -231,13 +232,15 @@ impl App {
         let id = ui.id().with("time ruler");
         let response = ui
             .interact(at.time, id, Sense::click_and_drag())
-            .on_hover_text("Drag to select time on every track; click to move the playhead");
+            .on_hover_text(
+                "Drag to select time on the selected tracks, or every track; click to move the playhead",
+            );
         widgets::Menu::context(&response).show(|ui| self.time_format_menu(ui));
         response.widget_info(|| {
             egui::WidgetInfo::labeled(
                 egui::WidgetType::Other,
                 true,
-                "Time ruler: drag to select time on every track",
+                "Time ruler: drag to select time on the selected tracks, or every track",
             )
         });
         let Some(pointer) = response.interact_pointer_pos().or(response.hover_pos()) else {
@@ -256,12 +259,17 @@ impl App {
         if response.dragged()
             && let Some(start) = ui.data(|d| d.get_temp::<Ticks>(id))
         {
+            // The selected tracks keep their selection and get the range;
+            // with none selected, every track does (ADR-0049).
             let project = self.document.project();
-            let last = project.tracks.len().saturating_sub(1);
+            let chosen: Vec<lumen_project::model::Id> = if self.arrangement.selected.is_empty() {
+                project.tracks.iter().map(|t| t.id).collect()
+            } else {
+                self.arrangement.selected.clone()
+            };
             self.arrangement.range =
-                crate::arrangement::select::TimeRange::between(project, start, target, 0, last);
+                crate::arrangement::select::TimeRange::over(project, start, target, &chosen);
             self.arrangement.clips.clear();
-            self.arrangement.selected.clear();
             self.locators.selected = None;
         }
         if response.drag_stopped() {
@@ -275,7 +283,11 @@ impl App {
         if !response.dragged() {
             self.set_info(
                 Info::new("Time ruler")
-                    .on(Held::NONE, Mouse::Drag, "select time on every track")
+                    .on(
+                        Held::NONE,
+                        Mouse::Drag,
+                        "select time on the selected tracks, or all",
+                    )
                     .on(Held::NONE, Mouse::Click, "move the playhead")
                     .on(Held::NONE, Mouse::RightClick, "time format"),
             );

@@ -3,10 +3,11 @@
 
 use std::time::Instant;
 
-use eframe::egui::{self, RichText};
+use eframe::egui;
 use lumen_core::product::PRODUCT_NAME;
 
-use crate::{App, autosave, files, theme, trace};
+use crate::widgets::raised;
+use crate::{App, autosave, files, trace};
 
 impl App {
     /// Writes an autosave a minute after unsaved changes, and removes it
@@ -23,6 +24,7 @@ impl App {
             |file| files::SaveRequest {
                 project: self.stamped(),
                 path: file,
+                normalize_project_path: false,
                 media_files: self.document.media_files.clone(),
                 copy_imported: false,
                 keep_backups: 0,
@@ -50,19 +52,19 @@ impl App {
             return;
         };
         let mut choice = None;
-        egui::Panel::top("recovery banner").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("\u{26A0}").color(theme::p().warning));
+        egui::Panel::top("recovery banner")
+            .frame(super::view::notice_panel_frame())
+            .show(ui, |ui| {
+            super::view::notice_card(ui, |ui| {
                 ui.label(format!(
                     "{PRODUCT_NAME} did not close normally. Unsaved changes to {} from {} can be recovered.",
                     leftover.note.name,
                     autosave::ago(leftover.note.written)
                 ));
-                if ui.button("Recover").clicked() {
+                if raised::primary_button(ui, "Recover").clicked() {
                     choice = Some(true);
                 }
-                if ui
-                    .button("Discard")
+                if raised::button(ui, "Discard")
                     .on_hover_text("Delete the autosaved copy")
                     .clicked()
                 {
@@ -92,25 +94,25 @@ impl App {
             return;
         };
         let mut done = false;
-        egui::Panel::top("crash banner").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("\u{26A0}").color(theme::p().warning));
-                ui.label(format!(
-                    "{PRODUCT_NAME} closed unexpectedly last time. A crash report was saved."
-                ));
-                if ui
-                    .button("Show report")
-                    .on_hover_text(report.display().to_string())
-                    .clicked()
-                {
-                    crate::crash::reveal(&report);
-                    done = true;
-                }
-                if ui.button("Dismiss").clicked() {
-                    done = true;
-                }
+        egui::Panel::top("crash banner")
+            .frame(super::view::notice_panel_frame())
+            .show(ui, |ui| {
+                super::view::notice_card(ui, |ui| {
+                    ui.label(format!(
+                        "{PRODUCT_NAME} closed unexpectedly last time. A crash report was saved."
+                    ));
+                    if raised::primary_button(ui, "Show report")
+                        .on_hover_text(report.display().to_string())
+                        .clicked()
+                    {
+                        crate::crash::reveal(&report);
+                        done = true;
+                    }
+                    if raised::button(ui, "Dismiss").clicked() {
+                        done = true;
+                    }
+                });
             });
-        });
         if done {
             crate::crash::mark_seen(&report);
             self.crash_report = None;

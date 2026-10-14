@@ -1,0 +1,299 @@
+{
+  "format": "lumen-project",
+  "version": 14,
+  "generator": "Lumen 0.0.1",
+  "project": {
+    "name": "Golden v14",
+    "sample_rate": 48000,
+    "tempo": [
+      {
+        "at": 0,
+        "bpm": 120.0
+      },
+      {
+        "at": 22579200,
+        "bpm": 90.0
+      }
+    ],
+    "time_signature": {
+      "numerator": 4,
+      "denominator": 4
+    },
+    "tracks": [
+      {
+        "id": "0000000000000001",
+        "name": "Drums",
+        "kind": "group",
+        "color": "#C0504D",
+        "gain_db": 0.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "armed": false,
+        "devices": [],
+        "clips": []
+      },
+      {
+        "id": "0000000000000002",
+        "name": "Kick",
+        "kind": "audio",
+        "color": "#C0504D",
+        "parent": "0000000000000001",
+        "gain_db": -3.0,
+        "pan": 0.0,
+        "output": "master",
+        "sends": [
+          {
+            "to": "0000000000000050",
+            "level": -12.0,
+            "pre_fader": true
+          }
+        ],
+        "invert": true,
+        "trim_db": 3.5,
+        "mute": false,
+        "solo": false,
+        "armed": true,
+        "devices": [
+          {
+            "id": "0000000000000010",
+            "plugin": {
+              "format": "builtin",
+              "name": "Utility"
+            },
+            "bypass": false,
+            "state": "AAECAw=="
+          }
+        ],
+        "clips": [
+          {
+            "id": "0000000000000020",
+            "name": "Kick 1",
+            "start": 0,
+            "length": 5644800,
+            "muted": false,
+            "color": "#5FB3A1",
+            "locked": true,
+            "fade_in": {
+              "length": 352800,
+              "curve": [0.06666668, 0.6666666, 0.40000004, 1.0]
+            },
+            "fade_out": {
+              "length": 705600,
+              "curve": [0.33333334, 0.0, 0.6666667, 0.33333334]
+            },
+            "loop_length": 1411200,
+            "content": {
+              "type": "audio",
+              "media": "0000000000000030",
+              "offset": 0,
+              "gain_db": 0.0
+            }
+          }
+        ]
+      },
+      {
+        "id": "0000000000000060",
+        "name": "Hats",
+        "kind": "group",
+        "color": "#5A8E8E",
+        "parent": "0000000000000001",
+        "gain_db": 0.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "armed": false,
+        "devices": [],
+        "clips": []
+      },
+      {
+        "id": "0000000000000061",
+        "name": "Open hat",
+        "kind": "midi",
+        "color": "#5A8E8E",
+        "parent": "0000000000000060",
+        "gain_db": -1.5,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "armed": false,
+        "devices": [],
+        "clips": []
+      },
+      {
+        "id": "0000000000000003",
+        "name": "Bass",
+        "kind": "midi",
+        "color": "#4F81BD",
+        "gain_db": -6.0,
+        "pan": -0.25,
+        "sends": [
+          {
+            "to": "0000000000000050",
+            "level": "-inf"
+          }
+        ],
+        "mute": false,
+        "solo": false,
+        "armed": false,
+        "devices": [
+          {
+            "id": "0000000000000011",
+            "plugin": {
+              "format": "vst3",
+              "class_id": "56535455484E36747972656C6C6E3600",
+              "name": "TyrellN6",
+              "vendor": "u-he"
+            },
+            "bypass": true
+          },
+          {
+            "id": "0000000000000012",
+            "plugin": {
+              "format": "builtin",
+              "name": "synth"
+            },
+            "bypass": false,
+            "state": "a2V5cw=="
+          }
+        ],
+        "midi_to": {
+          "port": "Microsoft GS Wavetable Synth",
+          "channel": 9
+        },
+        "midi_from": {
+          "source": {
+            "port": "Keystep 37"
+          },
+          "channel": 2
+        },
+        "monitor": "in",
+        "clips": [
+          {
+            "id": "0000000000000021",
+            "name": "Bassline",
+            "start": 5644800,
+            "length": 5644800,
+            "muted": true,
+            "content": {
+              "type": "midi",
+              "notes": [
+                [0, 352800, 36, 100, true],
+                [470400, 352800, 43, 90]
+              ],
+              "events": [
+                {
+                  "at": 0,
+                  "kind": "program",
+                  "program": 5,
+                  "bank": 130
+                },
+                {
+                  "at": 352800,
+                  "kind": "controller",
+                  "number": 64,
+                  "value": 127
+                },
+                {
+                  "at": 705600,
+                  "kind": "pitch_bend",
+                  "value": -2048
+                },
+                {
+                  "at": 1058400,
+                  "kind": "pressure",
+                  "value": 90
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "0000000000000050",
+        "name": "Reverb",
+        "kind": "return",
+        "color": "#7A6FB0",
+        "gain_db": -4.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "armed": false,
+        "devices": [],
+        "clips": []
+      }
+    ],
+    "master": {
+      "id": "0000000000000004",
+      "name": "Master",
+      "kind": "master",
+      "color": "#808080",
+      "gain_db": -2.0,
+      "pan": 0.0,
+      "output": {
+        "device": 1
+      },
+      "mute": false,
+      "solo": false,
+      "armed": false,
+      "devices": [],
+      "clips": []
+    },
+    "pan_law": "linear",
+    "media": [
+      {
+        "id": "0000000000000030",
+        "path": "Samples/kick.wav",
+        "frames": 48000,
+        "channels": 2,
+        "sample_rate": 48000,
+        "size_bytes": 384044
+      }
+    ],
+    "markers": [
+      {
+        "id": "0000000000000040",
+        "at": 0,
+        "name": "Intro"
+      },
+      {
+        "id": "0000000000000041",
+        "at": 22579200,
+        "name": "Verse"
+      }
+    ],
+    "transport": {
+      "loop_start": 11289600,
+      "loop_end": 33868800,
+      "loop_enabled": true,
+      "punch_in": true,
+      "punch_out": false
+    },
+    "view": {
+      "left_beat": 4.0,
+      "px_per_beat": 32.0,
+      "browser_open": false,
+      "detail_open": true,
+      "browser_size": 240.0,
+      "detail_size": 180.0,
+      "top": 48.0,
+      "track_heights": {
+        "0000000000000002": 96.0
+      },
+      "expanded": ["0000000000000002"],
+      "grid": {
+        "fixed": true,
+        "width": "narrow",
+        "size": {
+          "note": 8
+        },
+        "feel": "triplet",
+        "snap": false
+      },
+      "collapsed": ["0000000000000001"],
+      "header_width": 296.0,
+      "returns_height": 110.0,
+      "returns_folded": true
+    }
+  }
+}

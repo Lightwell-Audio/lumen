@@ -11,8 +11,8 @@ use lumen_core::pan::PanLaw;
 use lumen_core::time::{PPQ, TempoPoint, Ticks};
 use lumen_project::migrate::CURRENT_VERSION;
 use lumen_project::model::{
-    Clip, ClipContent, Color, Device, Id, Level, Media, Note, Output, PluginRef, Project, Send,
-    TimeSignature, Track, TrackKind,
+    Clip, ClipContent, ClipEvent, Color, Device, EventKind, FromSource, Id, Level, Media, MidiFrom,
+    MidiTo, Monitor, Note, Output, PluginRef, Project, Send, TimeSignature, Track, TrackKind,
 };
 use lumen_project::model::{Marker, TransportState, ViewState};
 use lumen_project::testing::{TempDir, small_project, synthetic};
@@ -80,9 +80,10 @@ fn golden_v1_expected() -> Project {
         loop_length: None,
         content: ClipContent::Midi {
             notes: vec![
-                Note(Ticks::ZERO, Ticks(PPQ / 4), 36, 100),
-                Note(Ticks(PPQ / 3), Ticks(PPQ / 4), 43, 90),
+                Note::new(Ticks::ZERO, Ticks(PPQ / 4), 36, 100),
+                Note::new(Ticks(PPQ / 3), Ticks(PPQ / 4), 43, 90),
             ],
+            events: Vec::new(),
         },
     })];
     Project {
@@ -323,6 +324,279 @@ fn golden_v10_expected() -> Project {
     project
 }
 
+/// The model the v11 golden file must always load as: v10 with the drum
+/// MIDI clip carrying a controller, pitch bend, pressure and a program change.
+fn golden_v11_expected() -> Project {
+    let mut project = Project {
+        name: "Golden v11".into(),
+        ..golden_v10_expected()
+    };
+    let track = project
+        .tracks
+        .iter_mut()
+        .find(|t| {
+            t.clips
+                .iter()
+                .any(|c| matches!(c.content, ClipContent::Midi { .. }))
+        })
+        .expect("the golden project has a MIDI clip");
+    for clip in &mut Arc::make_mut(track).clips {
+        if let ClipContent::Midi { events, .. } = &mut Arc::make_mut(clip).content {
+            let at = |t| Ticks(PPQ * t / 4);
+            *events = vec![
+                ClipEvent {
+                    at: at(0),
+                    kind: EventKind::Program {
+                        program: 5,
+                        bank: Some(130),
+                    },
+                },
+                ClipEvent {
+                    at: at(1),
+                    kind: EventKind::Controller {
+                        number: 64,
+                        value: 127,
+                    },
+                },
+                ClipEvent {
+                    at: at(2),
+                    kind: EventKind::PitchBend { value: -2048 },
+                },
+                ClipEvent {
+                    at: at(3),
+                    kind: EventKind::Pressure { value: 90 },
+                },
+            ];
+        }
+    }
+    project
+}
+
+/// The model the v12 golden file must always load as: v11 with the Bass
+/// track given the synth (on its preset Keys) and a MIDI output.
+fn golden_v12_expected() -> Project {
+    let mut project = Project {
+        name: "Golden v12".into(),
+        ..golden_v11_expected()
+    };
+    let bass = project
+        .tracks
+        .iter_mut()
+        .find(|t| t.name == "Bass")
+        .expect("the golden project has a Bass track");
+    let bass = Arc::make_mut(bass);
+    bass.devices.push(Device::synth(Id(0x12), "keys"));
+    bass.midi_to = Some(MidiTo {
+        port: "Microsoft GS Wavetable Synth".into(),
+        channel: 9,
+    });
+    project
+}
+
+#[test]
+fn golden_v12_file_loads_forever() {
+    let path = fixture("v12/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        // Written once, when version 12 was introduced; never rewritten.
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v12_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v12 golden file must load");
+    assert_eq!(project, golden_v12_expected());
+    let bass = project.tracks.iter().find(|t| t.name == "Bass").unwrap();
+    assert_eq!(bass.instrument().and_then(Device::preset), Some("keys"));
+}
+
+/// The model the v13 golden file must always load as: v12 with the Bass
+/// track listening to one port on channel 3, and monitoring In.
+fn golden_v13_expected() -> Project {
+    let mut project = Project {
+        name: "Golden v13".into(),
+        ..golden_v12_expected()
+    };
+    let bass = project
+        .tracks
+        .iter_mut()
+        .find(|t| t.name == "Bass")
+        .expect("the golden project has a Bass track");
+    let bass = Arc::make_mut(bass);
+    bass.midi_from = MidiFrom {
+        source: FromSource::Port("Keystep 37".into()),
+        channel: Some(2),
+    };
+    bass.monitor = Monitor::In;
+    project
+}
+
+#[test]
+fn golden_v13_file_loads_forever() {
+    let path = fixture("v13/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        // Written once, when version 13 was introduced; never rewritten.
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v13_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v13 golden file must load");
+    assert_eq!(project, golden_v13_expected());
+}
+
+/// The model the v14 golden file must always load as: v13 with the first
+/// note of the MIDI clip muted.
+fn golden_v14_expected() -> Project {
+    let mut project = Project {
+        name: "Golden v14".into(),
+        ..golden_v13_expected()
+    };
+    let track = project
+        .tracks
+        .iter_mut()
+        .find(|t| {
+            t.clips
+                .iter()
+                .any(|c| matches!(c.content, ClipContent::Midi { .. }))
+        })
+        .expect("the golden project has a MIDI clip");
+    for clip in &mut Arc::make_mut(track).clips {
+        if let ClipContent::Midi { notes, .. } = &mut Arc::make_mut(clip).content {
+            notes[0].4 = true;
+        }
+    }
+    project
+}
+
+#[test]
+fn golden_v14_file_loads_forever() {
+    let path = fixture("v14/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        // Written once, when version 14 was introduced; never rewritten.
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v14_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v14 golden file must load");
+    assert_eq!(project, golden_v14_expected());
+}
+
+/// The model the v15 golden file must always load as: v14 with the MIDI
+/// clip keeping a note before its start and one past its end, hidden (a
+/// clip is a window onto its notes, as in Ableton).
+fn golden_v15_expected() -> Project {
+    let mut project = Project {
+        name: "Golden v15".into(),
+        ..golden_v14_expected()
+    };
+    let track = project
+        .tracks
+        .iter_mut()
+        .find(|t| {
+            t.clips
+                .iter()
+                .any(|c| matches!(c.content, ClipContent::Midi { .. }))
+        })
+        .expect("the golden project has a MIDI clip");
+    for clip in &mut Arc::make_mut(track).clips {
+        let clip = Arc::make_mut(clip);
+        let past = clip.length + Ticks::quarters(1);
+        if let ClipContent::Midi { notes, .. } = &mut clip.content {
+            notes.insert(
+                0,
+                Note::new(Ticks::quarters(-2), Ticks::quarters(1), 40, 80),
+            );
+            notes.push(Note::new(past, Ticks::quarters(1), 41, 81));
+        }
+    }
+    project
+}
+
+#[test]
+fn golden_v15_file_loads_forever() {
+    let path = fixture("v15/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        // Written once, when version 15 was introduced; never rewritten.
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v15_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v15 golden file must load");
+    assert_eq!(project, golden_v15_expected());
+    let clip = project
+        .tracks
+        .iter()
+        .flat_map(|t| &t.clips)
+        .find(|c| matches!(c.content, ClipContent::Midi { .. }))
+        .unwrap();
+    let ClipContent::Midi { notes, .. } = &clip.content else {
+        unreachable!()
+    };
+    let shown = lumen_project::edit::shown_notes(clip);
+    assert!(!shown.contains(&0), "the note before the start is hidden");
+    assert!(
+        !shown.contains(&(notes.len() - 1)),
+        "and the one past the end"
+    );
+}
+
+#[test]
+fn a_muted_note_is_written_with_a_fifth_element_and_others_as_before() {
+    let text = String::from_utf8(to_bytes(&golden_v14_expected()).unwrap()).unwrap();
+    let flat: String = text.split_whitespace().collect();
+    assert!(flat.contains("[0,352800,36,100,true]"), "muted note");
+    assert!(flat.contains("[470400,352800,43,90]"), "plain note");
+    // And the v13 file, which has no fifth element, loads unmuted.
+    let old = load(&fixture("v13/golden.lumen")).unwrap();
+    assert!(
+        old.tracks
+            .iter()
+            .flat_map(|t| &t.clips)
+            .all(|c| match &c.content {
+                ClipContent::Midi { notes, .. } => notes.iter().all(|n| !n.muted()),
+                _ => true,
+            })
+    );
+}
+
+#[test]
+fn midi_inputs_belong_on_midi_tracks_and_are_checked() {
+    let good = golden_v13_expected();
+    assert!(from_bytes(&to_bytes(&good).unwrap()).is_ok());
+    let audio = good
+        .tracks
+        .iter()
+        .position(|t| t.kind == TrackKind::Audio)
+        .unwrap();
+    let bass = good.tracks.iter().position(|t| t.name == "Bass").unwrap();
+    let refused = |edit: &dyn Fn(&mut Project)| {
+        let mut project = good.clone();
+        edit(&mut project);
+        to_bytes(&project).map_or(true, |bytes| from_bytes(&bytes).is_err())
+    };
+    assert!(refused(&|p| Arc::make_mut(&mut p.tracks[audio])
+        .midi_from = MidiFrom {
+        source: FromSource::Keyboard,
+        channel: None
+    }));
+    assert!(refused(&|p| Arc::make_mut(&mut p.tracks[bass])
+        .midi_from
+        .channel = Some(16)));
+    assert!(refused(&|p| Arc::make_mut(&mut p.tracks[bass])
+        .midi_from
+        .source = FromSource::Port(String::new())));
+    // Monitor is allowed on any kind of track.
+    let mut monitored = good.clone();
+    Arc::make_mut(&mut monitored.tracks[audio]).monitor = Monitor::Off;
+    assert!(from_bytes(&to_bytes(&monitored).unwrap()).is_ok());
+}
+
+#[test]
+fn golden_v11_file_loads_forever() {
+    let path = fixture("v11/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        // Written once, when version 11 was introduced; never rewritten.
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v11_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v11 golden file must load");
+    assert_eq!(project, golden_v11_expected());
+}
+
 #[test]
 fn golden_v10_file_loads_forever() {
     let path = fixture("v10/golden.lumen");
@@ -546,7 +820,7 @@ fn random_damage_never_panics() {
 #[test]
 fn inconsistent_projects_are_rejected_precisely() {
     let mut bad_pitch = golden_v1_expected();
-    if let ClipContent::Midi { notes } =
+    if let ClipContent::Midi { notes, .. } =
         &mut Arc::make_mut(&mut Arc::make_mut(&mut bad_pitch.tracks[2]).clips[0]).content
     {
         notes[0].2 = 200;
@@ -635,4 +909,96 @@ fn media_inside_the_project_moves_with_it() {
         locate_media(empty.path(), &media),
         MediaLocation::Missing { .. }
     ));
+}
+
+#[test]
+fn midi_outputs_and_synths_belong_on_midi_tracks_and_are_checked() {
+    let good = golden_v12_expected();
+    assert!(from_bytes(&to_bytes(&good).unwrap()).is_ok());
+    let audio = good
+        .tracks
+        .iter()
+        .position(|t| t.kind == TrackKind::Audio)
+        .unwrap();
+    let bass = good.tracks.iter().position(|t| t.name == "Bass").unwrap();
+    let refused = |edit: &dyn Fn(&mut Project)| {
+        let mut project = good.clone();
+        edit(&mut project);
+        to_bytes(&project).map_or(true, |bytes| from_bytes(&bytes).is_err())
+    };
+    assert!(refused(&|p| Arc::make_mut(&mut p.tracks[audio])
+        .devices
+        .push(Device::synth(Id(0x99), "poly"))));
+    assert!(refused(&|p| Arc::make_mut(&mut p.tracks[audio]).midi_to =
+        Some(MidiTo {
+            port: "X".into(),
+            channel: 0
+        })));
+    assert!(refused(&|p| Arc::make_mut(&mut p.tracks[bass])
+        .midi_to
+        .as_mut()
+        .unwrap()
+        .channel = 16));
+    assert!(refused(&|p| Arc::make_mut(&mut p.tracks[bass])
+        .midi_to
+        .as_mut()
+        .unwrap()
+        .port
+        .clear()));
+    assert!(refused(&|p| Arc::make_mut(&mut p.tracks[bass]).devices
+        [1]
+    .state = vec![0xFF, 0xFE]));
+}
+
+#[test]
+fn the_midi_demo_project_file_is_current_and_valid() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/projects/midi-demo.lumen");
+    let demo = lumen_project::testing::midi_demo();
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&demo).unwrap()).unwrap();
+    }
+    let loaded =
+        load(&path).expect("the demo project must load (regenerate with LUMEN_WRITE_FIXTURES=1)");
+    assert_eq!(loaded, demo, "regenerate with LUMEN_WRITE_FIXTURES=1");
+    assert_eq!(loaded.tracks.len(), 5);
+}
+
+#[test]
+fn the_midi_demo_arpeggio_and_bass_start_on_each_chords_root_on_the_downbeat() {
+    use lumen_project::model::ClipContent;
+    let demo = lumen_project::testing::midi_demo();
+    let notes =
+        |name: &str| match &demo.tracks.iter().find(|t| t.name == name).unwrap().clips[0].content {
+            ClipContent::Midi { notes, .. } => notes.clone(),
+            _ => panic!("not MIDI"),
+        };
+    let chords = notes("Chords");
+    let bar = lumen_core::time::Ticks::quarters(4);
+    for track in ["Hardware", "Bass"] {
+        let line = notes(track);
+        for b in 0..4_i64 {
+            let start = lumen_core::time::Ticks(bar.0 * b);
+            let first = line
+                .iter()
+                .find(|n| n.0 == start)
+                .expect("a note on the downbeat");
+            // The chord of bar b: its lowest note is the root (pitch class).
+            let root = chords
+                .iter()
+                .filter(|n| n.0 == start)
+                .map(|n| n.2)
+                .min()
+                .unwrap();
+            assert_eq!(
+                first.2 % 12,
+                root % 12,
+                "{track} bar {b} starts on the root"
+            );
+            let in_bar = line
+                .iter()
+                .filter(|n| n.0 >= start && n.0.0 < start.0 + bar.0);
+            assert_eq!(in_bar.count(), 8, "{track} bar {b}: eight eighth notes");
+        }
+    }
 }

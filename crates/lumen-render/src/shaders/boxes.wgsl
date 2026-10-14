@@ -33,8 +33,13 @@ struct Out {
 @vertex
 fn vs_main(@builtin(vertex_index) v: u32, b: Box) -> Out {
     var out: Out;
-    let slot = textureLoad(rows, vec2<i32>(i32(b.row % 256u), i32(b.row / 256u)), 0);
-    let height = slot.y - 2.0 * l.inset;
+    // The row's low 24 bits are its first slot; the top 8 bits are how many
+    // slots below it the box also covers (notes inside arrangement clips).
+    let first = b.row & 0xFFFFFFu;
+    let last = first + (b.row >> 24u);
+    let slot = textureLoad(rows, vec2<i32>(i32(first % 256u), i32(first / 256u)), 0);
+    let end = textureLoad(rows, vec2<i32>(i32(last % 256u), i32(last / 256u)), 0);
+    let height = max(end.x + end.y - slot.x, slot.y) - 2.0 * l.inset;
     if (height <= 0.0 || slot.z <= 0.0) {
         // A hidden row: a degenerate triangle, nothing drawn.
         out.pos = vec4<f32>(-2.0, -2.0, 0.0, 1.0);

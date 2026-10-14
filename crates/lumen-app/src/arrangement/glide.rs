@@ -1,6 +1,6 @@
 //! Clips glide to where an edit puts them (the interface audit's M1;
 //! DESIGN §6 "clips settling"): undo, redo, commands and the snapped steps
-//! of a drag. What is heard changes at once; only the drawing travels, and
+//! of a drag (moves, not trims: a trimmed edge follows the hand). What is heard changes at once; only the drawing travels, and
 //! clicks go by where the clip is, not where it is drawn. After undo or
 //! redo, what changed is also washed in the accent for a moment (M4).
 
@@ -13,7 +13,7 @@ use lumen_project::model::{Clip, Id, Project};
 use crate::motion;
 
 /// How long the accent wash on what undo or redo changed takes to fade.
-pub(super) const WASH: f64 = 0.6;
+pub(super) const WASH: f64 = motion::WASH as f64;
 /// The wash's strength as it starts.
 pub(super) const WASH_ALPHA: f32 = 0.42;
 
@@ -38,6 +38,9 @@ pub(super) struct ClipGlides {
     washed: Option<(HashSet<Id>, f64)>,
     /// The next change is an undo or a redo.
     undoing: bool,
+    /// A recording was under way at the last update: the commit that ends
+    /// it lands as it stops, and does not glide either.
+    was_recording: bool,
 }
 
 impl ClipGlides {
@@ -49,13 +52,15 @@ impl ClipGlides {
 
     /// Notes clips that moved since the last frame, given the document's
     /// `session` and `state`. A drag's steps glide for `duration`; other
-    /// edits for `GLIDE`.
+    /// edits for `GLIDE`. While `recording`, nothing glides: a take's
+    /// commits cut the clips under it about once a second, and a clip that
+    /// slid after each would never sit still.
     pub(super) fn update(
         &mut self,
         now: f64,
         (session, state): (u64, u64),
         project: &Project,
-        dragging: bool,
+        (dragging, recording): (bool, bool),
     ) {
         self.gliding
             .retain(|_, g| now - g.since < f64::from(g.duration));
@@ -64,6 +69,8 @@ impl ClipGlides {
         {
             self.washed = None;
         }
+        let was_recording = std::mem::replace(&mut self.was_recording, recording);
+        let recording = recording || was_recording;
         if self.seen == Some((session, state)) {
             return;
         }
@@ -76,16 +83,25 @@ impl ClipGlides {
             self.clips = all_clips(project).map(|c| (c.id, c.clone())).collect();
             return;
         }
-        let duration = motion::time(if dragging {
-            motion::FAST
+        let duration = if recording {
+            0.0
         } else {
-            motion::GLIDE
-        });
+            motion::time(if dragging {
+                motion::FAST
+            } else {
+                motion::GLIDE
+            })
+        };
         let mut changed = HashSet::new();
         let mut now_clips = HashMap::with_capacity(self.clips.len());
         for clip in all_clips(project) {
             if let Some(before) = self.clips.get(&clip.id) {
-                if before.start != clip.start && duration > 0.0 {
+                // Only a moved clip glides. A trimmed start lands at once:
+                // its length has already changed, so gliding the start
+                // alone would shake the other edge and the notes inside
+                // (MIDI notes are in clip time) on every step of the drag.
+                let moved = before.start != clip.start && before.length == clip.length;
+                if moved && duration > 0.0 {
                     let shown = before.start.0 + self.offset_at(clip.id, now);
                     self.gliding.insert(
                         clip.id,
@@ -191,11 +207,27 @@ mod tests {
     }
 
     #[test]
+    fn nothing_glides_while_recording() {
+        let mut glides = ClipGlides::default();
+        glides.update(0.0, (1, 1), &project(0), (false, false));
+        let moved = project(1000);
+        glides.update(1.0, (1, 2), &moved, (false, true));
+        assert!(!glides.moving());
+        assert_eq!(start_of(&glides.shown(&moved, 1.0)), 1000);
+        // The last commit, as the recording stops, stays put too.
+        glides.update(2.0, (1, 3), &project(2000), (false, false));
+        assert!(!glides.moving());
+        // The next edit glides again.
+        glides.update(3.0, (1, 4), &project(0), (false, false));
+        assert!(glides.moving());
+    }
+
+    #[test]
     fn a_moved_clip_glides_from_where_it_was_to_where_it_is() {
         let mut glides = ClipGlides::default();
-        glides.update(0.0, (1, 1), &project(0), false);
+        glides.update(0.0, (1, 1), &project(0), (false, false));
         let moved = project(1000);
-        glides.update(1.0, (1, 2), &moved, false);
+        glides.update(1.0, (1, 2), &moved, (false, false));
         assert_eq!(
             start_of(&glides.shown(&moved, 1.0)),
             0,
@@ -203,20 +235,43 @@ mod tests {
         );
         let mid = start_of(&glides.shown(&moved, 1.0 + 0.05));
         assert!((1..1000).contains(&mid), "on its way: {mid}");
-        glides.update(2.0, (1, 2), &moved, false);
+        glides.update(2.0, (1, 2), &moved, (false, false));
         assert!(!glides.moving());
         assert_eq!(start_of(&glides.shown(&moved, 2.0)), 1000, "and lands");
     }
 
     #[test]
+    fn a_trimmed_start_lands_at_once() {
+        let mut glides = ClipGlides::default();
+        let before = project(0);
+        glides.update(0.0, (1, 1), &before, (false, false));
+        // The start edge dragged later: the start moves and the clip is
+        // shorter, the end staying put.
+        let mut trimmed = before.clone();
+        {
+            let track = trimmed
+                .tracks
+                .iter_mut()
+                .find(|t| !t.clips.is_empty())
+                .expect("a track with clips");
+            let clip = std::sync::Arc::make_mut(&mut std::sync::Arc::make_mut(track).clips[0]);
+            clip.start = Ticks(480);
+            clip.length = Ticks(clip.length.0 - 480);
+        }
+        glides.update(1.0, (1, 2), &trimmed, (true, false));
+        assert!(!glides.moving(), "a trim does not glide");
+        assert_eq!(start_of(&glides.shown(&trimmed, 1.0)), 480);
+    }
+
+    #[test]
     fn another_document_never_glides_and_undo_washes_what_changed() {
         let mut glides = ClipGlides::default();
-        glides.update(0.0, (1, 1), &project(0), false);
+        glides.update(0.0, (1, 1), &project(0), (false, false));
         // A different project with the same ids: no glide.
-        glides.update(1.0, (2, 1), &project(5000), false);
+        glides.update(1.0, (2, 1), &project(5000), (false, false));
         assert!(!glides.moving());
         glides.note_undo();
-        glides.update(2.0, (2, 2), &project(0), false);
+        glides.update(2.0, (2, 2), &project(0), (false, false));
         let id = first(&project(0)).id;
         assert!(glides.wash(id, 2.0) > 0.4);
         assert!(glides.wash(id, 2.0 + WASH) < 0.01);

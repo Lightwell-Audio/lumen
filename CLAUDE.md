@@ -390,7 +390,335 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-10: **M4.5, a polish pass, is approved and
+**Last updated:** 2026-10-14 (latest): **CI fixes on `m5-midi`** (PR 14;
+ADR-0063). Run 166 failed on all three systems because the silent test
+device ran one block per poll and fell behind the wall clock on a busy
+runner. It now keeps its pace (`FakeDevice::pace`: `Pace::Every` for `test`,
+`Pace::RealTime` for `test-paced`, which `with_audio_buffer` selects). E2E
+rule: wait for what the engine answers (`wait_for`), never a count of
+frames; write chords through `keys()`. Also fixed: canonical paths in the
+Save As unit test, the MIDI sender's lateness bounds (median 8 ms, worst
+25 ms), `smf::write` returning `Result` (`WriteError::TooSparse`), and
+Export MIDI building its file on a worker. Verified on Linux (the whole
+suite, and the record scenarios beside four busy loops); macOS could not be
+run here, so the next macOS CI run is the check. Before it, 2026-10-14:
+**M5 slice 8: the review is done
+with its fixes** (`docs/audits/2026-10-13-m5.md`, Status table). Every gate
+ran in the cloud container: 1,436 tests, 333 E2E and 6 smoke tests pass
+(smoke under `xvfb-run` with `libxkbcommon-x11-0` and lavapipe installed).
+Fixed: an audio-thread free in `take_new` (clips, MIDI, mixer: skip a
+queued list only while `retired.slots() >= 2`); the synth under the
+allocation guard; `validate::LONGEST` (2^52 ticks) bounds positions in
+projects and MIDI files; splits into `widgets/{dialog, slider, format}`,
+`app/startup.rs` (`App::new`), `note_editor/pointer.rs` and
+`lumen-devices/src/synth/{mod, voice}`; `lumen-audio`'s unused `lumen-rt`
+dependency removed. The perf gate here reads `project_parse` +5.84%, but
++4.90% at the baseline's own commit: this machine's offset (KNOWN_ISSUES).
+Next: the owner's MT-MIDI-7, 8 and 9 and the WSL gates, then the M5 report.
+Before it, 2026-10-13: **M5 slice 8 began**. The new
+`tests/e2e/midi_walkthrough.rs` covers record → quantize → save/reopen → play;
+the preliminary review moved Save As folder probing to the save worker. **M5 slice 7 is built** (MIDI files
+and clock out, ADR-0062; owner's F1–F4 A). `lumen_project::smf` (on `midly`,
+Unlicense with a deny exception) reads type 0 and 1 into parts split by
+channel and writes type 0 or 1 at 960 PPQ (`tests/smf/`: hand-made files from
+`make.py`, the golden `lumen-960.mid`, written once with
+`LUMEN_WRITE_FIXTURES=1`). Import: `midi_files.rs` reads off the UI thread;
+`app/midi_files.rs` places files (on a MIDI track one clip,
+`Document::import_midi_clip`; between tracks a track per part,
+`import_midi_tracks`) and offers the file's tempo in a banner
+(`use_file_tempo`); drops keep a place per kind (`document::Places`; `drop_place`
+takes the kind). **Import audio or MIDI…** is `Command::Import` (id still
+`file.import_audio`). Export: `midi_export.rs` (what plays: windows, seams,
+loops baked), **Export MIDI clip…** and **Export MIDI file…**, written with
+`lumen_project::write_atomic`. **Round-trip fix (owner, 2026-10-13):** SMF
+reading queues overlapping note-ons per key/channel and pairs offs FIFO,
+instead of shortening the earlier note at a new attack (ADR-0062 follow-up;
+project regressions and app export/reimport E2E). Source-file recheck pending.
+Clock: `Use::sync` and a delay per output
+(`settings.midi` ports' `sync`, `sync_delay_ms`; `midi_settings::Shown`), the
+engine's `midi/clock.rs` (`MidiHandle::set_sync`, a port bit mask), the
+sender's delay (`Output::set_sync_delays`) and stall Stop. **The command enum
+must stay in `commands::ALL`'s order** (`ALL[command as usize]`; a test
+checks it: a misplaced variant ran Create MIDI clip for Export). E2E `smf`
+(4) and `clock` (1); E2E 331, smoke 6 pass (`xvfb-run -a`; the container
+needed `libxkbcommon-x11-0` for smoke). Valgrind is in this container:
+`cargo build --release -p lumen-perf && target/release/perf-gate` runs the
+gate; slice 7 is flat against its base, but `project_parse` reads +5.83%
+over the baseline here at the base too (KNOWN_ISSUES). Not run: macOS
+cross-clippy. **MT-MIDI-8 waits for the owner** (with MT-MIDI-7). Commits on
+this branch carry no `Claude-Session:` trailer (the owner's PR rule).
+Before it, 2026-10-13: **MIDI learn moved to M7** (owner),
+built with automation; M5 slice 7 became MIDI files and clock out.
+Before it, 2026-10-13: **resizing a playing MIDI clip no
+longer strikes its notes again** (ADR-0061, owner's report). The engine knew a
+held note by its clip's start and the note's length, which a resize changes
+on every frame of the drag; a held note is now known by the tick it began on
+and its key (`hold::Held::start`, `hold::renewed`), so a resize only moves
+its end. Engine test and E2E `midi_play::resizing_a_playing_clip_…` (both fail
+without the fix). **MT-MIDI-7 step 37 waits for the owner.** Before it,
+2026-10-13: **MT-MIDI-7 run 7's finding is
+fixed** (ADR-0060; owner: "looking great", one bug). Overdub begun before a
+clip and reaching it, or begun at its start, merged into that clip
+(ADR-0057); it now records a new clip wherever it begins, as Ableton does,
+carrying what the clips under it played (`edit::record::overdub`, the old
+"begun inside" rule for every take), and what it covers is cut away so the
+old clips stay their own. Clip growing and merging are gone. E2E `record`
+(two scenarios fail without the fix). **MT-MIDI-7 run 8 (step 36) waits for
+the owner.** Before it, 2026-10-13: **the owner's two clip points are
+fixed** (ADR-0059). A note carried on across a seam belongs to the clip it
+began in: the engine knows where a run's clips meet (`MidiClip::seams`) and a
+chase starts only notes that began in the clip the position is in
+(`hold::owning_start`), so playing from the next clip does not strike it.
+The clip editor shows every note, those outside the window too, in its
+dimmed time (`EditorView::shows`, `ClipNotes::outside`, the lane, Ctrl+A);
+note edits let a note stay as far outside as it is and come back in
+(`edit::notes::time_room`, `resize`). The arrangement still hides them. E2E
+`hidden_notes`, `overdub_seams` (fail without the fix); E2E 325, smoke 6;
+shot `hidden_notes_editor`. Not run: WSL perf gate, macOS cross-clippy.
+MT-MIDI-7 run 7 passed but for ADR-0060's finding. Before it,
+2026-10-13: **the owner's Overdub report is fixed** (ADR-0058). Overdub over an empty lane makes its clip at once, empty
+until a note is played. Notes **carry on across seams**: where a clip begins
+exactly where the one before it ends and holds the same note (hidden before
+its start), the note sounds and is drawn through (`edit::seams`). Overdub
+begun inside a clip carries what was heard whole (`record::carry`: a note
+sounding at the record start keeps its start before the new clip; nothing is
+cut at the take's end), so it sustains through recording and its commits.
+Playback joins touching clips into one engine clip, a run known by its first
+clip (`midi_runs.rs`; `midi_play` uses it, the engine is unchanged), so a
+held note keeps its owner while the seams after it move. Mini notes draw
+carried notes (`ClipNotes::carried`); the clip editor does not yet
+(KNOWN_ISSUES). E2E `overdub_seams` (both fail without the fix); E2E 324,
+smoke 6 pass. Not run: the WSL perf gate, macOS cross-clippy. **MT-MIDI-7 run
+6 (steps 31 to 33) waits for the owner.** Before it, 2026-10-13: **the
+owner's four recording and trim points are fixed** (ADR-0057). MIDI clip edges keep the distance they
+were picked up at (`Gesture::Trim::grab`), trims do not glide, and a track's
+note layout counts hidden notes (`mini::track_range`). Overdub begun inside a
+non-looping MIDI clip is a new clip from the playhead to the stop carrying the
+old notes there; begun at or before a clip, the clip grows (start back, end
+on) and takes the take (`edit::record`: `begun_inside`, `extended`,
+`heard_in`). With Loop on a take begins at the playhead (`Session::from`).
+While recording the arrangement draws `Document::preview_takes` every frame
+(the project as the next commit makes it); the recording tracks are on their
+own GPU layers (`canvas.rs` `live`, `live_mini`), the main layers skip
+commits. `live_take.rs` is gone; E2E use `drawn_clips`. E2E 322, smoke 6
+pass (`xvfb-run -a`); `midi_out` sender timing flakes in this container on
+the unchanged code too (KNOWN_ISSUES). Not run: the WSL perf gate, macOS
+cross-clippy. **MT-MIDI-7 runs 4 and 5 (steps 22 to 30) wait for the
+owner.** Before it, 2026-10-13 (after run 3): **a MIDI clip is a window
+onto its notes** (format v15, ADR-0056; the owner chose Ableton's window over
+stacked clips). Trims, covers (moves, copies, Replace recording), splits and
+slips only move notes in clip time; notes before the clip's start (negative)
+or past its content are kept, hidden (`edit::in_window`, `shown_notes`).
+Playback (`midi_play`), the clip editor (`EditorView::window`), the lane
+(`LaneView::window`) and "every note" (Ctrl+A, tools with no picks) read only
+the window. Overdub across clips already merges as Ableton does at the
+project level; the owner will reproduce what they saw (MT-MIDI-7 step 26).
+**MT-MIDI-7 run 4 (steps 22 to 26) waits for the owner.** The WSL perf gate
+was not run. Before it, 2026-10-13 (run 3): **one note layout per track.**
+Clips fitted on their own drew one-note clips an octave apart at the same
+height; now every MIDI clip on a track shares one `mini::Fit` over the
+pitches all of them play (`mini::track_range`, at least 48 semitones,
+centred), and the take uses it too (`LiveTrack::range`; `live_ranges` is
+gone). Shot `mini_notes_octaves`. Also: Overdub over the same pitch stacked
+notes; now a note played wins its pitch, as in Ableton
+(`edit::record::settle`, also between loop passes), and the engine applies
+the rule as keys are played while recording (`TrackState::yields`,
+`give_way`), so the old note stops sounding too. **MT-MIDI-7 run 4 (steps
+22 to 24) waits for the owner.** The WSL perf gate was not run for the
+`lumen-project` change. Before it, 2026-10-13 (latest): **MT-MIDI-7 run 2 fixes, clip
+previews as Ableton's** on `m5-midi` (ADR-0055 amendment "clip previews as
+Ableton's"). Notes inside arrangement clips now have the piano roll's
+proportions: 128 bands a track (`mini::BANDS`), a clip's range divided evenly
+by `mini::Fit` (padded to 16, centred), a note spanning its row's bands (a box
+may span row slots: the top 8 bits of `BoxInstance::row`,
+`lumen_render::spanning`). The take is drawn from the same fit
+(`LiveNote::range`, `record.rs` `live_ranges`), so nothing moves on stop; the
+fixed `live_band` layout is gone. Nothing glides while recording, nor for the
+commit that ends it (`ClipGlides::update`). E2E 314, smoke 6 (under
+`xvfb-run -a` in the container). **MT-MIDI-7 run 3 (steps 19 to 21) waits for
+the owner.** Open: the clip editor follows commits (about once a second), not
+every frame. Before it, 2026-10-13 (later): **MT-MIDI-7 run 1 fixes** on `m5-midi`
+(ADR-0055 amendment). The owner's findings: the take painted in chunks,
+recording over a clip redrew it at every commit, and held keys and notes held
+across the loop wrap were lost. Now: the take is drawn every frame from the
+capture (`arrangement/live_take.rs`, `clips.rs` `draw_live_take`; commits stay
+about once a second and at each wrap); commits give the pieces they cut stable
+ids (`Recording::pieces`); the engine keeps the keys a recording track's input
+holds and queues them as note-ons when recording begins, numbers loop passes
+(`Captured::pass`, `WRAP` markers), and the app's `Capture::looping` cuts a
+note held across a wrap at the loop end and carries it on from the loop start.
+MT-MIDI-7 run 2 (steps 15 to 18) waits for the owner. Before it, 2026-10-13:
+**M5 slice 6 (recording MIDI) is built** on `m5-midi` (ADR-0055; the plan and what changed from it are in `docs/milestones/M5.md`). Record (F9 or the button) keeps what the armed MIDI tracks play, after a count-in of none, 1, 2 or 4 bars; takes land as Replace or Overdub, one undo step per recording, committed about once a second, with autosave every 10 s while recording. Owner choices: loop passes layer, a clip runs from record start to stop, settings in the app file (no format change, still v14), and the 1-A, 2-B, 3-A look. Built by Haiku agents (take builder, settings, E2E, the bar and the clip look) and the parent (engine and recorder). Open: with Loop on a take starts at the loop's start; edits to the same track during a take are lost; no manual latency offset until M9 (KNOWN_ISSUES). Not run here: the WSL perf gate and the macOS cross-clippy. **MT-MIDI-7 waits for the owner.** Cloud container: `apt-get update`, then `libasound2-dev libudev-dev pkg-config mesa-vulkan-drivers xvfb libxkbcommon-x11-0`. Next: MT-MIDI-7, then slice 7 (files, learn and clock).
+
+Before it, 2026-10-12: **M5 slice 5 (quantize and its tools) is
+built** on `m5-midi` (ADR-0054; plan in `docs/milestones/M5.md`; owner:
+ghost-trail preview, comet sliders in the popover, Q on every note when none
+are picked, restore-recorded-timing deferred). Pure edits in
+`lumen_project::edit::{quantize, note_tools}`; `Document::{quantize,
+humanize, fixed_length, scale_constrain, reverse}_notes`; the UI is
+`note_editor/quantize.rs` (the Quantize button and popover, `Options`, the
+stand-in clip the roll draws while the popover is open, ghost trails in
+`paint.rs`); `widgets::comet_slider` (`SliderStyle::comet`) and
+`Menu::{staying, open_for, close_for}` are new shared pieces. Q applies the
+last settings, Shift+Q opens the popover; there is no Iterative switch
+(strength below 100% applied again is iterative). Options are not saved yet
+(KNOWN_ISSUES). E2E `quantize` (7), shot `quantize_popover`, workspace tests
+pass (E2E 296). **Not run:** the WSL perf gate and the macOS cross-clippy.
+**MT-MIDI-6 waits for the owner.** Built with Haiku subagents for the pure
+edits, Document tests and E2E; the parent did the UI. Cloud container: run
+`apt-get update` first, then install `libasound2-dev libudev-dev pkg-config
+mesa-vulkan-drivers xvfb libxkbcommon-x11-0`. Next: slice 6 (recording MIDI).
+
+Before it, 2026-10-12: **M5 slices 0 to 4 are built and their manual
+tests have passed** (MT-MIDI-1 to 5; follow-up findings are in
+MANUAL_TESTS and KNOWN_ISSUES). The slice 3 and 4 plans are folded into
+`docs/milestones/M5.md` (the separate files are gone). `m5-midi` was
+squashed and force-updated upstream; an older local copy is the branch
+`backup/m5-midi-pre-sync`, safe to delete. **Next: slice 5, quantize and
+its tools** (C5: the current grid, start only, 100%, no swing; Q applies
+the last settings, Shift+Q opens the options popover with a live preview;
+humanize, legato, fixed length, transpose, scale-constrain, reverse).
+Specimens first (the quantize popover), as at the start of each slice.
+Reuse: slice 3's legato; slice 4's `velocity::set`, `velocity::scale` and
+`events::set_point` are tested and uncalled, humanize is their first user.
+
+Before it, 2026-10-12: **owner bug fixes** on `m5-midi`: a click on
+a clip's header while stopped locates to the clip's start; the bar ruler's
+cursor is a grab hand; dropdown and sends lists pad their scrolled rows by
+`raised::FOCUS_OUTSET` (`raised::ring_room`) so focus rings are whole; tabs
+and segmented controls glide their chosen *index* between live rects
+(`toggle::slide_between`), so a moving strip carries them; the velocity
+lane draws a head per note, a press on a head drags it (and every picked
+note, relative), `LaneView::head_at` picks among overlapping heads; a
+Pointer double-click on empty roll space draws a note (ADR-0047 and
+ADR-0050 amendments). E2E 289 pass. Built by Sonnet subagents.
+
+Before it, 2026-10-12: **the owner's Lumen design system is
+applied** on `m5-midi` (ADR-0052; DESIGN.md v2, §5a Material). The design
+system is a Design System artifact (tokens, a Material card, a card per
+component); where it and DESIGN.md differ, it wins. Asked where it and
+ADR-0051 differed, the owner chose it on all four: on = `Tone::On`
+(`accent_muted`, a 38% accent hairline, no glow); solo, the primary and the
+chosen tool = `Tone::Accent` (filled, no halo; amber only warns); a lit M =
+`Tone::Mute`; raised controls = `control_hi` to `control`, edge light,
+border, Ember hover, no drop shadow, radius by height
+(`radius::for_height`); the arm is round again. New tokens in `theme.rs`
+(`ground`, `control_hi`, `thumb_hi`/`thumb`, `edge_light`, `shade`, `ember`,
+`accent_hi`/`accent_lo`/`on_accent`, `mute`/`on_mute`, radius `XL`/`FULL`,
+`stroke::*`, `CONTROL_LARGE`, `TRANSPORT_ICON`, `TRANSPORT_BAR` 44,
+`TRACK_STEP`, `HEADER_COLUMN`, `MONO_SMALL`, `KEYCAP`; `motion::{WASH,
+BREATH}`); `widgets/raised.rs` paints the material (`paint`, `paint_sunken`,
+`paint_field`, `lip`, `primary_button`, `paint_focus`). Built by Sonnet and
+Haiku subagents (audits, fixes, visual checks of the shots). Also fixed: the
+piano roll's B|C and E|F lines sat one row low. 1157 tests, E2E 273, smoke 6
+and all shots pass. Open: MT-DS-1 (the owner's look check), the record icon's
+2.7:1 and menu rows' 33 pt and 4 pt gap (KNOWN_ISSUES). Use
+`transport::divider` for dividers in the bar (egui's adds 6 pt and the bar
+must fit at 960).
+
+Before it, 2026-10-11: **M5 slice 4 (velocity and controller lanes)
+is built** on `m5-midi` (ADR-0050; the owner took every recommendation from
+the live "Lumen Controller Lane Specimens" artifact: V A stems with round
+heads, L A one lane with a tab switcher, T A Pencil, Line and Curve in the
+lane's header, R B a 1/64 event density for Line, Curve and bend with the
+Pencil on the grid; plan `docs/milestones/M5.md`). **No format change**
+(v14; controller events have been in clips since v11). Pure edits:
+`lumen_project::edit::velocity` and `edit::events` (a drawn line is plain
+events, only repeated values dropped: MIDI has no ramps); undoable
+`Document` methods in `document/lanes.rs` (`Drag`, `Line`, `Shift` structs;
+one undo step per gesture, the document changes on release as for notes);
+the lane itself is `note_editor/lane/` (`geometry`, pure `gesture`, `paint`,
+`ui`, state in `mod.rs`), under the roll with its own tabs and tools, sharing
+the roll's time view; ten palette commands (the tools on keys 1, 2, 3, which
+work whenever a clip is open; Shift in the lane starts a box rather than
+drawing a line, to confirm with the owner), Delete removes picked lane points
+when the lane was the last place pressed. Engine golden check for controller
+and bend timing: `tests/midi.rs`
+`drawn_controllers_and_bends_land_on_their_exact_sample_in_order`. E2E
+`lanes` (18 scenarios), shot `clip_lane`. **Frame times with the 100,000-note
+clip and the lane open are not measured here** (see below); MT-MIDI-5 passed 2026-10-12.
+Built by **Haiku subagents** under the new delegation policy
+(`.claude/skills/references/delegation.md`: the parent specifies, integrates
+and verifies; Haiku for bounded work), the parent wrote the UI wiring. In a
+Linux cloud container, install `libasound2-dev libudev-dev pkg-config` to
+build, `mesa-vulkan-drivers` for GPU tests and shots, and `xvfb`,
+`libxkbcommon-x11-0` to run the smoke tests under `xvfb-run -a`. Next: slice 5
+(quantize and its tools), specimens first; (MT-MIDI-4 and 5 have passed).
+
+Before it, 2026-10-11: **M5 slice 3 (MIDI clips and the piano
+roll) is built** on `m5-midi` (ADR-0047; the owner's Look A studio keys,
+Draw A click-adds-then-drag-length, Live A preview-then-commit, chosen from
+the "Lumen Piano Roll Specimens" artifact; plan `docs/milestones/M5.md`).
+Format **v14** (`Note` has a mute flag: `Note::new` for unmuted;
+`note.muted()`); note edits are pure transforms in
+`lumen_project::edit::notes` returning the new picks, applied through
+`document/notes.rs` and `midi_clips.rs`; picks are indices checked by
+`NoteSelection::refresh`. Notes draw on the GPU in `piano_roll/` (a layer
+per `canvas::Surface`, rebuilt only on content or pick changes; mini notes
+on arrangement clips). The editor is `note_editor/` (Clip tab and pop-out,
+`app/detail.rs`); while it holds the keyboard, Delete, Ctrl+D, 0, Ctrl+A,
+Esc and the arrows act on notes. Auditioning is the live source
+`AUDITION` (`audition.rs`); its editor hook takes the clip, because the
+editor's state is lifted out of `App` during a gesture. `--bench-editor`
+measures with the 100,000-note clip open: p99 at most 1.82 ms at
+1600 × 900 and 2.22 ms at 3440 × 1380, idle 3 repaints in 3 s. Built by Sonnet agents in worktrees
+(created from `main`: reset them to `m5-midi` first), merged here.
+MT-MIDI-4 passed 2026-10-12.
+
+Before it, 2026-10-11: **M5 slice 2 (playing live) is built** on
+`m5-midi` (ADR-0046; owner's L A, J A, C B, K A, H B, R A and Ctrl+Shift+K,
+chosen on the "MIDI: Playing Live" design canvas). Live input reaches the
+engine through `LiveInput` (`lumen-engine/src/midi/live.rs`: `Listen`, a
+live note tracker; stop and jumps leave live notes alone) and the app's
+`LiveFeed` (`live.rs`: driver stamps to device frames, one block later;
+`RenderContext::device`); **format v13** (`Track::midi_from`,
+`Track::monitor`); who listens is `midi_play::listening` (selected or armed
+MIDI tracks, Monitor Auto); the computer keyboard (`app/keyboard.rs`); the
+MIDI chip (`transport/midi_chip.rs`; activity counted in `lumen-midi`, the
+driver wakes the UI, never poll); header lights
+(`arrangement/listen_light.rs`); the transport bar's room rule
+(`transport/fit.rs`: say where a new bar control falls in its order). The
+slice was built by **Sonnet agents in worktrees** (the owner's request:
+orchestrate with Sonnet), reviewed and merged here; worktrees build their
+own `target/`, so watch the disk (`.claude/worktrees/` is excluded in
+`.git/info/exclude`). The perf gate reads ~+5% high in this cloud sandbox
+(Ubuntu 24.04 glibc); trust CI's 26.04 container. MT-MIDI-3 passed. Next: slice 3 (MIDI clips and the piano roll),
+specimens first; the "MIDI Clips & Editing" canvas holds earlier
+explorations for it.
+
+Before it, 2026-10-10: **M5 (MIDI and the piano roll) is approved and
+under way** on `m5-midi` (plan `docs/milestones/M5.md`; owner choices: C1 a
+small built-in synth plus MIDI out, C2 the detail panel's Clip tab *and* a
+way to pop the piano roll out into its own window, C3 Ableton's keyboard
+layout as a transport mode, C4 replace with an overdub switch, C5 the
+current grid). **Slice 0 is built** (ADR-0044): `crates/lumen-midi` (midir;
+`MidiSystem` worker thread, fake backend), `app/midi.rs` and
+`midi_settings.rs` (the MIDI tab of "Audio and MIDI settings", saved in
+`settings.midi`), and **format v11** (`ClipContent::Midi { notes, events }`,
+`ClipEvent`/`EventKind`; use `ClipContent::midi()` for an empty clip; edits
+cut events like notes). E2E `midi`; `--midi off|test:fake`;
+`Launch::with_midi(FakeControl)`. MT-MIDI-1 waits for the owner (needs a
+MIDI device). **Slice 1 is built** (ADR-0045; owner's S1, E1, T1, H1): `lumen_core::midi`
+(`Msg`), the new `crates/lumen-devices` (the `Instrument` trait and the
+synth with five presets; the engine may depend on it: layering amended),
+`lumen-engine/src/midi/` (`hold.rs` the note tracker, chase and every
+release; `player.rs`; `Layered` plays it beside the clip player;
+`Source::{stopped, panic, ringing}`, `RenderContext::{mode, stream}` and
+`Mode::Ring`, which renders tails while stopped), **format v12** (the
+synth is a built-in device named `synth` with its preset in `state`;
+`Track::midi_to`), `Document::set_instrument` and `set_midi_to`,
+`midi_play.rs` (project to engine, pure, with a port table), `midi_out.rs`
+(hardware timing: `StreamClock`, `ClockMap`, `Scheduler`, the sender
+thread), `app/hardware.rs`, the track menu's Instrument and MIDI To and the
+palette's presets and Panic. E2E `midi_play` watches a fake port: every
+note-on needs its off. `tests/projects/midi-demo.lumen` (from
+`lumen_project::testing::midi_demo`; regenerate with
+`LUMEN_WRITE_FIXTURES=1`) is for MT-MIDI-2. Perf scenario `engine_synth_64`
+(0.36 ms a block, 13.5 %; baseline added by hand). Unverified: timing on
+real MIDI hardware. Next: the owner's MT-MIDI-1 and MT-MIDI-2, then slice 2
+(MIDI From, monitoring, the computer keyboard, the MIDI chip).
+
+Before it, 2026-10-10: **M4.5, a polish pass, is approved and
 under way** on `m4.5-polish` (plan `docs/milestones/M4.5.md`). The owner
 merged the M4 review fixes (PR #3; CI did not run because of GitHub
 billing, so the full suite was run locally first), then asked for an
@@ -621,7 +949,7 @@ escapes and quotes several times.
 **Status**
 - M1 Foundations ✅ and M2 Audio Engine, Devices & Transport ✅ (approved 2026-10-07).
 - **M4.5 Polish pass: built 2026-10-10; slices 1–4 done, slices 5 and 6
-  built (MT-POL-5 and MT-POL-6 wait).** M5 proposed (`docs/milestones/M5.md`).
+  built (MT-POL-5 and MT-POL-6 wait).** M5 under way: slices 0 to 6 built; MT-MIDI-7 waits for the owner, then slice 7 (`docs/milestones/M5.md`).
 - **M4 Mixer, Routing & Groups: complete 2026-10-10**; the review's fixes
   are merged (PR #3).
 - **M3 Arrangement & Project System: complete, approved 2026-10-09.** Slices 1–3 done:
@@ -741,7 +1069,7 @@ escapes and quotes several times.
 - Where to look:
   - `docs/PROGRESS.md`: every requirement's status, slice tables and the
     milestone reports;
-  - `docs/DECISIONS.md`: ADR-0001 to ADR-0033, plus the table of owner
+  - `docs/DECISIONS.md`: ADR-0001 to ADR-0059, plus the table of owner
     decisions;
   - `docs/MANUAL_TESTS.md`: hardware tests with every run's results;
   - `docs/KNOWN_ISSUES.md`: problems found and not fixed yet, and where

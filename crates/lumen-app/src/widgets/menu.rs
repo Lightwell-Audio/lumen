@@ -13,7 +13,8 @@ use eframe::egui::{
     epaint::ClippedShape, vec2,
 };
 
-use crate::motion;
+use super::raised;
+use crate::{motion, theme};
 
 /// How long after the pointer leaves a changed menu it starts to fade.
 const LEAVE_DELAY: f64 = 0.4;
@@ -32,6 +33,33 @@ fn change_key() -> EguiId {
 /// fades once the pointer leaves it.
 pub(crate) fn note_change(ui: &Ui) {
     ui.ctx().data_mut(|d| d.insert_temp(change_key(), true));
+}
+
+/// Where the menus drawn this pass are noted, so a staying menu can tell
+/// that a click landed in a menu opened from inside it (a dropdown in a
+/// popover), not outside.
+fn drawn_id() -> EguiId {
+    EguiId::new("lumen menus drawn")
+}
+
+fn note_drawn(ctx: &egui::Context, id: EguiId) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| {
+        let drawn = d.get_temp_mut_or_default::<(u64, Vec<EguiId>)>(drawn_id());
+        if drawn.0 != pass {
+            *drawn = (pass, Vec::new());
+        }
+        drawn.1.push(id);
+    });
+}
+
+/// Whether a menu other than `id` was drawn this pass.
+fn other_drawn(ctx: &egui::Context, id: EguiId) -> bool {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data(|d| {
+        d.get_temp::<(u64, Vec<EguiId>)>(drawn_id())
+            .is_some_and(|(at, ids)| at == pass && ids.iter().any(|i| *i != id))
+    })
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -60,6 +88,9 @@ pub struct Menu<'r> {
     response: &'r Response,
     opens: Opens,
     keep_open: bool,
+    /// Stays open when the pointer leaves after a change (a popover whose
+    /// effect is looked at elsewhere: the quantize options).
+    stays: bool,
 }
 
 impl<'r> Menu<'r> {
@@ -70,6 +101,7 @@ impl<'r> Menu<'r> {
             response,
             opens: Opens::Below,
             keep_open: true,
+            stays: false,
         }
     }
 
@@ -80,6 +112,7 @@ impl<'r> Menu<'r> {
             response,
             opens: Opens::Context,
             keep_open: false,
+            stays: false,
         }
     }
 
@@ -87,6 +120,42 @@ impl<'r> Menu<'r> {
     pub fn keeping_open(mut self) -> Self {
         self.keep_open = true;
         self
+    }
+
+    /// The menu stays open when the pointer leaves it after a change; only
+    /// Esc, a click elsewhere or a command closes it.
+    pub fn staying(mut self) -> Self {
+        self.keep_open = true;
+        self.stays = true;
+        self
+    }
+
+    /// Opens the menu of the control with `response_id` from code (a key).
+    pub fn open_for(ctx: &egui::Context, response_id: EguiId) {
+        let id = state_id(response_id);
+        let state = load(ctx, id);
+        if !state.open || state.closing.is_some() {
+            store(
+                ctx,
+                id,
+                State {
+                    open: true,
+                    ..State::default()
+                },
+            );
+            ctx.request_repaint();
+        }
+    }
+
+    /// Closes the menu of the control with `response_id` from code.
+    pub fn close_for(ctx: &egui::Context, response_id: EguiId) {
+        let id = state_id(response_id);
+        let mut state = load(ctx, id);
+        if state.open && state.closing.is_none() {
+            state.closing = Some(ctx.input(|i| i.time));
+            store(ctx, id, state);
+            ctx.request_repaint();
+        }
     }
 
     /// Whether the menu of the control with `response_id` is open (not
@@ -182,6 +251,7 @@ impl<'r> Menu<'r> {
             Opens::Context => Popup::menu(self.response).at_position(state.at.unwrap_or_default()),
         };
         let mut open = true;
+        note_drawn(&ctx, id);
         ctx.data_mut(|d| d.remove::<bool>(change_key()));
         let shown_menu = popup
             .open_bool(&mut open)
@@ -196,8 +266,17 @@ impl<'r> Menu<'r> {
             store(&ctx, id, State::default());
             return None;
         };
-        // What it looks like now, to fade from when it closes.
+        // The edge light along the menu's top inside edge (the design
+        // system's Menu card: a floating surface has one), painted before the
+        // picture is taken so the fade keeps it.
         let layer = shown_menu.response.layer_id;
+        raised::lip(
+            &ctx.layer_painter(layer),
+            shown_menu.response.rect,
+            theme::radius::LARGE,
+            theme::p().edge_light,
+        );
+        // What it looks like now, to fade from when it closes.
         let picture: Vec<ClippedShape> = ctx.graphics(|g| {
             g.get(layer)
                 .map(|list| list.all_entries().cloned().collect())
@@ -213,11 +292,14 @@ impl<'r> Menu<'r> {
             )
         });
         state.changed |= changed;
-        if !open && !opened_now {
+        if !open && !opened_now && self.stays && other_drawn(&ctx, id) {
+            // A click in a menu opened from inside this one (a dropdown in
+            // a popover) is not a click elsewhere.
+        } else if !open && !opened_now {
             // Esc, a click elsewhere or a command closed it.
             begin_closing(&mut state);
             Popup::close_id(&ctx, popup_id);
-        } else if state.changed {
+        } else if state.changed && !self.stays {
             // Once changed, it closes when the pointer leaves it.
             let area = shown_menu.response.rect.expand(LEAVE_SLOP);
             let on_it = ctx.pointer_hover_pos().is_some_and(|p| area.contains(p))

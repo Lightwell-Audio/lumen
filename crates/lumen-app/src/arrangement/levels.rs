@@ -13,6 +13,7 @@ use lumen_project::model::Track;
 use super::Arrangement;
 use crate::app::info::{Held, Info, Mouse};
 use crate::meters::{FLOOR_DB, Reading};
+use crate::widgets::raised;
 use crate::{light, theme};
 
 /// The top of the volume slider's range (`SliderKind::Volume`): the meter
@@ -26,6 +27,8 @@ const BAR_GAP: f32 = 0.5;
 /// of the resize edge).
 const HAIRLINE: f32 = 1.5;
 const HAIRLINE_ABOVE: f32 = 6.0;
+/// The trough behind the hairline is too thin for more than a soft corner.
+const HAIRLINE_RADIUS: u8 = 1;
 
 /// Where `db` falls along `span`, on the volume slider's scale.
 fn x_at(span: Rangef, db: f32) -> f32 {
@@ -134,6 +137,8 @@ impl Arrangement {
         let ys = Rangef::new(bottom - 2.0 * HAIRLINE - BAR_GAP, bottom);
         let span = Rangef::new(left, right);
         let painter = ui.painter_at(Rect::from_x_y_ranges(span, ys.expand(1.0)));
+        // The level runs in a sunken trough (the design system's `.hair`).
+        raised::paint_sunken(&painter, Rect::from_x_y_ranges(span, ys), HAIRLINE_RADIUS);
         if !reading.at_rest() {
             draw(
                 &painter,

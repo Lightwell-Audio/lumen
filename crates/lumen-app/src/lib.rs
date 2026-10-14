@@ -19,7 +19,9 @@
 //! lumen --stress --bench-frames out.json
 //!                                frame-time benchmark: scroll and zoom it with
 //!                                vsync off, report, exit (status 3 below 60 fps);
-//!                                --bench-size 3440x1400 sets the window
+//!                                --bench-size 3440x1400 sets the window;
+//!                                --bench-editor opens the 100,000-note clip
+//!                                in the clip editor while it runs
 //! lumen --test-latency 12.4      the engine's synthetic latent device on the
 //!                                first track, to try delay compensation
 //! lumen --smoke-test            render a few frames, report start-up time, exit
@@ -35,6 +37,7 @@ mod app;
 mod arrangement;
 mod audio;
 mod audio_settings;
+mod audition;
 mod autosave;
 mod bench;
 mod brand;
@@ -48,14 +51,26 @@ mod icons;
 mod lanes;
 mod launch;
 mod light;
+mod live;
 mod media;
 mod meters;
+mod midi;
+mod midi_export;
+mod midi_files;
+mod midi_out;
+mod midi_play;
+mod midi_runs;
+mod midi_settings;
 mod motion;
+mod note_editor;
 mod owner;
 mod panels;
+mod piano_roll;
 mod playhead;
 mod position;
 mod probe;
+mod record_settings;
+mod recorder;
 mod routing;
 mod ruler;
 mod settings;
@@ -123,13 +138,39 @@ pub struct App {
     /// The leftover being recovered (its open is in progress).
     recovering: Option<autosave::Leftover>,
     transport: Transport,
+    /// MIDI ports and the user's switches for them (M5 slice 0).
+    midi: midi::Midi,
+    /// Times MIDI to hardware outputs; starts with the first one a track names.
+    midi_out: Option<midi_out::Output>,
+    /// Sends the computer keyboard's notes into the engine, once the live
+    /// feed is handed over (slice 2).
+    live_keys: Option<live::LiveKeys>,
+    /// Recording MIDI (M5 slice 6).
+    record: app::record::Record,
+    /// The piano roll's note preview (M5 slice 3d).
+    audition: audition::Audition,
+    /// Counts changes to the MIDI ports, and what the used outputs were last
+    /// checked against (document, its state, port changes).
+    midi_ports_seen: u64,
+    /// The computer keyboard as a MIDI keyboard (M5 slice 2): a mode, not saved.
+    keyboard: app::keyboard::ComputerKeyboard,
+    midi_checked: Option<(u64, u64, u64)>,
     /// Audio clips on the simple timeline (M2 slice 6).
     lanes: lanes::Lanes,
     /// Where dropped files go: under the pointer, snapped, or the playhead.
     drop_target: Ticks,
     /// Where dropped files go: new tracks, or the track under the pointer
-    /// (slice 6e).
-    drop_into: document::DropInto,
+    /// (slice 6e), for audio files and for MIDI files (M5 slice 7).
+    drop_into: document::Places,
+    /// MIDI files being read in the background (M5 slice 7).
+    midi_reader: midi_files::Reader,
+    /// An exported MIDI file being made, before the dialog asks where it
+    /// goes (M5 slice 7).
+    midi_exporting: Option<std::sync::mpsc::Receiver<Result<midi_files::Exported, String>>>,
+    /// An exported MIDI file being written (M5 slice 7).
+    midi_writing: Option<std::sync::mpsc::Receiver<Result<PathBuf, String>>>,
+    /// A MIDI file's tempo and meter, offered in a banner (M5 slice 7, F2).
+    tempo_offer: Option<app::midi_files::TempoOffer>,
     /// Where the pointer is while files are dragged in from the system.
     /// egui does not know: on Windows the window gets no pointer moves
     /// during the drag, and the window integration drops the position the
@@ -147,6 +188,10 @@ pub struct App {
     settings_writer: settings::Writer,
     show_browser: bool,
     show_detail: bool,
+    /// Which tab of the detail panel shows (M5 slice 3c).
+    detail_tab: app::detail::DetailTab,
+    /// The MIDI note editor: in the Clip tab, or popped out (slice 3c).
+    note_editor: note_editor::NoteEditor,
     /// Full panel sizes, for sliding (kept while the panels are open).
     browser_size: f32,
     detail_size: f32,
@@ -337,9 +382,11 @@ impl eframe::App for App {
         self.transport.update();
         self.restore_clipboard_keys(&ctx);
         self.capture_chord(&ctx);
+        self.computer_keyboard_keys(&ctx);
+        self.refresh_note_editor(&ctx);
         self.command_keys(&ctx);
         if std::mem::take(&mut self.arrangement.import_requested) {
-            self.run(&ctx, commands::Command::ImportAudio);
+            self.run(&ctx, commands::Command::Import);
         }
         self.poll_files(&ctx);
         self.autosave(&ctx);
@@ -361,15 +408,9 @@ impl eframe::App for App {
                     self.drop_into
                 )
             });
-            self.lanes.add_files(
-                dropped,
-                self.drop_target,
-                self.drop_into,
-                rate,
-                &ctx,
-                &mut self.document,
-            );
+            self.add_files(dropped, self.drop_target, self.drop_into, &ctx);
         }
+        self.poll_midi_files(&ctx);
         if let Some(ms) = self.test_latency
             && let Some(first) = self.document.project().tracks.first()
         {
@@ -381,13 +422,18 @@ impl eframe::App for App {
             }
         }
         let cue = self.cue();
+        let inputs = self.listen_inputs();
         self.lanes.update(
             rate,
             &ctx,
             &mut self.document,
-            &mut self.transport.audio.clips,
-            &mut self.transport.audio.mixer,
+            lanes::Handles {
+                clips: &mut self.transport.audio.clips,
+                midi: &mut self.transport.audio.midi,
+                mixer: &mut self.transport.audio.mixer,
+            },
             &cue,
+            &inputs,
         );
         self.sync_document(&ctx);
         let meters_moving = self.update_meters();
@@ -406,12 +452,61 @@ impl eframe::App for App {
             self.show_detail = !self.show_detail;
         }
 
-        egui::Panel::top("transport").show(ui, |ui| self.transport(ui));
+        // The transport bar (the Transport card, ADR-0052): 44 pt on `app`
+        // with a 1 pt `edge_light` along its top inside edge; the panel's
+        // separator line is the `border` hairline under it.
+        let bar_fill = theme::p().app;
+        let edge_light = theme::edge_light();
+        egui::Panel::top("transport")
+            .exact_size(theme::size::TRANSPORT_BAR)
+            .resizable(false)
+            .frame(
+                egui::Frame::new()
+                    .fill(bar_fill)
+                    .inner_margin(egui::Margin::symmetric(theme::space::M as i8, 0)),
+            )
+            .show(ui, |ui| {
+                let bar = ui.max_rect();
+                ui.painter().hline(
+                    bar.x_range(),
+                    bar.top() + 0.5 * theme::stroke::HAIRLINE,
+                    egui::Stroke::new(theme::stroke::HAIRLINE, edge_light),
+                );
+                self.transport(ui);
+            });
         self.device_banner(ui);
         self.crash_banner(ui);
         self.file_banner(ui);
+        self.tempo_banner(ui);
         self.recovery_banner(ui);
-        self.transport.windows(&ctx);
+        let shown = midi_settings::Shown {
+            midi: &self.midi,
+            saved: &self.settings.midi,
+        };
+        for action in self.transport.windows(&ctx, shown) {
+            self.midi.apply(&action);
+            match &action {
+                midi::Action::Use(id, using) => {
+                    midi::Midi::remember(&mut self.settings.midi, id, *using);
+                    self.settings_changed = Some(Instant::now());
+                }
+                midi::Action::SyncDelay(name, ms) => {
+                    midi::Midi::set_sync_delay(&mut self.settings.midi, name, *ms);
+                    self.settings_changed = Some(Instant::now());
+                }
+                midi::Action::Rescan => {}
+            }
+        }
+        if self.midi.poll() {
+            self.midi_ports_seen += 1;
+            ctx.request_repaint();
+        }
+        if let Some(notice) = self.midi.notices.pop() {
+            self.transport.audio.notice = Some(notice);
+        }
+        self.update_midi_hardware(&ctx);
+        self.update_recording();
+        self.update_audition(&ctx);
         self.history_window(&ctx);
         self.prompt_window(&ctx);
         self.shortcuts_window(&ctx);
@@ -491,27 +586,8 @@ impl eframe::App for App {
                 let rect = ui.max_rect();
                 self.panes.anchor(ui, app::panes::Pane::Detail, rect);
                 // Tabs as words over a sliding underline (the interface
-                // audit's T4); Devices and Clip arrive with their milestones.
-                let devices = arrives("Milestone 6");
-                let clip = arrives("Milestone 5");
-                let tabs = [
-                    widgets::Tab {
-                        label: "Devices",
-                        disabled_because: Some(&devices),
-                        tip: "",
-                    },
-                    widgets::Tab {
-                        label: "Clip",
-                        disabled_because: Some(&clip),
-                        tip: "",
-                    },
-                    widgets::Tab {
-                        label: "Mixer",
-                        disabled_because: None,
-                        tip: "Every track's channel strip",
-                    },
-                ];
-                widgets::tabs(ui, egui::Id::new("detail tabs"), 2, &tabs);
+                // audit's T4); Devices arrive with Milestone 6.
+                self.detail_tabs(ui);
                 // Claimed without interaction: egui sizes the panel by what
                 // its contents take, so an unclaimed area snapped it back to
                 // its smallest after every change.
@@ -523,13 +599,9 @@ impl eframe::App for App {
         self.detail_size = detail_size;
         egui::CentralPanel::default().show(ui, |ui| self.arrangement(ui));
         if let Some(content) = detail_content {
-            self.lend_cue_controls();
-            let mut mixer = ui.new_child(egui::UiBuilder::new().max_rect(content));
-            mixer.set_clip_rect(content.intersect(ui.clip_rect()));
-            self.arrangement
-                .mixer_panel(&mut mixer, &mut self.document, &self.keymap);
-            self.take_cue_controls();
+            self.detail_content(ui, content);
         }
+        self.note_editor_window(&ctx);
         // Windows that closed fade out (M4.5).
         widgets::paint_gone(&ctx);
         self.typing = ctx.text_edit_focused();
@@ -553,173 +625,6 @@ const DETAIL_CHROME: f32 = 48.0;
 /// The arrangement's least height beside the detail panel: its rulers, a
 /// folded track and the master's row.
 const ARRANGEMENT_MIN: f32 = 180.0;
-
-impl App {
-    /// Starts Lumen as `launch` says: from the command line, or a test.
-    pub fn new(cc: &eframe::CreationContext<'_>, launch: Launch) -> Self {
-        let Launch {
-            started,
-            settings: saved,
-            settings_warning,
-            settings_path,
-            ..
-        } = launch;
-        let mut document = document::Document::new(if launch.stress {
-            lumen_project::testing::synthetic(42, 200, 100, 10, 0)
-        } else {
-            empty_project()
-        });
-        let mut transport = Transport::new(document.project(), &launch.audio);
-        transport.restore_metronome((&saved.metronome).into());
-        transport.restore_follow(saved.follow);
-        transport.time_format = saved.time_format;
-        transport.settings_window.open = launch.audio_settings;
-        if let Some(warning) = settings_warning {
-            transport.audio.notice = Some(match transport.audio.notice.take() {
-                Some(notice) => format!("{warning}\n{notice}"),
-                None => warning,
-            });
-        }
-        let mut lanes = lanes::Lanes::default();
-        // `--stress`: every file of the generated project plays the same
-        // generated audio (one copy in memory, one set of peaks).
-        if launch.stress {
-            let rate = transport.state().sample_rate;
-            let channels = bench::stress_audio(rate);
-            let peaks = lumen_media::Peaks::build(&channels, &AtomicBool::new(false)).map(Arc::new);
-            let audio = Arc::new(lumen_engine::ClipAudio {
-                sample_rate: rate,
-                channels,
-            });
-            for media in &document.project().media {
-                if let Some(peaks) = &peaks {
-                    lanes.library.insert_ready(
-                        media.id.0,
-                        &media.path,
-                        Arc::clone(&audio),
-                        Arc::clone(peaks),
-                    );
-                }
-            }
-        }
-        if let Some(path) = launch.open_audio {
-            lanes.add_files(
-                vec![path],
-                Ticks::ZERO,
-                document::DropInto::NewTracks {
-                    before: None,
-                    group: None,
-                },
-                transport.state().sample_rate,
-                &cc.egui_ctx,
-                &mut document,
-            );
-        }
-        let saved_appearance = saved.appearance.clone();
-        let keymap = commands::Keymap::from_saved(&saved.commands.shortcuts);
-        let palette = app::palette::Palette::with_recent(&saved.commands.recent);
-        let mut app = App {
-            transport,
-            lanes,
-            drop_target: Ticks::ZERO,
-            drop_into: document::DropInto::NewTracks {
-                before: None,
-                group: None,
-            },
-            drag_pointer: None,
-            system_cursor: None,
-            settings: saved,
-            settings_path,
-            settings_changed: None,
-            settings_writer: settings::Writer::start(),
-            document,
-            synced: None,
-            show_history: false,
-            arrangement: arrangement::Arrangement::default(),
-            toast: None,
-            dialog: None,
-            dialog_answers: launch.scripted_dialogs.then(Default::default),
-            saving: None,
-            opening: None,
-            prompt: None,
-            after_save: None,
-            file_notice: None,
-            quitting: false,
-            owner: None,
-            autosave: None,
-            leftover: None,
-            crash_report: launch.crash_dir.as_deref().and_then(crash::unseen),
-            crash_test: launch.crash_test,
-            recovering: None,
-            show_browser: true,
-            show_detail: true,
-            browser_size: 220.0,
-            detail_size: 220.0,
-            toggle_detail_requested: false,
-            keymap,
-            palette,
-            shortcuts: Default::default(),
-            rebind: None,
-            panes: Default::default(),
-            nav: app::navigate::Nav::default(),
-            grid: lumen_core::grid::Grid::default(),
-            locators: app::locators::Locators::default(),
-            hint: None,
-            info: None,
-            info_shown: None,
-            canvas: egui::Rect::NOTHING,
-            clipboard: None,
-            typing: false,
-            clipboard_keys: Default::default(),
-            meters_at: None,
-            mark: widgets::mark::Look::REST,
-            menu_for: app::editing::MenuFor::default(),
-            clip_props: app::clip_card::ClipProps::default(),
-            smoke_test_frames: launch.smoke_test.then_some(app::test_modes::SMOKE_FRAMES),
-            screenshot: launch.screenshot,
-            started,
-            autoplay: launch.autoplay,
-            autoplay_count: 1,
-            test_latency: launch.test_latency,
-            save_as: launch.save_as,
-            traced: None,
-            appearance_override: false,
-            saved_appearance: saved_appearance.clone(),
-            system_theme: None,
-            banner: None,
-            bench: launch.bench,
-        };
-        // `--scale` and `--appearance` are one-off overrides (tests,
-        // screenshots); they are not saved unless changed in the menu.
-        if let Some(scale) = launch.scale {
-            app.settings.appearance.ui_scale = scale;
-            app.appearance_override = true;
-        }
-        if let Some(theme) = launch.appearance {
-            app.settings.appearance.theme = theme::Appearance::from_key(&theme).key().into();
-            app.appearance_override = true;
-        }
-        fonts::install(&cc.egui_ctx);
-        app.apply_appearance(&cc.egui_ctx);
-        let mut autosave = autosave::Autosave::new(launch.autosave_dir);
-        if let Some(delay) = launch.autosave_after {
-            autosave = autosave.with_delay(delay);
-        }
-        app.autosave = Some(autosave);
-        app.leftover = app.next_leftover();
-        if launch.recover_latest
-            && let Some(leftover) = app.leftover.take()
-        {
-            app.opening = Some(files::open(leftover.file.clone()));
-            app.recovering = Some(leftover);
-        }
-        // `lumen <file>.lumen` (and opening a project from Explorer).
-        if let Some(path) = launch.open {
-            app.opening = Some(files::open(path));
-        }
-        app
-    }
-}
 
 /// Runs Lumen as the command line says (the `lumen` binary).
 pub fn run() -> eframe::Result {

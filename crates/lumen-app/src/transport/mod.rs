@@ -7,6 +7,9 @@
 mod bar;
 mod compensation;
 mod dropouts;
+mod fit;
+mod midi_chip;
+mod record;
 mod status;
 
 use std::time::{Duration, Instant};
@@ -19,6 +22,8 @@ use lumen_project::model::Project;
 use crate::audio::{Audio, Choice};
 
 pub use bar::punch_menu;
+pub use fit::divider;
+pub use midi_chip::{Lights as MidiLights, View as MidiView};
 
 pub struct Transport {
     pub audio: Audio,
@@ -36,6 +41,9 @@ pub struct Transport {
     /// Bytes of clip audio in memory, shown in the audio panel.
     pub clip_memory: usize,
     pub metronome: MetronomeSettings,
+    /// The metronome is held silent although it is on, because it sounds
+    /// only while recording (M5 slice 6): the engine is sent `enabled` off.
+    metronome_gated: bool,
     /// How the arrangement follows the playhead (saved in settings), and
     /// whether that is paused by scrolling by hand (until Play).
     pub follow: crate::settings::Follow,
@@ -46,6 +54,10 @@ pub struct Transport {
     pub time_format: crate::timefmt::TimeFormat,
     test_tone: bool,
     pub settings_window: crate::audio_settings::Window,
+    /// What the MIDI chip's popover asked for, taken by `windows`.
+    midi_asked: Vec<crate::midi::Action>,
+    /// What the chip's lights showed when last drawn.
+    pub midi_lights: MidiLights,
     /// CPU load shown: the peak over the last second, refreshed once a second.
     cpu_peak: f32,
     cpu_taken: Option<Instant>,
@@ -61,9 +73,26 @@ pub struct Transport {
     /// Playback started from stop since the app last looked: integrated
     /// loudness starts again (the owner's B5; Continue keeps it).
     pub played_from_stop: bool,
+    /// Panic was pressed: the app also silences MIDI outputs directly (the
+    /// engine may not be running to do it).
+    pub panic_midi: bool,
     /// What the info line should say about the bar this frame, for the
     /// app to take (the delay compensation readout).
     pub(crate) info: Option<crate::app::info::Info>,
+    /// The computer keyboard's readout while its mode is on, set by the app
+    /// each frame; `None` when off (M5 slice 2).
+    pub(crate) keyboard_readout: Option<String>,
+    /// Its button was clicked, for the app to take.
+    pub(crate) keyboard_clicked: bool,
+    /// The readout fitted in the bar this frame; when it did not (the
+    /// smallest window) the info line carries it.
+    pub(crate) keyboard_readout_shown: bool,
+    /// What fits in the bar (`fit.rs`).
+    fit: fit::Fit,
+    /// Commands the bar's controls asked for this frame (Record, Overdub,
+    /// the count-in, record-only metronome), for the app to run: the bar has
+    /// no access to the app's settings or its command dispatch.
+    pub(crate) requests: Vec<crate::commands::Command>,
 }
 
 fn timeline_of(project: &Project) -> Timeline {
@@ -92,12 +121,15 @@ impl Transport {
             error: None,
             settle_until: None,
             metronome: MetronomeSettings::default(),
+            metronome_gated: false,
             follow: crate::settings::Follow::Page,
             follow_paused: false,
             follow_last: crate::settings::Follow::Page,
             time_format: crate::timefmt::TimeFormat::MinSec,
             test_tone: false,
             settings_window: Default::default(),
+            midi_asked: Vec::new(),
+            midi_lights: Default::default(),
             cpu_peak: 0.0,
             cpu_taken: None,
             dropouts: Default::default(),
@@ -106,7 +138,13 @@ impl Transport {
             head: None,
             located: None,
             played_from_stop: false,
+            panic_midi: false,
             info: None,
+            keyboard_readout: None,
+            keyboard_clicked: false,
+            keyboard_readout_shown: false,
+            fit: Default::default(),
+            requests: Vec::new(),
         }
     }
 
@@ -151,7 +189,8 @@ impl Transport {
     /// Whether the UI should redraw every frame: while playing, and briefly
     /// after a command until the engine has applied it.
     pub fn animating(&self) -> bool {
-        self.state().playing || self.settle_until.is_some_and(|t| Instant::now() < t)
+        let state = self.state();
+        state.playing || state.recording || self.settle_until.is_some_and(|t| Instant::now() < t)
     }
 
     fn settle(&mut self) {
@@ -160,11 +199,22 @@ impl Transport {
         self.settle_until = Some(Instant::now() + Duration::from_millis(300));
     }
 
-    fn send(&mut self, command: Command) {
+    fn send(&mut self, mut command: Command) {
+        if let Command::SetMetronome(settings) = &mut command
+            && self.metronome_gated
+        {
+            settings.enabled = false;
+        }
         crate::trace::log(|| format!("send {command:?}"));
         self.settle();
         // A full queue means the engine is not running; the UI shows why.
         let _ = self.audio.engine.send(command);
+    }
+
+    /// Stops and silences everything, MIDI notes included.
+    pub fn panic(&mut self) {
+        self.send(Command::Panic);
+        self.panic_midi = true;
     }
 
     pub fn play_stop(&mut self) {
@@ -181,6 +231,34 @@ impl Transport {
     pub fn restore_metronome(&mut self, settings: MetronomeSettings) {
         self.metronome = settings;
         self.send(Command::SetMetronome(settings));
+    }
+
+    /// Starts recording from the play marker, after `count_in` beats of
+    /// clicks when stopped (M5 slice 6).
+    pub fn record(&mut self, count_in: u32) {
+        if !self.state().playing {
+            self.played_from_stop = true;
+        }
+        self.send(Command::Record { count_in });
+    }
+
+    /// Stops (a count-in too), without the Stop-twice rule of [`Self::play_stop`].
+    pub fn stop(&mut self) {
+        self.send(Command::Stop);
+    }
+
+    /// Ends recording; playback carries on.
+    pub fn end_record(&mut self) {
+        self.send(Command::EndRecord);
+    }
+
+    /// Holds the metronome silent (or lets it sound) while it is on but only
+    /// meant for recording. Resends it when this changes.
+    pub fn gate_metronome(&mut self, gated: bool) {
+        if gated != self.metronome_gated {
+            self.metronome_gated = gated;
+            self.send(Command::SetMetronome(self.metronome));
+        }
     }
 
     /// Shift+Space: stop where playback is, or continue from the playhead.

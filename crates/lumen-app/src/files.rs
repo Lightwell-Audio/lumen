@@ -51,6 +51,9 @@ pub struct SaveRequest {
     /// The project with transport and view stamped in.
     pub project: Project,
     pub path: PathBuf,
+    /// Resolve a user-selected Save As path on the worker, since project
+    /// folder detection reads directories.
+    pub normalize_project_path: bool,
     /// Where each media file is now.
     pub media_files: HashMap<Id, PathBuf>,
     /// Copy audio from outside the project folder into `Samples/Imported`.
@@ -88,12 +91,18 @@ pub fn save(request: SaveRequest) -> Receiver<Result<Saved, String>> {
 pub fn save_now(request: SaveRequest) -> Result<Saved, String> {
     let SaveRequest {
         mut project,
-        path,
+        path: chosen_path,
+        normalize_project_path,
         media_files,
         copy_imported,
         keep_backups,
         state,
     } = request;
+    let path = if normalize_project_path {
+        project_file_for(&chosen_path)
+    } else {
+        chosen_path
+    };
     let dir = path
         .parent()
         .ok_or("the project has no folder")?
@@ -277,6 +286,7 @@ mod tests {
         SaveRequest {
             project: doc.project().clone(),
             path,
+            normalize_project_path: false,
             media_files: doc.media_files.clone(),
             copy_imported,
             keep_backups: SaveOptions::default().keep_backups,
@@ -291,6 +301,18 @@ mod tests {
         assert_eq!(
             project_file_for(&loose),
             tmp.path().join("Song").join("Song.lumen")
+        );
+        let doc = document_with(&[]);
+        let mut request = request(&doc, loose, false);
+        request.normalize_project_path = true;
+        let saved = save_now(request).unwrap();
+        // The worker names the file by its canonical path, which differs
+        // from the temp folder's spelling (Windows short names, macOS's
+        // /private/var): the same file is what counts.
+        assert_eq!(
+            std::fs::canonicalize(&saved.path).unwrap(),
+            std::fs::canonicalize(tmp.path().join("Song").join("Song.lumen")).unwrap(),
+            "Save As resolves the folder on the save worker"
         );
         // Inside a folder named after the project: used as is.
         let named = tmp.path().join("Song").join("Song.lumen");

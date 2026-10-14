@@ -101,7 +101,7 @@ fn clip(h: &Harness<'static, App>, track: usize) -> Rect {
     h.state().clip_rect(&h.ctx, id).expect("in view")
 }
 
-fn save(h: &mut Harness<'static, App>, name: &str) {
+fn save<S>(h: &mut Harness<'_, S>, name: &str) {
     h.run_steps(3);
     let image = h.render().expect("render");
     let dir = PathBuf::from(std::env::var("SHOTS").expect("SHOTS names a folder"));
@@ -119,9 +119,13 @@ fn clip_selection() {
     h.hover_at(Pos2::new(a.left() + 20.0, a.bottom() - 5.0));
     save(&mut h, "clip-hover-bottom");
 
-    // Select two by a marquee, held mid-drag.
+    // Select two by a marquee (Ctrl+Shift in empty lanes, ADR-0049), held
+    // mid-drag.
     let b = clip(&h, 1);
     let from = Pos2::new(a.right() + 200.0, a.top() + 2.0);
+    h.event(Event::ModifiersChanged(
+        Modifiers::COMMAND | Modifiers::SHIFT,
+    ));
     h.hover_at(from);
     h.drag_at(from);
     h.run_steps(2);
@@ -129,6 +133,7 @@ fn clip_selection() {
     save(&mut h, "clip-marquee");
     h.drop_at(Pos2::new(a.left() + 30.0, b.bottom() - 4.0));
     h.run_steps(2);
+    h.event(Event::ModifiersChanged(Modifiers::NONE));
     h.hover_at(Pos2::new(a.right() + 300.0, b.bottom() + 60.0));
     save(&mut h, "clip-selected");
 
@@ -603,6 +608,116 @@ fn light_layer() {
     }
 }
 
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn midi_chip() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_midi::{Direction, fake::FakeControl};
+    for (appearance, scale, width) in [
+        ("dark", 1.0, 1280.0),
+        ("light", 1.5, 1280.0),
+        ("dark", 1.0, 960.0),
+    ] {
+        let fake = FakeControl::new();
+        fake.plug(Direction::Input, "Arturia KeyStep 37");
+        fake.plug(Direction::Input, "loopMIDI Port");
+        fake.plug(Direction::Output, "Microsoft GS Wavetable Synth");
+        let dir = TempDir::new("shots-chip");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .with_midi(fake.clone());
+        let mut h = Harness::builder()
+            .with_size(vec2(width, 480.0))
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(10);
+        let tag = format!("{appearance}-{scale}-{width}");
+        if width < 1000.0 {
+            save(&mut h, &format!("chip-{tag}"));
+            continue;
+        }
+        h.get_by_label("MIDI: 0 inputs, 0 outputs").click();
+        h.run_steps(30);
+        h.get_by_label("Track Arturia KeyStep 37 input in the MIDI panel")
+            .click();
+        h.run_steps(3);
+        h.get_by_label("Remote Arturia KeyStep 37 input in the MIDI panel")
+            .click();
+        h.get_by_label("Track Microsoft GS Wavetable Synth output in the MIDI panel")
+            .click();
+        for _ in 0..60 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            h.run_steps(1);
+        }
+        fake.send_to_input("Arturia KeyStep 37", 1, &[0x90, 60, 100]);
+        h.run_steps(8);
+        save(&mut h, &format!("chip-{tag}"));
+    }
+}
+
+/// MIDI files and clock (M5 slice 7): the tracks and the tempo offer a
+/// dropped song file makes, and the MIDI page with Sync and its delay.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn midi_files_and_clock() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_midi::{Direction, fake::FakeControl};
+    let groove = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/smf/groove-480.mid");
+    for (appearance, scale) in [("dark", 1.0), ("light", 1.5), ("dark", 2.0)] {
+        let fake = FakeControl::new();
+        fake.plug(Direction::Output, "Drum machine");
+        let dir = TempDir::new("shots-smf");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .with_midi(fake.clone());
+        let mut h = Harness::builder()
+            .with_size(vec2(1280.0, 760.0))
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(10);
+        h.input_mut().dropped_files =
+            vec![std::sync::Arc::new(Dropped(groove.clone())) as eframe::egui::DroppedFileHandle];
+        for _ in 0..60 {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            h.run_steps(1);
+        }
+        let tag = format!("{appearance}-{scale}");
+        save(&mut h, &format!("smf-tempo-offer-{tag}"));
+        h.get_by_label("Lumen").click();
+        h.run_steps(5);
+        h.get_by_label("Audio and MIDI settings\u{2026}").click();
+        h.run_steps(5);
+        h.get_by_label("MIDI tab").click();
+        for _ in 0..60 {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            h.run_steps(1);
+        }
+        h.get_by_label("Sync Drum machine output").click();
+        h.run_steps(20);
+        save(&mut h, &format!("midi-sync-{tag}"));
+    }
+}
+
 /// A left click at `p`.
 fn click(h: &mut Harness<'static, App>, p: Pos2) {
     h.hover_at(p);
@@ -913,13 +1028,16 @@ fn polish_sweep() {
             h.key_press_modifiers(Modifiers::ALT, Key::Enter);
             h.run_steps(30);
             save(&mut h, &name("card"));
+            // The first Escape leaves the name field; the second closes the card.
+            h.key_press(Key::Escape);
+            h.run_steps(30);
             h.key_press(Key::Escape);
             h.run_steps(30);
             // Audio settings: choice rows and the test tone's switch.
             let lumen = h.get_by_label("Lumen").rect();
             click(&mut h, lumen.center());
             h.run_steps(30);
-            h.get_by_label("Audio settings\u{2026}").click();
+            h.get_by_label("Audio and MIDI settings\u{2026}").click();
             h.run_steps(30);
             save(&mut h, &name("audio"));
         }
@@ -950,5 +1068,787 @@ fn mixer_edges() {
         });
         h.run_steps(40);
         save(&mut h, &format!("edges-middle-{appearance}"));
+    }
+}
+
+/// A right click at `p`.
+fn right_click(h: &mut Harness<'static, App>, p: Pos2) {
+    h.hover_at(p);
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(Event::PointerButton {
+            pos: p,
+            button: eframe::egui::PointerButton::Secondary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn live_sweep() {
+    // M5 slice 2e: the chip and its popover, the keyboard button with its
+    // readout, the hollow listening ring, header lights, the track menu with
+    // MIDI From and Monitor, and the mixer strip's From and To rows.
+    use egui_kittest::kittest::Queryable;
+    use lumen_midi::{Direction, fake::FakeControl};
+    use lumen_project::model::{Color, Id, Monitor, Track, TrackKind};
+    use lumen_project::testing::{midi_track, project_of};
+
+    for (appearance, scale, size) in [
+        ("dark", 1.0, vec2(1280.0, 760.0)),
+        ("light", 1.0, vec2(1280.0, 760.0)),
+        ("dark", 1.5, vec2(1280.0, 760.0)),
+        ("light", 1.5, vec2(1280.0, 760.0)),
+        ("dark", 2.0, vec2(1280.0, 760.0)),
+        ("light", 2.0, vec2(1280.0, 760.0)),
+        ("dark", 1.0, vec2(960.0, 540.0)),
+        ("light", 1.0, vec2(960.0, 540.0)),
+    ] {
+        let tag = format!("{appearance}-{}-{}", (scale * 100.0) as u32, size.x as u32);
+        let fake = FakeControl::new();
+        fake.plug(Direction::Input, "Arturia KeyStep 37");
+        fake.plug(Direction::Output, "Microsoft GS Wavetable Synth");
+        let dir = TempDir::new("shots-live");
+        let mut lead = midi_track(11, "Lead", "poly", (0, 8), None, vec![], vec![]);
+        lead.monitor = Monitor::In;
+        let mut long = midi_track(
+            31,
+            "Long Name Pad Strings Choir Layer",
+            "poly",
+            (0, 8),
+            None,
+            vec![],
+            vec![],
+        );
+        long.monitor = Monitor::In;
+        let project = project_of(
+            "Live",
+            vec![
+                midi_track(1, "Keys", "poly", (0, 8), None, vec![], vec![]),
+                lead,
+                long,
+                Track::new(Id(21), "Vox", TrackKind::Audio, Color(0x4F81BD)),
+            ],
+        );
+        let path = dir.path().join("song.lumen");
+        lumen_project::save(&project, &path, &Default::default()).expect("save");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .with_midi(fake.clone())
+            .opening(path);
+        let mut h = Harness::builder()
+            .with_size(size)
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        for _ in 0..60 {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        // Ports on for tracks, through the chip's popover.
+        h.get_by_label("MIDI: 0 inputs, 0 outputs").click();
+        h.run_steps(30);
+        h.get_by_label("Track Arturia KeyStep 37 input in the MIDI panel")
+            .click();
+        h.run_steps(3);
+        h.get_by_label("Track Microsoft GS Wavetable Synth output in the MIDI panel")
+            .click();
+        for _ in 0..60 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            h.run_steps(1);
+        }
+        // The popover with traffic.
+        fake.send_to_input("Arturia KeyStep 37", 1, &[0x90, 60, 100]);
+        h.run_steps(6);
+        save(&mut h, &format!("live-popover-{tag}"));
+        h.key_press(Key::Escape);
+        h.run_steps(40);
+        // Keyboard mode on, Keys selected (the hollow ring), a key held.
+        h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::K);
+        h.run_steps(30);
+        h.get_by_label_contains("Track Keys,").click();
+        h.run_steps(40);
+        save(&mut h, &format!("live-rest-{tag}"));
+        h.event(Event::Key {
+            key: Key::A,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        });
+        h.run_steps(4);
+        save(&mut h, &format!("live-lit-{tag}"));
+        h.event(Event::Key {
+            key: Key::A,
+            physical_key: None,
+            pressed: false,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        });
+        h.run_steps(60);
+        // The track menu with MIDI From open.
+        let keys = h.get_by_label_contains("Track Keys,").rect();
+        right_click(&mut h, pos(keys, 0.5, 0.2));
+        h.run_steps(30);
+        h.get_by_label("MIDI From").click();
+        h.run_steps(30);
+        save(&mut h, &format!("live-menu-{tag}"));
+        h.key_press(Key::Escape);
+        h.run_steps(5);
+        h.key_press(Key::Escape);
+        h.run_steps(30);
+        // The mixer strips (the panel is open; tall enough for From and To).
+        h.state_mut().set_detail_size(size.y * 0.55);
+        h.run_steps(60);
+        save(&mut h, &format!("live-mixer-{tag}"));
+    }
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn transport_fit() {
+    // The transport bar at 960, 1280 and 1600 wide with the computer
+    // keyboard's mode on, cropped to the bar.
+    for appearance in ["dark", "light"] {
+        for scale in [1.0, 2.0] {
+            for width in [960.0, 1280.0, 1600.0] {
+                let height = if width == 960.0 { 540.0 } else { 760.0 };
+                let dir = TempDir::new("shots-bar");
+                let mut h = bare_scaled(&dir, appearance, scale, vec2(width, height));
+                h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::K);
+                h.run_steps(40);
+                let image = h.render().expect("render");
+                let out = PathBuf::from(std::env::var("SHOTS").expect("SHOTS names a folder"));
+                image
+                    .save(out.join(format!(
+                        "bar-{appearance}-{}-{}.png",
+                        (scale * 100.0) as u32,
+                        width as u32
+                    )))
+                    .expect("save");
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn monitor_sweep() {
+    // The Monitor badge (M5 slice 2 fix): In, Off and Auto beside long
+    // names, rows unselected and selected, an audio track with none, at the
+    // smallest window too.
+    use egui_kittest::kittest::Queryable;
+    use lumen_midi::fake::FakeControl;
+    use lumen_project::model::{Color, Id, Monitor, Track, TrackKind};
+    use lumen_project::testing::{midi_track, project_of};
+
+    for (appearance, scale, size) in [
+        ("dark", 1.0, vec2(1280.0, 760.0)),
+        ("light", 1.0, vec2(1280.0, 760.0)),
+        ("dark", 1.5, vec2(1280.0, 760.0)),
+        ("light", 1.5, vec2(1280.0, 760.0)),
+        ("dark", 2.0, vec2(1280.0, 760.0)),
+        ("light", 2.0, vec2(1280.0, 760.0)),
+        ("dark", 1.0, vec2(960.0, 540.0)),
+        ("light", 1.0, vec2(960.0, 540.0)),
+    ] {
+        let tag = format!("{appearance}-{}-{}", (scale * 100.0) as u32, size.x as u32);
+        let fake = FakeControl::new();
+        let dir = TempDir::new("shots-monitor");
+        let mut lead = midi_track(31, "Lead", "poly", (0, 8), None, vec![], vec![]);
+        lead.monitor = Monitor::In;
+        let mut pad = midi_track(51, "Pad", "poly", (0, 8), None, vec![], vec![]);
+        pad.monitor = Monitor::Off;
+        let mut long = midi_track(
+            71,
+            "Long Name Pad Strings Choir Layer",
+            "poly",
+            (0, 8),
+            None,
+            vec![],
+            vec![],
+        );
+        long.monitor = Monitor::In;
+        let mut long_off = midi_track(
+            91,
+            "Another Very Long Track Name",
+            "poly",
+            (0, 8),
+            None,
+            vec![],
+            vec![],
+        );
+        long_off.monitor = Monitor::Off;
+        let project = project_of(
+            "Monitor",
+            vec![
+                midi_track(1, "Keys", "poly", (0, 8), None, vec![], vec![]),
+                lead,
+                pad,
+                long,
+                long_off,
+                Track::new(Id(111), "Vox", TrackKind::Audio, Color(0x4F81BD)),
+            ],
+        );
+        let path = dir.path().join("song.lumen");
+        lumen_project::save(&project, &path, &Default::default()).expect("save");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .with_midi(fake)
+            .opening(path);
+        let mut h = Harness::builder()
+            .with_size(size)
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        for _ in 0..60 {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        h.run_steps(30);
+        save(&mut h, &format!("monitor-rest-{tag}"));
+        // Select the In track, then the Off track: the badge on a selected row.
+        let r = h.get_by_label_contains("Track Lead,").rect();
+        left_click(&mut h, pos(r, 0.3, 0.5));
+        h.run_steps(40);
+        save(&mut h, &format!("monitor-in-selected-{tag}"));
+        // At 960 x 540 the mixer leaves room for two rows (the 44 pt
+        // transport bar, ADR-0052): Pad is out of view there.
+        if let Some(pad) = h.query_by_label_contains("Track Pad,") {
+            let r = pad.rect();
+            left_click(&mut h, pos(r, 0.3, 0.5));
+            h.run_steps(40);
+            save(&mut h, &format!("monitor-off-selected-{tag}"));
+        }
+        // Hover the In badge.
+        let badge = h.get_by_label("Monitor Lead: In").rect();
+        h.hover_at(badge.center());
+        h.run_steps(30);
+        save(&mut h, &format!("monitor-hover-{tag}"));
+    }
+}
+
+/// A left click at `p` (the header's centre can be on a badge).
+fn left_click(h: &mut Harness<'static, App>, p: Pos2) {
+    h.hover_at(p);
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(Event::PointerButton {
+            pos: p,
+            button: eframe::egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+}
+
+/// The piano roll body and the arrangement's mini notes (M5 slice 3b),
+/// in both themes at 100, 150 and 200%.
+struct RollShot {
+    demo: lumen_app::testing::PianoRollDemo,
+    zoom: f64,
+    row: f32,
+}
+
+impl eframe::App for RollShot {
+    fn ui(&mut self, ui: &mut eframe::egui::Ui, _frame: &mut eframe::Frame) {
+        self.demo.show(ui, self.zoom, self.row);
+    }
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn piano_roll_body() {
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let mut h = Harness::builder()
+                .with_size(vec2(900.0, 420.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    lumen_app::testing::PianoRollDemo::prepare(&cc.egui_ctx, appearance == "light");
+                    RollShot {
+                        demo: lumen_app::testing::PianoRollDemo::new(1),
+                        zoom: 40.0,
+                        row: 14.0,
+                    }
+                });
+            h.run_steps(5);
+            save(
+                &mut h,
+                &format!("piano-roll-{appearance}-{}", (scale * 100.0) as u32),
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn mini_notes() {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/projects/midi-demo.lumen");
+    for appearance in ["dark", "light"] {
+        let dir = TempDir::new("shots-mini");
+        let copy = dir.path().join("midi-demo.lumen");
+        std::fs::copy(&fixture, &copy).expect("the MIDI demo project");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .opening(copy);
+        let mut h = Harness::builder()
+            .with_size(vec2(1200.0, 500.0))
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(60);
+        save(&mut h, &format!("mini-notes-{appearance}"));
+        // A tall Chords track: every pitch a row, neighbours touching, as
+        // in the piano roll.
+        let dir = TempDir::new("shots-mini-tall");
+        let copy = dir.path().join("midi-demo.lumen");
+        let text = std::fs::read_to_string(&fixture).expect("the MIDI demo project");
+        let tall = text
+            .replacen(
+                "\"track_heights\": {}",
+                "\"track_heights\": { \"0000000000000001\": 260.0 }",
+                1,
+            )
+            .replacen(
+                "\"expanded\": []",
+                "\"expanded\": [\"0000000000000001\"]",
+                1,
+            );
+        assert_ne!(tall, text, "the fixture names its track heights");
+        std::fs::write(&copy, tall).expect("a copy");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .opening(copy);
+        let mut h = Harness::builder()
+            .with_size(vec2(1200.0, 640.0))
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(60);
+        save(&mut h, &format!("mini-notes-tall-{appearance}"));
+    }
+}
+
+/// The clip editor (M5 slice 3c) with the MIDI demo's Chords clip open,
+/// one chord picked and another note hovered, in both themes at 100, 150
+/// and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn note_editor() {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/projects/midi-demo.lumen");
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new("shots-editor");
+            let copy = dir.path().join("midi-demo.lumen");
+            std::fs::copy(&fixture, &copy).expect("the MIDI demo project");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(copy);
+            let mut h = Harness::builder()
+                .with_size(vec2(1400.0, 860.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(60);
+            h.state_mut().set_detail_size(560.0);
+            h.run_steps(10);
+            let id = h.state().project().tracks[0].clips[0].id;
+            let r = h.state().clip_rect(&h.ctx, id).expect("in view");
+            let at = pos(r, 0.1, 0.6);
+            click(&mut h, at);
+            click(&mut h, at);
+            h.run_steps(20);
+            h.state_mut().editor_show_pitch(60);
+            h.run_steps(5);
+            let point = |h: &Harness<'static, App>, beat: i64, pitch: u8| {
+                let p = h
+                    .state()
+                    .editor_point(lumen_core::time::Ticks::quarters(beat), pitch)
+                    .expect("the editor drew");
+                pos2(p.x + 12.0, p.y)
+            };
+            let first = point(&h, 4, 57);
+            click(&mut h, first);
+            let hover = point(&h, 12, 60);
+            h.hover_at(hover);
+            h.run_steps(5);
+            save(
+                &mut h,
+                &format!("note-editor-{appearance}-{}", (scale * 100.0) as u32),
+            );
+        }
+    }
+}
+
+/// The clip editor showing notes outside the clip's window (ADR-0059): a
+/// clip from beat 4 to 8 with notes before its start, past its end and one
+/// running over its end, zoomed out so all show; the one past the end
+/// picked. Both themes at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn hidden_notes_editor() {
+    use lumen_core::time::Ticks;
+    use lumen_project::model::Note;
+    let q = Ticks::quarters;
+    let notes = vec![
+        Note::new(q(-2), q(1), 60, 100),
+        Note::new(q(0), q(1), 62, 100),
+        Note::new(q(1), q(1), 64, 90),
+        Note::new(q(3), q(2), 67, 110),
+        Note::new(q(6), q(1), 65, 100),
+    ];
+    let mut project = lumen_project::testing::project_of(
+        "Hidden",
+        vec![lumen_project::testing::midi_track(
+            1,
+            "Keys",
+            "poly",
+            (4, 4),
+            None,
+            notes,
+            vec![],
+        )],
+    );
+    project.transport.loop_end = q(16);
+    project.transport.loop_enabled = true;
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new("shots-hidden");
+            let path = dir.path().join("hidden.lumen");
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(vec2(1400.0, 860.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(60);
+            h.state_mut().set_detail_size(560.0);
+            h.run_steps(10);
+            let id = h.state().project().tracks[0].clips[0].id;
+            let r = h.state().clip_rect(&h.ctx, id).expect("in view");
+            let at = pos(r, 0.5, 0.6);
+            click(&mut h, at);
+            click(&mut h, at);
+            h.run_steps(20);
+            let body = h.state().editor_body().expect("the editor drew");
+            h.hover_at(body.center());
+            h.run_steps(2);
+            for _ in 0..3 {
+                h.key_press(Key::Minus);
+                h.run_steps(3);
+            }
+            h.state_mut().editor_show_pitch(64);
+            h.run_steps(5);
+            let past = h.state().editor_point(q(6), 65).expect("drawn");
+            click(&mut h, pos2(past.x + 6.0, past.y));
+            h.hover_at(body.center());
+            h.run_steps(5);
+            save(
+                &mut h,
+                &format!("hidden-notes-{appearance}-{}", (scale * 100.0) as u32),
+            );
+        }
+    }
+}
+
+/// The velocity and controller lane under the clip editor (M5 slice 4b):
+/// the velocity lane with a stroke drawn across it, and the mod wheel lane
+/// with a curve just drawn, its dot showing, plus the solo chip states;
+/// both themes at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn clip_lane() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_core::time::Ticks;
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/projects/midi-demo.lumen");
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new("shots-lane");
+            let copy = dir.path().join("midi-demo.lumen");
+            std::fs::copy(&fixture, &copy).expect("the MIDI demo project");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(copy);
+            let mut h = Harness::builder()
+                .with_size(vec2(1400.0, 860.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(60);
+            h.state_mut().set_detail_size(560.0);
+            h.run_steps(10);
+            h.get_by_label("Solo Chords").click();
+            h.run_steps(20);
+            save(
+                &mut h,
+                &format!("lane-solo-one-{appearance}-{}", (scale * 100.0) as u32),
+            );
+            h.event(Event::ModifiersChanged(Modifiers::COMMAND));
+            h.get_by_label("Solo Pad").click();
+            h.event(Event::ModifiersChanged(Modifiers::NONE));
+            h.run_steps(20);
+            save(
+                &mut h,
+                &format!("lane-solo-many-{appearance}-{}", (scale * 100.0) as u32),
+            );
+            h.get_by_label("Clear all solos").click();
+            h.run_steps(20);
+            save(
+                &mut h,
+                &format!("lane-solo-none-{appearance}-{}", (scale * 100.0) as u32),
+            );
+            let id = h.state().project().tracks[0].clips[0].id;
+            h.hover_at(pos2(1000.0, 400.0));
+            h.run_steps(10);
+            let r = h.state().clip_rect(&h.ctx, id).expect("in view");
+            // Open the MIDI editor from the clip's title header; its body is
+            // reserved for range gestures.
+            let at = pos(r, 0.1, 0.1);
+            click(&mut h, at);
+            click(&mut h, at);
+            h.run_steps(20);
+            let lane = |h: &Harness<'static, App>, beat: f64, value: i32| {
+                h.state()
+                    .lane_point(Ticks((beat * lumen_core::time::PPQ as f64) as i64), value)
+                    .expect("the lane drew")
+            };
+            // A stroke across the velocity stems.
+            let (a, b) = (lane(&h, 4.0, 40), lane(&h, 12.0, 110));
+            drag(&mut h, a, b);
+            h.hover_at(lane(&h, 9.0, 60));
+            h.run_steps(5);
+            save(
+                &mut h,
+                &format!("lane-velocity-{appearance}-{}", (scale * 100.0) as u32),
+            );
+            // A curve in the mod wheel lane.
+            h.get_by_label("Mod wheel tab").click();
+            h.run_steps(5);
+            h.get_by_label("Lane curve tool").click();
+            h.run_steps(5);
+            let (a, b) = (lane(&h, 3.0, 10), lane(&h, 13.0, 120));
+            drag(&mut h, a, b);
+            h.hover_at(lane(&h, 8.0, 100));
+            h.run_steps(5);
+            save(
+                &mut h,
+                &format!("lane-curve-{appearance}-{}", (scale * 100.0) as u32),
+            );
+        }
+    }
+}
+
+/// The quantize options open over the piano roll (M5 slice 5): the comet
+/// sliders and the ghost trails, both themes at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn quantize_popover() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_core::time::{PPQ, Ticks};
+    use lumen_project::model::Note;
+    use lumen_project::testing::{midi_track, project_of};
+    // A part played loose: the notes sit a little off the beat.
+    let beats = [
+        (0.04, 60),
+        (0.55, 64),
+        (1.03, 67),
+        (1.47, 64),
+        (2.06, 60),
+        (2.55, 62),
+        (3.0, 65),
+        (3.53, 69),
+        (4.07, 60),
+        (4.46, 64),
+        (5.02, 67),
+        (5.58, 72),
+    ];
+    let notes: Vec<Note> = beats
+        .iter()
+        .map(|&(b, p)| Note::new(Ticks((b * PPQ as f64) as i64), Ticks(PPQ / 2), p, 100))
+        .collect();
+    let project = project_of(
+        "Loose",
+        vec![midi_track(1, "Keys", "poly", (0, 8), None, notes, vec![])],
+    );
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new("shots-quantize");
+            let copy = dir.path().join("loose.lumen");
+            lumen_project::save(&project, &copy, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(copy);
+            let mut h = Harness::builder()
+                .with_size(vec2(1400.0, 860.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(60);
+            h.state_mut().set_detail_size(560.0);
+            h.run_steps(10);
+            let id = h.state().project().tracks[0].clips[0].id;
+            h.hover_at(pos2(1000.0, 400.0));
+            h.run_steps(10);
+            let r = h.state().clip_rect(&h.ctx, id).expect("in view");
+            let at = pos(r, 0.1, 0.1);
+            click(&mut h, at);
+            click(&mut h, at);
+            h.run_steps(20);
+            h.get_by_label("Quantize").click();
+            h.run_steps(20);
+            save(
+                &mut h,
+                &format!("quantize-{appearance}-{}", (scale * 100.0) as u32),
+            );
+        }
+    }
+}
+
+/// The owner's MT-MIDI-7 run 3 finding: clips on one track an octave apart,
+/// and two different melodies, must look different. Each track's clips
+/// share one layout, so pitch is height across the whole track.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn mini_notes_octaves() {
+    use lumen_core::time::Ticks;
+    use lumen_project::model::{Clip, Note};
+    use lumen_project::testing::{midi_track, project_of};
+    use std::sync::Arc;
+    let q = Ticks::quarters;
+    let clip_of = |track: &lumen_project::model::Track, id, start, notes| {
+        let mut clip: Clip = (*track.clips[0]).clone();
+        clip.id = lumen_project::model::Id(id);
+        clip.start = q(start);
+        clip.length = q(6);
+        clip.content = lumen_project::model::ClipContent::Midi {
+            notes,
+            events: Vec::new(),
+        };
+        Arc::new(clip)
+    };
+    // Track 1: one note an octave apart in two clips.
+    let mut octave = midi_track(1, "Octave", "poly", (0, 6), None, Vec::new(), vec![]);
+    octave.clips = vec![
+        clip_of(&octave, 10, 0, vec![Note::new(q(0), q(5), 60, 100)]),
+        clip_of(&octave, 11, 8, vec![Note::new(q(0), q(5), 72, 100)]),
+    ];
+    // Track 2: two melodies that differ.
+    let melody = |pitches: &[u8]| {
+        pitches
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| Note::new(q(i as i64), q(1), p, 100))
+            .collect::<Vec<_>>()
+    };
+    let mut tunes = midi_track(4, "Tunes", "poly", (0, 6), None, Vec::new(), vec![]);
+    tunes.clips = vec![
+        clip_of(&tunes, 20, 0, melody(&[60, 62, 64, 65, 67, 69])),
+        clip_of(&tunes, 21, 8, melody(&[67, 64, 60, 55, 52, 48])),
+    ];
+    let mut project = project_of("Octaves", vec![octave, tunes]);
+    for id in [1, 4] {
+        project
+            .view
+            .track_heights
+            .insert(lumen_project::model::Id(id), 220.0);
+        project.view.expanded.insert(lumen_project::model::Id(id));
+    }
+    project.view.detail_open = false;
+    for appearance in ["dark", "light"] {
+        let dir = TempDir::new("shots-octaves");
+        let path = dir.path().join("octaves.lumen");
+        lumen_project::save(&project, &path, &Default::default()).expect("save");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .opening(path);
+        let mut h = Harness::builder()
+            .with_size(vec2(1200.0, 640.0))
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(60);
+        save(&mut h, &format!("mini-notes-octaves-{appearance}"));
     }
 }

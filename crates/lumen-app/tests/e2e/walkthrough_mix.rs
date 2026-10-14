@@ -132,7 +132,11 @@ fn a_drum_group_and_a_vocal_share_a_return_and_solo_and_mute_across_them() {
 
     // Send the group to it at 0 dB from its mixer strip, and the vocal
     // from its unfolded header.
-    lumen.app_mut().set_detail_size(480.0);
+    // (440 pt, not 480: the 44 pt transport bar of the design system takes
+    // room from the 900 pt window, and with 480 the unfolded vocal's header
+    // slid under the pinned returns, so the click on its fold arrow landed
+    // on the "Returns" caption and folded the returns away.)
+    lumen.app_mut().set_detail_size(440.0);
     lumen.frames(3);
     send_at(&mut lumen, "Send Group 1 to A Return 1 in the mixer", "0");
     lumen.click("Fold vocal");

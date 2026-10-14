@@ -1,5 +1,8 @@
 //! Shortcuts drawn as keycaps (the owner's K5, M3 slice 7), in menu rows
-//! and tooltips: what menus and tips draw from the keymap.
+//! and tooltips: what menus and tips draw from the keymap. The menu rows
+//! follow the design system's Menu card (ADR-0052): a `radius::MEDIUM`
+//! highlight reaching `space::XS` past the row, Ember under the pointer,
+//! `accent_muted` with `accent` letters for a toggle that is on.
 
 use eframe::egui::{
     self, Color32, FontId, Painter, Pos2, Rect, Sense, Stroke, Ui, Vec2, pos2, vec2,
@@ -8,7 +11,8 @@ use eframe::egui::{
 use eframe::egui::containers::menu::SubMenuButton;
 use eframe::emath::GuiRounding as _;
 
-use crate::theme;
+use super::raised;
+use crate::theme::{self, stroke};
 
 /// Room under a keycap for its light.
 pub const KEY_LIGHT_ROOM: f32 = 4.0;
@@ -35,10 +39,18 @@ struct Caps {
 
 /// Horizontal padding inside a cap, and vertical.
 const CAP_PAD: Vec2 = vec2(6.0, 2.0);
+/// The light under the main key: how far in from the cap's sides it starts,
+/// how far below the cap, how tall it is, and the halo around it (K5).
+const LIGHT_INSET: f32 = 3.0;
+const LIGHT_GAP: f32 = 2.0;
+const LIGHT_HEIGHT: f32 = 2.0;
+const LIGHT_HALO: f32 = 1.5;
+/// How strong the halo is, of the light's colour.
+const LIGHT_HALO_ALPHA: f32 = 0.3;
 
 fn lay_out_caps(ui: &Ui, modifiers: &[&str], key: Option<&str>) -> Caps {
     let palette = theme::p();
-    let font = FontId::proportional(theme::size::CAPTION);
+    let font = FontId::proportional(theme::size::KEYCAP);
     let caps: Vec<_> = modifiers
         .iter()
         .map(|m| (*m, false))
@@ -97,7 +109,7 @@ fn paint_caps(painter: &Painter, ppp: f32, caps: Caps, at: Pos2, light: Color32,
                 cap,
                 theme::radius::SMALL,
                 Stroke::new(
-                    1.0,
+                    stroke::HAIRLINE,
                     if lit {
                         palette.text_secondary
                     } else {
@@ -107,12 +119,19 @@ fn paint_caps(painter: &Painter, ppp: f32, caps: Caps, at: Pos2, light: Color32,
                 egui::StrokeKind::Inside,
             );
             let bar = Rect::from_min_max(
-                pos2(cap.left() + 3.0, cap.bottom() + 2.0),
-                pos2(cap.right() - 3.0, cap.bottom() + 4.0),
+                pos2(cap.left() + LIGHT_INSET, cap.bottom() + LIGHT_GAP),
+                pos2(
+                    cap.right() - LIGHT_INSET,
+                    cap.bottom() + LIGHT_GAP + LIGHT_HEIGHT,
+                ),
             )
             .round_to_pixels(ppp);
-            painter.rect_filled(bar.expand(1.5), 2.0, light.gamma_multiply(0.3));
-            painter.rect_filled(bar, 1.0, light);
+            painter.rect_filled(
+                bar.expand(LIGHT_HALO),
+                LIGHT_HEIGHT,
+                light.gamma_multiply(LIGHT_HALO_ALPHA),
+            );
+            painter.rect_filled(bar, LIGHT_HEIGHT / 2.0, light);
         } else {
             painter.rect_filled(cap, theme::radius::SMALL, theme::controls(lit).fill);
         }
@@ -125,8 +144,15 @@ fn paint_caps(painter: &Painter, ppp: f32, caps: Caps, at: Pos2, light: Color32,
 /// plain small cap, the key outlined, with a short light under it in
 /// `light`, the colour of its command's area. Allocates its own size.
 /// Clickable: the shortcut editor and the palette record a new chord when
-/// a shortcut is clicked.
-pub fn keycaps(ui: &mut Ui, modifiers: &[&str], key: &str, light: Color32) -> egui::Response {
+/// a shortcut is clicked. On a `lit` surface (the palette's chosen row) the
+/// caps step up, as in a highlighted menu row.
+pub fn keycaps(
+    ui: &mut Ui,
+    modifiers: &[&str],
+    key: &str,
+    light: Color32,
+    lit: bool,
+) -> egui::Response {
     let caps = lay_out_caps(ui, modifiers, Some(key));
     let (rect, response) = ui.allocate_exact_size(caps.size, Sense::click());
     if ui.is_rect_visible(rect) {
@@ -136,7 +162,7 @@ pub fn keycaps(ui: &mut Ui, modifiers: &[&str], key: &str, light: Color32) -> eg
             caps,
             rect.min,
             light,
-            false,
+            lit,
         );
     }
     response
@@ -180,7 +206,7 @@ pub fn caps_width(ui: &Ui, modifiers: &[&str], key: Option<&str>) -> f32 {
 impl Keys {
     /// These keys as keycaps.
     pub fn caps(&self, ui: &mut Ui) -> egui::Response {
-        keycaps(ui, &self.modifiers, self.key, self.light)
+        keycaps(ui, &self.modifiers, self.key, self.light, false)
     }
 
     /// These keys as keycaps that only show them (the info line): not a
@@ -209,26 +235,100 @@ pub fn menu_item(ui: &mut Ui, label: &str, keys: Option<&Keys>, enabled: bool) -
     menu_row(ui, label, keys, enabled, None)
 }
 
+/// How tall a menu row is: the height of keycaps with their light's room,
+/// plus `space::XS` above and below (the Menu card), so rows with and
+/// without shortcuts line up and the light stays well inside the highlight.
+/// `text` is the height of the row's label.
+fn row_height(ui: &Ui, text: f32) -> f32 {
+    let keyed = lay_out_caps(ui, &[], Some("X")).size.y;
+    text.max(keyed) + 2.0 * theme::space::XS
+}
+
+/// The highlight of a menu row at `rect`: it reaches `space::XS` past the
+/// row on both sides, so the label and the keycaps sit equally far in from
+/// its edges (the owner: the keycaps sat against its right edge).
+fn highlight_of(rect: Rect) -> Rect {
+    rect.expand2(vec2(theme::space::XS, 0.0))
+}
+
 /// A submenu row: `label`, then egui's arrow (⏵) at the right. egui names
 /// the button with its arrow ("Colour ⏵"), which screen readers read out;
 /// this one is named by its label alone. Use it for every submenu, in
-/// place of `ui.menu_button` inside a menu.
+/// place of `ui.menu_button` inside a menu. Drawn as a [`menu_item`] is:
+/// egui's button gets no fill of its own and the row paints Ember under
+/// the pointer, while its submenu is open and on keyboard focus.
 pub fn submenu<R>(
     ui: &mut Ui,
     label: impl Into<String>,
     add_contents: impl FnOnce(&mut Ui) -> R,
 ) -> egui::Response {
     let label = label.into();
-    let button = egui::Button::new(label.as_str()).right_text(SubMenuButton::RIGHT_ARROW);
-    let (response, _) = SubMenuButton::from_button(button).ui(ui, add_contents);
+    let palette = theme::p();
     let enabled = ui.is_enabled();
+    let text_height = ui
+        .painter()
+        .layout_no_wrap(
+            label.clone(),
+            FontId::proportional(theme::size::BODY),
+            palette.text,
+        )
+        .size()
+        .y;
+    // Under the button, filled once its rect is known.
+    let slot = ui.painter().add(egui::Shape::Noop);
+    let (response, inner) = ui
+        .scope(|ui| {
+            let widgets = &mut ui.visuals_mut().widgets;
+            for state in [
+                &mut widgets.inactive,
+                &mut widgets.hovered,
+                &mut widgets.active,
+                &mut widgets.open,
+            ] {
+                state.bg_fill = Color32::TRANSPARENT;
+                state.weak_bg_fill = Color32::TRANSPARENT;
+                state.bg_stroke = Stroke::NONE;
+            }
+            let ink = |text: &str| {
+                let text = egui::RichText::new(text);
+                if enabled {
+                    text
+                } else {
+                    text.color(palette.text_disabled)
+                }
+            };
+            let button = egui::Button::new(ink(label.as_str()))
+                .right_text(ink(SubMenuButton::RIGHT_ARROW))
+                .min_size(vec2(0.0, row_height(ui, text_height)));
+            SubMenuButton::from_button(button).ui(ui, add_contents)
+        })
+        .inner;
+    if enabled && (response.hovered() || response.has_focus() || inner.is_some()) {
+        ui.painter().set(
+            slot,
+            egui::Shape::rect_filled(
+                highlight_of(response.rect),
+                theme::radius::MEDIUM,
+                palette.ember,
+            ),
+        );
+    }
+    // The submenu floats too: the same edge light as a menu's.
+    if let Some(sub) = inner {
+        raised::lip(
+            &ui.ctx().layer_painter(sub.response.layer_id),
+            sub.response.rect,
+            theme::radius::LARGE,
+            palette.edge_light,
+        );
+    }
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &label));
     response
 }
 
 /// A [`menu_item`] that is on or off (Snap to grid, Triplet): when on, it
-/// has the selected fill, as egui's selectable items do. A click leaves
-/// the menu open, so several can be set.
+/// is `accent_muted` with `accent` letters, as a toggle that is on is
+/// everywhere. A click leaves the menu open, so several can be set.
 pub fn menu_toggle(ui: &mut Ui, label: &str, keys: Option<&Keys>, on: bool) -> egui::Response {
     menu_row(ui, label, keys, true, Some(on))
 }
@@ -244,10 +344,12 @@ fn menu_row(
 ) -> egui::Response {
     let on = toggle == Some(true);
     let palette = theme::p();
-    let text_colour = if enabled {
-        palette.text
-    } else {
+    let text_colour = if !enabled {
         palette.text_disabled
+    } else if on {
+        palette.accent
+    } else {
+        palette.text
     };
     let galley = ui.painter().layout_no_wrap(
         label.to_owned(),
@@ -257,11 +359,7 @@ fn menu_row(
     let caps = keys.map(|k| lay_out_caps(ui, &k.modifiers, Some(k.key)));
     let pad = ui.spacing().button_padding;
     let caps_width = caps.as_ref().map_or(0.0, |c| c.size.x + theme::space::M);
-    // Every row is as tall as one with keycaps, light included, with room
-    // above and below, so rows with and without shortcuts line up and the
-    // light stays well inside the highlight.
-    let keyed = lay_out_caps(ui, &[], Some("X")).size.y;
-    let height = galley.size().y.max(keyed) + 2.0 * pad.y.max(theme::space::XS / 2.0);
+    let height = row_height(ui, galley.size().y);
     // A menu is sized in a first pass from what its rows need; only after
     // that does a row fill the menu's width, so the keycaps line up at its
     // right edge without stretching the menu.
@@ -285,20 +383,14 @@ fn menu_row(
         .widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, on, &name));
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
-        // The highlight reaches a little past the row on both sides, so the
-        // label and the keycaps sit equally far in from its edges (the
-        // owner: the keycaps sat against its right edge).
-        let highlight = rect.expand2(vec2(theme::space::XS, 0.0));
+        let highlight = highlight_of(rect);
         let hovered = enabled && (response.hovered() || response.has_focus());
         if on {
-            painter.rect_filled(highlight, theme::radius::SMALL, palette.accent_muted);
+            painter.rect_filled(highlight, theme::radius::MEDIUM, palette.accent_muted);
         }
+        // Ember follows the pointer directly (the Menu card).
         if hovered {
-            painter.rect_filled(
-                highlight,
-                theme::radius::SMALL,
-                ui.visuals().widgets.hovered.weak_bg_fill,
-            );
+            painter.rect_filled(highlight, theme::radius::MEDIUM, palette.ember);
         }
         painter.galley(
             pos2(rect.left() + pad.x, rect.center().y - galley.size().y / 2.0),
@@ -361,5 +453,57 @@ pub fn tip(
         response.on_hover_ui(show)
     } else {
         response.on_disabled_hover_ui(show)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Runs `f` in one frame of a fresh context with the app's fonts.
+    fn in_ui<R>(f: impl FnOnce(&mut Ui) -> R) -> R {
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx);
+        // Fonts take effect from the next frame.
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        let mut out = None;
+        let mut f = Some(f);
+        ctx.run_ui(egui::RawInput::default(), |ui| {
+            if let Some(f) = f.take() {
+                out = Some(f(ui));
+            }
+        })
+        .textures_delta
+        .clear();
+        out.expect("the frame ran")
+    }
+
+    #[test]
+    fn rows_with_and_without_keycaps_are_equally_tall() {
+        let keys = Keys {
+            modifiers: vec!["Ctrl"],
+            key: "D",
+            light: Color32::RED,
+            text: "Ctrl+D".to_owned(),
+        };
+        let (plain, keyed, expected) = in_ui(|ui| {
+            let plain = menu_item(ui, "Duplicate", None, true).rect.height();
+            let keyed = menu_item(ui, "Duplicate", Some(&keys), true).rect.height();
+            (plain, keyed, caps_height(ui) + 2.0 * theme::space::XS)
+        });
+        assert_eq!(plain, keyed);
+        // The caps with their light's room, plus `space::XS` on each side.
+        assert_eq!(keyed, expected);
+    }
+
+    #[test]
+    fn the_highlight_reaches_past_the_row_on_both_sides() {
+        let row = Rect::from_min_size(pos2(10.0, 10.0), vec2(100.0, 30.0));
+        let highlight = highlight_of(row);
+        assert_eq!(highlight.left(), row.left() - theme::space::XS);
+        assert_eq!(highlight.right(), row.right() + theme::space::XS);
+        assert_eq!(highlight.height(), row.height());
     }
 }

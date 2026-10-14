@@ -44,6 +44,10 @@ pub const SCENARIOS: &[(&str, &str)] = &[
         "1,000 blocks of 128 frames: the compensated mix with new levels every block (a fader drag)",
     ),
     (
+        "engine_synth_64",
+        "1,000 blocks of 128 frames: 64 MIDI tracks each playing a four-note chord on the synth, through the routed mix",
+    ),
+    (
         "engine_transport",
         "2,000 blocks of 128 frames: loop wraps, locates and the metronome",
     ),
@@ -87,6 +91,10 @@ pub fn run(name: &str) -> bool {
                 routing.collect_garbage();
             }
         }
+        "engine_synth_64" => {
+            let mut engine = playing_synths(64);
+            measured_engine_synth_64(&mut engine);
+        }
         "engine_transport" => {
             let (handle, mut engine) = transport_only();
             measured_engine_transport(handle, &mut engine);
@@ -112,6 +120,8 @@ const RATE: u32 = 48_000;
 const FRAMES: usize = 128;
 
 type Player = Engine<Mixer<ClipPlayer>>;
+/// The engine with the MIDI instruments beside the audio clips.
+type SynthPlayer = Engine<Mixer<lumen_engine::Layered<ClipPlayer, lumen_engine::MidiPlayer>>>;
 
 /// How the clips of a scenario are mixed.
 #[derive(Clone, Copy, PartialEq)]
@@ -217,6 +227,70 @@ pub fn measured_engine_latent_swaps_64(engine: &mut Player) {
     black_box((&data, engine.transport().playing));
 }
 
+/// `tracks` MIDI tracks, each a four-note chord on the synth that repeats every
+/// beat and rings on past it (so voices overlap while they release), mixed as
+/// in [`routed`], playing.
+fn playing_synths(tracks: u64) -> SynthPlayer {
+    use lumen_devices::{Preset, Synth, synth};
+    use lumen_engine::{InstrumentSpec, Layered, MidiClip, MidiNote, MidiTrack, Target};
+    let (_clips, players) = clip_player();
+    let (mut midi, player) = lumen_engine::midi_player();
+    let q = Ticks::quarters;
+    let list = (0..tracks)
+        .map(|id| {
+            let notes: Vec<MidiNote> = [0_u8, 4, 7, 11]
+                .iter()
+                .map(|&interval| MidiNote {
+                    start: Ticks(id as i64 * 17),
+                    length: Ticks(q(1).0 * 3 / 4),
+                    pitch: 48 + (id % 12) as u8 + interval,
+                    velocity: 70 + (id % 40) as u8,
+                })
+                .collect();
+            MidiTrack::new(
+                id,
+                Target::Instrument,
+                Some(InstrumentSpec {
+                    kind: synth::KIND,
+                    preset: Preset::Poly.number(),
+                    instrument: Box::new(Synth::new(Preset::Poly)),
+                }),
+                vec![MidiClip {
+                    id,
+                    start: Ticks::ZERO,
+                    length: q(64),
+                    period: Some(q(1)),
+                    seams: Default::default(),
+                    notes: lumen_engine::note_list(notes),
+                    controls: lumen_engine::control_list(Vec::new()),
+                }],
+            )
+        })
+        .collect();
+    midi.set(list).ok().expect("room for one track list");
+    let (mut routing, source) = mixer(Layered(players, player));
+    assert!(routing.set(&routed(tracks, 0)).expect("a valid routing"));
+    let (mut transport, mut engine) = engine(Timeline::default(), source, RATE);
+    transport.send(Command::Play).expect("room for a command");
+    let mut data = vec![0.0; 2 * FRAMES];
+    // Past the fade-in, into steady playback.
+    for _ in 0..10 {
+        engine.process(RATE, &mut data, 2, FRAMES);
+    }
+    engine
+}
+
+#[unsafe(no_mangle)]
+#[inline(never)]
+pub fn measured_engine_synth_64(engine: &mut SynthPlayer) {
+    let mut data = vec![0.0; 2 * FRAMES];
+    for _ in 0..1_000 {
+        engine.process(RATE, &mut data, 2, FRAMES);
+    }
+    // Distinct from the other scenarios, so the linker keeps it apart.
+    black_box((&data, engine.transport().marker));
+}
+
 fn transport_only() -> (lumen_engine::EngineHandle, Player) {
     let (_clips, player) = clip_player();
     let (_routing, source) = mixer(player);
@@ -311,6 +385,7 @@ mod tests {
             "engine_routed_64",
             "engine_latent_64",
             "engine_latent_swaps_64",
+            "engine_synth_64",
             "engine_transport",
             "tempo_conversions",
         ] {

@@ -17,9 +17,9 @@ device chain, clip editors and mixer exist to support it. The aim is the
 arrangement-first workflow of Ableton Live with a cleaner, more polished
 interface in the spirit of FL Studio.
 
-> **Status: early development.** Lumen is not yet usable as a DAW. It can
-> play, edit and mix audio clips, and save projects. MIDI, recording and
-> plugins are still to come. See [Roadmap](#roadmap).
+> **Status: early development.** Lumen can play, record and edit MIDI, work
+> with audio clips, mix and save projects. Audio recording, VST3 hosting and
+> drum editing are still to come. See [Roadmap](#roadmap).
 
 ## What works today
 
@@ -34,6 +34,10 @@ interface in the spirit of FL Studio.
   time-range selection, and the Ableton-style overlap rule.
 - **Editing:** unlimited undo and redo, where each edit is one step; a
   command palette (Ctrl+K); a rebindable keyboard map with conflict checks.
+- **MIDI:** live input and monitoring, MIDI recording, a piano roll with
+  velocity and controller lanes, quantize and editing tools, Standard MIDI
+  File import and export, and MIDI clock out. MIDI learn and drum editing
+  are planned for later milestones.
 - **Grid and zoom:** an editing grid with snapping, zoom down to single
   samples, and waveforms that stay crisp at every zoom level.
 - **Mixer:** group tracks (nested up to three deep), sends and returns,
@@ -69,7 +73,7 @@ tests, manual tests on real hardware where needed, and a written report.
 | 3. Arrangement and project system | Tracks, clips, editing, undo, save and open, autosave | Complete |
 | 4. Mixer, routing and groups | Mixer graph, groups, sends, returns, metering, delay compensation | Complete |
 | 4.5. Polish pass | Interface audit fixes: controls, motion, light layer | Built; manual tests pending |
-| 5. MIDI and piano roll | MIDI devices, recording, piano roll, quantize, Standard MIDI Files | Proposed |
+| 5. MIDI and piano roll | MIDI devices, recording, piano roll, quantize, Standard MIDI Files and clock out | In progress — slices 0–7 built; slice 8 close underway |
 | 6. VST3 hosting | Plugin scanning, instruments and effects, sandboxed plugin processes | Planned |
 | 7. Automation and advanced editing | Automation lanes, clip envelopes, consolidate, bounce, freeze | Planned |
 | 8. Drum maps and built-in devices | Drum maps, drum editor, step sequencer, EQ, compressor, synth, sampler | Planned |

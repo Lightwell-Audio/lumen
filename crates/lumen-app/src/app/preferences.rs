@@ -48,7 +48,8 @@ impl App {
             });
             self.menu_command(ui, Command::Save, "Save");
             self.menu_command(ui, Command::SaveAs, "Save as\u{2026}");
-            self.menu_command(ui, Command::ImportAudio, "Import audio\u{2026}");
+            self.menu_command(ui, Command::Import, "Import audio or MIDI\u{2026}");
+            self.menu_command(ui, Command::ExportMidiFile, "Export MIDI file\u{2026}");
             widgets::switch(
                 ui,
                 &mut self.settings.projects.copy_imported,
@@ -119,7 +120,9 @@ impl App {
                 self.settings_changed = Some(Instant::now());
             }
             ui.separator();
-            if ui.button("Audio settings…").clicked() {
+            if crate::widgets::menu_item(ui, "Audio and MIDI settings\u{2026}", None, true)
+                .clicked()
+            {
                 self.transport.settings_window.open = true;
                 ui.close();
             }

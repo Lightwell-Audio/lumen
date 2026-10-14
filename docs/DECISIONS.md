@@ -53,6 +53,14 @@ irreversible or external) · *Superseded*.
 | [0041](#adr-0041--sidechains-and-delay-compensation-m4-slice-6) | Sidechains and delay compensation: devices and taps in the graph, delay lines, read ahead, the D1 readout | Accepted 2026-10-10 | No |
 | [0042](#adr-0042--the-m4-exit-walkthrough-and-known-issues-m4-slice-7) | The M4 exit walkthrough; edits taken while stopped; session locks for autosaves; submenu names; the pipeline cache off the UI thread | Accepted 2026-10-10 | No |
 | [0043](#adr-0043--the-light-layer-and-the-mark) | The light layer (five levels of light) and the mark (Dawn in Sunrise): the playhead beam, meter heads, the mark as a master meter, the window icon | Accepted 2026-10-10 | No |
+| [0044](#adr-0044--midi-devices-and-clip-events) | MIDI devices (`lumen-midi`, midir, a worker thread) and clip events (format v11) | Accepted 2026-10-10 | No |
+| [0045](#adr-0045--hearing-midi-the-event-path-the-synth-and-midi-to-m5-slice-1-format-v12) | Hearing MIDI: the event path, the synth (`lumen-devices`) and MIDI To (format v12) | Accepted 2026-10-10 | No |
+| [0046](#adr-0046--playing-live-midi-from-monitoring-the-computer-keyboard-and-the-midi-chip-m5-slice-2-format-v13) | Playing live: live input in the engine, MIDI From and Monitor (format v13), the computer keyboard, the MIDI chip | Accepted 2026-10-11 | No |
+| [0047](#adr-0047--midi-clips-and-the-piano-roll-m5-slice-3-format-v14) | MIDI clips and the piano roll: note edits and mute (format v14), notes on the GPU, the clip editor and its pop-out, auditioning | Accepted 2026-10-11 | No |
+| [0052](#adr-0052--the-design-system-replaces-adr-0051s-lit-look) | The design system's material and tokens replace ADR-0051's lit look | Accepted 2026-10-11 | No |
+| [0055](#adr-0055--recording-midi-m5-slice-6-no-format-change) | Recording MIDI (M5 slice 6, no format change): the engine's Record with a count-in, live capture with its timeline sample, a pure take builder (Replace, Overdub, loops, punch) and one undo step per take | Accepted 2026-10-13 | No |
+| [0058](#adr-0058--notes-carry-on-across-seams-and-overdub-shows-its-clip-at-once) | Notes carry on across seams (touching MIDI clips that hold the same note play it as one), and Overdub shows its clip at once | Accepted 2026-10-13 | No |
+| [0059](#adr-0059--a-carried-note-belongs-to-its-clip-and-the-clip-editor-shows-hidden-notes) | A carried note belongs to the clip it began in (a chase there does not strike it), and the clip editor shows notes outside the window | Accepted 2026-10-13 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 
 ---
@@ -110,6 +118,19 @@ irreversible or external) · *Superseded*.
 | Interface audit (after M4, 2026-10-10) | Chosen from interactive mock-ups (`docs/audits/2026-10-10-design.md`): value fields take the surface's **control fill** (T1); a **`well` token** for grooves and meter wells (T2); a **switch and a segmented control** replace egui's checkboxes and radios (T3); **underline tabs**, toggles keep their fill when off (T4); the arm button **grey at rest**, red on hover (T5); numbers in **Martian Mono** at width 87.5 (S1, download asked when built); the slider handle **a solid line that opens into top and bottom ticks near its value** (S2, the owner's own variant C); fader scale labels thinned (S3); one size scale (S4); one empty-state widget with a ghost strip in the mixer (S5); swatches **2 × 6 with a "Track colour" pill**, paths shortened in the middle (S6); one time-signature field (S7); a **fading overlay scroll bar** (U2); undo shows an **accent wash and a glide** (M4); clips glide on release and undo, groups fold with a glide, rows glide, highlights slide (M1, M2, M3, M5). Built first, as **milestone 4.5**, recorded as a mid milestone (`docs/milestones/M4.5.md`). |
 | MIDI interaction exploration (before M5, 2026-10-11) | From a Design canvas of six MIDI pain points, each with a familiar and an experimental option: **every familiar option for now** (mini piano roll on clips, the piano roll in the detail panel, Capture MIDI in M9, Q and Shift+Q, a velocity lane, linked copies with M7's editing). **Content faces and chord detection move to M8** with drum maps. Velocity drawn inside notes is ruled out: short notes are too small. Table in `docs/milestones/M5.md` §4. |
 | Menus with settings (M4.5, after MT-POL-2, 2026-10-10) | Chosen from an interactive mock-up (X1): **C, fades when you leave**: a change leaves the menu open; once changed, the pointer leaving it starts a 0.4 s wait, then a fade; coming back cancels it; Esc, a click elsewhere and commands close it at once. Over A (stays until dismissed) and B (lingers 1.2 s, then fades). Every menu fades out instead of vanishing. |
+| Hearing MIDI (M5 slice 1, 2026-10-10) | Asked before building, all as recommended: the built-in synth's default sound is **S1 warm poly** (two saws ±7 cents, 12 dB low-pass at 2.4 kHz, A 5 ms · D 300 ms · S 70 % · R 250 ms, 16 voices, oldest stolen) over clean keys and a square pluck; until the device chain, the sound changes through **E1 presets in a menu** (Poly, Keys, Bass, Pluck, Pad; track menu and palette) over a small knob card or a fixed patch; **T1 MIDI To is one or the other** (instrument or a port and channel, Ableton) over layering both; **H1 chase notes and controllers** on Play and jumps (Live 11 default) over controllers only (Cubase default). Plan in `docs/milestones/M5.md`, slice 1. |
+| Playing live (M5 slice 2, 2026-10-11) | Chosen from specimens (the "MIDI: Playing Live" design canvas), all as recommended: **L A the selected MIDI track listens** without being armed (a hollow arm ring), plus every armed track (Ableton's auto-arm), over armed tracks only; **J A steady timing**, each live message placed at its driver stamp one buffer later, over playing at the next buffer; **C B a MIDI chip with in and out lights** and a popover whose rows show each port's traffic with Track and Remote pills, unplugged ports dimmed, over a word and one light; **K A a lit keycap button and a readout** (`C3–C4 · vel 100`) for the computer keyboard, over a mini keyboard in the bar; **H B a light by the name** of each listening MIDI track, over none; **R A MIDI From and Monitor in the track menu and on the mixer strip**, over an I/O block on tall headers. The computer keyboard toggles with **Ctrl+Shift+K** (M stays Set locator). Plan in `docs/milestones/M5.md`, slice 2. |
+| Piano roll (M5 slice 3, 2026-10-11) | Chosen from live specimens (the "Lumen Piano Roll Specimens" artifact), all as recommended: **Look A, studio keys** (a piano-key column, darker lanes for black keys, notes in the track's colour shaded by velocity, an outline on selected notes, handles on hover) over a labelled pitch rail; **Draw A, a click adds one grid step and dragging sets its length** (Ableton) over drag-to-paint; **Live A, preview then commit**: notes follow the pointer and pitches are auditioned, the playing clip changes once on release, over changing it continuously. Built by Sonnet agents at medium effort in worktrees (the owner's request). Plan in `docs/milestones/M5.md`. |
+| Clip editor's view (M5 slice 3, 2026-10-11) | Owner: the piano roll zooms and scrolls on its own, independent of the arrangement; it is fitted to each clip it opens; grid settings stay shared. ADR-0048. |
+| Time selection in empty lanes (M5 amendment, 2026-10-11) | Owner (MT-MIDI-4): a drag in empty lanes selects time on the tracks it spans, snapped, as a clip's lower half does; the time ruler selects time on the selected tracks, or every track when none is selected, and keeps the selection. The clip marquee moved to Ctrl+Shift (the integrator's choice, for the owner to confirm). ADR-0049. |
+| Velocity and controller lanes (M5 slice 4, 2026-10-11) | Chosen from live specimens (the "Lumen Controller Lane Specimens" artifact), all as recommended: **V A stems with round heads**, one per note start, over filled bars as wide as their notes; **L A one lane at a time with a tab switcher** (Velocity, Mod wheel, Pitch bend, Pressure, "+ CC") over a stack of lanes with Add and Remove; **T A Pencil, Line and Curve in the lane\'s own header** over modifier-only drawing; **R B Line, Curve and bend write an event every 1/64 note, dropping only repeated values, and the Pencil follows the grid when snapping is on** over every tool following the 1/16 grid. Plan in `docs/milestones/M5.md`. ADR-0050. |
+| MT-MIDI-2 and MT-MIDI-3 follow-ups (2026-10-11) | **MA a monitor badge** on MIDI track headers, only when Monitor is not Auto (a speaker in accent for In, slashed grey for Off; click cycles), over the arm showing all three or an IN/OFF word ("MIDI: Playing Live" canvas, boards M). **Held notes glide to a new preset** at once (no retrigger), over keeping the old sound or retriggering. **The GS Wavetable latency is deferred**: a per-port output offset to be built later, recorded in KNOWN_ISSUES. |
+| Design system over ADR-0051 (2026-10-11) | The owner's **Lumen design system** (a Design System artifact: tokens, a Material card and a card per component) is the reference for tokens, components and widgets. Asked where it and ADR-0051 differ, the owner chose **the design system on all four**: **on** is `accent_muted` with accent letters and a 38% accent hairline, no glow; **solo** (and the primary, the chosen tool) is filled accent (`accent_hi` to `accent_lo`, no halo; amber only warns); a **lit M** is the `mute` grey with `on_mute` letters; **raised** controls are `control_hi` to `control` with an edge light and a border, Ember on hover, no drop shadow, radius by height; the **arm** is round with a grey dot at rest. ADR-0052. |
+| Recording MIDI (M5 slice 6, 2026-10-12) | Asked and chosen (the plan in `docs/milestones/M5.md`, and the "Lumen Recording Specimens" canvas): **Replace by default, with an Overdub switch** (C4, as planned); **loop passes layer** into one clip in both modes (separate takes are M9); **recording settings in the app settings file**, not the project, so no format change; **a clip runs exactly from record start to stop**, not to the bar line (the owner's choice over the recommended bar-line end); **1-A** the count-in on the position field, counting up through negative bars, and Record pulsing on each beat, with no new widget; **2-B** an Overdub button beside Record, and the count-in and "Metronome only while recording" in the metronome's menu; **3-A** a clip being recorded is record red with a "REC" tag and drops into its track colour on stop. Count-in and record-only for MIDI move from M9 (the 2026-10-06 row) to this slice; audio recording stays M9. ADR-0055. |
+| Covered MIDI clips (M5, 2026-10-13, after MT-MIDI-7 run 3) | Asked, from two variants: **A, Ableton's window** (chosen, as recommended): a clip covered, trimmed or split keeps every note, hidden outside its edges, and shows them when an edge is dragged back; moving the top clip away leaves a gap, as in Ableton. B (stacked clips that reappear by themselves) was set aside. Overdub across clips: "exactly like Ableton"; the owner will reproduce what they saw. Format v15. ADR-0056. |
+| Recording edges and MIDI trims (M5, 2026-10-13, the owner's four points) | Asked for directly: MIDI clip edges that drag without jitter or offset; Overdub begun at or before a clip extends that clip and merges into it; recording begun in the middle of a clip makes a new clip from the playhead to the stop; and the clip recorded over redraws continuously, not at commits. Built as stated (no variants pitched: the owner gave the behaviour). ADR-0057. |
+| Overdub at clip edges (M5, 2026-10-13, MT-MIDI-7 run 7) | Asked for directly, reversing part of the row above: Overdub begun before a clip and reaching its start, or begun exactly at its start, records a **new clip** and does not merge into or grow the clip there, as Ableton records in the arrangement; the new clip carries the track's existing notes along with the take, and the old clip stays a clip of its own. Built as stated. ADR-0060. |
+| MIDI learn moved to M7 (M5, 2026-10-13) | Asked, as recommended: **MIDI learn and its mapping list move to M7**, built with automation, where M6 and M7 define the parameters it maps and a mapped controller writes automation through the same path as Lumen's controls (Touch and Latch). M5 slice 7 keeps Standard MIDI Files and MIDI clock out (plan in `docs/milestones/M5.md`). Its choices, asked in chat, all as recommended: **F1 A** a multi-track file dropped on a track merges into one clip there, dropped between tracks or on empty lanes makes one MIDI track per file track (type 0 split by channel); **F2 A** notes are placed in beats and the project tempo is untouched, with a notice offering "Use them" for the file's tempo map and first time signature (one undo step); **F3 A** clock runs only while playing; **F4 A** a Sync delay per port, −20 to +50 ms. MTC out [S] is deferred, unscheduled. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
 | Logo and light (2026-10-10) | Chosen from rendered specimens on the identity canvas (a Design artifact): four marks, then six colourways. **D, Dawn, in Sunrise**: a sun rising over a horizon, its reflection breaking into a waveform; an amber sun (`#FFC46B`) over water in the accent. **The light layer holds** (five levels: Unlit, Ember, Lit, Beam, Flare, and five rules), and **the mark is a meter** (the sun rises with the master's level, red while recording), with every proposed use of light: the playhead beam, Play's beam, meter heads, the mark above an empty arrangement. ADR-0043. A guitarist-first direction was pitched and set aside by the owner. |
@@ -3626,3 +3647,1910 @@ each with its own values.
   `shots::light_layer` renders the empty, playing and mixer states in both
   themes. MT-APP-18 is for the owner.
 
+## ADR-0044 — MIDI devices and clip events
+
+**Status:** Accepted 2026-10-10 (M5 slice 0).
+
+### Context
+M5 needs MIDI in and out, and the model has to hold more than notes
+(controllers, pitch bend, pressure, program changes) before the piano
+roll and recording are built on it.
+
+### Decision
+- **`lumen-midi`**, a stand-alone crate (like `lumen-audio`), on **midir**
+  (MIT; WinMM on Windows, CoreMIDI, ALSA). A `Backend` trait with the real
+  midir backend and a scriptable fake. `MidiSystem` runs a worker thread:
+  it polls the driver every 500 ms, reports ports added and removed,
+  opens an input when either of its switches (Track, Remote) is on and an
+  output when Track is, drops connections for ports that vanish, and opens
+  them again on replug. A port that will not open is marked failed and
+  tried again only when the user switches it or the device is replugged,
+  so a busy port is not retried in a loop. The UI sees a snapshot and an
+  event channel and never waits on a driver (risk R5).
+- Messages from every open input go into one queue (`rtrb`) as `Timed`
+  values: the input's slot, the driver's microsecond stamp, up to three
+  bytes. System exclusive is not carried yet.
+- **Settings:** `midi.ports` in the settings file, found by direction and
+  name, remembered while unplugged; an added field, no settings version
+  change. The window is now "Audio and MIDI settings" with two tabs.
+- **Format v11:** `ClipContent::Midi` gains `events`, a list of
+  `ClipEvent { at, kind }` with kinds Controller, PitchBend, Pressure and
+  Program (with an optional bank), written only when present. The
+  migration changes nothing in a file; a frozen golden fixture holds all
+  four kinds. Splits, trims, loop-extends and slips cut events as they cut
+  notes. Validation refuses out-of-range values.
+
+### Consequences
+- Old projects open unchanged; notes keep their compact form.
+- The device layer has ten unit tests on the fake, and E2E drives the
+  settings page through it (hot-plug, switches, saved state, a busy port).
+- Not built: virtual ports (WinMM cannot create them; a loopback driver
+  such as loopMIDI is the Windows answer), system exclusive, and the
+  engine side of MIDI (slice 1).
+- midir is MIT, so no licensing decision is needed.
+
+
+## ADR-0045 — Hearing MIDI: the event path, the synth and MIDI To (M5 slice 1, format v12)
+
+**Status:** Accepted 2026-10-10 (M5 slice 1). Owner choices S1, E1, T1, H1
+are in the owner-decisions table ("Hearing MIDI").
+
+### Context
+Until now a MIDI track could be added and held no sound. Slice 1 makes MIDI
+audible, with nothing hanging, before recording and the piano roll are built
+on it: MIDI events through the mixer graph with sample offsets, a built-in
+instrument (VST3 arrives in M6), and a way to send a track to hardware.
+
+### Decision
+- **The message.** `lumen_core::midi::Msg`, three bytes, `Copy`, with the
+  standard decoding (a note-on with velocity 0 is a note-off) and `Event`
+  (a message at a frame in a block). Both sides share it, so the engine
+  stays on core.
+- **The event path** (`lumen-engine/src/midi/`). MIDI clips reach the engine
+  as their own track list (`MidiTrack`: clips with notes and controller
+  messages in ticks, loop period, target, instrument, a tracker), built on
+  the UI side by the pure, tested `lumen-app/src/midi_play.rs`, swapped
+  whole through a queue, old lists returned to be freed (as clip lists
+  are). Clips that did not change keep their note lists (an `Arc` per clip,
+  so the engine's comparison is a pointer check). `MidiPlayer` is a
+  `TrackSource` played beside the audio clips (`Layered`): each block it
+  works out which events fall in the block from ticks through the timeline
+  (an event belongs to the block holding `sample_at(tick)`; the window of
+  ticks is widened by two ticks so rounding cannot lose one), sorts them
+  (note-offs, controllers, note-ons at one frame) and hands them to the
+  instrument, whose audio is added to the track's bus. Volume, pan, sends,
+  groups, solo, cue, meters and delay compensation therefore apply as they
+  do to audio. Tempo changes move notes with the music because positions are
+  recomputed from ticks every block.
+- **Notes never hang** (risk R1). One tracker per track
+  (`midi/hold.rs`) holds every sounding note with where it came from. Stop
+  and pause, a jump, a loop wrap, an edit that removes or moves a sounding
+  note, a clip mute, a change of instrument or output, a track leaving the
+  list and Panic all release exactly what sounds. **Chase** (H1): Play and
+  every jump start the notes already sounding at the new position and
+  apply the latest controllers, pitch bend, pressure and program before it
+  (a clip that has ended still leaves its controllers). The pedal and the
+  bend are reset on release. After an edit the held notes are brought in
+  line with the new data (`sync`) without retriggering what is unchanged.
+  `Source` gains `stopped`, `panic` and `ringing` (default no-ops);
+  `RenderContext` gains `mode` (Play, Scrub, Ring) and `stream`.
+  While stopped and `ringing()` the engine renders with `Mode::Ring`, which
+  only instruments answer: a release tail rings out instead of being cut,
+  and note-offs reach their port. Scrubbing plays no MIDI.
+- **Instruments.** `lumen-devices` (new crate: real-time-safe DSP on
+  `lumen-core` only, grown by M8) holds the `Instrument` trait and the
+  **synth**: 16 voices, oldest stolen with a 2 ms fade, two polyBLEP
+  oscillators, a 12 dB state-variable low-pass, ADSR, sample-accurate
+  sub-blocks between events, pitch bend of two semitones, CC 1 and channel
+  pressure opening the filter by up to an octave and a half, sustain pedal,
+  CC 120/121/123, program changes 0 to 4 for the presets. The five presets
+  (E1) are Poly (S1, the default), Keys, Bass, Pluck and Pad. A note keeps
+  the sound it began with when the preset changes. Voices carry across list
+  swaps by track id (the instrument box and the tracker swap pointers), so
+  an edit elsewhere never cuts a sounding note.
+- **Layering amended.** `lumen-engine` depends on `lumen-core`, `lumen-rt`
+  and `lumen-devices`; `lumen-devices` depends on `lumen-core` alone. The
+  rule in the architecture skill and ARCHITECTURE.md says so.
+- **Format v12.** The instrument is a built-in device on the track:
+  `{"format": "builtin", "name": "synth"}` (the stable id; never the product
+  name) with its preset's stable name as the device's state (`"poly"`,
+  `"keys"`, `"bass"`, `"pluck"`, `"pad"`). A track may name a MIDI output:
+  `midi_to: {port, channel}` (channel 0 to 15), written only when set and
+  remembered while the port is unplugged. The migration changes nothing in
+  a file (the fields are optional); a frozen golden fixture holds a synth
+  and an output. Validation refuses a synth or output on a track that is not
+  MIDI, a bad channel, an empty port name or an unreadable preset;
+  `history::unchanged` compares `midi_to`. New MIDI tracks get the synth on
+  Poly; MIDI tracks in older projects have none and stay silent until one
+  is chosen (they could hold no notes before v11). Duplicating a track gives
+  the copy its own device id.
+- **Edits** (one undo step each): `Document::set_instrument(ids, preset)`
+  ("Instrument: Pad", "Remove instrument") and `set_midi_to(ids, output)`
+  ("MIDI To: Synth 3", "MIDI To: Instrument"). The track menu has
+  **Instrument** (the five presets and None) and **MIDI To** (Instrument,
+  then each output with Channel 1 to 16), built from `widgets::submenu` and
+  `menu_toggle`. Palette commands: Instrument: Poly, Keys, Bass, Pluck, Pad;
+  MIDI To: Instrument; Panic (no default key).
+- **MIDI To** (T1: the instrument or a port, one or the other). Events for
+  a port track leave the engine on a lock-free queue (`MidiOut::At`), each
+  stamped with the **device frame at which it is heard**: the block's frame
+  count, the frame within it and the delay compensation's read ahead.
+  `lumen-app/src/midi_out.rs` turns frames into time on its own thread. The
+  audio callback publishes `(frame, time)` each block (a sequence-numbered
+  atomic record; a clock read and atomics, nothing else); callbacks only run
+  late, so the earliest `time - frame/rate` over the last 256 blocks is the
+  time of frame 0, and the device's reported output latency is added so
+  hardware sounds with the audio of the same frame. A `Scheduler` holds
+  messages in order and the notes it has sent on; the engine's `Flush`
+  (stop, panic) drops what has not gone and lets go of what has, and a
+  note-off for a note that is not sounding is not sent a second time (found
+  by E2E). A port that is not open drops its messages and is forgotten. The
+  sender thread starts with the first track that names a port. If the audio
+  stream stands still for a second (the device was lost, Audio was switched
+  off) it lets go of every note it sent on. Outputs that
+  tracks name are switched on for tracks automatically and remembered in
+  the settings (the user would otherwise hear nothing and see no reason).
+  Port numbers are an append-only table of names, so a number keeps its port
+  for the whole run.
+- **Defaults taken** (standard behaviour): stop, a jump, a loop wrap, a clip
+  mute, an edit that removes or moves a sounding note, a change of
+  instrument or MIDI To and Panic release notes (the synth's tail rings
+  out; Panic cuts it, and sends All Notes Off and All Sound Off, CC 123 and
+  120, on every channel of every port in use, from the engine and again
+  from the app in case the engine is not running). Track mute and solo act
+  on the instrument's audio (the mixer), as in Ableton: the synth keeps
+  receiving notes, so unmuting mid-note is heard; a MIDI To track that is
+  muted or silenced by solo sends nothing and lets go of what it sounded.
+  Choosing an instrument on a track that plays to an output switches it
+  back to the instrument (one undo step). The synth listens on every
+  channel. Bank selects pass through to ports and are ignored by the synth.
+  Limits per track: 128 held notes and 1,024 queued events per block, past
+  which new ones are dropped and counted (`MidiPlayer::dropped`, zero in
+  every test).
+
+### Consequences
+- Engine tests (`tests/midi.rs`, 14): note starts and ends to the sample at
+  five tempo and rate pairs (20 to 999 BPM, 44.1 to 96 kHz, blocks of 64 to
+  480); across a tempo change; loop wraps; stop; jump with chase; chase of
+  controllers; edits; target changes; hardware stamps; panic; a randomised
+  run of 400 commands in which every note-on has its off; the synth through
+  the mixer from its exact sample; the release tail after stop; an edit
+  elsewhere not cutting a sounding note. The allocation guard
+  (`tests/realtime.rs`) runs 32 tracks with loops, jumps, stops, list swaps
+  and Panic with zero heap operations, and RTSan passes the same test in
+  WSL. Synth tests (10): exact frames, independence from how blocks are cut
+  (bit-identical), envelopes, pedal, bend, stealing, presets, a random storm
+  that stays finite. 11 E2E scenarios (`tests/e2e/midi_play.rs`) cover what
+  is heard, the menus, the hardware port and each way a note could hang.
+- **Cost.** `engine_synth_64` (64 MIDI tracks each playing a four-note chord
+  that repeats every beat and rings past it, about 256 voices, through the
+  64-track routed mix) runs a 128-frame block in about 0.36 ms in a release
+  build on the development machine, 13.5 % of the 2.67 ms a block lasts at
+  48 kHz; the first version took 0.86 ms before the pan gains were computed
+  once per note. Its baseline in `perf/baseline.json` is 8,249,464,908
+  instructions per 1,000 blocks (a new scenario, so no earlier number to
+  regress from, added by hand rather than with `--update`, which would also
+  have moved the other baselines by their under-1 % drift); the existing
+  scenarios moved by under 1 %.
+- **Timing.** The sender's scheduling is tested with injected times and
+  against the fake backend: messages keep order and spacing, and arrive
+  about 1.5 ms after plan at worst (asserted under 4 ms; the plan's goal is
+  2 ms). Real hardware timing has not been measured: no MIDI interface is on
+  the test machine (MT-MIDI-2 asks the owner to listen to Windows' GS
+  Wavetable Synth).
+- **Not built** (later slices or other milestones): MIDI From, monitoring
+  and thru and the computer keyboard (slice 2); notes drawn and edited
+  (slice 3), so the demo project is generated by code; knobs on the synth
+  (the device chain, M6/M8); MIDI clock out (slice 7).
+- A visual need was not met by existing widgets and is not built: the MIDI
+  To menu lists sixteen channels per output as rows, which is long; a
+  compact grid would be nicer and needs a mock-up first. A track whose
+  output is unplugged shows nothing on screen, only "(not connected)" in its
+  menu.
+
+
+## ADR-0046 — Playing live: MIDI From, monitoring, the computer keyboard and the MIDI chip (M5 slice 2, format v13)
+
+**Status:** Accepted 2026-10-11 (M5 slice 2). Owner choices L A, J A, C B,
+K A, H B, R A and Ctrl+Shift+K are in the owner-decisions table ("Playing
+live"), chosen from the "MIDI: Playing Live" design canvas.
+
+### Context
+Slice 1 made MIDI clips audible. A MIDI track also has to play what a
+player plays now, from a controller or the computer keyboard, before
+recording (slice 6) can keep it. The owner asked for a MIDI activity chip
+with a quick way to switch ports.
+
+### Decision
+- **Live input in the engine** (`lumen-engine/src/midi/live.rs`). The app
+  hands the MIDI player a `LiveInput` (through a queue, the old one handed
+  back to be freed); each part, the player pulls the messages to be heard
+  in it, stamped with the device frame (`RenderContext::device`, the
+  callback's frame count without the read ahead). A track plays what its
+  `Listen` takes: a bit per source (an input's slot, 0 to 62, and the
+  computer keyboard, 63) and an optional channel. Live messages go the way
+  clip events go: into the instrument, or out to the MIDI To port
+  rechannelled to the track's channel. Live notes have their own tracker,
+  apart from the clips', so a key held while a clip plays the same note
+  ends only its own note. A track that stops listening, listens to
+  something else, changes instrument or port, or leaves the list lets go
+  of its live notes, pedal and bend; Panic forgets them; **stop and jumps
+  leave them alone** (a held key keeps sounding). A note-off for a note
+  the track is not holding is dropped. Live input waiting makes the engine
+  render while stopped (`ringing`). While scrubbing, live input waits for
+  the scrub to end.
+- **Timing (J A, "steady").** `lumen-app/src/live.rs`'s `LiveFeed` runs on
+  the audio thread. A message's play time is its driver stamp plus the
+  input's offset to the clock (the smallest `arrived - stamp` lately seen,
+  creeping up by 1/256 of a later gap so a slow driver clock is followed;
+  a stamp more than 20 ms off starts the offset again, so drivers with
+  useless stamps fall back to arrival time). Frame 0's time is the
+  earliest `time - frame` over the last 256 callbacks (`StreamClock`, now
+  with the block length). A message is heard one block after it was
+  played, never before the part being rendered and never more than two
+  blocks after the block that takes it. A note-on more than 100 ms old
+  (the audio stood still) is dropped; its note-off still goes. The
+  computer keyboard is stamped with the clock when the UI reads the key.
+  Recording (slice 6) will use the same times.
+- **The model, format v13.** `Track::midi_from` (`All` inputs switched on
+  for tracks and the computer keyboard, `Keyboard`, or a `Port` by name,
+  remembered while unplugged; and a channel or all) and `Track::monitor`
+  (Auto, In, Off; stored on every track kind, used by audio tracks from
+  M9). Both are written only when not the default. No-op migration, golden
+  fixture `v13`, validation, `history::unchanged`.
+  `Document::set_midi_from` and `set_monitor`, one undo step each.
+- **Who listens (L A, Ableton's auto-arm).** Pure and tested in
+  `midi_play::listening`: Monitor In always; Auto when armed **or
+  selected**; Off never; a MIDI To track that is muted or silenced by solo
+  never. The arm of a track that listens only because it is selected shows
+  a hollow record-red ring. The engine list is resent when the selection,
+  arms, monitors, MIDI From or the ports change.
+- **Where it is set (R A).** The track menu's MIDI From (All inputs,
+  Computer keyboard, each input with its channels, ports not connected
+  dimmed) and a Monitor row (In · Auto · Off); palette commands; From and
+  To rows on MIDI tracks' mixer strips.
+- **The computer keyboard (K A).** A command (Ctrl+Shift+K, area MIDI)
+  toggles a mode that is not saved. While on, A to K, W E T Y U, O and L
+  play notes, Z X move the octave (C-2 to C8, from C3), C V step the
+  velocity (1, 20 … 120, 127, from 100); repeats are ignored; each key ends
+  the note it started. Only plain letters are taken, and not while a text
+  field, a rebind or a window has the keys. Esc, turning it off, Panic and
+  the window losing focus let go of what it holds. The transport has a lit
+  keycap button and, where there is room, a readout (`C3–C4 · vel 100`);
+  in the narrowest window the readout leads the info line instead.
+- **The MIDI chip (C B).** A DIN glyph with in and out lights in the
+  transport bar's right cluster. Activity is counted with atomics where it
+  happens: per input slot in the driver callback (channel messages only,
+  so clock and active sensing never flash), per output in the device
+  layer's worker when a send succeeds, and in `LiveKeys`. The UI flashes a
+  light when a count changes (`light::flash`, the BEAM level, fading over
+  `motion::NOTE`). Its popover lists every port with its own light and
+  Track and Remote pills that act through the settings page's own path,
+  unplugged ports dimmed with "not connected", and "MIDI settings…".
+- **Header lights (H B).** A light right after the name of each MIDI track
+  that listens flashes (BEAM, `light::flash`) when any source its MIDI From
+  takes shows traffic. A listening track keeps a fixed 9 pt for it, so a
+  name never shifts with a flash; tracks that do not listen keep no room
+  and never light. The channel filter is ignored for the light.
+- **No polling for lights.** The driver callback wakes the UI
+  (`MidiSystem::start_with_waker`, `ctx.request_repaint`) after counting a
+  channel message; lights repaint only while they fade, so idle stays idle
+  with inputs switched on (E2E `live_lights`).
+- **The transport bar fits 960 × 540** (`transport/fit.rs`): the bar
+  measures its essentials each frame and optional pieces take what is left
+  in a set order, first to go first: the device text, the keyboard readout
+  (to the info line), the CPU readout, the compensation readout, the
+  dropout chip (the dot turns amber), then a compact layout (4 pt spacing,
+  the tempo without "BPM", no divider before the dot). The position field,
+  the audio dot and the MIDI chip always show (E2E `barfit`). The compact
+  layout was not mocked up first; MT-MIDI-3 step 10 asks the owner to
+  judge it.
+
+### Consequences
+- Engine tests (`tests/live.rs`, 9) and the allocation guard over live
+  input with list swaps and a feed replaced mid-run; feed tests for the
+  steady spacing under late callbacks, the bounds, stale notes and bad
+  stamps; E2E for listening, MIDI From, Monitor, the keyboard, the chip.
+- Built by Sonnet agents in separate worktrees (2b, 2c and 2d in
+  parallel, then 2e, then two fix-ups), each reviewed and merged with the
+  full suite run before every push.
+- Perf gate: slice 2b adds +0.70% to `project_parse` (two optional fields;
+  callgrind shows the cost in serde_json's map building, not in Lumen's
+  code), under the gate. Measured in an Ubuntu 24.04 sandbox, every
+  scenario reads high against the baseline recorded on 26.04 (+5.3% for
+  `project_parse` at the baseline's own commit, from glibc's allocator), so
+  the CI container is the authority; the baseline was not changed.
+- Unverified: timing with a real controller (MT-MIDI-3).
+
+## ADR-0047 — MIDI clips and the piano roll (M5 slice 3, format v14)
+
+**Status:** Accepted 2026-10-11 (M5 slice 3). Owner choices Look A, Draw A
+and Live A are in the owner-decisions table ("Piano roll"), chosen from
+live specimens. Built in four parts (3a to 3d) by Sonnet agents in
+worktrees, merged and checked by the integrator.
+
+### Context
+Slices 1 and 2 made MIDI audible and playable, but notes could only come
+from the demo project. The requirements ask for a piano roll that draws,
+selects, moves, resizes, splits, glues, mutes, duplicates, nudges,
+transposes and makes notes legato, with audition and zoom synchronized
+with the arrangement; the quality bar asks for 100,000 notes at 60 fps or
+better. C2 (M5 plan) put the editor in the detail panel's Clip tab with a
+way to pop it out into its own window.
+
+### Decision
+- **Note mute, format v14.** `Note(start, length, pitch, velocity, muted)`;
+  `Note::new` makes an unmuted note. An unmuted note saves as before
+  (`[start, length, pitch, velocity]`), a muted one adds `true`; loading
+  takes both. The v13 to v14 migration changes no data. Muted notes stay in
+  the model and are skipped where clips become engine events
+  (`midi_play.rs`).
+- **Note edits are pure transforms** in `lumen_project::edit::notes` (add,
+  delete, move, copy, nudge, transpose, resize either end, split, glue,
+  mute, duplicate, legato) on a clip's notes and a selection of indices;
+  each returns the indices of the notes it leaves picked. Groups are
+  clamped as a whole (start ≥ 0, end ≤ the content's length, pitch 0–127).
+  Notes stay sorted by start, then pitch. Controller and other events are
+  never touched by note edits. Legato only lengthens (to the next onset of
+  any pitch, or the content's end), so overlaps stay. Glue joins picked
+  notes of one pitch that touch or overlap, with the first note's
+  velocity. Positions: `content_length`, `to_clip_time`, `to_arrangement`
+  (`edit/note_time.rs`); MIDI clips have no hidden offset, since trim and
+  slip move the notes themselves.
+- **Selection by index, checked by pointer.** `NoteSelection` holds the
+  clip's `Arc` with the indices. `refresh` keeps them while the clip is the
+  same or its notes are equal (a rename or recolour), and clears them
+  otherwise (undo, redo, the clip gone).
+- **Edits through `Document`** (`document/notes.rs`, `midi_clips.rs`), each
+  one undo step, refused on locked, missing or audio clips.
+  `create_midi_clip(track, NewClip::Range | Bar)` follows the clips'
+  overlap rule and refuses to cut a locked clip.
+- **Notes on the GPU** (`piano_roll/`). The roll reuses `lumen-render`'s
+  instanced boxes with its own layers and drawing targets per surface
+  (`Surface::Docked`, `Surface::Window`), so the docked editor and a
+  pop-out never rebuild each other. Instances are rebuilt only when the
+  clip, the picks or the colour change; pan and zoom move the view, and a
+  new row height uploads a 128-slot row table. Boxes are in absolute
+  quarter notes, sharing the arrangement's `TimeView` exactly. Loop repeats
+  play as the engine plays them (notes that start inside a repeat, cut at
+  its end) and are drawn at half strength, never pickable. Out-of-view
+  boxes collapse in the vertex shader rather than being culled in the
+  builder, which would rebuild on every scroll. New tokens: `key_white`,
+  `key_black`, `key_text`, `lane_black`, `lane_split`.
+- **Mini notes** on MIDI clips in the arrangement: a sibling box layer
+  drawn after the clip bodies, rebuilt with them. The renderer places
+  boxes by row slot, so each MIDI track gets 32 thin bands and a clip's
+  pitch range maps onto them (centred under 16 semitones): notes read as
+  lines, not semitone-high boxes.
+- **The clip editor** (`note_editor/`): the state (clip, tool, picks,
+  gesture, pitch scroll and row height, the box cache), `gesture.rs` (pure
+  arithmetic for move, copy, resize, marquee and draw), `paint.rs` (the egui
+  overlay over the GPU roll: dimming outside the clip, hover handles, the
+  moved notes' preview, marquee, lit key, playhead, ruler), `ui.rs` (input),
+  `ops.rs` (note commands and the audition hook), `window.rs` (the pop-out
+  viewport). `app/detail.rs` holds the detail tabs, out of `lib.rs`.
+  **Live A:** a gesture previews over the committed notes and changes the
+  document once, on release, as one undo step; Esc cancels with no change;
+  the GPU boxes are not rebuilt during a drag. **Draw A:** with Draw (B) a
+  click adds one grid step at the cell start, dragging sets the end, a
+  click on a note removes it. With the pointer: click picks without moving
+  the playhead, Shift adds, Ctrl-drag copies, the ends resize, a box picks,
+  Alt ignores the grid; the ruler moves the playhead. Double-clicking a
+  MIDI clip opens it; double-clicking an empty MIDI lane makes a snapped
+  one-bar clip and opens it.
+- **Commands** (area MIDI): Create MIDI clip (Ctrl+Shift+M; the time range,
+  else a bar at the playhead on the selected MIDI track), Edit MIDI clip
+  (Enter), Pop out clip editor (Ctrl+Shift+E), Draw tool (B), Split notes
+  (Ctrl+E), Glue notes (Ctrl+J), Legato (L), nudge finely (Alt+Left/Right),
+  and palette-only transpose and nudge. **Keys by context:** while the
+  editor holds the keyboard (the pointer over it, the Detail pane focused,
+  or the pop-out focused), Delete, Ctrl+D, 0, Ctrl+A, Esc, Up/Down,
+  Shift+Up/Down and Left/Right act on notes (delete, duplicate, mute, pick
+  all, cancel then unpick, transpose a semitone or an octave, nudge a grid
+  step); elsewhere they keep their meaning. No default chord clashes
+  (`no_two_default_shortcuts_clash`).
+- **Auditioning is a live source** (`AUDITION = SOURCES - 2` in
+  `lumen-engine/src/midi/live.rs`). `LiveIn` carries an optional track; an
+  audition message sounds only on that track, whether or not it listens,
+  through its instrument or MIDI To port. The source has its own tracker,
+  so a preview and a clip note or a held key on the same pitch each let go
+  of their own. `audition.rs` plays one preview at a time for 250 ms, and
+  lets go when the gesture ends or is cancelled, the editor changes clip
+  or closes, the transport stops, the window loses focus, the setting is
+  turned off, or Panic (which forgets it). The setting is
+  `settings.midi.audition`, on by default (an added field). The editor
+  passes the clip to the hook: its state is lifted out of `App` during a
+  gesture, so reading the open clip from `App` found none (caught by E2E
+  `pressing_a_note_auditions_it_and_escape_lets_go`).
+- **Two hanging-note fixes found on the way.** In the engine, events on one
+  frame sort note-offs first, so a note played and released on the same
+  frame stayed on; the off now lands a frame after its on
+  (`apart_from_its_on`). In `midi_out.rs`, the scheduler kept one
+  "sounding" flag per key, so a clip note and a preview on the same key
+  sent two ons and one off; it now counts ons per key and answers each.
+- **Benchmark:** `--stress` adds a 201st track, "Dense", with one 400-beat
+  clip of 100,000 notes over six octaves; `--bench-editor` opens it in the
+  clip editor for the run, its pitches scrolled with the tracks.
+
+### Consequences
+- Every edit to notes is one named, undoable `Document` method; the editor
+  never edits in a closure and never changes the document per frame.
+- The GPU roll costs nothing per frame beyond the view while panning and
+  zooming; a gesture costs at most one rebuild at its start and end.
+- Index-based picks are simple and fast, but any change to a clip's notes
+  from elsewhere clears them (deliberate: stale indices would pick the
+  wrong notes).
+- Hit-testing is a linear scan of the clip's notes per pointer event,
+  about 0.1 ms at 100,000 notes.
+- Not built (KNOWN_ISSUES): the pop-out's size and place are not saved; no
+  auto-scroll at the editor's edges while dragging; notes can be created
+  only with the mouse (every other note edit is keyboard-reachable); no UI
+  for the audition setting yet; a preview on a muted hardware track still
+  sends.
+- Measured (release, stress project plus the 100,000-note track, p99):
+  with the dense clip open in the editor 1.20 to 1.82 ms at 1600 × 900 and
+  2.10 to 2.22 ms at 3440 × 1380, inside the 120 fps target; idle 3
+  repaints in 3 s. Details in the slice 3 row of PROGRESS.md.
+- Unverified: the real second window and the pop-out's DPI and
+  multi-monitor behaviour, and previews on real hardware (MT-MIDI-4).
+
+### PR 14 follow-up (2026-10-14): computer keyboard in the native editor
+
+The native clip editor now calls `computer_keyboard_keys` before
+`command_keys`, matching the main window. Previously its own key events
+could run edits such as Legato instead of playing MIDI notes. The fix is
+one dispatch call; the embedded editor already uses the main window's
+handler. Regression `notes::the_native_editor_plays_computer_keyboard_notes_before_editing_shortcuts`
+drives a separate immediate viewport callback with its own input: L sends
+note-on/off without editing while MIDI mode is on, then runs Legato with
+the mode off. It fails without the fix and passes with it. Native OS focus
+and physical playback remain a manual check in MT-MIDI-9 step 5.
+Verification on Windows: formatting, workspace clippy with `-D warnings`,
+all 1,454 workspace tests (335 E2E), and all six real-binary smoke tests
+pass. No visual, persisted-format or audio-engine changes.
+
+### Amendment (2026-10-11): previews on hardware tracks
+
+Owner decision. On a hardware track (a MIDI output), a piano-roll preview
+is skipped for a key the track's own clip is sounding now. A port sees
+only plain MIDI, so the preview's off would end the clip's note too. The
+app decides "sounding" from the project, with the engine's rules
+(`midi_play::sounding_keys` after `hold.rs`): a note sounds from its start
+to its end within its repeat of a looping clip; muted notes and clips
+sound nothing; a stopped transport and a silenced output (a mute, or
+another track's solo) count as not sounding. The skipped tone gets no
+note-on and no off; the rest of a chord plays. Built-in synth tracks keep
+their previews on channel 15 unchanged. Known limits are in KNOWN_ISSUES:
+a clip note that starts during a preview of its key is not handled, and
+the playhead the check reads can differ from the port's timing by the
+output latency.
+
+### Amendment (2026-10-12): double-click draws with the pointer
+
+Owner bug report: a double-click on empty space in the roll, with the
+Pointer tool, should draw a note. A second press on empty space, within
+egui's double-click delay and click distance of the first
+(`input_options.max_double_click_delay` and `max_click_dist`; the first press
+is remembered in `NoteEditor::last_empty_press`), starts the Draw tool's
+press: the same grid cell, length by dragging, audition and one undo step
+(`start_draw`). The note is picked on release. Shift keeps the marquee. A
+press on a note, with the Draw tool, or any drag forgets the first press, so
+a double-click on a note keeps its meaning and two slow or distant clicks add
+nothing. The info line lists "double-click: add a note" after the marquee.
+
+## ADR-0048 — The clip editor's own zoom and scroll (M5 slice 3 amendment)
+
+**Status:** Accepted 2026-10-11, owner decision. It amends the M5 slice 3
+plan (`docs/milestones/M5.md`, which kept zoom synchronized with the
+arrangement) and ADR-0047's "zoom synchronized with the arrangement".
+
+### Context
+ADR-0047 gave the piano roll the arrangement's `TimeView`, so zooming or
+scrolling the arrangement moved the roll and the reverse. The owner asked
+for the roll to zoom and scroll on its own: a clip is worked on at its own
+scale, without the arrangement's zoom deciding it.
+
+### Decision
+- **Its own view.** `NoteEditor::time` is a `TimeView` the roll owns. It
+  uses the same beats as the arrangement, so a clip sits at the same place
+  in both views. Drawing, hit testing, the ruler, the notes and the playhead
+  use it. The editor never writes the arrangement's view, and the arrangement
+  never writes the roll's.
+- **Zoom and scroll.** Ctrl+wheel over the roll zooms it, anchored on the
+  pointer (`TimeView::zoomed`). Shift+wheel or a sideways swipe scrolls it in
+  time (`TimeView::scrolled`; egui turns Shift into a horizontal scroll).
+  Both take their limits from the roll's own view (`App::zoom_limits_at`, the
+  tempo where the roll is). Wheel and keys in the roll no longer pause the
+  arrangement's Follow.
+- **The zoom keys.** While the editor has the keyboard (the same condition that
+  makes the arrows its notes' keys), + and - zoom the roll, anchored on the
+  pointer over the roll, else on the playhead when it is in view, else on the
+  middle of the roll. Otherwise they zoom the arrangement as before. This keeps
+  roll zoom reachable from the keyboard. W, Z and X stay with the arrangement.
+- **Fit on open.** The first draw of a clip fits its span to the roll's width
+  with the small margin of `TimeView::fit` (`view::fit_clip`) and centres its
+  middle pitch. Opening the same clip again keeps the view; a different clip is
+  framed again. The view is not remembered per clip (the simplest correct
+  behaviour the owner allowed).
+- **Grid and snap.** Grid settings (width, fixed size, triplet, dotted, snap)
+  stay shared. The roll snaps, and names its grid in the toolbar and the menu,
+  at its own zoom, so the grid it snaps to is the grid it draws.
+- **Benchmark.** `--bench-editor` drives the roll to the arrangement's driven
+  zoom and scroll, so the run still measures the roll zoomed and scrolled.
+
+### Consequences
+- Two views over one set of beats: no note is converted through the
+  arrangement's zoom, and a clip's notes stay where the roll put them.
+- Keyboard-only users keep roll zoom through + and -.
+- Not built: a fit-to-clip key for the roll (W, Z and X fit the arrangement),
+  and Follow-playhead in the roll (not required by the owner's decision).
+- Tests: `view::fit_clip` unit tests; E2E `notes::opening_a_clip_frames_it_in_the_roll`
+  and `notes::the_roll_zooms_and_scrolls_on_its_own` (the arrangement's zoom
+  leaves the roll's note positions alone, and the roll's zoom leaves the
+  arrangement alone).
+- Unverified: the feel of Ctrl+wheel and Shift+wheel on a real mouse and
+  trackpad (MT-MIDI-4 to be re-run).
+
+## ADR-0049 — Time selection in empty lanes (M5 amendment)
+
+**Status:** Accepted 2026-10-11, from the owner's request in MT-MIDI-4 step 7.
+The owner asked for a time selection anywhere on the timeline and for the
+ruler not to clear the track selection. The modifier and the selection rules
+below are the integrator's choices, not the owner's words; they are listed
+for the owner to confirm or change.
+
+### Context
+A time range could only start on a clip's lower half, so an empty stretch of
+a track could not be selected by dragging in its lane. A drag in empty lanes
+drew a clip marquee instead. The time ruler selected a range on every track
+and cleared the track selection, so Create MIDI clip (Ctrl+Shift+M) could not
+be aimed at a chosen track.
+
+### Decision
+- **Empty lanes make a time range.** A drag from empty lane space selects time
+  on the tracks it spans: from the track under the press down to the track
+  under the pointer (a horizontal drag keeps one track). It snaps to the grid,
+  and Alt places it freely. It uses the same range as a clip's lower half
+  (`Gesture::Range`, `TimeRange`).
+- **The clip marquee is Ctrl+Shift (Cmd+Shift on macOS)** (assumed). It keeps
+  the clips already selected, as Shift or Ctrl did. Shift or Ctrl alone no
+  longer draw a marquee: they make a range, so no modifier means two things.
+  Alt stays the snap bypass, and Alt-drag moves windows on several desktops,
+  so it was not used. Decided by `select::empty_lane_drag`.
+- **A range and the track selection go together** (assumed). A range's tracks
+  are the selected tracks: a lane or lower-half drag selects the tracks it
+  spans, and the ruler's range covers the selected tracks (every track when
+  none is selected) and keeps the selection. A range stays only while it
+  covers exactly the selected tracks (`TimeRange::covers_exactly`, checked in
+  `sync_selection` each frame). Selecting other tracks drops it, as before.
+- **Create MIDI clip picks its track in this order** (assumed): the first
+  selected MIDI track, then the first MIDI track of the time range, then the
+  track last clicked on the lanes.
+- **Pasting a copied range clears only the tracks it was copied from**
+  (`Clipboard::rows`, `edit::landing_tracks`). A range copied from a selection
+  with gaps no longer clears the tracks between. The pasted range is selected
+  on the tracks it landed on.
+
+### Consequences
+- Track headers show the tracks a range spans, since the range's tracks are
+  the selection. A clip's lower-half drag with a track selected keeps its
+  range now, where the old frame-by-frame sync used to clear it.
+- Hints: empty lanes say "select time", and Ctrl+Shift "select clips"; the
+  time ruler says "select time on the selected tracks, or all".
+- Tests: unit tests in `arrangement/select.rs` (`over`, `covers_exactly`, the
+  marquee modifier), the clipboard test for skipped tracks in `lumen-project`;
+  E2E in `tests/e2e/clips.rs` (empty-lane range, horizontal drag, ruler on the
+  selected track, the marquee still selects clips) and `notes.rs` (Ctrl+Shift+M
+  after an empty-lane drag puts the clip on that track).
+- Unverified: Cmd+Shift marquee on macOS, and the feel of choosing tracks by
+  header before a ruler drag. Both are in MT-MIDI-4 step 7.
+
+## ADR-0050 — Velocity and controller lanes (M5 slice 4, no format change)
+
+**Status:** Accepted 2026-10-11 (M5 slice 4). Owner choices V A, L A, T A and
+R B are in the owner-decisions table ("Velocity and controller lanes"), chosen
+from live specimens. Built in parts by delegated agents, integrated and checked
+by the integrator.
+
+### Context
+Slice 3 gave the piano roll notes, but no lane for their velocities, and no way
+to see or draw a clip's controller events (mod wheel, other CCs, pitch bend,
+channel pressure). The events have been in the model since format v11
+(`ClipEvent`, `EventKind`). The requirements ask for a velocity lane (drag a
+stem, draw across stems, box-select) and lanes for CC, pitch bend and pressure
+with pencil, line and curve tools. Curves reuse the fades' free curves
+(`lumen_core::curve`, ADR-0031).
+
+### Decision
+- **No format change.** The lanes read and write the events already in clips;
+  the format stays at v14.
+- **Pure edits in `lumen_project::edit`.** `velocity.rs`: set, set_each,
+  offset, scale, ramp, at_start and stems. `events.rs`: a `Lane`
+  (`Controller(n)`, `PitchBend`, `Pressure`), the steps `FINE` (1/64 note) and
+  `GRID` (1/16 note), and in_lane, set_point, delete_points, move_points,
+  in_box, ramp and replace_span.
+- **A ramp keeps the user's shape.** A ramp drops only repeated values, so it
+  never becomes a staircase the user did not draw. MIDI has no ramps: a drawn
+  line is stored as plain events, one every 1/64 note (R B).
+- **Undoable `Document` methods** in `document/lanes.rs`: set_velocities_each,
+  ramp_velocities, offset_velocities, move_lane_points, delete_lane_points,
+  draw_lane_span and draw_lane_points (the Pencil). A drawn line is capped at
+  `MAX_SPAN_EVENTS` (4000) events. Each gesture is one undo step, and the
+  document changes once, on release (Live A, as for notes). Small structs
+  carry a gesture: `Drag`, `Line`, `Shift`.
+- **The lane** (`note_editor/lane/`) sits under the roll and shares its
+  horizontal zoom, scroll and grid. Its 26 pt header holds the tabs (Velocity,
+  Mod wheel, Pitch bend, Pressure, and a "+ CC" menu of ten common controllers)
+  and, at the right, the tools Pencil, Line and Curve. The plot is 28% of the
+  editor's height, clamped to 48–150 pt. The lane is left out when the roll
+  above would be under 140 pt; a "Lane" button in the editor's toolbar hides it.
+- **Velocity lane.** The Pencil sets every stem its stroke passes: chords share
+  a stem, and a fast stroke does not skip stems. Line and Curve ramp the
+  velocities of the notes between their ends.
+- **Controller lanes.** A press on a point moves it (value and time, snapped).
+  Shift-drag draws a box that picks points; in the velocity lane it picks the
+  notes of the stems inside it. Delete removes the picked points when the lane
+  was the last place pressed. Esc cancels a gesture. After Curve, a dot at the
+  curve's middle bends it until anything else changes; the curve is the fades'
+  free curve (`lumen_core::curve::Curve::from_handle`).
+- **Commands** (area MIDI, in the palette, rebindable; the three tools have
+  the keys 1, 2 and 3, the rest no default keys):
+  `midi.toggle_lane`, `midi.lane_velocity`, `midi.lane_mod_wheel`,
+  `midi.lane_pitch_bend`, `midi.lane_pressure`, `midi.lane_pencil`,
+  `midi.lane_line`, `midi.lane_curve`, and `midi.raise_velocity` and
+  `midi.lower_velocity` (the picked notes' velocity by 8, one undo step).
+- **Changed from the plan:** the keys 1, 2 and 3 for Pencil, Line and Curve
+  are plain keys that work whenever a clip is open (not only with the lane
+  focused). Shift with the Pencil does **not** draw a line: in the lane Shift
+  starts a box, as it adds to a selection everywhere else, and the Line tool
+  (key 2) draws lines. Owner to confirm.
+
+### Consequences
+- Every lane edit is one named, undoable `Document` method over a pure
+  transform; the lane never edits in a closure.
+- `velocity::set`, `velocity::scale` and `events::set_point` are tested, but
+  nothing calls them yet. Slice 5 (humanize and quantize) is their first user;
+  they have no `Document` wrappers yet.
+- Limits, all recorded in `docs/KNOWN_ISSUES.md` (2026-10-11, M5 slice 4): the
+  frame times are unmeasured; the mouse wheel over the lane does not scroll or
+  zoom; the first stem at the clip's left edge shows half its head; "+ CC"
+  offers ten common controllers only, and the tabs, the chosen lane, the tool
+  and whether the lane is shown are not kept between sessions; there is still
+  no auto-scroll at the editor's edges, lane drags included; the lane has no
+  info-line hints yet.
+- Quantize, humanize and the rest of the M5 list are later slices and are not
+  in this record.
+
+### Tests
+- `edit/velocity.rs`: 16 unit tests. `edit/events.rs`: 30. `document/lanes.rs`:
+  16. `note_editor/lane/`: 63 unit tests.
+- E2E `tests/e2e/lanes.rs`: 18 scenarios: the lane under the roll, hide and
+  show, the tabs, the "+ CC" menu, a velocity stroke as one undo step, Live A,
+  Esc, the Pencil, a line, the curve's bend, the pitch bend lane, moving a
+  point, a box with Delete as one step, what the lane draws reaching the fake
+  MIDI port, the palette's lane and tool commands, raise and lower velocity,
+  and a box in the velocity lane.
+- `crates/lumen-engine/tests/midi.rs`: drawn controllers and bends land on their
+  exact sample, in order, with their values, at five combinations of tempo,
+  sample rate and block size. This is the golden check for controller and bend
+  timing.
+- Screenshot test `clip_lane` (`tests/shots.rs`): velocity and curve, dark at
+  100% and 200%, light at 100%, checked by eye.
+- Four older note-editor E2E tests and the `note_editor` shot had their clicks
+  moved off a row the lane now covers.
+- Results: the full workspace tests pass (lumen-app lib 417, E2E 272, the other
+  crates as before), and `cargo clippy --workspace --all-targets -- -D warnings`
+  is clean.
+
+### Measurements
+Frame times are not measured. `--stress --bench-frames --bench-editor` was run
+once in a cloud container under Xvfb on a software Vulkan device (lavapipe, no
+GPU): about 7 fps and p99 227 to 243 ms, which says nothing about real
+hardware and is not comparable with the earlier runs. One thing it does show:
+idle was 3 repaints in 3 s, the same as before the lane, so the lane adds no
+repaints when nothing moves. It was not checked whether the lane was open in
+that run's editor. Stems are cached per clip version and drawing is limited to the
+visible part, which should keep the lane cheap, but that is unproven. MT-MIDI-5
+step 12 asks the owner to run `--stress --bench-frames --bench-editor` at
+1600 × 900 and 3440 × 1380; the p99 per phase and the idle repaints are added
+to this record when they are in.
+
+**Unverified:** the timing and audibility of drawn bends and controllers on real
+hardware and on the built-in synth (MT-MIDI-5).
+
+### Amendment (2026-10-12, owner bug reports): a head for every note, and group drags
+
+Two reports: velocities of several notes could not be changed together, and
+the velocity of one note could not be changed when notes overlapped.
+- **A head per note.** A stem is still one per start, but every note of it
+  draws its own head at its own velocity (a chord at 100 and 60 shows two
+  heads). Heads are drawn in note order, so the higher index is on top; each
+  is lit when picked, greyed when muted, and larger when hovered. The stem
+  runs to the loudest head, lit up to the loudest picked one.
+- **The head-grab rule.** `LaneView::head_at` answers which note a press
+  grabs: among the notes of the stems within `HIT` of the pointer in x, those
+  whose own head is within `HIT` of it. A picked note whose head covers the
+  pointer (within `HEAD_RADIUS`) comes first, then the nearest head, then the
+  higher note index. Hover uses the same rule (`LaneHover::Head`), so the head
+  that lights is the one that would be grabbed.
+- **Group drag.** A press on a head starts `Kind::Heads` instead of the
+  Pencil. Its group is the picked notes when the grabbed note is one of them,
+  else the grabbed note alone, which is then picked. Dragging moves each
+  note's own velocity by the pointer's travel in values from the press
+  (relative, so a grab does not jump), each clamped to 1..=127; the document
+  changes once, on release, as one undo step through `set_velocities_each`, and
+  the picks are kept. Notes the clamp leaves unchanged are not part of the
+  edit. The chip shows the grabbed note's new value. A press away from any
+  head, and Shift, behave as before (the Pencil strokes and the box).
+- **Tests.** Unit tests for `head_at` (a chord, equal heads, a picked note
+  that covers, the nearest, nothing beyond `HIT`, stems close together) and
+  for `heads` (shared delta, a single unpicked note, relative grab, no travel,
+  clamping). E2E in `tests/e2e/lanes.rs`: group drag with its undo, clamping at
+  1 and 127, an unpicked head, a relative grab, a chord, coincident heads and
+  a near start.
+
+## ADR-0051 — Premium control look (approved from canvas mock-ups 2026-10-11)
+
+**Status:** Accepted 2026-10-11 (owner, from interactive mock-ups on the
+design canvas: button states and the clip tab).
+
+### Context
+Controls were flat fills; "on" was a flat `accent_muted` with accent text.
+The owner wanted a more finished, tactile interface that every surface
+(transport, headers, mixer strips, note editor, dialogs) inherits.
+
+### Decision
+- Raised controls: fill with a slight top-to-bottom lift, a 1 px light top
+  edge, `border`, soft drop shadow; hover steps to `control_hover`;
+  pressed is sunken (inset shadow) and 1 px lower.
+- On is lit: accent gradient with `text_on` letters; solo in the warning
+  colour, arm and record in the record colour; mute on is recessed with hint
+  letters. State keeps its label, icon or shape, never colour alone.
+- Segmented controls sit sunken in a `well` track with a raised thumb that
+  still glides; they take an optional icon (centred on the label's line,
+  snapped to pixels). Tabs keep the sliding underline and gain a glow.
+- The shared layer is `widgets/raised.rs` (`Face`, `paint`, `paint_sunken`,
+  `button`, `icon_button`), `theme::{Tone, lit, lift, edge_light, thumb}`.
+
+### Consequences
+- Glow levels used: `light::LIT` (accent, solo, tab underline) and
+  `light::FLARE` (record); no new level. `light::glow` fades a halo by `t`.
+- Changed now: `toggle_button`, `segmented`, `tabs`, the M, S and cue
+  buttons. Not yet: egui's own buttons and menu buttons (flat, from
+  `theme::apply`), the arm button's round face, switches, the note editor.
+  Call sites adopt `raised::button`/`icon_button` as they migrate.
+- Gradients are a small mesh per control; Reduce motion only removes the
+  cross-fades. Unverified on a GPU window.
+
+## ADR-0052 — The design system replaces ADR-0051's lit look
+
+**Status:** Accepted 2026-10-11 (owner, choosing between the design system
+and ADR-0051 point by point; supersedes ADR-0051's Decision and
+Consequences where they differ).
+
+### Context
+The owner's Lumen design system (a Design System artifact: `tokens.json`,
+a README, a Material card, a card per component and a `porting.md`) was
+made from the code beside ADR-0051's premium control look, built the same
+day. They agree on the shape (raised controls, sunk wells, a raised thumb)
+and differ on states. The owner asked for the tokens, components and
+widgets to be made consistent with the design system.
+
+### Options (per difference)
+1. On, solo: ADR-0051's lit accent gradient with a glow and amber solo, or
+   the design system's `accent_muted` with a hairline and a filled accent
+   solo without a halo.
+2. Mute: recessed with hint letters, or the lit `mute` grey.
+3. Raised: a computed lift, a drop shadow and a `control_hover` step, or
+   the `control_hi` token, Ember and no shadow.
+4. Arm: a raised square lit red, or the round button.
+
+### Decision
+The design system on all four (the owner-decisions table). In code:
+- New palette tokens: `ground`, `control_hi`, `thumb_hi`, `thumb`,
+  `edge_light`, `shade`, `ember`, `accent_hi`, `accent_lo`, `on_accent`,
+  `mute`, `on_mute`; `radius::{XL, FULL, for_height}`;
+  `stroke::{HAIRLINE, LIT, FOCUS}`; `size::{CONTROL_LARGE, TRANSPORT_ICON,
+  TRANSPORT_BAR, TRACK_STEP, HEADER_COLUMN, MONO_SMALL, KEYCAP}` (space XL,
+  XXL and the display style arrive with the first-run screens);
+  `motion::{WASH, BREATH}`.
+- `theme::Tone` is `On`, `Accent` (filled), `Mute` and `Record` (the one
+  lit state that glows); `Warning` and `Recessed` are gone. `lift`,
+  `thumb()` and `control_shadow` are replaced by tokens and the `shade` lip.
+- `widgets/raised.rs` paints to the Material card: the gradient, the
+  border (`border_strong` on hover), the edge light, Ember on hover; pressed
+  is flat `control_press` with the lip and the content 1 pt down; disabled
+  is flat; `paint_sunken` is `well` and the lip; `paint_field` adds the
+  border; the focus ring sits 2 pt outside; `primary_button` is filled.
+- egui's style: 6 pt radii on its 24 pt widgets, windows 12, menus 8,
+  Ember hover, a border on raised controls, wells for text fields.
+
+Kept, as the design system does: K5 keycaps, the arm ring's breath, the
+comet knobs, the header slider's level bars and the handle that opens
+around its value. Kept as earlier owner decisions the design system does
+not overrule: the grid through clips (G1), the half-clip hover (H1), the
+piano roll's Look A note colours and velocity bars, Beam meter heads
+(ADR-0043), the palette's 520 pt width and 30 pt rows, the pan fill moving
+to the accent.
+
+### Consequences
+- Visible across the app: every on state turns quieter (no glows but the
+  recording one), solo turns blue, mute grey, buttons lose their shadows,
+  24 pt controls round to 6 and windows to 12.
+- ADR-0051's tests for amber solo and recessed mute are replaced by tests
+  for the tokens' contrast and the tones.
+- The fixtures, screenshots and E2E names are unchanged; the owner checks
+  the look in MT-DS-1.
+
+## ADR-0053 — Clip headers move; bodies select time
+
+**Date:** 2026-10-11. **Status:** accepted by the owner.
+
+### Context
+Empty timeline space already selects arbitrary time ranges (ADR-0049).
+The clip's old upper/lower-half division adds an invisible boundary that
+does not follow the visible title bar. Selecting clips during playback
+also unexpectedly seeks the transport.
+
+### Decision
+Dragging the visible clip header moves it; Ctrl-drag copies and Ctrl+Alt
+drags slip audio. Dragging the waveform or MIDI-note body selects time,
+as empty lane space does. Existing trim, fade and gain handles retain
+their priority. Remove the dashed halfway divider and describe the
+header/body gestures in the info line.
+
+Plain clip and lane clicks seek only while stopped. While playing they
+update selection without changing playback position; ruler and scrub
+strip clicks still seek. This supersedes the split-clip interaction and
+halfway hover retained by ADR-0052.
+
+### Consequences
+The move target follows the visible title at every track height. Range
+selection remains available from the body, empty lanes and time ruler.
+Regression coverage must distinguish header/body drags, preserve the
+editing handles, and check both stopped and playing click behavior.
+
+
+## ADR-0054 — Quantize and its tools (M5 slice 5, no format change)
+
+### Context
+Slice 5 adds quantize (grid, four modes, strength, swing, sensitivity
+window, iterative use), a one-key apply, an options popover with a live
+preview, and related tools (humanize, fixed length, scale constrain,
+reverse; legato and transpose exist from slice 3). The owner chose from the
+"Lumen Quantize Specimens" artifact: **ghost trails** for the preview (the
+recorded position stays as a dashed outline, the new one is solid, a line
+shows the move), **comet sliders** in the popover (the send knob's trail and
+glowing head laid flat), **Q with nothing picked quantizes every note in the
+clip**, and **"restore recorded timing" deferred**.
+
+### Decision
+- The arithmetic is pure and in `lumen_project::edit` (`quantize`,
+  `note_tools`), working on picked indices under the slice 3 selection
+  contract. Each note is moved independently, so the preview is the same
+  function applied per note (the order is kept, so picks keep their indices).
+- `Document::{quantize,humanize,fixed_length,scale_constrain,reverse}_notes`
+  are one undo step each; locked and audio clips refuse them.
+- **Q** applies the last settings (`Options` in `note_editor/quantize.rs`),
+  **Shift+Q** opens the popover below a toolbar Quantize button. The popover
+  uses `Menu::staying` (no fade when the pointer leaves) and
+  `Menu::open_for` / `close_for`. While it is open the roll draws a stand-in
+  clip with the quantized notes and the trails; the document changes only on
+  Apply. Esc or a click elsewhere leaves it untouched.
+- **Iterative quantize is strength below 100% applied again.** A separate
+  switch (in the mock-up) would do nothing a repeat of Q does not, so the
+  popover has none.
+- **Comet sliders** are `SliderStyle::comet` / `widgets::comet_slider`: the
+  same slider with a trail brightening to a glowing head. Only the popover
+  uses them; the other value sliders keep the line handle until the owner
+  asks.
+- The tools' amounts are fixed for now (humanize 1/64 note and 8 velocity,
+  different offsets on each press; fixed length is the grid step; scale and
+  root chosen from the context menu and remembered).
+
+### Consequences
+No persisted change (format v14). The options live for the session. A
+popover for the tools' amounts, quantize of clips selected in the arrangement
+(without opening the editor), and saving the options in the settings file are
+follow-ups (KNOWN_ISSUES).
+
+### Amendment (2026-10-12, MT-MIDI-6 run 1)
+The owner found four things, all fixed:
+- Choosing a Grid in the popover closed it: a click in a menu opened from a
+  `Menu::staying` menu counted as a click elsewhere. A staying menu now
+  stays open while another menu is drawn in the same pass (`note_drawn`,
+  `other_drawn` in `widgets/menu.rs`).
+- At 100% the comet's trail ran past its head; it now ends at the head.
+- The head's glow was too strong; one soft ring, 0.10 and 0.22 alpha.
+- It was not clear what grid Q uses. The editor has its own adaptive grid, so
+  the toolbar now shows what Q does beside the Quantize button ("1/16",
+  "1/8T · ends · 50%"), and Q shows a toast ("Quantized 4 notes to 1/16").
+  This label and toast were not mocked up first; the owner can veto or
+  restyle them.
+E2E: `choosing_a_grid_in_the_popover_keeps_the_popover_open` (fails without
+the fix), `the_label_beside_quantize_says_what_q_will_do`,
+`q_with_nothing_picked_says_what_it_quantized_in_a_note`.
+
+### Amendment (2026-10-12, MT-MIDI-6 run 1, notes shorter than the grid)
+The owner saw End and Both turn short notes into slivers: a note shorter
+than the grid has its start and end snap to the same line, and the 1/128
+floor made it a hairline. In End and Both a note is now never quantized
+shorter than one step: an end whose nearest line would leave it shorter goes
+to the first line a step or more after the start (for Both, after the line
+the start is headed for), so a short note grows to a step. Strength and the
+window still scale the move. Start and Length are unchanged. The popover says
+that these modes change note lengths. Unit tests in `edit/quantize.rs`
+(`end_mode_never_leaves_a_note_shorter_than_a_step` and four more).
+
+### Amendment (2026-10-12, matched to Ableton from the owner's test)
+The owner ran one scenario in Ableton and in Lumen (two adjacent eighth
+notes at 1.3 and 1.3.3, grid 1/4) and the results differed. Lumen's rules
+had no source (they were written from memory); they now follow Ableton's
+observed behaviour, and the previous amendment's "one step minimum" is
+withdrawn:
+- **A tie goes to the later line**: a note exactly halfway moves forward
+  (1.3.3 goes to 1.4). It went to the earlier line.
+- **End** pulls the end to its nearest line and leaves the start. If that
+  line is at or before the start, the end goes to the first line after the
+  start (so nothing collapses). An end already on the grid stays (the old
+  floor had pushed the second note's end from 1.4 to 2.0).
+- **Both** is Ableton's order: Start first (the length stays), then the end
+  of the note as it now is. Adjacent notes stay adjacent. They had been
+  quantized independently from their original positions and overlapped.
+Unit tests `ableton_start_*`, `ableton_end_*` and `ableton_both_*` in
+`edit/quantize.rs` are the owner's scenario. Still unverified against
+Ableton: swing in quantize, the window, what Ctrl+U does with no selection,
+and a note that collapses in End (Lumen takes the next line).
+
+## ADR-0055 — Recording MIDI (M5 slice 6, no format change)
+
+### Context
+Before slice 6 the Record button was inert, F9 was unbound, and nothing kept
+live input. Slice 6 records MIDI: Record plays from the play marker and keeps
+what the armed MIDI tracks are sent; the take lands as a clip in Replace or
+Overdub mode; a count-in of 0, 1, 2 or 4 bars with the metronome clicking; a
+record-only metronome; punch from the loop brace's switches. The owner chose
+from the plan (`docs/milestones/M5.md`, slice 6) and the "Lumen Recording
+Specimens" canvas, on 2026-10-12:
+- **Replace by default, with an Overdub switch** (C4, the plan's choice).
+- **Loop passes layer**: with Loop on, every pass adds to the same clip, in
+  Replace and Overdub alike. Separate takes are M9.
+- **Settings live in the app settings file** (`settings.record`: count-in,
+  record-only metronome, Overdub), not in the project, so no format change
+  (v14 stays).
+- **A clip runs exactly from record start to stop**, not rounded to a bar
+  line (the owner took this over the recommended bar-line end).
+- **1-A**: the count-in shows on the position field, which counts up through
+  negative bars to 1.1.1, and on Record, which pulses on each beat. No new
+  widget. **2-B**: Overdub is a toggle beside Record; the count-in and "only
+  while recording" are in the metronome's menu. **3-A**: a clip being recorded
+  is record red (body, outline, notes, a "REC" tag) and drops into its track
+  colour on stop.
+
+### Decision
+- **Engine** (`lumen-engine`, `engine.rs`): `Command::Record { count_in }` and
+  `Command::EndRecord`. Record from stop holds the song at the play marker
+  while the metronome clicks (the first beat of each bar accented), whether or
+  not the metronome is on; live instruments still sound. Playback and
+  recording start mid-block, on the exact frame, when the count-in ends.
+  Record while playing starts at once. Play is ignored while counting. Stop,
+  Pause, Locate while counting and Panic cancel a count-in (Stop and Panic
+  also end recording). EndRecord ends recording and playback carries on.
+  `RenderContext::{recording, looping}` tell the tracks; `LiveIn::played` is the
+  device frame a message was played at, before the feed's one block of delay.
+- **Capture** (`midi/capture.rs`, `player.rs`): a track with `recording(Listen)`
+  set (its MIDI From; Monitor does not matter) keeps every message it takes
+  as `Captured { track, source, at, msg }`, where `at` is the timeline sample
+  heard when it was played: the part's start less the read ahead, plus the
+  device frames since, wrapped into the loop when played just before a wrap,
+  and never below 0. The app takes off the output latency. The queue is
+  lock-free, 8,192 deep; a loss is counted in `MidiPlayer::dropped()`.
+  `MidiHandle::take_captured` hands the consumer over once. An armed track
+  with Monitor Off records and plays nothing. The snapshot publishes
+  `recording`, `count_in_left` and `count_in_total` (frames).
+- **Take builder** (`lumen_project::edit::record`): `place(project, base,
+  track, take, Placement { mode, punch, take_clip }, fresh)` starts again from
+  `base`, the project as it was when recording began, so a growing take
+  committed repeatedly gives the same result as one commit of the final take.
+  *Replace*: a new clip over the range, and `overwrite` cuts what is under it.
+  *Overdub*: merged into the MIDI clips under the range (a looping clip takes
+  the take at its place in the loop, so passes layer), and a new clip for each
+  gap no clip covers that holds notes or events. Audio clips count as covered.
+  A locked clip overlapping the range gives `Blocked`. Notes are cut at the
+  range's end and the clip's end and keep at least a tick; a note that starts
+  before the range is dropped.
+- **Document** (`document/record.rs`): `begin_recording` and `record_take`. All
+  takes of one recording share a merge key, so the recording is one undo step.
+  A blocked take changes nothing; an unchanged one makes no step. Undo and redo
+  are refused while recording ("Stop recording first").
+- **Recorder** (`app/record.rs`, `recorder.rs`): each frame the app drains the
+  queue into `recorder::Capture`, which pairs note-on and note-off by channel
+  and key, drops the channel (clips have none, and playback sends channel 0),
+  keeps controllers, bend, channel pressure and program (with no bank) as clip
+  events, and drops key pressure and system messages. A note still held is not
+  in a take until it ends; at the stop `close_all` ends it. Takes are committed
+  about once a second while playing and recording. Autosave's delay is 10 s
+  while recording (60 s otherwise).
+- **Range**: the take starts where the playhead was when Record was pressed
+  (the marker when stopped, after the count-in) and ends where it is when
+  recording stops. With Loop on and the playhead inside the loop, the take
+  starts at the loop's start; once playback has wrapped, it covers the whole
+  loop. This is what the code does; see Consequences.
+- **Punch** uses the loop brace's switches (`punch_in`, `punch_out` in the
+  project's transport, Ableton-style). With punch in, the take keeps nothing before the
+  brace's start; with punch out, nothing after its end. With punch out, recording ends at the brace's end (or at
+  the first wrap) while playback carries on. Auto-punch needs no switch.
+- **Settings** (`record_settings.rs`, `settings.record`): `count_in` is Off,
+  1, 2 or 4 bars, read as bars times the project's numerator when Record is
+  pressed; `only_while_recording` keeps the metronome silent except while
+  recording and in the count-in (the app gates the engine's metronome in
+  `Transport::send`); `overdub`. Names are stored as words, an unknown word
+  reads as Off, and every field has a default, so no version change.
+- **Commands** (`commands/`): Record (F9), Overdub, Count-in: off, 1, 2 and 4
+  bars, and Metronome only while recording, in the palette and the menus. F9
+  while counting in cancels the count-in and stops; F9 while recording ends
+  it and playback carries on.
+- **Interface**: the Record button (`transport/bar.rs`; the pure helpers in
+  `transport/record.rs`) shows the record glyph at rest, a hollow ring that
+  pulses on each count-in beat, and a lit fill while recording; its tooltip
+  names the count-in. The arrangement (`arrangement/recording_look.rs`) paints
+  a take in record red. In Replace the take's clip has its body tinted (20%),
+  its outline at 78%, its notes in `record_note`, and a "REC · name" tag. In
+  Overdub the clip already there keeps its body and notes and takes the red
+  outline and tag; its new notes are not yet red. Clips return to their track
+  colour when recording ends.
+- **Not in this slice**: recording armed audio tracks (M9). Record with no armed
+  MIDI track does not start, and sets a notice ("Arm a MIDI track to record.")
+  that the audio panel and the Audio settings window show. The plan said the
+  info line; the notice is where the app already reports audio problems.
+- **No format change** (v14). The project holds nothing new.
+
+### Consequences
+- A crash costs the notes still held and about a second of finished notes at
+  most; autosave (10 s while recording) holds the rest. The recovery path is
+  checked by hand only (MT-MIDI-7); no E2E scenario kills the app.
+- Each commit copies the take's notes and rebuilds the recorded track from its
+  base. The cost grows with the take and is not measured for long takes.
+- While a take is recording, an edit to the same track other than the take is
+  lost at the next commit, because the track is rebuilt from `base`. Other
+  tracks are safe. Blocking such edits, or merging them, is for the owner to
+  choose (KNOWN_ISSUES).
+- Clips a recording makes in Overdub gaps, after the first, get new ids at each
+  commit. The take's own clip keeps its id. The UI must not hold these ids.
+- The output latency is taken off automatically. There is no manual offset
+  until audio recording (M9).
+- With Loop on, a take can begin at the loop's start, earlier than the playhead
+  was when Record was pressed. The owner has not judged this yet (MT-MIDI-7,
+  step 6). The "start to stop" rule holds with Loop off.
+- Interface figures, as built: compact wells pad 4 pt (`space::XS`) and the
+  position well's inner gap is 4 pt compact; the keyboard readout shows from
+  1,320 pt wide (`barfit`), where it showed from 1,280 pt before. The owner
+  has not seen these (MT-MIDI-7, step 13).
+
+### Tests
+- Engine `tests/record.rs` (8): notes kept at the sample they were played, at
+  any block size; only recording tracks keep input, and only while recording;
+  the count-in holds the song and recording starts mid-block; the accent on
+  each bar's first beat; Stop and Locate end a count-in without moving the song;
+  Stop ends recording and the next Play does not record; a note played just
+  before the loop wraps lands at the loop end; recording while playing starts
+  at once.
+- `midi/capture.rs` (5 unit tests on `heard`). Allocation guard
+  `tests/realtime.rs`, `midi_never_touches_the_heap`, sends Record (with and
+  without a count-in), EndRecord, Locate, Stop, Play and Panic.
+- `lumen-project` `edit/record.rs` (11): Replace, Overdub merging, gap clips,
+  looping clips, punch, lengths, a growing take equal to one call, locked
+  clips, empty takes.
+- `document/record.rs` (4), `recorder.rs` (17), `transport/record.rs` (7),
+  `arrangement/recording_look.rs` (4), `record_settings.rs` (6), and the
+  recording listen rule in `midi_play.rs`.
+- E2E `tests/e2e/record.rs` (9 scenarios): a take starts at the marker and ends
+  where playback stops; a take is one undo step and undo is refused while
+  recording; Replace cuts the clip under it; Overdub keeps the notes and adds to
+  the same clip; a count-in holds the playhead and keeps what is played during
+  it out; no armed track means nothing starts and it says so; a held note is
+  closed at the stop; loop passes layer into one clip spanning the loop; punch
+  out ends the take at the brace and playback carries on.
+- `tests/shots_recording.rs` (ignored; needs a GPU and writes shots).
+- Not run in this container: the WSL performance gate, the macOS cross-clippy,
+  and `--bench-frames` with a take open.
+
+### Amendment: MT-MIDI-7 run 1 (2026-10-13)
+
+The owner recorded with a real keyboard and found three faults:
+1. **The take painted in chunks.** The clip only grew, and its notes only
+   appeared, at each commit (about once a second), unlike Ableton, which paints
+   the take as it is played.
+2. **The clips under the take were redrawn at the same interval.** Each commit
+   rebuilt the track from `base`, and the pieces a Replace cut off clips got
+   fresh ids every time, so the arrangement treated them as new clips.
+3. **Notes at the edges of the take were lost.** A key already down when
+   Record was pressed had no note-on in the take; and a note held across the
+   loop's end had its note-off earlier in time than its note-on, which became a
+   one-tick note, so a note changed just before the wrap was lost.
+
+Changes:
+- **The live take** (`arrangement/live_take.rs`, drawn by `clips.rs`
+  `draw_live_take`): every frame the app gives the arrangement the take as
+  captured so far (`Capture::so_far`, held notes ending at the playhead). It is
+  drawn over the lanes after the clips: in Replace an opaque record-red body
+  from the take's start to the playhead (covering whatever the document has of
+  it), in Overdub a body only over the gaps between the clips under it, and in
+  both the notes as they are played, in record red, a held one growing. The
+  document's commits are no longer what the eye follows. They stay about once a
+  second (and at each loop wrap, so the next pass plays what this one kept).
+- **Stable ids**: `Recording` remembers the ids a track's commits gave the
+  pieces they cut (`pieces`, per track), and the next commit gives the same
+  pieces the same ids in the same order. A clip a take only shortens stays the
+  clip it was; the Overdub gap clips keep their ids too (a KNOWN_ISSUES row is
+  gone).
+- **Held keys** (`lumen-engine` `midi/player.rs`, `hold.rs`): a track that can
+  record keeps the keys its input holds (`TrackState::down`, a preallocated
+  list), and when its recording begins (`cx.recording` turns on for it) the
+  player queues a note-on for each, as played at the start. `Capture::take`
+  starts a note that began before the range (these, and notes the output
+  latency put just before it) at the range's start.
+- **Loop passes**: `Captured` gains `pass`, which counts up at each loop wrap
+  (a message played just before a wrap is of the pass before), and a marker
+  (`source: WRAP`) is queued for each recording track at every wrap. The app's
+  `Capture::looping` cuts a note that was held across a wrap at the loop's end
+  and goes on from the loop's start, filling the loop for each whole pass in
+  between; notes still held at the stop end where the playhead is, in the pass
+  it is in.
+
+Tests: engine `tests/record.rs` (a held key is taken at the start; wraps mark
+passes for every recording track; the wrap case keeps its pass), `recorder.rs`
+(notes across one wrap, several, at the stop and with the off arriving after
+the marker; held notes at the start; `so_far`), `document/record.rs` (ids stable
+across commits), `arrangement/live_take.rs`, and E2E `record` (a key held when
+Record is pressed; a note held across the wrap; the take follows the playhead
+and the clips under it keep their ids).
+
+Not verified: how it looks and feels with a real controller (MT-MIDI-7 run 2),
+and the cost of the per-frame snapshot of a very long take (it copies the
+take's notes each frame; the frame benchmark has not been run with one).
+
+### Amendment: MT-MIDI-7 run 2 findings (2026-10-13)
+
+The owner found two more faults:
+1. **Replace still played the clip it recorded over.** The document only cuts
+   the old clip as the playhead passes (at a commit), so the engine had played
+   its notes before the cut. Now, while a Replace take is recorded, the app
+   leaves out of the engine's list whatever the track held from the take's
+   start on, except the take's own clip (which loop passes hear)
+   (`midi_play::Replacing`, in `Inputs`; `Inputs::playing_length` cuts a clip
+   that begins before the take at the take's start). Overdub is unchanged.
+   With punch in, the start is the brace's start. With punch out, content
+   after the brace comes back when the recording ends (about a frame after the
+   brace's end). The project itself is untouched.
+2. **A take's notes were centred and moved.** The live take fitted its notes
+   to the pitch range played so far, so the first note sat mid-clip and every
+   note outside the range moved the rest. It now draws on a fixed layout
+   (`mini::live_band`): high pitches above low, two semitones a band over C1 to
+   D#6 (pitches outside stay on the first or last band). A note keeps its place
+   as more are played. Finished clips are still fitted to their own range
+   (slice 3b), so a take refits when recording stops. Whether every clip
+   should use the fixed layout, so the same pitch is at the same height in all
+   of them, is for the owner to choose (it would change slice 3b's look).
+
+Tests: `midi_play.rs` (a Replace take silences and cuts the clips it records
+over, not its own), `piano_roll/mini.rs` (a live note's band depends on its
+pitch alone), E2E `record` (Replace sends the output none of the old notes;
+Overdub sends the one under the take).
+
+### Amendment: clip previews as Ableton's (2026-10-13, after MT-MIDI-7 run 2)
+
+The owner chose Ableton's arrangement preview for every MIDI clip and for the
+take, which settles the question left open above: notes inside a clip are
+fitted to its own pitch range, and the take is drawn exactly as its clip will
+be once committed. Three findings, fixed:
+1. **Clip previews did not have the piano roll's proportions.** The 32 bands
+   a track had were shared by a range padded to 16 semitones, so a semitone
+   was about two bands, rounded: notes one band tall with uneven gaps between
+   neighbours. Now a track has 128 bands (`mini::BANDS`) and a clip divides
+   them evenly among the pitches of its range (`mini::Fit`, still padded to
+   16 and centred): each pitch is a row of the same height (to within a band)
+   and neighbouring pitches touch. A note covers its row's bands: a box may
+   now span several row slots, given in the top 8 bits of its `row`
+   (`lumen_render::spanning`; `boxes.wgsl` reads the last slot's bottom).
+   Clip boxes and the piano roll's notes never set those bits.
+2. **The take moved when recording stopped.** The fixed live layout
+   (`mini::live_band`) is gone. Each live note carries the range of the clip
+   it lands in (`LiveNote::range`, from `record.rs` `live_ranges`): the whole
+   take in Replace; in Overdub the clip under it (its own notes and the new
+   ones) or the gap it is in. It is drawn on the same bands as the GPU
+   (`Fit::span`), so stopping changes nothing on screen. As in Ableton, a
+   note outside the range played so far refits the take.
+3. **A clip recorded over slid in place.** Each commit cuts the clips under
+   the take, and a moved clip glides to its new place (M4.5's M1), so the
+   remainder of a clip under a Replace take slid every second. Nothing glides
+   while recording, nor for the commit that ends it (`ClipGlides::update`'s
+   `recording`).
+
+**Superseded in part (run 3, same day):** fitting each clip to its own range
+made a clip of one note, or one chord shape, sit mid-clip at any pitch, so
+clips an octave apart, and different melodies, looked the same. The owner's
+Ableton captures show one layout per track: now every MIDI clip on a track
+shares one `Fit` over the pitches all of them play (`mini::track_range`),
+padded to at least 48 semitones (four octaves, centred), so a pitch is at the
+same height in every clip of the track and notes are thin rows, as in
+Ableton. The take uses the track's fit too (`LiveTrack::range`: the track's
+clips as committed so far and the notes played), which replaces the
+per-region ranges above (`live_ranges` is gone). A note played outside the
+track's range refits the whole track, as in Ableton. In Replace, an old
+clip's notes in the second since the last commit still count until that
+commit cuts them. Shot `mini_notes_octaves`; E2E
+`the_take_is_laid_out_as_its_track_will_be`.
+
+**Overdubbing the same pitch (after run 3):** an Overdub only appended the
+take's notes to the clip, so playing a pitch the clip already held there
+stacked a second note on the first (and the two fought over one key when
+played). Now a note played wins its pitch, as in Ableton
+(`edit::record::settle`): an old note of the same pitch still sounding where
+the new one starts is cut there, one that starts under it is dropped, and
+other pitches are untouched. A take's own notes settle the same way, the
+later winning, so a loop pass over a note of the pass before (in Replace or
+Overdub) does not stack either. Tests: `edit/record.rs` (three), E2E
+`overdubbing_the_same_pitch_cuts_the_old_note`.
+
+That fixed what is kept, not what is heard while recording (owner): the
+engine plays the clip as the document has it, which gets the take about once
+a second, so the old note sounded on under the key played, and its note-off
+could cut it. The engine now applies the same rule as the key is played, on a
+recording track (`TrackState::yields` and `give_way` in `midi/hold.rs`): a
+key going down ends the clip's note sounding on it, and while the key is held
+the clip's notes on it neither start nor are chased; keys already held when
+recording begins give way too. Other keys, and tracks not recording, play as
+before. Engine test `tests/record.rs`
+`a_key_played_while_recording_ends_the_clips_note_on_that_key`.
+
+Not changed: the clip editor shows the document's clip, so it updates at
+each commit (about once a second), not every frame, and in Replace the clip
+it had open is cut away by the take.
+
+Tests: `piano_roll/mini.rs` (even rows that touch; the CPU span is the GPU's
+bands), `app/record.rs` (a Replace take is one range; an Overdub fits each
+clip and each gap), `arrangement/glide.rs` (nothing glides while recording or
+for the last commit), E2E `record`
+(`the_take_is_drawn_to_the_range_its_clip_will_have`), shot `mini_notes`
+(now with a tall track).
+
+### Not verified
+- Timing with a real MIDI controller, and with the computer keyboard as a
+  source over real drivers (MT-MIDI-7, step 2).
+- The count-in pulse and the negative-bar count on screen: unit tests only.
+- The light theme and 150% and 200% scale of the new controls and the record
+  look.
+- Frame times with a take open, on the 200-track stress project.
+
+## ADR-0056 — A MIDI clip is a window onto its notes (format v15)
+
+**Context.** The owner asked that covering one MIDI clip with another stop
+deleting the covered notes, as in Ableton (after MT-MIDI-7 run 3). Lumen cut a
+MIDI clip's content to its edges whenever it was trimmed, covered (moves,
+copies, trims and Replace recording all cut what they cover, slice 6c's
+Ableton rule), split or slipped (`edit::shift_notes`): the notes outside were
+dropped. Audio clips were already windows onto their file, so this was MIDI
+only.
+
+**Options** (pitched to the owner; the owner chose A).
+- **A. Ableton's window.** The covered clip is still trimmed or split where
+  the new clip sits, but an edge only moves the clip's window: its notes are
+  never deleted, and dragging the edge back shows them again. Moving the top
+  clip away leaves a gap, as in Ableton.
+- **B. Stacked clips** (the request read literally, closer to Cubase): clips
+  overlap, the top one plays and hides the one under it, and moving the top
+  clip away brings the lower one back by itself. A stacking order, masked
+  drawing, an engine that plays only the top clip and hit-testing through
+  overlaps, for audio clips too.
+
+**Choice: A.** A note's start stays in clip time (ticks from the clip's
+start), so visible notes keep their positions and no offset field is needed.
+A note is in the clip's **window** when it starts at or after 0 and before the
+end of the clip's content (its loop length, or the clip when shorter;
+`edit::in_window`, `edit::shown_notes`). Outside the window it is kept but
+hidden. Trims, slices (covering, splitting, time-range edits, the clipboard)
+and slips now only move notes in clip time (`shift_notes`, `shift_events`
+drop and shorten nothing). A note that starts in the window and runs past its
+end is kept whole and cut when played, as before.
+
+**Format v15.** Validation now allows a note or event to start before its
+clip (a negative start); the migration from v14 changes nothing (an older
+file holds no hidden note). Golden fixture `tests/fixtures/v15/golden.lumen`
+holds a note before the window and one past it.
+
+**What reads the window.** Playback (`midi_play` sends only notes and events
+in the window; `sounding_keys` agrees), the arrangement's mini notes and the
+piano roll (`ClipNotes::each_placed` and `pitch_range` already kept to it),
+the clip editor's view (`EditorView::window`: `shows` and `note_at`, so box
+select and clicks skip hidden notes), the lane under the roll
+(`LaneView::window`; its stems and points are built from the window), and
+"every note" for Ctrl+A and the tools given no picks (`shown_notes`).
+
+**Consequences.** Clips can carry notes nobody sees: a clip split many times
+keeps every note in each piece, as in Ableton. Recording's same-pitch rule
+(`edit::record::settle`) may shorten a hidden note that overlaps a played one
+in time; that note does not play either way. Join (M7) must take the left
+piece's notes before its end and the right piece's from its start, so split
+then join returns the original. The clip editor does not yet show hidden
+notes greyed outside the clip, as Ableton's does.
+
+Tests: `edit/mod.rs` (a slice is a window that keeps every note; trimming
+hides and dragging back shows), `edit/record.rs` (Replace keeps the covered
+notes in the pieces), `document/clips.rs`
+(`a_covered_midi_clip_keeps_its_notes_and_shows_them_when_extended`),
+`midi_play.rs` (notes outside the window do not play), `tests/format.rs`
+(v15 golden), E2E `record` (Replace keeps the covered note, hidden).
+
+Overdub across clips (the owner's second point) was checked at the project
+level and already does what Ableton does: notes merge into every clip they
+pass through and a gap gets a new clip. The owner will reproduce what they saw
+before anything changes there.
+
+## ADR-0057 — Recording at clip edges, and MIDI trims that follow the hand
+
+**Status:** Accepted (owner's request); decisions 2 and 3's Overdub merge
+superseded by ADR-0060 · **Date:** 2026-10-13
+
+**Context.** The owner reported four faults with MIDI clips and recording:
+1. Dragging a MIDI clip's left or right edge jittered and landed off the
+   pointer.
+2. Overdub begun at or before an existing clip made a separate clip beside it
+   instead of growing the clip.
+3. Recording begun in the middle of a clip should make a new clip from the
+   playhead to where recording stops.
+4. While recording over a clip, the clip under the take redrew in chunks
+   (about once a second), not continuously.
+
+**Causes found.**
+1. Three things. (a) The trim gesture put the edge at the pointer's time, so an
+   edge picked up a few points inside jumped by that much on the first move.
+   (b) A start trim moves `start` and shortens `length`, and the clip glides
+   (M4.5) only offset `start`: each snapped step drew the clip at its old start
+   with its new length, so the right edge and the notes inside (in clip time)
+   jumped and slid back. (c) The track's note layout (`mini::track_range`)
+   counted only notes in each clip's window, so a trim that hid or showed a
+   note rescaled every clip's notes on the track.
+2. Overdub's rule (ADR-0055) gave every uncovered part of the range a new clip.
+3. With Loop on, a take pressed inside the loop started at the loop's start
+   (a KNOWN_ISSUES row); with Overdub, a take begun inside a clip merged into
+   it.
+4. The arrangement drew the document (committed about once a second) and laid
+   the take over it (`live_take.rs`). In Overdub the clip under the take only
+   got the new notes, its new edges and its new layout at each commit.
+
+**Decisions.**
+1. `Gesture::Trim` keeps `grab`, the edge's distance from the pointer when it
+   was picked up; the edge goes to the pointer plus `grab`, then snaps. Only a
+   moved clip glides (its length unchanged); a trimmed one lands at once.
+   `mini::track_range` counts every note a clip holds, hidden ones too, so the
+   layout holds while an edge is dragged (and stays the same before and after
+   a split or cover).
+2. and 3. `edit::record` Overdub now depends on where the range begins:
+   - **inside a MIDI clip that does not loop**: a new clip over the range, as in
+     Replace, carrying what the clips under it played there (their windows,
+     every repeat, muted clips excepted) with the take settled over it (a note
+     played wins its pitch). It takes the name and colour of the clip it began
+     in. What it covers is cut away and stays hidden in the pieces (ADR-0056).
+   - **otherwise** (at or before a clip, or on an empty lane): the take merges
+     into the clips under it, and they grow over the rest of the range instead
+     of leaving pieces beside them: a part after a MIDI clip extends its end,
+     the part before the first clip moves its start back (notes moved later in
+     clip time, so they sound where they did; not for a looping clip, whose
+     loop would shift). Only a part no MIDI clip borders gets a new clip, when
+     it holds something. Extension happens even with nothing played there, so
+     the clip runs from record start to stop as a Replace take does.
+   - A looping clip still layers each pass into its loop, wherever the take
+     begins.
+   With Loop on, a take begins at the playhead (`Session::from`), and covers
+   the whole loop only once it has wrapped.
+4. While recording, the app builds `Document::preview_takes` every frame: the
+   project as the next commit will make it, from each track's take so far (held
+   notes running to the playhead), with the ids the commits use (pieces already
+   cut keep theirs; new ones are the ids the next commit will mint), and no
+   history step. The arrangement draws it instead of the document. The tracks
+   being recorded go on two GPU box layers of their own (`canvas.rs` `live`,
+   `live_mini`), rebuilt every frame; the main layers leave those tracks out
+   and, while recording, are keyed on the other tracks' identities rather than
+   the document's state, so neither the frames nor the commits rebuild them.
+   `live_take.rs` and its CPU drawing are gone.
+
+**Measured** (release, the 200-track stress project, in the cloud container):
+the preview and the live layers cost about 0.19 ms a frame when recording a
+normal MIDI track, and about 7.5 ms when recording into the 100,000-note clip
+(its notes are copied and settled each frame); KNOWN_ISSUES.
+
+**Consequences.** What the arrangement shows while recording is exactly what
+the commit will hold. Overdub begun inside a clip splits it, so an empty take
+there still leaves three clips (the sound is unchanged). Recording before a
+clip can show its hidden notes (ADR-0056) when its start moves back over them,
+as dragging its edge would. With Loop on and a take begun inside a clip, the
+first pass is a new clip and, after the wrap, the whole loop follows the rule
+for where the loop starts.
+
+Tests: `edit/record.rs` (begun at, inside and before clips; past ends and
+between clips; muted and looping clips; growing takes match one call),
+`document/record.rs` (the preview equals the commit and makes no step),
+`glide.rs` (a trimmed start lands at once), `mini.rs` (hidden notes count in
+the layout); E2E `midi_trim` (start and end edges picked up inside; the layout
+holds; all three fail without the fix) and `record` (Overdub before a clip
+grows it; inside one makes a new clip from the playhead; Record pressed inside
+the loop begins at the playhead; the clip recorded into is drawn growing on
+every frame).
+
+Not verified: the look and feel by hand (MT-MIDI-7 run 5), frame times on a
+GPU, and the WSL perf gate (`lumen-project` changed; `place` is not in a perf
+scenario).
+
+## ADR-0058 — Notes carry on across seams, and Overdub shows its clip at once
+
+**Status:** Accepted (owner's report) · **Date:** 2026-10-13
+
+**Context.** The owner reported three faults with MIDI Arrangement Overdub,
+with two screenshots of the boundary case:
+1. Overdub begun on an armed track with no clip at the playhead showed no clip
+   until the first note was played.
+2. Overdub begun inside a clip over a note already sounding: the note looked
+   cut off at the new clip's start, and came and went as the boundary was
+   moved or resized.
+3. While recording that way, existing notes sustaining across the new clip's
+   start were cut off, and sounded like short stabs.
+
+**Causes found.**
+1. `edit::record` Overdub gave a part of the range that no MIDI clip borders a
+   new clip only "when it holds something" (ADR-0057), so an empty take over an
+   empty lane placed nothing: neither the preview drawn every frame nor the
+   commits showed a clip.
+2. The clip begun inside an existing one carried only the old notes that
+   *start* inside the take's range (`heard_in`). The note sounding at the
+   record start stayed in the old clip, which the new clip cuts there: the
+   note was kept (ADR-0056) but hidden past the old clip's end. Moving the
+   boundary showed or hid it.
+3. Three things. (a) That same note ended at the old clip's new end, the
+   record start. (b) The carried notes were cut at the take's current end,
+   and a commit (about once a second) moves that end: each commit changed the
+   notes, so the engine (which knows a held note by its clip, the clip's
+   start and the note's start and length, `hold.rs`) let them go and struck
+   them again. (c) The rest of the clip recorded over is a piece that starts
+   at the take's end, so its start also moved with every commit, and a note
+   it was sounding was let go and struck again for the same reason.
+
+**Options** for the sustain (behaviour; the owner's report asked for the
+outcome, "existing notes continue to play for their full duration unless the
+new input or an intentional clip boundary changes them").
+- **A. Notes carry on across seams.** Where one clip begins exactly where the
+  one before it ends and *holds the same note* (same pitch and arrangement
+  start, kept hidden before its start, as a split's right piece and the
+  Overdub clip do), the note sounds and is drawn on through the boundary. A
+  clip that does not hold it (one moved up against another, a note cut where
+  a new one was played) still cuts it there, as Ableton cuts a note at its
+  clip's end.
+- **B. Play whatever a window shows, including the part of a note that
+  starts before it.** Simpler, but it changes ADR-0056's Ableton rule for
+  every trimmed clip (a trimmed start would sound the tail of a note), and
+  still strikes the note again at the seam.
+- **C. Overdub merges into the clip it begins in** instead of making a new
+  clip. Avoids the seam, but goes against the owner's choice in ADR-0057
+  (point 3: a new clip from the playhead).
+
+**Choice: A.**
+- `edit::seams` (pure, `lumen-project`): `is_seam`, `carried_on` and
+  `carried(track)`, the notes each clip carries on from the clip before.
+  Only unmuted clips that do not loop meet at seams; muted notes carry nothing.
+- **Recording.** `record::overdub_from_inside` carries what was heard
+  *whole* (`carry`): a note sounding at the record start keeps its start
+  before the new clip (hidden), and a note running past the take's end is not
+  cut there. So both carry on across the seams with the pieces around the new
+  clip, and every commit leaves them as they were. A note played over a
+  carried one of the same pitch still wins it (`settle`), which ends the
+  carried note there and so stops it carrying on. Overdub over a part no MIDI
+  clip borders now makes the clip at once, empty until a note is played, as
+  Replace always has (this amends ADR-0057's "when it holds something").
+- **Playback.** `midi_runs` (app): touching clips play as one engine clip, a
+  *run*, known by its first clip. Note lengths are worked out there: cut at
+  the clip's end unless the next clip carries the note on. A run's first clip
+  keeps its id and start while a recording moves the seams after it, so the
+  notes playing keep their owner in the engine across commits and are neither
+  released nor struck again. The engine is unchanged. `sounding_keys` reads
+  the same runs.
+- **Drawing.** The arrangement's mini notes draw a carried note from the
+  clip's start (`ClipNotes::carried`), so the note reads as one line across
+  the boundary, as it sounds.
+
+**Consequences.** A note held across a cut that leaves two touching pieces
+(an Overdub begun inside a clip, and clip split when M7 builds it) sustains
+through it instead of stopping there, so a cut does not change what is heard. Clips that merely touch
+play as one engine clip: an edit that separates two touching clips while a
+note of the second is sounding lets it go and starts it again (it changes
+owner), where before it carried on. The clip editor (piano roll) does not show
+carried notes; they are edited in the clip where they start (KNOWN_ISSUES).
+
+Tests: `edit/seams.rs` (splits carry on, other notes and gaps do not, muted
+and looping clips carry nothing), `edit/record.rs` (a sounding note carried
+whole and on through both seams; carried notes unchanged as the take grows; a
+note played over a carried one ends it; an empty Overdub over an empty lane is
+a clip at once), `document/record.rs`, `midi_runs.rs` (a split note plays
+whole; a clip that does not hold it cuts it; apart and looping clips are runs
+of their own; a run cut short by Replace stops; a run is the same engine clip
+while the seams after it move; sounding keys follow a seam), `mini_notes.rs`
+(a carried note is drawn into the next clip, and not once the clip is moved
+away); E2E `overdub_seams` (the empty Overdub clip shows before any note; a
+note held where Overdub begins is struck once, through recording, two commits
+and playback). Both E2E scenarios fail without the fix.
+
+Not verified: by hand (MT-MIDI-7 run 6), and the WSL perf gate (`lumen-project`
+changed; `place` is not in a perf scenario, and the engine is unchanged).
+
+## ADR-0059 — A carried note belongs to its clip, and the clip editor shows hidden notes
+
+**Status:** Accepted (owner's report) · **Date:** 2026-10-13
+
+**Context.** Two findings after ADR-0058:
+1. A note carried on across a seam (an Overdub begun inside a clip while it
+   sounded) was struck again when playback started at the new clip's start.
+2. Notes outside a clip's window were hidden in the clip editor as well as
+   on the arrangement (ADR-0056 had left this open). Ableton hides them on
+   the arrangement but shows them in the clip view, where they stay editable.
+
+**Causes found.**
+1. Touching clips play as one engine clip (a run, ADR-0058), so the carried
+   note is one long note there. Play and every jump **chase** (ADR-0045, H1):
+   a note sounding at the position starts at once. Started at the new clip,
+   the chase struck the note that began in the clip before.
+2. `EditorView::shows`, `LaneView`, the GPU note boxes (`ClipNotes::
+   each_placed`), Ctrl+A and the tools given no picks (`shown_notes`) all
+   kept to the window; the note edits clamped every note into `[0, length]`.
+
+**Choices.**
+1. **A note belongs to the clip it begins in.** `MidiClip::seams` (engine)
+   says where each clip of a run begins; `midi_runs` fills it. A chase starts
+   only notes that began in the clip the position is in (`hold::owning_start`;
+   a position on a seam is in the clip that begins there). Played through the
+   seam the note sounds on as before; played from the next clip (its start or
+   inside it) it does not sound, as in Ableton, where it is the clip before's.
+   Chase inside the clip a note began in is unchanged (H1).
+2. **The clip editor shows every note.** `EditorView::shows` checks only the
+   view; `ClipNotes::outside` (on in the editor, off on the arrangement)
+   places notes outside the window whole at their own times and draws the
+   content's notes whole past the window's end. They sit in the time the
+   editor already dims outside the clip, so they read as outside (no new
+   token or colour). The lane shows their velocity stems and controller
+   events. They can be picked, moved, resized, deleted and edited; Ctrl+A and
+   the tools given no picks take every note. The note edits allow a note to
+   stay as far outside as it already is, no further
+   (`edit::notes::time_room`, `resize`), so a hidden note can be dragged back
+   into the clip. Drawing a new note is still only inside the clip. The
+   arrangement still hides them and they still do not play.
+
+**Consequences.** The ADR-0058 known issue (the clip editor not showing a
+note carried into a clip) is closed: the carried copy shows, whole, starting
+in the dimmed time before the clip. `sounding_keys` (busy keys for hardware
+previews) still counts a carried note after playback started past its seam,
+where nothing sounds: at worst a preview of that key on a hardware track is
+skipped (KNOWN_ISSUES). The velocity lane does not dim the time outside the
+clip as the roll does (KNOWN_ISSUES, a look for the owner).
+
+Tests: engine `tests/midi.rs`
+(`play_from_the_next_clip_of_a_run_does_not_strike_a_note_carried_into_it`,
+fails without the fix), `midi_runs.rs` (seams), `edit/notes.rs` (a note
+outside moves back in but no further out), `piano_roll/notes.rs` (the editor
+places notes outside whole; the arrangement does not); E2E `overdub_seams`
+(played from the take's start the note is not struck) and `hidden_notes`
+(a note past the end is shown, picked, dragged back in, undone, and picked by
+Ctrl+A); both fail without the fix. Shot `hidden_notes_editor` (both themes,
+100 to 200%) looked at.
+
+Not verified: by hand (MT-MIDI-7 run 7), the WSL perf gate (the engine's
+chase changed; it runs on Play and jumps only, not per block).
+
+## ADR-0060 — Overdub always records a new clip
+
+**Status:** Accepted (owner's report, MT-MIDI-7 run 7) · **Date:** 2026-10-13
+
+**Context.** The owner found, in run 7: Overdub begun before an existing MIDI
+clip that reaches its start, or begun exactly at its start, merged the take
+into that clip (ADR-0057: the clip grew back to the record start, or took the
+new notes). The owner asked for Ableton's arrangement recording instead:
+recording makes new clips; with MIDI Arrangement Overdub on, the new clip
+includes the track's existing MIDI along with the new input; the existing
+clip is kept as its own clip, not merged with the new one.
+
+**Cause.** ADR-0057 chose the merge on the owner's earlier request ("Overdub
+begun at or before a clip extends that clip and merges into it"). Only a take
+begun strictly inside a clip that does not loop made a new clip.
+
+**Decision.** `edit::record` Overdub now makes one new clip over the range
+wherever it begins, the rule ADR-0057 and ADR-0058 built for a take begun
+inside a clip:
+- the new clip carries what the clips under the range played there (their
+  windows, every repeat of a looping clip, muted clips and notes excepted),
+  whole, so a note sounding at the record start or running past the stop
+  carries on across the seams (ADR-0058), with the take settled over it (a
+  note played wins its pitch);
+- what it covers is cut away from the clips under it (`overwrite`), as a
+  Replace take's is: the parts outside the range stay clips of their own, in
+  place, keeping what was covered hidden (format v15). A clip the range covers
+  end to end is recorded over; its notes are in the new clip;
+- begun in a clip (from its start, before its end) the new clip takes that
+  clip's name and colour; otherwise it is "MIDI clip";
+- the clip is there from the moment recording begins, empty until something
+  is played (ADR-0058, unchanged).
+Clip growing (`extended`), merging into clips (`merge_into_clips`) and the
+gap rule (`gaps`) are gone. A looping clip no longer takes the take into its
+loop: Ableton records a new clip there too, carrying the repeats it covers.
+With Loop on, every transport pass still layers into the one take clip
+(ADR-0055).
+
+**Consequences.** Overdub and Replace place the same clips; they differ only
+in whether the new clip carries what was there. An empty Overdub over a clip
+is now a step (a new clip holding the old notes, the old clip cut around it),
+where a take begun at a clip's start used to change nothing. Audio clips on a
+MIDI track under the range are cut as Replace cuts them (they used to count as
+covered and keep the take out). The recording look is unchanged: in Overdub
+the take's clip keeps its body and takes the red outline and tag.
+
+Tests: `edit/record.rs` (begun at a clip's start, before a clip and reaching
+it, stopped before a clip, at a clip's end, across whole clips, before and
+inside a looping clip, an empty take at a clip's start), `document/record.rs`
+(the Overdub clip is new and the old one stays); E2E `record`
+(`overdub_begun_at_a_clips_start_is_a_new_clip_and_the_old_one_stays_its_own`,
+`overdub_begun_before_a_clip_is_a_new_clip_beside_it`; both fail without the
+fix; `the_clip_recorded_into_is_drawn_growing_on_every_frame` now follows the
+new clip).
+
+Not verified: by hand (MT-MIDI-7 run 8, step 36), the WSL perf gate
+(`lumen-project` changed; `place` is not in a perf scenario), the macOS
+cross-clippy (no platform code changed).
+
+## ADR-0061 — A sounding note is known by where it began
+
+**Status:** Accepted (owner's report) · **Date:** 2026-10-13
+
+**Context.** The owner found: while a recorded MIDI clip plays, resizing it
+strikes its notes again. The engine knew a held note by its clip id, the
+clip's start, its repeat and the note's start and length in the clip
+(`hold::Owner`), and an edit that changed any of them released the note,
+then the chase started it again at once. Resizing changes them while the
+note is the same: the app sends each note cut at its clip's end
+(`midi_runs::run_notes`), so dragging the end over a sounding note changes
+its length on every frame of the drag; trimming the start moves the clip and
+every note's place in it (format v15's window). A drag sends a new list each
+frame, so a note was struck many times (eight in the engine test).
+
+**Decision.** A held note is known by the absolute tick it began on and its
+key (`Held::start`). After an edit, `hold::sync` looks for a note on that key
+beginning at that tick in any clip of the track (in its window, in the repeat
+there) and only moves its end; a note gone, or now beginning elsewhere, is
+released as before and chased if it sounds at the position. The chase skips a
+note held by the same start and key. This covers both edges, a note's length
+changed in the piano roll, and runs splitting or joining at a seam (the note
+no longer depends on which clip heads its run).
+
+**Consequences.** Shortening a sounding note (in a clip, or by drawing the
+clip's end in) ends it where it now ends, at once if that is already past;
+lengthening it lets it ring on, as in Ableton. Moving a clip or a note still
+releases and re-chases what it moved. Two clips holding a note on the same
+key at the same tick (not possible on one track: covers cut) would share it.
+
+Tests: engine `midi::resizing_a_clip_or_a_note_under_the_playhead_does_not_retrigger_it`
+(both edges, the note's length; fails without the fix: 8 note-ons); E2E
+`midi_play::resizing_a_playing_clip_does_not_strike_its_notes_again` (drags
+both edges of a playing clip; the port gets one note-on).
+
+Not verified: by hand (MT-MIDI-7 step 37).
+
+## ADR-0062 — Standard MIDI Files and MIDI clock out
+
+**Status:** Accepted (plan approved, owner's F1–F4 A) · **Date:** 2026-10-13
+
+**Context.** M5 slice 7 (plan in `docs/milestones/M5.md`, after MIDI learn
+moved to M7): Standard MIDI Files in and out, and MIDI clock to hardware.
+Clips hold notes and events in ticks at 1,411,200 PPQ with no channel; the
+project has a tempo map and one time signature; the MIDI To sender already
+times messages to the audio a port is heard with.
+
+**Decision.**
+- **Reading and writing** are pure, in `lumen_project::smf`, on `midly`
+  (Unlicense, a public-domain dedication; a `cargo-deny` exception, recorded
+  in THIRD_PARTY_NOTICES). Type 0 and 1 are read; type 2 is refused. Each
+  file track is split by channel into parts. Common divisions come in
+  exactly, others round to the nearest tick; SMPTE files are converted
+  through their own tempo (120 BPM until a tempo event). A note-on with
+  velocity 0 ends a note; overlapping strikes on one key pair with note-offs
+  in start order (owner's round-trip report, 2026-10-13),
+  a note on and off at one tick lasts one file tick, notes still on end with
+  their track. A bank select (CC 0 and 32) at a program change's tick on its
+  channel becomes the change's bank. Release velocity, polyphonic
+  aftertouch, sysex and meta text other than track names are dropped; only
+  the first time signature is kept. Tempos are clamped to 20–999 BPM.
+  Files are written at **960 PPQ**: a type 1 file has a conductor track
+  (tempo map, time signature), then a named track per part; order at one
+  tick is meta, note-offs, controllers and programs (a bank before its
+  program), note-ons.
+- **Import (F1, F2).** Files are read off the UI thread
+  (`midi_files::Reader`). Dropped on a MIDI track's lane, or imported with
+  a MIDI track chosen, every part becomes one clip there
+  (`Document::import_midi_clip`), cutting what it covers; dropped between
+  tracks or on empty lanes, each part becomes a MIDI track with the synth
+  (`import_midi_tracks`; a name shared by several parts gets " ch N").
+  Clips are whole bars of the project's meter. Notes are placed in beats;
+  a file whose tempo or meter differs offers them in a banner, and "Use its
+  tempo" applies the map and first meter as one step (`use_file_tempo`).
+  Drops compute a place for each kind (`document::Places`): audio files on
+  audio lanes, MIDI files on MIDI lanes. Import audio… became **Import audio
+  or MIDI…**, keeping its id (`file.import_audio`) so saved shortcuts hold.
+- **Export.** What is written is **what plays** (`midi_export.rs`, through
+  `midi_runs`): the clip window, notes carried across seams as one note,
+  muted notes left out, a looping clip's repeats baked and cut where each
+  repeat ends. **Export MIDI clip…** writes the selected MIDI clips as one
+  type 0 part from the first one's start, with the tempo from there;
+  **Export MIDI file…** writes the project's MIDI tracks (unmuted clips) as
+  type 1, each on its MIDI To channel (channel 1 for the synth). The bytes
+  are made when the command runs; the write is atomic and off the UI thread
+  (`lumen_project::write_atomic`, the save's commit protocol).
+- **Clock (F3, F4).** An output's **Sync** switch (a new `Use::sync`, which
+  opens an output, not an input) and, while on, a delay field (−20 to
+  +50 ms; `settings.midi`, added fields). The **engine** makes the clock,
+  not the sender as the plan said: only the engine knows which song
+  position each device frame plays, through loops and the delay
+  compensation's read-ahead. `midi/clock.rs` is a pure generator on the
+  tempo map, tested on its own and run by the player for the ports in
+  `MidiHandle::set_sync` (a bit mask, ports 0–63, an atomic). It sends 24
+  clocks a quarter, each on the sample of its tick; Start from the song's
+  start; otherwise the Song Position Pointer of the **next** sixteenth and
+  Continue, with clocks held until that sixteenth, so the first clock is
+  the pointer's and a follower lines up exactly; Stop, SPP and Continue at a
+  loop wrap or a jump; Stop on stop; nothing while stopped or counting in;
+  a tempo change carries the count on. The sender moves a port's system
+  messages (not its notes) by its delay, and sends Stop to a port whose
+  clock runs when the stream stands still or the sender ends. Clock bytes
+  never flash the MIDI chip (`activity::counts`, slice 2).
+
+**Round-trip follow-up (2026-10-13).** The owner exported the blue MIDI clip
+and reimported it as a purple clip: some notes were shorter. The reader
+ended an earlier same-pitch note at the next note-on, discarding its real
+note-off. `smf/read.rs` now queues unmatched note-ons per key and channel
+and consumes them FIFO on note-off (including zero-velocity note-ons).
+Every unmatched note closes at track end. Regression coverage includes
+type 0 and 1 round trips, the hand-made overlapping-strike fixture, and
+the app's export/reimport workflow. Ordinary SMF note-offs have no note
+identity: nested same-channel, same-pitch overlaps are ambiguous; FIFO
+uses start order rather than inventing a release at the next attack.
+
+**Imported-note playback follow-up (2026-10-14).** The owner reported
+missing ocarina notes in `FF4_I_LOVE_YOU_THEME.mid`, especially the second
+E5, and silence when Play began on a note. Investigation plan: inspect
+the source events, compare their imported ticks with sample scheduling,
+reproduce both onset playback and continuous block boundaries, then run
+the regression, real-time, workspace and smoke checks.
+
+The source has separate, valid note-on/off pairs at 192 PPQ; import scales
+them exactly. With the file's tempo map at 48 kHz, the second E5 at quarter
+66 maps to sample 1,311,086. Converting that sample back gives a position
+27 Lumen ticks later. The engine searched from the inverse sample tick
+minus only two ticks, omitting the note if its sample began a block. Chase
+correctly left an onset at the play position to normal scheduling, so
+neither path started it. This also affects continuous playback when an
+onset lands at a block boundary.
+
+`midi::hold::gather` now widens the candidate search by one sample before
+converting to ticks, retaining the exact half-open sample check. No notes,
+tempo data or persisted format change; no allocation or locks added.
+The same rule covers controller events. A larger fixed tick margin was
+rejected because the required margin depends on tempo and sample rate.
+
+Regression coverage: every tick rounding to a block's first sample at five
+tempos (20–999 BPM) and four rates (22.05–192 kHz), both clip-relative
+and absolute starts; the source's second-E5 timing on Play and a continuous
+block boundary; a synthetic SMF with the same timing geometry and two
+isolated test tones, imported and heard through the E2E app. Both unit
+and E2E reproductions fail with the old search bounds and pass with the fix.
+The original song remains outside the repository. Re-export/reimport is
+not a reliable timing fix: these 192-PPQ positions survive 960-PPQ export
+exactly; changed project tempo or clip placement can change sample
+alignment. The owner's precise round-trip conditions remain unverified.
+Manual recheck: MT-MIDI-8 run 2.
+
+Verification: `cargo fmt --all`, workspace clippy with `-D warnings`,
+all 1,453 workspace tests (including 334 E2E and seven real-time allocation
+checks), and all six real-binary smoke tests pass on Windows. Independent
+focused review found no actionable issues. The WSL instruction-count gate
+passes all nine scenarios against the existing baseline: the largest
+increase is +1.50% (transport), with the 64-track synth at +1.36%, below
+the +2% limit. No performance baseline changed. Listening to the original
+file on the owner's hardware remains unverified.
+
+**Consequences.** Channels are lost when a file's parts merge into one clip
+(the model has no channel). Positions finer than 1/960 quarter move by at
+most half a step on export (about 0.26 ms at 120 BPM). A negative clock
+delay is limited by the output latency (the sender cannot send before it
+is told). The pointer reaches 16,383 sixteenths (1,023 bars of 4/4);
+ports past the 64th get no clock. Turning Sync off while playing sends no
+Stop. MTC out is deferred.
+
+Tests: `lumen-project/tests/smf.rs` (hand-made files in `tests/smf/` from
+`make.py`, a golden file Lumen wrote, rounding), `document/midi_import.rs`,
+`midi_export.rs`, `app/midi_files.rs`, engine `midi/clock.rs` and
+`tests/midi.rs` (`a_synced_port_gets_start_clocks…`), the no-allocation
+run with Sync switched on and off, the sender's delay and stall, Sync
+opening an output; E2E `smf` (4) and `clock` (exact clock counts between
+transport messages across a tempo change and loop wraps).
+
+Not verified: a file from another DAW in and out, and clock against real
+hardware or another app (MT-MIDI-8).
+
+## ADR-0063 — The test audio device keeps its pace
+
+**Context.** The first CI run of `m5-midi` (run 166) failed on all three
+systems. On Linux one record E2E failed; on Windows five tests; on macOS 25,
+plus two unit tests. The cause was one thing: the silent test device ran
+one block per supervisor poll (10 ms), however late the poll came. A busy
+runner polled late, so the device fell behind the wall clock, and the
+wall-clock stamps the E2E gives live input (`Keys`) were mapped onto frames
+the playhead had not reached. Notes landed beats away, or were dropped as
+stale (`live::STALE_NS`, 100 ms after the audio thread last ran). On macOS
+the polls came about every 50 ms, so `listen` waited out its 30 s and the
+engine's answer to a click arrived after the test looked. Reproduced on
+Linux by running the record scenarios on one core beside four busy loops:
+5 of 19 failed, the same ones Windows failed.
+
+**Options.** (a) Run the E2E with fewer threads (slower, and still racing
+the wall clock). (b) Loosen each assertion (hides real errors). (c) Let the
+device make up for late polls.
+
+**Choice.** (c). `lumen_audio::fake::FakeDevice::pace` is `Some(Pace)`:
+each poll runs the blocks that the time since the stream opened owes, up to
+16, so a late poll is made up for as a hardware driver's clock is.
+`Pace::Every(10 ms)` is the default test device (`test`): the same slow
+motion as before, now steady. `Pace::RealTime` is the `test-paced` driver,
+which `Launch::with_audio_buffer` selects for the record scenarios, where
+frames and wall-clock stamps must agree. The lumen-audio supervisor tests
+use `pace: None` and still get a block per poll. A test that reads the
+engine's answer (the playhead) waits for it (`wait_for`), never a fixed
+count of frames.
+
+**Also fixed in the same run.** `files::tests::save_as_...` compared a
+canonical path with a temp folder's own spelling (Windows short names, macOS
+`/private/var`); it compares canonical paths. The MIDI sender's lateness test
+asserted a 4 ms worst case on a shared runner; it holds the median to 8 ms
+and the worst to 25 ms (macOS measured 5 ms and 17 ms). The note menu E2E wrote `Ctrl+D` on macOS.
+
+**Review fixes (PR 14).** `smf::write` returns `Result<_, WriteError>`:
+two events further apart than a 28-bit delta (about 78 hours at 960 per
+quarter; projects reach 2^52 ticks) were truncated to a wrong position, and
+are now an error that the export reports ("Not exported: ..."). Export MIDI
+builds the model and the bytes on a worker (`midi_files::export`), as the
+other disk and heavy work, and asks where to save when it is done.
+
+**Found by the second macOS run.** `LiveFeed` placed each message with a
+frame map whose base is the earliest `time - frame` over 256 blocks. When
+that earliest block leaves the window the base jumps, and a later message
+maps before an earlier one of the same source: a note-on could overtake the
+note-off of its key (`audition::escape_during_a_chord…`, "key 68 struck while
+sounding"). A source's messages now never go before the one placed before
+them (`LiveFeed::floor`; unit test
+`a_sources_messages_keep_their_order_when_the_frame_map_moves`, which fails
+without it). `record()` waits for the take to be drawn before a test reads it.
+The third macOS run showed the same symptom (struck ON, ON, ON, then the offs)
+from the engine: live events taken in one block share a frame, events on a
+frame sort offs before ons, and `apart_from_its_on` places a note-off one
+frame after its own note-on, so the next chord's note-on, left on the
+original frame, passed it. `MidiPlayer::play_live` now places each live
+message no earlier than the one before it in the block (test
+`messages_landing_on_one_frame_keep_the_order_they_came_in`, which fails
+without it). The count-in test waits for the engine's answer instead of
+five frames.
+A full pending queue now hands over what waits, in order, before the newest
+message (it handed the newest first, so a note-off could pass its note-on).
+`MidirHost` finds a port in the one listing its names came from (a hot-plug
+between two listings could panic `swap_remove` or open another device).
+Persisted MIDI clock delays are clamped where they are read
+(`Midi::sync_delay`), so a settings file cannot hold the sender's queue far
+into the future.
+
+**Consequences.** Unloaded, the default test device runs a little faster
+than before (a block every 10 ms exactly, not 10 ms plus the poll's work).
+The paced device is a coarser model of a driver than a thread with its own
+clock; it is enough for stamps, not for jitter. macOS was not available to
+run: its fixes are reasoned from the logs and from the Linux reproduction
+(the first macOS CI run after this change shows whether they hold).

@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use eframe::egui::{self, Pos2, RichText};
 use lumen_core::time::Ticks;
-use lumen_engine::{Clip, ClipsHandle, MixerHandle};
+use lumen_engine::{Clip, ClipsHandle, MidiHandle, MixerHandle};
 use lumen_project::model::{ClipContent, Id, Project};
 
 use crate::document::{Document, DropInto, Imported};
@@ -27,6 +27,13 @@ pub struct Landing {
     pub at: Ticks,
     pub track: Id,
     drop: u64,
+}
+
+/// The handles that replace what the engine plays.
+pub struct Handles<'a> {
+    pub clips: &'a mut ClipsHandle,
+    pub midi: &'a mut MidiHandle,
+    pub mixer: &'a mut MixerHandle,
 }
 
 #[derive(Default)]
@@ -49,6 +56,13 @@ pub struct Lanes {
     built: Option<u64>,
     /// The engine's clip list needs rebuilding.
     dirty: bool,
+    /// The project state the engine's MIDI tracks were built from, and
+    /// whether they need sending again (M5 slice 1).
+    midi_built: Option<(u64, crate::midi_play::Inputs)>,
+    midi_dirty: bool,
+    midi_cache: crate::midi_play::Cache,
+    /// The MIDI outputs tracks name, by the numbers the engine uses.
+    pub(crate) midi_ports: crate::midi_play::PortTable,
     /// The project state, cue and devices the engine's routing was built
     /// from.
     routed: Option<(u64, crate::routing::Cue, crate::routing::Devices)>,
@@ -229,11 +243,17 @@ impl Lanes {
         }
         if !rejected.is_empty() {
             self.notice = Some(format!(
-                "Not added: {}. {} imports WAV, AIFF, FLAC, MP3 and Ogg Vorbis files",
+                "Not added: {}. {} imports WAV, AIFF, FLAC, MP3, Ogg Vorbis and MIDI files",
                 rejected.join(", "),
                 lumen_core::product::PRODUCT_NAME
             ));
         }
+    }
+
+    /// Shows a notice in the imports panel (M5 slice 7: MIDI files that
+    /// could not be added).
+    pub fn say(&mut self, notice: String) {
+        self.notice = Some(notice);
     }
 
     /// Applies finished loads (adding them to the project), loads media the
@@ -244,10 +264,11 @@ impl Lanes {
         rate: u32,
         ctx: &egui::Context,
         doc: &mut Document,
-        clips: &mut ClipsHandle,
-        mixer: &mut MixerHandle,
+        engine: Handles<'_>,
         cue: &crate::routing::Cue,
+        inputs: &crate::midi_play::Inputs,
     ) {
+        let Handles { clips, midi, mixer } = engine;
         self.rate = rate;
         if self.library.update(rate, ctx) {
             self.dirty = true;
@@ -272,6 +293,24 @@ impl Lanes {
             let list = self.engine_clips(doc.project(), rate);
             self.dirty = clips.set(list).is_err();
             self.built = Some(doc.state());
+        }
+        // Sent again when the project, the selection or the inputs change
+        // (which tracks listen to what), never every frame.
+        let midi_wanted = (doc.state(), inputs);
+        if self.midi_dirty
+            || self
+                .midi_built
+                .as_ref()
+                .is_none_or(|(s, i)| (*s, i) != midi_wanted)
+        {
+            let tracks = crate::midi_play::engine_midi(
+                doc.project(),
+                inputs,
+                &mut self.midi_ports,
+                &mut self.midi_cache,
+            );
+            self.midi_dirty = midi.set(tracks).is_err();
+            self.midi_built = Some((doc.state(), inputs.clone()));
         }
         // The routing follows the clips, never ahead of them: a deleted
         // track's clips fade out while its node is still there, and a new
@@ -399,7 +438,10 @@ impl Lanes {
                                 [(name, _)] => format!("Loading {name}"),
                                 many => format!("Loading {} files", many.len()),
                             });
-                            if ui.button("Cancel").on_hover_text("Stop loading").clicked() {
+                            if crate::widgets::raised::button(ui, "Cancel")
+                                .on_hover_text("Stop loading")
+                                .clicked()
+                            {
                                 self.library.cancel_all();
                             }
                         });
@@ -470,8 +512,8 @@ pub fn file_card(ui: &mut egui::Ui, item: &Item, properties: Option<&str>) {
     // was not discoverable).
     ui.separator();
     for line in [
-        "Top half: drag to move · Ctrl copies · Ctrl+Alt slips the audio",
-        "Bottom half: drag to select time",
+        "Header: drag to move · Ctrl copies · Ctrl+Alt slips the audio",
+        "Body: drag to select time · Ctrl+Shift selects clips",
         "Sides: drag to trim · Shift loops",
         "Top corners: fades · their middle dot bends them · the line sets gain",
         "Right-click: edits, colour, mute, lock and fade shapes",
@@ -789,5 +831,80 @@ mod tests {
         assert_eq!(tracks(&doc), names, "the order they were dropped in");
         assert!(lanes.pending().is_empty() && lanes.before.is_empty());
         assert_eq!(doc.history().steps().0.len(), 1, "one step");
+    }
+
+    /// The owner's MT-MIDI-2 finding: choosing a preset must reach the
+    /// engine at once. Between the edit and the next block there is one
+    /// `Lanes::update` (a frame) and nothing else: the first note after
+    /// the edit is, sample for sample, the one the new preset plays.
+    #[test]
+    fn a_preset_change_reaches_the_engine_in_one_update() {
+        use lumen_devices::Preset;
+        use lumen_engine::{Command, Layered, Timeline, clip_player, engine, midi_player, mixer};
+        use lumen_project::testing::{midi_track, project_of};
+        let q = Ticks::quarters;
+        let project = |preset: &str| {
+            project_of(
+                "Preset",
+                vec![midi_track(
+                    1,
+                    "Keys",
+                    preset,
+                    (0, 8),
+                    None,
+                    vec![lumen_project::model::Note::new(q(1), q(1), 60, 100)],
+                    vec![],
+                )],
+            )
+        };
+        let ctx = egui::Context::default();
+        let render = |from: &str, to: &str| -> Vec<f32> {
+            let mut doc = Document::new(project(from));
+            let (mut clips, players) = clip_player();
+            let (mut midi, player) = midi_player();
+            let (mut routing, source) = mixer(Layered(players, player));
+            let (mut transport, mut engine) = engine(Timeline::default(), source, 48_000);
+            let mut lanes = Lanes::default();
+            let (cue, inputs) = (Default::default(), Default::default());
+            let mut update = |lanes: &mut Lanes, doc: &mut Document| {
+                lanes.update(
+                    48_000,
+                    &ctx,
+                    doc,
+                    Handles {
+                        clips: &mut clips,
+                        midi: &mut midi,
+                        mixer: &mut routing,
+                    },
+                    &cue,
+                    &inputs,
+                );
+            };
+            update(&mut lanes, &mut doc);
+            transport.send(Command::Play).unwrap();
+            let mut out = Vec::new();
+            let mut data = vec![0.0; 256];
+            let mut block = |out: &mut Vec<f32>| {
+                engine.process(48_000, &mut data, 2, 128);
+                out.extend((0..128).map(|i| data[2 * i]));
+            };
+            // Well before the note.
+            for _ in 0..100 {
+                block(&mut out);
+            }
+            let id = doc.project().tracks[0].id;
+            let preset = Preset::ALL.iter().find(|p| p.id() == to).copied();
+            doc.set_instrument(&[id], preset);
+            // One frame: one update; then audio.
+            update(&mut lanes, &mut doc);
+            for _ in 0..(24_000 + 12_000) / 128 - 100 {
+                block(&mut out);
+            }
+            out
+        };
+        let changed = render("poly", "pad");
+        assert_eq!(changed, render("pad", "pad"), "the new sound, at once");
+        assert_ne!(changed, render("poly", "poly"));
+        assert!(changed.iter().any(|v| v.abs() > 0.01), "and it sounds");
     }
 }

@@ -10,11 +10,13 @@ use super::grid::draw_snap_guide;
 use super::rulers;
 use crate::arrangement::FileDrop;
 use crate::commands::Command;
-use crate::document::DropInto;
+use crate::document::{DropInto, Places};
 use crate::icons::{self, Icon};
+use crate::widgets::raised;
 use crate::{
     App, arrangement, audio, bench, canvas, lanes, light, media, motion, ruler, theme, widgets,
 };
+use lumen_project::model::TrackKind;
 
 /// A glided position, or the exact one once the glide has settled: the
 /// glide runs in f32, which is pixels off at sample-level zoom.
@@ -37,6 +39,39 @@ const EMPTY_MARK_SIZE: f32 = 48.0;
 /// The mark's size in the transport bar.
 const MARK_SIZE: f32 = 22.0;
 
+/// The panel frame of a banner under the transport: `app` ground with room
+/// around the notice card inside it.
+pub(crate) fn notice_panel_frame() -> egui::Frame {
+    egui::Frame::new()
+        .fill(theme::p().app)
+        .inner_margin(egui::Margin::symmetric(
+            theme::space::M as i8,
+            theme::space::S as i8,
+        ))
+}
+
+/// A notice (the Notices card, ADR-0052): `raised` ground with a 1 pt
+/// `warning` hairline at 45%, radius `LARGE`, the warning icon, then
+/// `add` on one row. Say what happened and what is safe; buttons are
+/// `raised::button`, at most one `primary_button` for the main action.
+pub(crate) fn notice_card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+    egui::Frame::new()
+        .fill(theme::p().raised)
+        .stroke(Stroke::new(theme::stroke::HAIRLINE, theme::warning_edge()))
+        .corner_radius(theme::radius::LARGE)
+        .inner_margin(egui::Margin::symmetric(
+            theme::space::M as i8,
+            theme::space::S as i8,
+        ))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("\u{26A0}").color(theme::p().warning));
+                add(ui);
+            });
+        });
+}
+
 fn settled(glided: f32, exact: f64) -> f64 {
     if (f64::from(glided) - exact).abs() < 1e-3 {
         exact
@@ -56,6 +91,7 @@ impl App {
         let step = bench.step(now);
         let idle_left = bench.idle_left(now);
         let out = bench.out().to_path_buf();
+        let editor = bench.editor();
         match step {
             bench::Step::Drive(view) => {
                 self.nav.set(crate::timeview::TimeView {
@@ -70,6 +106,9 @@ impl App {
                 // The lanes take a little over half the window.
                 let visible = ctx.content_rect().height() * 0.6;
                 self.arrangement.top = view.top * (content - visible).max(0.0);
+                if editor {
+                    self.bench_editor(view.top);
+                }
                 ctx.request_repaint();
             }
             bench::Step::Idle => {
@@ -91,6 +130,29 @@ report: {}",
         }
     }
 
+    /// `--bench-editor`: keeps the stress project's dense clip open in the
+    /// clip editor, its pitches scrolled to `top` (0 to 1) of their range.
+    fn bench_editor(&mut self, top: f32) {
+        // The roll has its own view (ADR-0048): the run drives it to the same
+        // zoom and scroll as the arrangement, so it is measured zoomed.
+        self.note_editor.time = self.nav.view;
+        if self.note_editor.clip.is_none() {
+            let dense = self
+                .document
+                .project()
+                .tracks
+                .last()
+                .and_then(|t| t.clips.first())
+                .map(|c| c.id);
+            if let Some(id) = dense {
+                self.open_note_editor(id);
+                self.detail_size = 420.0;
+            }
+        }
+        let rows = 128.0 * self.note_editor.row_height;
+        self.note_editor.scroll = top * (rows - 300.0).max(0.0);
+    }
+
     pub(crate) fn transport(&mut self, ui: &mut egui::Ui) {
         // The panel toggles keep their place at the right at any width or
         // scale, so their room is set aside first (as wide as they were
@@ -108,20 +170,41 @@ report: {}",
                 .max_rect(rect)
                 .layout(egui::Layout::left_to_right(egui::Align::Center))
         };
+        let midi = crate::transport::MidiView::gather(
+            &self.midi,
+            &self.settings.midi,
+            self.live_keys
+                .as_ref()
+                .map_or(0, crate::live::LiveKeys::activity),
+        );
         ui.scope_builder(row(left), |ui| {
             // Whatever does not fit is cut off here rather than drawn over
             // the panel toggles.
             ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
             self.transport_mark(ui);
             self.app_menu(ui);
-            ui.separator();
-            self.transport.ui(ui, &mut self.document, &self.keymap);
+            crate::transport::divider(ui);
+            self.transport.keyboard_readout =
+                self.keyboard.is_on().then(|| self.keyboard.readout());
+            self.transport
+                .ui(ui, &mut self.document, &self.keymap, self.settings.record);
+            // What the bar's controls asked for: Record, Overdub, the count-in.
+            for command in std::mem::take(&mut self.transport.requests) {
+                self.run(ui.ctx(), command);
+            }
+            if std::mem::take(&mut self.transport.keyboard_clicked) {
+                let on = !self.keyboard.is_on();
+                self.set_computer_keyboard(on);
+            }
         });
         if let Some(info) = self.transport.info.take() {
             self.set_info(info);
         }
         let toggles = ui.scope_builder(row(right), |ui| {
-            ui.separator();
+            // The MIDI chip sits with the panel toggles, so it stays in view
+            // however narrow the window: the transport is cut off first.
+            self.transport.midi_chip(ui, &midi);
+            crate::transport::divider(ui);
             let keys = self.keymap.keys(Command::OpenPalette);
             if icons::button(
                 ui,
@@ -240,6 +323,7 @@ report: {}",
         );
         self.time_format_button(ui, time_corner);
         self.arrangement.additive_solo = self.settings.mixing.additive_solo;
+        self.lend_live_input();
         self.lend_cue_controls();
         // New, moved and deleted tracks glide (M4.5).
         self.arrangement.begin_frame(
@@ -287,7 +371,7 @@ report: {}",
             egui::WidgetInfo::labeled(
                 egui::WidgetType::Other,
                 true,
-                "Lanes: click to move the playhead, drag clips, or drag below a clip's middle to select time",
+                "Lanes: click to move the playhead while stopped, drag clip headers to move, or drag clip bodies and empty lanes to select time",
             )
         });
         self.clip_editing(ui, &hover, canvas, &painter);
@@ -333,11 +417,12 @@ report: {}",
 
         // Dropped files land under the pointer (snapped; Alt places them
         // freely) when the system reports it, otherwise at the playhead, on
-        // new tracks at the end. Over an audio track's lane they land on it;
-        // near the line between two tracks they make new tracks there
-        // (slice 6e). The lane or the line, and a snap guide, show where
-        // while files are dragged over.
-        let (pointer, free, dragging) = ui.input(|i| {
+        // new tracks at the end. Over the lane of a track of their kind
+        // (audio or MIDI, M5 slice 7) they land on it; near the line between
+        // two tracks they make new tracks there (slice 6e). The lane or the
+        // line, and a snap guide, show where while files are dragged over:
+        // where MIDI files go when every file dragged is one.
+        let (pointer, free, dragging, all_midi) = ui.input(|i| {
             (
                 self.drag_pointer
                     .or_else(|| i.pointer.hover_pos())
@@ -353,6 +438,12 @@ report: {}",
                             .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
                     })
                     .collect::<Vec<_>>(),
+                !i.raw.hovered_files.is_empty()
+                    && i.raw.hovered_files.iter().all(|f| {
+                        f.path
+                            .as_deref()
+                            .is_some_and(crate::midi_files::is_midi_file)
+                    }),
             )
         });
         self.drop_target = match pointer {
@@ -360,20 +451,25 @@ report: {}",
             None => self.transport.state().ticks,
         };
         let pending = self.lanes.pending().len();
-        let (into, line) = match pointer {
-            Some(p) => {
-                self.arrangement
-                    .file_drop(ui.ctx(), self.document.project(), pending, canvas, p.y)
-            }
-            None => (
-                DropInto::NewTracks {
-                    before: None,
-                    group: None,
-                },
-                canvas.top(),
+        let place = |kind| match pointer {
+            Some(p) => self.arrangement.file_drop(
+                ui.ctx(),
+                self.document.project(),
+                pending,
+                canvas,
+                p.y,
+                kind,
             ),
+            None => (DropInto::END, canvas.top()),
         };
-        self.drop_into = into;
+        let (audio, audio_line) = place(TrackKind::Audio);
+        let (midi, midi_line) = place(TrackKind::Midi);
+        self.drop_into = Places { audio, midi };
+        let (into, line) = if all_midi {
+            (midi, midi_line)
+        } else {
+            (audio, audio_line)
+        };
         if !dragging.is_empty() && pointer.is_some() {
             let x = x_of(self.drop_target.as_quarters());
             draw_snap_guide(&painter, x, at.guides());
@@ -467,7 +563,11 @@ report: {}",
                 .collect()
         });
         if !hovered.is_empty() {
-            let supported = hovered.iter().filter(|p| media::is_audio_file(p)).count();
+            let midi = |p: &PathBuf| crate::midi_files::is_midi_file(p);
+            let supported = hovered
+                .iter()
+                .filter(|p| media::is_audio_file(p) || midi(p))
+                .count();
             let color = if supported > 0 {
                 theme::p().accent
             } else {
@@ -488,7 +588,10 @@ report: {}",
                         .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
                     match media::format_name(p) {
                         Some(format) => format!("✓  {name}  ({format})"),
-                        None => format!("✕  {name}  (not an audio file {PRODUCT_NAME} reads)"),
+                        None if midi(p) => format!("✓  {name}  (MIDI)"),
+                        None => {
+                            format!("✕  {name}  (not an audio or MIDI file {PRODUCT_NAME} reads)")
+                        }
                     }
                 })
                 .collect();
@@ -498,8 +601,15 @@ report: {}",
             let headline = match (supported, hovered.len()) {
                 (0, _) => "Nothing here can be added".to_owned(),
                 (n, total) if n == total => {
+                    let kind = if hovered.iter().all(midi) {
+                        "MIDI"
+                    } else if hovered.iter().any(midi) {
+                        "audio and MIDI"
+                    } else {
+                        "audio"
+                    };
                     format!(
-                        "Drop to add {n} audio file{}",
+                        "Drop to add {n} {kind} file{}",
                         if n == 1 { "" } else { "s" }
                     )
                 }
@@ -521,7 +631,7 @@ report: {}",
             empty_mark(&painter, text, look);
         } else if self.lanes.is_empty(self.document.project()) {
             // Or choose them (M3 review H1: importing was mouse-drag only).
-            let keys = self.keymap.keys(Command::ImportAudio);
+            let keys = self.keymap.keys(Command::Import);
             let state = widgets::EmptyState {
                 // The mark waits, half risen, over an empty arrangement
                 // (ADR-0043).
@@ -531,17 +641,17 @@ report: {}",
                     widgets::mark::paint(p, rect, widgets::mark::Look::WAITING);
                 }),
                 icon_size: EMPTY_MARK_SIZE,
-                title: "Drop audio files here",
-                hint: "WAV, AIFF, FLAC, MP3 or Ogg Vorbis",
+                title: "Drop audio or MIDI files here",
+                hint: "WAV, AIFF, FLAC, MP3, Ogg Vorbis or MIDI",
                 action: Some(widgets::EmptyAction {
-                    label: "Import audio\u{2026}",
+                    label: "Import audio or MIDI\u{2026}",
                     keys: keys.as_ref(),
-                    tip: "Choose audio files to add",
+                    tip: "Choose audio or MIDI files to add",
                 }),
             };
             let clicked = widgets::empty_state(ui, canvas, &state);
-            if clicked && self.availability(ui.ctx(), Command::ImportAudio).is_ok() {
-                self.run(&ui.ctx().clone(), Command::ImportAudio);
+            if clicked && self.availability(ui.ctx(), Command::Import).is_ok() {
+                self.run(&ui.ctx().clone(), Command::Import);
             }
         }
         // Last, so it sits over the headers; on their side of the edge
@@ -643,24 +753,29 @@ report: {}",
             return;
         };
         let live = open;
-        let shown = egui::Panel::top("device banner").show_collapsible(ui, &mut open, |ui| {
-            ui.horizontal(|ui| {
-                let warning = theme::p().warning;
-                ui.label(RichText::new("⚠").color(warning));
-                ui.label(RichText::new(&message).color(warning));
-                ui.add_enabled_ui(live, |ui| {
-                    if retry
-                        && self.transport.audio.can_switch()
-                        && ui.button("Try again").clicked()
-                    {
-                        self.transport.audio.set_on(true);
-                    }
-                    if ui.button("Audio settings…").clicked() {
-                        self.transport.settings_window.open = true;
-                    }
+        let shown = egui::Panel::top("device banner")
+            .frame(notice_panel_frame())
+            .show_collapsible(ui, &mut open, |ui| {
+                notice_card(ui, |ui| {
+                    ui.label(&message);
+                    ui.add_enabled_ui(live, |ui| {
+                        // The main action is the one primary: Try again when
+                        // it is offered, else the settings.
+                        let can_retry = retry && self.transport.audio.can_switch();
+                        if can_retry && raised::primary_button(ui, "Try again").clicked() {
+                            self.transport.audio.set_on(true);
+                        }
+                        let settings = if can_retry {
+                            raised::button(ui, "Audio and MIDI settings…")
+                        } else {
+                            raised::primary_button(ui, "Audio and MIDI settings…")
+                        };
+                        if settings.clicked() {
+                            self.transport.settings_window.open = true;
+                        }
+                    });
                 });
             });
-        });
         if shown.is_none() {
             self.banner = None;
         }

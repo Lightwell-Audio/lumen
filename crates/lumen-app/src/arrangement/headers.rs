@@ -5,6 +5,7 @@
 //! drawn by `header_row`.
 
 use eframe::egui::{self, Align2, FontId, Id as EguiId, Key, Rect, Sense, Stroke, Ui, pos2, vec2};
+use eframe::emath::GuiRounding as _;
 use lumen_project::model::{Id, TrackKind};
 
 use super::header_row::HeaderRow;
@@ -20,9 +21,14 @@ use crate::widgets::{self, SliderKind, draw_arrow, value_slider};
 pub(super) const ARROW_X: f32 = 16.0;
 pub(super) const ICON_X: f32 = 34.0;
 pub(super) const NAME_X: f32 = 48.0;
+/// How much of its strength a silenced track's name and type icon keep
+/// (the design system's `.is-dim`).
+pub(super) const SILENCED: f32 = 0.45;
 /// The volume slider's value text rises this far, clear of the level bars
 /// drawn along its bottom (the owner's report: the meter sat against it).
 const METER_LIFT: f32 = 3.0;
+use crate::theme::Tone;
+use crate::widgets::raised;
 use crate::{fonts, motion, theme};
 
 impl Arrangement {
@@ -243,30 +249,27 @@ impl Arrangement {
             });
             let hover = motion::hover(&ctx, ui.id().with("add track hover"), response.hovered());
             let open = egui::Popup::is_id_open(&ctx, egui::Popup::default_response_id(&response));
-            painter.rect_filled(
-                button,
-                theme::radius::MEDIUM,
-                palette.control.lerp_to_gamma(palette.control_hover, hover),
+            // A raised menu button (ADR-0052): on while its menu is open.
+            let face = raised::Face::new(theme::controls(false))
+                .hover(hover)
+                .pressed(response.is_pointer_button_down_on())
+                .lit(if open { 1.0 } else { 0.0 }, Tone::On);
+            let button_rect = button.round_to_pixels(ctx.pixels_per_point());
+            raised::paint(
+                painter,
+                button_rect,
+                theme::radius::for_height(button_rect.height()),
+                &face,
             );
-            if open || hover > 0.0 {
-                painter.rect_stroke(
-                    button,
-                    theme::radius::MEDIUM,
-                    Stroke::new(
-                        1.0,
-                        palette
-                            .accent
-                            .gamma_multiply(if open { 1.0 } else { hover }),
-                    ),
-                    egui::StrokeKind::Inside,
-                );
-            }
+            raised::focus_ring(painter, &response, button_rect);
             painter.text(
                 pos2(button.left() + 10.0, button.center().y),
                 Align2::LEFT_CENTER,
                 "+ Add track",
                 FontId::proportional(theme::size::BODY),
-                palette.text,
+                palette
+                    .text
+                    .lerp_to_gamma(theme::lit(Tone::On).text, face.lit),
             );
             draw_arrow(
                 painter,
@@ -299,6 +302,19 @@ impl Arrangement {
             fonts::medium(theme::size::BODY)
         } else {
             FontId::proportional(theme::size::BODY)
+        };
+        // A track that listens keeps room for its light (the header's
+        // name; the strip has none).
+        let rect = if !in_strip && self.live.listens(track, heard) {
+            Rect::from_min_max(
+                rect.min,
+                pos2(
+                    (rect.right() - super::listen_light::ROOM).max(rect.left()),
+                    rect.bottom(),
+                ),
+            )
+        } else {
+            rect
         };
         // A folded group says how many tracks it hides, after its name.
         let (rect, count) = match count {
@@ -359,16 +375,14 @@ impl Arrangement {
             self.click_select(doc.project(), track.id, modifiers);
         }
         let painter = ui.painter().clone();
-        let galley = painter.layout(
-            track.name.clone(),
-            font.clone(),
-            if heard {
-                palette.text
-            } else {
-                palette.text_hint
-            },
-            rect.width(),
-        );
+        // A track that is silenced dims its name (the design system's
+        // `.is-dim`: 45%).
+        let name_ink = if heard {
+            palette.text
+        } else {
+            palette.text.gamma_multiply(SILENCED)
+        };
+        let galley = painter.layout(track.name.clone(), font.clone(), name_ink, rect.width());
         // One line, shortened with "…" if too long.
         let text = if galley.rows.len() > 1 {
             let mut name = track.name.clone();
@@ -389,12 +403,11 @@ impl Arrangement {
             Align2::LEFT_CENTER,
             text,
             font,
-            if heard {
-                palette.text
-            } else {
-                palette.text_hint
-            },
+            name_ink,
         );
+        if !in_strip {
+            self.live.paint(ui, track, heard, drawn);
+        }
         if let Some((count, _)) = count {
             let at = pos2(drawn.right() + 6.0, rect.center().y - count.size().y / 2.0);
             painter.galley(at, count, palette.text_hint);
@@ -436,6 +449,7 @@ impl Arrangement {
             widgets::SliderStyle {
                 look,
                 lift: METER_LIFT,
+                comet: false,
             },
         );
         if db != track.gain_db {
@@ -467,9 +481,12 @@ fn painter_count(ui: &Ui, n: usize) -> std::sync::Arc<egui::Galley> {
     )
 }
 
-/// The record-arm button: round, with a red dot that lights when armed. A
-/// group's lights when everything inside it is armed, and shows half a ring
-/// when only some is.
+/// The record-arm button (the design system's TrackButtons, ADR-0052):
+/// round, with no border or edge light. At rest a flat `control` disc with
+/// a quiet grey dot that turns record red under the pointer; armed, a
+/// `record` body at 25% with a solid dot, a ring just outside that breathes
+/// (the owner's pulse, kept) and two glows. A group's lights when everything
+/// inside it is armed, and shows the dot with half a ring when only some is.
 pub(super) fn arm_button(
     ui: &mut Ui,
     rect: Rect,
@@ -482,7 +499,11 @@ pub(super) fn arm_button(
     let palette = theme::p();
     let response = ui
         .interact(rect, id.with("arm"), Sense::click())
-        .on_hover_text("Arm for recording (recording arrives in Milestone 9)");
+        .on_hover_text(if arm == Arm::Listening {
+            "Listening because selected \u{b7} click to arm for recording"
+        } else {
+            "Arm for recording (MIDI tracks record now; audio recording arrives in Milestone 9)"
+        });
     response.widget_info(|| {
         egui::WidgetInfo::selected(
             egui::WidgetType::Checkbox,
@@ -492,6 +513,9 @@ pub(super) fn arm_button(
         )
     });
     let hover = motion::hover(ui.ctx(), id.with("arm hover"), response.hovered());
+    let pressed = response.is_pointer_button_down_on();
+    // Snapped with M and S beside it, so the dot sits on their letters' line.
+    let rect = rect.round_to_pixels(ui.pixels_per_point());
     let p = ui.painter();
     // Every circle shares this exact centre (owner: the ring must sit
     // centred on the dot).
@@ -518,26 +542,44 @@ pub(super) fn arm_button(
         p.circle_stroke(
             center,
             radius + 1.0 + breath,
-            Stroke::new(1.5, palette.record.gamma_multiply(0.45 + 0.3 * breath)),
+            Stroke::new(
+                theme::stroke::LIT,
+                palette.record.gamma_multiply(0.45 + 0.3 * breath),
+            ),
         );
-        p.circle_filled(center, radius, palette.record.gamma_multiply(0.25));
-        p.circle_filled(center, 4.5, palette.record);
+        p.circle_filled(center, radius, palette.record.gamma_multiply(ARM_BODY));
+        p.circle_filled(center, ARM_DOT, palette.record);
     } else {
-        p.circle_filled(center, radius, look.fill.lerp_to_gamma(look.hover, hover));
+        // A flat disc: `control`, an Ember wash under the pointer, flat
+        // `control_press` while pressed.
+        let fill = if pressed { look.press } else { look.fill };
+        p.circle_filled(center, radius, fill);
+        p.circle_filled(center, radius, palette.ember.gamma_multiply(hover));
         if arm == Arm::Partly {
             // Some of the group armed: a lit dot and half a ring, still.
             p.add(egui::Shape::line(
                 half_ring(center, radius + 1.0),
-                Stroke::new(1.5, palette.record.gamma_multiply(0.6)),
+                Stroke::new(theme::stroke::LIT, palette.record.gamma_multiply(0.6)),
             ));
-            p.circle_filled(center, 4.5, palette.record);
+            p.circle_filled(center, ARM_DOT, palette.record);
+        } else if arm == Arm::Listening {
+            // Listening only because it is selected: a hollow record-red
+            // ring, no fill and no glow, so it is not mistaken for an arm.
+            p.circle_stroke(
+                center,
+                ARM_DOT,
+                Stroke::new(theme::stroke::LIT, palette.record),
+            );
         } else {
             // At rest a quiet grey dot, red only under the pointer: record
             // red means recording (the interface audit's T5, the owner's A;
             // a column of red dots was the loudest thing on screen).
-            let rest = look.text.gamma_multiply(0.55);
-            p.circle_filled(center, 4.5, rest.lerp_to_gamma(palette.record, hover));
+            let rest = palette.text_secondary.gamma_multiply(ARM_REST_DOT);
+            p.circle_filled(center, ARM_DOT, rest.lerp_to_gamma(palette.record, hover));
         }
+    }
+    if response.has_focus() {
+        raised::paint_focus(p, rect, theme::radius::FULL);
     }
     response.clicked()
 }
@@ -554,13 +596,20 @@ fn half_ring(center: egui::Pos2, radius: f32) -> Vec<egui::Pos2> {
 }
 
 /// Seconds per breath of the armed ring.
-const ARM_BREATH: f32 = 2.4;
+const ARM_BREATH: f32 = motion::BREATH;
 
-/// How far the armed glow reaches beyond the button, at its widest.
+/// How far the armed glow reaches beyond the button, at its widest (the
+/// TrackButtons card: two glows reaching 4 pt).
 const ARM_GLOW: f32 = 4.0;
+/// The arm button's dot radius (the card's 9 pt dot).
+const ARM_DOT: f32 = 4.5;
+/// How much `record` tints an armed button's body.
+const ARM_BODY: f32 = 0.25;
+/// How strong the resting dot's grey is.
+const ARM_REST_DOT: f32 = 0.55;
 
-/// The space between M, S and the arm button; wider than the glow, so it
-/// never touches S.
+/// The space between M, S and the arm button, wider than the armed glow
+/// (4 pt), so the glow only touches S as a faint halo.
 pub(super) const BUTTON_GAP: f32 = 8.0;
 
 /// What a screen reader says for a header; a group adds how many tracks

@@ -9,11 +9,14 @@ use std::time::Instant;
 use eframe::egui::{self, RichText, pos2};
 use lumen_core::product::PRODUCT_NAME;
 use lumen_core::time::Ticks;
-use lumen_project::model::Project;
+use lumen_project::model::{Project, TrackKind};
 
-use crate::document::DropInto;
+use crate::document::Places;
 use crate::widgets::Dialog;
-use crate::{App, arrangement, document, empty_project, files, lanes, media, theme, trace};
+use crate::widgets::raised;
+use crate::{
+    App, arrangement, document, empty_project, files, lanes, media, midi_files, theme, trace,
+};
 
 /// What happens after unsaved changes are saved or discarded.
 #[derive(Debug, Clone, PartialEq)]
@@ -28,12 +31,19 @@ pub(crate) enum Next {
 pub(crate) enum FileDialog {
     SaveAs(Option<PathBuf>),
     Open(Option<PathBuf>),
-    /// Audio files to import (none when cancelled), and where they go: the
-    /// playhead and the chosen track when the dialog opened (M3 review H1).
+    /// Audio and MIDI files to import (none when cancelled), and where
+    /// they go: the playhead and the chosen track when the dialog opened
+    /// (M3 review H1, M5 slice 7).
     Import {
         paths: Vec<PathBuf>,
         at: Ticks,
-        into: DropInto,
+        into: Places,
+    },
+    /// Where to export a MIDI file (none when cancelled), and its bytes,
+    /// made when the command ran (M5 slice 7).
+    ExportMidi {
+        path: Option<PathBuf>,
+        bytes: Vec<u8>,
     },
 }
 
@@ -98,11 +108,11 @@ impl App {
         }
     }
 
-    /// Import audio (M3 review H1): the system's file dialog, then the
-    /// chosen files load as dropped files do, at the playhead, onto the
-    /// selected audio track (or the track of the selected clip), else onto
-    /// new tracks after the selection.
-    pub(crate) fn import_audio(&mut self, ctx: &egui::Context) {
+    /// Import audio or MIDI (M3 review H1, M5 slice 7): the system's file
+    /// dialog, then the chosen files load as dropped files do, at the
+    /// playhead, onto the selected track (or the track of the selected
+    /// clip) when it takes them, else onto new tracks after the selection.
+    pub(crate) fn import_files(&mut self, ctx: &egui::Context) {
         if self.dialog.is_some() {
             return;
         }
@@ -116,12 +126,22 @@ impl App {
                 .find(|t| t.clips.iter().any(|c| c.id == clip))?;
             Some(track.id)
         });
-        let into = document::import_place(project, chosen);
+        let into = Places {
+            audio: document::import_place(project, chosen, TrackKind::Audio),
+            midi: document::import_place(project, chosen, TrackKind::Midi),
+        };
         let owner = self.owner;
         let show = move || {
+            let both: Vec<&str> = media::EXTENSIONS
+                .iter()
+                .chain(midi_files::EXTENSIONS)
+                .copied()
+                .collect();
             let mut dialog = rfd::FileDialog::new()
-                .set_title("Import audio")
-                .add_filter("Audio", media::EXTENSIONS);
+                .set_title("Import audio or MIDI")
+                .add_filter("Audio and MIDI", &both)
+                .add_filter("Audio", media::EXTENSIONS)
+                .add_filter("MIDI", midi_files::EXTENSIONS);
             if let Some(owner) = &owner {
                 dialog = dialog.set_parent(owner);
             }
@@ -139,7 +159,7 @@ impl App {
     /// is answered at once instead, with the next answer the test gave or
     /// as if cancelled, through `answered`, which makes the result from the
     /// chosen paths: a test never opens a real dialog.
-    fn file_dialog(
+    pub(crate) fn file_dialog(
         &mut self,
         ctx: &egui::Context,
         show: impl FnOnce() -> FileDialog + Send + 'static,
@@ -157,10 +177,19 @@ impl App {
     }
 
     pub(crate) fn start_save(&mut self, path: PathBuf) {
+        self.start_save_with(path, false);
+    }
+
+    pub(crate) fn start_save_as(&mut self, chosen: PathBuf) {
+        self.start_save_with(chosen, true);
+    }
+
+    fn start_save_with(&mut self, path: PathBuf, normalize_project_path: bool) {
         trace::log(|| format!("files: saving {}", path.display()));
         self.saving = Some(files::save(files::SaveRequest {
             project: self.stamped(),
             path,
+            normalize_project_path,
             media_files: self.document.media_files.clone(),
             copy_imported: self.settings.projects.copy_imported,
             keep_backups: lumen_project::SaveOptions::default().keep_backups,
@@ -240,14 +269,17 @@ impl App {
             self.dialog = None;
             match result {
                 FileDialog::SaveAs(Some(chosen)) => {
-                    self.start_save(files::project_file_for(&chosen));
+                    self.start_save_as(chosen);
                 }
                 FileDialog::Open(Some(path)) => self.proceed(ctx, Next::Open(Some(path))),
                 FileDialog::Import { paths, at, into } => {
                     if !paths.is_empty() {
-                        let rate = self.transport.state().sample_rate;
-                        self.lanes
-                            .add_files(paths, at, into, rate, ctx, &mut self.document);
+                        self.add_files(paths, at, into, ctx);
+                    }
+                }
+                FileDialog::ExportMidi { path, bytes } => {
+                    if let Some(path) = path {
+                        self.write_midi(ctx, path, bytes);
                     }
                 }
                 // Cancelled: whatever was waiting on it is off too.
@@ -378,14 +410,14 @@ impl App {
                 );
                 ui.add_space(theme::space::M);
                 ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
+                    if raised::button(ui, "Save").clicked() {
                         choice = Some(0);
                     }
-                    if ui.button("Don't save").clicked() {
+                    if raised::button(ui, "Don't save").clicked() {
                         choice = Some(1);
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Cancel").clicked() {
+                        if raised::button(ui, "Cancel").clicked() {
                             choice = Some(2);
                         }
                     });
@@ -415,19 +447,21 @@ impl App {
             return;
         };
         let ctx = ui.ctx().clone();
-        egui::Panel::top("file banner").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let warning = theme::p().warning;
-                ui.label(RichText::new("\u{26A0}").color(warning));
-                ui.label(RichText::new(&message).color(warning));
-                if message.starts_with("Not saved") && ui.button("Save as\u{2026}").clicked() {
-                    self.save(&ctx, true);
-                }
-                if ui.small_button("Dismiss").clicked() {
-                    self.file_notice = None;
-                }
+        egui::Panel::top("file banner")
+            .frame(super::view::notice_panel_frame())
+            .show(ui, |ui| {
+                super::view::notice_card(ui, |ui| {
+                    ui.label(&message);
+                    if message.starts_with("Not saved")
+                        && raised::primary_button(ui, "Save as\u{2026}").clicked()
+                    {
+                        self.save(&ctx, true);
+                    }
+                    if raised::button(ui, "Dismiss").clicked() {
+                        self.file_notice = None;
+                    }
+                });
             });
-        });
     }
 }
 

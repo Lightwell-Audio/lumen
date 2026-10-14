@@ -22,7 +22,8 @@ use super::{Arrangement, color_of, headers, nesting, pinned};
 use crate::commands::Keymap;
 use crate::document::Document;
 use crate::meters::FLOOR_DB;
-use crate::widgets::{self, SliderKind, fader, meter};
+use crate::theme::Tone;
+use crate::widgets::{self, SliderKind, fader, meter, raised};
 use crate::{fonts, light, motion, theme};
 
 /// A strip's width: wide enough for a track name of about eleven characters
@@ -48,7 +49,7 @@ const TRAVEL_PAD: f32 = 12.0;
 const BUTTONS: f32 = theme::size::CONTROL_SMALL;
 const BOTTOM: f32 = theme::space::S;
 /// Room above the buttons for the armed glow, which reaches 4 pt past the
-/// arm button (`headers::ARM_GLOW`); the peak readout above must stay clear.
+/// arm button; the peak readout above must stay clear.
 const ABOVE_BUTTONS: f32 = theme::space::S;
 /// dB marks on the scale between fader and meter, most important first:
 /// those without room for their number become ticks.
@@ -57,6 +58,8 @@ const MARKS: [f32; 6] = [0.0, -48.0, 6.0, -12.0, -24.0, -6.0];
 /// Which optional sections a strip shows, for the panel's height.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Sections {
+    /// A MIDI track's From and To rows, above the output.
+    pub io: bool,
     pub output: bool,
     pub trim: bool,
     pub sends: bool,
@@ -65,13 +68,15 @@ pub(super) struct Sections {
 impl Sections {
     /// The sections that fit `height`, folding sends away first, then trim
     /// and polarity, then the output (the owner's B7).
-    pub(super) fn fitting(height: f32) -> Self {
+    pub(super) fn fitting(height: f32, midi: bool) -> Self {
         let mut s = Sections {
+            io: midi,
             output: true,
             trim: true,
             sends: true,
         };
         for fold in [
+            |s: &mut Sections| s.io = false,
             |s: &mut Sections| s.sends = false,
             |s: &mut Sections| s.trim = false,
             |s: &mut Sections| s.output = false,
@@ -86,7 +91,12 @@ impl Sections {
 
     /// The height everything but the fader takes.
     fn fixed(self) -> f32 {
-        let optional = [(self.output, ROW), (self.trim, ROW), (self.sends, SENDS)];
+        let optional = [
+            (self.io, 2.0 * ROW + GAP),
+            (self.output, ROW),
+            (self.trim, ROW),
+            (self.sends, SENDS),
+        ];
         TOP + NAME
             + optional
                 .iter()
@@ -112,6 +122,7 @@ impl Sections {
     /// The shortest strip: everything folded and the shortest travel.
     pub(super) fn min_height() -> f32 {
         Sections {
+            io: false,
             output: false,
             trim: false,
             sends: false,
@@ -241,6 +252,17 @@ impl Arrangement {
         self.strip_name(ui, doc, &track, (x, y), (id, heard));
         y += NAME + GAP;
 
+        if look.sections.io {
+            // A MIDI track's From and To (the other kinds leave the room
+            // empty, so every fader keeps its place).
+            if track.kind == TrackKind::Midi {
+                let from = Rect::from_x_y_ranges(x, y..=y + ROW);
+                self.input_row(ui, doc, &track, from, id);
+                let to = Rect::from_x_y_ranges(x, y + ROW + GAP..=y + 2.0 * ROW + GAP);
+                self.output_row(ui, doc, &track, to, id);
+            }
+            y += 2.0 * ROW + 2.0 * GAP;
+        }
         if look.sections.output {
             self.output_button(ui, doc, &track, Rect::from_x_y_ranges(x, y..=y + ROW), id);
             y += ROW + GAP;
@@ -339,7 +361,7 @@ impl Arrangement {
             );
         }
         if arms && let Some(i) = index {
-            let arm = nesting::arm_state(doc.project(), i);
+            let arm = nesting::arm_look(doc.project(), i, &self.selected);
             let name = format!("{} in the mixer", track.name);
             if headers::arm_button(ui, next(), id, &name, arm, controls) {
                 doc.set_armed(&self.targets(track.id), !arm.on());
@@ -428,17 +450,25 @@ impl Arrangement {
         if db != track.gain_db {
             doc.set_volume(track.id, db);
         }
+        // The held peak is a readout: a click clears it.
         let peak = Rect::from_x_y_ranges(x.max - half..=x.max, y..=y + ROW);
         let hold = reading.hold_db();
-        painter.rect_filled(
-            peak,
-            theme::radius::SMALL,
-            if reading.clipped {
-                palette.record
-            } else {
-                controls.fill
-            },
-        );
+        let response = self.clear_clip_on_click(ui, peak, track, id.with("peak"));
+        let hover = motion::hover(ui.ctx(), id.with("peak hover"), response.hovered());
+        // A readout, sunk like the value field beside it (`paint_field`);
+        // a clip flares it in the record colour.
+        let peak = peak.round_to_pixels(ui.pixels_per_point());
+        let radius = theme::radius::for_height(peak.height());
+        let ink = if reading.clipped {
+            let flare = raised::Face::new(controls)
+                .hover(hover)
+                .lit(1.0, Tone::Record);
+            raised::paint(&painter, peak, radius, &flare);
+            flare.text()
+        } else {
+            raised::paint_field(&painter, peak, radius, hover);
+            controls.text
+        };
         painter.text(
             peak.center(),
             Align2::CENTER_CENTER,
@@ -448,13 +478,9 @@ impl Arrangement {
                 "\u{2014}".into()
             },
             FontId::monospace(theme::size::CAPTION),
-            if reading.clipped {
-                theme::text_on(palette.record)
-            } else {
-                palette.text_secondary
-            },
+            ink,
         );
-        self.clear_clip_on_click(ui, peak, track, id.with("peak"));
+        raised::focus_ring(ui.painter(), &response, peak);
         y + ROW + GAP
     }
 
@@ -556,7 +582,6 @@ impl Arrangement {
         row: Rect,
         (id, controls): (EguiId, theme::Controls),
     ) {
-        let palette = *theme::p();
         let flip = Rect::from_min_size(row.min, vec2(ROW, ROW));
         let response = ui
             .interact(flip, id.with("invert"), Sense::click())
@@ -573,23 +598,27 @@ impl Arrangement {
             doc.set_invert(&self.targets(track.id), !track.invert);
         }
         let hover = motion::hover(ui.ctx(), id.with("invert hover"), response.hovered());
-        let fill = if track.invert {
-            palette.accent
-        } else {
-            controls.fill.lerp_to_gamma(controls.hover, hover)
-        };
-        ui.painter().rect_filled(flip, theme::radius::SMALL, fill);
+        let lit = motion::hover(ui.ctx(), id.with("invert lit"), track.invert);
+        // A raised toggle (ADR-0052), on while the polarity is inverted.
+        let face = raised::Face::new(controls)
+            .hover(hover)
+            .pressed(response.is_pointer_button_down_on())
+            .lit(lit, Tone::On);
+        let flip = flip.round_to_pixels(ui.pixels_per_point());
+        let body = raised::paint(
+            ui.painter(),
+            flip,
+            theme::radius::for_height(flip.height()),
+            &face,
+        );
         ui.painter().text(
-            flip.center(),
+            body.center(),
             Align2::CENTER_CENTER,
             "\u{00D8}",
             fonts::medium(theme::size::CAPTION),
-            if track.invert {
-                theme::text_on(fill)
-            } else {
-                controls.text
-            },
+            face.text(),
         );
+        raised::focus_ring(ui.painter(), &response, flip);
         let trim = Rect::from_min_max(pos2(flip.right() + GAP, row.top()), row.max);
         let db = widgets::value_slider(
             ui,
@@ -660,7 +689,6 @@ impl Arrangement {
         rect: Rect,
         (id, controls): (EguiId, theme::Controls),
     ) {
-        let palette = *theme::p();
         let response = ui
             .interact(rect, id.with("mute"), Sense::click())
             .on_hover_text("Mute the master: silences the main output");
@@ -676,28 +704,38 @@ impl Arrangement {
             doc.set_mute(&[master.id], !master.mute);
         }
         let hover = motion::hover(ui.ctx(), id.with("mute hover"), response.hovered());
-        let fill = if master.mute {
-            palette.start_marker
-        } else {
-            controls.fill.lerp_to_gamma(controls.hover, hover)
-        };
-        ui.painter().rect_filled(rect, theme::radius::SMALL, fill);
+        let lit = motion::hover(ui.ctx(), id.with("mute lit"), master.mute);
+        // As every track's M (ADR-0052): raised, `mute` when on.
+        let face = raised::Face::new(controls)
+            .hover(hover)
+            .pressed(response.is_pointer_button_down_on())
+            .lit(lit, Tone::Mute);
+        let rect = rect.round_to_pixels(ui.pixels_per_point());
+        let body = raised::paint(
+            ui.painter(),
+            rect,
+            theme::radius::for_height(rect.height()),
+            &face,
+        );
         ui.painter().text(
-            rect.center(),
+            body.center(),
             Align2::CENTER_CENTER,
             "M",
             fonts::medium(theme::size::CAPTION),
-            if master.mute {
-                theme::text_on(fill)
-            } else {
-                controls.text
-            },
+            face.text(),
         );
+        raised::focus_ring(ui.painter(), &response, rect);
     }
 
     /// A click on a clip light or a held peak clears it; Alt+click clears
     /// every one.
-    fn clear_clip_on_click(&mut self, ui: &mut Ui, area: Rect, track: &Track, id: EguiId) {
+    fn clear_clip_on_click(
+        &mut self,
+        ui: &mut Ui,
+        area: Rect,
+        track: &Track,
+        id: EguiId,
+    ) -> egui::Response {
         let response = ui
             .interact(area, id, Sense::click())
             .on_hover_cursor(CursorIcon::PointingHand);
@@ -718,6 +756,7 @@ impl Arrangement {
                 self.meters.clear_clip(track.id.0);
             }
         }
+        response
     }
 }
 
@@ -727,22 +766,24 @@ mod tests {
 
     #[test]
     fn a_short_panel_folds_sends_then_trim_then_the_output() {
-        let all = Sections::fitting(1_000.0);
-        assert!(all.output && all.trim && all.sends);
+        let all = Sections::fitting(1_000.0, true);
+        assert!(all.io && all.output && all.trim && all.sends);
+        assert!(!Sections::fitting(1_000.0, false).io);
         assert!(all.travel(1_000.0) > TRAVEL_MIN);
         // Just short of room for the sends: they go first.
         let full = Sections {
+            io: false,
             output: true,
             trim: true,
             sends: true,
         };
         let h = full.fixed() + TRAVEL_MIN - 1.0;
-        let s = Sections::fitting(h);
+        let s = Sections::fitting(h, false);
         assert!(!s.sends && s.trim && s.output, "{s:?}");
         // Shorter still: trim, then the output.
-        let s = Sections::fitting(h - SENDS - GAP - ROW);
+        let s = Sections::fitting(h - SENDS - GAP - ROW, false);
         assert!(!s.sends && !s.trim && s.output, "{s:?}");
-        let s = Sections::fitting(Sections::min_height());
+        let s = Sections::fitting(Sections::min_height(), true);
         assert!(!s.sends && !s.trim && !s.output);
         assert_eq!(s.travel(Sections::min_height()), TRAVEL_MIN);
     }

@@ -142,7 +142,7 @@ pub fn synthetic(
                             None => ClipContent::Midi {
                                 notes: (0..notes_per_clip)
                                     .map(|_| {
-                                        Note(
+                                        Note::new(
                                             Ticks(rng.below(2 * PPQ as u64) as i64),
                                             Ticks(PPQ / 4),
                                             36 + rng.below(48) as u8,
@@ -150,6 +150,7 @@ pub fn synthetic(
                                         )
                                     })
                                     .collect(),
+                                events: Vec::new(),
                             },
                         },
                     })
@@ -197,4 +198,197 @@ pub fn synthetic(
         transport: Default::default(),
         view: Default::default(),
     }
+}
+
+/// A project of `tracks` at 120 BPM in 4/4, for tests that need only their
+/// content: ids from 1000 are free for the caller; the master is 999.
+pub fn project_of(name: &str, tracks: Vec<Track>) -> Project {
+    Project {
+        name: name.into(),
+        sample_rate: 48_000,
+        tempo: vec![TempoPoint {
+            at: Ticks::ZERO,
+            bpm: 120.0,
+        }],
+        time_signature: TimeSignature {
+            numerator: 4,
+            denominator: 4,
+        },
+        tracks: tracks.into_iter().map(Arc::new).collect(),
+        master: Arc::new(Track::master(Id(999))),
+        pan_law: Default::default(),
+        media: Vec::new(),
+        markers: Vec::new(),
+        transport: Default::default(),
+        view: Default::default(),
+    }
+}
+
+/// A MIDI track with the synth on `preset` and one clip of `notes` and
+/// `events` from `start` to `start + length` (in quarter notes), with the
+/// content repeating every `repeat` quarters when given. Ids count from
+/// `id`: the track, its device, its clip.
+#[allow(clippy::too_many_arguments)]
+pub fn midi_track(
+    id: u64,
+    name: &str,
+    preset: &str,
+    (start, length): (i64, i64),
+    repeat: Option<i64>,
+    notes: Vec<Note>,
+    events: Vec<crate::model::ClipEvent>,
+) -> Track {
+    let mut track = Track::new(Id(id), name, TrackKind::Midi, Color(0x4F81BD));
+    track.devices = vec![Device::synth(Id(id + 1), preset)];
+    track.clips = vec![Arc::new(Clip {
+        id: Id(id + 2),
+        name: name.into(),
+        start: Ticks::quarters(start),
+        length: Ticks::quarters(length),
+        muted: false,
+        color: None,
+        locked: false,
+        fade_in: Default::default(),
+        fade_out: Default::default(),
+        loop_length: repeat.map(Ticks::quarters),
+        content: ClipContent::Midi { notes, events },
+    })];
+    track
+}
+
+/// The project for the manual test MT-MIDI-2 (`tests/projects/midi-demo.lumen`):
+/// notes cannot be drawn until the piano roll (M5 slice 3), so the project
+/// holds what the slice has to prove. 120 BPM, eight bars:
+/// - **Chords** (Poly): Am, F, C, G over four bars, repeated by the clip's
+///   loop; the C is short with the sustain pedal down for the bar, so it
+///   rings on until the pedal comes up;
+/// - **Pad** (Pad): one chord for all eight bars, for chase: start playback
+///   anywhere and it sounds at once;
+/// - **Bass** (Bass): eighth notes on the chords' roots and fifths, four
+///   bars repeated;
+/// - **Lead** (Keys): a note in bar 5 that bends up two semitones while the
+///   modulation wheel opens the filter, then comes back;
+/// - **Hardware** (Pluck, sent to Microsoft GS Wavetable Synth, channel 1):
+///   an arpeggio of the same chords in bars 1 to 4, in eighth notes, its
+///   root on every downbeat.
+///
+/// The loop brace (bars 1 to 4) is set and off.
+pub fn midi_demo() -> Project {
+    use crate::model::{ClipEvent, EventKind, MidiTo};
+    let q = Ticks::quarters;
+    let note = |start: i64, length: i64, pitch: u8, velocity: u8| {
+        Note::new(q(start), q(length), pitch, velocity)
+    };
+    let chord = |bar: i64, length: i64, pitches: &[u8]| -> Vec<Note> {
+        pitches
+            .iter()
+            .map(|&p| note(bar * 4, length, p, 88))
+            .collect()
+    };
+    let pedal = |beat: i64, value: u8| ClipEvent {
+        at: q(beat),
+        kind: EventKind::Controller { number: 64, value },
+    };
+    let mut chords = chord(0, 4, &[57, 60, 64]);
+    chords.extend(chord(1, 4, &[53, 57, 60]));
+    chords.extend(chord(2, 1, &[48, 55, 60, 64]));
+    chords.extend(chord(3, 4, &[55, 59, 62]));
+    let chords = midi_track(
+        1,
+        "Chords",
+        "poly",
+        (0, 32),
+        Some(16),
+        chords,
+        vec![pedal(8, 127), pedal(12, 0)],
+    );
+    let pad = midi_track(
+        10,
+        "Pad",
+        "pad",
+        (0, 32),
+        None,
+        vec![note(0, 32, 48, 70), note(0, 32, 55, 70)],
+        vec![],
+    );
+    // Roots of Am, F, C, G, one per bar: root, root, fifth, root, twice.
+    let bass_line: Vec<Note> = [33_u8, 29, 36, 31]
+        .iter()
+        .enumerate()
+        .flat_map(|(bar, &root)| {
+            [0, 0, 7, 0, 0, 0, 7, 0]
+                .iter()
+                .enumerate()
+                .map(move |(i, &up)| {
+                    Note::new(
+                        Ticks(q(bar as i64 * 4).0 + q(1).0 / 2 * i as i64),
+                        Ticks(q(1).0 / 2 - 1_000),
+                        root + up,
+                        100,
+                    )
+                })
+        })
+        .collect();
+    let bass = midi_track(20, "Bass", "bass", (0, 32), Some(16), bass_line, vec![]);
+    let bend = |beat: i64, sixteenth: i64, value: i16| ClipEvent {
+        at: Ticks(q(beat).0 + q(1).0 / 4 * sixteenth),
+        kind: EventKind::PitchBend { value },
+    };
+    let wheel = |beat: i64, value: u8| ClipEvent {
+        at: q(beat),
+        kind: EventKind::Controller { number: 1, value },
+    };
+    let lead = midi_track(
+        30,
+        "Lead",
+        "keys",
+        (16, 8),
+        None,
+        vec![note(0, 4, 72, 100), note(4, 4, 67, 90)],
+        vec![
+            bend(0, 0, 0),
+            bend(1, 0, 2048),
+            bend(2, 0, 4096),
+            bend(3, 0, 8191),
+            bend(4, 0, 0),
+            wheel(0, 0),
+            wheel(2, 64),
+            wheel(4, 127),
+            wheel(6, 0),
+        ],
+    );
+    // The chords' notes again, one bar each, eighth notes going up and
+    // back: the root (the chord's lowest note) on every downbeat.
+    let arpeggio: Vec<Note> = [
+        [57_u8, 60, 64, 69],
+        [53, 57, 60, 65],
+        [60, 64, 67, 72],
+        [55, 59, 62, 67],
+    ]
+    .iter()
+    .enumerate()
+    .flat_map(|(bar, tones)| {
+        [0_usize, 1, 2, 3, 2, 1, 2, 1]
+            .into_iter()
+            .enumerate()
+            .map(move |(i, tone)| {
+                Note::new(
+                    Ticks(q(bar as i64 * 4).0 + q(1).0 / 2 * i as i64),
+                    Ticks(q(1).0 / 2 - 2_000),
+                    tones[tone],
+                    96,
+                )
+            })
+    })
+    .collect();
+    let mut hardware = midi_track(40, "Hardware", "pluck", (0, 16), None, arpeggio, vec![]);
+    hardware.midi_to = Some(MidiTo {
+        port: "Microsoft GS Wavetable Synth".into(),
+        channel: 0,
+    });
+    let mut project = project_of("MIDI demo", vec![chords, pad, bass, lead, hardware]);
+    project.transport.loop_start = Ticks::ZERO;
+    project.transport.loop_end = q(16);
+    project.transport.loop_enabled = false;
+    project
 }

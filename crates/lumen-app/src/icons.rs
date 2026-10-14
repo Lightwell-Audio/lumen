@@ -3,6 +3,7 @@
 //! at every UI scale. They are drawn with egui's painter: at icon sizes that
 //! is crisp and cheap, and Vello stays reserved for dense canvases (ADR-0018).
 
+use eframe::emath::GuiRounding as _;
 use std::f32::consts::{PI, TAU};
 
 use eframe::egui::{
@@ -19,6 +20,8 @@ pub enum Icon {
     Pause,
     Stop,
     Record,
+    /// Counting in (M5 slice 6d): the record ring, hollow, that pulses.
+    RecordRing,
     Loop,
     Metronome,
     /// Follow the playhead: a playhead line with an arrow.
@@ -33,16 +36,28 @@ pub enum Icon {
     Search,
     /// A mouse, before a gesture in the info line (M4 slice 0).
     Mouse,
+    /// The computer keyboard plays notes (M5 slice 2): a keycap, a rounded
+    /// square with a smaller one set up inside it.
+    Keycap,
+    /// MIDI (M5 slice 2d): a five-pin DIN socket.
+    Din,
+    /// Monitor In (M5 slice 2 fix): a speaker with one wave.
+    Speaker,
+    /// Monitor Off: the speaker, struck through.
+    SpeakerOff,
+    /// Overdub (M5 slice 6d): layers, a stack of three.
+    Layers,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 13] = [
+    pub const ALL: [Icon; 19] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
         Icon::Stop,
         Icon::Record,
+        Icon::RecordRing,
         Icon::Loop,
         Icon::Metronome,
         Icon::Follow,
@@ -51,6 +66,11 @@ impl Icon {
         Icon::Lock,
         Icon::Search,
         Icon::Mouse,
+        Icon::Keycap,
+        Icon::Din,
+        Icon::Speaker,
+        Icon::SpeakerOff,
+        Icon::Layers,
     ];
 }
 
@@ -99,6 +119,20 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             color,
         )],
         Icon::Record => vec![Shape::circle_filled(g.p(8.0, 8.0), 4.75 * g.unit, color)],
+        // The ring's outer edge is the filled dot's radius: the stroke is
+        // centred 0.8 units inside it.
+        Icon::RecordRing => vec![Shape::circle_stroke(g.p(8.0, 8.0), 3.95 * g.unit, stroke)],
+        Icon::Layers => vec![
+            Shape::closed_line(
+                vec![g.p(8.0, 2.0), g.p(14.0, 5.0), g.p(8.0, 8.0), g.p(2.0, 5.0)],
+                stroke,
+            ),
+            Shape::line(vec![g.p(2.0, 8.5), g.p(8.0, 11.5), g.p(14.0, 8.5)], stroke),
+            Shape::line(
+                vec![g.p(2.0, 11.5), g.p(8.0, 14.5), g.p(14.0, 11.5)],
+                stroke,
+            ),
+        ],
         Icon::ToStart => vec![
             Shape::rect_filled(g.rect(3.0, 3.0, 5.0, 13.0), 0.3 * g.unit, color),
             Shape::convex_polygon(
@@ -196,6 +230,62 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             ),
             Shape::line_segment([g.p(8.0, 1.5), g.p(8.0, 6.5)], stroke),
         ],
+        Icon::Keycap => vec![
+            Shape::rect_stroke(
+                g.rect(1.5, 2.5, 14.5, 14.5),
+                3.0 * g.unit,
+                stroke,
+                egui::StrokeKind::Middle,
+            ),
+            Shape::rect_stroke(
+                g.rect(4.5, 4.5, 11.5, 10.0),
+                1.5 * g.unit,
+                stroke,
+                egui::StrokeKind::Middle,
+            ),
+        ],
+        Icon::Din => {
+            // The shell, and five pins on its upper arc (180 degrees).
+            let pin = 1.1 * g.unit;
+            let mut shapes = vec![Shape::circle_stroke(g.p(8.0, 8.0), 6.6 * g.unit, stroke)];
+            for (x, y) in [(3.6, 9.6), (4.7, 6.0), (8.0, 4.6), (11.3, 6.0), (12.4, 9.6)] {
+                shapes.push(Shape::circle_filled(g.p(x, y), pin, color));
+            }
+            shapes
+        }
+        Icon::Speaker | Icon::SpeakerOff => {
+            // A cone and box, and one wave; Off adds the slash.
+            let mut shapes = vec![
+                Shape::convex_polygon(
+                    vec![
+                        g.p(2.0, 6.0),
+                        g.p(5.2, 6.0),
+                        g.p(9.0, 2.8),
+                        g.p(9.0, 13.2),
+                        g.p(5.2, 10.0),
+                        g.p(2.0, 10.0),
+                    ],
+                    color,
+                    none,
+                ),
+                Shape::line(
+                    (0..=8)
+                        .map(|k| {
+                            let a = -0.9 + 1.8 * k as f32 / 8.0;
+                            g.p(8.4 + 3.6 * a.cos(), 8.0 + 3.6 * a.sin())
+                        })
+                        .collect(),
+                    stroke,
+                ),
+            ];
+            if icon == Icon::SpeakerOff {
+                shapes.push(Shape::line_segment(
+                    [g.p(2.0, 14.0), g.p(14.0, 2.0)],
+                    Stroke::new(1.8 * g.unit, color),
+                ));
+            }
+            shapes
+        }
         Icon::Follow => vec![
             Shape::line_segment([g.p(4.0, 2.5), g.p(4.0, 13.5)], stroke),
             Shape::line_segment([g.p(6.5, 8.0), g.p(11.5, 8.0)], stroke),
@@ -208,27 +298,29 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
     }
 }
 
-/// A transport-bar button showing `icon`. `active` marks a toggle that is on
-/// (or Play while playing). The accessible name is `label`; the tooltip adds
-/// the shortcut as keycaps and a hint (`tip`).
 /// Lights a transport button that is sounding now (Play while playing):
-/// the [`light::BEAM`] level's halo around it and its icon in the core
-/// colour (ADR-0043). Drawn over the button `button` returned.
-pub fn beam(ui: &Ui, rect: egui::Rect, icon: Icon) {
-    let painter = ui.painter();
-    let c = theme::p();
+/// the `light::BEAM` level's halo around it (ADR-0043). Drawn over the
+/// button `button` returned; the button itself gives the icon its core
+/// colour and the fill its `accent_muted`.
+pub fn beam(ui: &Ui, rect: egui::Rect) {
     crate::light::halo_around(
-        painter,
+        ui.painter(),
         crate::light::BEAM,
         rect,
-        f32::from(theme::radius::SMALL),
-        c.accent,
+        f32::from(theme::radius::for_height(rect.height())),
+        theme::p().accent,
     );
-    for shape in shapes(icon, rect.shrink(4.0), c.core) {
-        painter.add(shape);
-    }
 }
 
+/// A transport-bar button showing `icon` (the design system's Transport
+/// card, ADR-0052). `active` marks a toggle that is on (or Play while
+/// playing, Record while recording). The accessible name is `label`; the
+/// tooltip adds the shortcut as keycaps and a hint (`tip`).
+///
+/// It is quiet: no fill and no border at rest, a `text_secondary` icon;
+/// hover lays Ember over it; pressed it sinks; on it is [`Tone::On`]
+/// (`accent_muted`, accent icon, a 38% hairline), Play while playing has the
+/// icon in `core`, and Record while recording is [`Tone::Record`].
 pub fn button(
     ui: &mut Ui,
     icon: Icon,
@@ -238,7 +330,55 @@ pub fn button(
     enabled: bool,
     disabled_reason: &str,
 ) -> Response {
-    let size = Vec2::new(30.0, 24.0);
+    button_look(
+        ui,
+        icon,
+        label,
+        tip,
+        Look {
+            active,
+            enabled,
+            disabled_reason,
+            ..Look::default()
+        },
+    )
+}
+
+/// How a transport button is in its state and painted (the Record button's
+/// states, M5 slice 6d). The fields left at their default keep [`button`]'s
+/// look.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Look<'a> {
+    /// A toggle that is on (Record while recording, Overdub when on).
+    pub active: bool,
+    pub enabled: bool,
+    /// Said after the label when disabled.
+    pub disabled_reason: &'a str,
+    /// The tone it lights in (default: Record for the record glyph, On for
+    /// the rest).
+    pub tone: Option<theme::Tone>,
+    /// The icon's colour, in place of the face's text.
+    pub ink: Option<Color32>,
+    /// How lit, 0 to 1, in place of the cross-fade from `active` (a pulse
+    /// that is not a state).
+    pub lit: Option<f32>,
+}
+
+/// [`button`] with its state and look given by `look`.
+pub fn button_look(
+    ui: &mut Ui,
+    icon: Icon,
+    label: &str,
+    tip: crate::widgets::Tip<'_>,
+    look: Look<'_>,
+) -> Response {
+    let Look {
+        active,
+        enabled,
+        disabled_reason,
+        ..
+    } = look;
+    let size = Vec2::splat(theme::size::TRANSPORT_ICON);
     let sense = if enabled {
         Sense::click()
     } else {
@@ -249,45 +389,38 @@ pub fn button(
         egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, active, label)
     });
     if ui.is_rect_visible(rect) {
-        let painter = ui.painter();
         let c = theme::p();
-        // Hover and press fade in and out (motion: FAST), and so does being
-        // lit (M4.5).
+        // Hover and being lit cross-fade (motion: FAST).
         let hot = enabled && (response.hovered() || response.has_focus());
-        let lit = crate::motion::hover(ui.ctx(), response.id.with("lit"), active);
+        let lit = look
+            .lit
+            .unwrap_or_else(|| crate::motion::hover(ui.ctx(), response.id.with("lit"), active));
         let hover = crate::motion::hover(ui.ctx(), response.id.with("hover"), hot);
-        let press = crate::motion::hover(
-            ui.ctx(),
-            response.id.with("press"),
-            enabled && response.is_pointer_button_down_on(),
-        );
-        if hover > 0.0 && lit < 1.0 {
-            let fill = c.control_hover.lerp_to_gamma(c.control_press, press);
-            painter.rect_filled(rect, theme::radius::SMALL, fill.gamma_multiply(hover));
-        }
-        if lit > 0.0 {
-            painter.rect_filled(
-                rect,
-                theme::radius::SMALL,
-                c.accent_muted.gamma_multiply(lit),
-            );
-        }
-        if response.has_focus() {
-            painter.rect_stroke(
-                rect,
-                theme::radius::SMALL,
-                Stroke::new(1.5, c.accent),
-                egui::StrokeKind::Inside,
-            );
-        }
-        let color = match (enabled, icon) {
-            (false, _) => c.text_disabled,
-            (true, Icon::Record) => c.record,
-            (true, _) => c.text.lerp_to_gamma(c.accent, lit),
+        let tone = look.tone.unwrap_or(if icon == Icon::Record {
+            theme::Tone::Record
+        } else {
+            theme::Tone::On
+        });
+        let face = crate::widgets::raised::Face::new(theme::controls(false))
+            .hover(hover)
+            .pressed(enabled && response.is_pointer_button_down_on())
+            .lit(lit, tone)
+            .enabled(enabled);
+        let rect = rect.round_to_pixels(ui.pixels_per_point());
+        let radius = theme::radius::for_height(rect.height());
+        let body = paint_quiet(ui.painter(), rect, radius, &face);
+        // Play while playing reads in the core colour, like the playhead.
+        let color = if matches!(icon, Icon::Play | Icon::Pause) {
+            face.text().lerp_to_gamma(c.core, lit)
+        } else {
+            look.ink.unwrap_or_else(|| face.text())
         };
-        for shape in shapes(icon, rect.shrink(4.0), color) {
-            painter.add(shape);
+        // The icon sits on the body's centre, in whole pixels.
+        let icon_rect = Rect::from_center_size(body.center().round(), Vec2::splat(ICON_SIZE));
+        for shape in shapes(icon, icon_rect, color) {
+            ui.painter().add(shape);
         }
+        crate::widgets::raised::focus_ring(ui.painter(), &response, rect);
     }
     if crate::trace::enabled() {
         let released_here = ui.input(|i| i.pointer.primary_released()) && response.hovered();
@@ -310,42 +443,79 @@ pub fn button(
     crate::widgets::tip(response, &label, tip.keys, tip.hint)
 }
 
+/// The icon's side on a transport button: the 16 pt grid of every icon.
+const ICON_SIZE: f32 = 16.0;
+
+/// A quiet button's body (the Button card's `lm-quiet`): nothing at rest,
+/// an Ember wash on hover, the sunk look while pressed, and its `tone`
+/// fading in as it lights (no gradient, an `On` hairline; Record also
+/// glows). Returns the rect the icon is centred in.
+fn paint_quiet(
+    painter: &Painter,
+    rect: Rect,
+    radius: u8,
+    face: &crate::widgets::raised::Face,
+) -> Rect {
+    use crate::widgets::raised;
+    if !face.enabled {
+        return rect;
+    }
+    if face.pressed {
+        return raised::paint(painter, rect, radius, face);
+    }
+    let c = theme::p();
+    let r = f32::from(radius);
+    let on = theme::lit(face.tone);
+    if face.lit > 0.0 {
+        if let Some(glow) = face.tone.glow() {
+            crate::light::glow(painter, crate::light::FLARE, rect, r, glow, face.lit);
+        }
+        painter.rect_filled(rect, r, on.top.gamma_multiply(face.lit));
+    }
+    if face.hover > 0.0 {
+        painter.rect_filled(rect, r, c.ember.gamma_multiply(face.hover));
+    }
+    if face.lit > 0.0 {
+        painter.rect_stroke(
+            rect,
+            r,
+            Stroke::new(theme::stroke::HAIRLINE, on.edge.gamma_multiply(face.lit)),
+            egui::StrokeKind::Inside,
+        );
+    }
+    rect
+}
+
 /// The close button's size.
 pub const CLOSE_SIZE: f32 = 22.0;
 
-/// A window's close button: an X with the same hover fade as the
-/// transport buttons.
+/// A window's close button (ADR-0051): a bare X at rest, and a small raised
+/// control on hover that sinks while pressed. The focus ring is 2 pt.
 pub fn close_button(ui: &mut Ui) -> Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(CLOSE_SIZE), egui::Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Close"));
     if ui.is_rect_visible(rect) {
-        let c = theme::p();
+        let rect = rect.round_to_pixels(ui.pixels_per_point());
         let hover = crate::motion::hover(
             ui.ctx(),
             response.id.with("hover"),
             response.hovered() || response.has_focus(),
         );
-        if hover > 0.0 {
-            ui.painter().rect_filled(
-                rect,
-                theme::radius::SMALL,
-                c.control_hover.gamma_multiply(hover),
-            );
-        }
-        if response.has_focus() {
-            ui.painter().rect_stroke(
-                rect,
-                theme::radius::SMALL,
-                Stroke::new(1.5, c.accent),
-                egui::StrokeKind::Inside,
-            );
-        }
-        let x = rect.shrink(6.5);
-        let stroke = Stroke::new(1.5, c.text_secondary.lerp_to_gamma(c.text, hover));
+        let face = crate::widgets::raised::Face::new(theme::controls(false))
+            .hover(hover)
+            .pressed(response.is_pointer_button_down_on());
+        let body = if hover > 0.0 || face.pressed {
+            crate::widgets::raised::paint(ui.painter(), rect, theme::radius::SMALL, &face)
+        } else {
+            rect
+        };
+        let x = body.shrink(6.5);
+        let stroke = Stroke::new(1.5, face.text());
         ui.painter()
             .line_segment([x.left_top(), x.right_bottom()], stroke);
         ui.painter()
             .line_segment([x.right_top(), x.left_bottom()], stroke);
+        crate::widgets::raised::focus_ring(ui.painter(), &response, rect);
     }
     response.on_hover_text("Close (Esc)")
 }

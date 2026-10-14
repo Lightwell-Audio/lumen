@@ -279,3 +279,313 @@ fn routed_clips_metronome_and_tone_never_touch_the_heap() {
         handle.collect_garbage();
     }
 }
+
+#[test]
+fn midi_never_touches_the_heap() {
+    use lumen_core::midi::{Event, Kind};
+    use lumen_devices::Instrument;
+    use lumen_engine::testing::routed;
+    use lumen_engine::{
+        InstrumentSpec, Layered, Listen, LiveIn, LiveInput, MidiClip, MidiControl, MidiNote,
+        MidiTrack, Target, clip_player, control_list, midi_player, mixer, note_list,
+    };
+
+    /// Plays a chord on and off every few hundred frames, from its own
+    /// counter: live input that allocates nothing.
+    struct Player {
+        next: u64,
+        on: bool,
+    }
+    impl LiveInput for Player {
+        fn pull(&mut self, _start: u64, end: u64, take: &mut dyn FnMut(LiveIn)) {
+            while self.next < end {
+                for key in [60, 64, 67] {
+                    let msg = if self.on {
+                        lumen_core::midi::Msg::note_off(0, key)
+                    } else {
+                        lumen_core::midi::Msg::note_on(0, key, 100)
+                    };
+                    take(LiveIn {
+                        frame: self.next,
+                        played: self.next,
+                        source: 3,
+                        track: None,
+                        msg,
+                    });
+                    // The piano roll's preview, on an instrument track and
+                    // on a hardware one.
+                    for track in [5, 4] {
+                        take(LiveIn {
+                            frame: self.next,
+                            played: self.next,
+                            source: lumen_engine::AUDITION,
+                            track: Some(track),
+                            msg,
+                        });
+                    }
+                }
+                self.on = !self.on;
+                self.next += 333;
+            }
+        }
+        fn waiting(&self) -> bool {
+            false
+        }
+    }
+
+    /// Does per-sample work for every sounding note, with state, like a
+    /// real instrument, and allocates nothing.
+    struct Counter {
+        held: [bool; 128],
+        phase: f32,
+    }
+    impl Instrument for Counter {
+        fn render(&mut self, _rate: u32, events: &[Event], left: &mut [f32], right: &mut [f32]) {
+            let mut next = 0;
+            for i in 0..left.len() {
+                while next < events.len() && events[next].offset as usize <= i {
+                    match events[next].msg.kind() {
+                        Kind::NoteOn { key, .. } => self.held[usize::from(key)] = true,
+                        Kind::NoteOff { key, .. } => self.held[usize::from(key)] = false,
+                        _ => {}
+                    }
+                    next += 1;
+                }
+                let voices = self.held.iter().filter(|h| **h).count() as f32;
+                self.phase = (self.phase + 0.01).fract();
+                left[i] += self.phase * 0.01 * voices;
+                right[i] += self.phase * 0.01 * voices;
+            }
+        }
+        fn active(&self) -> bool {
+            self.held.iter().any(|h| *h)
+        }
+        fn silence(&mut self) {
+            self.held = [false; 128];
+        }
+    }
+
+    assert!(guard_is_active(), "guarded allocator not installed");
+    let tracks = |variant: i64| -> Vec<MidiTrack> {
+        (0..32_u64)
+            .map(|id| {
+                let notes: Vec<MidiNote> = (0..24)
+                    .map(|n| MidiNote {
+                        start: Ticks(n * 97_001 + id as i64 * 31 + variant),
+                        length: Ticks::quarters(1 + n % 3),
+                        pitch: 40 + ((n * 7 + id as i64) % 40) as u8,
+                        velocity: 90,
+                    })
+                    .collect();
+                let controls = vec![MidiControl {
+                    at: Ticks::quarters(1),
+                    msg: lumen_core::midi::Msg::controller(0, 64, 127),
+                }];
+                let clip = MidiClip {
+                    id,
+                    start: Ticks::ZERO,
+                    length: Ticks::quarters(16),
+                    period: Some(Ticks::quarters(3)),
+                    seams: Default::default(),
+                    notes: note_list(notes),
+                    controls: control_list(controls),
+                };
+                // Every fourth track goes to hardware.
+                let target = if id % 4 == 0 {
+                    Target::Port {
+                        port: (id % 3) as u16,
+                        channel: 2,
+                    }
+                } else {
+                    Target::Instrument
+                };
+                MidiTrack::new(
+                    id,
+                    target,
+                    Some(InstrumentSpec {
+                        kind: 1,
+                        preset: (variant % 3) as u32,
+                        instrument: Box::new(Counter {
+                            held: [false; 128],
+                            phase: 0.0,
+                        }),
+                    }),
+                    vec![clip],
+                )
+                // Half the edits change what the tracks listen to.
+                .listening(Listen {
+                    sources: 1 << 3,
+                    channel: (variant % 2 == 1).then_some(0),
+                })
+                // And every other track records what it is sent.
+                .recording(if id % 2 == 0 {
+                    Listen {
+                        sources: 1 << 3,
+                        channel: None,
+                    }
+                } else {
+                    Listen::OFF
+                })
+            })
+            .collect()
+    };
+    let (_clips, players) = clip_player();
+    let (mut midi, player) = midi_player();
+    let mut output = midi.take_output().unwrap();
+    let mut captured = midi.take_captured().unwrap();
+    let (mut routing, source) = mixer(Layered(players, player));
+    let (mut handle, mut engine) = engine(Timeline::default(), source, 48_000);
+    midi.set(tracks(0)).ok().unwrap();
+    // Two ports get MIDI clock (M5 slice 7).
+    midi.set_sync(0b101);
+    midi.set_live(Box::new(Player { next: 0, on: false }))
+        .ok()
+        .unwrap();
+    assert!(routing.set(&routed(32, 0)).unwrap());
+    handle
+        .send(Command::SetLoop(Region::new(
+            Ticks::ZERO,
+            Ticks::quarters(5),
+            true,
+        )))
+        .unwrap();
+    handle.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 2 * 128];
+    for block in 0..4_000_i64 {
+        // UI-side work happens outside the real-time section.
+        if block % 150 == 75 {
+            midi.collect_garbage();
+            let _ = midi.set(tracks(block % 5));
+        }
+        if block % 2_000 == 1_000 {
+            // Sync switched on and off while playing.
+            midi.set_sync(if block % 4_000 == 1_000 { 0 } else { 0b101 });
+        }
+        if block % 1_000 == 999 {
+            // A new live input (the app gives one when MIDI restarts).
+            let _ = midi.set_live(Box::new(Player {
+                next: block as u64 * 128,
+                on: false,
+            }));
+        }
+        match block % 900 {
+            100 => handle.send(Command::Record { count_in: 0 }).unwrap(),
+            300 => handle.send(Command::Locate(Ticks::quarters(2))).unwrap(),
+            400 => handle.send(Command::EndRecord).unwrap(),
+            // Stopped (after 700), a count-in begins and Play is ignored
+            // until Panic ends it.
+            705 => handle.send(Command::Record { count_in: 1 }).unwrap(),
+            500 => handle.send(Command::Pause).unwrap(),
+            520 => handle.send(Command::Continue).unwrap(),
+            700 => handle.send(Command::Stop).unwrap(),
+            720 => handle.send(Command::Play).unwrap(),
+            850 => handle.send(Command::Panic).unwrap(),
+            880 => handle.send(Command::Play).unwrap(),
+            _ => {}
+        }
+        let ((), heap) = count_rt_violations(|| engine.process(48_000, &mut data, 2, 128));
+        assert_eq!(heap, 0, "heap operation in process() at block {block}");
+        while output.pop().is_ok() {}
+        while captured.pop().is_ok() {}
+        let _ = handle.transport();
+        routing.collect_garbage();
+    }
+}
+
+/// Review M5 H1: with the queue that takes old lists back full (the UI late
+/// to collect), two lists arriving in one block must still leave every old
+/// one to be freed off the audio thread, for clips, MIDI and the mixer.
+#[test]
+fn lists_queued_behind_a_full_retire_queue_are_never_freed_here() {
+    use lumen_engine::testing::routed;
+    use lumen_engine::{Layered, clip_player, midi_player, mixer};
+
+    assert!(guard_is_active(), "guarded allocator not installed");
+    let (mut clips, players) = clip_player();
+    let (mut midi, player) = midi_player();
+    let (mut routing, source) = mixer(Layered(players, player));
+    let (_handle, mut engine) = engine(Timeline::default(), source, 48_000);
+    let mut data = vec![0.0; 2 * 128];
+    let mut variant = 0;
+    // Nothing is collected: one list a block fills each retire queue, then
+    // two in one block meet it full, then the stashes drain one a block.
+    for block in 0..12_u32 {
+        let lists = match block {
+            0..5 => 1,
+            5 | 6 => 2,
+            _ => 0,
+        };
+        for _ in 0..lists {
+            variant += 1;
+            let _ = clips.set(Vec::new());
+            let _ = midi.set(Vec::new());
+            let _ = routing.set(&routed(2, variant));
+        }
+        let ((), heap) = count_rt_violations(|| engine.process(48_000, &mut data, 2, 128));
+        assert_eq!(heap, 0, "heap operation in process() at block {block}");
+    }
+}
+
+/// Review M5 M2: the built-in synth renders, steals voices, glides between
+/// presets, bends, holds the pedal and silences without touching the heap.
+#[test]
+fn the_synth_never_touches_the_heap() {
+    use lumen_core::midi::{Event, Msg};
+    use lumen_devices::{Instrument, Preset, Synth};
+
+    assert!(guard_is_active(), "guarded allocator not installed");
+    let mut synth = Synth::new(Preset::Poly);
+    let (mut left, mut right) = (vec![0.0; 128], vec![0.0; 128]);
+    let mut events = Vec::with_capacity(64);
+    for block in 0..3_000_u32 {
+        events.clear();
+        let key = 36 + (block % 48) as u8;
+        // More notes than voices, so voices are stolen.
+        for (n, offset) in [0, 31, 64, 97].into_iter().enumerate() {
+            events.push(Event {
+                offset,
+                msg: Msg::note_on((n % 2) as u8, key + n as u8 * 4, 100),
+            });
+        }
+        if block >= 8 {
+            events.push(Event {
+                offset: 100,
+                msg: Msg::note_off(0, key - 8),
+            });
+        }
+        match block % 500 {
+            50 => events.push(Event {
+                offset: 10,
+                msg: Msg::program(0, ((block / 500) % 5) as u8),
+            }),
+            100 => events.push(Event {
+                offset: 0,
+                msg: Msg::controller(0, 64, 127),
+            }),
+            200 => events.push(Event {
+                offset: 0,
+                msg: Msg::controller(0, 64, 0),
+            }),
+            300 => events.push(Event {
+                offset: 5,
+                msg: Msg::pitch_bend(0, 4_000),
+            }),
+            400 => events.push(Event {
+                offset: 0,
+                msg: Msg::controller(0, 123, 0),
+            }),
+            _ => {}
+        }
+        events.sort_by_key(|e| e.offset);
+        left.fill(0.0);
+        right.fill(0.0);
+        let ((), heap) = count_rt_violations(|| {
+            synth.render(48_000, &events, &mut left, &mut right);
+            if block % 1_000 == 999 {
+                synth.silence();
+            }
+        });
+        assert_eq!(heap, 0, "heap operation in the synth at block {block}");
+    }
+    assert!(synth.voices() > 0 || !synth.active());
+}

@@ -151,7 +151,7 @@ fn swatch(
     let hot = response.hovered() || response.has_focus();
     if on || hot {
         let stroke = Stroke::new(
-            1.5,
+            theme::stroke::LIT,
             if on {
                 palette.accent
             } else {
@@ -189,7 +189,7 @@ fn track_pill(ui: &mut egui::Ui, track: egui::Color32, on: bool) -> egui::Respon
     let hover = crate::motion::hover(ui.ctx(), response.id.with("hover"), response.hovered());
     let controls = theme::controls(false);
     let painter = ui.painter();
-    let round = (rect.height() / 2.0) as u8;
+    let round = theme::radius::FULL;
     painter.rect_filled(
         rect,
         round,
@@ -209,7 +209,7 @@ fn track_pill(ui: &mut egui::Ui, track: egui::Color32, on: bool) -> egui::Respon
         painter.rect_stroke(
             rect,
             round,
-            Stroke::new(1.5, palette.accent),
+            Stroke::new(theme::stroke::LIT, palette.accent),
             egui::StrokeKind::Inside,
         );
     }
@@ -338,6 +338,14 @@ impl App {
             ui.close();
         }
         self.fade_menu(ui);
+        if self.availability(ui.ctx(), Command::ExportMidiClip).is_ok() {
+            let export = if several {
+                "Export MIDI clips\u{2026}"
+            } else {
+                "Export MIDI clip\u{2026}"
+            };
+            self.menu_command(ui, Command::ExportMidiClip, export);
+        }
         self.menu_command(ui, Command::ClipProperties, "Properties");
     }
 
@@ -444,14 +452,19 @@ impl App {
             .order(egui::Order::Foreground)
             .fixed_pos(at)
             .show(ctx, |ui| {
+                // A floating card: radius XL; the pinned card keeps its
+                // accent outline (the owner's P1).
                 egui::Frame::popup(ui.style())
-                    .stroke(Stroke::new(1.0, palette.accent))
+                    .corner_radius(theme::radius::XL)
+                    .stroke(Stroke::new(theme::stroke::HAIRLINE, palette.accent))
                     .show(ui, |ui| {
                         ui.set_width(CARD_WIDTH);
                         close = self.card_contents(ui, &clip, track, &tempo);
                     });
             });
         self.clip_props.size = Some(shown.response.rect.size());
+        // The lit top edge a floating window has (the design system).
+        widgets::window_lip(ctx, shown.response.layer_id, shown.response.rect);
         // Esc while typing cancels the typing; the next one closes.
         let typing = self.typing || ctx.text_edit_focused();
         if close || (!typing && ctx.input(|i| i.key_pressed(Key::Escape))) {
@@ -547,24 +560,25 @@ impl App {
                                 .set_fade_length(id, edge, length, Some("card fade"));
                         }
                         let now = FadeShape::of(&fade.curve);
-                        egui::ComboBox::from_id_salt(("clip card shape", id, label))
-                            .width(combo)
-                            .selected_text(now.map_or("Custom", FadeShape::name))
-                            .show_ui(ui, |ui| {
-                                for shape in FadeShape::ALL {
-                                    if ui
-                                        .selectable_label(now == Some(shape), shape.name())
-                                        .clicked()
-                                    {
-                                        self.document.set_fade_curve(
-                                            &[id],
-                                            edge,
-                                            shape.curve(),
-                                            None,
-                                        );
-                                    }
-                                }
-                            });
+                        let names: Vec<&str> =
+                            FadeShape::ALL.iter().map(|shape| shape.name()).collect();
+                        let chosen =
+                            now.and_then(|now| FadeShape::ALL.iter().position(|s| *s == now));
+                        let shown = now.map_or("Custom", FadeShape::name);
+                        let name = format!("{label} shape");
+                        if let Some(i) = widgets::Dropdown::new(&name, shown, combo).show(
+                            ui,
+                            egui::Id::new(("clip card shape", id, label)),
+                            &names,
+                            chosen,
+                        ) {
+                            self.document.set_fade_curve(
+                                &[id],
+                                edge,
+                                FadeShape::ALL[i].curve(),
+                                None,
+                            );
+                        }
                     });
                 }
             });
@@ -585,7 +599,7 @@ impl App {
             }
         } else {
             row(ui, "State", |ui| self.card_toggles(ui, clip));
-            if let ClipContent::Midi { notes } = &clip.content {
+            if let ClipContent::Midi { notes, .. } = &clip.content {
                 ui.separator();
                 ui.label(
                     RichText::new(format!("MIDI clip · {} notes", notes.len()))
@@ -599,21 +613,21 @@ impl App {
 
     /// The card's Mute and Lock toggles.
     fn card_toggles(&mut self, ui: &mut egui::Ui, clip: &Clip) {
-        // Framed buttons that light when on, so off still reads as a
-        // control.
-        if ui
-            .add(egui::Button::new("Mute clip").selected(clip.muted))
+        // Framed buttons that light when on (`Tone::On`), so off still reads
+        // as a control.
+        let mut muted = clip.muted;
+        if widgets::toggle_button(ui, &mut muted, "Mute clip")
             .on_hover_text("Mute or unmute this clip (0)")
-            .clicked()
+            .changed()
         {
-            self.document.set_clips_muted(&[clip.id], !clip.muted);
+            self.document.set_clips_muted(&[clip.id], muted);
         }
-        if ui
-            .add(egui::Button::new("Lock clip").selected(clip.locked))
+        let mut locked = clip.locked;
+        if widgets::toggle_button(ui, &mut locked, "Lock clip")
             .on_hover_text("A locked clip cannot be moved, trimmed, faded or deleted")
-            .clicked()
+            .changed()
         {
-            self.document.set_clips_locked(&[clip.id], !clip.locked);
+            self.document.set_clips_locked(&[clip.id], locked);
         }
     }
 }
@@ -635,7 +649,7 @@ mod tests {
             fade_in: Fade::default(),
             fade_out: Fade::default(),
             loop_length: None,
-            content: ClipContent::Midi { notes: vec![] },
+            content: ClipContent::midi(),
         }
     }
 

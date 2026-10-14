@@ -17,6 +17,7 @@ use crate::commands::Command;
 use crate::commands::Keymap;
 use crate::document::Document;
 use crate::meters::{FLOOR_DB, HISTORY};
+use crate::widgets::raised;
 use crate::{fonts, theme, widgets};
 
 /// The empty mixer's ghost strip, at the left of `area`: a dashed strip
@@ -103,6 +104,8 @@ const LOUDNESS: f32 = 108.0;
 /// streaming target, −14 LUFS ± 1).
 const LUFS_FLOOR: f64 = -42.0;
 const TARGET: (f64, f64) = (-15.0, -13.0);
+/// The loudness bar's corner radius (a trough 12 pt wide).
+const LUFS_BAR_RADIUS: u8 = 2;
 
 /// The shortest the Mixer tab's content can be: a strip with everything
 /// folded away.
@@ -118,7 +121,13 @@ impl Arrangement {
         ui.painter().rect_filled(area, 0.0, palette.canvas);
         let heard = lumen_project::solo::hearing(doc.project());
         let look = StripLook {
-            sections: Sections::fitting(area.height()),
+            sections: Sections::fitting(
+                area.height(),
+                doc.project()
+                    .tracks
+                    .iter()
+                    .any(|t| t.kind == TrackKind::Midi),
+            ),
             heard: &heard,
             keymap,
         };
@@ -410,7 +419,7 @@ impl Arrangement {
             ys.max - t * ys.span()
         };
         let bar = Rect::from_x_y_ranges(left..=left + 12.0, ys);
-        painter.rect_filled(bar, 2.0, palette.well);
+        raised::paint_sunken(&painter, bar, LUFS_BAR_RADIUS);
         let band = Rect::from_x_y_ranges(bar.x_range().expand(3.0), at(TARGET.1)..=at(TARGET.0));
         painter.rect_filled(band, 0.0, palette.accent.gamma_multiply(0.14));
         if meters_heard(reading.short_term) {
@@ -523,7 +532,9 @@ impl Arrangement {
             rect.bottom() - 8.0 - reset_h..=rect.bottom() - 8.0,
         );
         let response = ui
-            .put(reset, egui::Button::new("\u{21BA} Reset"))
+            .put(reset, |ui: &mut egui::Ui| {
+                crate::widgets::raised::button(ui, "\u{21BA} Reset")
+            })
             .on_hover_text(
                 "Start integrated loudness and true peak again (Play from stop does too)",
             );

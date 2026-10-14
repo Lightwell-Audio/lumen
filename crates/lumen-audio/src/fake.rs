@@ -3,6 +3,7 @@
 //! the driver's thread.
 
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use crate::backend::{Backend, OpenError, Stream, StreamEvent};
 use crate::types::{
@@ -35,7 +36,27 @@ pub struct FakeDevice {
     pub buffer_sizes: BufferSizes,
     /// Output channels the device has (4: a main and a cue pair).
     pub outputs: usize,
+    /// Keep a pace: each poll runs every block the time since the stream
+    /// opened owes (up to [`CATCH_UP`]), so a poll that came late is made up
+    /// for, as a hardware driver's clock would be. `None`, a poll runs one
+    /// block however long it took, which a busy machine turns into a device
+    /// that runs slow and falls ever further behind the wall clock.
+    pub pace: Option<Pace>,
 }
+
+/// How a paced device counts the blocks it owes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pace {
+    /// Real time at the stream's sample rate, as a hardware driver runs.
+    RealTime,
+    /// A block per interval of wall time: a test device's slow motion (a
+    /// small block every few milliseconds), kept steady however late the
+    /// polls come.
+    Every(Duration),
+}
+
+/// The most blocks a paced device runs in one poll.
+pub const CATCH_UP: u64 = 16;
 
 /// Shared handle the test uses to script the device.
 #[derive(Debug, Clone)]
@@ -54,6 +75,7 @@ impl FakeControl {
             resync_jump: None,
             opens: 0,
             outputs: 4,
+            pace: None,
             buffer_sizes: BufferSizes {
                 min: 32,
                 max: 2048,
@@ -140,6 +162,8 @@ impl Backend for FakeBackend {
             outputs: vec![0.0; outputs * frames as usize],
             position: device.start_position,
             polls: 0,
+            opened: Instant::now(),
+            ran: 0,
         }))
     }
 }
@@ -152,6 +176,28 @@ struct FakeStream {
     outputs: Vec<f32>,
     position: u64,
     polls: u32,
+    /// When the stream opened, and how many blocks it has run since: what
+    /// a paced device measures real time by.
+    opened: Instant,
+    ran: u64,
+}
+
+impl FakeStream {
+    /// The blocks that `pace` owes since the stream opened, not past
+    /// [`CATCH_UP`]; what is owed beyond it waits for the next poll.
+    fn owed(&mut self, pace: Pace) -> u64 {
+        let every = match pace {
+            Pace::RealTime => {
+                u128::from(self.info.buffer_frames.max(1)) * 1_000_000_000
+                    / u128::from(self.info.sample_rate.max(1))
+            }
+            Pace::Every(interval) => interval.as_nanos(),
+        };
+        let due = (self.opened.elapsed().as_nanos() / every.max(1)) as u64;
+        let owed = due.saturating_sub(self.ran).min(CATCH_UP);
+        self.ran += owed;
+        owed
+    }
 }
 
 impl Stream for FakeStream {
@@ -160,7 +206,7 @@ impl Stream for FakeStream {
     }
 
     fn poll(&mut self) -> Option<StreamEvent> {
-        let (present, reset, stalled, every, skip, resync) = {
+        let (present, reset, stalled, every, skip, resync, pace) = {
             let mut device = self.control.0.lock().expect("fake device lock");
             let reset = std::mem::take(&mut device.reset_pending);
             let skip = std::mem::take(&mut device.skip_frames);
@@ -171,6 +217,7 @@ impl Stream for FakeStream {
                 device.deliver_every.max(1),
                 skip,
                 device.resync_jump.take(),
+                device.pace,
             )
         };
         self.position += skip + resync.unwrap_or(0);
@@ -185,19 +232,22 @@ impl Stream for FakeStream {
         if reset || !present {
             return Some(StreamEvent::ResetRequested);
         }
+        let blocks = pace.map_or(1, |pace| self.owed(pace));
         if let Some(callback) = self.callback.as_mut() {
-            self.outputs.fill(0.0);
-            let mut block = Block {
-                sample_rate: self.info.sample_rate,
-                frames: self.info.buffer_frames as usize,
-                inputs: &self.inputs,
-                outputs: &mut self.outputs,
-                input_channels: self.info.input_channels,
-                output_channels: self.info.output_channels,
-                position: resync.is_none().then_some(self.position),
-            };
-            callback.process(&mut block);
-            self.position += u64::from(self.info.buffer_frames);
+            for n in 0..blocks {
+                self.outputs.fill(0.0);
+                let mut block = Block {
+                    sample_rate: self.info.sample_rate,
+                    frames: self.info.buffer_frames as usize,
+                    inputs: &self.inputs,
+                    outputs: &mut self.outputs,
+                    input_channels: self.info.input_channels,
+                    output_channels: self.info.output_channels,
+                    position: (resync.is_none() || n > 0).then_some(self.position),
+                };
+                callback.process(&mut block);
+                self.position += u64::from(self.info.buffer_frames);
+            }
         }
         None
     }

@@ -20,6 +20,7 @@ pub const FIRST_VERSION: u64 = 1;
 /// `MIGRATIONS[i]` upgrades version `FIRST_VERSION + i` to the next one.
 pub const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10,
+    v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15,
 ];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
@@ -291,6 +292,46 @@ fn v9_to_v10(mut document: Value) -> Result<Value, String> {
     if let Some(view) = view {
         view.entry("returns_folded").or_insert(Value::from(false));
     }
+    Ok(document)
+}
+
+/// v11 (M5 slice 0): MIDI clips may carry controller, pitch-bend,
+/// pressure and program events beside their notes. They are written only
+/// when present, so nothing in an older file changes.
+fn v10_to_v11(document: Value) -> Result<Value, String> {
+    Ok(document)
+}
+
+/// v12 (M5 slice 1): a MIDI track may play its notes to a MIDI output
+/// (`midi_to`) instead of its instrument, and the instrument is a built-in
+/// device on the track (`{"format": "builtin", "name": "synth"}`, its preset
+/// in `state`). Both are written only when set. MIDI tracks in older files
+/// have no instrument and stay silent until one is chosen: they could hold
+/// no notes before v11, so nothing that sounded goes quiet.
+fn v11_to_v12(document: Value) -> Result<Value, String> {
+    Ok(document)
+}
+
+/// v13 (M5 slice 2): a MIDI track says which inputs it listens to
+/// (`midi_from`) and every track says when it monitors (`monitor`). Both are
+/// written only when not the default (all inputs, all channels; Auto), which
+/// is what an older file means.
+fn v12_to_v13(document: Value) -> Result<Value, String> {
+    Ok(document)
+}
+
+/// v14 (M5 slice 3): a note may be muted. A muted note is written with a
+/// fifth element, `true`; every other note keeps its four, which is what an
+/// older file holds, so nothing changes.
+fn v13_to_v14(document: Value) -> Result<Value, String> {
+    Ok(document)
+}
+
+/// v15 (M5, after MT-MIDI-7): a MIDI clip is a window onto its notes, as in
+/// Ableton. Trimming, covering and splitting no longer delete notes, so a
+/// note may start before its clip (a negative start) or at or past its end,
+/// kept but hidden. An older file has none such, and means the same.
+fn v14_to_v15(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
@@ -584,6 +625,14 @@ mod tests {
         let v10 = upgrade(v9, 9, FIRST_VERSION, MIGRATIONS).unwrap();
         assert_eq!(v10["project"]["view"]["returns_folded"], json!(false));
         assert!(v10["project"]["view"].get("returns_height").is_none());
+    }
+
+    #[test]
+    fn v10_to_v11_leaves_midi_clips_as_they_were() {
+        let clip = json!({ "type": "midi", "notes": [[0, 352_800, 60, 100]] });
+        let v10 = json!({ "version": 10, "project": { "tracks": [{ "clips": [{ "content": clip.clone() }] }] } });
+        let v11 = upgrade(v10, 10, FIRST_VERSION, MIGRATIONS).unwrap();
+        assert_eq!(v11["project"]["tracks"][0]["clips"][0]["content"], clip);
     }
 
     #[test]

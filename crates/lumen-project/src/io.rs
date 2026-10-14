@@ -174,6 +174,14 @@ pub fn save(project: &Project, path: &Path, options: &SaveOptions) -> Result<(),
     write_atomically(path, &bytes, options, &mut |_| Ok(())).map_err(SaveError::Io)
 }
 
+/// Writes any file (an exported MIDI file, M5 slice 7) by the project's
+/// commit protocol: a temporary file beside it, flushed, then renamed over
+/// the old one, so a crash leaves the old file or the new, never half.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let options = SaveOptions { keep_backups: 0 };
+    write_atomically(path, bytes, &options, &mut |_| Ok(()))
+}
+
 /// The commit protocol. `before_commit` runs after the new content is safely
 /// on disk and before it replaces the old file (a test seam for failures).
 fn write_atomically(

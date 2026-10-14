@@ -76,6 +76,12 @@ allow = ["MPL-2.0"]
 crate = "symphonia-bundle-mp3"
 allow = ["MPL-2.0"]
 
+# midly, the Standard MIDI File reader and writer (M5 slice 7): the Unlicense
+# dedicates it to the public domain, with no conditions.
+[[licenses.exceptions]]
+crate = "midly"
+allow = ["Unlicense"]
+
 [licenses.private]
 # Workspace crates are unpublished; their licence comes from the workspace (ADR-0039).
 ignore = true

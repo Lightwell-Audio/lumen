@@ -150,11 +150,20 @@ pub fn rect(painter: &Painter, light: Light, rect: Rect, radius: f32, color: Col
 
 /// Only a light's halo, outside `rect` (a lit button keeps its own fill).
 pub fn halo_around(painter: &Painter, light: Light, rect: Rect, radius: f32, color: Color32) {
+    glow(painter, light, rect, radius, color, 1.0);
+}
+
+/// [`halo_around`] faded by `t` (0 to 1): a lit control's glow as it lights
+/// and goes out. Nothing is drawn at 0.
+pub fn glow(painter: &Painter, light: Light, rect: Rect, radius: f32, color: Color32, t: f32) {
+    if t <= 0.0 {
+        return;
+    }
     for &(reach, a) in light.halo {
         painter.rect_stroke(
             rect,
             radius,
-            Stroke::new(reach, color.gamma_multiply(alpha(a, 1.0))),
+            Stroke::new(reach, color.gamma_multiply(alpha(a, t))),
             egui::StrokeKind::Outside,
         );
     }
@@ -199,6 +208,67 @@ pub fn cap(painter: &Painter, x: f32, top: f32, color: Color32) {
         theme::p().core,
         Stroke::new(1.0, color),
     ));
+}
+
+/// What an activity light last saw: the counter and when it changed.
+#[derive(Clone, Copy)]
+struct Seen {
+    count: u32,
+    at: f64,
+}
+
+/// How long a Reduce-motion flash stays, without fading.
+const STEADY_FLASH: f64 = 0.15;
+
+/// An activity light's brightness, 0 to 1: it jumps to 1 when `count`
+/// (a traffic counter) differs from the last frame's and fades over
+/// `motion::NOTE`, asking for frames only while it fades. The first look
+/// at a counter only notes it, so old traffic does not flash. `id` keeps
+/// the light's memory; with Reduce motion the flash is steady, then off.
+pub fn flash(ctx: &egui::Context, id: egui::Id, count: u32) -> f32 {
+    let now = ctx.input(|i| i.time);
+    let seen = match ctx.data(|d| d.get_temp::<Seen>(id)) {
+        None => Seen {
+            count,
+            at: f64::NEG_INFINITY,
+        },
+        Some(s) if s.count != count => Seen { count, at: now },
+        Some(s) => s,
+    };
+    ctx.data_mut(|d| d.insert_temp(id, seen));
+    let elapsed = now - seen.at;
+    if crate::motion::reduced() {
+        return if elapsed < STEADY_FLASH {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(STEADY_FLASH - elapsed));
+            1.0
+        } else {
+            0.0
+        };
+    }
+    let t = (elapsed / crate::motion::NOTE.as_secs_f64()) as f32;
+    if t >= 1.0 {
+        return 0.0;
+    }
+    ctx.request_repaint_after(std::time::Duration::from_millis(16));
+    let left = 1.0 - t;
+    left * left
+}
+
+/// A small round light at `center`: the [`BEAM`] level at brightness `t`
+/// (0 to 1): halo, accent ring, core. Nothing is drawn at 0.
+pub fn dot(painter: &Painter, light: Light, center: Pos2, radius: f32, color: Color32, t: f32) {
+    if t <= 0.0 {
+        return;
+    }
+    for &(reach, a) in light.halo {
+        painter.circle_filled(
+            center,
+            radius + light.line + reach,
+            color.gamma_multiply(alpha(a, t)),
+        );
+    }
+    painter.circle_filled(center, radius + light.line, color.gamma_multiply(t));
+    painter.circle_filled(center, radius, theme::p().core.gamma_multiply(t));
 }
 
 #[cfg(test)]

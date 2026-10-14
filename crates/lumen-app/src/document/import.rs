@@ -42,13 +42,38 @@ pub enum DropInto {
     Track(Id),
 }
 
-/// Where Import audio puts files (M3 review H1): onto the chosen audio
-/// track, the last selected track or the track of a selected clip; when
-/// that is not an audio track, on new tracks right after it (and what is
-/// inside it), in its group, or inside it when it is a group; with nothing
-/// chosen, on new tracks at the end. `chosen` is the last selected track,
-/// or the track of the first selected clip.
-pub fn import_place(project: &Project, chosen: Option<Id>) -> DropInto {
+/// Where a drop or an import puts each kind of file (M5 slice 7): audio
+/// files land on audio tracks, MIDI files on MIDI tracks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Places {
+    pub audio: DropInto,
+    pub midi: DropInto,
+}
+
+impl Places {
+    /// Both kinds on new tracks at the end.
+    pub const END: Places = Places {
+        audio: DropInto::END,
+        midi: DropInto::END,
+    };
+}
+
+impl DropInto {
+    /// New tracks at the end, outside every group.
+    pub const END: DropInto = DropInto::NewTracks {
+        before: None,
+        group: None,
+    };
+}
+
+/// Where Import puts files that land on `lands_on` tracks (audio or MIDI;
+/// M3 review H1, M5 slice 7): onto the chosen track of that kind, the last
+/// selected track or the track of a selected clip; when it is another
+/// kind, on new tracks right after it (and what is inside it), in its
+/// group, or inside it when it is a group; with nothing chosen, on new
+/// tracks at the end. `chosen` is the last selected track, or the track of
+/// the first selected clip.
+pub fn import_place(project: &Project, chosen: Option<Id>, lands_on: TrackKind) -> DropInto {
     let Some(i) = chosen.and_then(|id| project.tracks.iter().position(|t| t.id == id)) else {
         return DropInto::NewTracks {
             before: None,
@@ -58,7 +83,7 @@ pub fn import_place(project: &Project, chosen: Option<Id>) -> DropInto {
     let track = &project.tracks[i];
     let end = lumen_project::groups::span(&project.tracks, i).end;
     match track.kind {
-        TrackKind::Audio => DropInto::Track(track.id),
+        kind if kind == lands_on => DropInto::Track(track.id),
         kind => DropInto::NewTracks {
             before: project.tracks.get(end).map(|t| t.id),
             group: if kind == TrackKind::Group {
@@ -185,9 +210,12 @@ mod tests {
         let midi = doc.add_track(TrackKind::Midi, Some(audio));
         let last = doc.add_track(TrackKind::Audio, Some(midi));
         let project = doc.project();
-        assert_eq!(import_place(project, Some(audio)), DropInto::Track(audio));
         assert_eq!(
-            import_place(project, Some(midi)),
+            import_place(project, Some(audio), TrackKind::Audio),
+            DropInto::Track(audio)
+        );
+        assert_eq!(
+            import_place(project, Some(midi), TrackKind::Audio),
             DropInto::NewTracks {
                 before: Some(last),
                 group: None
@@ -198,13 +226,34 @@ mod tests {
             before: None,
             group: None,
         };
-        assert_eq!(import_place(project, None), end, "nothing chosen");
-        assert_eq!(import_place(project, Some(Id(9_999))), end, "a track gone");
+        assert_eq!(
+            import_place(project, None, TrackKind::Audio),
+            end,
+            "nothing chosen"
+        );
+        assert_eq!(
+            import_place(project, Some(Id(9_999)), TrackKind::Audio),
+            end,
+            "a track gone"
+        );
         doc.delete_tracks(&[last]);
         assert_eq!(
-            import_place(doc.project(), Some(midi)),
+            import_place(doc.project(), Some(midi), TrackKind::Audio),
             end,
             "the last track"
+        );
+        // MIDI files land on the MIDI track, and after the audio track.
+        let project = doc.project();
+        assert_eq!(
+            import_place(project, Some(midi), TrackKind::Midi),
+            DropInto::Track(midi)
+        );
+        assert_eq!(
+            import_place(project, Some(audio), TrackKind::Midi),
+            DropInto::NewTracks {
+                before: Some(midi),
+                group: None
+            }
         );
     }
 
@@ -277,7 +326,7 @@ mod tests {
         let bass = doc.add_track(TrackKind::Audio, None);
         let drums = doc.group_tracks(&[kick, keys]).unwrap();
         // Import audio with the group chosen: inside it, after its tracks.
-        let into = import_place(doc.project(), Some(drums));
+        let into = import_place(doc.project(), Some(drums), TrackKind::Audio);
         assert_eq!(
             into,
             DropInto::NewTracks {
@@ -286,7 +335,10 @@ mod tests {
             }
         );
         // With the MIDI track inside it chosen: the same place.
-        assert_eq!(import_place(doc.project(), Some(keys)), into);
+        assert_eq!(
+            import_place(doc.project(), Some(keys), TrackKind::Audio),
+            into
+        );
         let media: Vec<Id> = (0..2).map(|_| doc.fresh_id()).collect();
         doc.import(vec![Imported {
             into,

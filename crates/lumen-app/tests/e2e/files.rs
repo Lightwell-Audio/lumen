@@ -143,12 +143,12 @@ fn importing_with_nothing_selected_makes_tracks_and_cancelling_does_nothing() {
     let kick = wav(&lumen.dir().join("kick.wav"), 1.0);
     let snare = wav(&lumen.dir().join("snare.wav"), 1.0);
 
-    lumen.click("Import audio…");
+    lumen.click("Import audio or MIDI…");
     lumen.frames(3);
     assert!(clips(&lumen).is_empty(), "cancelled: nothing added");
 
     lumen.app_mut().answer_next_dialog(vec![kick, snare]);
-    lumen.click("Import audio…");
+    lumen.click("Import audio or MIDI…");
     lumen.wait_for("the files to load", |app| {
         !app.is_busy() && app.project().tracks.len() == 2
     });
@@ -157,7 +157,10 @@ fn importing_with_nothing_selected_makes_tracks_and_cancelling_does_nothing() {
         ["kick", "snare"],
         "in the order chosen"
     );
-    assert!(!lumen.shows("Import audio…"), "the empty state has gone");
+    assert!(
+        !lumen.shows("Import audio or MIDI…"),
+        "the empty state has gone"
+    );
 }
 
 /// Files dropped together become tracks in the order they were dropped,

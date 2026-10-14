@@ -21,6 +21,10 @@ pub const BASE: f32 = 0.18;
 pub const NOTE: std::time::Duration = std::time::Duration::from_millis(1400);
 /// Things moving to a new place (the playhead after a locate).
 pub const GLIDE: f32 = 0.22;
+/// What undo or redo changed: an accent wash that fades over this long.
+pub const WASH: f32 = 0.6;
+/// One breath of the armed ring: the one deliberate loop.
+pub const BREATH: f32 = 2.4;
 /// Frame interval for the armed ring's slow breathing (about 30 fps): it
 /// moves too slowly to need the display's full rate.
 pub const BREATH_FRAME: std::time::Duration = std::time::Duration::from_millis(33);

@@ -26,6 +26,61 @@ const SETTLE: Duration = Duration::from_millis(1500);
 /// The floor: 60 fps.
 const FLOOR_MS: f64 = 1000.0 / 60.0;
 
+/// Notes in the stress project's dense clip (the quality bar's 100,000
+/// notes, M5 slice 3b).
+pub const DENSE_NOTES: usize = 100_000;
+
+/// Adds the stress project's dense MIDI track: one clip of
+/// [`DENSE_NOTES`] notes across 400 beats over a six-octave range, for the
+/// arrangement's mini notes and the piano roll to be measured on.
+pub fn add_dense_midi(project: &mut lumen_project::model::Project) {
+    use lumen_core::time::{PPQ, Ticks};
+    use lumen_project::model::{Clip, ClipContent, Id, Note};
+    use std::sync::Arc;
+
+    const BEATS: i64 = 400;
+    let Some(template) = project
+        .tracks
+        .iter()
+        .find(|t| t.kind == lumen_project::model::TrackKind::Midi)
+    else {
+        return;
+    };
+    let mut track = (**template).clone();
+    track.id = Id(900_000_001);
+    track.name = "Dense".into();
+    track.parent = None;
+    track.devices = Vec::new();
+    let step = BEATS * PPQ / DENSE_NOTES as i64;
+    let notes: Vec<Note> = (0..DENSE_NOTES as i64)
+        .map(|i| {
+            Note::new(
+                Ticks(i * step),
+                Ticks(step * 3),
+                36 + ((i * 7) % 72) as u8,
+                40 + ((i * 13) % 80) as u8,
+            )
+        })
+        .collect();
+    track.clips = vec![Arc::new(Clip {
+        id: Id(900_000_002),
+        name: "Dense".into(),
+        start: Ticks::ZERO,
+        length: Ticks::quarters(BEATS),
+        muted: false,
+        color: None,
+        locked: false,
+        fade_in: Default::default(),
+        fade_out: Default::default(),
+        loop_length: None,
+        content: ClipContent::Midi {
+            notes,
+            events: Vec::new(),
+        },
+    })];
+    project.tracks.push(Arc::new(track));
+}
+
 /// Ten seconds of drum-like stereo audio at `rate` for the stress
 /// project's files: a kick on every beat at 120 BPM, a hat between, and a
 /// slow swell, so its waveforms have real detail at every zoom.
@@ -120,6 +175,10 @@ pub struct Bench {
     counting: bool,
     /// What asked for each idle repaint ("file:line reason"), with counts.
     idle_causes: std::collections::BTreeMap<String, u32>,
+    /// `--bench-editor`: the dense clip is open in the clip editor, which
+    /// is driven to the arrangement's scroll and zoom and scrolls its pitches
+    /// with the tracks (M5 slice 3; the roll has its own view, ADR-0048).
+    editor: bool,
 }
 
 impl Bench {
@@ -137,7 +196,19 @@ impl Bench {
             idle_frames: 0,
             counting: false,
             idle_causes: std::collections::BTreeMap::new(),
+            editor: false,
         }
+    }
+
+    /// Measures with the dense clip open in the clip editor.
+    pub fn with_editor(mut self, editor: bool) -> Self {
+        self.editor = editor;
+        self
+    }
+
+    /// The dense clip is to be open in the clip editor.
+    pub fn editor(&self) -> bool {
+        self.editor
     }
 
     /// Notes what caused an idle repaint (egui's repaint causes).

@@ -33,9 +33,14 @@ pub mod handles;
 mod header_row;
 mod headers;
 mod levels;
+mod listen_light;
 mod menus;
+mod midi_io;
+mod mini_notes;
+mod monitor_badge;
 mod nesting;
 mod pinned;
+pub(crate) mod recording_look;
 mod reorder;
 mod row_glide;
 mod rows;
@@ -49,6 +54,8 @@ pub(crate) mod strips;
 mod tracks;
 mod waves;
 
+pub(crate) use listen_light::{Live, shown as listen_light_shown};
+
 pub use drop::FileDrop;
 pub use samples::Update as StripUpdate;
 
@@ -59,14 +66,14 @@ use lumen_project::model::{Clip, Color, Id, Track};
 
 /// Width of the header column, unless dragged (MT-MIX-3 run 1: names were
 /// cut short); double-clicking its edge comes back to this.
-pub const HEADER_WIDTH: f32 = 204.0;
+pub const HEADER_WIDTH: f32 = crate::theme::size::HEADER_COLUMN;
 
 /// The widest the header column can be dragged.
 pub const MAX_HEADER_WIDTH: f32 = 480.0;
 
 /// Track heights come in steps of this (owner request): elements drawn by
 /// height later (automation lanes, meters) can rely on whole steps.
-pub const STEP: f32 = 22.0;
+pub const STEP: f32 = crate::theme::size::TRACK_STEP;
 
 /// A folded track: two steps.
 pub const FOLDED: f32 = 2.0 * STEP;
@@ -222,7 +229,7 @@ pub struct Arrangement {
     pub clips: BTreeSet<Id>,
     /// The clip drag or marquee in progress.
     pub gesture: Option<select::Gesture>,
-    /// The clip under the pointer, its half and the side it would trim,
+    /// The clip under the pointer, its region and the side it would trim,
     /// for the H1 hover and the L3 handles.
     pub hover: Option<select::Hover>,
     /// The marquee being drawn, on screen.
@@ -230,7 +237,7 @@ pub struct Arrangement {
     /// The selected time range (selecting one clears the clip selection,
     /// and the other way round).
     pub range: Option<select::TimeRange>,
-    /// Import audio was chosen in a track's menu: the app runs it next
+    /// Import audio or MIDI was chosen in a track's menu: the app runs it next
     /// frame, onto that track (now the selection).
     pub(crate) import_requested: bool,
     /// The clip the arrow keys last chose (M3 review H2): where the next
@@ -287,6 +294,16 @@ pub struct Arrangement {
     pub(crate) cue: CueControls,
     /// The additive-solo preference (M4 slice 4), set by the app.
     pub(crate) additive_solo: bool,
+    /// What live input there is and how much has come, lent by the app each
+    /// frame for the headers' listening lights (M5 slice 2e).
+    pub(crate) live: Live,
+    /// The recording under way, if any, lent by the app each frame (slice 6d).
+    pub(crate) recording: Option<recording_look::RecordingLook>,
+    /// While recording, the project as the next commit will make it, lent
+    /// by the app each frame and drawn in place of the document's: the take
+    /// and the clips it records over or into change with the playhead, not
+    /// once a commit (after MT-MIDI-7).
+    pub(crate) preview: Option<std::sync::Arc<lumen_project::model::Project>>,
     /// Every track's meter and the master's loudness (M4 slice 5), moved
     /// on by the app each frame.
     pub(crate) meters: crate::meters::Meters,

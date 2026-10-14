@@ -1,7 +1,8 @@
 //! User settings that survive restarts: the audio device and the metronome
-//! (M2 slice 8), the appearance (M3 slice 2), and changed shortcuts and the
-//! palette's recent commands (M3 slice 7). Preferences proper (paths and
-//! the rest) join them in M9.
+//! (M2 slice 8), the appearance (M3 slice 2), changed shortcuts and the
+//! palette's recent commands (M3 slice 7), and the record settings (M5
+//! slice 6c, in `record_settings.rs`). Preferences proper (paths and the
+//! rest) join them in M9.
 //!
 //! The file is versioned JSON in the user's settings folder. It is written
 //! atomically (to a temporary file, then renamed), so a crash never leaves
@@ -14,6 +15,8 @@ use std::path::{Path, PathBuf};
 use lumen_core::product::PRODUCT_NAME;
 use lumen_engine::{ClickSound, MetronomeSettings};
 use serde::{Deserialize, Serialize};
+
+use crate::record_settings::RecordSettings;
 
 pub const VERSION: u32 = 1;
 
@@ -208,6 +211,54 @@ pub struct Commands {
     pub recent: Vec<String>,
 }
 
+/// What the user switched on for one MIDI port (M5 slice 0). Ports are
+/// found by direction and name, and stay remembered while unplugged.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MidiPort {
+    /// `input` or `output`.
+    pub direction: String,
+    pub name: String,
+    #[serde(default)]
+    pub track: bool,
+    #[serde(default)]
+    pub remote: bool,
+    /// An output that gets MIDI clock (M5 slice 7; an added field).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub sync: bool,
+    /// How much later than the song the clock goes, in milliseconds,
+    /// −20 to +50 (the owner's F4; an added field).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub sync_delay_ms: i32,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+fn is_zero(n: &i32) -> bool {
+    *n == 0
+}
+
+/// The MIDI page of the settings: an added field with a default, so older
+/// files read as before (no version change).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Midi {
+    pub ports: Vec<MidiPort>,
+    /// The piano roll plays a note while it is drawn or changes pitch
+    /// (M5 slice 3d; an added field, on by default).
+    pub audition: bool,
+}
+
+impl Default for Midi {
+    fn default() -> Self {
+        Self {
+            ports: Vec::new(),
+            audition: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -221,6 +272,11 @@ pub struct Settings {
     pub time_format: crate::timefmt::TimeFormat,
     pub commands: Commands,
     pub mixing: Mixing,
+    pub midi: Midi,
+    /// The count-in, record-only metronome and Overdub (M5 slice 6c): an
+    /// added section with defaults, so older files read as before (no
+    /// version change).
+    pub record: RecordSettings,
 }
 
 impl Default for Settings {
@@ -235,6 +291,8 @@ impl Default for Settings {
             time_format: crate::timefmt::TimeFormat::default(),
             commands: Commands::default(),
             mixing: Mixing::default(),
+            midi: Midi::default(),
+            record: RecordSettings::default(),
         }
     }
 }
@@ -361,6 +419,7 @@ impl Drop for Writer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::record_settings::CountIn;
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir =
@@ -427,6 +486,32 @@ mod tests {
                 cue_volume_db: -6.0,
                 track_colour_meters: true,
             },
+            midi: Midi {
+                ports: vec![
+                    MidiPort {
+                        direction: "input".into(),
+                        name: "Keys".into(),
+                        track: true,
+                        remote: true,
+                        sync: false,
+                        sync_delay_ms: 0,
+                    },
+                    MidiPort {
+                        direction: "output".into(),
+                        name: "Drum machine".into(),
+                        track: false,
+                        remote: false,
+                        sync: true,
+                        sync_delay_ms: -7,
+                    },
+                ],
+                audition: false,
+            },
+            record: RecordSettings {
+                count_in: CountIn::TwoBars,
+                only_while_recording: true,
+                overdub: true,
+            },
         };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path), (settings.clone(), None));
@@ -486,5 +571,37 @@ mod tests {
         assert_eq!(settings.audio, None);
         // Files from before slice 4d: Follow on, by page (owner's default).
         assert_eq!(settings.follow, Follow::Page);
+    }
+
+    #[test]
+    fn a_file_from_before_the_record_settings_reads_them_as_defaults() {
+        let dir = temp_dir("record-missing");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"version": 1, "midi": {"ports": [], "audition": false}}"#,
+        )
+        .unwrap();
+        let (settings, warning) = load(&path);
+        assert_eq!(warning, None);
+        assert_eq!(settings.record, RecordSettings::default());
+        assert!(!settings.midi.audition, "the other sections still load");
+    }
+
+    #[test]
+    fn an_unknown_count_in_in_the_file_loads_as_off() {
+        let dir = temp_dir("record-unknown");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"version": 1, "record": {"count_in": "eight_bars", "overdub": true}}"#,
+        )
+        .unwrap();
+        let (settings, warning) = load(&path);
+        assert_eq!(warning, None);
+        assert_eq!(settings.record.count_in, CountIn::Off);
+        assert!(settings.record.overdub);
     }
 }

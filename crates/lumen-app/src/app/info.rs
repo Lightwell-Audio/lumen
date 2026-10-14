@@ -46,6 +46,11 @@ impl Held {
         alt: true,
         shift: false,
     };
+    pub const CTRL_SHIFT: Held = Held {
+        ctrl: true,
+        shift: true,
+        alt: false,
+    };
 
     /// The modifiers held now (Ctrl is Cmd on macOS, as for shortcuts).
     pub(crate) fn of(modifiers: egui::Modifiers) -> Self {
@@ -88,6 +93,9 @@ enum How {
     /// A command, shown with its shortcut from the keymap (left out while
     /// it has none).
     Key(Command),
+    /// Keys that are not a command's, shown as one keycap ("A–K"): a mode's
+    /// own letters.
+    Caps(&'static str),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -129,12 +137,21 @@ impl Info {
         self
     }
 
+    /// The keys `caps` (one keycap) do `verb`.
+    pub(crate) fn caps(mut self, caps: &'static str, verb: &str) -> Self {
+        self.actions.push(Action {
+            how: How::Caps(caps),
+            verb: verb.to_owned(),
+        });
+        self
+    }
+
     /// The actions that can be shown: commands with a shortcut, and every
     /// gesture.
     fn shown<'a>(&'a self, keymap: &'a Keymap) -> impl Iterator<Item = &'a Action> {
         self.actions.iter().filter(|a| match a.how {
             How::Key(command) => keymap.keys(command).is_some(),
-            How::Pointer(..) => true,
+            How::Pointer(..) | How::Caps(_) => true,
         })
     }
 
@@ -153,10 +170,13 @@ impl Info {
                     let keys = keymap.text(command).unwrap_or_default();
                     format!("{keys} {}", a.verb)
                 }
+                How::Caps(caps) => format!("{caps} {}", a.verb),
             })
             .collect();
         if actions.is_empty() {
             self.what.clone()
+        } else if self.what.is_empty() {
+            actions.join(" \u{00B7} ")
         } else {
             format!("{}: {}", self.what, actions.join(" · "))
         }
@@ -171,13 +191,25 @@ impl Info {
             what: String::new(),
             actions: vec![action.clone()],
         };
-        only.text(keymap).strip_prefix(": ").map(str::to_owned)
+        Some(only.text(keymap))
     }
 }
 
 /// Whether `action` is the drag the held keys choose now: lit.
 fn lit(action: &Action, held: Held) -> bool {
     matches!(action.how, How::Pointer(h, Mouse::Drag) if h == held)
+}
+
+impl Info {
+    /// What the info line says while the computer keyboard plays notes and
+    /// the pointer is on nothing in particular (M5 slice 2).
+    pub(crate) fn computer_keyboard(readout: Option<&str>) -> Self {
+        Info::new(readout.unwrap_or_default())
+            .caps("A\u{2013}K", "notes")
+            .caps("Z X", "octave")
+            .caps("C V", "velocity")
+            .caps("Esc", "leave")
+    }
 }
 
 impl App {
@@ -190,7 +222,16 @@ impl App {
     /// The info line, along the bottom of the window, below the detail
     /// panel. Draws what the last frame found under the pointer.
     pub(crate) fn draw_info_line(&mut self, ui: &mut Ui) {
-        let current = self.info.take();
+        // With the computer keyboard on, its keys are what the line says
+        // when the pointer is on nothing; its readout leads when the
+        // transport bar had no room for it.
+        let current = self.info.take().or_else(|| {
+            let readout = self.keyboard.readout();
+            let hidden = !self.transport.keyboard_readout_shown;
+            self.keyboard
+                .is_on()
+                .then(|| Info::computer_keyboard(hidden.then_some(readout.as_str())))
+        });
         if current != self.info_shown {
             ui.ctx().request_repaint();
         }
@@ -259,11 +300,13 @@ impl App {
 fn draw(ui: &mut Ui, info: &Info, keymap: &Keymap, held: Held) {
     let palette = theme::p();
     ui.spacing_mut().item_spacing.x = theme::space::XS;
-    ui.label(
-        RichText::new(&info.what)
-            .size(theme::size::CAPTION)
-            .color(palette.text),
-    );
+    if !info.what.is_empty() {
+        ui.label(
+            RichText::new(&info.what)
+                .size(theme::size::CAPTION)
+                .color(palette.text),
+        );
+    }
     let right = ui.max_rect().right();
     // The row's middle, where its words and caps are centred (half a
     // light's room above the strip's).
@@ -271,7 +314,7 @@ fn draw(ui: &mut Ui, info: &Info, keymap: &Keymap, held: Held) {
     let separator = RichText::new("\u{00B7}")
         .size(theme::size::CAPTION)
         .color(palette.text_hint);
-    for action in info.shown(keymap) {
+    for (n, action) in info.shown(keymap).enumerate() {
         let wanted = width(ui, action, keymap) + 3.0 * theme::space::S;
         if ui.cursor().left() + wanted > right {
             ui.label(
@@ -281,9 +324,12 @@ fn draw(ui: &mut Ui, info: &Info, keymap: &Keymap, held: Held) {
             );
             break;
         }
-        ui.add_space(theme::space::XS);
-        ui.label(separator.clone());
-        ui.add_space(theme::space::XS);
+        // Nothing leads the first action of an info with no subject.
+        if n > 0 || !info.what.is_empty() {
+            ui.add_space(theme::space::XS);
+            ui.label(separator.clone());
+            ui.add_space(theme::space::XS);
+        }
         let lit = lit(action, held);
         let background = ui.painter().add(Shape::Noop);
         // Drawn straight into the row, not in a nested `horizontal`: egui
@@ -314,6 +360,9 @@ fn draw(ui: &mut Ui, info: &Info, keymap: &Keymap, held: Held) {
                 if let Some(keys) = keymap.keys(command) {
                     keys.picture(ui);
                 }
+            }
+            How::Caps(caps) => {
+                widgets::modifier_caps(ui, &[caps]);
             }
         }
         ui.label(
@@ -378,6 +427,7 @@ fn width(ui: &Ui, action: &Action, keymap: &Keymap) -> f32 {
         How::Key(command) => keymap.keys(command).map_or(0.0, |k| {
             widgets::caps_width(ui, &k.modifiers, Some(k.key)) + gap
         }),
+        How::Caps(caps) => widgets::caps_width(ui, &[caps], None) + gap,
     };
     how + text(&action.verb)
 }

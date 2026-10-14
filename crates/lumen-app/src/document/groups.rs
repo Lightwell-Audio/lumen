@@ -256,6 +256,9 @@ pub(super) fn copy_runs(
                 if original.id != head {
                     copy.parent = copy.parent.map(renamed);
                 }
+                for device in &mut copy.devices {
+                    device.id = fresh();
+                }
                 for clip in &mut copy.clips {
                     let mut c = (**clip).clone();
                     c.id = fresh();

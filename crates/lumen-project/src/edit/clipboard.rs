@@ -17,6 +17,10 @@ pub struct Clipboard {
     pub length: Ticks,
     /// How many tracks it spans.
     pub tracks: usize,
+    /// The tracks a copied range covers, counted from the topmost copied
+    /// track. They skip tracks in between when the range was copied from a
+    /// selection that is not contiguous. Empty for copied clips.
+    pub rows: Vec<usize>,
     /// Copied from a time range: pasting clears the whole span on every
     /// track it lands on. Copied clips clear only under themselves.
     pub range: bool,
@@ -52,6 +56,7 @@ pub fn copy_clips(project: &Project, ids: &[Id]) -> Option<Clipboard> {
         clips,
         length: end - origin,
         tracks: bottom - top + 1,
+        rows: Vec::new(),
         range: false,
         from_track: top,
     })
@@ -82,9 +87,21 @@ pub fn copy_range(project: &Project, tracks: &[Id], a: Ticks, b: Ticks) -> Optio
         clips,
         length: b - a,
         tracks: rows.last()? - top + 1,
+        rows: rows.iter().map(|i| i - top).collect(),
         range: true,
         from_track: top,
     })
+}
+
+/// The ids of the tracks a copied range covers when pasted with its first
+/// track at the index `track`: the copied ones only, so tracks the copy
+/// skipped keep what they have. Tracks that do not exist are left out.
+pub fn landing_tracks(project: &Project, clipboard: &Clipboard, track: usize) -> Vec<Id> {
+    clipboard
+        .rows
+        .iter()
+        .filter_map(|r| project.tracks.get(track + r).map(|t| t.id))
+        .collect()
 }
 
 /// Pastes `clipboard` at `at`, its first track on the track with index
@@ -118,9 +135,7 @@ pub fn paste(
         .collect();
     // Make room.
     if clipboard.range {
-        let rows: Vec<Id> = (track..track + clipboard.tracks)
-            .filter_map(|r| project.tracks.get(r).map(|t| t.id))
-            .collect();
+        let rows = landing_tracks(project, clipboard, track);
         clear(project, &rows, at, at + clipboard.length, fresh);
     } else {
         for (row, clip) in &landing {
@@ -166,6 +181,19 @@ mod tests {
             1,
             "track 1's part of the copy lands on track 2"
         );
+        assert_eq!(crate::validate(&p), Ok(()));
+    }
+
+    #[test]
+    fn a_range_from_skipped_tracks_leaves_the_tracks_between_alone() {
+        let mut p = song();
+        // Tracks 1 and 3, not 2 (which holds clip 20): the copy covers rows
+        // 0 and 2 only.
+        let copy = copy_range(&p, &[Id(1), Id(3)], q(4), q(8)).unwrap();
+        assert_eq!((copy.rows.clone(), copy.tracks), (vec![0, 2], 3));
+        assert_eq!(landing_tracks(&p, &copy, 0), [Id(1), Id(3)]);
+        paste(&mut p, &copy, q(2), 0, &mut ids());
+        assert_eq!(clips(&p, 1), [(20, 0, 8, 1_000)], "untouched");
         assert_eq!(crate::validate(&p), Ok(()));
     }
 

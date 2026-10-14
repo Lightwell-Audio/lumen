@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use eframe::egui;
 
-use crate::{App, files, trace};
+use crate::{App, trace};
 
 /// Frames the smoke test renders before it quits.
 pub(crate) const SMOKE_FRAMES: u32 = 30;
@@ -22,7 +22,7 @@ impl App {
             && !self.document.project().tracks.is_empty()
         {
             if self.saving.is_none() && self.document.is_dirty() {
-                self.start_save(files::project_file_for(&path));
+                self.start_save_as(path);
             } else if self.saving.is_none() {
                 println!(
                     "saved {}",

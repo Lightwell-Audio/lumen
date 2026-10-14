@@ -16,6 +16,19 @@ use crate::launch::Launch;
 use crate::timeview::TimeView;
 use crate::{App, files, settings};
 
+/// A note edit for tests (`App::edit_notes`).
+#[derive(Debug, Clone, Copy)]
+pub enum NoteEdit {
+    Move {
+        time: Ticks,
+        pitch: i32,
+    },
+    Delete,
+    Mute(bool),
+    /// Lengthens the end by this much.
+    Lengthen(Ticks),
+}
+
 impl Launch {
     /// A clean start for a test: default settings that are never saved,
     /// autosaves in `dir/autosave`, and the silent test device.
@@ -26,6 +39,7 @@ impl Launch {
             settings_warning: None,
             settings_path: None,
             audio: audio::Choice::test_device(),
+            midi: crate::midi::Source::Test(lumen_midi::fake::FakeControl::new()),
             autosave_dir: Some(dir.join("autosave")),
             autosave_after: None,
             crash_dir: Some(dir.join("crashes")),
@@ -51,6 +65,37 @@ impl Launch {
     /// Opens `project` at start, as `lumen song.lumen` does.
     pub fn opening(mut self, project: PathBuf) -> Self {
         self.open = Some(project);
+        self
+    }
+
+    /// Starts with MIDI ports from `fake`, which the test plugs and
+    /// unplugs.
+    pub fn with_midi(mut self, fake: lumen_midi::fake::FakeControl) -> Self {
+        self.midi = crate::midi::Source::Test(fake);
+        self
+    }
+
+    /// Starts with the silent test device at a buffer of `frames`, kept to
+    /// real time: it makes up for a poll that came late, so on a busy
+    /// machine the playhead stays with the wall-clock stamps that scenarios
+    /// give live input (recording). A bigger buffer is a coarser clock.
+    pub fn with_audio_buffer(mut self, frames: u32) -> Self {
+        self.audio = audio::Choice::Saved(settings::AudioSettings {
+            driver: audio::TEST_PACED_DRIVER.into(),
+            device_id: "fake".into(),
+            device_name: "Fake device".into(),
+            sample_rate: None,
+            buffer_frames: Some(frames),
+            input_channels: Vec::new(),
+            output_channels: vec![0, 1],
+            cue_channels: Vec::new(),
+        });
+        self
+    }
+
+    /// Starts with MIDI switched off, as `--midi off` does.
+    pub fn with_midi_off(mut self) -> Self {
+        self.midi = crate::midi::Source::Off;
         self
     }
 
@@ -128,6 +173,84 @@ impl App {
         self.transport.state().ticks
     }
 
+    /// The engine's transport as of its last block: recording, count-in and
+    /// playing flags, and the sample and tick positions (M5 slice 6).
+    pub fn transport_state(&self) -> lumen_engine::TransportSnapshot {
+        self.transport.state()
+    }
+
+    /// The output latency of the audio device, in frames: the playhead as
+    /// the engine renders it leads what is heard by this much (M5 slice 6,
+    /// the recorder's timing).
+    pub fn output_latency_frames(&self) -> i64 {
+        self.transport
+            .audio
+            .info
+            .as_ref()
+            .map_or(0, |info| i64::from(info.output_latency))
+    }
+
+    /// Whether a recording is under way, or counting in to one (M5 slice 6).
+    pub fn recording(&self) -> bool {
+        self.is_recording()
+    }
+
+    /// The take as the arrangement draws it each frame (after MT-MIDI-7):
+    /// where it begins and ends, and the notes played so far on the first
+    /// track recording. None when nothing records.
+    pub fn live_take(&self) -> Option<(Ticks, Ticks, usize)> {
+        self.take_so_far()
+    }
+
+    /// The pitch range the first track recording is laid out to in what the
+    /// arrangement draws this frame, the take included
+    /// (`piano_roll::mini::Fit`). None before a note is played.
+    pub fn live_range(&self) -> Option<(u8, u8)> {
+        let shown = self.arrangement.preview.as_ref()?;
+        let track = shown
+            .tracks
+            .iter()
+            .find(|t| t.armed && t.kind == lumen_project::model::TrackKind::Midi)?;
+        crate::piano_roll::mini::track_range(&track.clips)
+    }
+
+    /// The clips of track `index` as the arrangement draws them this frame:
+    /// while recording, the take placed as far as it has gone.
+    pub fn drawn_clips(&self, index: usize) -> Vec<std::sync::Arc<lumen_project::model::Clip>> {
+        let project = self
+            .arrangement
+            .preview
+            .as_deref()
+            .unwrap_or_else(|| self.project());
+        project
+            .tracks
+            .get(index)
+            .map(|t| t.clips.clone())
+            .unwrap_or_default()
+    }
+
+    /// The pitch range every MIDI clip on track `index` is laid out to.
+    pub fn track_pitch_range(&self, index: usize) -> Option<(u8, u8)> {
+        crate::piano_roll::mini::track_range(&self.project().tracks.get(index)?.clips)
+    }
+
+    /// Whether Overdub is on: a take merges into the clip under it (M5
+    /// slice 6; `settings.record`).
+    pub fn overdub_on(&self) -> bool {
+        self.settings.record.overdub
+    }
+
+    /// The count-in's length in bars, zero for none (M5 slice 6).
+    pub fn count_in_bars(&self) -> u32 {
+        self.settings.record.count_in.bars()
+    }
+
+    /// The notice banner's text, such as "Arm a MIDI track to record."
+    /// (M5 slice 6).
+    pub fn record_notice(&self) -> Option<&str> {
+        self.file_notice.as_deref()
+    }
+
     /// Where the playhead is drawn: smoothed while playing (`playhead.rs`).
     pub fn drawn_playhead(&self) -> Ticks {
         self.transport.playhead()
@@ -164,6 +287,98 @@ impl App {
             .into_iter()
             .map(|[l, r, ..]| (l, r))
             .collect()
+    }
+
+    /// Sets MIDI From on the selected MIDI tracks, as the menu would.
+    pub fn set_midi_from(&mut self, from: lumen_project::model::MidiFrom) {
+        let ids = self.selected_midi_tracks();
+        self.document.set_midi_from(&ids, from);
+    }
+
+    /// Sets Monitor on the selected MIDI tracks, as the menu would.
+    pub fn set_monitor_of_selected(&mut self, monitor: lumen_project::model::Monitor) {
+        let ids = self.selected_midi_tracks();
+        self.document.set_monitor(&ids, monitor);
+    }
+
+    /// Plays `msg` live, as the computer keyboard does (M5 slice 2).
+    pub fn play_live(&mut self, msg: lumen_core::midi::Msg) -> bool {
+        self.play_key(msg)
+    }
+
+    /// Previews `pitch` on `track` as the piano roll does (M5 slice 3d).
+    pub fn audition(&mut self, track: Id, pitch: u8, velocity: u8) -> bool {
+        self.audition_play(track, pitch, velocity)
+    }
+
+    /// Previews a chord of `(pitch, velocity)` notes on `track`, as a press
+    /// on picked notes does: each note its own tone, so one on a key the
+    /// track's clip is sounding on hardware is skipped and the rest play.
+    pub fn audition_chord(&mut self, track: Id, tones: &[(u8, u8)]) -> bool {
+        let tones: Vec<crate::audition::Tone> = tones
+            .iter()
+            .map(|&(pitch, velocity)| crate::audition::Tone { pitch, velocity })
+            .collect();
+        self.audition_tones(track, &tones, true)
+    }
+
+    /// Lets go of the preview (the end of a gesture).
+    pub fn release_audition(&mut self) {
+        self.audition_release();
+    }
+
+    /// Whether a previewed note is sounding.
+    pub fn audition_sounding(&self) -> bool {
+        self.audition.is_sounding()
+    }
+
+    /// Turns the piano roll's audition on or off, in the settings.
+    pub fn set_audition_setting(&mut self, on: bool) {
+        self.settings.midi.audition = on;
+    }
+
+    /// Edits the notes of a clip as the piano roll will (M5 slice 3a's
+    /// `Document` methods), for tests of notes committed while playing.
+    pub fn edit_notes(&mut self, clip: Id, selection: &[usize], edit: NoteEdit) {
+        use crate::document::Resize;
+        use lumen_project::edit::notes::End;
+        let base = self.document.project().clone();
+        match edit {
+            NoteEdit::Move { time, pitch } => {
+                self.document
+                    .move_notes(&base, clip, selection, time, pitch, None);
+            }
+            NoteEdit::Delete => {
+                self.document.delete_notes(clip, selection);
+            }
+            NoteEdit::Mute(muted) => {
+                self.document.mute_notes(clip, selection, Some(muted));
+            }
+            NoteEdit::Lengthen(by) => {
+                let resize = Resize {
+                    end: End::End,
+                    by,
+                    min: Ticks::ZERO,
+                };
+                self.document
+                    .resize_notes(&base, clip, selection, resize, None);
+            }
+        }
+    }
+
+    /// Whether the computer keyboard mode is on (M5 slice 2).
+    pub fn computer_keyboard_on(&self) -> bool {
+        self.keyboard.is_on()
+    }
+
+    /// The notes the computer keyboard holds now, lowest first.
+    pub fn computer_keyboard_held(&self) -> Vec<u8> {
+        self.keyboard.held_notes()
+    }
+
+    /// The messages the computer keyboard sent since the last call.
+    pub fn computer_keyboard_sent(&mut self) -> Vec<lumen_core::midi::Msg> {
+        self.keyboard.take_sent()
     }
 
     /// What the test device has played since the last call, frame by
@@ -224,6 +439,45 @@ impl App {
         &self.settings.metronome.output
     }
 
+    /// How bright the MIDI chip's IN and OUT lights were when last drawn
+    /// (0 at rest, 1 at a flash, fading over `motion::NOTE`).
+    pub fn midi_chip_lights(&self) -> (f32, f32) {
+        (
+            self.transport.midi_lights.input,
+            self.transport.midi_lights.output,
+        )
+    }
+
+    /// How bright the light after a MIDI track's name was when last drawn
+    /// (0 at rest, and always 0 while the track does not listen).
+    pub fn header_light(&self, ctx: &egui::Context, track: Id) -> f32 {
+        crate::arrangement::listen_light_shown(ctx, track)
+    }
+
+    /// How bright the popover's light for a port was when last drawn
+    /// (`None` when the popover is not showing it).
+    pub fn midi_row_light(&self, direction: lumen_midi::Direction, name: &str) -> Option<f32> {
+        self.transport
+            .midi_lights
+            .rows
+            .iter()
+            .find(|(id, _)| id.direction == direction && id.name == name)
+            .map(|(_, b)| *b)
+    }
+
+    /// The MIDI switches the settings hold: (direction, name, track, remote).
+    pub fn saved_midi_ports(&self) -> Vec<(String, String, bool, bool)> {
+        let mut ports: Vec<_> = self
+            .settings
+            .midi
+            .ports
+            .iter()
+            .map(|p| (p.direction.clone(), p.name.clone(), p.track, p.remote))
+            .collect();
+        ports.sort();
+        ports
+    }
+
     fn heard_frames(&mut self) -> Vec<[f32; 4]> {
         let Some(heard) = self.transport.audio.heard.as_mut() else {
             return Vec::new();
@@ -237,7 +491,12 @@ impl App {
 
     /// Background work is in progress: a save, an open, or files loading.
     pub fn is_busy(&self) -> bool {
-        self.saving.is_some() || self.opening.is_some() || self.lanes.is_loading()
+        self.saving.is_some()
+            || self.opening.is_some()
+            || self.lanes.is_loading()
+            || self.midi_reader.busy()
+            || self.midi_exporting.is_some()
+            || self.midi_writing.is_some()
     }
 
     /// A problem with saving or opening, as shown to the user.
@@ -483,4 +742,154 @@ pub struct ClipHandlesAt {
 /// "Colour {index + 1}" sets it (slice 6e).
 pub fn clip_colour(index: usize) -> lumen_project::model::Color {
     crate::arrangement::color_from(crate::theme::CLIP_COLORS[index])
+}
+
+/// The clip editor (M5 slice 3c), for the end-to-end tests.
+impl App {
+    /// The clip open in the editor.
+    pub fn editor_open_clip(&self) -> Option<Id> {
+        self.note_editor.clip
+    }
+
+    /// The draw tool is chosen (else the pointer).
+    pub fn editor_draw_tool(&self) -> bool {
+        self.note_editor.tool == crate::note_editor::Tool::Draw
+    }
+
+    /// The picked notes, as indices into the open clip's notes.
+    pub fn editor_picked(&self) -> Vec<usize> {
+        self.note_editor.picked().to_vec()
+    }
+
+    /// The editor is in its own window.
+    pub fn editor_popped(&self) -> bool {
+        self.note_editor.popped
+    }
+
+    /// A gesture is in progress (a button is down in the notes).
+    pub fn editor_gesture(&self) -> bool {
+        self.note_editor.gesture.is_some()
+    }
+
+    /// The detail panel shows the Clip tab.
+    pub fn clip_tab_shown(&self) -> bool {
+        self.detail_tab == crate::app::detail::DetailTab::Clip
+    }
+
+    /// Where the notes are drawn, if the editor has been.
+    pub fn editor_body(&self) -> Option<egui::Rect> {
+        self.note_editor.last_view.map(|v| v.body)
+    }
+
+    /// The clip editor's own horizontal view (its zoom and scroll), where it
+    /// drew last: separate from [`App::view`], the arrangement's (ADR-0048).
+    pub fn editor_view(&self) -> Option<TimeView> {
+        self.note_editor.last_view.map(|v| v.time)
+    }
+
+    /// The point at the start of clip time `local`, in the row of `pitch`
+    /// (the row's middle), where the editor drew it last.
+    pub fn editor_point(&self, local: Ticks, pitch: u8) -> Option<egui::Pos2> {
+        let v = self.note_editor.last_view?;
+        let y = v.row_top(i32::from(pitch)) + v.row_height / 2.0;
+        Some(egui::pos2(v.x_of(local), y))
+    }
+
+    /// The lane under the roll is showing (it was drawn last frame).
+    pub fn lane_shown(&self) -> bool {
+        self.note_editor.last_lane.is_some() && !self.note_editor.lane.hidden
+    }
+
+    /// The name of the lane's tab chosen ("Velocity", "Mod wheel", ...).
+    pub fn lane_name(&self) -> String {
+        self.note_editor.lane.kind.name()
+    }
+
+    /// The lane's plotting area, where it drew last.
+    pub fn lane_body(&self) -> Option<egui::Rect> {
+        self.note_editor.last_lane.map(|v| v.body)
+    }
+
+    /// The point where the open lane shows `value` at clip time `local`.
+    pub fn lane_point(&self, local: Ticks, value: i32) -> Option<egui::Pos2> {
+        let v = self.note_editor.last_lane?;
+        Some(egui::pos2(v.x_of(local), v.y_of(value)))
+    }
+
+    /// Where the bend handle's dot is, when a curve was just drawn.
+    pub fn lane_bend_dot(&self) -> Option<egui::Pos2> {
+        let v = self.note_editor.last_lane?;
+        let b = self.note_editor.lane.bend?;
+        Some(crate::note_editor::lane::paint::bend_dot(&v, &b))
+    }
+
+    /// A gesture is in progress in the lane.
+    pub fn lane_gesture(&self) -> bool {
+        self.note_editor.lane.gesture.is_some()
+    }
+
+    /// The picked points of the controller lane (indices into the clip's
+    /// events).
+    pub fn lane_picked(&self) -> Vec<usize> {
+        self.note_editor.lane.picked.clone()
+    }
+
+    /// Makes `pitch` visible in the editor, as scrolling would.
+    pub fn editor_show_pitch(&mut self, pitch: u8) {
+        if let Some(v) = self.note_editor.last_view {
+            self.note_editor.scroll = crate::note_editor::view::scroll_to_centre(
+                i32::from(pitch),
+                v.row_height,
+                v.body.height(),
+            );
+        }
+    }
+}
+
+impl App {
+    /// The grid step that `t` falls in now (`[start, end)`).
+    pub fn grid_cell_at(&self, t: Ticks) -> (Ticks, Ticks) {
+        self.grid_cell(t)
+    }
+
+    /// [`Self::grid_cell_at`] as the piano roll's own zoom sets it.
+    pub fn editor_grid_cell_at(&self, t: Ticks) -> Option<(Ticks, Ticks)> {
+        let zoom = self.note_editor.last_view?.time.zoom;
+        Some(self.grid_cell_at_zoom(t, zoom))
+    }
+}
+
+/// The piano roll's body drawn on its own with a sample clip (slice 3b),
+/// for the shots harness: the real roll arrives with slice 3c.
+pub struct PianoRollDemo {
+    boxes: std::sync::Arc<Vec<lumen_render::BoxInstance>>,
+}
+
+impl PianoRollDemo {
+    /// The sample clip in track colour `colour` (an index of
+    /// [`clip_colour`]'s palette).
+    pub fn new(colour: usize) -> Self {
+        Self {
+            boxes: std::sync::Arc::new(crate::piano_roll::demo::sample_boxes(
+                crate::theme::CLIP_COLORS[colour],
+            )),
+        }
+    }
+
+    /// Installs the typefaces and the theme (`light` or dark), as the app
+    /// does at start, in a context that has no `App`.
+    pub fn prepare(ctx: &egui::Context, light: bool) {
+        crate::fonts::install(ctx);
+        let appearance = if light {
+            crate::theme::Appearance::Light
+        } else {
+            crate::theme::Appearance::Dark
+        };
+        crate::theme::apply(ctx, appearance, 0.0);
+    }
+
+    /// Draws the roll over all of `ui`'s free area.
+    pub fn show(&self, ui: &mut egui::Ui, points_per_beat: f64, row_height: f32) {
+        crate::piano_roll::demo::show(ui, &self.boxes, points_per_beat, row_height);
+    }
 }

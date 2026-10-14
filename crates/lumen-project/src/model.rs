@@ -224,6 +224,19 @@ pub struct Track {
     pub armed: bool,
     #[serde(default)]
     pub devices: Vec<Device>,
+    /// Where a MIDI track plays its notes instead of its instrument (format
+    /// v12): a MIDI output port and channel. Written only when set; the
+    /// instrument stays on the track for switching back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub midi_to: Option<MidiTo>,
+    /// Which MIDI inputs a MIDI track listens to (format v13). Written only
+    /// when not "all inputs, all channels".
+    #[serde(default, skip_serializing_if = "MidiFrom::is_default")]
+    pub midi_from: MidiFrom,
+    /// When the track listens to its input (format v13). Stored on every
+    /// kind of track; audio tracks use it from M9.
+    #[serde(default, skip_serializing_if = "Monitor::is_default")]
+    pub monitor: Monitor,
     #[serde(default)]
     pub clips: Vec<Arc<Clip>>,
 }
@@ -247,8 +260,16 @@ impl Track {
             solo: false,
             armed: false,
             devices: Vec::new(),
+            midi_to: None,
+            midi_from: MidiFrom::default(),
+            monitor: Monitor::default(),
             clips: Vec::new(),
         }
+    }
+
+    /// The track's instrument: its first built-in synth (format v12).
+    pub fn instrument(&self) -> Option<&Device> {
+        self.devices.iter().find(|d| d.is_synth())
     }
 
     /// A project's master track.
@@ -345,6 +366,69 @@ impl<'de> Deserialize<'de> for Level {
     }
 }
 
+/// A MIDI output (format v12): a port by the name the system gave it, and a
+/// channel from 0 (shown as 1) to 15. The port may be unplugged: the name is
+/// kept so the track finds the device again when it returns.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MidiTo {
+    pub port: String,
+    pub channel: u8,
+}
+
+/// Which inputs feed a MIDI track (format v13).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FromSource {
+    /// Every input switched on for tracks, and the computer keyboard.
+    #[default]
+    All,
+    /// The computer keyboard only.
+    Keyboard,
+    /// One input port, by the name the system gave it. It may be unplugged:
+    /// the name is kept so the track finds the device again.
+    Port(String),
+}
+
+/// A MIDI track's input (format v13): a source and a channel from 0 (shown
+/// as 1) to 15, or every channel.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct MidiFrom {
+    #[serde(default)]
+    pub source: FromSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<u8>,
+}
+
+impl MidiFrom {
+    /// All inputs, all channels: the default, which is not written.
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// When a track passes its input through to its output (format v13).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Monitor {
+    /// While the track is armed or selected.
+    #[default]
+    Auto,
+    /// Always.
+    In,
+    /// Never.
+    Off,
+}
+
+impl Monitor {
+    pub fn is_default(&self) -> bool {
+        *self == Self::Auto
+    }
+}
+
+/// The stable name of the built-in synth in `PluginRef::Builtin` (format
+/// v12). Never the product name, and never changed.
+pub const SYNTH: &str = "synth";
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Device {
     pub id: Id,
@@ -354,6 +438,31 @@ pub struct Device {
     /// Opaque state blob from the plugin, stored as base64.
     #[serde(with = "base64_bytes", default, skip_serializing_if = "Vec::is_empty")]
     pub state: Vec<u8>,
+}
+
+impl Device {
+    /// The built-in synth with a preset (`"poly"`, `"keys"`, ...). For a
+    /// built-in device `state` is its own state; the synth's is its
+    /// preset's stable name as text.
+    pub fn synth(id: Id, preset: &str) -> Self {
+        Self {
+            id,
+            plugin: PluginRef::Builtin { name: SYNTH.into() },
+            bypass: false,
+            state: preset.as_bytes().to_vec(),
+        }
+    }
+
+    pub fn is_synth(&self) -> bool {
+        matches!(&self.plugin, PluginRef::Builtin { name } if name == SYNTH)
+    }
+
+    /// The preset of a synth: its stable name, if the state is readable.
+    pub fn preset(&self) -> Option<&str> {
+        self.is_synth()
+            .then(|| std::str::from_utf8(&self.state).ok())
+            .flatten()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -409,15 +518,81 @@ pub enum ClipContent {
     },
     Midi {
         notes: Vec<Note>,
+        /// Controllers, pitch bend, pressure and program changes (format
+        /// v11), in time order. Written only when there are some.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        events: Vec<ClipEvent>,
     },
 }
 
-/// A note, written as `[start, length, pitch, velocity]` to keep large clips
-/// readable and compact. `start` is relative to the clip.
+impl ClipContent {
+    /// An empty MIDI clip's content.
+    pub fn midi() -> Self {
+        ClipContent::Midi {
+            notes: Vec::new(),
+            events: Vec::new(),
+        }
+    }
+}
+
+/// A non-note MIDI event in a clip, at `at` ticks from the clip's start.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Note(pub Ticks, pub Ticks, pub u8, pub u8);
+pub struct ClipEvent {
+    pub at: Ticks,
+    #[serde(flatten)]
+    pub kind: EventKind,
+}
+
+/// What a [`ClipEvent`] says. Values use the MIDI ranges: 7-bit for
+/// controllers and pressure, 14-bit centred on 0 for pitch bend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EventKind {
+    Controller {
+        number: u8,
+        value: u8,
+    },
+    /// −8192 to 8191, 0 is centre.
+    PitchBend {
+        value: i16,
+    },
+    /// Channel pressure (aftertouch).
+    Pressure {
+        value: u8,
+    },
+    /// A program change, with the bank (MSB << 7 | LSB) when one is given.
+    Program {
+        program: u8,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bank: Option<u16>,
+    },
+}
+
+impl EventKind {
+    /// Whether the numbers are inside MIDI's ranges.
+    pub fn in_range(self) -> bool {
+        match self {
+            EventKind::Controller { number, value } => number < 128 && value < 128,
+            EventKind::PitchBend { value } => (-8192..=8191).contains(&value),
+            EventKind::Pressure { value } => value < 128,
+            EventKind::Program { program, bank } => {
+                program < 128 && bank.is_none_or(|b| b < 128 * 128)
+            }
+        }
+    }
+}
+
+/// A note, written as `[start, length, pitch, velocity]` to keep large clips
+/// readable and compact; a muted note (format v14) has a fifth element,
+/// `true`. `start` is relative to the clip. Build one with [`Note::new`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Note(pub Ticks, pub Ticks, pub u8, pub u8, pub bool);
 
 impl Note {
+    /// An unmuted note.
+    pub fn new(start: Ticks, length: Ticks, pitch: u8, velocity: u8) -> Self {
+        Note(start, length, pitch, velocity, false)
+    }
     pub fn start(self) -> Ticks {
         self.0
     }
@@ -429,6 +604,46 @@ impl Note {
     }
     pub fn velocity(self) -> u8 {
         self.3
+    }
+    /// Whether the note is switched off: it stays in the clip, but is not
+    /// played.
+    pub fn muted(self) -> bool {
+        self.4
+    }
+    /// Where the note ends.
+    pub fn end(self) -> Ticks {
+        self.0 + self.1
+    }
+}
+
+impl Serialize for Note {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeTuple;
+        let mut t = s.serialize_tuple(if self.4 { 5 } else { 4 })?;
+        t.serialize_element(&self.0)?;
+        t.serialize_element(&self.1)?;
+        t.serialize_element(&self.2)?;
+        t.serialize_element(&self.3)?;
+        if self.4 {
+            t.serialize_element(&true)?;
+        }
+        t.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Note {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        /// Four elements, or five with the mute flag.
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Form {
+            Plain(Ticks, Ticks, u8, u8),
+            Muted(Ticks, Ticks, u8, u8, bool),
+        }
+        Ok(match Form::deserialize(d)? {
+            Form::Plain(a, b, c, v) => Note(a, b, c, v, false),
+            Form::Muted(a, b, c, v, m) => Note(a, b, c, v, m),
+        })
     }
 }
 

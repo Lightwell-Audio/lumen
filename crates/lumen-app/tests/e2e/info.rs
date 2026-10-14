@@ -8,14 +8,14 @@ use egui_kittest::kittest::Queryable;
 use super::properties::with_two_clips;
 use super::{Lumen, keys};
 
-/// Hovers the top half of clip `index` on track `track`.
+/// Hovers the header of clip `index` on track `track`.
 fn hover_clip(lumen: &mut Lumen, track: usize) {
     let id = lumen.app().project().tracks[track].clips[0].id;
     let ctx = lumen.harness.ctx.clone();
     let r = lumen.app().clip_rect(&ctx, id).expect("in view");
     lumen
         .harness
-        .hover_at(Pos2::new(r.center().x, r.top() + r.height() * 0.3));
+        .hover_at(Pos2::new(r.center().x, r.top() + 6.0));
     lumen.frames(3);
 }
 

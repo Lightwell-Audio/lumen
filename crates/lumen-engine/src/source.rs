@@ -59,6 +59,19 @@ impl<'a> Output<'a> {
     }
 }
 
+/// Why a part is rendered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Mode {
+    /// Playback.
+    #[default]
+    Play,
+    /// Scrubbing while stopped: audio plays, MIDI does not (M5 slice 1).
+    Scrub,
+    /// Stopped, and only what still rings is wanted: instrument tails.
+    /// Sources that play the timeline stay silent.
+    Ring,
+}
+
 /// What a source needs to know about the part it renders.
 #[derive(Debug, Clone, Copy)]
 pub struct RenderContext<'a> {
@@ -70,6 +83,27 @@ pub struct RenderContext<'a> {
     /// This is the 2 ms rendered ahead of a jump, to crossfade from (the
     /// engine fades it out). Meters and recorders should ignore it.
     pub tail: bool,
+    /// With `tail`: playback is about to stop, not jump. Instruments go on
+    /// ringing after a stop, so they add nothing to this tail.
+    pub stopping: bool,
+    pub mode: Mode,
+    /// The device's frame count (frames the engine has processed) at which
+    /// the first frame of this part is heard, before the device's own
+    /// output latency: the block's start, the frame within it, and the read
+    /// ahead while playing. MIDI sent to hardware is timed from it (M5
+    /// slice 1).
+    pub stream: u64,
+    /// The device's frame count at the first frame of this part as the
+    /// callback counts it: the block's start and the frame within it,
+    /// without the read ahead. Live input is placed against it (M5 slice
+    /// 2). Zero where no live input is played (scrubbing, tails).
+    pub device: u64,
+    /// The transport is recording: sources that keep what arrives (MIDI
+    /// input) capture it with its timeline position (M5 slice 6).
+    pub recording: bool,
+    /// The active loop as `[start, end)` samples, so live input played just
+    /// before a wrap is placed at the loop's end.
+    pub looping: Option<(i64, i64)>,
 }
 
 /// Why playback jumped, so sources can choose whether to fade in.
@@ -111,6 +145,20 @@ pub trait Source: Send {
     /// block and when playback starts.
     fn latency(&self) -> u32 {
         0
+    }
+
+    /// Playback stopped or paused: let go of what is held (MIDI notes).
+    /// What rings out is rendered while [`Source::ringing`].
+    fn stopped(&mut self) {}
+
+    /// Panic: stop everything that sounds at once, tails included.
+    fn panic(&mut self) {}
+
+    /// Something still sounds or waits to be sent although playback is
+    /// stopped (an instrument's release tail, a note-off): the engine then
+    /// renders the source with [`Mode::Ring`] instead of calling `idle`.
+    fn ringing(&self) -> bool {
+        false
     }
 }
 

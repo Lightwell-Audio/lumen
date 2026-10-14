@@ -18,6 +18,12 @@ pub struct TransportSnapshot {
     pub sample_rate: u32,
     /// Playing inside an enabled punch region.
     pub punching: bool,
+    /// Recording, or counting in to it.
+    pub recording: bool,
+    /// While counting in: the frames left and the frames in all (the song
+    /// waits at the play marker); zero otherwise.
+    pub count_in_left: i64,
+    pub count_in_total: i64,
 }
 
 #[derive(Debug, Default)]
@@ -30,6 +36,9 @@ pub(crate) struct Shared {
     marker: AtomicI64,
     sample_rate: AtomicU32,
     punching: AtomicBool,
+    recording: AtomicBool,
+    count_in_left: AtomicI64,
+    count_in_total: AtomicI64,
 }
 
 impl Shared {
@@ -44,6 +53,10 @@ impl Shared {
         self.marker.store(s.marker.0, Ordering::Relaxed);
         self.sample_rate.store(s.sample_rate, Ordering::Relaxed);
         self.punching.store(s.punching, Ordering::Relaxed);
+        self.recording.store(s.recording, Ordering::Relaxed);
+        self.count_in_left.store(s.count_in_left, Ordering::Relaxed);
+        self.count_in_total
+            .store(s.count_in_total, Ordering::Relaxed);
         self.sequence.store(sequence + 2, Ordering::Release);
     }
 
@@ -62,6 +75,9 @@ impl Shared {
                 marker: Ticks(self.marker.load(Ordering::Relaxed)),
                 sample_rate: self.sample_rate.load(Ordering::Relaxed),
                 punching: self.punching.load(Ordering::Relaxed),
+                recording: self.recording.load(Ordering::Relaxed),
+                count_in_left: self.count_in_left.load(Ordering::Relaxed),
+                count_in_total: self.count_in_total.load(Ordering::Relaxed),
             };
             fence(Ordering::Acquire);
             if self.sequence.load(Ordering::Relaxed) == before {
@@ -86,6 +102,9 @@ mod tests {
             marker: Ticks(k * 5),
             sample_rate: k as u32,
             punching: k % 2 == 0,
+            recording: k % 2 == 0,
+            count_in_left: k * 7,
+            count_in_total: k * 11,
         };
         shared.publish(&state(0));
         let writer = {
@@ -104,6 +123,9 @@ mod tests {
             assert_eq!(i64::from(s.sample_rate), s.sample, "{s:?}");
             assert_eq!(s.playing, s.sample % 2 == 0, "{s:?}");
             assert_eq!(s.punching, s.playing, "{s:?}");
+            assert_eq!(s.recording, s.playing, "{s:?}");
+            assert_eq!(s.count_in_left, s.sample * 7, "{s:?}");
+            assert_eq!(s.count_in_total, s.sample * 11, "{s:?}");
             reads += 1;
         }
         writer.join().unwrap();

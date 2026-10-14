@@ -21,6 +21,16 @@ This file records the components whose licences need specific action.
 - **Recorded:** owner decision 2026-10-06 (`docs/DECISIONS.md`), with a
   `cargo-deny` exception in `deny.toml`.
 
+## midly (Standard MIDI Files)
+
+- **Crate:** `midly` (version 0.5), used by `lumen-project` to read and
+  write `.mid` files.
+- **Licence:** the Unlicense (<https://unlicense.org/>), a dedication to the
+  public domain with a permissive fallback. It sets no conditions.
+- **Source code:** <https://github.com/negamartin/midly>, and on crates.io.
+- **Recorded:** M5 slice 7 (ADR-0062), with a `cargo-deny` exception in
+  `deny.toml`, as the Unlicense is not on the general allow list.
+
 ## Typefaces: Inter, Unbounded and Martian Mono
 
 - **Files:** `crates/lumen-app/assets/fonts/Inter.ttf` (Inter, by Rasmus

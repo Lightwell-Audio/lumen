@@ -13,6 +13,7 @@ mod json;
 pub mod migrate;
 pub mod model;
 pub mod routing;
+pub mod smf;
 pub mod solo;
 #[doc(hidden)]
 pub mod testing;
@@ -21,6 +22,6 @@ mod validate;
 pub use history::History;
 pub use io::{
     FORMAT_ID, LoadError, MediaLocation, SaveError, SaveOptions, from_bytes, load, locate_media,
-    media_path_for, save, to_bytes,
+    media_path_for, save, to_bytes, write_atomic,
 };
 pub use validate::validate;

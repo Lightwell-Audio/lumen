@@ -17,6 +17,8 @@ pub struct Launch {
     /// Where settings are saved; `None` never saves them.
     pub(crate) settings_path: Option<PathBuf>,
     pub(crate) audio: audio::Choice,
+    /// Where MIDI ports come from (`--midi`).
+    pub(crate) midi: crate::midi::Source,
     /// Where autosaves go; `None` turns autosave off.
     pub(crate) autosave_dir: Option<PathBuf>,
     pub(crate) autosave_after: Option<Duration>,
@@ -87,6 +89,12 @@ impl Launch {
                 .clone()
                 .map_or(audio::Choice::Default, audio::Choice::Saved),
         };
+        let midi = value("--midi").map_or(crate::midi::Source::System, |arg| {
+            crate::midi::Source::parse(&arg).unwrap_or_else(|e| {
+                eprintln!("{e}; using the system's MIDI");
+                crate::midi::Source::System
+            })
+        });
         let screenshot = value("--screenshot").map(PathBuf::from);
         Self {
             started: Instant::now(),
@@ -94,6 +102,7 @@ impl Launch {
             settings_warning,
             settings_path,
             audio,
+            midi,
             autosave_dir: value("--autosave-dir")
                 .map(PathBuf::from)
                 .or_else(crate::autosave::default_dir),
@@ -125,7 +134,9 @@ impl Launch {
             appearance: value("--appearance"),
             smoke_test: screenshot.is_some() || has("--smoke-test"),
             screenshot,
-            bench: value("--bench-frames").map(|out| bench::Bench::new(PathBuf::from(out))),
+            bench: value("--bench-frames").map(|out| {
+                bench::Bench::new(PathBuf::from(out)).with_editor(has("--bench-editor"))
+            }),
             bench_size: value("--bench-size").and_then(|v| {
                 let (w, h) = v.split_once('x')?;
                 Some((w.parse().ok()?, h.parse().ok()?))

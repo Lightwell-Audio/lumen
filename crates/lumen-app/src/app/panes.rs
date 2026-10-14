@@ -107,6 +107,22 @@ impl Panes {
     }
 }
 
+/// Keeps the arrow keys for the app while `pane`'s anchor has the keyboard,
+/// so egui does not move the focus off it with them: the clip editor's
+/// notes are moved and transposed with the arrows (M5 slice 3c).
+pub(crate) fn keep_arrows(ctx: &egui::Context, pane: Pane) {
+    ctx.memory_mut(|m| {
+        m.set_focus_lock_filter(
+            pane.id(),
+            egui::EventFilter {
+                horizontal_arrows: true,
+                vertical_arrows: true,
+                ..Default::default()
+            },
+        );
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

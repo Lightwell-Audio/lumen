@@ -6,8 +6,8 @@
 //! across loop wraps, locates and stops: only new beats start clicks, so the
 //! metronome never cuts itself off.
 //!
-//! Count-in and "only while recording" arrive with recording (M9); output
-//! routing arrives with the mixer (M4).
+//! The count-in clicks (M5 slice 6) sound whether or not the metronome is
+//! on; "only while recording" is the app's, which switches the metronome.
 
 use std::f32::consts::TAU;
 
@@ -137,6 +137,27 @@ pub(crate) struct Metronome {
     voice: Voice,
 }
 
+/// The beats before recording starts: `beats` clicks `beat` frames apart,
+/// the first of every bar (`per_bar` beats) accented. The song waits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CountIn {
+    pub beat: i64,
+    pub beats: u32,
+    pub per_bar: u32,
+    /// Frames counted so far.
+    pub done: i64,
+}
+
+impl CountIn {
+    pub fn total(&self) -> i64 {
+        self.beat * i64::from(self.beats)
+    }
+
+    pub fn left(&self) -> i64 {
+        self.total() - self.done
+    }
+}
+
 /// Downbeats are at full level; other beats a little quieter.
 const ACCENT_GAIN: f32 = 1.0;
 const BEAT_GAIN: f32 = 0.6;
@@ -220,6 +241,39 @@ impl Metronome {
             beat = timeline.meter.next_beat(beat + Ticks(1));
         }
         self.ring(data, stride, channels, offset + done, count - done, rate_f);
+    }
+
+    /// Clicks for the next `window.count` frames of a count-in (or the frames
+    /// it has left, if fewer), and moves it on. Returns the frames used.
+    pub fn count(
+        &mut self,
+        count_in: &mut CountIn,
+        rate: u32,
+        data: &mut [f32],
+        window: Window,
+    ) -> usize {
+        let Window {
+            stride,
+            channels,
+            offset,
+            count,
+        } = window;
+        let n = (count as i64).min(count_in.left()).max(0) as usize;
+        let beat = count_in.beat.max(1);
+        let mut at = 0;
+        while at < n {
+            let into = count_in.done + at as i64;
+            let to_next = beat - into % beat;
+            if into % beat == 0 {
+                let index = (into / beat) as u32;
+                self.start(index.is_multiple_of(count_in.per_bar.max(1)), rate);
+            }
+            let run = (n - at).min(to_next as usize);
+            self.ring(data, stride, channels, offset + at, run, rate as f32);
+            at += run;
+        }
+        count_in.done += n as i64;
+        n
     }
 
     /// Lets a ringing click finish while stopped.

@@ -22,7 +22,7 @@ mod shaders {
 // The uniform structs match their shaders, or the build fails.
 const _: () = assert!(size_of::<LayerUniform>() == shaders::RECTS_UNIFORM);
 
-pub use boxes::{BoxDraw, BoxInstance, BoxLayerId, BoxStyle, RowSlot};
+pub use boxes::{BoxDraw, BoxInstance, BoxLayerId, BoxStyle, RowSlot, spanning};
 pub use waves::{
     MAX_LEVELS, PEAK_BASE, PEAK_FACTOR, STRIP_CAPACITY, StripEntry, WaveInstance, WaveStyle,
 };

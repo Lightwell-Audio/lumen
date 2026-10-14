@@ -17,6 +17,7 @@ use lumen_media::Peaks;
 use lumen_project::model::{Clip, ClipContent, Project, TrackKind};
 use lumen_render::{BoxInstance, RowSlot, WaveInstance, WaveStyle, beats, rgba};
 
+use super::recording_look::{self, Paint, RecordingLook};
 use super::samples::{Geometry, Pixels, Strips};
 use super::waves::{Source, wave_instances};
 use super::{Arrangement, Row, RowKind, TITLE, Zone, clip_color, color_of};
@@ -50,6 +51,9 @@ const LOCK_ICON: f32 = 9.0;
 const LOCK_MIN_WIDTH: f32 = 30.0;
 /// A locked clip's clamps: bars this wide at both ends (the owner's K3).
 pub(super) const CLAMP: f32 = 3.0;
+/// The "REC" tag's dot: its radius, and the room it takes before the name.
+const TAG_DOT: f32 = 3.0;
+const TAG_ROOM: f32 = 11.0;
 
 /// A clip's left and right edges in `view`.
 pub(super) fn span(view: TimeView, canvas: Rect, clip: &Clip) -> (f32, f32) {
@@ -69,6 +73,9 @@ pub(super) struct GpuClips {
     /// sample (slice 4d).
     geometry: Vec<Geometry>,
     strips: Strips,
+    /// The notes inside MIDI clips, and the tracks their bands belong to.
+    mini: Arc<Vec<BoxInstance>>,
+    mini_tracks: Vec<usize>,
     generation: u64,
     /// Peak slots by the peaks they hold (files with the same peaks share
     /// one), and the list the GPU side uploads from.
@@ -78,8 +85,22 @@ pub(super) struct GpuClips {
     /// The document state, media revision, device rate and palette the
     /// boxes show.
     built: Option<(u64, u64, u32, theme::Palette)>,
+    /// The recording the boxes show (none while nothing records, so the
+    /// check costs nothing then).
+    built_recording: Option<RecordingLook>,
     /// A clip is fading in or loading: rebuild next frame too.
     moving: bool,
+    /// The tracks left out of the boxes above because they are being
+    /// recorded: their clips and notes are `live` and `live_mini`, rebuilt
+    /// every frame from the take as far as it has gone (after MT-MIDI-7).
+    built_live: Vec<lumen_project::model::Id>,
+    /// While recording: the other tracks the boxes were built from, by
+    /// identity.
+    built_others: Vec<usize>,
+    live: Arc<Vec<BoxInstance>>,
+    live_mini: Arc<Vec<BoxInstance>>,
+    live_mini_tracks: Vec<usize>,
+    live_generation: u64,
 }
 
 impl GpuClips {
@@ -150,12 +171,18 @@ impl Arrangement {
             now,
             (doc.session(), doc.state()),
             doc.project(),
-            self.gesture.is_some(),
+            (self.gesture.is_some(), self.recording.is_some()),
         );
         if self.glides.moving() {
             ctx.request_repaint();
         }
-        let shown = self.glides.shown(doc.project(), now);
+        // While recording, the take as far as it has gone (nothing glides
+        // then).
+        let preview = self.preview.clone();
+        let shown = match &preview {
+            Some(preview) => std::borrow::Cow::Borrowed(&**preview),
+            None => self.glides.shown(doc.project(), now),
+        };
         let project: &Project = &shown;
         let audible = audible(project);
         // The returns and master pinned at the bottom (slice 4) draw their
@@ -212,6 +239,7 @@ impl Arrangement {
         // Clip bodies, on the GPU.
         let gliding = self.glides.moving();
         self.refresh_boxes(ctx, doc.state(), project, lanes, gliding);
+        self.refresh_live(ctx, project, lanes);
         let ppp = ctx.pixels_per_point();
         // One slot per track, by its index (boxes and waves name their
         // track's index); tracks hidden in a folded group draw nothing.
@@ -257,6 +285,8 @@ impl Arrangement {
                 _ => None,
             },
         );
+        let mini_rows = super::mini_notes::rows(&self.gpu.mini_tracks, &slots, ppp);
+        let live_mini_rows = super::mini_notes::rows(&self.gpu.live_mini_tracks, &slots, ppp);
         painter.add(canvas::clips_shape(
             canvas,
             ppp,
@@ -270,6 +300,13 @@ impl Arrangement {
                 time,
                 top: self.top,
                 style: canvas::box_style(ppp, INSET, TITLE),
+                mini: Arc::clone(&self.gpu.mini),
+                mini_rows,
+                mini_style: canvas::mini_style(ppp),
+                live: Arc::clone(&self.gpu.live),
+                live_mini: Arc::clone(&self.gpu.live_mini),
+                live_mini_rows,
+                live_generation: self.gpu.live_generation,
                 wave_style: WaveStyle {
                     top: (INSET + TITLE + WAVE_GAP) * ppp,
                     bottom: (INSET + WAVE_GAP) * ppp,
@@ -310,7 +347,13 @@ impl Arrangement {
                         if x1 - x0 < NAME_MIN_WIDTH {
                             continue;
                         }
-                        let mut look = look_of(clip, clip_color(track, clip), lanes, ctx);
+                        let paint = recording_look::paint(
+                            self.recording.as_ref(),
+                            track.id,
+                            clip,
+                            &palette,
+                        );
+                        let mut look = look_of(clip, clip_color(track, clip), paint, lanes, ctx);
                         if !heard {
                             look.alpha *= DIMMED;
                         }
@@ -352,6 +395,7 @@ impl Arrangement {
                             progress: lanes.library.progress(id),
                             alpha: lanes.shown(id, ctx),
                             locked: false,
+                            paint: Paint::default(),
                         };
                         draw_body(painter, rect, &look);
                         draw_name(painter, rect, lane, &look);
@@ -382,6 +426,7 @@ impl Arrangement {
                         progress,
                         alpha: shown,
                         locked: false,
+                        paint: Paint::default(),
                     };
                     draw_body(painter, rect, &look);
                     draw_name(painter, rect, lane, &look);
@@ -418,9 +463,34 @@ impl Arrangement {
         let palette = *theme::p();
         let rate = lanes.rate();
         let key = (state, lanes.revision(), rate, palette);
-        if self.gpu.built == Some(key) && !self.gpu.moving && !gliding {
+        let recording = self.recording.as_ref();
+        let live = self.live_tracks();
+        // While a take grows, commits change only the tracks being recorded,
+        // which these boxes leave out: the others are compared by identity
+        // instead of the document's state, so a commit rebuilds nothing here.
+        let others: Vec<usize> = if live.is_empty() {
+            Vec::new()
+        } else {
+            project
+                .tracks
+                .iter()
+                .filter(|t| !live.contains(&t.id))
+                .map(|t| Arc::as_ptr(t) as usize)
+                .collect()
+        };
+        let same = if live.is_empty() {
+            self.gpu.built == Some(key) && self.gpu.built_recording.as_ref() == recording
+        } else {
+            self.gpu
+                .built
+                .map(|(_, revision, rate, palette)| (revision, rate, palette))
+                == Some((key.1, key.2, key.3))
+                && self.gpu.built_others == others
+        };
+        if same && self.gpu.built_live == live && !self.gpu.moving && !gliding {
             return;
         }
+        let recording = recording.cloned();
         // Any file loading (an import, or an opened project's media) has a
         // progress fill to keep moving.
         // A glide rebuilds once more after it lands.
@@ -428,8 +498,12 @@ impl Arrangement {
         let count = project.tracks.iter().map(|t| t.clips.len()).sum();
         let mut boxes = Vec::with_capacity(count);
         for (row, track) in project.tracks.iter().enumerate() {
+            if live.contains(&track.id) {
+                continue;
+            }
             for clip in &track.clips {
-                let look = look_of(clip, clip_color(track, clip), lanes, ctx);
+                let paint = recording_look::paint(recording.as_ref(), track.id, clip, &palette);
+                let look = look_of(clip, clip_color(track, clip), paint, lanes, ctx);
                 moving |= look.alpha < 1.0;
                 boxes.push(clip_box(clip, row as u32, &look, &palette));
             }
@@ -440,9 +514,59 @@ impl Arrangement {
         gpu.geometry = waves.iter().map(|w| w.geometry).collect();
         gpu.waves = Arc::new(waves.into_iter().map(|w| w.instance).collect());
         gpu.strips.reset();
+        let mini = super::mini_notes::build(project, recording.as_ref(), |t| !live.contains(&t.id));
+        gpu.mini = Arc::new(mini.boxes);
+        gpu.mini_tracks = mini.tracks;
         gpu.generation += 1;
         gpu.built = Some(key);
+        gpu.built_recording = recording;
+        gpu.built_live = live;
+        gpu.built_others = others;
         gpu.moving = moving;
+    }
+
+    /// The tracks drawn on the live layers: the ones being recorded, while
+    /// the take is drawn as it grows (none otherwise).
+    fn live_tracks(&self) -> Vec<lumen_project::model::Id> {
+        match (&self.preview, &self.recording) {
+            (Some(_), Some(look)) => look.tracks.clone(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Rebuilds the live layers: every frame while a take grows, from the
+    /// tracks being recorded only, so the cost is theirs, not the
+    /// project's. Emptied once when it ends.
+    fn refresh_live(&mut self, ctx: &egui::Context, project: &Project, lanes: &mut Lanes) {
+        let live = self.live_tracks();
+        if live.is_empty() {
+            if !self.gpu.live.is_empty() || !self.gpu.live_mini.is_empty() {
+                self.gpu.live = Arc::new(Vec::new());
+                self.gpu.live_mini = Arc::new(Vec::new());
+                self.gpu.live_mini_tracks.clear();
+                self.gpu.live_generation += 1;
+            }
+            return;
+        }
+        let palette = *theme::p();
+        let recording = self.recording.as_ref();
+        let mut boxes = Vec::new();
+        for (row, track) in project.tracks.iter().enumerate() {
+            if !live.contains(&track.id) {
+                continue;
+            }
+            for clip in &track.clips {
+                let paint = recording_look::paint(recording, track.id, clip, &palette);
+                let look = look_of(clip, clip_color(track, clip), paint, lanes, ctx);
+                boxes.push(clip_box(clip, row as u32, &look, &palette));
+            }
+        }
+        let mini = super::mini_notes::build(project, recording, |t| live.contains(&t.id));
+        let gpu = &mut self.gpu;
+        gpu.live = Arc::new(boxes);
+        gpu.live_mini = Arc::new(mini.boxes);
+        gpu.live_mini_tracks = mini.tracks;
+        gpu.live_generation += 1;
     }
 
     /// The file of the audio clip under `pointer`, for the hover card.
@@ -511,12 +635,15 @@ struct ClipLook<'a> {
     alpha: f32,
     /// Locked (the owner's K3, slice 6e): a padlock ends the title bar.
     locked: bool,
+    /// What a recording gives the clip (3-A): none for a clip not recording.
+    paint: Paint,
 }
 
 /// A project clip's look, before dimming for its track.
 fn look_of<'a>(
     clip: &'a Clip,
     color: Color32,
+    paint: Paint,
     lanes: &mut Lanes,
     ctx: &egui::Context,
 ) -> ClipLook<'a> {
@@ -538,6 +665,25 @@ fn look_of<'a>(
         progress,
         alpha: lanes.shown(key, ctx),
         locked: clip.locked,
+        paint,
+    }
+}
+
+/// A clip body's colour at `alpha`: the clip body at the grid's opacity,
+/// unless a recording gives it a colour (the record red take).
+fn body_color(paint: &Paint, palette: &theme::Palette, alpha: f32) -> Color32 {
+    match paint.body {
+        Some(color) => color.gamma_multiply(alpha),
+        None => palette.clip_body.gamma_multiply(BODY_OPACITY * alpha),
+    }
+}
+
+/// A clip's outline at `alpha`: the track colour at 60%, unless a recording
+/// gives it the record red.
+fn outline_color(paint: &Paint, track: Color32, alpha: f32) -> Color32 {
+    match paint.outline {
+        Some(color) => color.gamma_multiply(alpha),
+        None => track.gamma_multiply(0.6 * alpha),
     }
 }
 
@@ -570,9 +716,9 @@ fn clip_box(clip: &Clip, row: u32, look: &ClipLook<'_>, palette: &theme::Palette
         start: beats(clip.start.as_quarters()),
         end: beats((clip.start + clip.length).as_quarters()),
         row,
-        body: straight(palette.clip_body.gamma_multiply(BODY_OPACITY * a)),
+        body: straight(body_color(&look.paint, palette, a)),
         bar: straight(bar.gamma_multiply(a)),
-        border: straight(look.color.gamma_multiply(0.6 * a)),
+        border: straight(outline_color(&look.paint, look.color, a)),
         fill: straight(look.color.gamma_multiply(0.25 * a)),
         progress: match look.state {
             ClipState::Loading => look.progress.unwrap_or(0.0),
@@ -589,11 +735,7 @@ fn draw_body(painter: &Painter, rect: Rect, look: &ClipLook<'_>) {
     let radius = theme::radius::SMALL;
     let alpha = look.alpha;
     let (bar, _) = bar_and_label(look, palette);
-    painter.rect_filled(
-        rect,
-        radius,
-        palette.clip_body.gamma_multiply(BODY_OPACITY * alpha),
-    );
+    painter.rect_filled(rect, radius, body_color(&look.paint, palette, alpha));
     if let (ClipState::Loading, Some(p)) = (look.state, look.progress) {
         let done = Rect::from_min_size(rect.min, vec2(rect.width() * p, rect.height()));
         painter.rect_filled(done, radius, look.color.gamma_multiply(0.25 * alpha));
@@ -612,7 +754,7 @@ fn draw_body(painter: &Painter, rect: Rect, look: &ClipLook<'_>) {
     painter.rect_stroke(
         rect,
         radius,
-        Stroke::new(1.0, look.color.gamma_multiply(0.6 * alpha)),
+        Stroke::new(1.0, outline_color(&look.paint, look.color, alpha)),
         egui::StrokeKind::Inside,
     );
 }
@@ -629,6 +771,21 @@ fn draw_name(painter: &Painter, rect: Rect, lane: Rect, look: &ClipLook<'_>) {
     let (_, label) = bar_and_label(look, palette);
     let alpha = look.alpha;
     let mut room = visible.shrink2(vec2(4.0, 0.0));
+    // A recording's tag: a drawn dot (the UI font has no "●") and "REC" in
+    // front of the name, so the state never rests on colour alone.
+    let (label, text_left) = if look.paint.tag {
+        painter.circle_filled(
+            pos2(visible.left() + 5.0 + TAG_DOT, title.center().y),
+            TAG_DOT,
+            theme::CLIP_TEXT.gamma_multiply(alpha),
+        );
+        (
+            format!("REC \u{00B7} {label}"),
+            visible.left() + 5.0 + TAG_ROOM,
+        )
+    } else {
+        (label, visible.left() + 5.0)
+    };
     if look.locked && visible.width() >= LOCK_MIN_WIDTH {
         let side = LOCK_ICON;
         let at = Rect::from_center_size(
@@ -643,7 +800,7 @@ fn draw_name(painter: &Painter, rect: Rect, lane: Rect, look: &ClipLook<'_>) {
         room.max.x = at.left() - 3.0;
     }
     painter.with_clip_rect(room).text(
-        pos2(visible.left() + 5.0, title.center().y),
+        pos2(text_left, title.center().y),
         Align2::LEFT_CENTER,
         label,
         FontId::proportional(theme::size::CAPTION),

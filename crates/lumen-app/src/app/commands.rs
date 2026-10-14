@@ -5,13 +5,19 @@
 use eframe::egui;
 use lumen_core::pan::PanLaw;
 use lumen_core::time::Ticks;
-use lumen_project::model::TrackKind;
+use lumen_devices::Preset;
+use lumen_project::model::{FromSource, MidiFrom, Monitor, TrackKind};
 
 use super::editing::Edit;
 use super::navigate::ViewStep;
+use super::panes;
 use super::projects::Next;
 use crate::arrangement::select::ClipStep;
 use crate::commands::{Chord, Command};
+use crate::note_editor::lane::geometry::LaneKind;
+use crate::note_editor::lane::gesture::LaneTool;
+use crate::note_editor::{EditorZoom, NoteOp, Tool, VELOCITY_STEP};
+use crate::record_settings::CountIn;
 use crate::{App, widgets};
 
 impl App {
@@ -51,15 +57,36 @@ impl App {
     }
 
     /// Selections are one kind at a time: selecting tracks deselects clips
-    /// and the range, and selecting anything deselects the locator.
+    /// (and a range on other tracks), and selecting anything deselects the
+    /// locator.
     pub(crate) fn sync_selection(&mut self) {
         if !self.arrangement.selected.is_empty() {
             self.arrangement.clips.clear();
-            self.arrangement.range = None;
+            // A range lives on the selected tracks (ADR-0049): a range that
+            // covers other tracks goes when the selection changes.
+            let keep = self
+                .arrangement
+                .range
+                .as_ref()
+                .is_none_or(|r| r.covers_exactly(&self.arrangement.selected));
+            if !keep {
+                self.arrangement.range = None;
+            }
         }
         if !self.arrangement.selected.is_empty() || self.clips_chosen() {
             self.locators.selected = None;
         }
+    }
+
+    /// The selected tracks that are MIDI tracks.
+    pub(crate) fn selected_midi_tracks(&self) -> Vec<lumen_project::model::Id> {
+        let selected = &self.arrangement.selected;
+        let tracks = &self.document.project().tracks;
+        tracks
+            .iter()
+            .filter(|t| t.kind == TrackKind::Midi && selected.contains(&t.id))
+            .map(|t| t.id)
+            .collect()
     }
 
     /// Whether `command` can run now; if not, why, in a few words.
@@ -72,8 +99,12 @@ impl App {
         let tracks = !self.arrangement.selected.is_empty();
         let locator = self.locators.selected.is_some();
         let clip = !self.arrangement.clips.is_empty();
+        // The clip editor has the keyboard and notes are picked: the keys
+        // that act on a selection act on them.
+        let notes = self.note_keys_picked();
         let need = |ok: bool, why| if ok { Ok(()) } else { Err(why) };
         match command {
+            Command::Undo | Command::Redo if self.is_recording() => Err("Stop recording first"),
             Command::Undo => need(self.document.history().can_undo(), "Nothing to undo"),
             Command::Redo => need(self.document.history().can_redo(), "Nothing to redo"),
             Command::Cut | Command::Copy => need(clips, "Select clips or a time range first"),
@@ -81,9 +112,12 @@ impl App {
                 self.clipboard.is_some(),
                 "Nothing to paste: copy or cut first",
             ),
-            Command::Duplicate => need(clips || tracks, "Select clips, a time range or tracks"),
+            Command::Duplicate => need(
+                clips || tracks || notes,
+                "Select clips, a time range or tracks",
+            ),
             Command::Delete => need(
-                clips || tracks || locator,
+                clips || tracks || locator || notes || self.lane_keys_picked(),
                 "Select clips, a time range, tracks or a locator",
             ),
             Command::DeleteTime | Command::InsertTime => need(
@@ -95,33 +129,110 @@ impl App {
                 "Select clips or a time range first",
             ),
             Command::SelectAll => need(
-                self.document
-                    .project()
-                    .tracks
-                    .iter()
-                    .any(|t| !t.clips.is_empty()),
+                self.note_keys()
+                    || self
+                        .document
+                        .project()
+                        .tracks
+                        .iter()
+                        .any(|t| !t.clips.is_empty()),
                 "There are no clips yet",
             ),
             Command::FitLoop => {
                 let t = &self.document.project().transport;
                 need(t.loop_end > t.loop_start, "There is no loop yet")
             }
-            Command::ImportAudio => need(self.dialog.is_none(), "A file dialog is open"),
+            Command::Import => need(self.dialog.is_none(), "A file dialog is open"),
+            Command::ExportMidiFile => match self.dialog {
+                Some(_) => need(false, "A file dialog is open"),
+                None if self.midi_exporting.is_some() => need(false, "An export is under way"),
+                // Cheap enough for every frame: a MIDI track with an
+                // unmuted clip (an empty one is refused when it runs).
+                None => need(
+                    self.document
+                        .project()
+                        .tracks
+                        .iter()
+                        .any(|t| t.kind == TrackKind::Midi && t.clips.iter().any(|c| !c.muted)),
+                    "There are no MIDI clips to export",
+                ),
+            },
+            Command::ExportMidiClip => match self.dialog {
+                Some(_) => need(false, "A file dialog is open"),
+                None if self.midi_exporting.is_some() => need(false, "An export is under way"),
+                None => need(
+                    self.document.project().tracks.iter().any(|t| {
+                        t.kind == TrackKind::Midi
+                            && t.clips
+                                .iter()
+                                .any(|c| self.arrangement.clips.contains(&c.id))
+                    }),
+                    "Select a MIDI clip first",
+                ),
+            },
             // An open menu or window takes Esc first (MT-APP-14 run 2; the
             // slice 8 accessibility test: Esc deselected a clip instead of
             // closing the shortcuts window).
             Command::Deselect => need(
-                (clips || locator) && !egui::Popup::is_any_open(ctx) && !self.window_open(),
+                (clips || locator || notes || self.note_editor.gesture.is_some())
+                    && !egui::Popup::is_any_open(ctx)
+                    && !self.window_open(),
                 "Nothing is selected",
             ),
             Command::Rename => need(
                 clip || tracks || locator,
                 "Select a clip, a track or a locator",
             ),
-            Command::MuteClips
-            | Command::ClipProperties
-            | Command::AddPreviousClip
-            | Command::AddNextClip => need(clip, "Select a clip first"),
+            Command::MuteClips => need(clip || notes, "Select a clip first"),
+            Command::ClipProperties | Command::AddPreviousClip | Command::AddNextClip => {
+                need(clip, "Select a clip first")
+            }
+            Command::CreateMidiClip => need(
+                self.midi_track_for_new_clip().is_some(),
+                "Select a MIDI track first",
+            ),
+            Command::OpenClipEditor => need(
+                self.selected_midi_clip().is_some(),
+                "Select a MIDI clip first",
+            ),
+            Command::PopOutEditor
+            | Command::DrawTool
+            | Command::Quantize
+            | Command::QuantizeOptions
+            | Command::HumanizeNotes
+            | Command::FixedLengthNotes
+            | Command::ScaleConstrainNotes
+            | Command::ReverseNotes => {
+                need(self.note_editor.clip.is_some(), "Open a MIDI clip first")
+            }
+            Command::SplitNotes => need(
+                self.notes_are_picked() && self.split_point().is_some(),
+                if self.notes_are_picked() {
+                    "Move the playhead into the clip, or point at the clip editor"
+                } else {
+                    "Select notes first"
+                },
+            ),
+            Command::GlueNotes
+            | Command::LegatoNotes
+            | Command::TransposeUp
+            | Command::TransposeDown
+            | Command::OctaveUp
+            | Command::OctaveDown
+            | Command::NudgeEarlier
+            | Command::NudgeLater
+            | Command::NudgeEarlierFine
+            | Command::NudgeLaterFine
+            | Command::RaiseVelocity
+            | Command::LowerVelocity => need(self.notes_are_picked(), "Select notes first"),
+            Command::ToggleLane
+            | Command::LaneVelocity
+            | Command::LaneModWheel
+            | Command::LanePitchBend
+            | Command::LanePressure
+            | Command::LanePencil
+            | Command::LaneLine
+            | Command::LaneCurve => need(self.note_editor.clip.is_some(), "Open a MIDI clip first"),
             Command::MoveTracksUp | Command::MoveTracksDown => need(tracks, "Select tracks first"),
             Command::GroupTracks => need(
                 self.arrangement.selected.iter().any(|id| {
@@ -143,6 +254,20 @@ impl App {
                     "Select a group, or tracks in a group",
                 )
             }
+            Command::InstrumentPoly
+            | Command::InstrumentKeys
+            | Command::InstrumentBass
+            | Command::InstrumentPluck
+            | Command::InstrumentPad
+            | Command::MidiToInstrument
+            | Command::MidiFromAll
+            | Command::MidiFromKeyboard
+            | Command::MonitorIn
+            | Command::MonitorAuto
+            | Command::MonitorOff => need(
+                !self.selected_midi_tracks().is_empty(),
+                "Select a MIDI track first",
+            ),
             Command::SoloTracks | Command::MuteTracks => need(tracks, "Select tracks first"),
             Command::ClearSolos => need(
                 lumen_project::solo::any_soloed(self.document.project()),
@@ -161,7 +286,7 @@ impl App {
                 "There are no group tracks yet",
             ),
             Command::FoldTracks | Command::UnfoldTracks => {
-                need(tracks || clip, "Select a clip or tracks first")
+                need(tracks || clip || notes, "Select a clip or tracks first")
             }
             Command::SelectTrackAbove
             | Command::SelectTrackBelow
@@ -173,6 +298,15 @@ impl App {
             Command::PlayStop
             | Command::PauseContinue
             | Command::GoToStart
+            | Command::Panic
+            | Command::Record
+            | Command::Overdub
+            | Command::CountInOff
+            | Command::CountInOneBar
+            | Command::CountInTwoBars
+            | Command::CountInFourBars
+            | Command::RecordOnlyMetronome
+            | Command::ComputerKeyboard
             | Command::ToggleFollow
             | Command::AddAudioTrack
             | Command::AddMidiTrack
@@ -213,17 +347,159 @@ impl App {
     pub(crate) fn run(&mut self, ctx: &egui::Context, command: Command) {
         let clips = self.clips_chosen();
         let clip = !self.arrangement.clips.is_empty();
+        let notes = self.note_keys_picked();
+        let lane_points = self.lane_keys_picked();
+        let note_keys = self.note_keys();
+        if command == Command::Deselect && self.note_editor.cancel_gesture() {
+            self.end_audition();
+            ctx.request_repaint();
+            return;
+        }
         let doc = &mut self.document;
         match command {
             Command::PlayStop => self.transport.play_stop(),
             Command::PauseContinue => self.transport.pause_continue(),
             Command::GoToStart => self.transport.locate(Ticks::ZERO),
+            Command::Panic => self.panic(),
+            Command::Record => self.toggle_record(),
+            Command::Overdub => self.settings.record.overdub = !self.settings.record.overdub,
+            Command::CountInOff => self.settings.record.count_in = CountIn::Off,
+            Command::CountInOneBar => self.settings.record.count_in = CountIn::OneBar,
+            Command::CountInTwoBars => self.settings.record.count_in = CountIn::TwoBars,
+            Command::CountInFourBars => self.settings.record.count_in = CountIn::FourBars,
+            Command::RecordOnlyMetronome => {
+                let record = &mut self.settings.record;
+                record.only_while_recording = !record.only_while_recording;
+            }
+            Command::ComputerKeyboard => {
+                let on = !self.keyboard.is_on();
+                self.set_computer_keyboard(on);
+            }
+            Command::InstrumentPoly => self.choose_instrument(Preset::Poly),
+            Command::InstrumentKeys => self.choose_instrument(Preset::Keys),
+            Command::InstrumentBass => self.choose_instrument(Preset::Bass),
+            Command::InstrumentPluck => self.choose_instrument(Preset::Pluck),
+            Command::InstrumentPad => self.choose_instrument(Preset::Pad),
+            Command::MidiToInstrument => {
+                let ids = self.selected_midi_tracks();
+                self.document.set_midi_to(&ids, None);
+            }
+            Command::MidiFromAll | Command::MidiFromKeyboard => {
+                let ids = self.selected_midi_tracks();
+                let source = if command == Command::MidiFromAll {
+                    FromSource::All
+                } else {
+                    FromSource::Keyboard
+                };
+                self.document.set_midi_from(
+                    &ids,
+                    MidiFrom {
+                        source,
+                        channel: None,
+                    },
+                );
+            }
+            Command::MonitorIn | Command::MonitorAuto | Command::MonitorOff => {
+                let ids = self.selected_midi_tracks();
+                self.document.set_monitor(
+                    &ids,
+                    match command {
+                        Command::MonitorIn => Monitor::In,
+                        Command::MonitorAuto => Monitor::Auto,
+                        _ => Monitor::Off,
+                    },
+                );
+            }
             Command::ToggleFollow => self.transport.toggle_follow(),
             Command::Undo => self.undo(false),
             Command::Redo => self.undo(true),
             Command::Cut => self.edit(Edit::Cut),
             Command::Copy => self.edit(Edit::Copy),
             Command::Paste => self.edit(Edit::Paste),
+            // With the clip editor holding the keyboard and notes picked,
+            // the keys that act on a selection act on them.
+            Command::Delete if lane_points => self.lane_delete(),
+            Command::Delete if notes => self.note_op(NoteOp::Delete),
+            Command::Duplicate if notes => self.note_op(NoteOp::Duplicate),
+            Command::MuteClips if notes => self.note_op(NoteOp::ToggleMute),
+            Command::SelectAll if note_keys => self.note_op(NoteOp::SelectAll),
+            Command::Deselect if notes => {
+                let mut editor = std::mem::take(&mut self.note_editor);
+                if let Some(selection) = &mut editor.selection {
+                    selection.rebind(self.document.project(), Vec::new());
+                }
+                self.note_editor = editor;
+            }
+            Command::SelectTrackAbove if notes => self.note_op(NoteOp::Transpose(1)),
+            Command::SelectTrackBelow if notes => self.note_op(NoteOp::Transpose(-1)),
+            Command::ExtendSelectionUp if notes => self.note_op(NoteOp::Transpose(12)),
+            Command::ExtendSelectionDown if notes => self.note_op(NoteOp::Transpose(-12)),
+            Command::FoldTracks if notes => self.note_op(NoteOp::Nudge {
+                direction: -1,
+                fine: false,
+            }),
+            Command::UnfoldTracks if notes => self.note_op(NoteOp::Nudge {
+                direction: 1,
+                fine: false,
+            }),
+            Command::TransposeUp => self.note_op(NoteOp::Transpose(1)),
+            Command::TransposeDown => self.note_op(NoteOp::Transpose(-1)),
+            Command::OctaveUp => self.note_op(NoteOp::Transpose(12)),
+            Command::OctaveDown => self.note_op(NoteOp::Transpose(-12)),
+            Command::NudgeEarlier => self.note_op(NoteOp::Nudge {
+                direction: -1,
+                fine: false,
+            }),
+            Command::NudgeLater => self.note_op(NoteOp::Nudge {
+                direction: 1,
+                fine: false,
+            }),
+            Command::NudgeEarlierFine => self.note_op(NoteOp::Nudge {
+                direction: -1,
+                fine: true,
+            }),
+            Command::NudgeLaterFine => self.note_op(NoteOp::Nudge {
+                direction: 1,
+                fine: true,
+            }),
+            Command::RaiseVelocity => self.note_op(NoteOp::Velocity(VELOCITY_STEP)),
+            Command::LowerVelocity => self.note_op(NoteOp::Velocity(-VELOCITY_STEP)),
+            Command::Quantize => self.note_op(NoteOp::Quantize),
+            Command::QuantizeOptions => self.open_quantize_options(ctx),
+            Command::HumanizeNotes => self.note_op(NoteOp::Humanize),
+            Command::FixedLengthNotes => self.note_op(NoteOp::FixedLength),
+            Command::ScaleConstrainNotes => self.note_op(NoteOp::ScaleConstrain),
+            Command::ReverseNotes => self.note_op(NoteOp::Reverse),
+            Command::ToggleLane => {
+                self.note_editor.lane.hidden = !self.note_editor.lane.hidden;
+            }
+            Command::LaneVelocity => self.note_editor.lane.choose(LaneKind::Velocity),
+            Command::LaneModWheel => self.note_editor.lane.choose(LaneKind::Controller(1)),
+            Command::LanePitchBend => self.note_editor.lane.choose(LaneKind::PitchBend),
+            Command::LanePressure => self.note_editor.lane.choose(LaneKind::Pressure),
+            Command::LanePencil => self.note_editor.lane.use_tool(LaneTool::Pencil),
+            Command::LaneLine => self.note_editor.lane.use_tool(LaneTool::Line),
+            Command::LaneCurve => self.note_editor.lane.use_tool(LaneTool::Curve),
+            Command::GlueNotes => self.note_op(NoteOp::Glue),
+            Command::LegatoNotes => self.note_op(NoteOp::Legato),
+            Command::SplitNotes => {
+                if let Some(at) = self.split_point() {
+                    self.note_op(NoteOp::Split(at));
+                }
+            }
+            Command::CreateMidiClip => self.create_midi_clip_here(),
+            Command::OpenClipEditor => {
+                if let Some(clip) = self.selected_midi_clip() {
+                    self.open_note_editor(clip);
+                }
+            }
+            Command::PopOutEditor => self.note_editor.popped = !self.note_editor.popped,
+            Command::DrawTool => {
+                self.note_editor.tool = match self.note_editor.tool {
+                    Tool::Pointer => Tool::Draw,
+                    Tool::Draw => Tool::Pointer,
+                };
+            }
             Command::Duplicate if clips => self.edit(Edit::Duplicate),
             Command::Duplicate => self.arrangement.duplicate_selected(doc),
             Command::Delete if clips => self.edit(Edit::Delete),
@@ -277,6 +553,10 @@ impl App {
             Command::ExtendSelectionDown => self.arrangement.step_selection(doc, 1, true),
             Command::FoldTracks => self.arrangement.fold_selected(doc.project(), true),
             Command::UnfoldTracks => self.arrangement.fold_selected(doc.project(), false),
+            // With the clip editor's keys live, the zoom keys zoom its roll
+            // (its view is its own, ADR-0048); otherwise the arrangement.
+            Command::ZoomIn if note_keys => self.note_editor.zooms.push(EditorZoom::In),
+            Command::ZoomOut if note_keys => self.note_editor.zooms.push(EditorZoom::Out),
             Command::ZoomIn => self.nav.steps.push(ViewStep::ZoomIn),
             Command::ZoomOut => self.nav.steps.push(ViewStep::ZoomOut),
             Command::ZoomBack => self.nav.steps.push(ViewStep::Back),
@@ -355,7 +635,14 @@ impl App {
             Command::TripletGrid => self.grid.toggle_triplet(),
             Command::SnapToGrid => self.grid.snap = !self.grid.snap,
             Command::FixedGrid => {
-                let step = self.grid_step();
+                // Fix the grid the pointer's view shows: the roll's own
+                // zoom while the editor holds the keys.
+                let step = if note_keys {
+                    let t = self.note_editor.time;
+                    self.grid_step_at(t.left, t.zoom)
+                } else {
+                    self.grid_step()
+                };
                 self.grid.toggle_fixed(step);
             }
             Command::SetLocator => self.set_locator(),
@@ -365,7 +652,9 @@ impl App {
             Command::OpenProject => self.request(ctx, Next::Open(None)),
             Command::Save => self.save(ctx, false),
             Command::SaveAs => self.save(ctx, true),
-            Command::ImportAudio => self.import_audio(ctx),
+            Command::Import => self.import_files(ctx),
+            Command::ExportMidiFile => self.export_midi(ctx, false),
+            Command::ExportMidiClip => self.export_midi(ctx, true),
         }
         ctx.request_repaint();
     }
@@ -402,7 +691,10 @@ impl App {
         if ctx.text_edit_focused() || self.typing || self.rebind.is_some() {
             return;
         }
-        let focused = ctx.memory(|m| m.focused().is_some());
+        // The clip editor, held by the keyboard through its pane, is not a
+        // control that wants the arrows: they are its notes' keys.
+        let editor_owns = self.note_editor.live && panes::focused(ctx) == Some(panes::Pane::Detail);
+        let focused = ctx.memory(|m| m.focused().is_some()) && !editor_owns;
         let pressed: Vec<Chord> = ctx.input(|i| {
             i.events
                 .iter()
