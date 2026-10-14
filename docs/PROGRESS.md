@@ -603,7 +603,7 @@ in the WSL Linux mirror and for the macOS target; the WSL performance
 gate passes (engine +0.94% at most).
 
 **Verified by hand** (owner, Focusrite USB on ASIO and WASAPI): MT-APP-7
-to MT-APP-16, including the real Import audio dialog, each recorded with its runs in `docs/MANUAL_TESTS.md`.
+to MT-APP-16, including the real Import audio dialog, each recorded with its runs in `docs/manual-tests/M3.md`.
 
 **Not verified:**
 - macOS and Linux by hand (CI and the cross-target clippy only; macOS CI
