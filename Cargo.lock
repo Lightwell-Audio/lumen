@@ -2183,7 +2183,6 @@ name = "lumen-audio"
 version = "0.0.1"
 dependencies = [
  "cpal",
- "lumen-rt",
  "wasapi",
  "windows-sys 0.61.2",
 ]

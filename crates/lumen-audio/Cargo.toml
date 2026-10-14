@@ -7,9 +7,6 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
-[dev-dependencies]
-lumen-rt.workspace = true
-
 [lints]
 workspace = true
 
