@@ -8,6 +8,16 @@ use lumen_core::time::{TempoMap, Ticks};
 
 use crate::model::{ClipContent, Id, Output, Project, Track, TrackKind};
 
+/// The furthest a position or length may reach: about 3 billion beats, past
+/// any song, and far enough from `i64`'s limit that sums of a few never
+/// overflow. A crafted file past it is refused rather than wrapping.
+pub(crate) const LONGEST: Ticks = Ticks(1 << 52);
+
+/// Whether `t` lies within [`LONGEST`] of the start, either side of it.
+fn within(t: Ticks) -> bool {
+    t.0.unsigned_abs() <= LONGEST.0.unsigned_abs()
+}
+
 pub fn validate(project: &Project) -> Result<(), String> {
     if !(8_000..=384_000).contains(&project.sample_rate) {
         return Err(format!(
@@ -53,7 +63,7 @@ pub fn validate(project: &Project) -> Result<(), String> {
         if !ids.insert(marker.id) {
             return Err(format!("marker {index} {:?}: duplicate id", marker.name));
         }
-        if marker.at < Ticks::ZERO {
+        if marker.at < Ticks::ZERO || !within(marker.at) {
             return Err(format!(
                 "marker {index} {:?}: before the start",
                 marker.name
@@ -128,11 +138,17 @@ pub fn validate(project: &Project) -> Result<(), String> {
             if !ids.insert(clip.id) {
                 return Err(format!("{}: duplicate clip id", at()));
             }
-            if clip.start < Ticks::ZERO || clip.length <= Ticks::ZERO {
+            if clip.start < Ticks::ZERO
+                || clip.length <= Ticks::ZERO
+                || !within(clip.start)
+                || !within(clip.length)
+            {
                 return Err(format!("{}: invalid position or length", at()));
             }
             if clip.fade_in.length < Ticks::ZERO
                 || clip.fade_out.length < Ticks::ZERO
+                || !within(clip.fade_in.length)
+                || !within(clip.fade_out.length)
                 || clip.fade_in.length + clip.fade_out.length > clip.length
             {
                 return Err(format!("{}: fades are longer than the clip", at()));
@@ -140,7 +156,10 @@ pub fn validate(project: &Project) -> Result<(), String> {
             if !clip.fade_in.curve.is_valid() || !clip.fade_out.curve.is_valid() {
                 return Err(format!("{}: a fade curve leaves its square", at()));
             }
-            if clip.loop_length.is_some_and(|l| l <= Ticks::ZERO) {
+            if clip
+                .loop_length
+                .is_some_and(|l| l <= Ticks::ZERO || !within(l))
+            {
                 return Err(format!("{}: invalid loop length", at()));
             }
             match &clip.content {
@@ -163,7 +182,7 @@ pub fn validate(project: &Project) -> Result<(), String> {
                     // Notes and events may lie outside the clip's window,
                     // before its start or past its end (format v15).
                     for (n, event) in events.iter().enumerate() {
-                        if !event.kind.in_range() {
+                        if !event.kind.in_range() || !within(event.at) {
                             return Err(format!("{}: event {n} is out of range", at()));
                         }
                     }
@@ -171,6 +190,8 @@ pub fn validate(project: &Project) -> Result<(), String> {
                         if note.pitch() > 127
                             || !(1..=127).contains(&note.velocity())
                             || note.length() <= Ticks::ZERO
+                            || !within(note.start())
+                            || !within(note.length())
                         {
                             return Err(format!("{}: note {n} is out of range", at()));
                         }
@@ -302,6 +323,36 @@ mod tests {
             .unwrap();
         edit(Arc::make_mut(&mut Arc::make_mut(track).clips[0]));
         validate(&project)
+    }
+
+    /// Review M5 M3: positions near `i64`'s limit are refused, never added
+    /// up into an overflow.
+    #[test]
+    fn positions_past_the_longest_song_are_refused() {
+        let far = Ticks(i64::MAX - 1);
+        assert!(with_first_clip(|c| c.start = far).is_err());
+        assert!(with_first_clip(|c| c.length = far).is_err());
+        assert!(
+            with_first_clip(|c| {
+                c.fade_in.length = far;
+                c.fade_out.length = far;
+            })
+            .is_err()
+        );
+        assert!(with_first_clip(|c| c.loop_length = Some(far)).is_err());
+        let note_at = |start: Ticks, length: Ticks| {
+            with_first_clip(|c| {
+                c.content = ClipContent::Midi {
+                    notes: vec![crate::model::Note::new(start, length, 60, 100)],
+                    events: Vec::new(),
+                };
+            })
+        };
+        assert_eq!(note_at(Ticks(-100), Ticks(100)), Ok(()));
+        assert!(note_at(far, Ticks(100)).is_err());
+        assert!(note_at(Ticks(-far.0), Ticks(100)).is_err());
+        assert!(note_at(Ticks::ZERO, far).is_err());
+        assert_eq!(with_first_clip(|c| c.start = LONGEST), Ok(()));
     }
 
     #[test]

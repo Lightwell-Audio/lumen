@@ -94,6 +94,15 @@ pub fn read(bytes: &[u8]) -> Result<MidiFile, ReadError> {
         }
     });
     let base = Timebase::new(smf.header.timing, &changes)?;
+    // Times only grow, so the last tick is the furthest (review M5 M3).
+    let last = tracks
+        .iter()
+        .filter_map(|track| track.last().map(|&(at, _)| at))
+        .max()
+        .unwrap_or(0);
+    if base.at(last) > crate::validate::LONGEST {
+        return Err(ReadError::Malformed("events too far from the start".into()));
+    }
 
     let mut tempo: Vec<TempoPoint> = changes
         .iter()
@@ -391,6 +400,27 @@ fn signature(numerator: u8, power: u8) -> Option<TimeSignature> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review M5 M3: a file whose events lie past the longest song is
+    /// refused, not saturated into ticks that overflow later.
+    #[test]
+    fn a_file_reaching_past_the_longest_song_is_refused() {
+        let file = |events: usize| {
+            let mut track = Vec::new();
+            for _ in 0..events {
+                // The longest delta, then a note-on (running status after).
+                track.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0x7F, 0x90, 60, 100]);
+            }
+            track.extend_from_slice(&[0x00, 0xFF, 0x2F, 0x00]);
+            let mut bytes = b"MThd\0\0\0\x06\0\0\0\x01\0\x01".to_vec();
+            bytes.extend_from_slice(b"MTrk");
+            bytes.extend_from_slice(&(track.len() as u32).to_be_bytes());
+            bytes.extend_from_slice(&track);
+            bytes
+        };
+        assert!(read(&file(1)).is_ok());
+        assert!(matches!(read(&file(40)), Err(ReadError::Malformed(_))));
+    }
 
     #[test]
     fn overlapping_notes_pair_with_zero_velocity_offs_and_all_unreleased_notes_close() {
