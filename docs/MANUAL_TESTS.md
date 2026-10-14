@@ -2770,6 +2770,7 @@ cargo run --release -p lumen-app
    **S** and **D**, and **L** while a note is picked. Expect: A, S and D play
    notes and sound until released, and L plays a note instead of applying
    Legato. Click the main window while holding a key: the note lets go. (The
-   headless tests embed the pop-out and cannot reach this path.)
+   separate viewport callback is covered by E2E; actual OS focus and sound
+   still need this check.) Turn MIDI mode off: L should apply Legato again.
 
 **Status:** waits for the owner's run.

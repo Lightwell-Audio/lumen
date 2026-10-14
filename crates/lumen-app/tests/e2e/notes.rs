@@ -812,6 +812,87 @@ fn popping_out_and_docking_back() {
     assert!(!lumen.app().editor_popped());
 }
 
+/// PR 14: send keys only to the separate viewport, bypassing the main
+/// window's input. Embedded pop-outs cannot catch this dispatch bug.
+#[test]
+fn the_native_editor_plays_computer_keyboard_notes_before_editing_shortcuts() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use lumen_core::midi::Msg;
+
+    let mut lumen = launch("notes-native-keyboard");
+    open(&mut lumen);
+    let note = at(&lumen, beat(2.25), 67);
+    click(&mut lumen, note, Modifiers::NONE);
+    lumen.key(Modifiers::COMMAND, Key::A);
+    assert_eq!(lumen.app().editor_picked().len(), 4);
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::K);
+    lumen.click("Pop out");
+    let original = notes(&lumen);
+    lumen.app_mut().computer_keyboard_sent();
+
+    let pending = Rc::new(RefCell::new(Vec::new()));
+    let events = pending.clone();
+    egui::Context::set_immediate_viewport_renderer(move |ctx, mut viewport| {
+        let mut input = egui::RawInput {
+            viewport_id: viewport.ids.this,
+            events: std::mem::take(&mut *events.borrow_mut()),
+            ..Default::default()
+        };
+        input.viewports.insert(
+            viewport.ids.this,
+            egui::ViewportInfo {
+                parent: Some(viewport.ids.parent),
+                focused: Some(true),
+                ..Default::default()
+            },
+        );
+        let mut output = ctx.run_ui(input, |ui| (viewport.viewport_ui_cb)(ui));
+        // This headless viewport exercises input and layout, without a GPU.
+        output.textures_delta.clear();
+    });
+    lumen.harness.ctx.set_embed_viewports(false);
+    lumen.frames(3);
+
+    let letter = |pressed| egui::Event::Key {
+        key: Key::L,
+        physical_key: None,
+        pressed,
+        repeat: false,
+        modifiers: Modifiers::NONE,
+    };
+    pending.borrow_mut().push(letter(true));
+    lumen.frames(2);
+    assert_eq!(lumen.app().computer_keyboard_held(), [74]);
+    assert_eq!(
+        lumen.app_mut().computer_keyboard_sent(),
+        [Msg::note_on(0, 74, 100)]
+    );
+    assert_eq!(
+        notes(&lumen),
+        original,
+        "L must not run Legato in MIDI mode"
+    );
+
+    pending.borrow_mut().push(letter(false));
+    lumen.frames(2);
+    assert!(lumen.app().computer_keyboard_held().is_empty());
+    assert_eq!(
+        lumen.app_mut().computer_keyboard_sent(),
+        [Msg::note_off(0, 74)]
+    );
+
+    // With MIDI mode off, the same native-window key is still a command.
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::K);
+    assert!(!lumen.app().computer_keyboard_on());
+    pending.borrow_mut().push(letter(true));
+    lumen.frames(2);
+    assert_ne!(notes(&lumen), original, "L runs Legato outside MIDI mode");
+    pending.borrow_mut().push(letter(false));
+    lumen.frames(2);
+}
+
 #[test]
 fn deleting_the_open_clip_closes_the_editor() {
     let mut lumen = launch("notes-gone");

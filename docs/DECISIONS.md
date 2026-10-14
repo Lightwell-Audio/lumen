@@ -4094,6 +4094,21 @@ way to pop it out into its own window.
 - Unverified: the real second window and the pop-out's DPI and
   multi-monitor behaviour, and previews on real hardware (MT-MIDI-4).
 
+### PR 14 follow-up (2026-10-14): computer keyboard in the native editor
+
+The native clip editor now calls `computer_keyboard_keys` before
+`command_keys`, matching the main window. Previously its own key events
+could run edits such as Legato instead of playing MIDI notes. The fix is
+one dispatch call; the embedded editor already uses the main window's
+handler. Regression `notes::the_native_editor_plays_computer_keyboard_notes_before_editing_shortcuts`
+drives a separate immediate viewport callback with its own input: L sends
+note-on/off without editing while MIDI mode is on, then runs Legato with
+the mode off. It fails without the fix and passes with it. Native OS focus
+and physical playback remain a manual check in MT-MIDI-9 step 5.
+Verification on Windows: formatting, workspace clippy with `-D warnings`,
+all 1,454 workspace tests (335 E2E), and all six real-binary smoke tests
+pass. No visual, persisted-format or audio-engine changes.
+
 ### Amendment (2026-10-11): previews on hardware tracks
 
 Owner decision. On a hardware track (a MIDI output), a piano-roll preview

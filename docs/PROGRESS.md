@@ -10,6 +10,12 @@ that was smaller than sample-rounding error (ADR-0062 follow-up). Synthetic
 source-timing E2E and boundary regressions added; MT-MIDI-8 run 2 awaits
 the owner's source-file recheck.
 
+**2026-10-14 PR 14 follow-up:** the native clip editor consumes computer
+keyboard MIDI input before editing shortcuts, matching the main window
+(ADR-0047 follow-up). Separate-viewport regression added; OS-focus and
+sound recheck in MT-MIDI-9 step 5 is pending. Duplicate MIDI port identity
+remains logged in KNOWN_ISSUES, as the owner requested.
+
 **Before it:** 4.5 — Polish pass, a mid milestone before M5
 (plan: [milestones/M4.5.md](milestones/M4.5.md)), approved 2026-10-10
 from the interface audit's mock-ups. **All six slices built**; every audit
