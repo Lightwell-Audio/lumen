@@ -19,6 +19,7 @@ mod glyphs;
 pub(crate) mod lane;
 mod ops;
 pub(crate) mod paint;
+mod pointer;
 pub(crate) mod quantize;
 mod toolbar;
 pub(crate) mod ui;
