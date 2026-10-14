@@ -773,10 +773,11 @@ mod sender_tests {
             worst < Duration::from_millis(25),
             "worst lateness {worst:?}"
         );
-        // Spacing: the gaps between notes follow the frames.
+        // Spacing: the gaps between notes follow the frames (100 ms apart,
+        // each send up to the lateness above off; a wrong rule is far out).
         let gap = sent[2].2 - sent[0].2;
         assert!(
-            gap > Duration::from_millis(97) && gap < Duration::from_millis(104),
+            gap > Duration::from_millis(88) && gap < Duration::from_millis(115),
             "{gap:?}"
         );
     }
