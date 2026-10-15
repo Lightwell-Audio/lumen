@@ -89,6 +89,22 @@ This checks types and lints only; nothing is linked or run. Linux can't be
 checked this way because ALSA's build script needs the Linux system
 headers. Use the WSL mirror instead (next section).
 
+## Checking Windows code from Linux or macOS
+
+Code that depends on the width of a foreign type can compile on one system
+and not on another: the VST3 bindings' enum constants are `i32` on Windows
+and `u32` elsewhere, which broke the Windows CI job once (M6 slice 0). A
+crate with no system build scripts can be type-checked for Windows from any
+system:
+
+```bash
+rustup target add x86_64-pc-windows-msvc
+cargo clippy -p lumen-test-plugin --all-targets --target x86_64-pc-windows-msvc -- -D warnings
+```
+
+This checks types and lints only; nothing is linked or run. It was verified
+for `lumen-test-plugin` alone, not for the whole workspace.
+
 ## Checking Linux in WSL
 
 An Ubuntu 26.04 WSL distribution on the dev machine mirrors the Linux CI,

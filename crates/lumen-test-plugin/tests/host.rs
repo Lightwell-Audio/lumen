@@ -1,5 +1,9 @@
 //! The test plugins, driven through their VST3 interfaces by a small host.
 
+// The bindings' enum constants are `i32` on Windows and `u32` elsewhere, so
+// a cast one platform needs is a no-op on the other.
+#![allow(clippy::unnecessary_cast)]
+
 mod support;
 
 use std::ffi::c_char;

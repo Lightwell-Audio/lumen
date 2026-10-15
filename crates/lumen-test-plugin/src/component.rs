@@ -118,7 +118,7 @@ impl IComponentTrait for Processor {
         bus.mediaType = media;
         bus.direction = dir;
         bus.busType = BusTypes_::kMain as i32;
-        bus.flags = BusInfo_::BusFlags_::kDefaultActive;
+        bus.flags = BusInfo_::BusFlags_::kDefaultActive as u32;
         if media as MediaTypes == MediaTypes_::kEvent {
             bus.channelCount = 1;
             text::copy_wstring("Notes", &mut bus.name);
