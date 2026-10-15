@@ -79,6 +79,9 @@ pub struct Inputs {
     /// Tracks being recorded over (Replace): what they hold from the
     /// take's start on is not played.
     pub replacing: Vec<Replacing>,
+    /// Where the recording under way shows what is played (start and end
+    /// ticks): only there do keys played win their pitch in the engine.
+    pub record_window: Option<(Ticks, Ticks)>,
 }
 
 /// A track a Replace take is being recorded on.
@@ -271,7 +274,8 @@ pub fn engine_midi(
         tracks.push(
             MidiTrack::new(track.id.0, target, instrument(track), clips)
                 .listening(listening(track, inputs, silent))
-                .recording(recording(track, inputs)),
+                .recording(recording(track, inputs))
+                .recording_within(inputs.record_window),
         );
     }
     tracks
@@ -475,6 +479,7 @@ mod tests {
             selected: selected.to_vec(),
             ports: vec![("Keys".into(), 0), ("Pads".into(), 3), ("Far".into(), 70)],
             replacing: Vec::new(),
+            record_window: None,
         }
     }
 
@@ -574,6 +579,32 @@ mod tests {
         assert_eq!(record.channel, Some(4));
         assert_eq!(record.sources, from_sources(&armed, &none));
         assert_ne!(record.sources, 0);
+    }
+
+    #[test]
+    fn the_recording_window_reaches_the_engine_tracks() {
+        let (project, _) = project_with(midi_clip(Vec::new(), Vec::new()));
+        let mut inputs = Inputs::default();
+        let window = (Ticks::quarters(4), Ticks::quarters(8));
+        inputs.record_window = Some(window);
+        let tracks = engine_midi(
+            &project,
+            &inputs,
+            &mut PortTable::default(),
+            &mut Cache::default(),
+        );
+        assert_eq!(tracks[0].record_window, window);
+        let tracks = engine_midi(
+            &project,
+            &Inputs::default(),
+            &mut PortTable::default(),
+            &mut Cache::default(),
+        );
+        assert_eq!(
+            tracks[0].record_window,
+            (Ticks(i64::MIN), Ticks(i64::MAX)),
+            "unbounded when nothing records"
+        );
     }
 
     #[test]

@@ -115,6 +115,19 @@ impl Session {
         }
     }
 
+    /// Where the take shows what is played (the punch range, and the loop
+    /// once it has wrapped), as the commits place it: only there does a key
+    /// played win its pitch over the clips' notes in the engine. Played
+    /// outside it, a key is kept hidden and the clips play on under it.
+    fn window(&self) -> (Ticks, Ticks) {
+        let from = self.punch.map_or(self.from(), |(a, _)| self.from().max(a));
+        let mut until = self.punch.map_or(Ticks(i64::MAX), |(_, b)| b);
+        if let Some((_, end)) = self.looped.filter(|_| self.wrapped) {
+            until = until.min(end);
+        }
+        (from, until)
+    }
+
     /// Each track's take as far as it has gone, the notes still held running
     /// to the playhead: what the arrangement draws on every frame.
     fn takes_so_far(&self, head: Ticks) -> Vec<(Id, lumen_project::edit::record::Take)> {
@@ -165,6 +178,12 @@ impl App {
                     .or_else(|| session.looped.map(|(_, end)| end)),
             })
             .collect()
+    }
+
+    /// Where the recording under way shows what is played (see
+    /// `Session::window`), if one is.
+    pub(crate) fn record_window(&self) -> Option<(Ticks, Ticks)> {
+        self.record.session.as_ref().map(Session::window)
     }
 
     /// Whether a recording is under way. Undo and redo wait for its end.
@@ -465,6 +484,21 @@ mod tests {
         s.wrapped = true;
         let looped = s.look(Ticks(180), Ticks(400));
         assert_eq!((looped.from, looped.until), (Ticks(150), Ticks(200)));
+    }
+
+    #[test]
+    fn the_engine_window_is_the_punch_and_the_loop_once_wrapped() {
+        let mut s = session(Ticks(50), None);
+        assert_eq!(s.window(), (Ticks(50), Ticks(i64::MAX)));
+        s.punch = Some((Ticks(100), Ticks(250)));
+        assert_eq!(s.window(), (Ticks(100), Ticks(250)));
+        s.punch = None;
+        s.looped = Some((Ticks(20), Ticks(200)));
+        assert_eq!(s.window(), (Ticks(50), Ticks(i64::MAX)));
+        s.wrapped = true;
+        assert_eq!(s.window(), (Ticks(20), Ticks(200)));
+        s.punch = Some((Ticks(30), Ticks(150)));
+        assert_eq!(s.window(), (Ticks(30), Ticks(150)));
     }
 
     #[test]

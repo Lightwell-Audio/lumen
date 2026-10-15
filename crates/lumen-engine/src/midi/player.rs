@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use lumen_core::midi::{Event, Kind, Msg, cc};
+use lumen_core::time::Ticks;
 
 use super::capture::{self, Captured};
 use super::clock::ClockOut;
@@ -267,11 +268,20 @@ impl MidiPlayer {
         let (capture, lost) = (&mut self.capture, &mut self.lost);
         // A recording that begins takes the keys already held down, as
         // played at its start, so a held note is not lost.
+        let clock = Clock {
+            timeline: cx.timeline,
+            rate: cx.sample_rate,
+        };
         for track in tracks.iter_mut() {
             let on = cx.recording && track.record.is_on();
+            track.state.window = track.record_window;
             if on && !track.state.recording {
                 let at = capture::heard(cx, start, self.wrapped_since_locate).0;
-                for down in &track.state.down {
+                // Keys already down win their pitch only where the take
+                // shows them.
+                let wins = on && track.state.window_has(Ticks(clock.tick(at)));
+                for down in &mut track.state.down {
+                    down.wins = wins;
                     let msg = Msg::note_on(down.channel, down.key, down.velocity);
                     let kept = capture.push(Captured {
                         track: track.id,
@@ -287,11 +297,14 @@ impl MidiPlayer {
                 // And the clip's notes on those keys give way to them.
                 for i in 0..track.state.down.len() {
                     let key = track.state.down[i].key;
-                    track.state.give_way(key, 0);
+                    if wins {
+                        track.state.give_way(key, 0);
+                    }
                 }
             }
             track.state.recording = on;
         }
+        let wrapped = self.wrapped_since_locate;
         let last = frames.saturating_sub(1) as u64;
         let last32 = last as u32;
         // The frame the previous live message ended up on: messages taken in
@@ -303,17 +316,20 @@ impl MidiPlayer {
             let offset = (m.frame.saturating_sub(start).min(last) as u32).max(floor);
             for track in tracks.iter_mut() {
                 if m.source != AUDITION && track.record.takes(m.source, m.msg) {
-                    track.state.press(m.source, m.msg);
-                    // A key played while recording wins its pitch: a clip
-                    // note sounding on it ends here (`TrackState::yields`).
+                    let (at, back) = capture::heard(cx, m.played, wrapped);
+                    // A key played while recording, where the take shows
+                    // it, wins its pitch: a clip note sounding on it ends
+                    // here (`TrackState::yields`). Outside the window the
+                    // take keeps it hidden, and the clips play on.
+                    let wins = track.state.shows(Ticks(clock.tick(at)));
+                    track.state.press(m.source, m.msg, wins);
                     if let Kind::NoteOn { key, .. } = m.msg.kind()
-                        && track.state.recording
+                        && wins
                     {
                         track.state.give_way(key, offset);
                     }
                     // Recording keeps what the track takes, heard or not.
                     if cx.recording {
-                        let (at, back) = capture::heard(cx, m.played, self.wrapped_since_locate);
                         let kept = capture.push(Captured {
                             track: track.id,
                             source: m.source,

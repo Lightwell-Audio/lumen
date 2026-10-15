@@ -140,6 +140,10 @@ pub struct MidiTrack {
     /// The live input it keeps while the transport records
     /// ([`Listen::OFF`] for none): a recording track need not listen.
     pub record: Listen,
+    /// Where the take shows what is recorded, in ticks (the punch and loop
+    /// range): only there does a key played win its pitch over the clips'
+    /// notes. Unbounded unless [`MidiTrack::recording_within`] sets it.
+    pub record_window: (Ticks, Ticks),
     state: Box<TrackState>,
     /// Set when the list arrives: the track differs from the one it replaces,
     /// so its notes are brought in line with the position.
@@ -162,6 +166,7 @@ impl MidiTrack {
             target,
             listen: Listen::OFF,
             record: Listen::OFF,
+            record_window: hold::ALWAYS,
             state: Box::new(TrackState::new()),
             dirty: true,
         }
@@ -177,6 +182,14 @@ impl MidiTrack {
     /// transport records (M5 slice 6).
     pub fn recording(mut self, record: Listen) -> Self {
         self.record = record;
+        self
+    }
+
+    /// The same track, whose take shows only what is played in `window`
+    /// (start and end ticks; `None` for no bounds). Keys played outside it
+    /// are kept hidden, so they do not cut or hold back the clips' notes.
+    pub fn recording_within(mut self, window: Option<(Ticks, Ticks)>) -> Self {
+        self.record_window = window.unwrap_or(hold::ALWAYS);
         self
     }
 

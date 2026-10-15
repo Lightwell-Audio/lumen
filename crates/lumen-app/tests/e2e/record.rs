@@ -26,7 +26,7 @@ use lumen_engine::TransportSnapshot;
 use lumen_midi::Direction;
 use lumen_midi::fake::FakeControl;
 use lumen_project::model::{
-    Clip, ClipContent, Color, Device, Id, MidiTo, Note, Project, Track, TrackKind,
+    Clip, ClipContent, Color, Device, Id, MidiTo, Monitor, Note, Project, Track, TrackKind,
 };
 use lumen_project::testing::{TempDir, midi_track, project_of};
 
@@ -946,6 +946,61 @@ fn punch_masks_the_take_and_keeps_the_full_performance_until_stop() {
             .collect::<Vec<_>>(),
         [48, 60, 72]
     );
+}
+
+/// After punch-out capture goes on, but what is played there stays hidden in
+/// the take, so it does not win its pitch: with the monitor Off, a key
+/// played after punch-out neither cuts the clip's note sounding on it nor
+/// holds back the next one, and sounds nothing itself.
+#[test]
+fn a_key_played_after_punch_out_leaves_playback_alone_with_the_monitor_off() {
+    let old = vec![
+        Note::new(beats(2.5), beats(2.0), 60, 100),
+        Note::new(beats(5.0), beats(0.5), 60, 100),
+    ];
+    let (mut project, fake) = heard_project(old);
+    Arc::make_mut(&mut project.tracks[0]).monitor = Monitor::Off;
+    project.transport.loop_start = Ticks::ZERO;
+    project.transport.loop_end = beats(2.0);
+    project.transport.loop_enabled = false;
+    project.transport.punch_out = true;
+    let mut lumen = launch("punch-monitor-off", &project, &fake);
+    wait_open(&mut lumen, &fake);
+    palette(&mut lumen, "Overdub");
+    assert!(lumen.app().overdub_on(), "Overdub is on");
+    let keys = Keys::new(&fake);
+    record(&mut lumen);
+    reach(&mut lumen, beats(3.0));
+    assert!(lumen.app().recording(), "capture continues past punch out");
+    keys.on(60, 90);
+    reach(&mut lumen, beats(5.5));
+    keys.off(60);
+    reach(&mut lumen, beats(6.0));
+    stop(&mut lumen);
+
+    let ons: Vec<(u8, u8)> = fake
+        .sent()
+        .into_iter()
+        .map(|(_, bytes)| bytes)
+        .filter(|b| b[0] & 0xF0 == 0x90 && b[2] > 0)
+        .map(|b| (b[1], b[2]))
+        .collect();
+    assert_eq!(
+        ons,
+        [(60, 100), (60, 100)],
+        "both clip notes play, the key played sounds nothing"
+    );
+    let offs: Vec<u8> = fake
+        .sent()
+        .into_iter()
+        .map(|(_, bytes)| bytes)
+        .filter(|b| b[0] & 0xF0 == 0x80 || (b[0] & 0xF0 == 0x90 && b[2] == 0))
+        .map(|b| b[1])
+        .collect();
+    assert!(offs.len() >= 2, "each note ends: {offs:?}");
+    let notes = all_placed(&lumen);
+    assert_eq!(notes.len(), 2, "the post-punch key stays hidden: {notes:?}");
+    assert!(notes.iter().all(|n| n.velocity == 100));
 }
 
 /// A pre-loop performance remains hidden after the first wrap, and punch

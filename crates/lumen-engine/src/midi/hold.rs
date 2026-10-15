@@ -29,6 +29,8 @@ pub(super) const MAX_EVENTS: usize = 1_024;
 const MARGIN: i64 = 2;
 /// How many repeats back a chase looks for a controller.
 const CHASE_REPEATS: i64 = 64;
+/// A recording window with no bounds.
+pub(super) const ALWAYS: (Ticks, Ticks) = (Ticks(i64::MIN), Ticks(i64::MAX));
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Held {
@@ -50,6 +52,9 @@ pub(super) struct Down {
     pub channel: u8,
     pub key: u8,
     pub velocity: u8,
+    /// It went down inside the recording window, so the take shows its
+    /// note and it wins its pitch (`TrackState::yields`).
+    pub wins: bool,
 }
 
 /// Per track: the held notes and the events waiting for the next part.
@@ -69,6 +74,10 @@ pub(super) struct TrackState {
     pub down: Vec<Down>,
     /// The last part had the track recording.
     pub recording: bool,
+    /// Where the take shows what is recorded (punch and loop), in ticks:
+    /// only there does a key played win its pitch. Captured outside it
+    /// stays hidden in the clip, so the clips play on under it.
+    pub window: (Ticks, Ticks),
 }
 
 impl TrackState {
@@ -82,11 +91,24 @@ impl TrackState {
             live: LiveState::new(),
             down: Vec::with_capacity(MAX_HELD),
             recording: false,
+            window: ALWAYS,
         }
     }
 
-    /// Notes a key of the recording input going down or up.
-    pub fn press(&mut self, source: u8, msg: Msg) {
+    /// Whether a key played at tick `at` shows in the take: the track
+    /// records and `at` is inside the recording window.
+    pub fn shows(&self, at: Ticks) -> bool {
+        self.recording && self.window_has(at)
+    }
+
+    /// Whether tick `at` is inside the recording window.
+    pub fn window_has(&self, at: Ticks) -> bool {
+        (self.window.0..self.window.1).contains(&at)
+    }
+
+    /// Notes a key of the recording input going down or up. `wins`: it went
+    /// down where the take shows it ([`Self::shows`]).
+    pub fn press(&mut self, source: u8, msg: Msg, wins: bool) {
         match msg.kind() {
             Kind::NoteOn { key, velocity } => {
                 let channel = msg.channel();
@@ -98,6 +120,7 @@ impl TrackState {
                         channel,
                         key,
                         velocity,
+                        wins,
                     });
                 }
             }
@@ -114,9 +137,11 @@ impl TrackState {
     /// the track records and its input holds the key down. A note played
     /// over a clip's note of the same pitch wins it, as the take will once
     /// committed (`lumen_project::edit::record`), so the old note neither
-    /// sounds under it nor ends it.
-    pub fn yields(&self, key: u8) -> bool {
-        self.recording && self.down.iter().any(|d| d.key == key)
+    /// sounds under it nor ends it. Only inside the recording window, at
+    /// tick `at`, and only for a key that went down there: outside it the
+    /// take keeps the played note hidden, so the clips play on.
+    pub fn yields(&self, key: u8, at: Ticks) -> bool {
+        self.shows(at) && self.down.iter().any(|d| d.wins && d.key == key)
     }
 
     /// Ends the clip notes sounding on `key` at `offset`: the recording
@@ -219,11 +244,11 @@ pub(super) struct Clock<'a> {
 }
 
 impl Clock<'_> {
-    fn sample(&self, tick: i64) -> i64 {
+    pub(super) fn sample(&self, tick: i64) -> i64 {
         self.timeline.sample_at(Ticks(tick), self.rate)
     }
 
-    fn tick(&self, sample: i64) -> i64 {
+    pub(super) fn tick(&self, sample: i64) -> i64 {
         self.timeline.ticks_at(sample, self.rate).0
     }
 }
@@ -292,7 +317,8 @@ pub(super) fn gather(
                     break;
                 }
                 let at = clock.sample(base + note.start.0);
-                if (from..to).contains(&at) && !state.yields(note.pitch) {
+                if (from..to).contains(&at) && !state.yields(note.pitch, Ticks(base + note.start.0))
+                {
                     state.start_note(
                         Held {
                             channel,
@@ -458,7 +484,7 @@ pub(super) fn chase_notes(
                 let start = Ticks(base + note.start.0);
                 if on < pos
                     && off > pos
-                    && !state.yields(note.pitch)
+                    && !state.yields(note.pitch, Ticks(at))
                     && !state
                         .held
                         .iter()
