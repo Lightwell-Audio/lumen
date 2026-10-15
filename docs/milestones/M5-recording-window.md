@@ -59,3 +59,13 @@ Follow-up verification: `cargo test --workspace` passes 1,476 tests,
 including 337 E2E scenarios. Workspace clippy with warnings denied,
 formatting and diff checks pass; the six real-binary smoke tests pass.
 The hardware recheck remains pending.
+
+Owner recheck, 2026-10-14: the owner reports that everything works after
+`409212c` and authorizes committing and pushing the feature branch. This
+confirms the reported recording-start regression is resolved; it does not
+close the remaining M5 milestone checks.
+
+Pre-push WSL performance check on `409212c`: all nine instruction-count
+scenarios are within the +2% gate. Largest increases: transport +1.50%,
+64-track synth +1.36%; project parse +0.34% and serialization +0.17%.
+No baseline update was needed.

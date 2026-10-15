@@ -415,6 +415,9 @@ Follow-up: the first note could land slightly before a nonzero recording
 start after latency compensation. `Capture::recording` floors only the
 initial pass at Record start, independently of the punch/loop mask. Later
 passes retain their positions. MT-MIDI-7 step 17 covers the owner recheck.
+The owner reports the fix works after `409212c` and authorizes pushing
+`codex/midi-recording-window`. The pre-push WSL performance gate passes all
+nine scenarios (largest increase +1.50%; +2% limit); no baseline update.
 
 Before it, 2026-10-14: **documentation naming rule**. Product
 comparisons and named plugin examples across documentation are replaced

@@ -71,6 +71,8 @@ floored at Record start, preserving first-note visibility away from song
 start while keeping punch masking and subsequent loop-pass positions.
 The regression failed at local tick -33,869 before the fix; it now passes
 at tick zero. MT-MIDI-7 step 17 adds the owner recheck.
+The owner reports the fix works after `409212c` (2026-10-14) and
+authorizes pushing the feature branch. M5 closeout remains pending.
 
 | # | Slice | Status | Commits |
 |---|---|---|---|
