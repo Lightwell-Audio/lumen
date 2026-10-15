@@ -64,6 +64,7 @@ irreversible or external) · *Superseded*.
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 | [0065](#adr-0065--deterministic-test-plugins-lumen-test-plugin) | Deterministic test plugins with injectable faults (`lumen-test-plugin`, M6 slice 0) | Accepted 2026-10-15 | No |
 | [0066](#adr-0066--the-plugin-host-crate-and-its-protocol) | The plugin host crate (`lumen-plugin-host`): loading through the OS loader, a bounded versioned protocol, stale-block rejection and deadlines (M6 slice 0, part 2) | Accepted 2026-10-15 (the audio path and the process-grouping policy are not decided) | No |
+| [0067](#adr-0067--the-shared-memory-audio-path-and-the-measurement-harness) | The shared-memory audio path (`lumen_plugin_host::shm`): one block in flight, untrusted-region rules, two-sided wake-up settings, Windows job object, and the measurement harness (M6 slice 0, part 3) | Accepted 2026-10-15 for the transport (the wake-up, the real-time wait contract and the process grouping wait for MT-VST-0) | No |
 
 ---
 
@@ -5747,3 +5748,141 @@ and (3) would leave them without one.
   block; that is fixed with the shared-memory transport.
 - The control path's deadlines are the caller's: slice 5 decides what the
   save and the checkpoints give state capture.
+
+
+## ADR-0067 — The shared-memory audio path and the measurement harness
+
+**Status:** Accepted 2026-10-15 (M6 slice 0, part 3) for the transport. It
+does **not** decide the wake-up mechanism, the real-time wait contract or the
+process-grouping policy: those wait for MT-VST-0 on Windows, and a later ADR
+records them with the numbers. · **Date:** 2026-10-15
+
+**Context.** ADR-0066 built the host over pipes and left the audio path for
+the measurements. Blocks cannot cross pipes in real time: every block is a
+copy through the kernel, an allocation on the host and a wake-up on each
+side. The risks the plan names (a late host writing into reused memory, an
+operating-system wait in the audio callback, waking a process in time) are
+properties of the transport, so the transport has to exist before they can be
+measured, and the harness has to exist before anyone can say which wake-up
+to use.
+
+**Options.**
+1. Two buffer sets by block parity (the prototype). A late host can write into
+   the set the next-but-one block is using, so every read needs a seqlock.
+2. One set of buffers and **one block in flight per host**. Lumen submits
+   nothing to a host that is still on an earlier block.
+3. A ring of blocks. Absorbs jitter, but adds latency Lumen cannot take
+   (CLAUDE.md §4: no buffering beyond what the driver requires).
+
+Chosen: (2). A late or hung host can never write into memory that has moved
+on, because there is nothing to move on to: its answer is recognised by
+sequence number when it arrives, dropped and counted, and the very next
+`submit` finds the buffers free. The price is that a host that misses one
+block contributes silence until it has finished that block, which is what
+Lumen would do anyway. It is the same rule that makes a late answer safe.
+
+**Choice.** `lumen_plugin_host::shm`:
+- A `Region` is one named block of shared memory, made by Lumen and opened by
+  name in the host: a header of control words (each on its own cache line), the
+  request's counts, the answer's record, then the input audio, events,
+  parameter queues and points, and the output audio, sized by a `Layout` (the
+  capacity: frames, channels, events, queues, points; all inside the
+  protocol's limits). Control words and counts are atomics; payloads are
+  raw copies between a release store and an acquire load. A new capacity is a
+  new region, made off the audio thread and attached with
+  `Request::Attach` (protocol version 2); a second attach replaces the first.
+- **Everything read from the region is untrusted.** The host checks the frame
+  count, every count against the layout, event offsets and kinds, point
+  offsets and values (finite) and that the points add up, before a plugin sees
+  anything; a bad block is answered `Invalid`. Lumen copies output out and
+  replaces anything not finite with silence, and an answer whose sequence or
+  generation is not the block's becomes `Invalid`. A plugin that scribbles on
+  the region can spoil its own audio and nothing else.
+- Each block carries the configuration **generation**; the host answers a
+  block of an older one `Stale` without processing it, and a block that does
+  not fit the format `Invalid`, so a reconfiguration cannot let an old block
+  reach the plugin.
+- **Wake-ups are two independent settings** (`Wake { host, lumen }`), each
+  `Spin` (poll memory, never ask the operating system to wait), `Event`
+  (an operating-system signal) or `Hybrid(duration)` (poll, then signal). The
+  side that is polled makes no signal call. This gives the experiments the plan
+  lists, including "worker-side signalling with bounded polling" in the
+  callback (`lumen: Spin`), without a second transport. The signals are named
+  semaphores on Unix and auto-reset events with a high-resolution timer on
+  Windows (a plain millisecond wait ends on the system tick, too coarse for a
+  deadline of a few milliseconds). On Unix the names are removed as soon as
+  both sides have opened them, so a crash leaves nothing behind.
+- Lumen's side, `BlockLink`, **allocates nothing and takes no lock**:
+  `submit`, `poll`, `wait` (bounded by the caller's deadline) and `copy_output`.
+  The test runs them in a real-time section under the allocation guard.
+  `wait` with an `Event` or `Hybrid` setting does ask the operating system to
+  wait; that is the open question below, and nothing in this change lets the
+  audio callback call it.
+- The host's block loop is its own thread (`blocks.rs`), at the Pro Audio
+  scheduling class on Windows. It shares the plugin with the control thread
+  through one lock, so a configure or a state call waits for the block in
+  progress and the reverse. A panic on it aborts the process, so Lumen sees a
+  crash rather than a host that answers its pipe and never its blocks.
+  `Instance::process_into` renders into buffers the caller owns, with the
+  channel pointers on the stack, so a block allocates nothing once the event
+  and parameter lists have grown to the busiest block; the pipe path keeps its
+  allocating `process`.
+- On Windows every host is assigned to a kill-on-close job object held by
+  Lumen for its whole life, so a host hung in a plugin cannot outlive a killed
+  Lumen (P-ISO finding 4). A failed assignment fails the spawn.
+- `lumen-host-bench` is the measurement harness: real host processes, the
+  production link, paced blocks, under the allocation guard. It reports block
+  time (submit to every answer, copies included) as p50, p99, p99.9 and
+  max, deadline misses, busy skips, stale answers, failed blocks, hosts that
+  disagree (they play identical streams), heap operations in the loop and the
+  hosts' CPU while idle, and can inject a crash or hang in one host and report
+  how soon it is seen and what the others did. Plugin load per block uses the
+  test plugin's `process_slow` fault. MT-VST-0 is the script for running it.
+
+**Still open, and why it cannot be closed here.**
+- *Which wake-up.* The harness exists and runs on Linux, where it shows the
+  mechanics work (below); the numbers that decide the policy are Windows
+  numbers at 64/128/512 frames, 1/8/16 hosts, with and without contention, in
+  the Balanced and High-performance power plans. A sandbox with four shared
+  cores says nothing about them and none are claimed.
+- *May the callback wait on the operating system.* ADR-0005 proposed it; the
+  architecture rule says the audio thread never blocks. Either bounded polling
+  in the callback with the signalling on the host's side meets the budget
+  (then no exemption is needed) or it does not (then an ADR must state the
+  exemption, its bound and what is done about it). The default policy that
+  ships must be the one the numbers support.
+- *Process per instance or per chain.* One process per instance is what the
+  harness measures (N hosts); a grouped design needs a second link per host
+  and is considered only if the numbers force it.
+
+**Consequences.**
+- Verified on Linux: 84 tests pass in the crate (47 before). New: 9 region
+  tests (round trip; a block replacing the last without leftovers; every
+  rejection of a request that does not fit; a request that lies about
+  its counts; scribbled events and points; a region of another layout; output
+  scrubbed on the way back), 8 link tests with a stand-in host in five wake
+  modes (including a late answer dropped and never taken for the next block,
+  a host that never answers, an answer for another generation), 15 tests
+  against real host processes (the same sound as the pipe path in four wake
+  modes, an effect with input, a stale generation, not ready, a layout that
+  does not match the format, non-finite output, a plugin error, a slow block,
+  a crash and a hang in processing, re-attaching, six hosts side by side, no
+  orphan with the link attached, a clean quit), the allocation test, the
+  attach request's round trip and refusals, and the harness's own parsing and
+  percentile tests. Mutation checks: ignoring the generation, or letting a
+  busy link accept a block, each fail the tests they should.
+- The Windows code (file mapping, events and timers, the job object, MMCSS)
+  type-checks and passes clippy for `x86_64-pc-windows-gnu`, as does macOS
+  for `aarch64-apple-darwin`; **neither has been run.** macOS has no timed
+  semaphore wait, so there the wait polls with short sleeps: it runs the
+  tests and is not a measurement.
+- Not done, and not claimed: any measurement on Windows; MMCSS taking effect;
+  a third-party plugin through the link; the editor; the scanner; wiring the
+  link into the engine's graph (nothing outside this crate uses it); rebuilding
+  the graph when a plugin reports a latency or bus change (the answer carries
+  `latency` and `restart`; acting on them is slice 6); the supervisor that
+  restarts a failed host and swaps its link in off the audio thread (slice 2).
+- Cost of the design: each active host holds a region (about 1 MiB at the
+  largest layout, 8192 frames of 16 channels both ways, and a few kilobytes
+  at a typical one; untouched pages cost nothing) and, in `Spin` or a
+  `Hybrid`'s polling, a core while waiting. The harness reports the idle cost so the choice is made with it.

@@ -10,20 +10,22 @@
 //!
 //! [`protocol`] is the versioned, bounded message format between them.
 //!
-//! The transport here is a pair of pipes. It carries state, parameter and
-//! fault traffic and proves the protocol; the audio path with shared memory
-//! and per-block signalling follows the measurements in
-//! `docs/milestones/M6.md`.
+//! Two paths join them. A pair of pipes carries the control traffic (load,
+//! configure, state, parameters) and the protocol checks. Blocks of audio
+//! cross [`shm`]: a block of shared memory and a wake-up in each direction,
+//! opened with [`protocol::Request::Attach`].
 
 // The bindings' enum constants are `i32` on Windows and `u32` elsewhere.
 #![allow(clippy::unnecessary_cast)]
 
+mod blocks;
 mod com;
 pub mod instance;
 pub mod module;
 pub mod process;
 pub mod protocol;
 pub mod server;
+pub mod shm;
 pub mod wire;
 
 pub mod client;

@@ -4,10 +4,13 @@
 
 use std::io::{self, Read, Write};
 use std::path::Path;
+use std::sync::Arc;
 
+use crate::blocks::{Blocks, Shared, lock};
 use crate::instance::{Format, Instance, InstanceError};
 use crate::module::Module;
 use crate::protocol::{FailureKind, FrameError, Request, Response, read_request, write_response};
+use crate::shm::HostLink;
 
 /// Why the loop ended.
 #[derive(Debug, PartialEq, Eq)]
@@ -24,8 +27,9 @@ pub enum Exit {
 struct State {
     // The module is kept so it outlives the instance.
     module: Option<Module>,
-    instance: Option<Instance>,
-    generation: Option<u32>,
+    /// The plugin, shared with the audio thread once one is attached.
+    shared: Shared,
+    blocks: Option<Blocks>,
 }
 
 fn failed(kind: FailureKind, message: impl Into<String>) -> Response {
@@ -44,10 +48,18 @@ fn from_instance(e: InstanceError) -> Response {
 }
 
 impl State {
+    /// Ends the audio thread, if there is one. Waits for the block it is on.
+    fn detach(&mut self) {
+        if let Some(blocks) = self.blocks.take() {
+            blocks.stop();
+        }
+    }
+
     fn handle(&mut self, request: Request) -> Response {
         match request {
             Request::Load { path, class } => {
-                if self.instance.is_some() {
+                let mut guard = lock(&self.shared);
+                if guard.instance.is_some() {
                     return failed(FailureKind::Sequence, "a plugin is already loaded");
                 }
                 let module = match Module::load(Path::new(&path)) {
@@ -57,7 +69,7 @@ impl State {
                 match Instance::create(&module, class) {
                     Ok(instance) => {
                         let info = instance.class.clone();
-                        self.instance = Some(instance);
+                        guard.instance = Some(instance);
                         self.module = Some(module);
                         Response::Loaded(info)
                     }
@@ -71,7 +83,8 @@ impl State {
                 inputs,
                 outputs,
             } => {
-                let Some(instance) = &mut self.instance else {
+                let mut guard = lock(&self.shared);
+                let Some(instance) = &mut guard.instance else {
                     return failed(FailureKind::Sequence, "no plugin is loaded");
                 };
                 let format = Format {
@@ -82,16 +95,17 @@ impl State {
                 };
                 match instance.configure(format) {
                     Ok(()) => {
-                        self.generation = Some(generation);
-                        Response::Configured {
+                        let response = Response::Configured {
                             generation,
                             latency: instance.latency(),
                             tail: instance.tail(),
-                        }
+                        };
+                        guard.generation = Some(generation);
+                        response
                     }
                     Err(e) => {
                         // A failed configuration leaves nothing to process.
-                        self.generation = None;
+                        guard.generation = None;
                         from_instance(e)
                     }
                 }
@@ -104,10 +118,12 @@ impl State {
                 events,
                 params,
             } => {
-                let Some(instance) = &mut self.instance else {
+                let mut guard = lock(&self.shared);
+                let current = guard.generation;
+                let Some(instance) = &mut guard.instance else {
                     return failed(FailureKind::Sequence, "no plugin is loaded");
                 };
-                match self.generation {
+                match current {
                     None => return failed(FailureKind::Sequence, "not configured"),
                     Some(current) if current != generation => {
                         return failed(
@@ -130,29 +146,54 @@ impl State {
                     Err(e) => from_instance(e),
                 }
             }
-            Request::GetState => match &self.instance {
+            Request::GetState => match &lock(&self.shared).instance {
                 Some(instance) => match instance.state() {
                     Ok(bytes) => Response::State(bytes),
                     Err(e) => from_instance(e),
                 },
                 None => failed(FailureKind::Sequence, "no plugin is loaded"),
             },
-            Request::SetState(bytes) => match &self.instance {
+            Request::SetState(bytes) => match &lock(&self.shared).instance {
                 Some(instance) => match instance.set_state(&bytes) {
                     Ok(()) => Response::Done,
                     Err(e) => from_instance(e),
                 },
                 None => failed(FailureKind::Sequence, "no plugin is loaded"),
             },
-            Request::Parameters => match &self.instance {
+            Request::Parameters => match &lock(&self.shared).instance {
                 Some(instance) => {
                     let (total, list) = instance.parameters();
                     Response::Parameters { total, list }
                 }
                 None => failed(FailureKind::Sequence, "no plugin is loaded"),
             },
+            Request::Attach { base, layout, wake } => {
+                // A second attach replaces the first, and the old audio
+                // thread is finished before the new one starts.
+                self.detach();
+                match HostLink::open(&base, layout, wake) {
+                    Ok((link, stopper)) => {
+                        match Blocks::start(link, stopper, Arc::clone(&self.shared)) {
+                            Ok(blocks) => {
+                                self.blocks = Some(blocks);
+                                Response::Attached
+                            }
+                            Err(e) => failed(FailureKind::Transport, e.to_string()),
+                        }
+                    }
+                    Err(e) => failed(FailureKind::Transport, e.to_string()),
+                }
+            }
             Request::Quit => Response::Done,
         }
+    }
+}
+
+impl Drop for State {
+    fn drop(&mut self) {
+        // However the loop ended, the audio thread stops before the plugin
+        // it is using can go.
+        self.detach();
     }
 }
 
@@ -174,8 +215,10 @@ pub fn serve<R: Read, W: Write>(input: &mut R, output: &mut W) -> io::Result<Exi
         let response = state.handle(request);
         write_response(output, &response)?;
         if quit {
-            // The plugin goes before the module it came from.
-            state.instance = None;
+            // The audio thread ends first, then the plugin, then the module
+            // it came from.
+            state.detach();
+            lock(&state.shared).instance = None;
             return Ok(Exit::Quit);
         }
     }

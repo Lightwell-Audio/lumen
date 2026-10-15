@@ -403,7 +403,32 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-15 (later): **M6 slice 0, part 2: the production host
+**Last updated:** 2026-10-15 (latest): **M6 slice 0, part 3: the shared-memory
+audio path and the measurement harness** on `m6-s0-shm-transport` (ADR-0067;
+the branch was renamed from a generated `claude/…` name, which never existed
+on the remote). `lumen_plugin_host::shm`: one block in flight per host (a
+late host can never write into a block that has moved on; its answer is
+dropped by sequence and counted), a region whose every count is checked on
+both sides, wake-up settings per side (`Wake { host, lumen }`, each spin,
+event or hybrid), `BlockLink` allocation-free and lock-free on Lumen's side
+(tested under the allocation guard), the host's audio thread (`blocks.rs`,
+one lock shared with the control thread, abort on panic),
+`Instance::process_into`, `HostProcess::attach`, protocol v2
+(`Attach`/`Attached`), and on Windows a kill-on-close job object. The harness
+is `lumen-host-bench` (MT-VST-0, `docs/manual-tests/M6.md`). 84 tests pass in
+the crate on Linux (47 before); mutation checks on the generation and busy
+rules fail as they should; Windows (GNU) and macOS cross-clippy are clean.
+**Not run, and not claimed:** anything on Windows (file mapping, events,
+timers, MMCSS, the job object) and every measurement; the Linux harness run
+was a four-core sandbox check, no numbers from it are used. **Next: the owner
+runs MT-VST-0 on Windows**; its numbers decide the wake-up, whether the
+callback may wait on the operating system, and the process grouping (the
+next ADR). Slice 1 (plugin discovery) follows slice 0's gate. To work on the
+crate in the cloud container nothing beyond Rust is needed
+(`cargo test -p lumen-plugin-host`; `rustup target add
+x86_64-pc-windows-gnu aarch64-apple-darwin` for the cross clippy).
+
+Before it, 2026-10-15 (later): **M6 slice 0, part 2: the production host
 core** on `m6-s0-host-core` (ADR-0066; the branch was renamed from a generated
 name, and the old remote name never existed). New crate `crates/lumen-plugin-host`
 and its binary: `Module` loads a VST3 module with the OS loader, `Instance`
