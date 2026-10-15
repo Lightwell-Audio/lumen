@@ -66,6 +66,12 @@ remain as hidden clip content; widening edges recovers them. Replace
 playback resumes after punch-out. Automated verification is recorded in
 the correction plan; the hardware walkthrough in MT-MIDI-7 step 7 waits.
 
+Recording-start follow-up: latency-compensated initial-pass messages are
+floored at Record start, preserving first-note visibility away from song
+start while keeping punch masking and subsequent loop-pass positions.
+The regression failed at local tick -33,869 before the fix; it now passes
+at tick zero. MT-MIDI-7 step 17 adds the owner recheck.
+
 | # | Slice | Status | Commits |
 |---|---|---|---|
 | 0 | MIDI devices and the model: `lumen-midi` (midir), the MIDI page of the settings, format v11 (controller, bend, pressure and program events in clips); ADR-0044 | ✅ Built 2026-10-10; MT-MIDI-1 passed 2026-10-11 | `32a751a`, `5fa36c3` |

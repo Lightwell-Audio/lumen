@@ -411,6 +411,11 @@ first loop entry preserves delayed pre-loop messages. No format change.
 MT-MIDI-7 step 7 has the owner verification steps. M5 closeout remains
 pending; no new milestone has started.
 
+Follow-up: the first note could land slightly before a nonzero recording
+start after latency compensation. `Capture::recording` floors only the
+initial pass at Record start, independently of the punch/loop mask. Later
+passes retain their positions. MT-MIDI-7 step 17 covers the owner recheck.
+
 Before it, 2026-10-14: **documentation naming rule**. Product
 comparisons and named plugin examples across documentation are replaced
 with direct descriptions and anonymous test labels. Technical identifiers

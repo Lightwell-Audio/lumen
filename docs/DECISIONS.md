@@ -5577,3 +5577,13 @@ window uses a one-tick clip inside its nearest edge; that tick can split
 an existing clip and respects the locked-clip guard. Unsupported MIDI
 message kinds retain their existing behavior. Hardware timing and the
 manual listening checks are pending in MT-MIDI-7 step 7.
+
+**Recording-start follow-up (owner finding, 2026-10-14).** Removing the old
+range clamp exposed output-latency compensation placing the first note
+slightly before the clip when recording began away from song start. An
+already-held key could therefore be hidden to the left. Capture now floors
+initial-pass timestamps at the actual Record start, independently of the
+loop/punch window. Subsequent passes keep their own times, including times
+earlier than that initial start. Wrap markers identify a silent initial
+pass, including delayed messages and pass-counter rollover. This restores
+first-note visibility without cropping pre-punch performance.

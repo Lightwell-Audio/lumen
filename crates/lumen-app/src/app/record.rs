@@ -232,7 +232,7 @@ impl App {
         let rec = self.document.begin_recording(&tracks);
         self.record.session = Some(Session {
             rec,
-            capture: Capture::looping(looped),
+            capture: Capture::recording(looped, start),
             mode: if settings.overdub {
                 Mode::Overdub
             } else {

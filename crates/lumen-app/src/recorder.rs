@@ -111,6 +111,10 @@ pub struct Capture {
     lanes: BTreeMap<u64, Lane>,
     /// The loop region, when the take layers its passes.
     looped: Option<(Ticks, Ticks)>,
+    /// The actual Record boundary, independent of the visible loop/punch
+    /// window. Only its first pass is floored here after latency correction.
+    start: Option<Ticks>,
+    first_pass: Option<u32>,
 }
 
 impl Capture {
@@ -121,9 +125,22 @@ impl Capture {
 
     /// A capture of a take that loops over `looped` (start and end ticks),
     /// if it does.
+    #[cfg(test)]
     pub fn looping(looped: Option<(Ticks, Ticks)>) -> Self {
         Self {
             looped,
+            ..Self::default()
+        }
+    }
+
+    /// A recording that begins at `start`. Compensation may place an
+    /// already-held key or the first live event just before that boundary;
+    /// it belongs at the start, without clamping later loop passes or the
+    /// independently positioned punch window.
+    pub fn recording(looped: Option<(Ticks, Ticks)>, start: Ticks) -> Self {
+        Self {
+            looped,
+            start: Some(start),
             ..Self::default()
         }
     }
@@ -137,6 +154,12 @@ impl Capture {
     /// and key is ignored. A note-on with velocity 0 is a note-off, as
     /// `Msg::kind` reads it.
     pub fn push(&mut self, c: &Captured, latency: i64, ticks: &dyn Fn(i64) -> Ticks) {
+        // A wrap can arrive before the first played message, for a silent
+        // first pass. Keep its number so late messages from it use the same
+        // floor; pass counters may wrap around u32::MAX.
+        let first_pass = *self
+            .first_pass
+            .get_or_insert(c.pass.wrapping_sub(u32::from(c.source == WRAP)));
         if c.source == WRAP {
             self.lanes.entry(c.track).or_default().see(c.pass);
             return;
@@ -145,7 +168,12 @@ impl Capture {
         if matches!(kind, Kind::KeyPressure { .. } | Kind::Other) {
             return;
         }
-        let at = ticks((c.at - latency).max(0));
+        let mut at = ticks((c.at - latency).max(0));
+        if c.pass == first_pass
+            && let Some(start) = self.start
+        {
+            at = at.max(start);
+        }
         let channel = c.msg.channel();
         let looped = self.looped;
         let lane = self.lanes.entry(c.track).or_default();
@@ -684,5 +712,84 @@ mod tests {
             t.notes,
             vec![note(100, 100, 62, 90), note(400, 300, 60, 90)]
         );
+    }
+
+    #[test]
+    fn latency_cannot_hide_the_first_note_before_the_record_boundary() {
+        let mut c = Capture::recording(None, Ticks(1_000));
+        c.push(&cap(1, 1_100, Msg::note_on(0, 60, 90)), 200, &Ticks);
+        c.push(&cap(1, 1_100, Msg::controller(0, 1, 64)), 200, &Ticks);
+        let preview = c.so_far(1, (Ticks(1_000), Ticks(2_000)), Ticks(1_250));
+        assert_eq!(preview.notes, vec![note(1_000, 250, 60, 90)]);
+        c.push(&cap(1, 1_500, Msg::note_off(0, 60)), 200, &Ticks);
+        // The punch window starts later than Record. This independent
+        // boundary must still leave the pre-punch note hidden and whole.
+        let take = c.take(1, (Ticks(1_200), Ticks(2_000)));
+        assert_eq!(take.notes, vec![note(1_000, 300, 60, 90)]);
+        assert_eq!(take.events[0].at, Ticks(1_000));
+    }
+
+    #[test]
+    fn later_loop_passes_can_begin_before_the_original_record_start() {
+        let mut c = Capture::recording(Some((Ticks(800), Ticks(1_600))), Ticks(1_200));
+        c.push(
+            &in_pass(8, cap(1, 1_200, Msg::note_on(0, 60, 90))),
+            100,
+            &Ticks,
+        );
+        c.push(
+            &in_pass(8, cap(1, 1_400, Msg::note_off(0, 60))),
+            100,
+            &Ticks,
+        );
+        c.push(&wrap(1, 9), 100, &Ticks);
+        c.push(
+            &in_pass(9, cap(1, 1_000, Msg::note_on(0, 64, 80))),
+            100,
+            &Ticks,
+        );
+        c.push(
+            &in_pass(9, cap(1, 1_100, Msg::note_off(0, 64))),
+            100,
+            &Ticks,
+        );
+        assert_eq!(
+            c.take(1, (Ticks(800), Ticks(1_600))).notes,
+            vec![note(900, 100, 64, 80), note(1_200, 100, 60, 90)]
+        );
+    }
+
+    #[test]
+    fn a_wrap_before_the_first_message_still_identifies_the_initial_pass() {
+        for first in [8_u32, u32::MAX] {
+            let next = first.wrapping_add(1);
+            let mut c = Capture::recording(Some((Ticks(800), Ticks(1_600))), Ticks(1_200));
+            c.push(&wrap(1, next), 100, &Ticks);
+            // A delayed message from the otherwise silent first pass.
+            c.push(
+                &in_pass(first, cap(1, 1_200, Msg::note_on(0, 60, 90))),
+                100,
+                &Ticks,
+            );
+            c.push(
+                &in_pass(first, cap(1, 1_400, Msg::note_off(0, 60))),
+                100,
+                &Ticks,
+            );
+            c.push(
+                &in_pass(next, cap(1, 1_000, Msg::note_on(0, 64, 80))),
+                100,
+                &Ticks,
+            );
+            c.push(
+                &in_pass(next, cap(1, 1_100, Msg::note_off(0, 64))),
+                100,
+                &Ticks,
+            );
+            assert_eq!(
+                c.take(1, (Ticks(800), Ticks(1_600))).notes,
+                vec![note(900, 100, 64, 80), note(1_200, 100, 60, 90)]
+            );
+        }
     }
 }

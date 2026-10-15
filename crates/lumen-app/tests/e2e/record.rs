@@ -20,6 +20,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use eframe::egui::{Key, Modifiers};
+use egui_kittest::kittest::Queryable;
 use lumen_core::time::{TempoPoint, Ticks};
 use lumen_engine::TransportSnapshot;
 use lumen_midi::Direction;
@@ -657,6 +658,52 @@ fn a_key_held_when_record_is_pressed_is_taken_from_the_start() {
     assert_eq!(notes[0].pitch, 60);
     assert_eq!(notes[0].start, Ticks::ZERO, "from the start of the take");
     assert!(notes[0].end > beats(0.5), "it lasts until the key goes");
+}
+
+#[test]
+fn a_held_key_at_a_nonzero_recording_start_is_not_hidden_to_the_left() {
+    let fake = keyboard();
+    let project = project_of("Record", vec![track(None, true)]);
+    let mut lumen = launch("held-at-nonzero-start", &project, &fake);
+    lumen.app_mut().set_view(lumen_app::TimeView {
+        left: 0.0,
+        zoom: 60.0,
+    });
+    lumen.frames(30);
+    let ruler = lumen
+        .harness
+        .get_by_label("Ruler: click to move the playhead")
+        .rect();
+    let at = eframe::egui::pos2(ruler.left() + 4.0 * 60.0, ruler.center().y);
+    lumen.drag(at, at, Modifiers::NONE);
+    lumen.wait_for("the nonzero record start", |app| {
+        app.playhead() == beats(4.0)
+    });
+    let keys = Keys::new(&fake);
+    keys.on(60, 100);
+    assert!(loudest(&mut lumen) > 0.01, "the key is down before Record");
+    record(&mut lumen);
+    reach(&mut lumen, beats(5.0));
+    keys.off(60);
+    reach(&mut lumen, beats(5.5));
+    stop(&mut lumen);
+    let clips = clips_of(&lumen);
+    assert_eq!(clips.len(), 1);
+    assert_eq!(clips[0].start, beats(4.0));
+    let ClipContent::Midi { notes, .. } = &clips[0].content else {
+        panic!("MIDI take")
+    };
+    assert_eq!(notes.len(), 1);
+    assert_eq!(
+        notes[0].start(),
+        Ticks::ZERO,
+        "the held note begins exactly at the clip start"
+    );
+    assert_eq!(
+        placed(&clips[0]).len(),
+        1,
+        "the note is inside the active window"
+    );
 }
 
 /// A note held across the loop's end is cut there and goes on from the

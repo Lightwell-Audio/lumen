@@ -44,3 +44,18 @@ performance gate, macOS cross-target checks or a fresh visual scale/theme
 sweep. No audio throughput or frame-time measurements are claimed. The
 updated MT-MIDI-7 step 7 is the owner walkthrough. This correction does
 not close M5 or begin another milestone.
+
+Recording-start follow-up, 2026-10-14: reproduce the owner's first-note
+finding at a nonzero play marker, separate Record-start flooring from the
+visible mask, and verify early compensation, pre-punch preservation and
+later passes. The new E2E failed before the fix with the held note at
+local tick -33,869; it now begins exactly at tick zero. Three focused unit
+regressions cover compensated notes/controllers, later passes and a silent
+initial pass followed by delayed messages (including counter rollover).
+The fix adds no schema or callback changes. MT-MIDI-7 step 17 is the owner
+hardware recheck.
+
+Follow-up verification: `cargo test --workspace` passes 1,476 tests,
+including 337 E2E scenarios. Workspace clippy with warnings denied,
+formatting and diff checks pass; the six real-binary smoke tests pass.
+The hardware recheck remains pending.
