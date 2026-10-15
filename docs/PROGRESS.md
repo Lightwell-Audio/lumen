@@ -59,6 +59,27 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 
 ## Milestone 5 slices
 
+2026-10-14 recording correction (ADR-0064;
+[plan](milestones/M5-recording-window.md)): MIDI capture continues outside
+loop/punch brackets until Stop or Record-off. Full notes and controllers
+remain as hidden clip content; widening edges recovers them. Replace
+playback resumes after punch-out. Automated verification is recorded in
+the correction plan; the hardware walkthrough in MT-MIDI-7 step 7 waits.
+
+PR 16 review corrections: playback eligibility and capture share compensated
+positions and engine-side loop-pass bounds; disabling Loop before its first
+wrap preserves the saved take boundary. Format v16 distinguishes hidden
+captured notes from genuine seam continuations, including identical onsets
+and shorter notes, while preserving trim recovery (ADR-0064).
+
+Recording-start follow-up: latency-compensated initial-pass messages are
+floored at Record start, preserving first-note visibility away from song
+start while keeping punch masking and subsequent loop-pass positions.
+The regression failed at local tick -33,869 before the fix; it now passes
+at tick zero. MT-MIDI-7 step 17 adds the owner recheck.
+The owner reports the fix works after `409212c` (2026-10-14) and
+authorizes pushing the feature branch. M5 closeout remains pending.
+
 | # | Slice | Status | Commits |
 |---|---|---|---|
 | 0 | MIDI devices and the model: `lumen-midi` (midir), the MIDI page of the settings, format v11 (controller, bend, pressure and program events in clips); ADR-0044 | ✅ Built 2026-10-10; MT-MIDI-1 passed 2026-10-11 | `32a751a`, `5fa36c3` |

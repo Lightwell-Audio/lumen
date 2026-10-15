@@ -34,7 +34,8 @@ pub use metronome::{ClickSound, MetronomeSettings};
 pub use midi::{
     AUDITION, CLOCK_TICKS, Captured, INPUT_SLOTS, InstrumentSpec, KEYBOARD, Listen, LiveIn,
     LiveInput, MidiClip, MidiControl, MidiHandle, MidiNote, MidiOut, MidiPlayer, MidiTrack,
-    SOURCES as LIVE_SOURCES, Target, WRAP, control_list, midi_player, note_list,
+    RecordTiming, SOURCES as LIVE_SOURCES, Target, WRAP, control_list, midi_player, note_list,
+    record_position,
 };
 pub use mixer::{
     Bus, Buses, Compensation, CueOut, Destination, Device, Layered, Level, MAX_DEVICE_LATENCY,

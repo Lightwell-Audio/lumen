@@ -5,16 +5,16 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use lumen_core::midi::{Event, Kind, Msg, cc};
-
 use super::capture::{self, Captured};
 use super::clock::ClockOut;
 use super::hold::{self, Clock, MAX_EVENTS};
 use super::live::{AUDITION, LiveIn, LiveInput};
+use super::recording::{live_position, record_window};
 use super::{MidiOut, MidiTrack, Target};
 use crate::mixer::{Buses, CHUNK, TrackSource};
 use crate::source::{Jump, Mode, RenderContext};
 use crate::timeline::Timeline;
+use lumen_core::midi::{Event, Kind, Msg, cc};
 
 const QUEUE: usize = 4;
 /// Messages waiting for the app's sender.
@@ -150,6 +150,10 @@ pub struct MidiPlayer {
     lost: u32,
     /// How many times the loop has wrapped: the pass messages are kept in.
     pass: u32,
+    /// A loop has wrapped since the last play, locate, or reposition.
+    /// Delayed live input before the loop start belongs to the previous pass
+    /// only while this is true.
+    wrapped_since_locate: bool,
     /// The last part rendered had the transport recording.
     recording: bool,
     /// The ports that get MIDI clock, as [`MidiHandle::set_sync`] set them.
@@ -196,6 +200,7 @@ pub fn midi_player() -> (MidiHandle, MidiPlayer) {
             capture: capture_tx,
             lost: 0,
             pass: 0,
+            wrapped_since_locate: false,
             recording: false,
             sync,
             synced: 0,
@@ -262,11 +267,25 @@ impl MidiPlayer {
         let (capture, lost) = (&mut self.capture, &mut self.lost);
         // A recording that begins takes the keys already held down, as
         // played at its start, so a held note is not lost.
+        let clock = Clock {
+            timeline: cx.timeline,
+            rate: cx.sample_rate,
+        };
         for track in tracks.iter_mut() {
             let on = cx.recording && track.record.is_on();
             if on && !track.state.recording {
-                let at = capture::heard(cx, start).0;
-                for down in &track.state.down {
+                track.state.record_pass = pass;
+            }
+            track.state.window = record_window(track, pass);
+            if on && !track.state.recording {
+                let at = capture::heard(cx, start, self.wrapped_since_locate).0;
+                let (position, position_pass) = live_position(track, clock, at, pass, false);
+                // Keys already down win their pitch only where the take
+                // shows them.
+                let window = record_window(track, position_pass);
+                let wins = on && (window.0..window.1).contains(&position);
+                for down in &mut track.state.down {
+                    down.wins = wins;
                     let msg = Msg::note_on(down.channel, down.key, down.velocity);
                     let kept = capture.push(Captured {
                         track: track.id,
@@ -282,11 +301,14 @@ impl MidiPlayer {
                 // And the clip's notes on those keys give way to them.
                 for i in 0..track.state.down.len() {
                     let key = track.state.down[i].key;
-                    track.state.give_way(key, 0);
+                    if wins {
+                        track.state.give_way(key, 0);
+                    }
                 }
             }
             track.state.recording = on;
         }
+        let wrapped = self.wrapped_since_locate;
         let last = frames.saturating_sub(1) as u64;
         let last32 = last as u32;
         // The frame the previous live message ended up on: messages taken in
@@ -298,17 +320,23 @@ impl MidiPlayer {
             let offset = (m.frame.saturating_sub(start).min(last) as u32).max(floor);
             for track in tracks.iter_mut() {
                 if m.source != AUDITION && track.record.takes(m.source, m.msg) {
-                    track.state.press(m.source, m.msg);
-                    // A key played while recording wins its pitch: a clip
-                    // note sounding on it ends here (`TrackState::yields`).
+                    let recording = cx.recording && track.record.is_on();
+                    let (at, back) = capture::heard(cx, m.played, wrapped);
+                    // A key played while recording, where the take shows
+                    // it, wins its pitch: a clip note sounding on it ends
+                    // here (`TrackState::yields`). Outside the window the
+                    // take keeps it hidden, and the clips play on.
+                    let (position, position_pass) = live_position(track, clock, at, pass, back);
+                    let window = record_window(track, position_pass);
+                    let wins = recording && (window.0..window.1).contains(&position);
+                    track.state.press(m.source, m.msg, wins);
                     if let Kind::NoteOn { key, .. } = m.msg.kind()
-                        && track.state.recording
+                        && wins
                     {
                         track.state.give_way(key, offset);
                     }
                     // Recording keeps what the track takes, heard or not.
                     if cx.recording {
-                        let (at, back) = capture::heard(cx, m.played);
                         let kept = capture.push(Captured {
                             track: track.id,
                             source: m.source,
@@ -697,6 +725,7 @@ impl TrackSource for MidiPlayer {
         if jump == Jump::LoopWrap {
             self.wrapped();
         }
+        self.wrapped_since_locate = jump == Jump::LoopWrap;
         self.clock_out.locate(jump);
         let clock = Clock {
             timeline,

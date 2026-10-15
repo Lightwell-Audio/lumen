@@ -242,7 +242,14 @@ fn quantized(note: Note, length: Ticks, grid: &Grid, mode: Mode) -> Note {
         }
     };
     let (start, len) = place(start, end, length, note.end());
-    Note(start, len, note.pitch(), note.velocity(), note.muted())
+    Note(
+        start,
+        len,
+        note.pitch(),
+        note.velocity(),
+        note.muted(),
+        note.carries_on(),
+    )
 }
 
 #[cfg(test)]
@@ -436,11 +443,14 @@ mod tests {
 
     #[test]
     fn unpicked_notes_and_pitch_velocity_and_mute_are_kept() {
-        let picked_note = Note(Ticks(beat(1) + 40_000), Ticks(beat(1)), 61, 33, true);
-        let other = Note(Ticks(beat(2) + 40_000), Ticks(beat(1)), 62, 90, false);
+        let picked_note = Note(Ticks(beat(1) + 40_000), Ticks(beat(1)), 61, 33, true, true);
+        let other = Note(Ticks(beat(2) + 40_000), Ticks(beat(1)), 62, 90, false, true);
         let mut notes = vec![picked_note, other];
         assert_eq!(quantize(&mut notes, &[0], LEN, &mode(Mode::Start)), [0]);
-        assert_eq!(notes[0], Note(Ticks(beat(1)), Ticks(beat(1)), 61, 33, true));
+        assert_eq!(
+            notes[0],
+            Note(Ticks(beat(1)), Ticks(beat(1)), 61, 33, true, true)
+        );
         assert_eq!(notes[1], other);
     }
 

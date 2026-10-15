@@ -13,9 +13,9 @@
 //! The take's range is where recording began (the playhead) to where the
 //! playhead is (so a clip runs exactly start to stop), with Loop on too;
 //! once the loop wraps it is the loop's whole region, and every pass layers
-//! into it. Punch in and out (the brace's switches) cut
-//! the take, and punch out ends recording at the brace's end while playback
-//! carries on.
+//! into it. Punch in and out (the brace's switches) mask the take's visible
+//! range. Capture continues outside it until Stop or Record-off, keeping
+//! the full performance as hidden clip content.
 
 use std::time::{Duration, Instant};
 
@@ -65,7 +65,7 @@ struct Session {
     start: Ticks,
     /// The loop region, when the take layers its passes.
     looped: Option<(Ticks, Ticks)>,
-    /// The punch range that cuts the take.
+    /// The punch range that masks the take.
     punch: Option<(Ticks, Ticks)>,
     asked: Instant,
     /// The engine has reported recording.
@@ -74,8 +74,6 @@ struct Session {
     /// Where the playhead was last frame, to see the loop wrap.
     last: Ticks,
     wrapped: bool,
-    /// Punch out has been told to the engine.
-    punched_out: bool,
 }
 
 impl Session {
@@ -83,10 +81,21 @@ impl Session {
     fn look(&self, head: Ticks, bar: Ticks) -> RecordingLook {
         let reached = self.end(head);
         let bar = bar.0.max(1);
+        let from = self.punch.map_or(self.from(), |(a, _)| self.from().max(a));
+        let mut until = Ticks((reached.0 / bar + 1) * bar);
+        if let Some((_, end)) = self.punch {
+            until = until.min(end);
+        }
+        if let Some((_, end)) = self.looped {
+            until = until.min(end);
+        }
+        if reached <= from {
+            until = from;
+        }
         RecordingLook {
             tracks: self.tracks.clone(),
-            from: self.from(),
-            until: Ticks((reached.0 / bar + 1) * bar),
+            from,
+            until,
             overdub: self.mode == Mode::Overdub,
             take_clips: self
                 .tracks
@@ -96,19 +105,33 @@ impl Session {
         }
     }
 
-    /// Where the take's range begins: where recording began, or the loop's
-    /// start once it has wrapped (each pass then covers the whole loop).
+    /// Where the visible take begins: no earlier than the loop start; after
+    /// a wrap each pass covers the whole loop. Capture keeps earlier data.
     fn from(&self) -> Ticks {
         match self.looped {
             Some((start, _)) if self.wrapped => start,
+            Some((start, _)) => self.start.max(start),
             _ => self.start,
         }
+    }
+
+    /// Where the take shows what is played (the punch and saved loop
+    /// range), as the commits place it: only there does a key
+    /// played win its pitch over the clips' notes in the engine. Played
+    /// outside it, a key is kept hidden and the clips play on under it.
+    fn window(&self) -> (Ticks, Ticks) {
+        let from = self.punch.map_or(self.from(), |(a, _)| self.from().max(a));
+        let mut until = self.punch.map_or(Ticks(i64::MAX), |(_, b)| b);
+        if let Some((_, end)) = self.looped {
+            until = until.min(end);
+        }
+        (from, until)
     }
 
     /// Each track's take as far as it has gone, the notes still held running
     /// to the playhead: what the arrangement draws on every frame.
     fn takes_so_far(&self, head: Ticks) -> Vec<(Id, lumen_project::edit::record::Take)> {
-        let now = head.max(self.start);
+        let now = head;
         let range = (self.from(), self.end(head));
         self.tracks
             .iter()
@@ -116,11 +139,12 @@ impl Session {
             .collect()
     }
 
-    /// Where the take ends now: the playhead, or the whole loop once it has
-    /// wrapped.
+    /// Where the take ends now: the playhead bounded by the saved loop,
+    /// or the whole loop once it has wrapped.
     fn end(&self, head: Ticks) -> Ticks {
         match self.looped {
             Some((_, end)) if self.wrapped => end,
+            Some((_, end)) => head.max(self.start).min(end),
             _ => head.max(self.start),
         }
     }
@@ -148,8 +172,35 @@ impl App {
                     .punch
                     .map_or(session.from(), |(a, _)| session.from().max(a)),
                 take: session.rec.take_clip(track),
+                until: session
+                    .punch
+                    .map(|(_, end)| end)
+                    .filter(|&end| end < Ticks(i64::MAX / 4))
+                    .or_else(|| session.looped.map(|(_, end)| end)),
             })
             .collect()
+    }
+
+    /// Where the recording under way shows what is played (see
+    /// `Session::window`), if one is.
+    pub(crate) fn record_window(&self) -> Option<(Ticks, Ticks)> {
+        self.record.session.as_ref().map(Session::window)
+    }
+
+    /// The capture coordinates used by the engine before the next UI frame.
+    pub(crate) fn record_timing(&self) -> Option<lumen_engine::RecordTiming> {
+        let session = self.record.session.as_ref()?;
+        Some(lumen_engine::RecordTiming {
+            start: session.start,
+            latency_samples: self
+                .transport
+                .audio
+                .info
+                .as_ref()
+                .map_or(0, |info| i64::from(info.output_latency)),
+            looped: session.looped,
+            punch: session.punch,
+        })
     }
 
     /// Whether a recording is under way. Undo and redo wait for its end.
@@ -217,7 +268,7 @@ impl App {
         let rec = self.document.begin_recording(&tracks);
         self.record.session = Some(Session {
             rec,
-            capture: Capture::looping(looped),
+            capture: Capture::recording(looped, start),
             mode: if settings.overdub {
                 Mode::Overdub
             } else {
@@ -233,7 +284,6 @@ impl App {
             committed: now - COMMIT_EVERY,
             last: start,
             wrapped: false,
-            punched_out: false,
         });
         if let Some(autosave) = self.autosave.as_mut() {
             autosave.set_delay(AUTOSAVE_DELAY);
@@ -318,7 +368,6 @@ impl App {
                 session.committed = Instant::now() - COMMIT_EVERY;
             }
             session.last = head;
-            self.punch_out(&mut session, head);
         }
         let ended = session.seen && !snap.recording;
         let never_started = !session.seen && session.asked.elapsed() > ENGINE_WAIT;
@@ -359,16 +408,6 @@ impl App {
         }
     }
 
-    /// Punch out ends recording at the brace's end; playback carries on.
-    fn punch_out(&mut self, session: &mut Session, head: Ticks) {
-        let region = self.document.project().transport;
-        if region.punch_out && !session.punched_out && (head >= region.loop_end || session.wrapped)
-        {
-            session.punched_out = true;
-            self.transport.end_record();
-        }
-    }
-
     /// Commits the take so far to the document, one undo step for the whole
     /// recording. False when a locked clip is in the way.
     fn commit(&mut self, session: &mut Session, end: Ticks) -> bool {
@@ -390,11 +429,10 @@ impl App {
     fn finish(&mut self, mut session: Session, head: Ticks) {
         let end = session.end(head);
         // Notes still held end where the playhead is, in the pass it is in.
-        let held_until = match session.looped {
-            Some((from, to)) if session.wrapped => head.clamp(from, to),
-            _ => end,
-        };
-        session.capture.close_all(held_until);
+        // The visible loop window is a snapshot, but Loop can be switched
+        // off during capture. A held note then ends at the actual head,
+        // including any tail beyond the old loop end.
+        session.capture.close_all(head);
         if !self.commit(&mut session, end) {
             self.file_notice = Some(
                 "A locked clip is in the way of the take, so the end of it was not kept.".into(),
@@ -424,5 +462,88 @@ impl App {
         if let Some(autosave) = self.autosave.as_mut() {
             autosave.set_delay(crate::autosave::DELAY);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lumen_core::midi::Msg;
+
+    fn session(start: Ticks, looped: Option<(Ticks, Ticks)>) -> Session {
+        let mut doc = crate::document::Document::new(crate::empty_project());
+        Session {
+            rec: doc.begin_recording(&[Id(1)]),
+            capture: Capture::looping(looped),
+            mode: Mode::Overdub,
+            document: doc.session(),
+            tracks: vec![Id(1)],
+            start,
+            looped,
+            punch: None,
+            asked: Instant::now(),
+            seen: true,
+            committed: Instant::now(),
+            last: start,
+            wrapped: false,
+        }
+    }
+
+    #[test]
+    fn recording_look_stays_inside_punch_and_loop_windows() {
+        let mut s = session(Ticks::ZERO, None);
+        s.punch = Some((Ticks(100), Ticks(250)));
+        let before = s.look(Ticks(50), Ticks(400));
+        assert_eq!((before.from, before.until), (Ticks(100), Ticks(100)));
+        let after = s.look(Ticks(900), Ticks(400));
+        assert_eq!((after.from, after.until), (Ticks(100), Ticks(250)));
+        s.looped = Some((Ticks(150), Ticks(200)));
+        s.wrapped = true;
+        let looped = s.look(Ticks(180), Ticks(400));
+        assert_eq!((looped.from, looped.until), (Ticks(150), Ticks(200)));
+    }
+
+    #[test]
+    fn the_engine_window_is_the_punch_and_the_loop_once_wrapped() {
+        let mut s = session(Ticks(50), None);
+        assert_eq!(s.window(), (Ticks(50), Ticks(i64::MAX)));
+        s.punch = Some((Ticks(100), Ticks(250)));
+        assert_eq!(s.window(), (Ticks(100), Ticks(250)));
+        s.punch = None;
+        s.looped = Some((Ticks(20), Ticks(200)));
+        assert_eq!(s.window(), (Ticks(50), Ticks(200)));
+        s.wrapped = true;
+        assert_eq!(s.window(), (Ticks(20), Ticks(200)));
+        s.punch = Some((Ticks(30), Ticks(150)));
+        assert_eq!(s.window(), (Ticks(30), Ticks(150)));
+    }
+
+    #[test]
+    fn disabling_loop_before_a_wrap_keeps_the_saved_upper_boundary() {
+        let s = session(Ticks(50), Some((Ticks(20), Ticks(200))));
+        assert_eq!(s.end(Ticks(300)), Ticks(200));
+        assert_eq!(s.window(), (Ticks(50), Ticks(200)));
+        let look = s.look(Ticks(300), Ticks(100));
+        assert_eq!((look.from, look.until), (Ticks(50), Ticks(200)));
+    }
+
+    #[test]
+    fn a_wrapped_held_note_preview_ends_at_the_current_pass_head() {
+        let mut s = session(Ticks(300), Some((Ticks(100), Ticks(500))));
+        s.wrapped = true;
+        s.capture.push(
+            &Captured {
+                track: 1,
+                source: 0,
+                at: 150,
+                pass: 2,
+                msg: Msg::note_on(0, 60, 90),
+            },
+            0,
+            &Ticks,
+        );
+        let take = &s.takes_so_far(Ticks(200))[0].1;
+        assert_eq!(take.notes[0].start, Ticks(150));
+        assert_eq!(take.notes[0].length, Ticks(50));
     }
 }

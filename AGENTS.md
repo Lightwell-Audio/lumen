@@ -403,7 +403,31 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-14: **documentation naming rule**. Product
+**Last updated:** PR 16 review corrections: recording eligibility shares
+capture's compensated positions and uses engine-side loop-pass bounds.
+Disabling Loop before the first wrap preserves the saved visible window.
+Format v16 marks hidden captured notes so they cannot continue an old
+note across a seam; older notes retain their existing behavior. See
+ADR-0064 and `docs/milestones/M5-recording-window.md` for verification.
+M5 closeout remains pending.
+
+Before it, 2026-10-14: **MIDI recording window correction**
+(ADR-0064; `docs/milestones/M5-recording-window.md`). Capture continues
+until Stop or Record-off; loop/punch boundaries mask full hidden MIDI
+content rather than discard it. Replace playback resumes at punch-out;
+first loop entry preserves delayed pre-loop messages. No format change.
+MT-MIDI-7 step 7 has the owner verification steps. M5 closeout remains
+pending; no new milestone has started.
+
+Follow-up: the first note could land slightly before a nonzero recording
+start after latency compensation. `Capture::recording` floors only the
+initial pass at Record start, independently of the punch/loop mask. Later
+passes retain their positions. MT-MIDI-7 step 17 covers the owner recheck.
+The owner reports the fix works after `409212c` and authorizes pushing
+`codex/midi-recording-window`. The pre-push WSL performance gate passes all
+nine scenarios (largest increase +1.50%; +2% limit); no baseline update.
+
+Before it, 2026-10-14: **documentation naming rule**. Product
 comparisons and named plugin examples across documentation are replaced
 with direct descriptions and anonymous test labels. Technical identifiers
 and required legal attribution are retained. The rule above and

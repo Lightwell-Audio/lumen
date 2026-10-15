@@ -584,14 +584,16 @@ impl EventKind {
 
 /// A note, written as `[start, length, pitch, velocity]` to keep large clips
 /// readable and compact; a muted note (format v14) has a fifth element,
-/// `true`. `start` is relative to the clip. Build one with [`Note::new`].
+/// `true`. A note that cannot carry through a seam (format v16) has a sixth
+/// element, `false`. `start` is relative to the clip. Build one with
+/// [`Note::new`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Note(pub Ticks, pub Ticks, pub u8, pub u8, pub bool);
+pub struct Note(pub Ticks, pub Ticks, pub u8, pub u8, pub bool, pub bool);
 
 impl Note {
     /// An unmuted note.
     pub fn new(start: Ticks, length: Ticks, pitch: u8, velocity: u8) -> Self {
-        Note(start, length, pitch, velocity, false)
+        Note(start, length, pitch, velocity, false, true)
     }
     pub fn start(self) -> Ticks {
         self.0
@@ -610,6 +612,16 @@ impl Note {
     pub fn muted(self) -> bool {
         self.4
     }
+    /// Whether this note may carry a sounding note through a clip seam.
+    /// Recorded notes hidden outside their take window do not.
+    pub fn carries_on(self) -> bool {
+        self.5
+    }
+    /// Sets whether this note may carry through a clip seam.
+    pub fn with_carries_on(mut self, carries_on: bool) -> Self {
+        self.5 = carries_on;
+        self
+    }
     /// Where the note ends.
     pub fn end(self) -> Ticks {
         self.0 + self.1
@@ -619,13 +631,20 @@ impl Note {
 impl Serialize for Note {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeTuple;
-        let mut t = s.serialize_tuple(if self.4 { 5 } else { 4 })?;
+        let mut t = s.serialize_tuple(if self.5 {
+            if self.4 { 5 } else { 4 }
+        } else {
+            6
+        })?;
         t.serialize_element(&self.0)?;
         t.serialize_element(&self.1)?;
         t.serialize_element(&self.2)?;
         t.serialize_element(&self.3)?;
-        if self.4 {
-            t.serialize_element(&true)?;
+        if self.4 || !self.5 {
+            t.serialize_element(&self.4)?;
+        }
+        if !self.5 {
+            t.serialize_element(&false)?;
         }
         t.end()
     }
@@ -633,16 +652,18 @@ impl Serialize for Note {
 
 impl<'de> Deserialize<'de> for Note {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        /// Four elements, or five with the mute flag.
+        /// Four elements, five with the mute flag, or six with mute and seam carry.
         #[derive(Deserialize)]
         #[serde(untagged)]
         enum Form {
             Plain(Ticks, Ticks, u8, u8),
             Muted(Ticks, Ticks, u8, u8, bool),
+            Carry(Ticks, Ticks, u8, u8, bool, bool),
         }
         Ok(match Form::deserialize(d)? {
-            Form::Plain(a, b, c, v) => Note(a, b, c, v, false),
-            Form::Muted(a, b, c, v, m) => Note(a, b, c, v, m),
+            Form::Plain(a, b, c, v) => Note(a, b, c, v, false, true),
+            Form::Muted(a, b, c, v, m) => Note(a, b, c, v, m, true),
+            Form::Carry(a, b, c, v, m, carry) => Note(a, b, c, v, m, carry),
         })
     }
 }

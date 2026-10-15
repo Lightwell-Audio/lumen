@@ -106,6 +106,7 @@ pub fn add(notes: &mut Vec<Note>, note: Note, length: Ticks) -> Vec<usize> {
         note.pitch().min(127),
         note.velocity().clamp(1, 127),
         note.muted(),
+        note.carries_on(),
     );
     let mut tagged = tag(notes, &[]);
     tagged.push((added, true));
@@ -194,6 +195,7 @@ fn shifted(n: Note, time: Ticks, pitch: i32) -> Note {
         (i32::from(n.pitch()) + pitch).clamp(0, 127) as u8,
         n.velocity(),
         n.muted(),
+        n.carries_on(),
     )
 }
 
@@ -286,6 +288,7 @@ pub fn resize(
                 n.pitch(),
                 n.velocity(),
                 n.muted(),
+                n.carries_on(),
             ),
             End::Start => Note(
                 n.start() + by,
@@ -293,6 +296,7 @@ pub fn resize(
                 n.pitch(),
                 n.velocity(),
                 n.muted(),
+                n.carries_on(),
             ),
         };
     }
@@ -316,11 +320,19 @@ pub fn split(notes: &mut Vec<Note>, selection: &[usize], at: Ticks) -> Vec<usize
                     n.pitch(),
                     n.velocity(),
                     n.muted(),
+                    n.carries_on(),
                 ),
                 true,
             );
             parts.push((
-                Note(at, n.end() - at, n.pitch(), n.velocity(), n.muted()),
+                Note(
+                    at,
+                    n.end() - at,
+                    n.pitch(),
+                    n.velocity(),
+                    n.muted(),
+                    n.carries_on(),
+                ),
                 true,
             ));
         } else {
@@ -353,6 +365,7 @@ pub fn glue(notes: &mut Vec<Note>, selection: &[usize]) -> Vec<usize> {
                     last.pitch(),
                     last.velocity(),
                     mute_all && last.muted(),
+                    last.carries_on() && n.carries_on(),
                 );
             }
             _ => {
@@ -410,6 +423,7 @@ pub fn duplicate(notes: &mut Vec<Note>, selection: &[usize], length: Ticks) -> V
                     n.pitch(),
                     n.velocity(),
                     n.muted(),
+                    n.carries_on(),
                 )
             })
         })

@@ -5544,3 +5544,79 @@ The paced device is a coarser model of a driver than a thread with its own
 clock; it is enough for stamps, not for jitter. macOS was not available to
 run: its fixes are reasoned from the logs and from the Linux reproduction
 (the first macOS CI run after this change shows whether they hold).
+
+## ADR-0064 — MIDI recording brackets mask continuous capture
+
+**Context.** Owner correction, 2026-10-14: punch-out ended capture and
+placing a take discarded notes and controllers outside its visible range.
+The loop and punch brackets must act as a non-destructive window.
+
+**Choice.** Record captures continuously after the count-in until Stop,
+Record-off or an existing safety stop. Capture snapshots preserve note
+times and lengths independently of the visible range. Replace and Overdub
+place the full supported MIDI performance in existing hidden clip content;
+only the active window overwrites arrangement clips. Active notes retain
+the existing same-pitch layering rules. Notes and events outside the
+window remain available to the clip editor and ordinary edge trims.
+Replace playback suppression ends at punch-out. A delayed message before
+the first loop entry is mapped to the previous pass only after a real wrap.
+
+The recording highlight stays inside those same brackets. Held-note
+previews use the current pass's head after a wrap. Turning Loop off during
+a take keeps the original visible window while capture continues beyond
+it; held notes close at the actual stop, preserving their tails there.
+Bounded Replace playback splits a looping clip into at most three engine
+clips: a periodic prefix, a partial cycle after punch-out, and a periodic
+suffix. Whole patterns stay shared in the cache, so cost depends on the
+pattern size rather than the number of loop repeats.
+
+**Consequences.** No schema or new controls are needed. Loop passes keep
+layering into one clip, and recording remains one undo step. Because the
+model requires positive clip lengths, nonempty capture wholly outside the
+window uses a one-tick clip inside its nearest edge; that tick can split
+an existing clip and respects the locked-clip guard. Unsupported MIDI
+message kinds retain their existing behavior. Hardware timing and the
+manual listening checks are pending in MT-MIDI-7 step 7.
+
+**Recording-start follow-up (owner finding, 2026-10-14).** Removing the old
+range clamp exposed output-latency compensation placing the first note
+slightly before the clip when recording began away from song start. An
+already-held key could therefore be hidden to the left. Capture now floors
+initial-pass timestamps at the actual Record start, independently of the
+loop/punch window. Subsequent passes keep their own times, including times
+earlier than that initial start. Wrap markers identify a silent initial
+pass, including delayed messages and pass-counter rollover. This restores
+first-note visibility without cropping pre-punch performance.
+
+**Review follow-up (PR 16, 2026-10-15).** Three edges of the continuous
+capture are closed. The engine's recording tracks only let a played key
+win its pitch over playback inside the recording window (punch, and the
+loop once wrapped): after punch-out, recorded clips keep sounding while
+the take captures on (`MidiTrack::recording_within`). A latency-compensated
+message stamped just after a loop wrap that lands before the loop start
+moves to the end of the pass before (`recorder::Capture::push`). A hidden
+note carries an earlier clip's note across a seam only when it is a copy:
+the same start, pitch and velocity, sounding no later than that note
+(`seams::carried_on`), so a recorded note kept hidden before a punch-in no
+longer extends an old note through the take. A captured note identical in
+start, pitch and velocity and no longer than the old note remains
+indistinguishable from a copy without a format change.
+
+**Second review follow-up (PR 16).** Recording eligibility now uses the
+same pure position mapping as capture: output-latency compensation,
+Record-start flooring and loop-pass normalization. Saved start, punch,
+loop and latency metadata reaches each recording track. The engine uses
+its own pass counter to select the initial or later-pass window, so keys
+played immediately after a wrap do not wait for a UI refresh to win their
+pitch. Already-held keys use the same mapping when recording starts.
+The saved loop end bounds placement and eligibility before the first
+wrap too, including when Loop is disabled while capture continues.
+
+The remaining hidden-note ambiguity requires explicit provenance rather
+than a tighter endpoint heuristic. Format v16 adds a default-true seam
+carry flag to MIDI notes; only notes captured outside the visible take
+window set it false. Those notes remain recoverable through edge trims
+and play normally once exposed, but cannot impersonate a copied note at
+a seam. Existing four- and five-element notes retain their prior carry
+behavior through the v15-to-v16 migration; old captures have no provenance
+to recover retroactively. A golden fixture preserves the new encoding.

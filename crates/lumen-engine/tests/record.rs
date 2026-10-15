@@ -11,7 +11,7 @@ use lumen_core::time::Ticks;
 use lumen_engine::{
     Captured, Command, Destination, Engine, EngineHandle, Layered, Listen, LiveIn, LiveInput,
     MidiClip, MidiHandle, MidiNote, MidiOut, MidiPlayer, MidiTrack, Mixer, MixerHandle, NodeSpec,
-    Region, Routing, Target, Timeline, WRAP, clip_player, engine, midi_player, mixer,
+    RecordTiming, Region, Routing, Target, Timeline, WRAP, clip_player, engine, midi_player, mixer,
 };
 
 const MASTER: u64 = 100;
@@ -304,6 +304,69 @@ fn a_note_played_just_before_the_loop_wraps_is_kept_at_the_loop_end() {
 }
 
 #[test]
+fn delayed_input_before_the_first_loop_entry_keeps_its_preloop_position() {
+    let mut rig = rig(vec![recorder(A)]);
+    rig.transport
+        .send(Command::SetLoop(Region::new(
+            Ticks::quarters(1),
+            Ticks::quarters(3),
+            true,
+        )))
+        .unwrap();
+    rig.transport.send(Command::Record { count_in: 0 }).unwrap();
+    rig.run(BEAT as usize + 128, 128);
+
+    // The key went down 50 frames before loop start. Its input stamp reaches
+    // the recorder 70 frames later, after the playhead entered the loop but
+    // before the first loop wrap.
+    rig.live
+        .send(BEAT - 50, BEAT + 20, Msg::note_on(0, 60, 100));
+    rig.run(512, 128);
+    let kept: Vec<Captured> = rig
+        .taken()
+        .into_iter()
+        .filter(|c| c.source != WRAP)
+        .collect();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(kept[0].at, (BEAT - 50) as i64);
+}
+
+#[test]
+fn a_previous_playback_wrap_does_not_shift_the_next_sessions_first_loop_entry() {
+    let mut rig = rig(vec![recorder(A)]);
+    rig.transport
+        .send(Command::SetLoop(Region::new(
+            Ticks::quarters(1),
+            Ticks::quarters(3),
+            true,
+        )))
+        .unwrap();
+    rig.transport.send(Command::Play).unwrap();
+    rig.run((4 * BEAT) as usize, 128);
+    rig.transport.send(Command::Stop).unwrap();
+    rig.run(128, 128);
+    rig.transport.send(Command::Locate(Ticks::ZERO)).unwrap();
+    rig.transport.send(Command::Record { count_in: 0 }).unwrap();
+    rig.run(BEAT as usize + 128, 128);
+
+    // Input frames are device-relative across transport stops and starts.
+    let session_start = 4 * BEAT + 128;
+    rig.live.send(
+        session_start + BEAT - 50,
+        session_start + BEAT + 20,
+        Msg::note_on(0, 60, 100),
+    );
+    rig.run(512, 128);
+    let kept: Vec<Captured> = rig
+        .taken()
+        .into_iter()
+        .filter(|c| c.source != WRAP)
+        .collect();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(kept[0].at, (BEAT - 50) as i64);
+}
+
+#[test]
 fn each_loop_wrap_marks_a_new_pass_for_every_recording_track() {
     let mut rig = rig(vec![recorder(A), recorder(B)]);
     rig.transport
@@ -351,6 +414,64 @@ fn a_key_held_when_recording_begins_is_taken_at_the_start() {
     let kept = rig.taken();
     assert_eq!(kept.len(), 1);
     assert_eq!(kept[0].msg, Msg::note_off(0, 60));
+}
+
+#[test]
+fn a_held_key_uses_the_latency_compensated_record_start_for_playback() {
+    let q = |beats: f64| Ticks((beats * lumen_core::time::PPQ as f64) as i64);
+    let clip = MidiClip {
+        id: 92,
+        start: Ticks::ZERO,
+        length: q(4.0),
+        period: None,
+        seams: Default::default(),
+        notes: vec![MidiNote {
+            start: Ticks::ZERO,
+            length: q(4.0),
+            pitch: 60,
+            velocity: 100,
+        }]
+        .into(),
+        controls: Vec::new().into(),
+    };
+    let start = Timeline::default().ticks_at((BEAT + 256) as i64, 48_000);
+    let track = MidiTrack::new(
+        A,
+        Target::Port {
+            port: 4,
+            channel: 0,
+        },
+        None,
+        vec![clip],
+    )
+    .listening(keys())
+    .recording(keys())
+    .recording_within(Some((start, Ticks(i64::MAX))))
+    .recording_timing(Some(RecordTiming {
+        start,
+        latency_samples: 512,
+        looped: None,
+        punch: None,
+    }));
+    let mut rig = rig(vec![track]);
+    rig.transport.send(Command::Locate(q(1.0))).unwrap();
+    rig.transport.send(Command::Play).unwrap();
+    rig.run(128, 128);
+    // This key is already held when Record begins. Its compensated position
+    // falls before the boundary and must be floored back to Record start.
+    rig.live.send(128, 128, Msg::note_on(0, 60, 90));
+    rig.run(128, 128);
+    rig.transport.send(Command::Record { count_in: 0 }).unwrap();
+    rig.run(128, 128);
+    let mut sent = Vec::new();
+    while let Ok(MidiOut::At { frame, msg, .. }) = rig.output.pop() {
+        sent.push((frame, msg));
+    }
+    assert!(
+        sent.iter()
+            .any(|&(frame, msg)| frame == 256 && msg == Msg::note_off(0, 60)),
+        "the held key must take over the clip note at Record start: {sent:?}"
+    );
 }
 
 #[test]
@@ -425,5 +546,241 @@ fn a_key_played_while_recording_ends_the_clips_note_on_that_key() {
             (BEAT * 6, Msg::note_off(0, 60)),
         ],
         "no clip note at 1.2 beats under the held key, and no off at 4"
+    );
+}
+
+/// After punch-out, recording goes on and keeps what is played, hidden in
+/// the take: a key played there does not win its pitch. With the monitor
+/// Off the key sounds nothing, and the clip's notes on it play as before:
+/// the one sounding is not cut, and one that starts while it is held is not
+/// held back.
+#[test]
+fn a_key_played_after_punch_out_leaves_the_clips_notes_alone() {
+    let q = |beats: f64| Ticks((beats * lumen_core::time::PPQ as f64) as i64);
+    let note = |start: f64, length: f64| MidiNote {
+        start: q(start),
+        length: q(length),
+        pitch: 60,
+        velocity: 100,
+    };
+    let clip = MidiClip {
+        id: 9,
+        start: Ticks::ZERO,
+        length: q(8.0),
+        period: None,
+        seams: Default::default(),
+        notes: vec![note(0.0, 4.0), note(5.0, 1.0)].into(),
+        controls: Vec::new().into(),
+    };
+    // Monitor Off: the track records but does not listen.
+    let track = MidiTrack::new(
+        A,
+        Target::Port {
+            port: 4,
+            channel: 0,
+        },
+        None,
+        vec![clip],
+    )
+    .recording(keys())
+    .recording_within(Some((Ticks::ZERO, q(2.0))));
+    let mut rig = rig(vec![track]);
+    rig.transport.send(Command::Record { count_in: 0 }).unwrap();
+    rig.run(128, 128);
+    // Played after punch-out (beat 2), held across the next clip note.
+    rig.live.send(BEAT * 3, BEAT * 3, Msg::note_on(0, 60, 90));
+    rig.live
+        .send(BEAT * 11 / 2, BEAT * 11 / 2, Msg::note_off(0, 60));
+    rig.run(BEAT as usize * 7, 128);
+    let kept = rig.taken();
+    assert_eq!(kept.len(), 2, "still captured: {kept:?}");
+    let mut sent = Vec::new();
+    while let Ok(MidiOut::At { frame, msg, .. }) = rig.output.pop() {
+        sent.push((frame, msg));
+    }
+    let start = sent.first().map_or(0, |&(f, _)| f);
+    let sent: Vec<(u64, Msg)> = sent.iter().map(|&(f, m)| (f - start, m)).collect();
+    assert_eq!(
+        sent,
+        vec![
+            (0, Msg::note_on(0, 60, 100)),
+            (BEAT * 4, Msg::note_off(0, 60)),
+            (BEAT * 5, Msg::note_on(0, 60, 100)),
+            (BEAT * 6, Msg::note_off(0, 60)),
+        ],
+        "the clip plays whole under a key played after punch-out"
+    );
+}
+
+/// Inside the window the key still wins its pitch, as before.
+#[test]
+fn a_key_played_inside_the_recording_window_still_wins_its_pitch() {
+    let q = |beats: f64| Ticks((beats * lumen_core::time::PPQ as f64) as i64);
+    let clip = MidiClip {
+        id: 9,
+        start: Ticks::ZERO,
+        length: q(8.0),
+        period: None,
+        seams: Default::default(),
+        notes: vec![MidiNote {
+            start: Ticks::ZERO,
+            length: q(4.0),
+            pitch: 60,
+            velocity: 100,
+        }]
+        .into(),
+        controls: Vec::new().into(),
+    };
+    let track = MidiTrack::new(
+        A,
+        Target::Port {
+            port: 4,
+            channel: 0,
+        },
+        None,
+        vec![clip],
+    )
+    .recording(keys())
+    .recording_within(Some((Ticks::ZERO, q(2.0))));
+    let mut rig = rig(vec![track]);
+    rig.transport.send(Command::Record { count_in: 0 }).unwrap();
+    rig.run(128, 128);
+    rig.live.send(BEAT, BEAT, Msg::note_on(0, 60, 90));
+    rig.live.send(BEAT * 3, BEAT * 3, Msg::note_off(0, 60));
+    rig.run(BEAT as usize * 5, 128);
+    let mut sent = Vec::new();
+    while let Ok(MidiOut::At { frame, msg, .. }) = rig.output.pop() {
+        sent.push((frame, msg));
+    }
+    let start = sent.first().map_or(0, |&(f, _)| f);
+    let sent: Vec<(u64, Msg)> = sent.iter().map(|&(f, m)| (f - start, m)).collect();
+    assert_eq!(
+        sent,
+        vec![(0, Msg::note_on(0, 60, 100)), (BEAT, Msg::note_off(0, 60))],
+        "the clip's note ends where the key goes down"
+    );
+}
+
+#[test]
+fn compensated_live_keys_follow_both_punch_edges() {
+    let q = |beats: f64| Ticks((beats * lumen_core::time::PPQ as f64) as i64);
+    let clip = MidiClip {
+        id: 93,
+        start: Ticks::ZERO,
+        length: q(4.0),
+        period: None,
+        seams: Default::default(),
+        notes: vec![60, 62]
+            .into_iter()
+            .map(|pitch| MidiNote {
+                start: Ticks::ZERO,
+                length: q(4.0),
+                pitch,
+                velocity: 100,
+            })
+            .collect::<Vec<_>>()
+            .into(),
+        controls: Vec::new().into(),
+    };
+    let track = MidiTrack::new(
+        A,
+        Target::Port {
+            port: 4,
+            channel: 0,
+        },
+        None,
+        vec![clip],
+    )
+    // Monitor Off: the inputs affect playback eligibility without sounding
+    // through the live monitor.
+    .recording(keys())
+    .recording_within(Some((q(1.0), q(2.0))))
+    .recording_timing(Some(RecordTiming {
+        start: Ticks::ZERO,
+        latency_samples: 128,
+        looped: None,
+        punch: Some((q(1.0), q(2.0))),
+    }));
+    let mut rig = rig(vec![track]);
+    rig.transport.send(Command::Record { count_in: 0 }).unwrap();
+    rig.live.send(BEAT + 64, BEAT + 64, Msg::note_on(0, 60, 90));
+    rig.live
+        .send(2 * BEAT + 64, 2 * BEAT + 64, Msg::note_on(0, 62, 90));
+    rig.run((2 * BEAT + 2_000) as usize, 128);
+    let mut sent = Vec::new();
+    while let Ok(MidiOut::At { frame, msg, .. }) = rig.output.pop() {
+        sent.push((frame, msg));
+    }
+    assert!(
+        !sent
+            .iter()
+            .any(|&(frame, msg)| frame == BEAT + 64 && msg == Msg::note_off(0, 60)),
+        "latency puts the punch-in key before the window, so playback continues: {sent:?}"
+    );
+    assert!(
+        sent.iter()
+            .any(|&(frame, msg)| frame == 2 * BEAT + 64 && msg == Msg::note_off(0, 62)),
+        "latency puts the punch-out key before the edge, inside the window: {sent:?}"
+    );
+}
+
+/// Before the app publishes its post-wrap window, a live key at the loop head
+/// still uses the saved loop window and cuts the note playing there.
+#[test]
+fn a_key_after_the_first_wrap_uses_the_saved_loop_window_before_ui_refresh() {
+    let q = |beats: f64| Ticks((beats * lumen_core::time::PPQ as f64) as i64);
+    let clip = MidiClip {
+        id: 91,
+        start: Ticks::ZERO,
+        length: q(2.0),
+        period: None,
+        seams: Default::default(),
+        notes: vec![MidiNote {
+            start: Ticks::ZERO,
+            length: q(1.0),
+            pitch: 60,
+            velocity: 100,
+        }]
+        .into(),
+        controls: Vec::new().into(),
+    };
+    let track = MidiTrack::new(
+        A,
+        Target::Port {
+            port: 4,
+            channel: 0,
+        },
+        None,
+        vec![clip],
+    )
+    .listening(keys())
+    .recording(keys())
+    // The UI still holds the initial pass's lower bound after the wrap.
+    .recording_within(Some((q(1.0), Ticks(i64::MAX))))
+    .recording_timing(Some(RecordTiming {
+        start: q(1.0),
+        latency_samples: 0,
+        looped: Some((Ticks::ZERO, q(2.0))),
+        punch: None,
+    }));
+    let mut rig = rig(vec![track]);
+    rig.transport
+        .send(Command::SetLoop(Region::new(Ticks::ZERO, q(2.0), true)))
+        .unwrap();
+    rig.transport.send(Command::Locate(q(1.0))).unwrap();
+    rig.transport.send(Command::Record { count_in: 0 }).unwrap();
+    rig.run(24_128, 128);
+    // The device frame keeps increasing; the heard timeline is 200 samples
+    // into the new pass, before the old UI window's q(1) lower edge.
+    rig.live.send(24_200, 24_200, Msg::note_on(0, 60, 90));
+    rig.run(1_000, 128);
+    let mut sent = Vec::new();
+    while let Ok(MidiOut::At { frame, msg, .. }) = rig.output.pop() {
+        sent.push((frame, msg));
+    }
+    assert!(
+        sent.iter()
+            .any(|&(frame, msg)| frame == 24_200 && msg == Msg::note_off(0, 60)),
+        "the clip note must yield at the post-wrap live key: {sent:?}"
     );
 }
