@@ -62,6 +62,7 @@ irreversible or external) · *Superseded*.
 | [0058](#adr-0058--notes-carry-on-across-seams-and-overdub-shows-its-clip-at-once) | Notes carry on across seams (touching MIDI clips that hold the same note play it as one), and Overdub shows its clip at once | Accepted 2026-10-13 | No |
 | [0059](#adr-0059--a-carried-note-belongs-to-its-clip-and-the-clip-editor-shows-hidden-notes) | A carried note belongs to the clip it began in (a chase there does not strike it), and the clip editor shows notes outside the window | Accepted 2026-10-13 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
+| [0065](#adr-0065--deterministic-test-plugins-lumen-test-plugin) | Deterministic test plugins with injectable faults (`lumen-test-plugin`, M6 slice 0) | Accepted 2026-10-15 | No |
 
 ---
 
@@ -494,7 +495,7 @@ the data model.
 
 ## ADR-0005 — VST3 hosting and plugin isolation
 
-**Status:** Proposed (pending P-VST3, P-ISO) · **Date:** 2026-10-05
+**Status:** Accepted 2026-10-05 (the index records it; P-VST3 and P-ISO evidence is below). The open points M6 settles by measurement are the wake-up mechanism, the real-time wait contract and the process grouping (`docs/milestones/M6.md` §2) · **Date:** 2026-10-05
 
 ### Context
 VST3 instruments and effects with multi-out, sidechain, latency, tails,
@@ -5620,3 +5621,53 @@ and play normally once exposed, but cannot impersonate a copied note at
 a seam. Existing four- and five-element notes retain their prior carry
 behavior through the v15-to-v16 migration; old captures have no provenance
 to recover retroactively. A golden fixture preserves the new encoding.
+
+## ADR-0065 — Deterministic test plugins (`lumen-test-plugin`)
+
+**Status:** Accepted 2026-10-15 (M6 slice 0) · **Date:** 2026-10-15
+
+**Context.** The quality bar asks for a test plugin that simulates good and
+bad behaviour, and real-time and isolation claims need a plugin whose output
+is known exactly. Third-party plugins cannot supply that: they are not
+repeatable, not redistributable, and not available on every CI system. The
+earlier `vst3-test-module` misbehaves only at scan time and only on Windows.
+
+**Options.** (1) Extend `vst3-test-module`: Windows-only, factory faults only.
+(2) A portable VST3 module written with the `vst3` crate, the binding ADR-0005
+chose: it builds and loads on Windows, macOS and Linux, so the host, the
+scanner and the golden renders can be tested wherever CI runs. (3) Use
+whichever third-party plugins are installed: not repeatable. Chosen: (2).
+
+**Choice.** The crate `lumen-test-plugin` (a `cdylib` for hosts, an `rlib`
+for in-process tests) holds two plugins, each an audio component with its own
+edit controller:
+- *Deterministic Test Instrument*: a square or saw voice bank that starts a
+  note on the sample of its event and stops on the sample of its note-off
+  (no release), so where a note sounds is a plain function of its events.
+- *Deterministic Test Effect*: gain in dB and a whole-sample delay of 0 to
+  4,096 samples, which is its reported latency and tail.
+Parameters (level or gain; wave or latency) take effect on their exact
+sample (a step, not a ramp). Rendering is split at every event and change, so
+the output does not depend on how the host cuts blocks (tested). State is a
+tagged record that loading rejects when damaged or from the other plugin.
+There is no editor view on purpose, so hosts must offer generic controls.
+
+Faults are chosen by the environment variable `LUMEN_TEST_PLUGIN_FAULT`,
+which a host process inherits: factory (null, crash, hang), processing
+(crash, hang, error, NaN output, slow, each from a chosen block), state
+(fail, garbage, hang) and metadata (absurd bus channel count, millions of
+duplicate parameters). A malformed value injects nothing and says so on
+stderr, so a typo cannot pass for a plugin bug. The fault clock restarts at
+each activation, so a host that reloads a failed plugin can be tested.
+
+**Consequences.**
+- Verified here on Linux: 24 unit tests and 15 host tests drive both plugins
+  only through their VST3 interfaces (factory, buses, processing, sample
+  offsets, state, controller, latency restart); 5 process tests run the
+  crashing and hanging faults in child processes and check how they ended.
+- Not covered: loading the built module with the operating system's loader
+  (that is the production host, slice 0 part 2), and the Windows build.
+- Multi-output, sidechain and an editor window are added by the slices that
+  need them (6 and 4); dynamic bus changes are not yet exercised.
+- The old `vst3-test-module` stays for the scanner's isolation test until the
+  production scanner replaces it.

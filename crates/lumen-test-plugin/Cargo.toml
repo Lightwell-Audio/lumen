@@ -1,0 +1,17 @@
+[package]
+name = "lumen-test-plugin"
+description = "Deterministic VST3 test plugins (an instrument and an effect) with injectable faults"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+vst3.workspace = true
+
+[lints]
+workspace = true

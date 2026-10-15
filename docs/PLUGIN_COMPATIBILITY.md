@@ -10,6 +10,10 @@ not Lumen-owned test plugins. Results and measurements are unchanged;
 without the original binary identities these records alone cannot support
 reproduction or product-specific compatibility claims.
 
+The Lumen-owned deterministic test plugins (`crates/lumen-test-plugin`,
+ADR-0065) are not part of this matrix: they test Lumen's host, not
+third-party compatibility.
+
 **Stages:** Scan (module loads and its factory enumerates in a sandboxed
 process) · Instantiate · Process · State round trip · Editor · Automation.
 **Legend:** ✅ pass · ❌ fail · — not tested yet

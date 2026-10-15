@@ -89,6 +89,22 @@ This checks types and lints only; nothing is linked or run. Linux can't be
 checked this way because ALSA's build script needs the Linux system
 headers. Use the WSL mirror instead (next section).
 
+## Checking Windows code from Linux or macOS
+
+Code that depends on the width of a foreign type can compile on one system
+and not on another: the VST3 bindings' enum constants are `i32` on Windows
+and `u32` elsewhere, which broke the Windows CI job once (M6 slice 0). A
+crate with no system build scripts can be type-checked for Windows from any
+system:
+
+```bash
+rustup target add x86_64-pc-windows-msvc
+cargo clippy -p lumen-test-plugin --all-targets --target x86_64-pc-windows-msvc -- -D warnings
+```
+
+This checks types and lints only; nothing is linked or run. It was verified
+for `lumen-test-plugin` alone, not for the whole workspace.
+
 ## Checking Linux in WSL
 
 An Ubuntu 26.04 WSL distribution on the dev machine mirrors the Linux CI,
@@ -157,6 +173,13 @@ track, so delay compensation and its readout can be tried by hand
 cargo run --release -p lumen-app -- --test-latency 50
 ```
 
+## Branches
+
+One small branch per slice, named `m<milestone>-s<slice>-<topic>`
+(`m6-s1-plugin-scan`); unrelated fixes and chores use `fix/<topic>`,
+`chore/<topic>` or `docs/<topic>`, cut from `main`. The full rule is the
+`lumen-branching` skill (`.claude/skills/lumen-branching/SKILL.md`).
+
 ## Everyday commands
 
 ```bash
@@ -165,6 +188,17 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all
 cargo bench -p lumen-rt                  # real benchmark run (release profile)
 ```
+
+## The test plugins (M6, ADR-0065)
+
+`crates/lumen-test-plugin` builds a VST3 module with a deterministic
+instrument and effect. `cargo test -p lumen-test-plugin` runs everything,
+including the crash and hang tests, which re-run the test binary as a child
+and check how it ended. To make a host or the scanner meet a fault, set
+`LUMEN_TEST_PLUGIN_FAULT` in the environment of the process that loads the
+module, for example `process_crash@100` or `process_slow=3000,state_fail`.
+The list of faults is at the top of `crates/lumen-test-plugin/src/faults.rs`.
+A malformed value injects nothing and prints a message on stderr.
 
 ## Linux cloud containers
 
