@@ -10,6 +10,8 @@ publish.workspace = true
 [dependencies]
 vst3.workspace = true
 libloading.workspace = true
+# The measurement harness runs its audio loop under the allocation guard.
+lumen-rt.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
@@ -18,8 +20,12 @@ libc.workspace = true
 workspace = true
 features = [
     "Win32_Foundation",
+    "Win32_Security",
     "Win32_System_Console",
     "Win32_System_Diagnostics_Debug",
+    "Win32_System_JobObjects",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
 ]
 
 [dev-dependencies]

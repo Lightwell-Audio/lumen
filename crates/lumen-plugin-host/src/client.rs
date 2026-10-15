@@ -12,6 +12,7 @@ use std::fmt;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -20,6 +21,22 @@ use crate::protocol::{
     ClassId, ClassInfo, Event, FailureKind, FrameError, ParamInfo, ParamQueue, Request, Response,
     read_response, write_request,
 };
+use crate::shm::sys::remove_names;
+use crate::shm::{BlockLink, Layout, Wake};
+
+/// Hosts are put in a job that ends them with Lumen: Windows has no request
+/// like Linux's parent-death signal, and a host hung in a plugin would
+/// otherwise outlive a killed Lumen. The job is never closed by Lumen; the
+/// kernel closes it when Lumen's process ends.
+#[cfg(windows)]
+fn end_with_lumen(child: &Child) -> std::io::Result<()> {
+    use std::sync::OnceLock;
+    static JOB: OnceLock<Result<crate::shm::sys::Job, String>> = OnceLock::new();
+    match JOB.get_or_init(|| crate::shm::sys::Job::new().map_err(|e| e.to_string())) {
+        Ok(job) => job.assign(child),
+        Err(why) => Err(std::io::Error::other(why.clone())),
+    }
+}
 
 /// How a host process that has stopped ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,6 +134,12 @@ impl HostProcess {
             command.env(key, value);
         }
         let mut child = command.spawn()?;
+        #[cfg(windows)]
+        if let Err(e) = end_with_lumen(&child) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(e);
+        }
         let mut stdin = child.stdin.take().expect("piped stdin");
         let mut stdout = child.stdout.take().expect("piped stdout");
 
@@ -360,6 +383,45 @@ impl HostProcess {
             }),
             _ => Err(HostError::Protocol("expected Processed".into())),
         }
+    }
+
+    /// Opens the shared-memory audio path to this host and waits until the
+    /// host's block loop is running. The returned link is for the audio
+    /// thread; this handle stays with the control side. Attaching again
+    /// replaces the earlier link, which then answers nothing.
+    pub fn attach(
+        &mut self,
+        layout: Layout,
+        wake: Wake,
+        within: Duration,
+    ) -> Result<BlockLink, HostError> {
+        static LINKS: AtomicU32 = AtomicU32::new(0);
+        let transport = |e: std::io::Error| HostError::Failed {
+            kind: FailureKind::Transport,
+            message: e.to_string(),
+        };
+        let deadline = Instant::now() + within;
+        let base = format!(
+            "{:x}-{:x}",
+            std::process::id(),
+            LINKS.fetch_add(1, Ordering::Relaxed)
+        );
+        let (link, names) = BlockLink::create(&base, layout, wake).map_err(transport)?;
+        let attached = self.call(&Request::Attach { base, layout, wake }, within);
+        // The host has opened the objects, or has failed to; either way the
+        // names have done their work.
+        remove_names(&names);
+        match attached? {
+            Response::Attached => {}
+            _ => return Err(HostError::Protocol("expected Attached".into())),
+        }
+        while !link.host_ready() {
+            if Instant::now() >= deadline {
+                return Err(HostError::Timeout);
+            }
+            std::thread::sleep(Duration::from_micros(200));
+        }
+        Ok(link)
     }
 
     pub fn state(&mut self, within: Duration) -> Result<Vec<u8>, HostError> {

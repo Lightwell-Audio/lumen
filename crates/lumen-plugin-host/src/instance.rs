@@ -76,6 +76,21 @@ pub struct Processed {
     pub output: Vec<Vec<f32>>,
 }
 
+/// What a block's processing reported, apart from its audio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Done {
+    pub status: i32,
+    pub latency: u32,
+    pub restart: u32,
+    pub repaired: u32,
+}
+
+/// Channel buffers for [`Instance::process_into`].
+pub struct Buffers {
+    pub input: Vec<Vec<f32>>,
+    pub output: Vec<Vec<f32>>,
+}
+
 pub struct Instance {
     pub class: ClassInfo,
     component: ComPtr<IComponent>,
@@ -368,7 +383,8 @@ impl Instance {
     }
 
     /// Renders one block. `input` has one slice per input channel; the
-    /// result's output has one per output channel, `frames` long.
+    /// result's output has one per output channel, `frames` long. This
+    /// allocates; the audio path uses [`Instance::process_into`].
     pub fn process(
         &mut self,
         frames: u32,
@@ -387,24 +403,73 @@ impl Instance {
             return Err(plugin("input channels do not match the format"));
         }
         let n = frames as usize;
-        let mut ins: Vec<Vec<f32>> = input.to_vec();
-        let mut outs: Vec<Vec<f32>> = vec![vec![0.0; n]; usize::from(format.outputs)];
-        let mut in_ptrs: Vec<*mut f32> = ins.iter_mut().map(|c| c.as_mut_ptr()).collect();
-        let mut out_ptrs: Vec<*mut f32> = outs.iter_mut().map(|c| c.as_mut_ptr()).collect();
+        let mut buffers = Buffers {
+            input: input.to_vec(),
+            output: vec![vec![0.0; n]; usize::from(format.outputs)],
+        };
+        let done = self.process_into(frames, &mut buffers, events, params)?;
+        Ok(Processed {
+            status: done.status,
+            latency: done.latency,
+            restart: done.restart,
+            repaired: done.repaired,
+            output: buffers.output,
+        })
+    }
+
+    /// Renders one block in buffers the caller owns, allocating nothing of
+    /// its own once the events and parameter lists have grown to the size of
+    /// the busiest block. `buffers` holds one `Vec` per channel, each at
+    /// least `frames` long; the output is zeroed first and, afterwards,
+    /// anything not finite in it has been replaced by silence.
+    pub fn process_into(
+        &mut self,
+        frames: u32,
+        buffers: &mut Buffers,
+        events: &[Event],
+        params: &[ParamQueue],
+    ) -> Result<Done, InstanceError> {
+        let format = self
+            .format
+            .filter(|_| self.processing)
+            .ok_or(InstanceError::Sequence("not configured"))?;
+        if frames == 0 || frames > format.max_frames {
+            return Err(plugin("block longer than the configured maximum"));
+        }
+        let n = frames as usize;
+        if buffers.input.len() != usize::from(format.inputs)
+            || buffers.output.len() != usize::from(format.outputs)
+            || buffers.input.iter().any(|c| c.len() < n)
+            || buffers.output.iter().any(|c| c.len() < n)
+        {
+            return Err(plugin("buffers do not match the format"));
+        }
+        // The pointers live on the stack: a main bus has at most
+        // `MAX_CHANNELS` channels, checked when the format was set.
+        let mut in_ptrs = [ptr::null_mut::<f32>(); MAX_CHANNELS];
+        let mut out_ptrs = [ptr::null_mut::<f32>(); MAX_CHANNELS];
+        for (slot, channel) in in_ptrs.iter_mut().zip(&mut buffers.input) {
+            *slot = channel.as_mut_ptr();
+        }
+        for (slot, channel) in out_ptrs.iter_mut().zip(&mut buffers.output) {
+            channel[..n].fill(0.0);
+            *slot = channel.as_mut_ptr();
+        }
+        let (ins, outs) = (buffers.input.len(), buffers.output.len());
 
         self.events_in.set(events.iter().map(vst_event));
         self.events_out.set([]);
         self.changes.set(params);
 
         let mut in_bus = AudioBusBuffers {
-            numChannels: in_ptrs.len() as i32,
+            numChannels: ins as i32,
             silenceFlags: 0,
             __field0: AudioBusBuffers__type0 {
                 channelBuffers32: in_ptrs.as_mut_ptr(),
             },
         };
         let mut out_bus = AudioBusBuffers {
-            numChannels: out_ptrs.len() as i32,
+            numChannels: outs as i32,
             silenceFlags: 0,
             __field0: AudioBusBuffers__type0 {
                 channelBuffers32: out_ptrs.as_mut_ptr(),
@@ -414,14 +479,14 @@ impl Instance {
             processMode: kRealtime as i32,
             symbolicSampleSize: kSample32 as i32,
             numSamples: frames as i32,
-            numInputs: i32::from(!in_ptrs.is_empty()),
-            numOutputs: i32::from(!out_ptrs.is_empty()),
-            inputs: if in_ptrs.is_empty() {
+            numInputs: i32::from(ins > 0),
+            numOutputs: i32::from(outs > 0),
+            inputs: if ins == 0 {
                 ptr::null_mut()
             } else {
                 &mut in_bus
             },
-            outputs: if out_ptrs.is_empty() {
+            outputs: if outs == 0 {
                 ptr::null_mut()
             } else {
                 &mut out_bus
@@ -432,16 +497,17 @@ impl Instance {
             outputEvents: self.events_out_ptr.as_ptr(),
             processContext: &mut self.context,
         };
-        // SAFETY: every pointer in `data` refers to live locals or objects
-        // owned by the instance, and outlives the call.
+        // SAFETY: every pointer in `data` refers to live locals, buffers the
+        // caller lent for this call, or objects owned by the instance, and
+        // outlives the call.
         let status = unsafe { self.processor.process(&mut data) };
         self.context.projectTimeSamples += i64::from(frames);
 
         // A plugin's output is untrusted: anything not finite becomes
         // silence before it can reach a mixer.
         let mut repaired = 0;
-        for channel in &mut outs {
-            for s in channel.iter_mut() {
+        for channel in &mut buffers.output {
+            for s in &mut channel[..n] {
                 if !s.is_finite() {
                     *s = 0.0;
                     repaired += 1;
@@ -454,12 +520,11 @@ impl Instance {
         // asked to be restarted (a graph rebuild is the caller's to do).
         // SAFETY: a plain call on a live processor.
         self.latency = unsafe { self.processor.getLatencySamples() };
-        Ok(Processed {
+        Ok(Done {
             status,
             latency: self.latency,
             restart,
             repaired,
-            output: outs,
         })
     }
 

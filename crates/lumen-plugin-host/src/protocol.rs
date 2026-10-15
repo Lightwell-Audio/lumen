@@ -8,12 +8,13 @@
 
 use std::io::{self, Read, Write};
 
+use crate::shm::{Layout, Waiting, Wake};
 use crate::wire::{Reader, WireError, Writer};
 
 /// First four bytes of every frame.
 pub const MAGIC: u32 = 0x3148_504c; // "LPH1"
 /// Bumped when a message changes shape. A host of another version is refused.
-pub const VERSION: u16 = 1;
+pub const VERSION: u16 = 2;
 
 pub const MAX_FRAMES: usize = 8192;
 pub const MAX_CHANNELS: usize = 16;
@@ -24,6 +25,8 @@ pub const MAX_PARAMETERS: usize = 16_384;
 pub const MAX_STATE: usize = 16 << 20;
 pub const MAX_TEXT: usize = 1024;
 pub const MAX_CLASSES: usize = 256;
+/// The longest base name of a shared-memory link.
+pub const MAX_BASE: usize = 64;
 /// The largest frame payload: a full block of audio both ways, with room.
 pub const MAX_MESSAGE: usize = MAX_STATE + (MAX_FRAMES * MAX_CHANNELS * 4) + (1 << 20);
 
@@ -91,6 +94,8 @@ pub enum FailureKind {
     Plugin = 3,
     /// The request was not understood.
     Protocol = 4,
+    /// The shared-memory audio path could not be opened.
+    Transport = 5,
 }
 
 impl FailureKind {
@@ -101,6 +106,7 @@ impl FailureKind {
             2 => Self::StaleConfiguration,
             3 => Self::Plugin,
             4 => Self::Protocol,
+            5 => Self::Transport,
             _ => return Err(WireError::Invalid("failure kind")),
         })
     }
@@ -134,6 +140,13 @@ pub enum Request {
     GetState,
     SetState(Vec<u8>),
     Parameters,
+    /// Open the shared-memory audio path Lumen made under this base name.
+    /// A second attach replaces the first.
+    Attach {
+        base: String,
+        layout: Layout,
+        wake: Wake,
+    },
     Quit,
 }
 
@@ -164,6 +177,8 @@ pub enum Response {
         list: Vec<ParamInfo>,
     },
     Done,
+    /// The audio path is open and the host's block loop is running.
+    Attached,
     Failed {
         kind: FailureKind,
         message: String,
@@ -177,6 +192,7 @@ const REQ_GET_STATE: u16 = 4;
 const REQ_SET_STATE: u16 = 5;
 const REQ_PARAMETERS: u16 = 6;
 const REQ_QUIT: u16 = 7;
+const REQ_ATTACH: u16 = 8;
 
 const RES_LOADED: u16 = 101;
 const RES_CONFIGURED: u16 = 102;
@@ -185,6 +201,7 @@ const RES_STATE: u16 = 104;
 const RES_PARAMETERS: u16 = 105;
 const RES_DONE: u16 = 106;
 const RES_FAILED: u16 = 107;
+const RES_ATTACHED: u16 = 108;
 
 fn put_audio(w: &mut Writer, channels: &[Vec<f32>]) {
     w.u32(channels.len() as u32);
@@ -310,6 +327,21 @@ impl Request {
                 REQ_SET_STATE
             }
             Request::Parameters => REQ_PARAMETERS,
+            Request::Attach { base, layout, wake } => {
+                w.str(base);
+                w.u32(layout.max_frames);
+                w.u8(layout.inputs);
+                w.u8(layout.outputs);
+                w.u32(layout.max_events);
+                w.u32(layout.max_queues);
+                w.u32(layout.max_points);
+                for waiting in [wake.host, wake.lumen] {
+                    let (tag, micros) = waiting.to_parts();
+                    w.u8(tag);
+                    w.u32(micros);
+                }
+                REQ_ATTACH
+            }
             Request::Quit => REQ_QUIT,
         };
         (kind, w.into_bytes())
@@ -420,6 +452,36 @@ impl Request {
             REQ_GET_STATE => Request::GetState,
             REQ_SET_STATE => Request::SetState(r.bytes("state", MAX_STATE)?.to_vec()),
             REQ_PARAMETERS => Request::Parameters,
+            REQ_ATTACH => {
+                let base = r.str("base name", MAX_BASE)?;
+                if base.is_empty() || !base.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                {
+                    return Err(WireError::Invalid("base name"));
+                }
+                let layout = Layout {
+                    max_frames: r.u32()?,
+                    inputs: r.u8()?,
+                    outputs: r.u8()?,
+                    max_events: r.u32()?,
+                    max_queues: r.u32()?,
+                    max_points: r.u32()?,
+                };
+                layout
+                    .check()
+                    .map_err(|_| WireError::Invalid("shared layout"))?;
+                let mut waiting = || -> Result<Waiting, WireError> {
+                    let tag = r.u8()?;
+                    let micros = r.u32()?;
+                    Waiting::from_parts(tag, micros).ok_or(WireError::Invalid("wake mode"))
+                };
+                let host = waiting()?;
+                let lumen = waiting()?;
+                Request::Attach {
+                    base,
+                    layout,
+                    wake: Wake { host, lumen },
+                }
+            }
             REQ_QUIT => Request::Quit,
             _ => return Err(WireError::Invalid("request kind")),
         };
@@ -481,6 +543,7 @@ impl Response {
                 RES_PARAMETERS
             }
             Response::Done => RES_DONE,
+            Response::Attached => RES_ATTACHED,
             Response::Failed { kind, message } => {
                 w.u8(*kind as u8);
                 w.str(message);
@@ -525,6 +588,7 @@ impl Response {
                 Response::Parameters { total, list }
             }
             RES_DONE => Response::Done,
+            RES_ATTACHED => Response::Attached,
             RES_FAILED => Response::Failed {
                 kind: FailureKind::from_u8(r.u8()?)?,
                 message: r.str("message", MAX_TEXT)?,
@@ -701,6 +765,19 @@ mod tests {
             Request::GetState,
             Request::SetState(vec![1, 2, 3]),
             Request::Parameters,
+            Request::Attach {
+                base: "1f2-3".into(),
+                layout: Layout::new(512, 2, 2),
+                wake: Wake {
+                    host: Waiting::Hybrid(std::time::Duration::from_micros(150)),
+                    lumen: Waiting::Event,
+                },
+            },
+            Request::Attach {
+                base: "a".into(),
+                layout: Layout::new(8192, 0, 16),
+                wake: Wake::SPIN,
+            },
             Request::Quit,
         ] {
             assert_eq!(round_trip(&request), request);
@@ -743,6 +820,8 @@ mod tests {
                 }],
             },
             Response::Done,
+            Response::Attached,
+            Response::Attached,
             Response::Failed {
                 kind: FailureKind::StaleConfiguration,
                 message: "old".into(),
@@ -876,6 +955,44 @@ mod tests {
             };
             assert!(rejects(&frame(REQ_CONFIGURE, &request.encode().1)));
         }
+    }
+
+    #[test]
+    fn a_bad_attach_is_refused() {
+        let attach = |base: &str, layout: Layout, wake: Wake| Request::Attach {
+            base: base.into(),
+            layout,
+            wake,
+        };
+        let good = Layout::new(512, 2, 2);
+        // Names go into the operating system's namespace: letters, digits
+        // and dashes only, so a hostile base cannot reach another object.
+        for base in ["", "a/b", "..", "a b", "a\\b", "x\0y"] {
+            let request = attach(base, good, Wake::EVENT);
+            assert!(rejects(&frame(REQ_ATTACH, &request.encode().1)), "{base:?}");
+        }
+        let too_long = "a".repeat(MAX_BASE + 1);
+        assert!(rejects(&frame(
+            REQ_ATTACH,
+            &attach(&too_long, good, Wake::EVENT).encode().1
+        )));
+        for layout in [
+            Layout::new(0, 2, 2),
+            Layout::new(100_000, 2, 2),
+            Layout::new(512, 200, 2),
+            Layout {
+                max_events: u32::MAX,
+                ..good
+            },
+        ] {
+            let request = attach("ok", layout, Wake::EVENT);
+            assert!(rejects(&frame(REQ_ATTACH, &request.encode().1)));
+        }
+        // An unknown wake mode.
+        let mut payload = attach("ok", good, Wake::EVENT).encode().1;
+        let at = payload.len() - 10; // host tag
+        payload[at] = 9;
+        assert!(rejects(&frame(REQ_ATTACH, &payload)));
     }
 
     #[test]
