@@ -67,6 +67,13 @@ pub fn slice(project: &Project, tempo: &TempoMap, clip: &Clip, a: Ticks, b: Tick
         }
         ClipContent::Midi { notes, events } => {
             // A window onto the same notes: nothing outside it is lost.
+            // A note visible in the source clip becomes a genuine split
+            // copy in each slice, including one revealed by an earlier trim.
+            for note in notes.iter_mut() {
+                if in_window(clip, note.start()) {
+                    *note = note.with_carries_on(true);
+                }
+            }
             shift_notes(notes, cut);
             shift_events(events, cut);
         }
@@ -240,6 +247,14 @@ pub fn trim(
             }
             // A MIDI clip's notes past its new end are kept, hidden.
             c.length = new_end - clip.start;
+        }
+    }
+    let visible_length = content_length(&c).min(c.length);
+    if let ClipContent::Midi { notes, .. } = &mut c.content {
+        for note in notes {
+            if note.start() >= Ticks::ZERO && note.start() < visible_length {
+                *note = note.with_carries_on(true);
+            }
         }
     }
     c.fade_in.length = c.fade_in.length.min(c.length);
@@ -556,6 +571,47 @@ mod tests {
         };
         assert_eq!(notes[0], Note::new(q(1), q(1), 60, 100));
         assert_eq!(shown_notes(&back), vec![0, 1]);
+    }
+
+    #[test]
+    fn slicing_a_revealed_hidden_capture_makes_a_genuine_seam_copy() {
+        let p = song();
+        let mut clip = (*p.tracks[1].clips[0]).clone();
+        clip.start = q(2);
+        clip.length = q(2);
+        clip.content = ClipContent::Midi {
+            notes: vec![Note::new(q(-1), q(4), 60, 100).with_carries_on(false)],
+            events: Vec::new(),
+        };
+        assert!(shown_notes(&clip).is_empty());
+        let recovered = trim(&p, &tempo_of(&p), &clip, Edge::Start, q(1), false);
+        assert_eq!(shown_notes(&recovered), vec![0]);
+        // Slicing the recovered note creates a legitimate hidden copy on the
+        // right, which must carry through the new seam.
+        let left = slice(&p, &tempo_of(&p), &recovered, q(1), q(2)).unwrap();
+        let right = slice(&p, &tempo_of(&p), &recovered, q(2), q(5)).unwrap();
+        let ClipContent::Midi {
+            notes: left_notes, ..
+        } = &left.content
+        else {
+            unreachable!()
+        };
+        let ClipContent::Midi {
+            notes: right_notes, ..
+        } = &right.content
+        else {
+            unreachable!()
+        };
+        assert_eq!(left_notes[0].start(), Ticks::ZERO);
+        assert_eq!(right_notes[0].start(), q(-1));
+        assert!(right_notes[0].carries_on());
+        let left = Arc::new(left);
+        let right = Arc::new(right);
+        let t = Track {
+            clips: vec![left, right],
+            ..Track::new(Id(90), "Recovered", TrackKind::Midi, Color(0))
+        };
+        assert_eq!(crate::edit::seams::carried(&t), vec![Vec::new(), vec![0]]);
     }
 
     #[test]

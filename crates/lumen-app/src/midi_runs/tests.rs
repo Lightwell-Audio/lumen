@@ -1,4 +1,5 @@
 use lumen_core::midi::Kind;
+use lumen_core::time::PPQ;
 use lumen_project::model::{Clip, Color, Note, Track, TrackKind};
 
 use super::*;
@@ -94,6 +95,25 @@ fn a_hidden_capture_sharing_a_start_does_not_carry_the_old_note_on() {
     let found = runs(whole(&clips));
     assert_eq!(found.len(), 1);
     assert_eq!(played(&found[0]), vec![(1, 1, 60)]);
+}
+
+#[test]
+fn an_identical_or_shorter_hidden_capture_is_not_a_seam_copy() {
+    let old_end = q(2) + Ticks(PPQ / 2);
+    for captured_end in [old_end, old_end - Ticks(PPQ / 4)] {
+        let clips = [
+            clip(1, 0, 2, vec![Note::new(q(1), old_end - q(1), 60, 100)]),
+            clip(
+                2,
+                2,
+                2,
+                vec![Note::new(q(-1), captured_end - q(1), 60, 100).with_carries_on(false)],
+            ),
+        ];
+        let found = runs(whole(&clips));
+        assert_eq!(found.len(), 1);
+        assert_eq!(played(&found[0]), vec![(1, 1, 60)]);
+    }
 }
 
 #[test]

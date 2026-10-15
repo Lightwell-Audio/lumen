@@ -32,7 +32,7 @@ use std::collections::BTreeMap;
 
 use lumen_core::midi::Kind;
 use lumen_core::time::Ticks;
-use lumen_engine::{Captured, WRAP};
+use lumen_engine::{Captured, WRAP, record_position};
 use lumen_project::edit::record::{Take, TakeEvent, TakeNote};
 use lumen_project::model::EventKind;
 
@@ -168,7 +168,8 @@ impl Capture {
         if matches!(kind, Kind::KeyPressure { .. } | Kind::Other) {
             return;
         }
-        let mut at = ticks((c.at - latency).max(0));
+        let heard = ticks(c.at.max(0));
+        let compensated = ticks((c.at - latency).max(0));
         let mut pass = c.pass;
         // After a loop wrap, the latency can take a message heard just
         // inside the loop's start back before it: it was played at the end
@@ -176,19 +177,15 @@ impl Capture {
         // wrap (`lumen_engine::Captured::at`). Before any wrap, a message
         // heard before the loop start is genuine pre-loop capture, and one
         // heard past the loop's end (Loop switched off) is left alone.
-        if pass != first_pass
-            && let Some((from, to)) = self.looped
-            && at < from
-            && (from..to).contains(&ticks(c.at.max(0)))
-        {
-            at = at + (to - from);
-            pass = pass.wrapping_sub(1);
-        }
-        if pass == first_pass
-            && let Some(start) = self.start
-        {
-            at = at.max(start);
-        }
+        let (at, mapped_pass) = record_position(
+            heard,
+            compensated,
+            pass,
+            first_pass,
+            self.start.unwrap_or(Ticks(i64::MIN)),
+            self.looped,
+        );
+        pass = mapped_pass;
         let channel = c.msg.channel();
         let looped = self.looped;
         let lane = self.lanes.entry(c.track).or_default();
@@ -742,6 +739,20 @@ mod tests {
         let take = c.take(1, (Ticks(1_200), Ticks(2_000)));
         assert_eq!(take.notes, vec![note(1_000, 300, 60, 90)]);
         assert_eq!(take.events[0].at, Ticks(1_000));
+    }
+
+    #[test]
+    fn compensated_positions_respect_both_punch_edges() {
+        let punch = (Ticks(1_000), Ticks(1_500));
+        let looped = Some((Ticks(800), Ticks(1_600)));
+        // A note heard just after punch-in lands before it after 20 samples
+        // of output latency, so it stays hidden.
+        let (before_in, _) = record_position(Ticks(1_010), Ticks(990), 0, 0, Ticks(600), looped);
+        assert!(before_in < punch.0);
+        // A note heard just after punch-out lands just before it and remains
+        // eligible, matching the position Capture stores.
+        let (before_out, _) = record_position(Ticks(1_510), Ticks(1_490), 0, 0, Ticks(600), looped);
+        assert!((punch.0..punch.1).contains(&before_out));
     }
 
     #[test]

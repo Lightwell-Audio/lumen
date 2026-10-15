@@ -66,6 +66,12 @@ remain as hidden clip content; widening edges recovers them. Replace
 playback resumes after punch-out. Automated verification is recorded in
 the correction plan; the hardware walkthrough in MT-MIDI-7 step 7 waits.
 
+PR 16 review corrections: playback eligibility and capture share compensated
+positions and engine-side loop-pass bounds; disabling Loop before its first
+wrap preserves the saved take boundary. Format v16 distinguishes hidden
+captured notes from genuine seam continuations, including identical onsets
+and shorter notes, while preserving trim recovery (ADR-0064).
+
 Recording-start follow-up: latency-compensated initial-pass messages are
 floored at Record start, preserving first-note visibility away from song
 start while keeping punch masking and subsequent loop-pass positions.

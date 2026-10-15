@@ -90,7 +90,14 @@ pub fn humanize(
         } else {
             (i64::from(n.velocity()) + velocity_offset).clamp(1, 127) as u8
         };
-        tagged[i].0 = Note(start, n.length(), n.pitch(), velocity, n.muted());
+        tagged[i].0 = Note(
+            start,
+            n.length(),
+            n.pitch(),
+            velocity,
+            n.muted(),
+            n.carries_on(),
+        );
     }
     finish(notes, tagged)
 }
@@ -129,7 +136,14 @@ pub fn fixed_length(
         let n = tagged[i].0;
         let room = (length - n.start()).max(Ticks(1));
         let to = len.max(MIN_NOTE).min(room);
-        tagged[i].0 = Note(n.start(), to, n.pitch(), n.velocity(), n.muted());
+        tagged[i].0 = Note(
+            n.start(),
+            to,
+            n.pitch(),
+            n.velocity(),
+            n.muted(),
+            n.carries_on(),
+        );
     }
     finish(notes, tagged)
 }
@@ -201,7 +215,14 @@ pub fn scale_constrain(
     for &i in &picked {
         let n = tagged[i].0;
         let pitch = nearest(i32::from(n.pitch()), intervals, root);
-        tagged[i].0 = Note(n.start(), n.length(), pitch as u8, n.velocity(), n.muted());
+        tagged[i].0 = Note(
+            n.start(),
+            n.length(),
+            pitch as u8,
+            n.velocity(),
+            n.muted(),
+            n.carries_on(),
+        );
     }
     finish(notes, tagged)
 }
@@ -245,6 +266,7 @@ pub fn reverse(notes: &mut Vec<Note>, selection: &[usize]) -> Vec<usize> {
             n.pitch(),
             n.velocity(),
             n.muted(),
+            n.carries_on(),
         );
     }
     finish(notes, tagged)
@@ -376,7 +398,7 @@ mod tests {
     #[test]
     fn unpicked_notes_and_the_mute_are_kept() {
         let mut notes = row();
-        notes[3] = Note(q(3), q(1), 63, 100, true);
+        notes[3] = Note(q(3), q(1), 63, 100, true, true);
         let before = notes.clone();
         humanize(&mut notes, &[3, 5], LEN, &hum(PPQ / 8, 30, 11));
         for i in [0, 1, 2, 4, 6, 7] {
@@ -437,9 +459,9 @@ mod tests {
 
     #[test]
     fn pitch_velocity_and_mute_are_kept() {
-        let mut notes = vec![Note(q(0), q(2), 60, 33, true)];
+        let mut notes = vec![Note(q(0), q(2), 60, 33, true, true)];
         fixed_length(&mut notes, &[0], LEN, q(1));
-        assert_eq!(notes[0], Note(q(0), q(1), 60, 33, true));
+        assert_eq!(notes[0], Note(q(0), q(1), 60, 33, true, true));
     }
 
     /// The pitch `pitch` becomes under `scale` on root `root`.

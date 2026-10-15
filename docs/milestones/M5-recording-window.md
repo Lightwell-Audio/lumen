@@ -69,3 +69,28 @@ Pre-push WSL performance check on `409212c`: all nine instruction-count
 scenarios are within the +2% gate. Largest increases: transport +1.50%,
 64-track synth +1.36%; project parse +0.34% and serialization +0.17%.
 No baseline update was needed.
+
+PR 16 review follow-up: the engine selects recording bounds from its own
+pass counter and uses the same compensated, floored, loop-normalized
+positions as capture, including already-held keys. Saved loop ends bound
+placement before the first wrap when Loop is disabled. Format v16 marks
+hidden captured notes as ineligible to continue a note across a seam;
+ordinary notes and genuine split copies keep their carry behavior. Old
+four- and five-element notes migrate with their existing behavior, and a
+v16 golden fixture covers the new encoding. A legacy v15 capture's exact
+seam provenance cannot be reconstructed (KNOWN_ISSUES).
+
+Performance comparison on the managed Debian 13 environment, against
+the PR's prior head `d1060d7`: all nine instruction-count scenarios stay
+within +2%; largest increase +0.052% (serialization), parsing -0.113%.
+The published baseline check reports parsing +3.61% here, versus +3.72%
+at the prior head on this same host. This is the existing environment
+baseline mismatch, not an increase caused by this correction. The shared
+baseline is unchanged; no WSL or macOS check is claimed.
+
+Final automated verification for this follow-up: workspace all-target
+tests pass 1,493 tests, including 339 E2E scenarios and the engine's
+allocation-guard coverage. Documentation tests, workspace clippy with
+warnings denied, formatting, diff checks and all six real-binary smoke
+tests pass. The smoke checks use an isolated virtual display, software
+GPU and silent test device. Physical MIDI timing remains a manual check.

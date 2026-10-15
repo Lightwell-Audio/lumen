@@ -6,7 +6,8 @@
 use lumen_core::meter::Meter;
 use lumen_core::time::Ticks;
 use lumen_engine::{
-    Command, Jump, Output, Region, RenderContext, ScrubStyle, Source, Timeline, engine,
+    Command, Jump, Output, RecordTiming, Region, RenderContext, ScrubStyle, Source, Timeline,
+    engine,
 };
 use lumen_rt::{count_rt_violations, guard_is_active};
 
@@ -426,6 +427,12 @@ fn midi_never_touches_the_heap() {
                 } else {
                     Listen::OFF
                 })
+                .recording_timing((id % 2 == 0).then_some(RecordTiming {
+                    start: Ticks::ZERO,
+                    latency_samples: 128,
+                    looped: Some((Ticks::ZERO, Ticks::quarters(5))),
+                    punch: Some((Ticks::quarters(1), Ticks::quarters(3))),
+                }))
             })
             .collect()
     };

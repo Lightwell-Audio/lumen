@@ -1,6 +1,7 @@
 use super::*;
 use crate::edit::shown_notes;
 use crate::model::Color;
+use lumen_core::time::PPQ;
 
 fn q(n: i64) -> Ticks {
     Ticks::quarters(n)
@@ -8,6 +9,10 @@ fn q(n: i64) -> Ticks {
 
 fn note(start: i64, length: i64, pitch: u8) -> Note {
     Note::new(q(start), q(length), pitch, 100)
+}
+
+fn hidden_note(start: i64, length: i64, pitch: u8) -> Note {
+    note(start, length, pitch).with_carries_on(false)
 }
 
 fn tn(start: i64, length: i64, pitch: u8) -> TakeNote {
@@ -142,7 +147,7 @@ fn replace_settles_active_loop_conflicts_but_keeps_hidden_notes_untouched() {
     .unwrap();
     assert_eq!(
         clip_of(&p, 50).content,
-        midi(vec![note(0, 1, 60), note(1, 4, 60), note(4, 2, 60)]),
+        midi(vec![note(0, 1, 60), note(1, 4, 60), hidden_note(4, 2, 60)]),
         "the later active loop note wins while the post-window note is untouched"
     );
 }
@@ -213,7 +218,7 @@ fn replace_puts_one_clip_over_the_range_with_its_notes_relative_to_it() {
                 note(0, 1, 50),
                 note(0, 2, 62),
                 note(1, 1, 60),
-                note(5, 1, 70)
+                hidden_note(5, 1, 70)
             ],
             events: vec![ev_at(0, 20), ev_at(2, 10), ev_at(5, 30)],
         }
@@ -529,7 +534,7 @@ fn overdub_over_empty_lane_keeps_captured_content_outside_its_window() {
     assert_eq!(
         clip_of(&p, 50).content,
         ClipContent::Midi {
-            notes: vec![note(0, 1, 60), note(4, 1, 62)],
+            notes: vec![note(0, 1, 60), hidden_note(4, 1, 62)],
             events: vec![ev_at(1, 7)],
         }
     );
@@ -604,7 +609,11 @@ fn punch_limits_the_clip_window_and_keeps_the_full_capture_hidden() {
     // Content before and after the punch remains hidden in the clip.
     assert_eq!(
         clip_of(&p, 50).content,
-        midi(vec![note(-1, 1, 60), note(0, 4, 62), note(3, 1, 64)])
+        midi(vec![
+            hidden_note(-1, 1, 60),
+            note(0, 4, 62),
+            hidden_note(3, 1, 64)
+        ])
     );
 
     let mut away = base.clone();
@@ -624,7 +633,11 @@ fn punch_limits_the_clip_window_and_keeps_the_full_capture_hidden() {
     assert_eq!(spans(&away), [(Id(50), q(10), Ticks(1))]);
     assert_eq!(
         clip_of(&away, 50).content,
-        midi(vec![note(-9, 1, 60), note(-8, 4, 62), note(-5, 1, 64)])
+        midi(vec![
+            hidden_note(-9, 1, 60),
+            hidden_note(-8, 4, 62),
+            hidden_note(-5, 1, 64)
+        ])
     );
 }
 
@@ -648,7 +661,7 @@ fn a_hidden_capture_before_a_punch_does_not_carry_an_old_note_on() {
         &mut ids(),
     );
     assert!(placed.is_ok());
-    assert_eq!(clip_of(&p, 50).content, midi(vec![note(-1, 4, 60)]));
+    assert_eq!(clip_of(&p, 50).content, midi(vec![hidden_note(-1, 4, 60)]));
     assert_eq!(spans(&p)[..2], [(Id(10), q(0), q(2)), (Id(50), q(2), q(2))]);
     assert!(
         crate::edit::seams::carried(&p.tracks[0])
@@ -656,6 +669,59 @@ fn a_hidden_capture_before_a_punch_does_not_carry_an_old_note_on() {
             .all(|c| c.is_empty()),
         "nothing carries on into the punched clip"
     );
+}
+
+#[test]
+fn identical_and_shorter_hidden_captures_do_not_carry_at_a_seam() {
+    // The old note is 1 to 2.5. The visible take is 2 to 4, and the
+    // captured note starts at 1 in hidden content. Matching or ending before
+    // the old note used to make its hidden copy indistinguishable at a seam.
+    let one = q(1);
+    let two_and_half = q(2) + Ticks(PPQ / 2);
+    let base = base(vec![clip(
+        10,
+        0,
+        8,
+        vec![Note::new(one, two_and_half - one, 60, 100)],
+    )]);
+    for captured_end in [two_and_half, two_and_half - Ticks(PPQ / 4)] {
+        let mut project = base.clone();
+        let placed = place(
+            &mut project,
+            &base,
+            Id(1),
+            &Take {
+                start: Ticks::ZERO,
+                end: q(6),
+                notes: vec![TakeNote {
+                    start: one,
+                    length: captured_end - one,
+                    pitch: 60,
+                    velocity: 100,
+                }],
+                events: Vec::new(),
+            },
+            Placement {
+                mode: Mode::Replace,
+                punch: Some((q(2), q(4))),
+                take_clip: Id(50),
+            },
+            &mut ids(),
+        );
+        assert!(placed.is_ok());
+        let ClipContent::Midi { notes, .. } = &clip_of(&project, 50).content else {
+            unreachable!()
+        };
+        assert_eq!(notes[0].start(), q(-1));
+        assert_eq!(notes[0].end(), captured_end - q(2));
+        assert!(!notes[0].carries_on());
+        assert!(
+            crate::edit::seams::carried(&project.tracks[0])
+                .iter()
+                .all(|carried| carried.is_empty()),
+            "hidden capture ending at {captured_end:?} must not carry"
+        );
+    }
 }
 
 #[test]
@@ -702,10 +768,10 @@ fn punch_keeps_full_capture_in_both_modes_and_trim_recovers_it() {
             assert_eq!(
                 notes,
                 &vec![
-                    note(-1, 4, 60),
+                    hidden_note(-1, 4, 60),
                     note(0, 5, 62),
                     note(1, 1, 64),
-                    note(3, 2, 65)
+                    hidden_note(3, 2, 65)
                 ]
             );
             assert_eq!(shown_notes(recorded), vec![1, 2]);
@@ -716,10 +782,10 @@ fn punch_keeps_full_capture_in_both_modes_and_trim_recovers_it() {
                 notes,
                 &vec![
                     note(-1, 6, 60),
-                    note(-1, 4, 60),
+                    hidden_note(-1, 4, 60),
                     note(0, 5, 62),
                     note(1, 1, 64),
-                    note(3, 2, 65),
+                    hidden_note(3, 2, 65),
                 ]
             );
             assert_eq!(shown_notes(recorded), vec![2, 3]);
@@ -810,12 +876,15 @@ fn capture_wholly_outside_punch_gets_a_hidden_anchor_clip() {
             assert_eq!(
                 recorded.content,
                 ClipContent::Midi {
-                    notes: vec![Note::new(
-                        take.notes[0].start - anchor,
-                        take.notes[0].length,
-                        take.notes[0].pitch,
-                        100
-                    )],
+                    notes: vec![
+                        Note::new(
+                            take.notes[0].start - anchor,
+                            take.notes[0].length,
+                            take.notes[0].pitch,
+                            100
+                        )
+                        .with_carries_on(false)
+                    ],
                     events: vec![ClipEvent {
                         at: take.events[0].at - anchor,
                         kind: take.events[0].kind,

@@ -413,7 +413,7 @@ mod tests {
     fn muted_notes_are_grey_and_velocity_shades_the_rest() {
         let notes = [
             Note::new(q(0), q(1), 60, 127),
-            Note(q(1), q(1), 61, 127, true),
+            Note(q(1), q(1), 61, 127, true, true),
             Note::new(q(2), q(1), 62, 0),
         ];
         let built = note_instances(&clip(&notes), &BTreeSet::new(), &colors());

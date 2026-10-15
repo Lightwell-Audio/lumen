@@ -74,6 +74,8 @@ pub(super) struct TrackState {
     pub down: Vec<Down>,
     /// The last part had the track recording.
     pub recording: bool,
+    /// The engine pass on which this recording session began.
+    pub record_pass: u32,
     /// Where the take shows what is recorded (punch and loop), in ticks:
     /// only there does a key played win its pitch. Captured outside it
     /// stays hidden in the clip, so the clips play on under it.
@@ -91,6 +93,7 @@ impl TrackState {
             live: LiveState::new(),
             down: Vec::with_capacity(MAX_HELD),
             recording: false,
+            record_pass: 0,
             window: ALWAYS,
         }
     }

@@ -430,6 +430,9 @@ fn capture_parts(
     let (mut active, mut hidden): (Vec<_>, Vec<_>) = notes
         .into_iter()
         .partition(|note| (Ticks::ZERO..visible_length).contains(&note.start()));
+    for note in &mut hidden {
+        *note = note.with_carries_on(false);
+    }
     active.sort_by_key(|n| (n.start(), n.pitch()));
     hidden.sort_by_key(|n| (n.start(), n.pitch()));
     let mut events: Vec<_> = take

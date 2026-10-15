@@ -82,6 +82,8 @@ pub struct Inputs {
     /// Where the recording under way shows what is played (start and end
     /// ticks): only there do keys played win their pitch in the engine.
     pub record_window: Option<(Ticks, Ticks)>,
+    /// The take's original loop, punch and latency boundaries.
+    pub record_timing: Option<lumen_engine::RecordTiming>,
 }
 
 /// A track a Replace take is being recorded on.
@@ -275,7 +277,8 @@ pub fn engine_midi(
             MidiTrack::new(track.id.0, target, instrument(track), clips)
                 .listening(listening(track, inputs, silent))
                 .recording(recording(track, inputs))
-                .recording_within(inputs.record_window),
+                .recording_within(inputs.record_window)
+                .recording_timing(inputs.record_timing),
         );
     }
     tracks
@@ -480,6 +483,7 @@ mod tests {
             ports: vec![("Keys".into(), 0), ("Pads".into(), 3), ("Far".into(), 70)],
             replacing: Vec::new(),
             record_window: None,
+            record_timing: None,
         }
     }
 

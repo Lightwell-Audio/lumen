@@ -5,17 +5,16 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use lumen_core::midi::{Event, Kind, Msg, cc};
-use lumen_core::time::Ticks;
-
 use super::capture::{self, Captured};
 use super::clock::ClockOut;
 use super::hold::{self, Clock, MAX_EVENTS};
 use super::live::{AUDITION, LiveIn, LiveInput};
+use super::recording::{live_position, record_window};
 use super::{MidiOut, MidiTrack, Target};
 use crate::mixer::{Buses, CHUNK, TrackSource};
 use crate::source::{Jump, Mode, RenderContext};
 use crate::timeline::Timeline;
+use lumen_core::midi::{Event, Kind, Msg, cc};
 
 const QUEUE: usize = 4;
 /// Messages waiting for the app's sender.
@@ -274,12 +273,17 @@ impl MidiPlayer {
         };
         for track in tracks.iter_mut() {
             let on = cx.recording && track.record.is_on();
-            track.state.window = track.record_window;
+            if on && !track.state.recording {
+                track.state.record_pass = pass;
+            }
+            track.state.window = record_window(track, pass);
             if on && !track.state.recording {
                 let at = capture::heard(cx, start, self.wrapped_since_locate).0;
+                let (position, position_pass) = live_position(track, clock, at, pass, false);
                 // Keys already down win their pitch only where the take
                 // shows them.
-                let wins = on && track.state.window_has(Ticks(clock.tick(at)));
+                let window = record_window(track, position_pass);
+                let wins = on && (window.0..window.1).contains(&position);
                 for down in &mut track.state.down {
                     down.wins = wins;
                     let msg = Msg::note_on(down.channel, down.key, down.velocity);
@@ -316,12 +320,15 @@ impl MidiPlayer {
             let offset = (m.frame.saturating_sub(start).min(last) as u32).max(floor);
             for track in tracks.iter_mut() {
                 if m.source != AUDITION && track.record.takes(m.source, m.msg) {
+                    let recording = cx.recording && track.record.is_on();
                     let (at, back) = capture::heard(cx, m.played, wrapped);
                     // A key played while recording, where the take shows
                     // it, wins its pitch: a clip note sounding on it ends
                     // here (`TrackState::yields`). Outside the window the
                     // take keeps it hidden, and the clips play on.
-                    let wins = track.state.shows(Ticks(clock.tick(at)));
+                    let (position, position_pass) = live_position(track, clock, at, pass, back);
+                    let window = record_window(track, position_pass);
+                    let wins = recording && (window.0..window.1).contains(&position);
                     track.state.press(m.source, m.msg, wins);
                     if let Kind::NoteOn { key, .. } = m.msg.kind()
                         && wins

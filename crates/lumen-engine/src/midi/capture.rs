@@ -12,6 +12,7 @@
 //! latency, which the app knows, is taken off by the app.
 
 use lumen_core::midi::Msg;
+use lumen_core::time::Ticks;
 
 use crate::source::RenderContext;
 
@@ -23,6 +24,34 @@ pub(super) const QUEUE: usize = 8_192;
 /// recording track, instead of a message: it carries the new pass and no
 /// message. A note held across a wrap is told from one played again by it.
 pub const WRAP: u8 = u8::MAX;
+
+/// Applies latency compensation to a captured position, keeping the first
+/// pass at the Record boundary and carrying later compensated positions
+/// across the loop seam when needed. Returns the adjusted position and its
+/// owning pass.
+pub fn record_position(
+    heard: Ticks,
+    compensated: Ticks,
+    pass: u32,
+    first_pass: u32,
+    start: Ticks,
+    looped: Option<(Ticks, Ticks)>,
+) -> (Ticks, u32) {
+    let mut at = compensated;
+    let mut pass = pass;
+    if pass != first_pass
+        && let Some((from, to)) = looped
+        && at < from
+        && (from..to).contains(&heard)
+    {
+        at = Ticks(at.0 + (to - from).0);
+        pass = pass.wrapping_sub(1);
+    }
+    if pass == first_pass {
+        at = at.max(start);
+    }
+    (at, pass)
+}
 
 /// A live message kept for the take.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

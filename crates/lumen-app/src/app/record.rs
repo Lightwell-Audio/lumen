@@ -115,14 +115,14 @@ impl Session {
         }
     }
 
-    /// Where the take shows what is played (the punch range, and the loop
-    /// once it has wrapped), as the commits place it: only there does a key
+    /// Where the take shows what is played (the punch and saved loop
+    /// range), as the commits place it: only there does a key
     /// played win its pitch over the clips' notes in the engine. Played
     /// outside it, a key is kept hidden and the clips play on under it.
     fn window(&self) -> (Ticks, Ticks) {
         let from = self.punch.map_or(self.from(), |(a, _)| self.from().max(a));
         let mut until = self.punch.map_or(Ticks(i64::MAX), |(_, b)| b);
-        if let Some((_, end)) = self.looped.filter(|_| self.wrapped) {
+        if let Some((_, end)) = self.looped {
             until = until.min(end);
         }
         (from, until)
@@ -139,11 +139,12 @@ impl Session {
             .collect()
     }
 
-    /// Where the take ends now: the playhead, or the whole loop once it has
-    /// wrapped.
+    /// Where the take ends now: the playhead bounded by the saved loop,
+    /// or the whole loop once it has wrapped.
     fn end(&self, head: Ticks) -> Ticks {
         match self.looped {
             Some((_, end)) if self.wrapped => end,
+            Some((_, end)) => head.max(self.start).min(end),
             _ => head.max(self.start),
         }
     }
@@ -184,6 +185,22 @@ impl App {
     /// `Session::window`), if one is.
     pub(crate) fn record_window(&self) -> Option<(Ticks, Ticks)> {
         self.record.session.as_ref().map(Session::window)
+    }
+
+    /// The capture coordinates used by the engine before the next UI frame.
+    pub(crate) fn record_timing(&self) -> Option<lumen_engine::RecordTiming> {
+        let session = self.record.session.as_ref()?;
+        Some(lumen_engine::RecordTiming {
+            start: session.start,
+            latency_samples: self
+                .transport
+                .audio
+                .info
+                .as_ref()
+                .map_or(0, |info| i64::from(info.output_latency)),
+            looped: session.looped,
+            punch: session.punch,
+        })
     }
 
     /// Whether a recording is under way. Undo and redo wait for its end.
@@ -494,11 +511,20 @@ mod tests {
         assert_eq!(s.window(), (Ticks(100), Ticks(250)));
         s.punch = None;
         s.looped = Some((Ticks(20), Ticks(200)));
-        assert_eq!(s.window(), (Ticks(50), Ticks(i64::MAX)));
+        assert_eq!(s.window(), (Ticks(50), Ticks(200)));
         s.wrapped = true;
         assert_eq!(s.window(), (Ticks(20), Ticks(200)));
         s.punch = Some((Ticks(30), Ticks(150)));
         assert_eq!(s.window(), (Ticks(30), Ticks(150)));
+    }
+
+    #[test]
+    fn disabling_loop_before_a_wrap_keeps_the_saved_upper_boundary() {
+        let s = session(Ticks(50), Some((Ticks(20), Ticks(200))));
+        assert_eq!(s.end(Ticks(300)), Ticks(200));
+        assert_eq!(s.window(), (Ticks(50), Ticks(200)));
+        let look = s.look(Ticks(300), Ticks(100));
+        assert_eq!((look.from, look.until), (Ticks(50), Ticks(200)));
     }
 
     #[test]

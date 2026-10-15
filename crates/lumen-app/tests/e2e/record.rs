@@ -1003,6 +1003,55 @@ fn a_key_played_after_punch_out_leaves_playback_alone_with_the_monitor_off() {
     assert!(notes.iter().all(|n| n.velocity == 100));
 }
 
+/// Turning Loop off before its first wrap keeps the saved recording window.
+#[test]
+fn disabling_loop_before_the_first_wrap_keeps_the_take_inside_its_saved_window() {
+    let fake = keyboard();
+    let old = vec![Note::new(beats(5.0), beats(0.5), 55, 100)];
+    let mut project = project_of("Record", vec![track_at((0, 8), old)]);
+    project.transport.loop_start = beats(2.0);
+    project.transport.loop_end = beats(4.0);
+    project.transport.loop_enabled = true;
+    slowly(&mut project);
+    let mut lumen = launch("loop-off-first-pass", &project, &fake);
+    let keys = Keys::new(&fake);
+    record(&mut lumen);
+    reach(&mut lumen, beats(2.5));
+    keys.on(60, 90);
+    reach(&mut lumen, beats(3.0));
+    keys.off(60);
+    lumen.click("Loop");
+    reach(&mut lumen, beats(4.5));
+    keys.on(76, 90);
+    reach(&mut lumen, beats(5.5));
+    keys.off(76);
+    reach(&mut lumen, beats(6.0));
+    assert!(lumen.app().recording());
+    let (from, until, _) = lumen.app().live_take().expect("recording continues");
+    assert_eq!((from, until), (beats(2.0), beats(4.0)));
+    stop(&mut lumen);
+
+    let clips = clips_of(&lumen);
+    let take = clips.iter().find(|c| c.start == beats(2.0)).unwrap();
+    assert_eq!(take.length, beats(2.0));
+    let ClipContent::Midi { notes, .. } = &take.content else {
+        panic!("MIDI take");
+    };
+    assert!(
+        notes
+            .iter()
+            .any(|n| n.pitch() == 76 && n.start() >= take.length)
+    );
+    assert_eq!(
+        all_placed(&lumen)
+            .iter()
+            .map(|n| n.pitch)
+            .collect::<Vec<_>>(),
+        [60, 55],
+        "capture past the saved boundary stays hidden and old material survives"
+    );
+}
+
 /// A pre-loop performance remains hidden after the first wrap, and punch
 /// out does not end the capture when the transport loops.
 #[test]

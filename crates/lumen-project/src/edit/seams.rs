@@ -78,9 +78,11 @@ pub fn carried_on(prev: &Clip, prev_length: Ticks, carried: &[usize], next: &Cli
             // same note, an Overdub carries it as long as it was heard. A
             // hidden recorded note that only shares its start and pitch
             // (one played before a punch-in) is longer, or struck at
-            // another velocity, so it stays hidden.
+            // another velocity, so it stays hidden. Explicit provenance
+            // also excludes an identical or shorter hidden capture.
             let end = next.start + n.end().min(next.length);
             !n.muted()
+                && n.carries_on()
                 && n.start() < Ticks::ZERO
                 && n.end() > Ticks::ZERO
                 && reaching.iter().any(|&(start, pitch, velocity, until)| {

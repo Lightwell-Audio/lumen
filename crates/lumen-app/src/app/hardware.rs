@@ -146,6 +146,7 @@ impl App {
             ports,
             replacing: self.replacing(),
             record_window: self.record_window(),
+            record_timing: self.record_timing(),
         }
     }
 

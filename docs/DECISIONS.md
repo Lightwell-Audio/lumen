@@ -5601,3 +5601,22 @@ the same start, pitch and velocity, sounding no later than that note
 longer extends an old note through the take. A captured note identical in
 start, pitch and velocity and no longer than the old note remains
 indistinguishable from a copy without a format change.
+
+**Second review follow-up (PR 16).** Recording eligibility now uses the
+same pure position mapping as capture: output-latency compensation,
+Record-start flooring and loop-pass normalization. Saved start, punch,
+loop and latency metadata reaches each recording track. The engine uses
+its own pass counter to select the initial or later-pass window, so keys
+played immediately after a wrap do not wait for a UI refresh to win their
+pitch. Already-held keys use the same mapping when recording starts.
+The saved loop end bounds placement and eligibility before the first
+wrap too, including when Loop is disabled while capture continues.
+
+The remaining hidden-note ambiguity requires explicit provenance rather
+than a tighter endpoint heuristic. Format v16 adds a default-true seam
+carry flag to MIDI notes; only notes captured outside the visible take
+window set it false. Those notes remain recoverable through edge trims
+and play normally once exposed, but cannot impersonate a copied note at
+a seam. Existing four- and five-element notes retain their prior carry
+behavior through the v15-to-v16 migration; old captures have no provenance
+to recover retroactively. A golden fixture preserves the new encoding.

@@ -27,11 +27,22 @@ mod clock;
 mod hold;
 mod live;
 mod player;
+mod recording;
 
-pub use capture::{Captured, WRAP};
+pub use capture::{Captured, WRAP, record_position};
 pub use clock::CLOCK_TICKS;
 pub use live::{AUDITION, INPUT_SLOTS, KEYBOARD, Listen, LiveIn, LiveInput, SOURCES};
 pub use player::{MidiHandle, MidiPlayer, midi_player};
+
+/// Timing metadata shared with the recorder while an armed MIDI take is
+/// active. Positions are in project ticks; latency is in output samples.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecordTiming {
+    pub start: Ticks,
+    pub latency_samples: i64,
+    pub looped: Option<(Ticks, Ticks)>,
+    pub punch: Option<(Ticks, Ticks)>,
+}
 
 use std::sync::Arc;
 
@@ -144,6 +155,8 @@ pub struct MidiTrack {
     /// range): only there does a key played win its pitch over the clips'
     /// notes. Unbounded unless [`MidiTrack::recording_within`] sets it.
     pub record_window: (Ticks, Ticks),
+    /// The take's latency and original recording bounds, when recording.
+    pub record_timing: Option<RecordTiming>,
     state: Box<TrackState>,
     /// Set when the list arrives: the track differs from the one it replaces,
     /// so its notes are brought in line with the position.
@@ -167,6 +180,7 @@ impl MidiTrack {
             listen: Listen::OFF,
             record: Listen::OFF,
             record_window: hold::ALWAYS,
+            record_timing: None,
             state: Box::new(TrackState::new()),
             dirty: true,
         }
@@ -190,6 +204,13 @@ impl MidiTrack {
     /// are kept hidden, so they do not cut or hold back the clips' notes.
     pub fn recording_within(mut self, window: Option<(Ticks, Ticks)>) -> Self {
         self.record_window = window.unwrap_or(hold::ALWAYS);
+        self
+    }
+
+    /// Supplies the timing used by the app's capture path so live playback
+    /// suppression follows the same compensated position as the take.
+    pub fn recording_timing(mut self, timing: Option<RecordTiming>) -> Self {
+        self.record_timing = timing;
         self
     }
 

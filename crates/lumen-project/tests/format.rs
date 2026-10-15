@@ -517,6 +517,17 @@ fn golden_v15_file_loads_forever() {
     }
     let project = load(&path).expect("v15 golden file must load");
     assert_eq!(project, golden_v15_expected());
+    assert!(
+        project
+            .tracks
+            .iter()
+            .flat_map(|track| &track.clips)
+            .flat_map(|clip| match &clip.content {
+                ClipContent::Midi { notes, .. } => notes.iter().collect::<Vec<_>>(),
+                ClipContent::Audio { .. } => Vec::new(),
+            })
+            .all(|note| note.carries_on())
+    );
     let clip = project
         .tracks
         .iter()
@@ -532,6 +543,54 @@ fn golden_v15_file_loads_forever() {
         !shown.contains(&(notes.len() - 1)),
         "and the one past the end"
     );
+}
+
+/// The model the v16 golden file must always load as: v15 with one hidden
+/// recorded note explicitly barred from carrying through an adjacent seam.
+fn golden_v16_expected() -> Project {
+    let mut project = Project {
+        name: "Golden v16".into(),
+        ..golden_v15_expected()
+    };
+    let clip = project
+        .tracks
+        .iter_mut()
+        .flat_map(|track| &mut Arc::make_mut(track).clips)
+        .find(|clip| matches!(clip.content, ClipContent::Midi { .. }))
+        .expect("the golden project has a MIDI clip");
+    if let ClipContent::Midi { notes, .. } = &mut Arc::make_mut(clip).content {
+        notes[0] = notes[0].with_carries_on(false);
+    }
+    project
+}
+
+#[test]
+fn golden_v16_file_loads_forever() {
+    let path = fixture("v16/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v16_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v16 golden file must load");
+    assert_eq!(project, golden_v16_expected());
+}
+
+#[test]
+fn legacy_notes_default_to_seam_carry_and_false_is_saved_explicitly() {
+    let old = load(&fixture("v15/golden.lumen")).unwrap();
+    assert!(
+        old.tracks
+            .iter()
+            .flat_map(|track| &track.clips)
+            .flat_map(|clip| match &clip.content {
+                ClipContent::Midi { notes, .. } => notes.iter().collect::<Vec<_>>(),
+                ClipContent::Audio { .. } => Vec::new(),
+            })
+            .all(|note| note.carries_on())
+    );
+    let text = String::from_utf8(to_bytes(&golden_v16_expected()).unwrap()).unwrap();
+    let flat: String = text.split_whitespace().collect();
+    assert!(flat.contains("[-2822400,1411200,40,80,false,false]"));
 }
 
 #[test]
