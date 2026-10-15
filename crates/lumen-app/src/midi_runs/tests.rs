@@ -83,6 +83,20 @@ fn a_clip_that_does_not_hold_the_note_cuts_it_at_the_seam() {
 }
 
 #[test]
+fn a_hidden_capture_sharing_a_start_does_not_carry_the_old_note_on() {
+    // The old note sounds 1 to 3; a punched take from 2 keeps a recorded
+    // note of the same pitch hidden from 1 to 5. The old note stops at 2
+    // and nothing sounds in the take's window.
+    let clips = [
+        clip(1, 0, 2, vec![note(1, 2, 60)]),
+        clip(2, 2, 2, vec![note(-1, 4, 60)]),
+    ];
+    let found = runs(whole(&clips));
+    assert_eq!(found.len(), 1);
+    assert_eq!(played(&found[0]), vec![(1, 1, 60)]);
+}
+
+#[test]
 fn apart_or_looping_clips_are_runs_of_their_own() {
     let clips = [
         clip(1, 0, 4, vec![note(2, 8, 60)]),

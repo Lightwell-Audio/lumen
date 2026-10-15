@@ -5587,3 +5587,17 @@ loop/punch window. Subsequent passes keep their own times, including times
 earlier than that initial start. Wrap markers identify a silent initial
 pass, including delayed messages and pass-counter rollover. This restores
 first-note visibility without cropping pre-punch performance.
+
+**Review follow-up (PR 16, 2026-10-15).** Three edges of the continuous
+capture are closed. The engine's recording tracks only let a played key
+win its pitch over playback inside the recording window (punch, and the
+loop once wrapped): after punch-out, recorded clips keep sounding while
+the take captures on (`MidiTrack::recording_within`). A latency-compensated
+message stamped just after a loop wrap that lands before the loop start
+moves to the end of the pass before (`recorder::Capture::push`). A hidden
+note carries an earlier clip's note across a seam only when it is a copy:
+the same start, pitch and velocity, sounding no later than that note
+(`seams::carried_on`), so a recorded note kept hidden before a punch-in no
+longer extends an old note through the take. A captured note identical in
+start, pitch and velocity and no longer than the old note remains
+indistinguishable from a copy without a format change.

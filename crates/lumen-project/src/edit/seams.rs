@@ -6,12 +6,16 @@
 //! clip cut in two) and holds the same note, the note **carries on**: it sounds, and
 //! is drawn, through the seam until it ends or the next clip does, and on
 //! through further seams that hold it too. "The same note" is a note of the
-//! same pitch starting at the same arrangement time, which the next clip
-//! keeps hidden before its start: the copy a split leaves in the right
-//! piece, or the one an Overdub carries into its new clip
-//! (`record::overdub_from_inside`). A clip that does not hold it (a clip
-//! moved up against another, a note cut short where a new one was played)
-//! cuts it at the seam, as before.
+//! same pitch and velocity starting at the same arrangement time, which the
+//! next clip keeps hidden before its start, and which sounds no later than
+//! the note it continues: the copy a split leaves in the right piece, or the
+//! one an Overdub carries into its new clip (`record::carry`). A clip that
+//! does not hold it (a clip moved up against another, a note cut short
+//! where a new one was played) cuts it at the seam, as before. A recorded
+//! note kept hidden before a take's window (`record::capture_parts`) is not
+//! a copy: it may share an old note's start and pitch, but runs longer or
+//! was struck at another velocity, so it stays hidden and the old note
+//! stops at the seam.
 //!
 //! Only clips that do not loop meet at seams: a loop's repeats begin again
 //! at every repeat, so nothing crosses them. Muted clips and muted notes
@@ -45,15 +49,23 @@ pub fn is_seam(prev: &Clip, prev_length: Ticks, next: &Clip) -> bool {
 /// are the notes it carries on from the clip before it. Call only where
 /// [`is_seam`] holds.
 pub fn carried_on(prev: &Clip, prev_length: Ticks, carried: &[usize], next: &Clip) -> Vec<usize> {
-    // Arrangement start and pitch of every note sounding up to the seam.
-    let reaching: Vec<(Ticks, u8)> = notes(prev)
+    // Every note sounding up to the seam: its arrangement start, pitch,
+    // velocity and arrangement end.
+    let reaching: Vec<(Ticks, u8, u8, Ticks)> = notes(prev)
         .iter()
         .enumerate()
         .filter(|&(i, n)| {
             let shown = n.start() >= Ticks::ZERO || carried.contains(&i);
             !n.muted() && shown && n.start() < prev_length && n.end() >= prev_length
         })
-        .map(|(_, n)| (prev.start + n.start(), n.pitch()))
+        .map(|(_, n)| {
+            (
+                prev.start + n.start(),
+                n.pitch(),
+                n.velocity(),
+                prev.start + n.end(),
+            )
+        })
         .collect();
     if reaching.is_empty() {
         return Vec::new();
@@ -62,10 +74,19 @@ pub fn carried_on(prev: &Clip, prev_length: Ticks, carried: &[usize], next: &Cli
         .iter()
         .enumerate()
         .filter(|&(_, n)| {
+            // A copy of the note never sounds past it: a split leaves the
+            // same note, an Overdub carries it as long as it was heard. A
+            // hidden recorded note that only shares its start and pitch
+            // (one played before a punch-in) is longer, or struck at
+            // another velocity, so it stays hidden.
+            let end = next.start + n.end().min(next.length);
             !n.muted()
                 && n.start() < Ticks::ZERO
                 && n.end() > Ticks::ZERO
-                && reaching.contains(&(next.start + n.start(), n.pitch()))
+                && reaching.iter().any(|&(start, pitch, velocity, until)| {
+                    (start, pitch, velocity) == (next.start + n.start(), n.pitch(), n.velocity())
+                        && end <= until
+                })
         })
         .map(|(i, _)| i)
         .collect()
@@ -183,6 +204,36 @@ mod tests {
         }
         assert_eq!(carried(&track(quiet)), of(&[&[], &[]]));
         assert_eq!(carried(&track(base())), of(&[&[], &[0]]));
+    }
+
+    #[test]
+    fn a_hidden_note_that_outlasts_or_outplays_the_one_reaching_the_seam_is_not_carried() {
+        // The old note sounds 1 to 3; the next clip begins at 2 and keeps a
+        // recorded note hidden from 1 with the same pitch (a take begun
+        // before a punch-in). It runs to 5, past the old note: not a copy.
+        let longer = track(vec![
+            clip(1, 0, 2, vec![note(1, 2, 60)]),
+            clip(2, 2, 2, vec![note(-1, 4, 60)]),
+        ]);
+        assert_eq!(carried(&longer), of(&[&[], &[]]));
+        // Struck at another velocity, it is another note too.
+        let softer = track(vec![
+            clip(1, 0, 2, vec![note(1, 2, 60)]),
+            clip(2, 2, 2, vec![Note::new(q(-1), q(2), 60, 30)]),
+        ]);
+        assert_eq!(carried(&softer), of(&[&[], &[]]));
+        // A copy that ends sooner, as an Overdub carries what was heard,
+        // or that runs on only past the clip's end, still carries.
+        let heard = track(vec![
+            clip(1, 0, 2, vec![note(1, 4, 60)]),
+            clip(2, 2, 2, vec![note(-1, 3, 60)]),
+        ]);
+        assert_eq!(carried(&heard), of(&[&[], &[0]]));
+        let past = track(vec![
+            clip(1, 0, 2, vec![note(1, 3, 60)]),
+            clip(2, 2, 2, vec![note(-1, 9, 60)]),
+        ]);
+        assert_eq!(carried(&past), of(&[&[], &[0]]));
     }
 
     #[test]

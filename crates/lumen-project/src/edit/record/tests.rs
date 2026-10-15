@@ -629,6 +629,36 @@ fn punch_limits_the_clip_window_and_keeps_the_full_capture_hidden() {
 }
 
 #[test]
+fn a_hidden_capture_before_a_punch_does_not_carry_an_old_note_on() {
+    // An old 60 sounds 1 to 3; Replace punches 2 to 4 while the take
+    // captured a 60 from 1 to 5. The old note stops at the punch-in; the
+    // captured one stays hidden in the take, as trimming can recover it.
+    let base = base(vec![clip(10, 0, 8, vec![note(1, 2, 60)])]);
+    let mut p = base.clone();
+    let placed = place(
+        &mut p,
+        &base,
+        Id(1),
+        &take(0, 6, vec![tn(1, 4, 60)]),
+        Placement {
+            mode: Mode::Replace,
+            punch: Some((q(2), q(4))),
+            take_clip: Id(50),
+        },
+        &mut ids(),
+    );
+    assert!(placed.is_ok());
+    assert_eq!(clip_of(&p, 50).content, midi(vec![note(-1, 4, 60)]));
+    assert_eq!(spans(&p)[..2], [(Id(10), q(0), q(2)), (Id(50), q(2), q(2))]);
+    assert!(
+        crate::edit::seams::carried(&p.tracks[0])
+            .iter()
+            .all(|c| c.is_empty()),
+        "nothing carries on into the punched clip"
+    );
+}
+
+#[test]
 fn punch_keeps_full_capture_in_both_modes_and_trim_recovers_it() {
     let take = Take {
         start: q(0),
