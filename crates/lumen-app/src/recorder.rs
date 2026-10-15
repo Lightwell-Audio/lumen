@@ -169,7 +169,22 @@ impl Capture {
             return;
         }
         let mut at = ticks((c.at - latency).max(0));
-        if c.pass == first_pass
+        let mut pass = c.pass;
+        // After a loop wrap, the latency can take a message heard just
+        // inside the loop's start back before it: it was played at the end
+        // of the pass before, as the engine places one played just before a
+        // wrap (`lumen_engine::Captured::at`). Before any wrap, a message
+        // heard before the loop start is genuine pre-loop capture, and one
+        // heard past the loop's end (Loop switched off) is left alone.
+        if pass != first_pass
+            && let Some((from, to)) = self.looped
+            && at < from
+            && (from..to).contains(&ticks(c.at.max(0)))
+        {
+            at = at + (to - from);
+            pass = pass.wrapping_sub(1);
+        }
+        if pass == first_pass
             && let Some(start) = self.start
         {
             at = at.max(start);
@@ -177,21 +192,21 @@ impl Capture {
         let channel = c.msg.channel();
         let looped = self.looped;
         let lane = self.lanes.entry(c.track).or_default();
-        lane.see(c.pass);
+        lane.see(pass);
         match kind {
             Kind::NoteOn { key, velocity } => {
                 let open = Held {
                     start: at,
                     velocity,
-                    pass: c.pass,
+                    pass,
                 };
                 if let Some(previous) = lane.held.insert((channel, key), open) {
-                    lane.finish(key, previous, (at, c.pass), looped);
+                    lane.finish(key, previous, (at, pass), looped);
                 }
             }
             Kind::NoteOff { key, .. } => {
                 if let Some(open) = lane.held.remove(&(channel, key)) {
-                    lane.finish(key, open, (at, c.pass), looped);
+                    lane.finish(key, open, (at, pass), looped);
                 }
             }
             Kind::Controller { number, value } => lane.events.push(TakeEvent {
@@ -756,6 +771,65 @@ mod tests {
         assert_eq!(
             c.take(1, (Ticks(800), Ticks(1_600))).notes,
             vec![note(900, 100, 64, 80), note(1_200, 100, 60, 90)]
+        );
+    }
+
+    /// A note played just after a wrap that the latency takes back before
+    /// the loop start belongs to the end of the pass before, and its part
+    /// after the wrap still plays at the loop start.
+    #[test]
+    fn latency_across_a_wrap_moves_a_note_to_the_end_of_the_pass_before() {
+        let mut c = Capture::recording(Some((Ticks(800), Ticks(1_600))), Ticks(800));
+        c.push(&wrap(1, 1), 100, &Ticks);
+        c.push(
+            &in_pass(1, cap(1, 850, Msg::note_on(0, 60, 90))),
+            100,
+            &Ticks,
+        );
+        c.push(
+            &in_pass(1, cap(1, 860, Msg::controller(0, 1, 7))),
+            100,
+            &Ticks,
+        );
+        c.push(&in_pass(1, cap(1, 950, Msg::note_off(0, 60))), 100, &Ticks);
+        let take = c.take(1, (Ticks(800), Ticks(1_600)));
+        assert_eq!(
+            take.notes,
+            vec![note(800, 50, 60, 90), note(1_550, 50, 60, 90)]
+        );
+        assert_eq!(take.events[0].at, Ticks(1_560));
+    }
+
+    /// Before any wrap, what is heard before the loop start is genuine
+    /// pre-loop capture, and a tail past the loop end (Loop switched off) is
+    /// kept where it was played.
+    #[test]
+    fn pre_loop_capture_and_tails_past_the_loop_keep_their_times() {
+        let mut c = Capture::recording(Some((Ticks(800), Ticks(1_600))), Ticks(500));
+        c.push(&cap(1, 850, Msg::note_on(0, 60, 90)), 100, &Ticks);
+        c.push(&cap(1, 950, Msg::note_off(0, 60)), 100, &Ticks);
+        c.push(&cap(1, 1_750, Msg::note_on(0, 62, 90)), 100, &Ticks);
+        c.push(&cap(1, 1_850, Msg::note_off(0, 62)), 100, &Ticks);
+        assert_eq!(
+            c.take(1, (Ticks(800), Ticks(1_600))).notes,
+            vec![note(750, 100, 60, 90), note(1_650, 100, 62, 90)]
+        );
+        // A later pass's tail past the loop end is left where it was too.
+        let mut c = Capture::recording(Some((Ticks(800), Ticks(1_600))), Ticks(800));
+        c.push(&wrap(1, 1), 100, &Ticks);
+        c.push(
+            &in_pass(1, cap(1, 1_750, Msg::note_on(0, 62, 90))),
+            100,
+            &Ticks,
+        );
+        c.push(
+            &in_pass(1, cap(1, 1_850, Msg::note_off(0, 62))),
+            100,
+            &Ticks,
+        );
+        assert_eq!(
+            c.take(1, (Ticks(800), Ticks(1_600))).notes,
+            vec![note(1_650, 100, 62, 90)]
         );
     }
 
