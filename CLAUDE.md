@@ -403,7 +403,25 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-15: **M6 (VST3 hosting and the device system)
+**Last updated:** 2026-10-15 (later): **M6 slice 0, part 2: the production host
+core** on `m6-s0-host-core` (ADR-0066; the branch was renamed from a generated
+name, and the old remote name never existed). New crate `crates/lumen-plugin-host`
+and its binary: `Module` loads a VST3 module with the OS loader, `Instance`
+runs one plugin, `protocol`/`wire` are the versioned, bounded messages (a
+block carries a configuration generation and a sequence number; stale blocks
+and answers are rejected and counted), `client::HostProcess` talks to a host
+process with a deadline on everything and says how it ended, `process` makes
+the host die with its parent (Linux). 47 tests pass on Linux against the test
+plugins, in process and in real child processes, with every fault; the crate
+passes clippy for Windows (GNU) and macOS but was **not run** there. **Not
+done, and not claimed:** the shared-memory block transport, the signalling and
+process-grouping measurements (they need Windows), the Windows job object, the
+editor, the scanner. Next: the shared-memory transport behind the same
+messages and the measurement harness for the owner to run on Windows, then the
+architecture ADR for the audio path; slice 1 (plugin discovery) follows slice
+0's gate. Packages for the cloud build are listed below.
+
+Before it, 2026-10-15: **M6 (VST3 hosting and the device system)
 started** at the owner's instruction, with M5's closeout (MT-MIDI-7 to 9, the
 WSL gates, the report) still open and not marked passed. Slice 0, part 1:
 `crates/lumen-test-plugin` (ADR-0065), a portable deterministic VST3

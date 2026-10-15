@@ -1,0 +1,888 @@
+//! The messages between Lumen and a plugin-host process, and their framing.
+//!
+//! Every request gets exactly one response. A `Process` request names the
+//! configuration generation and a block sequence number, and its response
+//! echoes both, so a response that arrives after its deadline (a late
+//! plugin) is recognised as stale and dropped rather than written into a
+//! block that has moved on. Everything read is bounded (see the limits).
+
+use std::io::{self, Read, Write};
+
+use crate::wire::{Reader, WireError, Writer};
+
+/// First four bytes of every frame.
+pub const MAGIC: u32 = 0x3148_504c; // "LPH1"
+/// Bumped when a message changes shape. A host of another version is refused.
+pub const VERSION: u16 = 1;
+
+pub const MAX_FRAMES: usize = 8192;
+pub const MAX_CHANNELS: usize = 16;
+pub const MAX_EVENTS: usize = 4096;
+pub const MAX_QUEUES: usize = 1024;
+pub const MAX_POINTS: usize = 16_384;
+pub const MAX_PARAMETERS: usize = 16_384;
+pub const MAX_STATE: usize = 16 << 20;
+pub const MAX_TEXT: usize = 1024;
+pub const MAX_CLASSES: usize = 256;
+/// The largest frame payload: a full block of audio both ways, with room.
+pub const MAX_MESSAGE: usize = MAX_STATE + (MAX_FRAMES * MAX_CHANNELS * 4) + (1 << 20);
+
+/// The same 16 bytes as a VST3 class id.
+pub type ClassId = [u8; 16];
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EventKind {
+    NoteOn {
+        channel: i16,
+        pitch: i16,
+        velocity: f32,
+    },
+    NoteOff {
+        channel: i16,
+        pitch: i16,
+        velocity: f32,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Event {
+    /// Sample offset into the block.
+    pub offset: u32,
+    pub kind: EventKind,
+}
+
+/// The value changes of one parameter inside a block.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParamQueue {
+    pub id: u32,
+    /// `(sample offset, normalized value)`, in time order.
+    pub points: Vec<(u32, f64)>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassInfo {
+    pub id: ClassId,
+    pub name: String,
+    pub category: String,
+    pub vendor: String,
+    pub subcategories: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParamInfo {
+    pub id: u32,
+    pub title: String,
+    pub units: String,
+    pub steps: i32,
+    pub default: f64,
+}
+
+/// How a request failed, so the caller can choose what to do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum FailureKind {
+    /// The module could not be loaded or has no usable class.
+    Load = 0,
+    /// The request does not fit the host's state (not loaded, not configured).
+    Sequence = 1,
+    /// The block belongs to an older configuration.
+    StaleConfiguration = 2,
+    /// The plugin refused or failed the call.
+    Plugin = 3,
+    /// The request was not understood.
+    Protocol = 4,
+}
+
+impl FailureKind {
+    fn from_u8(v: u8) -> Result<Self, WireError> {
+        Ok(match v {
+            0 => Self::Load,
+            1 => Self::Sequence,
+            2 => Self::StaleConfiguration,
+            3 => Self::Plugin,
+            4 => Self::Protocol,
+            _ => return Err(WireError::Invalid("failure kind")),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Request {
+    /// Load a module and make one of its audio classes (`None`: the first).
+    Load {
+        path: String,
+        class: Option<ClassId>,
+    },
+    /// Set the processing format. Starts a new generation.
+    Configure {
+        generation: u32,
+        sample_rate: f64,
+        max_frames: u32,
+        /// Channels of the main input and output bus; 0 for none.
+        inputs: u8,
+        outputs: u8,
+    },
+    Process {
+        generation: u32,
+        seq: u64,
+        frames: u32,
+        /// One slice per input channel, `frames` long.
+        input: Vec<Vec<f32>>,
+        events: Vec<Event>,
+        params: Vec<ParamQueue>,
+    },
+    GetState,
+    SetState(Vec<u8>),
+    Parameters,
+    Quit,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Response {
+    Loaded(ClassInfo),
+    Configured {
+        generation: u32,
+        latency: u32,
+        tail: u32,
+    },
+    Processed {
+        generation: u32,
+        seq: u64,
+        /// The plugin's `process` result (0 is success).
+        status: i32,
+        latency: u32,
+        /// Restart flags the plugin asked for during the block.
+        restart: u32,
+        /// Samples that were not finite and have been replaced by silence.
+        repaired: u32,
+        output: Vec<Vec<f32>>,
+    },
+    State(Vec<u8>),
+    Parameters {
+        /// The plugin's own count, which may exceed the list's cap.
+        total: u32,
+        list: Vec<ParamInfo>,
+    },
+    Done,
+    Failed {
+        kind: FailureKind,
+        message: String,
+    },
+}
+
+const REQ_LOAD: u16 = 1;
+const REQ_CONFIGURE: u16 = 2;
+const REQ_PROCESS: u16 = 3;
+const REQ_GET_STATE: u16 = 4;
+const REQ_SET_STATE: u16 = 5;
+const REQ_PARAMETERS: u16 = 6;
+const REQ_QUIT: u16 = 7;
+
+const RES_LOADED: u16 = 101;
+const RES_CONFIGURED: u16 = 102;
+const RES_PROCESSED: u16 = 103;
+const RES_STATE: u16 = 104;
+const RES_PARAMETERS: u16 = 105;
+const RES_DONE: u16 = 106;
+const RES_FAILED: u16 = 107;
+
+fn put_audio(w: &mut Writer, channels: &[Vec<f32>]) {
+    w.u32(channels.len() as u32);
+    for channel in channels {
+        w.u32(channel.len() as u32);
+        for &s in channel {
+            w.f32(s);
+        }
+    }
+}
+
+fn get_audio(r: &mut Reader<'_>, what: &'static str) -> Result<Vec<Vec<f32>>, WireError> {
+    let channels = r.count(what, MAX_CHANNELS, 4)?;
+    let mut out = Vec::with_capacity(channels);
+    for _ in 0..channels {
+        let n = r.count("frames", MAX_FRAMES, 4)?;
+        let mut channel = Vec::with_capacity(n);
+        for _ in 0..n {
+            channel.push(r.f32()?);
+        }
+        out.push(channel);
+    }
+    // A block is rectangular: every channel is the same length.
+    if out.windows(2).any(|w| w[0].len() != w[1].len()) {
+        return Err(WireError::Invalid("channel lengths"));
+    }
+    Ok(out)
+}
+
+fn put_class(w: &mut Writer, c: &ClassInfo) {
+    w.raw(&c.id);
+    w.str(&c.name);
+    w.str(&c.category);
+    w.str(&c.vendor);
+    w.str(&c.subcategories);
+}
+
+fn get_class(r: &mut Reader<'_>) -> Result<ClassInfo, WireError> {
+    Ok(ClassInfo {
+        id: r.raw()?,
+        name: r.str("name", MAX_TEXT)?,
+        category: r.str("category", MAX_TEXT)?,
+        vendor: r.str("vendor", MAX_TEXT)?,
+        subcategories: r.str("subcategories", MAX_TEXT)?,
+    })
+}
+
+impl Request {
+    fn encode(&self) -> (u16, Vec<u8>) {
+        let mut w = Writer::new();
+        let kind = match self {
+            Request::Load { path, class } => {
+                w.str(path);
+                match class {
+                    Some(id) => {
+                        w.bool(true);
+                        w.raw(id);
+                    }
+                    None => w.bool(false),
+                }
+                REQ_LOAD
+            }
+            Request::Configure {
+                generation,
+                sample_rate,
+                max_frames,
+                inputs,
+                outputs,
+            } => {
+                w.u32(*generation);
+                w.f64(*sample_rate);
+                w.u32(*max_frames);
+                w.u8(*inputs);
+                w.u8(*outputs);
+                REQ_CONFIGURE
+            }
+            Request::Process {
+                generation,
+                seq,
+                frames,
+                input,
+                events,
+                params,
+            } => {
+                w.u32(*generation);
+                w.u64(*seq);
+                w.u32(*frames);
+                put_audio(&mut w, input);
+                w.u32(events.len() as u32);
+                for e in events {
+                    w.u32(e.offset);
+                    let (tag, channel, pitch, velocity) = match e.kind {
+                        EventKind::NoteOn {
+                            channel,
+                            pitch,
+                            velocity,
+                        } => (0, channel, pitch, velocity),
+                        EventKind::NoteOff {
+                            channel,
+                            pitch,
+                            velocity,
+                        } => (1, channel, pitch, velocity),
+                    };
+                    w.u8(tag);
+                    w.u16(channel as u16);
+                    w.u16(pitch as u16);
+                    w.f32(velocity);
+                }
+                w.u32(params.len() as u32);
+                for q in params {
+                    w.u32(q.id);
+                    w.u32(q.points.len() as u32);
+                    for &(offset, value) in &q.points {
+                        w.u32(offset);
+                        w.f64(value);
+                    }
+                }
+                REQ_PROCESS
+            }
+            Request::GetState => REQ_GET_STATE,
+            Request::SetState(bytes) => {
+                w.bytes(bytes);
+                REQ_SET_STATE
+            }
+            Request::Parameters => REQ_PARAMETERS,
+            Request::Quit => REQ_QUIT,
+        };
+        (kind, w.into_bytes())
+    }
+
+    fn decode(kind: u16, payload: &[u8]) -> Result<Self, WireError> {
+        let mut r = Reader::new(payload);
+        let request = match kind {
+            REQ_LOAD => Request::Load {
+                path: r.str("path", MAX_TEXT)?,
+                class: if r.bool()? { Some(r.raw()?) } else { None },
+            },
+            REQ_CONFIGURE => {
+                let request = Request::Configure {
+                    generation: r.u32()?,
+                    sample_rate: r.f64()?,
+                    max_frames: r.u32()?,
+                    inputs: r.u8()?,
+                    outputs: r.u8()?,
+                };
+                if let Request::Configure {
+                    sample_rate,
+                    max_frames,
+                    inputs,
+                    outputs,
+                    ..
+                } = request
+                    && (!(sample_rate.is_finite() && (8_000.0..=768_000.0).contains(&sample_rate))
+                        || max_frames == 0
+                        || max_frames as usize > MAX_FRAMES
+                        || inputs as usize > MAX_CHANNELS
+                        || outputs as usize > MAX_CHANNELS)
+                {
+                    return Err(WireError::Invalid("format"));
+                }
+                request
+            }
+            REQ_PROCESS => {
+                let generation = r.u32()?;
+                let seq = r.u64()?;
+                let frames = r.u32()?;
+                if frames == 0 || frames as usize > MAX_FRAMES {
+                    return Err(WireError::Invalid("frame count"));
+                }
+                let input = get_audio(&mut r, "input channels")?;
+                if input.iter().any(|c| c.len() != frames as usize) {
+                    return Err(WireError::Invalid("input length"));
+                }
+                let n = r.count("events", MAX_EVENTS, 13)?;
+                let mut events = Vec::with_capacity(n);
+                for _ in 0..n {
+                    let offset = r.u32()?;
+                    if offset >= frames {
+                        return Err(WireError::Invalid("event offset"));
+                    }
+                    let tag = r.u8()?;
+                    let channel = r.u16()? as i16;
+                    let pitch = r.u16()? as i16;
+                    let velocity = r.f32()?;
+                    let kind = match tag {
+                        0 => EventKind::NoteOn {
+                            channel,
+                            pitch,
+                            velocity,
+                        },
+                        1 => EventKind::NoteOff {
+                            channel,
+                            pitch,
+                            velocity,
+                        },
+                        _ => return Err(WireError::Invalid("event kind")),
+                    };
+                    events.push(Event { offset, kind });
+                }
+                let n = r.count("parameter queues", MAX_QUEUES, 8)?;
+                let mut params = Vec::with_capacity(n);
+                let mut points_total = 0;
+                for _ in 0..n {
+                    let id = r.u32()?;
+                    let m = r.count("points", MAX_POINTS, 12)?;
+                    points_total += m;
+                    if points_total > MAX_POINTS {
+                        return Err(WireError::TooLarge {
+                            what: "points in a block",
+                            max: MAX_POINTS,
+                            got: points_total,
+                        });
+                    }
+                    let mut points = Vec::with_capacity(m);
+                    for _ in 0..m {
+                        let offset = r.u32()?;
+                        if offset >= frames {
+                            return Err(WireError::Invalid("point offset"));
+                        }
+                        points.push((offset, r.f64()?));
+                    }
+                    params.push(ParamQueue { id, points });
+                }
+                Request::Process {
+                    generation,
+                    seq,
+                    frames,
+                    input,
+                    events,
+                    params,
+                }
+            }
+            REQ_GET_STATE => Request::GetState,
+            REQ_SET_STATE => Request::SetState(r.bytes("state", MAX_STATE)?.to_vec()),
+            REQ_PARAMETERS => Request::Parameters,
+            REQ_QUIT => Request::Quit,
+            _ => return Err(WireError::Invalid("request kind")),
+        };
+        r.finish()?;
+        Ok(request)
+    }
+}
+
+impl Response {
+    fn encode(&self) -> (u16, Vec<u8>) {
+        let mut w = Writer::new();
+        let kind = match self {
+            Response::Loaded(class) => {
+                put_class(&mut w, class);
+                RES_LOADED
+            }
+            Response::Configured {
+                generation,
+                latency,
+                tail,
+            } => {
+                w.u32(*generation);
+                w.u32(*latency);
+                w.u32(*tail);
+                RES_CONFIGURED
+            }
+            Response::Processed {
+                generation,
+                seq,
+                status,
+                latency,
+                restart,
+                repaired,
+                output,
+            } => {
+                w.u32(*generation);
+                w.u64(*seq);
+                w.i32(*status);
+                w.u32(*latency);
+                w.u32(*restart);
+                w.u32(*repaired);
+                put_audio(&mut w, output);
+                RES_PROCESSED
+            }
+            Response::State(bytes) => {
+                w.bytes(bytes);
+                RES_STATE
+            }
+            Response::Parameters { total, list } => {
+                w.u32(*total);
+                w.u32(list.len() as u32);
+                for p in list {
+                    w.u32(p.id);
+                    w.str(&p.title);
+                    w.str(&p.units);
+                    w.i32(p.steps);
+                    w.f64(p.default);
+                }
+                RES_PARAMETERS
+            }
+            Response::Done => RES_DONE,
+            Response::Failed { kind, message } => {
+                w.u8(*kind as u8);
+                w.str(message);
+                RES_FAILED
+            }
+        };
+        (kind, w.into_bytes())
+    }
+
+    fn decode(kind: u16, payload: &[u8]) -> Result<Self, WireError> {
+        let mut r = Reader::new(payload);
+        let response = match kind {
+            RES_LOADED => Response::Loaded(get_class(&mut r)?),
+            RES_CONFIGURED => Response::Configured {
+                generation: r.u32()?,
+                latency: r.u32()?,
+                tail: r.u32()?,
+            },
+            RES_PROCESSED => Response::Processed {
+                generation: r.u32()?,
+                seq: r.u64()?,
+                status: r.i32()?,
+                latency: r.u32()?,
+                restart: r.u32()?,
+                repaired: r.u32()?,
+                output: get_audio(&mut r, "output channels")?,
+            },
+            RES_STATE => Response::State(r.bytes("state", MAX_STATE)?.to_vec()),
+            RES_PARAMETERS => {
+                let total = r.u32()?;
+                let n = r.count("parameters", MAX_PARAMETERS, 24)?;
+                let mut list = Vec::with_capacity(n);
+                for _ in 0..n {
+                    list.push(ParamInfo {
+                        id: r.u32()?,
+                        title: r.str("title", MAX_TEXT)?,
+                        units: r.str("units", MAX_TEXT)?,
+                        steps: r.i32()?,
+                        default: r.f64()?,
+                    });
+                }
+                Response::Parameters { total, list }
+            }
+            RES_DONE => Response::Done,
+            RES_FAILED => Response::Failed {
+                kind: FailureKind::from_u8(r.u8()?)?,
+                message: r.str("message", MAX_TEXT)?,
+            },
+            _ => return Err(WireError::Invalid("response kind")),
+        };
+        r.finish()?;
+        Ok(response)
+    }
+}
+
+/// Why reading a frame failed.
+#[derive(Debug)]
+pub enum FrameError {
+    /// The other side closed the stream between frames.
+    Closed,
+    Io(io::Error),
+    Wire(WireError),
+}
+
+impl std::fmt::Display for FrameError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FrameError::Closed => write!(f, "stream closed"),
+            FrameError::Io(e) => write!(f, "{e}"),
+            FrameError::Wire(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for FrameError {}
+
+impl From<WireError> for FrameError {
+    fn from(e: WireError) -> Self {
+        FrameError::Wire(e)
+    }
+}
+
+fn write_frame<W: Write>(out: &mut W, kind: u16, payload: &[u8]) -> io::Result<()> {
+    let mut header = [0_u8; 12];
+    header[0..4].copy_from_slice(&MAGIC.to_le_bytes());
+    header[4..6].copy_from_slice(&VERSION.to_le_bytes());
+    header[6..8].copy_from_slice(&kind.to_le_bytes());
+    header[8..12].copy_from_slice(&(payload.len() as u32).to_le_bytes());
+    out.write_all(&header)?;
+    out.write_all(payload)?;
+    out.flush()
+}
+
+fn read_frame<R: Read>(input: &mut R) -> Result<(u16, Vec<u8>), FrameError> {
+    let mut header = [0_u8; 12];
+    // End of stream before the first byte is an orderly close; partway
+    // through a header it is a torn frame.
+    let mut got = 0;
+    while got < header.len() {
+        match input.read(&mut header[got..]) {
+            Ok(0) if got == 0 => return Err(FrameError::Closed),
+            Ok(0) => return Err(FrameError::Wire(WireError::Truncated)),
+            Ok(n) => got += n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(FrameError::Io(e)),
+        }
+    }
+    let magic = u32::from_le_bytes(header[0..4].try_into().expect("four bytes"));
+    let version = u16::from_le_bytes(header[4..6].try_into().expect("two bytes"));
+    let kind = u16::from_le_bytes(header[6..8].try_into().expect("two bytes"));
+    let len = u32::from_le_bytes(header[8..12].try_into().expect("four bytes")) as usize;
+    if magic != MAGIC {
+        return Err(WireError::Invalid("frame marker").into());
+    }
+    if version != VERSION {
+        return Err(WireError::Invalid("protocol version").into());
+    }
+    if len > MAX_MESSAGE {
+        return Err(WireError::TooLarge {
+            what: "message",
+            max: MAX_MESSAGE,
+            got: len,
+        }
+        .into());
+    }
+    let mut payload = vec![0; len];
+    input.read_exact(&mut payload).map_err(|e| {
+        if e.kind() == io::ErrorKind::UnexpectedEof {
+            FrameError::Wire(WireError::Truncated)
+        } else {
+            FrameError::Io(e)
+        }
+    })?;
+    Ok((kind, payload))
+}
+
+pub fn write_request<W: Write>(out: &mut W, request: &Request) -> io::Result<()> {
+    let (kind, payload) = request.encode();
+    write_frame(out, kind, &payload)
+}
+
+pub fn read_request<R: Read>(input: &mut R) -> Result<Request, FrameError> {
+    let (kind, payload) = read_frame(input)?;
+    Ok(Request::decode(kind, &payload)?)
+}
+
+pub fn write_response<W: Write>(out: &mut W, response: &Response) -> io::Result<()> {
+    let (kind, payload) = response.encode();
+    write_frame(out, kind, &payload)
+}
+
+pub fn read_response<R: Read>(input: &mut R) -> Result<Response, FrameError> {
+    let (kind, payload) = read_frame(input)?;
+    Ok(Response::decode(kind, &payload)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn note(offset: u32, pitch: i16) -> Event {
+        Event {
+            offset,
+            kind: EventKind::NoteOn {
+                channel: 0,
+                pitch,
+                velocity: 0.75,
+            },
+        }
+    }
+
+    fn round_trip(request: &Request) -> Request {
+        let mut bytes = Vec::new();
+        write_request(&mut bytes, request).unwrap();
+        read_request(&mut bytes.as_slice()).unwrap()
+    }
+
+    #[test]
+    fn requests_round_trip() {
+        let process = Request::Process {
+            generation: 3,
+            seq: 99,
+            frames: 4,
+            input: vec![vec![0.0, 0.5, -0.5, 1.0]; 2],
+            events: vec![
+                note(1, 60),
+                Event {
+                    offset: 3,
+                    kind: EventKind::NoteOff {
+                        channel: 2,
+                        pitch: -1,
+                        velocity: 0.0,
+                    },
+                },
+            ],
+            params: vec![ParamQueue {
+                id: 7,
+                points: vec![(0, 0.25), (2, 1.0)],
+            }],
+        };
+        for request in [
+            Request::Load {
+                path: "/x/y.vst3".into(),
+                class: Some([9; 16]),
+            },
+            Request::Load {
+                path: "z".into(),
+                class: None,
+            },
+            Request::Configure {
+                generation: 1,
+                sample_rate: 48_000.0,
+                max_frames: 512,
+                inputs: 2,
+                outputs: 2,
+            },
+            process,
+            Request::GetState,
+            Request::SetState(vec![1, 2, 3]),
+            Request::Parameters,
+            Request::Quit,
+        ] {
+            assert_eq!(round_trip(&request), request);
+        }
+    }
+
+    #[test]
+    fn responses_round_trip() {
+        for response in [
+            Response::Loaded(ClassInfo {
+                id: [1; 16],
+                name: "n".into(),
+                category: "c".into(),
+                vendor: "v".into(),
+                subcategories: "s".into(),
+            }),
+            Response::Configured {
+                generation: 2,
+                latency: 24,
+                tail: 24,
+            },
+            Response::Processed {
+                generation: 2,
+                seq: 5,
+                status: 0,
+                latency: 24,
+                restart: 0,
+                repaired: 3,
+                output: vec![vec![0.25; 8]; 2],
+            },
+            Response::State(vec![5; 40]),
+            Response::Parameters {
+                total: 99,
+                list: vec![ParamInfo {
+                    id: 4,
+                    title: "Level".into(),
+                    units: "dB".into(),
+                    steps: 0,
+                    default: 0.5,
+                }],
+            },
+            Response::Done,
+            Response::Failed {
+                kind: FailureKind::StaleConfiguration,
+                message: "old".into(),
+            },
+        ] {
+            let mut bytes = Vec::new();
+            write_response(&mut bytes, &response).unwrap();
+            assert_eq!(read_response(&mut bytes.as_slice()).unwrap(), response);
+        }
+    }
+
+    fn frame(kind: u16, payload: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        write_frame(&mut bytes, kind, payload).unwrap();
+        bytes
+    }
+
+    fn rejects(bytes: &[u8]) -> bool {
+        matches!(read_request(&mut &*bytes), Err(FrameError::Wire(_)))
+    }
+
+    #[test]
+    fn a_wrong_marker_or_version_is_refused() {
+        let mut bytes = frame(REQ_QUIT, &[]);
+        bytes[0] ^= 1;
+        assert!(rejects(&bytes));
+        let mut bytes = frame(REQ_QUIT, &[]);
+        bytes[4] = 9;
+        assert!(rejects(&bytes));
+    }
+
+    #[test]
+    fn an_absurd_length_is_refused_without_reading_it() {
+        let mut bytes = frame(REQ_QUIT, &[]);
+        bytes[8..12].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(rejects(&bytes));
+    }
+
+    #[test]
+    fn a_torn_frame_is_not_a_clean_close() {
+        assert!(matches!(
+            read_request(&mut &[][..]),
+            Err(FrameError::Closed)
+        ));
+        let bytes = frame(REQ_GET_STATE, &[]);
+        assert!(rejects(&bytes[..5]));
+        let bytes = frame(REQ_SET_STATE, &[4, 0, 0, 0, 1, 2, 3, 4]);
+        assert!(rejects(&bytes[..bytes.len() - 2]));
+    }
+
+    #[test]
+    fn malformed_counts_in_a_process_request_are_refused() {
+        let good = Request::Process {
+            generation: 1,
+            seq: 1,
+            frames: 4,
+            input: vec![],
+            events: vec![note(1, 60)],
+            params: vec![],
+        };
+        let mut payload = good.encode().1;
+        // generation 4 + seq 8 + frames 4 + channels 4 = 20: the event count.
+        payload[20..24].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(rejects(&frame(REQ_PROCESS, &payload)));
+        // An event past the end of the block.
+        let late = Request::Process {
+            generation: 1,
+            seq: 1,
+            frames: 4,
+            input: vec![],
+            events: vec![note(4, 60)],
+            params: vec![],
+        };
+        assert!(rejects(&frame(REQ_PROCESS, &late.encode().1)));
+        // Input shorter than the block.
+        let short = Request::Process {
+            generation: 1,
+            seq: 1,
+            frames: 4,
+            input: vec![vec![0.0; 3]],
+            events: vec![],
+            params: vec![],
+        };
+        assert!(rejects(&frame(REQ_PROCESS, &short.encode().1)));
+        // Zero frames.
+        let none = Request::Process {
+            generation: 1,
+            seq: 1,
+            frames: 0,
+            input: vec![],
+            events: vec![],
+            params: vec![],
+        };
+        assert!(rejects(&frame(REQ_PROCESS, &none.encode().1)));
+    }
+
+    #[test]
+    fn too_many_points_across_queues_are_refused() {
+        let queues = (0..3)
+            .map(|id| ParamQueue {
+                id,
+                points: vec![(0, 0.0); MAX_POINTS / 2],
+            })
+            .collect();
+        let request = Request::Process {
+            generation: 1,
+            seq: 1,
+            frames: 4,
+            input: vec![],
+            events: vec![],
+            params: queues,
+        };
+        assert!(rejects(&frame(REQ_PROCESS, &request.encode().1)));
+    }
+
+    #[test]
+    fn a_bad_format_is_refused() {
+        for (rate, frames, inputs) in [
+            (f64::NAN, 512, 2),
+            (1.0, 512, 2),
+            (48_000.0, 0, 2),
+            (48_000.0, 100_000, 2),
+            (48_000.0, 512, 200),
+        ] {
+            let request = Request::Configure {
+                generation: 1,
+                sample_rate: rate,
+                max_frames: frames,
+                inputs,
+                outputs: 2,
+            };
+            assert!(rejects(&frame(REQ_CONFIGURE, &request.encode().1)));
+        }
+    }
+
+    #[test]
+    fn trailing_bytes_and_unknown_kinds_are_refused() {
+        let mut payload = Request::GetState.encode().1;
+        payload.push(0);
+        assert!(rejects(&frame(REQ_GET_STATE, &payload)));
+        assert!(rejects(&frame(999, &[])));
+    }
+}

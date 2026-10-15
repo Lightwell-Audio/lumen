@@ -200,6 +200,19 @@ module, for example `process_crash@100` or `process_slow=3000,state_fail`.
 The list of faults is at the top of `crates/lumen-test-plugin/src/faults.rs`.
 A malformed value injects nothing and prints a message on stderr.
 
+## The plugin host (M6, ADR-0066)
+
+`cargo test -p lumen-plugin-host` builds the test plugin's shared library
+(it runs `cargo build -p lumen-test-plugin` once, with the same profile),
+then loads it through the operating system's loader, in process and in real
+`lumen-plugin-host` child processes, with each fault in
+`LUMEN_TEST_PLUGIN_FAULT`. The orphan test (Linux) kills a stand-in for
+Lumen and checks that a host hung inside a plugin dies with it.
+Type-check for the other systems with
+`cargo clippy -p lumen-plugin-host --all-targets --target x86_64-pc-windows-gnu`
+and `--target aarch64-apple-darwin` (`rustup target add` first); those
+targets are not run here.
+
 ## Linux cloud containers
 
 A Linux cloud container needs system packages before the first build. The app
