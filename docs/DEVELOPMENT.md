@@ -166,6 +166,17 @@ cargo fmt --all
 cargo bench -p lumen-rt                  # real benchmark run (release profile)
 ```
 
+## The test plugins (M6, ADR-0065)
+
+`crates/lumen-test-plugin` builds a VST3 module with a deterministic
+instrument and effect. `cargo test -p lumen-test-plugin` runs everything,
+including the crash and hang tests, which re-run the test binary as a child
+and check how it ended. To make a host or the scanner meet a fault, set
+`LUMEN_TEST_PLUGIN_FAULT` in the environment of the process that loads the
+module, for example `process_crash@100` or `process_slow=3000,state_fail`.
+The list of faults is at the top of `crates/lumen-test-plugin/src/faults.rs`.
+A malformed value injects nothing and prints a message on stderr.
+
 ## Linux cloud containers
 
 A Linux cloud container needs system packages before the first build. The app

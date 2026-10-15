@@ -1,0 +1,184 @@
+//! Faults the test plugins inject on purpose, chosen by the
+//! `LUMEN_TEST_PLUGIN_FAULT` environment variable so that a host process
+//! inherits them. The value is a comma-separated list:
+//!
+//! | Entry | Effect |
+//! |---|---|
+//! | `factory_null` | `GetPluginFactory` returns no factory |
+//! | `factory_crash` | `GetPluginFactory` writes through a null pointer |
+//! | `factory_hang` | `GetPluginFactory` never returns |
+//! | `process_crash@N` | the Nth process call after activation crashes |
+//! | `process_hang@N` | the Nth process call never returns |
+//! | `process_error@N` | process calls from the Nth on return an error |
+//! | `process_nan@N` | process calls from the Nth on write NaN |
+//! | `process_slow=US` | every process call busy-waits `US` microseconds |
+//! | `state_fail` | saving state reports failure |
+//! | `state_garbage` | saving state writes bytes loading rejects |
+//! | `state_hang` | saving state never returns |
+//! | `bad_buses` | the output bus reports an absurd channel count |
+//! | `bad_params` | the controller reports millions of duplicate parameters |
+//!
+//! `@N` counts process calls from 0 and defaults to 0.
+
+use std::time::{Duration, Instant};
+
+pub const ENV: &str = "LUMEN_TEST_PLUGIN_FAULT";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    FactoryNull,
+    FactoryCrash,
+    FactoryHang,
+    ProcessCrash,
+    ProcessHang,
+    ProcessError,
+    ProcessNan,
+    ProcessSlow,
+    StateFail,
+    StateGarbage,
+    StateHang,
+    BadBuses,
+    BadParams,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Fault {
+    pub kind: Kind,
+    /// The process call it starts at (`@N`), or the busy-wait in
+    /// microseconds for `process_slow`.
+    pub arg: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Faults(Vec<Fault>);
+
+impl Faults {
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let mut list = Vec::new();
+        for entry in text.split(',').map(str::trim).filter(|e| !e.is_empty()) {
+            let (name, arg) = match entry.split_once(['@', '=']) {
+                Some((name, arg)) => {
+                    let arg = arg
+                        .parse::<u64>()
+                        .map_err(|_| format!("`{entry}`: `{arg}` is not a number"))?;
+                    (name, Some(arg))
+                }
+                None => (entry, None),
+            };
+            let kind = match name {
+                "factory_null" => Kind::FactoryNull,
+                "factory_crash" => Kind::FactoryCrash,
+                "factory_hang" => Kind::FactoryHang,
+                "process_crash" => Kind::ProcessCrash,
+                "process_hang" => Kind::ProcessHang,
+                "process_error" => Kind::ProcessError,
+                "process_nan" => Kind::ProcessNan,
+                "process_slow" => Kind::ProcessSlow,
+                "state_fail" => Kind::StateFail,
+                "state_garbage" => Kind::StateGarbage,
+                "state_hang" => Kind::StateHang,
+                "bad_buses" => Kind::BadBuses,
+                "bad_params" => Kind::BadParams,
+                _ => return Err(format!("`{entry}`: unknown fault")),
+            };
+            if kind == Kind::ProcessSlow && arg.is_none() {
+                return Err(format!("`{entry}`: needs `=microseconds`"));
+            }
+            list.push(Fault {
+                kind,
+                arg: arg.unwrap_or(0),
+            });
+        }
+        Ok(Self(list))
+    }
+
+    /// The faults the environment asks for. A malformed value is reported on
+    /// stderr and injects nothing: a typo must not look like a plugin bug.
+    pub fn from_env() -> Self {
+        let Ok(text) = std::env::var(ENV) else {
+            return Self::default();
+        };
+        Self::parse(&text).unwrap_or_else(|why| {
+            eprintln!("{ENV}: {why}");
+            Self::default()
+        })
+    }
+
+    pub fn has(&self, kind: Kind) -> bool {
+        self.0.iter().any(|f| f.kind == kind)
+    }
+
+    /// Whether `kind` applies to process call number `call` (from its
+    /// start call onward).
+    pub fn from_call(&self, kind: Kind, call: u64) -> bool {
+        self.0.iter().any(|f| f.kind == kind && call >= f.arg)
+    }
+
+    /// Whether `kind` applies exactly at process call number `call`.
+    pub fn at_call(&self, kind: Kind, call: u64) -> bool {
+        self.0.iter().any(|f| f.kind == kind && call == f.arg)
+    }
+
+    /// The busy-wait asked for by `process_slow`, if any.
+    pub fn slow(&self) -> Option<Duration> {
+        self.0
+            .iter()
+            .find(|f| f.kind == Kind::ProcessSlow)
+            .map(|f| Duration::from_micros(f.arg))
+    }
+}
+
+/// Crashes the way a plugin with a wild pointer does.
+pub fn crash() -> ! {
+    // SAFETY: deliberately not safe: this simulates a plugin crashing.
+    unsafe { std::ptr::null_mut::<u32>().write_volatile(0xDEAD) };
+    std::process::abort()
+}
+
+/// Never returns.
+pub fn hang() -> ! {
+    loop {
+        std::thread::sleep(Duration::from_secs(3600));
+    }
+}
+
+/// Burns CPU for `d`, as a plugin doing real work does.
+pub fn busy_wait(d: Duration) {
+    let start = Instant::now();
+    while start.elapsed() < d {
+        std::hint::spin_loop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_every_form() {
+        let f = Faults::parse("process_crash@7, process_slow=250,state_fail,bad_params").unwrap();
+        assert!(f.at_call(Kind::ProcessCrash, 7));
+        assert!(!f.at_call(Kind::ProcessCrash, 8));
+        assert_eq!(f.slow(), Some(Duration::from_micros(250)));
+        assert!(f.has(Kind::StateFail) && f.has(Kind::BadParams));
+        assert!(!f.has(Kind::StateHang));
+    }
+
+    #[test]
+    fn from_call_starts_at_the_named_call() {
+        let f = Faults::parse("process_nan@3").unwrap();
+        assert!(!f.from_call(Kind::ProcessNan, 2));
+        assert!(f.from_call(Kind::ProcessNan, 3));
+        assert!(f.from_call(Kind::ProcessNan, 1_000));
+        let always = Faults::parse("process_error").unwrap();
+        assert!(always.from_call(Kind::ProcessError, 0));
+    }
+
+    #[test]
+    fn rejects_typos_rather_than_injecting_nothing_silently() {
+        assert!(Faults::parse("process_crash@x").is_err());
+        assert!(Faults::parse("prcess_crash").is_err());
+        assert!(Faults::parse("process_slow").is_err());
+        assert_eq!(Faults::parse("").unwrap(), Faults::default());
+    }
+}

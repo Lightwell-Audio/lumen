@@ -403,7 +403,21 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** PR 16 review corrections: recording eligibility shares
+**Last updated:** 2026-10-15: **M6 (VST3 hosting and the device system)
+started** at the owner's instruction, with M5's closeout (MT-MIDI-7 to 9, the
+WSL gates, the report) still open and not marked passed. Slice 0, part 1:
+`crates/lumen-test-plugin` (ADR-0065), a portable deterministic VST3
+instrument and effect with faults chosen by `LUMEN_TEST_PLUGIN_FAULT`; tested
+on Linux through the VST3 interfaces and in child processes (crash, hang).
+ADR-0005's section status now matches its index entry; M6.md says v16. **Not
+done, and not claimed:** the signalling and process-grouping measurements,
+which need Windows (`docs/milestones/M6.md`, "Slice 0 progress"); the
+architecture ADR must follow them. Next: the production host crate and a
+loader for the test plugins, then the measurement harness for the owner to
+run on Windows. Cloud container: the packages listed below are needed for
+the workspace build.
+
+Before it, PR 16 review corrections: recording eligibility shares
 capture's compensated positions and uses engine-side loop-pass bounds.
 Disabling Loop before the first wrap preserves the saved visible window.
 Format v16 marks hidden captured notes so they cannot continue an old

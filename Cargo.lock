@@ -2280,6 +2280,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumen-test-plugin"
+version = "0.0.1"
+dependencies = [
+ "vst3",
+]
+
+[[package]]
 name = "mach2"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
