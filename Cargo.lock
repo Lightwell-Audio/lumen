@@ -2242,6 +2242,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumen-plugin-host"
+version = "0.0.1"
+dependencies = [
+ "libc",
+ "libloading 0.8.9",
+ "lumen-test-plugin",
+ "vst3",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "lumen-project"
 version = "0.0.1"
 dependencies = [

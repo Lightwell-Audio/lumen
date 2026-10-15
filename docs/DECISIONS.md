@@ -63,6 +63,7 @@ irreversible or external) · *Superseded*.
 | [0059](#adr-0059--a-carried-note-belongs-to-its-clip-and-the-clip-editor-shows-hidden-notes) | A carried note belongs to the clip it began in (a chase there does not strike it), and the clip editor shows notes outside the window | Accepted 2026-10-13 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
 | [0065](#adr-0065--deterministic-test-plugins-lumen-test-plugin) | Deterministic test plugins with injectable faults (`lumen-test-plugin`, M6 slice 0) | Accepted 2026-10-15 | No |
+| [0066](#adr-0066--the-plugin-host-crate-and-its-protocol) | The plugin host crate (`lumen-plugin-host`): loading through the OS loader, a bounded versioned protocol, stale-block rejection and deadlines (M6 slice 0, part 2) | Accepted 2026-10-15 (the audio path and the process-grouping policy are not decided) | No |
 
 ---
 
@@ -5671,3 +5672,78 @@ each activation, so a host that reloads a failed plugin can be tested.
   need them (6 and 4); dynamic bus changes are not yet exercised.
 - The old `vst3-test-module` stays for the scanner's isolation test until the
   production scanner replaces it.
+
+## ADR-0066 — The plugin host crate and its protocol
+
+**Status:** Accepted 2026-10-15 (M6 slice 0, part 2). It decides the host's
+shape and its control path. It does **not** decide the audio path's wake-up
+mechanism, the real-time wait contract or the process-grouping policy: those
+wait for the Windows measurements (`docs/milestones/M6.md`, §2) and a later
+ADR. · **Date:** 2026-10-15
+
+**Context.** ADR-0005 chose separate-process hosting and left the details to
+M6. The prototypes proved the idea on Windows with a handful of unshared
+pieces. Production needs one crate that loads a module, runs a plugin and
+speaks a protocol Lumen can trust even when the plugin has corrupted the host
+process, and that can be tested on every CI system with the deterministic
+plugins (ADR-0065).
+
+**Options.** (1) Grow the prototypes. Windows-only, so untestable on two of
+three CI systems. (2) A portable crate with the host side (module, instance,
+server) and Lumen's side (a client with deadlines) over a transport that
+works everywhere, with the real-time transport added behind the same
+messages. (3) Wait for the measurements before writing any host code.
+Chosen: (2). The measurements need a loader that can run real processing,
+and (3) would leave them without one.
+
+**Choice.** The crate `lumen-plugin-host` and its binary of the same name:
+- `Module` loads a module with the operating system's loader (a `.vst3` file
+  or a bundle's binary on Windows; a shared library or a bundle's `.so` on
+  Linux), calls its entry point, takes its factory and lists its classes.
+  Modules are never unloaded. `libloading` (ISC) is the loader.
+- `Instance` runs one audio class with its controller: bus layout (the main
+  buses only, mono or stereo, refused when the plugin's real layout differs
+  from the request), setup, activation, blocks with events and
+  sample-offset parameter points, state, parameters, latency and tail. Output
+  that is not finite becomes silence and is counted.
+- `protocol` is the message set: a frame is a marker, a version, a kind and a
+  length. Every count and length is bounded before anything is reserved, a
+  block's events and points must fall inside it, and a frame of another
+  version is refused. A request gets exactly one response.
+- A block carries a **configuration generation** and a **sequence number**,
+  and its answer echoes both. The host refuses a block of an older
+  generation. The client drops an answer for a block it has given up on and
+  counts it; it is never taken for the block being waited for.
+- `client::HostProcess` starts a host and never waits without a deadline:
+  writes go through a thread of their own, reads arrive on a channel. It
+  reports how a host that stopped ended (a clean exit, a failure code, a
+  crash by signal or exception, or killed by Lumen after a missed
+  deadline), and never leaves the process behind when dropped.
+- The host process keeps the protocol on the real stdout and points the
+  plugin's own at stderr; on Linux it asks to be killed with its parent, so a
+  host hung in a plugin does not outlive Lumen. On Windows it suppresses the
+  crash dialog.
+- The transport is a pair of pipes. It carries the control path and proves
+  the protocol. It is not the audio path.
+
+**Consequences.**
+- Verified on Linux: 14 unit tests (the codec and the protocol's limits), 9
+  in-process tests of the test plugins through the OS loader (the module,
+  sample-exact notes, block-size invariance, latency, state, a refused bus
+  layout), 5 tests of a real host process, 12 fault tests (a crash and a hang
+  in processing, a late answer dropped as stale, a plugin error, non-finite
+  output, bad buses, millions of parameters, state that fails, hangs or
+  cannot be read back, a factory that returns nothing, crashes or hangs), 6
+  protocol-script tests (an older generation refused, garbage ends the host
+  with a code) and one that kills a stand-in for Lumen and checks that a
+  hung host dies with it (it fails without the parent-death request).
+  Type-checks and passes clippy for Windows (GNU) and macOS; **not run** on
+  either.
+- Not done, and not claimed: the shared-memory block transport and its
+  signalling; the measurements; process grouping; a Windows job object (so on
+  Windows a host hung in a plugin outlives a killed Lumen); macOS module
+  entry (it needs a bundle reference); the editor; the scanner; the real-time
+  contract for waiting in the audio callback. The host allocates for each
+  block; that is fixed with the shared-memory transport.
+- The control path's deadlines are the caller's: slice 5 decides what the
+  save and the checkpoints give state capture.
