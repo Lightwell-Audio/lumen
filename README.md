@@ -226,5 +226,3 @@ ASIO is a trademark and software of Steinberg Media Technologies GmbH. VST is
 a trademark of Steinberg Media Technologies GmbH, registered in Europe and
 other countries. Lumen uses these names only to say which standards it
 supports. Lumen is not made by or endorsed by Steinberg.
-
-"Lumen" is a working name.
