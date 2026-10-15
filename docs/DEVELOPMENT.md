@@ -157,6 +157,13 @@ track, so delay compensation and its readout can be tried by hand
 cargo run --release -p lumen-app -- --test-latency 50
 ```
 
+## Branches
+
+One small branch per slice, named `m<milestone>-s<slice>-<topic>`
+(`m6-s1-plugin-scan`); unrelated fixes and chores use `fix/<topic>`,
+`chore/<topic>` or `docs/<topic>`, cut from `main`. The full rule is the
+`lumen-branching` skill (`.claude/skills/lumen-branching/SKILL.md`).
+
 ## Everyday commands
 
 ```bash

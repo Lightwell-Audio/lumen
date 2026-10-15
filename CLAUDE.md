@@ -412,7 +412,8 @@ on Linux through the VST3 interfaces and in child processes (crash, hang).
 ADR-0005's section status now matches its index entry; M6.md says v16. **Not
 done, and not claimed:** the signalling and process-grouping measurements,
 which need Windows (`docs/milestones/M6.md`, "Slice 0 progress"); the
-architecture ADR must follow them. Next: the production host crate and a
+architecture ADR must follow them. Branch: `m6-s0-test-plugin` (renamed from a generated name; the old remote
+name `claude/eloquent-knuth-oapshw` is for the owner to delete). Next: the production host crate and a
 loader for the test plugins, then the measurement harness for the owner to
 run on Windows. Cloud container: the packages listed below are needed for
 the workspace build.
@@ -1113,6 +1114,8 @@ escapes and quotes several times.
     to the test device (`app.heard()`).
   - The plan and the follow-ups are in `docs/milestones/M3.md`.
 - **Skills** (`.claude/skills/`), to load before working:
+  - `lumen-branching` at the start of a session and before creating,
+    renaming or pushing a branch;
   - `lumen-architecture` before writing or changing code;
   - `lumen-design` before any UI work;
   - `lumen-review` for the full repository review **at the end of every
@@ -1151,6 +1154,11 @@ escapes and quotes several times.
   and re-run.
 
 **Engineering conventions learned so far**
+- **One small branch per slice** (owner, 2026-10-15), named after the
+  milestone and slice (`m6-s1-plugin-scan`); unrelated work and bug fixes go
+  on one-off branches (`fix/…`, `chore/…`, `docs/…`) cut from `main`. A
+  session that starts on a generated `claude/…` branch renames it first. The
+  rules are in the `lumen-branching` skill.
 - **Build location:** build in the repository's `target/` folder; never
   set `CARGO_TARGET_DIR`. A running `lumen.exe` blocks a rebuild: for
   screenshots, use the debug build (`target/debug/lumen.exe --screenshot`),
