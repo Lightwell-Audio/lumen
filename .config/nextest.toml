@@ -1,0 +1,32 @@
+# cargo-nextest settings (CI and, optionally, local runs). `cargo test` keeps
+# working: nothing here is required to build or test Lumen.
+#
+# Why nextest: `cargo test` runs the test binaries one after another, and the
+# end-to-end suite (about 340 tests, 200+ s on a CI runner) spends most of its
+# time waiting on the paced test audio device, not on the CPU. nextest runs
+# every test in one pool, and the e2e profile below runs more tests at once
+# than there are cores. See docs/DEVELOPMENT.md ("Running the tests").
+
+[profile.default]
+# One run shows every failure, as `cargo test --no-fail-fast` does in CI.
+fail-fast = false
+# A test that has not finished after this long is reported as slow; it is
+# killed after the terminate-after count of periods. The e2e tests wait up to
+# 30 s for background work (PATIENCE), so nothing legitimate comes near 3 min.
+slow-timeout = { period = "60s", terminate-after = 3 }
+
+# Everything except the e2e binary: as many tests at once as there are cores
+# (nextest's default). The timing tests (the MIDI sender's lateness bounds, the
+# real-time and record tests) are sensitive to a busy machine, so these keep
+# the machine to themselves.
+[profile.ci]
+inherits = "default"
+failure-output = "immediate-final"
+
+# The e2e binary only: the tests mostly wait (ADR-0063, the test device plays a
+# block per poll), so 12 at a time on a 3 to 4 core runner finishes in about
+# 60% of the time that one test per core takes. Measured on 4 cores:
+# 157 s at 4 threads, 108 s at 8, 93 s at 16.
+[profile.e2e]
+inherits = "ci"
+test-threads = 12
