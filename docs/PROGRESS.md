@@ -8,7 +8,7 @@ child process per module with a deadline, a cache keyed by file stamp, a
 blocked list with reasons that retries only when a file changes or on Retry,
 and the browser's Devices tab in the owner's layout B with a type filter.
 Verified on Linux with the test plugin; **nothing has run on Windows or
-macOS, or with a real plugin** (MT-VST-1 waits for the owner). Slice 0's
+macOS** (MT-VST-1 ran on Windows with real plugins, owner-reported pass, no measurements). Slice 0's
 architecture gate (the audio-path ADR) is ADR-0069 (accepted 2026-10-16, the callback's wait on trial); it does not block this
 slice.
 **M6 slice 0 activity (2026-10-15):** The corrected Windows MT-VST-0
@@ -374,7 +374,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Mixer: fader, pan law, mute, solo, sends, returns, groups, master, routing, sidechain, PDC, meters, cue | M | 🟡 The engine graph (M4 slice 1, ADR-0035); routing in the model (slice 2); groups (slice 3); mute, solo, sends, returns, the master and cue (slice 4, ADR-0038); the Mixer tab, meters, the pan law and output pairs (slice 5, ADR-0040); sidechains and delay compensation in the engine with the transport's readout (slice 6, ADR-0041) |
 | LUFS and true-peak metering; mono-check and dim | S | 🟡 LUFS (momentary, short-term, integrated) and true peak on the master (M4 slice 5, ADR-0040); mono-check and dim later |
 | Reference track | L | 🔲 |
-| Async cached VST3 scanning, custom paths, blocklist, search, favourites, recents | M | 🟡 Built and tested on Linux with the test plugin (M6 slice 1, ADR-0068); not run on Windows or with real plugins (MT-VST-1) |
+| Async cached VST3 scanning, custom paths, blocklist, search, favourites, recents | M | 🟡 Built and tested on Linux with the test plugin (M6 slice 1, ADR-0068); MT-VST-1 passed on Windows with real plugins (owner-reported, no measurements); not run on macOS |
 | Instruments and effects; multi-out; sidechain; bypass; presets; state; automation; generic UI; floating editors with DPI and focus | M | 🔲 |
 | Latency compensation; crash isolation; safe mode | M | 🔲 |
 | Built-in essentials | M | 🔲 |

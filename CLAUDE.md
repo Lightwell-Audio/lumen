@@ -403,13 +403,13 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-16 (latest): **M6 slice 0 is complete but for slice 1's MT-VST-1 and slice 0's report (MT-VST-0 "Editors" passed with one real plugin, run 6):**
+**Last updated:** 2026-10-16 (latest): **M6 slice 0 is complete but for its report (MT-VST-0 "Editors" passed with one real plugin, run 6; slice 1's MT-VST-1 passed on Windows, owner-reported, no measurements):**
 **ADR-0069 is Accepted** (the audio-path ADR). The owner chose option A:
 the audio callback may make a bounded wait on a plugin host's completion event,
 under the ADR's contract, **on trial** (the pipelined path, one block of extra
 latency, is the fallback). Slice 2's MT-VST-2 decides whether it stays and must
 include recording with monitoring through an effect at 64 and 128 frames. The
-owner's MT-VST-1 and slice 0's report remain, then slice 2. Before it, 2026-10-15: **M6 slice 0's last measurements, on
+slice 0's report remains, then slice 2. Before it, 2026-10-15: **M6 slice 0's last measurements, on
 `m6-s0-audio-path`** (cut from `main` after slice 1 merged). The two heap
 operations the crash runs reported are fixed: the loop asked
 `HostProcess::ended`, which words a crash in a `String`; it asks the

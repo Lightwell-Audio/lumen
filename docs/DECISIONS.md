@@ -65,7 +65,7 @@ irreversible or external) · *Superseded*.
 | [0065](#adr-0065--deterministic-test-plugins-lumen-test-plugin) | Deterministic test plugins with injectable faults (`lumen-test-plugin`, M6 slice 0) | Accepted 2026-10-15 | No |
 | [0066](#adr-0066--the-plugin-host-crate-and-its-protocol) | The plugin host crate (`lumen-plugin-host`): loading through the OS loader, a bounded versioned protocol, stale-block rejection and deadlines (M6 slice 0, part 2) | Accepted 2026-10-15 (the audio path and the process-grouping policy are not decided) | No |
 | [0067](#adr-0067--the-shared-memory-audio-path-and-the-measurement-harness) | The shared-memory audio path (`lumen_plugin_host::shm`): one block in flight, untrusted-region rules, two-sided wake-up settings, Windows job object, and the measurement harness (M6 slice 0, part 3) | Accepted 2026-10-15 for the transport (the wake-up, the real-time wait contract and the process grouping wait for MT-VST-0) | No |
-| [0068](#adr-0068--plugin-discovery-scanning-the-cache-and-the-browser-m6-slice-1) | Plugin discovery (`lumen-plugin-catalog`): a scan child per module with a deadline, a cache keyed by file stamp, a blocked list that retries when the file changes, startup scan in the background, the browser's Devices tab (M6 slice 1) | Accepted 2026-10-16 (verified on Linux with the test plugin; MT-VST-1 on Windows waits for the owner) | No |
+| [0068](#adr-0068--plugin-discovery-scanning-the-cache-and-the-browser-m6-slice-1) | Plugin discovery (`lumen-plugin-catalog`): a scan child per module with a deadline, a cache keyed by file stamp, a blocked list that retries when the file changes, startup scan in the background, the browser's Devices tab (M6 slice 1) | Accepted 2026-10-16 (verified on Linux with the test plugin; MT-VST-1 passed on Windows with real plugins, owner-reported) | No |
 | [0069](#adr-0069--the-audio-path-to-plugin-hosts-wake-up-the-callbacks-wait-process-grouping-m6-slice-0-close) | The audio path to plugin hosts: `event` wake-up, a bounded callback wait under a narrow contract, one process per instance, the working budget (M6 slice 0 close) | Accepted 2026-10-16, decision 2 (the callback's bounded wait) on trial until slice 2's measurements (measured on Windows with the test plugin) | Decided by the owner (the trial's check: MT-VST-2) |
 
 ---
@@ -6209,4 +6209,4 @@ macOS wait polls today instead of a timed wait, so decision 1 is a Windows
 decision until it is measured there); memory and start-up of 64 host
 processes; frame times and the other shipped paths with hosts running; more
 than one machine or power state beyond Balanced and High performance; the
-manual steps of MT-VST-0 "Editors" and MT-VST-1.
+second monitor of MT-VST-0 "Editors" and any macOS or Linux run.
