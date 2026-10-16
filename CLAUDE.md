@@ -417,7 +417,8 @@ machine in use, synthetic load. The owner accepted the representative workload (
 each; 200 µs is the documented limit). `shm_rt` passes under RTSan in WSL and
 is a new CI step. **Still open before the audio-path ADR can be written:**
 process grouping (modelled, run 3: no case for chains; real chain code unbuilt), the editor-focus spike (pitch first), and
-dynamic latency notifications. Not run: macOS.
+dynamic latency, partly done (`shm_latency`: the news reaches the loop in the same block, allocation-free;
+controller-origin restarts and bus changes have no trigger yet: slices 4 and 6). Not run: macOS.
 Before it, 2026-10-16: **M6 slice 1, plugin discovery, is
 built** on `m6-s1-plugin-scan` (ADR-0068; plan and progress in
 `docs/milestones/M6.md`). Started while slice 0's audio-path ADR is still open
