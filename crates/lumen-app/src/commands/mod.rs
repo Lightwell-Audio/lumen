@@ -138,6 +138,12 @@ pub(crate) enum Command {
     FixedLengthNotes,
     ScaleConstrainNotes,
     ReverseNotes,
+    DevicesSearch,
+    DevicesRescan,
+    DevicesRescanAll,
+    DevicesAddFolder,
+    DevicesFavorite,
+    DevicesScanAtStartup,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -154,6 +160,7 @@ pub(crate) enum Area {
     Locators,
     Midi,
     File,
+    Devices,
 }
 
 impl Area {
@@ -169,6 +176,7 @@ impl Area {
             Area::Locators => "Locators",
             Area::Midi => "MIDI",
             Area::File => "File",
+            Area::Devices => "Devices",
         }
     }
 
@@ -187,6 +195,7 @@ impl Area {
             Area::Locators => 9,
             Area::Midi => 7,
             Area::File => 11,
+            Area::Devices => 8,
         };
         crate::theme::CLIP_COLORS[index]
     }
@@ -339,6 +348,12 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::FixedLengthNotes, "midi.fixed_length", "Fixed length", Area::Midi, &[], "Gives the selected notes (every note if none are selected) the length of one grid step."),
     info(Command::ScaleConstrainNotes, "midi.scale_constrain", "Constrain to scale", Area::Midi, &[], "Moves the selected notes (every note if none are selected) onto the last scale chosen from the editor's menu, C major to begin with."),
     info(Command::ReverseNotes, "midi.reverse", "Reverse notes", Area::Midi, &[], "Plays the selected notes (every note if none are selected) backwards: the last becomes the first."),
+    info(Command::DevicesSearch, "devices.search", "Search devices", Area::Devices, &[ctrl(Key::F)], "Opens the browser and puts the keyboard in its search field."),
+    info(Command::DevicesRescan, "devices.rescan", "Rescan plugins", Area::Devices, &[], "Looks for new and changed plugins in the plugin folders. Plugins that did not change are not loaded again."),
+    info(Command::DevicesRescanAll, "devices.rescan_all", "Rescan all plugins", Area::Devices, &[], "Loads every plugin again, ignoring what was learned before, blocked ones included."),
+    info(Command::DevicesAddFolder, "devices.add_folder", "Add plugin folder…", Area::Devices, &[], "Adds a folder to search for plugins, besides the standard ones, and scans it."),
+    info(Command::DevicesFavorite, "devices.favorite", "Favorite device", Area::Devices, &[plain(Key::F)], "Stars or unstars the device selected in the browser."),
+    info(Command::DevicesScanAtStartup, "devices.scan_at_startup", "Scan plugins at startup", Area::Devices, &[], "Looks for new and changed plugins in the background each time Lumen starts. Off, the list changes only when you rescan."),
 ];
 
 const fn info(
@@ -388,7 +403,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::ReverseNotes as usize + 1,
+            Command::DevicesScanAtStartup as usize + 1,
             ALL.len(),
             "a command is missing"
         );

@@ -2166,6 +2166,7 @@ dependencies = [
  "lumen-engine",
  "lumen-media",
  "lumen-midi",
+ "lumen-plugin-catalog",
  "lumen-project",
  "lumen-render",
  "lumen-rt",
@@ -2238,6 +2239,16 @@ dependencies = [
  "lumen-devices",
  "lumen-engine",
  "lumen-project",
+ "serde_json",
+]
+
+[[package]]
+name = "lumen-plugin-catalog"
+version = "0.0.1"
+dependencies = [
+ "lumen-plugin-host",
+ "lumen-test-plugin",
+ "serde",
  "serde_json",
 ]
 

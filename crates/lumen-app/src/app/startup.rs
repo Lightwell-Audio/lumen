@@ -76,9 +76,17 @@ impl App {
                 std::sync::Arc::new(move || ctx.request_repaint()),
             )
         };
+        let plugins = plugins::Plugins::start(
+            launch.plugins,
+            settings_path.as_deref(),
+            &saved.plugins,
+            &cc.egui_ctx,
+        );
         let mut app = App {
             transport,
             midi,
+            plugins,
+            browser: Default::default(),
             midi_out: None,
             live_keys: None,
             record: Default::default(),
@@ -122,7 +130,7 @@ impl App {
             show_detail: true,
             detail_tab: Default::default(),
             note_editor: Default::default(),
-            browser_size: 220.0,
+            browser_size: 260.0,
             detail_size: 220.0,
             toggle_detail_requested: false,
             keymap,

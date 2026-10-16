@@ -51,6 +51,7 @@ mod notes;
 mod overdub_seams;
 mod palette;
 mod playback;
+mod plugins;
 mod pops;
 mod properties;
 mod quantize;

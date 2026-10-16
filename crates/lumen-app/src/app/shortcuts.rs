@@ -697,7 +697,7 @@ fn elided(
 }
 
 /// Every area, in the table's order.
-const AREAS: [Area; 10] = [
+const AREAS: [Area; 11] = [
     Area::Transport,
     Area::Edit,
     Area::Clip,
@@ -707,6 +707,7 @@ const AREAS: [Area; 10] = [
     Area::Grid,
     Area::Locators,
     Area::Midi,
+    Area::Devices,
     Area::File,
 ];
 

@@ -65,6 +65,7 @@ irreversible or external) · *Superseded*.
 | [0065](#adr-0065--deterministic-test-plugins-lumen-test-plugin) | Deterministic test plugins with injectable faults (`lumen-test-plugin`, M6 slice 0) | Accepted 2026-10-15 | No |
 | [0066](#adr-0066--the-plugin-host-crate-and-its-protocol) | The plugin host crate (`lumen-plugin-host`): loading through the OS loader, a bounded versioned protocol, stale-block rejection and deadlines (M6 slice 0, part 2) | Accepted 2026-10-15 (the audio path and the process-grouping policy are not decided) | No |
 | [0067](#adr-0067--the-shared-memory-audio-path-and-the-measurement-harness) | The shared-memory audio path (`lumen_plugin_host::shm`): one block in flight, untrusted-region rules, two-sided wake-up settings, Windows job object, and the measurement harness (M6 slice 0, part 3) | Accepted 2026-10-15 for the transport (the wake-up, the real-time wait contract and the process grouping wait for MT-VST-0) | No |
+| [0068](#adr-0068--plugin-discovery-scanning-the-cache-and-the-browser-m6-slice-1) | Plugin discovery (`lumen-plugin-catalog`): a scan child per module with a deadline, a cache keyed by file stamp, a blocked list that retries when the file changes, startup scan in the background, the browser's Devices tab (M6 slice 1) | Accepted 2026-10-16 (verified on Linux with the test plugin; MT-VST-1 on Windows waits for the owner) | No |
 
 ---
 
@@ -134,6 +135,7 @@ irreversible or external) · *Superseded*.
 | Covered MIDI clips (M5, 2026-10-13, after MT-MIDI-7 run 3) | Asked, from two variants: **A, the clip window** (chosen, as recommended): a clip covered, trimmed or split keeps every note, hidden outside its edges, and shows them when an edge is dragged back; moving the top clip away leaves a gap. B (stacked clips that reappear by themselves) was set aside. Overdub across clips: the owner will reproduce the observed behavior before deciding whether to change it. Format v15. ADR-0056. |
 | Recording edges and MIDI trims (M5, 2026-10-13, the owner's four points) | Asked for directly: MIDI clip edges that drag without jitter or offset; Overdub begun at or before a clip extends that clip and merges into it; recording begun in the middle of a clip makes a new clip from the playhead to the stop; and the clip recorded over redraws continuously, not at commits. Built as stated (no variants pitched: the owner gave the behaviour). ADR-0057. |
 | Overdub at clip edges (M5, 2026-10-13, MT-MIDI-7 run 7) | Asked for directly, reversing part of the row above: Overdub begun before a clip and reaching its start, or begun exactly at its start, records a **new clip** and does not merge into or grow the clip there in the arrangement; the new clip carries the track's existing notes along with the take, and the old clip stays a clip of its own. Built as stated. ADR-0060. |
+| Plugin discovery (M6 slice 1, 2026-10-16) | Asked and chosen: **scan at startup, in the background** (known plugins from the saved list at once, only new or changed ones loaded); a plugin that crashes or hangs while scanned is **blocked with its reason and retried only when its file changes or on Retry**; the browser uses **layout B** (grouped by vendor, with category chips) from the "Lumen Plugin Browser Specimens" canvas, **plus a type filter** (All, Instruments, Effects) for the grouping by type the owner liked in layout A. The slice started while slice 0's audio-path ADR is still open; the owner ran MT-VST-0 and said to go on. Plan in `docs/milestones/M6.md`. |
 | MIDI learn moved to M7 (M5, 2026-10-13) | Asked, as recommended: **MIDI learn and its mapping list move to M7**, built with automation, where M6 and M7 define the parameters it maps and a mapped controller writes automation through the same path as Lumen's controls (Touch and Latch). M5 slice 7 keeps Standard MIDI Files and MIDI clock out (plan in `docs/milestones/M5.md`). Its choices, asked in chat, all as recommended: **F1 A** a multi-track file dropped on a track merges into one clip there, dropped between tracks or on empty lanes makes one MIDI track per file track (type 0 split by channel); **F2 A** notes are placed in beats and the project tempo is untouched, with a notice offering "Use them" for the file's tempo map and first time signature (one undo step); **F3 A** clock runs only while playing; **F4 A** a Sync delay per port, −20 to +50 ms. MTC out [S] is deferred, unscheduled. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
@@ -5896,3 +5898,129 @@ callback-wait policy is accepted yet.
   largest layout, 8192 frames of 16 channels both ways, and a few kilobytes
   at a typical one; untouched pages cost nothing) and, in `Spin` or a
   `Hybrid`'s polling, a core while waiting. The harness reports the idle cost so the choice is made with it.
+
+
+## ADR-0068 — Plugin discovery: scanning, the cache and the browser (M6 slice 1)
+
+**Status:** Accepted 2026-10-16 (M6 slice 1). Verified on Linux with the
+test plugin; **not run on Windows or macOS, or with a real plugin**
+(MT-VST-1). · **Date:** 2026-10-16
+
+**Context.** CLAUDE.md §6.8 asks for non-blocking, crash-safe scanning with
+caching, a blocklist for bad plugins, rescan and user-configurable search
+paths, and a browser with categories, vendors, search, favorites and recents.
+Loading a plugin module runs the module's own code, which can crash, hang
+or damage memory, so scanning can never happen in Lumen's process
+(ADR-0005). M1's scanner prototype found 40 modules on Windows in 10.4 s
+with four scan processes, in both module layouts, and contained a crash, a
+hang and a module with no factory.
+
+**Owner choices** (asked before building, 2026-10-16): scan **at startup, in
+the background**; a plugin that crashes or hangs is **blocked with its reason
+and retried only when its file changes or on an explicit Retry** (never in a
+loop); the browser's layout is **B (by vendor, with category chips) with a
+type filter** (All, Instruments, Effects), chosen from rendered specimens.
+
+**Options and what was chosen.**
+- *Where a scan runs.* In Lumen with crash guards (rejected: a corrupted
+  heap cannot be recovered); one long-lived scan process for every module
+  (rejected: one crash would end the scan of the rest, and a hang would need
+  the same kill-and-restart machinery); **one child process per module**, with
+  a deadline, a pool of at most four. A failure costs one module. The child is
+  the `scan` mode of the existing `lumen-plugin-host` binary, so there is one
+  program to build and ship.
+- *What the child says.* One bounded, versioned reply (`scan/report.rs`):
+  the factory's vendor and address, every class with its category,
+  sub-categories, vendor, version and SDK version, or a failure message. It
+  is checked like a protocol message (counts and text lengths limited,
+  trailing bytes refused), because a module that has loaded may have damaged
+  anything. A reply that does not fit is "malformed", never trusted.
+- *Classifying how it ended* (`scan/run.rs`): scanned; failed with the
+  loader's message; crashed (a signal, an exception or a failure code, with the
+  tail of what it printed); timed out and killed; cancelled and killed;
+  malformed; unstarted (the program is missing). Reading the child's output
+  never blocks the scan: it is read on threads, and the rest is discarded so a
+  chatty module cannot stall on a full pipe. On Windows the child joins the
+  same kill-on-close job as host processes.
+- *What is remembered, and when it is trusted.* A cache entry per module,
+  keyed by its path and stamped with the library's size and modification time
+  (not a content hash: reading every library at each start would cost what
+  scanning does). A matching stamp is trusted and the module is not loaded.
+  A blocked module is an entry with its reason, so "retry only when its file
+  changes" is the same rule, not a second one: the stamp differs, so it is
+  scanned. Retry forgets the entry; **Rescan all** ignores the cache. An
+  unreadable cache, or one with another version, is discarded and rebuilt: it
+  is a copy of what plugins say, never anyone's work. It is written
+  atomically by the scan thread, beside the settings file
+  (`plugin-cache.json`); M9's preferences make the cache location a choice.
+- *Cancel.* Stops handing out work and kills the children running. What
+  finished stays; a module whose scan was cut off is recorded as nothing, not
+  as blocked.
+- *The `moduleinfo.json` fast path ADR-0005 mentioned* is **not used**. Loading
+  every module once, in the background, measured about 10 s for 40 modules and
+  later starts read the cache; metadata read without loading would be listed
+  unverified. Revisit only if a cold scan is a complaint (KNOWN_ISSUES).
+- *A new crate.* `lumen-plugin-catalog` (discovery, scanning, cache,
+  blocklist wording, the catalog and its search) has no COM and no UI; the
+  app owns the thread, the disk and the interface (`plugins/`, `browser/`).
+  It depends on `lumen-plugin-host` only for the reply and the runner.
+- *A device's id* is what a project will store: `vst3:<class id, 32 hex
+  digits>` and `builtin:<name>`. The same plugin installed twice is one
+  device.
+- *Scan program location.* Beside the Lumen executable. When it is missing
+  the browser says so and gives the build command, and still lists the saved
+  list. Packaging resolves it in M10 (KNOWN_ISSUES).
+
+**Assumptions logged** (not asked): the folders searched are the standard
+VST3 folders of the platform plus the user's (added with "Add plugin
+folder…"), to a depth of four below each, at most 4,096 modules, links
+followed with a loop guard; the category chips show the five commonest
+categories with the rest under "More", and a chip that is on turns off when
+clicked again; **Recent means devices chosen** (double-click or Enter), up to
+12, because nothing can be added to a track until slice 2, which uses the same
+gesture; vendors are spelled once, from the whole catalog, so a header does
+not change with the filter; the browser's default width grew from 220 to
+260 pt (a saved width still wins) and its tab row shows only Devices until
+samples and projects exist; a blocked plugin's reason and an empty state's
+words are exposed to assistive technology as labelled text (they are painted
+text, which it cannot read).
+
+**Consequences.**
+- Verified on Linux against the test plugin's factory faults and real child
+  processes: a good module, a crash, a hang past the deadline, no factory, a
+  file that is not a module, a missing module, a missing program, a reply
+  with nothing in it, a reply cut at every length, an oversized and a
+  malformed reply (host crate: 9 reply tests and 10 scan tests); discovery in
+  both layouts, depth, links, loops and duplicates; the cache's round trip,
+  damage, other versions and duplicate paths; search ranking and filters;
+  the scanner end to end (11 tests): a cold scan, an unchanged second scan
+  with the program made unusable (so a process would show), a changed file, a
+  mended blocked module, a removed module, Retry, Rescan all, events in order,
+  cancel, a missing program. A mutation of the stamp comparison fails two of
+  them, and a mutation of Retry's forgetting fails the Retry scenario.
+- In the app: 13 tests of the runtime and settings, 12 of the rows and keys,
+  and 15 end-to-end scenarios (a startup scan, plugins off, blocked reasons,
+  Retry, rescan after adding a module, the palette, restart from the saved
+  list, a missing program, words and the type switch and chips, a category
+  chip, favorites, favorites and recents across a restart through a real
+  settings file, the keyboard alone, Ctrl+F, Cancel).
+- Clippy is clean for Windows (GNU) and macOS; **neither was run**.
+- Whole-suite results (Linux): a full workspace run passed 1,722 tests and
+  failed one, the Tab-order test, because the browser added about ten named
+  controls to the walk. The order was right (transport, the browser's
+  controls, the detail panel, the arrangement, every stop named) and the
+  test's 40-Tab horizon too short, so it is 60 now. Rows are clickable but
+  not Tab stops: the list is one stop, the pane's (F6), and the arrows move
+  through it. After that and the last visual fix: all 354 end-to-end
+  scenarios and the 6 real-binary smoke tests pass (under a virtual display),
+  and clippy is clean for Linux, Windows (GNU) and macOS.
+- Looked at: the browser rendered from a generated list of 15 plugins and
+  one blocked, in the dark theme at 100% and 200% and the light theme at 100%.
+  Rendered but not inspected by eye: dark at 150%, light at 200% (the smoke
+  test draws that one). A blocked card and the row menu were not rendered; the
+  end-to-end scenarios exercise them by name.
+- Not claimed: any scan of a real plugin; the Windows job object ending a
+  scan process with Lumen; frame times with a large library or the 200-track
+  benchmark with the new pane; idle CPU measured (the pane repaints only on
+  messages and motion, by construction); the performance gate (no engine or
+  project code changed).

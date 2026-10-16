@@ -48,6 +48,22 @@ pub fn pill_tabs(ui: &mut Ui, id: Id, chosen: usize, pills: &[Pill<'_>]) -> Opti
     picked
 }
 
+/// A pill that is on or off in a row where one is on at a time, and several
+/// may wrap onto lines (the browser's category chips). Named
+/// "<label> filter". True when clicked.
+pub fn pill_toggle(ui: &mut Ui, id: Id, label: &str, on: bool, tip: &str) -> bool {
+    let response = pill_body(ui, id, label, Some(on), false);
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::SelectableLabel,
+            true,
+            on,
+            format!("{label} filter"),
+        )
+    });
+    super::tip(response, tip, None, None).clicked()
+}
+
 /// A hairline pill that does something rather than choosing (it opens a
 /// menu): "+ CC". Named `label`.
 pub fn pill_button(ui: &mut Ui, id: Id, label: &str) -> Response {

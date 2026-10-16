@@ -45,6 +45,8 @@ pub(crate) enum FileDialog {
         path: Option<PathBuf>,
         bytes: Vec<u8>,
     },
+    /// A folder to search for plugins (none when cancelled; M6 slice 1).
+    PluginFolder(Option<PathBuf>),
 }
 
 /// Where file dialogs start when the project has no folder yet.
@@ -282,8 +284,10 @@ impl App {
                         self.write_midi(ctx, path, bytes);
                     }
                 }
+                FileDialog::PluginFolder(Some(folder)) => self.add_plugin_folder(ctx, &folder),
                 // Cancelled: whatever was waiting on it is off too.
                 FileDialog::SaveAs(None) | FileDialog::Open(None) => self.after_save = None,
+                FileDialog::PluginFolder(None) => {}
             }
         }
         if let Some(result) = self.saving.as_ref().and_then(|rx| rx.try_recv().ok()) {

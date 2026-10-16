@@ -40,6 +40,7 @@ impl Launch {
             settings_path: None,
             audio: audio::Choice::test_device(),
             midi: crate::midi::Source::Test(lumen_midi::fake::FakeControl::new()),
+            plugins: crate::plugins::Source::Off,
             autosave_dir: Some(dir.join("autosave")),
             autosave_after: None,
             crash_dir: Some(dir.join("crashes")),
@@ -90,6 +91,56 @@ impl Launch {
             output_channels: vec![0, 1],
             cue_channels: Vec::new(),
         });
+        self
+    }
+
+    /// Starts with plugins searched for in `roots` only, scanned by the host
+    /// program at `host`, with the scan results kept in `cache`.
+    pub fn with_plugins(mut self, roots: Vec<PathBuf>, host: &Path, cache: PathBuf) -> Self {
+        self.plugins = crate::plugins::Source::Fixed(crate::plugins::Fixed {
+            roots,
+            host: host.to_path_buf(),
+            cache: Some(cache),
+            deadline: None,
+            faults: None,
+        });
+        self
+    }
+
+    /// With plugins, how long one module may take before it is blocked.
+    pub fn with_plugin_deadline(mut self, deadline: Duration) -> Self {
+        if let crate::plugins::Source::Fixed(f) = &mut self.plugins {
+            f.deadline = Some(deadline);
+        }
+        self
+    }
+
+    /// With plugins, the fault the test plugin is given for a module, by
+    /// its file name without the extension (`None`: none).
+    pub fn with_plugin_faults(mut self, faults: fn(&str) -> Option<&'static str>) -> Self {
+        if let crate::plugins::Source::Fixed(f) = &mut self.plugins {
+            f.faults = Some(faults);
+        }
+        self
+    }
+
+    /// Starts with "scan at startup" switched off, as a saved setting.
+    pub fn without_plugin_scan_at_startup(mut self) -> Self {
+        self.settings.plugins.scan_at_startup = false;
+        self
+    }
+
+    /// Starts with the settings kept in `file`: read from it if it exists,
+    /// and written to it when they change, as the real settings file is.
+    pub fn with_settings_file(mut self, file: &Path) -> Self {
+        self.settings = settings::load(file).0;
+        self.settings_path = Some(file.to_path_buf());
+        self
+    }
+
+    /// Starts with a favorite saved, as a settings file with one would.
+    pub fn with_favorite(mut self, id: &str) -> Self {
+        self.settings.plugins.favorites.push(id.to_owned());
         self
     }
 
@@ -713,6 +764,60 @@ impl App {
     /// Whether the Keyboard shortcuts window is open.
     pub fn shortcuts_open(&self) -> bool {
         self.shortcuts.open
+    }
+
+    /// A scan, or the first read of the plugin list, is under way.
+    pub fn plugins_busy(&self) -> bool {
+        self.plugins.busy()
+    }
+
+    /// What the browser's scan line says is happening, in words.
+    pub fn plugin_status(&self) -> String {
+        format!("{:?}", self.plugins.status())
+    }
+
+    /// The installed plugins (not Lumen's own devices), by name.
+    pub fn plugin_names(&self) -> Vec<String> {
+        self.plugins
+            .catalog()
+            .devices()
+            .iter()
+            .filter(|d| d.source == lumen_plugin_catalog::catalog::Source::Vst3)
+            .map(|d| d.name.clone())
+            .collect()
+    }
+
+    /// The modules Lumen will not load, by name.
+    pub fn blocked_plugins(&self) -> Vec<String> {
+        self.plugins
+            .catalog()
+            .blocked()
+            .iter()
+            .map(|b| b.name.clone())
+            .collect()
+    }
+
+    /// The ids of the favorite devices, as the settings keep them.
+    pub fn favorite_devices(&self) -> Vec<String> {
+        self.settings.plugins.favorites.clone()
+    }
+
+    /// The ids of the recently chosen devices, most recent first.
+    pub fn recent_devices(&self) -> Vec<String> {
+        self.settings.plugins.recents.clone()
+    }
+
+    /// The id of the device selected in the browser, if one is.
+    pub fn selected_device(&self) -> Option<String> {
+        match &self.browser.view.selected {
+            Some(crate::browser::view::Selection::Device(id)) => Some(id.clone()),
+            _ => None,
+        }
+    }
+
+    /// Whether the browser pane is shown.
+    pub fn browser_shown(&self) -> bool {
+        self.show_browser
     }
 
     /// Puts the system's cursor at `at` (or nowhere), as read while files

@@ -19,6 +19,8 @@ pub struct Launch {
     pub(crate) audio: audio::Choice,
     /// Where MIDI ports come from (`--midi`).
     pub(crate) midi: crate::midi::Source,
+    /// Where plugins come from (`--plugins`, `--plugin-roots`).
+    pub(crate) plugins: crate::plugins::Source,
     /// Where autosaves go; `None` turns autosave off.
     pub(crate) autosave_dir: Option<PathBuf>,
     pub(crate) autosave_after: Option<Duration>,
@@ -103,6 +105,7 @@ impl Launch {
             settings_path,
             audio,
             midi,
+            plugins: crate::plugins::Source::from_args(&args),
             autosave_dir: value("--autosave-dir")
                 .map(PathBuf::from)
                 .or_else(crate::autosave::default_dir),

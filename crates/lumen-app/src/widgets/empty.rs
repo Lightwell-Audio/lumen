@@ -57,6 +57,20 @@ pub fn empty_state(ui: &mut Ui, rect: Rect, state: &EmptyState<'_>) -> bool {
     };
     let height = icon_room + title.size().y + theme::space::S + hint.size().y + button_room;
     let mut y = (rect.center().y - height / 2.0).max(rect.top() + theme::space::S);
+    // The words are painted, which assistive technology cannot read: the
+    // state says them as one labelled thing.
+    ui.interact(
+        rect,
+        ui.id().with(("empty state", state.title)),
+        egui::Sense::hover(),
+    )
+    .widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Label,
+            true,
+            format!("{}. {}", state.title, state.hint),
+        )
+    });
     let painter = ui.painter_at(rect);
     if let Some(icon) = state.icon {
         icon(
