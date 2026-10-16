@@ -2,6 +2,10 @@
 //! painted and answered row by row. Only the rows in view are laid out, so
 //! a thousand plugins cost what a dozen do. It decides nothing: what was
 //! clicked goes back in an [`Out`] for the app to apply.
+//!
+//! Rows are clickable but not Tab stops: a library of hundreds would take
+//! hundreds of Tabs to cross. The list is one stop, the pane's own (F6), and
+//! the arrows move through it (`panel.rs`).
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -214,7 +218,7 @@ fn draw_header(
     hover: Hover,
 ) {
     let palette = *theme::p();
-    let response = ui.interact(rect, id, Sense::click());
+    let response = ui.interact(rect, id, Sense::CLICK);
     response.widget_info(|| {
         egui::WidgetInfo::labeled(
             egui::WidgetType::Button,
@@ -296,7 +300,7 @@ fn draw_device(
     let id = Id::new(("browser device", &device.id));
     let selected = input.selected == Some(&Selection::Device(device.id.clone()));
     let favorite = input.favorites.contains(&device.id);
-    let response = ui.interact(rect, id, Sense::click());
+    let response = ui.interact(rect, id, Sense::CLICK);
     let kind = match device.kind {
         Kind::Instrument => "instrument",
         Kind::Effect => "effect",
@@ -314,7 +318,7 @@ fn draw_device(
         pos2(rect.right() - PAD - ICON / 2.0, rect.center().y),
         vec2(ICON + 8.0, DEVICE_H),
     );
-    let star_response = ui.interact(star, id.with("star"), Sense::click());
+    let star_response = ui.interact(star, id.with("star"), Sense::CLICK);
     star_response.widget_info(|| {
         egui::WidgetInfo::selected(
             egui::WidgetType::Checkbox,
@@ -496,7 +500,7 @@ fn draw_blocked(
     let path = blocked.path.to_string_lossy().into_owned();
     let id = Id::new(("browser blocked", &path));
     let selected = input.selected == Some(&Selection::Blocked(path.clone()));
-    let response = ui.interact(rect, id, Sense::click());
+    let response = ui.interact(rect, id, Sense::CLICK);
     response.widget_info(|| {
         egui::WidgetInfo::selected(
             egui::WidgetType::SelectableLabel,

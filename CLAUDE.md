@@ -403,7 +403,43 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-15 (latest): **M6 slice 0, part 3: the shared-memory
+**Last updated:** 2026-10-16 (latest): **M6 slice 1, plugin discovery, is
+built** on `m6-s1-plugin-scan` (ADR-0068; plan and progress in
+`docs/milestones/M6.md`). Started while slice 0's audio-path ADR is still open
+(the owner ran MT-VST-0 and said to go on). Owner choices: scan at startup in
+the background; a plugin that crashes or hangs is blocked with its reason and
+retried only when its file changes or on Retry; browser layout B (by vendor,
+category chips) plus a type filter, from the "Lumen Plugin Browser Specimens"
+canvas. `lumen-plugin-host scan <path>` (`scan/{report, host, run}.rs`) is one
+bounded, versioned reply per module in its own process with a deadline;
+the new crate `lumen-plugin-catalog` finds modules, scans them four at a
+time, caches answers by file stamp (a blocked module is an entry with its
+reason), words the reasons and answers the browser's queries; in the app,
+`plugins/` owns the scan thread (polled each frame, saves the cache
+atomically beside `settings.json` as `plugin-cache.json`) and the settings
+section (folders, favorites, recents, scan at startup; no version change) and
+`browser/` is the Devices tab (`rows.rs` pure and tested, `list.rs` paints
+only rows in view, rows are clickable but not Tab stops: the list is the
+pane's one stop, F6, then arrows, Left/Right fold, F stars, Enter chooses).
+Commands: Ctrl+F search, rescan, rescan all, add folder, favorite, scan at
+startup (area Devices; **new commands go at the end of `Command` and `ALL`**).
+Flags and test seams: `--plugins off`, `--plugin-roots/--plugin-host/
+--plugin-cache`, `Launch::with_plugins` (tests are off by default). **Scan
+program location:** beside the Lumen executable, so `cargo run -p lumen-app`
+needs `cargo build --release -p lumen-plugin-host` first (the browser says
+so; KNOWN_ISSUES). Verified on Linux with the test plugin: catalog 30 unit
+tests and 11 scanner scenarios, host 9 reply tests and 10 scan tests, app 580
+unit tests, **354 E2E (15 new in `tests/e2e/plugins.rs`), 6 smoke**; clippy
+clean for Windows (GNU) and macOS. **Not run, and not claimed:** anything on
+Windows or macOS, any real plugin, the Windows job object for scan
+processes, frame times with a large library. **Next: the owner's MT-VST-1
+(Windows)**; then slice 2 (the first complete device workflow: a device on a
+track, hearing it, bypass, save and reopen), which needs the audio-path ADR
+from slice 0's open gate. Cloud container: `apt-get update`, then
+`libasound2-dev libudev-dev pkg-config mesa-vulkan-drivers xvfb
+libxkbcommon-x11-0`; the smoke tests run under `xvfb-run -a`.
+
+Before it, 2026-10-15: **M6 slice 0, part 3: the shared-memory
 audio path and the measurement harness** on `m6-s0-shm-transport` (ADR-0067;
 the branch was renamed from a generated `claude/…` name, which never existed
 on the remote). `lumen_plugin_host::shm`: one block in flight per host (a

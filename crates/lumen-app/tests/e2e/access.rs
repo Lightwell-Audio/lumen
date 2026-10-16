@@ -212,7 +212,9 @@ fn place(order: &[String], name: &str) -> usize {
 fn tab_walks_the_window_in_reading_order() {
     let (mut lumen, _, _) = with_two_clips("access-tab");
     let mut order = Vec::new();
-    for _ in 0..40 {
+    // Far enough to pass the browser's controls (M6 slice 1: its list is one
+    // stop, the pane's, so rows cost no Tabs) and reach the arrangement.
+    for _ in 0..60 {
         lumen.key(Modifiers::NONE, Key::Tab);
         order.push(focused(&lumen).unwrap_or_default());
     }

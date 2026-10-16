@@ -6005,9 +6005,22 @@ text, which it cannot read).
   chip, favorites, favorites and recents across a restart through a real
   settings file, the keyboard alone, Ctrl+F, Cancel).
 - Clippy is clean for Windows (GNU) and macOS; **neither was run**.
+- Whole-suite results (Linux): a full workspace run passed 1,722 tests and
+  failed one, the Tab-order test, because the browser added about ten named
+  controls to the walk. The order was right (transport, the browser's
+  controls, the detail panel, the arrangement, every stop named) and the
+  test's 40-Tab horizon too short, so it is 60 now. Rows are clickable but
+  not Tab stops: the list is one stop, the pane's (F6), and the arrows move
+  through it. After that and the last visual fix: all 354 end-to-end
+  scenarios and the 6 real-binary smoke tests pass (under a virtual display),
+  and clippy is clean for Linux, Windows (GNU) and macOS.
+- Looked at: the browser rendered from a generated list of 15 plugins and
+  one blocked, in the dark theme at 100% and 200% and the light theme at 100%.
+  Rendered but not inspected by eye: dark at 150%, light at 200% (the smoke
+  test draws that one). A blocked card and the row menu were not rendered; the
+  end-to-end scenarios exercise them by name.
 - Not claimed: any scan of a real plugin; the Windows job object ending a
   scan process with Lumen; frame times with a large library or the 200-track
   benchmark with the new pane; idle CPU measured (the pane repaints only on
-  messages and motion, by construction); the visual check at 150% and 200%
-  and in the light theme beyond the screenshots recorded in the slice
-  report.
+  messages and motion, by construction); the performance gate (no engine or
+  project code changed).
