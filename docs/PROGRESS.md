@@ -9,7 +9,7 @@ blocked list with reasons that retries only when a file changes or on Retry,
 and the browser's Devices tab in the owner's layout B with a type filter.
 Verified on Linux with the test plugin; **nothing has run on Windows or
 macOS, or with a real plugin** (MT-VST-1 waits for the owner). Slice 0's
-architecture gate (the audio-path ADR) is drafted as ADR-0069 and waits for the owner; it does not block this
+architecture gate (the audio-path ADR) is ADR-0069 (accepted 2026-10-16, the callback's wait on trial); it does not block this
 slice.
 **M6 slice 0 activity (2026-10-15):** The corrected Windows MT-VST-0
 full-grid rerun had no MMCSS warning. Event and event/spin had zero misses

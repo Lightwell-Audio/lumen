@@ -66,7 +66,7 @@ irreversible or external) · *Superseded*.
 | [0066](#adr-0066--the-plugin-host-crate-and-its-protocol) | The plugin host crate (`lumen-plugin-host`): loading through the OS loader, a bounded versioned protocol, stale-block rejection and deadlines (M6 slice 0, part 2) | Accepted 2026-10-15 (the audio path and the process-grouping policy are not decided) | No |
 | [0067](#adr-0067--the-shared-memory-audio-path-and-the-measurement-harness) | The shared-memory audio path (`lumen_plugin_host::shm`): one block in flight, untrusted-region rules, two-sided wake-up settings, Windows job object, and the measurement harness (M6 slice 0, part 3) | Accepted 2026-10-15 for the transport (the wake-up, the real-time wait contract and the process grouping wait for MT-VST-0) | No |
 | [0068](#adr-0068--plugin-discovery-scanning-the-cache-and-the-browser-m6-slice-1) | Plugin discovery (`lumen-plugin-catalog`): a scan child per module with a deadline, a cache keyed by file stamp, a blocked list that retries when the file changes, startup scan in the background, the browser's Devices tab (M6 slice 1) | Accepted 2026-10-16 (verified on Linux with the test plugin; MT-VST-1 on Windows waits for the owner) | No |
-| [0069](#adr-0069--the-audio-path-to-plugin-hosts-wake-up-the-callbacks-wait-process-grouping-m6-slice-0-close) | The audio path to plugin hosts: `event` wake-up, a bounded callback wait under a narrow contract, one process per instance, the working budget (M6 slice 0 close) | **Proposed** 2026-10-16 (measured on Windows with the test plugin) | **Yes**: may the audio callback make a bounded wait on a host |
+| [0069](#adr-0069--the-audio-path-to-plugin-hosts-wake-up-the-callbacks-wait-process-grouping-m6-slice-0-close) | The audio path to plugin hosts: `event` wake-up, a bounded callback wait under a narrow contract, one process per instance, the working budget (M6 slice 0 close) | Accepted 2026-10-16, decision 2 (the callback's bounded wait) on trial until slice 2's measurements (measured on Windows with the test plugin) | Decided by the owner (the trial's check: MT-VST-2) |
 
 ---
 
@@ -136,6 +136,7 @@ irreversible or external) · *Superseded*.
 | Covered MIDI clips (M5, 2026-10-13, after MT-MIDI-7 run 3) | Asked, from two variants: **A, the clip window** (chosen, as recommended): a clip covered, trimmed or split keeps every note, hidden outside its edges, and shows them when an edge is dragged back; moving the top clip away leaves a gap. B (stacked clips that reappear by themselves) was set aside. Overdub across clips: the owner will reproduce the observed behavior before deciding whether to change it. Format v15. ADR-0056. |
 | Recording edges and MIDI trims (M5, 2026-10-13, the owner's four points) | Asked for directly: MIDI clip edges that drag without jitter or offset; Overdub begun at or before a clip extends that clip and merges into it; recording begun in the middle of a clip makes a new clip from the playhead to the stop; and the clip recorded over redraws continuously, not at commits. Built as stated (no variants pitched: the owner gave the behaviour). ADR-0057. |
 | Overdub at clip edges (M5, 2026-10-13, MT-MIDI-7 run 7) | Asked for directly, reversing part of the row above: Overdub begun before a clip and reaching its start, or begun exactly at its start, records a **new clip** and does not merge into or grow the clip there in the arrangement; the new clip carries the track's existing notes along with the take, and the old clip stays a clip of its own. Built as stated. ADR-0060. |
+| The audio callback and plugin hosts (M6 slice 0, 2026-10-16; ADR-0069) | Asked and chosen: **the callback may make a bounded wait on a plugin host's completion event** (option A), under ADR-0069's contract, **on trial**: slice 2's MT-VST-2, above all recording with monitoring through an effect at 64 and 128 frames, decides whether it stays; the pipelined path (one block of extra latency) is the fallback. The owner asked whether other production hosts do this; no source found says how any of them synchronise, so the choice rests on the measurements. |
 | Plugin discovery (M6 slice 1, 2026-10-16) | Asked and chosen: **scan at startup, in the background** (known plugins from the saved list at once, only new or changed ones loaded); a plugin that crashes or hangs while scanned is **blocked with its reason and retried only when its file changes or on Retry**; the browser uses **layout B** (grouped by vendor, with category chips) from the "Lumen Plugin Browser Specimens" canvas, **plus a type filter** (All, Instruments, Effects) for the grouping by type the owner liked in layout A. The slice started while slice 0's audio-path ADR is still open; the owner ran MT-VST-0 and said to go on. Plan in `docs/milestones/M6.md`. |
 | MIDI learn moved to M7 (M5, 2026-10-13) | Asked, as recommended: **MIDI learn and its mapping list move to M7**, built with automation, where M6 and M7 define the parameters it maps and a mapped controller writes automation through the same path as Lumen's controls (Touch and Latch). M5 slice 7 keeps Standard MIDI Files and MIDI clock out (plan in `docs/milestones/M5.md`). Its choices, asked in chat, all as recommended: **F1 A** a multi-track file dropped on a track merges into one clip there, dropped between tracks or on empty lanes makes one MIDI track per file track (type 0 split by channel); **F2 A** notes are placed in beats and the project tempo is untouched, with a notice offering "Use them" for the file's tempo map and first time signature (one undo step); **F3 A** clock runs only while playing; **F4 A** a Sync delay per port, −20 to +50 ms. MTC out [S] is deferred, unscheduled. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
@@ -6072,12 +6073,15 @@ text, which it cannot read).
 
 ## ADR-0069 — The audio path to plugin hosts: wake-up, the callback's wait, process grouping (M6 slice 0 close)
 
-**Status:** **Proposed 2026-10-16**, for the owner. Everything below follows
-from the measurements except one judgement that is the owner's to make:
-whether the audio callback may make a bounded operating-system wait on a
-plugin host (decision 2, which departs from the architecture rule that the
-audio thread never blocks). Measured on Windows with the test plugin; nothing
-here is claimed for macOS, Linux or a real plugin. · **Date:** 2026-10-16
+**Status:** **Accepted 2026-10-16, decision 2 on trial.** The owner chose
+decision 2 (the bounded wait, option 1) over the pipelined path (option 3),
+knowing it departs from the architecture rule that the audio thread never
+blocks, and knowing that no source found confirms other production hosts do the
+same. It is a trial in this sense: slice 2's MT-VST-2 measurements, above all
+recording with monitoring through an effect, decide whether it stays; if they
+fail, option 3 replaces it and this ADR is amended. Measured on Windows with
+the test plugin; nothing here is claimed for macOS, Linux or a real plugin. ·
+**Date:** 2026-10-16
 
 **Context.** ADR-0005 chose separate host processes and proposed that the
 callback wait for them on an event. ADR-0066 and ADR-0067 built the host, the
