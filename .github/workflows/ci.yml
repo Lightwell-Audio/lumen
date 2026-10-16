@@ -61,16 +61,11 @@ jobs:
         with:
           tool: nextest@0.9.148
       # --all-targets also runs every divan benchmark once as a smoke test.
-      # The profiles never stop at the first failure, so one run shows all of
-      # them. Both steps use the same build (same flags); only the filter and
-      # the profile differ. The e2e suite mostly waits on the paced test
-      # device, so its profile runs more tests at once than there are cores
-      # (ADR-0063, docs/DEVELOPMENT.md "Running the tests").
+      # The profile never stops at the first failure, so one run shows all of
+      # them. One test per core: more at once did not speed up the e2e suite
+      # on these runners and failed timing tests (.config/nextest.toml).
       - name: Tests
-        run: cargo nextest run --workspace --all-targets --locked --profile ci -E 'not binary(e2e)'
-      - name: End-to-end tests
-        if: ${{ !cancelled() }}
-        run: cargo nextest run --workspace --all-targets --locked --profile e2e -E 'binary(e2e)'
+        run: cargo nextest run --workspace --all-targets --locked --profile ci
       # Scanner isolation: crashing, hanging and broken VST3 modules must be
       # contained and classified (P-VST3). Windows-only until the macOS and
       # Linux port (ROADMAP.md, Stretch goals).

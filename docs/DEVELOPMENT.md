@@ -196,23 +196,21 @@ version pinned in `.github/workflows/ci.yml`); `cargo test` runs the same
 tests and stays supported. The profiles are in `.config/nextest.toml`:
 
 ```bash
-# Everything except the end-to-end suite, as many tests at once as cores:
-cargo nextest run --workspace --all-targets --profile ci -E 'not binary(e2e)'
-# The end-to-end suite, 12 tests at once:
-cargo nextest run --workspace --all-targets --profile e2e -E 'binary(e2e)'
+cargo nextest run --workspace --all-targets --profile ci
 ```
 
-Why two steps: the end-to-end suite (about 340 tests) takes 200 s or more on a
-CI runner and spends most of that waiting on the paced test audio device
-(ADR-0063), not on the CPU, so it runs more tests at once than there are
-cores. Measured on 4 cores: 157 s at 4 tests at once, 108 s at 8, 93 s at 16.
-The other tests include timing checks (the MIDI sender's lateness bounds, the
-real-time and record tests) that a busy machine can disturb, so they keep one
-test per core. nextest also runs each test in its own process, which is
-stricter than `cargo test` (a test cannot depend on state another test left
-in the process). It does not run doc tests; no crate has any, so CI has no
-doc-test step. Add `cargo test --workspace --doc --locked` back to the
-workflow when one is written.
+nextest runs every test from every binary in one pool, one test per core,
+where `cargo test` runs the binaries one after another. It also runs each test
+in its own process, which is stricter than `cargo test` (a test cannot depend
+on state another test left in the process). It does not run doc tests; no
+crate has any, so CI has no doc-test step. Add `cargo test --workspace --doc
+--locked` back to the workflow when one is written.
+
+The end-to-end suite (about 350 tests) takes 200 s or more on a CI runner. Do
+not raise the thread count to speed it up: on a 4-core developer machine 12
+tests at once ran it in 93 s instead of 157 s, but on the CI runners it took
+the same 205 s and failed timing-sensitive tests (the suite is CPU-bound
+there, not waiting on the paced test device, ADR-0063).
 
 ## The test plugins (M6, ADR-0065)
 
