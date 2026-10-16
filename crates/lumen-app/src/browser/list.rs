@@ -586,6 +586,19 @@ fn tag_blocked(painter: &Painter, rect: Rect, palette: &theme::Palette) -> f32 {
 fn draw_note(ui: &mut Ui, rect: Rect, blocked: &Blocked, out: &mut Out) {
     let palette = *theme::p();
     let card = rect.shrink2(vec2(0.0, theme::space::XS));
+    // The card's words are painted, which assistive technology cannot read:
+    // the card says them as one labelled thing.
+    let (headline, detail) = note_text(blocked);
+    let spoken = match &detail {
+        Some(detail) => format!("{headline} {detail} {WHEN_RETRIED}"),
+        None => format!("{headline} {WHEN_RETRIED}"),
+    };
+    let id = Id::new((
+        "browser blocked note",
+        blocked.path.to_string_lossy().into_owned(),
+    ));
+    ui.interact(card, id, Sense::hover())
+        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, spoken.clone()));
     let painter = ui.painter().clone();
     painter.rect(
         card,
@@ -597,7 +610,6 @@ fn draw_note(ui: &mut Ui, rect: Rect, blocked: &Blocked, out: &mut Out) {
     let inner = card.shrink(theme::space::S);
     let wrap = inner.width() - theme::space::XS;
     let body = FontId::proportional(theme::size::CAPTION);
-    let (headline, detail) = note_text(blocked);
     let mut y = inner.top();
     let paragraph = |text: String, colour: Color32, y: &mut f32| {
         let galley = painter.layout(text, body.clone(), colour, wrap);

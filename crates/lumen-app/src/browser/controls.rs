@@ -280,18 +280,28 @@ pub(super) fn scan_line(ui: &mut Ui, plugins: &Plugins) -> ScanActions {
                     }
                 }
             }
-            // What is left of the line is the words, cut with "…" when short.
-            let label = ui.add(
-                egui::Label::new(egui::RichText::new(&text).size(theme::size::CAPTION).color(
-                    if warn {
-                        palette.warning
-                    } else {
-                        palette.text_secondary
-                    },
-                ))
-                .truncate(),
+            // What is left of the line is the words, from the left edge, cut
+            // with "…" when short.
+            let rest = vec2(ui.available_width(), theme::size::CONTROL);
+            ui.allocate_ui_with_layout(
+                rest,
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    let label = ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(&text)
+                                .size(theme::size::CAPTION)
+                                .color(if warn {
+                                    palette.warning
+                                } else {
+                                    palette.text_secondary
+                                }),
+                        )
+                        .truncate(),
+                    );
+                    label.on_hover_text(&detail);
+                },
             );
-            label.on_hover_text(&detail);
         },
     );
     if let Status::Scanning { done, total } = plugins.status() {

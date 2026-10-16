@@ -2,6 +2,15 @@
 
 ## Status
 
+**M6 slice 1 (plugin discovery) built 2026-10-16** on `m6-s1-plugin-scan`
+(ADR-0068; plan in `docs/milestones/M6.md`). Startup scan in the background, a
+child process per module with a deadline, a cache keyed by file stamp, a
+blocked list with reasons that retries only when a file changes or on Retry,
+and the browser's Devices tab in the owner's layout B with a type filter.
+Verified on Linux with the test plugin; **nothing has run on Windows or
+macOS, or with a real plugin** (MT-VST-1 waits for the owner). Slice 0's
+architecture gate (the audio-path ADR) is still open and does not block this
+slice.
 **M6 slice 0 activity (2026-10-15):** The corrected Windows MT-VST-0
 full-grid rerun had no MMCSS warning. Event and event/spin had zero misses
 across the 48 kHz grid; hybrid modes and spin missed in several cases. Crash
@@ -362,14 +371,14 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Mixer: fader, pan law, mute, solo, sends, returns, groups, master, routing, sidechain, PDC, meters, cue | M | 🟡 The engine graph (M4 slice 1, ADR-0035); routing in the model (slice 2); groups (slice 3); mute, solo, sends, returns, the master and cue (slice 4, ADR-0038); the Mixer tab, meters, the pan law and output pairs (slice 5, ADR-0040); sidechains and delay compensation in the engine with the transport's readout (slice 6, ADR-0041) |
 | LUFS and true-peak metering; mono-check and dim | S | 🟡 LUFS (momentary, short-term, integrated) and true peak on the master (M4 slice 5, ADR-0040); mono-check and dim later |
 | Reference track | L | 🔲 |
-| Async cached VST3 scanning, custom paths, blocklist, search, favourites, recents | M | 🔲 |
+| Async cached VST3 scanning, custom paths, blocklist, search, favourites, recents | M | 🟡 Built and tested on Linux with the test plugin (M6 slice 1, ADR-0068); not run on Windows or with real plugins (MT-VST-1) |
 | Instruments and effects; multi-out; sidechain; bypass; presets; state; automation; generic UI; floating editors with DPI and focus | M | 🔲 |
 | Latency compensation; crash isolation; safe mode | M | 🔲 |
 | Built-in essentials | M | 🔲 |
 | Spectrum analyzer, tuner | S | 🔲 |
 | CLAP, racks with macros | L | 🔲 |
-| Browser: devices, samples, projects, user places; search; audition; drag and drop | M | 🔲 |
-| Tags and favourites; tempo-synced audition | S | 🔲 |
+| Browser: devices, samples, projects, user places; search; audition; drag and drop | M | 🟡 Devices tab with search, type, category and favorites (M6 slice 1); adding a device to a track is slice 2; samples, projects, places, audition and drag and drop are later |
+| Tags and favourites; tempo-synced audition | S | 🟡 Favorites on devices (M6 slice 1); tags and audition are later |
 | Media pool with relink and purge | M | 🔲 |
 | Project management: new/open/save/as/copy/template/revert/recent; autosave and recovery; backups; collect; relink; migrations; settings | M | 🔲 |
 | Project notes and metadata | S | 🔲 |

@@ -213,6 +213,30 @@ Type-check for the other systems with
 and `--target aarch64-apple-darwin` (`rustup target add` first); those
 targets are not run here.
 
+## Plugin discovery (M6 slice 1, ADR-0068)
+
+Plugins are found by `lumen-plugin-host scan <path>`, one process per module,
+which Lumen looks for **beside its own executable**. `cargo run -p lumen-app`
+builds only the app, so build the scan program too, or the browser says it
+was not found:
+
+```powershell
+cargo build --release -p lumen-plugin-host
+cargo run --release -p lumen-app
+```
+
+The scan's answers are kept in `plugin-cache.json` next to `settings.json`.
+Delete it to see a cold scan. Flags for runs and screenshots that must not
+touch the machine's plugins: `--plugins off`, or `--plugin-roots <folder;folder>`
+with `--plugin-host <program>` and `--plugin-cache <file>`. A screenshot with
+a generated list needs only a cache file and `scan_at_startup: false` in the
+settings file.
+
+`cargo test -p lumen-plugin-catalog` copies the test plugin into folders as
+bundles named for the fault each should have (a copy named `Crash` crashes,
+`Hang` hangs) and scans them with the real host program. The end-to-end
+scenarios in `tests/e2e/plugins.rs` do the same through the app.
+
 ## Linux cloud containers
 
 A Linux cloud container needs system packages before the first build. The app
@@ -225,7 +249,9 @@ sudo apt-get install libasound2-dev libudev-dev pkg-config
 
 The GPU tests and the screenshot tests also need a software Vulkan device,
 which is `mesa-vulkan-drivers` (lavapipe; CI's Linux job installs it too).
-The first `cargo test -p lumen-app --test e2e` takes minutes to build.
+The smoke tests need `xvfb` and `libxkbcommon-x11-0` as well, and run under
+`xvfb-run -a`. The first `cargo test -p lumen-app --test e2e` takes minutes to
+build.
 
 ## End-to-end tests (ADR-0029)
 

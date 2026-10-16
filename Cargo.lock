@@ -2166,6 +2166,7 @@ dependencies = [
  "lumen-engine",
  "lumen-media",
  "lumen-midi",
+ "lumen-plugin-catalog",
  "lumen-project",
  "lumen-render",
  "lumen-rt",

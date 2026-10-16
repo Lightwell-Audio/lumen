@@ -130,6 +130,14 @@ impl Launch {
         self
     }
 
+    /// Starts with the settings kept in `file`: read from it if it exists,
+    /// and written to it when they change, as the real settings file is.
+    pub fn with_settings_file(mut self, file: &Path) -> Self {
+        self.settings = settings::load(file).0;
+        self.settings_path = Some(file.to_path_buf());
+        self
+    }
+
     /// Starts with a favorite saved, as a settings file with one would.
     pub fn with_favorite(mut self, id: &str) -> Self {
         self.settings.plugins.favorites.push(id.to_owned());
@@ -756,6 +764,60 @@ impl App {
     /// Whether the Keyboard shortcuts window is open.
     pub fn shortcuts_open(&self) -> bool {
         self.shortcuts.open
+    }
+
+    /// A scan, or the first read of the plugin list, is under way.
+    pub fn plugins_busy(&self) -> bool {
+        self.plugins.busy()
+    }
+
+    /// What the browser's scan line says is happening, in words.
+    pub fn plugin_status(&self) -> String {
+        format!("{:?}", self.plugins.status())
+    }
+
+    /// The installed plugins (not Lumen's own devices), by name.
+    pub fn plugin_names(&self) -> Vec<String> {
+        self.plugins
+            .catalog()
+            .devices()
+            .iter()
+            .filter(|d| d.source == lumen_plugin_catalog::catalog::Source::Vst3)
+            .map(|d| d.name.clone())
+            .collect()
+    }
+
+    /// The modules Lumen will not load, by name.
+    pub fn blocked_plugins(&self) -> Vec<String> {
+        self.plugins
+            .catalog()
+            .blocked()
+            .iter()
+            .map(|b| b.name.clone())
+            .collect()
+    }
+
+    /// The ids of the favorite devices, as the settings keep them.
+    pub fn favorite_devices(&self) -> Vec<String> {
+        self.settings.plugins.favorites.clone()
+    }
+
+    /// The ids of the recently chosen devices, most recent first.
+    pub fn recent_devices(&self) -> Vec<String> {
+        self.settings.plugins.recents.clone()
+    }
+
+    /// The id of the device selected in the browser, if one is.
+    pub fn selected_device(&self) -> Option<String> {
+        match &self.browser.view.selected {
+            Some(crate::browser::view::Selection::Device(id)) => Some(id.clone()),
+            _ => None,
+        }
+    }
+
+    /// Whether the browser pane is shown.
+    pub fn browser_shown(&self) -> bool {
+        self.show_browser
     }
 
     /// Puts the system's cursor at `at` (or nowhere), as read while files
