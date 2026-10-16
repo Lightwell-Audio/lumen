@@ -403,7 +403,21 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-16 (latest): **M6 slice 1, plugin discovery, is
+**Last updated:** 2026-10-15 (latest): **M6 slice 0's last measurements, on
+`m6-s0-audio-path`** (cut from `main` after slice 1 merged). The two heap
+operations the crash runs reported are fixed: the loop asked
+`HostProcess::ended`, which words a crash in a `String`; it asks the
+allocation-free `has_ended` (guarded test
+`shm_rt::noticing_a_crashed_host_does_not_allocate`; crash and hang benchmark
+runs now show 0 heap operations). The 64-host budget is measured on Windows
+(MT-VST-0 run 3, `m6-budget-64.csv`): at 128 frames/48 kHz `event` stays
+inside the 1.333 ms half-period budget up to 100 µs of plugin work per track
+(and at p99 at 200 µs); `event/spin` missed 40 deadlines at 200 µs. One run,
+machine in use, synthetic load. **Still open before the audio-path ADR can be
+written:** process-per-chain (unmeasured), the editor-focus spike, dynamic
+latency notifications, whether `try_wait` is acceptable under RTSan, and the
+owner's call on the representative workload. Not run: Linux or macOS.
+Before it, 2026-10-16: **M6 slice 1, plugin discovery, is
 built** on `m6-s1-plugin-scan` (ADR-0068; plan and progress in
 `docs/milestones/M6.md`). Started while slice 0's audio-path ADR is still open
 (the owner ran MT-VST-0 and said to go on). Owner choices: scan at startup in

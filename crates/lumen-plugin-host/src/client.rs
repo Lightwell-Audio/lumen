@@ -198,7 +198,15 @@ impl HostProcess {
         self.stale
     }
 
-    /// How the host ended, if it has.
+    /// Whether the host has ended, without saying how. Allocation-free, so
+    /// the audio loop may ask it after a missed deadline; [`Self::ended`]
+    /// words a crash and so allocates (found by the MT-VST-0 crash runs).
+    pub fn has_ended(&mut self) -> bool {
+        self.killed || matches!(self.child.try_wait(), Ok(Some(_)))
+    }
+
+    /// How the host ended, if it has. Allocates when it crashed: not for the
+    /// audio loop, which asks [`Self::has_ended`].
     pub fn ended(&mut self) -> Option<ExitKind> {
         if self.killed {
             return Some(ExitKind::Killed);

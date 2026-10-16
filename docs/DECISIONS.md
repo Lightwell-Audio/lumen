@@ -5848,12 +5848,19 @@ one registration for the thread lifetime and reverts it at thread exit. The
 corrected full grid ran without that warning. Event and event/spin had zero
 misses across the 48 kHz grid; hybrid150 had 14, hybrid150/spin 12, and spin
 114. The corrected results and CSVs are in `docs/manual-tests/M6.md`. The
-crash path still reports two heap operations in Lumen's loop. No wake-up or
-callback-wait policy is accepted yet.
+crash path reported two heap operations in Lumen's loop; **fixed the same
+day** (amendment, run 3: the loop asked `HostProcess::ended`, which words a
+crash in a `String`; it asks the allocation-free `has_ended` now, and
+`shm_rt::noticing_a_crashed_host_does_not_allocate` fails with exactly two
+operations without the change). No wake-up or callback-wait policy is
+accepted yet.
 - *Which wake-up.* Event and event/spin are the strongest candidates in this
   grid; the event modes had zero misses, while hybrid and spin missed in
-  loaded and/or short-buffer cases. The full 64-track callback budget and
-  process-per-chain grouping remain unmeasured.
+  loaded and/or short-buffer cases. At 64 hosts (run 3) `event` held the
+  1.333 ms half-period budget at p99 up to 200 µs of plugin work per track and
+  at its maximum up to 100 µs; `event/spin` missed 40 deadlines at 200 µs
+  (spinning on Lumen's side competes with the hosts for the cores), so
+  event is the candidate. Process-per-chain grouping remains unmeasured.
 - *May the callback wait on the operating system.* ADR-0005 proposed it; the
   architecture rule says the audio thread never blocks. Either bounded polling
   in the callback with the signalling on the host's side meets the budget

@@ -13,10 +13,13 @@ architecture gate (the audio-path ADR) is still open and does not block this
 slice.
 **M6 slice 0 activity (2026-10-15):** The corrected Windows MT-VST-0
 full-grid rerun had no MMCSS warning. Event and event/spin had zero misses
-across the 48 kHz grid; hybrid modes and spin missed in several cases. Crash
-injection still reports two heap operations in Lumen's loop. See [the M6 test
-record](manual-tests/M6.md) and [the M6 plan](milestones/M6.md). M5 closeout
-remains pending.
+across the 48 kHz grid; hybrid modes and spin missed in several cases. The two
+heap operations the crash runs reported in Lumen's loop are fixed (the loop
+no longer words a crash in a `String`), and the 64-host budget is measured
+(run 3: event holds the half-period budget up to 100 µs of plugin work per
+track and at p99 up to 200 µs). The audio-path ADR is still unwritten. See
+[the M6 test record](manual-tests/M6.md) and [the M6 plan](milestones/M6.md).
+M5 closeout remains pending.
 **Documentation policy, 2026-10-14:** third-party product comparisons and
 named plugin examples are replaced with direct behavior descriptions and
 anonymous test labels. Technical identifiers and required legal attribution
