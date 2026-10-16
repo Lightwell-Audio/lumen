@@ -1852,3 +1852,23 @@ fn mini_notes_octaves() {
         save(&mut h, &format!("mini-notes-octaves-{appearance}"));
     }
 }
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn browser_controls() {
+    // M6 slice 1: the Devices tab's controls (title, tab, search with its
+    // focus ring, type switch, chips) in both themes at 100% and 200%.
+    for appearance in ["dark", "light"] {
+        for scale in [1.0, 2.0] {
+            let dir = TempDir::new("shots-browser");
+            let mut h = bare_scaled(&dir, appearance, scale, vec2(1280.0, 760.0));
+            h.run_steps(40);
+            h.key_press_modifiers(Modifiers::COMMAND, Key::F);
+            h.run_steps(30);
+            save(
+                &mut h,
+                &format!("browser-search-{appearance}-{}", (scale * 100.0) as u32),
+            );
+        }
+    }
+}

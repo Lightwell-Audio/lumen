@@ -50,67 +50,17 @@ impl App {
         let ctx = ui.ctx().clone();
         ui.spacing_mut().item_spacing = vec2(theme::space::XS, theme::space::XS);
 
-        // Samples and projects get their tabs when they are built.
-        let tabs = [widgets::Tab {
-            label: "Devices",
-            disabled_because: None,
-            tip: "Instruments and effects",
-        }];
-        widgets::tabs(ui, egui::Id::new("browser tabs"), 0, &tabs);
+        // The controls sit 12 pt in from the pane's edge, in line with the
+        // title; the list keeps its own 8 pt (its rows add their own room).
+        // The side margin also leaves the focus rings whole at the edges.
+        let side = (theme::space::M - theme::space::S) as i8;
+        let rows = egui::Frame::NONE
+            .inner_margin(egui::Margin::symmetric(side, 0))
+            .show(ui, |ui| self.browser_controls(ui, &ctx))
+            .inner;
         ui.add_space(theme::space::XS);
 
-        // The filters.
-        let searched = controls::search(
-            ui,
-            &mut self.browser.view.text,
-            &mut self.browser.focus_search,
-        );
-        if searched.escaped {
-            if self.browser.view.text.is_empty() {
-                // Nothing to clear: give the keyboard back to the pane.
-                panes::focus(&ctx, Pane::Browser);
-            } else {
-                self.browser.view.text.clear();
-            }
-        }
-        if let Some(kind) = controls::type_filter(ui, self.browser.view.kind) {
-            self.browser.view.kind = kind;
-            // A chip of a category the other kind lacks would show nothing.
-            if matches!(self.browser.view.chip, Chip::Category(_)) {
-                self.browser.view.chip = Chip::All;
-            }
-        }
         let favorites = self.settings.plugins.favorite_set();
-        let mut rows = rows::rows(
-            self.plugins.catalog(),
-            &self.browser.view,
-            &favorites,
-            &self.settings.plugins.recents,
-        );
-        if let Some(chip) = controls::chips(ui, &self.browser.view.chip, &rows.chips) {
-            self.browser.view.chip = chip;
-            // A chip changes what is listed.
-            rows = rows::rows(
-                self.plugins.catalog(),
-                &self.browser.view,
-                &favorites,
-                &self.settings.plugins.recents,
-            );
-        }
-
-        let scan = controls::scan_line(ui, &self.plugins);
-        if scan.rescan {
-            self.plugins
-                .rescan(Mode::Changed, &self.settings.plugins, &ctx);
-        }
-        if scan.cancel {
-            self.plugins.cancel();
-        }
-        if scan.dismiss_note {
-            self.plugins.dismiss_note();
-        }
-        ui.add_space(theme::space::XS);
-
         let area = Rect::from_min_max(pos2(body.left(), ui.cursor().top()), body.max);
         let moved = self.browser_keys(&ctx, &rows);
         let lonely = self.no_plugins_yet() && !self.browser.view.is_filtering();
@@ -143,6 +93,75 @@ impl App {
         if let Some(footer) = footer {
             self.first_run_card(ui, footer);
         }
+    }
+
+    /// The tabs, search, type switch, chips and scan line. Returns the rows
+    /// the filters leave.
+    fn browser_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> Rows {
+        // Samples and projects get their tabs when they are built. The tab's
+        // word lines up with the title above it.
+        let tabs = [widgets::Tab {
+            label: "Devices",
+            disabled_because: None,
+            tip: "Instruments and effects",
+        }];
+        widgets::tabs_flush(ui, egui::Id::new("browser tabs"), 0, &tabs);
+        ui.add_space(theme::space::XS);
+
+        // The filters, each group a full step from the next.
+        let searched = controls::search(
+            ui,
+            &mut self.browser.view.text,
+            &mut self.browser.focus_search,
+        );
+        if searched.escaped {
+            if self.browser.view.text.is_empty() {
+                // Nothing to clear: give the keyboard back to the pane.
+                panes::focus(ctx, Pane::Browser);
+            } else {
+                self.browser.view.text.clear();
+            }
+        }
+        ui.add_space(theme::space::S);
+        if let Some(kind) = controls::type_filter(ui, self.browser.view.kind) {
+            self.browser.view.kind = kind;
+            // A chip of a category the other kind lacks would show nothing.
+            if matches!(self.browser.view.chip, Chip::Category(_)) {
+                self.browser.view.chip = Chip::All;
+            }
+        }
+        ui.add_space(theme::space::S);
+        let favorites = self.settings.plugins.favorite_set();
+        let mut rows = rows::rows(
+            self.plugins.catalog(),
+            &self.browser.view,
+            &favorites,
+            &self.settings.plugins.recents,
+        );
+        if let Some(chip) = controls::chips(ui, &self.browser.view.chip, &rows.chips) {
+            self.browser.view.chip = chip;
+            // A chip changes what is listed.
+            rows = rows::rows(
+                self.plugins.catalog(),
+                &self.browser.view,
+                &favorites,
+                &self.settings.plugins.recents,
+            );
+        }
+        ui.add_space(theme::space::XS);
+
+        let scan = controls::scan_line(ui, &self.plugins);
+        if scan.rescan {
+            self.plugins
+                .rescan(Mode::Changed, &self.settings.plugins, ctx);
+        }
+        if scan.cancel {
+            self.plugins.cancel();
+        }
+        if scan.dismiss_note {
+            self.plugins.dismiss_note();
+        }
+        rows
     }
 
     /// Nothing matches the words and filters.

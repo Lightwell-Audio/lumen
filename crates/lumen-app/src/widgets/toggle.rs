@@ -566,6 +566,17 @@ pub struct Tab<'a> {
 /// on hover (the interface audit's T4, the owner's A). Returns the index
 /// clicked, if another.
 pub fn tabs(ui: &mut Ui, id: EguiId, chosen: usize, tabs: &[Tab<'_>]) -> Option<usize> {
+    tabs_in(ui, id, chosen, tabs, false)
+}
+
+/// [`tabs`] for a pane whose title sits at its content edge: the first tab
+/// has no room to its left, so its word lines up with the title above it
+/// instead of standing 12 pt in from it.
+pub fn tabs_flush(ui: &mut Ui, id: EguiId, chosen: usize, tabs: &[Tab<'_>]) -> Option<usize> {
+    tabs_in(ui, id, chosen, tabs, true)
+}
+
+fn tabs_in(ui: &mut Ui, id: EguiId, chosen: usize, tabs: &[Tab<'_>], flush: bool) -> Option<usize> {
     let palette = theme::p();
     let gap = theme::space::XS;
     let mut picked = None;
@@ -587,8 +598,13 @@ pub fn tabs(ui: &mut Ui, id: EguiId, chosen: usize, tabs: &[Tab<'_>]) -> Option<
                 FontId::proportional(theme::size::BODY),
                 colour,
             );
+            let left_room = if flush && i == 0 {
+                0.0
+            } else {
+                theme::space::M
+            };
             let size = vec2(
-                galley.size().x + 2.0 * theme::space::M,
+                galley.size().x + left_room + theme::space::M,
                 theme::size::CONTROL,
             );
             let sense = if enabled {
@@ -612,7 +628,10 @@ pub fn tabs(ui: &mut Ui, id: EguiId, chosen: usize, tabs: &[Tab<'_>]) -> Option<
             };
             let hover = response.hovered() && enabled && !selected;
             ui.painter().galley_with_override_text_color(
-                rect.center() - galley.size() / 2.0,
+                pos2(
+                    rect.left() + left_room,
+                    rect.center().y - galley.size().y / 2.0,
+                ),
                 galley,
                 if hover { palette.text } else { colour },
             );
@@ -620,7 +639,8 @@ pub fn tabs(ui: &mut Ui, id: EguiId, chosen: usize, tabs: &[Tab<'_>]) -> Option<
             if response.clicked() && !selected {
                 picked = Some(i);
             }
-            spans.push((rect.left(), rect.right()));
+            // The underline spans the word, whatever room the tab has around it.
+            spans.push((rect.left() + left_room, rect.right() - theme::space::M));
             bottom = rect.bottom();
         }
     });
@@ -634,10 +654,9 @@ pub fn tabs(ui: &mut Ui, id: EguiId, chosen: usize, tabs: &[Tab<'_>]) -> Option<
         let ctx = ui.ctx().clone();
         let at = motion::glide(&ctx, id.with("underline at"), index as f32, true);
         let (left, right) = slide_between(&spans, at);
-        let inset = theme::space::M;
         let line = Rect::from_min_max(
-            pos2(left + inset, bottom - 2.0),
-            pos2(right - inset, bottom),
+            pos2(left, bottom - theme::stroke::FOCUS),
+            pos2(right, bottom),
         );
         light::glow(ui.painter(), light::LIT, line, 1.0, palette.accent, 1.0);
         ui.painter().rect_filled(line, 1.0, palette.accent);

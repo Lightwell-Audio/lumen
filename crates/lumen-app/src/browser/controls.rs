@@ -12,6 +12,9 @@ use crate::icons::{self, Icon};
 use crate::plugins::{Plugins, Status};
 use crate::{theme, widgets};
 
+/// The magnifier's side, the same small glyph size the status chips use.
+const MAGNIFIER: f32 = 14.0;
+
 /// What the search field did this frame.
 pub(super) struct Searched {
     /// Esc pressed while the field had the keyboard.
@@ -23,13 +26,18 @@ pub(super) struct Searched {
 pub(super) fn search(ui: &mut Ui, text: &mut String, focus: &mut bool) -> Searched {
     let palette = *theme::p();
     let (rect, _) = ui.allocate_exact_size(
-        vec2(ui.available_width(), theme::size::CONTROL),
+        vec2(ui.available_width(), theme::size::CONTROL_LARGE),
         Sense::hover(),
     );
     widgets::raised::paint_field(ui.painter(), rect, theme::radius::MEDIUM, 0.0);
+    // The magnifier and the words sit a full step inside the well, so the
+    // field has room to breathe (the specimens' 12 pt side padding).
     let icon = Rect::from_center_size(
-        pos2(rect.left() + theme::space::S + 7.0, rect.center().y),
-        vec2(14.0, 14.0),
+        pos2(
+            rect.left() + theme::space::M + MAGNIFIER / 2.0,
+            rect.center().y,
+        ),
+        vec2(MAGNIFIER, MAGNIFIER),
     );
     ui.painter()
         .extend(icons::shapes(Icon::Search, icon, palette.text_hint));
@@ -39,9 +47,14 @@ pub(super) fn search(ui: &mut Ui, text: &mut String, focus: &mut bool) -> Search
     } else {
         theme::size::CONTROL
     };
+    let right_pad = if text.is_empty() {
+        theme::space::M
+    } else {
+        clear_room + theme::space::XS
+    };
     let edit = Rect::from_min_max(
-        pos2(icon.right() + theme::space::XS, rect.top()),
-        pos2(rect.right() - clear_room - theme::space::XS, rect.bottom()),
+        pos2(icon.right() + theme::space::S, rect.top()),
+        pos2(rect.right() - right_pad, rect.bottom()),
     );
     let mut child = ui.new_child(
         egui::UiBuilder::new()
@@ -69,7 +82,10 @@ pub(super) fn search(ui: &mut Ui, text: &mut String, focus: &mut bool) -> Search
 
     if !text.is_empty() {
         let clear = Rect::from_center_size(
-            pos2(rect.right() - clear_room / 2.0, rect.center().y),
+            pos2(
+                rect.right() - theme::space::XS - clear_room / 2.0,
+                rect.center().y,
+            ),
             vec2(clear_room, theme::size::CONTROL),
         );
         let response = ui.interact(clear, Id::new("browser search clear"), Sense::click());
