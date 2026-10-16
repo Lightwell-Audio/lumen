@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use super::capture::{self, Captured};
 use super::clock::ClockOut;
@@ -36,6 +37,15 @@ impl MidiSet {
             .collect();
         by_id.sort_unstable();
         Self { tracks, by_id }
+    }
+
+    /// Some track's instrument runs in a plugin host.
+    fn hosted(&self) -> bool {
+        self.tracks.iter().any(|t| {
+            t.instrument
+                .as_ref()
+                .is_some_and(|spec| spec.instrument.hosted())
+        })
     }
 }
 
@@ -161,6 +171,11 @@ pub struct MidiPlayer {
     /// The ports the clock was last sent to.
     synced: u64,
     clock_out: ClockOut,
+    /// Some track's instrument runs in a plugin host.
+    hosted: bool,
+    /// [`TrackSource::begin`] has done the part's first half: the next
+    /// `render` plays the tracks it gathered.
+    prepared: bool,
 }
 
 /// Creates the MIDI pair, starting with no tracks. Allocates, so call it
@@ -205,6 +220,8 @@ pub fn midi_player() -> (MidiHandle, MidiPlayer) {
             sync,
             synced: 0,
             clock_out: ClockOut::default(),
+            hosted: false,
+            prepared: false,
         },
     )
 }
@@ -397,6 +414,7 @@ impl MidiPlayer {
         }
         self.carry(&mut new, at);
         let old = std::mem::replace(&mut self.current, new);
+        self.hosted = self.current.hosted();
         self.retire(old);
     }
 
@@ -494,6 +512,37 @@ impl MidiPlayer {
 }
 
 impl MidiPlayer {
+    /// A part's first half: takes new lists and live input, places the live
+    /// and clock messages, reads every track's clips and, with `hosts`, hands
+    /// each hosted instrument its block. False for a scrub, which plays no
+    /// MIDI.
+    fn prepare(
+        &mut self,
+        cx: &RenderContext<'_>,
+        frames: usize,
+        clock: Clock<'_>,
+        hosts: bool,
+    ) -> bool {
+        self.take_new((cx.mode == Mode::Play).then_some((clock, cx.start)));
+        self.take_feed();
+        self.clock = cx.stream + frames as u64;
+        if cx.mode == Mode::Scrub {
+            // Live input waits until the scrub ends.
+            return false;
+        }
+        self.play_live(cx, frames);
+        if cx.mode == Mode::Play {
+            self.play_clock(cx, frames);
+        }
+        for track in &mut self.current.tracks {
+            gather_track(track, cx, frames, clock);
+            if hosts {
+                start_host(track, cx, frames);
+            }
+        }
+        true
+    }
+
     /// The loop wrapped: the next messages are of a new pass, and each
     /// recording track is told so.
     fn wrapped(&mut self) {
@@ -601,18 +650,10 @@ impl MidiTrack {
     }
 }
 
-/// Plays one track's part: reads its clips, sends hardware events out, or
-/// renders the instrument into the track's bus.
-fn run_track(
-    track: &mut MidiTrack,
-    cx: &RenderContext<'_>,
-    buses: &mut Buses<'_>,
-    out: &mut Out,
-    clock: Clock<'_>,
-) {
-    let frames = buses.frames();
+/// A part's first half for one track: reads its clips into the track's event
+/// queue, in order.
+fn gather_track(track: &mut MidiTrack, cx: &RenderContext<'_>, frames: usize, clock: Clock<'_>) {
     let channel = track.channel();
-    let id = track.id;
     if cx.mode == Mode::Play && track.sounds() {
         let from = cx.start;
         hold::gather(
@@ -624,24 +665,70 @@ fn run_track(
         );
     }
     hold::sort_events(&mut track.state.events);
+}
+
+/// Hands a hosted instrument its block now, so its host works while the
+/// engine renders the clips (ADR-0069). A built-in instrument is left to
+/// [`play_track`].
+fn start_host(track: &mut MidiTrack, cx: &RenderContext<'_>, frames: usize) {
+    let events: &[Event] = match track.target {
+        Target::Instrument => &track.state.events,
+        Target::Port { .. } => &[],
+    };
+    if let Some(spec) = track.instrument.as_mut()
+        && spec.instrument.hosted()
+    {
+        track.begun = spec.instrument.begin(cx.sample_rate, frames, events);
+    }
+}
+
+/// A part's second half for one track: sends hardware events out, and renders
+/// the instrument into the track's bus (or collects it, when it began early).
+fn play_track(track: &mut MidiTrack, cx: &RenderContext<'_>, buses: &mut Buses<'_>, out: &mut Out) {
+    let frames = buses.frames();
+    let id = track.id;
+    let sizes = (frames, cx.sample_rate);
     match track.target {
         Target::Port { .. } => {
             out.forward(track, cx.stream);
-            render_instrument(track, id, (frames, cx.sample_rate), buses, false);
+            render_instrument(track, id, sizes, cx.deadline, buses, false);
         }
-        Target::Instrument => render_instrument(track, id, (frames, cx.sample_rate), buses, true),
+        Target::Instrument => render_instrument(track, id, sizes, cx.deadline, buses, true),
     }
 }
 
 /// Renders the track's instrument into its bus: with the queued events when
-/// `events`, otherwise only what still rings.
+/// `events`, otherwise only what still rings. An instrument that began early
+/// is collected, waiting for its host until `deadline`.
 fn render_instrument(
     track: &mut MidiTrack,
     id: u64,
     (frames, cx_rate): (usize, u32),
+    deadline: Option<Instant>,
     buses: &mut Buses<'_>,
     events: bool,
 ) {
+    if std::mem::take(&mut track.begun)
+        && let Some(spec) = track.instrument.as_mut()
+    {
+        let mut left = [0.0f32; CHUNK];
+        let mut right = [0.0f32; CHUNK];
+        let deadline = deadline.unwrap_or_else(|| {
+            Instant::now()
+                + Duration::from_micros(frames as u64 * 750_000 / u64::from(cx_rate.max(1)))
+        });
+        spec.instrument
+            .finish(deadline, &mut left[..frames], &mut right[..frames]);
+        if let Some(mut bus) = buses.track(id) {
+            for (side, samples) in [(0, &left), (1, &right)] {
+                for (to, from) in bus.channel(side).iter_mut().zip(samples) {
+                    *to += from;
+                }
+            }
+        }
+        track.state.events.clear();
+        return;
+    }
     let queued: &[Event] = if events { &track.state.events } else { &[] };
     if let Some(spec) = track.instrument.as_mut()
         && (!queued.is_empty() || spec.instrument.active())
@@ -704,20 +791,30 @@ impl TrackSource for MidiPlayer {
             timeline: cx.timeline,
             rate: cx.sample_rate,
         };
-        self.take_new((cx.mode == Mode::Play).then_some((clock, cx.start)));
-        self.take_feed();
-        self.clock = cx.stream + buses.frames() as u64;
-        if cx.mode == Mode::Scrub {
-            // Live input waits until the scrub ends.
+        // `begin` may have done the first half already.
+        if !std::mem::take(&mut self.prepared) && !self.prepare(cx, buses.frames(), clock, false) {
             return;
         }
-        self.play_live(cx, buses.frames());
-        if cx.mode == Mode::Play {
-            self.play_clock(cx, buses.frames());
-        }
         for track in &mut self.current.tracks {
-            run_track(track, cx, buses, &mut self.out, clock);
+            play_track(track, cx, buses, &mut self.out);
         }
+    }
+
+    fn hosted(&self) -> bool {
+        // A list waiting to be taken counts, so the callback that takes it
+        // already has its deadline.
+        self.hosted || self.incoming.peek().is_ok_and(|set| set.hosted())
+    }
+
+    fn begin(&mut self, cx: &RenderContext<'_>, frames: usize) {
+        if !self.hosted || cx.tail || cx.mode == Mode::Scrub {
+            return;
+        }
+        let clock = Clock {
+            timeline: cx.timeline,
+            rate: cx.sample_rate,
+        };
+        self.prepared = self.prepare(cx, frames, clock, true);
     }
 
     fn locate(&mut self, timeline: &Timeline, sample_rate: u32, sample: i64, jump: Jump) {

@@ -17,8 +17,9 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use super::delay::{LineKey, Lines};
+use super::hosts::{HostScratch, NO_HOST};
 use super::meter::MeterBank;
-use super::plan::{BUS, CHUNK, Dev, NO_METER, NO_SIDE, Node, Out, Plan, Send, TapOut};
+use super::plan::{BUS, CHUNK, Dev, NO_DEV, NO_METER, NO_SIDE, Node, Out, Plan, Send, TapOut};
 use super::smooth::Smoothed;
 use super::spec::{Compensation, Destination, Routing, RoutingError, Tap};
 
@@ -63,6 +64,8 @@ pub(super) fn compile_metered(
     // Edges from each node to the nodes it feeds.
     let mut feeds: Vec<Vec<(usize, Edge)>> = vec![Vec::new(); specs.len()];
     let mut incoming = vec![0usize; specs.len()];
+    // Whether another node's output or send adds to a node's audio.
+    let mut fed = vec![false; specs.len()];
     for (i, spec) in specs.iter().enumerate() {
         let outputs = match spec.output {
             Destination::Node(to) => Some(to),
@@ -75,6 +78,7 @@ pub(super) fn compile_metered(
             }
             feeds[i].push((j, Edge::Main));
             incoming[j] += 1;
+            fed[j] = true;
         }
         for sidechain in &spec.sidechains {
             let from = index_of(spec.id, sidechain.from)?;
@@ -144,8 +148,13 @@ pub(super) fn compile_metered(
         let first_device = devices.len() as u32;
         for (index, device) in spec.devices.iter().enumerate() {
             device.hash(&mut hasher);
-            let super::spec::Device::Delay { listen, .. } = *device;
+            let (listen, host) = match *device {
+                super::spec::Device::Delay { listen, .. } => (listen, NO_HOST),
+                super::spec::Device::Hosted { host, .. } => (false, host),
+            };
             devices.push(Dev {
+                // A hosted device's line is its fallback: the plugin's
+                // reported latency, which the compensation counts too.
                 line: lines.add(
                     LineKey::Device {
                         node: spec.id,
@@ -154,8 +163,17 @@ pub(super) fn compile_metered(
                     device.latency(),
                 ),
                 listen,
+                host,
+                wet: Smoothed::new(0.0),
+                began: false,
             });
         }
+        // Nothing feeds the node, so its input is ready as soon as the
+        // tracks have played: its first hosted device can start early.
+        let early = match spec.devices.first() {
+            Some(super::spec::Device::Hosted { .. }) if !fed[i] => first_device,
+            _ => NO_DEV,
+        };
 
         let first_tap = taps.len() as u32;
         for &(j, edge) in &feeds[i] {
@@ -236,6 +254,7 @@ pub(super) fn compile_metered(
             count: spec.sends.len() as u32,
             first_device,
             devices: spec.devices.len() as u32,
+            early,
             first_tap,
             taps: taps.len() as u32 - first_tap,
             side: side_of[i],
@@ -284,10 +303,12 @@ pub(super) fn compile_metered(
         sides: vec![0.0; sides as usize * BUS],
         nodes,
         sends,
+        hosted: devices.iter().any(|d| d.host != NO_HOST),
         devices,
         taps,
         lines,
         scratch: Box::new([0.0; 2 * CHUNK]),
+        host_scratch: HostScratch::new(),
         by_id,
         topology: hasher.finish(),
         cue_bus: if cue_channel.is_some() {

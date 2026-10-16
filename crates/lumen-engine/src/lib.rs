@@ -39,7 +39,7 @@ pub use midi::{
 };
 pub use mixer::{
     Bus, Buses, Compensation, CueOut, Destination, Device, Layered, Level, MAX_DEVICE_LATENCY,
-    Mixer, MixerHandle, NodeSpec, Plan, RMS_SECONDS, Routing, RoutingError, SendSpec,
+    MAX_HOSTS, Mixer, MixerHandle, NodeSpec, Plan, RMS_SECONDS, Routing, RoutingError, SendSpec,
     SidechainSpec, Tap, TrackSource, compile as compile_routing, mixer,
 };
 pub use scrub::{MAX_SPEED as MAX_SCRUB_SPEED, ScrubStyle};

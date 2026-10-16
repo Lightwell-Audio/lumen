@@ -161,6 +161,9 @@ pub struct MidiTrack {
     /// Set when the list arrives: the track differs from the one it replaces,
     /// so its notes are brought in line with the position.
     dirty: bool,
+    /// The hosted instrument began this part's block early and is collected
+    /// when the track plays.
+    begun: bool,
 }
 
 impl MidiTrack {
@@ -183,6 +186,7 @@ impl MidiTrack {
             record_timing: None,
             state: Box::new(TrackState::new()),
             dirty: true,
+            begun: false,
         }
     }
 

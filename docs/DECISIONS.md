@@ -67,6 +67,7 @@ irreversible or external) · *Superseded*.
 | [0067](#adr-0067--the-shared-memory-audio-path-and-the-measurement-harness) | The shared-memory audio path (`lumen_plugin_host::shm`): one block in flight, untrusted-region rules, two-sided wake-up settings, Windows job object, and the measurement harness (M6 slice 0, part 3) | Accepted 2026-10-15 for the transport (the wake-up, the real-time wait contract and the process grouping wait for MT-VST-0) | No |
 | [0068](#adr-0068--plugin-discovery-scanning-the-cache-and-the-browser-m6-slice-1) | Plugin discovery (`lumen-plugin-catalog`): a scan child per module with a deadline, a cache keyed by file stamp, a blocked list that retries when the file changes, startup scan in the background, the browser's Devices tab (M6 slice 1) | Accepted 2026-10-16 (verified on Linux with the test plugin; MT-VST-1 passed on Windows with real plugins, owner-reported) | No |
 | [0069](#adr-0069--the-audio-path-to-plugin-hosts-wake-up-the-callbacks-wait-process-grouping-m6-slice-0-close) | The audio path to plugin hosts: `event` wake-up, a bounded callback wait under a narrow contract, one process per instance, the working budget (M6 slice 0 close) | Accepted 2026-10-16, decision 2 (the callback's bounded wait) on trial until slice 2's measurements (measured on Windows with the test plugin) | Decided by the owner (the trial's check: MT-VST-2) |
+| [0070](#adr-0070--hosted-devices-in-the-engine-the-contract-two-phase-instruments-and-effects-with-a-fallback-m6-slice-2b) | Hosted devices in the engine: the `Hosted` contract and its `Guard`, hosted instruments begun before the clips render, hosted effects in the mixer with a delay-line fallback and a glide, and what 2b leaves to later (M6 slice 2b) | Accepted 2026-10-16 (verified on Windows with fake hosts; no real plugin, no process, no macOS or Linux run) | No |
 
 ---
 
@@ -6212,3 +6213,87 @@ decision until it is measured there); memory and start-up of 64 host
 processes; frame times and the other shipped paths with hosts running; more
 than one machine or power state beyond Balanced and High performance; the
 second monitor of MT-VST-0 "Editors" and any macOS or Linux run.
+
+
+## ADR-0070 — Hosted devices in the engine: the contract, two-phase instruments, and effects with a fallback (M6 slice 2b)
+
+**Status:** Accepted 2026-10-16. Verified on Windows with fake hosts (unit and
+engine tests, the allocation guard, and mutation checks); no real plugin, no
+host process, no macOS or Linux run, no measurement of a whole callback
+(that is slice 2f's MT-VST-2). · **Date:** 2026-10-16
+
+**Context.** ADR-0069 fixed the contract between the callback and the plugin
+hosts: submit to every host first, then wait for each against one deadline of
+three quarters of the period; a silent or bypassed result when a host misses;
+one process per instance. Slice 2b builds the engine's side of it, below the
+host crate (the engine depends only on core, rt and `lumen-devices`), so the
+real adapter over `BlockLink` (2c) and the interface (2d) can follow without
+touching the engine again. The owner took B1, B2 and B3 (decisions table).
+
+**Decision.**
+1. **The contract is in `lumen-devices`** (`hosted.rs`): `Hosted` has `submit`
+   (never blocks), `collect(deadline, ..)` (waits at most until the deadline)
+   and `ended`. `Guard` wraps one host with the shared rules: a refused or late
+   block is silence (or the unprocessed input), three late blocks in a row, or
+   an ended process, fail the host for good, and a changed latency is news
+   once. It reports to the interface through `Status` (atomics): failed, late
+   blocks, latency, tail, a restart request, and the one flag the interface
+   writes, bypass.
+2. **The deadline** is `RenderContext::deadline`: three quarters of the
+   callback's period from its start, read from the clock only while a host is
+   attached (`Source::hosted`, B3). A list of hosts still waiting to be taken
+   counts as attached (`Consumer::peek`), so the callback that takes them
+   already has its deadline.
+3. **Instruments** are `HostedInstrument`, an `Instrument` that can start a
+   block early (`begin`) and complete it later (`finish`). `TrackSource::begin`
+   is called before the clips render; the MIDI player then does the first half
+   of its part for every track (gathers events, hands hosted instruments their
+   blocks) and `render` plays the tracks, collecting the hosted ones. Without
+   hosts nothing changes: `begin` does nothing and `render` does the whole of
+   it. An instrument is left alone while nothing sounds, and rung for the
+   reported tail (at least one second, at most ten) after its last event;
+   messages that have no block to ride on (a track let go of its notes) go
+   with the next. The app builds the real instrument when it attaches a host
+   and a placeholder in every later track list, because the player carries
+   a track's instrument across lists by its kind.
+4. **Effects** are `Device::Hosted { host, latency }`, found in a fixed-size
+   pool (`MAX_HOSTS` 256) by id, attached and detached by messages
+   (`MixerHandle::attach_host`, `detach_host`) and freed by
+   `collect_garbage`, never on the audio thread. Every hosted device runs a
+   **fallback** each block: the node's input through a delay line of the
+   reported latency, so it is primed when needed. The node hears the host's
+   output through a 20 ms glide (`wet`), the fallback while the host is
+   bypassed, failed, absent or late. A host that misses mid-glide has nothing
+   to fade from, so that block falls back at once. A bypassed host is not asked
+   for blocks once its glide is out. A node that nothing feeds hands its first
+   hosted device its block before the node loop (scaled as the loop would),
+   and the loop collects it where it reaches it: independent tracks overlap.
+5. **Latency news** is read from `Status::take_news`; the interface then sends
+   the routing again with the new latency, and the plan swap and delay
+   compensation of ADR-0041 do the rest.
+
+**Differences from the plan.** The crossfade is the mixer's 20 ms level glide,
+not 5 ms, so it matches every other level; and a plan fading out in a swap
+plays its fallbacks only (a host is asked once for a block), so for the 5 ms
+of a swap the old plan contributes the unprocessed input.
+
+**Consequences.**
+- Chains of two or more hosted effects on one track, and effects on a group,
+  run one after another (B1); measured in 2f.
+- An effect's tail is cut at Stop (B2): while stopped the engine renders
+  nothing, so a reverb tail ends with the playing. Slice 6 builds real tails.
+- A tail rendered ahead of a jump uses the fallback and leaves the host and the
+  glide alone, since that audio is not what the host should hear next.
+- A hosted instrument adds no preview for the 2 ms crossfade across a jump
+  (the default adds nothing); its notes are released by the note tracker and
+  ring out in the plugin.
+- The overlap is proved by counting, not timing: a test counts the blocks
+  handed over when the first host is collected (64 for 64 tracks, 1 if the
+  early hand-over is removed; both tests were run against that mutation). A
+  first version that counted blocks in flight at once passed with the hand-over
+  removed, because hosts slower than the deadline are abandoned in turn.
+
+**Not verified, and not claimed.** Any real plugin or host process; the whole
+callback with the engine, device and hosts together (MT-VST-2); frame times and
+the performance gate with hosts attached; macOS and Linux; recording with
+monitoring through an effect.

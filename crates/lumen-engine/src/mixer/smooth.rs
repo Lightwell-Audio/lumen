@@ -40,6 +40,14 @@ impl Smoothed {
         self.step = f32::NAN;
     }
 
+    /// Glides to `target` from the value it has now.
+    pub fn set(&mut self, target: f32) {
+        if target != self.target {
+            self.target = target;
+            self.step = f32::NAN;
+        }
+    }
+
     /// Jumps to the target (after a transport jump, which is crossfaded).
     pub fn settle(&mut self) {
         self.value = self.target;

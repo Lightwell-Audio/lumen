@@ -31,6 +31,7 @@
 
 mod compile;
 mod delay;
+mod hosts;
 mod meter;
 mod plan;
 mod smooth;
@@ -38,8 +39,10 @@ mod spec;
 
 pub use compile::compile;
 pub use delay::MAX_DEVICE_LATENCY;
+pub use hosts::MAX_HOSTS;
 pub use meter::{Level, RMS_SECONDS};
 pub use plan::{BUS_CHANNELS, Bus, Buses, CHUNK, Plan};
+
 pub use spec::{
     Compensation, CueOut, Destination, Device, NodeSpec, Routing, RoutingError, SendSpec,
     SidechainSpec, Tap,
@@ -49,6 +52,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use compile::compile_metered;
+use hosts::{HostMsg, HostPool, Hosting};
+use lumen_devices::Guard;
 use meter::{LoudnessReader, LoudnessTap, MeterBank};
 use plan::Ramp;
 
@@ -57,6 +62,8 @@ use crate::source::{Jump, Mode, Output, RenderContext, Source};
 use crate::timeline::Timeline;
 
 const QUEUE: usize = 4;
+/// Attach and detach messages waiting for the audio side.
+const HOST_QUEUE: usize = 64;
 /// A plan of a new shape crossfades in over 5 ms.
 const SWAP_PER_SECOND: u32 = 200;
 
@@ -84,6 +91,19 @@ pub trait TrackSource: Send {
     fn ringing(&self) -> bool {
         false
     }
+
+    /// A plugin host is attached to this source, as [`Source::hosted`].
+    fn hosted(&self) -> bool {
+        false
+    }
+
+    /// Called before [`TrackSource::render`] for the same `frames`, ahead of
+    /// the engine's other work for the block: a source whose instruments run
+    /// in plugin hosts hands them their blocks here, so the hosts work while
+    /// the audio clips render, and collects them in `render` (ADR-0069). A
+    /// source that does not need it ignores the call, and `render` does
+    /// everything.
+    fn begin(&mut self, _cx: &RenderContext<'_>, _frames: usize) {}
 }
 
 /// Two track sources played together into the same buses: the audio
@@ -94,6 +114,15 @@ impl<A: TrackSource, B: TrackSource> TrackSource for Layered<A, B> {
     fn render(&mut self, cx: &RenderContext<'_>, buses: &mut Buses<'_>) {
         self.0.render(cx, buses);
         self.1.render(cx, buses);
+    }
+
+    fn begin(&mut self, cx: &RenderContext<'_>, frames: usize) {
+        self.0.begin(cx, frames);
+        self.1.begin(cx, frames);
+    }
+
+    fn hosted(&self) -> bool {
+        self.0.hosted() || self.1.hosted()
     }
 
     fn locate(&mut self, timeline: &Timeline, sample_rate: u32, sample: i64, jump: Jump) {
@@ -138,9 +167,29 @@ pub struct MixerHandle {
     loudness: LoudnessReader,
     /// The compensation of the last routing sent.
     compensation: Compensation,
+    /// Hosts on their way to the audio side, and ones it let go of.
+    hosts: rtrb::Producer<HostMsg>,
+    hosts_retired: rtrb::Consumer<Guard>,
 }
 
 impl MixerHandle {
+    /// Attaches a plugin host as device `id`, the id a
+    /// [`Device::Hosted`] names. A host already attached under `id` is
+    /// replaced (and freed here, by [`MixerHandle::collect_garbage`]).
+    /// Gives the guard back when the queue is full: try again next frame.
+    pub fn attach_host(&mut self, id: u64, guard: Guard) -> Result<(), Guard> {
+        match self.hosts.push(HostMsg::Attach(id, guard)) {
+            Ok(()) => Ok(()),
+            Err(rtrb::PushError::Full(HostMsg::Attach(_, guard))) => Err(guard),
+            Err(rtrb::PushError::Full(HostMsg::Detach(_))) => unreachable!("an attach was sent"),
+        }
+    }
+
+    /// Takes the host `id` away. Returns whether the message was queued.
+    pub fn detach_host(&mut self, id: u64) -> bool {
+        self.hosts.push(HostMsg::Detach(id)).is_ok()
+    }
+
     /// Compiles `routing` and sends it. Returns whether it was sent: false
     /// when the queue is full (send it again next frame). A routing that
     /// cannot play is refused, and the current one keeps playing.
@@ -201,6 +250,10 @@ impl MixerHandle {
         while self.retired.pop().is_ok() {
             freed += 1;
         }
+        // A host dropped here closes its link to its process.
+        while self.hosts_retired.pop().is_ok() {
+            freed += 1;
+        }
         freed
     }
 }
@@ -221,6 +274,10 @@ pub struct Mixer<T> {
     cursor: i64,
     /// A jump being blended where the tracks play in (latent plans only).
     blend: Option<Blend>,
+    /// The plugin hosts the plan's hosted devices find by id.
+    hosts: HostPool,
+    host_msgs: rtrb::Consumer<HostMsg>,
+    host_retired: rtrb::Producer<Guard>,
 }
 
 /// Frames blended so far of `length` (0 until the first block sets it
@@ -250,6 +307,8 @@ pub fn mixer<T: TrackSource>(tracks: T) -> (MixerHandle, Mixer<T>) {
     let (incoming_tx, incoming_rx) = rtrb::RingBuffer::new(QUEUE);
     let (retired_tx, retired_rx) = rtrb::RingBuffer::new(QUEUE + 1);
     let (tap, reader) = meter::loudness();
+    let (host_tx, host_rx) = rtrb::RingBuffer::new(HOST_QUEUE);
+    let (host_retired_tx, host_retired_rx) = rtrb::RingBuffer::new(HOST_QUEUE + 1);
     (
         MixerHandle {
             incoming: incoming_tx,
@@ -258,6 +317,8 @@ pub fn mixer<T: TrackSource>(tracks: T) -> (MixerHandle, Mixer<T>) {
             slots: HashMap::new(),
             loudness: reader,
             compensation: Compensation::default(),
+            hosts: host_tx,
+            hosts_retired: host_retired_rx,
         },
         Mixer {
             tracks,
@@ -269,6 +330,9 @@ pub fn mixer<T: TrackSource>(tracks: T) -> (MixerHandle, Mixer<T>) {
             loudness: tap,
             cursor: 0,
             blend: None,
+            hosts: HostPool::new(),
+            host_msgs: host_rx,
+            host_retired: host_retired_tx,
         },
     )
 }
@@ -328,6 +392,29 @@ impl<T> Mixer<T> {
         }
     }
 
+    /// Applies the attach and detach messages that arrived. Real-time safe:
+    /// the pool and the queues have a fixed size, and a message waits while
+    /// the queue that takes the replaced host back is full, so a host is
+    /// never dropped here.
+    fn take_hosts(&mut self) {
+        while self.host_retired.slots() >= 1 {
+            let Ok(message) = self.host_msgs.pop() else {
+                break;
+            };
+            let gone = match message {
+                HostMsg::Attach(id, guard) => match self.hosts.insert(id, guard) {
+                    Ok(replaced) => replaced,
+                    Err(refused) => Some(refused),
+                },
+                HostMsg::Detach(id) => self.hosts.remove(id),
+            };
+            if let Some(guard) = gone {
+                // Room was checked above, and nothing else pushes here.
+                let _ = self.host_retired.push(guard);
+            }
+        }
+    }
+
     /// Hands `old` back to be freed, keeping it if the queue is full. Only
     /// called while the stash is empty.
     fn retire(&mut self, old: Box<Plan>) {
@@ -351,6 +438,7 @@ impl<T: TrackSource> Source for Mixer<T> {
     fn render(&mut self, cx: &RenderContext<'_>, out: &mut Output<'_>) {
         if !cx.tail {
             self.take_new(true);
+            self.take_hosts();
         }
         let rate = cx.sample_rate;
         let advance = !cx.tail;
@@ -365,6 +453,8 @@ impl<T: TrackSource> Source for Mixer<T> {
                 ..*cx
             };
             self.plan.clear(n);
+            // Hosts start their blocks before the clips render.
+            self.tracks.begin(&part_cx, n);
             self.tracks.render(&part_cx, &mut self.plan.buses(n));
             if let Some(swap) = self.swap.as_mut() {
                 swap.old.clear(n);
@@ -386,7 +476,12 @@ impl<T: TrackSource> Source for Mixer<T> {
             match self.swap.as_mut() {
                 None => {
                     let tap = Some(&mut self.loudness);
-                    self.plan.process(&mut part, rate, Ramp::Full, advance, tap);
+                    let mut hosting = Hosting {
+                        pool: Some(&mut self.hosts),
+                        deadline: part_cx.deadline,
+                    };
+                    self.plan
+                        .process(&mut part, rate, Ramp::Full, advance, tap, &mut hosting);
                 }
                 Some(swap) => {
                     if swap.length == 0 {
@@ -403,9 +498,23 @@ impl<T: TrackSource> Source for Mixer<T> {
                     // Only the plan fading in is metered.
                     let ramp_in = Ramp::Fade(&fade_in[..n]);
                     let tap = Some(&mut self.loudness);
-                    self.plan.process(&mut part, rate, ramp_in, advance, tap);
+                    // The plan fading out plays its fallbacks: a host is
+                    // asked once for a block.
+                    let mut hosting = Hosting {
+                        pool: Some(&mut self.hosts),
+                        deadline: part_cx.deadline,
+                    };
+                    self.plan
+                        .process(&mut part, rate, ramp_in, advance, tap, &mut hosting);
                     let ramp_out = Ramp::Fade(&fade_out[..n]);
-                    swap.old.process(&mut part, rate, ramp_out, advance, None);
+                    swap.old.process(
+                        &mut part,
+                        rate,
+                        ramp_out,
+                        advance,
+                        None,
+                        &mut Hosting::none(),
+                    );
                     if advance {
                         swap.done += n;
                     }
@@ -425,6 +534,7 @@ impl<T: TrackSource> Source for Mixer<T> {
         // walkthrough). Nothing plays, so nothing crossfades.
         self.finish_swap(true);
         self.take_new(false);
+        self.take_hosts();
         self.tracks.idle();
         self.plan.idle_meters(sample_rate, frames);
     }
@@ -446,6 +556,7 @@ impl<T: TrackSource> Source for Mixer<T> {
                 device: 0,
                 recording: false,
                 looping: None,
+                deadline: None,
             };
             let length = fade_frames(sample_rate).min(CHUNK);
             if let Some(mut tail) = self.plan.input_tail(length) {
@@ -474,6 +585,12 @@ impl<T: TrackSource> Source for Mixer<T> {
 
     fn latency(&self) -> u32 {
         self.plan.latency()
+    }
+
+    fn hosted(&self) -> bool {
+        // Hosts waiting to be attached count, so the callback that takes
+        // them already has its deadline.
+        self.tracks.hosted() || self.hosts.len() > 0 || !self.host_msgs.is_empty()
     }
 
     fn stopped(&mut self) {

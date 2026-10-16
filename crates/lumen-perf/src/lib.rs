@@ -48,6 +48,10 @@ pub const SCENARIOS: &[(&str, &str)] = &[
         "1,000 blocks of 128 frames: 64 MIDI tracks each playing a four-note chord on the synth, through the routed mix",
     ),
     (
+        "engine_hosted_64",
+        "1,000 blocks of 128 frames: 64 MIDI tracks, each a hosted instrument and a hosted effect (fake hosts that answer inside submit), through the routed mix",
+    ),
+    (
         "engine_transport",
         "2,000 blocks of 128 frames: loop wraps, locates and the metronome",
     ),
@@ -94,6 +98,10 @@ pub fn run(name: &str) -> bool {
         "engine_synth_64" => {
             let mut engine = playing_synths(64);
             measured_engine_synth_64(&mut engine);
+        }
+        "engine_hosted_64" => {
+            let (_routing, mut engine) = playing_hosted(64);
+            measured_engine_hosted_64(&mut engine);
         }
         "engine_transport" => {
             let (handle, mut engine) = transport_only();
@@ -291,6 +299,153 @@ pub fn measured_engine_synth_64(engine: &mut SynthPlayer) {
     black_box((&data, engine.transport().marker));
 }
 
+/// A host that is not one: it answers inside `submit`, with no thread (the
+/// scenarios may not use any). An instrument rings a level that each note-on
+/// resets and each block lets fall; an effect halves its input.
+struct Echo {
+    effect: bool,
+    level: f32,
+    out: [[f32; FRAMES]; 2],
+    frames: usize,
+}
+
+impl Echo {
+    fn boxed(effect: bool) -> Box<Self> {
+        Box::new(Self {
+            effect,
+            level: 0.0,
+            out: [[0.0; FRAMES]; 2],
+            frames: 0,
+        })
+    }
+}
+
+impl lumen_devices::Hosted for Echo {
+    fn submit(
+        &mut self,
+        frames: usize,
+        input: &[&[f32]],
+        events: &[lumen_core::midi::Event],
+    ) -> Result<(), lumen_devices::Refused> {
+        self.frames = frames;
+        if self.effect {
+            for (out, from) in self.out.iter_mut().zip(input) {
+                for (to, sample) in out[..frames].iter_mut().zip(*from) {
+                    *to = sample * 0.5;
+                }
+            }
+        } else {
+            if !events.is_empty() {
+                self.level = 1.0;
+            }
+            for out in &mut self.out {
+                out[..frames].fill(self.level * 0.1);
+            }
+            self.level *= 0.99;
+        }
+        Ok(())
+    }
+
+    fn collect(
+        &mut self,
+        _: std::time::Instant,
+        left: &mut [f32],
+        right: &mut [f32],
+    ) -> lumen_devices::Reply {
+        left.copy_from_slice(&self.out[0][..self.frames]);
+        right.copy_from_slice(&self.out[1][..self.frames]);
+        lumen_devices::Reply::Ready {
+            latency: 0,
+            tail: 0,
+            restart: false,
+        }
+    }
+
+    fn ended(&self) -> bool {
+        false
+    }
+}
+
+/// [`playing_synths`], with every instrument and a hosted effect on every
+/// track in plugin hosts (fake ones): the engine's own cost of hosting.
+fn playing_hosted(tracks: u64) -> (MixerHandle, SynthPlayer) {
+    use lumen_devices::{Guard, HostedInstrument};
+    use lumen_engine::{Device, InstrumentSpec, Layered, MidiClip, MidiNote, MidiTrack, Target};
+    let (_clips, players) = clip_player();
+    let (mut midi, player) = lumen_engine::midi_player();
+    let q = Ticks::quarters;
+    let list = (0..tracks)
+        .map(|id| {
+            let notes: Vec<MidiNote> = [0_u8, 4, 7, 11]
+                .iter()
+                .map(|&interval| MidiNote {
+                    start: Ticks(id as i64 * 17),
+                    length: Ticks(q(1).0 * 3 / 4),
+                    pitch: 48 + (id % 12) as u8 + interval,
+                    velocity: 70 + (id % 40) as u8,
+                })
+                .collect();
+            let guard = Guard::new(Echo::boxed(false), 0);
+            MidiTrack::new(
+                id,
+                Target::Instrument,
+                Some(InstrumentSpec {
+                    kind: 77,
+                    preset: 0,
+                    instrument: Box::new(HostedInstrument::new(guard)),
+                }),
+                vec![MidiClip {
+                    id,
+                    start: Ticks::ZERO,
+                    length: q(64),
+                    period: Some(q(1)),
+                    seams: Default::default(),
+                    notes: lumen_engine::note_list(notes),
+                    controls: lumen_engine::control_list(Vec::new()),
+                }],
+            )
+        })
+        .collect();
+    midi.set(list).ok().expect("room for one track list");
+    let (mut routing, source) = mixer(Layered(players, player));
+    let mut plan = routed(tracks, 0);
+    for node in plan.nodes.iter_mut().filter(|n| n.id < tracks) {
+        node.devices = vec![Device::Hosted {
+            host: 1_000 + node.id,
+            latency: 0,
+        }];
+    }
+    let mut statuses = Vec::new();
+    for id in 0..tracks {
+        let guard = Guard::new(Echo::boxed(true), 0);
+        statuses.push(guard.status());
+        assert!(routing.attach_host(1_000 + id, guard).is_ok());
+    }
+    assert!(routing.set(&plan).expect("a valid routing"));
+    let (mut transport, mut engine) = engine(Timeline::default(), source, RATE);
+    transport.send(Command::Play).expect("room for a command");
+    let mut data = vec![0.0; 2 * FRAMES];
+    // Past the fade-in and the glide from each fallback to its host, into
+    // steady playback.
+    for _ in 0..400 {
+        engine.process(RATE, &mut data, 2, FRAMES);
+    }
+    // The scenario must really use its hosts: none failed or missed a block.
+    assert!(statuses.iter().all(|s| !s.failed() && s.late_blocks() == 0));
+    (routing, engine)
+}
+
+#[unsafe(no_mangle)]
+#[inline(never)]
+pub fn measured_engine_hosted_64(engine: &mut SynthPlayer) {
+    let mut data = vec![0.0; 2 * FRAMES];
+    for _ in 0..1_000 {
+        engine.process(RATE, &mut data, 2, FRAMES);
+    }
+    // Distinct from the other scenarios, so the linker keeps it apart.
+    black_box((&data, engine.transport().marker, engine.transport().ticks));
+}
+
 fn transport_only() -> (lumen_engine::EngineHandle, Player) {
     let (_clips, player) = clip_player();
     let (_routing, source) = mixer(player);
@@ -386,6 +541,7 @@ mod tests {
             "engine_latent_64",
             "engine_latent_swaps_64",
             "engine_synth_64",
+            "engine_hosted_64",
             "engine_transport",
             "tempo_conversions",
         ] {

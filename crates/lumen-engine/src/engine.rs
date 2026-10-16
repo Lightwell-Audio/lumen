@@ -35,6 +35,7 @@
 //! crossfaded.
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use lumen_core::time::Ticks;
 use lumen_rt::DenormalGuard;
@@ -193,7 +194,14 @@ pub struct Engine<S> {
     recording: bool,
     /// The song waits at the play marker while these beats click.
     counting: Option<CountIn>,
+    /// When plugin hosts must have answered for this callback: set at its
+    /// start while a host is attached (ADR-0069), else `None`.
+    deadline: Option<Instant>,
 }
+
+/// The share of a callback's period a plugin host has to answer in
+/// (ADR-0069: three quarters, the rest is the engine's to finish in).
+const HOST_SHARE: (u64, u64) = (3, 4);
 
 /// Creates the engine pair. Allocates, so call it off the audio thread.
 pub fn engine<S: Source>(
@@ -232,6 +240,7 @@ pub fn engine<S: Source>(
         stream: 0,
         recording: false,
         counting: None,
+        deadline: None,
     };
     engine.publish();
     let handle = EngineHandle {
@@ -261,6 +270,12 @@ impl<S: Source> Engine<S> {
     /// when it changes, the position is kept musically.
     pub fn process(&mut self, sample_rate: u32, data: &mut [f32], channels: usize, frames: usize) {
         let _denormals = DenormalGuard::new();
+        // The clock is read only while a host is attached (B3), so a project
+        // without plugins costs what it did.
+        self.deadline = self.source.hosted().then(|| {
+            let period = frames as u64 * 1_000_000_000 / u64::from(sample_rate.max(1));
+            Instant::now() + Duration::from_nanos(period * HOST_SHARE.0 / HOST_SHARE.1)
+        });
         data[..channels * frames].fill(0.0);
         self.retry_stash();
         self.swap_timeline(channels);
@@ -304,6 +319,7 @@ impl<S: Source> Engine<S> {
                     device: self.stream,
                     recording: false,
                     looping: None,
+                    deadline: self.deadline,
                 };
                 let mut out = Output::new(data, frames, 0, frames, channels);
                 self.source.render(&cx, &mut out);
@@ -345,6 +361,7 @@ impl<S: Source> Engine<S> {
                 device: self.stream,
                 recording: false,
                 looping: None,
+                deadline: self.deadline,
             };
             let mut out = Output::new(data, frames, 0, n, channels);
             self.source.render(&cx, &mut out);
@@ -398,6 +415,7 @@ impl<S: Source> Engine<S> {
                 device: self.stream + offset as u64,
                 recording: self.recording,
                 looping: self.loop_samples,
+                deadline: self.deadline,
             };
             let mut out = Output::new(data, frames, offset, n, channels);
             self.source.render(&cx, &mut out);
@@ -551,6 +569,7 @@ impl<S: Source> Engine<S> {
             device: 0,
             recording: false,
             looping: None,
+            deadline: self.deadline,
         };
         let mut out = Output::new(buffer, MAX_FADE, 0, frames, channels);
         self.source.render(&cx, &mut out);

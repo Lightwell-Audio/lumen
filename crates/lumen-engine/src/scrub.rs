@@ -221,6 +221,7 @@ impl Scrubber {
             device: 0,
             recording: false,
             looping: None,
+            deadline: None,
         };
         let mut out = Output::new(data, at.stride, at.offset, at.count, at.channels);
         read.source.render(&cx, &mut out);
@@ -276,6 +277,7 @@ impl Scrubber {
             device: 0,
             recording: false,
             looping: None,
+            deadline: None,
         };
         let mut out = Output::new(&mut self.scratch, SPAN, 0, span, channels);
         read.source.render(&cx, &mut out);
