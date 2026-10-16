@@ -15,8 +15,8 @@ use lumen_plugin_catalog::scan::{Event, Mode, Scanner, Summary};
 pub(super) enum Message {
     /// The cache read from disk, and why it was thrown away, if it was.
     Loaded { cache: Cache, note: Option<String> },
-    /// The plan: modules to load, modules reused.
-    Planned { total: usize, reused: usize },
+    /// The plan: how many modules will be loaded.
+    Planned { total: usize },
     /// One module finished.
     Scanned {
         done: usize,
@@ -91,16 +91,20 @@ fn run(job: Job, tx: &Sender<Message>, cancel: &AtomicBool, ctx: &egui::Context)
                 .unwrap_or_default()
         }));
     }
-    let summary = scanner.scan(&job.roots, &mut cache, job.mode, cancel, &mut |event| {
-        match event {
-            Event::Planned { total, reused } => send(Message::Planned { total, reused }),
+    let summary = scanner.scan(
+        &job.roots,
+        &mut cache,
+        job.mode,
+        cancel,
+        &mut |event| match event {
+            Event::Planned { total, .. } => send(Message::Planned { total }),
             Event::Scanned { done, total, entry } => send(Message::Scanned {
                 done,
                 total,
                 entry: entry.clone(),
             }),
-        }
-    });
+        },
+    );
     let saved = write(job.cache_path.as_deref(), &cache);
     send(Message::Finished {
         summary,
@@ -143,7 +147,8 @@ mod tests {
     use super::*;
 
     fn temp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("lumen-app-plugins-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("lumen-app-plugins-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }

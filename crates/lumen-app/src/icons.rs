@@ -47,11 +47,21 @@ pub enum Icon {
     SpeakerOff,
     /// Overdub (M5 slice 6d): layers, a stack of three.
     Layers,
+    /// A favorite (M6 slice 1): a five-point star, outlined.
+    Star,
+    /// A favorite that is set: the star, filled.
+    StarFilled,
+    /// An instrument (M6 slice 1): a row of keys.
+    Keys,
+    /// An effect (M6 slice 1): a knob.
+    Knob,
+    /// A plugin Lumen will not load (M6 slice 1): a triangle with a mark.
+    Warning,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 19] = [
+    pub const ALL: [Icon; 24] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
@@ -71,6 +81,11 @@ impl Icon {
         Icon::Speaker,
         Icon::SpeakerOff,
         Icon::Layers,
+        Icon::Star,
+        Icon::StarFilled,
+        Icon::Keys,
+        Icon::Knob,
+        Icon::Warning,
     ];
 }
 
@@ -132,6 +147,55 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
                 vec![g.p(2.0, 11.5), g.p(8.0, 14.5), g.p(14.0, 11.5)],
                 stroke,
             ),
+        ],
+        Icon::Star | Icon::StarFilled => {
+            // Ten points, outer and inner in turn, from the top.
+            let centre = g.p(8.0, 8.6);
+            let points: Vec<Pos2> = (0..10)
+                .map(|k| {
+                    let radius = if k % 2 == 0 { 6.2 } else { 2.7 };
+                    let angle = -PI / 2.0 + PI * k as f32 / 5.0;
+                    centre + radius * g.unit * Vec2::angled(angle)
+                })
+                .collect();
+            let mut shapes = Vec::new();
+            if icon == Icon::StarFilled {
+                // A star is not convex, but every point sees its centre:
+                // a fan of triangles fills it.
+                let mut mesh = eframe::egui::Mesh::default();
+                mesh.colored_vertex(centre, color);
+                for point in &points {
+                    mesh.colored_vertex(*point, color);
+                }
+                for k in 0..10u32 {
+                    mesh.add_triangle(0, 1 + k, 1 + (k + 1) % 10);
+                }
+                shapes.push(Shape::mesh(mesh));
+            }
+            shapes.push(Shape::closed_line(points, Stroke::new(1.3 * g.unit, color)));
+            shapes
+        }
+        Icon::Keys => vec![
+            Shape::closed_line(
+                vec![
+                    g.p(2.0, 4.0),
+                    g.p(14.0, 4.0),
+                    g.p(14.0, 12.0),
+                    g.p(2.0, 12.0),
+                ],
+                stroke,
+            ),
+            Shape::line_segment([g.p(6.0, 8.0), g.p(6.0, 12.0)], stroke),
+            Shape::line_segment([g.p(10.0, 8.0), g.p(10.0, 12.0)], stroke),
+        ],
+        Icon::Knob => vec![
+            Shape::circle_stroke(g.p(8.0, 8.0), 5.2 * g.unit, stroke),
+            Shape::line_segment([g.p(8.0, 8.0), g.p(10.6, 5.4)], stroke),
+        ],
+        Icon::Warning => vec![
+            Shape::closed_line(vec![g.p(8.0, 2.4), g.p(14.2, 13.2), g.p(1.8, 13.2)], stroke),
+            Shape::line_segment([g.p(8.0, 6.6), g.p(8.0, 9.6)], stroke),
+            Shape::circle_filled(g.p(8.0, 11.5), 0.9 * g.unit, color),
         ],
         Icon::ToStart => vec![
             Shape::rect_filled(g.rect(3.0, 3.0, 5.0, 13.0), 0.3 * g.unit, color),

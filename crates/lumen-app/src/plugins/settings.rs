@@ -36,10 +36,6 @@ impl Default for PluginSettings {
 impl PluginSettings {
     pub const MAX_RECENTS: usize = 12;
 
-    pub fn is_favorite(&self, id: &str) -> bool {
-        self.favorites.iter().any(|f| f == id)
-    }
-
     /// Adds `id` to the favorites or removes it; true if it is one now.
     pub fn toggle_favorite(&mut self, id: &str) -> bool {
         if let Some(at) = self.favorites.iter().position(|f| f == id) {
@@ -82,9 +78,8 @@ mod tests {
         let mut s = PluginSettings::default();
         assert!(s.toggle_favorite("a"));
         assert!(s.toggle_favorite("b"));
-        assert!(s.is_favorite("a"));
+        assert_eq!(s.favorites, ["a", "b"]);
         assert!(!s.toggle_favorite("a"));
-        assert!(!s.is_favorite("a"));
         assert_eq!(s.favorites, ["b"]);
     }
 

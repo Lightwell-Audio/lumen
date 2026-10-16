@@ -76,6 +76,11 @@ impl App {
     }
 }
 
+/// Gives `pane` the keyboard now: a click inside it, so its arrows act.
+pub(crate) fn focus(ctx: &egui::Context, pane: Pane) {
+    ctx.memory_mut(|m| m.request_focus(pane.id()));
+}
+
 /// The pane whose anchor has the keyboard, if any.
 pub(crate) fn focused(ctx: &egui::Context) -> Option<Pane> {
     Pane::ALL

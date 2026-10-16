@@ -6,6 +6,7 @@ use eframe::egui;
 use lumen_core::pan::PanLaw;
 use lumen_core::time::Ticks;
 use lumen_devices::Preset;
+use lumen_plugin_catalog::scan::Mode;
 use lumen_project::model::{FromSource, MidiFrom, Monitor, TrackKind};
 
 use super::editing::Edit;
@@ -143,6 +144,23 @@ impl App {
                 need(t.loop_end > t.loop_start, "There is no loop yet")
             }
             Command::Import => need(self.dialog.is_none(), "A file dialog is open"),
+            Command::DevicesSearch | Command::DevicesScanAtStartup => Ok(()),
+            Command::DevicesRescan | Command::DevicesRescanAll => {
+                need(!self.plugins.is_off(), "Plugins are off for this run")?;
+                need(!self.plugins.busy(), "A scan is under way")
+            }
+            Command::DevicesAddFolder => {
+                need(!self.plugins.is_off(), "Plugins are off for this run")?;
+                need(self.dialog.is_none(), "A file dialog is open")
+            }
+            Command::DevicesFavorite => need(
+                panes::focused(ctx) == Some(panes::Pane::Browser)
+                    && matches!(
+                        self.browser.view.selected,
+                        Some(crate::browser::view::Selection::Device(_))
+                    ),
+                "Select a device in the browser first",
+            ),
             Command::ExportMidiFile => match self.dialog {
                 Some(_) => need(false, "A file dialog is open"),
                 None if self.midi_exporting.is_some() => need(false, "An export is under way"),
@@ -653,6 +671,25 @@ impl App {
             Command::Save => self.save(ctx, false),
             Command::SaveAs => self.save(ctx, true),
             Command::Import => self.import_files(ctx),
+            Command::DevicesSearch => {
+                self.show_browser = true;
+                self.browser.focus_search = true;
+            }
+            Command::DevicesRescan => self.rescan_plugins(ctx, Mode::Changed),
+            Command::DevicesRescanAll => self.rescan_plugins(ctx, Mode::All),
+            Command::DevicesAddFolder => self.pick_plugin_folder(ctx),
+            Command::DevicesFavorite => {
+                if let Some(crate::browser::view::Selection::Device(id)) =
+                    self.browser.view.selected.clone()
+                {
+                    self.toggle_favorite(&id);
+                }
+            }
+            Command::DevicesScanAtStartup => {
+                let on = &mut self.settings.plugins.scan_at_startup;
+                *on = !*on;
+                self.settings_changed = Some(std::time::Instant::now());
+            }
             Command::ExportMidiFile => self.export_midi(ctx, false),
             Command::ExportMidiClip => self.export_midi(ctx, true),
         }

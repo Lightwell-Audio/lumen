@@ -41,7 +41,7 @@ pub use keys::{
 };
 pub use menu::Menu;
 pub(crate) use menu::note_change;
-pub use pills::{Pill, pill_button, pill_tabs};
+pub use pills::{Pill, pill_button, pill_tabs, pill_toggle};
 pub use scroll_bar::{Axis, ScrollBar, scroll_bar};
 pub use signature::time_signature;
 pub use slider::*;

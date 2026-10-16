@@ -41,6 +41,7 @@ mod audition;
 mod autosave;
 mod bench;
 mod brand;
+mod browser;
 mod canvas;
 mod commands;
 mod crash;
@@ -165,6 +166,8 @@ pub struct App {
     drop_into: document::Places,
     /// MIDI files being read in the background (M5 slice 7).
     midi_reader: midi_files::Reader,
+    /// The browser's own state (M6 slice 1).
+    browser: browser::Browser,
     /// Installed plugins: the scan thread and the catalog the browser
     /// shows (M6 slice 1).
     plugins: plugins::Plugins,
@@ -531,44 +534,20 @@ impl eframe::App for App {
         }
         // Full width under everything else, so declared before the panels.
         self.draw_info_line(ui);
-        // Panels slide open and closed (motion: GLIDE, panels.rs).
+        // Panels slide open and closed (motion: GLIDE, panels.rs). The size
+        // is taken out while the browser draws, which borrows the whole app.
+        let mut browser_size = self.browser_size;
         panels::sliding(
             ui,
             "browser",
             (panels::Side::Left, egui::Rangef::new(96.0, f32::INFINITY)),
             self.show_browser,
-            &mut self.browser_size,
+            &mut browser_size,
             |ui| {
-                let rect = ui.max_rect();
-                self.panes.anchor(ui, app::panes::Pane::Browser, rect);
-                // Its title in the display face, inset like the window
-                // titles (it sat against the panel's corner), then an empty
-                // state until its milestone, said as the unbuilt tabs say it
-                // (the interface audit's S5).
-                let inset = egui::vec2(theme::space::M, theme::space::M);
-                let title = ui.painter().text(
-                    rect.left_top() + inset,
-                    egui::Align2::LEFT_TOP,
-                    "Browser",
-                    fonts::display(theme::size::HEADING),
-                    theme::p().text,
-                );
-                let rect =
-                    egui::Rect::from_min_max(egui::pos2(rect.left(), title.bottom()), rect.max);
-                let state = widgets::EmptyState {
-                    icon: Some(|p, at, colour| {
-                        let square = egui::Rect::from_center_size(at, egui::vec2(16.0, 16.0));
-                        p.extend(icons::shapes(icons::Icon::Search, square, colour));
-                    }),
-                    icon_size: theme::space::L,
-                    title: "Nothing to browse yet",
-                    hint: "Devices, samples and projects arrive in Milestone 6",
-                    action: None,
-                };
-                widgets::empty_state(ui, rect, &state);
-                ui.advance_cursor_after_rect(rect);
+                self.browser_panel(ui);
             },
         );
+        self.browser_size = browser_size;
         // The detail panel: the Mixer tab (M4 slice 5); Devices and Clip
         // arrive with their milestones. Never shorter than a strip. Its
         // content is drawn after the arrangement, so Tab reaches it in

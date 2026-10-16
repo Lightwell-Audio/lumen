@@ -18,7 +18,7 @@ use eframe::egui;
 use lumen_plugin_catalog::cache::Cache;
 use lumen_plugin_catalog::catalog::{Catalog, builtin_devices};
 use lumen_plugin_catalog::discover::standard_roots;
-use lumen_plugin_catalog::scan::{Mode, Summary};
+use lumen_plugin_catalog::scan::Mode;
 
 pub(crate) use settings::PluginSettings;
 pub(crate) use worker::Faults;
@@ -117,7 +117,6 @@ pub(crate) struct Plugins {
     /// A note for the person: the cache was thrown away, or could not be
     /// written. Cleared by [`Plugins::dismiss_note`].
     note: Option<String>,
-    last: Option<Summary>,
     finished_at: Option<SystemTime>,
 }
 
@@ -141,7 +140,6 @@ impl Plugins {
             cancel: Arc::new(AtomicBool::new(false)),
             stale: false,
             note: None,
-            last: None,
             finished_at: None,
         }
     }
@@ -164,7 +162,12 @@ impl Plugins {
         plugins.source = source;
         plugins.cache_path = cache_path;
         plugins.status = Status::Loading;
-        plugins.run(None, settings.scan_at_startup.then_some(Mode::Changed), settings, ctx);
+        plugins.run(
+            None,
+            settings.scan_at_startup.then_some(Mode::Changed),
+            settings,
+            ctx,
+        );
         plugins
     }
 
@@ -182,10 +185,6 @@ impl Plugins {
 
     pub(crate) fn dismiss_note(&mut self) {
         self.note = None;
-    }
-
-    pub(crate) fn last(&self) -> Option<&Summary> {
-        self.last.as_ref()
     }
 
     pub(crate) fn finished_at(&self) -> Option<SystemTime> {
@@ -212,12 +211,7 @@ impl Plugins {
 
     /// Forgets what is known about one module and loads it again: Retry on
     /// a blocked plugin, or "rescan this plugin".
-    pub(crate) fn retry(
-        &mut self,
-        module: &str,
-        settings: &PluginSettings,
-        ctx: &egui::Context,
-    ) {
+    pub(crate) fn retry(&mut self, module: &str, settings: &PluginSettings, ctx: &egui::Context) {
         if self.is_off() || self.busy() {
             return;
         }
@@ -317,7 +311,7 @@ impl Plugins {
                     self.status = Status::Idle;
                 }
             }
-            Message::Planned { total, reused: _ } => {
+            Message::Planned { total } => {
                 self.status = Status::Scanning { done: 0, total };
             }
             Message::Scanned { done, total, entry } => {
@@ -341,7 +335,6 @@ impl Plugins {
                     self.note = Some(format!("The plugin list could not be saved: {why}"));
                 }
                 self.finished_at = Some(SystemTime::now());
-                self.last = Some(summary);
             }
         }
     }
@@ -351,13 +344,17 @@ impl Plugins {
 mod tests {
     use super::*;
     use lumen_plugin_catalog::cache::{Entry, Reason, Result as Scanned};
+    use lumen_plugin_catalog::scan::Summary;
     use lumen_plugin_catalog::stamp::Stamp;
 
     fn blocked(path: &str) -> Entry {
         Entry {
             path: path.into(),
             binary: path.into(),
-            stamp: Stamp { len: 1, modified_ns: 1 },
+            stamp: Stamp {
+                len: 1,
+                modified_ns: 1,
+            },
             result: Scanned::Blocked {
                 reason: Reason::TimedOut { seconds: 1 },
                 at: 1,
@@ -377,7 +374,10 @@ mod tests {
     #[test]
     fn arguments_choose_off_fixed_or_the_system() {
         let args = |s: &[&str]| s.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>();
-        assert!(matches!(Source::from_args(&args(&["lumen"])), Source::System));
+        assert!(matches!(
+            Source::from_args(&args(&["lumen"])),
+            Source::System
+        ));
         assert!(matches!(
             Source::from_args(&args(&["lumen", "--plugins", "off"])),
             Source::Off
@@ -405,20 +405,34 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         p.rx = Some(rx);
         p.status = Status::Loading;
-        tx.send(Message::Loaded { cache: Cache::new(), note: Some("discarded".into()) }).unwrap();
-        tx.send(Message::Planned { total: 2, reused: 1 }).unwrap();
+        tx.send(Message::Loaded {
+            cache: Cache::new(),
+            note: Some("discarded".into()),
+        })
+        .unwrap();
+        tx.send(Message::Planned { total: 2 }).unwrap();
         assert!(p.poll());
         assert_eq!(*p.status(), Status::Scanning { done: 0, total: 2 });
         assert_eq!(p.note(), Some("discarded"));
 
-        tx.send(Message::Scanned { done: 1, total: 2, entry: blocked("/m/Bad.vst3") }).unwrap();
+        tx.send(Message::Scanned {
+            done: 1,
+            total: 2,
+            entry: blocked("/m/Bad.vst3"),
+        })
+        .unwrap();
         assert!(p.poll());
         assert_eq!(*p.status(), Status::Scanning { done: 1, total: 2 });
         assert_eq!(p.catalog().blocked().len(), 1);
 
         let mut cache = Cache::new();
         cache.set(blocked("/m/Bad.vst3"));
-        tx.send(Message::Finished { summary: Summary::default(), cache, saved: Err("disk full".into()) }).unwrap();
+        tx.send(Message::Finished {
+            summary: Summary::default(),
+            cache,
+            saved: Err("disk full".into()),
+        })
+        .unwrap();
         assert!(p.poll());
         assert_eq!(*p.status(), Status::Idle);
         assert!(!p.busy());
@@ -440,7 +454,10 @@ mod tests {
         let Status::Failed(why) = p.status() else {
             panic!("failed: {:?}", p.status());
         };
-        assert!(why.contains("cargo build --release -p lumen-plugin-host"), "{why}");
+        assert!(
+            why.contains("cargo build --release -p lumen-plugin-host"),
+            "{why}"
+        );
     }
 
     #[test]
