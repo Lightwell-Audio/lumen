@@ -6184,7 +6184,13 @@ one run per scenario unless stated. Wake-ups are written host/Lumen.
   logic, `has_ended` on the loop, and the plan swap on latency news. It must
   **re-measure the whole callback with the real engine, the audio device and
   the hosts together** (MT-VST-2): this ADR's numbers are the transport alone,
-  with no engine and no driver, and are not a callback budget.
+  with no engine and no driver, and are not a callback budget. MT-VST-2 must
+  include **recording with monitoring through an effect plugin**: an armed
+  audio track with an effect in the monitoring path, at 64 and 128 frames,
+  measuring input-to-output latency with and without the effect (loopback), and
+  checking that the recorded file is the input and is aligned by the reported
+  latency. This is the case the owner will use most, and where decision 2 and
+  option 3 differ by a whole block.
 - The `rtsan` CI job already runs the transport's guarded tests; slice 2 adds
   the engine path to them.
 - If the owner declines decision 2, slice 2 builds option 3 and every hosted
