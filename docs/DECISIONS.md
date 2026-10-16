@@ -6293,7 +6293,20 @@ of a swap the old plan contributes the unprocessed input.
   first version that counted blocks in flight at once passed with the hand-over
   removed, because hosts slower than the deadline are abandoned in turn.
 
+- **Performance gate.** The host path adds a fixed cost per callback of about 45
+  instructions (a flag for the hosts, a flag for a waiting MIDI list, the
+  deadline test, a larger render context): +0.6% on `engine_transport`, whose
+  mixer is empty, and under 0.01% on `engine_synth_64`, both measured against
+  `main` in the same environment (WSL Ubuntu 26.04, Callgrind). A first version
+  that read the ring buffers' state on every callback cost about 180
+  instructions; it now reads one flag. The stored baseline was already 1.4%
+  (synth) and 1.5% (transport) below `main`'s counts, from earlier work that did
+  not regenerate it, so it was regenerated here with `perf-gate --update`, which
+  also adds `engine_hosted_64`: 64 MIDI tracks, each a hosted instrument and a
+  hosted effect, with fake hosts that answer inside `submit` (636,696,004
+  instructions, about 10,000 per track per block: the engine's own cost of
+  hosting, none of a plugin's).
+
 **Not verified, and not claimed.** Any real plugin or host process; the whole
-callback with the engine, device and hosts together (MT-VST-2); frame times and
-the performance gate with hosts attached; macOS and Linux; recording with
-monitoring through an effect.
+callback with the engine, device and hosts together (MT-VST-2); frame times with
+hosts attached; macOS and Linux; recording with monitoring through an effect.

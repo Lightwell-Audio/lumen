@@ -3,7 +3,7 @@
 //! [`TrackSource`], played beside the audio clips).
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use super::capture::{self, Captured};
@@ -61,6 +61,8 @@ pub struct MidiHandle {
     old_feeds: rtrb::Consumer<Feed>,
     captured: Option<rtrb::Consumer<Captured>>,
     sync: Arc<AtomicU64>,
+    /// A list with a hosted instrument waits for the audio side.
+    hosted_pending: Arc<AtomicBool>,
 }
 
 impl MidiHandle {
@@ -73,8 +75,15 @@ impl MidiHandle {
     /// Sends a new track list. Returns it if the queue is full (call again
     /// next frame).
     pub fn set(&mut self, tracks: Vec<MidiTrack>) -> Result<(), Vec<MidiTrack>> {
+        let set = MidiSet::new(tracks);
+        let hosted = set.hosted();
         self.incoming
-            .push(Box::new(MidiSet::new(tracks)))
+            .push(Box::new(set))
+            .map(|()| {
+                if hosted {
+                    self.hosted_pending.store(true, Ordering::Release);
+                }
+            })
             .map_err(|rtrb::PushError::Full(set)| set.tracks)
     }
 
@@ -173,6 +182,8 @@ pub struct MidiPlayer {
     clock_out: ClockOut,
     /// Some track's instrument runs in a plugin host.
     hosted: bool,
+    /// A list with a hosted instrument is waiting (the handle sets it).
+    hosted_pending: Arc<AtomicBool>,
     /// [`TrackSource::begin`] has done the part's first half: the next
     /// `render` plays the tracks it gathered.
     prepared: bool,
@@ -188,6 +199,7 @@ pub fn midi_player() -> (MidiHandle, MidiPlayer) {
     let (old_feeds_tx, old_feeds_rx) = rtrb::RingBuffer::new(3);
     let (capture_tx, capture_rx) = rtrb::RingBuffer::new(capture::QUEUE);
     let sync = Arc::new(AtomicU64::new(0));
+    let hosted_pending = Arc::new(AtomicBool::new(false));
     (
         MidiHandle {
             incoming: incoming_tx,
@@ -197,6 +209,7 @@ pub fn midi_player() -> (MidiHandle, MidiPlayer) {
             old_feeds: old_feeds_rx,
             captured: Some(capture_rx),
             sync: Arc::clone(&sync),
+            hosted_pending: Arc::clone(&hosted_pending),
         },
         MidiPlayer {
             incoming: incoming_rx,
@@ -221,6 +234,7 @@ pub fn midi_player() -> (MidiHandle, MidiPlayer) {
             synced: 0,
             clock_out: ClockOut::default(),
             hosted: false,
+            hosted_pending,
             prepared: false,
         },
     )
@@ -415,6 +429,9 @@ impl MidiPlayer {
         self.carry(&mut new, at);
         let old = std::mem::replace(&mut self.current, new);
         self.hosted = self.current.hosted();
+        if self.incoming.is_empty() {
+            self.hosted_pending.store(false, Ordering::Relaxed);
+        }
         self.retire(old);
     }
 
@@ -803,7 +820,7 @@ impl TrackSource for MidiPlayer {
     fn hosted(&self) -> bool {
         // A list waiting to be taken counts, so the callback that takes it
         // already has its deadline.
-        self.hosted || self.incoming.peek().is_ok_and(|set| set.hosted())
+        self.hosted || self.hosted_pending.load(Ordering::Relaxed)
     }
 
     fn begin(&mut self, cx: &RenderContext<'_>, frames: usize) {

@@ -50,6 +50,7 @@ pub use spec::{
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use compile::compile_metered;
 use hosts::{HostMsg, HostPool, Hosting};
@@ -170,6 +171,9 @@ pub struct MixerHandle {
     /// Hosts on their way to the audio side, and ones it let go of.
     hosts: rtrb::Producer<HostMsg>,
     hosts_retired: rtrb::Consumer<Guard>,
+    /// A host message waits: set here, cleared when the audio side takes
+    /// them, so a callback with none to take reads one flag.
+    hosts_pending: Arc<AtomicBool>,
 }
 
 impl MixerHandle {
@@ -179,7 +183,10 @@ impl MixerHandle {
     /// Gives the guard back when the queue is full: try again next frame.
     pub fn attach_host(&mut self, id: u64, guard: Guard) -> Result<(), Guard> {
         match self.hosts.push(HostMsg::Attach(id, guard)) {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                self.hosts_pending.store(true, Ordering::Release);
+                Ok(())
+            }
             Err(rtrb::PushError::Full(HostMsg::Attach(_, guard))) => Err(guard),
             Err(rtrb::PushError::Full(HostMsg::Detach(_))) => unreachable!("an attach was sent"),
         }
@@ -187,7 +194,11 @@ impl MixerHandle {
 
     /// Takes the host `id` away. Returns whether the message was queued.
     pub fn detach_host(&mut self, id: u64) -> bool {
-        self.hosts.push(HostMsg::Detach(id)).is_ok()
+        let sent = self.hosts.push(HostMsg::Detach(id)).is_ok();
+        if sent {
+            self.hosts_pending.store(true, Ordering::Release);
+        }
+        sent
     }
 
     /// Compiles `routing` and sends it. Returns whether it was sent: false
@@ -278,6 +289,7 @@ pub struct Mixer<T> {
     hosts: HostPool,
     host_msgs: rtrb::Consumer<HostMsg>,
     host_retired: rtrb::Producer<Guard>,
+    hosts_pending: Arc<AtomicBool>,
 }
 
 /// Frames blended so far of `length` (0 until the first block sets it
@@ -309,6 +321,7 @@ pub fn mixer<T: TrackSource>(tracks: T) -> (MixerHandle, Mixer<T>) {
     let (tap, reader) = meter::loudness();
     let (host_tx, host_rx) = rtrb::RingBuffer::new(HOST_QUEUE);
     let (host_retired_tx, host_retired_rx) = rtrb::RingBuffer::new(HOST_QUEUE + 1);
+    let hosts_pending = Arc::new(AtomicBool::new(false));
     (
         MixerHandle {
             incoming: incoming_tx,
@@ -319,6 +332,7 @@ pub fn mixer<T: TrackSource>(tracks: T) -> (MixerHandle, Mixer<T>) {
             compensation: Compensation::default(),
             hosts: host_tx,
             hosts_retired: host_retired_rx,
+            hosts_pending: Arc::clone(&hosts_pending),
         },
         Mixer {
             tracks,
@@ -333,6 +347,7 @@ pub fn mixer<T: TrackSource>(tracks: T) -> (MixerHandle, Mixer<T>) {
             hosts: HostPool::new(),
             host_msgs: host_rx,
             host_retired: host_retired_tx,
+            hosts_pending,
         },
     )
 }
@@ -396,7 +411,21 @@ impl<T> Mixer<T> {
     /// the pool and the queues have a fixed size, and a message waits while
     /// the queue that takes the replaced host back is full, so a host is
     /// never dropped here.
+    #[inline]
     fn take_hosts(&mut self) {
+        // A callback with nothing to take reads one flag.
+        if self.hosts_pending.load(Ordering::Relaxed) {
+            self.apply_hosts();
+        }
+    }
+
+    #[inline(never)]
+    fn apply_hosts(&mut self) {
+        // Cleared before the queue is read, so a message sent meanwhile sets
+        // it again and is not lost.
+        if !self.hosts_pending.swap(false, Ordering::AcqRel) {
+            return;
+        }
         while self.host_retired.slots() >= 1 {
             let Ok(message) = self.host_msgs.pop() else {
                 break;
@@ -412,6 +441,11 @@ impl<T> Mixer<T> {
                 // Room was checked above, and nothing else pushes here.
                 let _ = self.host_retired.push(guard);
             }
+        }
+        // Messages left because the retired queue was full wait for the next
+        // block.
+        if !self.host_msgs.is_empty() {
+            self.hosts_pending.store(true, Ordering::Release);
         }
     }
 
@@ -590,7 +624,7 @@ impl<T: TrackSource> Source for Mixer<T> {
     fn hosted(&self) -> bool {
         // Hosts waiting to be attached count, so the callback that takes
         // them already has its deadline.
-        self.tracks.hosted() || self.hosts.len() > 0 || !self.host_msgs.is_empty()
+        self.tracks.hosted() || self.hosts.len() > 0 || self.hosts_pending.load(Ordering::Relaxed)
     }
 
     fn stopped(&mut self) {
