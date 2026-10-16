@@ -413,10 +413,11 @@ runs now show 0 heap operations). The 64-host budget is measured on Windows
 (MT-VST-0 run 3, `m6-budget-64.csv`): at 128 frames/48 kHz `event` stays
 inside the 1.333 ms half-period budget up to 100 µs of plugin work per track
 (and at p99 at 200 µs); `event/spin` missed 40 deadlines at 200 µs. One run,
-machine in use, synthetic load. **Still open before the audio-path ADR can be
-written:** process-per-chain (unmeasured), the editor-focus spike, dynamic
-latency notifications, whether `try_wait` is acceptable under RTSan, and the
-owner's call on the representative workload. Not run: Linux or macOS.
+machine in use, synthetic load. The owner accepted the representative workload (64 tracks, 100 µs
+each; 200 µs is the documented limit). `shm_rt` passes under RTSan in WSL and
+is a new CI step. **Still open before the audio-path ADR can be written:**
+process-per-chain (unmeasured), the editor-focus spike (pitch first), and
+dynamic latency notifications. Not run: macOS.
 Before it, 2026-10-16: **M6 slice 1, plugin discovery, is
 built** on `m6-s1-plugin-scan` (ADR-0068; plan and progress in
 `docs/milestones/M6.md`). Started while slice 0's audio-path ADR is still open
