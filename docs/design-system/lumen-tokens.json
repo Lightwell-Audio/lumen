@@ -1,0 +1,166 @@
+{
+ "name": "Lumen",
+ "version": 3,
+ "color": {
+  "themes": [
+   {"id": "dark", "name": "Dark"},
+   {"id": "light", "name": "Light"}
+  ],
+  "tokens": [
+   {"name": "ground", "value": {"dark": "#111316", "light": "#E7E9ED"}, "usage": "Premium. The deepest layer: behind the window, scrims, the app icon base and specimen boards. Only `app` and shadows sit on it."},
+   {"name": "well", "value": {"dark": "#141619", "light": "#D6DAE0"}, "usage": "Sunk areas: fader grooves, meter backgrounds, the segmented control's trough, text fields. Always darker than the surface it is cut into, in both themes (theme.rs `well`)."},
+   {"name": "app", "value": {"dark": "#17191D", "light": "#F1F2F4"}, "usage": "Window, panels and the transport bar: the base every other surface steps from. Text on it: `text`, `text_secondary`."},
+   {"name": "canvas", "value": {"dark": "#1B1D22", "light": "#FAFAFB"}, "usage": "Arrangement and editor background. Text on it: `text`, `text_secondary`."},
+   {"name": "lane", "value": {"dark": "#1B1D22", "light": "#F6F7F8"}, "usage": "Lane background behind clips and notes."},
+   {"name": "header", "value": {"dark": "#1E2126", "light": "#ECEEF1"}, "usage": "Track header column and the detail panel's toolbars."},
+   {"name": "raised", "value": {"dark": "#23262D", "light": "#E9EBEE"}, "usage": "Ruler, strips, cards and inputs one step above `app`. Text on it: `text`, `text_secondary`."},
+   {"name": "overlay", "value": {"dark": "#262A31", "light": "#FFFFFF"}, "usage": "Popovers, menus, windows and the command palette: the only surfaces that float. Pair with `border_strong` and egui's window shadow (offset 0,6, blur 18, black at 38%)."},
+   {"name": "clip_body", "value": {"dark": "#262A31", "light": "#FFFFFF"}, "usage": "A clip's body behind its waveform or notes; the track colour carries the title bar."},
+   {"name": "selected_row", "value": {"dark": "#223449", "light": "#DBE7F8"}, "usage": "A selected track header, tinted toward the accent. Text on it: `text`."},
+   {"name": "control", "value": {"dark": "#31353E", "light": "#E2E5E9"}, "usage": "A control at rest (the bottom of its fill). Letters on it: `text_secondary` at rest, `text` when chosen."},
+   {"name": "control_hi", "value": {"dark": "#383C46", "light": "#EEF0F3"}, "usage": "Premium. The top of a raised control's fill: a two-stop vertical gradient mesh, `control_hi` to `control`, a 3% step. Never used flat."},
+   {"name": "thumb_hi", "value": {"dark": "#4A5160", "light": "#FFFFFF"}, "usage": "Premium. Top of the chosen piece of a segmented control or tab pill: the raised thumb in the well."},
+   {"name": "thumb", "value": {"dark": "#3E4551", "light": "#F3F4F6"}, "usage": "Premium. Bottom of that thumb. Letters on it: `text`."},
+   {"name": "control_hover", "value": {"dark": "#3A3F4A", "light": "#D7DBE0"}, "usage": "egui's hovered fill for flat controls not yet painted with `raised()` (`theme::controls().hover`). Raised controls, menu rows and segmented pieces lay `ember` over their fill instead; tabs only brighten their letters."},
+   {"name": "control_press", "value": {"dark": "#444A56", "light": "#CBD0D7"}, "usage": "A control held down; the filled part of a slider; switch pill."},
+   {"name": "selected_control", "value": {"dark": "#434D5E", "light": "#FFFFFF"}, "usage": "Controls on a selected row, stepped up so they keep their edge on the blue selection."},
+   {"name": "border", "value": {"dark": "#2E323A", "light": "#DADDE2"}, "usage": "Separators, panel edges and a raised control's 1 pt outline."},
+   {"name": "border_strong", "value": {"dark": "#3C414B", "light": "#C3C8CF"}, "usage": "Window and popover outlines, hovered fields."},
+   {"name": "edge_light", "value": {"dark": "#FFFFFF12", "light": "#FFFFFFCC"}, "usage": "Premium. A 1 pt line painted along the top inside edge of every raised surface (`painter.hline`, inside the rounded rect). 7% white on dark, 80% on light."},
+   {"name": "shade", "value": {"dark": "#00000080", "light": "#1C1F2424"}, "usage": "Premium. A 1 pt line painted along the top inside edge of a well or a pressed control: the lip that makes it read as sunk. 50% black on dark, 14% ink on light."},
+   {"name": "ember", "value": {"dark": "#E6E8EC14", "light": "#1C1F2414"}, "usage": "Light level 1. A wash laid over what the pointer is on: 8% of the text colour. Hover on raised controls, ruler halves, list rows."},
+   {"name": "text", "value": {"dark": "#E6E8EC", "light": "#1C1F24"}, "usage": "Primary text and icons on `app`, `canvas`, `raised`, `overlay`, `control` and `selected_row` (7:1 or better on all)."},
+   {"name": "text_secondary", "value": {"dark": "#9AA0AC", "light": "#5A6170"}, "usage": "Labels and unlit control letters on `app`, `canvas`, `raised`, `overlay`, `header` and `control` (4.5:1 or better)."},
+   {"name": "text_hint", "value": {"dark": "#6E7480", "light": "#878D98"}, "usage": "Hints, empty-state captions, units and meter scales. Source value, kept exact: 3.1 to 3.8:1 on dark surfaces and 2.8 to 3.3:1 on light ones, so it never carries a fact the user needs; pair it with an icon or a nearby `text_secondary` line."},
+   {"name": "text_disabled", "value": {"dark": "#555A65", "light": "#B3B8C0"}, "usage": "Disabled controls only (exempt from contrast by WCAG; always with a reason on hover)."},
+   {"name": "on_accent", "value": {"dark": "#06182E", "light": "#FFFFFF"}, "usage": "Premium. Text and icons on a filled accent control (`accent_hi` to `accent_lo` gradient): 5.4:1 or better in dark, 4.6:1 or better in light."},
+   {"name": "text_on_light", "value": {"dark": "#0B0D10", "light": "#0B0D10"}, "usage": "Text on any light fill chosen by lightness (`theme::text_on`), such as a return's letter badge."},
+   {"name": "clip_text", "value": {"dark": "#FFFFFF", "light": "#FFFFFF"}, "usage": "Clip names on the 12 clip colours (3:1 or better on each)."},
+   {"name": "accent", "value": {"dark": "#4FA3FF", "light": "#1F6FD1"}, "usage": "The single accent: active, selected, playing, focus. Text and icons on `app`, `canvas` and `raised` (4.1:1 or better; 4.4 on `app` in light, kept exact)."},
+   {"name": "accent_hi", "value": {"dark": "#5DAEFF", "light": "#2A74D4"}, "usage": "Premium. Top of a filled accent control. Text on it: `on_accent`."},
+   {"name": "accent_lo", "value": {"dark": "#3F8FEA", "light": "#1A62BD"}, "usage": "Premium. Bottom of a filled accent control. Text on it: `on_accent`."},
+   {"name": "accent_muted", "value": {"dark": "#243A55", "light": "#D5E5FA"}, "usage": "Background of an active toggle, tab pill or chosen row, with `accent` letters (4.4:1 dark, 3.9:1 light: kept exact; bold or 13 pt and up)."},
+   {"name": "record", "value": {"dark": "#E5484D", "light": "#D33A40"}, "usage": "Record, and nothing else: arm, a clip light, recording state. The one light besides the accent."},
+   {"name": "warning", "value": {"dark": "#F2B14C", "light": "#A86400"}, "usage": "Problems that need attention (device lost, dropouts). Text on `app` and `overlay`. Never glows."},
+   {"name": "mute", "value": {"dark": "#C8CCD4", "light": "#5A6170"}, "usage": "A lit M (mute) button. Text on it: `on_mute`."},
+   {"name": "on_mute", "value": {"dark": "#0B0D10", "light": "#FFFFFF"}, "usage": "Letters on a lit mute button."},
+   {"name": "core", "value": {"dark": "#FFFFFF", "light": "#1F6FD1"}, "usage": "The centre of a light (Beam): white on dark, the accent itself on light, where light is ink, not glow."},
+   {"name": "sun", "value": {"dark": "#FFC46B", "light": "#CC9D56"}, "usage": "The logo's sun rim. Used for the mark and its empty states only."},
+   {"name": "sun_core", "value": {"dark": "#FFFFFF", "light": "#806236"}, "usage": "The logo's sun centre."},
+   {"name": "grid_bar", "value": {"dark": "#343842", "light": "#D9DCE1"}, "usage": "Bar lines."},
+   {"name": "grid_beat", "value": {"dark": "#262930", "light": "#ECEEF1"}, "usage": "Beat lines."},
+   {"name": "grid_sub", "value": {"dark": "#212329", "light": "#F3F4F6"}, "usage": "Lines between beats."},
+   {"name": "start_marker", "value": {"dark": "#C8CCD4", "light": "#6B717C"}, "usage": "Where Play starts: neutral, so it never reads as the playhead."},
+   {"name": "clip_1", "value": {"dark": "#4C7A9E", "light": "#4C7A9E"}, "usage": "Track and clip colour 1 (steel). Muted, mid lightness; the same in both themes so content keeps its identity."},
+   {"name": "clip_2", "value": {"dark": "#7A6A9E", "light": "#7A6A9E"}, "usage": "Track and clip colour 2 (violet). Muted, mid lightness; the same in both themes so content keeps its identity."},
+   {"name": "clip_3", "value": {"dark": "#5E8C6A", "light": "#5E8C6A"}, "usage": "Track and clip colour 3 (sage). Muted, mid lightness; the same in both themes so content keeps its identity."},
+   {"name": "clip_4", "value": {"dark": "#9E7A4C", "light": "#9E7A4C"}, "usage": "Track and clip colour 4 (ochre). Muted, mid lightness; the same in both themes so content keeps its identity."},
+   {"name": "clip_5", "value": {"dark": "#9E5A6A", "light": "#9E5A6A"}, "usage": "Track and clip colour 5 (rose). Muted, mid lightness; the same in both themes so content keeps its identity."},
+   {"name": "clip_6", "value": {"dark": "#5A8E8E", "light": "#5A8E8E"}, "usage": "Track and clip colour 6 (teal). Muted, mid lightness; the same in both themes so content keeps its identity."},
+   {"name": "clip_7", "value": {"dark": "#6A7EB0", "light": "#6A7EB0"}, "usage": "Track and clip colour 7 (periwinkle). Muted, mid lightness; the same in both themes so content keeps its identity."},
+   {"name": "clip_8", "value": {"dark": "#8E6A8E", "light": "#8E6A8E"}, "usage": "Track and clip colour 8 (plum). Muted, mid lightness; the same in both themes so content keeps its identity."},
+   {"name": "clip_9", "value": {"dark": "#7E8E56", "light": "#7E8E56"}, "usage": "Track and clip colour 9 (moss). Muted, mid lightness; the same in both themes so content keeps its identity."},
+   {"name": "clip_10", "value": {"dark": "#A06E5A", "light": "#A06E5A"}, "usage": "Track and clip colour 10 (clay). Muted, mid lightness; the same in both themes so content keeps its identity."},
+   {"name": "clip_11", "value": {"dark": "#5686A0", "light": "#5686A0"}, "usage": "Track and clip colour 11 (sky). Muted, mid lightness; the same in both themes so content keeps its identity."},
+   {"name": "clip_12", "value": {"dark": "#887660", "light": "#887660"}, "usage": "Track and clip colour 12 (taupe). Muted, mid lightness; the same in both themes so content keeps its identity."},
+   {"name": "clip_muted", "value": {"dark": "#6C7078", "light": "#6C7078"}, "usage": "A muted clip: its colour drains to this grey."}
+  ]
+ },
+ "type": {
+  "fonts": [
+   {"family": "Inter", "file": "fonts/Inter.ttf", "weight": "100 900", "style": "normal"},
+   {"family": "Unbounded", "file": "fonts/Unbounded.ttf", "weight": "200 900", "style": "normal"},
+   {"family": "Martian Mono", "file": "fonts/MartianMono.ttf", "weight": "100 800", "style": "normal"}
+  ],
+  "families": {
+   "sans": "Inter, system-ui, -apple-system, \"Segoe UI\", sans-serif",
+   "display": "Unbounded, Inter, system-ui, sans-serif",
+   "mono": "\"Martian Mono\", ui-monospace, Consolas, monospace"
+  },
+  "groups": [
+   {
+    "name": "Titles",
+    "family": "display",
+    "styles": [
+     {"name": "display", "fontSize": "24px", "lineHeight": "30px", "fontWeight": 560, "letterSpacing": "-0.01em", "usage": "Premium. Welcome and first-run screens only."},
+     {"name": "heading", "fontSize": "16px", "lineHeight": "22px", "fontWeight": 560, "letterSpacing": "-0.005em", "usage": "Panel titles (Browser). Unbounded is wide: short titles only."},
+     {"name": "title", "fontSize": "15px", "lineHeight": "20px", "fontWeight": 560, "letterSpacing": "-0.005em", "usage": "Window titles (Audio settings)."},
+     {"name": "wordmark", "fontSize": "14px", "lineHeight": "18px", "fontWeight": 560, "usage": "\"Lumen\" in the transport bar. Never redrawn, never re-cased."}
+    ]
+   },
+   {
+    "name": "Interface",
+    "family": "sans",
+    "styles": [
+     {"name": "section", "fontSize": "13px", "lineHeight": "18px", "fontWeight": 560, "usage": "Section headings inside windows (Device, Format)."},
+     {"name": "body", "fontSize": "13px", "lineHeight": "18px", "fontWeight": 400, "usage": "Labels, values, menu items, buttons."},
+     {"name": "caption", "fontSize": "11px", "lineHeight": "14px", "fontWeight": 400, "usage": "Hints, secondary facts, sample counts."},
+     {"name": "scale", "fontSize": "10px", "lineHeight": "12px", "fontWeight": 400, "usage": "Meter scales and knob values."},
+     {"name": "keycap", "fontSize": "11px", "lineHeight": "14px", "fontWeight": 400, "usage": "The letters on K5 keycaps (`widgets/keys.rs`: the caption size in Inter, kept exactly). In tooltips, menu rows, the palette and the shortcuts window; never on a button."}
+    ]
+   },
+   {
+    "name": "Numerals",
+    "family": "mono",
+    "styles": [
+     {"name": "readout", "fontSize": "20px", "lineHeight": "24px", "fontWeight": 400, "usage": "The master's integrated loudness: the one figure read from across the room."},
+     {"name": "mono", "fontSize": "13px", "lineHeight": "18px", "fontWeight": 400, "usage": "Position, tempo, CPU: anything that changes while you read it. Set at width 87.5."},
+     {"name": "mono_small", "fontSize": "10px", "lineHeight": "12px", "fontWeight": 400, "usage": "Ruler numbers, piano-roll key labels, clip meta (8 bars, 17 notes)."}
+    ]
+   }
+  ]
+ },
+ "spacing": {
+  "tokens": [
+   {"name": "space_xxs", "value": "2px", "usage": "Hairline gaps: inside a segmented control, between a strip's rails."},
+   {"name": "space_xs", "value": "4px", "usage": "Between icon and label; between a knob row's items; pad inside chips."},
+   {"name": "space_s", "value": "8px", "usage": "Between controls; content inset in strips; menu padding."},
+   {"name": "space_m", "value": "12px", "usage": "Window and card insets; above a section heading; a tab's side padding; a menu row's gap before its keycaps."},
+   {"name": "space_l", "value": "16px", "usage": "Panel toolbar insets; around an empty state's parts."},
+   {"name": "space_xl", "value": "24px", "usage": "Premium. Between groups in a panel; welcome and first-run layouts."},
+   {"name": "space_2xl", "value": "32px", "usage": "Premium. Section gaps in documentation and first-run screens."}
+  ]
+ },
+ "radius": {
+  "tokens": [
+   {"name": "radius_sm", "value": "4px", "usage": "20 pt controls and the 20 pt segmented trough, clips, notes, keycaps, chips inside 20 pt rows."},
+   {"name": "radius_md", "value": "6px", "usage": "24 pt controls, inputs, menu items. Premium: buttons move here from 4."},
+   {"name": "radius_lg", "value": "8px", "usage": "30 pt controls, the tool switch's trough, popovers and menus."},
+   {"name": "radius_xl", "value": "12px", "usage": "Premium. Windows, cards, the command palette, floating panels. The app icon uses 22.5% of its side."},
+   {"name": "radius_full", "value": "255px", "usage": "Pills (egui clamps the radius to half the height): switches, lane tabs, the dropout chip."}
+  ]
+ },
+ "size": {
+  "tokens": [
+   {"name": "size_control_sm", "value": "20px", "usage": "M, S and arm on headers, switches, segmented controls, header sliders: dense rows."},
+   {"name": "size_control", "value": "24px", "usage": "Buttons, fields, sliders and combos. The default."},
+   {"name": "size_control_lg", "value": "30px", "usage": "Premium. Detail-panel toolbars: the tool switch (a 30 pt segmented control), grid chip, icon buttons; transport readouts."},
+   {"name": "size_knob_sm", "value": "18px", "usage": "Knobs in lists (a return's senders)."},
+   {"name": "size_knob", "value": "24px", "usage": "Send knobs on headers and strips."},
+   {"name": "size_transport_icon", "value": "28px", "usage": "Transport icon buttons."},
+   {"name": "size_info_line", "value": "32px", "usage": "The info line along the bottom of the window."},
+   {"name": "size_track_step", "value": "22px", "usage": "Track heights move in 22 pt steps: folded 44, unfolded 88 to 308."},
+   {"name": "size_header_column", "value": "204px", "usage": "Default track header column (resizable, 480 at most)."},
+   {"name": "size_label_column", "value": "96px", "usage": "A window's right-aligned label column."},
+   {"name": "size_label_column_narrow", "value": "72px", "usage": "The label column of a narrow card (clip properties)."}
+  ]
+ },
+ "duration": {
+  "tokens": [
+   {"name": "duration_fast", "value": "100ms", "usage": "Hover and press feedback, ease-out; lit buttons cross-fading; a highlight following the arrow keys."},
+   {"name": "duration_base", "value": "180ms", "usage": "Popovers, windows, notices and panels appearing or leaving."},
+   {"name": "duration_glide", "value": "220ms", "usage": "Things moving to a new place, by the critically damped spring (`motion::glide`, omega 7, no overshoot): the playhead after a locate, clips settling, the tab underline, a segmented thumb."},
+   {"name": "duration_wash", "value": "600ms", "usage": "What undo or redo changed: an accent wash that fades."},
+   {"name": "duration_note", "value": "1400ms", "usage": "How long a short note (undo, save, open) stays before it fades."},
+   {"name": "duration_breath", "value": "2400ms", "usage": "The armed ring's slow breath: the one deliberate loop. Reduce motion holds it still."}
+  ]
+ },
+ "stroke": {
+  "tokens": [
+   {"name": "stroke_hairline", "value": "1px", "usage": "Separators, outlines and the edge-light and shade lines: 1 pt, pixel-snapped."},
+   {"name": "stroke_lit", "value": "1.5px", "usage": "The crisp line of a Lit or Flare light."},
+   {"name": "stroke_focus", "value": "2px", "usage": "The keyboard focus ring, and the line of a Beam."},
+   {"name": "stroke_core", "value": "1px", "usage": "A Beam's white core, drawn inside its 2 pt line."}
+  ]
+ }
+}

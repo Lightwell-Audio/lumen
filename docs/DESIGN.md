@@ -4,6 +4,14 @@
 (2026-10-11, ADR-0052)** follows the owner's **Lumen design system** (a
 Design System artifact: tokens, a Material card and a card per component).
 Where this file and the design system differ, the design system wins.
+**Design system v3 (2026-10-16)** is saved as
+[`docs/design-system/lumen-tokens.json`](design-system/lumen-tokens.json)
+(colour for both themes, type, spacing, radius, size, duration and stroke
+tokens, each with its usage). It was checked against `theme.rs`: every colour
+value, the 12 clip colours and the size, radius, stroke and duration values
+agree; v3 adds the spacing steps `space_xl` (24) and `space_2xl` (32), which
+the code does not have yet (add them to `theme::space` when a screen needs
+them, not before).
 Code: `crates/lumen-app/src/theme.rs` (colour, type, spacing, shape,
 strokes, the on states and the egui style built from them), `motion.rs`
 (motion), `light.rs` (light) and `widgets/raised.rs` (material, §5a).
