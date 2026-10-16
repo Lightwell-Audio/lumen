@@ -212,6 +212,11 @@ tests at once ran it in 93 s instead of 157 s, but on the CI runners it took
 the same 205 s and failed timing-sensitive tests (the suite is CPU-bound
 there, not waiting on the paced test device, ADR-0063).
 
+What does help is building dependencies optimized (`[profile.dev.package."*"]`
+in `Cargo.toml`): the same suite at 4 threads took 168 s before and 122 to
+131 s after, on 4 cores. The cold build is longer (about 6 minutes from
+scratch); the CI cache keeps it from being repeated.
+
 ## The test plugins (M6, ADR-0065)
 
 `crates/lumen-test-plugin` builds a VST3 module with a deterministic

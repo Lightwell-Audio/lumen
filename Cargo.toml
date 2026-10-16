@@ -73,3 +73,11 @@ debug = "line-tables-only"
 
 [profile.bench]
 debug = "line-tables-only"
+
+# Dependencies (egui, the renderer, the test harness) are built optimized in
+# the dev and test profiles; Lumen's own crates stay at opt-level 0 with debug
+# assertions. The end-to-end suite renders egui frames, so its CPU time is
+# mostly dependency code: 168 s -> 122 to 131 s on 4 cores (docs/DEVELOPMENT.md
+# "Running the tests"). Costs a longer cold build; rust-cache keeps the rest.
+[profile.dev.package."*"]
+opt-level = 2
