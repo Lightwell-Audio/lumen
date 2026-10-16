@@ -67,7 +67,7 @@ irreversible or external) · *Superseded*.
 | [0067](#adr-0067--the-shared-memory-audio-path-and-the-measurement-harness) | The shared-memory audio path (`lumen_plugin_host::shm`): one block in flight, untrusted-region rules, two-sided wake-up settings, Windows job object, and the measurement harness (M6 slice 0, part 3) | Accepted 2026-10-15 for the transport (the wake-up, the real-time wait contract and the process grouping wait for MT-VST-0) | No |
 | [0068](#adr-0068--plugin-discovery-scanning-the-cache-and-the-browser-m6-slice-1) | Plugin discovery (`lumen-plugin-catalog`): a scan child per module with a deadline, a cache keyed by file stamp, a blocked list that retries when the file changes, startup scan in the background, the browser's Devices tab (M6 slice 1) | Accepted 2026-10-16 (verified on Linux with the test plugin; MT-VST-1 passed on Windows with real plugins, owner-reported) | No |
 | [0069](#adr-0069--the-audio-path-to-plugin-hosts-wake-up-the-callbacks-wait-process-grouping-m6-slice-0-close) | The audio path to plugin hosts: `event` wake-up, a bounded callback wait under a narrow contract, one process per instance, the working budget (M6 slice 0 close) | Accepted 2026-10-16, decision 2 (the callback's bounded wait) on trial until slice 2's measurements (measured on Windows with the test plugin) | Decided by the owner (the trial's check: MT-VST-2) |
-| [0070](#adr-0070--hosted-devices-in-the-engine-the-contract-two-phase-instruments-and-effects-with-a-fallback-m6-slice-2b) | Hosted devices in the engine: the `Hosted` contract and its `Guard`, hosted instruments begun before the clips render, hosted effects in the mixer with a delay-line fallback and a glide, and what 2b leaves to later (M6 slice 2b) | Accepted 2026-10-16 (verified on Windows with fake hosts; no real plugin, no process, no macOS or Linux run) | No |
+| [0070](#adr-0070--hosted-devices-in-the-engine-the-contract-two-phase-instruments-and-effects-with-a-fallback-m6-slice-2b) | Hosted devices in the engine: the `Hosted` contract and its `Guard`, hosted instruments begun before the clips render, hosted effects in the mixer with a delay-line fallback and a glide, and what 2b leaves to later (M6 slice 2b) | Accepted 2026-10-16 (verified with fake hosts on Windows, and the new tests under RealtimeSanitizer and the performance gate in WSL; no real plugin, no process, no full macOS run) | No |
 
 ---
 
@@ -6218,9 +6218,11 @@ second monitor of MT-VST-0 "Editors" and any macOS or Linux run.
 ## ADR-0070 — Hosted devices in the engine: the contract, two-phase instruments, and effects with a fallback (M6 slice 2b)
 
 **Status:** Accepted 2026-10-16. Verified on Windows with fake hosts (unit and
-engine tests, the allocation guard, and mutation checks); no real plugin, no
-host process, no macOS or Linux run, no measurement of a whole callback
-(that is slice 2f's MT-VST-2). · **Date:** 2026-10-16
+engine tests, the allocation guard, and mutation checks). In WSL (Linux): the
+new tests pass under RealtimeSanitizer and the performance gate passes against
+the regenerated baseline. macOS: cross-clippy only. No real plugin, no host
+process, no measurement of a whole callback (that is slice 2f's MT-VST-2). ·
+**Date:** 2026-10-16
 
 **Context.** ADR-0069 fixed the contract between the callback and the plugin
 hosts: submit to every host first, then wait for each against one deadline of
