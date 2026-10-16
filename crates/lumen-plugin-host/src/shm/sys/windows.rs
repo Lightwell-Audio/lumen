@@ -1,6 +1,7 @@
 //! Windows file mappings, named events, the audio scheduling class and the
 //! job object that ends hosts with Lumen.
 
+use std::cell::RefCell;
 use std::io;
 use std::process::Child;
 use std::ptr;
@@ -17,10 +18,10 @@ use windows_sys::Win32::System::Memory::{
     OpenFileMappingW, PAGE_READWRITE, UnmapViewOfFile,
 };
 use windows_sys::Win32::System::Threading::{
-    AvSetMmThreadCharacteristicsW, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
-    CREATE_WAITABLE_TIMER_MANUAL_RESET, CreateEventW, CreateWaitableTimerExW, EVENT_ALL_ACCESS,
-    OpenEventW, SetEvent, SetWaitableTimer, TIMER_ALL_ACCESS, WaitForMultipleObjects,
-    WaitForSingleObject,
+    AvRevertMmThreadCharacteristics, AvSetMmThreadCharacteristicsW,
+    CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, CREATE_WAITABLE_TIMER_MANUAL_RESET, CreateEventW,
+    CreateWaitableTimerExW, EVENT_ALL_ACCESS, OpenEventW, SetEvent, SetWaitableTimer,
+    TIMER_ALL_ACCESS, WaitForMultipleObjects, WaitForSingleObject,
 };
 
 use super::Names;
@@ -193,11 +194,39 @@ pub fn remove_names(_names: &Names) {}
 /// Joins the calling thread to the Pro Audio class of the multimedia
 /// scheduler, as audio threads should. The registration lasts for the
 /// thread's life.
+struct AudioTaskRegistration(HANDLE);
+
+impl Drop for AudioTaskRegistration {
+    fn drop(&mut self) {
+        // SAFETY: the handle was returned by AvSetMmThreadCharacteristicsW
+        // on this same thread and is reverted when the thread-local drops.
+        unsafe {
+            AvRevertMmThreadCharacteristics(self.0);
+        }
+    }
+}
+
+thread_local! {
+    static AUDIO_TASK: RefCell<Option<AudioTaskRegistration>> = const { RefCell::new(None) };
+}
+
 pub fn audio_thread_priority() -> bool {
-    let task = wide("Pro Audio");
-    let mut index = 0_u32;
-    // SAFETY: a valid task name and out pointer.
-    !unsafe { AvSetMmThreadCharacteristicsW(task.as_ptr(), &mut index) }.is_null()
+    AUDIO_TASK.with(|registration| {
+        let mut registration = registration.borrow_mut();
+        if registration.is_some() {
+            return true;
+        }
+
+        let task = wide("Pro Audio");
+        let mut index = 0_u32;
+        // SAFETY: a valid task name and out pointer.
+        let handle = unsafe { AvSetMmThreadCharacteristicsW(task.as_ptr(), &mut index) };
+        if handle.is_null() {
+            return false;
+        }
+        *registration = Some(AudioTaskRegistration(handle));
+        true
+    })
 }
 
 /// A job that kills every process assigned to it when Lumen's handle closes,

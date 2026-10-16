@@ -5839,12 +5839,19 @@ Lumen would do anyway. It is the same rule that makes a late answer safe.
   how soon it is seen and what the others did. Plugin load per block uses the
   test plugin's `process_slow` fault. MT-VST-0 is the script for running it.
 
-**Still open, and why it cannot be closed here.**
-- *Which wake-up.* The harness exists and runs on Linux, where it shows the
-  mechanics work (below); the numbers that decide the policy are Windows
-  numbers at 64/128/512 frames, 1/8/16 hosts, with and without contention, in
-  the Balanced and High-performance power plans. A sandbox with four shared
-  cores says nothing about them and none are claimed.
+**Still open after the corrected Windows run (2026-10-15).** The first
+MT-VST-0 run's MMCSS warning was a harness bug: the helper re-registered on
+the same thread and discarded the successful handle. The helper now retains
+one registration for the thread lifetime and reverts it at thread exit. The
+corrected full grid ran without that warning. Event and event/spin had zero
+misses across the 48 kHz grid; hybrid150 had 14, hybrid150/spin 12, and spin
+114. The corrected results and CSVs are in `docs/manual-tests/M6.md`. The
+crash path still reports two heap operations in Lumen's loop. No wake-up or
+callback-wait policy is accepted yet.
+- *Which wake-up.* Event and event/spin are the strongest candidates in this
+  grid; the event modes had zero misses, while hybrid and spin missed in
+  loaded and/or short-buffer cases. The full 64-track callback budget and
+  process-per-chain grouping remain unmeasured.
 - *May the callback wait on the operating system.* ADR-0005 proposed it; the
   architecture rule says the audio thread never blocks. Either bounded polling
   in the callback with the signalling on the host's side meets the budget
@@ -5852,8 +5859,9 @@ Lumen would do anyway. It is the same rule that makes a late answer safe.
   exemption, its bound and what is done about it). The default policy that
   ships must be the one the numbers support.
 - *Process per instance or per chain.* One process per instance is what the
-  harness measures (N hosts); a grouped design needs a second link per host
-  and is considered only if the numbers force it.
+  harness measures (N hosts); process-per-chain was not measured. A grouped
+  design needs a second link per host and is considered only if valid numbers
+  force it.
 
 **Consequences.**
 - Verified on Linux: 84 tests pass in the crate (47 before). New: 9 region
@@ -5871,13 +5879,15 @@ Lumen would do anyway. It is the same rule that makes a late answer safe.
   attach request's round trip and refusals, and the harness's own parsing and
   percentile tests. Mutation checks: ignoring the generation, or letting a
   busy link accept a block, each fail the tests they should.
-- The Windows code (file mapping, events and timers, the job object, MMCSS)
-  type-checks and passes clippy for `x86_64-pc-windows-gnu`, as does macOS
-  for `aarch64-apple-darwin`; **neither has been run.** macOS has no timed
-  semaphore wait, so there the wait polls with short sleeps: it runs the
-  tests and is not a measurement.
-- Not done, and not claimed: any measurement on Windows; MMCSS taking effect;
-  a third-party plugin through the link; the editor; the scanner; wiring the
+- Windows file mapping, events, timers, the job object and MMCSS registration
+  ran in the `x86_64-pc-windows-gnu` release tests and corrected benchmark.
+  The full 48 kHz grid ran without MMCSS warnings; results are in
+  `docs/manual-tests/M6.md`. The crash-path allocation invariant remains open.
+  macOS still only type-checks and passes clippy for
+  `aarch64-apple-darwin`. It has no timed semaphore wait, so there the wait
+  polls with short sleeps: it runs the tests and is not a measurement.
+- Not done, and not claimed: a third-party plugin through
+  the link; the editor; the scanner; wiring the
   link into the engine's graph (nothing outside this crate uses it); rebuilding
   the graph when a plugin reports a latency or bus change (the answer carries
   `latency` and `restart`; acting on them is slice 6); the supervisor that
