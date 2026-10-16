@@ -219,11 +219,13 @@ fn polling_never_waits() {
 fn a_late_answer_is_dropped_as_stale_and_never_taken_for_the_next_block() {
     for (name, wake) in modes() {
         let layout = Layout::new(16, 0, 1);
-        // The first block takes 80 ms; the others are immediate and write 7.
+        // The first block takes 300 ms (long enough that a thread kept off the
+        // CPU by a busy machine still finds it unanswered); the others are
+        // immediate and write 7.
         let behave: Behaviour = Box::new(|seq, _answer, scratch| {
             scratch.buffers.output[0].fill(if seq == 1 { 1.0 } else { 7.0 });
             Hold::Answer(if seq == 1 {
-                Duration::from_millis(80)
+                Duration::from_millis(300)
             } else {
                 Duration::ZERO
             })
@@ -243,13 +245,22 @@ fn a_late_answer_is_dropped_as_stale_and_never_taken_for_the_next_block() {
             "{name}"
         );
         assert!(p.link.in_flight());
-        std::thread::sleep(Duration::from_millis(150));
-        // It finished while nobody waited: its answer is stale, and the
-        // next block goes through.
-        let seq = p
-            .link
-            .submit(1, 8, &[], &[], &[])
-            .expect("submit after the late answer");
+        // It finishes while nobody waits: its answer is stale, and the next
+        // block goes through. Try until it does, not after a fixed time.
+        let started = Instant::now();
+        let seq = loop {
+            match p.link.submit(1, 8, &[], &[], &[]) {
+                Ok(seq) => break seq,
+                Err(SubmitError::Busy) => {
+                    assert!(
+                        started.elapsed() < Duration::from_secs(30),
+                        "{name}: the late answer never came"
+                    );
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(other) => panic!("{name}: submit after the late answer: {other:?}"),
+            }
+        };
         assert_eq!(seq, 2, "{name}");
         assert_eq!(p.link.stale(), 1, "{name}");
         let Poll::Done(answer) = p.link.wait(in_a_second()) else {

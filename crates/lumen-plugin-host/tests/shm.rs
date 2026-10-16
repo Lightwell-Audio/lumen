@@ -213,8 +213,9 @@ fn a_plugin_error_is_an_outcome_and_the_host_goes_on() {
 
 #[test]
 fn a_slow_block_is_given_up_on_and_its_late_answer_dropped() {
-    // Every block takes 40 ms. Lumen gives each 5 ms.
-    let mut host = instrument("process_slow=40000");
+    // Every block takes 300 ms (so a thread a busy machine keeps off the CPU
+    // still finds the first unanswered). Lumen gives each 5 ms.
+    let mut host = instrument("process_slow=300000");
     let mut link = host
         .attach(Layout::new(512, 0, 2), Wake::EVENT, SLOW)
         .expect("attach");
@@ -229,10 +230,22 @@ fn a_slow_block_is_given_up_on_and_its_late_answer_dropped() {
         link.submit(generation, 64, &[], &[], &[]),
         Err(SubmitError::Busy)
     );
-    std::thread::sleep(Duration::from_millis(150));
-    // The late answer is stale; the link takes the next block.
-    link.submit(generation, 64, &[], &[], &[])
-        .expect("next block");
+    // The late answer is stale; the link takes the next block once it has
+    // come. Try until then, not after a fixed time.
+    let started = Instant::now();
+    loop {
+        match link.submit(generation, 64, &[], &[], &[]) {
+            Ok(_) => break,
+            Err(SubmitError::Busy) => {
+                assert!(
+                    started.elapsed() < Duration::from_secs(30),
+                    "the late answer never came"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(other) => panic!("next block: {other:?}"),
+        }
+    }
     assert_eq!(link.stale(), 1);
     let Poll::Done(answer) = link.wait(soon()) else {
         panic!("no answer");

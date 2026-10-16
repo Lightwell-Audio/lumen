@@ -292,6 +292,13 @@ cargo test -p lumen-app --test smoke -- --ignored             # the real binary,
     first, alone (`Root::warm` in `lumen-plugin-catalog/tests/scan.rs`,
     `warm` in the E2E `plugins.rs`), or the checks queue inside the
     deadline.
+  - A test of a late answer (a deadline missed on purpose) holds the answer
+    back for hundreds of milliseconds, not tens, and then tries until the
+    link takes the next block instead of sleeping. A deadline cannot cut
+    off an answer already waiting when a starved thread runs again, and a
+    sleep can end before a starved host thread has finished
+    (`a_late_answer_is_dropped_…` in `lumen-plugin-host`'s unit tests,
+    `tests/shm.rs` and `tests/faults.rs`).
   - Do not name system programs by path: macOS has `/usr/bin/true`, not
     `/bin/true` (`unix_program` in `lumen-plugin-host/tests/scan.rs`).
   - To check a test for flakes, run it beside busy loops: `yes > /dev/null &`
