@@ -2242,6 +2242,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumen-plugin-catalog"
+version = "0.0.1"
+dependencies = [
+ "lumen-plugin-host",
+ "lumen-test-plugin",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "lumen-plugin-host"
 version = "0.0.1"
 dependencies = [

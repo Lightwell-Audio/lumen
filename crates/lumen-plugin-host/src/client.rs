@@ -29,7 +29,7 @@ use crate::shm::{BlockLink, Layout, Wake};
 /// otherwise outlive a killed Lumen. The job is never closed by Lumen; the
 /// kernel closes it when Lumen's process ends.
 #[cfg(windows)]
-fn end_with_lumen(child: &Child) -> std::io::Result<()> {
+pub(crate) fn end_with_lumen(child: &Child) -> std::io::Result<()> {
     use std::sync::OnceLock;
     static JOB: OnceLock<Result<crate::shm::sys::Job, String>> = OnceLock::new();
     match JOB.get_or_init(|| crate::shm::sys::Job::new().map_err(|e| e.to_string())) {
@@ -52,7 +52,7 @@ pub enum ExitKind {
 }
 
 impl ExitKind {
-    fn of(status: std::process::ExitStatus) -> Self {
+    pub(crate) fn of(status: std::process::ExitStatus) -> Self {
         #[cfg(unix)]
         {
             use std::os::unix::process::ExitStatusExt;

@@ -15,10 +15,11 @@ use std::path::{Path, PathBuf};
 use vst3::ComPtr;
 use vst3::Steinberg::{
     IPluginFactory, IPluginFactory2, IPluginFactory2Trait, IPluginFactoryTrait, PClassInfo,
-    PClassInfo2, kResultOk,
+    PClassInfo2, PFactoryInfo, kResultOk,
 };
 
 use crate::protocol::{ClassId, ClassInfo, MAX_CLASSES};
+use crate::scan::{ScanClass, ScanReport};
 
 #[derive(Debug)]
 pub enum ModuleError {
@@ -201,6 +202,59 @@ impl Module {
                     })
                 })
                 .collect()
+        }
+    }
+}
+
+impl Module {
+    /// What a browser needs to list this module: the factory's vendor and
+    /// address and every class with its version details. `load_ms` is how
+    /// long the caller took to load the module.
+    pub fn scan_report(&self, load_ms: u32) -> ScanReport {
+        // SAFETY: plain factory queries with valid out pointers.
+        unsafe {
+            let mut info: PFactoryInfo = std::mem::zeroed();
+            let (vendor, url) = if self.factory.getFactoryInfo(&mut info) == kResultOk {
+                (text(&info.vendor), text(&info.url))
+            } else {
+                (String::new(), String::new())
+            };
+            let count = (self.factory.countClasses().max(0) as usize).min(MAX_CLASSES);
+            let second = self.factory.cast::<IPluginFactory2>();
+            let classes = (0..count as i32)
+                .filter_map(|i| {
+                    if let Some(f2) = &second {
+                        let mut info: PClassInfo2 = std::mem::zeroed();
+                        if f2.getClassInfo2(i, &mut info) == kResultOk {
+                            return Some(ScanClass {
+                                id: tuid(&info.cid),
+                                name: text(&info.name),
+                                category: text(&info.category),
+                                vendor: text(&info.vendor),
+                                subcategories: text(&info.subCategories),
+                                version: text(&info.version),
+                                sdk_version: text(&info.sdkVersion),
+                            });
+                        }
+                    }
+                    let mut info: PClassInfo = std::mem::zeroed();
+                    (self.factory.getClassInfo(i, &mut info) == kResultOk).then(|| ScanClass {
+                        id: tuid(&info.cid),
+                        name: text(&info.name),
+                        category: text(&info.category),
+                        vendor: String::new(),
+                        subcategories: String::new(),
+                        version: String::new(),
+                        sdk_version: String::new(),
+                    })
+                })
+                .collect();
+            ScanReport {
+                vendor,
+                url,
+                classes,
+                load_ms,
+            }
         }
     }
 }
