@@ -19,10 +19,9 @@ use windows_sys::Win32::System::Memory::{
 };
 use windows_sys::Win32::System::Threading::{
     AvRevertMmThreadCharacteristics, AvSetMmThreadCharacteristicsW,
-    CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
-    CREATE_WAITABLE_TIMER_MANUAL_RESET, CreateEventW, CreateWaitableTimerExW, EVENT_ALL_ACCESS,
-    OpenEventW, SetEvent, SetWaitableTimer, TIMER_ALL_ACCESS, WaitForMultipleObjects,
-    WaitForSingleObject,
+    CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, CREATE_WAITABLE_TIMER_MANUAL_RESET, CreateEventW,
+    CreateWaitableTimerExW, EVENT_ALL_ACCESS, OpenEventW, SetEvent, SetWaitableTimer,
+    TIMER_ALL_ACCESS, WaitForMultipleObjects, WaitForSingleObject,
 };
 
 use super::Names;
