@@ -8,15 +8,18 @@ child process per module with a deadline, a cache keyed by file stamp, a
 blocked list with reasons that retries only when a file changes or on Retry,
 and the browser's Devices tab in the owner's layout B with a type filter.
 Verified on Linux with the test plugin; **nothing has run on Windows or
-macOS, or with a real plugin** (MT-VST-1 waits for the owner). Slice 0's
-architecture gate (the audio-path ADR) is still open and does not block this
+macOS** (MT-VST-1 ran on Windows with real plugins, owner-reported pass, no measurements). Slice 0's
+architecture gate (the audio-path ADR) is ADR-0069 (accepted 2026-10-16, the callback's wait on trial); it does not block this
 slice.
 **M6 slice 0 activity (2026-10-15):** The corrected Windows MT-VST-0
 full-grid rerun had no MMCSS warning. Event and event/spin had zero misses
-across the 48 kHz grid; hybrid modes and spin missed in several cases. Crash
-injection still reports two heap operations in Lumen's loop. See [the M6 test
-record](manual-tests/M6.md) and [the M6 plan](milestones/M6.md). M5 closeout
-remains pending.
+across the 48 kHz grid; hybrid modes and spin missed in several cases. The two
+heap operations the crash runs reported in Lumen's loop are fixed (the loop
+no longer words a crash in a `String`), and the 64-host budget is measured
+(run 3: event holds the half-period budget up to 100 µs of plugin work per
+track and at p99 up to 200 µs). The audio-path ADR is still unwritten. See
+[the M6 test record](manual-tests/M6.md) and [the M6 plan](milestones/M6.md).
+M5 closeout remains pending.
 **Documentation policy, 2026-10-14:** third-party product comparisons and
 named plugin examples are replaced with direct behavior descriptions and
 anonymous test labels. Technical identifiers and required legal attribution
@@ -65,7 +68,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 4 | Mixer, Routing & Groups | ✅ Complete 2026-10-10 (review fixes merged, PR #3) | Plan: `docs/milestones/M4.md` |
 | 4.5 | Polish pass (mid milestone: the interface audit's fixes) | 🟡 Built 2026-10-10; MT-POL-5 and 6 wait | Plan: `docs/milestones/M4.5.md`; audit: `docs/audits/2026-10-10-design.md` |
 | 5 | MIDI & Piano Roll | 🟡 Approved 2026-10-10; slices 0 to 7 built, slice 8 underway (review done); MT-MIDI-7, MT-MIDI-8 and MT-MIDI-9 wait | Plan: `docs/milestones/M5.md` |
-| 6 | VST3 Hosting & Device System | 🟡 Started 2026-10-15 at the owner's instruction; slice 0 under way (test plugins, host core and the shared-memory audio path are built and tested on Linux; the Windows measurements, MT-VST-0, wait for the owner) | Plan: [milestones/M6.md](milestones/M6.md); M5 closeout (MT-MIDI-7 to 9, the report) remains pending and is not marked passed |
+| 6 | VST3 Hosting & Device System | 🟡 Started 2026-10-15 at the owner's instruction; slice 0 complete 2026-10-16 (report below; ADR-0069 accepted, the callback's wait on trial) and slice 1 built (MT-VST-1 passed on Windows, owner-reported); slice 2 next | Plan: [milestones/M6.md](milestones/M6.md); M5 closeout (MT-MIDI-7 to 9, the report) remains pending and is not marked passed |
 | 7 | Automation, Envelopes & Advanced Editing | 🔲 | |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | |
 | 9 | Recording, Media, Export & Production Workflow | 🔲 | |
@@ -371,7 +374,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Mixer: fader, pan law, mute, solo, sends, returns, groups, master, routing, sidechain, PDC, meters, cue | M | 🟡 The engine graph (M4 slice 1, ADR-0035); routing in the model (slice 2); groups (slice 3); mute, solo, sends, returns, the master and cue (slice 4, ADR-0038); the Mixer tab, meters, the pan law and output pairs (slice 5, ADR-0040); sidechains and delay compensation in the engine with the transport's readout (slice 6, ADR-0041) |
 | LUFS and true-peak metering; mono-check and dim | S | 🟡 LUFS (momentary, short-term, integrated) and true peak on the master (M4 slice 5, ADR-0040); mono-check and dim later |
 | Reference track | L | 🔲 |
-| Async cached VST3 scanning, custom paths, blocklist, search, favourites, recents | M | 🟡 Built and tested on Linux with the test plugin (M6 slice 1, ADR-0068); not run on Windows or with real plugins (MT-VST-1) |
+| Async cached VST3 scanning, custom paths, blocklist, search, favourites, recents | M | 🟡 Built and tested on Linux with the test plugin (M6 slice 1, ADR-0068); MT-VST-1 passed on Windows with real plugins (owner-reported, no measurements); not run on macOS |
 | Instruments and effects; multi-out; sidechain; bypass; presets; state; automation; generic UI; floating editors with DPI and focus | M | 🔲 |
 | Latency compensation; crash isolation; safe mode | M | 🔲 |
 | Built-in essentials | M | 🔲 |
@@ -411,6 +414,84 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 ---
 
 ## Milestone reports
+
+### Milestone 6, slice 0 — report (2026-10-16)
+**Status:** Complete. Slice 0 settled how plugins are hosted before any
+device workflow is built: separate host processes, a shared-memory audio
+path, and the audio callback's wait (ADR-0069, accepted, **the wait on
+trial**). Branches: `m6-s0-test-plugin`, `m6-s0-host-core`,
+`m6-s0-shm-transport` (merged) and `m6-s0-audio-path` (this report). M5's
+closeout is still pending, as it was when M6 started.
+
+**Shipped.**
+- **Deterministic test plugins** (ADR-0065, `lumen-test-plugin`): an
+  instrument and an effect that sound the same every time, with faults chosen
+  by environment variable (crash, hang, error, NaN, slow, bad state, bad
+  buses, bad parameters) and, new, an editor view (`editor`, `editor_hang=MS`).
+- **The host** (ADR-0066, `lumen-plugin-host`): OS-loader module loading, one
+  instance per process, a bounded versioned protocol, stale-block rejection,
+  deadlines on everything, exit classification, parent-death cleanup.
+- **The audio path** (ADR-0067): shared memory with one block in flight per
+  host, untrusted-region rules on both sides, per-side wake-up settings, the
+  host's audio thread, a Windows job object so hosts end with Lumen, and the
+  measurement harness `lumen-host-bench`.
+- **This branch:** the two heap operations the crash runs reported are fixed
+  (the loop asked `ended`, which words a crash in a `String`; it asks
+  `has_ended`); the 64-host budget and process grouping measured; a latency
+  change proven to reach the loop in the same block; the editor-focus spike
+  (`lumen-editor-spike`); and the decision, ADR-0069. The guarded real-time
+  tests for the transport run under RealtimeSanitizer in CI.
+- **Records:** MT-VST-0 runs 1 to 6 (`docs/manual-tests/M6.md`); ADRs 0065 to
+  0067 and 0069; `m6-grid-mmcss-fixed.csv` and the other data files.
+
+**Measured** (Windows 11, 8 cores and 16 threads, Balanced, the test plugin
+with a synthetic busy loop; one run per scenario; the machine was in use).
+- Wake-up, 90-scenario grid: `event` and `event/spin` zero misses; hybrid 14
+  and 12; spin 114 and 86 to 98% of a core per host.
+- 64 hosts at 128 frames, 48 kHz, half-period budget 1.333 ms, `event`: 100 µs
+  of plugin work per track, p99 0.63 ms, slowest block 0.88 ms, no misses; 200
+  µs, p99 1.16 ms, p99.9 1.66 ms, misses varying between runs (0 and 14).
+- Grouping (modelled): no gain; past about four tracks per process the
+  serialised work passes the budget.
+- A crash was seen in 1 block (2.7 ms), a hang in 3 (8 ms); unrelated hosts
+  had zero misses; a replacement answered in 5 to 9 ms.
+- A latency change is in the answer to the same block. Lumen's side allocates
+  nothing, including noticing a crash or a latency change.
+- Editors: a hung editor is noticed in 0.6 s; Lumen's window stalls 31 ms
+  with an unowned editor and **freezes (16 s over two checks, until the host
+  is killed) with one owned across processes**, which is rejected.
+- Verified on Windows, and on Linux under the allocation guard and
+  RealtimeSanitizer (WSL); macOS type-checks and passes clippy. Owner runs:
+  MT-VST-0 "Editors" with one real plugin and MT-VST-1 (slice 1) on Windows,
+  both reported passed.
+
+**Deferred, and where it goes.**
+- Real chain processes (not needed: the model gives no case); a cap on the
+  process count if 64 hosts cost too much memory (not measured).
+- A restart request raised by a plugin's controller and a bus-change trigger
+  in the test plugin: slices 4 and 6 (the same-block latency news is done).
+- The whole callback with the real engine, the audio device and the hosts
+  together, **including recording with monitoring through an effect at 64 and
+  128 frames**: slice 2 (MT-VST-2). ADR-0069's numbers are the transport only.
+- macOS and Linux timing and editors; a second monitor or display scale; more
+  than one real plugin; the `moduleinfo.json` fast path (slice 1).
+
+**Risks.**
+1. **The callback's wait is on trial** (ADR-0069). If slice 2's measurements
+   fail, the pipelined path (one block of extra latency) replaces it, and
+   monitored tracks get 2.7 ms heavier at 128 frames.
+2. **One machine, a synthetic load, one run each.** At 200 µs of work per
+   track the tail passes the budget and results vary, so the working budget
+   (64 tracks, 100 µs each) is a documented assumption, not a promise about
+   real plugins.
+3. **Windows only for timing and editors.** macOS polls instead of a timed
+   wait, so the wake-up decision is Windows's until measured there.
+4. **Real plugins:** one tried. A real plugin's editor, state or latency may
+   behave in ways the test plugin cannot show.
+
+**Next.** Slice 2, the first complete device workflow (a device on a track,
+hearing it, bypass, save and reopen), pitching behaviour variants first. It
+needs the audio-path ADR, now accepted.
 
 ### Milestone 4.5 — report (2026-10-10)
 **Status:** Built 2026-10-10, a mid milestone between M4 and M5. All six

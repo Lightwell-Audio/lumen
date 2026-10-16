@@ -403,7 +403,35 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-16 (latest): **M6 slice 1, plugin discovery, is
+**Last updated:** 2026-10-16 (latest): **M6 slice 0 is complete but for its report (MT-VST-0 "Editors" passed with one real plugin, run 6; slice 1's MT-VST-1 passed on Windows, owner-reported, no measurements):**
+**ADR-0069 is Accepted** (the audio-path ADR). The owner chose option A:
+the audio callback may make a bounded wait on a plugin host's completion event,
+under the ADR's contract, **on trial** (the pipelined path, one block of extra
+latency, is the fallback). Slice 2's MT-VST-2 decides whether it stays and must
+include recording with monitoring through an effect at 64 and 128 frames. The
+slice 0's report remains, then slice 2. Before it, 2026-10-15: **M6 slice 0's last measurements, on
+`m6-s0-audio-path`** (cut from `main` after slice 1 merged). The two heap
+operations the crash runs reported are fixed: the loop asked
+`HostProcess::ended`, which words a crash in a `String`; it asks the
+allocation-free `has_ended` (guarded test
+`shm_rt::noticing_a_crashed_host_does_not_allocate`; crash and hang benchmark
+runs now show 0 heap operations). The 64-host budget is measured on Windows
+(MT-VST-0 run 3, `m6-budget-64.csv`): at 128 frames/48 kHz `event` stays
+inside the 1.333 ms half-period budget up to 100 µs of plugin work per track
+(and at p99 at 200 µs); `event/spin` missed 40 deadlines at 200 µs. One run,
+machine in use, synthetic load. **The editor-focus spike is done on Windows with the test plugin**
+(`lumen-editor-spike`, MT-VST-0 "Editors", run 5; ADR-0067 "Editors"): owned
+windows across processes are rejected (a hung editor freezes Lumen's window
+moves and minimizes); the default is an unowned window on top only while
+Lumen or an editor has the foreground; no shortcuts forwarded; a hung editor
+is flagged and the user decides. The owner ran the manual steps with one real plugin (run 6: loads, typing
+fires no Lumen shortcut, the rest passed); a second monitor and more plugins are untried. The owner accepted the representative workload (64 tracks, 100 µs
+each; 200 µs is the documented limit). `shm_rt` passes under RTSan in WSL and
+is a new CI step. **Still open before the audio-path ADR can be written:**
+process grouping (modelled, run 3: no case for chains; real chain code unbuilt), and
+dynamic latency, partly done (`shm_latency`: the news reaches the loop in the same block, allocation-free;
+controller-origin restarts and bus changes have no trigger yet: slices 4 and 6). Not run: macOS.
+Before it, 2026-10-16: **M6 slice 1, plugin discovery, is
 built** on `m6-s1-plugin-scan` (ADR-0068; plan and progress in
 `docs/milestones/M6.md`). Started while slice 0's audio-path ADR is still open
 (the owner ran MT-VST-0 and said to go on). Owner choices: scan at startup in

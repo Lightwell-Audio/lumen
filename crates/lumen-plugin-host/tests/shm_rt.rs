@@ -83,3 +83,58 @@ fn lumens_side_of_the_audio_path_does_not_allocate() {
         assert_eq!(violations, 0, "{name}: heap operations on the audio side");
     }
 }
+
+/// MT-VST-0's crash runs reported two heap operations in Lumen's loop: asking
+/// how a crashed host ended words the crash in a `String` (one allocation, one
+/// free). The loop asks `has_ended`; this is the whole path of a crash as the
+/// loop sees it, from the missed deadline to the dead host.
+#[test]
+fn noticing_a_crashed_host_does_not_allocate() {
+    assert!(
+        lumen_rt::guard_is_active(),
+        "the guarded allocator is not installed"
+    );
+    let mut host = instrument("process_crash@2");
+    let wake = Wake {
+        host: Waiting::Event,
+        lumen: Waiting::Spin,
+    };
+    let mut link = host
+        .attach(Layout::new(512, 0, 2), wake, SLOW)
+        .expect("attach");
+    let generation = host.generation();
+    let events = [note_on(3, 60), note_off(50, 60)];
+    for _ in 0..2 {
+        link.submit(generation, 64, &[], &events, &[]).unwrap();
+        assert!(matches!(link.wait(Instant::now() + SLOW), Poll::Done(_)));
+    }
+
+    let (ended, violations) = lumen_rt::count_rt_violations(|| {
+        // The block the plugin dies in, then blocks that find the link busy.
+        let _ = link.submit(generation, 64, &[], &events, &[]);
+        let mut misses = 0;
+        while misses < 500 {
+            let _ = link.wait(Instant::now() + Duration::from_millis(5));
+            let _ = link.submit(generation, 64, &[], &events, &[]);
+            misses += 1;
+            if host.has_ended() {
+                return true;
+            }
+        }
+        false
+    });
+    assert!(ended, "the crash was never noticed");
+    assert_eq!(violations, 0, "heap operations noticing a crash");
+
+    // The finding itself: the descriptive answer allocates, so it belongs
+    // off the audio thread. (RTSan would abort on it, rightly: skipped there.)
+    if std::env::var_os("RTSAN_ENABLE").is_some() {
+        return;
+    }
+    let (how, wording) = lumen_rt::count_rt_violations(|| host.ended());
+    assert!(matches!(
+        how,
+        Some(lumen_plugin_host::client::ExitKind::Crashed(_))
+    ));
+    assert!(wording > 0, "`ended` no longer allocates: use it freely");
+}

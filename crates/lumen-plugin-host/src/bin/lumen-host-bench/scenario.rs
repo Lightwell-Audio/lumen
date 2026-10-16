@@ -316,7 +316,7 @@ fn late(
     s: &Scenario<'_>,
 ) {
     consecutive[i] += 1;
-    if dead[i] || (consecutive[i] < MISS_LIMIT && r.process.ended().is_none()) {
+    if dead[i] || (consecutive[i] < MISS_LIMIT && !r.process.has_ended()) {
         return;
     }
     dead[i] = true;

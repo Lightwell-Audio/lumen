@@ -17,6 +17,8 @@
 //! | `state_hang` | saving state never returns |
 //! | `bad_buses` | the output bus reports an absurd channel count |
 //! | `bad_params` | the controller reports millions of duplicate parameters |
+//! | `editor` | the controller offers an editor view (Windows): a text field to type in, a resize button, user resizing and a scale readout; without it there is no view |
+//! | `editor_hang=MS` | as `editor`, and the editor's window thread stops answering `MS` milliseconds after it is attached |
 //!
 //! `@N` counts process calls from 0 and defaults to 0.
 
@@ -39,6 +41,8 @@ pub enum Kind {
     StateHang,
     BadBuses,
     BadParams,
+    Editor,
+    EditorHang,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,9 +83,11 @@ impl Faults {
                 "state_hang" => Kind::StateHang,
                 "bad_buses" => Kind::BadBuses,
                 "bad_params" => Kind::BadParams,
+                "editor" => Kind::Editor,
+                "editor_hang" => Kind::EditorHang,
                 _ => return Err(format!("`{entry}`: unknown fault")),
             };
-            if kind == Kind::ProcessSlow && arg.is_none() {
+            if matches!(kind, Kind::ProcessSlow | Kind::EditorHang) && arg.is_none() {
                 return Err(format!("`{entry}`: needs `=microseconds`"));
             }
             list.push(Fault {
@@ -117,6 +123,20 @@ impl Faults {
     /// Whether `kind` applies exactly at process call number `call`.
     pub fn at_call(&self, kind: Kind, call: u64) -> bool {
         self.0.iter().any(|f| f.kind == kind && call == f.arg)
+    }
+
+    /// Whether the controller offers an editor view (`editor` or
+    /// `editor_hang`).
+    pub fn editor(&self) -> bool {
+        self.has(Kind::Editor) || self.has(Kind::EditorHang)
+    }
+
+    /// How long after attaching the editor stops answering, if it should.
+    pub fn editor_hang(&self) -> Option<Duration> {
+        self.0
+            .iter()
+            .find(|f| f.kind == Kind::EditorHang)
+            .map(|f| Duration::from_millis(f.arg))
     }
 
     /// The busy-wait asked for by `process_slow`, if any.
@@ -162,6 +182,16 @@ mod tests {
         assert_eq!(f.slow(), Some(Duration::from_micros(250)));
         assert!(f.has(Kind::StateFail) && f.has(Kind::BadParams));
         assert!(!f.has(Kind::StateHang));
+    }
+
+    #[test]
+    fn the_editor_switches_parse_and_imply_the_view() {
+        assert!(!Faults::parse("process_slow=5").unwrap().editor());
+        assert!(Faults::parse("editor").unwrap().editor());
+        let hung = Faults::parse("editor_hang=250").unwrap();
+        assert!(hung.editor());
+        assert_eq!(hung.editor_hang(), Some(Duration::from_millis(250)));
+        assert!(Faults::parse("editor_hang").is_err());
     }
 
     #[test]

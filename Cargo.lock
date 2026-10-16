@@ -2307,6 +2307,7 @@ name = "lumen-test-plugin"
 version = "0.0.1"
 dependencies = [
  "vst3",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

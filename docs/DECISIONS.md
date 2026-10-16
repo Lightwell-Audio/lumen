@@ -65,7 +65,8 @@ irreversible or external) · *Superseded*.
 | [0065](#adr-0065--deterministic-test-plugins-lumen-test-plugin) | Deterministic test plugins with injectable faults (`lumen-test-plugin`, M6 slice 0) | Accepted 2026-10-15 | No |
 | [0066](#adr-0066--the-plugin-host-crate-and-its-protocol) | The plugin host crate (`lumen-plugin-host`): loading through the OS loader, a bounded versioned protocol, stale-block rejection and deadlines (M6 slice 0, part 2) | Accepted 2026-10-15 (the audio path and the process-grouping policy are not decided) | No |
 | [0067](#adr-0067--the-shared-memory-audio-path-and-the-measurement-harness) | The shared-memory audio path (`lumen_plugin_host::shm`): one block in flight, untrusted-region rules, two-sided wake-up settings, Windows job object, and the measurement harness (M6 slice 0, part 3) | Accepted 2026-10-15 for the transport (the wake-up, the real-time wait contract and the process grouping wait for MT-VST-0) | No |
-| [0068](#adr-0068--plugin-discovery-scanning-the-cache-and-the-browser-m6-slice-1) | Plugin discovery (`lumen-plugin-catalog`): a scan child per module with a deadline, a cache keyed by file stamp, a blocked list that retries when the file changes, startup scan in the background, the browser's Devices tab (M6 slice 1) | Accepted 2026-10-16 (verified on Linux with the test plugin; MT-VST-1 on Windows waits for the owner) | No |
+| [0068](#adr-0068--plugin-discovery-scanning-the-cache-and-the-browser-m6-slice-1) | Plugin discovery (`lumen-plugin-catalog`): a scan child per module with a deadline, a cache keyed by file stamp, a blocked list that retries when the file changes, startup scan in the background, the browser's Devices tab (M6 slice 1) | Accepted 2026-10-16 (verified on Linux with the test plugin; MT-VST-1 passed on Windows with real plugins, owner-reported) | No |
+| [0069](#adr-0069--the-audio-path-to-plugin-hosts-wake-up-the-callbacks-wait-process-grouping-m6-slice-0-close) | The audio path to plugin hosts: `event` wake-up, a bounded callback wait under a narrow contract, one process per instance, the working budget (M6 slice 0 close) | Accepted 2026-10-16, decision 2 (the callback's bounded wait) on trial until slice 2's measurements (measured on Windows with the test plugin) | Decided by the owner (the trial's check: MT-VST-2) |
 
 ---
 
@@ -135,6 +136,7 @@ irreversible or external) · *Superseded*.
 | Covered MIDI clips (M5, 2026-10-13, after MT-MIDI-7 run 3) | Asked, from two variants: **A, the clip window** (chosen, as recommended): a clip covered, trimmed or split keeps every note, hidden outside its edges, and shows them when an edge is dragged back; moving the top clip away leaves a gap. B (stacked clips that reappear by themselves) was set aside. Overdub across clips: the owner will reproduce the observed behavior before deciding whether to change it. Format v15. ADR-0056. |
 | Recording edges and MIDI trims (M5, 2026-10-13, the owner's four points) | Asked for directly: MIDI clip edges that drag without jitter or offset; Overdub begun at or before a clip extends that clip and merges into it; recording begun in the middle of a clip makes a new clip from the playhead to the stop; and the clip recorded over redraws continuously, not at commits. Built as stated (no variants pitched: the owner gave the behaviour). ADR-0057. |
 | Overdub at clip edges (M5, 2026-10-13, MT-MIDI-7 run 7) | Asked for directly, reversing part of the row above: Overdub begun before a clip and reaching its start, or begun exactly at its start, records a **new clip** and does not merge into or grow the clip there in the arrangement; the new clip carries the track's existing notes along with the take, and the old clip stays a clip of its own. Built as stated. ADR-0060. |
+| The audio callback and plugin hosts (M6 slice 0, 2026-10-16; ADR-0069) | Asked and chosen: **the callback may make a bounded wait on a plugin host's completion event** (option A), under ADR-0069's contract, **on trial**: slice 2's MT-VST-2, above all recording with monitoring through an effect at 64 and 128 frames, decides whether it stays; the pipelined path (one block of extra latency) is the fallback. The owner asked whether other production hosts do this; no source found says how any of them synchronise, so the choice rests on the measurements. |
 | Plugin discovery (M6 slice 1, 2026-10-16) | Asked and chosen: **scan at startup, in the background** (known plugins from the saved list at once, only new or changed ones loaded); a plugin that crashes or hangs while scanned is **blocked with its reason and retried only when its file changes or on Retry**; the browser uses **layout B** (grouped by vendor, with category chips) from the "Lumen Plugin Browser Specimens" canvas, **plus a type filter** (All, Instruments, Effects) for the grouping by type the owner liked in layout A. The slice started while slice 0's audio-path ADR is still open; the owner ran MT-VST-0 and said to go on. Plan in `docs/milestones/M6.md`. |
 | MIDI learn moved to M7 (M5, 2026-10-13) | Asked, as recommended: **MIDI learn and its mapping list move to M7**, built with automation, where M6 and M7 define the parameters it maps and a mapped controller writes automation through the same path as Lumen's controls (Touch and Latch). M5 slice 7 keeps Standard MIDI Files and MIDI clock out (plan in `docs/milestones/M5.md`). Its choices, asked in chat, all as recommended: **F1 A** a multi-track file dropped on a track merges into one clip there, dropped between tracks or on empty lanes makes one MIDI track per file track (type 0 split by channel); **F2 A** notes are placed in beats and the project tempo is untouched, with a notice offering "Use them" for the file's tempo map and first time signature (one undo step); **F3 A** clock runs only while playing; **F4 A** a Sync delay per port, −20 to +50 ms. MTC out [S] is deferred, unscheduled. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
@@ -535,7 +537,7 @@ must never crash or block the app.
 - Editors: created by the plugin host as its own top-level windows. Child
   windows parented across processes are avoided, because they attach the two
   processes' input queues, so a hung plugin could freeze Lumen's UI.
-  Validation in M6.
+  Validated in M6 slice 0: ADR-0067, "Editors".
 
 ### Open licensing point
 The MIT licence covers the SDK code, not the "VST" trademark or logo. Using
@@ -5848,12 +5850,19 @@ one registration for the thread lifetime and reverts it at thread exit. The
 corrected full grid ran without that warning. Event and event/spin had zero
 misses across the 48 kHz grid; hybrid150 had 14, hybrid150/spin 12, and spin
 114. The corrected results and CSVs are in `docs/manual-tests/M6.md`. The
-crash path still reports two heap operations in Lumen's loop. No wake-up or
-callback-wait policy is accepted yet.
+crash path reported two heap operations in Lumen's loop; **fixed the same
+day** (amendment, run 3: the loop asked `HostProcess::ended`, which words a
+crash in a `String`; it asks the allocation-free `has_ended` now, and
+`shm_rt::noticing_a_crashed_host_does_not_allocate` fails with exactly two
+operations without the change). No wake-up or callback-wait policy is
+accepted yet.
 - *Which wake-up.* Event and event/spin are the strongest candidates in this
   grid; the event modes had zero misses, while hybrid and spin missed in
-  loaded and/or short-buffer cases. The full 64-track callback budget and
-  process-per-chain grouping remain unmeasured.
+  loaded and/or short-buffer cases. At 64 hosts (run 3) `event` held the
+  1.333 ms half-period budget at p99 up to 200 µs of plugin work per track and
+  at its maximum up to 100 µs; `event/spin` missed 40 deadlines at 200 µs
+  (spinning on Lumen's side competes with the hosts for the cores), so
+  event is the candidate. Process-per-chain grouping remains unmeasured.
 - *May the callback wait on the operating system.* ADR-0005 proposed it; the
   architecture rule says the audio thread never blocks. Either bounded polling
   in the callback with the signalling on the host's side meets the budget
@@ -5861,9 +5870,45 @@ callback-wait policy is accepted yet.
   exemption, its bound and what is done about it). The default policy that
   ships must be the one the numbers support.
 - *Process per instance or per chain.* One process per instance is what the
-  harness measures (N hosts); process-per-chain was not measured. A grouped
-  design needs a second link per host and is considered only if valid numbers
-  force it.
+  harness measures (N hosts). Process-per-chain was modelled in run 3 (the
+  same work serialised in fewer processes, no chain code): past about four
+  tracks per process the block time is the serialised work and grows past
+  the budget, and 16 x 4 is no better than 64 x 1, so the numbers give no
+  reason to group and per-instance keeps crash isolation. A grouped design
+  needs a second link per host and stays out unless valid numbers force it;
+  memory and start-up of 64 hosts are not measured.
+
+**Editors (spike, 2026-10-16; owner's choices from the pitch).** The
+test plugin gained an editor view (`editor` in `LUMEN_TEST_PLUGIN_FAULT`) and
+`lumen-editor-spike` ran a stand-in for Lumen against an editor host process
+(MT-VST-0, "Editors", run 5). Findings and decisions:
+- The editor window is made, pumped and destroyed on the host's main thread;
+  commands arrive on a reader thread that waits for the window thread with a
+  deadline, so a hung editor is reported and never waited on.
+- **A window owned by Lumen's window across processes is rejected.** With a
+  hung editor, moving or minimizing Lumen's window blocked until the host was
+  killed (16 s over the two checks). Unowned windows left Lumen's longest
+  stall at 31 ms. This is ADR-0005's "no cross-process parenting", now
+  measured for ownership too.
+- **Default: unowned top-level windows, on top only while Lumen or an editor
+  has the foreground**, so they stay above Lumen and never above other
+  programs (a command over the pipe, never touching Lumen's window thread).
+  Alternative kept: plain unowned windows.
+- **No Lumen shortcuts are forwarded** while a plugin window has focus: typing
+  in a plugin never fires a Lumen command (checked with real key presses).
+- **A hung editor is flagged "not responding" and the user chooses** to end
+  that plugin's host (a restart took 35 to 54 ms in the spike); never an
+  automatic kill. Lumen notices with its own heartbeat to the window thread
+  (0.6 s here); the system's own hung-window flag takes 5 s.
+- Resize follows the VST3 contract: `checkSizeConstraint` sets the window's
+  tracking limits, `onSize` follows every size, the plugin's `resizeView`
+  moves the window, `setContentScaleFactor` precedes `attached` and follows
+  monitor changes.
+- The owner ran the manual steps with one real plugin (plugin A, MT-VST-0
+  "Editors", run 6): it loaded, typing fired no Lumen shortcut, and the other
+  steps were reported passed.
+- Not verified: a second monitor of another scale, a second real plugin,
+  macOS and Linux (X11 embedding is its own work).
 
 **Consequences.**
 - Verified on Linux: 84 tests pass in the crate (47 before). New: 9 region
@@ -6024,3 +6069,144 @@ text, which it cannot read).
   benchmark with the new pane; idle CPU measured (the pane repaints only on
   messages and motion, by construction); the performance gate (no engine or
   project code changed).
+
+
+---
+
+## ADR-0069 — The audio path to plugin hosts: wake-up, the callback's wait, process grouping (M6 slice 0 close)
+
+**Status:** **Accepted 2026-10-16, decision 2 on trial.** The owner chose
+decision 2 (the bounded wait, option 1) over the pipelined path (option 3),
+knowing it departs from the architecture rule that the audio thread never
+blocks, and knowing that no source found confirms other production hosts do the
+same. It is a trial in this sense: slice 2's MT-VST-2 measurements, above all
+recording with monitoring through an effect, decide whether it stays; if they
+fail, option 3 replaces it and this ADR is amended. Measured on Windows with
+the test plugin; nothing here is claimed for macOS, Linux or a real plugin. ·
+**Date:** 2026-10-16
+
+**Context.** ADR-0005 chose separate host processes and proposed that the
+callback wait for them on an event. ADR-0066 and ADR-0067 built the host, the
+shared-memory transport and the harness, and left three questions to the
+measurements (M6 plan §2): which wake-up, whether the callback may wait on the
+operating system, and how plugins are grouped into processes. Slice 0 has now
+measured them (MT-VST-0, runs 2 to 5, `docs/manual-tests/M6.md`).
+
+**Evidence.** One machine: Windows 11, 8 cores and 16 threads, Balanced power
+plan, in ordinary use; the test plugin with a synthetic busy loop as its work;
+one run per scenario unless stated. Wake-ups are written host/Lumen.
+- *The grid* (1, 8 and 16 hosts; 64, 128 and 512 frames; plugin idle or 200 µs
+  of work; 48 kHz; 90 scenarios): `event` and `event/spin` had zero misses.
+  `hybrid150` missed 14 times, `hybrid150/spin` 12, `spin` 114 (and used 86 to
+  98% of a core per host). 8 hosts under eight busy threads: zero misses for
+  `event`; `spin` 26. 44.1 and 96 kHz: zero for `event`.
+- *64 hosts*, one per track, 128 frames at 48 kHz (budget: half the 2.667 ms
+  period, 1.333 ms), `event`: at 100 µs of plugin work per track p99 0.63 ms
+  and the slowest block 0.88 ms, no misses; at 200 µs p99 1.16 ms, p99.9 1.66
+  ms, no misses in one run and 14 in another. `event/spin` was the same or
+  worse and missed 40 deadlines at 200 µs: spinning on Lumen's side adds a
+  thread competing with the hosts for the cores.
+- *Grouping, modelled* (the same 64 tracks' work in fewer processes): past
+  about four tracks per process block time is the serialised work and passes
+  the budget (8 × 8 at 100 µs p99 1.14 ms; 4 × 16 over budget at its median);
+  16 × 4 is no better than 64 × 1.
+- *Faults*: a crashed host was seen after 1 block (2.7 ms) and a hung one
+  after 3 (8 ms); unrelated hosts had zero misses; a replacement answered its
+  first block in 5 to 9 ms. Hosts end with Lumen (job object). A late host's
+  answer is dropped by sequence and counted, and nothing is written into a
+  block that has moved on (mutation-checked).
+- *Real-time checks*: Lumen's side makes no heap operation, including noticing
+  a crash (two were found and fixed: `ended` worded a crash in a `String`;
+  the loop asks `has_ended` now) and noticing a latency change; both run under
+  the allocation guard on Windows and under RealtimeSanitizer on Linux, and are
+  CI steps.
+- *Latency*: a latency change sent through the audio path is in the answer to
+  the same block (no extra round trip) and the sound is clean through it.
+- *Editors*: ADR-0067, "Editors".
+
+**Options.**
+1. **The callback waits on a host-completion event, with a deadline** (as
+   ADR-0005 proposed). Best measured; breaks the rule that the audio thread
+   never blocks.
+2. **The callback only polls** (`event/spin` or `spin`): keeps the rule; costs
+   a spinning thread that competes with the hosts, and was the worse of the two
+   under load.
+3. **Pipelined: the callback never waits.** Hosts work on block N while Lumen
+   outputs the results of N-1: no wait of any kind, and no rule broken, but
+   one extra block of latency (2.7 ms at 128 frames), compensated like any
+   plugin latency by the engine's read-ahead (ADR-0041). Fine for tracks that
+   are not being played live; for a monitored instrument it is audible weight.
+4. **Hybrid** (poll briefly, then wait): measured worse than both.
+
+**Decision (proposed).**
+1. **Wake-up: `event` on both sides** is the default. Not spin, hybrid or
+   `event/spin`, for the numbers above. The setting stays a per-side choice in
+   the code (ADR-0067) so a machine that misbehaves can be switched without a
+   new build, but nothing else ships as a default.
+2. **The callback's wait (needs the owner's acceptance).** Option 1 under a
+   narrow contract, with option 3 as the fallback if the owner declines and as
+   a later setting for tracks not being monitored:
+   - the callback submits to every host first, then waits for them one after
+     another against **one deadline for the whole callback**, three quarters
+     of the period from its start; a host that has not answered by then
+     contributes silence for that block and is counted, and the callback does
+     not wait again for it;
+   - the engine's own work (built-in tracks, mixing) runs between the submits
+     and the waits, so the hosts work while Lumen does;
+   - the only operating-system wait the callback may make is on a host's
+     completion event, signalled by a host's own real-time thread, with Lumen
+     holding no lock; nothing else in the callback may block or allocate, and
+     the existing guard and RealtimeSanitizer tests keep running over all of
+     it (RealtimeSanitizer is suspended for that one call and nothing else);
+   - with no plugin host attached the callback does not touch the host path,
+     so projects without plugins cost what they did (the performance gate);
+   - a host that misses three blocks running, or whose process ends, is
+     replaced by silence at once and flagged, and restarted off the audio
+     thread (the restart policy is slice 5's).
+   The rule exists to stop unbounded blocking and priority inversion with
+   non-real-time threads. This wait is bounded below the period, is on a
+   real-time thread's signal, and holds nothing; but it is a wait, and "never interrupt the audio" is the owner's first
+   priority, so accepting it is the owner's call.
+3. **One process per plugin instance.** No chain or group processes in 1.0:
+   the numbers give no reason to group, and a process per instance keeps a
+   crash or a hang to one device. A cap on the process count can be added
+   later if memory or start-up of 64 hosts proves too costly (not measured).
+4. **The working budget (accepted by the owner):** 64 tracks, 100 µs of plugin
+   work each, 128 frames at 48 kHz, every block inside half the period and no
+   missed deadline. 200 µs per track is the documented limit, where the tail
+   passes the budget and results vary between runs. Arbitrary third-party
+   work cannot be promised that budget; reports give plugin counts, presets
+   and the machine.
+5. **Failure boundary:** the instance's process. Lumen's callback never calls
+   plugin code. Stale or invalid blocks are rejected by sequence and
+   generation; everything read from shared memory is untrusted; restart flags
+   and latency come with every answer.
+6. **Editors** as ADR-0067 records: unowned top-level windows in the host's
+   process, no shortcuts forwarded, a hung editor flagged for the user.
+
+**Consequences.**
+- Slice 2 builds the engine's plugin path to decision 2: the overlap of the
+  engine's work with the hosts, the shared deadline, the attach and replace
+  logic, `has_ended` on the loop, and the plan swap on latency news. It must
+  **re-measure the whole callback with the real engine, the audio device and
+  the hosts together** (MT-VST-2): this ADR's numbers are the transport alone,
+  with no engine and no driver, and are not a callback budget. MT-VST-2 must
+  include **recording with monitoring through an effect plugin**: an armed
+  audio track with an effect in the monitoring path, at 64 and 128 frames,
+  measuring input-to-output latency with and without the effect (loopback), and
+  checking that the recorded file is the input and is aligned by the reported
+  latency. This is the case the owner will use most, and where decision 2 and
+  option 3 differ by a whole block.
+- The `rtsan` CI job already runs the transport's guarded tests; slice 2 adds
+  the engine path to them.
+- If the owner declines decision 2, slice 2 builds option 3 and every hosted
+  track carries one block of reported latency; a monitored instrument is then
+  2.7 ms heavier, and the quality bar's lowest practical monitoring latency is
+  revisited with the owner.
+
+**Not verified, and not claimed.** Any real plugin; macOS and Linux timing (the
+macOS wait polls today instead of a timed wait, so decision 1 is a Windows
+decision until it is measured there); memory and start-up of 64 host
+processes; frame times and the other shipped paths with hosts running; more
+than one machine or power state beyond Balanced and High performance; the
+second monitor of MT-VST-0 "Editors" and any macOS or Linux run.
