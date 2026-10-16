@@ -97,6 +97,10 @@ jobs:
       # is not part of these tests).
       - name: Hosted devices under RTSan
         run: cargo test --locked -p lumen-engine --test hosted --test hosted_effects
+      # The hosting manager's link, against a real host process (ADR-0071):
+      # only the polling wake-up is run under the sanitizer.
+      - name: Hosting link under RTSan
+        run: cargo test --locked -p lumen-hosting --test rt
       # Lumen's side of the audio path to the plugin hosts (ADR-0067): only
       # the polling wake-up is run, since an OS wait blocks by design.
       - name: Plugin-host audio path under RTSan

@@ -68,6 +68,7 @@ irreversible or external) · *Superseded*.
 | [0068](#adr-0068--plugin-discovery-scanning-the-cache-and-the-browser-m6-slice-1) | Plugin discovery (`lumen-plugin-catalog`): a scan child per module with a deadline, a cache keyed by file stamp, a blocked list that retries when the file changes, startup scan in the background, the browser's Devices tab (M6 slice 1) | Accepted 2026-10-16 (verified on Linux with the test plugin; MT-VST-1 passed on Windows with real plugins, owner-reported) | No |
 | [0069](#adr-0069--the-audio-path-to-plugin-hosts-wake-up-the-callbacks-wait-process-grouping-m6-slice-0-close) | The audio path to plugin hosts: `event` wake-up, a bounded callback wait under a narrow contract, one process per instance, the working budget (M6 slice 0 close) | Accepted 2026-10-16, decision 2 (the callback's bounded wait) on trial until slice 2's measurements (measured on Windows with the test plugin) | Decided by the owner (the trial's check: MT-VST-2) |
 | [0070](#adr-0070--hosted-devices-in-the-engine-the-contract-two-phase-instruments-and-effects-with-a-fallback-m6-slice-2b) | Hosted devices in the engine: the `Hosted` contract and its `Guard`, hosted instruments begun before the clips render, hosted effects in the mixer with a delay-line fallback and a glide, and what 2b leaves to later (M6 slice 2b) | Accepted 2026-10-16 (verified with fake hosts on Windows, and the new tests under RealtimeSanitizer and the performance gate in WSL; no real plugin, no process, no full macOS run) | No |
+| [0071](#adr-0071--the-hosting-manager-a-process-per-plugin-device-the-link-and-the-apps-bridge-m6-slice-2c) | The hosting manager (`lumen-hosting`): a process and a thread per plugin device, loaded in the background, the `Link` the engine plays it through, the app's bridge, and the engine's rule that a host in a new or skipped track list is never given away (M6 slice 2c) | Accepted 2026-10-16 (verified with the test plugin in real host processes on Windows, and in the app's end-to-end tests; no real plugin, no Linux or macOS run of the app) | No |
 
 ---
 
@@ -6313,3 +6314,87 @@ of a swap the old plan contributes the unprocessed input.
 **Not verified, and not claimed.** Any real plugin or host process; the whole
 callback with the engine, device and hosts together (MT-VST-2); frame times with
 hosts attached; macOS and Linux; recording with monitoring through an effect.
+
+## ADR-0071 — The hosting manager: a process per plugin device, the link, and the app's bridge (M6 slice 2c)
+
+**Status:** Accepted 2026-10-16. Verified on Windows against the test plugins in
+real host processes: the link sample for sample against the pipe, every way a
+load fails, a host that crashes or hangs, no process left behind, and the app's
+end-to-end tests; the link does not allocate (guarded, and a mutation that
+allocates fails the test). Not verified: any real plugin, Linux and macOS runs,
+a changed sample rate in the app, the whole callback with real hosts
+(MT-VST-2). · **Date:** 2026-10-16
+
+**Context.** ADR-0070 built the engine's side of a host with fake ones. 2c puts
+a real process behind it: one `lumen-plugin-host` process per plugin device
+(ADR-0069), started without blocking the interface, restored from the saved
+state, played through the shared-memory link, and noticed when it ends.
+
+**Decision.**
+1. **A new crate, `lumen-hosting`**, with no UI and no project types, so the
+   engine stays below the host crate. `Link` is a `Hosted` over `BlockLink`:
+   `submit` turns the engine's MIDI into the host's note events and calls
+   `BlockLink::submit` (a block that does not fit counts as a miss); `collect`
+   waits at the callback's deadline and copies a finished block out (a mono
+   output to both sides); a block the host answered without processing is a
+   miss; `ended` reads an atomic. Nothing in it allocates, locks or asks the
+   system.
+2. **A thread per host owns its `HostProcess`** and runs the load sequence with
+   a deadline on every step (spawn and load 20 s, state 10 s, configure 5 s,
+   attach 2 s): `Load`, `SetState` when the device has saved state, `Configure`
+   at the stream's rate and the protocol's largest block (8,192 frames, so no
+   device buffer outgrows the region), `Attach` with `Wake::EVENT` both ways,
+   the setting ADR-0069's runs support (one constant, re-measured in MT-VST-2).
+   Afterwards it looks at the process every 10 ms and sets the flag the callback
+   reads, so the callback never makes a system call to ask whether a host has
+   ended. Four plugins load at once. A hung plugin blocks only its thread.
+3. **`Manager`** keeps the devices by id: `want` starts (and replaces),
+   `reload` starts again with the same settings, `forget` ends the host now (the
+   owner's C3: removing a device keeps nothing running; undo starts a new one),
+   `relink` asks for a fresh link at a rate (a second `Attach`, which the host
+   already supports), `poll` returns what the threads said, leaving out what a
+   replaced or forgotten start still says (a serial per start).
+4. **The app's bridge, `hosting.rs`**, derives from the project which devices
+   want a host (a plugin the catalog finds; one instrument to a MIDI track),
+   starts them, and attaches what loads: an effect to the mixer by the device's
+   id, an instrument as the real `HostedInstrument` in the next MIDI track list
+   (a stand-in in every list before and after; a list the engine had no room
+   for gives its running instrument back, `reclaim`). The routing names every
+   plugin effect (`Device::Hosted`) at its last known latency from the moment
+   the project holds it, so a loading, failed or missing effect plays the
+   engine's fallback line and timing never shifts (D1, D7); an instrument that
+   is not attached is silent (D2). Bypass reaches the engine as `Status::
+   set_bypass` each frame, never as a routing change. Latency news from the
+   engine becomes the routing's latency, a restart request a new link, a failed
+   status a `Failed` state with words; nothing restarts by itself (D8).
+5. **Two engine fixes the bridge needed**, found while planning it (tests fail
+   without either): (a) when a new track list brings a running host, the old
+   list's instrument of the same kind no longer swaps places with it (the swap
+   had put the stand-in into the playing list and the real host into the list
+   being freed); (b) a list skipped because a newer one is waiting hands its
+   running hosts to that list's stand-ins before it is freed.
+6. **The saved latency and tail (the owner's C2), refined.** The plan said they
+   would be written into the device as a change that is not an undo step but
+   marks the project changed. They are stamped into the project when it is
+   saved, as the view is (`stamped()`): the project is not marked changed by
+   hearing it, and nothing is lost, because a load reports them again. A device
+   that is not running keeps what the file held.
+7. **Notes only (the owner's C1).** The host protocol carries note-on and
+   note-off; controllers, pitch bend, pressure and program change are dropped at
+   the link and counted (`Counts::dropped_events`). A sustain pedal or a bend
+   does not reach a plugin instrument until parameters (slice 3).
+
+**Consequences.**
+- A project with plugins opens at once; cards, once they exist (2d), read
+  `Hosting::state` (`Loading`, `Ready`, `Failed(reason)`, `Missing`).
+- A catalog that has not loaded yet reads as `Missing`; a device found later
+  starts when the catalog has it.
+- On a changed sample rate every host configures again and a fresh link
+  replaces the old; for the moment between, the old link plays at the old rate
+  (the stream restarts across it). Not exercised by a test in the app.
+- A hosted instrument's own latency is not compensated (only effects are
+  named in the routing); instruments report none in practice.
+
+**Not verified, and not claimed.** Any real plugin; Linux and macOS runs of the
+app; the whole callback with the engine, device and real hosts (MT-VST-2);
+frame times with hosts attached.
