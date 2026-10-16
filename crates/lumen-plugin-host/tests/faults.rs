@@ -66,8 +66,12 @@ fn a_hang_is_a_timeout_and_the_host_can_be_killed() {
 
 #[test]
 fn a_late_answer_is_dropped_not_taken_for_the_next_block() {
-    // Every block takes 120 ms; the first is given 30 ms.
-    let mut host = instrument("process_slow=120000");
+    // Every block takes 400 ms; the first is given 30 ms. The margin is wide
+    // because a deadline cannot cut off an answer that is already waiting
+    // when a busy machine lets the test thread run again: that thread would
+    // have to be kept off the CPU for most of the 400 ms to see the first
+    // block answered in time.
+    let mut host = instrument("process_slow=400000");
     let first = host.process(
         32,
         vec![],

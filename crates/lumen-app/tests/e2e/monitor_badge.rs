@@ -96,9 +96,15 @@ fn clicking_cycles_in_off_auto_and_undo_restores() {
 fn the_badge_is_in_the_tab_order_before_mute_and_space_cycles_it() {
     let mut lumen = launch("badge-tab");
     let mut order = Vec::new();
-    for _ in 0..60 {
+    // Tab until the mute button: how far that is varies, because the bar can
+    // gain a stop (the dropout chip appears on a machine too busy to keep the
+    // audio fed).
+    for _ in 0..300 {
         lumen.key(Modifiers::NONE, Key::Tab);
         order.push(focused(&lumen));
+        if order.last().is_some_and(|n| n == "Mute Lead") {
+            break;
+        }
     }
     let badge = order.iter().position(|n| n == "Monitor Lead: In");
     let mute = order.iter().position(|n| n == "Mute Lead");

@@ -72,11 +72,15 @@ fn work_survives_a_crash_through_the_autosave() {
     lumen.key(Modifiers::COMMAND, Key::T);
     let names = lumen.track_names();
     let autosaves = lumen.dir().join("autosave");
-    lumen.wait_for("an autosave", |_| {
+    // An autosave that holds both tracks: one may have been written between
+    // the two keys (a busy machine can put more than the 50 ms between them).
+    lumen.wait_for("an autosave of both tracks", |_| {
         std::fs::read_dir(&autosaves).is_ok_and(|entries| {
             entries
                 .flatten()
-                .any(|e| e.path().extension().is_some_and(|x| x == PROJECT_EXTENSION))
+                .filter(|e| e.path().extension().is_some_and(|x| x == PROJECT_EXTENSION))
+                .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+                .any(|text| names.iter().all(|name| text.contains(name.as_str())))
         })
     });
 

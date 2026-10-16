@@ -131,12 +131,22 @@ fn a_host_binary_that_is_missing_is_unstarted() {
     assert!(matches!(outcome, ScanOutcome::Unstarted(_)), "{outcome:?}");
 }
 
+/// A standard program such as `true`, wherever this system keeps it: macOS has
+/// no `/bin/true` or `/bin/false`, only `/usr/bin`.
+fn unix_program(name: &str) -> std::path::PathBuf {
+    ["/usr/bin", "/bin"]
+        .iter()
+        .map(|dir| Path::new(dir).join(name))
+        .find(|path| path.exists())
+        .unwrap_or_else(|| panic!("no `{name}` program in /usr/bin or /bin"))
+}
+
 #[cfg(unix)]
 #[test]
 fn a_child_that_ends_without_a_reply_is_malformed() {
     // `true` exits cleanly and says nothing.
     let outcome = run_scan(
-        Path::new("/bin/true"),
+        &unix_program("true"),
         plugin(),
         DEADLINE,
         &[],
@@ -149,7 +159,7 @@ fn a_child_that_ends_without_a_reply_is_malformed() {
 #[test]
 fn a_child_that_exits_with_a_failure_code_is_reported_with_the_code() {
     let outcome = run_scan(
-        Path::new("/bin/false"),
+        &unix_program("false"),
         plugin(),
         DEADLINE,
         &[],
@@ -177,7 +187,7 @@ fn silent_program() -> std::path::PathBuf {
     if cfg!(windows) {
         std::env::var_os("ComSpec").map_or_else(|| "cmd.exe".into(), Into::into)
     } else {
-        "/bin/true".into()
+        unix_program("true")
     }
 }
 

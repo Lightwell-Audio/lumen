@@ -4,9 +4,9 @@
 //! its name.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::OnceLock;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use lumen_plugin_catalog::cache::{Cache, Reason, Result};
@@ -67,6 +67,48 @@ impl Root {
 
     /// Adds a copy of the test plugin as the bundle `<name>.vst3`; returns its binary.
     fn add(&self, name: &str) -> PathBuf {
+        let binary = self.place(name);
+        std::fs::copy(&built().0, &binary).unwrap();
+        self.warm(name);
+        binary
+    }
+
+    /// Adds the bundle `<name>.vst3`, or replaces its binary, with a copy of
+    /// the test plugin that has `extra` bytes after the library: it still
+    /// loads, and its stamp differs from an unchanged copy's.
+    fn add_changed(&self, name: &str, extra: &[u8]) -> PathBuf {
+        let binary = self.place(name);
+        let mut bytes = std::fs::read(&built().0).unwrap();
+        bytes.extend_from_slice(extra);
+        std::fs::write(&binary, bytes).unwrap();
+        self.warm(name);
+        binary
+    }
+
+    /// Loads the new plugin once, here and alone, on macOS. macOS checks
+    /// every new file the first time it is loaded, one file after another at
+    /// about 0.1 s each. Tests that each add several plugins and run side by
+    /// side would queue behind one another inside the scan, and a scan's
+    /// deadline would run out on the queue. A file that has been checked
+    /// loads at once.
+    fn warm(&self, name: &str) {
+        if !cfg!(target_os = "macos") {
+            return;
+        }
+        static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+        let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+        let status = Command::new(&built().1)
+            .arg("scan")
+            .arg(self.0.join(format!("{name}.vst3")))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .expect("run the scan program");
+        assert!(status.success(), "the plugin does not load");
+    }
+
+    /// Where the bundle's binary goes; its folder is made.
+    fn place(&self, name: &str) -> PathBuf {
         let (arch, extension) = if cfg!(windows) {
             ("x86_64-win", "vst3")
         } else if cfg!(target_os = "linux") {
@@ -81,7 +123,6 @@ impl Root {
         };
         let binary = self.0.join(format!("{name}.vst3/Contents/{arch}/{file}"));
         std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
-        std::fs::copy(&built().0, &binary).unwrap();
         binary
     }
 
@@ -160,9 +201,17 @@ fn a_cold_scan_lists_the_good_module_and_blocks_each_bad_one_with_its_reason() {
         Result::Blocked { reason, .. } => reason.clone(),
         other => panic!("{name} should be blocked: {other:?}"),
     };
-    assert!(matches!(reason("Crash"), Reason::Crashed { .. }));
+    assert!(
+        matches!(reason("Crash"), Reason::Crashed { .. }),
+        "{:?}",
+        reason("Crash")
+    );
     assert_eq!(reason("Hang"), Reason::TimedOut { seconds: 2 });
-    assert!(matches!(reason("NoFactory"), Reason::Failed { .. }));
+    assert!(
+        matches!(reason("NoFactory"), Reason::Failed { .. }),
+        "{:?}",
+        reason("NoFactory")
+    );
 
     let catalog = Catalog::build(&cache, builtin_devices());
     let plugins: Vec<_> = catalog
@@ -214,10 +263,7 @@ fn a_changed_file_is_scanned_again_and_a_blocked_one_that_did_not_change_is_not(
     let before = blocked_at(&cache);
 
     // Trailing bytes leave a shared library loadable and change its stamp.
-    let binary = root.add("Good");
-    let mut bytes = std::fs::read(&binary).unwrap();
-    bytes.extend_from_slice(&[0; 16]);
-    std::fs::write(&binary, bytes).unwrap();
+    root.add_changed("Good", &[0; 16]);
 
     let summary = run(&scanner(QUICK), &root, &mut cache, Mode::Changed);
     assert_eq!((summary.scanned, summary.reused), (1, 3));
@@ -237,10 +283,7 @@ fn a_module_that_changed_is_retried_even_if_it_was_blocked() {
     assert_eq!(cache.blocked().count(), 1);
 
     // The "fixed" plugin: new bytes, and the fault gone.
-    let binary = root.add("Crash");
-    let mut bytes = std::fs::read(&binary).unwrap();
-    bytes.extend_from_slice(&[1; 8]);
-    std::fs::write(&binary, bytes).unwrap();
+    root.add_changed("Crash", &[1; 8]);
     let mut fixed = scanner(QUICK);
     fixed.child_env = None;
     let summary = run(&fixed, &root, &mut cache, Mode::Changed);
@@ -326,20 +369,19 @@ fn cancel_stops_a_scan_with_a_hung_module_quickly_and_keeps_what_finished() {
     let mut one = scanner(Duration::from_secs(30));
     one.jobs = 2;
     let started = Instant::now();
-    let summary = std::thread::scope(|scope| {
-        let handle = scope.spawn(|| {
-            one.scan(
-                std::slice::from_ref(&root.0),
-                &mut cache,
-                Mode::Changed,
-                &cancel,
-                &mut |_| {},
-            )
-        });
-        std::thread::sleep(Duration::from_millis(1500));
-        cancel.store(true, Ordering::Relaxed);
-        handle.join().unwrap()
-    });
+    // Cancel when the good module is in, not after a wait that a busy machine
+    // could cut short: the hung one is then what is left.
+    let summary = one.scan(
+        std::slice::from_ref(&root.0),
+        &mut cache,
+        Mode::Changed,
+        &cancel,
+        &mut |event| {
+            if matches!(event, Event::Scanned { .. }) {
+                cancel.store(true, Ordering::Relaxed);
+            }
+        },
+    );
     assert!(summary.cancelled);
     assert!(
         started.elapsed() < Duration::from_secs(10),
@@ -405,7 +447,12 @@ fn a_host_that_gives_no_reply_blocks_nothing() {
     let program = if cfg!(windows) {
         std::env::var_os("ComSpec").map_or_else(|| PathBuf::from("cmd.exe"), PathBuf::from)
     } else {
-        PathBuf::from("/bin/true")
+        // macOS keeps `true` in /usr/bin, not /bin.
+        ["/usr/bin/true", "/bin/true"]
+            .into_iter()
+            .map(PathBuf::from)
+            .find(|path| path.exists())
+            .expect("a `true` program in /usr/bin or /bin")
     };
     let stale = Scanner::new(program);
     let summary = run(&stale, &root, &mut cache, Mode::Changed);
