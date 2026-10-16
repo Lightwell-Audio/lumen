@@ -276,6 +276,27 @@ cargo test -p lumen-app --test smoke -- --ignored             # the real binary,
   `dragging_a_playing_clip_does_not_click` does. To hear a level, use
   `lumen.listen(settle, frames)`: it waits for the frames, not for a
   time (a busy CI machine played 768 frames in 150 ms).
+- **Timing-proof tests** (macOS CI flaked on all of these; they were
+  found by running the suite beside 16 busy loops, which a shared runner
+  resembles):
+  - Never wait a fixed time for something another thread does, and never
+    stop a test on a file that only partly shows the state it needs. Wait
+    until the state itself holds (`wait_for`, `wait_for_row`, the autosave
+    that names both tracks, the settings whose `recents` list has the
+    device). A wall-clock bound is only for "ends at all", so keep it
+    several times past what is asked for.
+  - macOS checks every new executable file the first time it is loaded,
+    one file after another at about 0.1 s each (a copy or hard link is a new
+    file; a symlink is not, but module discovery then sees one file). Tests
+    that copy the test plugin and scan it under a deadline load it once
+    first, alone (`Root::warm` in `lumen-plugin-catalog/tests/scan.rs`,
+    `warm` in the E2E `plugins.rs`), or the checks queue inside the
+    deadline.
+  - Do not name system programs by path: macOS has `/usr/bin/true`, not
+    `/bin/true` (`unix_program` in `lumen-plugin-host/tests/scan.rs`).
+  - To check a test for flakes, run it beside busy loops: `yes > /dev/null &`
+    sixteen times, then the test in a loop, then `pkill yes`. A fix counts
+    when the failing test passes where it failed before.
 - **The smoke tests** (`crates/lumen-app/tests/smoke.rs`) run `lumen`
   itself: start and draw, import, save, reopen with a screenshot that must
   not be blank, the quality-bar project, and the light theme at 200%. A

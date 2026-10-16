@@ -276,8 +276,10 @@ fn a_host_that_never_answers_keeps_its_block_in_flight() {
             p.link.wait(started + Duration::from_millis(5)),
             Poll::Pending
         );
-        // The deadline holds: the wait ends on time, not when the host does.
-        assert!(started.elapsed() < Duration::from_millis(100));
+        // The deadline holds: the wait ends on time, not when the host does
+        // (it never does). The bound is far past the 5 ms asked for, so a
+        // thread a busy machine keeps off the CPU for a while does not fail it.
+        assert!(started.elapsed() < Duration::from_secs(2));
         assert_eq!(p.link.submit(1, 8, &[], &[], &[]), Err(SubmitError::Busy));
     }
     assert!(p.link.in_flight());

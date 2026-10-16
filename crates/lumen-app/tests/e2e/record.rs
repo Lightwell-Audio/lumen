@@ -1287,8 +1287,16 @@ fn the_clip_recorded_into_is_drawn_growing_on_every_frame() {
     record(&mut lumen);
     keys.on(60, 90);
     reach(&mut lumen, beats(1.5));
-    let mut ends = Vec::new();
-    for _ in 0..12 {
+    // Frames are drawn until the playhead has moved on seven times, not for a
+    // fixed number of them: a busy machine can hold the audio back for
+    // longer than a dozen frames, and then there would be nothing to compare.
+    let started = Instant::now();
+    let (mut ends, mut heads) = (Vec::new(), Vec::new());
+    while heads.len() < 8 {
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "the playhead stopped moving: {heads:?}"
+        );
         let before = lumen.app().playhead();
         lumen.frames(1);
         let drawn = lumen.app().drawn_clips(0);
@@ -1302,14 +1310,19 @@ fn the_clip_recorded_into_is_drawn_growing_on_every_frame() {
         let pitches: Vec<u8> = placed(&drawn[0]).iter().map(|n| n.pitch).collect();
         assert_eq!(pitches, [50, 60], "the held note is drawn in it");
         ends.push(end);
+        if heads.last() != Some(&before) {
+            heads.push(before);
+        }
         std::thread::sleep(Duration::from_millis(30));
     }
     keys.off(60);
     stop(&mut lumen);
-    let mut distinct = ends.clone();
-    distinct.dedup();
+    // The end follows the playhead on the frames between commits: it has
+    // moved on as many times as the playhead did, give or take the frame the
+    // count began on.
+    ends.dedup();
     assert!(
-        distinct.len() > 6,
-        "the end moves on most frames, not once a commit: {ends:?}"
+        ends.len() + 1 >= heads.len(),
+        "the end moves with the playhead, not once a commit: {ends:?} against {heads:?}"
     );
 }

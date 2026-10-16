@@ -90,6 +90,28 @@ fn add_module(root: &Path, name: &str) {
     let binary = root.join(format!("{name}.vst3/Contents/{arch}/{file}"));
     std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
     std::fs::copy(&built().0, binary).unwrap();
+    warm(&root.join(format!("{name}.vst3")));
+}
+
+/// Loads a new plugin once, here and alone, on macOS. macOS checks every new
+/// file the first time it is loaded, one file after another at about 0.1 s
+/// each. Tests that each add several plugins and run side by side would queue
+/// behind one another inside the scan, and its two-second deadline would run
+/// out on the queue. A file that has been checked loads at once.
+fn warm(bundle: &Path) {
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let status = Command::new(&built().1)
+        .arg("scan")
+        .arg(bundle)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .expect("run the scan program");
+    assert!(status.success(), "the plugin does not load");
 }
 
 /// A folder of plugins in `dir`, holding the modules named.
@@ -137,6 +159,20 @@ impl Lumen {
     /// Whether a control or row whose name starts with `label` is shown.
     fn shows_row(&self, label: &str) -> bool {
         self.harness.query_by_label_contains(label).is_some()
+    }
+
+    /// Runs frames until a row whose name starts with `label` is shown.
+    #[track_caller]
+    fn wait_for_row(&mut self, label: &str) {
+        let started = std::time::Instant::now();
+        while !self.shows_row(label) {
+            assert!(
+                started.elapsed() < Duration::from_secs(30),
+                "timed out waiting for the row {label}"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+            self.frames(1);
+        }
     }
 
     #[track_caller]
@@ -386,8 +422,15 @@ fn favorites_and_recents_survive_a_restart() {
         .center();
     first.double_click(at);
     assert_eq!(first.app().recent_devices().len(), 1, "chosen");
+    // The file already names the favorite (and the key "recents") from the
+    // click before: wait until the recents list itself holds the device.
     first.wait_for("the settings to be saved", |_| {
-        std::fs::read_to_string(&file).is_ok_and(|t| t.contains("recents") && t.contains("vst3:"))
+        std::fs::read_to_string(&file).is_ok_and(|t| {
+            t.split("\"recents\"")
+                .nth(1)
+                .and_then(|rest| rest.split(']').next())
+                .is_some_and(|list| list.contains("vst3:"))
+        })
     });
     let dir = first.crash();
 
@@ -405,7 +448,9 @@ fn favorites_and_recents_survive_a_restart() {
     assert!(second.is_on(&format!("Favorite {EFFECT}")));
     assert!(!second.is_on(&format!("Favorite {INSTRUMENT}")));
     second.click("Recent filter");
-    assert!(second.shows_row(&format!("{INSTRUMENT}, ")));
+    // The list fills when the cache has been read, which a busy machine can
+    // put after the first frames.
+    second.wait_for_row(&format!("{INSTRUMENT}, "));
     assert!(!second.shows_row(&format!("{EFFECT}, ")));
 }
 
