@@ -515,3 +515,56 @@ fn hosted_instruments_never_touch_the_heap() {
     assert!(statuses[3].failed(), "the slow host was given up on");
     assert!(statuses[..3].iter().all(|s| !s.failed()));
 }
+
+/// What the app puts in every track list after the one that attached the host.
+fn standin() -> Option<InstrumentSpec> {
+    Some(InstrumentSpec {
+        kind: 2,
+        preset: 0,
+        instrument: Box::new(HostedInstrument::placeholder()),
+    })
+}
+
+fn one_note_track(instrument: Option<InstrumentSpec>) -> MidiTrack {
+    MidiTrack::new(
+        1,
+        Target::Instrument,
+        instrument,
+        vec![clip(1, Ticks::ZERO, Q(16), vec![note(Q(1), Q(1), 60)])],
+    )
+}
+
+fn reference_impulses() -> Vec<(usize, i32)> {
+    let mut rig = rig(Timeline::default(), 48_000, vec![one_note_track(builtin())]);
+    rig.play();
+    impulses(&rig.run(48_000, 128))
+}
+
+#[test]
+fn a_host_attached_after_a_stand_in_list_is_the_one_that_plays() {
+    // The track has a stand-in while its plugin loads; the list that
+    // attaches the host comes later and must not give the host away.
+    let mut rig = rig(Timeline::default(), 48_000, vec![one_note_track(standin())]);
+    rig.run(256, 128);
+    let (spec, status) = hosted(FakeHost::new(Duration::ZERO, false, None));
+    assert!(rig.midi.set(vec![one_note_track(spec)]).is_ok());
+    rig.play();
+    let found = impulses(&rig.run(48_000, 128));
+    assert_eq!(found, reference_impulses());
+    assert!(!status.failed());
+}
+
+#[test]
+fn a_list_skipped_before_it_plays_hands_its_host_to_the_list_that_replaces_it() {
+    let mut rig = rig(Timeline::default(), 48_000, vec![one_note_track(standin())]);
+    rig.run(256, 128);
+    let (spec, status) = hosted(FakeHost::new(Duration::ZERO, false, None));
+    // Two lists wait for one block: the engine plays only the newer, and
+    // the older, with the only handle to the host, is freed unplayed.
+    assert!(rig.midi.set(vec![one_note_track(spec)]).is_ok());
+    assert!(rig.midi.set(vec![one_note_track(standin())]).is_ok());
+    rig.play();
+    let found = impulses(&rig.run(48_000, 128));
+    assert_eq!(found, reference_impulses());
+    assert!(!status.failed());
+}

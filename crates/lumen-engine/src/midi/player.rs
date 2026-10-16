@@ -39,6 +39,27 @@ impl MidiSet {
         Self { tracks, by_id }
     }
 
+    /// Moves each plugin host this list holds into the same track's
+    /// stand-in in `newer` (same id, same kind, an instrument that has no
+    /// host), for a list that is skipped and freed unplayed. Real-time safe.
+    fn pass_hosts_to(&mut self, newer: &mut MidiSet) {
+        for track in &mut self.tracks {
+            let Some(mine) = track.instrument.as_mut().filter(|s| s.instrument.hosted()) else {
+                continue;
+            };
+            let Ok(k) = newer.by_id.binary_search_by_key(&track.id, |&(id, _)| id) else {
+                continue;
+            };
+            let at = newer.by_id[k].1 as usize;
+            if let Some(theirs) = newer.tracks[at].instrument.as_mut()
+                && theirs.kind == mine.kind
+                && !theirs.instrument.hosted()
+            {
+                std::mem::swap(&mut mine.instrument, &mut theirs.instrument);
+            }
+        }
+    }
+
     /// Some track's instrument runs in a plugin host.
     fn hosted(&self) -> bool {
         self.tracks.iter().any(|t| {
@@ -422,8 +443,11 @@ impl MidiPlayer {
         // in the end, or the stash would be overwritten and a list freed
         // here; newer lists then wait a block.
         while self.retired.slots() >= 2
-            && let Ok(newer) = self.incoming.pop()
+            && let Ok(mut newer) = self.incoming.pop()
         {
+            // A host the skipped list brought is the only handle to a
+            // running process: it goes to the newer list's stand-in.
+            new.pass_hosts_to(&mut newer);
             self.retire(std::mem::replace(&mut new, newer));
         }
         self.carry(&mut new, at);
@@ -501,8 +525,12 @@ impl MidiPlayer {
                 before.state.events.clear();
             }
             std::mem::swap(&mut track.state, &mut before.state);
+            // The instrument the old list had plays on, except a host the
+            // new list brings: that one is attached now, and the old list's
+            // (a stand-in, or the host it replaces) goes with the old list.
             if same_kind
                 && let (Some(a), Some(b)) = (track.instrument.as_mut(), before.instrument.as_mut())
+                && !a.instrument.hosted()
             {
                 std::mem::swap(&mut a.instrument, &mut b.instrument);
                 if a.preset != b.preset {
