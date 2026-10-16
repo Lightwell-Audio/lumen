@@ -369,6 +369,53 @@ fn a_missing_host_is_reported_once_and_records_nothing() {
 }
 
 #[test]
+fn a_block_that_came_from_the_scan_program_is_tried_again_by_a_plain_rescan() {
+    // An earlier, faulty scan program left "ended without a reply" for a
+    // module that is fine; its file never changed. A plain rescan must not
+    // trust that block, while a real one (here, a crash) stays.
+    let root = Root::new("scanfault");
+    root.add("Good");
+    root.add("Crash");
+    let mut cache = Cache::new();
+    run(&scanner(QUICK), &root, &mut cache, Mode::Changed);
+    let mut planted = cache.entry(&root.path("Good")).unwrap().clone();
+    planted.result = Result::Blocked {
+        reason: Reason::Malformed {
+            message: "the scan process ended without a reply".into(),
+        },
+        at: 1,
+    };
+    cache.set(planted);
+
+    let summary = run(&scanner(QUICK), &root, &mut cache, Mode::Changed);
+    assert_eq!((summary.scanned, summary.reused), (1, 1));
+    assert!(matches!(
+        cache.entry(&root.path("Good")).unwrap().result,
+        Result::Scanned { .. }
+    ));
+}
+
+#[test]
+fn a_host_that_gives_no_reply_blocks_nothing() {
+    // A scan program from before scanning existed ends cleanly and says
+    // nothing. Every module would come out "blocked"; none may be recorded.
+    let root = Root::new("stalehost");
+    four_modules(&root);
+    let mut cache = Cache::new();
+    let program = if cfg!(windows) {
+        std::env::var_os("ComSpec").map_or_else(|| PathBuf::from("cmd.exe"), PathBuf::from)
+    } else {
+        PathBuf::from("/bin/true")
+    };
+    let stale = Scanner::new(program);
+    let summary = run(&stale, &root, &mut cache, Mode::Changed);
+    let why = summary.host_missing.expect("the program is reported");
+    assert!(why.contains("out of date"), "{why}");
+    assert_eq!((summary.scanned, summary.blocked), (0, 0));
+    assert!(cache.entries().is_empty());
+}
+
+#[test]
 fn an_empty_or_missing_root_scans_nothing_without_complaint() {
     let root = Root::new("empty");
     let mut cache = Cache::new();

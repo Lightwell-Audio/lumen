@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use lumen_plugin_host::scan::{ScanOutcome, run_scan};
+use lumen_plugin_host::scan::{ScanOutcome, check_host, run_scan};
 use support::{FAULT, HOST, plugin};
 
 const DEADLINE: Duration = Duration::from_secs(20);
@@ -169,4 +169,46 @@ fn scans_do_not_disturb_each_other_when_run_side_by_side() {
     assert!(matches!(good.join().unwrap(), ScanOutcome::Scanned(_)));
     assert!(matches!(crash.join().unwrap(), ScanOutcome::Crashed { .. }));
     assert_eq!(hang.join().unwrap(), ScanOutcome::TimedOut);
+}
+
+/// A program that exits cleanly and says nothing, like a build of the host
+/// from before it could scan.
+fn silent_program() -> std::path::PathBuf {
+    if cfg!(windows) {
+        std::env::var_os("ComSpec").map_or_else(|| "cmd.exe".into(), Into::into)
+    } else {
+        "/bin/true".into()
+    }
+}
+
+#[test]
+fn the_current_host_passes_its_check() {
+    assert_eq!(check_host(Path::new(HOST)), Ok(()));
+}
+
+#[test]
+fn a_program_that_gives_no_reply_fails_the_check_and_says_what_to_do() {
+    let why = check_host(&silent_program()).unwrap_err();
+    assert!(
+        why.contains("cargo build --release -p lumen-plugin-host"),
+        "{why}"
+    );
+}
+
+#[test]
+fn a_missing_program_fails_the_check() {
+    assert!(check_host(Path::new("/definitely/not/a/host")).is_err());
+}
+
+#[test]
+fn many_scans_at_once_all_get_their_replies() {
+    // Four at a time is what a rescan does; each must still hear its own
+    // child's answer, whatever the others hold open.
+    let scans: Vec<_> = (0..12)
+        .map(|_| std::thread::spawn(|| scan("", DEADLINE)))
+        .collect();
+    for scan in scans {
+        let outcome = scan.join().unwrap();
+        assert!(matches!(outcome, ScanOutcome::Scanned(_)), "{outcome:?}");
+    }
 }

@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use lumen_plugin_host::scan::{ScanOutcome, ScanReport, run_scan};
+use lumen_plugin_host::scan::{ScanOutcome, ScanReport, check_host, run_scan};
 
 use crate::cache::{Cache, ClassRecord, Entry, Reason, Result};
 use crate::catalog::class_id;
@@ -127,7 +127,9 @@ impl Scanner {
             let reusable = mode == Mode::Changed
                 && stamp.is_some_and(|stamp| {
                     cache.entry(&key).is_some_and(|e| {
-                        e.stamp == stamp && e.binary == module.binary.to_string_lossy()
+                        e.stamp == stamp
+                            && e.binary == module.binary.to_string_lossy()
+                            && !scan_fault(e)
                     })
                 });
             if reusable {
@@ -150,6 +152,13 @@ impl Scanner {
             reused: summary.reused,
         });
         if total == 0 {
+            return summary;
+        }
+
+        // A scan program that is out of date answers nothing, which would
+        // block every module; find that out before recording anything.
+        if let Err(why) = check_host(&self.host) {
+            summary.host_missing = Some(why);
             return summary;
         }
 
@@ -222,6 +231,21 @@ impl Scanner {
         summary.cancelled = cancel.load(Ordering::Relaxed);
         summary
     }
+}
+
+/// A block that says nothing about the module: the scan program ended
+/// cleanly without an answer, which a module cannot do on its own (it would
+/// have crashed, hung or failed with a message). It means the scan program
+/// was faulty, so such an entry is tried again rather than trusted until the
+/// file changes.
+fn scan_fault(entry: &Entry) -> bool {
+    matches!(
+        entry.result,
+        Result::Blocked {
+            reason: Reason::Malformed { .. },
+            ..
+        }
+    )
 }
 
 /// What the cache records for a finished scan; `None` for one that was

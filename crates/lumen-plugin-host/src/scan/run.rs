@@ -9,7 +9,7 @@ use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use crate::client::ExitKind;
@@ -21,6 +21,8 @@ const STDERR_KEPT: usize = 2048;
 /// How long to wait for the output threads once the child has ended.
 const DRAIN: Duration = Duration::from_millis(500);
 const POLL: Duration = Duration::from_millis(5);
+/// How long the check of the scan program may take: it loads nothing.
+const CHECK_DEADLINE: Duration = Duration::from_secs(10);
 
 /// How one module's scan ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,7 +66,15 @@ pub fn run_scan(
     for (key, value) in env {
         command.env(key, value);
     }
-    let mut child = match command.spawn() {
+    // Windows lets a child inherit a pipe end that another thread has made
+    // inheritable and not yet closed. Spawning one child at a time keeps
+    // scans that run side by side out of each other's pipes.
+    let spawned = {
+        static SPAWN: Mutex<()> = Mutex::new(());
+        let _one_at_a_time = SPAWN.lock().unwrap_or_else(|e| e.into_inner());
+        command.spawn()
+    };
+    let mut child = match spawned {
         Ok(child) => child,
         Err(e) => return ScanOutcome::Unstarted(format!("{}: {e}", exe.display())),
     };
@@ -75,28 +85,9 @@ pub fn run_scan(
         return ScanOutcome::Unstarted(format!("could not group the scan process: {e}"));
     }
 
-    let mut stdout = child.stdout.take().expect("piped stdout");
-    let mut stderr = child.stderr.take().expect("piped stderr");
-    let (out_tx, out_rx) = mpsc::channel();
-    let (err_tx, err_rx) = mpsc::channel();
     // One byte past the limit tells "exactly full" from "too much".
-    std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = (&mut stdout)
-            .take(MAX_REPLY as u64 + 1)
-            .read_to_end(&mut bytes);
-        // Keep reading so a module that writes on cannot stall on the pipe.
-        let _ = std::io::copy(&mut stdout, &mut std::io::sink());
-        let _ = out_tx.send(bytes);
-    });
-    std::thread::spawn(move || {
-        let mut kept = Vec::new();
-        let _ = (&mut stderr)
-            .take(STDERR_KEPT as u64)
-            .read_to_end(&mut kept);
-        let _ = std::io::copy(&mut stderr, &mut std::io::sink());
-        let _ = err_tx.send(kept);
-    });
+    let stdout = collect(child.stdout.take().expect("piped stdout"), MAX_REPLY + 1);
+    let stderr = collect(child.stderr.take().expect("piped stderr"), STDERR_KEPT);
 
     let started = Instant::now();
     let status = loop {
@@ -114,11 +105,72 @@ pub fn run_scan(
         std::thread::sleep(POLL);
     };
 
-    let reply = out_rx.recv_timeout(DRAIN).unwrap_or_default();
-    let detail = String::from_utf8_lossy(&err_rx.recv_timeout(DRAIN).unwrap_or_default())
-        .trim()
-        .to_string();
+    // The child is gone, so everything it wrote is in the pipes. Wait briefly
+    // for the end of each, but use what was read either way: something else
+    // holding a pipe open (another process that inherited it, a helper the
+    // module started) must not turn a finished answer into "no reply".
+    let reply = stdout.finish();
+    let detail = String::from_utf8_lossy(&stderr.finish()).trim().to_string();
     classify(status, &reply, detail)
+}
+
+/// A child's output read as it arrives, so that what has been written is
+/// never lost to a pipe that stays open.
+struct Collected {
+    bytes: Arc<Mutex<Vec<u8>>>,
+    ended: mpsc::Receiver<()>,
+}
+
+impl Collected {
+    /// What was read, once the pipe ended or [`DRAIN`] passed.
+    fn finish(&self) -> Vec<u8> {
+        let _ = self.ended.recv_timeout(DRAIN);
+        self.bytes.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
+/// Reads `pipe` on a thread of its own, keeping the first `keep` bytes and
+/// reading on past them so a child that writes more cannot stall.
+fn collect(mut pipe: impl Read + Send + 'static, keep: usize) -> Collected {
+    let bytes = Arc::new(Mutex::new(Vec::new()));
+    let (ended_tx, ended) = mpsc::channel();
+    let shared = Arc::clone(&bytes);
+    std::thread::spawn(move || {
+        let mut chunk = [0u8; 8192];
+        while let Ok(n) = pipe.read(&mut chunk) {
+            if n == 0 {
+                break;
+            }
+            let mut kept = shared.lock().unwrap_or_else(|e| e.into_inner());
+            let room = keep.saturating_sub(kept.len());
+            kept.extend_from_slice(&chunk[..n.min(room)]);
+        }
+        let _ = ended_tx.send(());
+    });
+    Collected { bytes, ended }
+}
+
+/// Asks the scan program at `exe` a question it can only answer if it is a
+/// current `lumen-plugin-host`: to scan a module that does not exist, which
+/// it must refuse with a reply of its own. No plugin code runs. An older
+/// build, or some other program, ends without that reply; every module it
+/// was asked about would then look blocked, so the caller must not scan with
+/// it. The error says what to do.
+pub fn check_host(exe: &Path) -> Result<(), String> {
+    let missing = exe
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("lumen-scan-check-no-such-module.vst3");
+    let outcome = run_scan(exe, &missing, CHECK_DEADLINE, &[], &AtomicBool::new(false));
+    match outcome {
+        ScanOutcome::Failed(_) => Ok(()),
+        ScanOutcome::Unstarted(why) => Err(why),
+        other => Err(format!(
+            "The plugin scanner at {} did not answer a test ({other:?}); it is probably \
+             out of date. Rebuild it with: cargo build --release -p lumen-plugin-host",
+            exe.display()
+        )),
+    }
 }
 
 /// Ends a child that is still running and returns `outcome`.
@@ -148,5 +200,46 @@ fn classify(status: std::process::ExitStatus, reply: &[u8], detail: String) -> S
         Ok(ScanReply::Report(report)) => ScanOutcome::Scanned(report),
         Ok(ScanReply::Failed(message)) => ScanOutcome::Failed(message),
         Err(e) => ScanOutcome::Malformed(e.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Yields its bytes, then waits for a signal that never comes, like a
+    /// pipe another process still holds open.
+    struct Held {
+        bytes: Option<Vec<u8>>,
+        never: mpsc::Receiver<()>,
+    }
+
+    impl Read for Held {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            if let Some(bytes) = self.bytes.take() {
+                out[..bytes.len()].copy_from_slice(&bytes);
+                return Ok(bytes.len());
+            }
+            let _ = self.never.recv();
+            Ok(0)
+        }
+    }
+
+    #[test]
+    fn what_was_written_survives_a_pipe_that_never_closes() {
+        let (hold, never) = mpsc::channel::<()>();
+        let held = Held {
+            bytes: Some(b"reply".to_vec()),
+            never,
+        };
+        let collected = collect(held, 64);
+        assert_eq!(collected.finish(), b"reply");
+        drop(hold);
+    }
+
+    #[test]
+    fn only_the_first_bytes_are_kept() {
+        let collected = collect(std::io::Cursor::new(vec![7u8; 100_000]), 10);
+        assert_eq!(collected.finish(), vec![7u8; 10]);
     }
 }

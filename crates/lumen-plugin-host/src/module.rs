@@ -35,6 +35,16 @@ pub enum ModuleError {
     Unsupported(&'static str),
 }
 
+/// The loader's complaint with its reason: on Windows the error alone says
+/// only which call failed, and the system's text says why.
+fn load_error(e: libloading::Error) -> ModuleError {
+    let mut text = e.to_string();
+    if let Some(why) = std::error::Error::source(&e) {
+        text = format!("{text} ({why})");
+    }
+    ModuleError::Load(text)
+}
+
 impl fmt::Display for ModuleError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -97,14 +107,13 @@ fn open(binary: &Path) -> Result<(libloading::Library, *mut c_void), ModuleError
         // and why this runs in a host process of its own.
         unsafe { Library::load_with_flags(binary, LOAD_WITH_ALTERED_SEARCH_PATH) }
             .map(|library| (library.into(), std::ptr::null_mut()))
-            .map_err(|e| ModuleError::Load(e.to_string()))
+            .map_err(load_error)
     }
     #[cfg(unix)]
     {
         use libloading::os::unix::Library;
         // SAFETY: as above.
-        let library =
-            unsafe { Library::new(binary) }.map_err(|e| ModuleError::Load(e.to_string()))?;
+        let library = unsafe { Library::new(binary) }.map_err(load_error)?;
         let handle = library.into_raw();
         // SAFETY: the handle was just taken from a live library.
         let library = unsafe { Library::from_raw(handle) };

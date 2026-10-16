@@ -17,7 +17,10 @@ fn scan(path: Option<std::ffi::OsString>, mut out: std::fs::File) -> ExitCode {
     };
     let reply = lumen_plugin_host::scan::host::scan_module(std::path::Path::new(&path));
     match out.write_all(&reply.encode()).and_then(|()| out.flush()) {
-        Ok(()) => ExitCode::SUCCESS,
+        // The answer is out. Leave without letting the module run its
+        // shutdown code: some hang there and some set a failure code, which
+        // would block a plugin that answered perfectly well.
+        Ok(()) => process::end_now(0),
         Err(e) => {
             eprintln!("lumen-plugin-host: {e}");
             ExitCode::from(1)

@@ -50,6 +50,25 @@ pub fn die_with_parent() {
     }
 }
 
+/// Ends this process now, with `code`, without unloading modules or running
+/// any exit code of theirs. A scan's answer is complete once it is written;
+/// what a plugin does while it is torn down (real ones hang there, or leave a
+/// failure code) says nothing about the plugin and must not decide the
+/// outcome.
+#[cfg(unix)]
+pub fn end_now(code: u32) -> ! {
+    // SAFETY: ends the process at once; nothing is left to run.
+    unsafe { libc::_exit(code as libc::c_int) }
+}
+
+#[cfg(windows)]
+pub fn end_now(code: u32) -> ! {
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, TerminateProcess};
+    // SAFETY: terminates our own process; the call does not return.
+    unsafe { TerminateProcess(GetCurrentProcess(), code) };
+    std::process::exit(code as i32)
+}
+
 /// Keeps a crash from parking the process behind an error dialog, which
 /// would turn it into a hang.
 #[cfg(windows)]
