@@ -13,6 +13,7 @@
 mod component;
 mod controller;
 mod dsp;
+pub mod editor;
 mod factory;
 pub mod faults;
 pub mod params;

@@ -1,6 +1,7 @@
 //! The edit controller of both test plugins: parameters and their text.
-//! There is no editor view on purpose: hosts must offer their generic
-//! controls for a plugin like this.
+//! There is no editor view unless the `editor` switch is on (see
+//! [`crate::editor`]): hosts must offer their generic controls for a plugin
+//! like this.
 
 use std::ffi::c_char;
 use std::sync::Mutex;
@@ -202,7 +203,13 @@ impl IEditControllerTrait for Controller {
         kResultOk
     }
 
-    unsafe fn createView(&self, _name: *const c_char) -> *mut IPlugView {
-        std::ptr::null_mut::<IPlugView>()
+    unsafe fn createView(&self, name: *const c_char) -> *mut IPlugView {
+        // SAFETY: a NUL-terminated name or null, per the VST3 ABI.
+        let wanted = !name.is_null() && unsafe { std::ffi::CStr::from_ptr(name) } == c"editor";
+        if wanted && self.faults.editor() {
+            crate::editor::create(&self.faults)
+        } else {
+            std::ptr::null_mut::<IPlugView>()
+        }
     }
 }

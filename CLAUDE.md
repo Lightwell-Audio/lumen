@@ -413,10 +413,16 @@ runs now show 0 heap operations). The 64-host budget is measured on Windows
 (MT-VST-0 run 3, `m6-budget-64.csv`): at 128 frames/48 kHz `event` stays
 inside the 1.333 ms half-period budget up to 100 µs of plugin work per track
 (and at p99 at 200 µs); `event/spin` missed 40 deadlines at 200 µs. One run,
-machine in use, synthetic load. The owner accepted the representative workload (64 tracks, 100 µs
+machine in use, synthetic load. **The editor-focus spike is done on Windows with the test plugin**
+(`lumen-editor-spike`, MT-VST-0 "Editors", run 5; ADR-0067 "Editors"): owned
+windows across processes are rejected (a hung editor freezes Lumen's window
+moves and minimizes); the default is an unowned window on top only while
+Lumen or an editor has the foreground; no shortcuts forwarded; a hung editor
+is flagged and the user decides. The owner's manual steps (real typing, a
+second monitor, real plugins) are pending. The owner accepted the representative workload (64 tracks, 100 µs
 each; 200 µs is the documented limit). `shm_rt` passes under RTSan in WSL and
 is a new CI step. **Still open before the audio-path ADR can be written:**
-process grouping (modelled, run 3: no case for chains; real chain code unbuilt), the editor-focus spike (pitch first), and
+process grouping (modelled, run 3: no case for chains; real chain code unbuilt), and
 dynamic latency, partly done (`shm_latency`: the news reaches the loop in the same block, allocation-free;
 controller-origin restarts and bus changes have no trigger yet: slices 4 and 6). Not run: macOS.
 Before it, 2026-10-16: **M6 slice 1, plugin discovery, is

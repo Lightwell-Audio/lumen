@@ -22,7 +22,7 @@ use vst3::Steinberg::Vst::{
     IParameterChanges, NoteOffEvent, NoteOnEvent, ParameterInfo, ProcessContext, ProcessData,
     ProcessSetup, SpeakerArr, SpeakerArrangement,
 };
-use vst3::Steinberg::{IPluginBaseTrait, IPluginFactoryTrait, TUID, kResultOk};
+use vst3::Steinberg::{IPlugView, IPluginBaseTrait, IPluginFactoryTrait, TUID, kResultOk};
 use vst3::{ComPtr, ComWrapper, Interface};
 
 use crate::com::{self, Changes, EventList, Handler, MemoryStream, NoOutputChanges};
@@ -255,6 +255,18 @@ impl Instance {
 
     pub fn latency(&self) -> u32 {
         self.latency
+    }
+
+    /// The plugin's editor view, if its controller offers one. Its window is
+    /// made, used and destroyed on one thread (the host's window thread):
+    /// the view must not be shared with the audio or control threads.
+    pub fn create_editor_view(&self) -> Option<ComPtr<IPlugView>> {
+        let controller = self.controller.as_ref()?;
+        // SAFETY: a plain call on a live controller; a non-null result is a
+        // reference the caller owns.
+        let raw = unsafe { controller.createView(c"editor".as_ptr()) };
+        // SAFETY: as above.
+        unsafe { ComPtr::from_raw(raw) }
     }
 
     pub fn tail(&self) -> u32 {

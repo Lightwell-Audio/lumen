@@ -535,7 +535,7 @@ must never crash or block the app.
 - Editors: created by the plugin host as its own top-level windows. Child
   windows parented across processes are avoided, because they attach the two
   processes' input queues, so a hung plugin could freeze Lumen's UI.
-  Validation in M6.
+  Validated in M6 slice 0: ADR-0067, "Editors".
 
 ### Open licensing point
 The MIT licence covers the SDK code, not the "VST" trademark or logo. Using
@@ -5875,6 +5875,36 @@ accepted yet.
   reason to group and per-instance keeps crash isolation. A grouped design
   needs a second link per host and stays out unless valid numbers force it;
   memory and start-up of 64 hosts are not measured.
+
+**Editors (spike, 2026-10-16; owner's choices from the pitch).** The
+test plugin gained an editor view (`editor` in `LUMEN_TEST_PLUGIN_FAULT`) and
+`lumen-editor-spike` ran a stand-in for Lumen against an editor host process
+(MT-VST-0, "Editors", run 5). Findings and decisions:
+- The editor window is made, pumped and destroyed on the host's main thread;
+  commands arrive on a reader thread that waits for the window thread with a
+  deadline, so a hung editor is reported and never waited on.
+- **A window owned by Lumen's window across processes is rejected.** With a
+  hung editor, moving or minimizing Lumen's window blocked until the host was
+  killed (16 s over the two checks). Unowned windows left Lumen's longest
+  stall at 31 ms. This is ADR-0005's "no cross-process parenting", now
+  measured for ownership too.
+- **Default: unowned top-level windows, on top only while Lumen or an editor
+  has the foreground**, so they stay above Lumen and never above other
+  programs (a command over the pipe, never touching Lumen's window thread).
+  Alternative kept: plain unowned windows.
+- **No Lumen shortcuts are forwarded** while a plugin window has focus: typing
+  in a plugin never fires a Lumen command (checked with real key presses).
+- **A hung editor is flagged "not responding" and the user chooses** to end
+  that plugin's host (a restart took 35 to 54 ms in the spike); never an
+  automatic kill. Lumen notices with its own heartbeat to the window thread
+  (0.6 s here); the system's own hung-window flag takes 5 s.
+- Resize follows the VST3 contract: `checkSizeConstraint` sets the window's
+  tracking limits, `onSize` follows every size, the plugin's `resizeView`
+  moves the window, `setContentScaleFactor` precedes `attached` and follows
+  monitor changes.
+- Not verified: a second monitor of another scale, real plugins, macOS and
+  Linux (X11 embedding is its own work), the manual typing and shortcut
+  steps. They wait for the owner (MT-VST-0, "Editors").
 
 **Consequences.**
 - Verified on Linux: 84 tests pass in the crate (47 before). New: 9 region
