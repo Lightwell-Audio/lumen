@@ -91,6 +91,10 @@ jobs:
           key: rtsan
       - name: Real-time tests under RTSan
         run: cargo test --locked -p lumen-engine -p engine-core --test realtime
+      # Lumen's side of the audio path to the plugin hosts (ADR-0067): only
+      # the polling wake-up is run, since an OS wait blocks by design.
+      - name: Plugin-host audio path under RTSan
+        run: cargo test --locked -p lumen-plugin-host --test shm_rt
       # Each canary opens a file, waits on a held lock or allocates inside a
       # real-time section. Each must abort with an RTSan report on its own, or
       # the sanitizer is not actually running. (Canaries chosen by probing the
