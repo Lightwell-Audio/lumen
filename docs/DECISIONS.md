@@ -5868,9 +5868,13 @@ accepted yet.
   exemption, its bound and what is done about it). The default policy that
   ships must be the one the numbers support.
 - *Process per instance or per chain.* One process per instance is what the
-  harness measures (N hosts); process-per-chain was not measured. A grouped
-  design needs a second link per host and is considered only if valid numbers
-  force it.
+  harness measures (N hosts). Process-per-chain was modelled in run 3 (the
+  same work serialised in fewer processes, no chain code): past about four
+  tracks per process the block time is the serialised work and grows past
+  the budget, and 16 x 4 is no better than 64 x 1, so the numbers give no
+  reason to group and per-instance keeps crash isolation. A grouped design
+  needs a second link per host and stays out unless valid numbers force it;
+  memory and start-up of 64 hosts are not measured.
 
 **Consequences.**
 - Verified on Linux: 84 tests pass in the crate (47 before). New: 9 region

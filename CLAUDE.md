@@ -416,7 +416,7 @@ inside the 1.333 ms half-period budget up to 100 µs of plugin work per track
 machine in use, synthetic load. The owner accepted the representative workload (64 tracks, 100 µs
 each; 200 µs is the documented limit). `shm_rt` passes under RTSan in WSL and
 is a new CI step. **Still open before the audio-path ADR can be written:**
-process-per-chain (unmeasured), the editor-focus spike (pitch first), and
+process grouping (modelled, run 3: no case for chains; real chain code unbuilt), the editor-focus spike (pitch first), and
 dynamic latency notifications. Not run: macOS.
 Before it, 2026-10-16: **M6 slice 1, plugin discovery, is
 built** on `m6-s1-plugin-scan` (ADR-0068; plan and progress in
