@@ -20,7 +20,7 @@ pub const FIRST_VERSION: u64 = 1;
 /// `MIGRATIONS[i]` upgrades version `FIRST_VERSION + i` to the next one.
 pub const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10,
-    v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15, v15_to_v16,
+    v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15, v15_to_v16, v16_to_v17,
 ];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
@@ -338,6 +338,17 @@ fn v14_to_v15(document: Value) -> Result<Value, String> {
 /// v16 records whether a note may carry a sounding note through a seam.
 /// Existing notes default to eligible, preserving split and Overdub behavior.
 fn v15_to_v16(document: Value) -> Result<Value, String> {
+    Ok(document)
+}
+
+/// v17 (M6 slice 2): a VST3 device keeps its edit controller's state apart
+/// from the component's (`controller_state`), the plugin's version at capture
+/// (`plugin_version`) and its last reported latency and tail (`reported`), and
+/// a VST3 plugin says whether it is an instrument or an effect (`kind`). All
+/// four are written only when set. A device in an older file holds its whole
+/// state in `state`, which is now the component's, and means an effect with
+/// nothing reported, so nothing that played changes.
+fn v16_to_v17(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 

@@ -18,6 +18,11 @@ use lumen_project::model::{Color, Device, Id, Marker, Project, TimeSignature, Tr
 pub const MAX_BEATS_PER_BAR: u32 = 64;
 
 mod clips;
+#[allow(
+    dead_code,
+    reason = "slice 2d's Devices tab and browser call these edits; remove this when they do"
+)]
+mod devices;
 mod groups;
 mod import;
 mod instrument;

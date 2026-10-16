@@ -11,8 +11,9 @@ use lumen_core::pan::PanLaw;
 use lumen_core::time::{PPQ, TempoPoint, Ticks};
 use lumen_project::migrate::CURRENT_VERSION;
 use lumen_project::model::{
-    Clip, ClipContent, ClipEvent, Color, Device, EventKind, FromSource, Id, Level, Media, MidiFrom,
-    MidiTo, Monitor, Note, Output, PluginRef, Project, Send, TimeSignature, Track, TrackKind,
+    Clip, ClipContent, ClipEvent, Color, Device, DeviceKind, EventKind, FromSource, Id, Level,
+    Media, MidiFrom, MidiTo, Monitor, Note, Output, PluginRef, Project, Send, TimeSignature, Track,
+    TrackKind,
 };
 use lumen_project::model::{Marker, TransportState, ViewState};
 use lumen_project::testing::{TempDir, small_project, synthetic};
@@ -29,14 +30,14 @@ fn golden_v1_expected() -> Project {
     let mut kick = track(2, "Kick", TrackKind::Audio, 0xC0504D);
     kick.parent = Some(Id(1));
     kick.gain_db = -3.0;
-    kick.devices = vec![Device {
-        id: Id(0x10),
-        plugin: PluginRef::Builtin {
+    kick.devices = vec![Device::new(
+        Id(0x10),
+        PluginRef::Builtin {
             name: "Utility".into(),
         },
-        bypass: false,
-        state: vec![0, 1, 2, 3],
-    }];
+        false,
+        vec![0, 1, 2, 3],
+    )];
     kick.clips = vec![Arc::new(Clip {
         id: Id(0x20),
         name: "Kick 1".into(),
@@ -57,16 +58,18 @@ fn golden_v1_expected() -> Project {
     let mut bass = track(3, "Bass", TrackKind::Midi, 0x4F81BD);
     bass.gain_db = -6.0;
     bass.pan = -0.25;
-    bass.devices = vec![Device {
-        id: Id(0x11),
-        plugin: PluginRef::Vst3 {
+    bass.devices = vec![Device::new(
+        Id(0x11),
+        PluginRef::Vst3 {
             class_id: "56535455484E36747972656C6C6E3600".into(),
             name: "TyrellN6".into(),
             vendor: "u-he".into(),
+            // Files before v17 hold no kind, which means an effect.
+            kind: DeviceKind::Effect,
         },
-        bypass: true,
-        state: vec![],
-    }];
+        true,
+        vec![],
+    )];
     bass.clips = vec![Arc::new(Clip {
         id: Id(0x21),
         name: "Bassline".into(),

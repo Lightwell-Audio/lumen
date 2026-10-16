@@ -267,9 +267,16 @@ impl Track {
         }
     }
 
-    /// The track's instrument: its first built-in synth (format v12).
+    /// The track's built-in synth: its first one (format v12). The engine's
+    /// own instrument; a VST3 instrument is found by [`Track::sound_source`].
     pub fn instrument(&self) -> Option<&Device> {
         self.devices.iter().find(|d| d.is_synth())
+    }
+
+    /// What makes the sound on a MIDI track: its first instrument of any
+    /// kind, the built-in synth or a VST3 plugin (format v17).
+    pub fn sound_source(&self) -> Option<&Device> {
+        self.devices.iter().find(|d| d.is_instrument())
     }
 
     /// A project's master track.
@@ -429,28 +436,131 @@ impl Monitor {
 /// v12). Never the product name, and never changed.
 pub const SYNTH: &str = "synth";
 
+/// What a device does in a track's chain (format v17): an instrument makes
+/// sound from MIDI, an effect processes audio. Saved with a plugin so a
+/// plugin that is missing on this machine still sits in the right place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceKind {
+    Instrument,
+    /// What a device written before v17 means.
+    #[default]
+    Effect,
+}
+
+impl DeviceKind {
+    pub fn is_default(&self) -> bool {
+        *self == Self::Effect
+    }
+}
+
+/// The biggest saved state of one blob of one device: the host's own limit.
+pub const MAX_DEVICE_STATE: usize = 16 << 20;
+
+/// A tail that never ends (VST3's `kInfiniteTail`).
+pub const INFINITE_TAIL: u32 = u32::MAX;
+
+/// What a plugin last said about its timing (format v17), kept so a plugin
+/// that goes missing or fails keeps its place in time: the bypass holds this
+/// latency (the owner's D1 and D7). Frames at `rate` Hz.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Reported {
+    pub latency: u32,
+    /// Frames the sound rings on after the input stops; [`INFINITE_TAIL`]
+    /// when it never stops.
+    pub tail: u32,
+    /// The sample rate the two numbers are in.
+    pub rate: u32,
+}
+
+impl Reported {
+    /// The latency in frames at `rate`, for a device that reported it at
+    /// another rate.
+    pub fn latency_at(&self, rate: u32) -> u32 {
+        if self.rate == 0 || self.rate == rate {
+            return self.latency;
+        }
+        (u64::from(self.latency) * u64::from(rate)).div_ceil(u64::from(self.rate)) as u32
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Device {
     pub id: Id,
     pub plugin: PluginRef,
     #[serde(default)]
     pub bypass: bool,
-    /// Opaque state blob from the plugin, stored as base64.
+    /// Opaque state blob from the plugin, stored as base64. For a VST3
+    /// plugin this is the component's state (and, in files before v17, all
+    /// the state there was).
     #[serde(with = "base64_bytes", default, skip_serializing_if = "Vec::is_empty")]
     pub state: Vec<u8>,
+    /// A VST3 plugin's edit-controller state, apart from the component's
+    /// (format v17); empty when it keeps none.
+    #[serde(with = "base64_bytes", default, skip_serializing_if = "Vec::is_empty")]
+    pub controller_state: Vec<u8>,
+    /// The plugin's version when its state was captured (format v17), so an
+    /// update can be told from the build that wrote the state.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub plugin_version: String,
+    /// The plugin's last reported latency and tail (format v17).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reported: Option<Reported>,
 }
 
 impl Device {
+    /// A device with no VST3-only data: what every device was before v17.
+    pub fn new(id: Id, plugin: PluginRef, bypass: bool, state: Vec<u8>) -> Self {
+        Self {
+            id,
+            plugin,
+            bypass,
+            state,
+            controller_state: Vec::new(),
+            plugin_version: String::new(),
+            reported: None,
+        }
+    }
+
+    /// A VST3 device with no state yet.
+    pub fn vst3(id: Id, class_id: &str, name: &str, vendor: &str, kind: DeviceKind) -> Self {
+        Self::new(
+            id,
+            PluginRef::Vst3 {
+                class_id: class_id.into(),
+                name: name.into(),
+                vendor: vendor.into(),
+                kind,
+            },
+            false,
+            Vec::new(),
+        )
+    }
+
+    /// What the device does in a chain: the synth is an instrument, a VST3
+    /// plugin says which it is, any other built-in device is an effect.
+    pub fn kind(&self) -> DeviceKind {
+        self.plugin.kind()
+    }
+
+    pub fn is_instrument(&self) -> bool {
+        self.kind() == DeviceKind::Instrument
+    }
+
+    pub fn is_vst3(&self) -> bool {
+        matches!(self.plugin, PluginRef::Vst3 { .. })
+    }
+
     /// The built-in synth with a preset (`"poly"`, `"keys"`, ...). For a
     /// built-in device `state` is its own state; the synth's is its
     /// preset's stable name as text.
     pub fn synth(id: Id, preset: &str) -> Self {
-        Self {
+        Self::new(
             id,
-            plugin: PluginRef::Builtin { name: SYNTH.into() },
-            bypass: false,
-            state: preset.as_bytes().to_vec(),
-        }
+            PluginRef::Builtin { name: SYNTH.into() },
+            false,
+            preset.as_bytes().to_vec(),
+        )
     }
 
     pub fn is_synth(&self) -> bool {
@@ -465,6 +575,18 @@ impl Device {
     }
 }
 
+impl PluginRef {
+    /// What the plugin does in a chain: the synth is an instrument, a VST3
+    /// plugin says which it is, any other built-in device is an effect.
+    pub fn kind(&self) -> DeviceKind {
+        match self {
+            PluginRef::Vst3 { kind, .. } => *kind,
+            PluginRef::Builtin { name } if name == SYNTH => DeviceKind::Instrument,
+            PluginRef::Builtin { .. } => DeviceKind::Effect,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "format", rename_all = "snake_case")]
 pub enum PluginRef {
@@ -472,6 +594,9 @@ pub enum PluginRef {
         class_id: String,
         name: String,
         vendor: String,
+        /// Instrument or effect (format v17); older files hold effects.
+        #[serde(default, skip_serializing_if = "DeviceKind::is_default")]
+        kind: DeviceKind,
     },
     Builtin {
         name: String,

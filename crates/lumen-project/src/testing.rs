@@ -8,8 +8,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use lumen_core::time::{PPQ, TempoPoint, Ticks};
 
 use crate::model::{
-    Clip, ClipContent, Color, Device, Id, Media, Note, PluginRef, Project, TimeSignature, Track,
-    TrackKind,
+    Clip, ClipContent, Color, Device, DeviceKind, Id, Media, Note, PluginRef, Project,
+    TimeSignature, Track, TrackKind,
 };
 
 /// A temporary folder removed on drop.
@@ -104,16 +104,18 @@ pub fn synthetic(
             media_id
         });
         let devices = if kind != TrackKind::Group {
-            vec![Device {
-                id: id(),
-                plugin: PluginRef::Vst3 {
+            // Arguments run in order, so the generator is drawn as before.
+            vec![Device::new(
+                id(),
+                PluginRef::Vst3 {
                     class_id: format!("{:032X}", rng.next()),
                     name: "Synthetic".into(),
                     vendor: "Lumen Tests".into(),
+                    kind: DeviceKind::Effect,
                 },
-                bypass: rng.below(4) == 0,
-                state: (0..state_bytes).map(|_| rng.next() as u8).collect(),
-            }]
+                rng.below(4) == 0,
+                (0..state_bytes).map(|_| rng.next() as u8).collect(),
+            )]
         } else {
             Vec::new()
         };
