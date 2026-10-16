@@ -16,6 +16,7 @@ eframe.workspace = true
 lumen-audio.workspace = true
 lumen-core.workspace = true
 lumen-devices.workspace = true
+lumen-hosting = { path = "../lumen-hosting" }
 lumen-engine.workspace = true
 lumen-media.workspace = true
 lumen-midi.workspace = true
@@ -36,6 +37,7 @@ features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessag
 
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["eframe", "wgpu"] }
+lumen-test-plugin = { path = "../lumen-test-plugin" }
 
 [lints]
 workspace = true

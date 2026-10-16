@@ -48,6 +48,7 @@ mod crash;
 mod document;
 mod files;
 mod fonts;
+mod hosting;
 mod icons;
 mod lanes;
 mod launch;
@@ -171,6 +172,8 @@ pub struct App {
     /// Installed plugins: the scan thread and the catalog the browser
     /// shows (M6 slice 1).
     plugins: plugins::Plugins,
+    /// The host processes of the project's plugin devices (M6 slice 2c).
+    hosting: hosting::Hosting,
     /// An exported MIDI file being made, before the dialog asks where it
     /// goes (M5 slice 7).
     midi_exporting: Option<std::sync::mpsc::Receiver<Result<midi_files::Exported, String>>>,
@@ -314,6 +317,7 @@ impl eframe::App for App {
         if let Some(autosave) = &mut self.autosave {
             autosave.clear();
         }
+        self.hosting.shutdown();
     }
 
     /// The detail panel's key (Shift+Tab, spec §5) is taken here, before
@@ -419,6 +423,14 @@ impl eframe::App for App {
         }
         self.poll_midi_files(&ctx);
         self.plugins.poll();
+        let hosts = self.hosting.update(
+            self.document.project(),
+            self.plugins.catalog(),
+            rate,
+            &mut self.transport.audio.mixer,
+            &mut self.lanes.devices.hosted,
+        );
+        self.lanes.midi_changed(hosts.midi);
         if let Some(ms) = self.test_latency
             && let Some(first) = self.document.project().tracks.first()
         {
@@ -439,6 +451,7 @@ impl eframe::App for App {
                 clips: &mut self.transport.audio.clips,
                 midi: &mut self.transport.audio.midi,
                 mixer: &mut self.transport.audio.mixer,
+                hosting: &mut self.hosting,
             },
             &cue,
             &inputs,

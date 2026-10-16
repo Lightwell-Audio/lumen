@@ -98,6 +98,15 @@ impl Manager {
         }
     }
 
+    /// Asks one host for a fresh link at `rate`: the plugin asked to be
+    /// restarted, or the device's rate changed.
+    pub fn relink(&mut self, device: u64, rate: f64) {
+        if let Some(entry) = self.entries.get_mut(&device) {
+            entry.start.rate = rate;
+            entry.process.relink(rate);
+        }
+    }
+
     /// Whether `device` has a host started for it (loading, running or failed).
     pub fn has(&self, device: u64) -> bool {
         self.entries.contains_key(&device)

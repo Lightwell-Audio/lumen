@@ -20,7 +20,7 @@ const INSTRUMENT: &str = "Deterministic Test Instrument";
 const EFFECT: &str = "Deterministic Test Effect";
 
 /// The test plugin's library and the scan program, built once.
-fn built() -> &'static (PathBuf, PathBuf) {
+pub(super) fn built() -> &'static (PathBuf, PathBuf) {
     static BUILT: OnceLock<(PathBuf, PathBuf)> = OnceLock::new();
     BUILT.get_or_init(|| {
         let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
@@ -115,7 +115,7 @@ fn warm(bundle: &Path) {
 }
 
 /// A folder of plugins in `dir`, holding the modules named.
-fn plugin_root(dir: &Path, modules: &[&str]) -> PathBuf {
+pub(super) fn plugin_root(dir: &Path, modules: &[&str]) -> PathBuf {
     let root = dir.join("plugins");
     std::fs::create_dir_all(&root).unwrap();
     for name in modules {

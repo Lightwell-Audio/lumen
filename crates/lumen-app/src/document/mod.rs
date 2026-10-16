@@ -33,6 +33,11 @@ mod mixer;
 mod notes;
 mod record;
 pub use clips::{CLIP_GAIN, ClipMove};
+#[allow(
+    unused_imports,
+    reason = "slice 2d's Devices tab uses it; the hosting tests do now"
+)]
+pub use devices::Slot;
 pub use groups::Place;
 pub use import::{DropInto, Imported, Places, import_place};
 pub use lanes::{Drag, Line, Shift};

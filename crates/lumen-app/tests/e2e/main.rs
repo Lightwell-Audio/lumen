@@ -27,6 +27,7 @@ mod files;
 mod grid;
 mod groups;
 mod hidden_notes;
+mod hosting;
 mod info;
 mod keyboard;
 mod keys;
