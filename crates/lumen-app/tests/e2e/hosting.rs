@@ -101,6 +101,11 @@ fn launch(name: &str, project: &Project, modules: &[&str]) -> Lumen {
     let mut lumen = Lumen::start_with(dir, move |launch| {
         launch
             .opening(path)
+            // Long blocks (21 ms, so a 16 ms wait for the host): a host that
+            // misses its deadline is silenced, and on a busy CI machine a
+            // few milliseconds are easily lost. The deadline's own precision
+            // is MT-VST-2's, not these scenarios'.
+            .with_audio_buffer(1024)
             .with_plugins(vec![root], &built().1, cache)
             .with_plugin_faults(faults)
     });
