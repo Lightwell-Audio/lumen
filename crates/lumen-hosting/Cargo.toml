@@ -1,0 +1,20 @@
+[package]
+name = "lumen-hosting"
+description = "Lumen's side of plugin hosting: a process per plugin device, loaded in the background, and the link the engine plays it through"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+lumen-core.workspace = true
+lumen-devices.workspace = true
+lumen-plugin-host = { path = "../lumen-plugin-host" }
+
+[dev-dependencies]
+lumen-rt.workspace = true
+lumen-test-plugin = { path = "../lumen-test-plugin" }
+
+[lints]
+workspace = true

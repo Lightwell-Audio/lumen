@@ -2216,6 +2216,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "lumen-hosting"
+version = "0.0.1"
+dependencies = [
+ "lumen-core",
+ "lumen-devices",
+ "lumen-plugin-host",
+ "lumen-rt",
+ "lumen-test-plugin",
+]
+
+[[package]]
 name = "lumen-media"
 version = "0.0.1"
 dependencies = [
