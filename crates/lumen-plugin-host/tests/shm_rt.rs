@@ -127,7 +127,10 @@ fn noticing_a_crashed_host_does_not_allocate() {
     assert_eq!(violations, 0, "heap operations noticing a crash");
 
     // The finding itself: the descriptive answer allocates, so it belongs
-    // off the audio thread.
+    // off the audio thread. (RTSan would abort on it, rightly: skipped there.)
+    if std::env::var_os("RTSAN_ENABLE").is_some() {
+        return;
+    }
     let (how, wording) = lumen_rt::count_rt_violations(|| host.ended());
     assert!(matches!(
         how,
