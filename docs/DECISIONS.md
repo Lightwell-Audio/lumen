@@ -5904,9 +5904,11 @@ test plugin gained an editor view (`editor` in `LUMEN_TEST_PLUGIN_FAULT`) and
   tracking limits, `onSize` follows every size, the plugin's `resizeView`
   moves the window, `setContentScaleFactor` precedes `attached` and follows
   monitor changes.
-- Not verified: a second monitor of another scale, real plugins, macOS and
-  Linux (X11 embedding is its own work), the manual typing and shortcut
-  steps. They wait for the owner (MT-VST-0, "Editors").
+- The owner ran the manual steps with one real plugin (plugin A, MT-VST-0
+  "Editors", run 6): it loaded, typing fired no Lumen shortcut, and the other
+  steps were reported passed.
+- Not verified: a second monitor of another scale, a second real plugin,
+  macOS and Linux (X11 embedding is its own work).
 
 **Consequences.**
 - Verified on Linux: 84 tests pass in the crate (47 before). New: 9 region

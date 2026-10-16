@@ -403,14 +403,13 @@ Begin with milestone 1.
 The specification above does not change. This section is the handoff: read
 it first in a new session, and update it at the end of every slice.
 
-**Last updated:** 2026-10-16 (latest): **M6 slice 0 is complete but for the owner's manual steps and the report:**
+**Last updated:** 2026-10-16 (latest): **M6 slice 0 is complete but for slice 1's MT-VST-1 and slice 0's report (MT-VST-0 "Editors" passed with one real plugin, run 6):**
 **ADR-0069 is Accepted** (the audio-path ADR). The owner chose option A:
 the audio callback may make a bounded wait on a plugin host's completion event,
 under the ADR's contract, **on trial** (the pipelined path, one block of extra
 latency, is the fallback). Slice 2's MT-VST-2 decides whether it stays and must
 include recording with monitoring through an effect at 64 and 128 frames. The
-owner's manual steps (MT-VST-0 "Editors", MT-VST-1) and slice 0's report
-remain, then slice 2. Before it, 2026-10-15: **M6 slice 0's last measurements, on
+owner's MT-VST-1 and slice 0's report remain, then slice 2. Before it, 2026-10-15: **M6 slice 0's last measurements, on
 `m6-s0-audio-path`** (cut from `main` after slice 1 merged). The two heap
 operations the crash runs reported are fixed: the loop asked
 `HostProcess::ended`, which words a crash in a `String`; it asks the
@@ -425,8 +424,8 @@ machine in use, synthetic load. **The editor-focus spike is done on Windows with
 windows across processes are rejected (a hung editor freezes Lumen's window
 moves and minimizes); the default is an unowned window on top only while
 Lumen or an editor has the foreground; no shortcuts forwarded; a hung editor
-is flagged and the user decides. The owner's manual steps (real typing, a
-second monitor, real plugins) are pending. The owner accepted the representative workload (64 tracks, 100 µs
+is flagged and the user decides. The owner ran the manual steps with one real plugin (run 6: loads, typing
+fires no Lumen shortcut, the rest passed); a second monitor and more plugins are untried. The owner accepted the representative workload (64 tracks, 100 µs
 each; 200 µs is the documented limit). `shm_rt` passes under RTSan in WSL and
 is a new CI step. **Still open before the audio-path ADR can be written:**
 process grouping (modelled, run 3: no case for chains; real chain code unbuilt), and
