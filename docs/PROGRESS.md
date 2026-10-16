@@ -2,6 +2,12 @@
 
 ## Status
 
+**M6 slice 0 activity (2026-10-15):** The corrected Windows MT-VST-0
+full-grid rerun had no MMCSS warning. Event and event/spin had zero misses
+across the 48 kHz grid; hybrid modes and spin missed in several cases. Crash
+injection still reports two heap operations in Lumen's loop. See [the M6 test
+record](manual-tests/M6.md) and [the M6 plan](milestones/M6.md). M5 closeout
+remains pending.
 **Documentation policy, 2026-10-14:** third-party product comparisons and
 named plugin examples are replaced with direct behavior descriptions and
 anonymous test labels. Technical identifiers and required legal attribution
@@ -163,7 +169,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Automated tests: core logic, editing, serialization and migration, audio (golden renders) | M | 🟡 | all | Unit and integration tests per crate; an end-to-end suite that drives the whole app (CI), and real-binary smoke tests run at the end of every slice (ADR-0029, 2026-10-08). Golden renders with export (M9) |
 | Benchmarks with regression gates in CI | M | ✅ | 1–3 | divan wall-clock benchmarks (smoke-run in CI), plus instruction-count gates under Callgrind that fail CI above +2% (M3 slice 1, ADR-0022). Each milestone adds its hot paths |
 | CI on Windows, macOS, Linux | M | ✅ | 1 | First run green on 2026-10-06 (run 37396217369): Windows MSVC, macOS, Linux, rustfmt, cargo-deny, VST3 self-test. macOS was paused from 2026-10-07 (Actions minutes ran out) and is **back since 2026-10-10** (owner): every job green on all three systems in run 38070627268, after fixing 20 E2E tests that only failed on macOS |
-| Test plugin simulating good and bad behaviour; real-plugin compatibility matrix | M | 🟡 | 1, 6 | M6 slice 0 (ADR-0065): `lumen-test-plugin`, a portable deterministic instrument and effect with injectable faults (factory, processing, state, metadata), tested through the VST3 interfaces and in child processes on Linux. The host core (`lumen-plugin-host`, ADR-0066) loads it through the OS loader, in process and in child processes, and ADR-0067 adds the shared-memory audio path and the measurement harness (84 tests in the crate on Linux); none of it has been run on Windows or macOS. The scan-stage module and `docs/PLUGIN_COMPATIBILITY.md` (scan stage only) remain; processing, state, editor and routing stages arrive with slices 2 to 6 |
+| Test plugin simulating good and bad behaviour; real-plugin compatibility matrix | M | 🟡 | 1, 6 | M6 slice 0 (ADR-0065): `lumen-test-plugin`, a portable deterministic instrument and effect with injectable faults (factory, processing, state, metadata), tested through the VST3 interfaces and in child processes on Linux and Windows. The host core (`lumen-plugin-host`, ADR-0066) loads it through the OS loader, in process and in child processes; ADR-0067 adds the shared-memory audio path and the measurement harness (84 Linux tests; all 83 Windows release tests passed). The corrected MT-VST-0 full grid ran on Windows 2026-10-15 without an MMCSS warning; event and event/spin had no misses, hybrid and spin missed in several cases. Crash injection still reports two heap operations in Lumen's loop. The scan-stage module and `docs/PLUGIN_COMPATIBILITY.md` (scan stage only) remain; processing, state, editor and routing stages arrive with slices 2 to 6 |
 | Real-time correctness enforced by tests | M | 🟡 | 1–2 | `lumen-rt` allocation guard (ADR-0010) |
 | High-DPI, 100–200% scaling, light and dark themes, keyboard-navigable, accessible names, colour-blind-safe | M | 🟡 | 3, 10 | Dark, light and match-system themes; interface size 100–200% in the app menu; colour-blind-safe accent; contrast tested for both themes (M3 slice 2, `docs/DESIGN.md`). M3 slice 8: every control in the main window, palette, shortcuts window, clip card, clip menu, audio settings and history has an accessible name, and Tab walks the transport left to right, then the panes (E2E `access`). The full accessibility pass and the Narrator check in M10 |
 | No telemetry by default; opt-in only | M | ✅ | — | Nothing collects data. Re-verify each milestone. |
