@@ -76,9 +76,16 @@ impl App {
                 std::sync::Arc::new(move || ctx.request_repaint()),
             )
         };
+        let plugins = plugins::Plugins::start(
+            launch.plugins,
+            settings_path.as_deref(),
+            &saved.plugins,
+            &cc.egui_ctx,
+        );
         let mut app = App {
             transport,
             midi,
+            plugins,
             midi_out: None,
             live_keys: None,
             record: Default::default(),

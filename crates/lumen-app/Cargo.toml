@@ -19,6 +19,7 @@ lumen-devices.workspace = true
 lumen-engine.workspace = true
 lumen-media.workspace = true
 lumen-midi.workspace = true
+lumen-plugin-catalog = { path = "../lumen-plugin-catalog" }
 lumen-project.workspace = true
 lumen-render.workspace = true
 lumen-rt.workspace = true

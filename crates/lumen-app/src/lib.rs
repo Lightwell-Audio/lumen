@@ -67,6 +67,7 @@ mod owner;
 mod panels;
 mod piano_roll;
 mod playhead;
+mod plugins;
 mod position;
 mod probe;
 mod record_settings;
@@ -164,6 +165,9 @@ pub struct App {
     drop_into: document::Places,
     /// MIDI files being read in the background (M5 slice 7).
     midi_reader: midi_files::Reader,
+    /// Installed plugins: the scan thread and the catalog the browser
+    /// shows (M6 slice 1).
+    plugins: plugins::Plugins,
     /// An exported MIDI file being made, before the dialog asks where it
     /// goes (M5 slice 7).
     midi_exporting: Option<std::sync::mpsc::Receiver<Result<midi_files::Exported, String>>>,
@@ -411,6 +415,7 @@ impl eframe::App for App {
             self.add_files(dropped, self.drop_target, self.drop_into, &ctx);
         }
         self.poll_midi_files(&ctx);
+        self.plugins.poll();
         if let Some(ms) = self.test_latency
             && let Some(first) = self.document.project().tracks.first()
         {

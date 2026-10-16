@@ -277,6 +277,9 @@ pub struct Settings {
     /// added section with defaults, so older files read as before (no
     /// version change).
     pub record: RecordSettings,
+    /// Plugin folders, favorites and recents (M6 slice 1): an added section
+    /// with defaults, so older files read as before (no version change).
+    pub plugins: crate::plugins::PluginSettings,
 }
 
 impl Default for Settings {
@@ -293,6 +296,7 @@ impl Default for Settings {
             mixing: Mixing::default(),
             midi: Midi::default(),
             record: RecordSettings::default(),
+            plugins: Default::default(),
         }
     }
 }
@@ -511,6 +515,12 @@ mod tests {
                 count_in: CountIn::TwoBars,
                 only_while_recording: true,
                 overdub: true,
+            },
+            plugins: crate::plugins::PluginSettings {
+                scan_at_startup: false,
+                folders: vec!["/plugins/extra".into()],
+                favorites: vec!["vst3:AB".into()],
+                recents: vec!["builtin:synth".into(), "vst3:AB".into()],
             },
         };
         save(&path, &settings).unwrap();
