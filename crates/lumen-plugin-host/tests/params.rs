@@ -7,6 +7,7 @@ mod support;
 use lumen_plugin_host::protocol::{
     EditKind, FLAG_CAN_AUTOMATE, FLAG_HIDDEN, FLAG_READ_ONLY, ParamQueue,
 };
+use lumen_test_plugin::controller::TRIGGER;
 use lumen_test_plugin::params::{LEVEL, WAVE};
 use support::{SLOW, instrument, note_off, note_on};
 
@@ -109,10 +110,10 @@ fn a_value_set_outside_the_range_or_not_a_number_is_made_safe() {
 
 #[test]
 fn what_the_plugin_does_in_its_window_reaches_lumen_in_order_and_the_processor() {
-    // With `window_edits` moving the level also moves the wave, as a gesture
-    // the plugin makes itself: begin, a value, end.
+    // With `window_edits` stepping the trigger on makes the plugin move its
+    // wave, as a gesture it makes itself: begin, a value, end.
     let mut host = instrument("window_edits");
-    host.set_param(LEVEL, 1.0, SLOW).unwrap();
+    host.set_param(TRIGGER, 1.0, SLOW).unwrap();
     let taken = host.take_edits(SLOW).unwrap();
     let (edits, dropped) = (taken.list, taken.dropped);
     assert_eq!(dropped, 0);

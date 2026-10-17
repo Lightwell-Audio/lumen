@@ -29,7 +29,7 @@ mod mixer;
 mod notes;
 mod record;
 pub use clips::{CLIP_GAIN, ClipMove};
-pub use devices::{Refusal, Slot, name_of as device_name};
+pub use devices::{Refusal, Slot, find_device, name_of as device_name};
 pub use groups::Place;
 pub use import::{DropInto, Imported, Places, import_place};
 pub use lanes::{Drag, Line, Shift};

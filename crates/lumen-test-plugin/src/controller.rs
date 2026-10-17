@@ -34,10 +34,16 @@ pub struct Controller {
     handler: Mutex<Option<ComPtr<IComponentHandler>>>,
     /// The values of the extra parameters `many_params` adds.
     extra: Vec<AtomicU64>,
+    /// The trigger's value (bits), when the `window_edits` fault is on.
+    trigger: AtomicU64,
 }
 
 /// The first id of the extra parameters.
 pub const EXTRA_BASE: u32 = 100;
+/// The id of the instrument's trigger, which exists with the `window_edits`
+/// fault: stepping it from off to on makes the plugin edit its wave as a
+/// gesture of its own, the way a control moved in its window would.
+pub const TRIGGER: u32 = 90;
 /// How many groups the extra parameters are spread over (ids 1 to this).
 pub const EXTRA_GROUPS: u32 = 4;
 
@@ -60,6 +66,7 @@ impl Controller {
             ],
             handler: Mutex::new(None),
             extra,
+            trigger: AtomicU64::new(0.0_f64.to_bits()),
         }
     }
 
@@ -69,6 +76,11 @@ impl Controller {
 
     fn index(&self, id: u32) -> Option<usize> {
         self.kind.params().iter().position(|p| p.id == id)
+    }
+
+    /// Whether the controller lists the trigger.
+    fn has_trigger(&self) -> bool {
+        self.kind == Kind::Instrument && self.faults.has(Fault::WindowEdits)
     }
 
     /// Which extra parameter `id` is, if it is one.
@@ -124,7 +136,7 @@ impl IEditControllerTrait for Controller {
         if self.faults.has(Fault::BadParams) {
             BAD_COUNT
         } else {
-            (self.kind.params().len() + self.extra.len()) as i32
+            (self.kind.params().len() + self.extra.len() + usize::from(self.has_trigger())) as i32
         }
     }
 
@@ -132,6 +144,24 @@ impl IEditControllerTrait for Controller {
         let params = self.kind.params();
         let bad = self.faults.has(Fault::BadParams);
         let past = (index.max(0) as usize).saturating_sub(params.len());
+        if index >= 0
+            && index as usize >= params.len()
+            && !bad
+            && self.has_trigger()
+            && past == self.extra.len()
+        {
+            // SAFETY: the host passes a valid out pointer.
+            let info = unsafe { &mut *info };
+            info.id = TRIGGER;
+            text::copy_wstring("Trigger", &mut info.title);
+            text::copy_wstring("Trig", &mut info.shortTitle);
+            text::copy_wstring("", &mut info.units);
+            info.stepCount = 1;
+            info.defaultNormalizedValue = 0.0;
+            info.unitId = 0;
+            info.flags = ParameterInfo_::ParameterFlags_::kCanAutomate;
+            return kResultOk;
+        }
         if index >= 0 && index as usize >= params.len() && !bad && past < self.extra.len() {
             // SAFETY: the host passes a valid out pointer.
             let info = unsafe { &mut *info };
@@ -171,6 +201,13 @@ impl IEditControllerTrait for Controller {
     }
 
     unsafe fn getParamStringByValue(&self, id: u32, value: f64, string: *mut String128) -> tresult {
+        if id == TRIGGER && self.has_trigger() {
+            // SAFETY: the host passes a valid String128.
+            text::copy_wstring(if value < 0.5 { "Off" } else { "On" }, unsafe {
+                &mut *string
+            });
+            return kResultOk;
+        }
         if self.extra_index(id).is_some() {
             // SAFETY: the host passes a valid String128.
             text::copy_wstring(&format!("{:.1} %", value * 100.0), unsafe { &mut *string });
@@ -220,6 +257,9 @@ impl IEditControllerTrait for Controller {
     }
 
     unsafe fn getParamNormalized(&self, id: u32) -> f64 {
+        if id == TRIGGER && self.has_trigger() {
+            return f64::from_bits(self.trigger.load(Ordering::Relaxed));
+        }
         if let Some(k) = self.extra_index(id) {
             return f64::from_bits(self.extra[k].load(Ordering::Relaxed));
         }
@@ -227,6 +267,26 @@ impl IEditControllerTrait for Controller {
     }
 
     unsafe fn setParamNormalized(&self, id: u32, value: f64) -> tresult {
+        if id == TRIGGER && self.has_trigger() {
+            if !value.is_finite() {
+                return kInvalidArgument;
+            }
+            let value = value.clamp(0.0, 1.0);
+            let before = f64::from_bits(self.trigger.swap(value.to_bits(), Ordering::Relaxed));
+            if before < 0.5 && value >= 0.5 {
+                // Stands in for the plugin's window: a control moved there is
+                // a gesture of the plugin's own, told to the host.
+                if let Some(handler) = self.handler() {
+                    // SAFETY: a live handler the host gave us.
+                    unsafe {
+                        handler.beginEdit(WAVE);
+                        handler.performEdit(WAVE, 1.0);
+                        handler.endEdit(WAVE);
+                    }
+                }
+            }
+            return kResultOk;
+        }
         if let Some(k) = self.extra_index(id) {
             if !value.is_finite() {
                 return kInvalidArgument;
@@ -242,22 +302,6 @@ impl IEditControllerTrait for Controller {
         }
         let value = value.clamp(0.0, 1.0);
         let before = f64::from_bits(self.values[i].swap(value.to_bits(), Ordering::Relaxed));
-        if self.faults.has(Fault::WindowEdits)
-            && self.kind == Kind::Instrument
-            && id == LEVEL
-            && before != value
-        {
-            // Stands in for the plugin's window: moving the level also
-            // moves the wave, as the plugin's own gesture, told to the host.
-            if let Some(handler) = self.handler() {
-                // SAFETY: a live handler the host gave us.
-                unsafe {
-                    handler.beginEdit(WAVE);
-                    handler.performEdit(WAVE, value);
-                    handler.endEdit(WAVE);
-                }
-            }
-        }
         if self.kind == Kind::Effect && id == LATENCY && before != value {
             // The delay is the plugin's reported latency: tell the host to
             // ask again. The handler is cloned out so no lock is held over

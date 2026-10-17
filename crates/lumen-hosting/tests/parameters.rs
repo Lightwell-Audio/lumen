@@ -10,6 +10,7 @@ use std::time::Duration;
 use lumen_core::midi::{Event, Msg};
 use lumen_hosting::{Happened, Manager};
 use lumen_plugin_host::protocol::EditKind;
+use lumen_test_plugin::controller::TRIGGER;
 use lumen_test_plugin::params::{LEVEL, WAVE};
 use support::*;
 
@@ -48,8 +49,8 @@ fn values_the_project_holds_are_in_place_before_the_first_block() {
     manager.want(1, start).unwrap();
     let mut linked = linked(&mut manager, 1);
     assert_eq!(loudness(&mut linked.link, &held()), 0.25);
-    // And the list shows it as the current value.
-    assert_eq!(linked.params[0].value, 0.25);
+    // The list shows the value the saved state holds, before the project's.
+    assert_eq!(linked.params[0].value, 0.5);
 }
 
 #[test]
@@ -96,7 +97,7 @@ fn what_the_plugin_does_in_its_own_window_comes_as_edits_in_order() {
     let mut manager = manager();
     manager.want(1, instrument("window_edits")).unwrap();
     let _linked = linked(&mut manager, 1);
-    manager.set_param(1, LEVEL, 1.0);
+    manager.set_param(1, TRIGGER, 1.0);
     let taken = wait_for(
         &mut manager,
         Duration::from_secs(10),

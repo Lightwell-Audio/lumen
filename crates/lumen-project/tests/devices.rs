@@ -297,3 +297,90 @@ fn older_projects_have_no_folded_cards_and_none_are_written_when_there_are_none(
         Some(2)
     );
 }
+
+// Format v19 (M6 slice 4): a device holds parameter values over its saved
+// state, and the view remembers which parameters a card's strip shows.
+
+/// The model the v19 golden file must always load as. Never change it.
+fn golden_v19_expected() -> Project {
+    let mut project = golden_v18_expected();
+    project.name = "Golden v19".into();
+    for track in &mut project.tracks {
+        let track = std::sync::Arc::make_mut(track);
+        if let Some(device) = track.devices.iter_mut().find(|d| d.id == Id(1002)) {
+            device.params = [(0, 0.25), (7, 1.0), (4_000_000_000, 0.0)]
+                .into_iter()
+                .collect();
+        }
+    }
+    project.view.shown_params = [(Id(1002), vec![7, 0]), (Id(1011), vec![3])]
+        .into_iter()
+        .collect();
+    project
+}
+
+#[test]
+fn golden_v19_file_loads_forever() {
+    let path = fixture("v19/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v19_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v19 golden file must load");
+    assert_eq!(project, golden_v19_expected());
+}
+
+#[test]
+fn older_projects_hold_no_parameter_values_and_none_are_written_when_there_are_none() {
+    for old in ["v16/golden.lumen", "v17/golden.lumen", "v18/golden.lumen"] {
+        let project = load(&fixture(old)).expect("an older golden file loads");
+        assert!(project.view.shown_params.is_empty(), "{old}");
+        assert!(
+            project
+                .tracks
+                .iter()
+                .flat_map(|t| &t.devices)
+                .all(|d| d.params.is_empty()),
+            "{old}"
+        );
+    }
+    let text = String::from_utf8(to_bytes(&golden_v18_expected()).unwrap()).unwrap();
+    assert!(!text.contains("shown_params") && !text.contains("\"params\""));
+    let text = String::from_utf8(to_bytes(&golden_v19_expected()).unwrap()).unwrap();
+    assert!(text.contains("shown_params") && text.contains("\"params\""));
+}
+
+#[test]
+fn parameter_values_that_cannot_be_a_plugins_are_refused_with_a_reason() {
+    let refused = |edit: &dyn Fn(&mut Project)| {
+        let mut project = golden_v19_expected();
+        edit(&mut project);
+        // Saving refuses it; and so would loading a file that said so.
+        to_bytes(&project)
+            .expect_err("must be refused when saved")
+            .to_string()
+    };
+    let why = refused(&|p| {
+        let track = std::sync::Arc::make_mut(&mut p.tracks[0]);
+        track.devices[1].params.insert(9, 1.5);
+    });
+    assert!(why.contains("parameter values"), "{why}");
+    let why = refused(&|p| {
+        let track = std::sync::Arc::make_mut(&mut p.tracks[0]);
+        track.devices[1].params.insert(9, f64::NAN);
+    });
+    assert!(why.contains("parameter values"), "{why}");
+    // A built-in device holds none of this.
+    let why = refused(&|p| {
+        let track = std::sync::Arc::make_mut(&mut p.tracks[0]);
+        track.devices[0].plugin = PluginRef::Builtin {
+            name: "synth".into(),
+        };
+        track.devices[0].params.insert(1, 0.5);
+    });
+    assert!(why.contains("plugin-only"), "{why}");
+    let why = refused(&|p| {
+        p.view.shown_params.insert(Id(1002), (0..300).collect());
+    });
+    assert!(why.contains("strip"), "{why}");
+}

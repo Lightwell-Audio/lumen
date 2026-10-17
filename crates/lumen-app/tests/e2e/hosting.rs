@@ -91,6 +91,11 @@ fn faults(stem: &str) -> Option<&'static str> {
         "Rings" => Some("release=4000"),
         // Every block takes 3 ms of the plugin's work.
         "Slow" => Some("process_slow=3000"),
+        // The instrument has a trigger that makes it edit its wave, as a
+        // control moved in its own window would.
+        "Edits" => Some("window_edits"),
+        // Many parameters, in groups, some hidden, some read-only.
+        "Many" => Some("many_params=300"),
         _ => None,
     }
 }
@@ -598,4 +603,94 @@ fn plugins_are_promised_the_devices_block_and_follow_a_new_buffer_size() {
         app.device_promised_frames(PLUGIN) == Some(64)
     });
     wait_for_state(&mut lumen, PLUGIN, "ready");
+}
+
+// Slice 4: parameters. The project holds the values a plugin is set to over its
+// saved state, so setting one, undoing and redoing are heard, and what the
+// plugin does inside itself is recorded as an edit.
+
+const LEVEL: u32 = 0;
+const WAVE: u32 = 1;
+const TRIGGER: u32 = 90;
+
+#[test]
+fn a_parameter_set_in_the_project_is_heard_and_so_are_undo_and_redo() {
+    let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
+    let mut lumen = launch("param-heard", &project, &["Plug"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    play(&mut lumen);
+    let loud = level(&mut lumen);
+    assert!(loud > 0.05, "the instrument is silent: {loud}");
+
+    lumen.app_mut().set_device_param(PLUGIN, LEVEL, 0.1);
+    lumen.frames(5);
+    lumen.wait_for("the value to reach the plugin", |app| {
+        app.device_param_known(PLUGIN, LEVEL) == Some(0.1)
+    });
+    let quiet = level(&mut lumen);
+    assert!(quiet < loud * 0.4, "{quiet} is not much below {loud}");
+
+    // Undo puts the plugin back to the value its saved state holds.
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.wait_for("the value to go back", |app| {
+        app.device_param_known(PLUGIN, LEVEL) == Some(0.5)
+    });
+    let again = level(&mut lumen);
+    assert!(again > loud * 0.7, "{again} is not back near {loud}");
+    assert!(lumen.app().device_params(PLUGIN).is_empty());
+
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
+    lumen.wait_for("the value to come back", |app| {
+        app.device_param_known(PLUGIN, LEVEL) == Some(0.1)
+    });
+    assert!(level(&mut lumen) < loud * 0.4);
+}
+
+#[test]
+fn values_the_project_holds_are_in_place_when_the_plugin_loads_and_do_not_dirty_it() {
+    let mut device = instrument_device(PLUGIN);
+    device.params = [(LEVEL, 0.1)].into_iter().collect();
+    let project = project(|d| *d = vec![device.clone()]);
+    let mut lumen = launch("param-load", &project, &["Plug"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    assert_eq!(lumen.app().device_param_known(PLUGIN, LEVEL), Some(0.1));
+    play(&mut lumen);
+    let quiet = level(&mut lumen);
+    assert!(quiet < 0.2, "the saved value was not in place: {quiet}");
+    assert!(!lumen.app().is_dirty());
+    // Dropping the held value (an undo of the change that made it) goes back
+    // to what the plugin's own saved state says.
+    assert!(
+        lumen
+            .app()
+            .device_param_titles(PLUGIN)
+            .contains(&"Level".to_owned())
+    );
+}
+
+#[test]
+fn what_a_plugin_does_inside_itself_is_recorded_as_one_undo_step() {
+    let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
+    let mut lumen = launch("param-inside", &project, &["Edits"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    // The trigger makes the plugin move its wave in a gesture of its own.
+    lumen.app_mut().set_device_param(PLUGIN, TRIGGER, 1.0);
+    lumen.wait_for("the plugin's own edit to be recorded", |app| {
+        app.device_params(PLUGIN).iter().any(|&(id, _)| id == WAVE)
+    });
+    assert_eq!(
+        lumen.app().device_params(PLUGIN),
+        [(WAVE, 1.0), (TRIGGER, 1.0)]
+    );
+    // The edit is already known to the host, so nothing was sent back.
+    assert_eq!(lumen.app().device_param_known(PLUGIN, WAVE), Some(1.0));
+    assert!(lumen.app().is_dirty());
+
+    // Undo takes the plugin's own edit back first, as one step, and the
+    // plugin goes back to the wave its saved state holds.
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.wait_for("the wave to go back", |app| {
+        app.device_param_known(PLUGIN, WAVE) == Some(0.0)
+    });
+    assert_eq!(lumen.app().device_params(PLUGIN), [(TRIGGER, 1.0)]);
 }

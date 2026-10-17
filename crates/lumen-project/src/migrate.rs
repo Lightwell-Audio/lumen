@@ -21,6 +21,7 @@ pub const FIRST_VERSION: u64 = 1;
 pub const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10,
     v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15, v15_to_v16, v16_to_v17, v17_to_v18,
+    v18_to_v19,
 ];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
@@ -356,6 +357,15 @@ fn v16_to_v17(document: Value) -> Result<Value, String> {
 /// (`folded_devices`), written only when there are some. A file without it
 /// has none folded, which is what every older project showed.
 fn v17_to_v18(document: Value) -> Result<Value, String> {
+    Ok(document)
+}
+
+/// v19 (M6 slice 4): a VST3 device may hold parameter values over its saved
+/// state (`params`, by parameter id) and the view may list which parameters a
+/// device card's strip shows (`shown_params`). Both are written only when
+/// set. A file without them holds no overrides and lets the card choose, which
+/// is what every older project did.
+fn v18_to_v19(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 

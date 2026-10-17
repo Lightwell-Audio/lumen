@@ -485,6 +485,38 @@ impl App {
         self.document.copy_device(from, device, to, slot).ok()
     }
 
+    /// Sets a plugin's parameter (normalized) as the interface's controls will:
+    /// the project holds the value, and one drag is one undo step.
+    pub fn set_device_param(&mut self, device: Id, id: u32, value: f64) {
+        let _ = self.document.set_device_params(
+            device,
+            &[(id, value)],
+            "Change parameter",
+            Some("test-parameter"),
+        );
+    }
+
+    /// The parameter values the project holds for a device, by id.
+    pub fn device_params(&self, device: Id) -> Vec<(u32, f64)> {
+        crate::document::find_device(self.document.project(), device)
+            .map(|(_, d)| d.params.iter().map(|(&k, &v)| (k, v)).collect())
+            .unwrap_or_default()
+    }
+
+    /// A parameter's value as far as the host bridge knows it.
+    pub fn device_param_known(&self, device: Id, id: u32) -> Option<f64> {
+        self.hosting.value(device, id)
+    }
+
+    /// The titles of a running plugin's parameters, in its order.
+    pub fn device_param_titles(&self, device: Id) -> Vec<String> {
+        self.hosting
+            .parameters(device)
+            .iter()
+            .map(|p| p.title.clone())
+            .collect()
+    }
+
     /// Bypasses or turns on a device, as the interface will.
     pub fn set_device_bypass(&mut self, track: Id, device: Id, bypass: bool) {
         let _ = self.document.set_device_bypass(track, device, bypass);

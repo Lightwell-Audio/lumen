@@ -17,13 +17,13 @@
 //!   is saved, as the view is (owner's C2, refined: not an edit, so opening a
 //!   project and hearing it does not make it unsaved).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use lumen_devices::{Cost, Guard, HostedInstrument, Status};
 use lumen_engine::{InstrumentSpec, MidiTrack, MixerHandle};
-use lumen_hosting::{Happened, HostLog, Manager, Start};
+use lumen_hosting::{Edit, EditKind, Happened, HostLog, Manager, ParamInfo, Start, UnitInfo};
 use lumen_plugin_catalog::catalog::Catalog;
 use lumen_project::model::{
     Device, DeviceKind, Id, PluginRef, Project, Reported, Track, TrackKind,
@@ -93,7 +93,55 @@ struct Tracked {
     /// The longest block its plugin was promised (0 until linked).
     frames: u32,
     bypass: bool,
+    params: Parameters,
 }
+
+/// What Lumen knows of a plugin's parameters while its host runs (M6 slice 4).
+#[derive(Default)]
+struct Parameters {
+    /// The plugin's parameters, capped, as they were when it loaded, with
+    /// their values in the saved state.
+    list: Vec<ParamInfo>,
+    /// The plugin's own count, which may be more than the list.
+    total: u32,
+    units: Vec<UnitInfo>,
+    /// The value each parameter has in the plugin as far as Lumen knows: the
+    /// saved state's, then what Lumen set and what the plugin did inside.
+    values: BTreeMap<u32, f64>,
+    /// The value a parameter had before the project first held one for it:
+    /// what an undone change goes back to.
+    base: BTreeMap<u32, f64>,
+    /// The values the project held when the host was started.
+    started_with: BTreeMap<u32, f64>,
+    /// The plugin's own text for a value, last asked for, by parameter.
+    texts: HashMap<u32, (f64, String)>,
+    /// Edits the plugin made inside itself, waiting for the document, each
+    /// with whether it came inside a gesture (between a begin and an end).
+    edits: Vec<(Edit, bool)>,
+    /// The parameter whose gesture is open, since when. A gesture that never
+    /// ends is let go of after [`GESTURE_LIMIT`].
+    open: Option<(u32, std::time::Instant)>,
+    /// Controller, bend and pressure events no parameter took, in all.
+    ignored: u32,
+    /// Whether the host has linked before: a fresh link of the same process
+    /// keeps what is known.
+    linked_before: bool,
+    /// Whether the plugin's state is ahead of what the project saved.
+    dirty: bool,
+}
+
+/// The edits one device's plugin made inside itself, for the document.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeviceEdits {
+    pub device: Id,
+    /// In the order the plugin made them; `true` when inside a gesture.
+    pub edits: Vec<(Edit, bool)>,
+}
+
+/// How long a plugin's gesture may stay open with nothing in it before it is
+/// taken as ended (a plugin that forgets its end must not hold undo steps
+/// open for ever).
+const GESTURE_LIMIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// What a running plugin's blocks cost over a stretch of time, for the
 /// audio panel's budget bar (ADR-0075).
@@ -230,6 +278,81 @@ impl Hosting {
         }
     }
 
+    /// The plugin's parameters as listed when it loaded (empty until it has).
+    pub fn parameters(&self, device: Id) -> &[ParamInfo] {
+        self.tracked
+            .get(&device.0)
+            .map_or(&[], |t| t.params.list.as_slice())
+    }
+
+    /// The plugin's own count of parameters, which may be more than listed.
+    pub fn parameter_total(&self, device: Id) -> u32 {
+        self.tracked.get(&device.0).map_or(0, |t| t.params.total)
+    }
+
+    /// The groups the plugin's parameters sit in.
+    pub fn units(&self, device: Id) -> &[UnitInfo] {
+        self.tracked
+            .get(&device.0)
+            .map_or(&[], |t| t.params.units.as_slice())
+    }
+
+    /// A parameter's value as far as Lumen knows (normalized).
+    pub fn value(&self, device: Id, id: u32) -> Option<f64> {
+        self.tracked.get(&device.0)?.params.values.get(&id).copied()
+    }
+
+    /// Asks the plugin for its own text for `value` of a parameter; the answer
+    /// is [`Hosting::text`] a moment later.
+    pub fn ask_text(&self, device: Id, id: u32, value: f64) {
+        if let Some(manager) = self.manager.as_ref() {
+            manager.param_text(device.0, id, value);
+        }
+    }
+
+    /// The plugin's text for the value it was last asked about, and that value.
+    pub fn text(&self, device: Id, id: u32) -> Option<&(f64, String)> {
+        self.tracked.get(&device.0)?.params.texts.get(&id)
+    }
+
+    /// Events no parameter of the plugin took (it maps no controller to one).
+    pub fn ignored_events(&self, device: Id) -> u32 {
+        self.tracked.get(&device.0).map_or(0, |t| t.params.ignored)
+    }
+
+    /// The edits plugins made inside themselves since the last call, oldest
+    /// first, for the document to record. Their values are already known here,
+    /// so the document's matching change sends nothing back.
+    pub fn take_edits(&mut self) -> Vec<DeviceEdits> {
+        let mut out: Vec<DeviceEdits> = self
+            .tracked
+            .iter_mut()
+            .filter(|(_, t)| !t.params.edits.is_empty())
+            .map(|(&id, t)| DeviceEdits {
+                device: Id(id),
+                edits: std::mem::take(&mut t.params.edits),
+            })
+            .collect();
+        out.sort_by_key(|e| e.device);
+        out
+    }
+
+    /// Whether a plugin has a gesture open (a control held in its window): the
+    /// document keeps the undo step open until it ends.
+    pub fn gesture_open(&self) -> bool {
+        self.tracked.values().any(|t| {
+            t.params
+                .open
+                .is_some_and(|(_, since)| since.elapsed() < GESTURE_LIMIT)
+        })
+    }
+
+    /// Whether the plugin's state has moved on from what the project saved
+    /// (a parameter changed, from Lumen or inside the plugin).
+    pub fn dirty(&self, device: Id) -> bool {
+        self.tracked.get(&device.0).is_some_and(|t| t.params.dirty)
+    }
+
     /// Starts a new host for a failed device (the card's Reload).
     pub fn reload(&mut self, device: Id) {
         let Some(manager) = self.manager.as_mut() else {
@@ -242,6 +365,11 @@ impl Hosting {
             t.state = State::Loading;
             t.status = None;
             t.log = None;
+            // A new process starts from the saved state.
+            t.params = Parameters {
+                started_with: t.params.started_with.clone(),
+                ..Parameters::default()
+            };
         }
     }
 
@@ -327,6 +455,10 @@ impl Hosting {
                             rate,
                             frames: 0,
                             bypass: false,
+                            params: Parameters {
+                                started_with: w.device.params.clone(),
+                                ..Parameters::default()
+                            },
                         },
                     );
                 }
@@ -364,6 +496,17 @@ impl Hosting {
                     t.frames = linked.frames;
                     t.state = State::Ready;
                     t.bypass = false;
+                    if !t.params.linked_before {
+                        t.params.linked_before = true;
+                        t.params.base = linked.params.iter().map(|p| (p.id, p.value)).collect();
+                        t.params.values = t.params.base.clone();
+                        for (&id, &v) in &t.params.started_with {
+                            t.params.values.insert(id, v);
+                        }
+                        t.params.list = linked.params;
+                        t.params.total = linked.params_total;
+                        t.params.units = linked.units;
+                    }
                     if t.instrument {
                         self.instruments.insert(
                             t.track.0,
@@ -380,6 +523,46 @@ impl Hosting {
                 }
                 Happened::Failed(why) => {
                     t.state = State::Failed(why.to_string());
+                }
+                Happened::Text { id, value, text } => {
+                    t.params.texts.insert(id, (value, text));
+                }
+                Happened::Edits(taken) => {
+                    t.params.ignored = t.params.ignored.saturating_add(taken.ignored);
+                    for edit in taken.list {
+                        let p = &mut t.params;
+                        match edit.kind {
+                            EditKind::Begin => {
+                                if let Some(&now) = p.values.get(&edit.id) {
+                                    p.base.entry(edit.id).or_insert(now);
+                                }
+                                p.dirty = true;
+                                p.open = Some((edit.id, std::time::Instant::now()));
+                                p.edits.push((edit, true));
+                            }
+                            EditKind::Perform => {
+                                let before = p.values.insert(edit.id, edit.value);
+                                if let Some(before) = before {
+                                    p.base.entry(edit.id).or_insert(before);
+                                }
+                                p.dirty = true;
+                                let inside = p.open.is_some_and(|(id, _)| id == edit.id);
+                                if inside {
+                                    p.open = Some((edit.id, std::time::Instant::now()));
+                                }
+                                p.edits.push((edit, inside));
+                            }
+                            EditKind::End => {
+                                p.open = None;
+                                p.edits.push((edit, true));
+                            }
+                            // What the processor reports is the plugin's to
+                            // show, not an edit of the project.
+                            EditKind::Output => {
+                                p.values.insert(edit.id, edit.value);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -415,6 +598,17 @@ impl Hosting {
             }
             if status.failed() && t.state == State::Ready {
                 t.state = State::Failed(gave_up_words(t.log.as_deref()));
+            }
+            // The values the project holds are the plugin's: what an edit,
+            // an undo or a redo changed is sent to the host.
+            if t.state == State::Ready
+                && let Some(manager) = self.manager.as_ref()
+            {
+                for (id, value) in t.params.differences(&w.device.params) {
+                    manager.set_param(w.device.id.0, id, value);
+                    t.params.values.insert(id, value);
+                    t.params.dirty = true;
+                }
             }
         }
 
@@ -454,6 +648,7 @@ impl Hosting {
             f64::from(rate),
         );
         start.state = w.device.state.clone();
+        start.values = w.device.params.iter().map(|(&id, &v)| (id, v)).collect();
         start.frames = frames;
         if let Some(faults) = self.faults
             && let Some(stem) = module.file_stem()
@@ -554,6 +749,25 @@ impl Hosting {
     }
 }
 
+impl Parameters {
+    /// The values to send so the plugin matches what the project holds: every
+    /// value the project has that the plugin does not, and, for a parameter
+    /// the project let go of (an undone change), the value it had before.
+    fn differences(&self, held: &BTreeMap<u32, f64>) -> Vec<(u32, f64)> {
+        let mut send: Vec<(u32, f64)> = held
+            .iter()
+            .filter(|&(id, v)| self.values.get(id) != Some(v))
+            .map(|(&id, &v)| (id, v))
+            .collect();
+        for (&id, &base) in &self.base {
+            if !held.contains_key(&id) && self.values.get(&id).is_some_and(|&v| v != base) {
+                send.push((id, base));
+            }
+        }
+        send
+    }
+}
+
 /// An instrument slot for a plugin that is not attached: silent.
 pub fn stand_in() -> InstrumentSpec {
     InstrumentSpec {
@@ -576,6 +790,46 @@ mod tests {
         assert_eq!(super::promised_frames(0), 256, "no stream yet");
     }
     use lumen_project::model::PluginRef;
+
+    fn known(values: &[(u32, f64)], base: &[(u32, f64)]) -> Parameters {
+        Parameters {
+            values: values.iter().copied().collect(),
+            base: base.iter().copied().collect(),
+            ..Parameters::default()
+        }
+    }
+
+    fn held(values: &[(u32, f64)]) -> BTreeMap<u32, f64> {
+        values.iter().copied().collect()
+    }
+
+    #[test]
+    fn a_value_the_project_holds_and_the_plugin_lacks_is_sent() {
+        let p = known(&[(1, 0.5), (2, 0.5)], &[(1, 0.5), (2, 0.5)]);
+        let mut send = p.differences(&held(&[(1, 0.9), (2, 0.5)]));
+        send.sort_by_key(|&(id, _)| id);
+        assert_eq!(send, [(1, 0.9)], "only what differs");
+        assert!(p.differences(&held(&[(1, 0.5)])).is_empty());
+    }
+
+    #[test]
+    fn a_value_the_project_let_go_of_goes_back_to_what_it_was() {
+        // The project held 0.9 for parameter 1, over a saved 0.5; an undo
+        // takes the entry away: the plugin must go back to 0.5.
+        let p = known(&[(1, 0.9)], &[(1, 0.5)]);
+        assert_eq!(p.differences(&held(&[])), [(1, 0.5)]);
+        // Already back: nothing to send.
+        let p = known(&[(1, 0.5)], &[(1, 0.5)]);
+        assert!(p.differences(&held(&[])).is_empty());
+    }
+
+    #[test]
+    fn a_value_set_inside_the_plugin_is_not_sent_back() {
+        // The plugin reported 0.7 itself (known), then the document recorded
+        // it: the project holds the same value, so nothing goes back.
+        let p = known(&[(4, 0.7)], &[(4, 0.2)]);
+        assert!(p.differences(&held(&[(4, 0.7)])).is_empty());
+    }
 
     const CLASS: &str = "00112233445566778899AABBCCDDEEFF";
 

@@ -34,6 +34,7 @@ impl App {
         if !self.is_recording()
             && !ctx.input(|i| i.pointer.any_down())
             && !crate::widgets::wheel::adjusting(ctx)
+            && !self.hosting.gesture_open()
         {
             self.document.seal();
         }

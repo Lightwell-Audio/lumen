@@ -536,16 +536,18 @@ impl Run {
             host.set_state(s.state.clone(), s.deadlines.state)
                 .map_err(|e| self.fail(&mut host, Step::State, e))?;
         }
-        for &(id, value) in &s.values {
-            host.set_param(id, value, s.deadlines.state)
-                .map_err(|e| self.fail(&mut host, Step::State, e))?;
-        }
         // The parameters are for the interface: a plugin whose controller
-        // will not list them still plays.
+        // will not list them still plays. They are listed before the project's
+        // own values are set, so their values are what the saved state holds:
+        // the baseline an undone change goes back to.
         let (params_total, params) = host
             .parameters(s.deadlines.state)
             .unwrap_or((0, Vec::new()));
         let units = host.units(s.deadlines.state).unwrap_or_default();
+        for &(id, value) in &s.values {
+            host.set_param(id, value, s.deadlines.state)
+                .map_err(|e| self.fail(&mut host, Step::State, e))?;
+        }
         let mut up = Up {
             host,
             name: class.name,
