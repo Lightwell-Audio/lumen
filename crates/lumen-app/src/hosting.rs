@@ -98,6 +98,9 @@ struct Tracked {
     bypass: bool,
     params: Parameters,
     editor: EditorState,
+    /// When its host last came up. What a plugin says about its own state
+    /// changing in the first moments after is its loading, not the user.
+    linked_at: Option<std::time::Instant>,
     /// Its window was hidden (asked for; it stays open): the user is on
     /// another track.
     editor_hidden: bool,
@@ -193,6 +196,10 @@ impl Parameters {
 /// is read (a drag is many changes; the state is read when it rests).
 const REST: std::time::Duration = std::time::Duration::from_millis(600);
 
+/// How long after a plugin's host comes up that what it says about its own
+/// state changing is taken as its loading.
+const SETTLE: std::time::Duration = std::time::Duration::from_secs(3);
+
 /// What a plugin made of text the user typed for one of its parameters.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Typed {
@@ -256,6 +263,8 @@ pub struct Hosting {
     /// Where editor windows were last seen, by plugin class, waiting for the
     /// app to remember them.
     places: Vec<(String, EditorBounds)>,
+    /// A plugin changed inside, waiting for the app to say so.
+    inside_changes: bool,
     /// Keys pressed and let go of in plugins' windows (virtual-key codes,
     /// `true` for down), oldest first, waiting for the computer keyboard.
     keys: Vec<(u8, bool)>,
@@ -341,6 +350,7 @@ impl Hosting {
             rate: 0,
             frames: promised_frames(0),
             places: Vec::new(),
+            inside_changes: false,
             keys: Vec::new(),
         }
     }
@@ -483,6 +493,14 @@ impl Hosting {
             }
         }
         hidden_now
+    }
+
+    /// Sends a parameter value straight to the device's plugin, as its own
+    /// window would deliver it, without an edit of the project. For tests.
+    pub fn poke_param(&self, device: Id, id: u32, value: f64) {
+        if let Some(manager) = self.manager.as_ref() {
+            manager.set_param(device.0, id, value);
+        }
     }
 
     /// Whether the device's plugin window is hidden while open.
@@ -764,6 +782,7 @@ impl Hosting {
                                 ..Parameters::default()
                             },
                             editor: EditorState::Closed,
+                            linked_at: None,
                             editor_hidden: false,
                             relinking: false,
                         },
@@ -805,6 +824,7 @@ impl Hosting {
                     t.rate = self.rate;
                     t.frames = linked.frames;
                     t.state = State::Ready;
+                    t.linked_at = Some(std::time::Instant::now());
                     t.bypass = false;
                     t.relinking = false;
                     if !t.params.linked_before {
@@ -925,6 +945,17 @@ impl Hosting {
                             // show, not an edit of the project.
                             EditKind::Output => {
                                 p.values.insert(edit.id, edit.value);
+                            }
+                            // The plugin changed inside, where no parameter
+                            // shows it: its state is ahead of the project's
+                            // (read once it rests), and the project has
+                            // unsaved changes. A plugin says as much while it
+                            // loads, which is not the user's change.
+                            EditKind::Dirty => {
+                                if t.linked_at.is_some_and(|at| at.elapsed() >= SETTLE) {
+                                    p.touch();
+                                    self.inside_changes = true;
+                                }
                             }
                         }
                     }
@@ -1139,6 +1170,13 @@ impl Hosting {
             any = true;
         }
         any
+    }
+
+    /// Whether a plugin has said, since the last call, that something changed
+    /// inside it that no parameter shows (a patch, a preset). The project then
+    /// has unsaved changes, though no edit.
+    pub fn take_inside_changes(&mut self) -> bool {
+        std::mem::take(&mut self.inside_changes)
     }
 
     /// Whether a plugin's state is still being read.

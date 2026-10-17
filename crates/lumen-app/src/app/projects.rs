@@ -214,6 +214,7 @@ impl App {
     /// Writes the save, with the plugins' states as they were last read.
     fn write_save(&mut self, path: PathBuf, normalize_project_path: bool) {
         trace::log(|| format!("files: saving {}", path.display()));
+        self.document.begin_save();
         self.saving = Some(files::save(files::SaveRequest {
             project: self.stamped(),
             path,

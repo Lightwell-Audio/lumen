@@ -8,10 +8,10 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use vst3::Steinberg::Vst::{
-    BusDirection, IComponentHandler, IComponentHandlerTrait, IEditController, IEditControllerTrait,
-    IMidiMapping, IMidiMappingTrait, IUnitInfo, IUnitInfoTrait, MediaType, ParameterInfo,
-    ParameterInfo_, ProgramListID, ProgramListInfo, RestartFlags_, String128, TChar, UnitID,
-    UnitInfo,
+    BusDirection, IComponentHandler, IComponentHandler2, IComponentHandler2Trait,
+    IComponentHandlerTrait, IEditController, IEditControllerTrait, IMidiMapping, IMidiMappingTrait,
+    IUnitInfo, IUnitInfoTrait, MediaType, ParameterInfo, ParameterInfo_, ProgramListID,
+    ProgramListInfo, RestartFlags_, String128, TChar, UnitID, UnitInfo,
 };
 use vst3::Steinberg::{
     FUnknown, IBStream, IPlugView, IPluginBaseTrait, int16, int32, kInvalidArgument, kResultFalse,
@@ -80,7 +80,10 @@ impl Controller {
 
     /// Whether the controller lists the trigger.
     fn has_trigger(&self) -> bool {
-        self.kind == Kind::Instrument && self.faults.has(Fault::WindowEdits)
+        self.kind == Kind::Instrument
+            && (self.faults.has(Fault::WindowEdits)
+                || self.faults.has(Fault::SetDirty)
+                || self.faults.has(Fault::ValuesChanged))
     }
 
     /// Which extra parameter `id` is, if it is one.
@@ -279,9 +282,19 @@ impl IEditControllerTrait for Controller {
                 if let Some(handler) = self.handler() {
                     // SAFETY: a live handler the host gave us.
                     unsafe {
-                        handler.beginEdit(WAVE);
-                        handler.performEdit(WAVE, 1.0);
-                        handler.endEdit(WAVE);
+                        if self.faults.has(Fault::WindowEdits) {
+                            handler.beginEdit(WAVE);
+                            handler.performEdit(WAVE, 1.0);
+                            handler.endEdit(WAVE);
+                        }
+                        if self.faults.has(Fault::SetDirty)
+                            && let Some(second) = handler.cast::<IComponentHandler2>()
+                        {
+                            second.setDirty(1);
+                        }
+                        if self.faults.has(Fault::ValuesChanged) {
+                            handler.restartComponent(RestartFlags_::kParamValuesChanged);
+                        }
                     }
                 }
             }

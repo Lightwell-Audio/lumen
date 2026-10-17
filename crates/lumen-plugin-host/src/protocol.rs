@@ -247,6 +247,10 @@ pub enum EditKind {
     End = 2,
     /// The processor reported a value of its own (a meter, a changed program).
     Output = 3,
+    /// The plugin said that something inside it changed that no parameter
+    /// shows (a patch, a preset): `setDirty`, or a restart that says the
+    /// values changed. The id and the value mean nothing.
+    Dirty = 4,
 }
 
 impl EditKind {
@@ -256,6 +260,7 @@ impl EditKind {
             1 => Self::Perform,
             2 => Self::End,
             3 => Self::Output,
+            4 => Self::Dirty,
             _ => return Err(WireError::Invalid("edit kind")),
         })
     }

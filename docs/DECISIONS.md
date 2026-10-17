@@ -6958,10 +6958,17 @@ the save a prompt starts) asks every running plugin for its state and writes
 the file when the answers are in, after at most four seconds
 (`Hosting::request_captures`, `captures_pending`, `App::save_waiting`); a
 plugin that cannot answer is saved with the state the project held, as before.
-Not covered yet: a change made only inside a plugin does not mark the project
-unsaved (no prompt on Quit, no dot), nor does autosave read the plugins; the
-plugin's own "dirty" call (`IComponentHandler2::setDirty`) is the way to know,
-and is not handled.
+*Follow-up, same day:* a change made only inside a plugin now marks the project
+unsaved. The host's handler implements `IComponentHandler2` (`setDirty(true)`)
+and treats a restart that says the parameter values changed or the component
+reloaded (what a patch load sends) the same way: a new `EditKind::Dirty`
+(**protocol 5**, same bump). In Lumen it marks the project unsaved without an
+undo step (`Document::mark_changed_inside`, counted apart from the history so
+a change made while a save is written stays unsaved), touches the plugin so it
+is read once it rests, and the autosave sees it (`Document::change_mark`).
+What a plugin says in the first three seconds after its host comes up is taken
+as loading, not the user (`hosting::SETTLE`). A plugin that changes without
+saying so is still found by the save, which reads every plugin.
 
 **Editors follow the chosen track (owner, 2026-10-17).** A plugin's window is
 only on screen with its own track: choosing another track hides every other

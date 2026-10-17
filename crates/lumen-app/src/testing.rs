@@ -514,6 +514,12 @@ impl App {
         self.strip_ids(device)
     }
 
+    /// Sends a parameter value to the device's plugin as a control in its own
+    /// window would, with no edit of the project.
+    pub fn poke_plugin(&mut self, device: Id, id: u32, value: f64) {
+        self.hosting.poke_param(device, id, value);
+    }
+
     /// Whether the device's plugin window is open but hidden because the
     /// Devices tab shows another track.
     pub fn editor_hidden(&self, device: Id) -> bool {

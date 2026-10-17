@@ -10,14 +10,14 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use vst3::Steinberg::IBStream_::IStreamSeekMode_::{kIBSeekCur, kIBSeekEnd, kIBSeekSet};
 use vst3::Steinberg::Vst::{
-    Event, IAttributeList, IAttributeListTrait, IComponentHandler, IComponentHandlerTrait,
-    IEventList, IEventListTrait, IHostApplication, IHostApplicationTrait, IMessage, IMessageTrait,
-    IParamValueQueue, IParamValueQueueTrait, IParameterChanges, IParameterChangesTrait, ParamID,
-    ParamValue, String128, TChar,
+    Event, IAttributeList, IAttributeListTrait, IComponentHandler, IComponentHandler2,
+    IComponentHandler2Trait, IComponentHandlerTrait, IEventList, IEventListTrait, IHostApplication,
+    IHostApplicationTrait, IMessage, IMessageTrait, IParamValueQueue, IParamValueQueueTrait,
+    IParameterChanges, IParameterChangesTrait, ParamID, ParamValue, String128, TChar,
 };
 use vst3::Steinberg::{
-    IBStream, IBStreamTrait, TUID, int32, int64, kInvalidArgument, kNotImplemented, kResultFalse,
-    kResultOk, tresult,
+    FIDString, IBStream, IBStreamTrait, TBool, TUID, int32, int64, kInvalidArgument,
+    kNotImplemented, kResultFalse, kResultOk, tresult,
 };
 use vst3::{Class, ComPtr, ComWrapper, Interface};
 
@@ -337,7 +337,10 @@ impl Handler {
         };
         if let Some(last) = reports.list.last_mut()
             && edit.kind == last.kind
-            && matches!(edit.kind, EditKind::Perform | EditKind::Output)
+            && matches!(
+                edit.kind,
+                EditKind::Perform | EditKind::Output | EditKind::Dirty
+            )
             && edit.id == last.id
         {
             last.value = edit.value;
@@ -385,7 +388,45 @@ impl Handler {
 pub const MOST_PENDING: usize = 512;
 
 impl Class for Handler {
-    type Interfaces = (IComponentHandler,);
+    type Interfaces = (IComponentHandler, IComponentHandler2);
+}
+
+/// What a restart asks for that says the plugin's own state changed: its
+/// parameter values (a program or patch was loaded) or the whole component.
+const RESTART_CHANGED_STATE: u32 = 1 | (1 << 2);
+
+impl Handler {
+    /// Tells Lumen the plugin changed inside, where no parameter shows it.
+    fn report_dirty(&self) {
+        self.report(Edit {
+            id: 0,
+            value: 0.0,
+            kind: EditKind::Dirty,
+        });
+    }
+}
+
+impl IComponentHandler2Trait for Handler {
+    /// The plugin's state changed (or, with false, was saved by the plugin
+    /// itself): only a change matters to Lumen.
+    unsafe fn setDirty(&self, state: TBool) -> tresult {
+        if state != 0 {
+            self.report_dirty();
+        }
+        kResultOk
+    }
+
+    unsafe fn requestOpenEditor(&self, _name: FIDString) -> tresult {
+        kResultFalse
+    }
+
+    unsafe fn startGroupEdit(&self) -> tresult {
+        kResultOk
+    }
+
+    unsafe fn finishGroupEdit(&self) -> tresult {
+        kResultOk
+    }
 }
 
 impl IComponentHandlerTrait for Handler {
@@ -421,6 +462,9 @@ impl IComponentHandlerTrait for Handler {
 
     unsafe fn restartComponent(&self, flags: int32) -> tresult {
         self.restart.fetch_or(flags as u32, Ordering::AcqRel);
+        if flags as u32 & RESTART_CHANGED_STATE != 0 {
+            self.report_dirty();
+        }
         kResultOk
     }
 }
@@ -984,6 +1028,31 @@ mod tests {
 
     fn edit(id: u32, value: f64, kind: EditKind) -> Edit {
         Edit { id, value, kind }
+    }
+
+    #[test]
+    fn a_plugin_saying_it_changed_inside_is_told_once_and_other_news_is_not() {
+        let h = Handler::default();
+        let dirty = vec![edit(0, 0.0, EditKind::Dirty)];
+        // SAFETY: plain calls on an object of this process.
+        unsafe {
+            // Saved by the plugin itself: not a change.
+            h.setDirty(0);
+            // A latency change is for the host, not the project.
+            h.restartComponent(1 << 3);
+            assert!(h.take_reports().0.is_empty());
+            // A change, said twice before anyone asks, is one.
+            h.setDirty(1);
+            h.setDirty(1);
+            assert_eq!(h.take_reports().0, dirty, "setDirty");
+            // A patch loaded (its values changed), and a reload.
+            h.restartComponent(1 << 2);
+            assert_eq!(h.take_reports().0, dirty, "values changed");
+            h.restartComponent(1);
+            assert_eq!(h.take_reports().0, dirty, "reload");
+        }
+        // Every restart is still kept for the host to act on.
+        assert_eq!(h.restart.load(Ordering::Acquire), (1 << 3) | (1 << 2) | 1);
     }
 
     #[test]

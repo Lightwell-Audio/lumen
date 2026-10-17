@@ -94,6 +94,11 @@ fn faults(stem: &str) -> Option<&'static str> {
         // The instrument has a trigger that makes it edit its wave, as a
         // control moved in its own window would.
         "Edits" => Some("window_edits"),
+        // Stepping the trigger makes it tell the host it changed inside
+        // (`setDirty`, or a restart that says its values changed), as a patch
+        // loaded in its own window does; no parameter shows it.
+        "Dirty" => Some("set_dirty"),
+        "Values" => Some("values_changed"),
         // Reading the plugin's state never returns.
         "Stuck" => Some("state_hang"),
         // Many parameters, in groups, some hidden, some read-only.
@@ -733,6 +738,60 @@ fn a_plugin_that_changed_is_read_once_it_rests_and_the_save_holds_what_it_is_now
     lumen.frames(2);
     assert!(saved_device(&lumen).state.is_empty());
     assert_eq!(saved_device(&lumen).params.get(&LEVEL), Some(&0.9));
+}
+
+/// Steps the plugin's trigger on and off as its own window would, until the
+/// project reads as having unsaved changes (what a plugin says in its first
+/// seconds is taken as its loading).
+#[track_caller]
+fn change_inside(lumen: &mut Lumen) {
+    const TRIGGER: u32 = 90;
+    for i in 0..60 {
+        if lumen.app().is_dirty() {
+            return;
+        }
+        lumen
+            .app_mut()
+            .poke_plugin(PLUGIN, TRIGGER, f64::from(i % 2 == 0));
+        lumen.frames(6);
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    panic!("the project never read as changed");
+}
+
+#[test]
+fn a_change_inside_a_plugin_marks_the_project_unsaved_with_nothing_to_undo_and_a_save_clears_it() {
+    for module in ["Dirty", "Values"] {
+        let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
+        let mut lumen = launch(&format!("inside-{module}"), &project, &[module]);
+        wait_for_state(&mut lumen, PLUGIN, "ready");
+        assert!(!lumen.app().is_dirty(), "{module}: opened as saved");
+        let undoable = lumen.app().project().clone();
+        change_inside(&mut lumen);
+        assert_eq!(lumen.app().project(), &undoable, "{module}: no edit");
+        // It is read once it rests, and a save holds what it is now.
+        let path = lumen.dir().join("saved.lumen");
+        lumen.app_mut().save_to(path.clone());
+        lumen.wait_for("the save", |app| !app.is_busy());
+        assert!(!lumen.app().is_dirty(), "{module}: saved");
+        let reopened = lumen_project::load(&path).expect("the saved project loads");
+        assert!(
+            reopened.tracks[0].devices[0].state.starts_with(b"LTP1"),
+            "{module}: the plugin's state is in the file"
+        );
+    }
+}
+
+#[test]
+fn a_plugin_saying_it_changed_while_it_loads_is_not_the_users_change() {
+    let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
+    let mut lumen = launch("inside-loading", &project, &["Dirty"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    // At once, before the host has been up for a few seconds.
+    lumen.app_mut().poke_plugin(PLUGIN, 90, 0.0);
+    lumen.app_mut().poke_plugin(PLUGIN, 90, 1.0);
+    lumen.frames(20);
+    assert!(!lumen.app().is_dirty());
 }
 
 #[test]

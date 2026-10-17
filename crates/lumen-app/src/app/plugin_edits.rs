@@ -30,6 +30,9 @@ impl App {
             };
             record(&mut self.document, news.device, &news.edits, title);
         }
+        if self.hosting.take_inside_changes() {
+            self.document.mark_changed_inside();
+        }
         self.follow_editors(ctx, &touched);
         self.follow_chosen_track();
         for typed in self.hosting.take_typed() {
@@ -112,7 +115,7 @@ pub(crate) fn record(
                 doc.seal();
             }
             // Not an edit of the project.
-            EditKind::Output => {}
+            EditKind::Output | EditKind::Dirty => {}
         }
     }
     flush(doc, &mut loose);

@@ -122,6 +122,17 @@ fn a_value_set_outside_the_range_or_not_a_number_is_made_safe() {
 }
 
 #[test]
+fn a_change_inside_the_plugin_that_no_parameter_shows_reaches_lumen() {
+    for fault in ["set_dirty", "values_changed"] {
+        let mut host = instrument(fault);
+        host.set_param(TRIGGER, 1.0, SLOW).unwrap();
+        let taken = host.take_edits(SLOW).unwrap();
+        let kinds: Vec<_> = taken.list.iter().map(|e| e.kind).collect();
+        assert_eq!(kinds, vec![EditKind::Dirty], "{fault}");
+    }
+}
+
+#[test]
 fn what_the_plugin_does_in_its_window_reaches_lumen_in_order_and_the_processor() {
     // With `window_edits` stepping the trigger on makes the plugin move its
     // wave, as a gesture it makes itself: begin, a value, end.
