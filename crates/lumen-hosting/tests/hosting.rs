@@ -100,9 +100,13 @@ fn an_effect_processes_the_audio_it_is_given_and_reports_its_latency() {
             .process(128, vec![left.clone(), right.clone()], vec![], vec![], SLOW)
             .expect("pipe");
         let (l, r, reply) = play(&mut linked.link, 128, &[&left, &right], &[]);
-        let Some(Reply::Ready { latency, .. }) = reply else {
+        let Some(Reply::Ready {
+            latency, work_ns, ..
+        }) = reply
+        else {
             panic!("block {block}: {reply:?}");
         };
+        assert!(work_ns > 0, "the host says how long the plugin worked");
         assert_eq!(latency, expected.latency);
         assert_eq!(latency, configured_latency);
         assert_eq!(l, expected.output[0], "block {block}");

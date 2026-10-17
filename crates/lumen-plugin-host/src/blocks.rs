@@ -96,6 +96,7 @@ fn run(mut link: HostLink, shared: &Shared) {
             latency: 0,
             restart: 0,
             repaired: 0,
+            work_ns: 0,
         };
         let mut frames = 0;
         if let Ok((generation, n)) = link.region().read_request(&mut scratch) {
@@ -117,7 +118,9 @@ fn run(mut link: HostLink, shared: &Shared) {
                     } else {
                         let began = std::time::Instant::now();
                         let outcome = process(instance, n, &mut scratch, &mut answer);
-                        timing.note(began.elapsed(), n);
+                        let took = began.elapsed();
+                        answer.work_ns = u32::try_from(took.as_nanos()).unwrap_or(u32::MAX);
+                        timing.note(took, n);
                         outcome
                     }
                 }

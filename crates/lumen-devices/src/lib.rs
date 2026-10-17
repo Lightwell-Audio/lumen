@@ -11,7 +11,7 @@ pub mod instrument;
 pub mod synth;
 
 pub use hosted::{
-    FAILED_AFTER_FRAMES, Guard, Hosted, HostedInstrument, Outcome, Refused, Reply, Status,
+    Cost, FAILED_AFTER_FRAMES, Guard, Hosted, HostedInstrument, Outcome, Refused, Reply, Status,
 };
 pub use instrument::Instrument;
 pub use synth::{Preset, Synth};

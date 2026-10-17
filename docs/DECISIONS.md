@@ -71,6 +71,7 @@ irreversible or external) · *Superseded*.
 | [0071](#adr-0071--the-hosting-manager-a-process-per-plugin-device-the-link-and-the-apps-bridge-m6-slice-2c) | The hosting manager (`lumen-hosting`): a process and a thread per plugin device, loaded in the background, the `Link` the engine plays it through, the app's bridge, and the engine's rule that a host in a new or skipped track list is never given away (M6 slice 2c) | Accepted 2026-10-16 (verified with the test plugin in real host processes on Windows, and in the app's end-to-end tests; no real plugin, no Linux or macOS run of the app) | No |
 | [0072](#adr-0072--the-devices-tab-cards-placement-and-dragging-m6-slice-2d) | The Devices tab: cards, placement and dragging (M6 slice 2d) | **Accepted** 2026-10-17 (owner's C4 design) | No |
 | [0074](#adr-0074--plugins-ring-out-until-their-output-is-quiet) | Plugins ring out until their output is quiet: a hosted instrument or effect is given blocks until it has been below −90 dBFS for two seconds (or its reported tail, at most ten), effects after Stop included | Accepted 2026-10-17 (owner's B; verified with fake hosts and the test plugin; no real plugin) | Decided by the owner |
+| [0075](#adr-0075--missed-plugin-blocks-notes-kept-hosts-at-full-speed-costs-measured) | Missed plugin blocks: notes a busy host could not take go with the next block, host processes run at high priority without power throttling, and each block's plugin work and wait are measured | Proposed 2026-10-17 (fixes 1 to 3 chosen by the owner; the readout's look waits on the mock-up) | Partly: the readout's look |
 
 ---
 
@@ -6671,3 +6672,73 @@ cross-clippy is clean. The WSL performance gate passes: `engine_hosted_64`
 +0.78% (the level scan of each answered block), every other scenario within
 ±0.21%. **Not run:** any real plugin (the owner's check), RealtimeSanitizer,
 Linux and macOS runs.
+
+## ADR-0075 — Missed plugin blocks: notes kept, hosts at full speed, costs measured
+
+**Status:** Proposed 2026-10-17. The owner chose fixes 1 to 3; the readout's
+look is pitched as a mock-up (the "Lumen Plugin Cost Readout Specimens"
+canvas). Branch `fix/plugin-host-misses`, cut from `main`.
+
+**Context.** With one MIDI track playing a plugin synth into a plugin amp
+(128 frames, 44.1 kHz, ASIO, a Ryzen 7 7700X on the Balanced power plan) the
+owner saw the CPU readout at 70 to 100% and heard occasional pops while
+playing and while playing live. The same project in another DAW reads about
+15%. Measured on the owner's machine:
+- `lumen-host-bench` with each real plugin, one host, 128 frames, 44.1 kHz,
+  event wake-up, no notes: 14 µs median (47 µs worst) a round trip for the amp,
+  66 µs (147 µs worst) for the synth. No deadline missed.
+- The running Lumen's amp host used 9 to 15% of one core, all on its audio
+  thread (priority 24, MMCSS); the synth's host was idle at the time.
+
+So the plugins cost about what the other DAW shows, and the handover is
+quick in the bench, yet the callback's wall time reached the 75% deadline
+(the readout's 1-second peak was 75.1%). Where the rest goes is not known:
+nothing measured a plugin's work or the callback's wait for it. A block past
+the deadline is silence for an instrument and the dry signal for an effect,
+and the host is then usually still busy for the next block, which is missed
+too. None of this was shown: Overloads and Dropouts count only the device.
+
+Two defects were found reading the code:
+- A hosted instrument's events for a block its host refused as busy were
+  dropped. A lost note-off leaves the note hanging in the plugin.
+- Host processes ran at normal priority with Windows free to throttle them.
+  Windows may slow a process with no window (lower clocks, coarse timers), and
+  a plugin's own worker threads compete with ordinary programs while the audio
+  waits on them.
+
+**Decision.**
+1. `HostedInstrument::begin`: when the host refuses a block as busy (and has
+   not failed), the block's events go back to `pending`, at offset 0, and ride
+   on the next block, ahead of its own. Late by a block, never lost.
+2. `lumen-plugin-host` sessions (not scans) call
+   `process::run_at_full_speed` on Windows: `HIGH_PRIORITY_CLASS`, and power
+   throttling controlled and off for execution speed and timer resolution.
+   The audio thread keeps its MMCSS class.
+3. The host times `Instance::process_into` for every block and returns it in
+   the answer (`Answer::work_ns`; the shared region's version is 2, so a host
+   built before this is refused rather than misread). `Reply::Ready` carries
+   it; `Guard` times its own wait in `collect` and adds both to
+   `Status::take_cost` (`hosted/timing.rs`: blocks, mean and peak of work and
+   wait, late blocks included in the wait). Missed blocks were already
+   counted (`Status::late_blocks`).
+4. The readout (where and how this is shown) waits on the owner's choice
+   among the mock-up's A (a table in the audio popover), B (a block budget
+   bar in the popover, recommended) and C (on the device cards).
+
+**Consequences.**
+- Notes are no longer lost when a host is late; they sound a block late.
+- A misbehaving plugin's busy threads now run at high priority: on a machine
+  with few cores this can slow the interface. Lumen still kills a hung host.
+- Two clock reads per hosted block on the audio thread (both already done for
+  deadlines).
+- If waiting turns out to be most of the cost, the next step is the audio
+  path itself: the pipelined path ADR-0069 keeps as its fallback, or one
+  process per track's chain. That is the owner's decision, with the readout's
+  numbers.
+
+**Verification.** `lumen-devices`: a busy host's note-off goes with the next
+block (fails without the fix), costs are counted for answered and late blocks,
+`timing` totals. `lumen-plugin-host`: a host session runs at high priority
+(Windows), the region round-trips `work_ns`. `lumen-hosting`: a real host
+reports a nonzero work time. **Not run:** any real plugin with the fixes, the
+readout (not built), the owner's power-plan comparison.

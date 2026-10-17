@@ -151,6 +151,7 @@ impl BlockLink {
                     latency: 0,
                     restart: 0,
                     repaired: 0,
+                    work_ns: 0,
                 }
             }
         };

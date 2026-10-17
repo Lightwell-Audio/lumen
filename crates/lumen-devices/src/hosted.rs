@@ -27,6 +27,11 @@ use lumen_core::midi::{Event, Kind, Msg, cc};
 
 use crate::Instrument;
 
+mod timing;
+
+pub use timing::Cost;
+use timing::Costs;
+
 /// Frames of audio a host may stay late for, in a row, before it is failed:
 /// about a second at 48 kHz. Blocks are silence (or the unprocessed input)
 /// meanwhile. A count of blocks would fail a plugin whose first blocks are slow
@@ -62,11 +67,13 @@ pub enum Refused {
 pub enum Reply {
     /// In time: the output is in the buffers. `latency` and `tail` are what
     /// the plugin reports now, in frames; `restart` says it asked to be
-    /// restarted (a change of buses or latency the engine should follow).
+    /// restarted (a change of buses or latency the engine should follow);
+    /// `work_ns` is how long the plugin worked on the block.
     Ready {
         latency: u32,
         tail: u32,
         restart: bool,
+        work_ns: u32,
     },
     /// Not by the deadline: this block is silence, and the block is still in
     /// flight.
@@ -112,6 +119,7 @@ pub struct Status {
     restart: AtomicBool,
     /// The one thing the interface writes: the device is bypassed.
     bypass: AtomicBool,
+    costs: Costs,
 }
 
 impl Status {
@@ -124,7 +132,14 @@ impl Status {
             news: AtomicBool::new(false),
             restart: AtomicBool::new(false),
             bypass: AtomicBool::new(false),
+            costs: Costs::default(),
         })
+    }
+
+    /// What the plugin's blocks cost since the last call: its work in the
+    /// host and the audio thread's wait for it.
+    pub fn take_cost(&self) -> Cost {
+        self.costs.take()
     }
 
     /// Bypasses the device (an effect then passes its input through, delayed
@@ -325,12 +340,17 @@ impl Guard {
     }
 
     fn collect(&mut self, deadline: Instant, left: &mut [f32], right: &mut [f32]) -> Outcome {
-        match self.host.collect(deadline, left, right) {
+        let asked = Instant::now();
+        let reply = self.host.collect(deadline, left, right);
+        let waited = asked.elapsed();
+        match reply {
             Reply::Ready {
                 latency,
                 tail,
                 restart,
+                work_ns,
             } => {
+                self.status.costs.note(Some(work_ns), waited);
                 self.missed = 0;
                 if self.status.latency.swap(latency, Ordering::Relaxed) != latency {
                     self.status.news.store(true, Ordering::Release);
@@ -342,6 +362,7 @@ impl Guard {
                 Outcome::Ready
             }
             Reply::Late => {
+                self.status.costs.note(None, waited);
                 self.miss();
                 if self.host.ended() {
                     self.fail();
@@ -523,6 +544,16 @@ impl Instrument for HostedInstrument {
         self.block.extend(events.iter().take(room));
         self.dropped += events.len().saturating_sub(room) as u32;
         let sent = guard.begin(frames, &[], &self.block);
+        if !sent && !guard.failed() {
+            // The host is still on an earlier block: what was said goes with
+            // the next one, at its start, rather than being lost (a lost
+            // note-off would leave a note hanging).
+            let said = self.block.iter().map(|e| Event {
+                offset: 0,
+                msg: e.msg,
+            });
+            self.pending.extend(said);
+        }
         let mut woken = false;
         for event in &self.block {
             self.holding.note(event.msg);
@@ -607,6 +638,8 @@ mod tests {
     #[derive(Default)]
     struct Seen {
         submits: u32,
+        /// Submits still to refuse as busy, as a host on an earlier block.
+        busy: u32,
         events: Vec<Vec<Event>>,
         value: f32,
     }
@@ -643,6 +676,10 @@ mod tests {
                 return Err(why);
             }
             let mut seen = self.seen.lock().unwrap();
+            if seen.busy > 0 {
+                seen.busy -= 1;
+                return Err(Refused::Busy);
+            }
             seen.submits += 1;
             seen.events.push(events.to_vec());
             Ok(())
@@ -668,6 +705,7 @@ mod tests {
         latency: 0,
         tail: 0,
         restart: false,
+        work_ns: 40_000,
     };
 
     fn submits(seen: &Arc<Mutex<Seen>>) -> u32 {
@@ -690,11 +728,29 @@ mod tests {
     }
 
     #[test]
+    fn the_plugins_work_and_the_wait_for_it_are_counted_late_blocks_too() {
+        let (host, _) = Fake::new(vec![READY, Reply::Late]);
+        let mut guard = Guard::new(host, 0);
+        let status = guard.status();
+        run(&mut guard);
+        run(&mut guard);
+        let cost = status.take_cost();
+        assert_eq!(cost.blocks, 2, "both blocks were waited for");
+        assert_eq!(
+            cost.work_mean,
+            Duration::from_micros(40),
+            "work of the answer"
+        );
+        assert_eq!(status.take_cost().blocks, 0, "taken");
+    }
+
+    #[test]
     fn a_changed_latency_is_news_once_and_a_restart_is_asked_once() {
         let change = Reply::Ready {
             latency: 128,
             tail: 9,
             restart: true,
+            work_ns: 0,
         };
         let (host, _) = Fake::new(vec![READY, change, change]);
         let mut guard = Guard::new(host, 0);
@@ -927,6 +983,7 @@ mod tests {
                 latency: 0,
                 tail,
                 restart: false,
+                work_ns: 0,
             }]);
             quiet(&seen);
             let (mut l, mut r) = ([0.0f32; 100], [0.0f32; 100]);
@@ -1060,6 +1117,36 @@ mod tests {
                 offset: 0,
                 msg: Msg::controller(0, cc::ALL_SOUND_OFF, 0)
             }]]
+        );
+    }
+
+    #[test]
+    fn what_a_busy_host_was_not_given_goes_with_the_next_block() {
+        let (mut synth, seen) = instrument(vec![READY]);
+        let (mut l, mut r) = ([0.0f32; 64], [0.0f32; 64]);
+        assert!(synth.begin(48_000, 64, &[on(0, 60)]));
+        synth.finish(Instant::now(), &mut l, &mut r);
+        // The host is still on a block when the note-off is due.
+        seen.lock().unwrap().busy = 1;
+        let off = Event {
+            offset: 37,
+            msg: Msg::note_off(0, 60),
+        };
+        assert!(!synth.begin(48_000, 64, &[off]), "refused");
+        synth.finish(Instant::now(), &mut l, &mut r);
+        assert!(synth.active(), "the note-off still has to go");
+        assert!(synth.begin(48_000, 64, &[on(5, 64)]));
+        let sent = seen.lock().unwrap().events.clone();
+        assert_eq!(
+            sent.last().unwrap(),
+            &vec![
+                Event {
+                    offset: 0,
+                    msg: Msg::note_off(0, 60)
+                },
+                on(5, 64)
+            ],
+            "late, at the start of the block, before what is new"
         );
     }
 

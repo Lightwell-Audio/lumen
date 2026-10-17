@@ -116,3 +116,25 @@ fn a_host_does_not_outlive_its_handle() {
     drop(host);
     assert!(!support::exists(pid), "host {pid} is still running");
 }
+
+/// A host session runs at high priority, so a plugin's own threads are not
+/// kept waiting behind ordinary programs while the audio waits on them.
+#[cfg(windows)]
+#[test]
+fn a_host_session_runs_at_high_priority() {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        GetPriorityClass, HIGH_PRIORITY_CLASS, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    // Loaded, so the session is past its start.
+    let mut host = instrument("");
+    // SAFETY: opening a process this test started, to read its priority.
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, host.id()) };
+    assert!(!handle.is_null(), "open the host process");
+    // SAFETY: a live handle with query rights.
+    let class = unsafe { GetPriorityClass(handle) };
+    // SAFETY: the handle opened above, closed once.
+    unsafe { CloseHandle(handle) };
+    assert_eq!(class, HIGH_PRIORITY_CLASS);
+    assert_eq!(host.quit(SLOW), ExitKind::Clean);
+}

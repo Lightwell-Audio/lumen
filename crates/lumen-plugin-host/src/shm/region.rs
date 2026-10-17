@@ -23,7 +23,7 @@ use crate::protocol::{
 
 const MAGIC: u32 = 0x4c42_4b31; // "LBK1"
 /// Bumped when the layout changes shape.
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 /// The capacity of a block. Fixed when the region is made; a larger need
 /// means a new region, which happens off the audio thread.
@@ -109,6 +109,9 @@ pub struct Answer {
     pub latency: u32,
     pub restart: u32,
     pub repaired: u32,
+    /// How long the plugin worked on the block, in nanoseconds (0 when it
+    /// did not process it).
+    pub work_ns: u32,
 }
 
 /// Why a block was not submitted.
@@ -169,6 +172,7 @@ struct Record {
     latency: AtomicU32,
     restart: AtomicU32,
     repaired: AtomicU32,
+    work_ns: AtomicU32,
 }
 
 /// The control words, each on a cache line of its own so that the two
@@ -481,6 +485,7 @@ impl Region {
             latency: r.latency.load(Ordering::Relaxed),
             restart: r.restart.load(Ordering::Relaxed),
             repaired: r.repaired.load(Ordering::Relaxed),
+            work_ns: r.work_ns.load(Ordering::Relaxed),
         })
     }
 
@@ -636,6 +641,7 @@ impl Region {
         r.latency.store(answer.latency, Ordering::Relaxed);
         r.restart.store(answer.restart, Ordering::Relaxed);
         r.repaired.store(answer.repaired, Ordering::Relaxed);
+        r.work_ns.store(answer.work_ns, Ordering::Relaxed);
         self.control().done.0.store(answer.seq, Ordering::Release);
     }
 }
@@ -942,6 +948,7 @@ mod tests {
             latency: 11,
             restart: 0,
             repaired: 0,
+            work_ns: 120_000,
         };
         let out = vec![vec![0.5, f32::NAN, 0.25, f32::INFINITY], vec![1.0; 4]];
         r.finish(&answer, 4, &out);
@@ -970,6 +977,7 @@ mod tests {
             latency: 0,
             restart: 0,
             repaired: 0,
+            work_ns: 0,
         };
         r.finish(&answer, 4, &[vec![1.0; 4]]);
         let mut dst = [7.0_f32; 4];

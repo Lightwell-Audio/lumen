@@ -64,6 +64,7 @@ fn pair(layout: Layout, wake: Wake, mut behave: Behaviour) -> Pair {
                 latency: 0,
                 restart: 0,
                 repaired: 0,
+                work_ns: 0,
             };
             let Ok((generation, frames)) = host.region().read_request(&mut scratch) else {
                 answer.outcome = Outcome::Invalid;

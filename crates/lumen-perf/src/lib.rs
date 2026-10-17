@@ -358,6 +358,7 @@ impl lumen_devices::Hosted for Echo {
             latency: 0,
             tail: 0,
             restart: false,
+            work_ns: 0,
         }
     }
 

@@ -142,6 +142,7 @@ impl Hosted for Link {
                     latency: answer.latency,
                     tail: self.tail,
                     restart: answer.restart != 0,
+                    work_ns: answer.work_ns,
                 }
             }
             // A block the host answered without processing (stale,
