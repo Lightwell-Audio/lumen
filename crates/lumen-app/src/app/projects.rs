@@ -72,6 +72,7 @@ impl App {
         };
         self.arrangement.save_into(&mut project.view);
         project.view.folded_devices = self.chain.folded.iter().copied().collect();
+        project.view.shown_params = self.chain.shown.clone();
         // What the running plugins report goes in with the view: it is not an
         // edit (M6 slice 2c, the owner's C2).
         self.hosting.stamp(&mut project);
@@ -267,6 +268,8 @@ impl App {
         self.lanes = lanes::Lanes::default();
         self.arrangement = arrangement::Arrangement::default();
         self.chain.folded.clear();
+        self.chain.shown.clear();
+        self.chain.panel = None;
         self.chain.selected = None;
         self.synced = None;
         self.show_history = false;
@@ -374,6 +377,7 @@ impl App {
                     }
                     self.arrangement = arrangement::Arrangement::restore(&view);
                     self.chain.folded = view.folded_devices.iter().copied().collect();
+                    self.chain.shown = view.shown_params.clone();
                     self.nav.set(crate::timeview::TimeView {
                         left: f64::from(view.left_beat).max(0.0),
                         zoom: f64::from(view.px_per_beat).clamp(crate::timeview::MIN_ZOOM, 1e7),

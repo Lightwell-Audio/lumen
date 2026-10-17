@@ -52,6 +52,7 @@ mod navigation;
 mod notes;
 mod overdub_seams;
 mod palette;
+mod parameters;
 mod playback;
 mod plugins;
 mod pops;

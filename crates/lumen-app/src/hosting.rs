@@ -413,6 +413,31 @@ impl Hosting {
         self.tracked.get(&device.0).is_some_and(|t| t.params.dirty)
     }
 
+    /// Gives a tracked device a parameter list, as if its plugin had listed
+    /// it: for screenshots of the card's strip. `(title, value, text)`; ids
+    /// count from 1.
+    pub fn pretend_parameters(&mut self, device: Id, list: &[(&str, f64, &str)]) {
+        let Some(t) = self.tracked.get_mut(&device.0) else {
+            return;
+        };
+        for (i, (title, value, text)) in list.iter().enumerate() {
+            let id = i as u32 + 1;
+            t.params.list.push(ParamInfo {
+                id,
+                title: (*title).to_owned(),
+                units: String::new(),
+                steps: 0,
+                default: 0.5,
+                flags: 1,
+                unit: 0,
+                value: *value,
+            });
+            t.params.values.insert(id, *value);
+            t.params.texts.insert(id, (*value, (*text).to_owned()));
+        }
+        t.params.total = list.len() as u32;
+    }
+
     /// Starts a new host for a failed device (the card's Reload).
     pub fn reload(&mut self, device: Id) {
         let Some(manager) = self.manager.as_mut() else {

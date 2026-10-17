@@ -503,6 +503,17 @@ impl App {
             .unwrap_or_default()
     }
 
+    /// Gives a device a parameter list as if its plugin had listed it, for
+    /// screenshots of the card's strip: `(title, value, text)` each.
+    pub fn give_device_parameters(&mut self, device: Id, list: &[(&str, f64, &str)]) {
+        self.hosting.pretend_parameters(device, list);
+    }
+
+    /// The parameter ids on a device's card strip, in order.
+    pub fn strip_parameters(&self, device: Id) -> Vec<u32> {
+        self.strip_ids(device)
+    }
+
     /// How many changed plugins could not be read for the save.
     pub fn unread_plugins(&self) -> usize {
         self.hosting.unread()
@@ -1006,6 +1017,11 @@ impl App {
     /// Selects these tracks, as clicking their headers would.
     pub fn select_tracks(&mut self, ids: &[Id]) {
         self.arrangement.selected = ids.to_vec();
+    }
+
+    /// Chooses a card in the Devices tab, as clicking it would.
+    pub fn choose_card(&mut self, device: Id) {
+        self.chain.selected = Some(device);
     }
 
     /// The card chosen in the Devices tab, if one is.

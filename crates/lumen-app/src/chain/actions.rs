@@ -212,6 +212,7 @@ impl App {
             .filter(|c| self.devices_of(track).contains(c))
             .map_or(Slot::End, Slot::After);
         let result = self.document.paste_device(&device, track, slot);
+        self.inherit_strip(device.id, &result);
         self.chose_new(track, result);
     }
 
@@ -223,6 +224,7 @@ impl App {
         let result = self
             .document
             .copy_device(track, device, track, Slot::After(device));
+        self.inherit_strip(device, &result);
         self.chose_new(track, result);
     }
 
@@ -240,6 +242,7 @@ impl App {
     pub(crate) fn send_device(&mut self, track: Id, device: Id, to: Id, slot: Slot, copy: bool) {
         if copy {
             let result = self.document.copy_device(track, device, to, slot);
+            self.inherit_strip(device, &result);
             self.chose_new(to, result);
         } else {
             let result = self.document.move_device(track, device, to, slot);
@@ -248,6 +251,15 @@ impl App {
                 self.chain.selected = Some(device);
             }
             self.say_refusal(result);
+        }
+    }
+
+    /// A copy of a device keeps the parameters its original shows on the card.
+    fn inherit_strip(&mut self, from: Id, copy: &Result<Id, Refusal>) {
+        if let Ok(new) = copy
+            && let Some(shown) = self.chain.shown.get(&from).cloned()
+        {
+            self.chain.shown.insert(*new, shown);
         }
     }
 

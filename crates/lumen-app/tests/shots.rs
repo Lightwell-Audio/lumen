@@ -2002,6 +2002,22 @@ fn device_chain() {
         h.state_mut().pretend_device_state(Id(12), "ready");
         h.state_mut().pretend_device_state(Id(13), "loading");
         h.state_mut().pretend_device_state(Id(14), "failed");
+        // The strip: six parameters chosen, two slots empty.
+        h.state_mut().give_device_parameters(
+            Id(11),
+            &[
+                ("Cutoff", 0.62, "2.4 kHz"),
+                ("Resonance", 0.30, "0.31"),
+                ("Attack", 0.80, "12 ms"),
+                ("Release", 0.45, "640 ms"),
+                ("Wave", 0.5, "Saw"),
+                ("Output level", 0.73, "-4.2 dB"),
+            ],
+        );
+        h.state_mut().give_device_parameters(
+            Id(12),
+            &[("Time", 0.4, "310 ms"), ("Feedback", 0.55, "42 %")],
+        );
         h.run_steps(4);
         h.get_by_label("Overheat on Pad").click();
         h.run_steps(20);

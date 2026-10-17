@@ -127,6 +127,10 @@ impl App {
             | Command::DeviceCopy
             | Command::DeviceDuplicate
             | Command::DeviceFold => need(self.device_chosen(), "Choose a device on a track first"),
+            Command::DeviceParameters => need(
+                self.device_chosen() && self.chosen_has_parameters(),
+                "Choose a plugin that has parameters first",
+            ),
             Command::DevicePaste => need(
                 self.device_copied() && self.chain_track().is_some(),
                 if self.device_copied() {
@@ -745,6 +749,7 @@ impl App {
             Command::DevicePaste => self.paste_chain_device(),
             Command::DeviceDuplicate => self.duplicate_chain_device(),
             Command::DeviceFold => self.toggle_chain_fold(),
+            Command::DeviceParameters => self.open_parameters(),
             Command::DevicesScanAtStartup => {
                 let on = &mut self.settings.plugins.scan_at_startup;
                 *on = !*on;

@@ -12,6 +12,7 @@ use lumen_project::routing::all_tracks;
 use super::card::{self, Action, Face, Look};
 use super::geometry::{CHIP_H, Layout, PORT};
 use super::place::Place;
+use super::strip;
 use super::{CardDrag, Dragged, actions};
 use crate::app::panes::{self, Pane};
 use crate::arrangement::color_of;
@@ -33,6 +34,9 @@ struct Row {
     bypass: bool,
     face: OwnedFace,
     latency_ms: f32,
+    /// The strip's knobs and how many parameters the plugin offers.
+    slots: Vec<Option<strip::Slot>>,
+    parameters: usize,
 }
 
 enum OwnedFace {
@@ -61,6 +65,7 @@ struct Events {
     power: Option<(Id, bool)>,
     reload: Option<Id>,
     rescan: bool,
+    strip: Vec<(Id, strip::Output)>,
 }
 
 impl App {
@@ -232,6 +237,8 @@ impl App {
                         band: super::geometry::band(layout.card_h),
                         folded: folded[i],
                         picture: pictures[i].as_ref(),
+                        slots: &row.slots,
+                        parameters: row.parameters,
                     };
                     let out = card::paint(ui, rect, egui::Id::new(("device", row.id.0)), &look);
                     // A second device of the same name says which it is.
@@ -267,6 +274,9 @@ impl App {
                     }
                     if out.power.clicked() {
                         events.power = Some((row.id, !row.bypass));
+                    }
+                    for output in out.strip {
+                        events.strip.push((row.id, output));
                     }
                     match out.action {
                         Some(Action::Reload) => events.reload = Some(row.id),
@@ -344,6 +354,14 @@ impl App {
             self.chain.selected = Some(id);
             self.bypass_device(track_id, id, bypass);
         }
+        for (device, output) in events.strip {
+            self.chain.selected = Some(device);
+            self.apply_strip(device, output);
+        }
+        if self.chain.text_pending.replace(false) {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(60));
+        }
         if let Some(id) = events.reload {
             self.hosting.reload(id);
         }
@@ -412,8 +430,15 @@ impl App {
         } else {
             frames as f32 / rate as f32 * 1000.0
         };
+        let (slots, parameters) = if d.is_vst3() && matches!(face, OwnedFace::Ready) {
+            self.strip_of(d)
+        } else {
+            (Vec::new(), 0)
+        };
         Row {
             id: d.id,
+            slots,
+            parameters,
             name,
             vendor,
             identity,

@@ -544,6 +544,7 @@ impl eframe::App for App {
         self.update_recording();
         self.update_audition(&ctx);
         self.history_window(&ctx);
+        self.parameters_panel(&ctx);
         self.prompt_window(&ctx);
         self.shortcuts_window(&ctx);
         self.palette_window(&ctx);

@@ -1,6 +1,6 @@
 //! One device as a card (design system v3, the owner's C4): a picture that
 //! fades into the header, the power, the name and vendor, a kind badge, a
-//! parameter strip (its frame for now; slice 3 fills it), and a footer with
+//! parameter strip (eight knobs and the button for every parameter), and a footer with
 //! the signal and the time it holds back. A loading, failed or missing
 //! device swaps the strip for what happened and what to do.
 
@@ -12,6 +12,7 @@ use eframe::emath::GuiRounding as _;
 
 use super::art;
 use super::geometry::{FOOTER, HEADER};
+use super::strip;
 use crate::icons::{self, Icon};
 use crate::widgets::raised;
 use crate::{fonts, motion, theme, widgets};
@@ -51,6 +52,10 @@ pub(super) struct Look<'a> {
     /// The plugin's own picture, when its bundle has one and the device is
     /// running: it takes the artwork band.
     pub picture: Option<&'a egui::TextureHandle>,
+    /// The eight knobs of the strip (empty when there is nothing to show).
+    pub slots: &'a [Option<strip::Slot>],
+    /// How many parameters the plugin lists.
+    pub parameters: usize,
 }
 
 /// What a card's own buttons asked for.
@@ -65,6 +70,8 @@ pub(super) struct Out {
     pub body: Response,
     pub power: Response,
     pub action: Option<Action>,
+    /// What the strip's knobs and button asked for.
+    pub strip: Vec<strip::Output>,
 }
 
 /// A card's corner radius.
@@ -196,7 +203,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
     );
 
     // Between header and footer: the strip, or what replaces it.
-    let action = paint_strip(
+    let (action, strip) = paint_strip(
         ui,
         strip.shrink2(vec2(theme::space::M, theme::space::S)),
         id,
@@ -243,6 +250,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
         body,
         power,
         action,
+        strip,
     }
 }
 
@@ -319,6 +327,7 @@ fn paint_rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Resp
     Out {
         body,
         power,
+        strip: Vec::new(),
         action: None,
     }
 }
@@ -531,14 +540,20 @@ fn power_button(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> Respo
     )
 }
 
-/// The strip's rows, or the message of a card that is not running; returns
-/// the button pressed, if any.
-fn paint_strip(ui: &mut Ui, area: Rect, id: egui::Id, look: &Look<'_>) -> Option<Action> {
+/// The strip's knobs, or the message of a card that is not running; returns
+/// the button pressed, if any, and what the knobs asked for.
+fn paint_strip(
+    ui: &mut Ui,
+    area: Rect,
+    id: egui::Id,
+    look: &Look<'_>,
+) -> (Option<Action>, Vec<strip::Output>) {
     let palette = *theme::p();
-    let painter = ui.painter().with_clip_rect(area.expand(2.0));
+    let no_strip = |action| (action, Vec::new());
     match look.face {
-        Face::Ready | Face::Loading => {
-            let loading = matches!(look.face, Face::Loading);
+        Face::Loading => {
+            // Waiting: the empty troughs the knobs will stand in.
+            let painter = ui.painter().with_clip_rect(area.expand(2.0));
             let gap = 6.0;
             let row = ((area.height() - gap * (ROWS as f32 - 1.0)) / ROWS as f32)
                 .clamp(0.0, theme::size::CONTROL);
@@ -546,19 +561,35 @@ fn paint_strip(ui: &mut Ui, area: Rect, id: egui::Id, look: &Look<'_>) -> Option
                 let top = area.top() + i as f32 * (row + gap);
                 let r = Rect::from_min_size(pos2(area.left(), top), vec2(area.width(), row));
                 raised::paint_sunken(&painter, r, theme::radius::SMALL);
-                if !loading && !look.bypass {
-                    painter.text(
-                        r.left_center() + vec2(theme::space::S, 0.0),
-                        Align2::LEFT_CENTER,
-                        "\u{2014}",
-                        FontId::proportional(theme::size::CAPTION),
-                        palette.text_disabled,
-                    );
-                }
             }
-            None
+            no_strip(None)
         }
-        Face::Failed(words) => message(
+        Face::Ready if look.slots.is_empty() && look.parameters == 0 => {
+            let words = if look.reports_latency {
+                "This plugin lists no parameters. Its own window has them."
+            } else {
+                "The sound is chosen from the track's Instrument menu."
+            };
+            let painter = ui.painter().with_clip_rect(area);
+            let font = FontId::proportional(theme::size::CAPTION);
+            let galley = painter.layout(
+                words.to_owned(),
+                font,
+                palette.text_hint,
+                area.width() - 2.0 * theme::space::S,
+            );
+            painter.galley(
+                area.left_top() + vec2(theme::space::S, 0.0),
+                galley,
+                palette.text_hint,
+            );
+            no_strip(None)
+        }
+        Face::Ready => (
+            None,
+            strip::paint(ui, area, id, look.slots, look.parameters, look.selected),
+        ),
+        Face::Failed(words) => no_strip(message(
             ui,
             area,
             id,
@@ -566,8 +597,8 @@ fn paint_strip(ui: &mut Ui, area: Rect, id: egui::Id, look: &Look<'_>) -> Option
             palette.warning,
             words,
             ("Reload", Action::Reload, Some(Icon::Loop)),
-        ),
-        Face::Missing { saved } => message(
+        )),
+        Face::Missing { saved } => no_strip(message(
             ui,
             area,
             id,
@@ -575,7 +606,7 @@ fn paint_strip(ui: &mut Ui, area: Rect, id: egui::Id, look: &Look<'_>) -> Option
             palette.text,
             &format!("Settings kept ({}).", kilobytes(saved)),
             ("Rescan plugins", Action::Rescan, None),
-        ),
+        )),
     }
 }
 
@@ -675,6 +706,8 @@ mod tests {
             band: 96.0,
             folded: false,
             picture: None,
+            slots: &[],
+            parameters: 0,
         }
     }
 
