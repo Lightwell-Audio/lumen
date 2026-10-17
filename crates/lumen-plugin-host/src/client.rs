@@ -18,8 +18,8 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::protocol::{
-    ClassId, ClassInfo, Event, FailureKind, FrameError, ParamInfo, ParamQueue, Request, Response,
-    read_response, write_request,
+    ClassId, ClassInfo, Edit, Event, FailureKind, FrameError, ParamInfo, ParamQueue, Request,
+    Response, UnitInfo, read_response, write_request,
 };
 use crate::shm::sys::remove_names;
 use crate::shm::{BlockLink, Layout, Wake};
@@ -563,6 +563,44 @@ impl HostProcess {
         match self.call(&Request::Parameters, within)? {
             Response::Parameters { total, list } => Ok((total, list)),
             _ => Err(HostError::Protocol("expected Parameters".into())),
+        }
+    }
+
+    /// The groups parameters belong to.
+    pub fn units(&mut self, within: Duration) -> Result<Vec<UnitInfo>, HostError> {
+        match self.call(&Request::Units, within)? {
+            Response::Units(list) => Ok(list),
+            _ => Err(HostError::Protocol("expected Units".into())),
+        }
+    }
+
+    /// The plugin's own text for a normalized value.
+    pub fn param_text(
+        &mut self,
+        id: u32,
+        value: f64,
+        within: Duration,
+    ) -> Result<String, HostError> {
+        match self.call(&Request::ParamText { id, value }, within)? {
+            Response::Text(text) => Ok(text),
+            _ => Err(HostError::Protocol("expected Text".into())),
+        }
+    }
+
+    /// Sets a parameter; the processor hears it in its next block.
+    pub fn set_param(&mut self, id: u32, value: f64, within: Duration) -> Result<(), HostError> {
+        match self.call(&Request::SetParam { id, value }, within)? {
+            Response::Done => Ok(()),
+            _ => Err(HostError::Protocol("expected Done".into())),
+        }
+    }
+
+    /// The edits made in the plugin since the last call, oldest first, and
+    /// how many were dropped for want of room.
+    pub fn take_edits(&mut self, within: Duration) -> Result<(Vec<Edit>, u32), HostError> {
+        match self.call(&Request::TakeEdits, within)? {
+            Response::Edits { list, dropped } => Ok((list, dropped)),
+            _ => Err(HostError::Protocol("expected Edits".into())),
         }
     }
 

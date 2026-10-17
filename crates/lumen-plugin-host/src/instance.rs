@@ -21,8 +21,9 @@ use vst3::Steinberg::Vst::{
     AudioBusBuffers, AudioBusBuffers__type0, BusInfo, Event as VstEvent, Event__type0,
     IAudioProcessor, IAudioProcessorTrait, IComponent, IComponentHandler, IComponentTrait,
     IConnectionPoint, IConnectionPointTrait, IEditController, IEditControllerTrait, IEventList,
-    IParameterChanges, NoteOffEvent, NoteOnEvent, ParameterInfo, ProcessContext, ProcessData,
-    ProcessSetup, SpeakerArr, SpeakerArrangement,
+    IParameterChanges, IUnitInfo, IUnitInfoTrait, NoteOffEvent, NoteOnEvent, ParameterInfo,
+    ProcessContext, ProcessData, ProcessSetup, SpeakerArr, SpeakerArrangement,
+    UnitInfo as VstUnitInfo,
 };
 use vst3::Steinberg::{
     IPlugView, IPluginBaseTrait, IPluginFactory3, IPluginFactory3Trait, IPluginFactoryTrait, TUID,
@@ -30,11 +31,11 @@ use vst3::Steinberg::{
 };
 use vst3::{ComPtr, ComWrapper, Interface};
 
-use crate::com::{self, Changes, EventList, Handler, MemoryStream, NoOutputChanges};
+use crate::com::{self, Changes, EventList, Handler, MOST_PENDING, MemoryStream, OutputChanges};
 use crate::module::{AUDIO_CLASS, Module, to_tuid};
 use crate::protocol::{
-    ClassId, ClassInfo, Event, EventKind, MAX_CHANNELS, MAX_FRAMES, MAX_PARAMETERS, MAX_STATE,
-    ParamInfo, ParamQueue,
+    ClassId, ClassInfo, Edit, EditKind, Event, EventKind, MAX_CHANNELS, MAX_FRAMES, MAX_PARAMETERS,
+    MAX_STATE, MAX_UNITS, ParamInfo, ParamQueue, UnitInfo,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,7 +119,17 @@ pub struct Instance {
     events_out_ptr: ComPtr<IEventList>,
     changes: ComWrapper<Changes>,
     changes_ptr: ComPtr<IParameterChanges>,
-    no_changes_out: ComPtr<IParameterChanges>,
+    outputs: ComWrapper<OutputChanges>,
+    outputs_ptr: ComPtr<IParameterChanges>,
+    /// Values to give the processor at the start of a block: edits made in
+    /// the plugin's window and values set from Lumen.
+    now: Vec<(u32, f64)>,
+    /// The processor's reported values after a block, before they are noted.
+    reported: Vec<(u32, f64)>,
+    /// Values the processor has heard that the controller has not: it is told
+    /// from the control thread ([`Instance::take_edits`]), never from the
+    /// audio thread.
+    for_controller: Vec<(u32, f64)>,
     context: ProcessContext,
     /// How many audio buses the plugin declares each way. The process data
     /// carries an entry for every one, those that are off included.
@@ -314,9 +325,8 @@ impl Instance {
         let events_out_ptr = events_out.to_com_ptr::<IEventList>().expect("listed");
         let changes = ComWrapper::new(Changes::new());
         let changes_ptr = changes.to_com_ptr::<IParameterChanges>().expect("listed");
-        let no_changes_out = ComWrapper::new(NoOutputChanges::new())
-            .to_com_ptr::<IParameterChanges>()
-            .expect("listed");
+        let outputs = ComWrapper::new(OutputChanges::new());
+        let outputs_ptr = outputs.to_com_ptr::<IParameterChanges>().expect("listed");
 
         Ok(Self {
             class: info,
@@ -331,7 +341,11 @@ impl Instance {
             events_out_ptr,
             changes,
             changes_ptr,
-            no_changes_out,
+            outputs,
+            outputs_ptr,
+            now: Vec::with_capacity(MOST_PENDING),
+            reported: Vec::with_capacity(MOST_PENDING),
+            for_controller: Vec::with_capacity(MOST_PENDING),
             // SAFETY: a plain C struct; zero is a valid "nothing known" context.
             context: unsafe { std::mem::zeroed() },
             in_buses: 0,
@@ -599,6 +613,9 @@ impl Instance {
             return Err(plugin("buffers do not match the format"));
         }
         let most = (format.max_frames as usize).max(1);
+        self.now.clear();
+        self.handler.drain_to_processor(&mut self.now);
+        self.note_for_controller(params);
         let mut done = Done {
             status: 0,
             latency: self.latency,
@@ -660,7 +677,9 @@ impl Instance {
                 }),
         );
         self.events_out.set([]);
-        self.changes.set_span(params, start as u32, n as u32);
+        // The edits waiting go in the first piece of a block.
+        let now: &[(u32, f64)] = if start == 0 { &self.now } else { &[] };
+        self.changes.set_span(params, now, start as u32, n as u32);
 
         // An entry for every bus the plugin declares; only the main bus of
         // each direction carries audio, the rest are off (no channels).
@@ -704,7 +723,7 @@ impl Instance {
                 out_buses.as_mut_ptr()
             },
             inputParameterChanges: self.changes_ptr.as_ptr(),
-            outputParameterChanges: self.no_changes_out.as_ptr(),
+            outputParameterChanges: self.outputs_ptr.as_ptr(),
             inputEvents: self.events_in_ptr.as_ptr(),
             outputEvents: self.events_out_ptr.as_ptr(),
             processContext: &mut self.context,
@@ -726,6 +745,7 @@ impl Instance {
                 }
             }
         }
+        self.collect_outputs();
         let restart = self.handler.restart.swap(0, Ordering::AcqRel);
         // A plugin's latency may change with a parameter, so it is read
         // after every block; `restart` tells the caller the plugin also
@@ -778,16 +798,124 @@ impl Instance {
             let list = (0..total.min(MAX_PARAMETERS) as i32)
                 .filter_map(|i| {
                     let mut info: ParameterInfo = std::mem::zeroed();
-                    (controller.getParameterInfo(i, &mut info) == kResultOk).then(|| ParamInfo {
-                        id: info.id,
-                        title: wide(&info.title),
-                        units: wide(&info.units),
-                        steps: info.stepCount,
-                        default: info.defaultNormalizedValue,
+                    (controller.getParameterInfo(i, &mut info) == kResultOk).then(|| {
+                        let value = controller.getParamNormalized(info.id);
+                        ParamInfo {
+                            id: info.id,
+                            title: wide(&info.title),
+                            units: wide(&info.units),
+                            steps: info.stepCount,
+                            default: info.defaultNormalizedValue,
+                            flags: info.flags as u32,
+                            unit: info.unitId,
+                            value: if value.is_finite() {
+                                value.clamp(0.0, 1.0)
+                            } else {
+                                info.defaultNormalizedValue
+                            },
+                        }
                     })
                 })
                 .collect();
             (total as u32, list)
+        }
+    }
+
+    /// The groups the parameters belong to, capped. A plugin with none has an empty list.
+    pub fn units(&self) -> Vec<UnitInfo> {
+        let Some(info) = self.controller.as_ref().and_then(|c| c.cast::<IUnitInfo>()) else {
+            return Vec::new();
+        };
+        // SAFETY: plain calls on a live interface with valid out pointers.
+        unsafe {
+            let count = info.getUnitCount().max(0) as usize;
+            (0..count.min(MAX_UNITS) as i32)
+                .filter_map(|i| {
+                    let mut unit: VstUnitInfo = std::mem::zeroed();
+                    (info.getUnitInfo(i, &mut unit) == kResultOk).then(|| UnitInfo {
+                        id: unit.id,
+                        parent: unit.parentUnitId,
+                        name: wide(&unit.name),
+                    })
+                })
+                .collect()
+        }
+    }
+
+    /// The plugin's own text for a normalized value, if it has one.
+    pub fn param_text(&self, id: u32, value: f64) -> Option<String> {
+        let controller = self.controller.as_ref()?;
+        if !value.is_finite() {
+            return None;
+        }
+        let mut text: vst3::Steinberg::Vst::String128 = [0; 128];
+        // SAFETY: a valid out pointer to a String128.
+        let r = unsafe { controller.getParamStringByValue(id, value.clamp(0.0, 1.0), &mut text) };
+        (r == kResultOk).then(|| wide(&text))
+    }
+
+    /// Sets a parameter from Lumen: the controller is told now, and the
+    /// processor hears it at the start of the next block.
+    pub fn set_param(&mut self, id: u32, value: f64) {
+        if !value.is_finite() {
+            return;
+        }
+        let value = value.clamp(0.0, 1.0);
+        if let Some(controller) = &self.controller {
+            // SAFETY: a plain call on a live controller.
+            unsafe { controller.setParamNormalized(id, value) };
+        }
+        self.handler.send_to_processor(id, value);
+    }
+
+    /// The edits made since the last call and how many were dropped. First
+    /// the controller hears what the processor was given in blocks (a host's
+    /// duty: a value that reached only the processor leaves the plugin's
+    /// window showing the old one).
+    pub fn take_edits(&mut self) -> (Vec<Edit>, u32) {
+        if let Some(controller) = &self.controller {
+            for (id, value) in self.for_controller.drain(..) {
+                // SAFETY: a plain call on a live controller.
+                unsafe { controller.setParamNormalized(id, value) };
+            }
+        } else {
+            self.for_controller.clear();
+        }
+        self.handler.take_reports()
+    }
+
+    /// Notes the last value of each parameter in `params` for the controller.
+    fn note_for_controller(&mut self, params: &[ParamQueue]) {
+        for queue in params {
+            if let Some(&(_, value)) = queue.points.last() {
+                self.note(queue.id, value);
+            }
+        }
+    }
+
+    fn note(&mut self, id: u32, value: f64) {
+        match self.for_controller.iter().position(|(i, _)| *i == id) {
+            Some(at) => self.for_controller[at].1 = value,
+            None if self.for_controller.len() < MOST_PENDING => {
+                self.for_controller.push((id, value));
+            }
+            None => {}
+        }
+    }
+
+    /// After a block: what the processor reported becomes edits for Lumen
+    /// and a value for the controller.
+    fn collect_outputs(&mut self) {
+        self.reported.clear();
+        self.outputs.take(&mut self.reported);
+        for i in 0..self.reported.len() {
+            let (id, value) = self.reported[i];
+            self.handler.report(Edit {
+                id,
+                value,
+                kind: EditKind::Output,
+            });
+            self.note(id, value);
         }
     }
 }

@@ -51,6 +51,8 @@ pub enum Kind {
     Editor,
     EditorHang,
     Release,
+    ManyParams,
+    WindowEdits,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,10 +99,15 @@ impl Faults {
                 "editor" => Kind::Editor,
                 "editor_hang" => Kind::EditorHang,
                 "release" => Kind::Release,
+                "many_params" => Kind::ManyParams,
+                "window_edits" => Kind::WindowEdits,
                 _ => return Err(format!("`{entry}`: unknown fault")),
             };
             if matches!(kind, Kind::ProcessSlow) && arg.is_none() {
                 return Err(format!("`{entry}`: needs `=microseconds`"));
+            }
+            if matches!(kind, Kind::ManyParams) && arg.is_none() {
+                return Err(format!("`{entry}`: needs `=count`"));
             }
             if matches!(kind, Kind::EditorHang | Kind::Release) && arg.is_none() {
                 return Err(format!("`{entry}`: needs `=milliseconds`"));
@@ -160,6 +167,14 @@ impl Faults {
             .iter()
             .find(|f| f.kind == Kind::Release)
             .map(|f| Duration::from_millis(f.arg))
+    }
+
+    /// How many extra parameters `many_params` adds (0 when not asked).
+    pub fn many_params(&self) -> u32 {
+        self.0
+            .iter()
+            .find(|f| f.kind == Kind::ManyParams)
+            .map_or(0, |f| f.arg.min(20_000) as u32)
     }
 
     /// The busy-wait asked for by `process_slow`, if any.

@@ -167,6 +167,31 @@ impl State {
                 }
                 None => failed(FailureKind::Sequence, "no plugin is loaded"),
             },
+            Request::Units => match &lock(&self.shared).instance {
+                Some(instance) => Response::Units(instance.units()),
+                None => failed(FailureKind::Sequence, "no plugin is loaded"),
+            },
+            Request::ParamText { id, value } => match &lock(&self.shared).instance {
+                Some(instance) => match instance.param_text(id, value) {
+                    Some(text) => Response::Text(text),
+                    None => failed(FailureKind::Plugin, "the plugin has no text for the value"),
+                },
+                None => failed(FailureKind::Sequence, "no plugin is loaded"),
+            },
+            Request::SetParam { id, value } => match &mut lock(&self.shared).instance {
+                Some(instance) => {
+                    instance.set_param(id, value);
+                    Response::Done
+                }
+                None => failed(FailureKind::Sequence, "no plugin is loaded"),
+            },
+            Request::TakeEdits => match &mut lock(&self.shared).instance {
+                Some(instance) => {
+                    let (list, dropped) = instance.take_edits();
+                    Response::Edits { list, dropped }
+                }
+                None => failed(FailureKind::Sequence, "no plugin is loaded"),
+            },
             Request::Attach { base, layout, wake } => {
                 // A second attach replaces the first, and the old audio
                 // thread is finished before the new one starts.

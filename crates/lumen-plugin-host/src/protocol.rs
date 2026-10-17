@@ -14,7 +14,7 @@ use crate::wire::{Reader, WireError, Writer};
 /// First four bytes of every frame.
 pub const MAGIC: u32 = 0x3148_504c; // "LPH1"
 /// Bumped when a message changes shape. A host of another version is refused.
-pub const VERSION: u16 = 2;
+pub const VERSION: u16 = 3;
 
 pub const MAX_FRAMES: usize = 8192;
 pub const MAX_CHANNELS: usize = 16;
@@ -25,6 +25,9 @@ pub const MAX_PARAMETERS: usize = 16_384;
 pub const MAX_STATE: usize = 16 << 20;
 pub const MAX_TEXT: usize = 1024;
 pub const MAX_CLASSES: usize = 256;
+/// The most units and the most edits one answer carries.
+pub const MAX_UNITS: usize = 4096;
+pub const MAX_EDITS: usize = 4096;
 /// The longest base name of a shared-memory link.
 pub const MAX_BASE: usize = 64;
 /// The largest frame payload: a full block of audio both ways, with room.
@@ -78,6 +81,83 @@ pub struct ParamInfo {
     pub units: String,
     pub steps: i32,
     pub default: f64,
+    /// The plugin's own flags (`ParameterInfo::flags`); see the `FLAG_*`
+    /// constants for the ones Lumen reads.
+    pub flags: u32,
+    /// The unit (group) the parameter belongs to; 0 is the root.
+    pub unit: i32,
+    /// The normalized value now.
+    pub value: f64,
+}
+
+impl ParamInfo {
+    pub fn can_automate(&self) -> bool {
+        self.flags & FLAG_CAN_AUTOMATE != 0
+    }
+    pub fn read_only(&self) -> bool {
+        self.flags & FLAG_READ_ONLY != 0
+    }
+    pub fn hidden(&self) -> bool {
+        self.flags & FLAG_HIDDEN != 0
+    }
+    pub fn program_change(&self) -> bool {
+        self.flags & FLAG_PROGRAM_CHANGE != 0
+    }
+    pub fn bypass(&self) -> bool {
+        self.flags & FLAG_BYPASS != 0
+    }
+}
+
+/// The bits of `ParameterInfo::flags` Lumen reads (the VST3 values).
+pub const FLAG_CAN_AUTOMATE: u32 = 1;
+pub const FLAG_READ_ONLY: u32 = 1 << 1;
+pub const FLAG_HIDDEN: u32 = 1 << 4;
+pub const FLAG_PROGRAM_CHANGE: u32 = 1 << 15;
+pub const FLAG_BYPASS: u32 = 1 << 16;
+
+/// A group of parameters (VST3 `IUnitInfo`): a name and a parent.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnitInfo {
+    pub id: i32,
+    /// The unit this one sits in; -1 for none.
+    pub parent: i32,
+    pub name: String,
+}
+
+/// What happened to a parameter, as the plugin's controller told the host
+/// or as the processor reported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum EditKind {
+    /// A gesture began (a control was grabbed).
+    Begin = 0,
+    /// A new value during a gesture, or alone.
+    Perform = 1,
+    /// The gesture ended.
+    End = 2,
+    /// The processor reported a value of its own (a meter, a changed program).
+    Output = 3,
+}
+
+impl EditKind {
+    fn from_u8(v: u8) -> Result<Self, WireError> {
+        Ok(match v {
+            0 => Self::Begin,
+            1 => Self::Perform,
+            2 => Self::End,
+            3 => Self::Output,
+            _ => return Err(WireError::Invalid("edit kind")),
+        })
+    }
+}
+
+/// One parameter edit, in the order the plugin made it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Edit {
+    pub id: u32,
+    /// Normalized; meaningless for a `Begin` or an `End`.
+    pub value: f64,
+    pub kind: EditKind,
 }
 
 /// How a request failed, so the caller can choose what to do.
@@ -140,6 +220,22 @@ pub enum Request {
     GetState,
     SetState(Vec<u8>),
     Parameters,
+    /// The groups parameters belong to.
+    Units,
+    /// The plugin's own text for a normalized value ("2.4 kHz").
+    ParamText {
+        id: u32,
+        value: f64,
+    },
+    /// Set a parameter from Lumen: the controller is told, and the processor
+    /// hears it in the next block.
+    SetParam {
+        id: u32,
+        value: f64,
+    },
+    /// Take the edits made since the last call (a plugin's own window, a
+    /// processor's output parameters), oldest first.
+    TakeEdits,
     /// Open the shared-memory audio path Lumen made under this base name.
     /// A second attach replaces the first.
     Attach {
@@ -176,6 +272,13 @@ pub enum Response {
         total: u32,
         list: Vec<ParamInfo>,
     },
+    Units(Vec<UnitInfo>),
+    Text(String),
+    Edits {
+        list: Vec<Edit>,
+        /// Edits dropped since the last call because the list was full.
+        dropped: u32,
+    },
     Done,
     /// The audio path is open and the host's block loop is running.
     Attached,
@@ -193,6 +296,10 @@ const REQ_SET_STATE: u16 = 5;
 const REQ_PARAMETERS: u16 = 6;
 const REQ_QUIT: u16 = 7;
 const REQ_ATTACH: u16 = 8;
+const REQ_UNITS: u16 = 9;
+const REQ_PARAM_TEXT: u16 = 10;
+const REQ_SET_PARAM: u16 = 11;
+const REQ_TAKE_EDITS: u16 = 12;
 
 const RES_LOADED: u16 = 101;
 const RES_CONFIGURED: u16 = 102;
@@ -202,6 +309,9 @@ const RES_PARAMETERS: u16 = 105;
 const RES_DONE: u16 = 106;
 const RES_FAILED: u16 = 107;
 const RES_ATTACHED: u16 = 108;
+const RES_UNITS: u16 = 109;
+const RES_TEXT: u16 = 110;
+const RES_EDITS: u16 = 111;
 
 fn put_audio(w: &mut Writer, channels: &[Vec<f32>]) {
     w.u32(channels.len() as u32);
@@ -327,6 +437,18 @@ impl Request {
                 REQ_SET_STATE
             }
             Request::Parameters => REQ_PARAMETERS,
+            Request::Units => REQ_UNITS,
+            Request::ParamText { id, value } => {
+                w.u32(*id);
+                w.f64(*value);
+                REQ_PARAM_TEXT
+            }
+            Request::SetParam { id, value } => {
+                w.u32(*id);
+                w.f64(*value);
+                REQ_SET_PARAM
+            }
+            Request::TakeEdits => REQ_TAKE_EDITS,
             Request::Attach { base, layout, wake } => {
                 w.str(base);
                 w.u32(layout.max_frames);
@@ -452,6 +574,16 @@ impl Request {
             REQ_GET_STATE => Request::GetState,
             REQ_SET_STATE => Request::SetState(r.bytes("state", MAX_STATE)?.to_vec()),
             REQ_PARAMETERS => Request::Parameters,
+            REQ_UNITS => Request::Units,
+            REQ_PARAM_TEXT => Request::ParamText {
+                id: r.u32()?,
+                value: r.f64()?,
+            },
+            REQ_SET_PARAM => Request::SetParam {
+                id: r.u32()?,
+                value: r.f64()?,
+            },
+            REQ_TAKE_EDITS => Request::TakeEdits,
             REQ_ATTACH => {
                 let base = r.str("base name", MAX_BASE)?;
                 if base.is_empty() || !base.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
@@ -539,8 +671,34 @@ impl Response {
                     w.str(&p.units);
                     w.i32(p.steps);
                     w.f64(p.default);
+                    w.u32(p.flags);
+                    w.i32(p.unit);
+                    w.f64(p.value);
                 }
                 RES_PARAMETERS
+            }
+            Response::Units(list) => {
+                w.u32(list.len() as u32);
+                for u in list {
+                    w.i32(u.id);
+                    w.i32(u.parent);
+                    w.str(&u.name);
+                }
+                RES_UNITS
+            }
+            Response::Text(text) => {
+                w.str(text);
+                RES_TEXT
+            }
+            Response::Edits { list, dropped } => {
+                w.u32(*dropped);
+                w.u32(list.len() as u32);
+                for e in list {
+                    w.u32(e.id);
+                    w.f64(e.value);
+                    w.u8(e.kind as u8);
+                }
+                RES_EDITS
             }
             Response::Done => RES_DONE,
             Response::Attached => RES_ATTACHED,
@@ -574,7 +732,7 @@ impl Response {
             RES_STATE => Response::State(r.bytes("state", MAX_STATE)?.to_vec()),
             RES_PARAMETERS => {
                 let total = r.u32()?;
-                let n = r.count("parameters", MAX_PARAMETERS, 24)?;
+                let n = r.count("parameters", MAX_PARAMETERS, 40)?;
                 let mut list = Vec::with_capacity(n);
                 for _ in 0..n {
                     list.push(ParamInfo {
@@ -583,9 +741,38 @@ impl Response {
                         units: r.str("units", MAX_TEXT)?,
                         steps: r.i32()?,
                         default: r.f64()?,
+                        flags: r.u32()?,
+                        unit: r.i32()?,
+                        value: r.f64()?,
                     });
                 }
                 Response::Parameters { total, list }
+            }
+            RES_UNITS => {
+                let n = r.count("units", MAX_UNITS, 12)?;
+                let mut list = Vec::with_capacity(n);
+                for _ in 0..n {
+                    list.push(UnitInfo {
+                        id: r.i32()?,
+                        parent: r.i32()?,
+                        name: r.str("unit name", MAX_TEXT)?,
+                    });
+                }
+                Response::Units(list)
+            }
+            RES_TEXT => Response::Text(r.str("text", MAX_TEXT)?),
+            RES_EDITS => {
+                let dropped = r.u32()?;
+                let n = r.count("edits", MAX_EDITS, 13)?;
+                let mut list = Vec::with_capacity(n);
+                for _ in 0..n {
+                    list.push(Edit {
+                        id: r.u32()?,
+                        value: r.f64()?,
+                        kind: EditKind::from_u8(r.u8()?)?,
+                    });
+                }
+                Response::Edits { list, dropped }
             }
             RES_DONE => Response::Done,
             RES_ATTACHED => Response::Attached,
@@ -765,6 +952,10 @@ mod tests {
             Request::GetState,
             Request::SetState(vec![1, 2, 3]),
             Request::Parameters,
+            Request::Units,
+            Request::ParamText { id: 3, value: 0.5 },
+            Request::SetParam { id: 3, value: 1.0 },
+            Request::TakeEdits,
             Request::Attach {
                 base: "1f2-3".into(),
                 layout: Layout::new(512, 2, 2),
@@ -817,7 +1008,48 @@ mod tests {
                     units: "dB".into(),
                     steps: 0,
                     default: 0.5,
+                    flags: FLAG_CAN_AUTOMATE | FLAG_HIDDEN,
+                    unit: 2,
+                    value: 0.25,
                 }],
+            },
+            Response::Units(vec![
+                UnitInfo {
+                    id: 0,
+                    parent: -1,
+                    name: "Root".into(),
+                },
+                UnitInfo {
+                    id: 2,
+                    parent: 0,
+                    name: "Filter".into(),
+                },
+            ]),
+            Response::Text("2.4 kHz".into()),
+            Response::Edits {
+                list: vec![
+                    Edit {
+                        id: 1,
+                        value: 0.0,
+                        kind: EditKind::Begin,
+                    },
+                    Edit {
+                        id: 1,
+                        value: 0.7,
+                        kind: EditKind::Perform,
+                    },
+                    Edit {
+                        id: 1,
+                        value: 0.0,
+                        kind: EditKind::End,
+                    },
+                    Edit {
+                        id: 9,
+                        value: 0.1,
+                        kind: EditKind::Output,
+                    },
+                ],
+                dropped: 2,
             },
             Response::Done,
             Response::Attached,
