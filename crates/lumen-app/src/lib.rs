@@ -125,6 +125,9 @@ pub struct App {
     prompt: Option<Next>,
     /// What to do after the save in progress succeeds.
     after_save: Option<Next>,
+    /// A save waiting for the running plugins' states to be read: where to,
+    /// whether to normalize the path, and since when.
+    save_waiting: Option<(std::path::PathBuf, bool, std::time::Instant)>,
     /// A problem with saving or opening, shown until dismissed.
     file_notice: Option<String>,
     /// Closing for real, after the unsaved-changes prompt.
@@ -441,6 +444,11 @@ impl eframe::App for App {
             &mut self.lanes.devices.hosted,
         );
         self.lanes.midi_changed(hosts.midi);
+        if let Some(ms) = hosts.again_in_ms {
+            ctx.request_repaint_after(std::time::Duration::from_millis(ms));
+        }
+        self.plugin_window_keys();
+        self.apply_plugin_edits(&ctx);
         self.take_budget();
         if let Some(ms) = self.test_latency
             && let Some(first) = self.document.project().tracks.first()
@@ -540,6 +548,7 @@ impl eframe::App for App {
         self.update_recording();
         self.update_audition(&ctx);
         self.history_window(&ctx);
+        self.parameters_panel(&ctx);
         self.prompt_window(&ctx);
         self.shortcuts_window(&ctx);
         self.palette_window(&ctx);

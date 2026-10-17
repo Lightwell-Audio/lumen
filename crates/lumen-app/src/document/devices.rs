@@ -115,6 +115,11 @@ fn find(project: &Project, id: Id) -> Option<&Track> {
     all_tracks(project).find(|t| t.id == id)
 }
 
+/// The track that holds `device`, and the device.
+pub fn find_device(project: &Project, device: Id) -> Option<(Id, &Device)> {
+    all_tracks(project).find_map(|t| t.devices.iter().find(|d| d.id == device).map(|d| (t.id, d)))
+}
+
 /// The same, to change.
 fn find_mut(project: &mut Project, id: Id) -> Option<&mut Track> {
     let slot = if project.master.id == id {
@@ -244,6 +249,41 @@ impl Document {
         self.edit_chain(&label, track, |t| {
             if let Some(d) = t.devices.iter_mut().find(|d| d.id == device) {
                 d.bypass = bypass;
+            }
+        });
+        Ok(())
+    }
+
+    /// Sets plugin parameters (normalized, 0 to 1, by the plugin's own ids) on
+    /// whichever track holds `device`. The project keeps these values over the
+    /// plugin's saved state, so undo and redo are edits to them (format v19).
+    /// Values with the same `merge` key while a gesture is open (until
+    /// [`Document::seal`]) are one undo step, so a drag undoes in one go; a
+    /// value that is already there records nothing. Values outside 0 to 1
+    /// are clamped and a value that is not a number is left out.
+    pub fn set_device_params(
+        &mut self,
+        device: Id,
+        values: &[(u32, f64)],
+        label: &str,
+        merge: Option<&str>,
+    ) -> Result<(), Refusal> {
+        let (track, _) = find_device(self.project(), device).ok_or(Refusal::NoDevice)?;
+        let values: Vec<(u32, f64)> = values
+            .iter()
+            .filter(|(_, v)| v.is_finite())
+            .map(|&(id, v)| (id, v.clamp(0.0, 1.0)))
+            .collect();
+        self.history.apply(label, merge, |project| {
+            if let Some(t) = find_mut(project, track)
+                && let Some(d) = t.devices.iter_mut().find(|d| d.id == device)
+            {
+                for &(id, value) in &values {
+                    // A value the plugin already holds is no edit.
+                    if d.params.get(&id) != Some(&value) {
+                        d.params.insert(id, value);
+                    }
+                }
             }
         });
         Ok(())
@@ -961,5 +1001,108 @@ mod tests {
         doc.move_device(audio, a, midi, Slot::After(pad)).unwrap();
         let bytes = lumen_project::to_bytes(doc.project()).expect("the project can be saved");
         assert_eq!(lumen_project::from_bytes(&bytes).unwrap(), *doc.project());
+    }
+
+    fn with_pad() -> (Document, Id, Id) {
+        let (mut doc, midi, _) = doc();
+        let pad = doc
+            .add_device(midi, plugin("Glass Pad", DeviceKind::Instrument), Slot::End)
+            .unwrap();
+        doc.seal();
+        (doc, midi, pad)
+    }
+
+    fn held(doc: &Document, track_id: Id, device: Id) -> std::collections::BTreeMap<u32, f64> {
+        track(doc, track_id)
+            .devices
+            .iter()
+            .find(|d| d.id == device)
+            .unwrap()
+            .params
+            .clone()
+    }
+
+    #[test]
+    fn a_drag_of_a_parameter_is_one_undo_step_that_restores_the_exact_values() {
+        let (mut doc, midi, pad) = with_pad();
+        doc.set_device_params(pad, &[(7, 0.2)], "Change Cutoff", Some("p"))
+            .unwrap();
+        doc.seal();
+        for v in [0.3, 0.4, 0.5, 0.9] {
+            doc.set_device_params(pad, &[(7, v)], "Change Cutoff", Some("p"))
+                .unwrap();
+        }
+        assert_eq!(held(&doc, midi, pad)[&7], 0.9);
+        assert_eq!(doc.undo().as_deref(), Some("Change Cutoff"));
+        assert_eq!(held(&doc, midi, pad)[&7], 0.2, "the whole drag undone");
+        doc.undo();
+        assert!(held(&doc, midi, pad).is_empty());
+        doc.redo();
+        doc.redo();
+        assert_eq!(held(&doc, midi, pad)[&7], 0.9);
+    }
+
+    #[test]
+    fn a_value_already_held_is_no_edit_and_odd_values_are_made_safe() {
+        let (mut doc, midi, pad) = with_pad();
+        let before = doc.state();
+        doc.set_device_params(pad, &[(1, 0.5)], "Change Level", None)
+            .unwrap();
+        let after_first = doc.state();
+        assert_ne!(before, after_first);
+        doc.set_device_params(pad, &[(1, 0.5)], "Change Level", None)
+            .unwrap();
+        assert_eq!(doc.state(), after_first, "nothing recorded");
+        // Out of range is clamped; NaN is left out; several at once are one step.
+        doc.set_device_params(
+            pad,
+            &[(1, 7.0), (2, -3.0), (3, f64::NAN)],
+            "Change parameters",
+            None,
+        )
+        .unwrap();
+        let held_now = held(&doc, midi, pad);
+        assert_eq!((held_now[&1], held_now[&2]), (1.0, 0.0));
+        assert!(!held_now.contains_key(&3));
+        doc.undo();
+        assert_eq!(held(&doc, midi, pad).len(), 1);
+    }
+
+    #[test]
+    fn a_device_is_found_on_any_track_and_a_missing_one_is_refused() {
+        let (mut doc, _, audio) = doc();
+        let fx = doc
+            .add_device(audio, plugin("Room Reverb", DeviceKind::Effect), Slot::End)
+            .unwrap();
+        doc.set_device_params(fx, &[(0, 0.1)], "Change Mix", None)
+            .unwrap();
+        assert_eq!(held(&doc, audio, fx)[&0], 0.1);
+        assert_eq!(
+            doc.set_device_params(GONE, &[(0, 0.1)], "x", None),
+            Err(Refusal::NoDevice)
+        );
+        // The master's chain too.
+        let master = doc.project().master.id;
+        let on_master = doc
+            .add_device(master, plugin("Limiter", DeviceKind::Effect), Slot::End)
+            .unwrap();
+        doc.set_device_params(on_master, &[(2, 0.6)], "Change Ceiling", None)
+            .unwrap();
+        assert_eq!(doc.project().master.devices[0].params[&2], 0.6);
+    }
+
+    #[test]
+    fn a_copy_of_a_device_keeps_its_values_and_a_move_keeps_them_with_the_device() {
+        let (mut doc, midi, audio) = doc();
+        let fx = doc
+            .add_device(audio, plugin("Room Reverb", DeviceKind::Effect), Slot::End)
+            .unwrap();
+        doc.set_device_params(fx, &[(0, 0.1), (5, 0.8)], "Change", None)
+            .unwrap();
+        doc.seal();
+        let copy = doc.copy_device(audio, fx, audio, Slot::End).unwrap();
+        assert_eq!(held(&doc, audio, copy), held(&doc, audio, fx));
+        doc.move_device(audio, fx, midi, Slot::End).unwrap();
+        assert_eq!(held(&doc, midi, fx).len(), 2);
     }
 }

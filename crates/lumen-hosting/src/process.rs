@@ -13,10 +13,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use lumen_devices::MOST_FRAMES;
 use lumen_plugin_host::client::{ExitKind, HostError, HostProcess};
+use lumen_plugin_host::protocol::{EditorBounds, ParamInfo, Response, Taken, UnitInfo};
 use lumen_plugin_host::shm::{Layout, Wake};
 
 use crate::link::{Counts, Link};
@@ -146,6 +147,9 @@ pub struct Start {
     pub instrument: bool,
     /// The saved component state, restored at load; empty for none.
     pub state: Vec<u8>,
+    /// Parameter values set after the state is restored, as `(id,
+    /// normalized value)`: what the project holds over the saved state.
+    pub values: Vec<(u32, f64)>,
     pub rate: f64,
     /// The longest block the plugin is promised: the device's block, at most
     /// the engine's [`MOST_FRAMES`]. Some plugins size their work by it on
@@ -174,6 +178,7 @@ impl Start {
             class,
             instrument,
             state: Vec::new(),
+            values: Vec::new(),
             rate,
             frames: MOST_FRAMES as u32,
             env: Vec::new(),
@@ -190,6 +195,45 @@ pub enum Happened {
     Linked(Box<Linked>),
     /// The device has no host and will not get one without a reload.
     Failed(Failure),
+    /// The plugin's parameters changed from inside (its own window, or the
+    /// processor reporting a value), or events it has no parameter for were
+    /// dropped. Sent only when there is something to say.
+    Edits(Taken),
+    /// Something happened to the plugin's editor window.
+    Editor(EditorEvent),
+    /// The plugin's own text for a value that was asked for.
+    Text { id: u32, value: f64, text: String },
+    /// What the plugin made of text the user typed for a parameter: its
+    /// normalized value, or `None` when it did not understand.
+    Typed {
+        id: u32,
+        text: String,
+        value: Option<f64>,
+    },
+    /// The plugin's saved state, as asked for ([`Process::capture`]): the
+    /// bytes, or why they could not be read in time.
+    State(Result<Vec<u8>, String>),
+    /// A key Lumen asked for ([`Process::capture_keys`]) went down or up in
+    /// the plugin's window (a virtual-key code).
+    Key { code: u8, down: bool },
+}
+
+/// What happened to a plugin's editor window (M6 slice 4f).
+#[derive(Debug, Clone, PartialEq)]
+pub enum EditorEvent {
+    /// The window is open, here.
+    Opened(EditorBounds),
+    /// The window was moved or resized by the user or the plugin.
+    Moved(EditorBounds),
+    /// The window is gone: Lumen closed it or the user did. Where it was last.
+    Closed(Option<EditorBounds>),
+    /// The window stopped answering: the plugin is stuck in its own window
+    /// code. The user decides whether to end the plugin.
+    NotResponding,
+    /// The window answers again.
+    Responding,
+    /// The editor could not be opened, and why.
+    Refused(String),
 }
 
 pub struct Linked {
@@ -201,6 +245,11 @@ pub struct Linked {
     pub tail: u32,
     /// The longest block the plugin was promised.
     pub frames: u32,
+    /// The plugin's parameters as they were when it loaded (capped), the
+    /// plugin's own count, and the groups they sit in.
+    pub params: Vec<ParamInfo>,
+    pub params_total: u32,
+    pub units: Vec<UnitInfo>,
     pub pid: u32,
     /// What the host says about itself: how long its first blocks took, and
     /// where it died if it does. For the card when the plugin is given up on.
@@ -221,8 +270,73 @@ enum Command {
     /// A fresh link, at a rate and a longest block, for a new engine or a
     /// new device block size.
     Relink(f64, u32),
+    /// Set a parameter (normalized): the plugin's controller is told and the
+    /// processor hears it at the start of its next block.
+    Set(u32, f64),
+    /// Ask the plugin for its text for a value.
+    Text(u32, f64),
+    /// Ask the plugin to read text the user typed for a parameter.
+    Typed(u32, String),
+    /// Open the editor window where it was, or where the system puts it.
+    OpenEditor(Option<EditorBounds>),
+    CloseEditor,
+    /// Hide the open editor window without closing it, or show it again.
+    ShowEditor(bool),
+    /// End the host, as the user chose for a plugin whose window stopped
+    /// answering.
+    End,
+    /// Read the plugin's state now.
+    Capture,
+    /// Take these keys from the plugin's window (none: give them back).
+    Keys(Vec<u8>),
     Quit,
 }
+
+/// Drops the commands a later one makes pointless: of several values set for
+/// one parameter, only the last matters (a drag sends many); of several asks
+/// for one parameter's text, the last; of several sets of keys, the last.
+/// Order is otherwise kept.
+fn coalesce(commands: Vec<Command>) -> Vec<Command> {
+    let mut keep = vec![true; commands.len()];
+    for (i, c) in commands.iter().enumerate() {
+        let later = commands[i + 1..].iter();
+        let superseded = match c {
+            Command::Set(id, _) => later
+                .into_iter()
+                .any(|d| matches!(d, Command::Set(other, _) if other == id)),
+            Command::Text(id, _) => later
+                .into_iter()
+                .any(|d| matches!(d, Command::Text(other, _) if other == id)),
+            Command::Keys(_) => later.into_iter().any(|d| matches!(d, Command::Keys(_))),
+            Command::ShowEditor(_) => later
+                .into_iter()
+                .any(|d| matches!(d, Command::ShowEditor(_) | Command::CloseEditor)),
+            _ => false,
+        };
+        keep[i] = !superseded;
+    }
+    commands
+        .into_iter()
+        .zip(keep)
+        .filter_map(|(c, k)| k.then_some(c))
+        .collect()
+}
+
+/// How often a running host is asked for the edits made inside it.
+const EDIT_POLL: Duration = Duration::from_millis(25);
+/// How long an ask for edits or text may take; a miss is only a miss (the
+/// audio side finds a host that has stopped answering).
+const QUICK: Duration = Duration::from_millis(300);
+/// How often an open editor window is asked where it is.
+const EDITOR_POLL: Duration = Duration::from_millis(100);
+/// How long a request about the editor window may take. The host answers
+/// "not responding" after its own wait (five seconds:
+/// `lumen_plugin_host::server::EDITOR_WAIT`), so this only guards a host that
+/// is gone.
+const EDITOR_WAIT: Duration = Duration::from_secs(8);
+/// How long reading a plugin's state may take before the answer is a failure
+/// and the project is saved with the state it has (M6 slice 4g).
+pub const CAPTURE: Duration = Duration::from_secs(2);
 
 /// A permit to load: only a few plugins load at once, as the scanner's.
 pub(crate) struct Gate {
@@ -300,6 +414,59 @@ impl Process {
         let _ = self.commands.send(Command::Relink(rate, frames));
     }
 
+    /// Sets a parameter of the plugin (normalized, 0 to 1).
+    pub fn set_param(&self, id: u32, value: f64) {
+        let _ = self.commands.send(Command::Set(id, value));
+    }
+
+    /// Asks the host for the plugin's state; the answer comes as
+    /// [`Happened::State`], within the state deadline or as a failure.
+    pub fn capture(&self) {
+        let _ = self.commands.send(Command::Capture);
+    }
+
+    /// Asks for the plugin's text for a value; the answer comes as
+    /// [`Happened::Text`].
+    pub fn param_text(&self, id: u32, value: f64) {
+        let _ = self.commands.send(Command::Text(id, value));
+    }
+
+    /// Asks the plugin to read `text` the user typed for a parameter; the
+    /// answer comes as [`Happened::Typed`].
+    pub fn param_value(&self, id: u32, text: String) {
+        let _ = self.commands.send(Command::Typed(id, text));
+    }
+
+    /// Opens the plugin's editor window (at `bounds` if given); the answer
+    /// comes as [`Happened::Editor`].
+    pub fn open_editor(&self, bounds: Option<EditorBounds>) {
+        let _ = self.commands.send(Command::OpenEditor(bounds));
+    }
+
+    /// Closes the editor window; the answer comes as [`Happened::Editor`].
+    pub fn close_editor(&self) {
+        let _ = self.commands.send(Command::CloseEditor);
+    }
+
+    /// Hides the editor window without closing it (the plugin keeps its view
+    /// and its place), or shows it again.
+    pub fn show_editor(&self, visible: bool) {
+        let _ = self.commands.send(Command::ShowEditor(visible));
+    }
+
+    /// Ends the host (a plugin whose window stopped answering); the device
+    /// then reads as failed, as any host that stopped.
+    pub fn end(&self) {
+        let _ = self.commands.send(Command::End);
+    }
+
+    /// Takes `keys` (virtual-key codes) from the plugin's window when pressed
+    /// alone; each press and release comes as [`Happened::Key`]. Empty gives
+    /// them back.
+    pub fn capture_keys(&self, keys: Vec<u8>) {
+        let _ = self.commands.send(Command::Keys(keys));
+    }
+
     /// Asks the host to quit and waits for the thread.
     pub fn join(mut self) {
         let _ = self.commands.send(Command::Quit);
@@ -348,11 +515,51 @@ fn crash_detail(host: &HostProcess, error: &HostError) -> Option<String> {
     None
 }
 
+/// What the thread knows of the editor window between polls.
+struct EditorTrack {
+    /// Believed open (asked for and not seen closed).
+    open: bool,
+    /// Opened has been said.
+    announced: bool,
+    /// Its host did not answer the last time it was asked.
+    hung: bool,
+    last: Option<EditorBounds>,
+    polled: Instant,
+}
+
+impl Default for EditorTrack {
+    fn default() -> Self {
+        Self {
+            open: false,
+            announced: false,
+            hung: false,
+            last: None,
+            polled: Instant::now(),
+        }
+    }
+}
+
+/// Whether `error` means the host's window code is not answering (as against
+/// a refusal or a host that is gone).
+fn not_answering(error: &HostError) -> bool {
+    matches!(
+        error,
+        HostError::Timeout
+            | HostError::Failed {
+                kind: lumen_plugin_host::protocol::FailureKind::Unresponsive,
+                ..
+            }
+    )
+}
+
 struct Up {
     host: HostProcess,
     name: String,
     vendor: String,
     generation: u32,
+    params: Vec<ParamInfo>,
+    params_total: u32,
+    units: Vec<UnitInfo>,
 }
 
 impl Run {
@@ -376,22 +583,92 @@ impl Run {
             }
         };
         let d = self.start.deadlines;
+        let mut polled = Instant::now();
+        let mut editor = EditorTrack::default();
         loop {
-            match self.requests.recv_timeout(Duration::from_millis(10)) {
-                Ok(Command::Relink(rate, frames)) => match self.relink(&mut up, rate, frames) {
-                    Ok(linked) => self.say(Happened::Linked(Box::new(linked))),
-                    Err(failure) => {
+            let mut commands = match self.requests.recv_timeout(Duration::from_millis(10)) {
+                Ok(first) => vec![first],
+                Err(RecvTimeoutError::Timeout) => Vec::new(),
+                Err(RecvTimeoutError::Disconnected) => vec![Command::Quit],
+            };
+            while let Ok(more) = self.requests.try_recv() {
+                commands.push(more);
+            }
+            for command in coalesce(commands) {
+                match command {
+                    Command::Relink(rate, frames) => match self.relink(&mut up, rate, frames) {
+                        Ok(linked) => self.say(Happened::Linked(Box::new(linked))),
+                        Err(failure) => {
+                            self.ended.store(true, Ordering::Release);
+                            up.host.kill();
+                            self.say(Happened::Failed(failure));
+                            return;
+                        }
+                    },
+                    Command::Set(id, value) => {
+                        let _ = up.host.set_param(id, value, QUICK);
+                    }
+                    Command::Text(id, value) => {
+                        if let Ok(text) = up.host.param_text(id, value, QUICK) {
+                            self.say(Happened::Text { id, value, text });
+                        }
+                    }
+                    Command::Typed(id, text) => {
+                        let value = up.host.param_value(id, &text, QUICK).ok();
+                        self.say(Happened::Typed { id, text, value });
+                    }
+                    Command::OpenEditor(bounds) => {
+                        if !editor.open {
+                            self.open_editor(&mut up, &mut editor, bounds);
+                        }
+                    }
+                    Command::CloseEditor => self.close_editor(&mut up, &mut editor),
+                    Command::ShowEditor(visible) => {
+                        if editor.open {
+                            // A window that does not answer is found out by
+                            // the poll; nothing is said here.
+                            let _ = up.host.show_editor(visible, EDITOR_WAIT);
+                        }
+                    }
+                    Command::End => {
                         self.ended.store(true, Ordering::Release);
                         up.host.kill();
-                        self.say(Happened::Failed(failure));
+                        self.say(Happened::Failed(Failure {
+                            step: Step::Running,
+                            error: HostError::Failed {
+                                kind: lumen_plugin_host::protocol::FailureKind::Unresponsive,
+                                message:
+                                    "the plugin's window stopped answering and the plugin was ended"
+                                        .into(),
+                            },
+                            detail: None,
+                        }));
                         return;
                     }
-                },
-                Ok(Command::Quit) | Err(RecvTimeoutError::Disconnected) => {
-                    up.host.quit(d.quit);
-                    return;
+                    Command::Capture => {
+                        let state = up.host.state(CAPTURE).map_err(|e| e.to_string());
+                        self.say(Happened::State(state));
+                    }
+                    Command::Keys(keys) => {
+                        let _ = up.host.capture_keys(keys, QUICK);
+                    }
+                    Command::Quit => {
+                        up.host.quit(d.quit);
+                        return;
+                    }
                 }
-                Err(RecvTimeoutError::Timeout) => {}
+            }
+            if polled.elapsed() >= EDIT_POLL && !up.host.has_ended() {
+                polled = Instant::now();
+                if let Ok(taken) = up.host.take_edits(QUICK)
+                    && (!taken.list.is_empty() || taken.dropped > 0 || taken.ignored > 0)
+                {
+                    self.say(Happened::Edits(taken));
+                }
+            }
+            if editor.open && editor.polled.elapsed() >= EDITOR_POLL && !up.host.has_ended() {
+                editor.polled = Instant::now();
+                self.watch_editor(&mut up, &mut editor);
             }
             if up.host.has_ended() {
                 self.ended.store(true, Ordering::Release);
@@ -408,6 +685,89 @@ impl Run {
                 }));
                 return;
             }
+        }
+    }
+
+    fn open_editor(&self, up: &mut Up, editor: &mut EditorTrack, bounds: Option<EditorBounds>) {
+        match up.host.open_editor(bounds, EDITOR_WAIT) {
+            Ok(status) => {
+                editor.open = status.open;
+                editor.hung = false;
+                editor.last = status.bounds;
+                if let Some(b) = status.bounds.filter(|_| status.open) {
+                    editor.announced = true;
+                    self.say(Happened::Editor(EditorEvent::Opened(b)));
+                }
+            }
+            Err(error) if not_answering(&error) => {
+                // The window is being made by a plugin that has stopped
+                // answering: it is open as far as anyone can say, and the
+                // poll finds out when it answers.
+                editor.open = true;
+                editor.hung = true;
+                editor.announced = false;
+                self.say(Happened::Editor(EditorEvent::NotResponding));
+            }
+            Err(error) => self.say(Happened::Editor(EditorEvent::Refused(error.to_string()))),
+        }
+    }
+
+    fn close_editor(&self, up: &mut Up, editor: &mut EditorTrack) {
+        if !editor.open {
+            return;
+        }
+        match up.host.close_editor(EDITOR_WAIT) {
+            Ok(status) => {
+                editor.open = false;
+                editor.hung = false;
+                self.say(Happened::Editor(EditorEvent::Closed(
+                    status.bounds.or(editor.last),
+                )));
+            }
+            Err(error) if not_answering(&error) => {
+                if !editor.hung {
+                    editor.hung = true;
+                    self.say(Happened::Editor(EditorEvent::NotResponding));
+                }
+            }
+            Err(_) => {}
+        }
+    }
+
+    /// Asks an open editor where it is, and says what changed.
+    fn watch_editor(&self, up: &mut Up, editor: &mut EditorTrack) {
+        match up.host.editor_status(EDITOR_WAIT) {
+            Ok(status) => {
+                if editor.hung {
+                    editor.hung = false;
+                    self.say(Happened::Editor(EditorEvent::Responding));
+                }
+                if !status.open {
+                    editor.open = false;
+                    self.say(Happened::Editor(EditorEvent::Closed(
+                        status.bounds.or(editor.last),
+                    )));
+                    return;
+                }
+                let Some(b) = status.bounds else {
+                    return;
+                };
+                if !editor.announced {
+                    editor.announced = true;
+                    editor.last = Some(b);
+                    self.say(Happened::Editor(EditorEvent::Opened(b)));
+                } else if editor.last != Some(b) {
+                    editor.last = Some(b);
+                    self.say(Happened::Editor(EditorEvent::Moved(b)));
+                }
+            }
+            Err(error) if not_answering(&error) => {
+                if !editor.hung {
+                    editor.hung = true;
+                    self.say(Happened::Editor(EditorEvent::NotResponding));
+                }
+            }
+            Err(_) => {}
         }
     }
 
@@ -437,6 +797,15 @@ impl Run {
             },
             detail: None,
         })?;
+        // Keys pressed in the plugin's window go to the app as they come, not
+        // at this thread's next look.
+        let (out, wake, tag) = (self.out.clone(), self.wake.clone(), self.tag);
+        host.on_notice(Box::new(move |news| {
+            if let Response::Key { code, down } = news {
+                let _ = out.send((tag, Happened::Key { code, down }));
+                wake();
+            }
+        }));
         let class = host
             .load(&s.module, Some(s.class), s.deadlines.load)
             .map_err(|e| self.fail(&mut host, Step::Load, e))?;
@@ -444,11 +813,26 @@ impl Run {
             host.set_state(s.state.clone(), s.deadlines.state)
                 .map_err(|e| self.fail(&mut host, Step::State, e))?;
         }
+        // The parameters are for the interface: a plugin whose controller
+        // will not list them still plays. They are listed before the project's
+        // own values are set, so their values are what the saved state holds:
+        // the baseline an undone change goes back to.
+        let (params_total, params) = host
+            .parameters(s.deadlines.state)
+            .unwrap_or((0, Vec::new()));
+        let units = host.units(s.deadlines.state).unwrap_or_default();
+        for &(id, value) in &s.values {
+            host.set_param(id, value, s.deadlines.state)
+                .map_err(|e| self.fail(&mut host, Step::State, e))?;
+        }
         let mut up = Up {
             host,
             name: class.name,
             vendor: class.vendor,
             generation: 0,
+            params,
+            params_total,
+            units,
         };
         let linked = self.configure_and_link(&mut up, s.rate, s.frames)?;
         Ok((up, linked))
@@ -489,6 +873,9 @@ impl Run {
             latency,
             tail,
             frames,
+            params: up.params.clone(),
+            params_total: up.params_total,
+            units: up.units.clone(),
             pid: up.host.id(),
             log: up.host.log(),
         })
@@ -532,6 +919,52 @@ mod tests {
     }
 
     use std::sync::atomic::AtomicUsize;
+
+    fn describe(commands: &[Command]) -> Vec<String> {
+        commands
+            .iter()
+            .map(|c| match c {
+                Command::Set(id, v) => format!("set {id}={v}"),
+                Command::Text(id, v) => format!("text {id}={v}"),
+                Command::Typed(id, t) => format!("typed {id}={t}"),
+                Command::OpenEditor(_) => "open editor".into(),
+                Command::CloseEditor => "close editor".into(),
+                Command::ShowEditor(_) => "show or hide editor".into(),
+                Command::End => "end".into(),
+                Command::Relink(..) => "relink".into(),
+                Command::Capture => "capture".into(),
+                Command::Keys(keys) => format!("keys {}", keys.len()),
+                Command::Quit => "quit".into(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_drag_of_one_parameter_is_one_value_and_the_order_of_the_rest_is_kept() {
+        let kept = coalesce(vec![
+            Command::Set(1, 0.1),
+            Command::Set(2, 0.5),
+            Command::Text(1, 0.1),
+            Command::Set(1, 0.2),
+            Command::Relink(48_000.0, 128),
+            Command::Text(1, 0.2),
+            Command::Set(1, 0.3),
+            Command::Keys(vec![1, 2]),
+            Command::Keys(vec![]),
+            Command::Quit,
+        ]);
+        assert_eq!(
+            describe(&kept),
+            [
+                "set 2=0.5",
+                "relink",
+                "text 1=0.2",
+                "set 1=0.3",
+                "keys 0",
+                "quit"
+            ]
+        );
+    }
 
     #[test]
     fn the_gate_lets_only_its_permits_through_at_once() {

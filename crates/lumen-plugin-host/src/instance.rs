@@ -21,8 +21,9 @@ use vst3::Steinberg::Vst::{
     AudioBusBuffers, AudioBusBuffers__type0, BusInfo, Event as VstEvent, Event__type0,
     IAudioProcessor, IAudioProcessorTrait, IComponent, IComponentHandler, IComponentTrait,
     IConnectionPoint, IConnectionPointTrait, IEditController, IEditControllerTrait, IEventList,
-    IParameterChanges, NoteOffEvent, NoteOnEvent, ParameterInfo, ProcessContext, ProcessData,
-    ProcessSetup, SpeakerArr, SpeakerArrangement,
+    IMidiMapping, IMidiMappingTrait, IParameterChanges, IUnitInfo, IUnitInfoTrait, NoteOffEvent,
+    NoteOnEvent, ParameterInfo, ProcessContext, ProcessData, ProcessSetup, SpeakerArr,
+    SpeakerArrangement, UnitInfo as VstUnitInfo,
 };
 use vst3::Steinberg::{
     IPlugView, IPluginBaseTrait, IPluginFactory3, IPluginFactory3Trait, IPluginFactoryTrait, TUID,
@@ -30,11 +31,11 @@ use vst3::Steinberg::{
 };
 use vst3::{ComPtr, ComWrapper, Interface};
 
-use crate::com::{self, Changes, EventList, Handler, MemoryStream, NoOutputChanges};
+use crate::com::{self, Changes, EventList, Handler, MOST_PENDING, MemoryStream, OutputChanges};
 use crate::module::{AUDIO_CLASS, Module, to_tuid};
 use crate::protocol::{
-    ClassId, ClassInfo, Event, EventKind, MAX_CHANNELS, MAX_FRAMES, MAX_PARAMETERS, MAX_STATE,
-    ParamInfo, ParamQueue,
+    ClassId, ClassInfo, Edit, EditKind, Event, EventKind, MAX_CHANNELS, MAX_FRAMES, MAX_PARAMETERS,
+    MAX_STATE, MAX_UNITS, ParamInfo, ParamQueue, Taken, UnitInfo,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,7 +119,27 @@ pub struct Instance {
     events_out_ptr: ComPtr<IEventList>,
     changes: ComWrapper<Changes>,
     changes_ptr: ComPtr<IParameterChanges>,
-    no_changes_out: ComPtr<IParameterChanges>,
+    outputs: ComWrapper<OutputChanges>,
+    outputs_ptr: ComPtr<IParameterChanges>,
+    /// Values to give the processor at the start of a block: edits made in
+    /// the plugin's window and values set from Lumen.
+    now: Vec<(u32, f64)>,
+    /// The plugin's controller mapping (CC, bend, pressure to parameters).
+    mapping: Option<ComPtr<IMidiMapping>>,
+    /// What the mapping said for each channel and controller number: unknown
+    /// (not asked yet), none, or a parameter id. Asked lazily, once.
+    midi_map: Vec<i64>,
+    /// This block's controller events as `(parameter id, offset in the
+    /// block, normalized value)`.
+    mapped: Vec<(u32, u32, f64)>,
+    /// Controller events no parameter took, since the last `take_edits`.
+    ignored: u32,
+    /// The processor's reported values after a block, before they are noted.
+    reported: Vec<(u32, f64)>,
+    /// Values the processor has heard that the controller has not: it is told
+    /// from the control thread ([`Instance::take_edits`]), never from the
+    /// audio thread.
+    for_controller: Vec<(u32, f64)>,
     context: ProcessContext,
     /// How many audio buses the plugin declares each way. The process data
     /// carries an entry for every one, those that are off included.
@@ -308,15 +329,15 @@ impl Instance {
             }
         }
 
+        let mapping = controller.as_ref().and_then(|c| c.cast::<IMidiMapping>());
         let events_in = ComWrapper::new(EventList::default());
         let events_in_ptr = events_in.to_com_ptr::<IEventList>().expect("listed");
         let events_out = ComWrapper::new(EventList::default());
         let events_out_ptr = events_out.to_com_ptr::<IEventList>().expect("listed");
         let changes = ComWrapper::new(Changes::new());
         let changes_ptr = changes.to_com_ptr::<IParameterChanges>().expect("listed");
-        let no_changes_out = ComWrapper::new(NoOutputChanges::new())
-            .to_com_ptr::<IParameterChanges>()
-            .expect("listed");
+        let outputs = ComWrapper::new(OutputChanges::new());
+        let outputs_ptr = outputs.to_com_ptr::<IParameterChanges>().expect("listed");
 
         Ok(Self {
             class: info,
@@ -331,7 +352,15 @@ impl Instance {
             events_out_ptr,
             changes,
             changes_ptr,
-            no_changes_out,
+            outputs,
+            outputs_ptr,
+            now: Vec::with_capacity(MOST_PENDING),
+            mapping,
+            midi_map: vec![MAP_UNKNOWN; MAP_CHANNELS * MAP_NUMBERS],
+            mapped: Vec::with_capacity(256),
+            ignored: 0,
+            reported: Vec::with_capacity(MOST_PENDING),
+            for_controller: Vec::with_capacity(MOST_PENDING),
             // SAFETY: a plain C struct; zero is a valid "nothing known" context.
             context: unsafe { std::mem::zeroed() },
             in_buses: 0,
@@ -351,18 +380,6 @@ impl Instance {
 
     pub fn latency(&self) -> u32 {
         self.latency
-    }
-
-    /// The plugin's editor view, if its controller offers one. Its window is
-    /// made, used and destroyed on one thread (the host's window thread):
-    /// the view must not be shared with the audio or control threads.
-    pub fn create_editor_view(&self) -> Option<ComPtr<IPlugView>> {
-        let controller = self.controller.as_ref()?;
-        // SAFETY: a plain call on a live controller; a non-null result is a
-        // reference the caller owns.
-        let raw = unsafe { controller.createView(c"editor".as_ptr()) };
-        // SAFETY: as above.
-        unsafe { ComPtr::from_raw(raw) }
     }
 
     pub fn tail(&self) -> u32 {
@@ -599,6 +616,9 @@ impl Instance {
             return Err(plugin("buffers do not match the format"));
         }
         let most = (format.max_frames as usize).max(1);
+        self.now.clear();
+        self.handler.drain_to_processor(&mut self.now);
+        self.note_for_controller(params);
         let mut done = Done {
             status: 0,
             latency: self.latency,
@@ -648,19 +668,36 @@ impl Instance {
         }
         let (ins, outs) = (buffers.input.len(), buffers.output.len());
 
+        // Controller, bend and pressure become parameter points through the
+        // plugin's own mapping.
+        self.mapped.clear();
+        for e in events
+            .iter()
+            .filter(|e| (start..end).contains(&(e.offset as usize)))
+        {
+            if let Some((channel, number, value)) = controller_value(&e.kind) {
+                match self.mapped_param(channel, number) {
+                    Some(id) => self.mapped.push((id, e.offset, value)),
+                    None => self.ignored = self.ignored.saturating_add(1),
+                }
+            }
+        }
         let notes = &mut self.notes;
         self.events_in.set(
             events
                 .iter()
                 .filter(|e| (start..end).contains(&(e.offset as usize)))
-                .map(|e| {
-                    let mut event = vst_event(e, notes);
+                .filter_map(|e| {
+                    let mut event = vst_event(e, notes)?;
                     event.sampleOffset -= start as i32;
-                    event
+                    Some(event)
                 }),
         );
         self.events_out.set([]);
-        self.changes.set_span(params, start as u32, n as u32);
+        // The edits waiting go in the first piece of a block.
+        let now: &[(u32, f64)] = if start == 0 { &self.now } else { &[] };
+        self.changes
+            .set_span(params, now, &self.mapped, start as u32, n as u32);
 
         // An entry for every bus the plugin declares; only the main bus of
         // each direction carries audio, the rest are off (no channels).
@@ -704,7 +741,7 @@ impl Instance {
                 out_buses.as_mut_ptr()
             },
             inputParameterChanges: self.changes_ptr.as_ptr(),
-            outputParameterChanges: self.no_changes_out.as_ptr(),
+            outputParameterChanges: self.outputs_ptr.as_ptr(),
             inputEvents: self.events_in_ptr.as_ptr(),
             outputEvents: self.events_out_ptr.as_ptr(),
             processContext: &mut self.context,
@@ -726,6 +763,7 @@ impl Instance {
                 }
             }
         }
+        self.collect_outputs();
         let restart = self.handler.restart.swap(0, Ordering::AcqRel);
         // A plugin's latency may change with a parameter, so it is read
         // after every block; `restart` tells the caller the plugin also
@@ -738,6 +776,164 @@ impl Instance {
             restart,
             repaired,
         }
+    }
+
+    /// The controller's side of the plugin, for calls made without the lock
+    /// the audio thread takes (see [`Controls`]).
+    pub fn controls(&self) -> Controls {
+        Controls {
+            component: self.component.clone(),
+            controller: self.controller.clone(),
+            handler: self.handler.clone(),
+        }
+    }
+
+    pub fn create_editor_view(&self) -> Option<ComPtr<IPlugView>> {
+        self.controls().create_editor_view()
+    }
+
+    pub fn state(&self) -> Result<Vec<u8>, InstanceError> {
+        self.controls().state()
+    }
+
+    pub fn set_state(&self, state: &[u8]) -> Result<(), InstanceError> {
+        self.controls().set_state(state)
+    }
+
+    pub fn parameters(&self) -> (u32, Vec<ParamInfo>) {
+        self.controls().parameters()
+    }
+
+    pub fn units(&self) -> Vec<UnitInfo> {
+        self.controls().units()
+    }
+
+    pub fn param_text(&self, id: u32, value: f64) -> Option<String> {
+        self.controls().param_text(id, value)
+    }
+
+    pub fn param_value(&self, id: u32, text: &str) -> Option<f64> {
+        self.controls().param_value(id, text)
+    }
+
+    pub fn set_param(&self, id: u32, value: f64) {
+        self.controls().set_param(id, value);
+    }
+
+    /// The edits made since the last call and how many were dropped, the
+    /// controller told first what the processor heard (see
+    /// [`Controls::take_edits`]).
+    pub fn take_edits(&mut self) -> Taken {
+        let heard = self.take_heard();
+        self.controls().take_edits(heard)
+    }
+
+    /// What the processor heard that the controller has not, and the
+    /// controller events no parameter took, since the last call: the part of
+    /// taking edits that needs the instance (and so its lock).
+    pub fn take_heard(&mut self) -> Heard {
+        // Copied and cleared, not taken: the list keeps its room, and the
+        // audio thread that fills it never allocates.
+        let values = self.for_controller.to_vec();
+        self.for_controller.clear();
+        Heard {
+            values,
+            ignored: std::mem::take(&mut self.ignored),
+        }
+    }
+
+    /// The parameter a controller number on a channel is mapped to.
+    fn mapped_param(&mut self, channel: i16, number: i16) -> Option<u32> {
+        let (channel, number) = (
+            usize::try_from(channel).ok()?,
+            usize::try_from(number).ok()?,
+        );
+        if channel >= MAP_CHANNELS || number >= MAP_NUMBERS {
+            return None;
+        }
+        let slot = channel * MAP_NUMBERS + number;
+        if self.midi_map[slot] == MAP_UNKNOWN {
+            let mut id: u32 = 0;
+            let found = self.mapping.as_ref().is_some_and(|m| {
+                // SAFETY: a plain call on a live interface with a valid out pointer.
+                let result = unsafe {
+                    m.getMidiControllerAssignment(0, channel as i16, number as i16, &mut id)
+                };
+                result == kResultOk
+            });
+            self.midi_map[slot] = if found { i64::from(id) } else { MAP_NONE };
+        }
+        u32::try_from(self.midi_map[slot]).ok()
+    }
+
+    /// Notes the last value of each parameter in `params` for the controller.
+    fn note_for_controller(&mut self, params: &[ParamQueue]) {
+        for queue in params {
+            if let Some(&(_, value)) = queue.points.last() {
+                self.note(queue.id, value);
+            }
+        }
+    }
+
+    fn note(&mut self, id: u32, value: f64) {
+        match self.for_controller.iter().position(|(i, _)| *i == id) {
+            Some(at) => self.for_controller[at].1 = value,
+            None if self.for_controller.len() < MOST_PENDING => {
+                self.for_controller.push((id, value));
+            }
+            None => {}
+        }
+    }
+
+    /// After a block: what the processor reported becomes edits for Lumen
+    /// and a value for the controller.
+    fn collect_outputs(&mut self) {
+        self.reported.clear();
+        self.outputs.take(&mut self.reported);
+        for i in 0..self.reported.len() {
+            let (id, value) = self.reported[i];
+            self.handler.report(Edit {
+                id,
+                value,
+                kind: EditKind::Output,
+            });
+            self.note(id, value);
+        }
+    }
+}
+
+/// The controller's side of a plugin: its component (for its state), its
+/// controller and the handler that hears it, cloned out of the [`Instance`].
+/// The host's main thread calls through it without holding the lock the
+/// audio thread takes for every block, so a plugin that is slow to make its
+/// editor, write its state or list its parameters never stalls its own audio.
+/// VST3 allows it: a host calls these on its main thread while the processor
+/// runs on the audio thread; only setting the plugin up excludes processing,
+/// and that stays under the lock.
+pub struct Controls {
+    component: ComPtr<IComponent>,
+    controller: Option<ComPtr<IEditController>>,
+    handler: ComWrapper<Handler>,
+}
+
+/// What the processor heard that the controller has not been told, and the
+/// controller events no parameter took ([`Instance::take_heard`]).
+pub struct Heard {
+    values: Vec<(u32, f64)>,
+    ignored: u32,
+}
+
+impl Controls {
+    /// The plugin's editor view, if its controller offers one. Its window is
+    /// made, used and destroyed on one thread (the host's window thread):
+    /// the view must not be shared with the audio or control threads.
+    pub fn create_editor_view(&self) -> Option<ComPtr<IPlugView>> {
+        let controller = self.controller.as_ref()?;
+        // SAFETY: a plain call on a live controller; a non-null result is a
+        // reference the caller owns.
+        let raw = unsafe { controller.createView(c"editor".as_ptr()) };
+        // SAFETY: as above.
+        unsafe { ComPtr::from_raw(raw) }
     }
 
     /// The component's saved state.
@@ -778,16 +974,109 @@ impl Instance {
             let list = (0..total.min(MAX_PARAMETERS) as i32)
                 .filter_map(|i| {
                     let mut info: ParameterInfo = std::mem::zeroed();
-                    (controller.getParameterInfo(i, &mut info) == kResultOk).then(|| ParamInfo {
-                        id: info.id,
-                        title: wide(&info.title),
-                        units: wide(&info.units),
-                        steps: info.stepCount,
-                        default: info.defaultNormalizedValue,
+                    (controller.getParameterInfo(i, &mut info) == kResultOk).then(|| {
+                        let value = controller.getParamNormalized(info.id);
+                        ParamInfo {
+                            id: info.id,
+                            title: wide(&info.title),
+                            units: wide(&info.units),
+                            steps: info.stepCount,
+                            default: info.defaultNormalizedValue,
+                            flags: info.flags as u32,
+                            unit: info.unitId,
+                            value: if value.is_finite() {
+                                value.clamp(0.0, 1.0)
+                            } else {
+                                info.defaultNormalizedValue
+                            },
+                        }
                     })
                 })
                 .collect();
             (total as u32, list)
+        }
+    }
+
+    /// The groups the parameters belong to, capped. A plugin with none has an empty list.
+    pub fn units(&self) -> Vec<UnitInfo> {
+        let Some(info) = self.controller.as_ref().and_then(|c| c.cast::<IUnitInfo>()) else {
+            return Vec::new();
+        };
+        // SAFETY: plain calls on a live interface with valid out pointers.
+        unsafe {
+            let count = info.getUnitCount().max(0) as usize;
+            (0..count.min(MAX_UNITS) as i32)
+                .filter_map(|i| {
+                    let mut unit: VstUnitInfo = std::mem::zeroed();
+                    (info.getUnitInfo(i, &mut unit) == kResultOk).then(|| UnitInfo {
+                        id: unit.id,
+                        parent: unit.parentUnitId,
+                        name: wide(&unit.name),
+                    })
+                })
+                .collect()
+        }
+    }
+
+    /// The plugin's own text for a normalized value, if it has one.
+    pub fn param_text(&self, id: u32, value: f64) -> Option<String> {
+        let controller = self.controller.as_ref()?;
+        if !value.is_finite() {
+            return None;
+        }
+        let mut text: vst3::Steinberg::Vst::String128 = [0; 128];
+        // SAFETY: a valid out pointer to a String128.
+        let r = unsafe { controller.getParamStringByValue(id, value.clamp(0.0, 1.0), &mut text) };
+        (r == kResultOk).then(|| wide(&text))
+    }
+
+    /// The normalized value the plugin reads from `text`, if it understands
+    /// it.
+    pub fn param_value(&self, id: u32, text: &str) -> Option<f64> {
+        let controller = self.controller.as_ref()?;
+        // A TChar string, NUL-terminated; one with a NUL inside would end
+        // early, so it is refused.
+        if text.contains('\0') {
+            return None;
+        }
+        let mut units: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
+        let mut value = 0.0_f64;
+        // SAFETY: a NUL-terminated string that outlives the call and a valid
+        // out pointer.
+        let r = unsafe { controller.getParamValueByString(id, units.as_mut_ptr(), &mut value) };
+        (r == kResultOk && value.is_finite()).then(|| value.clamp(0.0, 1.0))
+    }
+
+    /// Sets a parameter from Lumen: the controller is told now, and the
+    /// processor hears it at the start of the next block.
+    pub fn set_param(&self, id: u32, value: f64) {
+        if !value.is_finite() {
+            return;
+        }
+        let value = value.clamp(0.0, 1.0);
+        if let Some(controller) = &self.controller {
+            // SAFETY: a plain call on a live controller.
+            unsafe { controller.setParamNormalized(id, value) };
+        }
+        self.handler.send_to_processor(id, value);
+    }
+
+    /// The edits made since the last call and how many were dropped. First
+    /// the controller hears what the processor was given in blocks (a host's
+    /// duty: a value that reached only the processor leaves the plugin's
+    /// window showing the old one).
+    pub fn take_edits(&self, heard: Heard) -> Taken {
+        if let Some(controller) = &self.controller {
+            for (id, value) in heard.values {
+                // SAFETY: a plain call on a live controller.
+                unsafe { controller.setParamNormalized(id, value) };
+            }
+        }
+        let (list, dropped) = self.handler.take_reports();
+        Taken {
+            list,
+            dropped,
+            ignored: heard.ignored,
         }
     }
 }
@@ -797,7 +1086,34 @@ fn wide(buf: &[u16]) -> String {
     String::from_utf16_lossy(&units)
 }
 
-fn vst_event(event: &Event, ids: &mut NoteIds) -> VstEvent {
+/// The channels and controller numbers a mapping can be asked about: the 16
+/// MIDI channels and the numbers 0 to 127 plus pressure (128) and bend (129).
+const MAP_CHANNELS: usize = 16;
+const MAP_NUMBERS: usize = 130;
+const MAP_UNKNOWN: i64 = -2;
+const MAP_NONE: i64 = -1;
+
+/// `(channel, controller number, normalized value)` of a non-note event, with
+/// the numbers VST3 gives pressure and pitch bend.
+fn controller_value(kind: &EventKind) -> Option<(i16, i16, f64)> {
+    match *kind {
+        EventKind::Controller {
+            channel,
+            number,
+            value,
+        } => Some((channel, number, f64::from(value.clamp(0.0, 1.0)))),
+        EventKind::Pressure { channel, value } => {
+            Some((channel, 128, f64::from(value.clamp(0.0, 1.0))))
+        }
+        EventKind::PitchBend { channel, value } => {
+            Some((channel, 129, f64::from(value.clamp(0.0, 1.0))))
+        }
+        _ => None,
+    }
+}
+
+/// The plugin's event for a note; anything else is not an event.
+fn vst_event(event: &Event, ids: &mut NoteIds) -> Option<VstEvent> {
     let (kind, body) = match event.kind {
         EventKind::NoteOn {
             channel,
@@ -832,15 +1148,16 @@ fn vst_event(event: &Event, ids: &mut NoteIds) -> VstEvent {
                 },
             },
         ),
+        _ => return None,
     };
-    VstEvent {
+    Some(VstEvent {
         busIndex: 0,
         sampleOffset: event.offset as i32,
         ppqPosition: 0.0,
         flags: 0,
         r#type: kind as u16,
         __field0: body,
-    }
+    })
 }
 
 impl Drop for Instance {

@@ -9,14 +9,14 @@ use std::time::Instant;
 
 use lumen_core::midi::{Event, Kind};
 use lumen_devices::{Hosted, Refused, Reply};
-use lumen_plugin_host::protocol::{Event as HostEvent, EventKind};
+use lumen_plugin_host::protocol::{Event as HostEvent, EventKind, RESTART_RECONFIGURE};
 use lumen_plugin_host::shm::{BlockLink, Outcome, Poll, SubmitError};
 
 /// What a link has dropped, readable from the interface thread.
 #[derive(Debug, Default)]
 pub struct Counts {
-    /// Messages the host protocol cannot carry yet (controllers, bend,
-    /// pressure, program), or notes past the block's room. Owner's C1.
+    /// Messages the host protocol does not carry (program change, key
+    /// pressure, system messages), or events past the block's room.
     dropped_events: AtomicU32,
     /// Blocks the link refused because they did not fit its region.
     unfit_blocks: AtomicU32,
@@ -80,8 +80,11 @@ impl Link {
     }
 }
 
-/// A MIDI message as the host's note event, if it is a note. Velocity is
-/// 0 to 1 in the host's terms.
+/// A MIDI message as the host's event, if the host can take it: notes,
+/// controllers, pitch bend and channel pressure (a plugin hears the last
+/// three through its own controller mapping). Velocities and values are 0 to
+/// 1 in the host's terms; bend has its centre at 0.5. Program change, key
+/// pressure and system messages are not carried: the caller counts them.
 fn host_event(event: &Event, frames: usize) -> Option<HostEvent> {
     let channel = i16::from(event.msg.channel());
     let kind = match event.msg.kind() {
@@ -94,6 +97,19 @@ fn host_event(event: &Event, frames: usize) -> Option<HostEvent> {
             channel,
             pitch: i16::from(key),
             velocity: f32::from(velocity) / 127.0,
+        },
+        Kind::Controller { number, value } => EventKind::Controller {
+            channel,
+            number: i16::from(number),
+            value: f32::from(value) / 127.0,
+        },
+        Kind::Pressure { value } => EventKind::Pressure {
+            channel,
+            value: f32::from(value) / 127.0,
+        },
+        Kind::PitchBend { value } => EventKind::PitchBend {
+            channel,
+            value: ((f32::from(value) + 8192.0) / 16383.0).clamp(0.0, 1.0),
         },
         _ => return None,
     };
@@ -146,7 +162,11 @@ impl Hosted for Link {
                 Reply::Ready {
                     latency: answer.latency,
                     tail: self.tail,
-                    restart: answer.restart != 0,
+                    // Only a restart that needs the plugin set up again: a
+                    // plugin says its parameter values changed whenever it
+                    // loads a patch, and setting it up for that once cost a
+                    // plugin its host while it was busy loading (MT-VST-4).
+                    restart: answer.restart & RESTART_RECONFIGURE != 0,
                     work_ns: answer.work_ns,
                 }
             }

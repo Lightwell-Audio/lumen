@@ -10,18 +10,18 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use vst3::Steinberg::IBStream_::IStreamSeekMode_::{kIBSeekCur, kIBSeekEnd, kIBSeekSet};
 use vst3::Steinberg::Vst::{
-    Event, IAttributeList, IAttributeListTrait, IComponentHandler, IComponentHandlerTrait,
-    IEventList, IEventListTrait, IHostApplication, IHostApplicationTrait, IMessage, IMessageTrait,
-    IParamValueQueue, IParamValueQueueTrait, IParameterChanges, IParameterChangesTrait, ParamID,
-    ParamValue, String128, TChar,
+    Event, IAttributeList, IAttributeListTrait, IComponentHandler, IComponentHandler2,
+    IComponentHandler2Trait, IComponentHandlerTrait, IEventList, IEventListTrait, IHostApplication,
+    IHostApplicationTrait, IMessage, IMessageTrait, IParamValueQueue, IParamValueQueueTrait,
+    IParameterChanges, IParameterChangesTrait, ParamID, ParamValue, String128, TChar,
 };
 use vst3::Steinberg::{
-    IBStream, IBStreamTrait, TUID, int32, int64, kInvalidArgument, kNotImplemented, kResultFalse,
-    kResultOk, tresult,
+    FIDString, IBStream, IBStreamTrait, TBool, TUID, int32, int64, kInvalidArgument,
+    kNotImplemented, kResultFalse, kResultOk, tresult,
 };
 use vst3::{Class, ComPtr, ComWrapper, Interface};
 
-use crate::protocol::ParamQueue;
+use crate::protocol::{Edit, EditKind, MAX_EDITS, ParamQueue};
 
 /// An attribute's name in a list.
 type AttrID = *const c_char;
@@ -308,36 +308,163 @@ pub fn host_application() -> ComPtr<IHostApplication> {
 
 /// Hears the controller: restart requests (latency or bus changes) and
 /// parameter edits made in its own windows.
+///
+/// An edit is kept twice: once for Lumen, in order and with its gesture marks
+/// ([`Handler::take_reports`]), and once for the processor, which hears the
+/// latest value of each parameter at the start of its next block
+/// ([`Handler::drain_to_processor`]): a host's duty, because a controller
+/// only tells the host; the processor knows nothing until it is told.
 #[derive(Default)]
 pub struct Handler {
     pub restart: AtomicU32,
-    pub edits: Mutex<Vec<(u32, f64)>>,
+    reports: Mutex<Reports>,
+    to_processor: Mutex<Vec<(u32, f64)>>,
 }
 
-impl Class for Handler {
-    type Interfaces = (IComponentHandler,);
+#[derive(Default)]
+struct Reports {
+    list: Vec<Edit>,
+    dropped: u32,
 }
 
-impl IComponentHandlerTrait for Handler {
-    unsafe fn beginEdit(&self, _id: ParamID) -> tresult {
-        kResultOk
+impl Handler {
+    /// Records an edit for Lumen. A value that follows a value of the same
+    /// parameter replaces it, so a fast drag between two polls is one entry;
+    /// gesture marks are never merged.
+    pub fn report(&self, edit: Edit) {
+        let Ok(mut reports) = self.reports.lock() else {
+            return;
+        };
+        if let Some(last) = reports.list.last_mut()
+            && edit.kind == last.kind
+            && matches!(
+                edit.kind,
+                EditKind::Perform | EditKind::Output | EditKind::Dirty
+            )
+            && edit.id == last.id
+        {
+            last.value = edit.value;
+            return;
+        }
+        if reports.list.len() >= MAX_EDITS {
+            reports.dropped = reports.dropped.saturating_add(1);
+            return;
+        }
+        reports.list.push(edit);
     }
 
-    unsafe fn performEdit(&self, id: ParamID, value: ParamValue) -> tresult {
-        if let Ok(mut edits) = self.edits.lock()
-            && edits.len() < 4096
-        {
-            edits.push((id, value));
+    /// The edits since the last call, and how many were dropped for want of room.
+    pub fn take_reports(&self) -> (Vec<Edit>, u32) {
+        match self.reports.lock() {
+            Ok(mut r) => (std::mem::take(&mut r.list), std::mem::take(&mut r.dropped)),
+            Err(_) => (Vec::new(), 0),
+        }
+    }
+
+    /// Queues a value for the processor's next block (the latest of each
+    /// parameter wins).
+    pub fn send_to_processor(&self, id: u32, value: f64) {
+        let Ok(mut queued) = self.to_processor.lock() else {
+            return;
+        };
+        match queued.iter().position(|(i, _)| *i == id) {
+            Some(at) => queued[at].1 = value,
+            None if queued.len() < MOST_PENDING => queued.push((id, value)),
+            None => {}
+        }
+    }
+
+    /// Moves the queued values into `into` (which keeps its room, so a
+    /// steady stream of blocks does not allocate).
+    pub fn drain_to_processor(&self, into: &mut Vec<(u32, f64)>) {
+        if let Ok(mut queued) = self.to_processor.lock() {
+            into.extend(queued.drain(..));
+        }
+    }
+}
+
+/// The most distinct parameters waiting for a block, and the most a block
+/// is given at its start.
+pub const MOST_PENDING: usize = 512;
+
+impl Class for Handler {
+    type Interfaces = (IComponentHandler, IComponentHandler2);
+}
+
+/// What a restart asks for that says the plugin's own state changed: its
+/// parameter values (a program or patch was loaded) or the whole component.
+const RESTART_CHANGED_STATE: u32 = 1 | (1 << 2);
+
+impl Handler {
+    /// Tells Lumen the plugin changed inside, where no parameter shows it.
+    fn report_dirty(&self) {
+        self.report(Edit {
+            id: 0,
+            value: 0.0,
+            kind: EditKind::Dirty,
+        });
+    }
+}
+
+impl IComponentHandler2Trait for Handler {
+    /// The plugin's state changed (or, with false, was saved by the plugin
+    /// itself): only a change matters to Lumen.
+    unsafe fn setDirty(&self, state: TBool) -> tresult {
+        if state != 0 {
+            self.report_dirty();
         }
         kResultOk
     }
 
-    unsafe fn endEdit(&self, _id: ParamID) -> tresult {
+    unsafe fn requestOpenEditor(&self, _name: FIDString) -> tresult {
+        kResultFalse
+    }
+
+    unsafe fn startGroupEdit(&self) -> tresult {
+        kResultOk
+    }
+
+    unsafe fn finishGroupEdit(&self) -> tresult {
+        kResultOk
+    }
+}
+
+impl IComponentHandlerTrait for Handler {
+    unsafe fn beginEdit(&self, id: ParamID) -> tresult {
+        self.report(Edit {
+            id,
+            value: 0.0,
+            kind: EditKind::Begin,
+        });
+        kResultOk
+    }
+
+    unsafe fn performEdit(&self, id: ParamID, value: ParamValue) -> tresult {
+        if value.is_finite() {
+            self.report(Edit {
+                id,
+                value,
+                kind: EditKind::Perform,
+            });
+            self.send_to_processor(id, value);
+        }
+        kResultOk
+    }
+
+    unsafe fn endEdit(&self, id: ParamID) -> tresult {
+        self.report(Edit {
+            id,
+            value: 0.0,
+            kind: EditKind::End,
+        });
         kResultOk
     }
 
     unsafe fn restartComponent(&self, flags: int32) -> tresult {
         self.restart.fetch_or(flags as u32, Ordering::AcqRel);
+        if flags as u32 & RESTART_CHANGED_STATE != 0 {
+            self.report_dirty();
+        }
         kResultOk
     }
 }
@@ -450,12 +577,24 @@ impl Changes {
 
     /// The points of `params` in `len` frames from `start`, moved to start
     /// at 0: one piece of a block given to the plugin in pieces.
-    pub fn set_span(&self, params: &[ParamQueue], start: u32, len: u32) {
+    ///
+    /// `now` are values to apply at the start of the piece (edits made in a
+    /// plugin's window, or set from Lumen): each joins its parameter's queue
+    /// at offset 0, or gets a queue of its own.
+    pub fn set_span(
+        &self,
+        params: &[ParamQueue],
+        now: &[(u32, f64)],
+        mapped: &[(u32, u32, f64)],
+        start: u32,
+        len: u32,
+    ) {
         let end = start.saturating_add(len);
         let Ok(mut queues) = self.queues.lock() else {
             return;
         };
-        while queues.len() < params.len() {
+        let room = params.len() + now.len().min(MOST_PENDING) + mapped.len().min(MOST_PENDING);
+        while queues.len() < room {
             queues.push(ComWrapper::new(Queue {
                 data: Mutex::new((0, Vec::new())),
             }));
@@ -473,7 +612,49 @@ impl Changes {
                 );
             }
         }
-        self.live.store(params.len() as u32, Ordering::Release);
+        let mut used = params.len();
+        for &(id, value) in now.iter().take(MOST_PENDING) {
+            let found = queues[..used]
+                .iter()
+                .find(|q| q.data.lock().is_ok_and(|d| d.0 == id));
+            if let Some(queue) = found {
+                if let Ok(mut data) = queue.data.lock() {
+                    data.1.insert(0, (0, value));
+                }
+            } else {
+                if let Ok(mut data) = queues[used].data.lock() {
+                    data.0 = id;
+                    data.1.clear();
+                    data.1.push((0, value));
+                }
+                used += 1;
+            }
+        }
+        // Controller events, in the time order they came in: each joins its
+        // parameter's queue after the points before it.
+        for &(id, at, value) in mapped.iter().take(MOST_PENDING) {
+            if !(start..end).contains(&at) {
+                continue;
+            }
+            let at = (at - start) as int32;
+            let found = queues[..used]
+                .iter()
+                .find(|q| q.data.lock().is_ok_and(|d| d.0 == id));
+            if let Some(queue) = found {
+                if let Ok(mut data) = queue.data.lock() {
+                    let place = data.1.partition_point(|&(t, _)| t <= at);
+                    data.1.insert(place, (at, value));
+                }
+            } else {
+                if let Ok(mut data) = queues[used].data.lock() {
+                    data.0 = id;
+                    data.1.clear();
+                    data.1.push((at, value));
+                }
+                used += 1;
+            }
+        }
+        self.live.store(used as u32, Ordering::Release);
     }
 }
 
@@ -512,7 +693,8 @@ impl IParameterChangesTrait for Changes {
     }
 }
 
-/// A queue that takes a plugin's reported changes and keeps none of them.
+/// A queue that takes a plugin's reported changes and keeps none of them:
+/// the answer to a plugin that reports more parameters than there is room for.
 struct Sink;
 
 impl Class for Sink {
@@ -548,52 +730,184 @@ impl IParamValueQueueTrait for Sink {
     }
 }
 
-/// The list of output parameter changes a plugin reports its own edits in.
-/// It takes them and keeps none: a plugin that reports a change uses the
-/// queue it is given without looking, so there must be one.
-pub struct NoOutputChanges {
+/// The most points one output queue keeps in a block.
+const MOST_OUT_POINTS: usize = 256;
+
+/// One parameter's reported points inside a block.
+struct OutQueue {
+    data: Mutex<(ParamID, Vec<(int32, ParamValue)>)>,
+}
+
+impl Class for OutQueue {
+    type Interfaces = (IParamValueQueue,);
+}
+
+impl IParamValueQueueTrait for OutQueue {
+    unsafe fn getParameterId(&self) -> ParamID {
+        self.data.lock().map_or(0, |d| d.0)
+    }
+
+    unsafe fn getPointCount(&self) -> int32 {
+        self.data.lock().map_or(0, |d| d.1.len() as int32)
+    }
+
+    unsafe fn getPoint(&self, index: int32, at: *mut int32, value: *mut ParamValue) -> tresult {
+        let Ok(data) = self.data.lock() else {
+            return kInvalidArgument;
+        };
+        match data.1.get(index as usize) {
+            Some(&(a, v)) if !at.is_null() && !value.is_null() => {
+                // SAFETY: valid out pointers from the plugin.
+                unsafe {
+                    *at = a;
+                    *value = v;
+                }
+                kResultOk
+            }
+            _ => kInvalidArgument,
+        }
+    }
+
+    unsafe fn addPoint(&self, at: int32, value: ParamValue, index: *mut int32) -> tresult {
+        let Ok(mut data) = self.data.lock() else {
+            return kInvalidArgument;
+        };
+        if data.1.len() >= MOST_OUT_POINTS {
+            // Full: the newest value replaces the last, so the end state is kept.
+            if let Some(last) = data.1.last_mut() {
+                *last = (at, value);
+            }
+        } else {
+            data.1.push((at, value));
+        }
+        if !index.is_null() {
+            // SAFETY: a valid out pointer from the caller.
+            unsafe { *index = data.1.len() as int32 - 1 };
+        }
+        kResultOk
+    }
+}
+
+/// The list of output parameter changes a plugin reports its own values in
+/// (a meter, a changed program). Queues are made once and reused; after each
+/// block [`OutputChanges::take`] reads the last value of each parameter.
+pub struct OutputChanges {
+    queues: Mutex<Vec<ComWrapper<OutQueue>>>,
+    live: AtomicU32,
     sink: ComPtr<IParamValueQueue>,
 }
 
-impl NoOutputChanges {
+impl OutputChanges {
     pub fn new() -> Self {
         Self {
+            queues: Mutex::new(Vec::new()),
+            live: AtomicU32::new(0),
             sink: ComWrapper::new(Sink)
                 .to_com_ptr::<IParamValueQueue>()
                 .expect("interface listed"),
         }
     }
+
+    /// Appends `(id, last value)` of each parameter reported since the last
+    /// call to `into`, and clears the list for the next block.
+    pub fn take(&self, into: &mut Vec<(u32, f64)>) {
+        let live = self.live.swap(0, Ordering::AcqRel) as usize;
+        let Ok(queues) = self.queues.lock() else {
+            return;
+        };
+        for queue in queues.iter().take(live) {
+            if let Ok(data) = queue.data.lock()
+                && let Some(&(_, value)) = data.1.last()
+                && value.is_finite()
+            {
+                into.push((data.0, value));
+            }
+        }
+    }
 }
 
-impl Default for NoOutputChanges {
+impl Default for OutputChanges {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Class for NoOutputChanges {
+impl Class for OutputChanges {
     type Interfaces = (IParameterChanges,);
 }
 
-impl IParameterChangesTrait for NoOutputChanges {
+impl IParameterChangesTrait for OutputChanges {
     unsafe fn getParameterCount(&self) -> int32 {
-        0
+        self.live.load(Ordering::Acquire) as int32
     }
-    unsafe fn getParameterData(&self, _index: int32) -> *mut IParamValueQueue {
-        std::ptr::null_mut()
+
+    unsafe fn getParameterData(&self, index: int32) -> *mut IParamValueQueue {
+        let Ok(queues) = self.queues.lock() else {
+            return std::ptr::null_mut();
+        };
+        if index < 0 || index as u32 >= self.live.load(Ordering::Acquire) {
+            return std::ptr::null_mut();
+        }
+        queues
+            .get(index as usize)
+            .and_then(|q| q.to_com_ptr::<IParamValueQueue>())
+            .map_or(std::ptr::null_mut(), |p| p.as_ptr())
     }
+
     unsafe fn addParameterData(
         &self,
-        _id: *const ParamID,
+        id: *const ParamID,
         index: *mut int32,
     ) -> *mut IParamValueQueue {
+        if id.is_null() {
+            return std::ptr::null_mut();
+        }
+        // SAFETY: a valid id pointer from the plugin.
+        let id = unsafe { *id };
+        let fallback = |index: *mut int32| {
+            if !index.is_null() {
+                // SAFETY: a valid out pointer from the caller.
+                unsafe { *index = 0 };
+            }
+            self.sink.as_ptr()
+        };
+        let Ok(mut queues) = self.queues.lock() else {
+            return fallback(index);
+        };
+        let live = self.live.load(Ordering::Acquire) as usize;
+        let at = match queues
+            .iter()
+            .take(live)
+            .position(|q| q.data.lock().is_ok_and(|d| d.0 == id))
+        {
+            Some(at) => at,
+            None if live < MOST_OUT_QUEUES => {
+                if queues.len() <= live {
+                    queues.push(ComWrapper::new(OutQueue {
+                        data: Mutex::new((id, Vec::new())),
+                    }));
+                }
+                if let Ok(mut data) = queues[live].data.lock() {
+                    data.0 = id;
+                    data.1.clear();
+                }
+                self.live.store(live as u32 + 1, Ordering::Release);
+                live
+            }
+            None => return fallback(index),
+        };
         if !index.is_null() {
             // SAFETY: a valid out pointer from the caller.
-            unsafe { *index = 0 };
+            unsafe { *index = at as int32 };
         }
-        self.sink.as_ptr()
+        queues[at]
+            .to_com_ptr::<IParamValueQueue>()
+            .map_or(std::ptr::null_mut(), |p| p.as_ptr())
     }
 }
+
+/// The most parameters a plugin may report in one block.
+const MOST_OUT_QUEUES: usize = 1024;
 
 /// An in-memory `IBStream` for plugin state. The size is capped, so a plugin
 /// that writes without end cannot take the host's memory.
@@ -705,5 +1019,112 @@ impl IBStreamTrait for MemoryStream {
             unsafe { *pos = guard.1 as int64 };
         }
         kResultOk
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn edit(id: u32, value: f64, kind: EditKind) -> Edit {
+        Edit { id, value, kind }
+    }
+
+    #[test]
+    fn a_plugin_saying_it_changed_inside_is_told_once_and_other_news_is_not() {
+        let h = Handler::default();
+        let dirty = vec![edit(0, 0.0, EditKind::Dirty)];
+        // SAFETY: plain calls on an object of this process.
+        unsafe {
+            // Saved by the plugin itself: not a change.
+            h.setDirty(0);
+            // A latency change is for the host, not the project.
+            h.restartComponent(1 << 3);
+            assert!(h.take_reports().0.is_empty());
+            // A change, said twice before anyone asks, is one.
+            h.setDirty(1);
+            h.setDirty(1);
+            assert_eq!(h.take_reports().0, dirty, "setDirty");
+            // A patch loaded (its values changed), and a reload.
+            h.restartComponent(1 << 2);
+            assert_eq!(h.take_reports().0, dirty, "values changed");
+            h.restartComponent(1);
+            assert_eq!(h.take_reports().0, dirty, "reload");
+        }
+        // Every restart is still kept for the host to act on.
+        assert_eq!(h.restart.load(Ordering::Acquire), (1 << 3) | (1 << 2) | 1);
+    }
+
+    #[test]
+    fn values_of_one_gesture_are_merged_but_its_marks_are_kept() {
+        let h = Handler::default();
+        h.report(edit(1, 0.0, EditKind::Begin));
+        for v in [0.1, 0.2, 0.3] {
+            h.report(edit(1, v, EditKind::Perform));
+        }
+        h.report(edit(1, 0.0, EditKind::End));
+        // A second gesture on the same parameter is not merged into the first.
+        h.report(edit(1, 0.0, EditKind::Begin));
+        h.report(edit(1, 0.9, EditKind::Perform));
+        h.report(edit(2, 0.4, EditKind::Perform));
+        h.report(edit(2, 0.5, EditKind::Perform));
+        let (list, dropped) = h.take_reports();
+        assert_eq!(dropped, 0);
+        assert_eq!(
+            list,
+            vec![
+                edit(1, 0.0, EditKind::Begin),
+                edit(1, 0.3, EditKind::Perform),
+                edit(1, 0.0, EditKind::End),
+                edit(1, 0.0, EditKind::Begin),
+                edit(1, 0.9, EditKind::Perform),
+                edit(2, 0.5, EditKind::Perform),
+            ]
+        );
+        assert!(h.take_reports().0.is_empty());
+    }
+
+    #[test]
+    fn a_plugin_that_floods_edits_is_bounded_and_the_loss_is_counted() {
+        let h = Handler::default();
+        for i in 0..(MAX_EDITS as u32 + 10) {
+            // Alternating parameters, so nothing merges.
+            h.report(edit(i % 2, 0.5, EditKind::Begin));
+        }
+        let (list, dropped) = h.take_reports();
+        assert_eq!(list.len(), MAX_EDITS);
+        assert_eq!(dropped, 10);
+        assert_eq!(h.take_reports().1, 0, "the count starts again");
+    }
+
+    #[test]
+    fn the_processor_is_given_the_latest_value_of_each_parameter() {
+        let h = Handler::default();
+        h.send_to_processor(1, 0.1);
+        h.send_to_processor(2, 0.2);
+        h.send_to_processor(1, 0.7);
+        let mut now = Vec::new();
+        h.drain_to_processor(&mut now);
+        assert_eq!(now, vec![(1, 0.7), (2, 0.2)]);
+        now.clear();
+        h.drain_to_processor(&mut now);
+        assert!(now.is_empty());
+        // Distinct parameters past the bound are not kept.
+        for id in 0..(MOST_PENDING as u32 + 5) {
+            h.send_to_processor(id, 0.5);
+        }
+        h.drain_to_processor(&mut now);
+        assert_eq!(now.len(), MOST_PENDING);
+    }
+
+    #[test]
+    fn a_value_that_is_not_a_number_is_never_kept() {
+        let h = Handler::default();
+        // SAFETY: plain calls on a live object.
+        unsafe { h.performEdit(3, f64::NAN) };
+        assert!(h.take_reports().0.is_empty());
+        let mut now = Vec::new();
+        h.drain_to_processor(&mut now);
+        assert!(now.is_empty());
     }
 }

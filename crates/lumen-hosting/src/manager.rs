@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 
+use lumen_plugin_host::protocol::EditorBounds;
+
 use crate::process::{Gate, Happened, Process, Start, Tag};
 
 /// Plugins loading at once.
@@ -34,6 +36,8 @@ pub struct Manager {
     out: Sender<(Tag, Happened)>,
     incoming: Receiver<(Tag, Happened)>,
     wake: Arc<dyn Fn() + Send + Sync>,
+    /// The keys every host takes from its plugin's window.
+    keys: Vec<u8>,
 }
 
 impl Manager {
@@ -48,6 +52,7 @@ impl Manager {
             out,
             incoming,
             wake: Arc::new(wake),
+            keys: Vec::new(),
         }
     }
 
@@ -63,6 +68,9 @@ impl Manager {
             self.out.clone(),
             self.wake.clone(),
         )?;
+        if !self.keys.is_empty() {
+            process.capture_keys(self.keys.clone());
+        }
         // Replacing the entry drops the old process, which quits.
         self.entries.insert(
             device,
@@ -73,6 +81,35 @@ impl Manager {
             },
         );
         Ok(())
+    }
+
+    /// Asks the device's plugin for its state; the answer comes from
+    /// [`Manager::poll`] as [`crate::Happened::State`].
+    pub fn capture(&self, device: u64) {
+        if let Some(entry) = self.entries.get(&device) {
+            entry.process.capture();
+        }
+    }
+
+    /// Starts the device's host again from `state` (the saved state, or a
+    /// fresher one) with `values` set over it (the card's Reload after a
+    /// crash, which should come back with the work since the project loaded).
+    pub fn reload_from(
+        &mut self,
+        device: u64,
+        state: Option<Vec<u8>>,
+        values: Vec<(u32, f64)>,
+    ) -> std::io::Result<bool> {
+        match self.entries.get(&device).map(|e| e.start.clone()) {
+            Some(mut start) => {
+                if let Some(state) = state {
+                    start.state = state;
+                }
+                start.values = values;
+                self.want(device, start).map(|()| true)
+            }
+            None => Ok(false),
+        }
     }
 
     /// Starts the device's host again with the same settings (the card's
@@ -108,6 +145,75 @@ impl Manager {
             entry.start.frames = frames;
             entry.process.relink(rate, frames);
         }
+    }
+
+    /// Sets a parameter of the device's plugin (normalized, 0 to 1). The
+    /// plugin's controller is told and the processor hears it at the start of
+    /// its next block. Does nothing for a device with no host.
+    pub fn set_param(&self, device: u64, id: u32, value: f64) {
+        if let Some(entry) = self.entries.get(&device) {
+            entry.process.set_param(id, value);
+        }
+    }
+
+    /// Asks the device's plugin for its text for a value; the answer comes
+    /// from [`Manager::poll`] as [`crate::Happened::Text`].
+    pub fn param_text(&self, device: u64, id: u32, value: f64) {
+        if let Some(entry) = self.entries.get(&device) {
+            entry.process.param_text(id, value);
+        }
+    }
+
+    /// Asks the device's plugin to read `text` the user typed for a
+    /// parameter; the answer comes from [`Manager::poll`] as
+    /// [`crate::Happened::Typed`].
+    pub fn param_value(&self, device: u64, id: u32, text: String) {
+        if let Some(entry) = self.entries.get(&device) {
+            entry.process.param_value(id, text);
+        }
+    }
+
+    /// Opens the device's plugin editor window, at `bounds` if given; the news
+    /// comes from [`Manager::poll`] as [`crate::Happened::Editor`].
+    pub fn open_editor(&self, device: u64, bounds: Option<EditorBounds>) {
+        if let Some(entry) = self.entries.get(&device) {
+            entry.process.open_editor(bounds);
+        }
+    }
+
+    /// Closes the device's plugin editor window.
+    pub fn close_editor(&self, device: u64) {
+        if let Some(entry) = self.entries.get(&device) {
+            entry.process.close_editor();
+        }
+    }
+
+    /// Hides the device's plugin editor window without closing it, or shows
+    /// it again.
+    pub fn show_editor(&self, device: u64, visible: bool) {
+        if let Some(entry) = self.entries.get(&device) {
+            entry.process.show_editor(visible);
+        }
+    }
+
+    /// Ends the device's host, for a plugin whose window stopped answering.
+    pub fn end(&self, device: u64) {
+        if let Some(entry) = self.entries.get(&device) {
+            entry.process.end();
+        }
+    }
+
+    /// Has every host take `keys` (virtual-key codes) from its plugin's
+    /// window when pressed alone, now and when started; empty gives them back.
+    /// The presses come from [`Manager::poll`] as [`crate::Happened::Key`].
+    pub fn capture_keys(&mut self, keys: Vec<u8>) {
+        if keys == self.keys {
+            return;
+        }
+        for entry in self.entries.values() {
+            entry.process.capture_keys(keys.clone());
+        }
+        self.keys = keys;
     }
 
     /// Whether `device` has a host started for it (loading, running or failed).

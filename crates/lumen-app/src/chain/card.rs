@@ -1,17 +1,18 @@
 //! One device as a card (design system v3, the owner's C4): a picture that
 //! fades into the header, the power, the name and vendor, a kind badge, a
-//! parameter strip (its frame for now; slice 3 fills it), and a footer with
+//! parameter strip (eight knobs and the button for every parameter), and a footer with
 //! the signal and the time it holds back. A loading, failed or missing
 //! device swaps the strip for what happened and what to do.
 
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, FontId, Rect, Response, Sense, Shadow, Stroke, StrokeKind,
-    Ui, pos2, vec2,
+    self, Align2, Color32, CornerRadius, FontId, Painter, Rect, Response, Sense, Shadow, Stroke,
+    StrokeKind, Ui, pos2, vec2,
 };
 use eframe::emath::GuiRounding as _;
 
 use super::art;
 use super::geometry::{FOOTER, HEADER};
+use super::strip;
 use crate::icons::{self, Icon};
 use crate::widgets::raised;
 use crate::{fonts, motion, theme, widgets};
@@ -51,6 +52,15 @@ pub(super) struct Look<'a> {
     /// The plugin's own picture, when its bundle has one and the device is
     /// running: it takes the artwork band.
     pub picture: Option<&'a egui::TextureHandle>,
+    /// The eight knobs of the strip (empty when there is nothing to show).
+    pub slots: &'a [Option<strip::Slot>],
+    /// How many parameters the plugin lists.
+    pub parameters: usize,
+    /// The plugin's own window: what its button says.
+    pub editor: &'a strip::Editor,
+    /// Learn is on: the next control touched in the plugin's window takes a
+    /// slot.
+    pub learning: bool,
 }
 
 /// What a card's own buttons asked for.
@@ -65,6 +75,8 @@ pub(super) struct Out {
     pub body: Response,
     pub power: Response,
     pub action: Option<Action>,
+    /// What the strip's knobs and button asked for.
+    pub strip: Vec<strip::Output>,
 }
 
 /// A card's corner radius.
@@ -73,6 +85,41 @@ const RADIUS: u8 = theme::radius::XL;
 const FADE: f32 = 28.0;
 /// The parameter strip's rows.
 const ROWS: usize = 3;
+
+/// The track-coloured band down a header's left edge. Where the header's top
+/// corner is rounded (a short tray has no picture above it) the band follows
+/// the curve, so it never sticks out past the card.
+fn track_band(painter: &Painter, header: Rect, top_radius: u8, colour: Color32) {
+    const WIDTH: f32 = 3.0;
+    let radius = f32::from(top_radius);
+    if radius <= WIDTH {
+        painter.rect_filled(
+            Rect::from_min_size(header.min, vec2(WIDTH, header.height())),
+            0.0,
+            colour,
+        );
+        return;
+    }
+    // The arc's inner edge, from where it is WIDTH in from the card's edge
+    // down to where the edge is straight.
+    let inset = |down: f32| radius - (radius * radius - (radius - down).powi(2)).sqrt();
+    let first = radius - (2.0 * radius * WIDTH - WIDTH * WIDTH).sqrt();
+    let steps = 8;
+    let mut points = vec![
+        pos2(header.left() + WIDTH, header.bottom()),
+        pos2(header.left(), header.bottom()),
+    ];
+    for step in (0..=steps).rev() {
+        let down = first + (radius - first) * step as f32 / steps as f32;
+        points.push(pos2(header.left() + inset(down), header.top() + down));
+    }
+    points.push(pos2(header.left() + WIDTH, header.top() + first));
+    painter.add(egui::Shape::convex_polygon(
+        points,
+        colour,
+        egui::Stroke::NONE,
+    ));
+}
 
 /// Paints the card in `rect` and answers its pointer. `id` is stable per
 /// device.
@@ -144,11 +191,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
     );
     if look.instrument {
         // The track's colour marks an instrument's header.
-        painter.rect_filled(
-            Rect::from_min_size(header.min, vec2(3.0, header.height())),
-            0.0,
-            look.track_color,
-        );
+        track_band(&painter, header, top_rounded, look.track_color);
     }
 
     // The header: power, name and vendor, the kind badge.
@@ -196,7 +239,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
     );
 
     // Between header and footer: the strip, or what replaces it.
-    let action = paint_strip(
+    let (action, strip) = paint_strip(
         ui,
         strip.shrink2(vec2(theme::space::M, theme::space::S)),
         id,
@@ -243,6 +286,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
         body,
         power,
         action,
+        strip,
     }
 }
 
@@ -319,6 +363,7 @@ fn paint_rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Resp
     Out {
         body,
         power,
+        strip: Vec::new(),
         action: None,
     }
 }
@@ -531,14 +576,20 @@ fn power_button(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> Respo
     )
 }
 
-/// The strip's rows, or the message of a card that is not running; returns
-/// the button pressed, if any.
-fn paint_strip(ui: &mut Ui, area: Rect, id: egui::Id, look: &Look<'_>) -> Option<Action> {
+/// The strip's knobs, or the message of a card that is not running; returns
+/// the button pressed, if any, and what the knobs asked for.
+fn paint_strip(
+    ui: &mut Ui,
+    area: Rect,
+    id: egui::Id,
+    look: &Look<'_>,
+) -> (Option<Action>, Vec<strip::Output>) {
     let palette = *theme::p();
-    let painter = ui.painter().with_clip_rect(area.expand(2.0));
+    let no_strip = |action| (action, Vec::new());
     match look.face {
-        Face::Ready | Face::Loading => {
-            let loading = matches!(look.face, Face::Loading);
+        Face::Loading => {
+            // Waiting: the empty troughs the knobs will stand in.
+            let painter = ui.painter().with_clip_rect(area.expand(2.0));
             let gap = 6.0;
             let row = ((area.height() - gap * (ROWS as f32 - 1.0)) / ROWS as f32)
                 .clamp(0.0, theme::size::CONTROL);
@@ -546,19 +597,59 @@ fn paint_strip(ui: &mut Ui, area: Rect, id: egui::Id, look: &Look<'_>) -> Option
                 let top = area.top() + i as f32 * (row + gap);
                 let r = Rect::from_min_size(pos2(area.left(), top), vec2(area.width(), row));
                 raised::paint_sunken(&painter, r, theme::radius::SMALL);
-                if !loading && !look.bypass {
-                    painter.text(
-                        r.left_center() + vec2(theme::space::S, 0.0),
-                        Align2::LEFT_CENTER,
-                        "\u{2014}",
-                        FontId::proportional(theme::size::CAPTION),
-                        palette.text_disabled,
-                    );
-                }
             }
-            None
+            no_strip(None)
         }
-        Face::Failed(words) => message(
+        Face::Ready if look.slots.is_empty() && look.parameters == 0 => {
+            let words = if look.reports_latency {
+                "This plugin lists no parameters. Its own window has them."
+            } else {
+                "The sound is chosen from the track's Instrument menu."
+            };
+            let painter = ui.painter().with_clip_rect(area);
+            let font = FontId::proportional(theme::size::CAPTION);
+            let galley = painter.layout(
+                words.to_owned(),
+                font,
+                palette.text_hint,
+                area.width() - 2.0 * theme::space::S,
+            );
+            painter.galley(
+                area.left_top() + vec2(theme::space::S, 0.0),
+                galley,
+                palette.text_hint,
+            );
+            // A plugin has its own window; the synth has none.
+            let outputs = if look.reports_latency {
+                let row =
+                    Rect::from_min_max(pos2(area.left(), area.bottom() - strip::BUTTONS), area.max);
+                let buttons = strip::Buttons {
+                    editor: look.editor,
+                    learning: look.learning,
+                    parameters: 0,
+                };
+                strip::buttons(ui, row, id, buttons)
+            } else {
+                Vec::new()
+            };
+            (None, outputs)
+        }
+        Face::Ready => (
+            None,
+            strip::paint(
+                ui,
+                area,
+                id,
+                look.slots,
+                look.selected,
+                strip::Buttons {
+                    editor: look.editor,
+                    learning: look.learning,
+                    parameters: look.parameters,
+                },
+            ),
+        ),
+        Face::Failed(words) => no_strip(message(
             ui,
             area,
             id,
@@ -566,8 +657,8 @@ fn paint_strip(ui: &mut Ui, area: Rect, id: egui::Id, look: &Look<'_>) -> Option
             palette.warning,
             words,
             ("Reload", Action::Reload, Some(Icon::Loop)),
-        ),
-        Face::Missing { saved } => message(
+        )),
+        Face::Missing { saved } => no_strip(message(
             ui,
             area,
             id,
@@ -575,7 +666,7 @@ fn paint_strip(ui: &mut Ui, area: Rect, id: egui::Id, look: &Look<'_>) -> Option
             palette.text,
             &format!("Settings kept ({}).", kilobytes(saved)),
             ("Rescan plugins", Action::Rescan, None),
-        ),
+        )),
     }
 }
 
@@ -660,6 +751,8 @@ fn message(
 mod tests {
     use super::*;
 
+    static CLOSED: strip::Editor = strip::Editor::Closed;
+
     fn look(face: Face<'_>, bypass: bool, instrument: bool) -> Look<'_> {
         Look {
             name: "Tape Delay",
@@ -675,6 +768,10 @@ mod tests {
             band: 96.0,
             folded: false,
             picture: None,
+            slots: &[],
+            parameters: 0,
+            editor: &CLOSED,
+            learning: false,
         }
     }
 

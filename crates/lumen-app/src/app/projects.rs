@@ -55,6 +55,10 @@ pub(crate) fn documents_folder() -> Option<PathBuf> {
     Some(PathBuf::from(home).join("Documents"))
 }
 
+/// How long a save waits for the plugins' states to be read. Each read has
+/// its own deadline in the host; this is the whole wait.
+const PLUGIN_READ_WAIT: std::time::Duration = std::time::Duration::from_secs(4);
+
 impl App {
     /// The project as it should be saved: the document with the view
     /// stamped in (it is not an undo step).
@@ -72,6 +76,7 @@ impl App {
         };
         self.arrangement.save_into(&mut project.view);
         project.view.folded_devices = self.chain.folded.iter().copied().collect();
+        project.view.shown_params = self.chain.shown.clone();
         // What the running plugins report goes in with the view: it is not an
         // edit (M6 slice 2c, the owner's C2).
         self.hosting.stamp(&mut project);
@@ -80,7 +85,7 @@ impl App {
 
     /// Save (Ctrl+S): to the project's file, or ask where (Save As).
     pub(crate) fn save(&mut self, ctx: &egui::Context, ask: bool) {
-        if self.saving.is_some() || self.dialog.is_some() {
+        if self.saving.is_some() || self.save_waiting.is_some() || self.dialog.is_some() {
             return;
         }
         match self.document.path.clone() {
@@ -191,7 +196,25 @@ impl App {
     }
 
     fn start_save_with(&mut self, path: PathBuf, normalize_project_path: bool) {
+        // Every running plugin is read first, and the save is written when
+        // the answers are in (or after a few seconds, with what there is).
+        if self.hosting.request_captures() {
+            trace::log(|| {
+                format!(
+                    "files: reading the plugins before saving {}",
+                    path.display()
+                )
+            });
+            self.save_waiting = Some((path, normalize_project_path, Instant::now()));
+            return;
+        }
+        self.write_save(path, normalize_project_path);
+    }
+
+    /// Writes the save, with the plugins' states as they were last read.
+    fn write_save(&mut self, path: PathBuf, normalize_project_path: bool) {
         trace::log(|| format!("files: saving {}", path.display()));
+        self.document.begin_save();
         self.saving = Some(files::save(files::SaveRequest {
             project: self.stamped(),
             path,
@@ -265,6 +288,8 @@ impl App {
         self.lanes = lanes::Lanes::default();
         self.arrangement = arrangement::Arrangement::default();
         self.chain.folded.clear();
+        self.chain.shown.clear();
+        self.chain.panel = None;
         self.chain.selected = None;
         self.synced = None;
         self.show_history = false;
@@ -273,6 +298,15 @@ impl App {
 
     /// Results of dialogs, saves and opens; and the window's close button.
     pub(crate) fn poll_files(&mut self, ctx: &egui::Context) {
+        if let Some((_, _, since)) = &self.save_waiting {
+            if !self.hosting.captures_pending() || since.elapsed() >= PLUGIN_READ_WAIT {
+                if let Some((path, normalize, _)) = self.save_waiting.take() {
+                    self.write_save(path, normalize);
+                }
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_millis(30));
+            }
+        }
         if let Some(result) = self.dialog.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.dialog = None;
             match result {
@@ -311,8 +345,19 @@ impl App {
                         1 => " (1 audio file copied in)".into(),
                         n => format!(" ({n} audio files copied in)"),
                     };
+                    // A plugin that changed and could not be read is saved
+                    // with the state it was loaded with and the parameter
+                    // values changed since: say so.
+                    let unread = match self.hosting.unread() {
+                        0 => String::new(),
+                        1 => ". A plugin could not be read: only its parameter values are current"
+                            .into(),
+                        n => format!(
+                            ". {n} plugins could not be read: only their parameter values are current"
+                        ),
+                    };
                     self.toast = Some((
-                        format!("Saved {}{copied}", self.document.name()),
+                        format!("Saved {}{copied}{unread}", self.document.name()),
                         Instant::now(),
                     ));
                     self.file_notice = None;
@@ -361,6 +406,7 @@ impl App {
                     }
                     self.arrangement = arrangement::Arrangement::restore(&view);
                     self.chain.folded = view.folded_devices.iter().copied().collect();
+                    self.chain.shown = view.shown_params.clone();
                     self.nav.set(crate::timeview::TimeView {
                         left: f64::from(view.left_beat).max(0.0),
                         zoom: f64::from(view.px_per_beat).clamp(crate::timeview::MIN_ZOOM, 1e7),

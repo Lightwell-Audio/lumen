@@ -11,7 +11,7 @@
 #![allow(clippy::unnecessary_cast)]
 
 mod component;
-mod controller;
+pub mod controller;
 mod dsp;
 pub mod editor;
 mod factory;

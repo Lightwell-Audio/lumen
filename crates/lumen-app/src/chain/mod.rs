@@ -7,12 +7,16 @@
 mod actions;
 mod art;
 mod card;
+pub(crate) mod editor;
 mod geometry;
+mod params;
 mod pictures;
 pub(crate) mod place;
+mod strip;
 mod view;
 
-use std::collections::HashSet;
+use std::cell::{Cell, RefCell};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use lumen_project::model::{Device, Id};
 
@@ -52,4 +56,18 @@ pub(crate) struct Chain {
     pub clipboard: Option<Device>,
     /// The plugins' own pictures, read in the background (made on first use).
     pub pictures: Option<Pictures>,
+    /// The parameters on each card's strip, where a person chose them (saved
+    /// with the project's view).
+    pub shown: BTreeMap<Id, Vec<u32>>,
+    /// When the plugin's own text for a value was last asked for, and for
+    /// which value, by device and parameter: asked when the value changes,
+    /// not faster than every 50 ms.
+    pub text_asked: RefCell<HashMap<(u64, u32), (f64, std::time::Instant)>>,
+    /// A knob's text is waiting on a later frame to be asked for.
+    pub text_pending: Cell<bool>,
+    /// The panel with every parameter of one plugin, when open.
+    pub panel: Option<params::Panel>,
+    /// The device whose Learn is on: the next control touched in its window
+    /// takes a slot of its strip.
+    pub learning: Option<Id>,
 }

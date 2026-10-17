@@ -19,7 +19,7 @@ impl App {
         let now = Instant::now();
         autosave.tick(
             self.document.is_dirty(),
-            self.document.state(),
+            self.document.change_mark(),
             now,
             |file| files::SaveRequest {
                 project: self.stamped(),
@@ -28,7 +28,7 @@ impl App {
                 media_files: self.document.media_files.clone(),
                 copy_imported: false,
                 keep_backups: 0,
-                state: self.document.state(),
+                state: self.document.change_mark(),
             },
             || autosave::Note {
                 project: self

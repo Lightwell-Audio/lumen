@@ -20,6 +20,7 @@ mod mixer;
 pub(crate) mod navigate;
 pub(crate) mod palette;
 pub(crate) mod panes;
+pub(crate) mod plugin_edits;
 pub(crate) mod preferences;
 pub(crate) mod projects;
 pub(crate) mod record;

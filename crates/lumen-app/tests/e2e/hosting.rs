@@ -91,6 +91,18 @@ fn faults(stem: &str) -> Option<&'static str> {
         "Rings" => Some("release=4000"),
         // Every block takes 3 ms of the plugin's work.
         "Slow" => Some("process_slow=3000"),
+        // The instrument has a trigger that makes it edit its wave, as a
+        // control moved in its own window would.
+        "Edits" => Some("window_edits"),
+        // Stepping the trigger makes it tell the host it changed inside
+        // (`setDirty`, or a restart that says its values changed), as a patch
+        // loaded in its own window does; no parameter shows it.
+        "Dirty" => Some("set_dirty"),
+        "Values" => Some("values_changed"),
+        // Reading the plugin's state never returns.
+        "Stuck" => Some("state_hang"),
+        // Many parameters, in groups, some hidden, some read-only.
+        "Many" => Some("many_params=300"),
         _ => None,
     }
 }
@@ -598,4 +610,244 @@ fn plugins_are_promised_the_devices_block_and_follow_a_new_buffer_size() {
         app.device_promised_frames(PLUGIN) == Some(64)
     });
     wait_for_state(&mut lumen, PLUGIN, "ready");
+}
+
+// Slice 4: parameters. The project holds the values a plugin is set to over its
+// saved state, so setting one, undoing and redoing are heard, and what the
+// plugin does inside itself is recorded as an edit.
+
+const LEVEL: u32 = 0;
+const WAVE: u32 = 1;
+const TRIGGER: u32 = 90;
+
+#[test]
+fn a_parameter_set_in_the_project_is_heard_and_so_are_undo_and_redo() {
+    let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
+    let mut lumen = launch("param-heard", &project, &["Plug"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    play(&mut lumen);
+    let loud = level(&mut lumen);
+    assert!(loud > 0.05, "the instrument is silent: {loud}");
+
+    lumen.app_mut().set_device_param(PLUGIN, LEVEL, 0.1);
+    lumen.frames(5);
+    lumen.wait_for("the value to reach the plugin", |app| {
+        app.device_param_known(PLUGIN, LEVEL) == Some(0.1)
+    });
+    let quiet = level(&mut lumen);
+    assert!(quiet < loud * 0.4, "{quiet} is not much below {loud}");
+
+    // Undo puts the plugin back to the value its saved state holds.
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.wait_for("the value to go back", |app| {
+        app.device_param_known(PLUGIN, LEVEL) == Some(0.5)
+    });
+    let again = level(&mut lumen);
+    assert!(again > loud * 0.7, "{again} is not back near {loud}");
+    assert!(lumen.app().device_params(PLUGIN).is_empty());
+
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
+    lumen.wait_for("the value to come back", |app| {
+        app.device_param_known(PLUGIN, LEVEL) == Some(0.1)
+    });
+    assert!(level(&mut lumen) < loud * 0.4);
+}
+
+#[test]
+fn values_the_project_holds_are_in_place_when_the_plugin_loads_and_do_not_dirty_it() {
+    let mut device = instrument_device(PLUGIN);
+    device.params = [(LEVEL, 0.1)].into_iter().collect();
+    let project = project(|d| *d = vec![device.clone()]);
+    let mut lumen = launch("param-load", &project, &["Plug"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    assert_eq!(lumen.app().device_param_known(PLUGIN, LEVEL), Some(0.1));
+    play(&mut lumen);
+    let quiet = level(&mut lumen);
+    assert!(quiet < 0.2, "the saved value was not in place: {quiet}");
+    assert!(!lumen.app().is_dirty());
+    // Dropping the held value (an undo of the change that made it) goes back
+    // to what the plugin's own saved state says.
+    assert!(
+        lumen
+            .app()
+            .device_param_titles(PLUGIN)
+            .contains(&"Level".to_owned())
+    );
+}
+
+#[test]
+fn what_a_plugin_does_inside_itself_is_recorded_as_one_undo_step() {
+    let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
+    let mut lumen = launch("param-inside", &project, &["Edits"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    // The trigger makes the plugin move its wave in a gesture of its own.
+    lumen.app_mut().set_device_param(PLUGIN, TRIGGER, 1.0);
+    lumen.wait_for("the plugin's own edit to be recorded", |app| {
+        app.device_params(PLUGIN).iter().any(|&(id, _)| id == WAVE)
+    });
+    assert_eq!(
+        lumen.app().device_params(PLUGIN),
+        [(WAVE, 1.0), (TRIGGER, 1.0)]
+    );
+    // The edit is already known to the host, so nothing was sent back.
+    assert_eq!(lumen.app().device_param_known(PLUGIN, WAVE), Some(1.0));
+    assert!(lumen.app().is_dirty());
+
+    // Undo takes the plugin's own edit back first, as one step, and the
+    // plugin goes back to the wave its saved state holds.
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.wait_for("the wave to go back", |app| {
+        app.device_param_known(PLUGIN, WAVE) == Some(0.0)
+    });
+    assert_eq!(lumen.app().device_params(PLUGIN), [(TRIGGER, 1.0)]);
+}
+
+// Slice 4g: what a save holds of a plugin that changed.
+
+fn saved_device(lumen: &Lumen) -> Device {
+    lumen.app().project_as_saved().tracks[0].devices[0].clone()
+}
+
+#[test]
+fn a_plugin_that_changed_is_read_once_it_rests_and_the_save_holds_what_it_is_now() {
+    let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
+    let mut lumen = launch("capture", &project, &["Edits"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    assert!(
+        saved_device(&lumen).state.is_empty(),
+        "loaded with no state"
+    );
+
+    lumen.app_mut().set_device_param(PLUGIN, LEVEL, 0.3);
+    // Until it is read, a save keeps the old state and the project's values.
+    assert!(saved_device(&lumen).state.is_empty());
+    assert_eq!(saved_device(&lumen).params.get(&LEVEL), Some(&0.3));
+
+    lumen.wait_for("the plugin's state to be read", |app| {
+        !app.project_as_saved().tracks[0].devices[0].state.is_empty()
+    });
+    let saved = saved_device(&lumen);
+    assert!(saved.state.starts_with(b"LTP1"), "the plugin's own state");
+    assert!(saved.params.is_empty(), "the values are in the state now");
+    // The project in memory is untouched by it: still the edit, undoable.
+    assert_eq!(lumen.app().device_params(PLUGIN), [(LEVEL, 0.3)]);
+
+    // Another change makes the read state old again: the save falls back to the
+    // state it was loaded with, and the values the project holds.
+    lumen.app_mut().set_device_param(PLUGIN, LEVEL, 0.9);
+    lumen.frames(2);
+    assert!(saved_device(&lumen).state.is_empty());
+    assert_eq!(saved_device(&lumen).params.get(&LEVEL), Some(&0.9));
+}
+
+/// Steps the plugin's trigger on and off as its own window would, until the
+/// project reads as having unsaved changes (what a plugin says in its first
+/// seconds is taken as its loading).
+#[track_caller]
+fn change_inside(lumen: &mut Lumen) {
+    const TRIGGER: u32 = 90;
+    for i in 0..60 {
+        if lumen.app().is_dirty() {
+            return;
+        }
+        lumen
+            .app_mut()
+            .poke_plugin(PLUGIN, TRIGGER, f64::from(i % 2 == 0));
+        lumen.frames(6);
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    panic!("the project never read as changed");
+}
+
+#[test]
+fn a_change_inside_a_plugin_marks_the_project_unsaved_with_nothing_to_undo_and_a_save_clears_it() {
+    for module in ["Dirty", "Values"] {
+        let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
+        let mut lumen = launch(&format!("inside-{module}"), &project, &[module]);
+        wait_for_state(&mut lumen, PLUGIN, "ready");
+        assert!(!lumen.app().is_dirty(), "{module}: opened as saved");
+        let undoable = lumen.app().project().clone();
+        change_inside(&mut lumen);
+        assert_eq!(lumen.app().project(), &undoable, "{module}: no edit");
+        // It is read once it rests, and a save holds what it is now.
+        let path = lumen.dir().join("saved.lumen");
+        lumen.app_mut().save_to(path.clone());
+        lumen.wait_for("the save", |app| !app.is_busy());
+        assert!(!lumen.app().is_dirty(), "{module}: saved");
+        let reopened = lumen_project::load(&path).expect("the saved project loads");
+        assert!(
+            reopened.tracks[0].devices[0].state.starts_with(b"LTP1"),
+            "{module}: the plugin's state is in the file"
+        );
+    }
+}
+
+#[test]
+fn a_plugin_saying_it_changed_while_it_loads_is_not_the_users_change() {
+    let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
+    let mut lumen = launch("inside-loading", &project, &["Dirty"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    // At once, before the host has been up for a few seconds.
+    lumen.app_mut().poke_plugin(PLUGIN, 90, 0.0);
+    lumen.app_mut().poke_plugin(PLUGIN, 90, 1.0);
+    lumen.frames(20);
+    assert!(!lumen.app().is_dirty());
+}
+
+#[test]
+fn a_save_reads_every_running_plugin_first_even_one_that_reported_no_change() {
+    // A plugin keeps most of what the user sets (a patch, a preset) without
+    // telling the host: nothing marks it changed, so only reading it at the
+    // save finds out. The owner's BBC Symphony Orchestra and Ozone lost their
+    // settings on reopening because nothing was read.
+    let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
+    let mut lumen = launch("save-reads", &project, &["Edits"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    assert!(saved_device(&lumen).state.is_empty(), "no change reported");
+    let path = lumen.dir().join("saved.lumen");
+    lumen.app_mut().save_to(path.clone());
+    lumen.wait_for("the save", |app| !app.is_busy());
+    let reopened = lumen_project::load(&path).expect("the saved project loads");
+    assert!(
+        reopened.tracks[0].devices[0].state.starts_with(b"LTP1"),
+        "the plugin's own state is in the file"
+    );
+}
+
+#[test]
+fn a_save_does_not_wait_for_a_plugin_that_cannot_answer() {
+    let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
+    let mut lumen = launch("save-stuck", &project, &["Stuck"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    let path = lumen.dir().join("saved.lumen");
+    lumen.app_mut().save_to(path.clone());
+    lumen.wait_for("the save", |app| !app.is_busy());
+    let reopened = lumen_project::load(&path).expect("the saved project loads");
+    assert!(
+        reopened.tracks[0].devices[0].state.is_empty(),
+        "saved with what the project had"
+    );
+}
+
+#[test]
+fn a_plugin_that_cannot_be_read_is_saved_with_the_values_the_project_holds_and_the_save_says_so() {
+    let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
+    let mut lumen = launch("stuck", &project, &["Stuck"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    lumen.app_mut().set_device_param(PLUGIN, LEVEL, 0.3);
+    lumen.wait_for("the read to fail", |app| app.unread_plugins() == 1);
+    let saved = saved_device(&lumen);
+    assert!(saved.state.is_empty());
+    assert_eq!(saved.params.get(&LEVEL), Some(&0.3), "nothing set is lost");
+    lumen.key(Modifiers::COMMAND, Key::S);
+    // The save waits for the plugin's read to fail, then writes what it has.
+    lumen.wait_for("the save", |app| !app.is_busy());
+    assert!(
+        lumen
+            .app()
+            .note()
+            .is_some_and(|t| t.contains("could not be read")),
+        "{:?}",
+        lumen.app().note()
+    );
 }

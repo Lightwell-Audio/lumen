@@ -1,6 +1,9 @@
 //! The messages between Lumen and a plugin-host process, and their framing.
 //!
-//! Every request gets exactly one response. A `Process` request names the
+//! Every request gets exactly one response, in order. The one message that is
+//! not an answer is [`Response::Key`]: a key pressed in the plugin's window
+//! that Lumen asked for ([`Request::CaptureKeys`]), sent when it happens and
+//! set apart by the reader. A `Process` request names the
 //! configuration generation and a block sequence number, and its response
 //! echoes both, so a response that arrives after its deadline (a late
 //! plugin) is recognised as stale and dropped rather than written into a
@@ -14,7 +17,7 @@ use crate::wire::{Reader, WireError, Writer};
 /// First four bytes of every frame.
 pub const MAGIC: u32 = 0x3148_504c; // "LPH1"
 /// Bumped when a message changes shape. A host of another version is refused.
-pub const VERSION: u16 = 2;
+pub const VERSION: u16 = 5;
 
 pub const MAX_FRAMES: usize = 8192;
 pub const MAX_CHANNELS: usize = 16;
@@ -25,10 +28,23 @@ pub const MAX_PARAMETERS: usize = 16_384;
 pub const MAX_STATE: usize = 16 << 20;
 pub const MAX_TEXT: usize = 1024;
 pub const MAX_CLASSES: usize = 256;
+/// The most units and the most edits one answer carries.
+pub const MAX_UNITS: usize = 4096;
+pub const MAX_EDITS: usize = 4096;
 /// The longest base name of a shared-memory link.
 pub const MAX_BASE: usize = 64;
 /// The largest frame payload: a full block of audio both ways, with room.
 pub const MAX_MESSAGE: usize = MAX_STATE + (MAX_FRAMES * MAX_CHANNELS * 4) + (1 << 20);
+
+/// The most keys Lumen may ask a host to take from its plugin's window.
+pub const MAX_KEYS: usize = 64;
+
+/// The restart flags (`IComponentHandler::restartComponent`) that need the
+/// plugin set up again: reload the component, its buses changed, its latency
+/// changed. The others (parameter values or titles, controller assignments,
+/// note expression, key switches) are news for the controller's readers, and a
+/// plugin sends them whenever it changes a program or a patch.
+pub const RESTART_RECONFIGURE: u32 = 1 | (1 << 1) | (1 << 3);
 
 /// The same 16 bytes as a VST3 class id.
 pub type ClassId = [u8; 16];
@@ -45,6 +61,79 @@ pub enum EventKind {
         pitch: i16,
         velocity: f32,
     },
+    /// A controller (CC) change; `value` is 0 to 1. A plugin hears it through
+    /// its own controller mapping.
+    Controller {
+        channel: i16,
+        number: i16,
+        value: f32,
+    },
+    /// Pitch bend, 0 to 1 with 0.5 at the centre.
+    PitchBend { channel: i16, value: f32 },
+    /// Channel pressure (aftertouch), 0 to 1.
+    Pressure { channel: i16, value: f32 },
+}
+
+/// The wire tags of event kinds, shared with the shared-memory region.
+pub const TAG_NOTE_ON: u8 = 0;
+pub const TAG_NOTE_OFF: u8 = 1;
+pub const TAG_CONTROLLER: u8 = 2;
+pub const TAG_PITCH_BEND: u8 = 3;
+pub const TAG_PRESSURE: u8 = 4;
+
+impl EventKind {
+    /// `(tag, channel, number, value)`: the four fields every event is
+    /// carried as. `number` is the pitch of a note or a controller's number;
+    /// `value` is a velocity or a 0 to 1 value.
+    pub fn parts(&self) -> (u8, i16, i16, f32) {
+        match *self {
+            EventKind::NoteOn {
+                channel,
+                pitch,
+                velocity,
+            } => (TAG_NOTE_ON, channel, pitch, velocity),
+            EventKind::NoteOff {
+                channel,
+                pitch,
+                velocity,
+            } => (TAG_NOTE_OFF, channel, pitch, velocity),
+            EventKind::Controller {
+                channel,
+                number,
+                value,
+            } => (TAG_CONTROLLER, channel, number, value),
+            EventKind::PitchBend { channel, value } => (TAG_PITCH_BEND, channel, 0, value),
+            EventKind::Pressure { channel, value } => (TAG_PRESSURE, channel, 0, value),
+        }
+    }
+
+    /// The kind with these fields, if the tag is known and the value is a
+    /// finite number (a plugin never sees NaN).
+    pub fn from_parts(tag: u8, channel: i16, number: i16, value: f32) -> Option<Self> {
+        if !value.is_finite() {
+            return None;
+        }
+        Some(match tag {
+            TAG_NOTE_ON => EventKind::NoteOn {
+                channel,
+                pitch: number,
+                velocity: value,
+            },
+            TAG_NOTE_OFF => EventKind::NoteOff {
+                channel,
+                pitch: number,
+                velocity: value,
+            },
+            TAG_CONTROLLER => EventKind::Controller {
+                channel,
+                number,
+                value,
+            },
+            TAG_PITCH_BEND => EventKind::PitchBend { channel, value },
+            TAG_PRESSURE => EventKind::Pressure { channel, value },
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -71,6 +160,30 @@ pub struct ClassInfo {
     pub subcategories: String,
 }
 
+/// Where a plugin's editor window is: its outer top-left corner and the size
+/// of its content, in physical pixels at `dpi`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EditorBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub dpi: u32,
+}
+
+/// The largest content size an editor may be asked to open at.
+pub const MAX_EDITOR_SIDE: u32 = 16_384;
+
+/// What the host knows of a plugin's editor window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct EditorStatus {
+    /// The window exists. False after the user closes it.
+    pub open: bool,
+    /// The window is shown: false while it is hidden (still open).
+    pub visible: bool,
+    pub bounds: Option<EditorBounds>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParamInfo {
     pub id: u32,
@@ -78,6 +191,98 @@ pub struct ParamInfo {
     pub units: String,
     pub steps: i32,
     pub default: f64,
+    /// The plugin's own flags (`ParameterInfo::flags`); see the `FLAG_*`
+    /// constants for the ones Lumen reads.
+    pub flags: u32,
+    /// The unit (group) the parameter belongs to; 0 is the root.
+    pub unit: i32,
+    /// The normalized value now.
+    pub value: f64,
+}
+
+impl ParamInfo {
+    pub fn can_automate(&self) -> bool {
+        self.flags & FLAG_CAN_AUTOMATE != 0
+    }
+    pub fn read_only(&self) -> bool {
+        self.flags & FLAG_READ_ONLY != 0
+    }
+    pub fn hidden(&self) -> bool {
+        self.flags & FLAG_HIDDEN != 0
+    }
+    pub fn program_change(&self) -> bool {
+        self.flags & FLAG_PROGRAM_CHANGE != 0
+    }
+    pub fn bypass(&self) -> bool {
+        self.flags & FLAG_BYPASS != 0
+    }
+}
+
+/// The bits of `ParameterInfo::flags` Lumen reads (the VST3 values).
+pub const FLAG_CAN_AUTOMATE: u32 = 1;
+pub const FLAG_READ_ONLY: u32 = 1 << 1;
+pub const FLAG_HIDDEN: u32 = 1 << 4;
+pub const FLAG_PROGRAM_CHANGE: u32 = 1 << 15;
+pub const FLAG_BYPASS: u32 = 1 << 16;
+
+/// A group of parameters (VST3 `IUnitInfo`): a name and a parent.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnitInfo {
+    pub id: i32,
+    /// The unit this one sits in; -1 for none.
+    pub parent: i32,
+    pub name: String,
+}
+
+/// What happened to a parameter, as the plugin's controller told the host
+/// or as the processor reported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum EditKind {
+    /// A gesture began (a control was grabbed).
+    Begin = 0,
+    /// A new value during a gesture, or alone.
+    Perform = 1,
+    /// The gesture ended.
+    End = 2,
+    /// The processor reported a value of its own (a meter, a changed program).
+    Output = 3,
+    /// The plugin said that something inside it changed that no parameter
+    /// shows (a patch, a preset): `setDirty`, or a restart that says the
+    /// values changed. The id and the value mean nothing.
+    Dirty = 4,
+}
+
+impl EditKind {
+    fn from_u8(v: u8) -> Result<Self, WireError> {
+        Ok(match v {
+            0 => Self::Begin,
+            1 => Self::Perform,
+            2 => Self::End,
+            3 => Self::Output,
+            4 => Self::Dirty,
+            _ => return Err(WireError::Invalid("edit kind")),
+        })
+    }
+}
+
+/// What a `TakeEdits` call brings.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Taken {
+    pub list: Vec<Edit>,
+    /// Edits dropped for want of room.
+    pub dropped: u32,
+    /// Controller, bend and pressure events no parameter took.
+    pub ignored: u32,
+}
+
+/// One parameter edit, in the order the plugin made it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Edit {
+    pub id: u32,
+    /// Normalized; meaningless for a `Begin` or an `End`.
+    pub value: f64,
+    pub kind: EditKind,
 }
 
 /// How a request failed, so the caller can choose what to do.
@@ -96,6 +301,11 @@ pub enum FailureKind {
     Protocol = 4,
     /// The shared-memory audio path could not be opened.
     Transport = 5,
+    /// The plugin has no editor, or this platform cannot show one.
+    NoEditor = 6,
+    /// The host's main thread did not answer in time (a plugin's window code
+    /// that stopped answering). The request may still be running.
+    Unresponsive = 7,
 }
 
 impl FailureKind {
@@ -107,6 +317,8 @@ impl FailureKind {
             3 => Self::Plugin,
             4 => Self::Protocol,
             5 => Self::Transport,
+            6 => Self::NoEditor,
+            7 => Self::Unresponsive,
             _ => return Err(WireError::Invalid("failure kind")),
         })
     }
@@ -140,6 +352,41 @@ pub enum Request {
     GetState,
     SetState(Vec<u8>),
     Parameters,
+    /// The groups parameters belong to.
+    Units,
+    /// The plugin's own text for a normalized value ("2.4 kHz").
+    ParamText {
+        id: u32,
+        value: f64,
+    },
+    /// The normalized value the plugin reads from text the user typed
+    /// ("2.4 kHz", "-6").
+    ParamValue {
+        id: u32,
+        text: String,
+    },
+    /// Set a parameter from Lumen: the controller is told, and the processor
+    /// hears it in the next block.
+    SetParam {
+        id: u32,
+        value: f64,
+    },
+    /// Open the plugin's editor window where it was (or at the system's
+    /// place when `None`). Answered with `Editor`.
+    OpenEditor {
+        bounds: Option<EditorBounds>,
+    },
+    /// Close the editor window, if open. Answered with `Editor`.
+    CloseEditor,
+    /// Hide the editor window (it stays open: its view is still there and so
+    /// is its place) or show it again, without taking the keyboard. Answered
+    /// with `Editor`.
+    ShowEditor(bool),
+    /// Ask whether the editor window is open and where it is.
+    EditorStatus,
+    /// Take the edits made since the last call (a plugin's own window, a
+    /// processor's output parameters), oldest first.
+    TakeEdits,
     /// Open the shared-memory audio path Lumen made under this base name.
     /// A second attach replaces the first.
     Attach {
@@ -147,6 +394,11 @@ pub enum Request {
         layout: Layout,
         wake: Wake,
     },
+    /// Take these keys (Windows virtual-key codes) from the plugin's window
+    /// when pressed without Ctrl, Alt, Shift or the Windows key: the plugin
+    /// does not get them and Lumen hears them as [`Response::Key`]. Empty
+    /// gives every key back to the plugin.
+    CaptureKeys(Vec<u8>),
     Quit,
 }
 
@@ -176,6 +428,20 @@ pub enum Response {
         total: u32,
         list: Vec<ParamInfo>,
     },
+    Units(Vec<UnitInfo>),
+    Text(String),
+    /// A normalized value read from the user's text.
+    Value(f64),
+    /// The editor window as it is now.
+    Editor(EditorStatus),
+    Edits {
+        list: Vec<Edit>,
+        /// Edits dropped since the last call because the list was full.
+        dropped: u32,
+        /// Controller, bend and pressure events no parameter took, since the
+        /// last call (the plugin maps none to a parameter).
+        ignored: u32,
+    },
     Done,
     /// The audio path is open and the host's block loop is running.
     Attached,
@@ -183,6 +449,53 @@ pub enum Response {
         kind: FailureKind,
         message: String,
     },
+    /// Not an answer: a key Lumen asked for went down or up in the plugin's
+    /// window (repeats are not sent). A key that goes up after the window
+    /// lost the keyboard is sent too, so nothing stays held.
+    Key {
+        code: u8,
+        down: bool,
+    },
+}
+
+impl Response {
+    /// Whether this is news sent on the host's own account rather than the
+    /// answer to a request.
+    pub fn is_notice(&self) -> bool {
+        matches!(self, Response::Key { .. })
+    }
+}
+
+fn write_bounds(w: &mut Writer, bounds: Option<&EditorBounds>) {
+    match bounds {
+        Some(b) => {
+            w.bool(true);
+            w.i32(b.x);
+            w.i32(b.y);
+            w.u32(b.width);
+            w.u32(b.height);
+            w.u32(b.dpi);
+        }
+        None => w.bool(false),
+    }
+}
+
+fn read_bounds(r: &mut Reader<'_>) -> Result<Option<EditorBounds>, WireError> {
+    if !r.bool()? {
+        return Ok(None);
+    }
+    let bounds = EditorBounds {
+        x: r.i32()?,
+        y: r.i32()?,
+        width: r.u32()?,
+        height: r.u32()?,
+        dpi: r.u32()?,
+    };
+    // A size a window could never have is a message that lies.
+    if bounds.width > MAX_EDITOR_SIDE || bounds.height > MAX_EDITOR_SIDE || bounds.dpi > 2_000 {
+        return Err(WireError::Invalid("editor bounds"));
+    }
+    Ok(Some(bounds))
 }
 
 const REQ_LOAD: u16 = 1;
@@ -193,6 +506,16 @@ const REQ_SET_STATE: u16 = 5;
 const REQ_PARAMETERS: u16 = 6;
 const REQ_QUIT: u16 = 7;
 const REQ_ATTACH: u16 = 8;
+const REQ_UNITS: u16 = 9;
+const REQ_PARAM_TEXT: u16 = 10;
+const REQ_SET_PARAM: u16 = 11;
+const REQ_TAKE_EDITS: u16 = 12;
+const REQ_PARAM_VALUE: u16 = 13;
+const REQ_OPEN_EDITOR: u16 = 14;
+const REQ_CLOSE_EDITOR: u16 = 15;
+const REQ_EDITOR_STATUS: u16 = 16;
+const REQ_CAPTURE_KEYS: u16 = 17;
+const REQ_SHOW_EDITOR: u16 = 18;
 
 const RES_LOADED: u16 = 101;
 const RES_CONFIGURED: u16 = 102;
@@ -202,6 +525,12 @@ const RES_PARAMETERS: u16 = 105;
 const RES_DONE: u16 = 106;
 const RES_FAILED: u16 = 107;
 const RES_ATTACHED: u16 = 108;
+const RES_UNITS: u16 = 109;
+const RES_TEXT: u16 = 110;
+const RES_EDITS: u16 = 111;
+const RES_VALUE: u16 = 112;
+const RES_EDITOR: u16 = 113;
+const RES_KEY: u16 = 114;
 
 fn put_audio(w: &mut Writer, channels: &[Vec<f32>]) {
     w.u32(channels.len() as u32);
@@ -293,18 +622,7 @@ impl Request {
                 w.u32(events.len() as u32);
                 for e in events {
                     w.u32(e.offset);
-                    let (tag, channel, pitch, velocity) = match e.kind {
-                        EventKind::NoteOn {
-                            channel,
-                            pitch,
-                            velocity,
-                        } => (0, channel, pitch, velocity),
-                        EventKind::NoteOff {
-                            channel,
-                            pitch,
-                            velocity,
-                        } => (1, channel, pitch, velocity),
-                    };
+                    let (tag, channel, pitch, velocity) = e.kind.parts();
                     w.u8(tag);
                     w.u16(channel as u16);
                     w.u16(pitch as u16);
@@ -327,6 +645,33 @@ impl Request {
                 REQ_SET_STATE
             }
             Request::Parameters => REQ_PARAMETERS,
+            Request::Units => REQ_UNITS,
+            Request::ParamText { id, value } => {
+                w.u32(*id);
+                w.f64(*value);
+                REQ_PARAM_TEXT
+            }
+            Request::ParamValue { id, text } => {
+                w.u32(*id);
+                w.str(text);
+                REQ_PARAM_VALUE
+            }
+            Request::SetParam { id, value } => {
+                w.u32(*id);
+                w.f64(*value);
+                REQ_SET_PARAM
+            }
+            Request::OpenEditor { bounds } => {
+                write_bounds(&mut w, bounds.as_ref());
+                REQ_OPEN_EDITOR
+            }
+            Request::CloseEditor => REQ_CLOSE_EDITOR,
+            Request::ShowEditor(visible) => {
+                w.u8(u8::from(*visible));
+                REQ_SHOW_EDITOR
+            }
+            Request::EditorStatus => REQ_EDITOR_STATUS,
+            Request::TakeEdits => REQ_TAKE_EDITS,
             Request::Attach { base, layout, wake } => {
                 w.str(base);
                 w.u32(layout.max_frames);
@@ -341,6 +686,10 @@ impl Request {
                     w.u32(micros);
                 }
                 REQ_ATTACH
+            }
+            Request::CaptureKeys(keys) => {
+                w.bytes(keys);
+                REQ_CAPTURE_KEYS
             }
             Request::Quit => REQ_QUIT,
         };
@@ -401,19 +750,8 @@ impl Request {
                     let channel = r.u16()? as i16;
                     let pitch = r.u16()? as i16;
                     let velocity = r.f32()?;
-                    let kind = match tag {
-                        0 => EventKind::NoteOn {
-                            channel,
-                            pitch,
-                            velocity,
-                        },
-                        1 => EventKind::NoteOff {
-                            channel,
-                            pitch,
-                            velocity,
-                        },
-                        _ => return Err(WireError::Invalid("event kind")),
-                    };
+                    let kind = EventKind::from_parts(tag, channel, pitch, velocity)
+                        .ok_or(WireError::Invalid("event kind"))?;
                     events.push(Event { offset, kind });
                 }
                 let n = r.count("parameter queues", MAX_QUEUES, 8)?;
@@ -452,6 +790,26 @@ impl Request {
             REQ_GET_STATE => Request::GetState,
             REQ_SET_STATE => Request::SetState(r.bytes("state", MAX_STATE)?.to_vec()),
             REQ_PARAMETERS => Request::Parameters,
+            REQ_UNITS => Request::Units,
+            REQ_PARAM_TEXT => Request::ParamText {
+                id: r.u32()?,
+                value: r.f64()?,
+            },
+            REQ_PARAM_VALUE => Request::ParamValue {
+                id: r.u32()?,
+                text: r.str("typed value", MAX_TEXT)?,
+            },
+            REQ_SET_PARAM => Request::SetParam {
+                id: r.u32()?,
+                value: r.f64()?,
+            },
+            REQ_OPEN_EDITOR => Request::OpenEditor {
+                bounds: read_bounds(&mut r)?,
+            },
+            REQ_CLOSE_EDITOR => Request::CloseEditor,
+            REQ_SHOW_EDITOR => Request::ShowEditor(r.bool()?),
+            REQ_EDITOR_STATUS => Request::EditorStatus,
+            REQ_TAKE_EDITS => Request::TakeEdits,
             REQ_ATTACH => {
                 let base = r.str("base name", MAX_BASE)?;
                 if base.is_empty() || !base.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
@@ -482,6 +840,7 @@ impl Request {
                     wake: Wake { host, lumen },
                 }
             }
+            REQ_CAPTURE_KEYS => Request::CaptureKeys(r.bytes("keys", MAX_KEYS)?.to_vec()),
             REQ_QUIT => Request::Quit,
             _ => return Err(WireError::Invalid("request kind")),
         };
@@ -539,8 +898,49 @@ impl Response {
                     w.str(&p.units);
                     w.i32(p.steps);
                     w.f64(p.default);
+                    w.u32(p.flags);
+                    w.i32(p.unit);
+                    w.f64(p.value);
                 }
                 RES_PARAMETERS
+            }
+            Response::Units(list) => {
+                w.u32(list.len() as u32);
+                for u in list {
+                    w.i32(u.id);
+                    w.i32(u.parent);
+                    w.str(&u.name);
+                }
+                RES_UNITS
+            }
+            Response::Text(text) => {
+                w.str(text);
+                RES_TEXT
+            }
+            Response::Value(value) => {
+                w.f64(*value);
+                RES_VALUE
+            }
+            Response::Editor(status) => {
+                w.bool(status.open);
+                w.bool(status.visible);
+                write_bounds(&mut w, status.bounds.as_ref());
+                RES_EDITOR
+            }
+            Response::Edits {
+                list,
+                dropped,
+                ignored,
+            } => {
+                w.u32(*dropped);
+                w.u32(*ignored);
+                w.u32(list.len() as u32);
+                for e in list {
+                    w.u32(e.id);
+                    w.f64(e.value);
+                    w.u8(e.kind as u8);
+                }
+                RES_EDITS
             }
             Response::Done => RES_DONE,
             Response::Attached => RES_ATTACHED,
@@ -548,6 +948,11 @@ impl Response {
                 w.u8(*kind as u8);
                 w.str(message);
                 RES_FAILED
+            }
+            Response::Key { code, down } => {
+                w.u8(*code);
+                w.bool(*down);
+                RES_KEY
             }
         };
         (kind, w.into_bytes())
@@ -574,7 +979,7 @@ impl Response {
             RES_STATE => Response::State(r.bytes("state", MAX_STATE)?.to_vec()),
             RES_PARAMETERS => {
                 let total = r.u32()?;
-                let n = r.count("parameters", MAX_PARAMETERS, 24)?;
+                let n = r.count("parameters", MAX_PARAMETERS, 40)?;
                 let mut list = Vec::with_capacity(n);
                 for _ in 0..n {
                     list.push(ParamInfo {
@@ -583,15 +988,59 @@ impl Response {
                         units: r.str("units", MAX_TEXT)?,
                         steps: r.i32()?,
                         default: r.f64()?,
+                        flags: r.u32()?,
+                        unit: r.i32()?,
+                        value: r.f64()?,
                     });
                 }
                 Response::Parameters { total, list }
+            }
+            RES_UNITS => {
+                let n = r.count("units", MAX_UNITS, 12)?;
+                let mut list = Vec::with_capacity(n);
+                for _ in 0..n {
+                    list.push(UnitInfo {
+                        id: r.i32()?,
+                        parent: r.i32()?,
+                        name: r.str("unit name", MAX_TEXT)?,
+                    });
+                }
+                Response::Units(list)
+            }
+            RES_TEXT => Response::Text(r.str("text", MAX_TEXT)?),
+            RES_VALUE => Response::Value(r.f64()?),
+            RES_EDITOR => Response::Editor(EditorStatus {
+                open: r.bool()?,
+                visible: r.bool()?,
+                bounds: read_bounds(&mut r)?,
+            }),
+            RES_EDITS => {
+                let dropped = r.u32()?;
+                let ignored = r.u32()?;
+                let n = r.count("edits", MAX_EDITS, 13)?;
+                let mut list = Vec::with_capacity(n);
+                for _ in 0..n {
+                    list.push(Edit {
+                        id: r.u32()?,
+                        value: r.f64()?,
+                        kind: EditKind::from_u8(r.u8()?)?,
+                    });
+                }
+                Response::Edits {
+                    list,
+                    dropped,
+                    ignored,
+                }
             }
             RES_DONE => Response::Done,
             RES_ATTACHED => Response::Attached,
             RES_FAILED => Response::Failed {
                 kind: FailureKind::from_u8(r.u8()?)?,
                 message: r.str("message", MAX_TEXT)?,
+            },
+            RES_KEY => Response::Key {
+                code: r.u8()?,
+                down: r.bool()?,
             },
             _ => return Err(WireError::Invalid("response kind")),
         };
@@ -739,6 +1188,28 @@ mod tests {
                         velocity: 0.0,
                     },
                 },
+                Event {
+                    offset: 2,
+                    kind: EventKind::Controller {
+                        channel: 1,
+                        number: 64,
+                        value: 1.0,
+                    },
+                },
+                Event {
+                    offset: 2,
+                    kind: EventKind::PitchBend {
+                        channel: 0,
+                        value: 0.5,
+                    },
+                },
+                Event {
+                    offset: 3,
+                    kind: EventKind::Pressure {
+                        channel: 15,
+                        value: 0.25,
+                    },
+                },
             ],
             params: vec![ParamQueue {
                 id: 7,
@@ -765,6 +1236,28 @@ mod tests {
             Request::GetState,
             Request::SetState(vec![1, 2, 3]),
             Request::Parameters,
+            Request::Units,
+            Request::ParamText { id: 3, value: 0.5 },
+            Request::ParamValue {
+                id: 3,
+                text: "2.4 kHz".into(),
+            },
+            Request::OpenEditor { bounds: None },
+            Request::OpenEditor {
+                bounds: Some(EditorBounds {
+                    x: -1200,
+                    y: 80,
+                    width: 640,
+                    height: 480,
+                    dpi: 144,
+                }),
+            },
+            Request::CloseEditor,
+            Request::ShowEditor(true),
+            Request::ShowEditor(false),
+            Request::EditorStatus,
+            Request::SetParam { id: 3, value: 1.0 },
+            Request::TakeEdits,
             Request::Attach {
                 base: "1f2-3".into(),
                 layout: Layout::new(512, 2, 2),
@@ -778,6 +1271,8 @@ mod tests {
                 layout: Layout::new(8192, 0, 16),
                 wake: Wake::SPIN,
             },
+            Request::CaptureKeys(vec![b'A', b'W', b'Z']),
+            Request::CaptureKeys(Vec::new()),
             Request::Quit,
         ] {
             assert_eq!(round_trip(&request), request);
@@ -817,7 +1312,66 @@ mod tests {
                     units: "dB".into(),
                     steps: 0,
                     default: 0.5,
+                    flags: FLAG_CAN_AUTOMATE | FLAG_HIDDEN,
+                    unit: 2,
+                    value: 0.25,
                 }],
+            },
+            Response::Units(vec![
+                UnitInfo {
+                    id: 0,
+                    parent: -1,
+                    name: "Root".into(),
+                },
+                UnitInfo {
+                    id: 2,
+                    parent: 0,
+                    name: "Filter".into(),
+                },
+            ]),
+            Response::Text("2.4 kHz".into()),
+            Response::Value(0.25),
+            Response::Editor(EditorStatus::default()),
+            Response::Editor(EditorStatus {
+                open: true,
+                visible: false,
+                bounds: Some(EditorBounds {
+                    x: 10,
+                    y: 20,
+                    width: 320,
+                    height: 200,
+                    dpi: 96,
+                }),
+            }),
+            Response::Edits {
+                list: vec![
+                    Edit {
+                        id: 1,
+                        value: 0.0,
+                        kind: EditKind::Begin,
+                    },
+                    Edit {
+                        id: 1,
+                        value: 0.7,
+                        kind: EditKind::Perform,
+                    },
+                    Edit {
+                        id: 1,
+                        value: 0.0,
+                        kind: EditKind::End,
+                    },
+                    Edit {
+                        id: 9,
+                        value: 0.1,
+                        kind: EditKind::Output,
+                    },
+                ],
+                dropped: 2,
+                ignored: 7,
+            },
+            Response::Key {
+                code: b'K',
+                down: true,
             },
             Response::Done,
             Response::Attached,
@@ -841,6 +1395,62 @@ mod tests {
 
     fn rejects(bytes: &[u8]) -> bool {
         matches!(read_request(&mut &*bytes), Err(FrameError::Wire(_)))
+    }
+
+    #[test]
+    fn editor_bounds_no_window_could_have_are_refused() {
+        let at = |width, height, dpi| Request::OpenEditor {
+            bounds: Some(EditorBounds {
+                x: 0,
+                y: 0,
+                width,
+                height,
+                dpi,
+            }),
+        };
+        assert!(!rejects(&frame(
+            REQ_OPEN_EDITOR,
+            &at(800, 600, 96).encode().1
+        )));
+        for request in [
+            at(MAX_EDITOR_SIDE + 1, 600, 96),
+            at(800, MAX_EDITOR_SIDE + 1, 96),
+            at(800, 600, 50_000),
+        ] {
+            assert!(rejects(&frame(REQ_OPEN_EDITOR, &request.encode().1)));
+        }
+    }
+
+    #[test]
+    fn too_many_keys_to_capture_are_refused() {
+        let mut w = crate::wire::Writer::new();
+        w.bytes(&[b'A'; MAX_KEYS + 1]);
+        assert!(rejects(&frame(REQ_CAPTURE_KEYS, &w.into_bytes())));
+    }
+
+    #[test]
+    fn only_a_reload_a_bus_change_or_a_new_latency_sets_a_plugin_up_again() {
+        // The VST3 restart flags.
+        let (reload, io, values, latency, titles, cc) = (1, 1 << 1, 1 << 2, 1 << 3, 1 << 4, 1 << 5);
+        for flag in [reload, io, latency] {
+            assert_ne!(RESTART_RECONFIGURE & flag, 0, "{flag}");
+        }
+        // What a plugin says when it loads a patch.
+        for flag in [values, titles, cc] {
+            assert_eq!(RESTART_RECONFIGURE & flag, 0, "{flag}");
+        }
+    }
+
+    #[test]
+    fn only_a_key_is_news_rather_than_an_answer() {
+        assert!(
+            Response::Key {
+                code: 65,
+                down: false
+            }
+            .is_notice()
+        );
+        assert!(!Response::Done.is_notice());
     }
 
     #[test]

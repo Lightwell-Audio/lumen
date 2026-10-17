@@ -284,7 +284,7 @@ fn on_ring(center: Pos2, r: f32, t: f32) -> Pos2 {
 /// Paints the knob: the ring, the comet's trail and head, the letter and
 /// the pre-fader dot. `hot` (0 to 1) brightens the head and rings the knob
 /// in its colour.
-fn draw(painter: &egui::Painter, rect: Rect, knob: &SendKnob<'_>, at: f32, hot: f32) {
+pub(super) fn draw(painter: &egui::Painter, rect: Rect, knob: &SendKnob<'_>, at: f32, hot: f32) {
     let palette = *theme::p();
     let center = rect.center();
     let r = rect.width() / 2.0 - 2.0;

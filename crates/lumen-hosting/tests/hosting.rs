@@ -346,13 +346,14 @@ fn many_devices_load_at_once_and_all_play() {
                 }
             }
             lumen_hosting::Happened::Failed(f) => panic!("device {id}: {f}"),
+            other => Err(other),
         },
     );
     assert_eq!(seen.len(), 9);
 }
 
 #[test]
-fn messages_the_host_cannot_carry_yet_are_dropped_and_counted() {
+fn program_changes_are_dropped_and_counted_while_controllers_are_carried() {
     let mut manager = manager();
     manager.want(1, instrument("")).unwrap();
     let mut linked = linked(&mut manager, 1);
@@ -379,7 +380,8 @@ fn messages_the_host_cannot_carry_yet_are_dropped_and_counted() {
     let (left, _, reply) = play(&mut linked.link, 64, &[], &events);
     assert!(matches!(reply, Some(Reply::Ready { .. })));
     assert!(left[..32].iter().any(|s| *s != 0.0), "the note sounded");
-    assert_eq!(linked.link.counts().dropped_events(), 4);
+    // Only the program change is not carried.
+    assert_eq!(linked.link.counts().dropped_events(), 1);
 }
 
 #[test]

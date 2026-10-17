@@ -22,6 +22,12 @@
 //! | `aux_buses` | the instrument declares one main and three auxiliary output buses (the auxiliary ones off by default) and crashes in `process` unless the host passes all four, each with a buffer list that is not null even when the bus is off |
 //! | `editor` | the controller offers an editor view (Windows): a text field to type in, a resize button, user resizing and a scale readout; without it there is no view |
 //! | `editor_hang=MS` | as `editor`, and the editor's window thread stops answering `MS` milliseconds after it is attached |
+//! | `set_dirty` | the instrument lists the trigger, and stepping it on makes the plugin tell the host `setDirty(true)` and nothing else: a change inside it that no parameter shows |
+//! | `values_changed` | as `set_dirty`, but the plugin asks the host to restart with `kParamValuesChanged`, as a plugin does when a patch loads |
+//! | `headless_editor` | no effect on the plugin: the host (not this plugin) stands in for an editor window that is only a record of where it would be, for tests where there are no windows (`LUMEN_HOST_HEADLESS_EDITOR`) |
+//! | `headless_hang=MS` | as `headless_editor`, and opening it blocks the host's main thread for `MS` milliseconds |
+//! | `headless_close=MS` | as `headless_editor`, and the "user" closes it `MS` milliseconds after it opens |
+//! | `headless_press=CODE` | as `headless_editor`, and once Lumen asks for the key `CODE` (a Windows virtual-key code) while the window is open, the "user" presses and lets go of it there |
 //! | `release=MS` | the instrument's released notes fade out over `MS` milliseconds while it reports no tail: what a synth with a long release does |
 //!
 //! `@N` counts process calls from 0 and defaults to 0.
@@ -51,6 +57,14 @@ pub enum Kind {
     Editor,
     EditorHang,
     Release,
+    ManyParams,
+    WindowEdits,
+    SetDirty,
+    ValuesChanged,
+    HeadlessEditor,
+    HeadlessHang,
+    HeadlessClose,
+    HeadlessPress,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,12 +111,30 @@ impl Faults {
                 "editor" => Kind::Editor,
                 "editor_hang" => Kind::EditorHang,
                 "release" => Kind::Release,
+                "many_params" => Kind::ManyParams,
+                "window_edits" => Kind::WindowEdits,
+                "set_dirty" => Kind::SetDirty,
+                "values_changed" => Kind::ValuesChanged,
+                "headless_editor" => Kind::HeadlessEditor,
+                "headless_hang" => Kind::HeadlessHang,
+                "headless_close" => Kind::HeadlessClose,
+                "headless_press" => Kind::HeadlessPress,
                 _ => return Err(format!("`{entry}`: unknown fault")),
             };
             if matches!(kind, Kind::ProcessSlow) && arg.is_none() {
                 return Err(format!("`{entry}`: needs `=microseconds`"));
             }
-            if matches!(kind, Kind::EditorHang | Kind::Release) && arg.is_none() {
+            if matches!(kind, Kind::ManyParams) && arg.is_none() {
+                return Err(format!("`{entry}`: needs `=count`"));
+            }
+            if matches!(kind, Kind::HeadlessPress) && arg.is_none() {
+                return Err(format!("`{entry}`: needs `=key code`"));
+            }
+            if matches!(
+                kind,
+                Kind::EditorHang | Kind::Release | Kind::HeadlessHang | Kind::HeadlessClose
+            ) && arg.is_none()
+            {
                 return Err(format!("`{entry}`: needs `=milliseconds`"));
             }
             list.push(Fault {
@@ -160,6 +192,14 @@ impl Faults {
             .iter()
             .find(|f| f.kind == Kind::Release)
             .map(|f| Duration::from_millis(f.arg))
+    }
+
+    /// How many extra parameters `many_params` adds (0 when not asked).
+    pub fn many_params(&self) -> u32 {
+        self.0
+            .iter()
+            .find(|f| f.kind == Kind::ManyParams)
+            .map_or(0, |f| f.arg.min(20_000) as u32)
     }
 
     /// The busy-wait asked for by `process_slow`, if any.

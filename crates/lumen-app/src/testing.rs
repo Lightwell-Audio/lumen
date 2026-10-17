@@ -485,6 +485,114 @@ impl App {
         self.document.copy_device(from, device, to, slot).ok()
     }
 
+    /// Sets a plugin's parameter (normalized) as the interface's controls will:
+    /// the project holds the value, and one drag is one undo step.
+    pub fn set_device_param(&mut self, device: Id, id: u32, value: f64) {
+        let _ = self.document.set_device_params(
+            device,
+            &[(id, value)],
+            "Change parameter",
+            Some("test-parameter"),
+        );
+    }
+
+    /// The parameter values the project holds for a device, by id.
+    pub fn device_params(&self, device: Id) -> Vec<(u32, f64)> {
+        crate::document::find_device(self.document.project(), device)
+            .map(|(_, d)| d.params.iter().map(|(&k, &v)| (k, v)).collect())
+            .unwrap_or_default()
+    }
+
+    /// Gives a device a parameter list as if its plugin had listed it, for
+    /// screenshots of the card's strip: `(title, value, text)` each.
+    pub fn give_device_parameters(&mut self, device: Id, list: &[(&str, f64, &str)]) {
+        self.hosting.pretend_parameters(device, list);
+    }
+
+    /// The parameter ids on a device's card strip, in order.
+    pub fn strip_parameters(&self, device: Id) -> Vec<u32> {
+        self.strip_ids(device)
+    }
+
+    /// Sends a parameter value to the device's plugin as a control in its own
+    /// window would, with no edit of the project.
+    pub fn poke_plugin(&mut self, device: Id, id: u32, value: f64) {
+        self.hosting.poke_param(device, id, value);
+    }
+
+    /// Whether the device's plugin window is open but hidden because the
+    /// Devices tab shows another track.
+    pub fn editor_hidden(&self, device: Id) -> bool {
+        self.hosting.editor_hidden(device)
+    }
+
+    /// Where a plugin's window is remembered to open, by the device's class:
+    /// `(x, y, width, height)`.
+    pub fn editor_place(&self, device: Id) -> Option<(i32, i32, u32, u32)> {
+        let class = self.hosting.class(device)?;
+        let p = self.settings.plugins.editors.get(class)?;
+        Some((p.x, p.y, p.width, p.height))
+    }
+
+    /// Remembers a window place for the device's plugin, as if it had been
+    /// left there.
+    pub fn set_editor_place(&mut self, device: Id, place: (i32, i32, u32, u32)) {
+        if let Some(class) = self.hosting.class(device).map(str::to_owned) {
+            self.settings.plugins.remember_editor(
+                &class,
+                crate::plugins::EditorPlace {
+                    x: place.0,
+                    y: place.1,
+                    width: place.2,
+                    height: place.3,
+                    dpi: 96,
+                },
+            );
+        }
+    }
+
+    /// Sets how a device's plugin window looks on its card, for screenshots:
+    /// `open`, `opening`, `stuck`, `none` (no editor) or `closed`; `learn`
+    /// also turns Learn on.
+    pub fn give_device_editor(&mut self, device: Id, state: &str, learn: bool) {
+        use crate::hosting::EditorState;
+        let state = match state {
+            "open" => EditorState::Open,
+            "opening" => EditorState::Opening,
+            "stuck" => EditorState::NotResponding,
+            "none" => EditorState::Refused("This plugin has no editor.".into()),
+            _ => EditorState::Closed,
+        };
+        self.hosting.pretend_editor(device, state);
+        if learn {
+            self.chain.learning = Some(device);
+        }
+    }
+
+    /// Whether Learn is on for the device.
+    pub fn learning(&self, device: Id) -> bool {
+        self.chain.learning == Some(device)
+    }
+
+    /// How many changed plugins could not be read for the save.
+    pub fn unread_plugins(&self) -> usize {
+        self.hosting.unread()
+    }
+
+    /// A parameter's value as far as the host bridge knows it.
+    pub fn device_param_known(&self, device: Id, id: u32) -> Option<f64> {
+        self.hosting.value(device, id)
+    }
+
+    /// The titles of a running plugin's parameters, in its order.
+    pub fn device_param_titles(&self, device: Id) -> Vec<String> {
+        self.hosting
+            .parameters(device)
+            .iter()
+            .map(|p| p.title.clone())
+            .collect()
+    }
+
     /// Bypasses or turns on a device, as the interface will.
     pub fn set_device_bypass(&mut self, track: Id, device: Id, bypass: bool) {
         let _ = self.document.set_device_bypass(track, device, bypass);
@@ -707,6 +815,7 @@ impl App {
     /// Background work is in progress: a save, an open, or files loading.
     pub fn is_busy(&self) -> bool {
         self.saving.is_some()
+            || self.save_waiting.is_some()
             || self.opening.is_some()
             || self.lanes.is_loading()
             || self.midi_reader.busy()
@@ -969,6 +1078,11 @@ impl App {
     /// Selects these tracks, as clicking their headers would.
     pub fn select_tracks(&mut self, ids: &[Id]) {
         self.arrangement.selected = ids.to_vec();
+    }
+
+    /// Chooses a card in the Devices tab, as clicking it would.
+    pub fn choose_card(&mut self, device: Id) {
+        self.chain.selected = Some(device);
     }
 
     /// The card chosen in the Devices tab, if one is.

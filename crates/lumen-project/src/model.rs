@@ -156,6 +156,12 @@ pub struct ViewState {
     /// Written only when there are some.
     #[serde(skip_serializing_if = "BTreeSet::is_empty")]
     pub folded_devices: BTreeSet<Id>,
+    /// The parameters on a device card's strip, by device (format v19):
+    /// the plugin's parameter ids in the order shown. A device with none
+    /// chosen shows the first few the plugin lists. Written only when some
+    /// device has a choice.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub shown_params: BTreeMap<Id, Vec<u32>>,
 }
 
 impl Default for ViewState {
@@ -176,6 +182,7 @@ impl Default for ViewState {
             returns_height: None,
             returns_folded: false,
             folded_devices: BTreeSet::new(),
+            shown_params: BTreeMap::new(),
         }
     }
 }
@@ -511,6 +518,14 @@ pub struct Device {
     /// The plugin's last reported latency and tail (format v17).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reported: Option<Reported>,
+    /// Parameter values the project holds over the saved state (format v19),
+    /// normalized 0 to 1 by the plugin's parameter id: what was set from
+    /// Lumen or from the plugin's own window since the state was captured. A
+    /// plugin restores its state and then these are set, so undo and redo of a
+    /// parameter change are edits to this map. Written only when there are
+    /// some; a save that captures the plugin's state afresh clears it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub params: BTreeMap<u32, f64>,
 }
 
 impl Device {
@@ -524,6 +539,7 @@ impl Device {
             controller_state: Vec::new(),
             plugin_version: String::new(),
             reported: None,
+            params: BTreeMap::new(),
         }
     }
 

@@ -20,6 +20,12 @@ fn within(t: Ticks) -> bool {
     t.0.unsigned_abs() <= LONGEST.0.unsigned_abs()
 }
 
+/// The most parameters a plugin may list, and so the most a device holds
+/// values for (the host's own limit).
+const MOST_PARAMS: usize = 16_384;
+/// The most parameters a card's strip may name for one device.
+const MOST_SHOWN: usize = 256;
+
 /// What a device may hold: bounded state, and the VST3-only data only on a
 /// VST3 device (format v17). Everything here comes from a file a person may
 /// have damaged or crafted.
@@ -43,6 +49,11 @@ fn device_data(device: &Device) -> Result<(), String> {
             if device.plugin_version.chars().count() > 64 {
                 return Err("a plugin's version is too long".into());
             }
+            if device.params.len() > MOST_PARAMS
+                || device.params.values().any(|v| !(0.0..=1.0).contains(v))
+            {
+                return Err("a plugin's parameter values are out of range".into());
+            }
             if let Some(reported) = &device.reported
                 && (!(8_000..=384_000).contains(&reported.rate) || reported.latency > 1 << 24)
             {
@@ -53,6 +64,7 @@ fn device_data(device: &Device) -> Result<(), String> {
             if !device.controller_state.is_empty()
                 || !device.plugin_version.is_empty()
                 || device.reported.is_some()
+                || !device.params.is_empty()
             {
                 return Err("a built-in device holds plugin-only data".into());
             }
@@ -62,6 +74,14 @@ fn device_data(device: &Device) -> Result<(), String> {
 }
 
 pub fn validate(project: &Project) -> Result<(), String> {
+    if project
+        .view
+        .shown_params
+        .values()
+        .any(|shown| shown.len() > MOST_SHOWN)
+    {
+        return Err("a device's strip names too many parameters".into());
+    }
     if !(8_000..=384_000).contains(&project.sample_rate) {
         return Err(format!(
             "sample rate {} is out of range",

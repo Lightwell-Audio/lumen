@@ -29,7 +29,7 @@ mod mixer;
 mod notes;
 mod record;
 pub use clips::{CLIP_GAIN, ClipMove};
-pub use devices::{Refusal, Slot, name_of as device_name};
+pub use devices::{Refusal, Slot, find_device, name_of as device_name};
 pub use groups::Place;
 pub use import::{DropInto, Imported, Places, import_place};
 pub use lanes::{Drag, Line, Shift};
@@ -50,6 +50,12 @@ pub struct Document {
     pub path: Option<PathBuf>,
     /// The history state that matches the file on disk.
     saved: u64,
+    /// Changes made inside plugins (no edit, so no history state): how many
+    /// there have been, how many the file on disk has, and how many there
+    /// were when the save under way began.
+    inside: u64,
+    inside_saved: u64,
+    inside_at_save: u64,
     next_id: u64,
     /// Where each media file actually is on this machine.
     pub media_files: HashMap<Id, PathBuf>,
@@ -65,6 +71,9 @@ impl Document {
         static SESSIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         Self {
             saved: history.state(),
+            inside: 0,
+            inside_saved: 0,
+            inside_at_save: 0,
             history,
             path: None,
             next_id,
@@ -94,7 +103,27 @@ impl Document {
 
     /// Unsaved changes.
     pub fn is_dirty(&self) -> bool {
-        self.history.state() != self.saved
+        self.history.state() != self.saved || self.inside != self.inside_saved
+    }
+
+    /// A plugin changed inside (a patch, a preset: nothing the project's
+    /// parameters show). The project has unsaved changes, though there is
+    /// nothing to undo.
+    pub fn mark_changed_inside(&mut self) {
+        self.inside += 1;
+    }
+
+    /// A save is starting: what it writes holds the plugins as they are now.
+    pub fn begin_save(&mut self) {
+        self.inside_at_save = self.inside;
+    }
+
+    /// Identifies the project as an autosave would write it: the history's
+    /// state and the changes inside plugins, which the history does not see.
+    pub fn change_mark(&self) -> u64 {
+        self.history
+            .state()
+            .wrapping_add(self.inside.wrapping_mul(0x9E37_79B9_7F4A_7C15))
     }
 
     /// The project's name for the title bar: its file name, or "Untitled".
@@ -123,6 +152,7 @@ impl Document {
     /// started: edits made during the save stay unsaved).
     pub fn mark_saved_at(&mut self, state: u64) {
         self.saved = state;
+        self.inside_saved = self.inside_at_save;
     }
 
     /// A document recovered from an autosave: it belongs to `path` (if the
@@ -602,6 +632,27 @@ fn highest_id(project: &Project) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_change_inside_a_plugin_is_unsaved_until_a_save_that_began_after_it() {
+        let mut doc = Document::new(crate::empty_project());
+        assert!(!doc.is_dirty());
+        let undoable = doc.history().state();
+        doc.mark_changed_inside();
+        assert!(doc.is_dirty(), "a patch is a change");
+        assert_eq!(doc.history().state(), undoable, "but nothing to undo");
+        let before = doc.change_mark();
+        // A save begins, and the plugin changes again while it is written.
+        doc.begin_save();
+        let state = doc.state();
+        doc.mark_changed_inside();
+        assert_ne!(doc.change_mark(), before, "an autosave sees it");
+        doc.mark_saved_at(state);
+        assert!(doc.is_dirty(), "the later change is not in the file");
+        doc.begin_save();
+        doc.mark_saved_at(doc.state());
+        assert!(!doc.is_dirty());
+    }
 
     pub(super) fn file(media: Id, name: &str, at: Ticks) -> Imported {
         Imported {

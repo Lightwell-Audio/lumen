@@ -153,6 +153,9 @@ pub(crate) enum Command {
     DevicePaste,
     DeviceDuplicate,
     DeviceFold,
+    DeviceParameters,
+    DeviceEditor,
+    DeviceLearn,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -372,6 +375,9 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::DevicePaste, "devices.paste", "Paste device", Area::Devices, &[], "Puts the copied device on the shown track, after the chosen card. It is a new device with the copied settings. Ctrl+V does the same while the Devices tab has the keyboard."),
     info(Command::DeviceDuplicate, "devices.duplicate", "Duplicate device", Area::Devices, &[], "Copies the chosen device right after itself. Ctrl+D does the same while the Devices tab has the keyboard."),
     info(Command::DeviceFold, "devices.fold", "Fold device", Area::Devices, &[], "Folds the chosen card to a narrow strip, or opens it again. Double-clicking a card does the same."),
+    info(Command::DeviceParameters, "devices.parameters", "Device parameters", Area::Devices, &[], "Opens every parameter of the chosen plugin, with search. A star puts a parameter on the card's strip."),
+    info(Command::DeviceEditor, "devices.editor", "Open or close the plugin's own window", Area::Devices, &[], "Opens the chosen plugin's own window where it was last, or closes it. The window belongs to the plugin; a plugin that stops answering can be ended from its card."),
+    info(Command::DeviceLearn, "devices.learn", "Learn a parameter from the plugin's window", Area::Devices, &[], "Opens the plugin's window and puts the next control you touch there on the next free slot of the card's strip. Run it again, or press Esc, to stop."),
 ];
 
 const fn info(
@@ -421,7 +427,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::DeviceFold as usize + 1,
+            Command::DeviceLearn as usize + 1,
             ALL.len(),
             "a command is missing"
         );

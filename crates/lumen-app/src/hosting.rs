@@ -17,13 +17,16 @@
 //!   is saved, as the view is (owner's C2, refined: not an edit, so opening a
 //!   project and hearing it does not make it unsaved).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use lumen_devices::{Cost, Guard, HostedInstrument, Status};
 use lumen_engine::{InstrumentSpec, MidiTrack, MixerHandle};
-use lumen_hosting::{Happened, HostLog, Manager, Start};
+use lumen_hosting::{
+    Edit, EditKind, EditorBounds, EditorEvent, Happened, HostLog, Manager, ParamInfo, Start,
+    UnitInfo,
+};
 use lumen_plugin_catalog::catalog::Catalog;
 use lumen_project::model::{
     Device, DeviceKind, Id, PluginRef, Project, Reported, Track, TrackKind,
@@ -93,7 +96,132 @@ struct Tracked {
     /// The longest block its plugin was promised (0 until linked).
     frames: u32,
     bypass: bool,
+    params: Parameters,
+    editor: EditorState,
+    /// When its host last came up. What a plugin says about its own state
+    /// changing in the first moments after is its loading, not the user.
+    linked_at: Option<std::time::Instant>,
+    /// Its window was hidden (asked for; it stays open): the user is on
+    /// another track.
+    editor_hidden: bool,
+    /// Being set up again (a new rate or block size, or the plugin asked):
+    /// the link it plays through now misses blocks until the new one comes,
+    /// which is not the plugin failing.
+    relinking: bool,
 }
+
+/// What Lumen knows of a plugin's own window (M6 slice 4f).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum EditorState {
+    #[default]
+    Closed,
+    /// Asked for, not shown yet.
+    Opening,
+    Open,
+    /// The plugin is stuck in its window code. Never ended on its own.
+    NotResponding,
+    /// The window cannot be had, and why (the plugin has none, or this
+    /// platform cannot show one).
+    Refused(String),
+}
+
+/// What Lumen knows of a plugin's parameters while its host runs (M6 slice 4).
+#[derive(Default)]
+struct Parameters {
+    /// The plugin's parameters, capped, as they were when it loaded, with
+    /// their values in the saved state.
+    list: Vec<ParamInfo>,
+    /// The plugin's own count, which may be more than the list.
+    total: u32,
+    units: Vec<UnitInfo>,
+    /// The value each parameter has in the plugin as far as Lumen knows: the
+    /// saved state's, then what Lumen set and what the plugin did inside.
+    values: BTreeMap<u32, f64>,
+    /// The value a parameter had before the project first held one for it:
+    /// what an undone change goes back to.
+    base: BTreeMap<u32, f64>,
+    /// The values the project held when the host was started.
+    started_with: BTreeMap<u32, f64>,
+    /// The plugin's own text for a value, last asked for, by parameter.
+    texts: HashMap<u32, (f64, String)>,
+    /// What the plugin made of text the user typed, waiting for the document:
+    /// the parameter, the text, and the value or `None` when it did not
+    /// understand.
+    typed: Vec<(u32, String, Option<f64>)>,
+    /// Edits the plugin made inside itself, waiting for the document, each
+    /// with whether it came inside a gesture (between a begin and an end).
+    edits: Vec<(Edit, bool)>,
+    /// The parameter whose gesture is open, since when. A gesture that never
+    /// ends is let go of after [`GESTURE_LIMIT`].
+    open: Option<(u32, std::time::Instant)>,
+    /// Controller, bend and pressure events no parameter took, in all.
+    ignored: u32,
+    /// Whether the host has linked before: a fresh link of the same process
+    /// keeps what is known.
+    linked_before: bool,
+    /// Whether the plugin's state is ahead of what the project saved.
+    dirty: bool,
+    /// How many times it has changed, and when last: a state read after the
+    /// last change is the plugin's state now.
+    edit_count: u64,
+    last_edit: Option<std::time::Instant>,
+    /// The plugin's state as last read, and the edit count it was read at.
+    captured: Option<Vec<u8>>,
+    captured_at: u64,
+    /// A read in flight, started at this edit count.
+    capturing: Option<u64>,
+    /// The last read failed (hung, crashed, refused); not tried again until
+    /// the plugin changes again.
+    capture_failed: bool,
+    /// The values the project holds for the device, as last seen.
+    held: BTreeMap<u32, f64>,
+}
+
+impl Parameters {
+    /// The plugin has changed: its state read before is out of date.
+    fn touch(&mut self) {
+        self.dirty = true;
+        self.edit_count += 1;
+        self.last_edit = Some(std::time::Instant::now());
+        self.capture_failed = false;
+    }
+
+    /// Whether the state read last is the plugin's state now.
+    fn fresh(&self) -> bool {
+        self.captured.is_some() && self.captured_at == self.edit_count
+    }
+}
+
+/// How long a plugin is left alone after its last change before its state
+/// is read (a drag is many changes; the state is read when it rests).
+const REST: std::time::Duration = std::time::Duration::from_millis(600);
+
+/// How long after a plugin's host comes up that what it says about its own
+/// state changing is taken as its loading.
+const SETTLE: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// What a plugin made of text the user typed for one of its parameters.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Typed {
+    pub device: Id,
+    pub id: u32,
+    pub text: String,
+    /// The normalized value, or `None` when the plugin did not understand.
+    pub value: Option<f64>,
+}
+
+/// The edits one device's plugin made inside itself, for the document.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeviceEdits {
+    pub device: Id,
+    /// In the order the plugin made them; `true` when inside a gesture.
+    pub edits: Vec<(Edit, bool)>,
+}
+
+/// How long a plugin's gesture may stay open with nothing in it before it is
+/// taken as ended (a plugin that forgets its end must not hold undo steps
+/// open for ever).
+const GESTURE_LIMIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// What a running plugin's blocks cost over a stretch of time, for the
 /// audio panel's budget bar (ADR-0075).
@@ -114,6 +242,9 @@ pub struct PluginCost {
 pub struct Changed {
     /// A running instrument is ready for the next MIDI track list.
     pub midi: bool,
+    /// Something is waiting out a delay (a plugin's state is to be read once
+    /// it has rested): ask for a frame this many milliseconds from now.
+    pub again_in_ms: Option<u64>,
 }
 
 pub struct Hosting {
@@ -129,7 +260,39 @@ pub struct Hosting {
     rate: u32,
     /// The longest block plugins are promised: the device's (ADR-0075).
     frames: u32,
+    /// Where editor windows were last seen, by plugin class, waiting for the
+    /// app to remember them.
+    places: Vec<(String, EditorBounds)>,
+    /// A plugin changed inside, waiting for the app to say so.
+    inside_changes: bool,
+    /// Keys pressed and let go of in plugins' windows (virtual-key codes,
+    /// `true` for down), oldest first, waiting for the computer keyboard.
+    keys: Vec<(u8, bool)>,
 }
+
+/// The host's stand-in for an editor window, as a test asks for it in the
+/// plugin's fault list (`headless_editor`, `headless_hang=MS`,
+/// `headless_close=MS`, `headless_press=CODE`): the value of
+/// `LUMEN_HOST_HEADLESS_EDITOR`.
+fn headless_setting(fault: &str) -> Option<String> {
+    let parts: Vec<String> = fault
+        .split(',')
+        .map(str::trim)
+        .filter_map(|entry| match entry.split_once('=') {
+            None if entry == "headless_editor" => Some("on".to_owned()),
+            Some(("headless_hang", ms)) => Some(format!("hang={ms}")),
+            Some(("headless_close", ms)) => Some(format!("close={ms}")),
+            Some(("headless_press", code)) => Some(format!("press={code}")),
+            _ => None,
+        })
+        .collect();
+    (!parts.is_empty()).then(|| parts.join(","))
+}
+
+/// How long a stand-in window may keep its host's main thread before the host
+/// says it is not responding, in tests: 600 ms rather than the system's five
+/// seconds (`LUMEN_HOST_EDITOR_WAIT_MS`).
+const TEST_EDITOR_WAIT_MS: &str = "600";
 
 /// The longest block to promise plugins for a device block of `block`
 /// frames (0 when no stream is open): the device's, at most what the engine
@@ -186,6 +349,9 @@ impl Hosting {
             waiting: Vec::new(),
             rate: 0,
             frames: promised_frames(0),
+            places: Vec::new(),
+            inside_changes: false,
+            keys: Vec::new(),
         }
     }
 
@@ -202,6 +368,12 @@ impl Hosting {
             faults,
             ..Self::off()
         }
+    }
+
+    /// The plugin's class id as Lumen keys it, for what is remembered per
+    /// plugin.
+    pub fn class(&self, device: Id) -> Option<&str> {
+        self.tracked.get(&device.0).map(|t| t.class.as_str())
     }
 
     pub fn state(&self, device: Id) -> Option<&State> {
@@ -230,6 +402,269 @@ impl Hosting {
         }
     }
 
+    /// The plugin's parameters as listed when it loaded (empty until it has).
+    pub fn parameters(&self, device: Id) -> &[ParamInfo] {
+        self.tracked
+            .get(&device.0)
+            .map_or(&[], |t| t.params.list.as_slice())
+    }
+
+    /// The plugin's own count of parameters, which may be more than listed.
+    #[allow(
+        dead_code,
+        reason = "the card's strip and the parameter panel use it (slice 4e)"
+    )]
+    pub fn parameter_total(&self, device: Id) -> u32 {
+        self.tracked.get(&device.0).map_or(0, |t| t.params.total)
+    }
+
+    /// The groups the plugin's parameters sit in.
+    #[allow(
+        dead_code,
+        reason = "the card's strip and the parameter panel use it (slice 4e)"
+    )]
+    pub fn units(&self, device: Id) -> &[UnitInfo] {
+        self.tracked
+            .get(&device.0)
+            .map_or(&[], |t| t.params.units.as_slice())
+    }
+
+    /// A parameter's value as far as Lumen knows (normalized).
+    pub fn value(&self, device: Id, id: u32) -> Option<f64> {
+        self.tracked.get(&device.0)?.params.values.get(&id).copied()
+    }
+
+    /// Asks the plugin for its own text for `value` of a parameter; the answer
+    /// is [`Hosting::text`] a moment later.
+    #[allow(
+        dead_code,
+        reason = "the card's strip and the parameter panel use it (slice 4e)"
+    )]
+    pub fn ask_text(&self, device: Id, id: u32, value: f64) {
+        if let Some(manager) = self.manager.as_ref() {
+            manager.param_text(device.0, id, value);
+        }
+    }
+
+    /// What the device's plugin window is doing.
+    pub fn editor(&self, device: Id) -> EditorState {
+        self.tracked
+            .get(&device.0)
+            .map(|t| t.editor.clone())
+            .unwrap_or_default()
+    }
+
+    /// Opens the device's plugin window (at `place` if the plugin's was
+    /// remembered). The news comes back as [`Hosting::editor`] changing.
+    pub fn open_editor(&mut self, device: Id, place: Option<EditorBounds>) {
+        let Some(t) = self.tracked.get_mut(&device.0) else {
+            return;
+        };
+        if !matches!(t.state, State::Ready) || !matches!(t.editor, EditorState::Closed) {
+            return;
+        }
+        t.editor = EditorState::Opening;
+        if let Some(manager) = self.manager.as_ref() {
+            manager.open_editor(device.0, place);
+        }
+    }
+
+    /// Shows the plugin windows of `devices` and hides every other that is
+    /// open (the user is on a track that has them or not), so a window is
+    /// only on screen with its own track. Only a change is sent: a window
+    /// still being made is dealt with once it is up. Returns the devices
+    /// whose windows were hidden by this call.
+    pub fn show_editors_of(&mut self, devices: &[Id]) -> Vec<Id> {
+        let mut hidden_now = Vec::new();
+        for (&id, t) in &mut self.tracked {
+            if !matches!(t.editor, EditorState::Open | EditorState::NotResponding) {
+                continue;
+            }
+            let hide = !devices.contains(&Id(id));
+            if t.editor_hidden == hide {
+                continue;
+            }
+            t.editor_hidden = hide;
+            if let Some(manager) = self.manager.as_ref() {
+                manager.show_editor(id, !hide);
+            }
+            if hide {
+                hidden_now.push(Id(id));
+            }
+        }
+        hidden_now
+    }
+
+    /// Sends a parameter value straight to the device's plugin, as its own
+    /// window would deliver it, without an edit of the project. For tests.
+    pub fn poke_param(&self, device: Id, id: u32, value: f64) {
+        if let Some(manager) = self.manager.as_ref() {
+            manager.set_param(device.0, id, value);
+        }
+    }
+
+    /// Whether the device's plugin window is hidden while open.
+    pub fn editor_hidden(&self, device: Id) -> bool {
+        self.tracked.get(&device.0).is_some_and(|t| t.editor_hidden)
+    }
+
+    /// Closes the device's plugin window.
+    pub fn close_editor(&mut self, device: Id) {
+        if let Some(manager) = self.manager.as_ref() {
+            manager.close_editor(device.0);
+        }
+    }
+
+    /// Ends the host of a plugin whose window stopped answering. The device
+    /// then reads as failed, with Reload.
+    pub fn end_plugin(&mut self, device: Id) {
+        if let Some(manager) = self.manager.as_ref() {
+            manager.end(device.0);
+        }
+    }
+
+    /// Where plugin windows were last seen since the last call, by plugin
+    /// class, for the app to remember.
+    pub fn take_editor_places(&mut self) -> Vec<(String, EditorBounds)> {
+        std::mem::take(&mut self.places)
+    }
+
+    /// Has every plugin's host take `keys` (virtual-key codes) from its
+    /// window when pressed alone, and give the rest to the plugin; empty
+    /// gives them all back. Cheap when nothing changes.
+    pub fn capture_keys(&mut self, keys: Vec<u8>) {
+        if let Some(manager) = self.manager.as_mut() {
+            manager.capture_keys(keys);
+        }
+    }
+
+    /// The keys pressed (`true`) and let go of in plugins' windows since the
+    /// last call, oldest first.
+    pub fn take_keys(&mut self) -> Vec<(u8, bool)> {
+        std::mem::take(&mut self.keys)
+    }
+
+    /// Asks the plugin to read `text` the user typed for a parameter; the
+    /// answer is in [`Hosting::take_typed`] a moment later.
+    pub fn ask_value(&self, device: Id, id: u32, text: String) {
+        if let Some(manager) = self.manager.as_ref() {
+            manager.param_value(device.0, id, text);
+        }
+    }
+
+    /// What plugins made of the text typed for them since the last call, in
+    /// the order they answered.
+    pub fn take_typed(&mut self) -> Vec<Typed> {
+        let mut out = Vec::new();
+        let mut devices: Vec<u64> = self
+            .tracked
+            .iter()
+            .filter(|(_, t)| !t.params.typed.is_empty())
+            .map(|(&id, _)| id)
+            .collect();
+        devices.sort_unstable();
+        for id in devices {
+            if let Some(t) = self.tracked.get_mut(&id) {
+                for (parameter, text, value) in std::mem::take(&mut t.params.typed) {
+                    out.push(Typed {
+                        device: Id(id),
+                        id: parameter,
+                        text,
+                        value,
+                    });
+                }
+            }
+        }
+        out
+    }
+
+    /// The plugin's text for the value it was last asked about, and that value.
+    #[allow(
+        dead_code,
+        reason = "the card's strip and the parameter panel use it (slice 4e)"
+    )]
+    pub fn text(&self, device: Id, id: u32) -> Option<&(f64, String)> {
+        self.tracked.get(&device.0)?.params.texts.get(&id)
+    }
+
+    /// Events no parameter of the plugin took (it maps no controller to one).
+    #[allow(
+        dead_code,
+        reason = "the card's strip and the parameter panel use it (slice 4e)"
+    )]
+    pub fn ignored_events(&self, device: Id) -> u32 {
+        self.tracked.get(&device.0).map_or(0, |t| t.params.ignored)
+    }
+
+    /// The edits plugins made inside themselves since the last call, oldest
+    /// first, for the document to record. Their values are already known here,
+    /// so the document's matching change sends nothing back.
+    pub fn take_edits(&mut self) -> Vec<DeviceEdits> {
+        let mut out: Vec<DeviceEdits> = self
+            .tracked
+            .iter_mut()
+            .filter(|(_, t)| !t.params.edits.is_empty())
+            .map(|(&id, t)| DeviceEdits {
+                device: Id(id),
+                edits: std::mem::take(&mut t.params.edits),
+            })
+            .collect();
+        out.sort_by_key(|e| e.device);
+        out
+    }
+
+    /// Whether a plugin has a gesture open (a control held in its window): the
+    /// document keeps the undo step open until it ends.
+    pub fn gesture_open(&self) -> bool {
+        self.tracked.values().any(|t| {
+            t.params
+                .open
+                .is_some_and(|(_, since)| since.elapsed() < GESTURE_LIMIT)
+        })
+    }
+
+    /// Whether the plugin's state has moved on from what the project saved
+    /// (a parameter changed, from Lumen or inside the plugin).
+    #[allow(
+        dead_code,
+        reason = "the card's strip and the parameter panel use it (slice 4e)"
+    )]
+    pub fn dirty(&self, device: Id) -> bool {
+        self.tracked.get(&device.0).is_some_and(|t| t.params.dirty)
+    }
+
+    /// Gives a tracked device a parameter list, as if its plugin had listed
+    /// it: for screenshots of the card's strip. `(title, value, text)`; ids
+    /// count from 1.
+    pub fn pretend_parameters(&mut self, device: Id, list: &[(&str, f64, &str)]) {
+        let Some(t) = self.tracked.get_mut(&device.0) else {
+            return;
+        };
+        for (i, (title, value, text)) in list.iter().enumerate() {
+            let id = i as u32 + 1;
+            t.params.list.push(ParamInfo {
+                id,
+                title: (*title).to_owned(),
+                units: String::new(),
+                steps: 0,
+                default: 0.5,
+                flags: 1,
+                unit: 0,
+                value: *value,
+            });
+            t.params.values.insert(id, *value);
+            t.params.texts.insert(id, (*value, (*text).to_owned()));
+        }
+        t.params.total = list.len() as u32;
+    }
+
+    /// Sets what a tracked device's plugin window is doing, for screenshots.
+    pub fn pretend_editor(&mut self, device: Id, state: EditorState) {
+        if let Some(t) = self.tracked.get_mut(&device.0) {
+            t.editor = state;
+        }
+    }
+
     /// Starts a new host for a failed device (the card's Reload).
     pub fn reload(&mut self, device: Id) {
         let Some(manager) = self.manager.as_mut() else {
@@ -237,11 +672,26 @@ impl Hosting {
         };
         if let Some(t) = self.tracked.get_mut(&device.0)
             && matches!(t.state, State::Failed(_))
-            && manager.reload(device.0).unwrap_or(false)
         {
-            t.state = State::Loading;
-            t.status = None;
-            t.log = None;
+            // The new process starts from the plugin's state as last read if
+            // that was after its last change; otherwise from the state it was
+            // loaded with, and the values the project holds over it.
+            let (state, values) = if t.params.fresh() {
+                (t.params.captured.clone(), BTreeMap::new())
+            } else {
+                (None, t.params.held.clone())
+            };
+            let list = values.iter().map(|(&id, &v)| (id, v)).collect();
+            if manager.reload_from(device.0, state, list).unwrap_or(false) {
+                t.state = State::Loading;
+                t.status = None;
+                t.log = None;
+                t.params = Parameters {
+                    started_with: values,
+                    held: t.params.held.clone(),
+                    ..Parameters::default()
+                };
+            }
         }
     }
 
@@ -327,6 +777,14 @@ impl Hosting {
                             rate,
                             frames: 0,
                             bypass: false,
+                            params: Parameters {
+                                started_with: w.device.params.clone(),
+                                ..Parameters::default()
+                            },
+                            editor: EditorState::Closed,
+                            linked_at: None,
+                            editor_hidden: false,
+                            relinking: false,
                         },
                     );
                 }
@@ -340,6 +798,9 @@ impl Hosting {
                 && let Some(manager) = self.manager.as_mut()
             {
                 manager.relink_all(f64::from(rate), frames);
+                for t in self.tracked.values_mut() {
+                    t.relinking = t.state == State::Ready;
+                }
             }
             self.rate = rate;
             self.frames = frames;
@@ -363,7 +824,24 @@ impl Hosting {
                     t.rate = self.rate;
                     t.frames = linked.frames;
                     t.state = State::Ready;
+                    t.linked_at = Some(std::time::Instant::now());
                     t.bypass = false;
+                    t.relinking = false;
+                    if !t.params.linked_before {
+                        t.params.linked_before = true;
+                        // A fresh host has no window; a new link of the same
+                        // host (the buffer size changed) keeps its own.
+                        t.editor = EditorState::Closed;
+                        t.editor_hidden = false;
+                        t.params.base = linked.params.iter().map(|p| (p.id, p.value)).collect();
+                        t.params.values = t.params.base.clone();
+                        for (&id, &v) in &t.params.started_with {
+                            t.params.values.insert(id, v);
+                        }
+                        t.params.list = linked.params;
+                        t.params.total = linked.params_total;
+                        t.params.units = linked.units;
+                    }
                     if t.instrument {
                         self.instruments.insert(
                             t.track.0,
@@ -379,7 +857,108 @@ impl Hosting {
                     }
                 }
                 Happened::Failed(why) => {
+                    t.editor = EditorState::Closed;
+                    t.editor_hidden = false;
+                    t.relinking = false;
                     t.state = State::Failed(why.to_string());
+                }
+                Happened::Key { code, down } => self.keys.push((code, down)),
+                Happened::Text { id, value, text } => {
+                    t.params.texts.insert(id, (value, text));
+                }
+                Happened::Editor(news) => match news {
+                    EditorEvent::Opened(b) | EditorEvent::Moved(b) => {
+                        if t.editor != EditorState::NotResponding
+                            || matches!(news, EditorEvent::Opened(_))
+                        {
+                            t.editor = EditorState::Open;
+                        }
+                        if matches!(news, EditorEvent::Opened(_)) {
+                            // A window comes up shown.
+                            t.editor_hidden = false;
+                        }
+                        self.places.push((t.class.clone(), b));
+                    }
+                    EditorEvent::Closed(place) => {
+                        t.editor = EditorState::Closed;
+                        t.editor_hidden = false;
+                        if let Some(b) = place {
+                            self.places.push((t.class.clone(), b));
+                        }
+                    }
+                    EditorEvent::NotResponding => t.editor = EditorState::NotResponding,
+                    EditorEvent::Responding => {
+                        if t.editor == EditorState::NotResponding {
+                            t.editor = EditorState::Open;
+                        }
+                    }
+                    EditorEvent::Refused(why) => t.editor = EditorState::Refused(why),
+                },
+                Happened::Typed { id, text, value } => {
+                    t.params.typed.push((id, text, value));
+                }
+                Happened::State(state) => {
+                    let p = &mut t.params;
+                    let at = p.capturing.take().unwrap_or(0);
+                    match state {
+                        Ok(bytes) => {
+                            p.captured = Some(bytes);
+                            p.captured_at = at;
+                            p.capture_failed = false;
+                            if at == p.edit_count {
+                                p.dirty = false;
+                            }
+                        }
+                        Err(_) => p.capture_failed = true,
+                    }
+                }
+                Happened::Edits(taken) => {
+                    t.params.ignored = t.params.ignored.saturating_add(taken.ignored);
+                    for edit in taken.list {
+                        let p = &mut t.params;
+                        match edit.kind {
+                            EditKind::Begin => {
+                                if let Some(&now) = p.values.get(&edit.id) {
+                                    p.base.entry(edit.id).or_insert(now);
+                                }
+                                p.touch();
+                                p.open = Some((edit.id, std::time::Instant::now()));
+                                p.edits.push((edit, true));
+                            }
+                            EditKind::Perform => {
+                                let before = p.values.insert(edit.id, edit.value);
+                                if let Some(before) = before {
+                                    p.base.entry(edit.id).or_insert(before);
+                                }
+                                p.touch();
+                                let inside = p.open.is_some_and(|(id, _)| id == edit.id);
+                                if inside {
+                                    p.open = Some((edit.id, std::time::Instant::now()));
+                                }
+                                p.edits.push((edit, inside));
+                            }
+                            EditKind::End => {
+                                p.open = None;
+                                p.edits.push((edit, true));
+                            }
+                            // What the processor reports is the plugin's to
+                            // show, not an edit of the project.
+                            EditKind::Output => {
+                                p.values.insert(edit.id, edit.value);
+                            }
+                            // The plugin changed inside, where no parameter
+                            // shows it: its state is ahead of the project's
+                            // (read once it rests), and the project has
+                            // unsaved changes. A plugin says as much while it
+                            // loads, which is not the user's change.
+                            EditKind::Dirty => {
+                                if t.linked_at.is_some_and(|at| at.elapsed() >= SETTLE) {
+                                    p.touch();
+                                    self.inside_changes = true;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -412,9 +991,42 @@ impl Hosting {
                 && let Some(manager) = self.manager.as_mut()
             {
                 manager.relink(id, f64::from(self.rate), self.frames);
+                t.relinking = true;
             }
-            if status.failed() && t.state == State::Ready {
+            if status.failed() && t.state == State::Ready && !t.relinking {
                 t.state = State::Failed(gave_up_words(t.log.as_deref()));
+            }
+            // The values the project holds are the plugin's: what an edit,
+            // an undo or a redo changed is sent to the host.
+            if t.state == State::Ready
+                && let Some(manager) = self.manager.as_ref()
+            {
+                for (id, value) in t.params.differences(&w.device.params) {
+                    manager.set_param(w.device.id.0, id, value);
+                    t.params.values.insert(id, value);
+                    t.params.touch();
+                }
+            }
+            if t.params.held != w.device.params {
+                t.params.held = w.device.params.clone();
+            }
+            // A plugin that has changed is read once it rests, so the next
+            // save holds what it is now.
+            if t.state == State::Ready
+                && t.params.dirty
+                && t.params.capturing.is_none()
+                && !t.params.capture_failed
+                && let Some(since) = t.params.last_edit
+                && let Some(manager) = self.manager.as_ref()
+            {
+                let waited = since.elapsed();
+                if waited >= REST {
+                    manager.capture(id);
+                    t.params.capturing = Some(t.params.edit_count);
+                } else {
+                    let left = (REST - waited).as_millis() as u64 + 1;
+                    changed.again_in_ms = Some(changed.again_in_ms.map_or(left, |m| m.min(left)));
+                }
             }
         }
 
@@ -454,6 +1066,7 @@ impl Hosting {
             f64::from(rate),
         );
         start.state = w.device.state.clone();
+        start.values = w.device.params.iter().map(|(&id, &v)| (id, v)).collect();
         start.frames = frames;
         if let Some(faults) = self.faults
             && let Some(stem) = module.file_stem()
@@ -462,6 +1075,15 @@ impl Hosting {
             start
                 .env
                 .push(("LUMEN_TEST_PLUGIN_FAULT".into(), fault.into()));
+            if let Some(headless) = headless_setting(fault) {
+                start
+                    .env
+                    .push(("LUMEN_HOST_HEADLESS_EDITOR".into(), headless));
+                start.env.push((
+                    "LUMEN_HOST_EDITOR_WAIT_MS".into(),
+                    TEST_EDITOR_WAIT_MS.into(),
+                ));
+            }
         }
         match manager.want(w.device.id.0, start) {
             Ok(()) => State::Loading,
@@ -527,9 +1149,60 @@ impl Hosting {
         costs
     }
 
+    /// Asks every running plugin for its state now, because a save is about
+    /// to be written. Every plugin, not only those that reported a change: a
+    /// plugin keeps most of what the user sets (a patch, a preset, its own
+    /// pages) without telling the host, so nothing says it has changed. True
+    /// when a read is in flight, to be waited for ([`Hosting::captures_pending`]).
+    pub fn request_captures(&mut self) -> bool {
+        let Some(manager) = self.manager.as_ref() else {
+            return false;
+        };
+        let mut any = false;
+        for (&id, t) in &mut self.tracked {
+            if t.state != State::Ready {
+                continue;
+            }
+            if t.params.capturing.is_none() {
+                manager.capture(id);
+                t.params.capturing = Some(t.params.edit_count);
+            }
+            any = true;
+        }
+        any
+    }
+
+    /// Whether a plugin has said, since the last call, that something changed
+    /// inside it that no parameter shows (a patch, a preset). The project then
+    /// has unsaved changes, though no edit.
+    pub fn take_inside_changes(&mut self) -> bool {
+        std::mem::take(&mut self.inside_changes)
+    }
+
+    /// Whether a plugin's state is still being read.
+    pub fn captures_pending(&self) -> bool {
+        self.tracked
+            .values()
+            .any(|t| t.state == State::Ready && t.params.capturing.is_some())
+    }
+
+    /// How many plugins have changed and could not be read, so a save holds
+    /// the state they were loaded with and the parameter values the project
+    /// keeps, but nothing else that changed inside them.
+    pub fn unread(&self) -> usize {
+        self.tracked
+            .values()
+            .filter(|t| t.state == State::Ready && t.params.dirty && t.params.capture_failed)
+            .count()
+    }
+
     /// Stamps what the running plugins reported into `project`, to be saved.
     pub fn stamp(&self, project: &mut Project) {
-        for track in &mut project.tracks {
+        for track in project
+            .tracks
+            .iter_mut()
+            .chain(std::iter::once(&mut project.master))
+        {
             if !track.devices.iter().any(|d| {
                 self.tracked
                     .get(&d.id.0)
@@ -548,9 +1221,37 @@ impl Hosting {
                         tail: t.tail,
                         rate: t.rate,
                     });
+                    // A state read since the plugin last changed is what it
+                    // is now, with every value in it: it replaces the saved
+                    // state and the values the project held over it.
+                    if t.params.fresh()
+                        && let Some(bytes) = &t.params.captured
+                    {
+                        device.state = bytes.clone();
+                        device.params.clear();
+                    }
                 }
             }
         }
+    }
+}
+
+impl Parameters {
+    /// The values to send so the plugin matches what the project holds: every
+    /// value the project has that the plugin does not, and, for a parameter
+    /// the project let go of (an undone change), the value it had before.
+    fn differences(&self, held: &BTreeMap<u32, f64>) -> Vec<(u32, f64)> {
+        let mut send: Vec<(u32, f64)> = held
+            .iter()
+            .filter(|&(id, v)| self.values.get(id) != Some(v))
+            .map(|(&id, &v)| (id, v))
+            .collect();
+        for (&id, &base) in &self.base {
+            if !held.contains_key(&id) && self.values.get(&id).is_some_and(|&v| v != base) {
+                send.push((id, base));
+            }
+        }
+        send
     }
 }
 
@@ -576,6 +1277,46 @@ mod tests {
         assert_eq!(super::promised_frames(0), 256, "no stream yet");
     }
     use lumen_project::model::PluginRef;
+
+    fn known(values: &[(u32, f64)], base: &[(u32, f64)]) -> Parameters {
+        Parameters {
+            values: values.iter().copied().collect(),
+            base: base.iter().copied().collect(),
+            ..Parameters::default()
+        }
+    }
+
+    fn held(values: &[(u32, f64)]) -> BTreeMap<u32, f64> {
+        values.iter().copied().collect()
+    }
+
+    #[test]
+    fn a_value_the_project_holds_and_the_plugin_lacks_is_sent() {
+        let p = known(&[(1, 0.5), (2, 0.5)], &[(1, 0.5), (2, 0.5)]);
+        let mut send = p.differences(&held(&[(1, 0.9), (2, 0.5)]));
+        send.sort_by_key(|&(id, _)| id);
+        assert_eq!(send, [(1, 0.9)], "only what differs");
+        assert!(p.differences(&held(&[(1, 0.5)])).is_empty());
+    }
+
+    #[test]
+    fn a_value_the_project_let_go_of_goes_back_to_what_it_was() {
+        // The project held 0.9 for parameter 1, over a saved 0.5; an undo
+        // takes the entry away: the plugin must go back to 0.5.
+        let p = known(&[(1, 0.9)], &[(1, 0.5)]);
+        assert_eq!(p.differences(&held(&[])), [(1, 0.5)]);
+        // Already back: nothing to send.
+        let p = known(&[(1, 0.5)], &[(1, 0.5)]);
+        assert!(p.differences(&held(&[])).is_empty());
+    }
+
+    #[test]
+    fn a_value_set_inside_the_plugin_is_not_sent_back() {
+        // The plugin reported 0.7 itself (known), then the document recorded
+        // it: the project holds the same value, so nothing goes back.
+        let p = known(&[(4, 0.7)], &[(4, 0.2)]);
+        assert!(p.differences(&held(&[(4, 0.7)])).is_empty());
+    }
 
     const CLASS: &str = "00112233445566778899AABBCCDDEEFF";
 

@@ -1891,6 +1891,9 @@ fn device_chain() {
         ("dark", 2.0, vec2(1600.0, 1000.0)),
         ("light", 1.5, vec2(1500.0, 900.0)),
         ("light", 2.0, vec2(1600.0, 1000.0)),
+        // The smallest window: no picture, the track's band on a rounded corner.
+        ("dark", 1.0, vec2(960.0, 540.0)),
+        ("light", 1.0, vec2(960.0, 540.0)),
     ] {
         let dir = TempDir::new("shots-chain");
         let mut track = midi_track(
@@ -2002,10 +2005,30 @@ fn device_chain() {
         h.state_mut().pretend_device_state(Id(12), "ready");
         h.state_mut().pretend_device_state(Id(13), "loading");
         h.state_mut().pretend_device_state(Id(14), "failed");
+        // The strip: six parameters chosen, two slots empty.
+        h.state_mut().give_device_parameters(
+            Id(11),
+            &[
+                ("Cutoff", 0.62, "2.4 kHz"),
+                ("Resonance", 0.30, "0.31"),
+                ("Attack", 0.80, "12 ms"),
+                ("Release", 0.45, "640 ms"),
+                ("Wave", 0.5, "Saw"),
+                ("Output level", 0.73, "-4.2 dB"),
+            ],
+        );
+        h.state_mut().give_device_parameters(
+            Id(12),
+            &[("Time", 0.4, "310 ms"), ("Feedback", 0.55, "42 %")],
+        );
+        // The plugin's own window: open with Learn on; stuck.
+        h.state_mut().give_device_editor(Id(11), "open", true);
+        h.state_mut().give_device_editor(Id(12), "stuck", false);
         h.run_steps(4);
         h.get_by_label("Overheat on Pad").click();
         h.run_steps(20);
-        let tag = format!("{appearance}-{scale}");
+        let small = if size.x < 1000.0 { "-small" } else { "" };
+        let tag = format!("{appearance}-{scale}{small}");
         save(&mut h, &format!("chain-stopped-{tag}"));
         h.state_mut().fold_device(Id(12));
         h.state_mut().fold_device(Id(14));
@@ -2014,7 +2037,7 @@ fn device_chain() {
         h.state_mut().fold_device(Id(12));
         h.state_mut().fold_device(Id(14));
         h.run_steps(30);
-        if appearance == "dark" && scale == 1.0 {
+        if appearance == "dark" && scale == 1.0 && small.is_empty() {
             h.key_press(Key::Space);
             for _ in 0..30 {
                 std::thread::sleep(std::time::Duration::from_millis(40));

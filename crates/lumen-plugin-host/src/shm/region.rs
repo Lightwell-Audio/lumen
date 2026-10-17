@@ -23,7 +23,7 @@ use crate::protocol::{
 
 const MAGIC: u32 = 0x4c42_4b31; // "LBK1"
 /// Bumped when the layout changes shape.
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 
 /// The capacity of a block. Fixed when the region is made; a larger need
 /// means a new region, which happens off the audio thread.
@@ -419,23 +419,12 @@ impl Region {
         }
         let raw_events: *mut RawEvent = self.array(self.at.events);
         for (i, event) in events.iter().enumerate() {
-            let (tag, channel, pitch, velocity) = match event.kind {
-                EventKind::NoteOn {
-                    channel,
-                    pitch,
-                    velocity,
-                } => (0, channel, pitch, velocity),
-                EventKind::NoteOff {
-                    channel,
-                    pitch,
-                    velocity,
-                } => (1, channel, pitch, velocity),
-            };
+            let (tag, channel, pitch, velocity) = event.kind.parts();
             // SAFETY: `i < max_events`, checked above.
             unsafe {
                 raw_events.add(i).write(RawEvent {
                     offset: event.offset,
-                    tag,
+                    tag: u32::from(tag),
                     channel: i32::from(channel),
                     pitch: i32::from(pitch),
                     velocity,
@@ -560,19 +549,9 @@ impl Region {
             let channel = i16::try_from(raw.channel).map_err(|_| BadBlock("event channel"))?;
             let pitch = i16::try_from(raw.pitch).map_err(|_| BadBlock("event pitch"))?;
             let velocity = raw.velocity;
-            let kind = match raw.tag {
-                0 => EventKind::NoteOn {
-                    channel,
-                    pitch,
-                    velocity,
-                },
-                1 => EventKind::NoteOff {
-                    channel,
-                    pitch,
-                    velocity,
-                },
-                _ => return Err(BadBlock("event kind")),
-            };
+            let tag = u8::try_from(raw.tag).map_err(|_| BadBlock("event kind"))?;
+            let kind = EventKind::from_parts(tag, channel, pitch, velocity)
+                .ok_or(BadBlock("event kind"))?;
             scratch.events.push(Event {
                 offset: raw.offset,
                 kind,

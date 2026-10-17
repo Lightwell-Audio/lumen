@@ -8,17 +8,19 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use vst3::Steinberg::Vst::{
-    IComponentHandler, IComponentHandlerTrait, IEditController, IEditControllerTrait,
-    ParameterInfo, ParameterInfo_, RestartFlags_, String128, TChar,
+    BusDirection, IComponentHandler, IComponentHandler2, IComponentHandler2Trait,
+    IComponentHandlerTrait, IEditController, IEditControllerTrait, IMidiMapping, IMidiMappingTrait,
+    IUnitInfo, IUnitInfoTrait, MediaType, ParameterInfo, ParameterInfo_, ProgramListID,
+    ProgramListInfo, RestartFlags_, String128, TChar, UnitID, UnitInfo,
 };
 use vst3::Steinberg::{
-    FUnknown, IBStream, IPlugView, IPluginBaseTrait, kInvalidArgument, kResultFalse, kResultOk,
-    tresult,
+    FUnknown, IBStream, IPlugView, IPluginBaseTrait, int16, int32, kInvalidArgument, kResultFalse,
+    kResultOk, tresult,
 };
 use vst3::{Class, ComPtr, ComRef};
 
 use crate::faults::{Faults, Kind as Fault};
-use crate::params::{Kind, LATENCY};
+use crate::params::{Kind, LATENCY, LEVEL, WAVE};
 use crate::{state, streams, text};
 
 /// How many parameters `bad_params` claims.
@@ -30,15 +32,31 @@ pub struct Controller {
     faults: Faults,
     values: [AtomicU64; 2],
     handler: Mutex<Option<ComPtr<IComponentHandler>>>,
+    /// The values of the extra parameters `many_params` adds.
+    extra: Vec<AtomicU64>,
+    /// The trigger's value (bits), when the `window_edits` fault is on.
+    trigger: AtomicU64,
 }
 
+/// The first id of the extra parameters.
+pub const EXTRA_BASE: u32 = 100;
+/// The id of the instrument's trigger, which exists with the `window_edits`
+/// fault: stepping it from off to on makes the plugin edit its wave as a
+/// gesture of its own, the way a control moved in its window would.
+pub const TRIGGER: u32 = 90;
+/// How many groups the extra parameters are spread over (ids 1 to this).
+pub const EXTRA_GROUPS: u32 = 4;
+
 impl Class for Controller {
-    type Interfaces = (IEditController,);
+    type Interfaces = (IEditController, IUnitInfo, IMidiMapping);
 }
 
 impl Controller {
     pub fn new(kind: Kind, faults: Faults) -> Self {
         let d = kind.defaults();
+        let extra = (0..faults.many_params())
+            .map(|_| AtomicU64::new(0.5_f64.to_bits()))
+            .collect();
         Self {
             kind,
             faults,
@@ -47,6 +65,8 @@ impl Controller {
                 AtomicU64::new(d[1].to_bits()),
             ],
             handler: Mutex::new(None),
+            extra,
+            trigger: AtomicU64::new(0.0_f64.to_bits()),
         }
     }
 
@@ -56,6 +76,28 @@ impl Controller {
 
     fn index(&self, id: u32) -> Option<usize> {
         self.kind.params().iter().position(|p| p.id == id)
+    }
+
+    /// Whether the controller lists the trigger.
+    fn has_trigger(&self) -> bool {
+        self.kind == Kind::Instrument
+            && (self.faults.has(Fault::WindowEdits)
+                || self.faults.has(Fault::SetDirty)
+                || self.faults.has(Fault::ValuesChanged))
+    }
+
+    /// Which extra parameter `id` is, if it is one.
+    fn extra_index(&self, id: u32) -> Option<usize> {
+        let k = id.checked_sub(EXTRA_BASE)? as usize;
+        (k < self.extra.len()).then_some(k)
+    }
+
+    fn handler(&self) -> Option<ComPtr<IComponentHandler>> {
+        // Cloned out so no lock is held over the host's call.
+        self.handler
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 }
 
@@ -97,13 +139,52 @@ impl IEditControllerTrait for Controller {
         if self.faults.has(Fault::BadParams) {
             BAD_COUNT
         } else {
-            self.kind.params().len() as i32
+            (self.kind.params().len() + self.extra.len() + usize::from(self.has_trigger())) as i32
         }
     }
 
     unsafe fn getParameterInfo(&self, index: i32, info: *mut ParameterInfo) -> tresult {
         let params = self.kind.params();
         let bad = self.faults.has(Fault::BadParams);
+        let past = (index.max(0) as usize).saturating_sub(params.len());
+        if index >= 0
+            && index as usize >= params.len()
+            && !bad
+            && self.has_trigger()
+            && past == self.extra.len()
+        {
+            // SAFETY: the host passes a valid out pointer.
+            let info = unsafe { &mut *info };
+            info.id = TRIGGER;
+            text::copy_wstring("Trigger", &mut info.title);
+            text::copy_wstring("Trig", &mut info.shortTitle);
+            text::copy_wstring("", &mut info.units);
+            info.stepCount = 1;
+            info.defaultNormalizedValue = 0.0;
+            info.unitId = 0;
+            info.flags = ParameterInfo_::ParameterFlags_::kCanAutomate;
+            return kResultOk;
+        }
+        if index >= 0 && index as usize >= params.len() && !bad && past < self.extra.len() {
+            // SAFETY: the host passes a valid out pointer.
+            let info = unsafe { &mut *info };
+            let k = past as u32;
+            info.id = EXTRA_BASE + k;
+            text::copy_wstring(&format!("Param {k}"), &mut info.title);
+            text::copy_wstring(&format!("P{k}"), &mut info.shortTitle);
+            text::copy_wstring("", &mut info.units);
+            info.stepCount = 0;
+            info.defaultNormalizedValue = 0.5;
+            info.unitId = 1 + (k % EXTRA_GROUPS) as i32;
+            info.flags = if k % 7 == 3 {
+                ParameterInfo_::ParameterFlags_::kIsHidden
+            } else if k % 11 == 5 {
+                ParameterInfo_::ParameterFlags_::kIsReadOnly
+            } else {
+                ParameterInfo_::ParameterFlags_::kCanAutomate
+            };
+            return kResultOk;
+        }
         if index < 0 || (index as usize >= params.len() && !bad) || index >= BAD_COUNT {
             return kInvalidArgument;
         }
@@ -123,6 +204,18 @@ impl IEditControllerTrait for Controller {
     }
 
     unsafe fn getParamStringByValue(&self, id: u32, value: f64, string: *mut String128) -> tresult {
+        if id == TRIGGER && self.has_trigger() {
+            // SAFETY: the host passes a valid String128.
+            text::copy_wstring(if value < 0.5 { "Off" } else { "On" }, unsafe {
+                &mut *string
+            });
+            return kResultOk;
+        }
+        if self.extra_index(id).is_some() {
+            // SAFETY: the host passes a valid String128.
+            text::copy_wstring(&format!("{:.1} %", value * 100.0), unsafe { &mut *string });
+            return kResultOk;
+        }
         if self.index(id).is_none() {
             return kInvalidArgument;
         }
@@ -167,10 +260,53 @@ impl IEditControllerTrait for Controller {
     }
 
     unsafe fn getParamNormalized(&self, id: u32) -> f64 {
+        if id == TRIGGER && self.has_trigger() {
+            return f64::from_bits(self.trigger.load(Ordering::Relaxed));
+        }
+        if let Some(k) = self.extra_index(id) {
+            return f64::from_bits(self.extra[k].load(Ordering::Relaxed));
+        }
         self.index(id).map_or(0.0, |i| self.value(i))
     }
 
     unsafe fn setParamNormalized(&self, id: u32, value: f64) -> tresult {
+        if id == TRIGGER && self.has_trigger() {
+            if !value.is_finite() {
+                return kInvalidArgument;
+            }
+            let value = value.clamp(0.0, 1.0);
+            let before = f64::from_bits(self.trigger.swap(value.to_bits(), Ordering::Relaxed));
+            if before < 0.5 && value >= 0.5 {
+                // Stands in for the plugin's window: a control moved there is
+                // a gesture of the plugin's own, told to the host.
+                if let Some(handler) = self.handler() {
+                    // SAFETY: a live handler the host gave us.
+                    unsafe {
+                        if self.faults.has(Fault::WindowEdits) {
+                            handler.beginEdit(WAVE);
+                            handler.performEdit(WAVE, 1.0);
+                            handler.endEdit(WAVE);
+                        }
+                        if self.faults.has(Fault::SetDirty)
+                            && let Some(second) = handler.cast::<IComponentHandler2>()
+                        {
+                            second.setDirty(1);
+                        }
+                        if self.faults.has(Fault::ValuesChanged) {
+                            handler.restartComponent(RestartFlags_::kParamValuesChanged);
+                        }
+                    }
+                }
+            }
+            return kResultOk;
+        }
+        if let Some(k) = self.extra_index(id) {
+            if !value.is_finite() {
+                return kInvalidArgument;
+            }
+            self.extra[k].store(value.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+            return kResultOk;
+        }
         let Some(i) = self.index(id) else {
             return kInvalidArgument;
         };
@@ -211,5 +347,130 @@ impl IEditControllerTrait for Controller {
         } else {
             std::ptr::null_mut::<IPlugView>()
         }
+    }
+}
+
+impl IUnitInfoTrait for Controller {
+    unsafe fn getUnitCount(&self) -> int32 {
+        if self.extra.is_empty() {
+            0
+        } else {
+            1 + EXTRA_GROUPS as int32
+        }
+    }
+
+    unsafe fn getUnitInfo(&self, index: int32, info: *mut UnitInfo) -> tresult {
+        // SAFETY: a plain call on this object.
+        let count = unsafe { self.getUnitCount() };
+        if index < 0 || index >= count || info.is_null() {
+            return kInvalidArgument;
+        }
+        // SAFETY: the host passes a valid out pointer.
+        let info = unsafe { &mut *info };
+        info.id = index;
+        // The root has no parent (`kNoParentUnitId`).
+        info.parentUnitId = if index == 0 { -1 } else { 0 };
+        let name = if index == 0 {
+            "Root".to_string()
+        } else {
+            format!("Group {index}")
+        };
+        text::copy_wstring(&name, &mut info.name);
+        info.programListId = -1;
+        kResultOk
+    }
+
+    unsafe fn getProgramListCount(&self) -> int32 {
+        0
+    }
+
+    unsafe fn getProgramListInfo(&self, _index: int32, _info: *mut ProgramListInfo) -> tresult {
+        kInvalidArgument
+    }
+
+    unsafe fn getProgramName(
+        &self,
+        _list: ProgramListID,
+        _index: int32,
+        _name: *mut String128,
+    ) -> tresult {
+        kInvalidArgument
+    }
+
+    unsafe fn getProgramInfo(
+        &self,
+        _list: ProgramListID,
+        _index: int32,
+        _attribute: *const c_char,
+        _value: *mut String128,
+    ) -> tresult {
+        kInvalidArgument
+    }
+
+    unsafe fn hasProgramPitchNames(&self, _list: ProgramListID, _index: int32) -> tresult {
+        kResultFalse
+    }
+
+    unsafe fn getProgramPitchName(
+        &self,
+        _list: ProgramListID,
+        _index: int32,
+        _pitch: int16,
+        _name: *mut String128,
+    ) -> tresult {
+        kInvalidArgument
+    }
+
+    unsafe fn getSelectedUnit(&self) -> UnitID {
+        0
+    }
+
+    unsafe fn selectUnit(&self, _unit: UnitID) -> tresult {
+        kResultFalse
+    }
+
+    unsafe fn getUnitByBus(
+        &self,
+        _type: MediaType,
+        _dir: BusDirection,
+        _bus: int32,
+        _channel: int32,
+        _unit: *mut UnitID,
+    ) -> tresult {
+        kResultFalse
+    }
+
+    unsafe fn setUnitProgramData(
+        &self,
+        _list: int32,
+        _index: int32,
+        _data: *mut IBStream,
+    ) -> tresult {
+        kResultFalse
+    }
+}
+
+impl IMidiMappingTrait for Controller {
+    /// Channel 0 only: the level follows controller 7 (volume) and the wave
+    /// follows pitch bend (129). Pressure (128) and everything else map to
+    /// nothing, so a host's handling of an unmapped controller can be tested.
+    unsafe fn getMidiControllerAssignment(
+        &self,
+        bus: int32,
+        channel: int16,
+        controller: i16,
+        id: *mut u32,
+    ) -> tresult {
+        if bus != 0 || channel != 0 || id.is_null() {
+            return kResultFalse;
+        }
+        let mapped = match controller {
+            7 => LEVEL,
+            129 => WAVE,
+            _ => return kResultFalse,
+        };
+        // SAFETY: the host passes a valid out pointer.
+        unsafe { *id = mapped };
+        kResultOk
     }
 }
