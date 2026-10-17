@@ -118,7 +118,7 @@ impl App {
                 "Select clips, a time range or tracks",
             ),
             Command::Delete => need(
-                clips || tracks || locator || notes || self.lane_keys_picked(),
+                clips || tracks || locator || notes || self.lane_keys_picked() || self.chain.live,
                 "Select clips, a time range, tracks or a locator",
             ),
             Command::DeleteTime | Command::InsertTime => need(
@@ -161,6 +161,16 @@ impl App {
                     ),
                 "Select a device in the browser first",
             ),
+            Command::DevicesAdd => need(
+                matches!(
+                    self.browser.view.selected,
+                    Some(crate::browser::view::Selection::Device(_))
+                ),
+                "Select a device in the browser first",
+            ),
+            Command::DeviceRemove | Command::DeviceBypass => {
+                need(self.device_chosen(), "Choose a device on a track first")
+            }
             Command::ExportMidiFile => match self.dialog {
                 Some(_) => need(false, "A file dialog is open"),
                 None if self.midi_exporting.is_some() => need(false, "An export is under way"),
@@ -438,6 +448,7 @@ impl App {
             // the keys that act on a selection act on them.
             Command::Delete if lane_points => self.lane_delete(),
             Command::Delete if notes => self.note_op(NoteOp::Delete),
+            Command::Delete if self.chain.live => self.remove_chain_device(),
             Command::Duplicate if notes => self.note_op(NoteOp::Duplicate),
             Command::MuteClips if notes => self.note_op(NoteOp::ToggleMute),
             Command::SelectAll if note_keys => self.note_op(NoteOp::SelectAll),
@@ -685,6 +696,15 @@ impl App {
                     self.toggle_favorite(&id);
                 }
             }
+            Command::DevicesAdd => {
+                if let Some(crate::browser::view::Selection::Device(id)) =
+                    self.browser.view.selected.clone()
+                {
+                    self.choose(ctx, &id);
+                }
+            }
+            Command::DeviceRemove => self.remove_chain_device(),
+            Command::DeviceBypass => self.toggle_chain_bypass(),
             Command::DevicesScanAtStartup => {
                 let on = &mut self.settings.plugins.scan_at_startup;
                 *on = !*on;

@@ -151,6 +151,15 @@ impl Hosting {
         self.tracked.get(&device.0).map(|t| t.latency)
     }
 
+    /// Shows `device` in `state` whatever its host is doing: for tests and
+    /// screenshots of the cards' faces. Only a device already tracked
+    /// (after a frame with the project open) changes.
+    pub fn pretend(&mut self, device: Id, state: State) {
+        if let Some(t) = self.tracked.get_mut(&device.0) {
+            t.state = state;
+        }
+    }
+
     /// Starts a new host for a failed device (the card's Reload).
     pub fn reload(&mut self, device: Id) {
         let Some(manager) = self.manager.as_mut() else {

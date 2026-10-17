@@ -43,6 +43,7 @@ mod bench;
 mod brand;
 mod browser;
 mod canvas;
+mod chain;
 mod commands;
 mod crash;
 mod document;
@@ -174,6 +175,8 @@ pub struct App {
     plugins: plugins::Plugins,
     /// The host processes of the project's plugin devices (M6 slice 2c).
     hosting: hosting::Hosting,
+    /// The Devices tab's own state (M6 slice 2d).
+    chain: chain::Chain,
     /// An exported MIDI file being made, before the dialog asks where it
     /// goes (M5 slice 7).
     midi_exporting: Option<std::sync::mpsc::Receiver<Result<midi_files::Exported, String>>>,
@@ -395,6 +398,7 @@ impl eframe::App for App {
         self.capture_chord(&ctx);
         self.computer_keyboard_keys(&ctx);
         self.refresh_note_editor(&ctx);
+        self.refresh_chain(&ctx);
         self.command_keys(&ctx);
         if std::mem::take(&mut self.arrangement.import_requested) {
             self.run(&ctx, commands::Command::Import);
@@ -565,6 +569,9 @@ impl eframe::App for App {
         // arrive with their milestones. Never shorter than a strip. Its
         // content is drawn after the arrangement, so Tab reaches it in
         // reading order.
+        if std::mem::take(&mut self.chain.grow) {
+            self.detail_size = self.detail_size.max(chain::panel_height());
+        }
         let mut detail_size = self.detail_size;
         let mut detail_content = None;
         let detail_min = arrangement::strips::min_height() + DETAIL_CHROME;
@@ -618,7 +625,7 @@ impl eframe::App for App {
 }
 
 /// The detail panel's tab row and margins, above and around its content.
-const DETAIL_CHROME: f32 = 48.0;
+pub(crate) const DETAIL_CHROME: f32 = 48.0;
 /// The arrangement's least height beside the detail panel: its rulers, a
 /// folded track and the master's row.
 const ARRANGEMENT_MIN: f32 = 180.0;

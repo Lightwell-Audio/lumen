@@ -69,6 +69,7 @@ irreversible or external) · *Superseded*.
 | [0069](#adr-0069--the-audio-path-to-plugin-hosts-wake-up-the-callbacks-wait-process-grouping-m6-slice-0-close) | The audio path to plugin hosts: `event` wake-up, a bounded callback wait under a narrow contract, one process per instance, the working budget (M6 slice 0 close) | Accepted 2026-10-16, decision 2 (the callback's bounded wait) on trial until slice 2's measurements (measured on Windows with the test plugin) | Decided by the owner (the trial's check: MT-VST-2) |
 | [0070](#adr-0070--hosted-devices-in-the-engine-the-contract-two-phase-instruments-and-effects-with-a-fallback-m6-slice-2b) | Hosted devices in the engine: the `Hosted` contract and its `Guard`, hosted instruments begun before the clips render, hosted effects in the mixer with a delay-line fallback and a glide, and what 2b leaves to later (M6 slice 2b) | Accepted 2026-10-16 (verified with fake hosts on Windows, and the new tests under RealtimeSanitizer and the performance gate in WSL; no real plugin, no process, no full macOS run) | No |
 | [0071](#adr-0071--the-hosting-manager-a-process-per-plugin-device-the-link-and-the-apps-bridge-m6-slice-2c) | The hosting manager (`lumen-hosting`): a process and a thread per plugin device, loaded in the background, the `Link` the engine plays it through, the app's bridge, and the engine's rule that a host in a new or skipped track list is never given away (M6 slice 2c) | Accepted 2026-10-16 (verified with the test plugin in real host processes on Windows, and in the app's end-to-end tests; no real plugin, no Linux or macOS run of the app) | No |
+| [0072](#adr-0072--the-devices-tab-cards-placement-and-dragging-m6-slice-2d) | The Devices tab: cards, placement and dragging (M6 slice 2d) | **Accepted** 2026-10-17 (owner's C4 design) | No |
 
 ---
 
@@ -6398,3 +6399,69 @@ state, played through the shared-memory link, and noticed when it ends.
 **Not verified, and not claimed.** Any real plugin; Linux and macOS runs of the
 app; the whole callback with the engine, device and real hosts (MT-VST-2);
 frame times with hosts attached.
+
+## ADR-0072 — The Devices tab: cards, placement and dragging (M6 slice 2d)
+
+**Status.** Accepted 2026-10-17: the owner chose the card design (variant C4,
+"a defined chain with lit cables") and D3, D5 and D8 earlier (slice 2 plan).
+
+**Context.** 2a gave the model its device edits, 2b and 2c made a device play.
+2d is the first interface that adds one: the Devices tab of the detail panel,
+the browser's double-click and drag, and three commands.
+
+**Decisions.**
+1. **The chain is a sunk tray of cards joined by cables** (`chain/`): a chip
+   for the track's input and one for its output at the ends, a port at every
+   card edge, a cable between each pair (dotted into an instrument, because it
+   carries notes). Cables follow the light levels: unlit while stopped, a Beam
+   while the song plays; a bypassed, failed or missing device keeps its cables
+   lit, because signal still passes (D1, D7). A card is 200 pt wide and 284 pt
+   tall at most: a picture (a monogram on a clip colour chosen from the class
+   id by FNV-1a, so it never changes) fades into the header; power, name and
+   vendor, a kind badge; a parameter strip (its frame now; slice 3 fills it);
+   a footer with the signal and the latency (kept, when bypassed). A short
+   panel takes the picture's height first, then stops shrinking the card.
+2. **A card knows four faces** (`Face`): ready, loading, failed and missing. The
+   last two replace the strip with what happened and a button (Reload,
+   Rescan plugins). They were planned for 2e; the face is the same code as the
+   card, so they are built here, and 2e keeps the remaining polish and the
+   wider tests.
+3. **Where a choice goes is one pure function** (`chain::place`): the last
+   selected track that fits (an instrument needs a MIDI track, an effect takes
+   any but the master); an effect lands after the chosen card when that card is
+   on the track, else at the end (D5); with no track that fits, a new track of
+   the right kind is made after the selection (D3). A drag drops at the gap
+   under the pointer, never before the instrument, and an instrument takes the
+   first place.
+4. **A new track with its device is one undo step.** `Document::
+   add_device_on_new_track` goes through the same `insert_track` as
+   `add_track`, with the first device given, instead of two edits merged.
+5. **Dragging uses egui's drag-and-drop payload** (`chain::Dragged`, a catalog
+   id): the browser row senses drag, the chain reads the payload and draws a
+   line and a plus at the gap while neighbours stay put. An instrument over an
+   audio track shows the not-allowed cursor and drops nothing.
+6. **The detail panel grows to fit a card, and only grows.** Choosing the
+   Devices tab, or adding a device, raises the panel to `chain::panel_height`
+   if it is shorter; the user can still drag it down. The request is read
+   before the panel's size is taken for the frame (a write made while the panel
+   is drawn is overwritten by the frame's copy).
+7. **Names for accessibility:** a card is "<device> on <track>"; a second
+   device of the same name is "<device> (2) on <track>"; the power button is
+   "Power <device>" (a toggle). Commands: `devices.add`, `devices.remove`,
+   `devices.bypass`; Delete removes the chosen card while the tab holds the
+   keyboard (the pointer over it, or the detail pane focused).
+
+**Consequences.** `Document::add_track` is now `insert_track(.., None)`; the
+shipped behaviour is unchanged (a test covers the synth's default preset on a
+device added from the browser). `Hosting::pretend` and
+`testing::pretend_device_state` exist for screenshots and E2E of every face.
+
+**Not built, and said so.** Moving between cards with the arrow keys (cards
+and their power buttons are Tab stops); reordering, copying and the preset menu
+(slice 3); the master's chain (a refusal says so); snapshots of the plugin's own
+picture (slice 3).
+
+**Not verified, and not claimed.** Any real plugin's card; Windows and macOS
+runs of the interface. The cards were looked at by eye in the dark theme at
+100% and 200% and in the light theme at 100%; 150%, and 150% and 200% in the
+light theme, were rendered (`shots::device_chain`) but not inspected.

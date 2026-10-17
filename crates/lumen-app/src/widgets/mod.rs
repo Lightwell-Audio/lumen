@@ -50,6 +50,30 @@ pub use toggle::{
     toggle_button,
 };
 
+/// `text` as it is when it fits `width`, else cut to fit.
+pub fn fit(painter: &egui::Painter, text: &str, font: FontId, width: f32) -> String {
+    let whole = painter.layout_no_wrap(text.to_owned(), font.clone(), Color32::WHITE);
+    if whole.size().x <= width {
+        text.to_owned()
+    } else {
+        shorten(painter, text, font, width)
+    }
+}
+
+/// `text` cut to fit `width`, ending in "…".
+pub fn shorten(painter: &egui::Painter, text: &str, font: FontId, width: f32) -> String {
+    let mut cut = text.to_owned();
+    while !cut.is_empty() {
+        cut.pop();
+        let galley =
+            painter.layout_no_wrap(format!("{cut}\u{2026}"), font.clone(), theme::p().text);
+        if galley.size().x <= width {
+            break;
+        }
+    }
+    format!("{cut}\u{2026}")
+}
+
 /// The fold arrow: pointing right when folded, down when unfolded (`t`
 /// glides from 0 to 1).
 pub fn draw_arrow(painter: &Painter, center: Pos2, t: f32, color: Color32) {

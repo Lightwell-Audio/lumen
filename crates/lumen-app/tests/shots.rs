@@ -1872,3 +1872,126 @@ fn browser_controls() {
         }
     }
 }
+
+/// The Devices tab (M6 slice 2d): a chain with every card face, stopped and
+/// playing, as the owner's C4 mock-up draws it.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn device_chain() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_core::time::Ticks;
+    use lumen_project::model::{Device, DeviceKind, Id, Note};
+    use lumen_project::testing::{midi_track, project_of};
+
+    let class = |n: u8| lumen_plugin_catalog::catalog::class_id(&[n; 16]);
+    for (appearance, scale, size) in [
+        ("dark", 1.0, vec2(1900.0, 900.0)),
+        ("light", 1.0, vec2(1900.0, 900.0)),
+        ("dark", 1.5, vec2(1500.0, 900.0)),
+        ("dark", 2.0, vec2(1600.0, 1000.0)),
+    ] {
+        let dir = TempDir::new("shots-chain");
+        let mut track = midi_track(
+            1,
+            "Pad",
+            "poly",
+            (0, 64),
+            None,
+            vec![Note::new(Ticks::ZERO, Ticks::quarters(60), 69, 100)],
+            vec![],
+        );
+        track.devices = vec![
+            Device::vst3(
+                Id(10),
+                &class(1),
+                "Bass Synth",
+                "Vendor C",
+                DeviceKind::Instrument,
+            ),
+            Device::vst3(
+                Id(11),
+                &class(2),
+                "Overheat",
+                "Sampleson",
+                DeviceKind::Effect,
+            ),
+            Device::vst3(
+                Id(12),
+                &class(3),
+                "Tape Delay",
+                "Vendor D",
+                DeviceKind::Effect,
+            ),
+            Device::vst3(
+                Id(13),
+                &class(4),
+                "Bus Comp",
+                "Vendor C",
+                DeviceKind::Effect,
+            ),
+            Device::vst3(
+                Id(14),
+                &class(5),
+                "Soft Clip",
+                "Vendor C",
+                DeviceKind::Effect,
+            ),
+            Device::vst3(
+                Id(15),
+                &class(6),
+                "Wide Chorus",
+                "Vendor D",
+                DeviceKind::Effect,
+            ),
+        ];
+        track.devices[2].bypass = true;
+        track.devices[5].state = vec![0; 14 * 1024];
+        let project = project_of("Chain", vec![track]);
+        let path = dir.path().join("song.lumen");
+        lumen_project::save(&project, &path, &Default::default()).expect("save");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .opening(path);
+        let mut h = Harness::builder()
+            .with_size(size)
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(30);
+        h.state_mut().select_tracks(&[Id(1)]);
+        h.run_steps(4);
+        // The browser has a Devices tab too: the detail panel's comes last.
+        h.get_all_by_label("Devices tab")
+            .last()
+            .expect("the tabs")
+            .click();
+        h.run_steps(30);
+        h.state_mut().pretend_device_state(Id(10), "ready");
+        h.state_mut().pretend_device_state(Id(11), "ready");
+        h.state_mut().pretend_device_state(Id(12), "ready");
+        h.state_mut().pretend_device_state(Id(13), "loading");
+        h.state_mut().pretend_device_state(Id(14), "failed");
+        h.run_steps(4);
+        h.get_by_label("Overheat on Pad").click();
+        h.run_steps(20);
+        let tag = format!("{appearance}-{scale}");
+        save(&mut h, &format!("chain-stopped-{tag}"));
+        if appearance == "dark" && scale == 1.0 {
+            h.key_press(Key::Space);
+            for _ in 0..30 {
+                std::thread::sleep(std::time::Duration::from_millis(40));
+                h.run_steps(1);
+            }
+            save(&mut h, &format!("chain-playing-{tag}"));
+        }
+    }
+}

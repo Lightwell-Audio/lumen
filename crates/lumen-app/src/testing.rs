@@ -338,6 +338,23 @@ impl App {
         })
     }
 
+    /// Shows a plugin device as `loading`, `ready`, `failed` or `missing`
+    /// whatever its host is doing (screenshots of every card face).
+    pub fn pretend_device_state(&mut self, device: Id, state: &str) {
+        use crate::hosting::State;
+        self.hosting.pretend(
+            device,
+            match state {
+                "loading" => State::Loading,
+                "ready" => State::Ready,
+                "failed" => {
+                    State::Failed("The plugin host stopped. Reload to start it again.".into())
+                }
+                _ => State::Missing,
+            },
+        );
+    }
+
     /// The latency a plugin device last reported, in frames.
     pub fn device_latency(&self, device: Id) -> Option<u32> {
         self.hosting.latency(device)
@@ -832,6 +849,16 @@ impl App {
     /// The ids of the favorite devices, as the settings keep them.
     pub fn favorite_devices(&self) -> Vec<String> {
         self.settings.plugins.favorites.clone()
+    }
+
+    /// Selects these tracks, as clicking their headers would.
+    pub fn select_tracks(&mut self, ids: &[Id]) {
+        self.arrangement.selected = ids.to_vec();
+    }
+
+    /// The card chosen in the Devices tab, if one is.
+    pub fn chosen_card(&self) -> Option<Id> {
+        self.chain.selected
     }
 
     /// The ids of the recently chosen devices, most recent first.

@@ -1014,6 +1014,33 @@ little past the row, so the label and the keycaps sit equally far in from
 its edges; on a highlighted row the key's outline and the modifier caps
 step up (`theme::controls(true)`), or they vanish into the highlight.
 
+## 7f. The Devices tab (M6 slice 2d, ADR-0072)
+
+The owner's C4. A track's chain sits in a sunk tray (`well`, with the lip);
+each device is a card standing out of it (`raised`, the `border_strong` edge,
+a soft shadow, radius `XL`).
+
+- **Card, top to bottom:** a picture up to 96 pt tall (a monogram in a clip
+  colour chosen from the class id, the kind glyph at its right; greyscale and
+  dim when bypassed, failed or missing), fading into the header; the header
+  (`header`: power at the left, name in medium weight over the vendor in
+  `text_secondary`, a kind badge at the right; an instrument has a 3 pt stripe
+  in the track's colour); three sunk parameter rows; the footer (`header`, mono
+  caption: "MIDI → audio" or "audio → audio" and the latency, or "bypassed" and
+  "2.7 ms kept").
+- **Chosen:** a 1.5 pt accent edge. Under the pointer: the Ember wash.
+- **Cables:** 2 pt `border_strong` when unlit; the Beam (accent line, `core`
+  inside, halo and cast) while the song plays. Dotted for notes. A port is a
+  ring with the light's dot at the card edge.
+- **Faces:** loading shows three empty rows and "starting…"; failed shows
+  "Stopped responding" in `warning`, what happened and a **Reload** button;
+  missing shows "Not installed", the size of the settings kept and **Rescan
+  plugins**. Both keep the cables lit.
+- **Dragging a device from the browser:** an accent line across the tray and a
+  plus on the cable at the gap it will land in; neighbours stay put.
+- **Empty:** two chips and a cable, with "Double-click a device in the browser
+  to add it here". No track selected: "Select a track to see its devices".
+
 ## 8. Key flows
 
 Each flow lists its steps, its keyboard path and its feedback. Flows marked

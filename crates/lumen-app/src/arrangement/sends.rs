@@ -517,7 +517,7 @@ impl Arrangement {
             f32::INFINITY,
         );
         let name = if galley.size().x > name_room.width() {
-            shorten(painter, &sender.name, font.clone(), name_room.width())
+            widgets::shorten(painter, &sender.name, font.clone(), name_room.width())
         } else {
             sender.name.clone()
         };
@@ -625,18 +625,4 @@ fn letter_badge(ui: &Ui, at: egui::Pos2, to: &Return) -> Rect {
         theme::text_on(to.color),
     );
     badge
-}
-
-/// `text` cut to fit `width`, ending in "…".
-pub(super) fn shorten(painter: &egui::Painter, text: &str, font: FontId, width: f32) -> String {
-    let mut cut = text.to_owned();
-    while !cut.is_empty() {
-        cut.pop();
-        let galley =
-            painter.layout_no_wrap(format!("{cut}\u{2026}"), font.clone(), theme::p().text);
-        if galley.size().x <= width {
-            break;
-        }
-    }
-    format!("{cut}\u{2026}")
 }

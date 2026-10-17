@@ -58,7 +58,45 @@ pub fn name_of(device: &Device) -> String {
     }
 }
 
+fn valid_vst3(class_id: &str, name: &str) -> bool {
+    class_id.len() == 32 && class_id.bytes().all(|b| b.is_ascii_hexdigit()) && !name.is_empty()
+}
+
+/// A device as the browser makes it: the synth starts on the default
+/// preset, a plugin with no state.
+fn fresh_device(id: Id, plugin: PluginRef) -> Device {
+    match &plugin {
+        PluginRef::Builtin { name } if name == SYNTH => {
+            Device::synth(id, super::instrument::DEFAULT_PRESET.id())
+        }
+        _ => Device::new(id, plugin, false, Vec::new()),
+    }
+}
+
 impl Document {
+    /// Makes a track for `plugin` (a MIDI track for an instrument, an audio
+    /// track for an effect) after `after`, with the plugin as its first
+    /// device, as one undo step (the owner's D3). Returns the track and the
+    /// device.
+    pub fn add_device_on_new_track(
+        &mut self,
+        plugin: PluginRef,
+        after: Option<Id>,
+    ) -> Result<(Id, Id), Refusal> {
+        if let PluginRef::Vst3 { class_id, name, .. } = &plugin
+            && !valid_vst3(class_id, name)
+        {
+            return Err(Refusal::BadPlugin);
+        }
+        let kind = match plugin.kind() {
+            DeviceKind::Instrument => TrackKind::Midi,
+            DeviceKind::Effect => TrackKind::Audio,
+        };
+        let id = self.fresh_id();
+        let track = self.insert_track(kind, after, Some(fresh_device(id, plugin)));
+        Ok((track, id))
+    }
+
     /// Adds `plugin` to `track`'s chain. An instrument goes first and takes
     /// the place of the one there (the built-in synth or another plugin),
     /// and a track that was playing to a MIDI output plays it again; an
@@ -66,9 +104,7 @@ impl Document {
     /// device's id.
     pub fn add_device(&mut self, track: Id, plugin: PluginRef, slot: Slot) -> Result<Id, Refusal> {
         if let PluginRef::Vst3 { class_id, name, .. } = &plugin
-            && (class_id.len() != 32
-                || !class_id.bytes().all(|b| b.is_ascii_hexdigit())
-                || name.is_empty())
+            && !valid_vst3(class_id, name)
         {
             return Err(Refusal::BadPlugin);
         }
@@ -116,7 +152,7 @@ impl Document {
             }
         };
         let id = self.fresh_id();
-        let device = Device::new(id, plugin, false, Vec::new());
+        let device = fresh_device(id, plugin);
         let name = name_of(&device);
         let label = match (kind, replaced) {
             (DeviceKind::Instrument, true) => format!("Replace instrument with {name}"),
@@ -394,5 +430,32 @@ mod tests {
             .unwrap();
         let bytes = lumen_project::to_bytes(doc.project()).expect("the project can be saved");
         assert_eq!(lumen_project::from_bytes(&bytes).unwrap(), *doc.project());
+    }
+
+    #[test]
+    fn a_device_on_a_new_track_is_one_undo_step_and_the_synth_starts_on_a_preset() {
+        let (mut doc, _, _) = doc();
+        let before = doc.project().tracks.len();
+        let steps = doc.history().steps().0.len();
+        let (track, device) = doc
+            .add_device_on_new_track(plugin("Verb", DeviceKind::Effect), None)
+            .unwrap();
+        assert_eq!(doc.project().tracks.len(), before + 1);
+        assert_eq!(track_of(&doc, track).kind, TrackKind::Audio);
+        assert_eq!(track_of(&doc, track).devices[0].id, device);
+        assert_eq!(doc.history().steps().0.len(), steps + 1);
+        doc.undo();
+        assert_eq!(doc.project().tracks.len(), before);
+
+        let synth = PluginRef::Builtin { name: SYNTH.into() };
+        let (track, _) = doc.add_device_on_new_track(synth, None).unwrap();
+        let made = track_of(&doc, track);
+        assert_eq!(made.kind, TrackKind::Midi);
+        assert_eq!(made.devices.len(), 1);
+        assert!(made.devices[0].preset().is_some());
+    }
+
+    fn track_of(doc: &Document, id: Id) -> &Track {
+        track(doc, id)
     }
 }

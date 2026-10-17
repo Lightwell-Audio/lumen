@@ -20,6 +20,7 @@ mod clock;
 mod commands;
 mod compensation;
 mod cue;
+mod devices;
 mod dropdown;
 mod editing;
 mod fades;

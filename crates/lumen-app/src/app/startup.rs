@@ -96,6 +96,7 @@ impl App {
             midi,
             plugins,
             hosting,
+            chain: Default::default(),
             browser: Default::default(),
             midi_out: None,
             live_keys: None,

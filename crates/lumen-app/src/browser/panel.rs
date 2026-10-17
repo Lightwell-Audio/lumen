@@ -377,19 +377,15 @@ impl App {
         ));
     }
 
-    /// Double-click or Enter on a device. Putting it on a track is the next
-    /// slice; for now the choice is remembered as a recent and said so.
-    fn choose(&mut self, _ctx: &egui::Context, id: &str) {
-        let Some(device) = self.plugins.catalog().find(id) else {
+    /// Double-click or Enter on a device: puts it on the selected track (or
+    /// makes one), and remembers it as a recent.
+    pub(crate) fn choose(&mut self, _ctx: &egui::Context, id: &str) {
+        if self.plugins.catalog().find(id).is_none() {
             return;
-        };
-        let name = device.name.clone();
+        }
         self.settings.plugins.touch(id);
         self.settings_changed = Some(Instant::now());
-        self.toast = Some((
-            format!("{name}: adding devices to tracks arrives in the next slice"),
-            Instant::now(),
-        ));
+        self.add_listed_device(id);
     }
 
     /// The info line for what the pointer is over in the list.
