@@ -1,6 +1,9 @@
 //! The messages between Lumen and a plugin-host process, and their framing.
 //!
-//! Every request gets exactly one response. A `Process` request names the
+//! Every request gets exactly one response, in order. The one message that is
+//! not an answer is [`Response::Key`]: a key pressed in the plugin's window
+//! that Lumen asked for ([`Request::CaptureKeys`]), sent when it happens and
+//! set apart by the reader. A `Process` request names the
 //! configuration generation and a block sequence number, and its response
 //! echoes both, so a response that arrives after its deadline (a late
 //! plugin) is recognised as stale and dropped rather than written into a
@@ -14,7 +17,7 @@ use crate::wire::{Reader, WireError, Writer};
 /// First four bytes of every frame.
 pub const MAGIC: u32 = 0x3148_504c; // "LPH1"
 /// Bumped when a message changes shape. A host of another version is refused.
-pub const VERSION: u16 = 3;
+pub const VERSION: u16 = 4;
 
 pub const MAX_FRAMES: usize = 8192;
 pub const MAX_CHANNELS: usize = 16;
@@ -32,6 +35,16 @@ pub const MAX_EDITS: usize = 4096;
 pub const MAX_BASE: usize = 64;
 /// The largest frame payload: a full block of audio both ways, with room.
 pub const MAX_MESSAGE: usize = MAX_STATE + (MAX_FRAMES * MAX_CHANNELS * 4) + (1 << 20);
+
+/// The most keys Lumen may ask a host to take from its plugin's window.
+pub const MAX_KEYS: usize = 64;
+
+/// The restart flags (`IComponentHandler::restartComponent`) that need the
+/// plugin set up again: reload the component, its buses changed, its latency
+/// changed. The others (parameter values or titles, controller assignments,
+/// note expression, key switches) are news for the controller's readers, and a
+/// plugin sends them whenever it changes a program or a patch.
+pub const RESTART_RECONFIGURE: u32 = 1 | (1 << 1) | (1 << 3);
 
 /// The same 16 bytes as a VST3 class id.
 pub type ClassId = [u8; 16];
@@ -370,6 +383,11 @@ pub enum Request {
         layout: Layout,
         wake: Wake,
     },
+    /// Take these keys (Windows virtual-key codes) from the plugin's window
+    /// when pressed without Ctrl, Alt, Shift or the Windows key: the plugin
+    /// does not get them and Lumen hears them as [`Response::Key`]. Empty
+    /// gives every key back to the plugin.
+    CaptureKeys(Vec<u8>),
     Quit,
 }
 
@@ -420,6 +438,21 @@ pub enum Response {
         kind: FailureKind,
         message: String,
     },
+    /// Not an answer: a key Lumen asked for went down or up in the plugin's
+    /// window (repeats are not sent). A key that goes up after the window
+    /// lost the keyboard is sent too, so nothing stays held.
+    Key {
+        code: u8,
+        down: bool,
+    },
+}
+
+impl Response {
+    /// Whether this is news sent on the host's own account rather than the
+    /// answer to a request.
+    pub fn is_notice(&self) -> bool {
+        matches!(self, Response::Key { .. })
+    }
 }
 
 fn write_bounds(w: &mut Writer, bounds: Option<&EditorBounds>) {
@@ -470,6 +503,7 @@ const REQ_PARAM_VALUE: u16 = 13;
 const REQ_OPEN_EDITOR: u16 = 14;
 const REQ_CLOSE_EDITOR: u16 = 15;
 const REQ_EDITOR_STATUS: u16 = 16;
+const REQ_CAPTURE_KEYS: u16 = 17;
 
 const RES_LOADED: u16 = 101;
 const RES_CONFIGURED: u16 = 102;
@@ -484,6 +518,7 @@ const RES_TEXT: u16 = 110;
 const RES_EDITS: u16 = 111;
 const RES_VALUE: u16 = 112;
 const RES_EDITOR: u16 = 113;
+const RES_KEY: u16 = 114;
 
 fn put_audio(w: &mut Writer, channels: &[Vec<f32>]) {
     w.u32(channels.len() as u32);
@@ -636,6 +671,10 @@ impl Request {
                 }
                 REQ_ATTACH
             }
+            Request::CaptureKeys(keys) => {
+                w.bytes(keys);
+                REQ_CAPTURE_KEYS
+            }
             Request::Quit => REQ_QUIT,
         };
         (kind, w.into_bytes())
@@ -784,6 +823,7 @@ impl Request {
                     wake: Wake { host, lumen },
                 }
             }
+            REQ_CAPTURE_KEYS => Request::CaptureKeys(r.bytes("keys", MAX_KEYS)?.to_vec()),
             REQ_QUIT => Request::Quit,
             _ => return Err(WireError::Invalid("request kind")),
         };
@@ -891,6 +931,11 @@ impl Response {
                 w.str(message);
                 RES_FAILED
             }
+            Response::Key { code, down } => {
+                w.u8(*code);
+                w.bool(*down);
+                RES_KEY
+            }
         };
         (kind, w.into_bytes())
     }
@@ -973,6 +1018,10 @@ impl Response {
             RES_FAILED => Response::Failed {
                 kind: FailureKind::from_u8(r.u8()?)?,
                 message: r.str("message", MAX_TEXT)?,
+            },
+            RES_KEY => Response::Key {
+                code: r.u8()?,
+                down: r.bool()?,
             },
             _ => return Err(WireError::Invalid("response kind")),
         };
@@ -1201,6 +1250,8 @@ mod tests {
                 layout: Layout::new(8192, 0, 16),
                 wake: Wake::SPIN,
             },
+            Request::CaptureKeys(vec![b'A', b'W', b'Z']),
+            Request::CaptureKeys(Vec::new()),
             Request::Quit,
         ] {
             assert_eq!(round_trip(&request), request);
@@ -1296,6 +1347,10 @@ mod tests {
                 dropped: 2,
                 ignored: 7,
             },
+            Response::Key {
+                code: b'K',
+                down: true,
+            },
             Response::Done,
             Response::Attached,
             Response::Attached,
@@ -1342,6 +1397,38 @@ mod tests {
         ] {
             assert!(rejects(&frame(REQ_OPEN_EDITOR, &request.encode().1)));
         }
+    }
+
+    #[test]
+    fn too_many_keys_to_capture_are_refused() {
+        let mut w = crate::wire::Writer::new();
+        w.bytes(&[b'A'; MAX_KEYS + 1]);
+        assert!(rejects(&frame(REQ_CAPTURE_KEYS, &w.into_bytes())));
+    }
+
+    #[test]
+    fn only_a_reload_a_bus_change_or_a_new_latency_sets_a_plugin_up_again() {
+        // The VST3 restart flags.
+        let (reload, io, values, latency, titles, cc) = (1, 1 << 1, 1 << 2, 1 << 3, 1 << 4, 1 << 5);
+        for flag in [reload, io, latency] {
+            assert_ne!(RESTART_RECONFIGURE & flag, 0, "{flag}");
+        }
+        // What a plugin says when it loads a patch.
+        for flag in [values, titles, cc] {
+            assert_eq!(RESTART_RECONFIGURE & flag, 0, "{flag}");
+        }
+    }
+
+    #[test]
+    fn only_a_key_is_news_rather_than_an_answer() {
+        assert!(
+            Response::Key {
+                code: 65,
+                down: false
+            }
+            .is_notice()
+        );
+        assert!(!Response::Done.is_notice());
     }
 
     #[test]

@@ -1,6 +1,12 @@
 //! The host process's side of the protocol: read a request, act on the
 //! plugin, answer it. One request in flight at a time; every request gets
-//! exactly one response.
+//! exactly one response, in order.
+//!
+//! The plugin is shared with the audio thread through one lock, held only for
+//! what touches the instance's own state: setting the plugin up, and moments
+//! of bookkeeping. The controller's calls (its editor, its state, its
+//! parameters) go through [`Controls`] without it, so a plugin that is slow to
+//! answer them never stalls its own blocks.
 
 use std::io::{self, Read, Write};
 use std::path::Path;
@@ -9,15 +15,29 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::blocks::{Blocks, Shared, lock};
-use crate::editor::{Editors, Unavailable};
-use crate::instance::{Format, Instance, InstanceError};
+use crate::editor::{Editors, Notify, Unavailable};
+use crate::instance::{Controls, Format, Instance, InstanceError};
 use crate::module::Module;
 use crate::protocol::{FailureKind, FrameError, Request, Response, read_request, write_response};
 use crate::shm::HostLink;
 
 /// How long a request about the editor window may keep the main thread
-/// before the host answers that it is not responding.
-pub const EDITOR_WAIT: Duration = Duration::from_millis(600);
+/// before the host answers that it is not responding: the system's own rule
+/// for a window that stops answering. A plugin that builds a large window
+/// takes seconds to open it, and is opening, not stuck.
+pub const EDITOR_WAIT: Duration = Duration::from_secs(5);
+
+/// The environment variable that shortens [`EDITOR_WAIT`], in milliseconds,
+/// so tests of a window that stops answering need not wait seconds.
+pub const EDITOR_WAIT_VAR: &str = "LUMEN_HOST_EDITOR_WAIT_MS";
+
+/// [`EDITOR_WAIT`], or what the environment asks for.
+pub fn editor_wait() -> Duration {
+    std::env::var(EDITOR_WAIT_VAR)
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .map_or(EDITOR_WAIT, Duration::from_millis)
+}
 
 /// Why the loop ended.
 #[derive(Debug, PartialEq, Eq)]
@@ -45,6 +65,10 @@ fn failed(kind: FailureKind, message: impl Into<String>) -> Response {
         kind,
         message: message.into(),
     }
+}
+
+fn not_loaded() -> Response {
+    failed(FailureKind::Sequence, "no plugin is loaded")
 }
 
 fn from_instance(e: InstanceError) -> Response {
@@ -163,66 +187,74 @@ impl State {
                     Err(e) => from_instance(e),
                 }
             }
-            Request::GetState => match &lock(&self.shared).instance {
-                Some(instance) => match instance.state() {
+            Request::GetState => match self.controls() {
+                Some(controls) => match controls.state() {
                     Ok(bytes) => Response::State(bytes),
                     Err(e) => from_instance(e),
                 },
-                None => failed(FailureKind::Sequence, "no plugin is loaded"),
+                None => not_loaded(),
             },
-            Request::SetState(bytes) => match &lock(&self.shared).instance {
-                Some(instance) => match instance.set_state(&bytes) {
+            Request::SetState(bytes) => match self.controls() {
+                Some(controls) => match controls.set_state(&bytes) {
                     Ok(()) => Response::Done,
                     Err(e) => from_instance(e),
                 },
-                None => failed(FailureKind::Sequence, "no plugin is loaded"),
+                None => not_loaded(),
             },
-            Request::Parameters => match &lock(&self.shared).instance {
-                Some(instance) => {
-                    let (total, list) = instance.parameters();
+            Request::Parameters => match self.controls() {
+                Some(controls) => {
+                    let (total, list) = controls.parameters();
                     Response::Parameters { total, list }
                 }
-                None => failed(FailureKind::Sequence, "no plugin is loaded"),
+                None => not_loaded(),
             },
-            Request::Units => match &lock(&self.shared).instance {
-                Some(instance) => Response::Units(instance.units()),
-                None => failed(FailureKind::Sequence, "no plugin is loaded"),
+            Request::Units => match self.controls() {
+                Some(controls) => Response::Units(controls.units()),
+                None => not_loaded(),
             },
-            Request::ParamText { id, value } => match &lock(&self.shared).instance {
-                Some(instance) => match instance.param_text(id, value) {
+            Request::ParamText { id, value } => match self.controls() {
+                Some(controls) => match controls.param_text(id, value) {
                     Some(text) => Response::Text(text),
                     None => failed(FailureKind::Plugin, "the plugin has no text for the value"),
                 },
-                None => failed(FailureKind::Sequence, "no plugin is loaded"),
+                None => not_loaded(),
             },
-            Request::ParamValue { id, text } => match &lock(&self.shared).instance {
-                Some(instance) => match instance.param_value(id, &text) {
+            Request::ParamValue { id, text } => match self.controls() {
+                Some(controls) => match controls.param_value(id, &text) {
                     Some(value) => Response::Value(value),
                     None => failed(
                         FailureKind::Plugin,
                         "the plugin did not understand the text",
                     ),
                 },
-                None => failed(FailureKind::Sequence, "no plugin is loaded"),
+                None => not_loaded(),
             },
-            Request::SetParam { id, value } => match &mut lock(&self.shared).instance {
-                Some(instance) => {
-                    instance.set_param(id, value);
+            Request::SetParam { id, value } => match self.controls() {
+                Some(controls) => {
+                    controls.set_param(id, value);
                     Response::Done
                 }
-                None => failed(FailureKind::Sequence, "no plugin is loaded"),
+                None => not_loaded(),
             },
-            Request::TakeEdits => match &mut lock(&self.shared).instance {
-                Some(instance) => {
-                    let taken = instance.take_edits();
-                    Response::Edits {
-                        list: taken.list,
-                        dropped: taken.dropped,
-                        ignored: taken.ignored,
+            Request::TakeEdits => {
+                // What the processor heard is taken under the lock; the
+                // controller is told without it.
+                let taken = lock(&self.shared)
+                    .instance
+                    .as_mut()
+                    .map(|instance| (instance.take_heard(), instance.controls()));
+                match taken {
+                    Some((heard, controls)) => {
+                        let taken = controls.take_edits(heard);
+                        Response::Edits {
+                            list: taken.list,
+                            dropped: taken.dropped,
+                            ignored: taken.ignored,
+                        }
                     }
+                    None => not_loaded(),
                 }
-                None => failed(FailureKind::Sequence, "no plugin is loaded"),
-            },
+            }
             Request::Attach { base, layout, wake } => {
                 // A second attach replaces the first, and the old audio
                 // thread is finished before the new one starts.
@@ -241,21 +273,38 @@ impl State {
                 }
             }
             Request::OpenEditor { bounds } => {
-                // The view is made under the lock (it asks the controller);
-                // the window is not, so the audio thread never waits for it.
-                let (title, view) = match &lock(&self.shared).instance {
-                    Some(instance) => (instance.class.name.clone(), instance.create_editor_view()),
-                    None => return failed(FailureKind::Sequence, "no plugin is loaded"),
+                // Neither the view (some plugins take a second to make it) nor
+                // the window is made under the lock: the audio thread never
+                // waits for them.
+                let Some((title, controls)) = lock(&self.shared)
+                    .instance
+                    .as_ref()
+                    .map(|instance| (instance.class.name.clone(), instance.controls()))
+                else {
+                    return not_loaded();
                 };
-                match self.editors.open(&title, view, bounds) {
+                match self
+                    .editors
+                    .open(&title, controls.create_editor_view(), bounds)
+                {
                     Ok(status) => Response::Editor(status),
                     Err(why) => failed(FailureKind::NoEditor, why),
                 }
             }
             Request::CloseEditor => Response::Editor(self.editors.close()),
             Request::EditorStatus => Response::Editor(self.editors.status()),
+            Request::CaptureKeys(keys) => {
+                self.editors.capture_keys(keys);
+                Response::Done
+            }
             Request::Quit => Response::Done,
         }
+    }
+
+    /// The controller's side of the plugin, cloned out under the lock and
+    /// used without it.
+    fn controls(&self) -> Option<Controls> {
+        lock(&self.shared).instance.as_ref().map(Instance::controls)
     }
 
     /// What follows the last request: the audio thread ends first, then the
@@ -360,17 +409,18 @@ enum Queued {
     End,
 }
 
-/// How long the reader waits for the main thread's answer to `request`:
-/// only a request about the editor window has a limit. A plugin that stops
-/// answering in its own window code stops the main thread, and the host says
-/// so rather than going quiet; every other request has the deadline its
-/// caller gave it.
-fn wait_for(request: &Request) -> Option<Duration> {
+/// Whether `request` is about the editor window: the only requests the
+/// reader answers "not responding" when the main thread is too slow. A plugin
+/// that stops answering in its own window code stops the main thread, and the
+/// host says so rather than going quiet. Every other request waits its turn,
+/// however long the main thread takes, under the deadline its caller gave it:
+/// a plugin busy in its window (loading a patch, opening a large editor) is
+/// not a reason to refuse setting it up.
+fn about_the_window(request: &Request) -> bool {
     matches!(
         request,
         Request::OpenEditor { .. } | Request::CloseEditor | Request::EditorStatus
     )
-    .then_some(EDITOR_WAIT)
 }
 
 fn unresponsive() -> Response {
@@ -381,18 +431,20 @@ fn unresponsive() -> Response {
 }
 
 /// What the reader thread does: takes requests off `input`, gives each to
-/// the main thread and writes its answer to `output`. A request the main
-/// thread is too slow to answer is answered "not responding"; until the
-/// main thread finishes it, further requests are answered the same way, and
-/// its late answer is dropped, so every request still gets exactly one
-/// response.
+/// the main thread and writes its answer to `output`. A window request the
+/// main thread is too slow to answer is answered "not responding"; until the
+/// main thread finishes it, further window requests are answered the same
+/// way at once, other requests wait behind it, and its late answer is dropped,
+/// so every request still gets exactly one response, in order.
 fn read_requests<R: Read, W: Write>(
     mut input: R,
-    mut output: W,
+    output: &Mutex<W>,
     jobs: &Sender<Queued>,
     wake: &Waker,
     stuck: &Mutex<bool>,
+    editor_wait: Duration,
 ) -> io::Result<Exit> {
+    let send = |response: &Response| write_response(&mut *lock_plain(output), response);
     // The answer owed by a request given up on.
     let mut owed: Option<Receiver<Response>> = None;
     let end = |exit: io::Result<Exit>| {
@@ -410,8 +462,7 @@ fn read_requests<R: Read, W: Write>(
             Err(FrameError::Closed) => return end(Ok(Exit::Closed)),
             Err(FrameError::Io(e)) => return end(Err(e)),
             Err(FrameError::Wire(e)) => {
-                let sent =
-                    write_response(&mut output, &failed(FailureKind::Protocol, e.to_string()));
+                let sent = send(&failed(FailureKind::Protocol, e.to_string()));
                 return end(sent.map(|()| Exit::Malformed));
             }
         };
@@ -422,19 +473,20 @@ fn read_requests<R: Read, W: Write>(
                     *lock_plain(stuck) = false;
                 }
                 Err(mpsc::TryRecvError::Empty) => {
-                    let quit = request == Request::Quit;
-                    if quit {
+                    if request == Request::Quit {
                         // Nobody to end the plugin cleanly: the process goes.
-                        let _ = write_response(&mut output, &Response::Done);
+                        let _ = send(&Response::Done);
                         crate::process::end_now(0);
                     }
-                    write_response(&mut output, &unresponsive())?;
-                    continue;
+                    if about_the_window(&request) {
+                        send(&unresponsive())?;
+                        continue;
+                    }
                 }
             }
         }
         let quit = request == Request::Quit;
-        let limit = wait_for(&request);
+        let limit = (about_the_window(&request) && owed.is_none()).then_some(editor_wait);
         let (reply, answer) = mpsc::channel();
         if jobs.send(Queued::Job(Job { request, reply })).is_err() {
             return Ok(Exit::Closed);
@@ -455,7 +507,7 @@ fn read_requests<R: Read, W: Write>(
                 Err(RecvTimeoutError::Disconnected) => return Ok(Exit::Closed),
             },
         };
-        write_response(&mut output, &response)?;
+        send(&response)?;
         if quit {
             return end(Ok(Exit::Quit));
         }
@@ -479,12 +531,24 @@ where
     let (jobs, queue) = mpsc::channel::<Queued>();
     let wake = pump.waker();
     let stuck = Arc::new(Mutex::new(false));
+    // Answers come from the reader thread; news (keys pressed in the plugin's
+    // window) from this one. A whole frame is written under the lock.
+    let output = Arc::new(Mutex::new(output));
+    let notify: Notify = {
+        let output = Arc::clone(&output);
+        Arc::new(move |news: Response| {
+            let _ = write_response(&mut *lock_plain(&output), &news);
+        })
+    };
     let reader = {
         let (stuck, wake) = (Arc::clone(&stuck), Arc::clone(&wake));
+        let editor_wait = editor_wait();
         std::thread::Builder::new()
             .name("host requests".into())
-            .spawn(move || read_requests(input, output, &jobs, &wake, &stuck))?
+            .spawn(move || read_requests(input, &output, &jobs, &wake, &stuck, editor_wait))?
     };
+    let mut editors = editors;
+    editors.set_notify(notify);
     let mut state = State::new(editors);
     let mut drain = || {
         while let Ok(queued) = queue.try_recv() {

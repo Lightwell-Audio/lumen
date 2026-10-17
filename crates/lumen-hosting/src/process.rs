@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use lumen_devices::MOST_FRAMES;
 use lumen_plugin_host::client::{ExitKind, HostError, HostProcess};
-use lumen_plugin_host::protocol::{EditorBounds, ParamInfo, Taken, UnitInfo};
+use lumen_plugin_host::protocol::{EditorBounds, ParamInfo, Response, Taken, UnitInfo};
 use lumen_plugin_host::shm::{Layout, Wake};
 
 use crate::link::{Counts, Link};
@@ -213,6 +213,9 @@ pub enum Happened {
     /// The plugin's saved state, as asked for ([`Process::capture`]): the
     /// bytes, or why they could not be read in time.
     State(Result<Vec<u8>, String>),
+    /// A key Lumen asked for ([`Process::capture_keys`]) went down or up in
+    /// the plugin's window (a virtual-key code).
+    Key { code: u8, down: bool },
 }
 
 /// What happened to a plugin's editor window (M6 slice 4f).
@@ -282,12 +285,15 @@ enum Command {
     End,
     /// Read the plugin's state now.
     Capture,
+    /// Take these keys from the plugin's window (none: give them back).
+    Keys(Vec<u8>),
     Quit,
 }
 
 /// Drops the commands a later one makes pointless: of several values set for
-/// one parameter, only the last matters (a drag sends many), and of several
-/// asks for one parameter's text, the last. Order is otherwise kept.
+/// one parameter, only the last matters (a drag sends many); of several asks
+/// for one parameter's text, the last; of several sets of keys, the last.
+/// Order is otherwise kept.
 fn coalesce(commands: Vec<Command>) -> Vec<Command> {
     let mut keep = vec![true; commands.len()];
     for (i, c) in commands.iter().enumerate() {
@@ -299,6 +305,7 @@ fn coalesce(commands: Vec<Command>) -> Vec<Command> {
             Command::Text(id, _) => later
                 .into_iter()
                 .any(|d| matches!(d, Command::Text(other, _) if other == id)),
+            Command::Keys(_) => later.into_iter().any(|d| matches!(d, Command::Keys(_))),
             _ => false,
         };
         keep[i] = !superseded;
@@ -318,8 +325,10 @@ const QUICK: Duration = Duration::from_millis(300);
 /// How often an open editor window is asked where it is.
 const EDITOR_POLL: Duration = Duration::from_millis(100);
 /// How long a request about the editor window may take. The host answers
-/// "not responding" after 600 ms, so this only guards a host that is gone.
-const EDITOR_WAIT: Duration = Duration::from_secs(3);
+/// "not responding" after its own wait (five seconds:
+/// `lumen_plugin_host::server::EDITOR_WAIT`), so this only guards a host that
+/// is gone.
+const EDITOR_WAIT: Duration = Duration::from_secs(8);
 /// How long reading a plugin's state may take before the answer is a failure
 /// and the project is saved with the state it has (M6 slice 4g).
 pub const CAPTURE: Duration = Duration::from_secs(2);
@@ -438,6 +447,13 @@ impl Process {
     /// then reads as failed, as any host that stopped.
     pub fn end(&self) {
         let _ = self.commands.send(Command::End);
+    }
+
+    /// Takes `keys` (virtual-key codes) from the plugin's window when pressed
+    /// alone; each press and release comes as [`Happened::Key`]. Empty gives
+    /// them back.
+    pub fn capture_keys(&self, keys: Vec<u8>) {
+        let _ = self.commands.send(Command::Keys(keys));
     }
 
     /// Asks the host to quit and waits for the thread.
@@ -615,6 +631,9 @@ impl Run {
                         let state = up.host.state(CAPTURE).map_err(|e| e.to_string());
                         self.say(Happened::State(state));
                     }
+                    Command::Keys(keys) => {
+                        let _ = up.host.capture_keys(keys, QUICK);
+                    }
                     Command::Quit => {
                         up.host.quit(d.quit);
                         return;
@@ -760,6 +779,15 @@ impl Run {
             },
             detail: None,
         })?;
+        // Keys pressed in the plugin's window go to the app as they come, not
+        // at this thread's next look.
+        let (out, wake, tag) = (self.out.clone(), self.wake.clone(), self.tag);
+        host.on_notice(Box::new(move |news| {
+            if let Response::Key { code, down } = news {
+                let _ = out.send((tag, Happened::Key { code, down }));
+                wake();
+            }
+        }));
         let class = host
             .load(&s.module, Some(s.class), s.deadlines.load)
             .map_err(|e| self.fail(&mut host, Step::Load, e))?;
@@ -886,6 +914,7 @@ mod tests {
                 Command::End => "end".into(),
                 Command::Relink(..) => "relink".into(),
                 Command::Capture => "capture".into(),
+                Command::Keys(keys) => format!("keys {}", keys.len()),
                 Command::Quit => "quit".into(),
             })
             .collect()
@@ -901,11 +930,20 @@ mod tests {
             Command::Relink(48_000.0, 128),
             Command::Text(1, 0.2),
             Command::Set(1, 0.3),
+            Command::Keys(vec![1, 2]),
+            Command::Keys(vec![]),
             Command::Quit,
         ]);
         assert_eq!(
             describe(&kept),
-            ["set 2=0.5", "relink", "text 1=0.2", "set 1=0.3", "quit"]
+            [
+                "set 2=0.5",
+                "relink",
+                "text 1=0.2",
+                "set 1=0.3",
+                "keys 0",
+                "quit"
+            ]
         );
     }
 

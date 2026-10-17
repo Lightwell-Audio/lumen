@@ -382,18 +382,6 @@ impl Instance {
         self.latency
     }
 
-    /// The plugin's editor view, if its controller offers one. Its window is
-    /// made, used and destroyed on one thread (the host's window thread):
-    /// the view must not be shared with the audio or control threads.
-    pub fn create_editor_view(&self) -> Option<ComPtr<IPlugView>> {
-        let controller = self.controller.as_ref()?;
-        // SAFETY: a plain call on a live controller; a non-null result is a
-        // reference the caller owns.
-        let raw = unsafe { controller.createView(c"editor".as_ptr()) };
-        // SAFETY: as above.
-        unsafe { ComPtr::from_raw(raw) }
-    }
-
     pub fn tail(&self) -> u32 {
         // SAFETY: a plain call on a live processor.
         unsafe { self.processor.getTailSamples() }.min(u32::MAX - 1)
@@ -790,6 +778,164 @@ impl Instance {
         }
     }
 
+    /// The controller's side of the plugin, for calls made without the lock
+    /// the audio thread takes (see [`Controls`]).
+    pub fn controls(&self) -> Controls {
+        Controls {
+            component: self.component.clone(),
+            controller: self.controller.clone(),
+            handler: self.handler.clone(),
+        }
+    }
+
+    pub fn create_editor_view(&self) -> Option<ComPtr<IPlugView>> {
+        self.controls().create_editor_view()
+    }
+
+    pub fn state(&self) -> Result<Vec<u8>, InstanceError> {
+        self.controls().state()
+    }
+
+    pub fn set_state(&self, state: &[u8]) -> Result<(), InstanceError> {
+        self.controls().set_state(state)
+    }
+
+    pub fn parameters(&self) -> (u32, Vec<ParamInfo>) {
+        self.controls().parameters()
+    }
+
+    pub fn units(&self) -> Vec<UnitInfo> {
+        self.controls().units()
+    }
+
+    pub fn param_text(&self, id: u32, value: f64) -> Option<String> {
+        self.controls().param_text(id, value)
+    }
+
+    pub fn param_value(&self, id: u32, text: &str) -> Option<f64> {
+        self.controls().param_value(id, text)
+    }
+
+    pub fn set_param(&self, id: u32, value: f64) {
+        self.controls().set_param(id, value);
+    }
+
+    /// The edits made since the last call and how many were dropped, the
+    /// controller told first what the processor heard (see
+    /// [`Controls::take_edits`]).
+    pub fn take_edits(&mut self) -> Taken {
+        let heard = self.take_heard();
+        self.controls().take_edits(heard)
+    }
+
+    /// What the processor heard that the controller has not, and the
+    /// controller events no parameter took, since the last call: the part of
+    /// taking edits that needs the instance (and so its lock).
+    pub fn take_heard(&mut self) -> Heard {
+        // Copied and cleared, not taken: the list keeps its room, and the
+        // audio thread that fills it never allocates.
+        let values = self.for_controller.to_vec();
+        self.for_controller.clear();
+        Heard {
+            values,
+            ignored: std::mem::take(&mut self.ignored),
+        }
+    }
+
+    /// The parameter a controller number on a channel is mapped to.
+    fn mapped_param(&mut self, channel: i16, number: i16) -> Option<u32> {
+        let (channel, number) = (
+            usize::try_from(channel).ok()?,
+            usize::try_from(number).ok()?,
+        );
+        if channel >= MAP_CHANNELS || number >= MAP_NUMBERS {
+            return None;
+        }
+        let slot = channel * MAP_NUMBERS + number;
+        if self.midi_map[slot] == MAP_UNKNOWN {
+            let mut id: u32 = 0;
+            let found = self.mapping.as_ref().is_some_and(|m| {
+                // SAFETY: a plain call on a live interface with a valid out pointer.
+                let result = unsafe {
+                    m.getMidiControllerAssignment(0, channel as i16, number as i16, &mut id)
+                };
+                result == kResultOk
+            });
+            self.midi_map[slot] = if found { i64::from(id) } else { MAP_NONE };
+        }
+        u32::try_from(self.midi_map[slot]).ok()
+    }
+
+    /// Notes the last value of each parameter in `params` for the controller.
+    fn note_for_controller(&mut self, params: &[ParamQueue]) {
+        for queue in params {
+            if let Some(&(_, value)) = queue.points.last() {
+                self.note(queue.id, value);
+            }
+        }
+    }
+
+    fn note(&mut self, id: u32, value: f64) {
+        match self.for_controller.iter().position(|(i, _)| *i == id) {
+            Some(at) => self.for_controller[at].1 = value,
+            None if self.for_controller.len() < MOST_PENDING => {
+                self.for_controller.push((id, value));
+            }
+            None => {}
+        }
+    }
+
+    /// After a block: what the processor reported becomes edits for Lumen
+    /// and a value for the controller.
+    fn collect_outputs(&mut self) {
+        self.reported.clear();
+        self.outputs.take(&mut self.reported);
+        for i in 0..self.reported.len() {
+            let (id, value) = self.reported[i];
+            self.handler.report(Edit {
+                id,
+                value,
+                kind: EditKind::Output,
+            });
+            self.note(id, value);
+        }
+    }
+}
+
+/// The controller's side of a plugin: its component (for its state), its
+/// controller and the handler that hears it, cloned out of the [`Instance`].
+/// The host's main thread calls through it without holding the lock the
+/// audio thread takes for every block, so a plugin that is slow to make its
+/// editor, write its state or list its parameters never stalls its own audio.
+/// VST3 allows it: a host calls these on its main thread while the processor
+/// runs on the audio thread; only setting the plugin up excludes processing,
+/// and that stays under the lock.
+pub struct Controls {
+    component: ComPtr<IComponent>,
+    controller: Option<ComPtr<IEditController>>,
+    handler: ComWrapper<Handler>,
+}
+
+/// What the processor heard that the controller has not been told, and the
+/// controller events no parameter took ([`Instance::take_heard`]).
+pub struct Heard {
+    values: Vec<(u32, f64)>,
+    ignored: u32,
+}
+
+impl Controls {
+    /// The plugin's editor view, if its controller offers one. Its window is
+    /// made, used and destroyed on one thread (the host's window thread):
+    /// the view must not be shared with the audio or control threads.
+    pub fn create_editor_view(&self) -> Option<ComPtr<IPlugView>> {
+        let controller = self.controller.as_ref()?;
+        // SAFETY: a plain call on a live controller; a non-null result is a
+        // reference the caller owns.
+        let raw = unsafe { controller.createView(c"editor".as_ptr()) };
+        // SAFETY: as above.
+        unsafe { ComPtr::from_raw(raw) }
+    }
+
     /// The component's saved state.
     pub fn state(&self) -> Result<Vec<u8>, InstanceError> {
         let (stream, ptr) = MemoryStream::open(Vec::new(), MAX_STATE);
@@ -903,7 +1049,7 @@ impl Instance {
 
     /// Sets a parameter from Lumen: the controller is told now, and the
     /// processor hears it at the start of the next block.
-    pub fn set_param(&mut self, id: u32, value: f64) {
+    pub fn set_param(&self, id: u32, value: f64) {
         if !value.is_finite() {
             return;
         }
@@ -919,79 +1065,18 @@ impl Instance {
     /// the controller hears what the processor was given in blocks (a host's
     /// duty: a value that reached only the processor leaves the plugin's
     /// window showing the old one).
-    pub fn take_edits(&mut self) -> Taken {
+    pub fn take_edits(&self, heard: Heard) -> Taken {
         if let Some(controller) = &self.controller {
-            for (id, value) in self.for_controller.drain(..) {
+            for (id, value) in heard.values {
                 // SAFETY: a plain call on a live controller.
                 unsafe { controller.setParamNormalized(id, value) };
             }
-        } else {
-            self.for_controller.clear();
         }
         let (list, dropped) = self.handler.take_reports();
         Taken {
             list,
             dropped,
-            ignored: std::mem::take(&mut self.ignored),
-        }
-    }
-
-    /// The parameter a controller number on a channel is mapped to.
-    fn mapped_param(&mut self, channel: i16, number: i16) -> Option<u32> {
-        let (channel, number) = (
-            usize::try_from(channel).ok()?,
-            usize::try_from(number).ok()?,
-        );
-        if channel >= MAP_CHANNELS || number >= MAP_NUMBERS {
-            return None;
-        }
-        let slot = channel * MAP_NUMBERS + number;
-        if self.midi_map[slot] == MAP_UNKNOWN {
-            let mut id: u32 = 0;
-            let found = self.mapping.as_ref().is_some_and(|m| {
-                // SAFETY: a plain call on a live interface with a valid out pointer.
-                let result = unsafe {
-                    m.getMidiControllerAssignment(0, channel as i16, number as i16, &mut id)
-                };
-                result == kResultOk
-            });
-            self.midi_map[slot] = if found { i64::from(id) } else { MAP_NONE };
-        }
-        u32::try_from(self.midi_map[slot]).ok()
-    }
-
-    /// Notes the last value of each parameter in `params` for the controller.
-    fn note_for_controller(&mut self, params: &[ParamQueue]) {
-        for queue in params {
-            if let Some(&(_, value)) = queue.points.last() {
-                self.note(queue.id, value);
-            }
-        }
-    }
-
-    fn note(&mut self, id: u32, value: f64) {
-        match self.for_controller.iter().position(|(i, _)| *i == id) {
-            Some(at) => self.for_controller[at].1 = value,
-            None if self.for_controller.len() < MOST_PENDING => {
-                self.for_controller.push((id, value));
-            }
-            None => {}
-        }
-    }
-
-    /// After a block: what the processor reported becomes edits for Lumen
-    /// and a value for the controller.
-    fn collect_outputs(&mut self) {
-        self.reported.clear();
-        self.outputs.take(&mut self.reported);
-        for i in 0..self.reported.len() {
-            let (id, value) = self.reported[i];
-            self.handler.report(Edit {
-                id,
-                value,
-                kind: EditKind::Output,
-            });
-            self.note(id, value);
+            ignored: heard.ignored,
         }
     }
 }

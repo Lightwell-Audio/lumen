@@ -415,3 +415,32 @@ fn a_bad_layout_is_refused_by_the_client_and_the_host_alike() {
             .is_ok()
     );
 }
+
+/// MT-VST-4 run 1 (RP-6): a slow controller call (here a state that never
+/// comes) held the lock the audio thread takes for every block, and the
+/// plugin was given up on for missing a second of blocks. Controller calls
+/// are made without it, so the blocks go on.
+#[test]
+fn blocks_go_on_while_the_main_thread_waits_on_the_plugin() {
+    let mut host = instrument("state_hang");
+    let mut link = host
+        .attach(Layout::new(512, 0, 2), Wake::EVENT, SLOW)
+        .expect("attach");
+    let generation = host.generation();
+    let asking = std::thread::spawn(move || {
+        let state = host.state(Duration::from_secs(2));
+        (host, state)
+    });
+    // The state call is under way on the host's main thread now.
+    std::thread::sleep(Duration::from_millis(200));
+    for block in 0..100_u32 {
+        link.submit(generation, 64, &[], &notes(block), &[])
+            .unwrap_or_else(|e| panic!("block {block}: {e}"));
+        let Poll::Done(answer) = link.wait(Instant::now() + Duration::from_millis(500)) else {
+            panic!("block {block} waited for the state call");
+        };
+        assert_eq!(answer.outcome, Outcome::Done, "block {block}");
+    }
+    let (_host, state) = asking.join().expect("the asking thread");
+    assert!(state.is_err(), "the state never came");
+}

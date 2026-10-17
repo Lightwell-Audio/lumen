@@ -8,7 +8,10 @@
 //! the rules that keep notes from hanging (each physical key remembers the
 //! note it started, so a note sounding while the octave moves still ends on
 //! its own key-up). [`App::computer_keyboard_keys`] feeds it the frame's
-//! key events, taking the letters it uses before the commands see them.
+//! key events, taking the letters it uses before the commands see them;
+//! [`App::plugin_window_keys`] feeds it the same letters pressed in a
+//! plugin's own window, which its host takes while the mode is on (the
+//! owner's choice, M6 slice 4: every other key stays the plugin's).
 
 use std::collections::BTreeMap;
 
@@ -54,6 +57,22 @@ pub(crate) fn semitone(key: Key) -> Option<u8> {
 /// Whether the mode takes `key` when it goes down.
 pub(crate) fn is_taken(key: Key) -> bool {
     semitone(key).is_some() || matches!(key, Key::Z | Key::X | Key::C | Key::V)
+}
+
+/// The key a plugin's host reports by its virtual-key code: a letter's code
+/// is its capital.
+fn key_for_code(code: u8) -> Option<Key> {
+    code.is_ascii_uppercase()
+        .then(|| Key::from_name(&char::from(code).to_string()))
+        .flatten()
+}
+
+/// The virtual-key codes of every key the mode takes, for plugins' hosts to
+/// take from their windows.
+pub(crate) fn taken_codes() -> Vec<u8> {
+    (b'A'..=b'Z')
+        .filter(|&code| key_for_code(code).is_some_and(is_taken))
+        .collect()
 }
 
 /// The mode's state.
@@ -200,6 +219,31 @@ impl App {
         }
     }
 
+    /// Keys pressed in plugins' own windows: while the mode is on, every
+    /// plugin's host takes the mode's keys from its window, and they play as
+    /// they would in Lumen's (the owner's choice, M6 slice 4). Off, the hosts
+    /// give them back. A key let go of always ends its note.
+    pub(crate) fn plugin_window_keys(&mut self) {
+        let wanted = if self.keyboard.is_on() {
+            taken_codes()
+        } else {
+            Vec::new()
+        };
+        self.hosting.capture_keys(wanted);
+        let mut out = Vec::new();
+        for (code, down) in self.hosting.take_keys() {
+            let Some(key) = key_for_code(code) else {
+                continue;
+            };
+            if down {
+                out.extend(self.keyboard.key_down(key, false));
+            } else {
+                out.extend(self.keyboard.key_up(key));
+            }
+        }
+        self.send_keyboard(out);
+    }
+
     /// Panic lets go of the keyboard's notes first.
     pub(crate) fn release_computer_keyboard(&mut self) {
         let offs = self.keyboard.release_all();
@@ -277,6 +321,18 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plugin_windows_are_asked_for_exactly_the_keys_the_mode_takes() {
+        let codes = taken_codes();
+        assert_eq!(codes, b"ACDEFGHJKLOSTUVWXYZ".to_vec());
+        for code in codes {
+            assert!(key_for_code(code).is_some_and(is_taken), "{code}");
+        }
+        assert_eq!(key_for_code(b'B'), Some(Key::B));
+        assert_eq!(key_for_code(b'1'), None, "only letters");
+        assert_eq!(key_for_code(0x20), None);
+    }
 
     fn on() -> ComputerKeyboard {
         let mut k = ComputerKeyboard::default();

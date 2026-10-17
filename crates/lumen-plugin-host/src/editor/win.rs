@@ -3,12 +3,17 @@
 //!
 //! The window is made, pumped and destroyed on the host's main thread, which
 //! is also the thread that made the plugin and the one thread allowed to call
-//! its view. It is an unowned top-level window: a window owned by Lumen's
-//! across processes froze Lumen's window moves when a plugin hung, and an
-//! unowned one never did. To stay above Lumen without being above other
+//! its view. It is not owned by Lumen's window: a window owned across
+//! processes froze Lumen's window moves when a plugin hung. It is owned by a
+//! hidden window of its own host instead, so it has no taskbar button and
+//! nothing to minimize to. To stay above Lumen without being above other
 //! programs it is on top only while Lumen or one of its editors has the
-//! foreground (a timer on this thread decides). No shortcut of Lumen reaches a
-//! plugin's window, and none of the plugin's reaches Lumen.
+//! foreground (a timer on this thread decides, and changes the order only when
+//! that changes, so two editors never fight over which is in front). No
+//! shortcut of Lumen reaches a plugin's window, and none of the plugin's
+//! reaches Lumen; while Lumen's computer keyboard is on, its note keys pressed
+//! alone in the window are taken and told to Lumen (the owner's choice, M6
+//! slice 4).
 //!
 //! Resizing follows the VST3 contract: `checkSizeConstraint` sets the window's
 //! tracking limits, `onSize` follows every size, the plugin's `resizeView`
@@ -23,6 +28,10 @@ use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
 use std::ptr::{NonNull, null, null_mut};
 use std::sync::{Arc, Once};
+
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    GetKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+};
 
 use vst3::Steinberg::{
     IPlugFrame, IPlugFrameTrait, IPlugView, IPlugViewContentScaleSupport,
@@ -42,24 +51,28 @@ use windows_sys::Win32::UI::HiDpi::{
     SetProcessDpiAwarenessContext,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect,
-    GetForegroundWindow, GetMessageW, GetWindowRect, GetWindowThreadProcessId, HWND_MESSAGE,
-    HWND_NOTOPMOST, HWND_TOPMOST, IDC_ARROW, IsIconic, KillTimer, LoadCursorW, MINMAXINFO, MSG,
-    PostMessageW, PostQuitMessage, RegisterClassExW, SIZE_MINIMIZED, SW_SHOWNORMAL, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow,
-    TranslateMessage, WM_APP, WM_CLOSE, WM_DPICHANGED, WM_GETMINMAXINFO, WM_KILLFOCUS, WM_SETFOCUS,
-    WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_CAPTION, WS_CLIPCHILDREN, WS_MINIMIZEBOX, WS_OVERLAPPED,
-    WS_SYSMENU, WS_THICKFRAME,
+    CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GA_ROOT,
+    GWL_EXSTYLE, GetAncestor, GetClientRect, GetForegroundWindow, GetMessageW, GetWindowLongPtrW,
+    GetWindowRect, GetWindowThreadProcessId, HWND_MESSAGE, HWND_NOTOPMOST, HWND_TOPMOST, IDC_ARROW,
+    IsIconic, KillTimer, LoadCursorW, MINMAXINFO, MSG, PostMessageW, PostQuitMessage,
+    RegisterClassExW, SIZE_MINIMIZED, SW_SHOWNORMAL, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_NOZORDER, SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow, TranslateMessage,
+    WA_INACTIVE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_DPICHANGED, WM_GETMINMAXINFO, WM_KEYDOWN,
+    WM_KEYUP, WM_KILLFOCUS, WM_SETFOCUS, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_CAPTION,
+    WS_CLIPCHILDREN, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_OVERLAPPED, WS_POPUP, WS_SYSMENU,
+    WS_THICKFRAME,
 };
 
-use super::Editors;
-use crate::protocol::{EditorBounds, EditorStatus, MAX_EDITOR_SIDE};
+use super::{Editors, Notify};
+use crate::protocol::{EditorBounds, EditorStatus, MAX_EDITOR_SIDE, Response};
 use crate::server::{Pump, Waker};
 
 const FRAME_CLASS: &str = "LumenPluginEditorFrame";
+const OWNER_CLASS: &str = "LumenPluginEditorOwner";
 const DISPATCH_CLASS: &str = "LumenPluginHostDispatch";
-const STYLE: u32 =
-    WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_THICKFRAME | WS_CLIPCHILDREN;
+/// No minimize box: an owned window has no taskbar button to go to, and
+/// would shrink to a stub in a corner of the screen.
+const STYLE: u32 = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_CLIPCHILDREN;
 
 /// The timer that raises the editor above Lumen only while Lumen (or an
 /// editor) is the program in front, and how often it runs.
@@ -297,6 +310,9 @@ unsafe extern "system" fn frame_proc(
                 unsafe { live.view.onFocus(0) };
             }
         }
+        // Another window has the keyboard now: its key-ups will not come
+        // here, so the keys taken and still down are let go of.
+        WM_ACTIVATE if (wparam & 0xFFFF) as u32 == WA_INACTIVE => release_keys(),
         WM_DPICHANGED => {
             let dpi = (wparam & 0xFFFF) as u32;
             let scale = dpi as f32 / 96.0;
@@ -344,6 +360,7 @@ fn close_window() {
     };
     note_bounds(editor.hwnd);
     stop_raising();
+    release_keys();
     // SAFETY: the view and window this thread made.
     unsafe {
         editor.view.removed();
@@ -425,16 +442,37 @@ fn lumen_is_in_front() -> bool {
     }
 }
 
+/// Whether `hwnd` is on top of every window that is not.
+fn is_topmost(hwnd: HWND) -> bool {
+    // SAFETY: a plain query about a window.
+    let style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
+    style & WS_EX_TOPMOST != 0
+}
+
 /// Puts the editor above Lumen while Lumen is in front, and lets it sink
-/// behind other programs when one of those is.
+/// behind the program in front when another is. Only a change is made: an
+/// editor already where it should be is left alone, so two editors on top
+/// keep the order the user clicked them into instead of trading places on
+/// every tick.
 fn raise_if_in_front() {
     let Some(live) = live() else {
         return;
     };
-    let after = if lumen_is_in_front() {
-        HWND_TOPMOST
-    } else {
-        HWND_NOTOPMOST
+    let topmost = is_topmost(live.hwnd);
+    let after = match (lumen_is_in_front(), topmost) {
+        (true, false) => HWND_TOPMOST,
+        (false, true) => {
+            // Behind the program in front (a window placed after one that is
+            // not on top stops being on top), not above it.
+            // SAFETY: a read-only query.
+            let front = unsafe { GetForegroundWindow() };
+            if front.is_null() || is_topmost(front) {
+                HWND_NOTOPMOST
+            } else {
+                front
+            }
+        }
+        _ => return,
     };
     // SAFETY: our window.
     unsafe {
@@ -448,6 +486,127 @@ fn raise_if_in_front() {
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
         )
     };
+}
+
+// ------------------------------------------------------------- the owner --
+
+thread_local! {
+    static OWNER: Cell<HWND> = const { Cell::new(null_mut()) };
+}
+
+unsafe extern "system" fn owner_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    // SAFETY: default handling; the owner is never shown.
+    unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+}
+
+/// The hidden window that owns the editor: an owned window has no taskbar
+/// button. Made once, on this thread, and never shown.
+fn owner() -> HWND {
+    let made = OWNER.get();
+    if !made.is_null() {
+        return made;
+    }
+    static CLASS: Once = Once::new();
+    register(OWNER_CLASS, owner_proc, &CLASS);
+    let class = wide(OWNER_CLASS);
+    // SAFETY: a hidden top-level window on this thread; a tool window, so
+    // nothing lists it even if something showed it.
+    let hwnd = unsafe {
+        CreateWindowExW(
+            WS_EX_TOOLWINDOW,
+            class.as_ptr(),
+            null(),
+            WS_POPUP,
+            0,
+            0,
+            0,
+            0,
+            null_mut(),
+            null_mut(),
+            GetModuleHandleW(null()),
+            null(),
+        )
+    };
+    OWNER.set(hwnd);
+    hwnd
+}
+
+// -------------------------------------------------------------- the keys --
+
+thread_local! {
+    /// The keys Lumen asked for (virtual-key codes).
+    static CAPTURE: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+    /// The keys taken that are down now: their key-ups are taken too.
+    static HELD: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+    static NOTIFY: RefCell<Option<Notify>> = const { RefCell::new(None) };
+}
+
+fn tell(code: u8, down: bool) {
+    NOTIFY.with(|n| {
+        if let Some(notify) = &*n.borrow() {
+            notify(Response::Key { code, down });
+        }
+    });
+}
+
+/// Lets go of every key taken and still down, telling Lumen.
+fn release_keys() {
+    for code in HELD.with(|h| std::mem::take(&mut *h.borrow_mut())) {
+        tell(code, false);
+    }
+}
+
+/// Whether Ctrl, Alt, Shift or a Windows key is down: a chord is the
+/// plugin's, never a note.
+fn modifier_down() -> bool {
+    [VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN]
+        .into_iter()
+        // SAFETY: a plain query of this thread's keyboard state.
+        .any(|vk| unsafe { GetKeyState(i32::from(vk)) } < 0)
+}
+
+/// Takes a key message meant for the editor if Lumen asked for its key: the
+/// plugin never sees it and Lumen is told of the press or release (not of a
+/// repeat). True when taken.
+fn take_key(msg: &MSG) -> bool {
+    if msg.message != WM_KEYDOWN && msg.message != WM_KEYUP {
+        return false;
+    }
+    let Ok(code) = u8::try_from(msg.wParam) else {
+        return false;
+    };
+    let Some(live) = live() else {
+        return false;
+    };
+    // The editor's frame or a window inside it; a plugin's own pop-up windows
+    // (a dialog, a menu) keep their keys.
+    // SAFETY: a plain query about a window of this thread.
+    if msg.hwnd.is_null() || unsafe { GetAncestor(msg.hwnd, GA_ROOT) } != live.hwnd {
+        return false;
+    }
+    let held = HELD.with(|h| h.borrow().contains(&code));
+    if msg.message == WM_KEYUP {
+        if held {
+            HELD.with(|h| h.borrow_mut().retain(|&c| c != code));
+            tell(code, false);
+        }
+        return held;
+    }
+    if !held && (!CAPTURE.with(|c| c.borrow().contains(&code)) || modifier_down()) {
+        return false;
+    }
+    // Bit 30: the key was already down (a repeat).
+    let repeat = (msg.lParam >> 30) & 1 != 0;
+    if !held && !repeat {
+        HELD.with(|h| h.borrow_mut().push(code));
+        tell(code, true);
+    }
+    true
 }
 
 // ------------------------------------------------------------- the editor --
@@ -481,7 +640,8 @@ impl Editors for Windows {
         let (x, y) = wanted
             .filter(on_a_screen)
             .map_or((CW_USEDEFAULT, CW_USEDEFAULT), |b| (b.x, b.y));
-        // SAFETY: a top-level, unowned window on this (the window) thread.
+        // SAFETY: a top-level window on this (the window) thread, owned by
+        // this host's hidden window (never by Lumen's).
         let hwnd = unsafe {
             CreateWindowExW(
                 0,
@@ -492,7 +652,7 @@ impl Editors for Windows {
                 y,
                 400,
                 300,
-                null_mut(),
+                owner(),
                 null_mut(),
                 GetModuleHandleW(null()),
                 null(),
@@ -596,6 +756,25 @@ impl Editors for Windows {
             open: open.is_some(),
             bounds: LAST.get(),
         }
+    }
+
+    fn capture_keys(&mut self, keys: Vec<u8>) {
+        // A key down now that is no longer asked for is let go of; its
+        // key-up then goes to the plugin, which never saw it go down.
+        let dropped: Vec<u8> = HELD.with(|h| {
+            let mut held = h.borrow_mut();
+            let gone = held.iter().copied().filter(|c| !keys.contains(c)).collect();
+            held.retain(|c| keys.contains(c));
+            gone
+        });
+        for code in dropped {
+            tell(code, false);
+        }
+        CAPTURE.with(|c| *c.borrow_mut() = keys);
+    }
+
+    fn set_notify(&mut self, notify: Notify) {
+        NOTIFY.with(|n| *n.borrow_mut() = Some(notify));
     }
 }
 
@@ -738,9 +917,14 @@ impl Pump for WindowPump {
             time: 0,
             pt: POINT { x: 0, y: 0 },
         };
-        // SAFETY: the standard message loop of this thread.
+        // SAFETY: the standard message loop of this thread. A key Lumen asked
+        // for is taken before the plugin's window sees it (and before it can
+        // become a character).
         unsafe {
             while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
+                if take_key(&msg) {
+                    continue;
+                }
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }

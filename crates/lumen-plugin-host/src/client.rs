@@ -5,8 +5,10 @@
 //!
 //! This is the control path (load, configure, state, parameters) and the
 //! protocol check for the audio path. A response that arrives after its
-//! deadline is *stale*: the next request drops it, counts it, and never lets
-//! it stand for the block now being waited for.
+//! deadline is *stale*: the host answers every request once and in order, so
+//! the answers owed to requests given up on are the next ones to arrive, and
+//! each is dropped and counted. A late answer never stands for the request now
+//! being waited for (a late `Edits` once read as the answer to `Configure`).
 
 use std::fmt;
 use std::io::Write;
@@ -142,6 +144,11 @@ pub struct Block {
 
 type Incoming = Result<Response, FrameError>;
 
+/// Where the host's news goes ([`Response::is_notice`]): called on the
+/// reader thread as each arrives.
+pub type NoticeSink = Box<dyn Fn(Response) + Send>;
+type Notices = std::sync::Arc<std::sync::Mutex<Option<NoticeSink>>>;
+
 /// What the host process said about itself on stderr (its own lines, marked
 /// with [`crate::process::LOG_PREFIX`]; anything else a plugin prints is
 /// read and dropped). Shared between the reader thread and whoever shows it.
@@ -197,6 +204,10 @@ pub struct HostProcess {
     next_seq: u64,
     /// Responses that arrived for a block or configuration already given up on.
     stale: u32,
+    /// Answers still to come for requests given up on: the host answers in
+    /// order, so they are the next ones to arrive.
+    owed: u32,
+    notices: Notices,
     killed: bool,
 }
 
@@ -256,11 +267,21 @@ impl HostProcess {
             })?;
 
         let (tx, incoming) = mpsc::channel();
+        let notices: Notices = Default::default();
+        let sink = notices.clone();
         let reader = std::thread::Builder::new()
             .name("host-reader".into())
             .spawn(move || {
                 loop {
                     let item = read_response(&mut stdout);
+                    if let Ok(response) = &item
+                        && response.is_notice()
+                    {
+                        if let Some(sink) = &*sink.lock().unwrap_or_else(|e| e.into_inner()) {
+                            sink(response.clone());
+                        }
+                        continue;
+                    }
                     let done = item.is_err();
                     if tx.send(item).is_err() || done {
                         break;
@@ -294,8 +315,16 @@ impl HostProcess {
             generation: 0,
             next_seq: 0,
             stale: 0,
+            owed: 0,
+            notices,
             killed: false,
         })
+    }
+
+    /// Sends the host's news (keys pressed in its plugin's window) to `sink`,
+    /// from the thread that reads the host's answers.
+    pub fn on_notice(&self, sink: NoticeSink) {
+        *self.notices.lock().unwrap_or_else(|e| e.into_inner()) = Some(sink);
     }
 
     pub fn id(&self) -> u32 {
@@ -386,6 +415,12 @@ impl HostProcess {
                 Err(FrameError::Closed | FrameError::Io(_)) => return Err(self.lost()),
                 Err(FrameError::Wire(e)) => return Err(HostError::Protocol(e.to_string())),
             };
+            // The answer to a request given up on, whatever it says.
+            if self.owed > 0 {
+                self.owed -= 1;
+                self.stale += 1;
+                continue;
+            }
             match (&response, wanted) {
                 // The answer to the block being waited for.
                 (
@@ -417,7 +452,20 @@ impl HostProcess {
     fn call(&mut self, request: &Request, within: Duration) -> Result<Response, HostError> {
         let deadline = Instant::now() + within;
         self.send(request)?;
-        self.receive(deadline, None)
+        self.answer(deadline, None)
+    }
+
+    /// The answer to the request just sent; one given up on is owed.
+    fn answer(
+        &mut self,
+        deadline: Instant,
+        wanted: Option<(u32, u64)>,
+    ) -> Result<Response, HostError> {
+        let answer = self.receive(deadline, wanted);
+        if matches!(answer, Err(HostError::Timeout)) {
+            self.owed += 1;
+        }
+        answer
     }
 
     pub fn load(
@@ -487,7 +535,7 @@ impl HostProcess {
             events,
             params,
         })?;
-        match self.receive(deadline, Some((generation, seq)))? {
+        match self.answer(deadline, Some((generation, seq)))? {
             Response::Processed {
                 status,
                 latency,
@@ -637,6 +685,15 @@ impl HostProcess {
         match self.call(request, within)? {
             Response::Editor(status) => Ok(status),
             _ => Err(HostError::Protocol("expected Editor".into())),
+        }
+    }
+
+    /// Takes `keys` (virtual-key codes) from the plugin's window, or gives
+    /// every key back when empty; the keys arrive through [`Self::on_notice`].
+    pub fn capture_keys(&mut self, keys: Vec<u8>, within: Duration) -> Result<(), HostError> {
+        match self.call(&Request::CaptureKeys(keys), within)? {
+            Response::Done => Ok(()),
+            _ => Err(HostError::Protocol("expected Done".into())),
         }
     }
 

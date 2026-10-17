@@ -137,7 +137,8 @@ pub fn linked_all(manager: &mut Manager, devices: &[u64]) -> Vec<Linked> {
                 | Happened::Editor(_)
                 | Happened::Text { .. }
                 | Happened::Typed { .. }
-                | Happened::State(_) => {}
+                | Happened::State(_)
+                | Happened::Key { .. } => {}
             }
         }
         assert!(Instant::now() < end, "devices did not all link");

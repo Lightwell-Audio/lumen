@@ -10,12 +10,22 @@ use std::time::{Duration, Instant};
 
 use lumen_plugin_host::client::{HostError, HostProcess};
 use lumen_plugin_host::editor::HEADLESS_VAR;
-use lumen_plugin_host::protocol::{EditorBounds, FailureKind};
+use lumen_plugin_host::protocol::{EditorBounds, FailureKind, Response};
+use lumen_plugin_host::server::EDITOR_WAIT_VAR;
 use support::{FAULT, HOST, SLOW, plugin};
 
+/// A host with the stand-in window, which says a window is not responding
+/// after 600 ms rather than the system's five seconds.
 fn host_with(headless: &str) -> HostProcess {
-    let mut host = HostProcess::spawn(Path::new(HOST), &[(HEADLESS_VAR, headless), (FAULT, "")])
-        .expect("start the host");
+    let mut host = HostProcess::spawn(
+        Path::new(HOST),
+        &[
+            (HEADLESS_VAR, headless),
+            (FAULT, ""),
+            (EDITOR_WAIT_VAR, "600"),
+        ],
+    )
+    .expect("start the host");
     host.load(plugin(), None, SLOW).expect("load");
     host.configure(48_000.0, 512, 0, 2, SLOW)
         .expect("configure");
@@ -124,6 +134,82 @@ fn an_editor_that_stops_answering_is_reported_not_waited_for_and_recovers() {
     };
     assert!(status.open);
     host.close_editor(SLOW).unwrap();
+}
+
+/// MT-VST-4 run 1 (RP-5): the plugin took more than the window's wait to open
+/// its editor, and setting it up again in the meantime was refused as "not
+/// responding". Only window requests are answered that way; the rest wait
+/// their turn and are done.
+#[test]
+fn while_the_window_is_stuck_other_requests_wait_and_are_answered() {
+    let mut host = host_with("on,hang=1500");
+    match host.open_editor(None, SLOW) {
+        Err(HostError::Failed { kind, .. }) => assert_eq!(kind, FailureKind::Unresponsive),
+        other => panic!("{other:?}"),
+    }
+    let (latency, _) = host
+        .configure(44_100.0, 256, 0, 2, SLOW)
+        .expect("setting the plugin up waits for the window, not refused");
+    assert_eq!(latency, 0);
+    assert!(host.param_text(0, 0.5, SLOW).is_ok());
+    assert!(host.editor_status(SLOW).unwrap().open);
+}
+
+/// MT-VST-4 run 1 (RP-7): an answer that came after its request was given up on
+/// was read as the answer to the next one ("expected Configured"). The host
+/// answers in order, so the late answer is dropped.
+#[test]
+fn a_late_answer_is_never_taken_for_the_next_one() {
+    let mut host = host_with("on,hang=800");
+    // Given up on long before the window opens.
+    assert_eq!(
+        host.open_editor(None, Duration::from_millis(100)),
+        Err(HostError::Timeout)
+    );
+    let text = host
+        .param_text(0, 0.5, SLOW)
+        .expect("the window's late answer is not this one's");
+    assert!(!text.is_empty());
+    let before = host.stale();
+    host.configure(48_000.0, 512, 0, 2, SLOW)
+        .expect("configure after a late answer");
+    assert_eq!(host.stale(), before, "one late answer, dropped once");
+    assert!(before >= 1);
+}
+
+/// The owner's choice (M6 slice 4): with the computer keyboard on, its keys
+/// pressed in a plugin's window are taken and told to Lumen.
+#[test]
+fn keys_asked_for_are_told_as_they_are_pressed_in_the_window() {
+    let mut host = host_with("on,press=75");
+    let (tx, rx) = std::sync::mpsc::channel();
+    host.on_notice(Box::new(move |news| {
+        let _ = tx.send(news);
+    }));
+    host.open_editor(None, SLOW).unwrap();
+    // Not asked for: the plugin keeps it.
+    host.capture_keys(vec![b'A'], SLOW).unwrap();
+    assert!(rx.recv_timeout(Duration::from_millis(200)).is_err());
+    host.capture_keys(vec![b'A', b'K'], SLOW).unwrap();
+    let got: Vec<Response> = (0..2)
+        .map(|_| rx.recv_timeout(SLOW).expect("the key"))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            Response::Key {
+                code: b'K',
+                down: true
+            },
+            Response::Key {
+                code: b'K',
+                down: false
+            }
+        ]
+    );
+    // The news never stands for an answer.
+    assert!(host.param_text(0, 0.5, SLOW).is_ok());
+    host.capture_keys(Vec::new(), SLOW).unwrap();
 }
 
 #[test]

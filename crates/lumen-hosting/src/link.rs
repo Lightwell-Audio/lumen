@@ -9,7 +9,7 @@ use std::time::Instant;
 
 use lumen_core::midi::{Event, Kind};
 use lumen_devices::{Hosted, Refused, Reply};
-use lumen_plugin_host::protocol::{Event as HostEvent, EventKind};
+use lumen_plugin_host::protocol::{Event as HostEvent, EventKind, RESTART_RECONFIGURE};
 use lumen_plugin_host::shm::{BlockLink, Outcome, Poll, SubmitError};
 
 /// What a link has dropped, readable from the interface thread.
@@ -162,7 +162,11 @@ impl Hosted for Link {
                 Reply::Ready {
                     latency: answer.latency,
                     tail: self.tail,
-                    restart: answer.restart != 0,
+                    // Only a restart that needs the plugin set up again: a
+                    // plugin says its parameter values changed whenever it
+                    // loads a patch, and setting it up for that once cost a
+                    // plugin its host while it was busy loading (MT-VST-4).
+                    restart: answer.restart & RESTART_RECONFIGURE != 0,
                     work_ns: answer.work_ns,
                 }
             }

@@ -36,6 +36,8 @@ pub struct Manager {
     out: Sender<(Tag, Happened)>,
     incoming: Receiver<(Tag, Happened)>,
     wake: Arc<dyn Fn() + Send + Sync>,
+    /// The keys every host takes from its plugin's window.
+    keys: Vec<u8>,
 }
 
 impl Manager {
@@ -50,6 +52,7 @@ impl Manager {
             out,
             incoming,
             wake: Arc::new(wake),
+            keys: Vec::new(),
         }
     }
 
@@ -65,6 +68,9 @@ impl Manager {
             self.out.clone(),
             self.wake.clone(),
         )?;
+        if !self.keys.is_empty() {
+            process.capture_keys(self.keys.clone());
+        }
         // Replacing the entry drops the old process, which quits.
         self.entries.insert(
             device,
@@ -187,6 +193,19 @@ impl Manager {
         if let Some(entry) = self.entries.get(&device) {
             entry.process.end();
         }
+    }
+
+    /// Has every host take `keys` (virtual-key codes) from its plugin's
+    /// window when pressed alone, now and when started; empty gives them back.
+    /// The presses come from [`Manager::poll`] as [`crate::Happened::Key`].
+    pub fn capture_keys(&mut self, keys: Vec<u8>) {
+        if keys == self.keys {
+            return;
+        }
+        for entry in self.entries.values() {
+            entry.process.capture_keys(keys.clone());
+        }
+        self.keys = keys;
     }
 
     /// Whether `device` has a host started for it (loading, running or failed).

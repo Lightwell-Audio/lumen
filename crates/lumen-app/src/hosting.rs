@@ -98,6 +98,10 @@ struct Tracked {
     bypass: bool,
     params: Parameters,
     editor: EditorState,
+    /// Being set up again (a new rate or block size, or the plugin asked):
+    /// the link it plays through now misses blocks until the new one comes,
+    /// which is not the plugin failing.
+    relinking: bool,
 }
 
 /// What Lumen knows of a plugin's own window (M6 slice 4f).
@@ -249,11 +253,15 @@ pub struct Hosting {
     /// Where editor windows were last seen, by plugin class, waiting for the
     /// app to remember them.
     places: Vec<(String, EditorBounds)>,
+    /// Keys pressed and let go of in plugins' windows (virtual-key codes,
+    /// `true` for down), oldest first, waiting for the computer keyboard.
+    keys: Vec<(u8, bool)>,
 }
 
 /// The host's stand-in for an editor window, as a test asks for it in the
 /// plugin's fault list (`headless_editor`, `headless_hang=MS`,
-/// `headless_close=MS`): the value of `LUMEN_HOST_HEADLESS_EDITOR`.
+/// `headless_close=MS`, `headless_press=CODE`): the value of
+/// `LUMEN_HOST_HEADLESS_EDITOR`.
 fn headless_setting(fault: &str) -> Option<String> {
     let parts: Vec<String> = fault
         .split(',')
@@ -262,11 +270,17 @@ fn headless_setting(fault: &str) -> Option<String> {
             None if entry == "headless_editor" => Some("on".to_owned()),
             Some(("headless_hang", ms)) => Some(format!("hang={ms}")),
             Some(("headless_close", ms)) => Some(format!("close={ms}")),
+            Some(("headless_press", code)) => Some(format!("press={code}")),
             _ => None,
         })
         .collect();
     (!parts.is_empty()).then(|| parts.join(","))
 }
+
+/// How long a stand-in window may keep its host's main thread before the host
+/// says it is not responding, in tests: 600 ms rather than the system's five
+/// seconds (`LUMEN_HOST_EDITOR_WAIT_MS`).
+const TEST_EDITOR_WAIT_MS: &str = "600";
 
 /// The longest block to promise plugins for a device block of `block`
 /// frames (0 when no stream is open): the device's, at most what the engine
@@ -324,6 +338,7 @@ impl Hosting {
             rate: 0,
             frames: promised_frames(0),
             places: Vec::new(),
+            keys: Vec::new(),
         }
     }
 
@@ -460,6 +475,21 @@ impl Hosting {
     /// class, for the app to remember.
     pub fn take_editor_places(&mut self) -> Vec<(String, EditorBounds)> {
         std::mem::take(&mut self.places)
+    }
+
+    /// Has every plugin's host take `keys` (virtual-key codes) from its
+    /// window when pressed alone, and give the rest to the plugin; empty
+    /// gives them all back. Cheap when nothing changes.
+    pub fn capture_keys(&mut self, keys: Vec<u8>) {
+        if let Some(manager) = self.manager.as_mut() {
+            manager.capture_keys(keys);
+        }
+    }
+
+    /// The keys pressed (`true`) and let go of in plugins' windows since the
+    /// last call, oldest first.
+    pub fn take_keys(&mut self) -> Vec<(u8, bool)> {
+        std::mem::take(&mut self.keys)
     }
 
     /// Asks the plugin to read `text` the user typed for a parameter; the
@@ -700,6 +730,7 @@ impl Hosting {
                                 ..Parameters::default()
                             },
                             editor: EditorState::Closed,
+                            relinking: false,
                         },
                     );
                 }
@@ -713,6 +744,9 @@ impl Hosting {
                 && let Some(manager) = self.manager.as_mut()
             {
                 manager.relink_all(f64::from(rate), frames);
+                for t in self.tracked.values_mut() {
+                    t.relinking = t.state == State::Ready;
+                }
             }
             self.rate = rate;
             self.frames = frames;
@@ -737,6 +771,7 @@ impl Hosting {
                     t.frames = linked.frames;
                     t.state = State::Ready;
                     t.bypass = false;
+                    t.relinking = false;
                     if !t.params.linked_before {
                         t.params.linked_before = true;
                         // A fresh host has no window; a new link of the same
@@ -767,8 +802,10 @@ impl Hosting {
                 }
                 Happened::Failed(why) => {
                     t.editor = EditorState::Closed;
+                    t.relinking = false;
                     t.state = State::Failed(why.to_string());
                 }
+                Happened::Key { code, down } => self.keys.push((code, down)),
                 Happened::Text { id, value, text } => {
                     t.params.texts.insert(id, (value, text));
                 }
@@ -881,8 +918,9 @@ impl Hosting {
                 && let Some(manager) = self.manager.as_mut()
             {
                 manager.relink(id, f64::from(self.rate), self.frames);
+                t.relinking = true;
             }
-            if status.failed() && t.state == State::Ready {
+            if status.failed() && t.state == State::Ready && !t.relinking {
                 t.state = State::Failed(gave_up_words(t.log.as_deref()));
             }
             // The values the project holds are the plugin's: what an edit,
@@ -968,6 +1006,10 @@ impl Hosting {
                 start
                     .env
                     .push(("LUMEN_HOST_HEADLESS_EDITOR".into(), headless));
+                start.env.push((
+                    "LUMEN_HOST_EDITOR_WAIT_MS".into(),
+                    TEST_EDITOR_WAIT_MS.into(),
+                ));
             }
         }
         match manager.want(w.device.id.0, start) {

@@ -9,12 +9,13 @@
 //! window so the whole path (open, move, close by the user, a window that
 //! stops answering) can be tested where there is no window system.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use vst3::ComPtr;
 use vst3::Steinberg::IPlugView;
 
-use crate::protocol::{EditorBounds, EditorStatus};
+use crate::protocol::{EditorBounds, EditorStatus, Response};
 
 #[cfg(windows)]
 pub mod win;
@@ -22,8 +23,13 @@ pub mod win;
 /// The environment variable that switches the stand-in on. Its value is a
 /// comma-separated list: `on`, `hang=MS` (opening blocks the main thread for
 /// `MS` milliseconds, the way a plugin stuck in its own window code does),
-/// `close=MS` (the "user" closes the window `MS` milliseconds after it opens).
+/// `close=MS` (the "user" closes the window `MS` milliseconds after it opens),
+/// `press=CODE` (once Lumen asks for the key `CODE` while the window is open,
+/// the "user" presses and lets go of it there).
 pub const HEADLESS_VAR: &str = "LUMEN_HOST_HEADLESS_EDITOR";
+
+/// Where the host's news goes: written to Lumen between answers.
+pub type Notify = Arc<dyn Fn(Response) + Send + Sync>;
 
 /// What the host's handler does with an editor window. Every method runs on
 /// the host's main thread.
@@ -44,6 +50,15 @@ pub trait Editors {
     /// The window as it is now. A window the user closed reads as not open,
     /// still with the place it was last seen at.
     fn status(&mut self) -> EditorStatus;
+
+    /// Takes `keys` (virtual-key codes) from the window when pressed alone,
+    /// telling Lumen of each through the notifier; empty gives them back.
+    /// Keys taken and still down are let go of (and Lumen told) when they
+    /// stop being taken, the window loses the keyboard or closes.
+    fn capture_keys(&mut self, _keys: Vec<u8>) {}
+
+    /// Where keys taken from the window are told.
+    fn set_notify(&mut self, _notify: Notify) {}
 }
 
 /// The editors of this platform: windows on Windows, the stand-in when asked
@@ -91,24 +106,28 @@ impl Editors for Unavailable {
 pub struct Headless {
     hang: Option<Duration>,
     close_after: Option<Duration>,
+    /// The key the "user" presses once it is asked for.
+    press: Option<u8>,
     opened: Option<Instant>,
     bounds: Option<EditorBounds>,
+    notify: Option<Notify>,
 }
 
 impl Headless {
     pub fn parse(setting: &str) -> Self {
-        let millis = |key: &str| {
+        let number = |key: &str| {
             setting
                 .split(',')
                 .filter_map(|t| t.trim().strip_prefix(key)?.strip_prefix('='))
                 .find_map(|v| v.parse::<u64>().ok())
-                .map(Duration::from_millis)
         };
         Self {
-            hang: millis("hang"),
-            close_after: millis("close"),
+            hang: number("hang").map(Duration::from_millis),
+            close_after: number("close").map(Duration::from_millis),
+            press: number("press").and_then(|c| u8::try_from(c).ok()),
             opened: None,
             bounds: None,
+            notify: None,
         }
     }
 }
@@ -155,6 +174,20 @@ impl Editors for Headless {
             open: self.opened.is_some(),
             bounds: self.bounds,
         }
+    }
+
+    fn capture_keys(&mut self, keys: Vec<u8>) {
+        let (Some(code), Some(notify)) = (self.press, &self.notify) else {
+            return;
+        };
+        if self.opened.is_some() && keys.contains(&code) {
+            notify(Response::Key { code, down: true });
+            notify(Response::Key { code, down: false });
+        }
+    }
+
+    fn set_notify(&mut self, notify: Notify) {
+        self.notify = Some(notify);
     }
 }
 

@@ -15,6 +15,9 @@ fn manager() -> Manager {
 }
 
 const HEADLESS: &str = "LUMEN_HOST_HEADLESS_EDITOR";
+/// The host says a window is not responding after this many milliseconds
+/// rather than the system's five seconds, so the tests stay quick.
+const WAIT_MS: &str = "600";
 const AT: EditorBounds = EditorBounds {
     x: 40,
     y: 60,
@@ -29,6 +32,10 @@ fn with_window(headless: &str) -> Manager {
     let mut manager = manager();
     let mut start = instrument("");
     start.env.push((HEADLESS.into(), headless.into()));
+    start.env.push((
+        lumen_plugin_host::server::EDITOR_WAIT_VAR.into(),
+        WAIT_MS.into(),
+    ));
     manager.want(1, start).unwrap();
     let _linked = linked(&mut manager, 1);
     manager
@@ -101,6 +108,28 @@ fn a_window_that_stops_answering_is_flagged_then_answers_again() {
     assert!(matches!(seen[2], EditorEvent::Opened(_)), "{seen:?}");
     manager.close_editor(1);
     assert!(matches!(editor_event(&mut manager), EditorEvent::Closed(_)));
+}
+
+/// The owner's choice (M6 slice 4): the computer keyboard's keys pressed in a
+/// plugin's window reach the app.
+#[test]
+fn keys_taken_from_the_window_reach_the_app_down_then_up() {
+    let mut manager = with_window("on,press=75");
+    manager.open_editor(1, None);
+    assert!(matches!(editor_event(&mut manager), EditorEvent::Opened(_)));
+    manager.capture_keys(vec![b'A', b'K']);
+    let mut keys = Vec::new();
+    let end = std::time::Instant::now() + Duration::from_secs(10);
+    while keys.len() < 2 {
+        for event in manager.poll() {
+            if let Happened::Key { code, down } = event.happened {
+                keys.push((event.device, code, down));
+            }
+        }
+        assert!(std::time::Instant::now() < end, "only {keys:?}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(keys, [(1, b'K', true), (1, b'K', false)]);
 }
 
 #[test]

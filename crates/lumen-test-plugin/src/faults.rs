@@ -25,6 +25,7 @@
 //! | `headless_editor` | no effect on the plugin: the host (not this plugin) stands in for an editor window that is only a record of where it would be, for tests where there are no windows (`LUMEN_HOST_HEADLESS_EDITOR`) |
 //! | `headless_hang=MS` | as `headless_editor`, and opening it blocks the host's main thread for `MS` milliseconds |
 //! | `headless_close=MS` | as `headless_editor`, and the "user" closes it `MS` milliseconds after it opens |
+//! | `headless_press=CODE` | as `headless_editor`, and once Lumen asks for the key `CODE` (a Windows virtual-key code) while the window is open, the "user" presses and lets go of it there |
 //! | `release=MS` | the instrument's released notes fade out over `MS` milliseconds while it reports no tail: what a synth with a long release does |
 //!
 //! `@N` counts process calls from 0 and defaults to 0.
@@ -59,6 +60,7 @@ pub enum Kind {
     HeadlessEditor,
     HeadlessHang,
     HeadlessClose,
+    HeadlessPress,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,6 +112,7 @@ impl Faults {
                 "headless_editor" => Kind::HeadlessEditor,
                 "headless_hang" => Kind::HeadlessHang,
                 "headless_close" => Kind::HeadlessClose,
+                "headless_press" => Kind::HeadlessPress,
                 _ => return Err(format!("`{entry}`: unknown fault")),
             };
             if matches!(kind, Kind::ProcessSlow) && arg.is_none() {
@@ -117,6 +120,9 @@ impl Faults {
             }
             if matches!(kind, Kind::ManyParams) && arg.is_none() {
                 return Err(format!("`{entry}`: needs `=count`"));
+            }
+            if matches!(kind, Kind::HeadlessPress) && arg.is_none() {
+                return Err(format!("`{entry}`: needs `=key code`"));
             }
             if matches!(
                 kind,

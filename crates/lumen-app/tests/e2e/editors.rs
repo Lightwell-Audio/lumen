@@ -48,6 +48,8 @@ fn faults(stem: &str) -> Option<&'static str> {
         "Hang" => Some("headless_editor,headless_hang=2500"),
         // The user closes the window a moment after it opens.
         "Gone" => Some("headless_editor,headless_close=400"),
+        // The user presses A in the window once its host takes A.
+        "Press" => Some("headless_editor,headless_press=65"),
         _ => None,
     }
 }
@@ -168,6 +170,39 @@ fn a_plugin_that_stops_answering_is_flagged_and_ended_only_when_the_user_says() 
     // and the button goes on as before.
     wait_shows(&mut lumen, "Close editor");
     assert!(!lumen.shows("End plugin"));
+}
+
+/// The owner's report (MT-VST-4): with the plugin's window in front, the
+/// computer keyboard played nothing, so changes could not be heard without
+/// going back to Lumen. With the mode on, its keys pressed in the window play.
+#[test]
+fn the_computer_keyboard_plays_from_the_plugins_window() {
+    let mut lumen = launch("press", "Press");
+    lumen.click("Open editor");
+    wait_shows(&mut lumen, "Close editor");
+    // Off: the host is asked for no keys, and the window keeps them.
+    lumen.frames(20);
+    assert!(lumen.app_mut().computer_keyboard_sent().is_empty());
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::K);
+    assert!(lumen.app().computer_keyboard_on());
+    let mut sent = Vec::new();
+    for _ in 0..300 {
+        sent.extend(lumen.app_mut().computer_keyboard_sent());
+        if sent.len() >= 2 {
+            break;
+        }
+        lumen.frames(2);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(
+        sent,
+        [
+            lumen_core::midi::Msg::note_on(0, 60, 100),
+            lumen_core::midi::Msg::note_off(0, 60)
+        ],
+        "A pressed and let go of in the window"
+    );
+    assert!(lumen.app().computer_keyboard_held().is_empty());
 }
 
 #[test]

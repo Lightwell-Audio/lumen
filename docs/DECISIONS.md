@@ -6948,3 +6948,64 @@ Decisions that went beyond the spike:
   list) lets every layer above the window be tested where there is no window
   system; the real window is MT-VST-4's (steps 5 to 8).
 
+**MT-VST-4 run 1 (2026-10-17, amended).** The owner's first Windows run found
+plugins failing around their own main thread, a keyboard that went quiet in a
+plugin's window, editors fighting over the front and a taskbar button per
+editor. Causes, and what changed:
+- *Restarts.* Every flag a plugin passed to `restartComponent` set it up again
+  (configure and a new link), including "parameter values changed" and "titles
+  changed", which plugins send when a patch or an instrument loads, while their
+  main thread is still busy. Only `RESTART_RECONFIGURE` (reload, buses,
+  latency) does now (`protocol::RESTART_RECONFIGURE`, read in `link.rs`). The
+  card does not re-read a plugin's values or titles on the other flags yet
+  (KNOWN_ISSUES).
+- *A stuck window refused everything.* While a window request was given up on,
+  every later request was answered "not responding" without being run; a
+  setup in that time failed the plugin ("could not set the plugin up: the
+  plugin's window is not responding"). Now only window requests are answered
+  so; the rest wait their turn under their callers' deadlines. The window's
+  wait is five seconds (the system's own rule), not 600 ms: a plugin that
+  builds a large window is opening, not stuck (`server::EDITOR_WAIT`, shortened
+  in tests by `LUMEN_HOST_EDITOR_WAIT_MS`); Lumen's own wait for a window
+  request is eight seconds.
+- *Late answers.* A control answer that came after its deadline was read as
+  the answer to the next request ("broke the protocol: expected Configured").
+  The host answers in order, so the client counts the answers owed to requests
+  it gave up on and drops that many (`HostProcess::owed`).
+- *The audio lock.* The controller's calls (making the editor's view, reading
+  or setting the state, listing parameters, texts, values, setting a value)
+  were made under the lock the host's audio thread takes for every block; a
+  plugin slow to make its view missed a second of blocks and was given up on
+  ("stopped answering"). They are made through `instance::Controls` without
+  it; only setting the plugin up and the instance's own bookkeeping take the
+  lock. VST3 lets a host call the controller and the component's state on the
+  main thread while the processor runs. This also closes the slice 0 issue
+  "a configure or a state call waits for the block in progress" for state.
+- *Set up again is not failed.* While a plugin is being set up again its old
+  link misses blocks; the card no longer reads that as the plugin failing
+  (`Tracked::relinking`).
+- *The window's place among windows.* The editor is owned by a hidden window
+  of its own host, never Lumen's (still no cross-process owner), so it has no
+  taskbar button and no Alt+Tab entry; it has no minimize button (an owned
+  window has nowhere to minimize to). The raise timer changes the stacking only
+  when it must (on top when Lumen comes to the front, behind the program in
+  front when another does), so two editors keep the order they were clicked
+  into instead of trading places every 200 ms.
+- *Keys in a plugin's window (the owner's choice, asked with three options).*
+  While Lumen's computer keyboard is on, the host takes its keys (the note,
+  octave and velocity letters, pressed without Ctrl, Alt, Shift or the Windows
+  key) from the plugin's window before the plugin sees them and tells Lumen
+  (`Request::CaptureKeys`, the notice `Response::Key`, sent between answers and
+  set apart by the client's reader); they play as they do in Lumen's window.
+  Every other key stays the plugin's, Space included (the owner chose not to
+  pass it), and no Lumen shortcut fires. A key taken and still down is let go
+  of when the window loses the keyboard or closes. The protocol is version 4.
+
+Tests: host `tests/editor.rs` (requests wait behind a stuck window; a late
+answer is dropped; keys asked for are told), `tests/shm.rs` (blocks go on while
+the main thread waits on the plugin), protocol units (the restart mask, keys);
+hosting `tests/editor.rs` (keys reach the app); E2E
+`editors::the_computer_keyboard_plays_from_the_plugins_window`; app unit (the
+codes asked for). Mutations checked: the owed answers, the stuck rule, the
+state call under the lock. The Windows window code (owner, stacking, keys) is
+compile-checked here and is MT-VST-4 steps 20 to 22.
