@@ -77,6 +77,19 @@ fn the_plugins_own_text_comes_for_any_value() {
 }
 
 #[test]
+fn text_the_user_typed_is_read_by_the_plugin() {
+    let mut host = instrument("");
+    assert_eq!(host.param_value(WAVE, "saw", SLOW).unwrap(), 1.0);
+    assert_eq!(host.param_value(WAVE, " Square ", SLOW).unwrap(), 0.0);
+    // Words the plugin does not understand, and parameters it does not have,
+    // are refused, and the connection goes on.
+    assert!(host.param_value(WAVE, "banana", SLOW).is_err());
+    assert!(host.param_value(9_999, "saw", SLOW).is_err());
+    assert!(host.param_value(WAVE, "sa\0w", SLOW).is_err());
+    assert_eq!(host.param_value(WAVE, "saw", SLOW).unwrap(), 1.0);
+}
+
+#[test]
 fn a_value_set_from_lumen_is_heard_in_the_next_block_and_told_to_the_controller() {
     let mut host = instrument("");
     let loud = play(&mut host, vec![]);

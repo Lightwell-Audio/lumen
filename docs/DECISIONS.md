@@ -6909,5 +6909,5 @@ parameter's value on screen is the project's if it holds one, else the plugin's
 as Lumen knows it, else its default; its text is the plugin's own, asked when
 the value changes and not faster than every 50 ms. The strip's choice is
 `ViewState.shown_params` (chain state while open), kept by a copy of the card.
-Not built: typing a value, the editor button and Learn.
+Typing a value: click a control and type a number (or Enter, F2, or the knob's menu for the plugin's own text); the plugin reads the text (`ParamValue` request, `getParamValueByString`) and the answer is one undo step; a refusal says so and changes nothing. Not built: the editor button and Learn.
 

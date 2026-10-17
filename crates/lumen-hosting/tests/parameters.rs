@@ -136,6 +136,26 @@ fn the_plugins_own_text_for_a_value_comes_back() {
 }
 
 #[test]
+fn text_the_user_typed_comes_back_as_a_value_or_as_not_understood() {
+    let mut manager = manager();
+    manager.want(1, instrument("")).unwrap();
+    let _linked = linked(&mut manager, 1);
+    for text in ["saw", "banana"] {
+        manager.param_value(1, WAVE, text.into());
+        let answer = wait_for(
+            &mut manager,
+            Duration::from_secs(10),
+            |_, happened| match happened {
+                Happened::Typed { id, text, value } => Ok((id, text, value)),
+                other => Err(other),
+            },
+        );
+        let value = (text == "saw").then_some(1.0);
+        assert_eq!(answer, (WAVE, text.to_string(), value));
+    }
+}
+
+#[test]
 fn controllers_reach_a_plugin_that_maps_them_and_the_ones_it_does_not_are_told() {
     let mut manager = manager();
     manager.want(1, instrument("")).unwrap();

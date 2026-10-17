@@ -884,6 +884,23 @@ impl Instance {
         (r == kResultOk).then(|| wide(&text))
     }
 
+    /// The normalized value the plugin reads from `text`, if it understands
+    /// it.
+    pub fn param_value(&self, id: u32, text: &str) -> Option<f64> {
+        let controller = self.controller.as_ref()?;
+        // A TChar string, NUL-terminated; one with a NUL inside would end
+        // early, so it is refused.
+        if text.contains('\0') {
+            return None;
+        }
+        let mut units: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
+        let mut value = 0.0_f64;
+        // SAFETY: a NUL-terminated string that outlives the call and a valid
+        // out pointer.
+        let r = unsafe { controller.getParamValueByString(id, units.as_mut_ptr(), &mut value) };
+        (r == kResultOk && value.is_finite()).then(|| value.clamp(0.0, 1.0))
+    }
+
     /// Sets a parameter from Lumen: the controller is told now, and the
     /// processor hears it at the start of the next block.
     pub fn set_param(&mut self, id: u32, value: f64) {

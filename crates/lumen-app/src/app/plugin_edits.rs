@@ -24,6 +24,31 @@ impl App {
             };
             record(&mut self.document, news.device, &news.edits, title);
         }
+        for typed in self.hosting.take_typed() {
+            let Some(value) = typed.value else {
+                self.say(format!(
+                    "The plugin did not understand \u{201c}{}\u{201d}.",
+                    typed.text
+                ));
+                continue;
+            };
+            let title = self
+                .hosting
+                .parameters(typed.device)
+                .iter()
+                .find(|p| p.id == typed.id)
+                .map_or_else(|| "parameter".to_owned(), |p| p.title.clone());
+            // A typed value is a step of its own, not part of a drag.
+            self.document.seal();
+            let _ = self.document.set_device_params(
+                typed.device,
+                &[(typed.id, value)],
+                &format!("Change {title}"),
+                None,
+            );
+            self.document.seal();
+            self.hosting.ask_text(typed.device, typed.id, value);
+        }
     }
 }
 

@@ -24,6 +24,15 @@ pub(crate) enum Chip {
 }
 
 /// The open panel.
+/// What the panel's rows asked for in a frame.
+#[derive(Default)]
+struct RowOut {
+    /// A bar was moved.
+    set: Option<(u32, f64)>,
+    /// Text typed for a parameter, for the plugin to read.
+    typed: Option<(u32, String)>,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Panel {
     pub device: Id,
@@ -198,6 +207,7 @@ impl App {
     pub(super) fn apply_strip(&mut self, device: Id, output: strip::Output) {
         match output {
             strip::Output::Set(id, value) => self.set_parameter(device, id, value, "strip"),
+            strip::Output::Type(id, text) => self.hosting.ask_value(device, id, text),
             strip::Output::Remove(id) => {
                 let mut ids = self.strip_ids(device);
                 ids.retain(|i| *i != id);
@@ -278,7 +288,7 @@ impl App {
         let shown = self.strip_ids(device.id);
         let title = format!("{} parameters", crate::document::device_name(&device));
         let mut starred: Vec<u32> = Vec::new();
-        let mut set: Option<(u32, f64)> = None;
+        let mut act = RowOut::default();
         let close = Dialog::new("parameters", &title, 400.0)
             .at(
                 pos2(ctx.content_rect().center().x, 96.0),
@@ -369,7 +379,7 @@ impl App {
                                 shown.contains(&p.id),
                                 r == panel.cursor,
                                 &mut starred,
-                                &mut set,
+                                &mut act,
                             );
                         }
                     });
@@ -380,8 +390,11 @@ impl App {
                         .color(theme::p().text_hint),
                 );
             });
-        if let Some((id, value)) = set {
+        if let Some((id, value)) = act.set {
             self.set_parameter(device.id, id, value, "panel");
+        }
+        if let Some((id, text)) = act.typed {
+            self.hosting.ask_value(device.id, id, text);
         }
         for id in starred {
             self.star(device.id, id);
@@ -402,7 +415,7 @@ impl App {
         starred_now: bool,
         under_cursor: bool,
         starred: &mut Vec<u32>,
-        set: &mut Option<(u32, f64)>,
+        act: &mut RowOut,
     ) {
         let palette = *theme::p();
         let width = ui.available_width();
@@ -485,7 +498,10 @@ impl App {
             },
         );
         if let Some(v) = out.value {
-            *set = Some((p.id, v));
+            act.set = Some((p.id, v));
+        }
+        if let Some(text) = out.typed {
+            act.typed = Some((p.id, text));
         }
     }
 }

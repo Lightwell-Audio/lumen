@@ -178,6 +178,16 @@ impl State {
                 },
                 None => failed(FailureKind::Sequence, "no plugin is loaded"),
             },
+            Request::ParamValue { id, text } => match &lock(&self.shared).instance {
+                Some(instance) => match instance.param_value(id, &text) {
+                    Some(value) => Response::Value(value),
+                    None => failed(
+                        FailureKind::Plugin,
+                        "the plugin did not understand the text",
+                    ),
+                },
+                None => failed(FailureKind::Sequence, "no plugin is loaded"),
+            },
             Request::SetParam { id, value } => match &mut lock(&self.shared).instance {
                 Some(instance) => {
                     instance.set_param(id, value);

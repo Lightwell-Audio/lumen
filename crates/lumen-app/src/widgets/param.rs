@@ -32,13 +32,99 @@ pub struct ParamLook<'a> {
 }
 
 /// What happened to a control this frame.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct ParamOut {
     /// The new value, when the user changed it.
     pub value: Option<f64>,
     pub hovered: bool,
     /// Being set right now: dragged, or focused and moved.
     pub active: bool,
+    /// Text the user typed and confirmed (Enter, or leaving the field): the
+    /// plugin reads it ("2.4 kHz", "-6"), so the caller asks it for the
+    /// value rather than parsing it.
+    pub typed: Option<String>,
+    /// The typing field is up in the control's place: draw nothing else.
+    pub typing: bool,
+}
+
+/// Opens the typing field of the control with `id`, with `text` selected
+/// (empty for a field that starts blank). For a menu's "Type a value…".
+pub fn start_typing(ui: &Ui, id: EguiId, text: &str) {
+    let text = text.to_owned();
+    ui.data_mut(|d| {
+        d.insert_temp(id.with("typing"), text);
+        d.insert_temp(id.with("select"), true);
+    });
+    ui.ctx().request_repaint();
+}
+
+/// Characters that start typing when the control has the keyboard, as the
+/// send knob's do; other keys stay shortcuts.
+fn starts_typing(c: char) -> bool {
+    c.is_ascii_digit() || "-+.,".contains(c)
+}
+
+/// The typing field, when it is up: the plugin's text is edited in place and
+/// leaving the field or Enter confirms, Esc cancels.
+fn typing_field(
+    ui: &mut Ui,
+    field: Rect,
+    id: EguiId,
+    name: &str,
+    out: &mut ParamOut,
+) -> Option<Response> {
+    let typing_id = id.with("typing");
+    let mut text = ui.data(|d| d.get_temp::<String>(typing_id))?;
+    let edit_id = id.with("edit");
+    let edit = ui.put(
+        field,
+        egui::TextEdit::singleline(&mut text)
+            .id(edit_id)
+            .font(FontId::monospace(theme::size::MONO_SMALL))
+            .horizontal_align(egui::Align::Center)
+            .margin(vec2(2.0, 2.0)),
+    );
+    edit.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::TextEdit,
+            true,
+            format!("{name}: type a value"),
+        )
+    });
+    // A field opened on the plugin's own text starts with it selected: set
+    // once the field has the keyboard (it places the cursor as it gains it),
+    // shown from the next frame.
+    if edit.has_focus()
+        && ui
+            .data_mut(|d| d.remove_temp::<bool>(id.with("select")))
+            .unwrap_or(false)
+    {
+        let mut state = egui::text_edit::TextEditState::load(ui.ctx(), edit_id).unwrap_or_default();
+        let end = egui::text::CCursor::new(text.chars().count());
+        state
+            .cursor
+            .set_char_range(Some(egui::text::CCursorRange::two(
+                egui::text::CCursor::new(0),
+                end,
+            )));
+        state.store(ui.ctx(), edit_id);
+        ui.ctx().request_repaint();
+    }
+    if !edit.has_focus() && !edit.lost_focus() {
+        edit.request_focus();
+    }
+    let cancel = ui.input(|i| i.key_pressed(Key::Escape));
+    if cancel || edit.lost_focus() {
+        ui.data_mut(|d| d.remove::<String>(typing_id));
+        if !cancel && !text.trim().is_empty() {
+            out.typed = Some(text.trim().to_owned());
+        }
+    } else {
+        ui.data_mut(|d| d.insert_temp(typing_id, text));
+        out.typing = true;
+    }
+    out.active = true;
+    Some(edit)
 }
 
 /// The value rounded to the nearest step, or the value itself when the
@@ -77,6 +163,15 @@ pub fn travel_after(travel: f64, delta: f64, span: f64, fine: bool) -> f64 {
     (travel + delta / span.max(1.0) * if fine { 0.1 } else { 1.0 }).clamp(0.0, 1.0)
 }
 
+/// How a control is worked: where its typing field goes, how far a full
+/// drag travels, along which way, and what its tooltip says.
+struct Feel<'a> {
+    field: Rect,
+    span: f64,
+    along: fn(Vec2) -> f32,
+    hint: &'a str,
+}
+
 /// What a control does with the pointer and keys, for the knob's `span` of
 /// points of travel along `along` (up and right are up).
 fn behave(
@@ -84,11 +179,23 @@ fn behave(
     rect: Rect,
     id: EguiId,
     look: &ParamLook<'_>,
-    span: f64,
-    along: fn(Vec2) -> f32,
-    hint: &str,
+    feel: Feel<'_>,
 ) -> (Response, ParamOut) {
+    let Feel {
+        field,
+        span,
+        along,
+        hint,
+    } = feel;
     let mut out = ParamOut::default();
+    if !look.read_only
+        && let Some(edit) = typing_field(ui, field, id, look.name, &mut out)
+        && out.typing
+    {
+        // Confirmed or cancelled on the frame it stops: the control comes
+        // back below.
+        return (edit, out);
+    }
     let sense = if look.read_only {
         Sense::hover()
     } else {
@@ -130,12 +237,28 @@ fn behave(
         response.request_focus();
     }
     if response.has_focus() {
-        let (down, up) = ui.input(|i| {
+        let (down, up, opened, typed) = ui.input(|i| {
+            let typed: String = i
+                .events
+                .iter()
+                .filter_map(|e| match e {
+                    egui::Event::Text(t) if t.chars().all(starts_typing) => Some(t.as_str()),
+                    _ => None,
+                })
+                .collect();
             (
                 i.key_pressed(Key::ArrowLeft) || i.key_pressed(Key::ArrowDown),
                 i.key_pressed(Key::ArrowRight) || i.key_pressed(Key::ArrowUp),
+                i.key_pressed(Key::Enter) || i.key_pressed(Key::F2),
+                typed,
             )
         });
+        if !typed.is_empty() {
+            ui.data_mut(|d| d.insert_temp(id.with("typing"), typed));
+            ui.ctx().request_repaint();
+        } else if opened {
+            start_typing(ui, id, look.text);
+        }
         let base = next.unwrap_or(look.value);
         if down {
             next = Some(step_by(base, -1.0, fine, look.steps));
@@ -170,10 +293,16 @@ pub fn param_knob(
         rect,
         id,
         &look,
-        160.0,
-        |d| d.x - d.y,
-        "Drag up or right (Shift for fine), double-click for the default",
+        Feel {
+            field: Rect::from_center_size(rect.center(), vec2(60.0, 18.0)),
+            span: 160.0,
+            along: |d| d.x - d.y,
+            hint: "Drag up or right (Shift for fine), double-click for the default, or click and type",
+        },
     );
+    if out.typing {
+        return (response, out);
+    }
     let shown = out.value.unwrap_or(look.value);
     let hot = motion::hover(ui.ctx(), id.with("hot"), out.hovered);
     let palette = *theme::p();
@@ -203,10 +332,16 @@ pub fn param_bar(ui: &mut Ui, rect: Rect, id: EguiId, look: ParamLook<'_>) -> (R
         rect,
         id,
         &look,
-        f64::from(rect.width()),
-        |d| d.x,
-        "Drag (Shift for fine), double-click for the default",
+        Feel {
+            field: rect,
+            span: f64::from(rect.width()),
+            along: |d| d.x,
+            hint: "Drag (Shift for fine), double-click for the default, or click and type",
+        },
     );
+    if out.typing {
+        return (response, out);
+    }
     let shown = out.value.unwrap_or(look.value).clamp(0.0, 1.0);
     let palette = *theme::p();
     let radius = theme::radius::for_height(rect.height());

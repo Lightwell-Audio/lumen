@@ -201,6 +201,13 @@ pub enum Happened {
     Edits(Taken),
     /// The plugin's own text for a value that was asked for.
     Text { id: u32, value: f64, text: String },
+    /// What the plugin made of text the user typed for a parameter: its
+    /// normalized value, or `None` when it did not understand.
+    Typed {
+        id: u32,
+        text: String,
+        value: Option<f64>,
+    },
     /// The plugin's saved state, as asked for ([`Process::capture`]): the
     /// bytes, or why they could not be read in time.
     State(Result<Vec<u8>, String>),
@@ -245,6 +252,8 @@ enum Command {
     Set(u32, f64),
     /// Ask the plugin for its text for a value.
     Text(u32, f64),
+    /// Ask the plugin to read text the user typed for a parameter.
+    Typed(u32, String),
     /// Read the plugin's state now.
     Capture,
     Quit,
@@ -377,6 +386,12 @@ impl Process {
         let _ = self.commands.send(Command::Text(id, value));
     }
 
+    /// Asks the plugin to read `text` the user typed for a parameter; the
+    /// answer comes as [`Happened::Typed`].
+    pub fn param_value(&self, id: u32, text: String) {
+        let _ = self.commands.send(Command::Typed(id, text));
+    }
+
     /// Asks the host to quit and waits for the thread.
     pub fn join(mut self) {
         let _ = self.commands.send(Command::Quit);
@@ -484,6 +499,10 @@ impl Run {
                         if let Ok(text) = up.host.param_text(id, value, QUICK) {
                             self.say(Happened::Text { id, value, text });
                         }
+                    }
+                    Command::Typed(id, text) => {
+                        let value = up.host.param_value(id, &text, QUICK).ok();
+                        self.say(Happened::Typed { id, text, value });
                     }
                     Command::Capture => {
                         let state = up.host.state(CAPTURE).map_err(|e| e.to_string());
@@ -667,6 +686,7 @@ mod tests {
             .map(|c| match c {
                 Command::Set(id, v) => format!("set {id}={v}"),
                 Command::Text(id, v) => format!("text {id}={v}"),
+                Command::Typed(id, t) => format!("typed {id}={t}"),
                 Command::Relink(..) => "relink".into(),
                 Command::Capture => "capture".into(),
                 Command::Quit => "quit".into(),

@@ -115,6 +115,10 @@ struct Parameters {
     started_with: BTreeMap<u32, f64>,
     /// The plugin's own text for a value, last asked for, by parameter.
     texts: HashMap<u32, (f64, String)>,
+    /// What the plugin made of text the user typed, waiting for the document:
+    /// the parameter, the text, and the value or `None` when it did not
+    /// understand.
+    typed: Vec<(u32, String, Option<f64>)>,
     /// Edits the plugin made inside itself, waiting for the document, each
     /// with whether it came inside a gesture (between a begin and an end).
     edits: Vec<(Edit, bool)>,
@@ -162,6 +166,16 @@ impl Parameters {
 /// How long a plugin is left alone after its last change before its state
 /// is read (a drag is many changes; the state is read when it rests).
 const REST: std::time::Duration = std::time::Duration::from_millis(600);
+
+/// What a plugin made of text the user typed for one of its parameters.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Typed {
+    pub device: Id,
+    pub id: u32,
+    pub text: String,
+    /// The normalized value, or `None` when the plugin did not understand.
+    pub value: Option<f64>,
+}
 
 /// The edits one device's plugin made inside itself, for the document.
 #[derive(Debug, Clone, PartialEq)]
@@ -356,6 +370,40 @@ impl Hosting {
         if let Some(manager) = self.manager.as_ref() {
             manager.param_text(device.0, id, value);
         }
+    }
+
+    /// Asks the plugin to read `text` the user typed for a parameter; the
+    /// answer is in [`Hosting::take_typed`] a moment later.
+    pub fn ask_value(&self, device: Id, id: u32, text: String) {
+        if let Some(manager) = self.manager.as_ref() {
+            manager.param_value(device.0, id, text);
+        }
+    }
+
+    /// What plugins made of the text typed for them since the last call, in
+    /// the order they answered.
+    pub fn take_typed(&mut self) -> Vec<Typed> {
+        let mut out = Vec::new();
+        let mut devices: Vec<u64> = self
+            .tracked
+            .iter()
+            .filter(|(_, t)| !t.params.typed.is_empty())
+            .map(|(&id, _)| id)
+            .collect();
+        devices.sort_unstable();
+        for id in devices {
+            if let Some(t) = self.tracked.get_mut(&id) {
+                for (parameter, text, value) in std::mem::take(&mut t.params.typed) {
+                    out.push(Typed {
+                        device: Id(id),
+                        id: parameter,
+                        text,
+                        value,
+                    });
+                }
+            }
+        }
+        out
     }
 
     /// The plugin's text for the value it was last asked about, and that value.
@@ -621,6 +669,9 @@ impl Hosting {
                 }
                 Happened::Text { id, value, text } => {
                     t.params.texts.insert(id, (value, text));
+                }
+                Happened::Typed { id, text, value } => {
+                    t.params.typed.push((id, text, value));
                 }
                 Happened::State(state) => {
                     let p = &mut t.params;

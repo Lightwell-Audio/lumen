@@ -156,6 +156,15 @@ impl Manager {
         }
     }
 
+    /// Asks the device's plugin to read `text` the user typed for a
+    /// parameter; the answer comes from [`Manager::poll`] as
+    /// [`crate::Happened::Typed`].
+    pub fn param_value(&self, device: u64, id: u32, text: String) {
+        if let Some(entry) = self.entries.get(&device) {
+            entry.process.param_value(id, text);
+        }
+    }
+
     /// Whether `device` has a host started for it (loading, running or failed).
     pub fn has(&self, device: u64) -> bool {
         self.entries.contains_key(&device)

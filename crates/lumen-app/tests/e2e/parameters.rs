@@ -170,6 +170,120 @@ fn dragging_a_knob_sets_the_value_as_one_undo_step_and_double_click_resets_it() 
     );
 }
 
+/// Types `text` into the focused knob of `label` and confirms with Enter.
+#[track_caller]
+fn type_value(lumen: &mut Lumen, label: &str, text: &str) {
+    lumen.harness.get_by_label_contains(label).click();
+    lumen.frames(3);
+    lumen.harness.event(Event::Text(text.into()));
+    lumen.frames(4);
+    lumen.key(Modifiers::NONE, Key::Enter);
+}
+
+#[test]
+fn a_value_typed_on_a_knob_is_read_by_the_plugin_and_is_one_undo_step() {
+    let mut lumen = launch("typed");
+    assert!(lumen.app().device_params(FX).is_empty());
+    // The test plugin reads a number as decibels: -6 dB of -60 to +12.
+    type_value(&mut lumen, "Gain, parameter", "-6");
+    lumen.wait_for("the plugin to read the text", |app| {
+        !app.device_params(FX).is_empty()
+    });
+    let held = lumen.app().device_params(FX);
+    assert_eq!(held[0].0, GAIN);
+    assert!((held[0].1 - 0.75).abs() < 1e-6, "{held:?}");
+    assert_eq!(lumen.app().undo_label(), Some("Change Gain"));
+    // The knob reads it in the plugin's words.
+    for _ in 0..40 {
+        lumen.frames(2);
+        if lumen.shows("Gain, parameter: -6.0") {
+            break;
+        }
+    }
+    assert!(lumen.shows("Gain, parameter: -6.0"));
+    // One undo takes it back.
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert!(lumen.app().device_params(FX).is_empty());
+}
+
+#[test]
+fn a_value_typed_on_a_panel_bar_reaches_the_plugin_too() {
+    let mut lumen = launch("typed-panel");
+    lumen.click("All parameters (259)");
+    lumen.frames(10);
+    // The panel is the later window: its bar is the last of the two.
+    let bar = lumen
+        .harness
+        .get_all_by_label_contains("Gain, parameter")
+        .last()
+        .expect("the panel's bar")
+        .rect()
+        .center();
+    lumen
+        .harness
+        .get_all_by_label_contains("Gain, parameter")
+        .last()
+        .unwrap()
+        .click();
+    lumen.frames(3);
+    lumen.harness.event(Event::Text("-12".into()));
+    lumen.frames(4);
+    assert!(
+        lumen.shows("Gain: type a value"),
+        "the field is up at {bar:?}"
+    );
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.wait_for("the plugin to read the text", |app| {
+        !app.device_params(FX).is_empty()
+    });
+    let held = lumen.app().device_params(FX);
+    assert!((held[0].1 - 0.6667).abs() < 0.001, "{held:?}");
+}
+
+#[test]
+fn text_the_plugin_does_not_understand_changes_nothing_and_says_so() {
+    let mut lumen = launch("typed-refused");
+    lumen
+        .harness
+        .get_by_label_contains("Gain, parameter")
+        .click();
+    lumen.frames(3);
+    // Enter opens the field with the plugin's own text; replace it.
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.frames(3);
+    lumen
+        .harness
+        .get_by_label("Gain: type a value")
+        .type_text("loud");
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.wait_for("the plugin's answer", |app| {
+        app.note().is_some_and(|n| n.contains("did not understand"))
+    });
+    assert_eq!(
+        lumen.app().note(),
+        Some("The plugin did not understand \u{201c}loud\u{201d}.")
+    );
+    assert!(lumen.app().device_params(FX).is_empty());
+    assert_eq!(lumen.app().undo_label(), None);
+}
+
+#[test]
+fn the_knobs_menu_types_a_value_and_escape_leaves_the_value_alone() {
+    let mut lumen = launch("typed-menu");
+    lumen.right_click(at(&lumen, "Gain, parameter"));
+    lumen.click("Type a value…");
+    lumen.frames(4);
+    assert!(lumen.shows("Gain: type a value"));
+    lumen
+        .harness
+        .get_by_label("Gain: type a value")
+        .type_text("3");
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.frames(6);
+    assert!(!lumen.shows("Gain: type a value"));
+    assert!(lumen.app().device_params(FX).is_empty());
+}
+
 #[test]
 fn the_panel_lists_every_parameter_quickly_narrows_by_search_and_stars_onto_the_strip() {
     let mut lumen = launch("panel");

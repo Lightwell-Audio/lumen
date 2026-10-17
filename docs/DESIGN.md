@@ -1037,8 +1037,14 @@ a soft shadow, radius `XL`).
   value in mono. A card is 232 pt wide and 310 pt tall with its picture. An
   empty slot is a dashed ring with a "+" that opens the panel. Drag up or
   right (Shift for fine), double-click for the plugin's default, the wheel and
-  arrow keys; a stepped parameter moves a step at a time; right-click: Reset
-  to default, Remove from strip. Under the knobs one raised button, "All
+  arrow keys; a stepped parameter moves a step at a time. **Typing:** a
+  focused control opens a field in its place when a digit, "-", "+", "." or ","
+  is typed (as the send knob's does), or with Enter, F2 or the right-click
+  "Type a value…" (the plugin's own text, selected); Enter or leaving the
+  field confirms, Esc cancels. The plugin reads the text, so units work
+  ("2.4k"); text it does not understand changes nothing and says so in a
+  note. Right-click: Reset to default, Type a value…, Remove from strip. Under
+  the knobs one raised button, "All
   parameters (N)". A plugin that lists none says so; the built-in synth sends
   you to the track's Instrument menu.
 - **The All parameters panel** (the owner's L1): a `Dialog`, "<device>
@@ -1048,7 +1054,8 @@ a soft shadow, radius `XL`).
   its group in `text_hint`, and a bar (a sunk trough filled to the value with
   the plugin's text at its right). Hidden parameters never show; read-only ones
   show no fill movement and cannot be dragged. Up and down move a highlighted
-  row and Enter stars it. The strip holds eight: a ninth star says so.
+  row and Enter stars it. The strip holds eight: a ninth star says so. A bar
+  is typed into the same way as a knob (the field takes the bar's place).
 - **Chosen:** a 1.5 pt accent edge. Under the pointer: the Ember wash.
 - **Cables:** 2 pt `border_strong` when unlit; the Beam (accent line, `core`
   inside, halo and cast) while the song plays. Dotted for notes. A port is a

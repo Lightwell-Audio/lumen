@@ -587,6 +587,19 @@ impl HostProcess {
         }
     }
 
+    /// The normalized value the plugin reads from the user's text; an error
+    /// when it does not understand it.
+    pub fn param_value(&mut self, id: u32, text: &str, within: Duration) -> Result<f64, HostError> {
+        let request = Request::ParamValue {
+            id,
+            text: text.to_owned(),
+        };
+        match self.call(&request, within)? {
+            Response::Value(value) => Ok(value),
+            _ => Err(HostError::Protocol("expected Value".into())),
+        }
+    }
+
     /// Sets a parameter; the processor hears it in its next block.
     pub fn set_param(&mut self, id: u32, value: f64, within: Duration) -> Result<(), HostError> {
         match self.call(&Request::SetParam { id, value }, within)? {

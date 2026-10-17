@@ -7,7 +7,7 @@ use eframe::egui::{self, Align2, FontId, Rect, Shape, Stroke, Ui, pos2, vec2};
 use eframe::emath::GuiRounding as _;
 use lumen_hosting::ParamInfo;
 
-use crate::widgets::param::{ParamLook, param_knob};
+use crate::widgets::param::{ParamLook, param_knob, start_typing};
 use crate::widgets::{self, raised};
 use crate::{theme, widgets::fit};
 
@@ -38,6 +38,8 @@ pub(super) struct Slot {
 pub(super) enum Output {
     /// A parameter was moved.
     Set(u32, f64),
+    /// The user typed text for a parameter: the plugin reads it.
+    Type(u32, String),
     /// A parameter leaves the strip.
     Remove(u32),
     /// An empty slot was clicked: choose a parameter for it.
@@ -130,6 +132,9 @@ pub(super) fn paint(
                 if let Some(value) = moved.value {
                     out.push(Output::Set(slot.id, value));
                 }
+                if let Some(text) = moved.typed {
+                    out.push(Output::Type(slot.id, text));
+                }
                 let painter = ui.painter();
                 let name = fit(painter, &slot.name, caption.clone(), cell_w - 2.0);
                 painter.text(
@@ -150,6 +155,10 @@ pub(super) fn paint(
                 let (slot_value, slot_default, slot_id_param, read_only) =
                     (slot.value, slot.default, slot.id, slot.read_only);
                 widgets::Menu::context(&response).show(|ui| {
+                    if widgets::menu_item(ui, "Type a value…", None, !read_only).clicked() {
+                        start_typing(ui, slot_id, &slot.text);
+                        ui.close();
+                    }
                     if widgets::menu_item(ui, "Reset to default", None, !read_only).clicked() {
                         if (slot_value - slot_default).abs() > 1e-9 {
                             out.push(Output::Set(slot_id_param, slot_default));

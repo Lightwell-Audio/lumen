@@ -310,6 +310,12 @@ pub enum Request {
         id: u32,
         value: f64,
     },
+    /// The normalized value the plugin reads from text the user typed
+    /// ("2.4 kHz", "-6").
+    ParamValue {
+        id: u32,
+        text: String,
+    },
     /// Set a parameter from Lumen: the controller is told, and the processor
     /// hears it in the next block.
     SetParam {
@@ -357,6 +363,8 @@ pub enum Response {
     },
     Units(Vec<UnitInfo>),
     Text(String),
+    /// A normalized value read from the user's text.
+    Value(f64),
     Edits {
         list: Vec<Edit>,
         /// Edits dropped since the last call because the list was full.
@@ -386,6 +394,7 @@ const REQ_UNITS: u16 = 9;
 const REQ_PARAM_TEXT: u16 = 10;
 const REQ_SET_PARAM: u16 = 11;
 const REQ_TAKE_EDITS: u16 = 12;
+const REQ_PARAM_VALUE: u16 = 13;
 
 const RES_LOADED: u16 = 101;
 const RES_CONFIGURED: u16 = 102;
@@ -398,6 +407,7 @@ const RES_ATTACHED: u16 = 108;
 const RES_UNITS: u16 = 109;
 const RES_TEXT: u16 = 110;
 const RES_EDITS: u16 = 111;
+const RES_VALUE: u16 = 112;
 
 fn put_audio(w: &mut Writer, channels: &[Vec<f32>]) {
     w.u32(channels.len() as u32);
@@ -517,6 +527,11 @@ impl Request {
                 w.u32(*id);
                 w.f64(*value);
                 REQ_PARAM_TEXT
+            }
+            Request::ParamValue { id, text } => {
+                w.u32(*id);
+                w.str(text);
+                REQ_PARAM_VALUE
             }
             Request::SetParam { id, value } => {
                 w.u32(*id);
@@ -643,6 +658,10 @@ impl Request {
                 id: r.u32()?,
                 value: r.f64()?,
             },
+            REQ_PARAM_VALUE => Request::ParamValue {
+                id: r.u32()?,
+                text: r.str("typed value", MAX_TEXT)?,
+            },
             REQ_SET_PARAM => Request::SetParam {
                 id: r.u32()?,
                 value: r.f64()?,
@@ -754,6 +773,10 @@ impl Response {
                 w.str(text);
                 RES_TEXT
             }
+            Response::Value(value) => {
+                w.f64(*value);
+                RES_VALUE
+            }
             Response::Edits {
                 list,
                 dropped,
@@ -830,6 +853,7 @@ impl Response {
                 Response::Units(list)
             }
             RES_TEXT => Response::Text(r.str("text", MAX_TEXT)?),
+            RES_VALUE => Response::Value(r.f64()?),
             RES_EDITS => {
                 let dropped = r.u32()?;
                 let ignored = r.u32()?;
@@ -1050,6 +1074,10 @@ mod tests {
             Request::Parameters,
             Request::Units,
             Request::ParamText { id: 3, value: 0.5 },
+            Request::ParamValue {
+                id: 3,
+                text: "2.4 kHz".into(),
+            },
             Request::SetParam { id: 3, value: 1.0 },
             Request::TakeEdits,
             Request::Attach {
@@ -1122,6 +1150,7 @@ mod tests {
                 },
             ]),
             Response::Text("2.4 kHz".into()),
+            Response::Value(0.25),
             Response::Edits {
                 list: vec![
                     Edit {
