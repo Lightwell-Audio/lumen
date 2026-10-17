@@ -110,6 +110,23 @@ impl Manager {
         }
     }
 
+    /// Sets a parameter of the device's plugin (normalized, 0 to 1). The
+    /// plugin's controller is told and the processor hears it at the start of
+    /// its next block. Does nothing for a device with no host.
+    pub fn set_param(&self, device: u64, id: u32, value: f64) {
+        if let Some(entry) = self.entries.get(&device) {
+            entry.process.set_param(id, value);
+        }
+    }
+
+    /// Asks the device's plugin for its text for a value; the answer comes
+    /// from [`Manager::poll`] as [`crate::Happened::Text`].
+    pub fn param_text(&self, device: u64, id: u32, value: f64) {
+        if let Some(entry) = self.entries.get(&device) {
+            entry.process.param_text(id, value);
+        }
+    }
+
     /// Whether `device` has a host started for it (loading, running or failed).
     pub fn has(&self, device: u64) -> bool {
         self.entries.contains_key(&device)

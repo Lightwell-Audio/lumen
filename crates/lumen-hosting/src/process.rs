@@ -13,10 +13,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use lumen_devices::MOST_FRAMES;
 use lumen_plugin_host::client::{ExitKind, HostError, HostProcess};
+use lumen_plugin_host::protocol::{ParamInfo, Taken, UnitInfo};
 use lumen_plugin_host::shm::{Layout, Wake};
 
 use crate::link::{Counts, Link};
@@ -146,6 +147,9 @@ pub struct Start {
     pub instrument: bool,
     /// The saved component state, restored at load; empty for none.
     pub state: Vec<u8>,
+    /// Parameter values set after the state is restored, as `(id,
+    /// normalized value)`: what the project holds over the saved state.
+    pub values: Vec<(u32, f64)>,
     pub rate: f64,
     /// The longest block the plugin is promised: the device's block, at most
     /// the engine's [`MOST_FRAMES`]. Some plugins size their work by it on
@@ -174,6 +178,7 @@ impl Start {
             class,
             instrument,
             state: Vec::new(),
+            values: Vec::new(),
             rate,
             frames: MOST_FRAMES as u32,
             env: Vec::new(),
@@ -190,6 +195,12 @@ pub enum Happened {
     Linked(Box<Linked>),
     /// The device has no host and will not get one without a reload.
     Failed(Failure),
+    /// The plugin's parameters changed from inside (its own window, or the
+    /// processor reporting a value), or events it has no parameter for were
+    /// dropped. Sent only when there is something to say.
+    Edits(Taken),
+    /// The plugin's own text for a value that was asked for.
+    Text { id: u32, value: f64, text: String },
 }
 
 pub struct Linked {
@@ -201,6 +212,11 @@ pub struct Linked {
     pub tail: u32,
     /// The longest block the plugin was promised.
     pub frames: u32,
+    /// The plugin's parameters as they were when it loaded (capped), the
+    /// plugin's own count, and the groups they sit in.
+    pub params: Vec<ParamInfo>,
+    pub params_total: u32,
+    pub units: Vec<UnitInfo>,
     pub pid: u32,
     /// What the host says about itself: how long its first blocks took, and
     /// where it died if it does. For the card when the plugin is given up on.
@@ -221,8 +237,44 @@ enum Command {
     /// A fresh link, at a rate and a longest block, for a new engine or a
     /// new device block size.
     Relink(f64, u32),
+    /// Set a parameter (normalized): the plugin's controller is told and the
+    /// processor hears it at the start of its next block.
+    Set(u32, f64),
+    /// Ask the plugin for its text for a value.
+    Text(u32, f64),
     Quit,
 }
+
+/// Drops the commands a later one makes pointless: of several values set for
+/// one parameter, only the last matters (a drag sends many), and of several
+/// asks for one parameter's text, the last. Order is otherwise kept.
+fn coalesce(commands: Vec<Command>) -> Vec<Command> {
+    let mut keep = vec![true; commands.len()];
+    for (i, c) in commands.iter().enumerate() {
+        let later = commands[i + 1..].iter();
+        let superseded = match c {
+            Command::Set(id, _) => later
+                .into_iter()
+                .any(|d| matches!(d, Command::Set(other, _) if other == id)),
+            Command::Text(id, _) => later
+                .into_iter()
+                .any(|d| matches!(d, Command::Text(other, _) if other == id)),
+            _ => false,
+        };
+        keep[i] = !superseded;
+    }
+    commands
+        .into_iter()
+        .zip(keep)
+        .filter_map(|(c, k)| k.then_some(c))
+        .collect()
+}
+
+/// How often a running host is asked for the edits made inside it.
+const EDIT_POLL: Duration = Duration::from_millis(25);
+/// How long an ask for edits or text may take; a miss is only a miss (the
+/// audio side finds a host that has stopped answering).
+const QUICK: Duration = Duration::from_millis(300);
 
 /// A permit to load: only a few plugins load at once, as the scanner's.
 pub(crate) struct Gate {
@@ -300,6 +352,17 @@ impl Process {
         let _ = self.commands.send(Command::Relink(rate, frames));
     }
 
+    /// Sets a parameter of the plugin (normalized, 0 to 1).
+    pub fn set_param(&self, id: u32, value: f64) {
+        let _ = self.commands.send(Command::Set(id, value));
+    }
+
+    /// Asks for the plugin's text for a value; the answer comes as
+    /// [`Happened::Text`].
+    pub fn param_text(&self, id: u32, value: f64) {
+        let _ = self.commands.send(Command::Text(id, value));
+    }
+
     /// Asks the host to quit and waits for the thread.
     pub fn join(mut self) {
         let _ = self.commands.send(Command::Quit);
@@ -353,6 +416,9 @@ struct Up {
     name: String,
     vendor: String,
     generation: u32,
+    params: Vec<ParamInfo>,
+    params_total: u32,
+    units: Vec<UnitInfo>,
 }
 
 impl Run {
@@ -376,22 +442,48 @@ impl Run {
             }
         };
         let d = self.start.deadlines;
+        let mut polled = Instant::now();
         loop {
-            match self.requests.recv_timeout(Duration::from_millis(10)) {
-                Ok(Command::Relink(rate, frames)) => match self.relink(&mut up, rate, frames) {
-                    Ok(linked) => self.say(Happened::Linked(Box::new(linked))),
-                    Err(failure) => {
-                        self.ended.store(true, Ordering::Release);
-                        up.host.kill();
-                        self.say(Happened::Failed(failure));
+            let mut commands = match self.requests.recv_timeout(Duration::from_millis(10)) {
+                Ok(first) => vec![first],
+                Err(RecvTimeoutError::Timeout) => Vec::new(),
+                Err(RecvTimeoutError::Disconnected) => vec![Command::Quit],
+            };
+            while let Ok(more) = self.requests.try_recv() {
+                commands.push(more);
+            }
+            for command in coalesce(commands) {
+                match command {
+                    Command::Relink(rate, frames) => match self.relink(&mut up, rate, frames) {
+                        Ok(linked) => self.say(Happened::Linked(Box::new(linked))),
+                        Err(failure) => {
+                            self.ended.store(true, Ordering::Release);
+                            up.host.kill();
+                            self.say(Happened::Failed(failure));
+                            return;
+                        }
+                    },
+                    Command::Set(id, value) => {
+                        let _ = up.host.set_param(id, value, QUICK);
+                    }
+                    Command::Text(id, value) => {
+                        if let Ok(text) = up.host.param_text(id, value, QUICK) {
+                            self.say(Happened::Text { id, value, text });
+                        }
+                    }
+                    Command::Quit => {
+                        up.host.quit(d.quit);
                         return;
                     }
-                },
-                Ok(Command::Quit) | Err(RecvTimeoutError::Disconnected) => {
-                    up.host.quit(d.quit);
-                    return;
                 }
-                Err(RecvTimeoutError::Timeout) => {}
+            }
+            if polled.elapsed() >= EDIT_POLL && !up.host.has_ended() {
+                polled = Instant::now();
+                if let Ok(taken) = up.host.take_edits(QUICK)
+                    && (!taken.list.is_empty() || taken.dropped > 0 || taken.ignored > 0)
+                {
+                    self.say(Happened::Edits(taken));
+                }
             }
             if up.host.has_ended() {
                 self.ended.store(true, Ordering::Release);
@@ -444,11 +536,24 @@ impl Run {
             host.set_state(s.state.clone(), s.deadlines.state)
                 .map_err(|e| self.fail(&mut host, Step::State, e))?;
         }
+        for &(id, value) in &s.values {
+            host.set_param(id, value, s.deadlines.state)
+                .map_err(|e| self.fail(&mut host, Step::State, e))?;
+        }
+        // The parameters are for the interface: a plugin whose controller
+        // will not list them still plays.
+        let (params_total, params) = host
+            .parameters(s.deadlines.state)
+            .unwrap_or((0, Vec::new()));
+        let units = host.units(s.deadlines.state).unwrap_or_default();
         let mut up = Up {
             host,
             name: class.name,
             vendor: class.vendor,
             generation: 0,
+            params,
+            params_total,
+            units,
         };
         let linked = self.configure_and_link(&mut up, s.rate, s.frames)?;
         Ok((up, linked))
@@ -489,6 +594,9 @@ impl Run {
             latency,
             tail,
             frames,
+            params: up.params.clone(),
+            params_total: up.params_total,
+            units: up.units.clone(),
             pid: up.host.id(),
             log: up.host.log(),
         })
@@ -532,6 +640,36 @@ mod tests {
     }
 
     use std::sync::atomic::AtomicUsize;
+
+    fn describe(commands: &[Command]) -> Vec<String> {
+        commands
+            .iter()
+            .map(|c| match c {
+                Command::Set(id, v) => format!("set {id}={v}"),
+                Command::Text(id, v) => format!("text {id}={v}"),
+                Command::Relink(..) => "relink".into(),
+                Command::Quit => "quit".into(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_drag_of_one_parameter_is_one_value_and_the_order_of_the_rest_is_kept() {
+        let kept = coalesce(vec![
+            Command::Set(1, 0.1),
+            Command::Set(2, 0.5),
+            Command::Text(1, 0.1),
+            Command::Set(1, 0.2),
+            Command::Relink(48_000.0, 128),
+            Command::Text(1, 0.2),
+            Command::Set(1, 0.3),
+            Command::Quit,
+        ]);
+        assert_eq!(
+            describe(&kept),
+            ["set 2=0.5", "relink", "text 1=0.2", "set 1=0.3", "quit"]
+        );
+    }
 
     #[test]
     fn the_gate_lets_only_its_permits_through_at_once() {
