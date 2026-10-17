@@ -33,8 +33,8 @@ use vst3::{ComPtr, ComWrapper, Interface};
 use crate::com::{self, Changes, EventList, Handler, MemoryStream, NoOutputChanges};
 use crate::module::{AUDIO_CLASS, Module, to_tuid};
 use crate::protocol::{
-    ClassId, ClassInfo, Event, EventKind, MAX_CHANNELS, MAX_PARAMETERS, MAX_STATE, ParamInfo,
-    ParamQueue,
+    ClassId, ClassInfo, Event, EventKind, MAX_CHANNELS, MAX_FRAMES, MAX_PARAMETERS, MAX_STATE,
+    ParamInfo, ParamQueue,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,6 +88,13 @@ pub struct Done {
     pub latency: u32,
     pub restart: u32,
     pub repaired: u32,
+}
+
+/// A stretch of a block: where it starts and how long it is, in frames.
+#[derive(Debug, Clone, Copy)]
+struct Span {
+    start: usize,
+    len: usize,
 }
 
 /// Channel buffers for [`Instance::process_into`].
@@ -564,6 +571,11 @@ impl Instance {
     /// the busiest block. `buffers` holds one `Vec` per channel, each at
     /// least `frames` long; the output is zeroed first and, afterwards,
     /// anything not finite in it has been replaced by silence.
+    ///
+    /// A block longer than the plugin was configured for (a driver that
+    /// delivered more than its stated buffer) is given to the plugin in
+    /// pieces it accepts, each with the events and parameter points that
+    /// fall in it: a plugin is never handed more than it was promised.
     pub fn process_into(
         &mut self,
         frames: u32,
@@ -575,8 +587,8 @@ impl Instance {
             .format
             .filter(|_| self.processing)
             .ok_or(InstanceError::Sequence("not configured"))?;
-        if frames == 0 || frames > format.max_frames {
-            return Err(plugin("block longer than the configured maximum"));
+        if frames == 0 || frames as usize > MAX_FRAMES {
+            return Err(plugin("block longer than the protocol allows"));
         }
         let n = frames as usize;
         if buffers.input.len() != usize::from(format.inputs)
@@ -586,24 +598,69 @@ impl Instance {
         {
             return Err(plugin("buffers do not match the format"));
         }
+        let most = (format.max_frames as usize).max(1);
+        let mut done = Done {
+            status: 0,
+            latency: self.latency,
+            restart: 0,
+            repaired: 0,
+        };
+        let mut start = 0;
+        while start < n {
+            let span = Span {
+                start,
+                len: most.min(n - start),
+            };
+            let piece = self.process_span(format, span, buffers, events, params);
+            if done.status == 0 {
+                done.status = piece.status;
+            }
+            done.latency = piece.latency;
+            done.restart |= piece.restart;
+            done.repaired += piece.repaired;
+            start += span.len;
+        }
+        Ok(done)
+    }
+
+    /// One call of the plugin's `process` over `span` of the buffers, checked
+    /// by [`Self::process_into`].
+    fn process_span(
+        &mut self,
+        format: Format,
+        span: Span,
+        buffers: &mut Buffers,
+        events: &[Event],
+        params: &[ParamQueue],
+    ) -> Done {
+        let Span { start, len: n } = span;
+        let end = start + n;
         // The pointers live on the stack: a main bus has at most
         // `MAX_CHANNELS` channels, checked when the format was set.
         let mut in_ptrs = [ptr::null_mut::<f32>(); MAX_CHANNELS];
         let mut out_ptrs = [ptr::null_mut::<f32>(); MAX_CHANNELS];
         for (slot, channel) in in_ptrs.iter_mut().zip(&mut buffers.input) {
-            *slot = channel.as_mut_ptr();
+            *slot = channel[start..].as_mut_ptr();
         }
         for (slot, channel) in out_ptrs.iter_mut().zip(&mut buffers.output) {
-            channel[..n].fill(0.0);
-            *slot = channel.as_mut_ptr();
+            channel[start..end].fill(0.0);
+            *slot = channel[start..].as_mut_ptr();
         }
         let (ins, outs) = (buffers.input.len(), buffers.output.len());
 
         let notes = &mut self.notes;
-        self.events_in
-            .set(events.iter().map(|e| vst_event(e, notes)));
+        self.events_in.set(
+            events
+                .iter()
+                .filter(|e| (start..end).contains(&(e.offset as usize)))
+                .map(|e| {
+                    let mut event = vst_event(e, notes);
+                    event.sampleOffset -= start as i32;
+                    event
+                }),
+        );
         self.events_out.set([]);
-        self.changes.set(params);
+        self.changes.set_span(params, start as u32, n as u32);
 
         // An entry for every bus the plugin declares; only the main bus of
         // each direction carries audio, the rest are off (no channels).
@@ -633,7 +690,7 @@ impl Instance {
         let mut data = ProcessData {
             processMode: kRealtime as i32,
             symbolicSampleSize: kSample32 as i32,
-            numSamples: frames as i32,
+            numSamples: n as i32,
             numInputs: self.in_buses as i32,
             numOutputs: self.out_buses as i32,
             inputs: if self.in_buses == 0 {
@@ -656,13 +713,13 @@ impl Instance {
         // caller lent for this call, or objects owned by the instance, and
         // outlives the call.
         let status = unsafe { self.processor.process(&mut data) };
-        self.context.projectTimeSamples += i64::from(frames);
+        self.context.projectTimeSamples += n as i64;
 
         // A plugin's output is untrusted: anything not finite becomes
         // silence before it can reach a mixer.
         let mut repaired = 0;
         for channel in &mut buffers.output {
-            for s in &mut channel[..n] {
+            for s in &mut channel[start..end] {
                 if !s.is_finite() {
                     *s = 0.0;
                     repaired += 1;
@@ -675,12 +732,12 @@ impl Instance {
         // asked to be restarted (a graph rebuild is the caller's to do).
         // SAFETY: a plain call on a live processor.
         self.latency = unsafe { self.processor.getLatencySamples() };
-        Ok(Done {
+        Done {
             status,
             latency: self.latency,
             restart,
             repaired,
-        })
+        }
     }
 
     /// The component's saved state.

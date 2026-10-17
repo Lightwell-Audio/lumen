@@ -147,6 +147,10 @@ pub struct Start {
     /// The saved component state, restored at load; empty for none.
     pub state: Vec<u8>,
     pub rate: f64,
+    /// The longest block the plugin is promised: the device's block, at most
+    /// the engine's [`MOST_FRAMES`]. Some plugins size their work by it on
+    /// every call, so it is the device's, not a generous ceiling (ADR-0075).
+    pub frames: u32,
     /// Added to the host's environment (the test plugin's faults).
     pub env: Vec<(String, String)>,
     pub deadlines: Deadlines,
@@ -171,6 +175,7 @@ impl Start {
             instrument,
             state: Vec::new(),
             rate,
+            frames: MOST_FRAMES as u32,
             env: Vec::new(),
             deadlines: Deadlines::default(),
             wake: WAKE,
@@ -194,6 +199,8 @@ pub struct Linked {
     /// What the plugin reports, in frames at the rate it was configured at.
     pub latency: u32,
     pub tail: u32,
+    /// The longest block the plugin was promised.
+    pub frames: u32,
     pub pid: u32,
     /// What the host says about itself: how long its first blocks took, and
     /// where it died if it does. For the card when the plugin is given up on.
@@ -211,8 +218,9 @@ impl fmt::Debug for Linked {
 }
 
 enum Command {
-    /// A fresh link, at `rate`, for a new engine.
-    Relink(f64),
+    /// A fresh link, at a rate and a longest block, for a new engine or a
+    /// new device block size.
+    Relink(f64, u32),
     Quit,
 }
 
@@ -286,9 +294,10 @@ impl Process {
         })
     }
 
-    /// Asks for a fresh link at `rate`, for a new engine.
-    pub fn relink(&self, rate: f64) {
-        let _ = self.commands.send(Command::Relink(rate));
+    /// Asks for a fresh link at `rate`, promising the plugin blocks of at
+    /// most `frames`.
+    pub fn relink(&self, rate: f64, frames: u32) {
+        let _ = self.commands.send(Command::Relink(rate, frames));
     }
 
     /// Asks the host to quit and waits for the thread.
@@ -369,7 +378,7 @@ impl Run {
         let d = self.start.deadlines;
         loop {
             match self.requests.recv_timeout(Duration::from_millis(10)) {
-                Ok(Command::Relink(rate)) => match self.relink(&mut up, rate) {
+                Ok(Command::Relink(rate, frames)) => match self.relink(&mut up, rate, frames) {
                     Ok(linked) => self.say(Happened::Linked(Box::new(linked))),
                     Err(failure) => {
                         self.ended.store(true, Ordering::Release);
@@ -441,19 +450,22 @@ impl Run {
             vendor: class.vendor,
             generation: 0,
         };
-        let linked = self.configure_and_link(&mut up, s.rate)?;
+        let linked = self.configure_and_link(&mut up, s.rate, s.frames)?;
         Ok((up, linked))
     }
 
     /// Configures at `rate` (a new generation) and opens a link. The plugin
-    /// is told its blocks are at most the engine's [`MOST_FRAMES`], never
-    /// the protocol's limit: some plugins work in proportion to it.
-    fn configure_and_link(&self, up: &mut Up, rate: f64) -> Result<Linked, Failure> {
+    /// is promised blocks of at most `frames` (the device's), never the
+    /// protocol's limit: some plugins work in proportion to it. The link has
+    /// room for the engine's longest block; a longer block than promised is
+    /// given to the plugin in pieces by the host.
+    fn configure_and_link(&self, up: &mut Up, rate: f64, frames: u32) -> Result<Linked, Failure> {
         let s = &self.start;
         let inputs = if s.instrument { 0 } else { 2 };
+        let frames = frames.clamp(1, MOST_FRAMES as u32);
         let (latency, tail) = up
             .host
-            .configure(rate, MOST_FRAMES as u32, inputs, 2, s.deadlines.configure)
+            .configure(rate, frames, inputs, 2, s.deadlines.configure)
             .map_err(|e| self.fail(&mut up.host, Step::Configure, e))?;
         up.generation = up.host.generation();
         let block = up
@@ -476,13 +488,14 @@ impl Run {
             vendor: up.vendor.clone(),
             latency,
             tail,
+            frames,
             pid: up.host.id(),
             log: up.host.log(),
         })
     }
 
-    fn relink(&self, up: &mut Up, rate: f64) -> Result<Linked, Failure> {
-        self.configure_and_link(up, rate)
+    fn relink(&self, up: &mut Up, rate: f64, frames: u32) -> Result<Linked, Failure> {
+        self.configure_and_link(up, rate, frames)
     }
 }
 

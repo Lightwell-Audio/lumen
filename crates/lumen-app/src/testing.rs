@@ -338,6 +338,12 @@ impl App {
         })
     }
 
+    /// The longest block a plugin device was promised (the device's block,
+    /// at most the engine's), once its host has linked.
+    pub fn device_promised_frames(&self, device: Id) -> Option<u32> {
+        self.hosting.promised(device)
+    }
+
     /// Shows the audio panel's block budget with these plugins, whatever
     /// runs, for screenshots: a block of `block_us` that used `used_us`, and
     /// each plugin's name, place, work and wait (microseconds a block) and

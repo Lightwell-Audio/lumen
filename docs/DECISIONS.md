@@ -147,6 +147,7 @@ irreversible or external) · *Superseded*.
 | The engine's host path (M6 slice 2b, 2026-10-16) | Plan approved with **B1** (two or more hosted effects on one track, and effects on a group, run one after another in 2b; measured in 2f), **B2** (an effect's tail is cut at Stop until slice 6, which builds real tails) and **B3** (the clock is read for the callback's deadline only when a host is attached, so projects without plugins cost what they did). Plan in `docs/milestones/M6.md`. |
 | Plugins that ring out (fix, 2026-10-17; ADR-0074) | The owner reported a synth and an amp plugin cut off a second or two after the last note, and a high CPU reading while playing. Pitched A (run every plugin all the time) and B (run each until its output has been quiet), recommended B, **chosen: B**. Partly reverses **B2** above: a plugin effect's tail now rings out after Stop. The CPU readout's average and per-plugin time are a separate change, to show as a mock-up first. |
 | Missed plugin blocks (fix, 2026-10-17; ADR-0075) | The owner reported CPU 70 to 100% and pops with two plugins on one track. Proposed: keep a busy host's notes, run hosts at full speed, measure each plugin's work and wait, then a readout. **Chosen: all three, and readout B** (a block budget bar in the audio popover) over A (a table) and C (on the device cards), with every plugin listed in a scrolling list for long chains. Mock-ups use generic device names, never real plugin names. The audio-path change waits on the readout's numbers. |
+| Plugins' largest block (fix, 2026-10-17; ADR-0075) | The amp plugin did six times the work because it was promised 8192-frame blocks. Pitched A (always promise 256, the engine's largest) and B (promise the device's block, at most 256, and set plugins up again when the buffer size changes), recommended B, **chosen: B**. |
 | The hosting manager (M6 slice 2c, 2026-10-16) | Plan approved with **C1** (a plugin instrument receives notes only in 2c; controllers, bend, pressure and program are dropped and counted until parameters in slice 3), **C2** (the last reported latency and tail are written into the device when the host reports a different value, as a change that is not an undo step but marks the project changed) and **C3** (removing a device ends its process at once; undo starts a new one). Plan in `docs/milestones/M6.md`. |
 | MIDI learn moved to M7 (M5, 2026-10-13) | Asked, as recommended: **MIDI learn and its mapping list move to M7**, built with automation, where M6 and M7 define the parameters it maps and a mapped controller writes automation through the same path as Lumen's controls (Touch and Latch). M5 slice 7 keeps Standard MIDI Files and MIDI clock out (plan in `docs/milestones/M5.md`). Its choices, asked in chat, all as recommended: **F1 A** a multi-track file dropped on a track merges into one clip there, dropped between tracks or on empty lanes makes one MIDI track per file track (type 0 split by channel); **F2 A** notes are placed in beats and the project tempo is untouched, with a notice offering "Use them" for the file's tempo map and first time signature (one undo step); **F3 A** clock runs only while playing; **F4 A** a Sync delay per port, −20 to +50 ms. MTC out [S] is deferred, unscheduled. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
@@ -6800,3 +6801,22 @@ change of buffer size needs no reconfiguring. The earlier bench (14 µs) gave
 the amp no input, which is why it showed nothing. Test: `lumen-hosting`'s
 `hosting` asserts the link's largest block. **To verify:** the owner's
 MT-VST-B step 7.
+
+**The device's block (2026-10-17, the owner's B).** Pitched: A, always promise
+256 (no restart when the buffer size changes); B, promise the device's block,
+at most 256, and set every plugin up again when the buffer size changes
+(recommended: what hosts usually do, and nothing left to a plugin that does
+more at 256 than at 128). **Chosen: B.** `hosting::promised_frames(block)` is
+the device's `buffer_frames` capped at `MOST_FRAMES` (256 while no stream is
+open); `Hosting::update` takes the rate and block and relinks every host when
+either changes (`Manager::relink_all(rate, frames)`, `Start::frames`,
+`Linked::frames`). The shared region keeps room for 256, and the host gives a
+plugin a longer block than it was promised in pieces it accepts, each with its
+events and parameter points (`Instance::process_into`), so a driver that
+delivers more than its stated buffer cannot break a plugin's contract.
+Tests: `shm::a_block_longer_than_the_plugin_was_promised_is_played_in_pieces_exactly`
+(the same output, sample for sample, as one call to a plugin promised the
+whole block), `hosting` (a relink promises the new block, and a longer block
+still plays), `promised_frames` units, and the E2E scenario
+`hosting::plugins_are_promised_the_devices_block_and_follow_a_new_buffer_size`
+(fails without the relink on a new block size).

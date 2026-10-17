@@ -109,7 +109,7 @@ fn run(mut link: HostLink, shared: &Shared) {
                     let fits = instance.format().is_some_and(|f| {
                         f.inputs == layout.inputs
                             && f.outputs == layout.outputs
-                            && n <= f.max_frames
+                            && n <= layout.max_frames
                     });
                     if current != generation {
                         Outcome::Stale

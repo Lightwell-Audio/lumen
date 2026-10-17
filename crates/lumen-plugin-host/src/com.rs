@@ -448,7 +448,10 @@ impl Changes {
         }
     }
 
-    pub fn set(&self, params: &[ParamQueue]) {
+    /// The points of `params` in `len` frames from `start`, moved to start
+    /// at 0: one piece of a block given to the plugin in pieces.
+    pub fn set_span(&self, params: &[ParamQueue], start: u32, len: u32) {
+        let end = start.saturating_add(len);
         let Ok(mut queues) = self.queues.lock() else {
             return;
         };
@@ -461,8 +464,13 @@ impl Changes {
             if let Ok(mut data) = queue.data.lock() {
                 data.0 = param.id;
                 data.1.clear();
-                data.1
-                    .extend(param.points.iter().map(|&(at, v)| (at as int32, v)));
+                data.1.extend(
+                    param
+                        .points
+                        .iter()
+                        .filter(|&&(at, _)| (start..end).contains(&at))
+                        .map(|&(at, v)| ((at - start) as int32, v)),
+                );
             }
         }
         self.live.store(params.len() as u32, Ordering::Release);

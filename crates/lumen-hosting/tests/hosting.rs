@@ -92,8 +92,10 @@ fn an_effect_processes_the_audio_it_is_given_and_reports_its_latency() {
     manager.want(2, effect("")).unwrap();
     let mut linked = linked(&mut manager, 2);
     let mut piped = pipe(false);
-    // The plugin is told the engine's largest block, not the protocol's:
-    // some plugins work in proportion to it on every call (ADR-0075).
+    // Unless told the device's block, the plugin is promised the engine's
+    // largest, never the protocol's: some plugins work in proportion to it
+    // on every call (ADR-0075). The link has room for the engine's largest.
+    assert_eq!(linked.frames as usize, lumen_devices::MOST_FRAMES);
     assert_eq!(
         linked.link.most_frames() as usize,
         lumen_devices::MOST_FRAMES
@@ -400,9 +402,10 @@ fn a_fresh_link_for_a_new_engine_plays_at_the_new_rate_and_the_old_one_is_stale(
     let events = [note_on(0, 69)];
     let (at_48k, ..) = play(&mut first.link, 128, &[], &events);
 
-    manager.relink_all(44_100.0);
+    manager.relink_all(44_100.0, 128);
     let mut second = linked(&mut manager, 1);
     assert_eq!(second.pid, first.pid, "the same host process");
+    assert_eq!(second.frames, 128, "promised the device's block");
     let (at_44k, ..) = play(&mut second.link, 128, &[], &events);
     assert_ne!(at_48k, at_44k, "the new rate changes the note's phase step");
 
@@ -413,6 +416,11 @@ fn a_fresh_link_for_a_new_engine_plays_at_the_new_rate_and_the_old_one_is_stale(
         .process(128, vec![], host_notes(&events), vec![], SLOW)
         .unwrap();
     assert_eq!(at_44k, expected.output[0]);
+
+    // A block longer than promised (a driver that delivered more) is still
+    // played: the host hands the plugin pieces it accepts.
+    let (_, _, reply) = play(&mut second.link, 256, &[], &events);
+    assert!(matches!(reply, Some(Reply::Ready { .. })), "{reply:?}");
 
     // A block on the old link is for an old configuration: no sound.
     let (_, _, reply) = play(&mut first.link, 128, &[], &events);

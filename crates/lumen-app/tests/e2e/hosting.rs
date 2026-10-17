@@ -575,3 +575,27 @@ fn the_audio_panel_shows_each_plugins_work_in_the_block_budget() {
         assert!((2.5..10.0).contains(&work), "{label}");
     }
 }
+
+#[test]
+fn plugins_are_promised_the_devices_block_and_follow_a_new_buffer_size() {
+    // Owner (2026-10-17, ADR-0075, option B): a plugin is told the device's
+    // block size, not a ceiling far above it, and is set up again when the
+    // buffer size changes. The scenarios run 1024-frame blocks, which the
+    // engine hands plugins as 256 at most.
+    let project = project(|d| *d = vec![quiet_effect(PLUGIN)]);
+    let mut lumen = launch("promised", &project, &["Plug"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    lumen.wait_for("the plugin promised 256 frames", |app| {
+        app.device_promised_frames(PLUGIN) == Some(256)
+    });
+    lumen.click("Lumen");
+    lumen.click("Audio and MIDI settings\u{2026}");
+    lumen.frames(5);
+    lumen.harness.get_by_label_contains("Buffer size: ").click();
+    lumen.frames(3);
+    lumen.click("64 samples");
+    lumen.wait_for("the plugin promised 64 frames", |app| {
+        app.device_promised_frames(PLUGIN) == Some(64)
+    });
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+}
