@@ -41,29 +41,29 @@ fn would_loop(project: &Project, id: Id, output: Output) -> bool {
 
 /// A strip's row that opens a menu (the output, and a MIDI track's From and
 /// To): `text` shortened to fit beside an arrow, named `name`, with `tip` on
-/// hover. `salt` tells the rows of one strip apart.
+/// hover. `part` names the row, to tell the rows of one strip apart.
 pub(super) fn row_button(
     ui: &mut Ui,
     row: Rect,
     id: EguiId,
-    salt: &str,
+    part: &str,
     text: &str,
     name: &str,
     tip: &str,
 ) -> egui::Response {
     let palette = *theme::p();
     let response = ui
-        .interact(row, id.with(salt), Sense::click())
+        .interact(row, id.with(part), Sense::click())
         .on_hover_text(tip);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, name));
-    let hover = motion::hover(ui.ctx(), id.with((salt, "hover")), response.hovered());
+    let hover = motion::hover(ui.ctx(), id.with((part, "hover")), response.hovered());
     let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&response));
     // A raised combo (ADR-0052), on while its menu is open.
     let face = raised::Face::new(theme::controls(false))
         .hover(hover)
         .pressed(response.is_pointer_button_down_on())
         .lit(
-            motion::hover(ui.ctx(), id.with((salt, "open")), open),
+            motion::hover(ui.ctx(), id.with((part, "open")), open),
             Tone::On,
         );
     let row = row.round_to_pixels(ui.pixels_per_point());
