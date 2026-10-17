@@ -17,6 +17,8 @@
 //! | `state_hang` | saving state never returns |
 //! | `bad_buses` | the output bus reports an absurd channel count |
 //! | `bad_params` | the controller reports millions of duplicate parameters |
+//! | `needs_message` | `initialize` asks the host for a message object (and its attribute list) and crashes if it gets none: what plugins with a separate controller do |
+//! | `aux_buses` | the instrument declares one main and three auxiliary output buses (the auxiliary ones off by default) and crashes in `process` unless the host passes all four |
 //! | `editor` | the controller offers an editor view (Windows): a text field to type in, a resize button, user resizing and a scale readout; without it there is no view |
 //! | `editor_hang=MS` | as `editor`, and the editor's window thread stops answering `MS` milliseconds after it is attached |
 //!
@@ -41,6 +43,8 @@ pub enum Kind {
     StateHang,
     BadBuses,
     BadParams,
+    NeedsMessage,
+    AuxBuses,
     Editor,
     EditorHang,
 }
@@ -83,6 +87,8 @@ impl Faults {
                 "state_hang" => Kind::StateHang,
                 "bad_buses" => Kind::BadBuses,
                 "bad_params" => Kind::BadParams,
+                "needs_message" => Kind::NeedsMessage,
+                "aux_buses" => Kind::AuxBuses,
                 "editor" => Kind::Editor,
                 "editor_hang" => Kind::EditorHang,
                 _ => return Err(format!("`{entry}`: unknown fault")),

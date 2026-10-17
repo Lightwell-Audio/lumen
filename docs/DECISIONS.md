@@ -6465,6 +6465,20 @@ now gives its setup thread single-threaded COM and its audio thread
 multi-threaded COM on Windows, which plugins expect of a host; whether that
 cures these two is unconfirmed until the owner reloads them (KNOWN_ISSUES).
 
+**Second amendment, 2026-10-17 (the owner's next run: still failing).** The
+cards now named the cause: an access violation, in RP-1 while running and in
+RP-2 while loading. The host was reviewed against what a real plugin expects of
+it, and the test plugin gained two behaviours that demand it (`needs_message`,
+`aux_buses`; `crates/lumen-plugin-host/tests/conformance.rs`), both crashing
+the old host and passing the new one: the host's `createInstance` makes an
+`IMessage` and an `IAttributeList` (`com.rs`); `setBusArrangements` and the
+process data carry an entry for every audio bus the plugin declares, only the
+main one on (`instance.rs`, at most 32 each way); the factory is given the host
+context; the process context carries a 4/4 time signature. Still not done, and
+the next suspects if these plugins fail again: aligned buffers, the host's
+stack size, a licence or copy-protection check, `IComponentHandler2`/`3`,
+and setting the controller's state from the component's.
+
 **Not built, and said so.** Moving between cards with the arrow keys (cards
 and their power buttons are Tab stops); reordering, copying and the preset menu
 (slice 3); the master's chain (a refusal says so); snapshots of the plugin's own

@@ -12,7 +12,9 @@ use std::sync::atomic::Ordering;
 use vst3::Steinberg::Vst::BusDirections_::{kInput, kOutput};
 use vst3::Steinberg::Vst::Event_::EventTypes_::{kNoteOffEvent, kNoteOnEvent};
 use vst3::Steinberg::Vst::MediaTypes_::{kAudio, kEvent};
-use vst3::Steinberg::Vst::ProcessContext_::StatesAndFlags_::{kPlaying, kTempoValid};
+use vst3::Steinberg::Vst::ProcessContext_::StatesAndFlags_::{
+    kPlaying, kTempoValid, kTimeSigValid,
+};
 use vst3::Steinberg::Vst::ProcessModes_::kRealtime;
 use vst3::Steinberg::Vst::SymbolicSampleSizes_::kSample32;
 use vst3::Steinberg::Vst::{
@@ -22,7 +24,10 @@ use vst3::Steinberg::Vst::{
     IParameterChanges, NoteOffEvent, NoteOnEvent, ParameterInfo, ProcessContext, ProcessData,
     ProcessSetup, SpeakerArr, SpeakerArrangement,
 };
-use vst3::Steinberg::{IPlugView, IPluginBaseTrait, IPluginFactoryTrait, TUID, kResultOk};
+use vst3::Steinberg::{
+    IPlugView, IPluginBaseTrait, IPluginFactory3, IPluginFactory3Trait, IPluginFactoryTrait, TUID,
+    kResultOk,
+};
 use vst3::{ComPtr, ComWrapper, Interface};
 
 use crate::com::{self, Changes, EventList, Handler, MemoryStream, NoOutputChanges};
@@ -108,11 +113,30 @@ pub struct Instance {
     changes_ptr: ComPtr<IParameterChanges>,
     no_changes_out: ComPtr<IParameterChanges>,
     context: ProcessContext,
+    /// How many audio buses the plugin declares each way. The process data
+    /// carries an entry for every one, those that are off included.
+    in_buses: usize,
+    out_buses: usize,
     format: Option<Format>,
     processing: bool,
     latency: u32,
     // Kept alive for the component's life.
     _host: ComPtr<vst3::Steinberg::Vst::IHostApplication>,
+}
+
+/// The most audio buses a plugin may declare each way. Multi-output
+/// instruments declare a handful to a few dozen.
+const MAX_BUSES: usize = 32;
+
+/// A bus entry with nothing in it: what an off bus is given.
+fn empty_bus() -> AudioBusBuffers {
+    AudioBusBuffers {
+        numChannels: 0,
+        silenceFlags: 0,
+        __field0: AudioBusBuffers__type0 {
+            channelBuffers32: ptr::null_mut(),
+        },
+    }
 }
 
 fn speakers(channels: u8) -> Result<SpeakerArrangement, InstanceError> {
@@ -138,6 +162,15 @@ impl Instance {
             return Err(InstanceError::NoClass);
         }
 
+        // The host context goes to the factory first, for the plugins that
+        // keep it (the VST3 hosting notes ask for it; most ignore it).
+        let host = com::host_application();
+        if let Some(factory) = module.factory.cast::<IPluginFactory3>() {
+            // SAFETY: the context outlives the factory's use of it (the
+            // instance owns it, and the module is never unloaded).
+            unsafe { factory.setHostContext(host.as_ptr().cast()) };
+        }
+
         let create =
             |cid: &ClassId, iid: &[u8; 16]| -> Result<*mut std::ffi::c_void, InstanceError> {
                 let mut object = ptr::null_mut();
@@ -160,7 +193,6 @@ impl Instance {
         // SAFETY: an owned IComponent reference from createInstance.
         let component = unsafe { ComPtr::<IComponent>::from_raw(object.cast()) }
             .ok_or_else(|| plugin("no component"))?;
-        let host = com::host_application();
         // SAFETY: the host context outlives the component (both are owned
         // by the instance).
         let result = unsafe { component.initialize(host.as_ptr().cast()) };
@@ -242,6 +274,8 @@ impl Instance {
             no_changes_out,
             // SAFETY: a plain C struct; zero is a valid "nothing known" context.
             context: unsafe { std::mem::zeroed() },
+            in_buses: 0,
+            out_buses: 0,
             format: None,
             processing: false,
             latency: 0,
@@ -294,33 +328,68 @@ impl Instance {
         if ins > MAX_CHANNELS || outs > MAX_CHANNELS {
             return Err(plugin("too many channels"));
         }
-        let mut input_layout: [SpeakerArrangement; 1] = [if format.inputs > 0 {
-            speakers(format.inputs)?
-        } else {
-            SpeakerArr::kEmpty
-        }];
-        let mut output_layout: [SpeakerArrangement; 1] = [if format.outputs > 0 {
-            speakers(format.outputs)?
-        } else {
-            SpeakerArr::kEmpty
-        }];
-        // SAFETY: valid pointers to locals for the duration of each call.
+        // One arrangement per bus, as the plugin declares them: the main bus
+        // as asked, the others as they are (they stay off). A count that does
+        // not match what the plugin declares is refused by plugins that
+        // check, so the host never gives a shorter list.
+        // SAFETY: plain calls on live objects.
+        let (in_buses, out_buses) = unsafe {
+            (
+                self.component
+                    .getBusCount(kAudio as i32, kInput as i32)
+                    .max(0) as usize,
+                self.component
+                    .getBusCount(kAudio as i32, kOutput as i32)
+                    .max(0) as usize,
+            )
+        };
+        if in_buses > MAX_BUSES || out_buses > MAX_BUSES {
+            return Err(plugin(format!(
+                "the plugin declares {} audio buses; at most {MAX_BUSES} are supported",
+                in_buses.max(out_buses)
+            )));
+        }
+        let layout = |direction: i32,
+                      buses: usize,
+                      wanted: usize|
+         -> Result<Vec<SpeakerArrangement>, InstanceError> {
+            (0..buses)
+                .map(|bus| {
+                    if bus == 0 && wanted > 0 {
+                        return speakers(wanted as u8);
+                    }
+                    let mut current: SpeakerArrangement = SpeakerArr::kStereo;
+                    // SAFETY: a valid out pointer; a refusal leaves stereo.
+                    unsafe {
+                        self.processor
+                            .getBusArrangement(direction, bus as i32, &mut current)
+                    };
+                    Ok(current)
+                })
+                .collect()
+        };
+        let mut input_layout = layout(kInput as i32, in_buses, ins)?;
+        let mut output_layout = layout(kOutput as i32, out_buses, outs)?;
+        // SAFETY: valid pointers to vectors that outlive the call, with the
+        // counts they hold.
         unsafe {
             self.processor.setBusArrangements(
-                if ins > 0 {
+                if in_buses > 0 {
                     input_layout.as_mut_ptr()
                 } else {
                     ptr::null_mut()
                 },
-                i32::from(ins > 0),
-                if outs > 0 {
+                in_buses as i32,
+                if out_buses > 0 {
                     output_layout.as_mut_ptr()
                 } else {
                     ptr::null_mut()
                 },
-                i32::from(outs > 0),
+                out_buses as i32,
             );
         }
+        self.in_buses = in_buses;
+        self.out_buses = out_buses;
         // The plugin may refuse a layout; what it really has must match
         // what was asked, or blocks would be mis-sized.
         for (direction, wanted) in [(kInput as i32, ins), (kOutput as i32, outs)] {
@@ -386,7 +455,12 @@ impl Instance {
         }
         self.context.sampleRate = format.sample_rate;
         self.context.tempo = 120.0;
-        self.context.state = (kPlaying | kTempoValid) as u32;
+        // A time signature even where nothing is known: a plugin that
+        // divides by the denominator without looking at the flag must not
+        // meet zero.
+        self.context.timeSigNumerator = 4;
+        self.context.timeSigDenominator = 4;
+        self.context.state = (kPlaying | kTempoValid | kTimeSigValid) as u32;
         self.context.projectTimeSamples = 0;
         self.handler.restart.store(0, Ordering::Release);
         self.format = Some(format);
@@ -473,35 +547,43 @@ impl Instance {
         self.events_out.set([]);
         self.changes.set(params);
 
-        let mut in_bus = AudioBusBuffers {
-            numChannels: ins as i32,
-            silenceFlags: 0,
-            __field0: AudioBusBuffers__type0 {
-                channelBuffers32: in_ptrs.as_mut_ptr(),
-            },
-        };
-        let mut out_bus = AudioBusBuffers {
-            numChannels: outs as i32,
-            silenceFlags: 0,
-            __field0: AudioBusBuffers__type0 {
-                channelBuffers32: out_ptrs.as_mut_ptr(),
-            },
-        };
+        // An entry for every bus the plugin declares; only the main bus of
+        // each direction carries audio, the rest are off (no channels).
+        let mut in_buses = [empty_bus(); MAX_BUSES];
+        let mut out_buses = [empty_bus(); MAX_BUSES];
+        if ins > 0 {
+            in_buses[0] = AudioBusBuffers {
+                numChannels: ins as i32,
+                silenceFlags: 0,
+                __field0: AudioBusBuffers__type0 {
+                    channelBuffers32: in_ptrs.as_mut_ptr(),
+                },
+            };
+        }
+        if outs > 0 {
+            out_buses[0] = AudioBusBuffers {
+                numChannels: outs as i32,
+                silenceFlags: 0,
+                __field0: AudioBusBuffers__type0 {
+                    channelBuffers32: out_ptrs.as_mut_ptr(),
+                },
+            };
+        }
         let mut data = ProcessData {
             processMode: kRealtime as i32,
             symbolicSampleSize: kSample32 as i32,
             numSamples: frames as i32,
-            numInputs: i32::from(ins > 0),
-            numOutputs: i32::from(outs > 0),
-            inputs: if ins == 0 {
+            numInputs: self.in_buses as i32,
+            numOutputs: self.out_buses as i32,
+            inputs: if self.in_buses == 0 {
                 ptr::null_mut()
             } else {
-                &mut in_bus
+                in_buses.as_mut_ptr()
             },
-            outputs: if outs == 0 {
+            outputs: if self.out_buses == 0 {
                 ptr::null_mut()
             } else {
-                &mut out_bus
+                out_buses.as_mut_ptr()
             },
             inputParameterChanges: self.changes_ptr.as_ptr(),
             outputParameterChanges: self.no_changes_out.as_ptr(),
