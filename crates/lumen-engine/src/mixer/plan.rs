@@ -14,6 +14,8 @@ use crate::source::Output;
 
 /// Frames a plan processes at a time; longer blocks are split.
 pub const CHUNK: usize = 256;
+// Plugin hosts are configured for blocks of at most this many frames.
+const _: () = assert!(CHUNK <= lumen_devices::MOST_FRAMES);
 /// Channels on every bus: stereo.
 pub const BUS_CHANNELS: usize = 2;
 pub(super) const BUS: usize = CHUNK * BUS_CHANNELS;

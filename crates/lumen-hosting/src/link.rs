@@ -70,6 +70,11 @@ impl Link {
         }
     }
 
+    /// The longest block the plugin was configured for, in frames.
+    pub fn most_frames(&self) -> u32 {
+        self.link.layout().max_frames
+    }
+
     pub fn counts(&self) -> Arc<Counts> {
         self.counts.clone()
     }

@@ -40,6 +40,13 @@ use timing::Costs;
 /// amended).
 pub const FAILED_AFTER_FRAMES: u64 = 48_000;
 
+/// The most frames a host is given in one block: the engine splits longer
+/// blocks (its mixer's chunk). Plugins are configured with it as their
+/// largest block, and some size their work by it on every call: a plugin
+/// told 8192 frames spent six times as long on a 128-frame block as one
+/// told 256 (ADR-0075).
+pub const MOST_FRAMES: usize = 256;
+
 /// A plugin's output below this, on every sample of a block, is quiet:
 /// −90 dBFS, under what a 16-bit file can hold.
 pub const QUIET_LEVEL: f32 = 3.162_278e-5;

@@ -92,6 +92,12 @@ fn an_effect_processes_the_audio_it_is_given_and_reports_its_latency() {
     manager.want(2, effect("")).unwrap();
     let mut linked = linked(&mut manager, 2);
     let mut piped = pipe(false);
+    // The plugin is told the engine's largest block, not the protocol's:
+    // some plugins work in proportion to it on every call (ADR-0075).
+    assert_eq!(
+        linked.link.most_frames() as usize,
+        lumen_devices::MOST_FRAMES
+    );
     let (_, configured_latency) = (0, linked.latency);
     let left: Vec<f32> = (0..128).map(|i| (i as f32 * 0.05).sin()).collect();
     let right: Vec<f32> = (0..128).map(|i| (i as f32 * 0.03).cos()).collect();

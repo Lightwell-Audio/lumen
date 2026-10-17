@@ -15,8 +15,8 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use lumen_devices::MOST_FRAMES;
 use lumen_plugin_host::client::{ExitKind, HostError, HostProcess};
-use lumen_plugin_host::protocol::MAX_FRAMES;
 use lumen_plugin_host::shm::{Layout, Wake};
 
 use crate::link::{Counts, Link};
@@ -445,19 +445,21 @@ impl Run {
         Ok((up, linked))
     }
 
-    /// Configures at `rate` (a new generation) and opens a link.
+    /// Configures at `rate` (a new generation) and opens a link. The plugin
+    /// is told its blocks are at most the engine's [`MOST_FRAMES`], never
+    /// the protocol's limit: some plugins work in proportion to it.
     fn configure_and_link(&self, up: &mut Up, rate: f64) -> Result<Linked, Failure> {
         let s = &self.start;
         let inputs = if s.instrument { 0 } else { 2 };
         let (latency, tail) = up
             .host
-            .configure(rate, MAX_FRAMES as u32, inputs, 2, s.deadlines.configure)
+            .configure(rate, MOST_FRAMES as u32, inputs, 2, s.deadlines.configure)
             .map_err(|e| self.fail(&mut up.host, Step::Configure, e))?;
         up.generation = up.host.generation();
         let block = up
             .host
             .attach(
-                Layout::new(MAX_FRAMES as u32, inputs, 2),
+                Layout::new(MOST_FRAMES as u32, inputs, 2),
                 s.wake,
                 s.deadlines.attach,
             )

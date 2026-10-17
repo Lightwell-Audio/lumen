@@ -6775,3 +6775,28 @@ work and trip, no audio, the minute's misses, taking once a second),
 test plugin with 3 ms of work a block is listed with it, through the real
 host), and shots `block_budget` (both themes at 100, 150 and 200%, and the
 960 × 540 window).
+
+**Cause found (2026-10-17, with the readout).** The owner's block budget
+showed 1.56 of 2.90 ms a block: Lumen 0.01 ms, the trip 0.01 ms, the amp
+plugin's own work 1.54 ms. The host told every plugin its blocks could be
+8192 frames long (the protocol's `MAX_FRAMES`), while the engine never hands
+one more than 256 (the mixer's chunk). Timed in process on the owner's
+machine, the amp plugin on 128-frame blocks of a 110 Hz tone, told a largest
+block of:
+
+| Largest block | Mean | Median | p99 |
+|---|---|---|---|
+| 128 | 0.227 ms | 0.222 ms | 0.313 ms |
+| 256 | 0.224 ms | 0.220 ms | 0.312 ms |
+| 1024 | 0.306 ms | 0.306 ms | 0.425 ms |
+| 8192 | 1.357 ms | 1.326 ms | 1.733 ms |
+
+Some plugins size their work by the largest block on every call (a
+convolution partitioned at that size does one transform of it per call, however
+short the block). **Fix:** plugins are configured, and their shared region
+laid out, for `lumen_devices::MOST_FRAMES` (256) frames; the engine asserts at
+compile time that its chunk is no longer. 256 costs what 128 does, and a
+change of buffer size needs no reconfiguring. The earlier bench (14 µs) gave
+the amp no input, which is why it showed nothing. Test: `lumen-hosting`'s
+`hosting` asserts the link's largest block. **To verify:** the owner's
+MT-VST-B step 7.
