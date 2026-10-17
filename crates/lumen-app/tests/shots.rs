@@ -1987,6 +1987,13 @@ fn device_chain() {
         h.run_steps(20);
         let tag = format!("{appearance}-{scale}");
         save(&mut h, &format!("chain-stopped-{tag}"));
+        h.state_mut().fold_device(Id(12));
+        h.state_mut().fold_device(Id(14));
+        h.run_steps(30);
+        save(&mut h, &format!("chain-folded-{tag}"));
+        h.state_mut().fold_device(Id(12));
+        h.state_mut().fold_device(Id(14));
+        h.run_steps(30);
         if appearance == "dark" && scale == 1.0 {
             h.key_press(Key::Space);
             for _ in 0..30 {

@@ -189,6 +189,15 @@ enum Zone {
 
 /// The arrangement's view state: vertical scroll, heights, folding,
 /// selection and the track being renamed.
+/// A device card dropped on a track's header, and what became of it.
+#[derive(Debug)]
+pub(crate) struct DeviceDrop {
+    /// The track it was dropped on.
+    pub to: Id,
+    /// The device now on that track (the card itself, or its copy).
+    pub result: Result<Id, crate::document::Refusal>,
+}
+
 #[derive(Debug, Default)]
 pub struct Arrangement {
     /// Vertical scroll, in points.
@@ -224,6 +233,9 @@ pub struct Arrangement {
     fitted: Option<(BTreeMap<Id, f32>, BTreeSet<Id>, f32)>,
     /// Tracks being dragged to a new place (slice 4d).
     drag: Option<reorder::Drag>,
+    /// A device card was dropped on a track's header: the app follows it
+    /// (shows the track, or says why it was refused).
+    pub(crate) device_drop: Option<DeviceDrop>,
     /// Selected clips (slice 6a). Selecting clips clears the track
     /// selection, and the other way round.
     pub clips: BTreeSet<Id>,

@@ -33,7 +33,6 @@ pub enum Refusal {
     InstrumentNeedsMidi,
     BeforeInstrument,
     /// A track plays one instrument, so one can't be copied onto its own track.
-    #[allow(dead_code, reason = "the Devices tab shows it from slice 3c")]
     OneInstrument,
     /// The device is gone.
     NoDevice,
@@ -104,7 +103,6 @@ fn place_in(track: &Track, kind: DeviceKind, slot: Slot) -> Result<usize, Refusa
 }
 
 /// A checked move or copy (see `Document::transfer`).
-#[allow(dead_code, reason = "the Devices tab calls it from slice 3c")]
 struct Transfer {
     device: Device,
     /// Where the device sits on its own track.
@@ -115,7 +113,6 @@ struct Transfer {
 }
 
 /// Takes `device` off `track` and hands it back.
-#[allow(dead_code, reason = "the Devices tab calls it from slice 3c")]
 fn take_device(project: &mut lumen_project::model::Project, track: Id, device: Id) -> Device {
     let track = project
         .tracks
@@ -133,7 +130,6 @@ fn take_device(project: &mut lumen_project::model::Project, track: Id, device: I
 
 /// Puts `device` on `track` at `index`. An instrument first drives out the
 /// one there and returns a MIDI-output track to it.
-#[allow(dead_code, reason = "the Devices tab calls it from slice 3c")]
 fn put_device(
     project: &mut lumen_project::model::Project,
     track: Id,
@@ -264,7 +260,6 @@ impl Document {
         Ok(())
     }
 
-    #[allow(dead_code, reason = "the Devices tab calls it from slice 3c")]
     /// Moves `device` to `slot` on `to`, which may be its own track (a
     /// reorder) or another (the device and its host go with it, state and
     /// bypass kept). `slot` counts the chain as it stands, so a drop gap
@@ -297,7 +292,6 @@ impl Document {
         Ok(())
     }
 
-    #[allow(dead_code, reason = "the Devices tab calls it from slice 3c")]
     /// Copies `device` to `slot` on `to` (its own track too) as a new device:
     /// a fresh id, so its host and state are its own, with the source's saved
     /// state, bypass and reported latency. Returns the copy's id. A track
@@ -325,7 +319,32 @@ impl Document {
         Ok(id)
     }
 
-    #[allow(dead_code, reason = "the Devices tab calls it from slice 3c")]
+    /// Puts a copy of `device`, kept earlier by a Copy, at `slot` on `to`: a
+    /// new device with a fresh id and the saved settings. The source may be
+    /// gone or changed since. An instrument replaces the one on the track
+    /// (D4). Returns the copy's id. One undo step.
+    pub fn paste_device(&mut self, device: &Device, to: Id, slot: Slot) -> Result<Id, Refusal> {
+        if self.project().master.id == to {
+            return Err(Refusal::Unsupported);
+        }
+        let target = self
+            .project()
+            .tracks
+            .iter()
+            .find(|t| t.id == to)
+            .ok_or(Refusal::NoTrack)?;
+        let index = place_in(target, device.kind(), slot)?;
+        let id = self.fresh_id();
+        let mut copy = device.clone();
+        copy.id = id;
+        let label = format!("Paste {}", name_of(&copy));
+        let instrument = copy.is_instrument();
+        self.history.apply(&label, None, |project| {
+            put_device(project, to, copy, index, instrument);
+        });
+        Ok(id)
+    }
+
     /// What a move or a copy needs, checked: the device, where it lands and
     /// the target's name.
     fn transfer(&self, from: Id, device: Id, to: Id, slot: Slot) -> Result<Transfer, Refusal> {
@@ -875,6 +894,43 @@ mod tests {
         assert_eq!(track(&doc, other).devices[0].id, copy);
         doc.undo();
         assert_eq!(*doc.project(), before);
+    }
+
+    #[test]
+    fn a_pasted_device_is_new_keeps_its_settings_and_outlives_its_source() {
+        let (mut doc, midi, audio) = doc();
+        let a = effect(&mut doc, audio, "A");
+        set_up(&mut doc, audio, a, &[4, 5]);
+        let kept = track(&doc, audio).devices[0].clone();
+        doc.remove_device(audio, a).unwrap();
+        // The source is gone; the paste still has what was copied.
+        let id = doc.paste_device(&kept, midi, Slot::End).unwrap();
+        assert_ne!(id, a);
+        let pasted = track(&doc, midi).devices[1].clone();
+        let mut expected = kept.clone();
+        expected.id = id;
+        assert_eq!(pasted, expected);
+        assert_eq!(doc.undo().as_deref(), Some("Paste A"));
+        // The same rules as an add: not before the instrument, none on the
+        // master, an instrument pasted on an audio track is refused.
+        assert_eq!(
+            doc.paste_device(&kept, midi, Slot::At(0)),
+            Err(Refusal::BeforeInstrument)
+        );
+        let master = doc.project().master.id;
+        assert_eq!(
+            doc.paste_device(&kept, master, Slot::End),
+            Err(Refusal::Unsupported)
+        );
+        let synth = track(&doc, midi).devices[0].clone();
+        assert_eq!(
+            doc.paste_device(&synth, audio, Slot::End),
+            Err(Refusal::InstrumentNeedsMidi)
+        );
+        assert_eq!(
+            doc.paste_device(&kept, GONE, Slot::End),
+            Err(Refusal::NoTrack)
+        );
     }
 
     #[test]

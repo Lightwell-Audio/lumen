@@ -254,3 +254,46 @@ fn damaged_device_data_is_refused_with_a_reason() {
     });
     assert!(why.contains("plugin-only"), "{why}");
 }
+
+// Format v18 (M6 slice 3): the view remembers which device cards are folded.
+
+/// The model the v18 golden file must always load as. Never change it.
+fn golden_v18_expected() -> Project {
+    let mut project = golden_v17_expected();
+    project.name = "Golden v18".into();
+    project.view.folded_devices = [Id(1002), Id(1011)].into_iter().collect();
+    project
+}
+
+#[test]
+fn golden_v18_file_loads_forever() {
+    let path = fixture("v18/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v18_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v18 golden file must load");
+    assert_eq!(project, golden_v18_expected());
+}
+
+#[test]
+fn older_projects_have_no_folded_cards_and_none_are_written_when_there_are_none() {
+    for old in ["v16/golden.lumen", "v17/golden.lumen"] {
+        let project = load(&fixture(old)).expect("an older golden file loads");
+        assert!(project.view.folded_devices.is_empty(), "{old}");
+    }
+    let document: Value =
+        serde_json::from_slice(&to_bytes(&golden_v17_expected()).unwrap()).unwrap();
+    assert!(
+        document["project"]["view"].get("folded_devices").is_none(),
+        "written only when some are folded"
+    );
+    let document: Value =
+        serde_json::from_slice(&to_bytes(&golden_v18_expected()).unwrap()).unwrap();
+    assert_eq!(
+        document["project"]["view"]["folded_devices"]
+            .as_array()
+            .map(Vec::len),
+        Some(2)
+    );
+}

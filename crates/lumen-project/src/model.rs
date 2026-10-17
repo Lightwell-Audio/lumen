@@ -152,6 +152,10 @@ pub struct ViewState {
     pub returns_height: Option<f32>,
     /// Returns folded away in that area, leaving the master (format v10).
     pub returns_folded: bool,
+    /// Device cards folded to a strip in the Devices tab (format v18).
+    /// Written only when there are some.
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub folded_devices: BTreeSet<Id>,
 }
 
 impl Default for ViewState {
@@ -171,6 +175,7 @@ impl Default for ViewState {
             header_width: 204.0,
             returns_height: None,
             returns_folded: false,
+            folded_devices: BTreeSet::new(),
         }
     }
 }

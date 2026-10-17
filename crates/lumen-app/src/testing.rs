@@ -370,6 +370,11 @@ impl App {
         let _ = self.document.remove_device(track, device);
     }
 
+    /// Folds a card to a strip, or opens it again (a view, not an edit).
+    pub fn fold_device(&mut self, device: Id) {
+        self.toggle_fold_of(device);
+    }
+
     /// Moves a device to a track: right after `after` on it, or at the end.
     /// A drag will do this (one undo step).
     pub fn move_device(&mut self, from: Id, device: Id, to: Id, after: Option<Id>) {

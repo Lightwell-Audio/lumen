@@ -498,3 +498,220 @@ fn every_control_on_every_card_face_has_a_name_and_tab_reaches_them() {
         "Tab never reached a power button: {seen:#?}"
     );
 }
+
+// Slice 3c: editing the chain by hand.
+
+const SECOND: Id = Id(21);
+const THIRD: Id = Id(22);
+
+impl Lumen {
+    fn ids_on(&self, track: Id) -> Vec<Id> {
+        self.app()
+            .project()
+            .tracks
+            .iter()
+            .find(|t| t.id == track)
+            .map(|t| t.devices.iter().map(|d| d.id).collect())
+            .unwrap_or_default()
+    }
+
+    /// The card named `label`, as a rectangle on screen.
+    #[track_caller]
+    fn card(&self, label: &str) -> eframe::egui::Rect {
+        self.harness.get_by_label(label).rect()
+    }
+
+    /// Three effects on the audio track, the Devices tab shown.
+    fn three_cards(name: &str) -> Lumen {
+        let mut lumen = launch(
+            name,
+            &project(vec![
+                effect_device(FIRST),
+                effect_device(SECOND),
+                effect_device(THIRD),
+            ]),
+            &["Plug"],
+        );
+        lumen.app_mut().select_tracks(&[AUDIO]);
+        lumen.show_devices_tab();
+        lumen
+    }
+}
+
+const CARD_1: &str = "Deterministic Test Effect on Audio";
+const CARD_2: &str = "Deterministic Test Effect (2) on Audio";
+const CARD_3: &str = "Deterministic Test Effect (3) on Audio";
+
+#[test]
+fn alt_arrows_move_the_chosen_card_one_place_and_undo_puts_it_back() {
+    let mut lumen = Lumen::three_cards("alt-arrows");
+    lumen.click(CARD_1);
+    lumen.key(Modifiers::ALT, Key::ArrowRight);
+    lumen.frames(5);
+    assert_eq!(lumen.ids_on(AUDIO), [SECOND, FIRST, THIRD]);
+    assert_eq!(lumen.app().chosen_card(), Some(FIRST), "it stays chosen");
+    lumen.key(Modifiers::ALT, Key::ArrowRight);
+    lumen.key(Modifiers::ALT, Key::ArrowRight);
+    lumen.frames(5);
+    assert_eq!(
+        lumen.ids_on(AUDIO),
+        [SECOND, THIRD, FIRST],
+        "the end stops it"
+    );
+    lumen.key(Modifiers::ALT, Key::ArrowLeft);
+    lumen.frames(5);
+    assert_eq!(lumen.ids_on(AUDIO), [SECOND, FIRST, THIRD]);
+    // One step each: three moves, then undo them one at a time.
+    for _ in 0..3 {
+        lumen.key(Modifiers::COMMAND, Key::Z);
+    }
+    lumen.frames(5);
+    assert_eq!(lumen.ids_on(AUDIO), [FIRST, SECOND, THIRD]);
+}
+
+#[test]
+fn the_arrows_choose_the_neighbouring_card() {
+    let mut lumen = Lumen::three_cards("arrows");
+    lumen.click(CARD_2);
+    lumen.key(Modifiers::NONE, Key::ArrowRight);
+    lumen.frames(3);
+    assert_eq!(lumen.app().chosen_card(), Some(THIRD));
+    lumen.key(Modifiers::NONE, Key::ArrowRight);
+    assert_eq!(lumen.app().chosen_card(), Some(THIRD), "the end stops it");
+    lumen.key(Modifiers::NONE, Key::ArrowLeft);
+    lumen.key(Modifiers::NONE, Key::ArrowLeft);
+    lumen.frames(3);
+    assert_eq!(lumen.app().chosen_card(), Some(FIRST));
+    assert_eq!(lumen.ids_on(AUDIO), [FIRST, SECOND, THIRD], "nothing moved");
+}
+
+#[test]
+fn dragging_a_card_to_another_gap_moves_it_as_one_step() {
+    let mut lumen = Lumen::three_cards("drag-reorder");
+    let (first, last) = (lumen.card(CARD_1), lumen.card(CARD_3));
+    // Past the middle of the last card: the gap after it.
+    lumen.drag(
+        first.center(),
+        pos2(last.center().x + 30.0, last.center().y),
+        Modifiers::NONE,
+    );
+    assert_eq!(lumen.ids_on(AUDIO), [SECOND, THIRD, FIRST]);
+    assert_eq!(
+        lumen.app().undo_label(),
+        Some("Move Deterministic Test Effect")
+    );
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(5);
+    assert_eq!(lumen.ids_on(AUDIO), [FIRST, SECOND, THIRD]);
+    // Dropped where it already is: nothing changes.
+    let (first, second) = (lumen.card(CARD_1), lumen.card(CARD_2));
+    lumen.drag(
+        first.center(),
+        pos2(second.center().x - 30.0, second.center().y),
+        Modifiers::NONE,
+    );
+    assert_eq!(lumen.ids_on(AUDIO), [FIRST, SECOND, THIRD]);
+    assert_ne!(
+        lumen.app().undo_label(),
+        Some("Move Deterministic Test Effect")
+    );
+}
+
+#[test]
+fn dropping_a_card_on_a_track_header_moves_it_and_alt_copies_it() {
+    let mut lumen = Lumen::three_cards("drag-track");
+    let keys = lumen.harness.get_by_label_contains("Track Keys").rect();
+    let card = lumen.card(CARD_2);
+    lumen.drag(card.center(), keys.center(), Modifiers::NONE);
+    assert_eq!(lumen.ids_on(AUDIO), [FIRST, THIRD]);
+    assert_eq!(lumen.ids_on(KEYS).len(), 2, "after the synth");
+    assert_eq!(lumen.ids_on(KEYS)[1], SECOND, "the same device");
+    assert_eq!(lumen.app().chosen_card(), Some(SECOND), "and it is shown");
+
+    // The audio track's header, with Alt: a copy, and the original stays.
+    let audio = lumen.harness.get_by_label_contains("Track Audio").rect();
+    let card = lumen.card("Deterministic Test Effect on Keys");
+    lumen.drag(card.center(), audio.center(), Modifiers::ALT);
+    assert_eq!(lumen.ids_on(KEYS).len(), 2, "the original did not leave");
+    assert_eq!(lumen.ids_on(AUDIO).len(), 3);
+    let copy = lumen.ids_on(AUDIO)[2];
+    assert!(![FIRST, SECOND, THIRD].contains(&copy), "a new device");
+    assert_eq!(lumen.app().chosen_card(), Some(copy));
+}
+
+#[test]
+fn an_instrument_dropped_on_an_audio_track_is_refused_and_nothing_changes() {
+    let mut lumen = launch("refused", &project(vec![]), &["Plug"]);
+    lumen.app_mut().select_tracks(&[KEYS]);
+    lumen.show_devices_tab();
+    let before = lumen.app().project().clone();
+    let synth = lumen.card("Synth on Keys");
+    let audio = lumen.harness.get_by_label_contains("Track Audio").rect();
+    lumen.drag(synth.center(), audio.center(), Modifiers::NONE);
+    assert_eq!(*lumen.app().project(), before, "nothing changed");
+}
+
+#[test]
+fn duplicate_and_copy_paste_make_new_devices_with_their_own_ids() {
+    let mut lumen = Lumen::three_cards("copy-paste");
+    lumen.click(CARD_2);
+    lumen.key(Modifiers::COMMAND, Key::D);
+    lumen.frames(5);
+    let ids = lumen.ids_on(AUDIO);
+    assert_eq!(ids.len(), 4);
+    assert_eq!(&ids[..2], [FIRST, SECOND], "the copy follows its original");
+    assert_eq!(ids[3], THIRD);
+    assert_eq!(
+        lumen.app().chosen_card(),
+        Some(ids[2]),
+        "the copy is chosen"
+    );
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(5);
+    assert_eq!(lumen.ids_on(AUDIO), [FIRST, SECOND, THIRD], "one undo step");
+
+    // Copy on one track, paste on another.
+    lumen.click(CARD_3);
+    lumen.key(Modifiers::COMMAND, Key::C);
+    lumen.app_mut().select_tracks(&[KEYS]);
+    lumen.frames(5);
+    // The Keys track holds only the synth: choose it, then paste.
+    lumen.click("Synth on Keys");
+    lumen.key(Modifiers::COMMAND, Key::V);
+    lumen.frames(5);
+    let on_keys = lumen.ids_on(KEYS);
+    assert_eq!(on_keys.len(), 2, "pasted after the chosen card");
+    assert!(![FIRST, SECOND, THIRD].contains(&on_keys[1]));
+    assert_eq!(lumen.ids_on(AUDIO).len(), 3, "the original stays");
+}
+
+#[test]
+fn double_clicking_a_card_folds_it_to_a_strip_and_again_opens_it() {
+    let mut lumen = Lumen::three_cards("fold");
+    let wide = lumen.card(CARD_2).width();
+    let right_of_it = lumen.card(CARD_3).left();
+    let at = lumen.card(CARD_2).center();
+    lumen.double_click(at);
+    lumen.frames(5);
+    let strip = lumen.card(CARD_2).width();
+    assert!(strip < wide / 2.0, "folded: {strip} against {wide}");
+    assert!(
+        lumen.card(CARD_3).left() < right_of_it,
+        "the cards after it move up"
+    );
+    // Folding is a view, not an edit.
+    assert!(!lumen.app().is_dirty());
+    // It is kept with the project when it is saved.
+    assert!(
+        lumen
+            .app()
+            .project_as_saved()
+            .view
+            .folded_devices
+            .contains(&SECOND)
+    );
+    let at = lumen.card(CARD_2).center();
+    lumen.double_click(at);
+    lumen.frames(5);
+    assert_eq!(lumen.card(CARD_2).width(), wide, "opened again");
+}

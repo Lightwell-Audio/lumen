@@ -90,6 +90,32 @@ impl Arrangement {
         if background.clicked() {
             self.click_select(doc.project(), track.id, modifiers);
         }
+        // A device card carried over the header: the track takes it when let
+        // go (Alt: a copy).
+        if let Some(card) = egui::DragAndDrop::payload::<crate::chain::CardDrag>(&ctx)
+            && ctx.pointer_latest_pos().is_some_and(|p| rect.contains(p))
+        {
+            painter.rect_stroke(
+                rect.shrink(1.0),
+                0.0,
+                Stroke::new(theme::stroke::LIT, palette.accent),
+                egui::StrokeKind::Inside,
+            );
+            if ctx.input(|i| i.pointer.any_released()) {
+                let slot = crate::document::Slot::End;
+                let result = if modifiers.alt {
+                    doc.copy_device(card.track, card.device, track.id, slot)
+                } else {
+                    doc.move_device(card.track, card.device, track.id, slot)
+                        .map(|()| card.device)
+                };
+                egui::DragAndDrop::clear_payload(&ctx);
+                self.device_drop = Some(super::DeviceDrop {
+                    to: track.id,
+                    result,
+                });
+            }
+        }
         // Returns stay pinned in their own order (reordering them waits;
         // KNOWN_ISSUES).
         if background.drag_started() && track.kind != TrackKind::Return {

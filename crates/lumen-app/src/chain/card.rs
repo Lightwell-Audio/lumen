@@ -43,6 +43,8 @@ pub(super) struct Look<'a> {
     pub track_color: Color32,
     /// The picture's height now (0 when the tray is short).
     pub band: f32,
+    /// Folded to a strip: the power button and the name, set on end.
+    pub folded: bool,
 }
 
 /// What a card's own buttons asked for.
@@ -73,8 +75,12 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
     let rect = rect.round_to_pixels(ui.pixels_per_point());
     let radius = f32::from(RADIUS);
     let painter = ui.painter().with_clip_rect(rect.expand(24.0));
-    // The body first, so the power and the buttons sit on top of it.
-    let body = ui.interact(rect, id.with("card"), Sense::click());
+    // The body first, so the power and the buttons sit on top of it. A press
+    // that moves picks the card up.
+    let body = ui.interact(rect, id.with("card"), Sense::click_and_drag());
+    if look.folded {
+        return paint_rail(ui, rect, id, look, body);
+    }
     let hover = motion::hover(ui.ctx(), id.with("card hover"), body.hovered());
 
     painter.add(
@@ -226,6 +232,83 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
         body,
         power,
         action,
+    }
+}
+
+/// A folded card: a strip with the power button and the name set on end,
+/// reading upward.
+fn paint_rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Response) -> Out {
+    let palette = *theme::p();
+    let radius = f32::from(RADIUS);
+    let painter = ui.painter().with_clip_rect(rect.expand(24.0));
+    let hover = motion::hover(ui.ctx(), id.with("card hover"), body.hovered());
+    painter.add(
+        Shadow {
+            offset: [0, 4],
+            blur: 14,
+            spread: 0,
+            color: palette.shadow,
+        }
+        .as_shape(rect, CornerRadius::same(RADIUS)),
+    );
+    painter.rect_filled(rect, radius, palette.header);
+    if look.instrument {
+        painter.rect_filled(
+            Rect::from_min_size(
+                rect.min + vec2(0.0, radius),
+                vec2(3.0, rect.height() - 2.0 * radius),
+            ),
+            0.0,
+            look.track_color,
+        );
+    }
+    let power_rect = Rect::from_center_size(
+        pos2(
+            rect.center().x,
+            rect.top() + theme::space::M + theme::size::CONTROL / 2.0,
+        ),
+        vec2(theme::size::CONTROL, theme::size::CONTROL),
+    )
+    .round_to_pixels(ui.pixels_per_point());
+    let power = power_button(ui, power_rect, id, look);
+
+    let ink = match look.face {
+        Face::Failed(_) => palette.warning,
+        _ if look.bypass || matches!(look.face, Face::Missing { .. }) => palette.text_secondary,
+        _ => palette.text,
+    };
+    let font = fonts::medium(theme::size::BODY);
+    let room = rect.bottom() - theme::space::M - (power_rect.bottom() + theme::space::M);
+    let shown = widgets::fit(&painter, look.name, font.clone(), room);
+    let galley = painter.layout_no_wrap(shown, font, ink);
+    let at = pos2(
+        rect.center().x - galley.size().y / 2.0,
+        rect.bottom() - theme::space::M,
+    );
+    painter.add(
+        egui::epaint::TextShape::new(at, galley, ink).with_angle(-std::f32::consts::FRAC_PI_2),
+    );
+
+    painter.rect_filled(
+        rect,
+        radius,
+        palette
+            .text
+            .gamma_multiply(crate::light::EMBER_WASH * hover * 0.5),
+    );
+    let edge = if look.selected {
+        Stroke::new(theme::stroke::LIT, palette.accent)
+    } else {
+        Stroke::new(theme::stroke::HAIRLINE, palette.border_strong)
+    };
+    painter.rect_stroke(rect, radius, edge, StrokeKind::Inside);
+    if body.has_focus() {
+        raised::paint_focus(&painter, rect, RADIUS);
+    }
+    Out {
+        body,
+        power,
+        action: None,
     }
 }
 
@@ -514,6 +597,7 @@ mod tests {
             latency_ms: 2.7,
             track_color: Color32::WHITE,
             band: 96.0,
+            folded: false,
         }
     }
 
