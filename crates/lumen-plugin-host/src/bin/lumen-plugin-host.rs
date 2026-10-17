@@ -4,8 +4,10 @@
 use std::io::{self, BufReader, BufWriter};
 use std::process::ExitCode;
 
-use lumen_plugin_host::process;
-use lumen_plugin_host::server::{Exit, serve};
+#[cfg(not(windows))]
+use lumen_plugin_host::server::Plain;
+use lumen_plugin_host::server::{Exit, serve_pumped};
+use lumen_plugin_host::{editor, process};
 
 /// Writes one scan reply to `out`. A module that crashes or hangs never gets
 /// here, which is how the parent knows.
@@ -53,9 +55,15 @@ fn main() -> ExitCode {
     // A host session plays audio: it runs at full speed (a scan does not).
     #[cfg(windows)]
     process::run_at_full_speed();
-    let mut input = BufReader::new(io::stdin().lock());
-    let mut output = BufWriter::new(protocol);
-    match serve(&mut input, &mut output) {
+    // Requests are read on a thread of their own; this one made the plugin and
+    // runs what is asked of it, and shows its editor window.
+    let input = BufReader::new(io::stdin());
+    let output = BufWriter::new(protocol);
+    #[cfg(windows)]
+    let mut pump = editor::win::WindowPump::new();
+    #[cfg(not(windows))]
+    let mut pump = Plain::default();
+    match serve_pumped(input, output, &mut pump, editor::platform()) {
         Ok(Exit::Quit | Exit::Closed) => ExitCode::SUCCESS,
         Ok(Exit::Malformed) => ExitCode::from(2),
         Err(e) => {

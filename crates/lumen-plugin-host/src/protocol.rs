@@ -147,6 +147,28 @@ pub struct ClassInfo {
     pub subcategories: String,
 }
 
+/// Where a plugin's editor window is: its outer top-left corner and the size
+/// of its content, in physical pixels at `dpi`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EditorBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub dpi: u32,
+}
+
+/// The largest content size an editor may be asked to open at.
+pub const MAX_EDITOR_SIDE: u32 = 16_384;
+
+/// What the host knows of a plugin's editor window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct EditorStatus {
+    /// The window exists. False after the user closes it.
+    pub open: bool,
+    pub bounds: Option<EditorBounds>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParamInfo {
     pub id: u32,
@@ -259,6 +281,11 @@ pub enum FailureKind {
     Protocol = 4,
     /// The shared-memory audio path could not be opened.
     Transport = 5,
+    /// The plugin has no editor, or this platform cannot show one.
+    NoEditor = 6,
+    /// The host's main thread did not answer in time (a plugin's window code
+    /// that stopped answering). The request may still be running.
+    Unresponsive = 7,
 }
 
 impl FailureKind {
@@ -270,6 +297,8 @@ impl FailureKind {
             3 => Self::Plugin,
             4 => Self::Protocol,
             5 => Self::Transport,
+            6 => Self::NoEditor,
+            7 => Self::Unresponsive,
             _ => return Err(WireError::Invalid("failure kind")),
         })
     }
@@ -322,6 +351,15 @@ pub enum Request {
         id: u32,
         value: f64,
     },
+    /// Open the plugin's editor window where it was (or at the system's
+    /// place when `None`). Answered with `Editor`.
+    OpenEditor {
+        bounds: Option<EditorBounds>,
+    },
+    /// Close the editor window, if open. Answered with `Editor`.
+    CloseEditor,
+    /// Ask whether the editor window is open and where it is.
+    EditorStatus,
     /// Take the edits made since the last call (a plugin's own window, a
     /// processor's output parameters), oldest first.
     TakeEdits,
@@ -365,6 +403,8 @@ pub enum Response {
     Text(String),
     /// A normalized value read from the user's text.
     Value(f64),
+    /// The editor window as it is now.
+    Editor(EditorStatus),
     Edits {
         list: Vec<Edit>,
         /// Edits dropped since the last call because the list was full.
@@ -382,6 +422,38 @@ pub enum Response {
     },
 }
 
+fn write_bounds(w: &mut Writer, bounds: Option<&EditorBounds>) {
+    match bounds {
+        Some(b) => {
+            w.bool(true);
+            w.i32(b.x);
+            w.i32(b.y);
+            w.u32(b.width);
+            w.u32(b.height);
+            w.u32(b.dpi);
+        }
+        None => w.bool(false),
+    }
+}
+
+fn read_bounds(r: &mut Reader<'_>) -> Result<Option<EditorBounds>, WireError> {
+    if !r.bool()? {
+        return Ok(None);
+    }
+    let bounds = EditorBounds {
+        x: r.i32()?,
+        y: r.i32()?,
+        width: r.u32()?,
+        height: r.u32()?,
+        dpi: r.u32()?,
+    };
+    // A size a window could never have is a message that lies.
+    if bounds.width > MAX_EDITOR_SIDE || bounds.height > MAX_EDITOR_SIDE || bounds.dpi > 2_000 {
+        return Err(WireError::Invalid("editor bounds"));
+    }
+    Ok(Some(bounds))
+}
+
 const REQ_LOAD: u16 = 1;
 const REQ_CONFIGURE: u16 = 2;
 const REQ_PROCESS: u16 = 3;
@@ -395,6 +467,9 @@ const REQ_PARAM_TEXT: u16 = 10;
 const REQ_SET_PARAM: u16 = 11;
 const REQ_TAKE_EDITS: u16 = 12;
 const REQ_PARAM_VALUE: u16 = 13;
+const REQ_OPEN_EDITOR: u16 = 14;
+const REQ_CLOSE_EDITOR: u16 = 15;
+const REQ_EDITOR_STATUS: u16 = 16;
 
 const RES_LOADED: u16 = 101;
 const RES_CONFIGURED: u16 = 102;
@@ -408,6 +483,7 @@ const RES_UNITS: u16 = 109;
 const RES_TEXT: u16 = 110;
 const RES_EDITS: u16 = 111;
 const RES_VALUE: u16 = 112;
+const RES_EDITOR: u16 = 113;
 
 fn put_audio(w: &mut Writer, channels: &[Vec<f32>]) {
     w.u32(channels.len() as u32);
@@ -538,6 +614,12 @@ impl Request {
                 w.f64(*value);
                 REQ_SET_PARAM
             }
+            Request::OpenEditor { bounds } => {
+                write_bounds(&mut w, bounds.as_ref());
+                REQ_OPEN_EDITOR
+            }
+            Request::CloseEditor => REQ_CLOSE_EDITOR,
+            Request::EditorStatus => REQ_EDITOR_STATUS,
             Request::TakeEdits => REQ_TAKE_EDITS,
             Request::Attach { base, layout, wake } => {
                 w.str(base);
@@ -666,6 +748,11 @@ impl Request {
                 id: r.u32()?,
                 value: r.f64()?,
             },
+            REQ_OPEN_EDITOR => Request::OpenEditor {
+                bounds: read_bounds(&mut r)?,
+            },
+            REQ_CLOSE_EDITOR => Request::CloseEditor,
+            REQ_EDITOR_STATUS => Request::EditorStatus,
             REQ_TAKE_EDITS => Request::TakeEdits,
             REQ_ATTACH => {
                 let base = r.str("base name", MAX_BASE)?;
@@ -777,6 +864,11 @@ impl Response {
                 w.f64(*value);
                 RES_VALUE
             }
+            Response::Editor(status) => {
+                w.bool(status.open);
+                write_bounds(&mut w, status.bounds.as_ref());
+                RES_EDITOR
+            }
             Response::Edits {
                 list,
                 dropped,
@@ -854,6 +946,10 @@ impl Response {
             }
             RES_TEXT => Response::Text(r.str("text", MAX_TEXT)?),
             RES_VALUE => Response::Value(r.f64()?),
+            RES_EDITOR => Response::Editor(EditorStatus {
+                open: r.bool()?,
+                bounds: read_bounds(&mut r)?,
+            }),
             RES_EDITS => {
                 let dropped = r.u32()?;
                 let ignored = r.u32()?;
@@ -1078,6 +1174,18 @@ mod tests {
                 id: 3,
                 text: "2.4 kHz".into(),
             },
+            Request::OpenEditor { bounds: None },
+            Request::OpenEditor {
+                bounds: Some(EditorBounds {
+                    x: -1200,
+                    y: 80,
+                    width: 640,
+                    height: 480,
+                    dpi: 144,
+                }),
+            },
+            Request::CloseEditor,
+            Request::EditorStatus,
             Request::SetParam { id: 3, value: 1.0 },
             Request::TakeEdits,
             Request::Attach {
@@ -1151,6 +1259,17 @@ mod tests {
             ]),
             Response::Text("2.4 kHz".into()),
             Response::Value(0.25),
+            Response::Editor(EditorStatus::default()),
+            Response::Editor(EditorStatus {
+                open: true,
+                bounds: Some(EditorBounds {
+                    x: 10,
+                    y: 20,
+                    width: 320,
+                    height: 200,
+                    dpi: 96,
+                }),
+            }),
             Response::Edits {
                 list: vec![
                     Edit {
@@ -1199,6 +1318,30 @@ mod tests {
 
     fn rejects(bytes: &[u8]) -> bool {
         matches!(read_request(&mut &*bytes), Err(FrameError::Wire(_)))
+    }
+
+    #[test]
+    fn editor_bounds_no_window_could_have_are_refused() {
+        let at = |width, height, dpi| Request::OpenEditor {
+            bounds: Some(EditorBounds {
+                x: 0,
+                y: 0,
+                width,
+                height,
+                dpi,
+            }),
+        };
+        assert!(!rejects(&frame(
+            REQ_OPEN_EDITOR,
+            &at(800, 600, 96).encode().1
+        )));
+        for request in [
+            at(MAX_EDITOR_SIDE + 1, 600, 96),
+            at(800, MAX_EDITOR_SIDE + 1, 96),
+            at(800, 600, 50_000),
+        ] {
+            assert!(rejects(&frame(REQ_OPEN_EDITOR, &request.encode().1)));
+        }
     }
 
     #[test]

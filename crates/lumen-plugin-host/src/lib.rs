@@ -20,6 +20,7 @@
 
 mod blocks;
 mod com;
+pub mod editor;
 pub mod instance;
 pub mod module;
 pub mod process;

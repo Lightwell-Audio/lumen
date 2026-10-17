@@ -18,8 +18,8 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::protocol::{
-    ClassId, ClassInfo, Event, FailureKind, FrameError, ParamInfo, ParamQueue, Request, Response,
-    Taken, UnitInfo, read_response, write_request,
+    ClassId, ClassInfo, EditorBounds, EditorStatus, Event, FailureKind, FrameError, ParamInfo,
+    ParamQueue, Request, Response, Taken, UnitInfo, read_response, write_request,
 };
 use crate::shm::sys::remove_names;
 use crate::shm::{BlockLink, Layout, Wake};
@@ -597,6 +597,46 @@ impl HostProcess {
         match self.call(&request, within)? {
             Response::Value(value) => Ok(value),
             _ => Err(HostError::Protocol("expected Value".into())),
+        }
+    }
+
+    /// Opens the plugin's editor window, where `bounds` say or where the
+    /// system puts it. Fails with `NoEditor` when the plugin or the platform
+    /// has none, and with `Unresponsive` when the host's window code does not
+    /// answer in time.
+    pub fn open_editor(
+        &mut self,
+        bounds: Option<EditorBounds>,
+        within: Duration,
+    ) -> Result<EditorStatus, HostError> {
+        // The window should come to the front: Lumen has the foreground now
+        // (the user just asked), and lets the host take it.
+        #[cfg(windows)]
+        // SAFETY: a plain call naming the host's process.
+        unsafe {
+            windows_sys::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(self.child.id())
+        };
+        self.editor_call(&Request::OpenEditor { bounds }, within)
+    }
+
+    /// Closes the editor window, if there is one.
+    pub fn close_editor(&mut self, within: Duration) -> Result<EditorStatus, HostError> {
+        self.editor_call(&Request::CloseEditor, within)
+    }
+
+    /// Whether the editor window is open, and where.
+    pub fn editor_status(&mut self, within: Duration) -> Result<EditorStatus, HostError> {
+        self.editor_call(&Request::EditorStatus, within)
+    }
+
+    fn editor_call(
+        &mut self,
+        request: &Request,
+        within: Duration,
+    ) -> Result<EditorStatus, HostError> {
+        match self.call(request, within)? {
+            Response::Editor(status) => Ok(status),
+            _ => Err(HostError::Protocol("expected Editor".into())),
         }
     }
 
