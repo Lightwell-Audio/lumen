@@ -23,7 +23,10 @@ use std::sync::Arc;
 
 use lumen_devices::{Cost, Guard, HostedInstrument, Status};
 use lumen_engine::{InstrumentSpec, MidiTrack, MixerHandle};
-use lumen_hosting::{Edit, EditKind, Happened, HostLog, Manager, ParamInfo, Start, UnitInfo};
+use lumen_hosting::{
+    Edit, EditKind, EditorBounds, EditorEvent, Happened, HostLog, Manager, ParamInfo, Start,
+    UnitInfo,
+};
 use lumen_plugin_catalog::catalog::Catalog;
 use lumen_project::model::{
     Device, DeviceKind, Id, PluginRef, Project, Reported, Track, TrackKind,
@@ -94,6 +97,22 @@ struct Tracked {
     frames: u32,
     bypass: bool,
     params: Parameters,
+    editor: EditorState,
+}
+
+/// What Lumen knows of a plugin's own window (M6 slice 4f).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum EditorState {
+    #[default]
+    Closed,
+    /// Asked for, not shown yet.
+    Opening,
+    Open,
+    /// The plugin is stuck in its window code. Never ended on its own.
+    NotResponding,
+    /// The window cannot be had, and why (the plugin has none, or this
+    /// platform cannot show one).
+    Refused(String),
 }
 
 /// What Lumen knows of a plugin's parameters while its host runs (M6 slice 4).
@@ -227,6 +246,26 @@ pub struct Hosting {
     rate: u32,
     /// The longest block plugins are promised: the device's (ADR-0075).
     frames: u32,
+    /// Where editor windows were last seen, by plugin class, waiting for the
+    /// app to remember them.
+    places: Vec<(String, EditorBounds)>,
+}
+
+/// The host's stand-in for an editor window, as a test asks for it in the
+/// plugin's fault list (`headless_editor`, `headless_hang=MS`,
+/// `headless_close=MS`): the value of `LUMEN_HOST_HEADLESS_EDITOR`.
+fn headless_setting(fault: &str) -> Option<String> {
+    let parts: Vec<String> = fault
+        .split(',')
+        .map(str::trim)
+        .filter_map(|entry| match entry.split_once('=') {
+            None if entry == "headless_editor" => Some("on".to_owned()),
+            Some(("headless_hang", ms)) => Some(format!("hang={ms}")),
+            Some(("headless_close", ms)) => Some(format!("close={ms}")),
+            _ => None,
+        })
+        .collect();
+    (!parts.is_empty()).then(|| parts.join(","))
 }
 
 /// The longest block to promise plugins for a device block of `block`
@@ -284,6 +323,7 @@ impl Hosting {
             waiting: Vec::new(),
             rate: 0,
             frames: promised_frames(0),
+            places: Vec::new(),
         }
     }
 
@@ -300,6 +340,12 @@ impl Hosting {
             faults,
             ..Self::off()
         }
+    }
+
+    /// The plugin's class id as Lumen keys it, for what is remembered per
+    /// plugin.
+    pub fn class(&self, device: Id) -> Option<&str> {
+        self.tracked.get(&device.0).map(|t| t.class.as_str())
     }
 
     pub fn state(&self, device: Id) -> Option<&State> {
@@ -370,6 +416,50 @@ impl Hosting {
         if let Some(manager) = self.manager.as_ref() {
             manager.param_text(device.0, id, value);
         }
+    }
+
+    /// What the device's plugin window is doing.
+    pub fn editor(&self, device: Id) -> EditorState {
+        self.tracked
+            .get(&device.0)
+            .map(|t| t.editor.clone())
+            .unwrap_or_default()
+    }
+
+    /// Opens the device's plugin window (at `place` if the plugin's was
+    /// remembered). The news comes back as [`Hosting::editor`] changing.
+    pub fn open_editor(&mut self, device: Id, place: Option<EditorBounds>) {
+        let Some(t) = self.tracked.get_mut(&device.0) else {
+            return;
+        };
+        if !matches!(t.state, State::Ready) || !matches!(t.editor, EditorState::Closed) {
+            return;
+        }
+        t.editor = EditorState::Opening;
+        if let Some(manager) = self.manager.as_ref() {
+            manager.open_editor(device.0, place);
+        }
+    }
+
+    /// Closes the device's plugin window.
+    pub fn close_editor(&mut self, device: Id) {
+        if let Some(manager) = self.manager.as_ref() {
+            manager.close_editor(device.0);
+        }
+    }
+
+    /// Ends the host of a plugin whose window stopped answering. The device
+    /// then reads as failed, with Reload.
+    pub fn end_plugin(&mut self, device: Id) {
+        if let Some(manager) = self.manager.as_ref() {
+            manager.end(device.0);
+        }
+    }
+
+    /// Where plugin windows were last seen since the last call, by plugin
+    /// class, for the app to remember.
+    pub fn take_editor_places(&mut self) -> Vec<(String, EditorBounds)> {
+        std::mem::take(&mut self.places)
     }
 
     /// Asks the plugin to read `text` the user typed for a parameter; the
@@ -484,6 +574,13 @@ impl Hosting {
             t.params.texts.insert(id, (*value, (*text).to_owned()));
         }
         t.params.total = list.len() as u32;
+    }
+
+    /// Sets what a tracked device's plugin window is doing, for screenshots.
+    pub fn pretend_editor(&mut self, device: Id, state: EditorState) {
+        if let Some(t) = self.tracked.get_mut(&device.0) {
+            t.editor = state;
+        }
     }
 
     /// Starts a new host for a failed device (the card's Reload).
@@ -602,6 +699,7 @@ impl Hosting {
                                 started_with: w.device.params.clone(),
                                 ..Parameters::default()
                             },
+                            editor: EditorState::Closed,
                         },
                     );
                 }
@@ -641,6 +739,9 @@ impl Hosting {
                     t.bypass = false;
                     if !t.params.linked_before {
                         t.params.linked_before = true;
+                        // A fresh host has no window; a new link of the same
+                        // host (the buffer size changed) keeps its own.
+                        t.editor = EditorState::Closed;
                         t.params.base = linked.params.iter().map(|p| (p.id, p.value)).collect();
                         t.params.values = t.params.base.clone();
                         for (&id, &v) in &t.params.started_with {
@@ -665,11 +766,35 @@ impl Hosting {
                     }
                 }
                 Happened::Failed(why) => {
+                    t.editor = EditorState::Closed;
                     t.state = State::Failed(why.to_string());
                 }
                 Happened::Text { id, value, text } => {
                     t.params.texts.insert(id, (value, text));
                 }
+                Happened::Editor(news) => match news {
+                    EditorEvent::Opened(b) | EditorEvent::Moved(b) => {
+                        if t.editor != EditorState::NotResponding
+                            || matches!(news, EditorEvent::Opened(_))
+                        {
+                            t.editor = EditorState::Open;
+                        }
+                        self.places.push((t.class.clone(), b));
+                    }
+                    EditorEvent::Closed(place) => {
+                        t.editor = EditorState::Closed;
+                        if let Some(b) = place {
+                            self.places.push((t.class.clone(), b));
+                        }
+                    }
+                    EditorEvent::NotResponding => t.editor = EditorState::NotResponding,
+                    EditorEvent::Responding => {
+                        if t.editor == EditorState::NotResponding {
+                            t.editor = EditorState::Open;
+                        }
+                    }
+                    EditorEvent::Refused(why) => t.editor = EditorState::Refused(why),
+                },
                 Happened::Typed { id, text, value } => {
                     t.params.typed.push((id, text, value));
                 }
@@ -839,6 +964,11 @@ impl Hosting {
             start
                 .env
                 .push(("LUMEN_TEST_PLUGIN_FAULT".into(), fault.into()));
+            if let Some(headless) = headless_setting(fault) {
+                start
+                    .env
+                    .push(("LUMEN_HOST_HEADLESS_EDITOR".into(), headless));
+            }
         }
         match manager.want(w.device.id.0, start) {
             Ok(()) => State::Loading,

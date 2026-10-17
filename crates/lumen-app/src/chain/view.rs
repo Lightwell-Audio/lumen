@@ -37,6 +37,9 @@ struct Row {
     /// The strip's knobs and how many parameters the plugin offers.
     slots: Vec<Option<strip::Slot>>,
     parameters: usize,
+    /// The plugin's own window and Learn.
+    editor: strip::Editor,
+    learning: bool,
 }
 
 enum OwnedFace {
@@ -239,6 +242,8 @@ impl App {
                         picture: pictures[i].as_ref(),
                         slots: &row.slots,
                         parameters: row.parameters,
+                        editor: &row.editor,
+                        learning: row.learning,
                     };
                     let out = card::paint(ui, rect, egui::Id::new(("device", row.id.0)), &look);
                     // A second device of the same name says which it is.
@@ -435,10 +440,13 @@ impl App {
         } else {
             (Vec::new(), 0)
         };
+        let editor = self.editor_look(d);
         Row {
             id: d.id,
             slots,
             parameters,
+            editor,
+            learning: self.chain.learning == Some(d.id),
             name,
             vendor,
             identity,

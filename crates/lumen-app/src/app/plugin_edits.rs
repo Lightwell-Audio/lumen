@@ -12,8 +12,14 @@ use crate::document::Document;
 impl App {
     /// Records the plugins' own edits since the last frame. Called every
     /// frame after the hosts have been polled.
-    pub(crate) fn apply_plugin_edits(&mut self) {
-        for news in self.hosting.take_edits() {
+    pub(crate) fn apply_plugin_edits(&mut self, ctx: &eframe::egui::Context) {
+        let all = self.hosting.take_edits();
+        let touched: Vec<(Id, Vec<u32>)> = all
+            .iter()
+            .map(|n| (n.device, crate::chain::editor::touched(&n.edits)))
+            .filter(|(_, ids)| !ids.is_empty())
+            .collect();
+        for news in all {
             let hosting = &self.hosting;
             let title = |id: u32| {
                 hosting
@@ -24,6 +30,7 @@ impl App {
             };
             record(&mut self.document, news.device, &news.edits, title);
         }
+        self.follow_editors(ctx, &touched);
         for typed in self.hosting.take_typed() {
             let Some(value) = typed.value else {
                 self.say(format!(

@@ -20,7 +20,7 @@ use lumen_plugin_catalog::catalog::{Catalog, builtin_devices};
 use lumen_plugin_catalog::discover::standard_roots;
 use lumen_plugin_catalog::scan::Mode;
 
-pub(crate) use settings::PluginSettings;
+pub(crate) use settings::{EditorPlace, PluginSettings};
 pub(crate) use worker::Faults;
 use worker::{Job, Message};
 

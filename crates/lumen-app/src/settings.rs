@@ -521,6 +521,18 @@ mod tests {
                 folders: vec!["/plugins/extra".into()],
                 favorites: vec!["vst3:AB".into()],
                 recents: vec!["builtin:synth".into(), "vst3:AB".into()],
+                editors: [(
+                    "vst3:AB".to_owned(),
+                    crate::plugins::EditorPlace {
+                        x: -1200,
+                        y: 80,
+                        width: 640,
+                        height: 480,
+                        dpi: 144,
+                    },
+                )]
+                .into_iter()
+                .collect(),
             },
         };
         save(&path, &settings).unwrap();

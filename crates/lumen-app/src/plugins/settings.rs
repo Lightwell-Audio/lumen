@@ -4,7 +4,7 @@
 //! added section with defaults, so older files read as before (no version
 //! change).
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -20,6 +20,44 @@ pub struct PluginSettings {
     pub favorites: Vec<String>,
     /// Device ids, most recent first, at most [`Self::MAX_RECENTS`].
     pub recents: Vec<String>,
+    /// Where each plugin's own window was last, by class id (M6 slice 4f): it
+    /// opens there next time, whatever the project.
+    pub editors: BTreeMap<String, EditorPlace>,
+}
+
+/// A plugin window's place: its outer top-left corner and the size of its
+/// content, in physical pixels at `dpi`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EditorPlace {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub dpi: u32,
+}
+
+impl From<lumen_hosting::EditorBounds> for EditorPlace {
+    fn from(b: lumen_hosting::EditorBounds) -> Self {
+        Self {
+            x: b.x,
+            y: b.y,
+            width: b.width,
+            height: b.height,
+            dpi: b.dpi,
+        }
+    }
+}
+
+impl From<EditorPlace> for lumen_hosting::EditorBounds {
+    fn from(p: EditorPlace) -> Self {
+        Self {
+            x: p.x,
+            y: p.y,
+            width: p.width,
+            height: p.height,
+            dpi: p.dpi,
+        }
+    }
 }
 
 impl Default for PluginSettings {
@@ -29,6 +67,7 @@ impl Default for PluginSettings {
             folders: Vec::new(),
             favorites: Vec::new(),
             recents: Vec::new(),
+            editors: BTreeMap::new(),
         }
     }
 }
@@ -56,6 +95,26 @@ impl PluginSettings {
         self.recents.retain(|r| r != id);
         self.recents.insert(0, id.to_owned());
         self.recents.truncate(Self::MAX_RECENTS);
+    }
+
+    /// The most places kept (a library has hundreds of plugins; a person has
+    /// opened some dozens of windows).
+    pub const MAX_EDITORS: usize = 500;
+
+    /// Remembers where `class`'s window is. True when that changed what is
+    /// kept. A window with no size or an absurd one is not a place.
+    pub fn remember_editor(&mut self, class: &str, place: EditorPlace) -> bool {
+        if place.width == 0 || place.height == 0 || place.width > 16_384 || place.height > 16_384 {
+            return false;
+        }
+        if self.editors.get(class) == Some(&place) {
+            return false;
+        }
+        if self.editors.len() >= Self::MAX_EDITORS && !self.editors.contains_key(class) {
+            return false;
+        }
+        self.editors.insert(class.to_owned(), place);
+        true
     }
 
     /// Adds a search folder; false if it is already there.
@@ -94,6 +153,30 @@ mod tests {
         assert_eq!(s.recents[0], "d15");
         assert_eq!(s.recents.iter().filter(|r| *r == "d15").count(), 1);
         assert_eq!(s.recents[1], "d19");
+    }
+
+    #[test]
+    fn a_windows_place_is_kept_by_class_and_only_when_it_is_one() {
+        let mut s = PluginSettings::default();
+        let place = EditorPlace {
+            x: -1200,
+            y: 80,
+            width: 640,
+            height: 480,
+            dpi: 144,
+        };
+        assert!(s.remember_editor("vst3:AB", place));
+        assert!(!s.remember_editor("vst3:AB", place), "unchanged");
+        let moved = EditorPlace { x: 10, ..place };
+        assert!(s.remember_editor("vst3:AB", moved));
+        assert_eq!(s.editors["vst3:AB"], moved);
+        let flat = EditorPlace { height: 0, ..place };
+        assert!(!s.remember_editor("vst3:CD", flat));
+        assert!(!s.editors.contains_key("vst3:CD"));
+        // And it survives the file.
+        let text = serde_json::to_string(&s).unwrap();
+        let back: PluginSettings = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.editors["vst3:AB"], moved);
     }
 
     #[test]

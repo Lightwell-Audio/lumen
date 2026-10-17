@@ -514,6 +514,54 @@ impl App {
         self.strip_ids(device)
     }
 
+    /// Where a plugin's window is remembered to open, by the device's class:
+    /// `(x, y, width, height)`.
+    pub fn editor_place(&self, device: Id) -> Option<(i32, i32, u32, u32)> {
+        let class = self.hosting.class(device)?;
+        let p = self.settings.plugins.editors.get(class)?;
+        Some((p.x, p.y, p.width, p.height))
+    }
+
+    /// Remembers a window place for the device's plugin, as if it had been
+    /// left there.
+    pub fn set_editor_place(&mut self, device: Id, place: (i32, i32, u32, u32)) {
+        if let Some(class) = self.hosting.class(device).map(str::to_owned) {
+            self.settings.plugins.remember_editor(
+                &class,
+                crate::plugins::EditorPlace {
+                    x: place.0,
+                    y: place.1,
+                    width: place.2,
+                    height: place.3,
+                    dpi: 96,
+                },
+            );
+        }
+    }
+
+    /// Sets how a device's plugin window looks on its card, for screenshots:
+    /// `open`, `opening`, `stuck`, `none` (no editor) or `closed`; `learn`
+    /// also turns Learn on.
+    pub fn give_device_editor(&mut self, device: Id, state: &str, learn: bool) {
+        use crate::hosting::EditorState;
+        let state = match state {
+            "open" => EditorState::Open,
+            "opening" => EditorState::Opening,
+            "stuck" => EditorState::NotResponding,
+            "none" => EditorState::Refused("This plugin has no editor.".into()),
+            _ => EditorState::Closed,
+        };
+        self.hosting.pretend_editor(device, state);
+        if learn {
+            self.chain.learning = Some(device);
+        }
+    }
+
+    /// Whether Learn is on for the device.
+    pub fn learning(&self, device: Id) -> bool {
+        self.chain.learning == Some(device)
+    }
+
     /// How many changed plugins could not be read for the save.
     pub fn unread_plugins(&self) -> usize {
         self.hosting.unread()

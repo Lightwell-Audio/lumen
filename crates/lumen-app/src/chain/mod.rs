@@ -7,6 +7,7 @@
 mod actions;
 mod art;
 mod card;
+pub(crate) mod editor;
 mod geometry;
 mod params;
 mod pictures;
@@ -66,4 +67,7 @@ pub(crate) struct Chain {
     pub text_pending: Cell<bool>,
     /// The panel with every parameter of one plugin, when open.
     pub panel: Option<params::Panel>,
+    /// The device whose Learn is on: the next control touched in its window
+    /// takes a slot of its strip.
+    pub learning: Option<Id>,
 }

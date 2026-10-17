@@ -1047,6 +1047,15 @@ a soft shadow, radius `XL`).
   the knobs one raised button, "All
   parameters (N)". A plugin that lists none says so; the built-in synth sends
   you to the track's Instrument menu.
+- **The row under the knobs** (M6 slice 4f; the owner's specimens): up to three
+  raised buttons at the caption size, 22 pt tall, 4 pt apart, with widths in
+  proportion 1.35 : 1.15 : 0.7. The editor button reads "Open editor" and, when
+  the window is up, "Editor open" lit (`Tone::On`) with a dot; Learn reads
+  "Learn" and "Learning…" lit; the third is "All…" (named "All parameters (N)").
+  A window that stopped answering gives "Not responding" in the warning colour
+  beside a filled "End plugin"; a plugin with no window gives a disabled "No
+  editor" and no Learn. A plugin that lists no parameters shows only the editor
+  button under its message.
 - **The All parameters panel** (the owner's L1): a `Dialog`, "<device>
   parameters", 400 pt wide: a search field, group chips ("All 259", one for each
   of the plugin's groups, "On the strip"), then one list, rows of 28 pt drawn

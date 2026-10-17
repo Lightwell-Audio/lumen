@@ -22,6 +22,9 @@
 //! | `aux_buses` | the instrument declares one main and three auxiliary output buses (the auxiliary ones off by default) and crashes in `process` unless the host passes all four, each with a buffer list that is not null even when the bus is off |
 //! | `editor` | the controller offers an editor view (Windows): a text field to type in, a resize button, user resizing and a scale readout; without it there is no view |
 //! | `editor_hang=MS` | as `editor`, and the editor's window thread stops answering `MS` milliseconds after it is attached |
+//! | `headless_editor` | no effect on the plugin: the host (not this plugin) stands in for an editor window that is only a record of where it would be, for tests where there are no windows (`LUMEN_HOST_HEADLESS_EDITOR`) |
+//! | `headless_hang=MS` | as `headless_editor`, and opening it blocks the host's main thread for `MS` milliseconds |
+//! | `headless_close=MS` | as `headless_editor`, and the "user" closes it `MS` milliseconds after it opens |
 //! | `release=MS` | the instrument's released notes fade out over `MS` milliseconds while it reports no tail: what a synth with a long release does |
 //!
 //! `@N` counts process calls from 0 and defaults to 0.
@@ -53,6 +56,9 @@ pub enum Kind {
     Release,
     ManyParams,
     WindowEdits,
+    HeadlessEditor,
+    HeadlessHang,
+    HeadlessClose,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +107,9 @@ impl Faults {
                 "release" => Kind::Release,
                 "many_params" => Kind::ManyParams,
                 "window_edits" => Kind::WindowEdits,
+                "headless_editor" => Kind::HeadlessEditor,
+                "headless_hang" => Kind::HeadlessHang,
+                "headless_close" => Kind::HeadlessClose,
                 _ => return Err(format!("`{entry}`: unknown fault")),
             };
             if matches!(kind, Kind::ProcessSlow) && arg.is_none() {
@@ -109,7 +118,11 @@ impl Faults {
             if matches!(kind, Kind::ManyParams) && arg.is_none() {
                 return Err(format!("`{entry}`: needs `=count`"));
             }
-            if matches!(kind, Kind::EditorHang | Kind::Release) && arg.is_none() {
+            if matches!(
+                kind,
+                Kind::EditorHang | Kind::Release | Kind::HeadlessHang | Kind::HeadlessClose
+            ) && arg.is_none()
+            {
                 return Err(format!("`{entry}`: needs `=milliseconds`"));
             }
             list.push(Fault {

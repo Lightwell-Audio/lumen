@@ -131,6 +131,10 @@ impl App {
                 self.device_chosen() && self.chosen_has_parameters(),
                 "Choose a plugin that has parameters first",
             ),
+            Command::DeviceEditor | Command::DeviceLearn => need(
+                self.device_chosen() && self.chosen_has_editor(),
+                "Choose a plugin that is running first",
+            ),
             Command::DevicePaste => need(
                 self.device_copied() && self.chain_track().is_some(),
                 if self.device_copied() {
@@ -750,6 +754,16 @@ impl App {
             Command::DeviceDuplicate => self.duplicate_chain_device(),
             Command::DeviceFold => self.toggle_chain_fold(),
             Command::DeviceParameters => self.open_parameters(),
+            Command::DeviceEditor => {
+                if let Some(device) = self.chain.selected {
+                    self.toggle_editor(device);
+                }
+            }
+            Command::DeviceLearn => {
+                if let Some(device) = self.chain.selected {
+                    self.toggle_learn(device);
+                }
+            }
             Command::DevicesScanAtStartup => {
                 let on = &mut self.settings.plugins.scan_at_startup;
                 *on = !*on;

@@ -56,6 +56,11 @@ pub(super) struct Look<'a> {
     pub slots: &'a [Option<strip::Slot>],
     /// How many parameters the plugin lists.
     pub parameters: usize,
+    /// The plugin's own window: what its button says.
+    pub editor: &'a strip::Editor,
+    /// Learn is on: the next control touched in the plugin's window takes a
+    /// slot.
+    pub learning: bool,
 }
 
 /// What a card's own buttons asked for.
@@ -583,11 +588,35 @@ fn paint_strip(
                 galley,
                 palette.text_hint,
             );
-            no_strip(None)
+            // A plugin has its own window; the synth has none.
+            let outputs = if look.reports_latency {
+                let row =
+                    Rect::from_min_max(pos2(area.left(), area.bottom() - strip::BUTTONS), area.max);
+                let buttons = strip::Buttons {
+                    editor: look.editor,
+                    learning: look.learning,
+                    parameters: 0,
+                };
+                strip::buttons(ui, row, id, buttons)
+            } else {
+                Vec::new()
+            };
+            (None, outputs)
         }
         Face::Ready => (
             None,
-            strip::paint(ui, area, id, look.slots, look.parameters, look.selected),
+            strip::paint(
+                ui,
+                area,
+                id,
+                look.slots,
+                look.selected,
+                strip::Buttons {
+                    editor: look.editor,
+                    learning: look.learning,
+                    parameters: look.parameters,
+                },
+            ),
         ),
         Face::Failed(words) => no_strip(message(
             ui,
@@ -691,6 +720,8 @@ fn message(
 mod tests {
     use super::*;
 
+    static CLOSED: strip::Editor = strip::Editor::Closed;
+
     fn look(face: Face<'_>, bypass: bool, instrument: bool) -> Look<'_> {
         Look {
             name: "Tape Delay",
@@ -708,6 +739,8 @@ mod tests {
             picture: None,
             slots: &[],
             parameters: 0,
+            editor: &CLOSED,
+            learning: false,
         }
     }
 

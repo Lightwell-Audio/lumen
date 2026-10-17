@@ -2018,6 +2018,9 @@ fn device_chain() {
             Id(12),
             &[("Time", 0.4, "310 ms"), ("Feedback", 0.55, "42 %")],
         );
+        // The plugin's own window: open with Learn on; stuck.
+        h.state_mut().give_device_editor(Id(11), "open", true);
+        h.state_mut().give_device_editor(Id(12), "stuck", false);
         h.run_steps(4);
         h.get_by_label("Overheat on Pad").click();
         h.run_steps(20);

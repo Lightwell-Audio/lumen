@@ -208,6 +208,9 @@ impl App {
         match output {
             strip::Output::Set(id, value) => self.set_parameter(device, id, value, "strip"),
             strip::Output::Type(id, text) => self.hosting.ask_value(device, id, text),
+            strip::Output::Editor => self.toggle_editor(device),
+            strip::Output::Learn => self.toggle_learn(device),
+            strip::Output::End => self.end_editor_plugin(device),
             strip::Output::Remove(id) => {
                 let mut ids = self.strip_ids(device);
                 ids.retain(|i| *i != id);
@@ -263,6 +266,14 @@ impl App {
         self.chain
             .selected
             .is_some_and(|d| !self.hosting.parameters(d).is_empty())
+    }
+
+    /// Whether the chosen device is a plugin that is running, so it has a
+    /// window to ask for.
+    pub(crate) fn chosen_has_editor(&self) -> bool {
+        self.chain
+            .selected
+            .is_some_and(|d| matches!(self.hosting.state(d), Some(crate::hosting::State::Ready)))
     }
 
     /// Opens the panel for the chosen device (the command).

@@ -6909,5 +6909,42 @@ parameter's value on screen is the project's if it holds one, else the plugin's
 as Lumen knows it, else its default; its text is the plugin's own, asked when
 the value changes and not faster than every 50 ms. The strip's choice is
 `ViewState.shown_params` (chain state while open), kept by a copy of the card.
-Typing a value: click a control and type a number (or Enter, F2, or the knob's menu for the plugin's own text); the plugin reads the text (`ParamValue` request, `getParamValueByString`) and the answer is one undo step; a refusal says so and changes nothing. Not built: the editor button and Learn.
+Typing a value: click a control and type a number (or Enter, F2, or the knob's menu for the plugin's own text); the plugin reads the text (`ParamValue` request, `getParamValueByString`) and the answer is one undo step; a refusal says so and changes nothing. The editor button and Learn are built with the editor window (below).
+
+**The editor window (2026-10-17, slice 4f).** Opening the plugin's own window is
+a request to its host (`OpenEditor`, `CloseEditor`, `EditorStatus`); the window
+is the spike's (ADR-0067 "Editors"), made production in `editor/win.rs`.
+Decisions that went beyond the spike:
+- *Threads.* A host's requests are read on a thread of their own and the main
+  thread, which made the plugin and is the one that may call its view, runs
+  them and pumps the window's messages (`server::serve_pumped` with a `Pump`;
+  Windows pumps messages through a message-only window, everything else waits
+  on a channel). Every platform runs this path, so Linux tests it.
+- *A window that stops answering.* A request about the window that the main
+  thread does not answer in 600 ms is answered `Unresponsive`; until the main
+  thread finishes it every request is answered the same way, its late answer is
+  dropped (one response per request), and a quit still ends the process.
+  Requests about anything else keep their callers' own deadlines. Lumen flags
+  the card ("Not responding") and offers End plugin; it never ends a plugin on
+  its own, and "Responding" clears the flag if the window comes back.
+- *On top only while Lumen is in front.* The spike had Lumen send "top on" and
+  "top off" over the pipe. In the host a timer (200 ms, only while a window is
+  open) looks at the program in front: this process, its parent (Lumen), or a
+  process with the same parent (another host) means on top; anything else
+  means not. No traffic from Lumen's window thread, and several editors raise
+  each other correctly.
+- *Where it opens.* The place (outer corner) and content size are kept per
+  plugin class in the app settings (`settings.plugins.editors`, an added field,
+  no version change); the host opens there if a screen still shows the
+  corner, scaled by the ratio of this screen's DPI to the saved one, else where
+  the system puts it. A window the user closes still reports where it was.
+- *Learn* is a toggle on the card: the next control touched in the window
+  (an edit that began or moved a parameter, not what the processor reported)
+  takes the next free slot; it ends on a second click, Esc, the window
+  closing, or the strip filling, and refuses to start on a full strip.
+- *Without windows* (macOS, Linux) the host refuses with its reason and the
+  card says "No editor" (Learn hides). The host's stand-in window
+  (`LUMEN_HOST_HEADLESS_EDITOR`, set by a test through the plugin's fault
+  list) lets every layer above the window be tested where there is no window
+  system; the real window is MT-VST-4's (steps 5 to 8).
 

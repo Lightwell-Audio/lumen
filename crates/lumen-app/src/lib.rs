@@ -444,7 +444,7 @@ impl eframe::App for App {
         if let Some(ms) = hosts.again_in_ms {
             ctx.request_repaint_after(std::time::Duration::from_millis(ms));
         }
-        self.apply_plugin_edits();
+        self.apply_plugin_edits(&ctx);
         self.take_budget();
         if let Some(ms) = self.test_latency
             && let Some(first) = self.document.project().tracks.first()

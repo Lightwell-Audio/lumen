@@ -1,15 +1,17 @@
 //! The card's parameter strip (M6 slice 4, the owner's S2 with the send
 //! knobs' comet style): eight chosen parameters as knobs in two rows, each
-//! with its name and the plugin's own text for its value, and the button that
-//! opens every parameter. A slot with nothing in it offers to be filled.
+//! with its name and the plugin's own text for its value, and under them one
+//! row of buttons: the plugin's own window, Learn, and every parameter. A
+//! slot with nothing in it offers to be filled.
 
 use eframe::egui::{self, Align2, FontId, Rect, Shape, Stroke, Ui, pos2, vec2};
 use eframe::emath::GuiRounding as _;
 use lumen_hosting::ParamInfo;
 
+use crate::theme::Tone;
 use crate::widgets::param::{ParamLook, param_knob, start_typing};
 use crate::widgets::{self, raised};
-use crate::{theme, widgets::fit};
+use crate::{motion, theme, widgets::fit};
 
 /// The knobs on a card.
 pub(super) const SLOTS: usize = 8;
@@ -46,6 +48,38 @@ pub(super) enum Output {
     Fill,
     /// The button for every parameter.
     All,
+    /// The editor button: open the window, or close it.
+    Editor,
+    /// Learn: touch a control in the plugin's window and it takes the next
+    /// free slot.
+    Learn,
+    /// End a plugin whose window stopped answering.
+    End,
+}
+
+/// What the editor button says and does (M6 slice 4f).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(super) enum Editor {
+    /// Closed: the button opens it.
+    #[default]
+    Closed,
+    /// Asked for, not shown yet.
+    Opening,
+    Open,
+    /// The plugin's window stopped answering.
+    NotResponding,
+    /// No window to open, and why: the plugin has none, or this platform
+    /// cannot show one.
+    Unavailable(String),
+}
+
+/// The row of buttons under the knobs.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Buttons<'a> {
+    pub editor: &'a Editor,
+    pub learning: bool,
+    /// How many parameters the plugin lists (0 hides Learn and All).
+    pub parameters: usize,
 }
 
 /// A parameter a strip may show: not hidden by the plugin.
@@ -88,8 +122,8 @@ pub(super) fn paint(
     area: Rect,
     id: egui::Id,
     slots: &[Option<Slot>],
-    count: usize,
     selected: bool,
+    row: Buttons<'_>,
 ) -> Vec<Output> {
     let palette = *theme::p();
     let mut out = Vec::new();
@@ -217,41 +251,208 @@ pub(super) fn paint(
             }
         }
     }
-    let button = Rect::from_min_max(pos2(area.left(), area.bottom() - BUTTONS), area.max)
-        .round_to_pixels(ui.pixels_per_point());
-    let label = if count > 0 {
-        format!("All parameters ({count})")
-    } else {
-        "All parameters".to_owned()
+    let strip = Rect::from_min_max(pos2(area.left(), area.bottom() - BUTTONS), area.max);
+    out.extend(buttons(ui, strip, id, row));
+    out
+}
+
+/// How a button looks in the row.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Style {
+    Plain,
+    /// Lit: the thing it names is on.
+    On,
+    /// The one thing to do about a stuck plugin.
+    Fill,
+    /// Says how things are and cannot be pressed.
+    Warn,
+    Disabled,
+}
+
+/// One button of the row.
+struct Part<'a> {
+    /// What is painted.
+    shown: &'a str,
+    /// What a screen reader says (and the tests look for).
+    name: String,
+    tip: &'a str,
+    style: Style,
+    /// A lit dot before the letters.
+    dot: bool,
+    weight: f32,
+    output: Option<Output>,
+}
+
+/// The editor, Learn and All buttons in `area`, as the editor's state allows:
+/// a plugin with no window hides Learn; a stuck one offers to be ended; a
+/// plugin with no parameters has only its window.
+pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -> Vec<Output> {
+    let mut parts: Vec<Part<'_>> = Vec::new();
+    let learn_ok = row.parameters > 0;
+    let all = Part {
+        shown: "All\u{2026}",
+        name: format!("All parameters ({})", row.parameters),
+        tip: "Every parameter of the plugin, with search",
+        style: Style::Plain,
+        dot: false,
+        weight: 0.7,
+        output: Some(Output::All),
     };
-    if text_button(ui, button, id.with("all"), &label) {
-        out.push(Output::All);
+    let learn = |on: bool| Part {
+        shown: if on { "Learning\u{2026}" } else { "Learn" },
+        name: if on { "Stop learning" } else { "Learn" }.to_owned(),
+        tip: "Touch a control in the plugin's window and it takes the next free slot. \
+              Esc or a second click ends it",
+        style: if on { Style::On } else { Style::Plain },
+        dot: false,
+        weight: 1.15,
+        output: Some(Output::Learn),
+    };
+    match row.editor {
+        Editor::Closed | Editor::Opening | Editor::Open => {
+            let (shown, name, tip, style) = match row.editor {
+                Editor::Closed => (
+                    "Open editor",
+                    "Open editor",
+                    "Open the plugin's own window",
+                    Style::Plain,
+                ),
+                Editor::Opening => (
+                    "Opening\u{2026}",
+                    "Opening editor",
+                    "The plugin's window is opening",
+                    Style::On,
+                ),
+                _ => (
+                    "Editor open",
+                    "Close editor",
+                    "Close the plugin's window",
+                    Style::On,
+                ),
+            };
+            parts.push(Part {
+                shown,
+                name: name.to_owned(),
+                tip,
+                style,
+                dot: *row.editor == Editor::Open,
+                weight: 1.35,
+                output: (*row.editor != Editor::Opening).then_some(Output::Editor),
+            });
+            if learn_ok {
+                parts.push(learn(row.learning));
+                parts.push(all);
+            }
+        }
+        Editor::NotResponding => {
+            parts.push(Part {
+                shown: "Not responding",
+                name: "Editor not responding".to_owned(),
+                tip: "The plugin's window has stopped answering. Lumen never ends a plugin on its own",
+                style: Style::Warn,
+                dot: false,
+                weight: 1.4,
+                output: None,
+            });
+            parts.push(Part {
+                shown: "End plugin",
+                name: "End plugin".to_owned(),
+                tip: "Ends this plugin. The card then offers Reload",
+                style: Style::Fill,
+                dot: false,
+                weight: 1.0,
+                output: Some(Output::End),
+            });
+        }
+        Editor::Unavailable(why) => {
+            parts.push(Part {
+                shown: "No editor",
+                name: "No editor".to_owned(),
+                tip: why,
+                style: Style::Disabled,
+                dot: false,
+                weight: 1.2,
+                output: None,
+            });
+            if learn_ok {
+                parts.push(all);
+            }
+        }
+    }
+    let gap = 4.0;
+    let total: f32 = parts.iter().map(|p| p.weight).sum();
+    let room = area.width() - gap * (parts.len().saturating_sub(1)) as f32;
+    let mut out = Vec::new();
+    let mut left = area.left();
+    for (i, part) in parts.iter().enumerate() {
+        let width = room * part.weight / total;
+        let rect = Rect::from_min_size(pos2(left, area.top()), vec2(width, area.height()))
+            .round_to_pixels(ui.pixels_per_point());
+        left += width + gap;
+        if pill(ui, rect, id.with(("button", i)), part) {
+            out.extend(part.output.clone());
+        }
     }
     out
 }
 
 /// A raised button with a label; true when it was pressed.
-fn text_button(ui: &mut Ui, rect: Rect, id: egui::Id, label: &str) -> bool {
-    let response = ui.interact(rect, id, egui::Sense::click());
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
-    let face = raised::face_of(ui, &response);
+fn pill(ui: &mut Ui, rect: Rect, id: egui::Id, part: &Part<'_>) -> bool {
+    let enabled = part.output.is_some() && part.style != Style::Disabled;
+    let sense = if enabled {
+        egui::Sense::click()
+    } else {
+        egui::Sense::hover()
+    };
+    let response = ui.interact(rect, id, sense);
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::Button,
+            enabled,
+            part.style == Style::On,
+            part.name.clone(),
+        )
+    });
+    let palette = *theme::p();
+    let lit = motion::hover(ui.ctx(), id.with("lit"), part.style == Style::On);
+    let mut face = raised::face_of(ui, &response).enabled(part.style != Style::Disabled);
+    face = match part.style {
+        Style::On => face.lit(lit, Tone::On),
+        Style::Fill => face.lit(1.0, Tone::Accent),
+        _ => face,
+    };
     let body = raised::paint(
         ui.painter(),
         rect,
         theme::radius::for_height(rect.height()),
         &face,
     );
-    ui.painter().text(
-        body.center(),
-        Align2::CENTER_CENTER,
-        label,
-        FontId::proportional(theme::size::CAPTION),
-        face.text(),
+    let ink = if part.style == Style::Warn {
+        palette.warning
+    } else {
+        face.text()
+    };
+    let font = FontId::proportional(theme::size::CAPTION);
+    let text = fit(ui.painter(), part.shown, font.clone(), body.width() - 10.0);
+    let galley = ui.painter().layout_no_wrap(text, font, ink);
+    let dot = if part.dot { 10.0 } else { 0.0 };
+    let width = galley.size().x + dot;
+    if part.dot {
+        ui.painter().circle_filled(
+            pos2(body.center().x - width / 2.0 + 3.0, body.center().y),
+            2.5,
+            ink,
+        );
+    }
+    let mid = pos2(body.center().x + dot / 2.0, body.center().y);
+    raised::centre_galley(
+        ui.painter(),
+        Rect::from_center_size(mid, galley.size()),
+        galley,
+        ink,
     );
     raised::focus_ring(ui.painter(), &response, rect);
-    response
-        .on_hover_text("Every parameter of the plugin, with search")
-        .clicked()
+    response.on_hover_text(part.tip).clicked()
 }
 
 #[cfg(test)]

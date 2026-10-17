@@ -23,6 +23,7 @@ mod cue;
 mod devices;
 mod dropdown;
 mod editing;
+mod editors;
 mod fades;
 mod files;
 mod grid;
