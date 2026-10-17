@@ -46,6 +46,8 @@ impl Blocks {
         let thread = std::thread::Builder::new()
             .name("host-audio".into())
             .spawn(move || {
+                #[cfg(windows)]
+                crate::process::init_com(false);
                 // A panic here would end only this thread and leave a host
                 // that answers its pipe and never its blocks. End the process
                 // instead, so Lumen sees a crash and recovers.

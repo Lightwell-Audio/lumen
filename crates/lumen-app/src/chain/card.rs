@@ -406,7 +406,7 @@ fn paint_strip(ui: &mut Ui, area: Rect, id: egui::Id, look: &Look<'_>) -> Option
             id,
             "Stopped responding",
             palette.warning,
-            &format!("Bypassed, timing kept. {words}"),
+            words,
             ("Reload", Action::Reload, Some(Icon::Loop)),
         ),
         Face::Missing { saved } => message(
@@ -415,10 +415,7 @@ fn paint_strip(ui: &mut Ui, area: Rect, id: egui::Id, look: &Look<'_>) -> Option
             id,
             "Not installed",
             palette.text,
-            &format!(
-                "Settings kept ({}). Bypassed, timing kept.",
-                kilobytes(saved)
-            ),
+            &format!("Settings kept ({}).", kilobytes(saved)),
             ("Rescan plugins", Action::Rescan, None),
         ),
     }
@@ -428,7 +425,9 @@ fn kilobytes(bytes: usize) -> String {
     format!("{} KB", bytes.div_ceil(1024))
 }
 
-/// A title, a line of words and a button, in the strip's place.
+/// A title, the words and a button, in the strip's place. The button is
+/// pinned to the strip's bottom; the words take the room between, end in
+/// "\u{2026}" when they do not fit, and are whole in the tooltip.
 fn message(
     ui: &mut Ui,
     area: Rect,
@@ -447,32 +446,45 @@ fn message(
         fonts::medium(theme::size::BODY),
         title_colour,
     );
-    let galley = painter.layout(
-        words.to_owned(),
-        FontId::proportional(theme::size::CAPTION),
-        palette.text_secondary,
-        area.width(),
-    );
-    let words_at = pos2(area.left(), area.top() + 20.0);
-    let bottom = words_at.y + galley.size().y;
-    painter.galley(words_at, galley, palette.text_secondary);
     let (label, action, _icon) = button;
     let size = vec2(
         (label.len() as f32 * 7.0 + 28.0).min(area.width()),
         theme::size::CONTROL,
     );
-    let at = pos2(
-        area.left(),
-        (bottom + theme::space::S).min(area.bottom() - size.y),
+    let button_rect = Rect::from_min_size(pos2(area.left(), area.bottom() - size.y), size)
+        .round_to_pixels(ui.pixels_per_point());
+
+    // The words, in the room above the button.
+    let font = FontId::proportional(theme::size::CAPTION);
+    let words_top = area.top() + 20.0;
+    let room = button_rect.top() - theme::space::XS - words_top;
+    let line = painter.fonts_mut(|f| f.row_height(&font));
+    let mut job =
+        egui::text::LayoutJob::simple(words.to_owned(), font, palette.text_secondary, area.width());
+    job.wrap.max_rows = ((room / line).floor() as usize).max(1);
+    let galley = painter.layout_job(job);
+    let words_rect = Rect::from_min_size(pos2(area.left(), words_top), galley.size());
+    painter.galley(words_rect.min, galley, palette.text_secondary);
+    let hover = ui.interact(
+        Rect::from_min_max(
+            pos2(area.left(), area.top()),
+            pos2(area.right(), button_rect.top()),
+        ),
+        id.with("words"),
+        Sense::hover(),
     );
-    let rect = Rect::from_min_size(at, size).round_to_pixels(ui.pixels_per_point());
-    let response = ui.interact(rect, id.with(label), Sense::click());
+    hover.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Label, true, format!("{title}. {words}"))
+    });
+    hover.on_hover_text(words);
+
+    let response = ui.interact(button_rect, id.with(label), Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
     let face = raised::face_of(ui, &response);
     let body = raised::paint(
         ui.painter(),
-        rect,
-        theme::radius::for_height(rect.height()),
+        button_rect,
+        theme::radius::for_height(button_rect.height()),
         &face,
     );
     ui.painter().text(
@@ -482,7 +494,7 @@ fn message(
         FontId::proportional(theme::size::BODY),
         face.text(),
     );
-    raised::focus_ring(ui.painter(), &response, rect);
+    raised::focus_ring(ui.painter(), &response, button_rect);
     response.clicked().then_some(action)
 }
 

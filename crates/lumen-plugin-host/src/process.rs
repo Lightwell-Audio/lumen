@@ -69,6 +69,28 @@ pub fn end_now(code: u32) -> ! {
     std::process::exit(code as i32)
 }
 
+/// Gives the calling thread COM, as a plugin on Windows expects of its host
+/// (the VST3 hosting notes ask for it): single-threaded for the thread that
+/// creates and sets up plugins, multi-threaded for the one that processes
+/// audio. Several plugins call into COM or OLE while they are created and
+/// die with an access violation when the thread has none. A thread that
+/// already has COM in the other mode is left as it is.
+#[cfg(windows)]
+pub fn init_com(single_threaded: bool) {
+    use windows_sys::Win32::System::Com::{
+        COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED, CoInitializeEx,
+    };
+    let mode = if single_threaded {
+        COINIT_APARTMENTTHREADED
+    } else {
+        COINIT_MULTITHREADED
+    };
+    // SAFETY: a plain call on this thread; the result (S_OK, S_FALSE when it
+    // already had COM, or a mode clash) needs no action: the thread has COM
+    // in some mode either way, or the plugin runs as it did before.
+    unsafe { CoInitializeEx(std::ptr::null(), mode as u32) };
+}
+
 /// Keeps a crash from parking the process behind an error dialog, which
 /// would turn it into a hang.
 #[cfg(windows)]

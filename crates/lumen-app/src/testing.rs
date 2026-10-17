@@ -347,9 +347,9 @@ impl App {
             match state {
                 "loading" => State::Loading,
                 "ready" => State::Ready,
-                "failed" => {
-                    State::Failed("The plugin host stopped. Reload to start it again.".into())
-                }
+                "failed" => State::Failed(
+                    "Crashed while loading: access violation, exception 0xc0000005.".into(),
+                ),
                 _ => State::Missing,
             },
         );

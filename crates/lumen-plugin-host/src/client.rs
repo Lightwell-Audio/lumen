@@ -51,6 +51,38 @@ pub enum ExitKind {
     Killed,
 }
 
+impl fmt::Display for ExitKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ExitKind::Clean => f.write_str("it quit"),
+            ExitKind::Failed(code) => write!(f, "it exited with code {code}"),
+            ExitKind::Killed => f.write_str("it was ended after it stopped answering"),
+            ExitKind::Crashed(how) => match crash_name(how) {
+                Some(name) => write!(f, "it crashed: {name}, {how}"),
+                None => write!(f, "it crashed: {how}"),
+            },
+        }
+    }
+}
+
+/// What a Windows exception code means, for the codes plugins most often
+/// die of.
+fn crash_name(how: &str) -> Option<&'static str> {
+    let code = how.strip_prefix("exception ")?.to_ascii_lowercase();
+    Some(match code.as_str() {
+        "0xc0000005" => "access violation",
+        "0xc000001d" => "illegal instruction",
+        "0xc0000094" => "integer divide by zero",
+        "0xc00000fd" => "stack overflow",
+        "0xc0000135" => "a library it needs was not found",
+        "0xc0000142" => "a library it needs could not start",
+        "0xc0000374" => "heap corruption",
+        "0xc0000409" => "the plugin stopped itself (a failed check)",
+        "0xe06d7363" => "an uncaught C++ exception",
+        _ => return None,
+    })
+}
+
 impl ExitKind {
     pub(crate) fn of(status: std::process::ExitStatus) -> Self {
         #[cfg(unix)]
@@ -89,7 +121,7 @@ impl fmt::Display for HostError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             HostError::Timeout => write!(f, "the plugin host did not answer in time"),
-            HostError::Ended(how) => write!(f, "the plugin host ended: {how:?}"),
+            HostError::Ended(how) => write!(f, "the plugin host ended: {how}"),
             HostError::Protocol(what) => write!(f, "the plugin host broke the protocol: {what}"),
             HostError::Failed { message, .. } => write!(f, "{message}"),
         }
@@ -477,5 +509,24 @@ impl Drop for HostProcess {
             // blocked write ends when the killed child's pipe breaks.
             let _ = thread.join();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_crash_is_worded_with_its_code_and_what_the_code_means() {
+        let words = ExitKind::Crashed("exception 0xc0000005".into()).to_string();
+        assert!(words.contains("access violation"), "{words}");
+        assert!(words.contains("0xc0000005"), "the code stays: {words}");
+        let unknown = ExitKind::Crashed("exception 0xc0001234".into()).to_string();
+        assert_eq!(unknown, "it crashed: exception 0xc0001234");
+        assert_eq!(
+            ExitKind::Crashed("signal 11".into()).to_string(),
+            "it crashed: signal 11"
+        );
+        assert_eq!(ExitKind::Failed(3).to_string(), "it exited with code 3");
     }
 }

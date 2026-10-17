@@ -183,7 +183,7 @@ fn a_load_that_cannot_work_fails_with_the_step_it_failed_in() {
     manager.want(5, crash).unwrap();
     let f = failure(&mut manager, 5);
     assert!(f.crashed(), "{f}");
-    assert!(f.to_string().contains("load the plugin"), "{f}");
+    assert!(f.to_string().contains("Crashed while loading"), "{f}");
 
     let mut hang = instrument("factory_hang");
     hang.deadlines.load = Duration::from_millis(600);

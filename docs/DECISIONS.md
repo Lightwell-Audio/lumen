@@ -6456,6 +6456,15 @@ shipped behaviour is unchanged (a test covers the synth's default preset on a
 device added from the browser). `Hosting::pretend` and
 `testing::pretend_device_state` exist for screenshots and E2E of every face.
 
+**Amendment, 2026-10-17 (owner's first Windows run).** Two real plugins ended
+their host while loading. The card's message overlapped its button and hid the
+exit code: it now has a fixed room above the button, ends in "…" and is whole
+in the tooltip, and the failure is worded short with its cause first
+("Crashed while loading: access violation, exception 0xc0000005."). The host
+now gives its setup thread single-threaded COM and its audio thread
+multi-threaded COM on Windows, which plugins expect of a host; whether that
+cures these two is unconfirmed until the owner reloads them (KNOWN_ISSUES).
+
 **Not built, and said so.** Moving between cards with the arrow keys (cards
 and their power buttons are Tab stops); reordering, copying and the preset menu
 (slice 3); the master's chain (a refusal says so); snapshots of the plugin's own

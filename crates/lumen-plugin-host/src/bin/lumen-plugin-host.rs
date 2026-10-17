@@ -33,6 +33,9 @@ fn main() -> ExitCode {
     // A crash must end this process, not park it behind an error dialog.
     #[cfg(windows)]
     process::quiet_crashes();
+    // The thread that creates plugins gets COM, as a plugin expects.
+    #[cfg(windows)]
+    process::init_com(true);
 
     // The protocol owns the real stdout; whatever a plugin prints goes to
     // stderr, where it cannot corrupt a frame.

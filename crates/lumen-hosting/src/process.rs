@@ -15,7 +15,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use lumen_plugin_host::client::{HostError, HostProcess};
+use lumen_plugin_host::client::{ExitKind, HostError, HostProcess};
 use lumen_plugin_host::protocol::MAX_FRAMES;
 use lumen_plugin_host::shm::{Layout, Wake};
 
@@ -45,6 +45,20 @@ pub struct Failure {
     pub error: HostError,
 }
 
+impl Step {
+    /// What the step is, for "crashed while ...".
+    fn doing(self) -> &'static str {
+        match self {
+            Step::Start => "starting",
+            Step::Load => "loading",
+            Step::State => "restoring its saved state",
+            Step::Configure => "setting up",
+            Step::Attach => "opening its audio link",
+            Step::Running => "running",
+        }
+    }
+}
+
 impl Failure {
     /// Whether the plugin took its host down (a crash) rather than refusing.
     pub fn crashed(&self) -> bool {
@@ -71,9 +85,15 @@ impl fmt::Display for Failure {
             Step::Running => "keep running",
         };
         match &self.error {
+            // The cause first and short: it has to fit on a card.
+            HostError::Ended(ExitKind::Crashed(how)) => {
+                let cause = ExitKind::Crashed(how.clone()).to_string();
+                let cause = cause.strip_prefix("it crashed: ").unwrap_or(&cause);
+                write!(f, "Crashed while {}: {cause}.", self.step.doing())
+            }
             HostError::Timeout => write!(f, "The plugin did not answer while trying to {what}."),
             HostError::Ended(how) => {
-                write!(f, "The plugin host ended while trying to {what} ({how:?}).")
+                write!(f, "The plugin host ended while trying to {what}: {how}.")
             }
             HostError::Protocol(why) => write!(f, "The plugin host broke the protocol: {why}."),
             HostError::Failed { message, .. } => {
@@ -426,6 +446,24 @@ impl Run {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_crash_is_worded_short_with_its_cause_first() {
+        let failure = Failure {
+            step: Step::Load,
+            error: HostError::Ended(ExitKind::Crashed("exception 0xc0000005".into())),
+        };
+        assert_eq!(
+            failure.to_string(),
+            "Crashed while loading: access violation, exception 0xc0000005."
+        );
+        let timeout = Failure {
+            step: Step::Configure,
+            error: HostError::Timeout,
+        };
+        assert!(timeout.to_string().contains("did not answer"));
+    }
+
     use std::sync::atomic::AtomicUsize;
 
     #[test]
