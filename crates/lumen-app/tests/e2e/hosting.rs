@@ -11,6 +11,7 @@
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers};
+use egui_kittest::kittest::{NodeT, Queryable};
 use lumen_core::time::Ticks;
 use lumen_plugin_catalog::catalog::class_id;
 use lumen_project::model::{Device, DeviceKind, Id, Note, Project};
@@ -88,6 +89,8 @@ fn faults(stem: &str) -> Option<&'static str> {
         "Dies" => Some("process_crash@40"),
         // Released notes fade out over four seconds; no tail is reported.
         "Rings" => Some("release=4000"),
+        // Every block takes 3 ms of the plugin's work.
+        "Slow" => Some("process_slow=3000"),
         _ => None,
     }
 }
@@ -503,4 +506,72 @@ fn an_effect_moved_onto_the_master_takes_everything_down_and_undo_restores_it() 
     lumen.frames(5);
     assert!(lumen.app().project().master.devices.is_empty());
     assert!(quietest(&mut lumen) < 0.005, "and back on the keys");
+}
+
+/// A node's accessible name, or its value when the name is empty.
+fn text(node: &egui_kittest::Node<'_>) -> String {
+    let node = node.accesskit_node();
+    let name = node.label().unwrap_or_default();
+    if name.is_empty() {
+        node.value().unwrap_or_default()
+    } else {
+        name
+    }
+}
+
+/// The milliseconds after `what` in an accessible name ("work 3.01 ms").
+fn millis_after(label: &str, what: &str) -> f64 {
+    let at = label.find(what).expect("the figure is named") + what.len();
+    let figure: String = label[at..]
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    figure.parse().expect("a figure")
+}
+
+#[test]
+fn the_audio_panel_shows_each_plugins_work_in_the_block_budget() {
+    // Owner (2026-10-17, ADR-0075): with two plugins on a track the CPU
+    // readout was high and nothing said where the time went. The audio
+    // panel's budget lists each running plugin with its own work and the
+    // wait beyond it.
+    const EFFECT: Id = Id(21);
+    let project = project(|d| *d = vec![instrument_device(PLUGIN), effect_device(EFFECT)]);
+    let mut lumen = launch("budget", &project, &["Slow"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    wait_for_state(&mut lumen, EFFECT, "ready");
+    play(&mut lumen);
+    lumen.harness.get_by_label_contains("Audio: ").click();
+    lumen.frames(3);
+    // The budget is taken once a second: wait for a stretch with both.
+    let rows = [
+        "Deterministic Test Instrument, Keys · instrument: ",
+        "Deterministic Test Effect, Keys · effect 1: ",
+    ];
+    let until = std::time::Instant::now() + Duration::from_secs(30);
+    while rows.iter().any(|r| {
+        lumen
+            .harness
+            .query_by_label_contains(&format!("{r}work"))
+            .is_none_or(|row| millis_after(&text(&row), "work ") == 0.0)
+    }) {
+        assert!(
+            std::time::Instant::now() < until,
+            "the budget never listed both plugins"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+        lumen.frames(1);
+    }
+    assert!(
+        lumen
+            .harness
+            .query_by_label_contains("Block budget: ")
+            .is_some()
+    );
+    for row in rows {
+        let label = text(&lumen.harness.get_by_label_contains(row));
+        let work = millis_after(&label, "work ");
+        // 3 ms a block of the plugin's own work, give or take its timing.
+        assert!((2.5..10.0).contains(&work), "{label}");
+    }
 }

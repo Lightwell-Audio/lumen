@@ -25,6 +25,8 @@ pub(super) struct Costs {
 pub struct Cost {
     /// Blocks the audio thread waited for.
     pub blocks: u32,
+    /// Of those, blocks the plugin answered in time.
+    pub answers: u32,
     /// The plugin's own work per answered block.
     pub work_mean: Duration,
     pub work_peak: Duration,
@@ -69,6 +71,7 @@ impl Costs {
         let work_peak = self.work_peak.swap(0, Ordering::Relaxed);
         Cost {
             blocks: waits,
+            answers,
             work_mean: mean(work_sum, answers),
             work_peak: Duration::from_nanos(u64::from(work_peak)),
             wait_mean: mean(wait_sum, waits),
@@ -93,6 +96,7 @@ mod tests {
             costs.take(),
             Cost {
                 blocks: 3,
+                answers: 2,
                 work_mean: us(200),
                 work_peak: us(300),
                 wait_mean: us(2_500) / 3,

@@ -21,11 +21,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use lumen_devices::{Guard, HostedInstrument, Status};
+use lumen_devices::{Cost, Guard, HostedInstrument, Status};
 use lumen_engine::{InstrumentSpec, MidiTrack, MixerHandle};
 use lumen_hosting::{Happened, HostLog, Manager, Start};
 use lumen_plugin_catalog::catalog::Catalog;
-use lumen_project::model::{Device, DeviceKind, Id, Project, Reported, Track, TrackKind};
+use lumen_project::model::{
+    Device, DeviceKind, Id, PluginRef, Project, Reported, Track, TrackKind,
+};
 use lumen_project::routing::all_tracks;
 
 /// Why a running plugin was given up on, with what its host recorded: the
@@ -89,6 +91,20 @@ struct Tracked {
     tail: u32,
     rate: u32,
     bypass: bool,
+}
+
+/// What a running plugin's blocks cost over a stretch of time, for the
+/// audio panel's budget bar (ADR-0075).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PluginCost {
+    pub device: Id,
+    /// The plugin's name.
+    pub name: String,
+    /// Where it is: its track, and its slot there ("Bass · effect 2").
+    pub place: String,
+    pub cost: Cost,
+    /// Blocks it missed since its host started.
+    pub late: u32,
 }
 
 /// What a frame's update changed outside the hosting itself.
@@ -442,6 +458,45 @@ impl Hosting {
                 self.instruments.insert(track.id, spec);
             }
         }
+    }
+
+    /// What every running plugin's blocks cost since the last call, in the
+    /// project's order. Each call starts a fresh stretch.
+    pub fn take_costs(&self, project: &Project) -> Vec<PluginCost> {
+        let mut costs = Vec::new();
+        for track in all_tracks(project) {
+            let mut effects = 0;
+            for device in &track.devices {
+                let instrument = device.kind() == DeviceKind::Instrument;
+                if !instrument {
+                    effects += 1;
+                }
+                let Some(status) = self
+                    .tracked
+                    .get(&device.id.0)
+                    .filter(|t| t.state == State::Ready)
+                    .and_then(|t| t.status.as_ref())
+                else {
+                    continue;
+                };
+                let slot = if instrument {
+                    "instrument".to_string()
+                } else {
+                    format!("effect {effects}")
+                };
+                let name = match &device.plugin {
+                    PluginRef::Vst3 { name, .. } | PluginRef::Builtin { name } => name.clone(),
+                };
+                costs.push(PluginCost {
+                    device: device.id,
+                    name,
+                    place: format!("{} · {slot}", track.name),
+                    cost: status.take_cost(),
+                    late: status.late_blocks(),
+                });
+            }
+        }
+        costs
     }
 
     /// Stamps what the running plugins reported into `project`, to be saved.

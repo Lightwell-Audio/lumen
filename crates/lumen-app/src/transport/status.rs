@@ -183,6 +183,25 @@ impl Transport {
         ui.set_min_width(280.0);
         // Long lines (the dropout help, notices) wrap rather than widen it.
         ui.set_max_width(300.0);
+        // With a long plugin list the panel can be taller than the room
+        // under the bar in a small window: then it scrolls (ADR-0075).
+        // The plugin list gives way first, down to two rows.
+        let room = ui.ctx().content_rect().bottom() - ui.cursor().top() - theme::space::L;
+        self.budget.list_room = room - self.budget.outside;
+        egui::ScrollArea::vertical()
+            .id_salt("audio panel")
+            // A popup offers less height than the window has: ask for it.
+            .min_scrolled_height(room)
+            .max_height(room)
+            .show(ui, |ui| {
+                let top = ui.cursor().top();
+                self.budget.list_height = 0.0;
+                self.audio_panel_rows(ui, project);
+                self.budget.outside = ui.cursor().top() - top - self.budget.list_height;
+            });
+    }
+
+    fn audio_panel_rows(&mut self, ui: &mut Ui, project: &Project) {
         match &self.audio.status {
             Status::Running { device, detail } => {
                 ui.label(RichText::new(device).strong());
@@ -242,6 +261,10 @@ impl Transport {
             self.send(Command::TestTone(self.test_tone));
         }
         ui.separator();
+        if self.budget.shown.is_some() {
+            super::budget_view::show(ui, &mut self.budget);
+            ui.separator();
+        }
         if let Some(summary) = dropouts::summary(&self.dropouts, Instant::now()) {
             ui.label(RichText::new(format!("⚠ {summary}")).color(theme::p().warning));
             ui.add(egui::Label::new(RichText::new(DROPOUT_HELP).small()).wrap());
@@ -251,9 +274,6 @@ impl Transport {
             egui::Grid::new("audio meters")
                 .num_columns(2)
                 .show(ui, |ui| {
-                    ui.label("CPU now");
-                    ui.label(format!("{:.1}%", meters.load() * 100.0));
-                    ui.end_row();
                     ui.label("CPU peak (1 s)");
                     ui.label(format!("{:.1}%", self.cpu_peak * 100.0));
                     ui.end_row();

@@ -338,6 +338,41 @@ impl App {
         })
     }
 
+    /// Shows the audio panel's block budget with these plugins, whatever
+    /// runs, for screenshots: a block of `block_us` that used `used_us`, and
+    /// each plugin's name, place, work and wait (microseconds a block) and
+    /// missed blocks. Held for an hour.
+    pub fn pretend_budget(
+        &mut self,
+        block_us: u64,
+        used_us: u64,
+        plugins: &[(&str, &str, u64, u64, u32)],
+    ) {
+        use crate::transport::budget::{Share, Snapshot};
+        let us = Duration::from_micros;
+        let plugins: Vec<Share> = plugins
+            .iter()
+            .enumerate()
+            .map(|(i, &(name, place, work, waited, missed))| Share {
+                device: Id(i as u64 + 1),
+                name: name.into(),
+                place: place.into(),
+                work: us(work),
+                waited: us(waited),
+                missed,
+            })
+            .collect();
+        let waited: Duration = plugins.iter().map(|p| p.waited).sum();
+        let (part, whole) = lumen_engine::HOST_SHARE;
+        self.transport.budget.pretend(Snapshot {
+            block: us(block_us),
+            used: us(used_us),
+            deadline: us(block_us * part / whole),
+            lumen: us(used_us).saturating_sub(waited),
+            plugins,
+        });
+    }
+
     /// Shows a plugin device as `loading`, `ready`, `failed` or `missing`
     /// whatever its host is doing (screenshots of every card face).
     pub fn pretend_device_state(&mut self, device: Id, state: &str) {

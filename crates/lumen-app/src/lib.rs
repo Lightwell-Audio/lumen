@@ -435,6 +435,7 @@ impl eframe::App for App {
             &mut self.lanes.devices.hosted,
         );
         self.lanes.midi_changed(hosts.midi);
+        self.take_budget();
         if let Some(ms) = self.test_latency
             && let Some(first) = self.document.project().tracks.first()
         {

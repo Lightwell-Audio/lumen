@@ -71,7 +71,7 @@ irreversible or external) · *Superseded*.
 | [0071](#adr-0071--the-hosting-manager-a-process-per-plugin-device-the-link-and-the-apps-bridge-m6-slice-2c) | The hosting manager (`lumen-hosting`): a process and a thread per plugin device, loaded in the background, the `Link` the engine plays it through, the app's bridge, and the engine's rule that a host in a new or skipped track list is never given away (M6 slice 2c) | Accepted 2026-10-16 (verified with the test plugin in real host processes on Windows, and in the app's end-to-end tests; no real plugin, no Linux or macOS run of the app) | No |
 | [0072](#adr-0072--the-devices-tab-cards-placement-and-dragging-m6-slice-2d) | The Devices tab: cards, placement and dragging (M6 slice 2d) | **Accepted** 2026-10-17 (owner's C4 design) | No |
 | [0074](#adr-0074--plugins-ring-out-until-their-output-is-quiet) | Plugins ring out until their output is quiet: a hosted instrument or effect is given blocks until it has been below −90 dBFS for two seconds (or its reported tail, at most ten), effects after Stop included | Accepted 2026-10-17 (owner's B; verified with fake hosts and the test plugin; no real plugin) | Decided by the owner |
-| [0075](#adr-0075--missed-plugin-blocks-notes-kept-hosts-at-full-speed-costs-measured) | Missed plugin blocks: notes a busy host could not take go with the next block, host processes run at high priority without power throttling, and each block's plugin work and wait are measured; the readout will be a block budget bar | Accepted 2026-10-17 (owner's fixes 1 to 3 and readout B; the readout is not built) | Decided by the owner |
+| [0075](#adr-0075--missed-plugin-blocks-notes-kept-hosts-at-full-speed-costs-measured) | Missed plugin blocks: notes a busy host could not take go with the next block, host processes run at high priority without power throttling, and each block's plugin work and wait are measured; the readout will be a block budget bar | Accepted 2026-10-17 (owner's fixes 1 to 3 and readout B) | Decided by the owner |
 
 ---
 
@@ -6676,9 +6676,9 @@ Linux and macOS runs.
 
 ## ADR-0075 — Missed plugin blocks: notes kept, hosts at full speed, costs measured
 
-**Status:** Accepted 2026-10-17 for fixes 1 to 3 (the owner's choice); the
-readout is B, the block budget bar, chosen from the "Lumen Plugin Cost
-Readout Specimens" canvas and not built yet. Branch `fix/plugin-host-misses`,
+**Status:** Accepted 2026-10-17 (the owner's fixes 1 to 3, and readout B,
+the block budget bar, chosen from the "Lumen Plugin Cost Readout Specimens"
+canvas; built). Branch `fix/plugin-host-misses`,
 cut from `main`.
 
 **Context.** With one MIDI track playing a plugin synth into a plugin amp
@@ -6731,6 +6731,21 @@ Two defects were found reading the code:
    and hovering a row finds its segment. Missed blocks are marked on the
    row and summed in a warning. Owner: mock-ups use generic device names,
    never real plugin names.
+5. How it is fed: the audio status adds every callback's time and block
+   length (`Status::take_block_time`, the mean of a stretch); once a second
+   the app takes it and each running plugin's cost (`Hosting::take_costs`).
+   A plugin's work and wait are spread over every callback of the stretch
+   (one asked for every other block costs half). The bar's solid part is the
+   smaller of work and wait and the hatched part the rest of the wait; an
+   instrument handed its block early works while Lumen does, so its wait can
+   be shorter than its work and it shows no trip. Lumen's part is the
+   callback's time less every wait. Misses are counted over the last minute
+   from each host's total (a restarted host counts afresh). The deadline is
+   `HOST_SHARE` of the block (now public in `lumen-engine`).
+6. The panel scrolls when the window is too short for it; the plugin list
+   gives way first, down to two rows, so Panic stays in view at any normal
+   window height. "CPU now" left the panel (the headline replaces it; the
+   transport keeps its readout).
 
 **Consequences.**
 - Notes are no longer lost when a host is late; they sound a block late.
@@ -6753,4 +6768,10 @@ performance gate read `engine_hosted_64` +3.90% (two clock reads and the
 cost counters per hosted block, about 190 instructions against a real
 plugin's hundreds of thousands), every other scenario within ±0.21%; the
 baseline was updated for it. **Not run:** any real plugin with the fixes, the
-readout (not built), the owner's power-plan comparison.
+owner's power-plan comparison. Readout: unit tests of the budget (spreading,
+work and trip, no audio, the minute's misses, taking once a second),
+`lumen-audio`'s mean block time, the E2E scenario
+`hosting::the_audio_panel_shows_each_plugins_work_in_the_block_budget` (the
+test plugin with 3 ms of work a block is listed with it, through the real
+host), and shots `block_budget` (both themes at 100, 150 and 200%, and the
+960 × 540 window).
