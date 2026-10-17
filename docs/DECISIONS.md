@@ -6666,6 +6666,8 @@ quiet, then is no longer asked; a bypassed or quiet effect does not keep a
 stopped engine running; the allocation-guard test now covers ringing after
 Stop), and the E2E scenario
 `hosting::a_plugin_instruments_release_is_heard_until_it_ends_not_cut_after_a_second`.
-The engine test and the E2E scenario fail without the fix. **Not run:** any
-real plugin (the owner's check), the WSL performance gate, RealtimeSanitizer,
-Linux and macOS.
+The engine test and the E2E scenario fail without the fix. The macOS
+cross-clippy is clean. The WSL performance gate passes: `engine_hosted_64`
++0.78% (the level scan of each answered block), every other scenario within
+±0.21%. **Not run:** any real plugin (the owner's check), RealtimeSanitizer,
+Linux and macOS runs.
