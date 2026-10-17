@@ -18,8 +18,8 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::protocol::{
-    ClassId, ClassInfo, Edit, Event, FailureKind, FrameError, ParamInfo, ParamQueue, Request,
-    Response, UnitInfo, read_response, write_request,
+    ClassId, ClassInfo, Event, FailureKind, FrameError, ParamInfo, ParamQueue, Request, Response,
+    Taken, UnitInfo, read_response, write_request,
 };
 use crate::shm::sys::remove_names;
 use crate::shm::{BlockLink, Layout, Wake};
@@ -597,9 +597,17 @@ impl HostProcess {
 
     /// The edits made in the plugin since the last call, oldest first, and
     /// how many were dropped for want of room.
-    pub fn take_edits(&mut self, within: Duration) -> Result<(Vec<Edit>, u32), HostError> {
+    pub fn take_edits(&mut self, within: Duration) -> Result<Taken, HostError> {
         match self.call(&Request::TakeEdits, within)? {
-            Response::Edits { list, dropped } => Ok((list, dropped)),
+            Response::Edits {
+                list,
+                dropped,
+                ignored,
+            } => Ok(Taken {
+                list,
+                dropped,
+                ignored,
+            }),
             _ => Err(HostError::Protocol("expected Edits".into())),
         }
     }

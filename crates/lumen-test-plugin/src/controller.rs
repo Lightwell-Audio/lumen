@@ -9,8 +9,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use vst3::Steinberg::Vst::{
     BusDirection, IComponentHandler, IComponentHandlerTrait, IEditController, IEditControllerTrait,
-    IUnitInfo, IUnitInfoTrait, MediaType, ParameterInfo, ParameterInfo_, ProgramListID,
-    ProgramListInfo, RestartFlags_, String128, TChar, UnitID, UnitInfo,
+    IMidiMapping, IMidiMappingTrait, IUnitInfo, IUnitInfoTrait, MediaType, ParameterInfo,
+    ParameterInfo_, ProgramListID, ProgramListInfo, RestartFlags_, String128, TChar, UnitID,
+    UnitInfo,
 };
 use vst3::Steinberg::{
     FUnknown, IBStream, IPlugView, IPluginBaseTrait, int16, int32, kInvalidArgument, kResultFalse,
@@ -41,7 +42,7 @@ pub const EXTRA_BASE: u32 = 100;
 pub const EXTRA_GROUPS: u32 = 4;
 
 impl Class for Controller {
-    type Interfaces = (IEditController, IUnitInfo);
+    type Interfaces = (IEditController, IUnitInfo, IMidiMapping);
 }
 
 impl Controller {
@@ -389,5 +390,30 @@ impl IUnitInfoTrait for Controller {
         _data: *mut IBStream,
     ) -> tresult {
         kResultFalse
+    }
+}
+
+impl IMidiMappingTrait for Controller {
+    /// Channel 0 only: the level follows controller 7 (volume) and the wave
+    /// follows pitch bend (129). Pressure (128) and everything else map to
+    /// nothing, so a host's handling of an unmapped controller can be tested.
+    unsafe fn getMidiControllerAssignment(
+        &self,
+        bus: int32,
+        channel: int16,
+        controller: i16,
+        id: *mut u32,
+    ) -> tresult {
+        if bus != 0 || channel != 0 || id.is_null() {
+            return kResultFalse;
+        }
+        let mapped = match controller {
+            7 => LEVEL,
+            129 => WAVE,
+            _ => return kResultFalse,
+        };
+        // SAFETY: the host passes a valid out pointer.
+        unsafe { *id = mapped };
+        kResultOk
     }
 }

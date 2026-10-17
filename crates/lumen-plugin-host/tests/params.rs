@@ -90,7 +90,8 @@ fn a_value_set_from_lumen_is_heard_in_the_next_block_and_told_to_the_controller(
     // Lumen's own change is not reported back as an edit.
     let (_, list) = host.parameters(SLOW).unwrap();
     assert_eq!(list[0].value, 0.25);
-    let (edits, dropped) = host.take_edits(SLOW).unwrap();
+    let taken = host.take_edits(SLOW).unwrap();
+    let (edits, dropped) = (taken.list, taken.dropped);
     assert!(edits.is_empty() && dropped == 0, "{edits:?}");
 }
 
@@ -112,7 +113,8 @@ fn what_the_plugin_does_in_its_window_reaches_lumen_in_order_and_the_processor()
     // the plugin makes itself: begin, a value, end.
     let mut host = instrument("window_edits");
     host.set_param(LEVEL, 1.0, SLOW).unwrap();
-    let (edits, dropped) = host.take_edits(SLOW).unwrap();
+    let taken = host.take_edits(SLOW).unwrap();
+    let (edits, dropped) = (taken.list, taken.dropped);
     assert_eq!(dropped, 0);
     let kinds: Vec<_> = edits.iter().map(|e| (e.id, e.kind)).collect();
     assert_eq!(
@@ -125,7 +127,7 @@ fn what_the_plugin_does_in_its_window_reaches_lumen_in_order_and_the_processor()
     );
     assert_eq!(edits[1].value, 1.0);
     // A second call has nothing left.
-    assert!(host.take_edits(SLOW).unwrap().0.is_empty());
+    assert!(host.take_edits(SLOW).unwrap().list.is_empty());
 
     // The processor heard it: a saw ramps, where a square would only be ±1.
     let block = play(&mut host, vec![]);
@@ -165,9 +167,119 @@ fn what_the_processor_reports_comes_as_output_edits() {
     let mut host = instrument("reports_params");
     play(&mut host, vec![]);
     play(&mut host, vec![]);
-    let (edits, _) = host.take_edits(SLOW).unwrap();
+    let edits = host.take_edits(SLOW).unwrap().list;
     // Two blocks, one value: the second replaces the first.
     assert_eq!(edits.len(), 1, "{edits:?}");
     assert_eq!((edits[0].id, edits[0].kind), (7, EditKind::Output));
     assert_eq!(edits[0].value, 0.5);
+}
+
+fn controller(
+    offset: u32,
+    channel: i16,
+    number: i16,
+    value: f32,
+) -> lumen_plugin_host::protocol::Event {
+    lumen_plugin_host::protocol::Event {
+        offset,
+        kind: lumen_plugin_host::protocol::EventKind::Controller {
+            channel,
+            number,
+            value,
+        },
+    }
+}
+
+fn play_with(
+    host: &mut lumen_plugin_host::client::HostProcess,
+    mut events: Vec<lumen_plugin_host::protocol::Event>,
+) -> Vec<f32> {
+    events.insert(0, note_on(0, 69));
+    events.push(note_off(63, 69));
+    host.process(64, vec![], events, vec![], SLOW)
+        .expect("process")
+        .output[0]
+        .clone()
+}
+
+#[test]
+fn a_controller_the_plugin_maps_changes_its_parameter_at_the_event() {
+    let mut host = instrument("");
+    // Controller 7 is the level: half until sample 20, a quarter after it.
+    let out = play_with(&mut host, vec![controller(20, 0, 7, 0.25)]);
+    assert!(out[1..20].iter().all(|&s| s.abs() == 0.5), "{out:?}");
+    assert!(out[21..60].iter().all(|&s| s.abs() == 0.25), "{out:?}");
+    assert_eq!(host.take_edits(SLOW).unwrap().ignored, 0);
+}
+
+#[test]
+fn several_controller_events_in_a_block_keep_their_order() {
+    let mut host = instrument("");
+    let out = play_with(
+        &mut host,
+        vec![
+            controller(10, 0, 7, 1.0),
+            controller(30, 0, 7, 0.25),
+            controller(50, 0, 7, 0.75),
+        ],
+    );
+    assert!(out[1..10].iter().all(|&s| s.abs() == 0.5), "{out:?}");
+    assert!(out[11..30].iter().all(|&s| s.abs() == 1.0), "{out:?}");
+    assert!(out[31..50].iter().all(|&s| s.abs() == 0.25), "{out:?}");
+    assert!(out[51..60].iter().all(|&s| s.abs() == 0.75), "{out:?}");
+}
+
+#[test]
+fn pitch_bend_goes_through_the_mapping_too() {
+    use lumen_plugin_host::protocol::{Event, EventKind};
+    let mut host = instrument("");
+    // The test plugin maps bend to the wave: all the way up is a saw.
+    let bend = Event {
+        offset: 0,
+        kind: EventKind::PitchBend {
+            channel: 0,
+            value: 1.0,
+        },
+    };
+    let out = play_with(&mut host, vec![bend]);
+    let mut distinct: Vec<u32> = out[2..60].iter().map(|s| s.to_bits()).collect();
+    distinct.sort_unstable();
+    distinct.dedup();
+    assert!(distinct.len() > 3, "still a square: {out:?}");
+}
+
+#[test]
+fn a_controller_nothing_maps_is_counted_and_changes_nothing() {
+    use lumen_plugin_host::protocol::{Event, EventKind};
+    let mut host = instrument("");
+    let pressure = Event {
+        offset: 5,
+        kind: EventKind::Pressure {
+            channel: 0,
+            value: 1.0,
+        },
+    };
+    // Controller 1 on channel 0, and controller 7 on channel 3: unmapped.
+    let out = play_with(
+        &mut host,
+        vec![pressure, controller(8, 0, 1, 1.0), controller(9, 3, 7, 1.0)],
+    );
+    assert!(out[1..60].iter().all(|&s| s.abs() == 0.5), "{out:?}");
+    assert_eq!(host.take_edits(SLOW).unwrap().ignored, 3);
+    assert_eq!(host.take_edits(SLOW).unwrap().ignored, 0, "counted once");
+}
+
+#[test]
+fn a_controller_number_out_of_range_is_ignored_not_asked() {
+    let mut host = instrument("");
+    let out = play_with(
+        &mut host,
+        vec![
+            controller(8, 0, 500, 1.0),
+            controller(9, -1, 7, 1.0),
+            controller(9, 16, 7, 1.0),
+        ],
+    );
+    assert!(out[1..60].iter().all(|&s| s.abs() == 0.5));
+    assert_eq!(host.take_edits(SLOW).unwrap().ignored, 3);
 }

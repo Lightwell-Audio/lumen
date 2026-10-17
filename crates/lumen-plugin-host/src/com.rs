@@ -537,12 +537,19 @@ impl Changes {
     /// `now` are values to apply at the start of the piece (edits made in a
     /// plugin's window, or set from Lumen): each joins its parameter's queue
     /// at offset 0, or gets a queue of its own.
-    pub fn set_span(&self, params: &[ParamQueue], now: &[(u32, f64)], start: u32, len: u32) {
+    pub fn set_span(
+        &self,
+        params: &[ParamQueue],
+        now: &[(u32, f64)],
+        mapped: &[(u32, u32, f64)],
+        start: u32,
+        len: u32,
+    ) {
         let end = start.saturating_add(len);
         let Ok(mut queues) = self.queues.lock() else {
             return;
         };
-        let room = params.len() + now.len().min(MOST_PENDING);
+        let room = params.len() + now.len().min(MOST_PENDING) + mapped.len().min(MOST_PENDING);
         while queues.len() < room {
             queues.push(ComWrapper::new(Queue {
                 data: Mutex::new((0, Vec::new())),
@@ -575,6 +582,30 @@ impl Changes {
                     data.0 = id;
                     data.1.clear();
                     data.1.push((0, value));
+                }
+                used += 1;
+            }
+        }
+        // Controller events, in the time order they came in: each joins its
+        // parameter's queue after the points before it.
+        for &(id, at, value) in mapped.iter().take(MOST_PENDING) {
+            if !(start..end).contains(&at) {
+                continue;
+            }
+            let at = (at - start) as int32;
+            let found = queues[..used]
+                .iter()
+                .find(|q| q.data.lock().is_ok_and(|d| d.0 == id));
+            if let Some(queue) = found {
+                if let Ok(mut data) = queue.data.lock() {
+                    let place = data.1.partition_point(|&(t, _)| t <= at);
+                    data.1.insert(place, (at, value));
+                }
+            } else {
+                if let Ok(mut data) = queues[used].data.lock() {
+                    data.0 = id;
+                    data.1.clear();
+                    data.1.push((at, value));
                 }
                 used += 1;
             }

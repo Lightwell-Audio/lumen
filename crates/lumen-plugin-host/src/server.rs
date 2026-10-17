@@ -187,8 +187,12 @@ impl State {
             },
             Request::TakeEdits => match &mut lock(&self.shared).instance {
                 Some(instance) => {
-                    let (list, dropped) = instance.take_edits();
-                    Response::Edits { list, dropped }
+                    let taken = instance.take_edits();
+                    Response::Edits {
+                        list: taken.list,
+                        dropped: taken.dropped,
+                        ignored: taken.ignored,
+                    }
                 }
                 None => failed(FailureKind::Sequence, "no plugin is loaded"),
             },

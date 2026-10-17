@@ -48,6 +48,79 @@ pub enum EventKind {
         pitch: i16,
         velocity: f32,
     },
+    /// A controller (CC) change; `value` is 0 to 1. A plugin hears it through
+    /// its own controller mapping.
+    Controller {
+        channel: i16,
+        number: i16,
+        value: f32,
+    },
+    /// Pitch bend, 0 to 1 with 0.5 at the centre.
+    PitchBend { channel: i16, value: f32 },
+    /// Channel pressure (aftertouch), 0 to 1.
+    Pressure { channel: i16, value: f32 },
+}
+
+/// The wire tags of event kinds, shared with the shared-memory region.
+pub const TAG_NOTE_ON: u8 = 0;
+pub const TAG_NOTE_OFF: u8 = 1;
+pub const TAG_CONTROLLER: u8 = 2;
+pub const TAG_PITCH_BEND: u8 = 3;
+pub const TAG_PRESSURE: u8 = 4;
+
+impl EventKind {
+    /// `(tag, channel, number, value)`: the four fields every event is
+    /// carried as. `number` is the pitch of a note or a controller's number;
+    /// `value` is a velocity or a 0 to 1 value.
+    pub fn parts(&self) -> (u8, i16, i16, f32) {
+        match *self {
+            EventKind::NoteOn {
+                channel,
+                pitch,
+                velocity,
+            } => (TAG_NOTE_ON, channel, pitch, velocity),
+            EventKind::NoteOff {
+                channel,
+                pitch,
+                velocity,
+            } => (TAG_NOTE_OFF, channel, pitch, velocity),
+            EventKind::Controller {
+                channel,
+                number,
+                value,
+            } => (TAG_CONTROLLER, channel, number, value),
+            EventKind::PitchBend { channel, value } => (TAG_PITCH_BEND, channel, 0, value),
+            EventKind::Pressure { channel, value } => (TAG_PRESSURE, channel, 0, value),
+        }
+    }
+
+    /// The kind with these fields, if the tag is known and the value is a
+    /// finite number (a plugin never sees NaN).
+    pub fn from_parts(tag: u8, channel: i16, number: i16, value: f32) -> Option<Self> {
+        if !value.is_finite() {
+            return None;
+        }
+        Some(match tag {
+            TAG_NOTE_ON => EventKind::NoteOn {
+                channel,
+                pitch: number,
+                velocity: value,
+            },
+            TAG_NOTE_OFF => EventKind::NoteOff {
+                channel,
+                pitch: number,
+                velocity: value,
+            },
+            TAG_CONTROLLER => EventKind::Controller {
+                channel,
+                number,
+                value,
+            },
+            TAG_PITCH_BEND => EventKind::PitchBend { channel, value },
+            TAG_PRESSURE => EventKind::Pressure { channel, value },
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -149,6 +222,16 @@ impl EditKind {
             _ => return Err(WireError::Invalid("edit kind")),
         })
     }
+}
+
+/// What a `TakeEdits` call brings.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Taken {
+    pub list: Vec<Edit>,
+    /// Edits dropped for want of room.
+    pub dropped: u32,
+    /// Controller, bend and pressure events no parameter took.
+    pub ignored: u32,
 }
 
 /// One parameter edit, in the order the plugin made it.
@@ -278,6 +361,9 @@ pub enum Response {
         list: Vec<Edit>,
         /// Edits dropped since the last call because the list was full.
         dropped: u32,
+        /// Controller, bend and pressure events no parameter took, since the
+        /// last call (the plugin maps none to a parameter).
+        ignored: u32,
     },
     Done,
     /// The audio path is open and the host's block loop is running.
@@ -403,18 +489,7 @@ impl Request {
                 w.u32(events.len() as u32);
                 for e in events {
                     w.u32(e.offset);
-                    let (tag, channel, pitch, velocity) = match e.kind {
-                        EventKind::NoteOn {
-                            channel,
-                            pitch,
-                            velocity,
-                        } => (0, channel, pitch, velocity),
-                        EventKind::NoteOff {
-                            channel,
-                            pitch,
-                            velocity,
-                        } => (1, channel, pitch, velocity),
-                    };
+                    let (tag, channel, pitch, velocity) = e.kind.parts();
                     w.u8(tag);
                     w.u16(channel as u16);
                     w.u16(pitch as u16);
@@ -523,19 +598,8 @@ impl Request {
                     let channel = r.u16()? as i16;
                     let pitch = r.u16()? as i16;
                     let velocity = r.f32()?;
-                    let kind = match tag {
-                        0 => EventKind::NoteOn {
-                            channel,
-                            pitch,
-                            velocity,
-                        },
-                        1 => EventKind::NoteOff {
-                            channel,
-                            pitch,
-                            velocity,
-                        },
-                        _ => return Err(WireError::Invalid("event kind")),
-                    };
+                    let kind = EventKind::from_parts(tag, channel, pitch, velocity)
+                        .ok_or(WireError::Invalid("event kind"))?;
                     events.push(Event { offset, kind });
                 }
                 let n = r.count("parameter queues", MAX_QUEUES, 8)?;
@@ -690,8 +754,13 @@ impl Response {
                 w.str(text);
                 RES_TEXT
             }
-            Response::Edits { list, dropped } => {
+            Response::Edits {
+                list,
+                dropped,
+                ignored,
+            } => {
                 w.u32(*dropped);
+                w.u32(*ignored);
                 w.u32(list.len() as u32);
                 for e in list {
                     w.u32(e.id);
@@ -763,6 +832,7 @@ impl Response {
             RES_TEXT => Response::Text(r.str("text", MAX_TEXT)?),
             RES_EDITS => {
                 let dropped = r.u32()?;
+                let ignored = r.u32()?;
                 let n = r.count("edits", MAX_EDITS, 13)?;
                 let mut list = Vec::with_capacity(n);
                 for _ in 0..n {
@@ -772,7 +842,11 @@ impl Response {
                         kind: EditKind::from_u8(r.u8()?)?,
                     });
                 }
-                Response::Edits { list, dropped }
+                Response::Edits {
+                    list,
+                    dropped,
+                    ignored,
+                }
             }
             RES_DONE => Response::Done,
             RES_ATTACHED => Response::Attached,
@@ -926,6 +1000,28 @@ mod tests {
                         velocity: 0.0,
                     },
                 },
+                Event {
+                    offset: 2,
+                    kind: EventKind::Controller {
+                        channel: 1,
+                        number: 64,
+                        value: 1.0,
+                    },
+                },
+                Event {
+                    offset: 2,
+                    kind: EventKind::PitchBend {
+                        channel: 0,
+                        value: 0.5,
+                    },
+                },
+                Event {
+                    offset: 3,
+                    kind: EventKind::Pressure {
+                        channel: 15,
+                        value: 0.25,
+                    },
+                },
             ],
             params: vec![ParamQueue {
                 id: 7,
@@ -1050,6 +1146,7 @@ mod tests {
                     },
                 ],
                 dropped: 2,
+                ignored: 7,
             },
             Response::Done,
             Response::Attached,
