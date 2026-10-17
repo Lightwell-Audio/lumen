@@ -308,16 +308,20 @@ struct Holding {
     notes: [u64; 32],
     /// A bit for each channel with the pedal down.
     pedals: u16,
+    /// How many notes are down: asked every block, so not counted from the
+    /// bits each time.
+    down: u32,
 }
 
 impl Holding {
     const NONE: Self = Self {
         notes: [0; 32],
         pedals: 0,
+        down: 0,
     };
 
     fn any(&self) -> bool {
-        self.pedals != 0 || self.notes.iter().any(|&word| word != 0)
+        self.down != 0 || self.pedals != 0
     }
 
     fn clear(&mut self) {
@@ -327,10 +331,13 @@ impl Holding {
     fn set(&mut self, channel: u8, key: u8, down: bool) {
         let bit = usize::from(channel & 15) * 128 + usize::from(key & 127);
         let (word, mask) = (bit / 64, 1_u64 << (bit % 64));
-        if down {
+        let was = self.notes[word] & mask != 0;
+        if down && !was {
             self.notes[word] |= mask;
-        } else {
+            self.down += 1;
+        } else if !down && was {
             self.notes[word] &= !mask;
+            self.down -= 1;
         }
     }
 
