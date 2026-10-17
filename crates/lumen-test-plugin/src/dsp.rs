@@ -14,14 +14,20 @@ struct Voice {
     amp: f32,
     phase: f64,
     step: f64,
+    rate: f64,
+    /// Released, and fading by this much a sample (0 while held).
+    fade: f32,
 }
 
 /// A square or saw voice bank. A note starts at phase 0 on exactly the
 /// sample of its event and stops at once on its note-off (no release), so
-/// where a note sounds is a plain function of its events.
+/// where a note sounds is a plain function of its events. With a release
+/// (the `release` fault), a note fades out in a straight line over it instead.
 pub struct Voices {
     voices: [Voice; VOICES],
     next: usize,
+    /// Seconds a released note takes to fade out; 0 stops it at once.
+    release: f64,
 }
 
 impl Voices {
@@ -29,7 +35,12 @@ impl Voices {
         Self {
             voices: [Voice::default(); VOICES],
             next: 0,
+            release: 0.0,
         }
+    }
+
+    pub fn set_release(&mut self, seconds: f64) {
+        self.release = seconds.max(0.0);
     }
 
     pub fn silence(&mut self) {
@@ -56,6 +67,8 @@ impl Voices {
             amp: velocity.clamp(0.0, 1.0),
             phase: 0.0,
             step: hz / rate,
+            rate,
+            fade: 0.0,
         };
     }
 
@@ -63,14 +76,20 @@ impl Voices {
     /// channel.
     pub fn note_off(&mut self, channel: i16, pitch: i16, note_id: i32) {
         let found = self.voices.iter_mut().find(|v| {
-            v.on && if note_id >= 0 {
-                v.note_id == note_id
-            } else {
-                v.pitch == pitch && v.channel == channel
-            }
+            v.on && v.fade == 0.0
+                && if note_id >= 0 {
+                    v.note_id == note_id
+                } else {
+                    v.pitch == pitch && v.channel == channel
+                }
         });
         if let Some(v) = found {
-            v.on = false;
+            let samples = self.release * v.rate;
+            if samples >= 1.0 && v.amp > 0.0 {
+                v.fade = (f64::from(v.amp) / samples) as f32;
+            } else {
+                v.on = false;
+            }
         }
     }
 
@@ -89,6 +108,13 @@ impl Voices {
             v.phase += v.step;
             if v.phase >= 1.0 {
                 v.phase -= 1.0;
+            }
+            if v.fade > 0.0 {
+                v.amp -= v.fade;
+                // Half a step's room for rounding in the sum of the steps.
+                if v.amp <= v.fade * 0.5 {
+                    v.on = false;
+                }
             }
         }
         sum * level
@@ -145,6 +171,22 @@ mod tests {
         v.note_off(0, 69, -1);
         assert_eq!(v.next_sample(1.0, false), 0.0);
         assert_eq!(v.sounding(), 0);
+    }
+
+    #[test]
+    fn a_release_fades_a_note_out_in_a_straight_line() {
+        let mut v = Voices::new();
+        v.set_release(0.001);
+        // A release of 48 samples at 48 kHz.
+        v.note_on(0, 69, 0.5, -1, 48_000.0);
+        assert_eq!(v.next_sample(1.0, false), 0.5);
+        v.note_off(0, 69, -1);
+        let tail: Vec<f32> = (0..48).map(|_| v.next_sample(1.0, false)).collect();
+        assert_eq!(tail[0], 0.5, "the first sample after the release is whole");
+        assert!((tail[24] - 0.25).abs() < 1e-3, "half way: {}", tail[24]);
+        assert!(tail.windows(2).all(|w| w[1].abs() <= w[0].abs()));
+        assert_eq!(v.sounding(), 0);
+        assert_eq!(v.next_sample(1.0, false), 0.0);
     }
 
     #[test]

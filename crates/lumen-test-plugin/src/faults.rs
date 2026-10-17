@@ -22,6 +22,7 @@
 //! | `aux_buses` | the instrument declares one main and three auxiliary output buses (the auxiliary ones off by default) and crashes in `process` unless the host passes all four, each with a buffer list that is not null even when the bus is off |
 //! | `editor` | the controller offers an editor view (Windows): a text field to type in, a resize button, user resizing and a scale readout; without it there is no view |
 //! | `editor_hang=MS` | as `editor`, and the editor's window thread stops answering `MS` milliseconds after it is attached |
+//! | `release=MS` | the instrument's released notes fade out over `MS` milliseconds while it reports no tail: what a synth with a long release does |
 //!
 //! `@N` counts process calls from 0 and defaults to 0.
 
@@ -49,6 +50,7 @@ pub enum Kind {
     AuxBuses,
     Editor,
     EditorHang,
+    Release,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,10 +96,14 @@ impl Faults {
                 "aux_buses" => Kind::AuxBuses,
                 "editor" => Kind::Editor,
                 "editor_hang" => Kind::EditorHang,
+                "release" => Kind::Release,
                 _ => return Err(format!("`{entry}`: unknown fault")),
             };
-            if matches!(kind, Kind::ProcessSlow | Kind::EditorHang) && arg.is_none() {
+            if matches!(kind, Kind::ProcessSlow) && arg.is_none() {
                 return Err(format!("`{entry}`: needs `=microseconds`"));
+            }
+            if matches!(kind, Kind::EditorHang | Kind::Release) && arg.is_none() {
+                return Err(format!("`{entry}`: needs `=milliseconds`"));
             }
             list.push(Fault {
                 kind,
@@ -145,6 +151,14 @@ impl Faults {
         self.0
             .iter()
             .find(|f| f.kind == Kind::EditorHang)
+            .map(|f| Duration::from_millis(f.arg))
+    }
+
+    /// How long released notes take to fade out (`release`), if asked.
+    pub fn release(&self) -> Option<Duration> {
+        self.0
+            .iter()
+            .find(|f| f.kind == Kind::Release)
             .map(|f| Duration::from_millis(f.arg))
     }
 
@@ -201,6 +215,14 @@ mod tests {
         assert!(hung.editor());
         assert_eq!(hung.editor_hang(), Some(Duration::from_millis(250)));
         assert!(Faults::parse("editor_hang").is_err());
+    }
+
+    #[test]
+    fn a_release_is_in_milliseconds() {
+        let f = Faults::parse("release=4000").unwrap();
+        assert_eq!(f.release(), Some(Duration::from_millis(4000)));
+        assert_eq!(Faults::default().release(), None);
+        assert!(Faults::parse("release").is_err());
     }
 
     #[test]

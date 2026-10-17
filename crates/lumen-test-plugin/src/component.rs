@@ -291,7 +291,11 @@ impl IAudioProcessorTrait for Processor {
         {
             return kResultFalse;
         }
-        self.dsp().rate = setup.sampleRate;
+        let mut dsp = self.dsp();
+        dsp.rate = setup.sampleRate;
+        if let Some(release) = self.faults.release() {
+            dsp.set_release(release.as_secs_f64());
+        }
         kResultOk
     }
 

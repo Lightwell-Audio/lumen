@@ -33,6 +33,9 @@ enum Mode {
     /// Halves, but a worker takes this long first (each block is counted in
     /// `overlap`).
     Slow(Duration, Arc<Overlap>),
+    /// Halves and adds a level of its own (the bits of an `f32`), as an amp
+    /// with a long reverb sounds on after its input has stopped.
+    Hum(Arc<AtomicU32>),
 }
 
 #[derive(Default)]
@@ -84,6 +87,10 @@ impl Hosted for FakeEffect {
                     std::mem::replace(&mut self.ring[slot], sample)
                 };
                 out.push(heard * 0.5);
+            }
+            if let Mode::Hum(level) = &self.mode {
+                let level = f32::from_bits(level.load(Ordering::Relaxed));
+                out.iter_mut().for_each(|s| *s += level);
             }
         }
         self.at = (self.at + frames) % depth.max(1);
@@ -353,6 +360,62 @@ fn a_host_that_fails_is_replaced_by_its_fallback_at_the_same_time() {
     let out = rig.run(60_000, 128);
     assert!(status.failed(), "a second of late blocks in a row");
     assert_matches(&out, 0, 2_000, "the fallback", |n| r[n - 32]);
+}
+
+#[test]
+fn a_hosted_effect_rings_out_after_stop_until_its_output_is_quiet() {
+    // The owner's report: an amp's delay and reverb ended a moment after the
+    // notes did. A plugin still sounding after Stop is heard until it goes
+    // quiet, then left alone.
+    let routing = routing_of(vec![track(1, hosted(7, 0))]);
+    let mut rig = rig(1, RATE, &routing);
+    let level = Arc::new(AtomicU32::new(0.25f32.to_bits()));
+    let (effect, submits) = FakeEffect::new(Mode::Hum(Arc::clone(&level)), 0);
+    rig.attach(7, effect, 0);
+    rig.play();
+    rig.run(10_000, 128);
+    rig.transport.send(Command::Stop).unwrap();
+    let seconds = |n: usize| n * RATE as usize;
+    let after = rig.run(seconds(10), 128);
+    assert_matches(&after, 0, seconds(1), "ten seconds after Stop", |_| 0.25);
+
+    level.store(0.0f32.to_bits(), Ordering::Relaxed);
+    let asked = submits.load(Ordering::Relaxed);
+    rig.run(seconds(3), 128);
+    assert_eq!(
+        submits.load(Ordering::Relaxed) - asked,
+        (seconds(2) / 128) as u32,
+        "asked for blocks through two seconds of quiet"
+    );
+    let asked = submits.load(Ordering::Relaxed);
+    rig.run(seconds(1), 128);
+    assert_eq!(
+        submits.load(Ordering::Relaxed),
+        asked,
+        "and left alone once quiet"
+    );
+}
+
+#[test]
+fn a_bypassed_or_quiet_effect_does_not_keep_a_stopped_engine_running() {
+    let routing = routing_of(vec![track(1, hosted(7, 0)), track(2, hosted(8, 0))]);
+    let mut rig = rig(2, RATE, &routing);
+    let level = Arc::new(AtomicU32::new(0.25f32.to_bits()));
+    let (humming, hums) = FakeEffect::new(Mode::Hum(Arc::clone(&level)), 0);
+    let (quiet, quiets) = FakeEffect::new(Mode::Hum(Arc::new(AtomicU32::new(0))), 0);
+    let status = rig.attach(7, humming, 0);
+    rig.attach(8, quiet, 0);
+    rig.play();
+    rig.run(10_000, 128);
+    status.set_bypass(true);
+    rig.run(10_000, 128);
+    rig.transport.send(Command::Stop).unwrap();
+    // A quiet plugin goes on only while the clip it heard rings in it.
+    rig.run(RATE as usize * 3, 128);
+    let (hummed, quieted) = (hums.load(Ordering::Relaxed), quiets.load(Ordering::Relaxed));
+    rig.run(RATE as usize, 128);
+    assert_eq!(hums.load(Ordering::Relaxed), hummed, "bypassed: not asked");
+    assert_eq!(quiets.load(Ordering::Relaxed), quieted, "quiet: not asked");
 }
 
 #[test]

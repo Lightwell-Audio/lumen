@@ -290,6 +290,9 @@ pub struct Mixer<T> {
     host_msgs: rtrb::Consumer<HostMsg>,
     host_retired: rtrb::Producer<Guard>,
     hosts_pending: Arc<AtomicBool>,
+    /// The device rate of the last block (0 before the first), for how long
+    /// a host's quiet must last.
+    rate: u32,
 }
 
 /// Frames blended so far of `length` (0 until the first block sets it
@@ -348,6 +351,7 @@ pub fn mixer<T: TrackSource>(tracks: T) -> (MixerHandle, Mixer<T>) {
             host_msgs: host_rx,
             host_retired: host_retired_tx,
             hosts_pending,
+            rate: 0,
         },
     )
 }
@@ -473,6 +477,7 @@ impl<T: TrackSource> Source for Mixer<T> {
         if !cx.tail {
             self.take_new(true);
             self.take_hosts();
+            self.rate = cx.sample_rate;
         }
         let rate = cx.sample_rate;
         let advance = !cx.tail;
@@ -559,9 +564,13 @@ impl<T: TrackSource> Source for Mixer<T> {
             }
             done += n;
         }
+        if advance {
+            self.hosts.age(frames);
+        }
     }
 
     fn idle(&mut self, sample_rate: u32, frames: usize) {
+        self.rate = sample_rate;
         // Routings and clip lists sent while stopped are taken as they
         // come: a full queue would hold the UI's next ones back until Play,
         // and playback would start on stale ones (found by the M4 exit
@@ -636,6 +645,8 @@ impl<T: TrackSource> Source for Mixer<T> {
     }
 
     fn ringing(&self) -> bool {
-        self.tracks.ringing()
+        // A plugin effect rings out after a Stop until its output has been
+        // quiet for a while: a delay or a reverb is not cut off.
+        self.tracks.ringing() || self.hosts.sounding(self.rate)
     }
 }

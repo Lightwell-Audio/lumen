@@ -585,7 +585,7 @@ impl ClipPlayer {
 impl TrackSource for ClipPlayer {
     fn render(&mut self, cx: &RenderContext<'_>, out: &mut Buses<'_>) {
         if cx.mode == Mode::Ring {
-            // Stopped, and only instrument tails ring.
+            // Stopped, and only instrument and effect tails ring.
             return;
         }
         if !cx.tail {
