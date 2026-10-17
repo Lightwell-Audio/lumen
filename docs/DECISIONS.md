@@ -6526,6 +6526,19 @@ shown in the card's tooltip), which is how this was found. **Not verified:**
 that the plugin sounds right: with nothing loaded in it (no editor until slice
 3) it is silent, and 300 blocks with a note ran without a crash.
 
+**Sixth amendment, 2026-10-17 (the owner's report: a held note cuts out after
+about a second).** A hosted instrument was asked for blocks only while it
+counted as ringing, and that was counted from the last block that carried an
+event, for a plugin tail of one second at least (`RING_MIN`). A held note sends
+no events, so after a second the host was no longer given blocks and the note
+went silent. `HostedInstrument` now follows which notes are down (a bit for each
+channel and key) and which channels have the sustain pedal down (`Holding`), is
+asked for a block every block while any is, and rings out for the tail after the
+last release; all notes off and all sound off clear it, as does `silence`. Two
+unit tests reproduce it (a note held thirty blocks past the tail; a held pedal)
+and failed before the change; the older test that pinned the bug (a note with
+no release stopping after a second) now plays a note that ends.
+
 **Not built, and said so.** Moving between cards with the arrow keys (cards
 and their power buttons are Tab stops); reordering, copying and the preset menu
 (slice 3); the master's chain (a refusal says so); snapshots of the plugin's own

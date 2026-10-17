@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
-use lumen_core::midi::{Event, Msg, cc};
+use lumen_core::midi::{Event, Kind, Msg, cc};
 
 use crate::Instrument;
 
@@ -299,6 +299,58 @@ const EVENTS: usize = 2048;
 const RING_MIN: u32 = 1;
 const RING_MAX: u32 = 10;
 
+/// The notes held down and the channels with the sustain pedal down, which
+/// say whether an instrument still sounds without a word being said. A tail
+/// counted from the last event alone would end a note held for longer than the
+/// tail's minimum: the host would simply stop being given blocks.
+struct Holding {
+    /// A bit for each channel and key.
+    notes: [u64; 32],
+    /// A bit for each channel with the pedal down.
+    pedals: u16,
+}
+
+impl Holding {
+    const NONE: Self = Self {
+        notes: [0; 32],
+        pedals: 0,
+    };
+
+    fn any(&self) -> bool {
+        self.pedals != 0 || self.notes.iter().any(|&word| word != 0)
+    }
+
+    fn clear(&mut self) {
+        *self = Self::NONE;
+    }
+
+    fn set(&mut self, channel: u8, key: u8, down: bool) {
+        let bit = usize::from(channel & 15) * 128 + usize::from(key & 127);
+        let (word, mask) = (bit / 64, 1_u64 << (bit % 64));
+        if down {
+            self.notes[word] |= mask;
+        } else {
+            self.notes[word] &= !mask;
+        }
+    }
+
+    fn note(&mut self, msg: Msg) {
+        let channel = msg.channel();
+        match msg.kind() {
+            Kind::NoteOn { key, .. } => self.set(channel, key, true),
+            Kind::NoteOff { key, .. } => self.set(channel, key, false),
+            Kind::Controller { number, value } => match number {
+                cc::SUSTAIN if value >= 64 => self.pedals |= 1 << channel,
+                cc::SUSTAIN => self.pedals &= !(1 << channel),
+                // The plugin lets go of what it holds, pedal or not.
+                cc::ALL_SOUND_OFF | cc::ALL_NOTES_OFF => self.clear(),
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+}
+
 /// A plugin instrument in a host, played as an [`Instrument`] (M6 slice 2b).
 /// The app builds one when it attaches a host, and a [`placeholder`] in every
 /// later track list: the engine carries a track's instrument across lists by
@@ -313,8 +365,10 @@ pub struct HostedInstrument {
     block: Vec<Event>,
     begun: bool,
     rate: u32,
-    /// Frames of ringing left after the last block that had events.
+    /// Frames of ringing left after the last block that had events or held
+    /// notes.
     ringing: u64,
+    holding: Holding,
     dropped: u32,
 }
 
@@ -328,6 +382,7 @@ impl HostedInstrument {
             begun: false,
             rate: 0,
             ringing: 0,
+            holding: Holding::NONE,
             dropped: 0,
         }
     }
@@ -342,6 +397,7 @@ impl HostedInstrument {
             begun: false,
             rate: 0,
             ringing: 0,
+            holding: Holding::NONE,
             dropped: 0,
         }
     }
@@ -375,7 +431,9 @@ impl Instrument for HostedInstrument {
         let Some(guard) = self.guard.as_mut() else {
             return false;
         };
-        if rate == 0 || (events.is_empty() && self.pending.is_empty() && self.ringing == 0) {
+        let held = self.holding.any();
+        if rate == 0 || (events.is_empty() && self.pending.is_empty() && self.ringing == 0 && !held)
+        {
             // Nothing sounds and nothing is said: the host is left alone.
             return false;
         }
@@ -386,7 +444,11 @@ impl Instrument for HostedInstrument {
         self.block.extend(events.iter().take(room));
         self.dropped += events.len().saturating_sub(room) as u32;
         let sent = guard.begin(frames, &[], &self.block);
-        if !events.is_empty() {
+        for event in &self.block {
+            self.holding.note(event.msg);
+        }
+        // Held notes and a held pedal keep it sounding, block after block.
+        if !events.is_empty() || self.holding.any() {
             self.ringing = self.ring_frames(rate);
         } else {
             self.ringing = self.ringing.saturating_sub(frames as u64);
@@ -440,6 +502,7 @@ impl Instrument for HostedInstrument {
 
     fn silence(&mut self) {
         self.ringing = 0;
+        self.holding.clear();
         if self.guard.is_some() && self.pending.len() < EVENTS {
             self.pending.push(Event {
                 offset: 0,
@@ -698,13 +761,17 @@ mod tests {
     }
 
     #[test]
-    fn a_host_is_left_alone_while_nothing_sounds_and_rung_out_after_an_event() {
+    fn a_host_is_left_alone_while_nothing_sounds_and_rung_out_after_a_note_ends() {
         // At 1 kHz a block of 100 frames, and a plugin that reports no tail:
         // it rings for the minimum, one second, ten blocks.
         let (mut synth, seen) = instrument(vec![READY]);
         assert!(!synth.begin(1000, 100, &[]), "idle: no host work");
         assert!(!synth.active());
-        assert!(synth.begin(1000, 100, &[on(0, 60)]));
+        let off = Event {
+            offset: 50,
+            msg: Msg::note_off(0, 60),
+        };
+        assert!(synth.begin(1000, 100, &[on(0, 60), off]));
         let (mut l, mut r) = ([0.0f32; 100], [0.0f32; 100]);
         synth.finish(Instant::now(), &mut l, &mut r);
         assert!(synth.active());
@@ -720,6 +787,69 @@ mod tests {
         );
         assert!(!synth.active());
         assert_eq!(submits(&seen), 11, "the event's block and the ten after it");
+    }
+
+    #[test]
+    fn a_held_note_keeps_the_host_asked_for_blocks_and_it_rings_out_after_the_release() {
+        // Ten blocks of a tenth of a second is the ringing minimum; hold the
+        // note for thirty, with no event in any of them after the first.
+        let (mut synth, _) = instrument(vec![READY]);
+        let (mut l, mut r) = ([0.0f32; 100], [0.0f32; 100]);
+        assert!(synth.begin(1000, 100, &[on(0, 60)]));
+        synth.finish(Instant::now(), &mut l, &mut r);
+        for block in 0..30 {
+            assert!(
+                synth.begin(1000, 100, &[]),
+                "block {block}: the note is held"
+            );
+            synth.finish(Instant::now(), &mut l, &mut r);
+            assert!(synth.active(), "block {block}");
+        }
+        let off = Event {
+            offset: 0,
+            msg: Msg::note_off(0, 60),
+        };
+        assert!(synth.begin(1000, 100, &[off]));
+        synth.finish(Instant::now(), &mut l, &mut r);
+        let mut blocks = 0;
+        while synth.begin(1000, 100, &[]) {
+            synth.finish(Instant::now(), &mut l, &mut r);
+            blocks += 1;
+            assert!(blocks < 20, "it must stop being rung after the release");
+        }
+        assert_eq!(blocks, 10, "a second of ringing after the release");
+    }
+
+    #[test]
+    fn a_held_pedal_and_all_notes_off_are_followed_too() {
+        let (mut synth, _) = instrument(vec![READY]);
+        let (mut l, mut r) = ([0.0f32; 100], [0.0f32; 100]);
+        let msg = |msg| Event { offset: 0, msg };
+        let pedal = msg(Msg::controller(0, cc::SUSTAIN, 127));
+        assert!(synth.begin(1000, 100, &[on(0, 60), pedal]));
+        synth.finish(Instant::now(), &mut l, &mut r);
+        let off = msg(Msg::note_off(0, 60));
+        assert!(synth.begin(1000, 100, &[off]));
+        synth.finish(Instant::now(), &mut l, &mut r);
+        for block in 0..30 {
+            assert!(
+                synth.begin(1000, 100, &[]),
+                "block {block}: the pedal is down"
+            );
+            synth.finish(Instant::now(), &mut l, &mut r);
+        }
+        // All notes off lets go of everything the plugin was holding.
+        assert!(synth.begin(1000, 100, &[on(0, 62)]));
+        synth.finish(Instant::now(), &mut l, &mut r);
+        let all_off = msg(Msg::controller(0, cc::ALL_NOTES_OFF, 0));
+        assert!(synth.begin(1000, 100, &[all_off]));
+        synth.finish(Instant::now(), &mut l, &mut r);
+        let mut blocks = 0;
+        while synth.begin(1000, 100, &[]) {
+            synth.finish(Instant::now(), &mut l, &mut r);
+            blocks += 1;
+            assert!(blocks < 20, "nothing is held after all notes off");
+        }
     }
 
     #[test]
