@@ -162,7 +162,8 @@ pub trait Source: Send {
     fn panic(&mut self) {}
 
     /// Something still sounds or waits to be sent although playback is
-    /// stopped (an instrument's release tail, a note-off): the engine then
+    /// stopped (an instrument's release tail, a plugin effect that has not
+    /// gone quiet, a note-off): the engine then
     /// renders the source with [`Mode::Ring`] instead of calling `idle`.
     fn ringing(&self) -> bool {
         false

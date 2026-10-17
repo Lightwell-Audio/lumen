@@ -11,8 +11,11 @@
 //! be answered is silence (or the unprocessed input, for an effect); a host
 //! that stays late for [`FAILED_AFTER_FRAMES`] of audio in a row, or whose
 //! process has ended, is failed for good; a changed latency is reported once. It tells the
-//! interface what it learns through a [`Status`] of atomics. [`HostedInstrument`]
-//! plays a host as an [`Instrument`]. Everything here is real-time safe: no
+//! interface what it learns through a [`Status`] of atomics, and it listens to
+//! the host's output, so a plugin is given blocks until what it plays has gone
+//! quiet ([`Guard::sounding`]) rather than for a tail the plugin may misreport.
+//! [`HostedInstrument`] plays a host as an [`Instrument`]. Everything here is
+//! real-time safe: no
 //! allocation, no lock, and the only wait is the one `collect` makes, bounded
 //! by the deadline.
 
@@ -31,6 +34,19 @@ use crate::Instrument;
 /// buffers; a span of audio does not depend on the buffer size (ADR-0069,
 /// amended).
 pub const FAILED_AFTER_FRAMES: u64 = 48_000;
+
+/// A plugin's output below this, on every sample of a block, is quiet:
+/// −90 dBFS, under what a 16-bit file can hold.
+pub const QUIET_LEVEL: f32 = 3.162_278e-5;
+
+/// How long a plugin's output stays quiet before the engine stops giving it
+/// blocks, unless the plugin reports a longer tail. Long enough for the gap
+/// before a slow delay's next echo.
+pub const QUIET_SECONDS: u32 = 2;
+
+/// The longest reported tail the engine waits through (a plugin may report an
+/// endless one); after it, only the output decides.
+const TAIL_MOST_SECONDS: u32 = 10;
 
 /// Why a host did not take a block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,6 +180,11 @@ pub struct Guard {
     frames: usize,
     /// Frames of audio late in a row.
     missed: u64,
+    /// Frames since the host's output was last above [`QUIET_LEVEL`]; it
+    /// starts quiet.
+    quiet: u64,
+    /// A block was asked for since the last [`Guard::age`].
+    asked: bool,
     status: Arc<Status>,
 }
 
@@ -176,8 +197,54 @@ impl Guard {
             sent: false,
             frames: 0,
             missed: 0,
+            quiet: u64::MAX,
+            asked: false,
             status: Status::new(latency),
         }
+    }
+
+    /// Whether the host's output may still be heard at `rate`: it was above
+    /// [`QUIET_LEVEL`] within the last [`QUIET_SECONDS`], or within its
+    /// reported tail when that is longer (at most ten seconds). A failed host
+    /// is not.
+    pub fn sounding(&self, rate: u32) -> bool {
+        let rate = u64::from(rate);
+        let tail = u64::from(self.tail()).min(rate * u64::from(TAIL_MOST_SECONDS));
+        let window = (rate * u64::from(QUIET_SECONDS)).max(tail);
+        !self.failed() && self.quiet < window
+    }
+
+    /// Something was said that may make the plugin sound (a note, a pedal):
+    /// it counts as sounding from now, before its output says so.
+    pub fn wake(&mut self) {
+        self.quiet = 0;
+    }
+
+    /// The plugin was told to stop every sound: it counts as quiet at once.
+    pub fn hush(&mut self) {
+        self.quiet = u64::MAX;
+    }
+
+    /// `frames` went by: a host that was not asked for a block since the
+    /// last call has been quiet for them (its node did not run).
+    pub fn age(&mut self, frames: usize) {
+        if !std::mem::take(&mut self.asked) {
+            self.quiet = self.quiet.saturating_add(frames as u64);
+        }
+    }
+
+    /// Follows how loud the block's output was.
+    fn heard(&mut self, left: &[f32], right: &[f32]) {
+        let loud = |side: &[f32]| side.iter().any(|s| s.abs() > QUIET_LEVEL);
+        if loud(left) || loud(right) {
+            self.quiet = 0;
+        } else {
+            self.quiet = self.quiet.saturating_add(left.len() as u64);
+        }
+    }
+
+    fn quiet_for(&mut self, frames: usize) {
+        self.quiet = self.quiet.saturating_add(frames as u64);
     }
 
     /// What the interface may read about the host.
@@ -219,6 +286,7 @@ impl Guard {
     pub fn begin(&mut self, frames: usize, input: &[&[f32]], events: &[Event]) -> bool {
         self.sent = false;
         self.frames = frames;
+        self.asked = true;
         if self.failed() {
             return false;
         }
@@ -245,8 +313,18 @@ impl Guard {
     /// Takes the block's answer, waiting until `deadline` at most.
     pub fn finish(&mut self, deadline: Instant, left: &mut [f32], right: &mut [f32]) -> Outcome {
         if !std::mem::take(&mut self.sent) {
+            self.quiet_for(left.len());
             return Outcome::Silent;
         }
+        let outcome = self.collect(deadline, left, right);
+        match outcome {
+            Outcome::Ready => self.heard(left, right),
+            Outcome::Silent => self.quiet_for(left.len()),
+        }
+        outcome
+    }
+
+    fn collect(&mut self, deadline: Instant, left: &mut [f32], right: &mut [f32]) -> Outcome {
         match self.host.collect(deadline, left, right) {
             Reply::Ready {
                 latency,
@@ -293,16 +371,23 @@ impl Guard {
 /// The most events one hosted instrument takes to its host in a block; a
 /// storm past it is dropped and counted.
 const EVENTS: usize = 2048;
-/// An instrument counts as sounding this long after its last event at least
-/// (a plugin that reports no tail still rings out), and this long at most (a
-/// tail that never ends is not waited for).
-const RING_MIN: u32 = 1;
-const RING_MAX: u32 = 10;
+
+/// Whether a message may make the plugin sound: everything but the one that
+/// stops every sound at once.
+fn wakes(msg: Msg) -> bool {
+    !matches!(
+        msg.kind(),
+        Kind::Controller {
+            number: cc::ALL_SOUND_OFF,
+            ..
+        }
+    )
+}
 
 /// The notes held down and the channels with the sustain pedal down, which
-/// say whether an instrument still sounds without a word being said. A tail
-/// counted from the last event alone would end a note held for longer than the
-/// tail's minimum: the host would simply stop being given blocks.
+/// say whether an instrument still sounds without a word being said. A held
+/// note keeps the host given blocks even while its output is quiet (a slow
+/// attack, a swell).
 struct Holding {
     /// A bit for each channel and key.
     notes: [u64; 32],
@@ -372,9 +457,6 @@ pub struct HostedInstrument {
     block: Vec<Event>,
     begun: bool,
     rate: u32,
-    /// Frames of ringing left after the last block that had events or held
-    /// notes.
-    ringing: u64,
     holding: Holding,
     dropped: u32,
 }
@@ -388,7 +470,6 @@ impl HostedInstrument {
             block: Vec::with_capacity(EVENTS),
             begun: false,
             rate: 0,
-            ringing: 0,
             holding: Holding::NONE,
             dropped: 0,
         }
@@ -403,7 +484,6 @@ impl HostedInstrument {
             block: Vec::new(),
             begun: false,
             rate: 0,
-            ringing: 0,
             holding: Holding::NONE,
             dropped: 0,
         }
@@ -412,15 +492,6 @@ impl HostedInstrument {
     /// Events dropped because a block had more than the host takes.
     pub fn dropped_events(&self) -> u32 {
         self.dropped
-    }
-
-    fn ring_frames(&self, rate: u32) -> u64 {
-        let tail = self.guard.as_ref().map_or(0, |g| g.tail());
-        let (low, high) = (
-            u64::from(rate) * u64::from(RING_MIN),
-            u64::from(rate) * u64::from(RING_MAX),
-        );
-        u64::from(tail).clamp(low, high)
     }
 }
 
@@ -439,7 +510,8 @@ impl Instrument for HostedInstrument {
             return false;
         };
         let held = self.holding.any();
-        if rate == 0 || (events.is_empty() && self.pending.is_empty() && self.ringing == 0 && !held)
+        if rate == 0
+            || (events.is_empty() && self.pending.is_empty() && !held && !guard.sounding(rate))
         {
             // Nothing sounds and nothing is said: the host is left alone.
             return false;
@@ -451,14 +523,15 @@ impl Instrument for HostedInstrument {
         self.block.extend(events.iter().take(room));
         self.dropped += events.len().saturating_sub(room) as u32;
         let sent = guard.begin(frames, &[], &self.block);
+        let mut woken = false;
         for event in &self.block {
             self.holding.note(event.msg);
+            woken |= wakes(event.msg);
         }
-        // Held notes and a held pedal keep it sounding, block after block.
-        if !events.is_empty() || self.holding.any() {
-            self.ringing = self.ring_frames(rate);
-        } else {
-            self.ringing = self.ringing.saturating_sub(frames as u64);
+        // What was said, and held notes and a held pedal, keep it sounding
+        // block after block; after that, its output decides.
+        if woken || self.holding.any() {
+            guard.wake();
         }
         self.begun = sent;
         sent
@@ -503,14 +576,18 @@ impl Instrument for HostedInstrument {
     fn active(&self) -> bool {
         // Messages waiting for a block count: a note-off must reach the host
         // even when the project has stopped.
-        (self.ringing > 0 || !self.pending.is_empty())
-            && self.guard.as_ref().is_some_and(|g| !g.failed())
+        self.guard.as_ref().is_some_and(|g| {
+            !g.failed() && (!self.pending.is_empty() || self.holding.any() || g.sounding(self.rate))
+        })
     }
 
     fn silence(&mut self) {
-        self.ringing = 0;
         self.holding.clear();
-        if self.guard.is_some() && self.pending.len() < EVENTS {
+        let Some(guard) = self.guard.as_mut() else {
+            return;
+        };
+        guard.hush();
+        if self.pending.len() < EVENTS {
             self.pending.push(Event {
                 offset: 0,
                 msg: Msg::controller(0, cc::ALL_SOUND_OFF, 0),
@@ -525,11 +602,13 @@ mod tests {
 
     use super::*;
 
-    /// What a fake host was asked.
+    /// What a fake host was asked, and the level it answers with (the test
+    /// may change it while the host is in use).
     #[derive(Default)]
     struct Seen {
         submits: u32,
         events: Vec<Vec<Event>>,
+        value: f32,
     }
 
     /// A host that answers from a script and records what it is asked.
@@ -538,19 +617,20 @@ mod tests {
         next: usize,
         refuse: Option<Refused>,
         ended: bool,
-        value: f32,
         seen: Arc<Mutex<Seen>>,
     }
 
     impl Fake {
         fn new(script: Vec<Reply>) -> (Box<Self>, Arc<Mutex<Seen>>) {
-            let seen = Arc::new(Mutex::new(Seen::default()));
+            let seen = Arc::new(Mutex::new(Seen {
+                value: 0.5,
+                ..Seen::default()
+            }));
             let fake = Box::new(Self {
                 script,
                 next: 0,
                 refuse: None,
                 ended: false,
-                value: 0.5,
                 seen: seen.clone(),
             });
             (fake, seen)
@@ -572,8 +652,9 @@ mod tests {
             let reply = self.script[self.next.min(self.script.len() - 1)];
             self.next += 1;
             if matches!(reply, Reply::Ready { .. }) {
-                left.fill(self.value);
-                right.fill(-self.value);
+                let value = self.seen.lock().unwrap().value;
+                left.fill(value);
+                right.fill(-value);
             }
             reply
         }
@@ -767,11 +848,32 @@ mod tests {
         );
     }
 
+    /// Blocks the instrument is given, at 1 kHz in blocks of 100 frames, until
+    /// it is left alone (at most `most`).
+    fn rung(synth: &mut HostedInstrument, most: usize) -> usize {
+        let (mut l, mut r) = ([0.0f32; 100], [0.0f32; 100]);
+        let mut blocks = 0;
+        while synth.begin(1000, 100, &[]) {
+            synth.finish(Instant::now(), &mut l, &mut r);
+            blocks += 1;
+            assert!(blocks <= most, "it must stop being rung");
+        }
+        blocks
+    }
+
+    /// At 1 kHz, blocks of 100 frames: the quiet that ends a plugin's turn.
+    const QUIET_BLOCKS: usize = (QUIET_SECONDS * 10) as usize;
+
+    fn quiet(seen: &Arc<Mutex<Seen>>) {
+        seen.lock().unwrap().value = 0.0;
+    }
+
     #[test]
     fn a_host_is_left_alone_while_nothing_sounds_and_rung_out_after_a_note_ends() {
-        // At 1 kHz a block of 100 frames, and a plugin that reports no tail:
-        // it rings for the minimum, one second, ten blocks.
+        // A plugin that reports no tail and plays nothing after the note: it is
+        // given blocks until two seconds of quiet have gone by.
         let (mut synth, seen) = instrument(vec![READY]);
+        quiet(&seen);
         assert!(!synth.begin(1000, 100, &[]), "idle: no host work");
         assert!(!synth.active());
         let off = Event {
@@ -782,25 +884,92 @@ mod tests {
         let (mut l, mut r) = ([0.0f32; 100], [0.0f32; 100]);
         synth.finish(Instant::now(), &mut l, &mut r);
         assert!(synth.active());
-        let mut blocks = 0;
-        while synth.begin(1000, 100, &[]) {
-            synth.finish(Instant::now(), &mut l, &mut r);
-            blocks += 1;
-            assert!(blocks < 20, "it must stop being rung");
-        }
         assert_eq!(
-            blocks, 10,
-            "a second of ringing after the block with the event"
+            rung(&mut synth, 100),
+            QUIET_BLOCKS - 1,
+            "two seconds of quiet, counted from the block with the event"
         );
         assert!(!synth.active());
-        assert_eq!(submits(&seen), 11, "the event's block and the ten after it");
+        assert_eq!(submits(&seen), QUIET_BLOCKS as u32);
+    }
+
+    #[test]
+    fn a_host_whose_output_still_sounds_is_given_blocks_until_it_goes_quiet() {
+        // The owner's report: a synth's release, and a delay in it, were cut a
+        // second after the last note. Here the plugin keeps sounding for ten
+        // seconds after the note ends, far past any guessed tail.
+        let (mut synth, seen) = instrument(vec![READY]);
+        let (mut l, mut r) = ([0.0f32; 100], [0.0f32; 100]);
+        let off = Event {
+            offset: 50,
+            msg: Msg::note_off(0, 60),
+        };
+        assert!(synth.begin(1000, 100, &[on(0, 60), off]));
+        synth.finish(Instant::now(), &mut l, &mut r);
+        for block in 0..100 {
+            assert!(synth.begin(1000, 100, &[]), "block {block}: still sounding");
+            synth.finish(Instant::now(), &mut l, &mut r);
+            assert_eq!(l[99], 0.5, "block {block}: the host's output is heard");
+        }
+        quiet(&seen);
+        assert_eq!(
+            rung(&mut synth, 100),
+            QUIET_BLOCKS,
+            "two seconds after the last sound, then left alone"
+        );
+        assert!(!synth.active());
+    }
+
+    #[test]
+    fn a_reported_tail_longer_than_the_quiet_is_waited_through_up_to_ten_seconds() {
+        for (tail, blocks) in [(5_000, 50), (u32::MAX, 100)] {
+            let (mut synth, seen) = instrument(vec![Reply::Ready {
+                latency: 0,
+                tail,
+                restart: false,
+            }]);
+            quiet(&seen);
+            let (mut l, mut r) = ([0.0f32; 100], [0.0f32; 100]);
+            assert!(synth.begin(1000, 100, &[on(0, 60)]));
+            synth.finish(Instant::now(), &mut l, &mut r);
+            let off = Event {
+                offset: 0,
+                msg: Msg::note_off(0, 60),
+            };
+            assert!(synth.begin(1000, 100, &[off]));
+            synth.finish(Instant::now(), &mut l, &mut r);
+            assert_eq!(rung(&mut synth, 200), blocks - 1, "a tail of {tail} frames");
+        }
+    }
+
+    #[test]
+    fn a_guard_follows_quiet_while_its_node_does_not_run() {
+        let (host, seen) = Fake::new(vec![READY]);
+        let mut guard = Guard::new(host, 0);
+        assert!(!guard.sounding(1000), "a new host has played nothing");
+        run(&mut guard);
+        assert!(guard.sounding(1000));
+        // The block it was asked for is counted by its output, not again.
+        guard.age(4);
+        guard.age(1_999);
+        assert!(guard.sounding(1000));
+        guard.age(1);
+        assert!(!guard.sounding(1000), "two seconds unasked");
+        guard.wake();
+        assert!(guard.sounding(1000));
+        guard.hush();
+        assert!(!guard.sounding(1000));
+        quiet(&seen);
+        run(&mut guard);
+        assert!(!guard.sounding(1000), "a quiet block does not wake it");
     }
 
     #[test]
     fn a_held_note_keeps_the_host_asked_for_blocks_and_it_rings_out_after_the_release() {
-        // Ten blocks of a tenth of a second is the ringing minimum; hold the
-        // note for thirty, with no event in any of them after the first.
-        let (mut synth, _) = instrument(vec![READY]);
+        // Hold the note for thirty blocks, longer than the quiet, with no event
+        // in any of them after the first and nothing heard from the plugin.
+        let (mut synth, seen) = instrument(vec![READY]);
+        quiet(&seen);
         let (mut l, mut r) = ([0.0f32; 100], [0.0f32; 100]);
         assert!(synth.begin(1000, 100, &[on(0, 60)]));
         synth.finish(Instant::now(), &mut l, &mut r);
@@ -818,18 +987,17 @@ mod tests {
         };
         assert!(synth.begin(1000, 100, &[off]));
         synth.finish(Instant::now(), &mut l, &mut r);
-        let mut blocks = 0;
-        while synth.begin(1000, 100, &[]) {
-            synth.finish(Instant::now(), &mut l, &mut r);
-            blocks += 1;
-            assert!(blocks < 20, "it must stop being rung after the release");
-        }
-        assert_eq!(blocks, 10, "a second of ringing after the release");
+        assert_eq!(
+            rung(&mut synth, 100),
+            QUIET_BLOCKS - 1,
+            "the quiet is counted from the release"
+        );
     }
 
     #[test]
     fn a_held_pedal_and_all_notes_off_are_followed_too() {
-        let (mut synth, _) = instrument(vec![READY]);
+        let (mut synth, seen) = instrument(vec![READY]);
+        quiet(&seen);
         let (mut l, mut r) = ([0.0f32; 100], [0.0f32; 100]);
         let msg = |msg| Event { offset: 0, msg };
         let pedal = msg(Msg::controller(0, cc::SUSTAIN, 127));
@@ -851,12 +1019,11 @@ mod tests {
         let all_off = msg(Msg::controller(0, cc::ALL_NOTES_OFF, 0));
         assert!(synth.begin(1000, 100, &[all_off]));
         synth.finish(Instant::now(), &mut l, &mut r);
-        let mut blocks = 0;
-        while synth.begin(1000, 100, &[]) {
-            synth.finish(Instant::now(), &mut l, &mut r);
-            blocks += 1;
-            assert!(blocks < 20, "nothing is held after all notes off");
-        }
+        assert_eq!(
+            rung(&mut synth, 100),
+            QUIET_BLOCKS - 1,
+            "nothing is held after all notes off: the release rings out"
+        );
     }
 
     #[test]

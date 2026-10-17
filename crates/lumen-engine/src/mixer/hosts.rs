@@ -90,6 +90,28 @@ impl HostPool {
         }
     }
 
+    /// Whether a host that is on may still be heard at `rate`: what it
+    /// played has not been quiet for long (its tail, after a Stop).
+    pub fn sounding(&self, rate: u32) -> bool {
+        self.used > 0
+            && self
+                .slots
+                .iter()
+                .flatten()
+                .any(|(_, guard)| !guard.bypassed() && guard.sounding(rate))
+    }
+
+    /// `frames` were rendered: hosts not asked for a block meanwhile have
+    /// been quiet for them.
+    pub fn age(&mut self, frames: usize) {
+        if self.used == 0 {
+            return;
+        }
+        for (_, guard) in self.slots.iter_mut().flatten() {
+            guard.age(frames);
+        }
+    }
+
     pub fn remove(&mut self, id: u64) -> Option<Guard> {
         for slot in &mut self.slots {
             if slot.as_ref().is_some_and(|(slot, _)| *slot == id) {

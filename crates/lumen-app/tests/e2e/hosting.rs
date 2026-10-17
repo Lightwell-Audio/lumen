@@ -86,6 +86,8 @@ fn faults(stem: &str) -> Option<&'static str> {
     match stem {
         // The host dies on its 40th block.
         "Dies" => Some("process_crash@40"),
+        // Released notes fade out over four seconds; no tail is reported.
+        "Rings" => Some("release=4000"),
         _ => None,
     }
 }
@@ -160,6 +162,32 @@ fn a_plugin_instrument_loads_in_the_background_and_is_heard() {
     play(&mut lumen);
     let heard = lumen.listen(Duration::from_millis(100), 4_800);
     assert!(peak(&heard) > 0.01, "the plugin instrument is silent");
+}
+
+#[test]
+fn a_plugin_instruments_release_is_heard_until_it_ends_not_cut_after_a_second() {
+    // The owner's report (2026-10-17): a synth's release, and a delay in it,
+    // were cut about a second after the last note, because the plugin was
+    // given blocks only for its reported tail (none) or a second. It is now
+    // given them until its output goes quiet.
+    let mut track = midi_track(
+        KEYS.0,
+        "Keys",
+        "poly",
+        (0, 64),
+        None,
+        vec![Note::new(Ticks::ZERO, Ticks::quarters(1), 69, 100)],
+        vec![],
+    );
+    track.devices = vec![instrument_device(PLUGIN)];
+    let project = project_of("Release", vec![track]);
+    let mut lumen = launch("release", &project, &["Rings"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    play(&mut lumen);
+    // The note ends half a second in (a beat at 120 BPM); two seconds after
+    // that, its four-second release is still about half as loud.
+    let heard = lumen.listen(Duration::from_millis(2_500), 4_800);
+    assert!(peak(&heard) > 0.01, "the release was cut: {}", peak(&heard));
 }
 
 #[test]

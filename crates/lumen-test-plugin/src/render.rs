@@ -75,6 +75,11 @@ impl Dsp {
         self.voices.sounding()
     }
 
+    /// Released notes fade out over `seconds` instead of stopping at once.
+    pub fn set_release(&mut self, seconds: f64) {
+        self.voices.set_release(seconds);
+    }
+
     fn set(&mut self, id: u32, value: f64) {
         if let Some(slot) = self.values.get_mut(id as usize) {
             *slot = value.clamp(0.0, 1.0);

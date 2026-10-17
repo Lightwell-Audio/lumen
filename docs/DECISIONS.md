@@ -70,6 +70,7 @@ irreversible or external) · *Superseded*.
 | [0070](#adr-0070--hosted-devices-in-the-engine-the-contract-two-phase-instruments-and-effects-with-a-fallback-m6-slice-2b) | Hosted devices in the engine: the `Hosted` contract and its `Guard`, hosted instruments begun before the clips render, hosted effects in the mixer with a delay-line fallback and a glide, and what 2b leaves to later (M6 slice 2b) | Accepted 2026-10-16 (verified with fake hosts on Windows, and the new tests under RealtimeSanitizer and the performance gate in WSL; no real plugin, no process, no full macOS run) | No |
 | [0071](#adr-0071--the-hosting-manager-a-process-per-plugin-device-the-link-and-the-apps-bridge-m6-slice-2c) | The hosting manager (`lumen-hosting`): a process and a thread per plugin device, loaded in the background, the `Link` the engine plays it through, the app's bridge, and the engine's rule that a host in a new or skipped track list is never given away (M6 slice 2c) | Accepted 2026-10-16 (verified with the test plugin in real host processes on Windows, and in the app's end-to-end tests; no real plugin, no Linux or macOS run of the app) | No |
 | [0072](#adr-0072--the-devices-tab-cards-placement-and-dragging-m6-slice-2d) | The Devices tab: cards, placement and dragging (M6 slice 2d) | **Accepted** 2026-10-17 (owner's C4 design) | No |
+| [0074](#adr-0074--plugins-ring-out-until-their-output-is-quiet) | Plugins ring out until their output is quiet: a hosted instrument or effect is given blocks until it has been below −90 dBFS for two seconds (or its reported tail, at most ten), effects after Stop included | Accepted 2026-10-17 (owner's B; verified with fake hosts and the test plugin; no real plugin) | Decided by the owner |
 
 ---
 
@@ -143,6 +144,7 @@ irreversible or external) · *Superseded*.
 | Plugin discovery (M6 slice 1, 2026-10-16) | Asked and chosen: **scan at startup, in the background** (known plugins from the saved list at once, only new or changed ones loaded); a plugin that crashes or hangs while scanned is **blocked with its reason and retried only when its file changes or on Retry**; the browser uses **layout B** (grouped by vendor, with category chips) from the "Lumen Plugin Browser Specimens" canvas, **plus a type filter** (All, Instruments, Effects) for the grouping by type the owner liked in layout A. The slice started while slice 0's audio-path ADR is still open; the owner ran MT-VST-0 and said to go on. Plan in `docs/milestones/M6.md`. |
 | Device chain behavior (M6 slice 2, 2026-10-16) | Asked one at a time and chosen, as recommended except D5: **D1** a failed or missing effect is bypassed with its last-known latency kept and a short crossfade, and flagged; **D2** a failed or missing instrument is silent and flagged, with notes still flowing so Reload resumes at the playhead (held notes sound again when re-struck); **D3** double-clicking a plugin with no compatible track selected creates a track (MIDI for an instrument, audio for an effect) and adds the device, one undo step; **D4** adding an instrument to a track that has one replaces it, one undo step, and the replaced state stays in the history; **D5** a double-click puts an effect after the selected card, else at the end, **and** a drag shows an insertion preview and drops where shown (the owner asked for both); **D6** a project opens at once and its plugins load in the background, cards showing "loading", playback not held; **D7** a bypassed device keeps its latency (no timing jump, no graph rebuild); **D8** a failed plugin comes back with a Reload button only, no automatic restart (the full policy is slice 5), restoring the last saved state, and the card says so; **D9** a saved VST3 device holds the component state and the controller state as separate blobs, the plugin's version, and its last-known latency and tail (format v17; v16 blobs migrate in as the component state). **Look**, chosen from the "Lumen Device Chain Specimens" canvas: **variant C** (wide 200 pt cards with a three-parameter strip) with **C2's kind treatment** (a track-colour stripe, a keyboard or sliders glyph, and a signal line, "MIDI → audio" or "audio → audio") and a **generated artwork band** (96 pt, monogram on a clip-colour gradient chosen from the class ID, fading into the header, greyscale when the device is bypassed) with a preference to turn it off, in a **sunk tray** with **lit cables** between the devices (C4: unlit when stopped, the Beam while audio plays through; MIDI into an instrument dotted), all in slice 2; **the plugins' own snapshot pictures move to slice 3** as their own part. Plan in `docs/milestones/M6.md`. |
 | The engine's host path (M6 slice 2b, 2026-10-16) | Plan approved with **B1** (two or more hosted effects on one track, and effects on a group, run one after another in 2b; measured in 2f), **B2** (an effect's tail is cut at Stop until slice 6, which builds real tails) and **B3** (the clock is read for the callback's deadline only when a host is attached, so projects without plugins cost what they did). Plan in `docs/milestones/M6.md`. |
+| Plugins that ring out (fix, 2026-10-17; ADR-0074) | The owner reported a synth and an amp plugin cut off a second or two after the last note, and a high CPU reading while playing. Pitched A (run every plugin all the time) and B (run each until its output has been quiet), recommended B, **chosen: B**. Partly reverses **B2** above: a plugin effect's tail now rings out after Stop. The CPU readout's average and per-plugin time are a separate change, to show as a mock-up first. |
 | The hosting manager (M6 slice 2c, 2026-10-16) | Plan approved with **C1** (a plugin instrument receives notes only in 2c; controllers, bend, pressure and program are dropped and counted until parameters in slice 3), **C2** (the last reported latency and tail are written into the device when the host reports a different value, as a change that is not an undo step but marks the project changed) and **C3** (removing a device ends its process at once; undo starts a new one). Plan in `docs/milestones/M6.md`. |
 | MIDI learn moved to M7 (M5, 2026-10-13) | Asked, as recommended: **MIDI learn and its mapping list move to M7**, built with automation, where M6 and M7 define the parameters it maps and a mapped controller writes automation through the same path as Lumen's controls (Touch and Latch). M5 slice 7 keeps Standard MIDI Files and MIDI clock out (plan in `docs/milestones/M5.md`). Its choices, asked in chat, all as recommended: **F1 A** a multi-track file dropped on a track merges into one clip there, dropped between tracks or on empty lanes makes one MIDI track per file track (type 0 split by channel); **F2 A** notes are placed in beats and the project tempo is untouched, with a notice offering "Use them" for the file's tempo map and first time signature (one undo step); **F3 A** clock runs only while playing; **F4 A** a Sync delay per port, −20 to +50 ms. MTC out [S] is deferred, unscheduled. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
@@ -6593,3 +6595,79 @@ master too, with the plugin's own picture on the card.
 **Consequences.** Format v18. A refused drop says why in the toast. The fold
 look was chosen without specimens (the owner can ask for variants). A held note
 is not picked up by an instrument that finishes loading mid-note (KNOWN_ISSUES).
+
+---
+
+## ADR-0074 — Plugins ring out until their output is quiet
+
+**Status:** Accepted 2026-10-17 (owner's option B). Branch
+`fix/plugins-ring-until-silent`, cut from `main`.
+
+**Context.** The owner played a plugin synth into a plugin amp (128 frames,
+44.1 kHz, ASIO) and heard the sound cut out a second or two after letting go
+of a note. The engine gave a hosted instrument blocks only while it held notes
+and for its reported tail after the last event, at least one second and at
+most ten (ADR-0070). Most plugins report no tail, so a synth's release, and
+any delay or reverb inside it, were cut after one second. When the transport
+was stopped, the plugin effects after it stopped with it: the engine renders a
+stopped project only while an instrument rings (B2 cut effect tails at Stop).
+A plugin that is no longer given blocks freezes mid-release and resumes where
+it left off on the next note, which can click.
+
+The same report found a high CPU reading while playing. That reading is the
+peak over one second of the callback's wall time, which includes waiting for
+the plugins to process in their host processes, so it cannot be compared with
+an average. The handover itself was measured on the owner's machine with
+`lumen-host-bench` (one host, 128 frames, 44.1 kHz, event wake-up, the test
+plugin): 12 µs median and 34 µs at p99 for a round trip, so two plugins in
+series add well under 0.1 ms to a 2.9 ms block. The reading rises only while
+playing because the plugins run only then. No waste was found in Lumen's part.
+The readout is not changed here.
+
+**Options.** A: give every plugin blocks all the time, stopped or playing (a
+tail is never cut; plugins cost CPU while nothing plays). B: give each plugin
+blocks until its output has been quiet for a while (a tail is never cut while
+it is audible; nothing runs once everything is quiet). C: keep trusting the
+reported tail and add effects to it (still cuts plugins that misreport).
+
+**Decision: B.**
+1. `Guard` listens to the host's output. Every block it answers counts as loud
+   when any sample is above −90 dBFS (`QUIET_LEVEL`), otherwise its frames add
+   to how long it has been quiet. A block not asked for (its node did not run)
+   counts as quiet (`Guard::age`).
+2. `Guard::sounding(rate)`: quiet for less than two seconds (`QUIET_SECONDS`),
+   or less than the reported tail when that is longer, capped at ten seconds.
+   A failed host never sounds. Two seconds covers the silence before a slow
+   delay's next echo.
+3. A hosted instrument is given blocks while it has events, held notes, a held
+   pedal, or is sounding. Every message but All Sound Off counts as sound from
+   the moment it is sent (`Guard::wake`), so a note with a slow attack is not
+   dropped before its output rises. Panic makes it quiet at once
+   (`Guard::hush`).
+4. The mixer rings while any plugin effect that is on is sounding
+   (`HostPool::sounding`), so after Stop the engine renders in its ring mode
+   until every effect has gone quiet. While playing, effects are given blocks
+   every block as before.
+
+**Consequences.**
+- A plugin whose output never falls below −90 dBFS (a noise floor, a DC
+  offset, a drone) keeps running after Stop, as it would all the time under A.
+  It is audible, so this is correct.
+- Effect tails after Stop are no longer cut for plugin effects (part of the
+  owner's B2 is brought forward). Built-in effects have no tails yet.
+- Idle CPU is unchanged once everything is quiet.
+- The test plugin gained a `release=MS` fault: released notes fade out over
+  `MS` while it reports no tail.
+
+**Verification.** Unit tests in `lumen-devices` (ringing until quiet, a
+reported tail, held notes and pedal, ageing, hush), engine tests in
+`tests/hosted_effects.rs` (an effect sounding after Stop is heard until it goes
+quiet, then is no longer asked; a bypassed or quiet effect does not keep a
+stopped engine running; the allocation-guard test now covers ringing after
+Stop), and the E2E scenario
+`hosting::a_plugin_instruments_release_is_heard_until_it_ends_not_cut_after_a_second`.
+The engine test and the E2E scenario fail without the fix. The macOS
+cross-clippy is clean. The WSL performance gate passes: `engine_hosted_64`
++0.78% (the level scan of each answered block), every other scenario within
+±0.21%. **Not run:** any real plugin (the owner's check), RealtimeSanitizer,
+Linux and macOS runs.
