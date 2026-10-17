@@ -147,6 +147,12 @@ pub(crate) enum Command {
     DevicesAdd,
     DeviceRemove,
     DeviceBypass,
+    DeviceMoveEarlier,
+    DeviceMoveLater,
+    DeviceCopy,
+    DevicePaste,
+    DeviceDuplicate,
+    DeviceFold,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -360,6 +366,12 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::DevicesAdd, "devices.add", "Add device to selected track", Area::Devices, &[], "Puts the device chosen in the browser on the selected track (after the chosen card), or on a new track when none fits."),
     info(Command::DeviceRemove, "devices.remove", "Remove device", Area::Devices, &[], "Takes the chosen device off its track. Undo puts it back with its settings."),
     info(Command::DeviceBypass, "devices.bypass", "Bypass device", Area::Devices, &[], "Turns the chosen device off, or on again. A bypassed device keeps its delay, so nothing shifts in time."),
+    info(Command::DeviceMoveEarlier, "devices.move_earlier", "Move device earlier", Area::Devices, &[], "Moves the chosen device one place toward the start of its chain. Alt+Left does the same while the Devices tab has the keyboard."),
+    info(Command::DeviceMoveLater, "devices.move_later", "Move device later", Area::Devices, &[], "Moves the chosen device one place toward the end of its chain. Alt+Right does the same while the Devices tab has the keyboard."),
+    info(Command::DeviceCopy, "devices.copy", "Copy device", Area::Devices, &[], "Keeps the chosen device with its settings, to paste on any track. Ctrl+C does the same while the Devices tab has the keyboard."),
+    info(Command::DevicePaste, "devices.paste", "Paste device", Area::Devices, &[], "Puts the copied device on the shown track, after the chosen card. It is a new device with the copied settings. Ctrl+V does the same while the Devices tab has the keyboard."),
+    info(Command::DeviceDuplicate, "devices.duplicate", "Duplicate device", Area::Devices, &[], "Copies the chosen device right after itself. Ctrl+D does the same while the Devices tab has the keyboard."),
+    info(Command::DeviceFold, "devices.fold", "Fold device", Area::Devices, &[], "Folds the chosen card to a narrow strip, or opens it again. Double-clicking a card does the same."),
 ];
 
 const fn info(
@@ -409,7 +421,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::DeviceBypass as usize + 1,
+            Command::DeviceFold as usize + 1,
             ALL.len(),
             "a command is missing"
         );

@@ -6548,3 +6548,48 @@ picture (slice 3).
 runs of the interface. The cards were looked at by eye in the dark theme at
 100% and 200% and in the light theme at 100%; 150%, and 150% and 200% in the
 light theme, were rendered (`shots::device_chain`) but not inspected.
+
+## ADR-0073 — Editing the chain: moving, copying, folding, the master and the plugin's picture (M6 slice 3)
+
+**Status.** Accepted 2026-10-17: the owner chose E1 (the preset menu, the
+editor button and the parameter strip wait for slices 4 and 5) and E2 (Alt-drag
+copies, with a menu and the clipboard keys).
+
+**Context.** Slice 2 put devices on tracks. Slice 3 lets a producer shape a
+chain by hand: reorder, move to another track, copy, fold, and do it on the
+master too, with the plugin's own picture on the card.
+
+**Decisions.**
+1. **A gap is a position in the chain as it stands.** `Slot::At(i)` for a move
+   counts the cards with the moved one still in place, as the drop line shows
+   them; the edit corrects for the removal. A card dropped where it already is
+   records nothing.
+2. **A move keeps the device; a copy is a new one.** A move carries the id, so a
+   host follows an effect to another track without restarting. An instrument is
+   known to the engine by its track, so a moved instrument restarts its host on
+   the new track. A copy and a paste get a fresh id and the saved settings, so
+   the host and the state are their own. Until slice 4 the project's saved state
+   is what a host runs, so a copy is faithful; once a plugin's editor can change
+   its state, a copy must capture the live state first.
+3. **Paste works from what was copied, not from the device.** The clipboard
+   holds the device as it was; the source may be gone.
+4. **The master takes a chain.** Edits address a track or the master through one
+   lookup. The master takes effects, never an instrument. Its header chooses it
+   (the selection may hold it; the keys that edit tracks look tracks up in the
+   project's list and leave it alone, which an E2E scenario checks).
+5. **Folding is a view.** A folded card is a strip of 48 pt; the set is saved in
+   the project's view (format v18, written only when not empty), is not an undo
+   step and does not make the project unsaved.
+6. **The picture is read in the app.** A snapshot file in the bundle needs none
+   of the plugin's code, so it needs no scan process. A worker thread reads it
+   (at most 1 MiB), decodes it with a limit of 2048 pixels a side, and any
+   failure means "no picture". This replaces the plan's wire change to the scan
+   reply.
+7. **The editing keys are the existing commands, guarded by focus**, as Delete
+   already is: while the Devices tab holds the keyboard Ctrl+C, Ctrl+V, Ctrl+D,
+   Alt+Left, Alt+Right, Left and Right act on cards. Each has its own
+   palette command without a chord, so every action is discoverable.
+
+**Consequences.** Format v18. A refused drop says why in the toast. The fold
+look was chosen without specimens (the owner can ask for variants). A held note
+is not picked up by an instrument that finishes loading mid-note (KNOWN_ISSUES).

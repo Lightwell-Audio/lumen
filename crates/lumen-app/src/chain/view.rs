@@ -7,11 +7,12 @@ use eframe::egui::{
     self, Align2, Color32, FontId, Pos2, Rangef, Rect, Sense, Stroke, Ui, UiBuilder, pos2, vec2,
 };
 use lumen_project::model::{Device, DeviceKind, Id, Output, PluginRef, Project, Track, TrackKind};
+use lumen_project::routing::all_tracks;
 
 use super::card::{self, Action, Face, Look};
 use super::geometry::{CHIP_H, Layout, PORT};
 use super::place::Place;
-use super::{Dragged, actions};
+use super::{CardDrag, Dragged, actions};
 use crate::app::panes::{self, Pane};
 use crate::arrangement::color_of;
 use crate::commands::Command;
@@ -26,6 +27,8 @@ struct Row {
     name: String,
     vendor: String,
     identity: String,
+    /// A VST3 plugin: its class id is the identity.
+    vst3: bool,
     instrument: bool,
     bypass: bool,
     face: OwnedFace,
@@ -54,6 +57,7 @@ impl OwnedFace {
 #[derive(Default)]
 struct Events {
     select: Option<Id>,
+    fold: Option<Id>,
     power: Option<(Id, bool)>,
     reload: Option<Id>,
     rescan: bool,
@@ -63,13 +67,22 @@ impl App {
     /// Once a frame, before the keys: the chosen card is still on the shown
     /// track, and Delete means "remove it" while the tab has the keyboard.
     pub(crate) fn refresh_chain(&mut self, ctx: &egui::Context) {
+        // A card let go on a track's header last frame: follow it there, or
+        // say why it was refused.
+        if let Some(drop) = self.arrangement.device_drop.take() {
+            match drop.result {
+                Ok(device) => {
+                    self.arrangement.selected = vec![drop.to];
+                    self.chain.selected = Some(device);
+                }
+                Err(refusal) => self.say(refusal.to_string()),
+            }
+        }
         let shown = self.chain_track();
         let project = self.document.project();
         let still_there = |chosen: Id| {
             shown.is_some_and(|track| {
-                project
-                    .tracks
-                    .iter()
+                all_tracks(project)
                     .any(|t| t.id == track && t.devices.iter().any(|d| d.id == chosen))
             })
         };
@@ -100,7 +113,7 @@ impl App {
         };
         let rate = self.transport.state().sample_rate;
         let project = self.document.project();
-        let Some(track) = project.tracks.iter().find(|t| t.id == track_id) else {
+        let Some(track) = all_tracks(project).find(|t| t.id == track_id) else {
             return;
         };
         let rows = self.rows_of(track, rate);
@@ -125,20 +138,45 @@ impl App {
         if ui.rect_contains_pointer(tray) {
             self.chain.hovered = true;
         }
-        let layout = Layout::new(rows.len(), tray.height());
+        let folded: Vec<bool> = rows
+            .iter()
+            .map(|r| self.chain.folded.contains(&r.id))
+            .collect();
+        let layout = Layout::new(&folded, tray.height());
+        let pictures: Vec<Option<egui::TextureHandle>> =
+            rows.iter().map(|r| self.picture_of(ui.ctx(), r)).collect();
         let playing = self.transport.state().playing;
         let beam = motion::hover(ui.ctx(), egui::Id::new("chain beam"), playing);
         let mut events = Events::default();
         let selected = self.chain.selected;
-        // A device dragged from the browser: where it would land.
-        let dragged = egui::DragAndDrop::payload::<Dragged>(ui.ctx()).and_then(|d| {
+        // A device dragged from the browser, or a card of this chain picked
+        // up: where it would land.
+        let from_browser = egui::DragAndDrop::payload::<Dragged>(ui.ctx()).and_then(|d| {
             self.plugins
                 .catalog()
                 .find(&d.0)
                 .and_then(actions::plugin_ref)
         });
+        let picked = egui::DragAndDrop::payload::<CardDrag>(ui.ctx())
+            .filter(|d| d.track == track_id)
+            .and_then(|d| rows.iter().find(|r| r.id == d.device).map(|r| (*d, r)));
+        let dragged: Option<(Carried, DeviceKind)> = match (&from_browser, &picked) {
+            (Some(plugin), _) => Some((Carried::New(plugin.clone()), plugin.kind())),
+            (None, Some((card, row))) => Some((
+                Carried::Card(*card),
+                if row.instrument {
+                    DeviceKind::Instrument
+                } else {
+                    DeviceKind::Effect
+                },
+            )),
+            _ => None,
+        };
+        if let Some((_, row)) = &picked {
+            paint_drag_ghost(ui.ctx(), &row.name);
+        }
         let released = dragged.is_some() && ui.ctx().input(|i| i.pointer.any_released());
-        let mut dropped: Option<(PluginRef, usize)> = None;
+        let mut dropped: Option<(Carried, usize)> = None;
 
         let mut scroll_ui = ui.new_child(UiBuilder::new().max_rect(tray.shrink(1.0)));
         egui::ScrollArea::horizontal()
@@ -189,8 +227,11 @@ impl App {
                         selected: selected == Some(row.id),
                         face: row.face.face(),
                         latency_ms: row.latency_ms,
+                        reports_latency: row.vst3,
                         track_color: track_colour,
                         band: super::geometry::band(layout.card_h),
+                        folded: folded[i],
+                        picture: pictures[i].as_ref(),
                     };
                     let out = card::paint(ui, rect, egui::Id::new(("device", row.id.0)), &look);
                     // A second device of the same name says which it is.
@@ -211,6 +252,19 @@ impl App {
                     if out.body.clicked() || out.body.secondary_clicked() {
                         events.select = Some(row.id);
                     }
+                    if out.body.double_clicked() {
+                        events.fold = Some(row.id);
+                    }
+                    if out.body.drag_started() {
+                        events.select = Some(row.id);
+                        egui::DragAndDrop::set_payload(
+                            ui.ctx(),
+                            CardDrag {
+                                track: track_id,
+                                device: row.id,
+                            },
+                        );
+                    }
                     if out.power.clicked() {
                         events.power = Some((row.id, !row.bypass));
                     }
@@ -219,19 +273,27 @@ impl App {
                         Some(Action::Rescan) => events.rescan = true,
                         None => {}
                     }
-                    let (id, bypass) = (row.id, row.bypass);
+                    let (id, bypass, is_folded) = (row.id, row.bypass, folded[i]);
                     widgets::Menu::context(&out.body).show(|ui| {
                         self.chain.selected = Some(id);
                         let bypass_label = if bypass { "Turn on" } else { "Bypass" };
                         self.menu_command(ui, Command::DeviceBypass, bypass_label);
+                        let fold_label = if is_folded { "Open" } else { "Fold" };
+                        self.menu_command(ui, Command::DeviceFold, fold_label);
+                        self.menu_command(ui, Command::DeviceMoveEarlier, "Move earlier");
+                        self.menu_command(ui, Command::DeviceMoveLater, "Move later");
+                        self.menu_command(ui, Command::DeviceDuplicate, "Duplicate");
+                        self.menu_command(ui, Command::DeviceCopy, "Copy");
+                        self.menu_command(ui, Command::DevicePaste, "Paste");
+                        self.send_menus(ui, track_id);
                         self.menu_command(ui, Command::DeviceRemove, "Remove");
                     });
                 }
-                if let Some(plugin) = &dragged
+                if let Some((carried, kind)) = &dragged
                     && let Some(pointer) = ui.ctx().pointer_latest_pos()
                     && tray.contains(pointer)
                 {
-                    let instrument = plugin.kind() == DeviceKind::Instrument;
+                    let instrument = *kind == DeviceKind::Instrument;
                     if instrument && !midi {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::NotAllowed);
                     } else {
@@ -249,25 +311,34 @@ impl App {
                             whole.y_range(),
                         );
                         if released {
-                            dropped = Some((plugin.clone(), gap));
+                            dropped = Some((carried.clone(), gap));
                         }
                     }
                 }
             });
 
-        if let Some((plugin, gap)) = dropped {
+        if let Some((carried, gap)) = dropped {
             egui::DragAndDrop::clear_payload(ui.ctx());
             let slot = Slot::At(gap);
-            self.add_device_at(
-                plugin,
-                Place::Track {
-                    track: track_id,
-                    slot,
-                },
-            );
+            match carried {
+                Carried::New(plugin) => self.add_device_at(
+                    plugin,
+                    Place::Track {
+                        track: track_id,
+                        slot,
+                    },
+                ),
+                Carried::Card(card) => {
+                    self.send_device(track_id, card.device, track_id, slot, false);
+                }
+            }
         }
         if let Some(id) = events.select {
             self.chain.selected = Some(id);
+        }
+        if let Some(id) = events.fold {
+            self.chain.selected = Some(id);
+            self.toggle_fold_of(id);
         }
         if let Some((id, bypass)) = events.power {
             self.chain.selected = Some(id);
@@ -279,6 +350,25 @@ impl App {
         if events.rescan {
             self.rescan_plugins(ui.ctx(), lumen_plugin_catalog::scan::Mode::Changed);
         }
+    }
+
+    /// The plugin's own picture for `row`, once its bundle has been read.
+    fn picture_of(&mut self, ctx: &egui::Context, row: &Row) -> Option<egui::TextureHandle> {
+        if !row.vst3 {
+            return None;
+        }
+        let module = self
+            .plugins
+            .catalog()
+            .find(&format!("vst3:{}", row.identity))
+            .and_then(|listed| listed.module.clone());
+        let wake = ctx.clone();
+        let pictures = self
+            .chain
+            .pictures
+            .get_or_insert_with(|| super::Pictures::new(move || wake.request_repaint()));
+        pictures.poll(ctx);
+        pictures.get(&row.identity, module.as_deref())
     }
 
     /// The shown track's devices as rows, with how each is running.
@@ -327,10 +417,47 @@ impl App {
             name,
             vendor,
             identity,
+            vst3: d.is_vst3(),
             instrument: d.is_instrument(),
             bypass: d.bypass,
             face,
             latency_ms,
+        }
+    }
+}
+
+/// What a drag over the tray carries.
+#[derive(Clone)]
+enum Carried {
+    /// A device from the browser, to be added.
+    New(PluginRef),
+    /// A card of this chain, to be moved.
+    Card(CardDrag),
+}
+
+impl App {
+    /// "Move to track" and "Copy to track" in a card's menu: the tracks that
+    /// can take the chosen device.
+    fn send_menus(&mut self, ui: &mut Ui, here: Id) {
+        let targets = self.send_targets();
+        for (copy, label) in [(false, "Move to track"), (true, "Copy to track")] {
+            let mut chosen = None;
+            widgets::submenu(ui, label, |ui| {
+                if targets.is_empty() {
+                    ui.add_enabled(false, egui::Label::new("No track can take it"));
+                }
+                for (id, name) in &targets {
+                    // Moving to its own track is reordering, not this.
+                    let enabled = copy || *id != here;
+                    if widgets::menu_item(ui, name, None, enabled).clicked() {
+                        chosen = Some(*id);
+                        ui.close();
+                    }
+                }
+            });
+            if let Some(to) = chosen {
+                self.send_chain_device(to, copy);
+            }
         }
     }
 }
@@ -477,12 +604,17 @@ fn paint_cables(
 /// Where a track's sound goes, in words for the output chip.
 fn output_name(project: &Project, track: &Track) -> String {
     let named = |id: Id| {
-        project
-            .tracks
-            .iter()
+        all_tracks(project)
             .find(|t| t.id == id)
             .map(|t| t.name.clone())
     };
+    if track.kind == TrackKind::Master {
+        // The master plays to a pair of the device (the main one by default).
+        return match track.output {
+            Output::Device(pair) => format!("Out {}/{}", 2 * pair + 1, 2 * pair + 2),
+            _ => "Out 1/2".to_owned(),
+        };
+    }
     match track.output {
         Output::Master => "Master".to_owned(),
         Output::Track(id) => named(id).unwrap_or_else(|| "Master".to_owned()),

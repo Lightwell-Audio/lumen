@@ -1977,6 +1977,26 @@ fn device_chain() {
             .expect("the tabs")
             .click();
         h.run_steps(30);
+        // Two cards with a picture of their own: a window with knobs.
+        let ctx = h.ctx.clone();
+        for (device, hue) in [(Id(11), [40u8, 90, 70]), (Id(13), [90, 60, 40])] {
+            h.state_mut()
+                .give_device_picture(&ctx, device, (384, 192), |x, y| {
+                    let (dx, dy) = (x as f32 % 96.0 - 48.0, y as f32 % 96.0 - 48.0);
+                    let knob = (dx * dx + dy * dy).sqrt() < 30.0 && x > 40 && y > 40;
+                    let shade = 1.0 - y as f32 / 300.0;
+                    if knob {
+                        [220, 220, 210, 255]
+                    } else {
+                        [
+                            (f32::from(hue[0]) * shade) as u8,
+                            (f32::from(hue[1]) * shade) as u8,
+                            (f32::from(hue[2]) * shade) as u8,
+                            255,
+                        ]
+                    }
+                });
+        }
         h.state_mut().pretend_device_state(Id(10), "ready");
         h.state_mut().pretend_device_state(Id(11), "ready");
         h.state_mut().pretend_device_state(Id(12), "ready");
@@ -1987,6 +2007,13 @@ fn device_chain() {
         h.run_steps(20);
         let tag = format!("{appearance}-{scale}");
         save(&mut h, &format!("chain-stopped-{tag}"));
+        h.state_mut().fold_device(Id(12));
+        h.state_mut().fold_device(Id(14));
+        h.run_steps(30);
+        save(&mut h, &format!("chain-folded-{tag}"));
+        h.state_mut().fold_device(Id(12));
+        h.state_mut().fold_device(Id(14));
+        h.run_steps(30);
         if appearance == "dark" && scale == 1.0 {
             h.key_press(Key::Space);
             for _ in 0..30 {

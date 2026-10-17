@@ -2,6 +2,7 @@
 //! every case is tested; `App::add_device` applies the answer.
 
 use lumen_project::model::{DeviceKind, Id, Project, TrackKind};
+use lumen_project::routing::all_tracks;
 
 use crate::document::Slot;
 
@@ -25,22 +26,18 @@ pub(crate) fn place(
     kind: DeviceKind,
 ) -> Place {
     let fits = |id: &Id| {
-        project
-            .tracks
-            .iter()
+        all_tracks(project)
             .find(|t| t.id == *id)
             .is_some_and(|t| match kind {
                 DeviceKind::Instrument => t.kind == TrackKind::Midi,
-                DeviceKind::Effect => t.kind != TrackKind::Master,
+                DeviceKind::Effect => true,
             })
     };
     match selected.iter().rev().find(|id| fits(id)) {
         Some(&track) => {
             let slot = match (kind, card) {
                 (DeviceKind::Effect, Some(card))
-                    if project
-                        .tracks
-                        .iter()
+                    if all_tracks(project)
                         .any(|t| t.id == track && t.devices.iter().any(|d| d.id == card)) =>
                 {
                     Slot::After(card)
@@ -54,10 +51,9 @@ pub(crate) fn place(
                 .iter()
                 .rev()
                 .find(|id| {
-                    project
-                        .tracks
-                        .iter()
-                        .any(|t| t.id == **id && t.kind != TrackKind::Return)
+                    all_tracks(project).any(|t| {
+                        t.id == **id && !matches!(t.kind, TrackKind::Return | TrackKind::Master)
+                    })
                 })
                 .copied(),
         },
@@ -149,10 +145,18 @@ mod tests {
             place(&p, &[], None, DeviceKind::Effect),
             Place::NewTrack { after: None }
         );
-        // The master takes no effect from here.
+        // The master takes an effect, but no instrument (and no track is
+        // made after it).
         let master = p.master.id;
         assert_eq!(
             place(&p, &[master], None, DeviceKind::Effect),
+            Place::Track {
+                track: master,
+                slot: Slot::End
+            }
+        );
+        assert_eq!(
+            place(&p, &[master], None, DeviceKind::Instrument),
             Place::NewTrack { after: None }
         );
     }

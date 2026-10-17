@@ -1,0 +1,141 @@
+{
+  "format": "lumen-project",
+  "version": 18,
+  "generator": "Lumen 0.0.1",
+  "project": {
+    "name": "Golden v18",
+    "sample_rate": 48000,
+    "tempo": [
+      {
+        "at": 0,
+        "bpm": 120.0
+      }
+    ],
+    "time_signature": {
+      "numerator": 4,
+      "denominator": 4
+    },
+    "tracks": [
+      {
+        "id": "00000000000003e8",
+        "name": "Track",
+        "kind": "midi",
+        "color": "#4F81BD",
+        "gain_db": 0.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "armed": false,
+        "devices": [
+          {
+            "id": "00000000000003e9",
+            "plugin": {
+              "format": "vst3",
+              "class_id": "ABCDEF0123456789ABCDEF0123456789",
+              "name": "Glass Pad",
+              "vendor": "Vendor A",
+              "kind": "instrument"
+            },
+            "bypass": false,
+            "state": "AQIDBA==",
+            "controller_state": "CQgH",
+            "plugin_version": "1.2.3",
+            "reported": {
+              "latency": 0,
+              "tail": 144000,
+              "rate": 48000
+            }
+          },
+          {
+            "id": "00000000000003ea",
+            "plugin": {
+              "format": "vst3",
+              "class_id": "0123456789ABCDEF0123456789ABCDEF",
+              "name": "Room Reverb",
+              "vendor": "Vendor B"
+            },
+            "bypass": true,
+            "state": "BQY=",
+            "reported": {
+              "latency": 128,
+              "tail": 4294967295,
+              "rate": 48000
+            }
+          }
+        ],
+        "clips": []
+      },
+      {
+        "id": "00000000000003f2",
+        "name": "Track",
+        "kind": "audio",
+        "color": "#4F81BD",
+        "gain_db": 0.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "armed": false,
+        "devices": [
+          {
+            "id": "00000000000003f3",
+            "plugin": {
+              "format": "vst3",
+              "class_id": "0123456789ABCDEF0123456789ABCDEF",
+              "name": "Room Reverb",
+              "vendor": "Vendor B"
+            },
+            "bypass": false
+          }
+        ],
+        "clips": []
+      }
+    ],
+    "master": {
+      "id": "00000000000003e7",
+      "name": "Master",
+      "kind": "master",
+      "color": "#8A8F99",
+      "gain_db": 0.0,
+      "pan": 0.0,
+      "mute": false,
+      "solo": false,
+      "armed": false,
+      "devices": [],
+      "clips": []
+    },
+    "pan_law": "constant_power",
+    "media": [],
+    "markers": [],
+    "transport": {
+      "loop_start": 0,
+      "loop_end": 22579200,
+      "loop_enabled": false,
+      "punch_in": false,
+      "punch_out": false
+    },
+    "view": {
+      "left_beat": 0.0,
+      "px_per_beat": 24.0,
+      "browser_open": true,
+      "detail_open": true,
+      "browser_size": 220.0,
+      "detail_size": 220.0,
+      "top": 0.0,
+      "track_heights": {},
+      "expanded": [],
+      "grid": {
+        "fixed": false,
+        "width": "narrow",
+        "size": {
+          "note": 16
+        },
+        "feel": "straight",
+        "snap": true
+      },
+      "collapsed": [],
+      "header_width": 204.0,
+      "returns_folded": false,
+      "folded_devices": ["00000000000003ea", "00000000000003f3"]
+    }
+  }
+}

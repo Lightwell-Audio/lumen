@@ -108,6 +108,33 @@ impl App {
             Command::Undo | Command::Redo if self.is_recording() => Err("Stop recording first"),
             Command::Undo => need(self.document.history().can_undo(), "Nothing to undo"),
             Command::Redo => need(self.document.history().can_redo(), "Nothing to redo"),
+            // The Devices tab holding the keyboard: the editing keys act on
+            // the chosen card.
+            Command::Copy
+            | Command::Duplicate
+            | Command::NudgeEarlierFine
+            | Command::NudgeLaterFine
+                if self.chain.live =>
+            {
+                need(self.device_chosen(), "Choose a device on a track first")
+            }
+            Command::Paste if self.chain.live => need(
+                self.device_copied(),
+                "Nothing to paste: copy a device first",
+            ),
+            Command::DeviceMoveEarlier
+            | Command::DeviceMoveLater
+            | Command::DeviceCopy
+            | Command::DeviceDuplicate
+            | Command::DeviceFold => need(self.device_chosen(), "Choose a device on a track first"),
+            Command::DevicePaste => need(
+                self.device_copied() && self.chain_track().is_some(),
+                if self.device_copied() {
+                    "Select a track first"
+                } else {
+                    "Nothing to paste: copy a device first"
+                },
+            ),
             Command::Cut | Command::Copy => need(clips, "Select clips or a time range first"),
             Command::Paste => need(
                 self.clipboard.is_some(),
@@ -441,6 +468,13 @@ impl App {
             Command::ToggleFollow => self.transport.toggle_follow(),
             Command::Undo => self.undo(false),
             Command::Redo => self.undo(true),
+            Command::Copy if self.chain.live => self.copy_chain_device(),
+            Command::Paste if self.chain.live => self.paste_chain_device(),
+            Command::Duplicate if self.chain.live && !notes => self.duplicate_chain_device(),
+            Command::NudgeEarlierFine if self.chain.live && !notes => self.move_chain_device(-1),
+            Command::NudgeLaterFine if self.chain.live && !notes => self.move_chain_device(1),
+            Command::FoldTracks if self.chain.live && !notes => self.step_chain_choice(-1),
+            Command::UnfoldTracks if self.chain.live && !notes => self.step_chain_choice(1),
             Command::Cut => self.edit(Edit::Cut),
             Command::Copy => self.edit(Edit::Copy),
             Command::Paste => self.edit(Edit::Paste),
@@ -705,6 +739,12 @@ impl App {
             }
             Command::DeviceRemove => self.remove_chain_device(),
             Command::DeviceBypass => self.toggle_chain_bypass(),
+            Command::DeviceMoveEarlier => self.move_chain_device(-1),
+            Command::DeviceMoveLater => self.move_chain_device(1),
+            Command::DeviceCopy => self.copy_chain_device(),
+            Command::DevicePaste => self.paste_chain_device(),
+            Command::DeviceDuplicate => self.duplicate_chain_device(),
+            Command::DeviceFold => self.toggle_chain_fold(),
             Command::DevicesScanAtStartup => {
                 let on = &mut self.settings.plugins.scan_at_startup;
                 *on = !*on;

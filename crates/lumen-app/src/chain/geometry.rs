@@ -43,35 +43,48 @@ pub(super) fn band(height: f32) -> f32 {
     (height - HEADER - BODY - FOOTER).clamp(0.0, BAND)
 }
 
-/// The laid-out chain for `cards` devices, in a tray `height` tall.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// A folded card's width: its power button and its name set on end.
+pub(super) const RAIL_W: f32 = 48.0;
+
+/// The laid-out chain for devices, folded or not, in a tray `height` tall.
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct Layout {
     pub cards: usize,
     pub card_h: f32,
     /// The y of the cables and chips, from the tray's top.
     pub cable_y: f32,
     top: f32,
+    /// Each card's left edge and width, from the chain's left edge.
+    spans: Vec<(f32, f32)>,
+    /// Where the output chip starts.
+    end: f32,
 }
 
 impl Layout {
-    pub fn new(cards: usize, tray_height: f32) -> Self {
+    /// `folded[i]` is true when card `i` is folded.
+    pub fn new(folded: &[bool], tray_height: f32) -> Self {
         let card_h = card_height(tray_height - 2.0 * PAD);
         let top = ((tray_height - card_h) / 2.0).max(PAD.min(tray_height / 2.0));
+        let mut x = PAD + CHIP_W + CABLE;
+        let mut spans = Vec::with_capacity(folded.len());
+        for &fold in folded {
+            let w = if fold { RAIL_W } else { CARD_W };
+            spans.push((x, w));
+            x += w + CABLE;
+        }
         Self {
-            cards,
+            cards: folded.len(),
             card_h,
             cable_y: top + card_h * 0.54,
             top,
+            spans,
+            end: x,
         }
     }
 
-    /// Where card `i` starts, from the chain's left edge.
-    fn card_x(&self, i: usize) -> f32 {
-        PAD + CHIP_W + CABLE + i as f32 * (CARD_W + CABLE)
-    }
-
     pub fn card(&self, i: usize) -> Rect {
-        Rect::from_min_size(pos2(self.card_x(i), self.top), vec2(CARD_W, self.card_h))
+        let (x, w) = self.spans[i];
+        Rect::from_min_size(pos2(x, self.top), vec2(w, self.card_h))
     }
 
     pub fn input(&self) -> Rect {
@@ -81,7 +94,7 @@ impl Layout {
     pub fn output(&self) -> Rect {
         // A cable past the last card (or past the input chip, when empty).
         Rect::from_min_size(
-            pos2(self.card_x(self.cards), self.cable_y - CHIP_H / 2.0),
+            pos2(self.end, self.cable_y - CHIP_H / 2.0),
             vec2(CHIP_W, CHIP_H),
         )
     }
@@ -128,7 +141,7 @@ mod tests {
 
     #[test]
     fn the_cards_are_spaced_by_a_cable_and_the_output_follows_the_last() {
-        let layout = Layout::new(3, 330.0);
+        let layout = Layout::new(&[false; 3], 330.0);
         assert_eq!(layout.card(0).left(), PAD + CHIP_W + CABLE);
         assert_eq!(layout.card(1).left() - layout.card(0).right(), CABLE);
         assert_eq!(layout.output().left() - layout.card(2).right(), CABLE);
@@ -137,7 +150,7 @@ mod tests {
 
     #[test]
     fn an_empty_chain_is_two_chips_and_one_cable() {
-        let layout = Layout::new(0, 330.0);
+        let layout = Layout::new(&[], 330.0);
         let cables = layout.cables();
         assert_eq!(cables.len(), 1);
         assert_eq!(cables[0].0, layout.input().right());
@@ -147,7 +160,7 @@ mod tests {
 
     #[test]
     fn a_cable_joins_every_pair() {
-        let layout = Layout::new(2, 330.0);
+        let layout = Layout::new(&[false; 2], 330.0);
         let cables = layout.cables();
         assert_eq!(cables.len(), 3);
         for (a, b) in &cables {
@@ -167,12 +180,30 @@ mod tests {
 
     #[test]
     fn the_drop_gap_is_found_from_the_pointer() {
-        let layout = Layout::new(3, 330.0);
+        let layout = Layout::new(&[false; 3], 330.0);
         assert_eq!(layout.gap_at(0.0), 0);
         assert_eq!(layout.gap_at(layout.card(0).center().x + 1.0), 1);
         assert_eq!(layout.gap_at(layout.card(1).center().x + 1.0), 2);
         assert_eq!(layout.gap_at(layout.card(2).right()), 3);
         assert_eq!(layout.gap_x(0), layout.input().right() + CABLE / 2.0);
         assert_eq!(layout.gap_x(3), layout.card(2).right() + CABLE / 2.0);
+    }
+
+    #[test]
+    fn a_folded_card_is_a_rail_and_the_others_move_up_to_it() {
+        let layout = Layout::new(&[false, true, false], 330.0);
+        assert_eq!(layout.card(0).width(), CARD_W);
+        assert_eq!(layout.card(1).width(), RAIL_W);
+        assert_eq!(layout.card(1).left() - layout.card(0).right(), CABLE);
+        assert_eq!(layout.card(2).left() - layout.card(1).right(), CABLE);
+        assert_eq!(layout.output().left() - layout.card(2).right(), CABLE);
+        // A pointer past the rail's middle drops after it.
+        assert_eq!(layout.gap_at(layout.card(1).center().x - 1.0), 1);
+        assert_eq!(layout.gap_at(layout.card(1).center().x + 1.0), 2);
+        let cables = layout.cables();
+        assert_eq!(cables.len(), 4);
+        for (a, b) in cables {
+            assert_eq!(b - a, CABLE);
+        }
     }
 }

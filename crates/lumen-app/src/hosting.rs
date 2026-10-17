@@ -231,14 +231,19 @@ impl Hosting {
         let mut changed = Changed::default();
         let list = wanted(project);
 
-        // Devices that left the project, or changed which plugin they hold.
+        // Devices that left the project, or changed which plugin they hold,
+        // or an instrument that moved to another track: the engine keeps an
+        // instrument by its track, so it starts again where it now plays
+        // (an effect is attached by its own id and goes with its device).
         let gone: Vec<u64> = self
             .tracked
             .iter()
             .filter(|(id, t)| {
-                !list
-                    .iter()
-                    .any(|w| w.device.id.0 == **id && w.class == t.class)
+                !list.iter().any(|w| {
+                    w.device.id.0 == **id
+                        && w.class == t.class
+                        && (!t.instrument || w.track.id == t.track)
+                })
             })
             .map(|(id, _)| *id)
             .collect();

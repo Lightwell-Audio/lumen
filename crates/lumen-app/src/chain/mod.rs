@@ -8,16 +8,29 @@ mod actions;
 mod art;
 mod card;
 mod geometry;
+mod pictures;
 pub(crate) mod place;
 mod view;
 
-use lumen_project::model::Id;
+use std::collections::HashSet;
+
+use lumen_project::model::{Device, Id};
 
 pub(crate) use geometry::panel_height;
+pub(crate) use pictures::Pictures;
 pub(crate) use view::paint_drag_ghost;
 
 /// What is being dragged from the browser: a device's catalog id.
 pub(crate) struct Dragged(pub String);
+
+/// A card being dragged: the device and the track it is on. Dropped in the
+/// tray it moves within the chain; on a track's header it moves to that track
+/// (Alt: copies).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CardDrag {
+    pub track: Id,
+    pub device: Id,
+}
 
 /// The chain's own state: which card is chosen (the commands act on it) and
 /// whether the tab holds the keyboard.
@@ -32,4 +45,11 @@ pub(crate) struct Chain {
     /// The detail panel should be tall enough for a whole card at the next
     /// frame's layout (it only ever grows; the user can drag it back).
     pub grow: bool,
+    /// Folded cards (their power button and name only). A view setting, not
+    /// an edit; kept for the session.
+    pub folded: HashSet<Id>,
+    /// The device last copied, with its settings as they were then.
+    pub clipboard: Option<Device>,
+    /// The plugins' own pictures, read in the background (made on first use).
+    pub pictures: Option<Pictures>,
 }

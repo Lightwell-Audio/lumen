@@ -272,3 +272,207 @@ fn reload_starts_a_new_host_for_a_device_whose_host_died() {
     assert_eq!(state(&lumen, PLUGIN), "loading");
     wait_for_state(&mut lumen, PLUGIN, "ready");
 }
+
+// Slice 3b: chains edited while the song plays. Devices keep their hosts when
+// they are reordered or moved to another track, a copy has a host of its own,
+// and an instrument that moves starts again where it now plays.
+
+const PAD: Id = Id(10);
+const SECOND: Id = Id(21);
+
+/// `KEYS` with its long note, then `PAD` (which holds `pad_notes`), each with
+/// the devices `keys` and `pad` leave on it (both start with the synth).
+fn two_tracks(
+    keys: impl FnOnce(&mut Vec<Device>),
+    pad: impl FnOnce(&mut Vec<Device>),
+    pad_notes: Vec<Note>,
+) -> Project {
+    let mut project = project(keys);
+    let mut track = midi_track(PAD.0, "Pad", "pad", (0, 64), None, pad_notes, vec![]);
+    pad(&mut track.devices);
+    project.tracks.push(track.into());
+    project
+}
+
+fn level(lumen: &mut Lumen) -> f32 {
+    peak(&lumen.listen(Duration::from_millis(600), 4_800))
+}
+
+#[test]
+fn an_effect_moved_to_another_track_keeps_its_host_and_the_sound_follows_it() {
+    let project = two_tracks(|d| d.push(quiet_effect(PLUGIN)), |_| {}, vec![]);
+    let mut lumen = launch("move-effect", &project, &["Plug"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    play(&mut lumen);
+    assert!(
+        quietest(&mut lumen) < 0.005,
+        "the keys sit behind the effect"
+    );
+
+    lumen.app_mut().move_device(KEYS, PLUGIN, PAD, None);
+    lumen.frames(1);
+    assert_eq!(
+        state(&lumen, PLUGIN),
+        "ready",
+        "the same host, never reloaded"
+    );
+    lumen.frames(5);
+    assert!(level(&mut lumen) > 0.01, "the keys are heard without it");
+    assert_eq!(lumen.app().project().tracks[1].devices.len(), 2);
+
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(5);
+    assert_eq!(state(&lumen, PLUGIN), "ready");
+    assert!(
+        quietest(&mut lumen) < 0.005,
+        "undo put it back in front of the keys"
+    );
+}
+
+#[test]
+fn a_copied_effect_has_a_host_of_its_own_and_the_original_is_not_disturbed() {
+    let project = two_tracks(|d| d.push(quiet_effect(PLUGIN)), |_| {}, vec![]);
+    let mut lumen = launch("copy-effect", &project, &["Plug"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    play(&mut lumen);
+
+    let copy = lumen
+        .app_mut()
+        .copy_device(KEYS, PLUGIN, PAD, None)
+        .expect("the copy");
+    assert_ne!(copy, PLUGIN);
+    lumen.frames(1);
+    assert_eq!(state(&lumen, copy), "loading", "a new host starts for it");
+    assert_eq!(state(&lumen, PLUGIN), "ready", "the original keeps running");
+    wait_for_state(&mut lumen, copy, "ready");
+    assert!(
+        quietest(&mut lumen) < 0.005,
+        "the keys are still behind the original"
+    );
+
+    // Taking the original away leaves the copy running on the other track.
+    lumen.app_mut().remove_device(KEYS, PLUGIN);
+    lumen.frames(5);
+    assert_eq!(lumen.app().device_state(PLUGIN), None);
+    assert_eq!(state(&lumen, copy), "ready");
+    assert!(level(&mut lumen) > 0.01, "the keys are heard now");
+}
+
+#[test]
+fn reordering_effects_while_playing_keeps_every_host_and_the_sound_continuous() {
+    let project = project(|d| {
+        d.push(quiet_effect(PLUGIN));
+        d.push(effect_device(SECOND));
+    });
+    let mut lumen = launch("reorder", &project, &["Plug"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    wait_for_state(&mut lumen, SECOND, "ready");
+    play(&mut lumen);
+    assert!(quietest(&mut lumen) < 0.005);
+
+    let synth = lumen.app().project().tracks[0].devices[0].id;
+    lumen.app_mut().move_device(KEYS, SECOND, KEYS, Some(synth));
+    lumen.frames(1);
+    let order: Vec<Id> = lumen.app().project().tracks[0]
+        .devices
+        .iter()
+        .map(|d| d.id)
+        .collect();
+    assert_eq!(
+        order[1..],
+        [SECOND, PLUGIN],
+        "the second effect is first now"
+    );
+    assert_eq!(state(&lumen, PLUGIN), "ready");
+    assert_eq!(state(&lumen, SECOND), "ready");
+    lumen.frames(5);
+    assert!(
+        quietest(&mut lumen) < 0.005,
+        "still taken down in the other order"
+    );
+    assert!(lumen.app().is_playing());
+}
+
+#[test]
+fn an_instrument_moved_to_another_track_starts_there_and_nothing_hangs() {
+    // A note on every beat, back to back: a note held while the instrument
+    // loads is not picked up when it arrives (KNOWN_ISSUES), the next is.
+    let notes: Vec<Note> = (0..120)
+        .map(|i| {
+            Note::new(
+                Ticks::quarters(i),
+                Ticks::quarters(1),
+                60 + (i % 2) as u8,
+                100,
+            )
+        })
+        .collect();
+    let project = two_tracks(|d| *d = vec![instrument_device(PLUGIN)], |_| {}, notes);
+    let mut lumen = launch("move-instrument", &project, &["Plug"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    play(&mut lumen);
+    assert!(level(&mut lumen) > 0.01);
+
+    lumen.app_mut().move_device(KEYS, PLUGIN, PAD, None);
+    lumen.frames(1);
+    assert_eq!(
+        state(&lumen, PLUGIN),
+        "loading",
+        "it starts where it plays now"
+    );
+    assert!(lumen.app().project().tracks[0].devices.is_empty());
+    assert_eq!(lumen.app().project().tracks[1].devices[0].id, PLUGIN);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    assert!(level(&mut lumen) > 0.01, "the pad's note sounds on it");
+
+    // Stopped, nothing keeps sounding.
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("stop", |app| !app.is_playing());
+    lumen.frames(30);
+    assert!(
+        level(&mut lumen) < 0.001,
+        "a note is left sounding on the old track or the new"
+    );
+}
+
+// Slice 3d: the master takes effects like any track.
+
+#[test]
+fn an_effect_on_the_master_is_heard_on_everything_and_bypass_lets_it_through() {
+    let mut project = project(|_| {});
+    std::sync::Arc::make_mut(&mut project.master).devices = vec![quiet_effect(PLUGIN)];
+    let mut lumen = launch("master-effect", &project, &["Plug"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    play(&mut lumen);
+    assert!(
+        quietest(&mut lumen) < 0.005,
+        "the keys are taken down on the master"
+    );
+    let master = lumen.app().project().master.id;
+    lumen.app_mut().set_device_bypass(master, PLUGIN, true);
+    lumen.frames(5);
+    assert!(level(&mut lumen) > 0.01, "bypassed, the keys come through");
+    assert_eq!(state(&lumen, PLUGIN), "ready", "bypass keeps the host");
+}
+
+#[test]
+fn an_effect_moved_onto_the_master_takes_everything_down_and_undo_restores_it() {
+    let project = two_tracks(|d| d.push(quiet_effect(PLUGIN)), |_| {}, vec![]);
+    let mut lumen = launch("move-to-master", &project, &["Plug"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    play(&mut lumen);
+    assert!(quietest(&mut lumen) < 0.005);
+    let master = lumen.app().project().master.id;
+    // Keys is the only track with notes: the effect on the master quiets it
+    // the same, and still on the same host.
+    lumen.app_mut().move_device(KEYS, PLUGIN, master, None);
+    lumen.frames(1);
+    assert_eq!(state(&lumen, PLUGIN), "ready", "the same host");
+    lumen.frames(5);
+    assert!(quietest(&mut lumen) < 0.005, "now on the master");
+    assert_eq!(lumen.app().project().master.devices.len(), 1);
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(5);
+    assert!(lumen.app().project().master.devices.is_empty());
+    assert!(quietest(&mut lumen) < 0.005, "and back on the keys");
+}
