@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 
+use lumen_plugin_host::protocol::EditorBounds;
+
 use crate::process::{Gate, Happened, Process, Start, Tag};
 
 /// Plugins loading at once.
@@ -162,6 +164,28 @@ impl Manager {
     pub fn param_value(&self, device: u64, id: u32, text: String) {
         if let Some(entry) = self.entries.get(&device) {
             entry.process.param_value(id, text);
+        }
+    }
+
+    /// Opens the device's plugin editor window, at `bounds` if given; the news
+    /// comes from [`Manager::poll`] as [`crate::Happened::Editor`].
+    pub fn open_editor(&self, device: u64, bounds: Option<EditorBounds>) {
+        if let Some(entry) = self.entries.get(&device) {
+            entry.process.open_editor(bounds);
+        }
+    }
+
+    /// Closes the device's plugin editor window.
+    pub fn close_editor(&self, device: u64) {
+        if let Some(entry) = self.entries.get(&device) {
+            entry.process.close_editor();
+        }
+    }
+
+    /// Ends the device's host, for a plugin whose window stopped answering.
+    pub fn end(&self, device: u64) {
+        if let Some(entry) = self.entries.get(&device) {
+            entry.process.end();
         }
     }
 

@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use lumen_devices::MOST_FRAMES;
 use lumen_plugin_host::client::{ExitKind, HostError, HostProcess};
-use lumen_plugin_host::protocol::{ParamInfo, Taken, UnitInfo};
+use lumen_plugin_host::protocol::{EditorBounds, ParamInfo, Taken, UnitInfo};
 use lumen_plugin_host::shm::{Layout, Wake};
 
 use crate::link::{Counts, Link};
@@ -199,6 +199,8 @@ pub enum Happened {
     /// processor reporting a value), or events it has no parameter for were
     /// dropped. Sent only when there is something to say.
     Edits(Taken),
+    /// Something happened to the plugin's editor window.
+    Editor(EditorEvent),
     /// The plugin's own text for a value that was asked for.
     Text { id: u32, value: f64, text: String },
     /// What the plugin made of text the user typed for a parameter: its
@@ -211,6 +213,24 @@ pub enum Happened {
     /// The plugin's saved state, as asked for ([`Process::capture`]): the
     /// bytes, or why they could not be read in time.
     State(Result<Vec<u8>, String>),
+}
+
+/// What happened to a plugin's editor window (M6 slice 4f).
+#[derive(Debug, Clone, PartialEq)]
+pub enum EditorEvent {
+    /// The window is open, here.
+    Opened(EditorBounds),
+    /// The window was moved or resized by the user or the plugin.
+    Moved(EditorBounds),
+    /// The window is gone: Lumen closed it or the user did. Where it was last.
+    Closed(Option<EditorBounds>),
+    /// The window stopped answering: the plugin is stuck in its own window
+    /// code. The user decides whether to end the plugin.
+    NotResponding,
+    /// The window answers again.
+    Responding,
+    /// The editor could not be opened, and why.
+    Refused(String),
 }
 
 pub struct Linked {
@@ -254,6 +274,12 @@ enum Command {
     Text(u32, f64),
     /// Ask the plugin to read text the user typed for a parameter.
     Typed(u32, String),
+    /// Open the editor window where it was, or where the system puts it.
+    OpenEditor(Option<EditorBounds>),
+    CloseEditor,
+    /// End the host, as the user chose for a plugin whose window stopped
+    /// answering.
+    End,
     /// Read the plugin's state now.
     Capture,
     Quit,
@@ -289,6 +315,11 @@ const EDIT_POLL: Duration = Duration::from_millis(25);
 /// How long an ask for edits or text may take; a miss is only a miss (the
 /// audio side finds a host that has stopped answering).
 const QUICK: Duration = Duration::from_millis(300);
+/// How often an open editor window is asked where it is.
+const EDITOR_POLL: Duration = Duration::from_millis(100);
+/// How long a request about the editor window may take. The host answers
+/// "not responding" after 600 ms, so this only guards a host that is gone.
+const EDITOR_WAIT: Duration = Duration::from_secs(3);
 /// How long reading a plugin's state may take before the answer is a failure
 /// and the project is saved with the state it has (M6 slice 4g).
 pub const CAPTURE: Duration = Duration::from_secs(2);
@@ -392,6 +423,23 @@ impl Process {
         let _ = self.commands.send(Command::Typed(id, text));
     }
 
+    /// Opens the plugin's editor window (at `bounds` if given); the answer
+    /// comes as [`Happened::Editor`].
+    pub fn open_editor(&self, bounds: Option<EditorBounds>) {
+        let _ = self.commands.send(Command::OpenEditor(bounds));
+    }
+
+    /// Closes the editor window; the answer comes as [`Happened::Editor`].
+    pub fn close_editor(&self) {
+        let _ = self.commands.send(Command::CloseEditor);
+    }
+
+    /// Ends the host (a plugin whose window stopped answering); the device
+    /// then reads as failed, as any host that stopped.
+    pub fn end(&self) {
+        let _ = self.commands.send(Command::End);
+    }
+
     /// Asks the host to quit and waits for the thread.
     pub fn join(mut self) {
         let _ = self.commands.send(Command::Quit);
@@ -440,6 +488,43 @@ fn crash_detail(host: &HostProcess, error: &HostError) -> Option<String> {
     None
 }
 
+/// What the thread knows of the editor window between polls.
+struct EditorTrack {
+    /// Believed open (asked for and not seen closed).
+    open: bool,
+    /// Opened has been said.
+    announced: bool,
+    /// Its host did not answer the last time it was asked.
+    hung: bool,
+    last: Option<EditorBounds>,
+    polled: Instant,
+}
+
+impl Default for EditorTrack {
+    fn default() -> Self {
+        Self {
+            open: false,
+            announced: false,
+            hung: false,
+            last: None,
+            polled: Instant::now(),
+        }
+    }
+}
+
+/// Whether `error` means the host's window code is not answering (as against
+/// a refusal or a host that is gone).
+fn not_answering(error: &HostError) -> bool {
+    matches!(
+        error,
+        HostError::Timeout
+            | HostError::Failed {
+                kind: lumen_plugin_host::protocol::FailureKind::Unresponsive,
+                ..
+            }
+    )
+}
+
 struct Up {
     host: HostProcess,
     name: String,
@@ -472,6 +557,7 @@ impl Run {
         };
         let d = self.start.deadlines;
         let mut polled = Instant::now();
+        let mut editor = EditorTrack::default();
         loop {
             let mut commands = match self.requests.recv_timeout(Duration::from_millis(10)) {
                 Ok(first) => vec![first],
@@ -504,6 +590,27 @@ impl Run {
                         let value = up.host.param_value(id, &text, QUICK).ok();
                         self.say(Happened::Typed { id, text, value });
                     }
+                    Command::OpenEditor(bounds) => {
+                        if !editor.open {
+                            self.open_editor(&mut up, &mut editor, bounds);
+                        }
+                    }
+                    Command::CloseEditor => self.close_editor(&mut up, &mut editor),
+                    Command::End => {
+                        self.ended.store(true, Ordering::Release);
+                        up.host.kill();
+                        self.say(Happened::Failed(Failure {
+                            step: Step::Running,
+                            error: HostError::Failed {
+                                kind: lumen_plugin_host::protocol::FailureKind::Unresponsive,
+                                message:
+                                    "the plugin's window stopped answering and the plugin was ended"
+                                        .into(),
+                            },
+                            detail: None,
+                        }));
+                        return;
+                    }
                     Command::Capture => {
                         let state = up.host.state(CAPTURE).map_err(|e| e.to_string());
                         self.say(Happened::State(state));
@@ -522,6 +629,10 @@ impl Run {
                     self.say(Happened::Edits(taken));
                 }
             }
+            if editor.open && editor.polled.elapsed() >= EDITOR_POLL && !up.host.has_ended() {
+                editor.polled = Instant::now();
+                self.watch_editor(&mut up, &mut editor);
+            }
             if up.host.has_ended() {
                 self.ended.store(true, Ordering::Release);
                 let how = up
@@ -537,6 +648,89 @@ impl Run {
                 }));
                 return;
             }
+        }
+    }
+
+    fn open_editor(&self, up: &mut Up, editor: &mut EditorTrack, bounds: Option<EditorBounds>) {
+        match up.host.open_editor(bounds, EDITOR_WAIT) {
+            Ok(status) => {
+                editor.open = status.open;
+                editor.hung = false;
+                editor.last = status.bounds;
+                if let Some(b) = status.bounds.filter(|_| status.open) {
+                    editor.announced = true;
+                    self.say(Happened::Editor(EditorEvent::Opened(b)));
+                }
+            }
+            Err(error) if not_answering(&error) => {
+                // The window is being made by a plugin that has stopped
+                // answering: it is open as far as anyone can say, and the
+                // poll finds out when it answers.
+                editor.open = true;
+                editor.hung = true;
+                editor.announced = false;
+                self.say(Happened::Editor(EditorEvent::NotResponding));
+            }
+            Err(error) => self.say(Happened::Editor(EditorEvent::Refused(error.to_string()))),
+        }
+    }
+
+    fn close_editor(&self, up: &mut Up, editor: &mut EditorTrack) {
+        if !editor.open {
+            return;
+        }
+        match up.host.close_editor(EDITOR_WAIT) {
+            Ok(status) => {
+                editor.open = false;
+                editor.hung = false;
+                self.say(Happened::Editor(EditorEvent::Closed(
+                    status.bounds.or(editor.last),
+                )));
+            }
+            Err(error) if not_answering(&error) => {
+                if !editor.hung {
+                    editor.hung = true;
+                    self.say(Happened::Editor(EditorEvent::NotResponding));
+                }
+            }
+            Err(_) => {}
+        }
+    }
+
+    /// Asks an open editor where it is, and says what changed.
+    fn watch_editor(&self, up: &mut Up, editor: &mut EditorTrack) {
+        match up.host.editor_status(EDITOR_WAIT) {
+            Ok(status) => {
+                if editor.hung {
+                    editor.hung = false;
+                    self.say(Happened::Editor(EditorEvent::Responding));
+                }
+                if !status.open {
+                    editor.open = false;
+                    self.say(Happened::Editor(EditorEvent::Closed(
+                        status.bounds.or(editor.last),
+                    )));
+                    return;
+                }
+                let Some(b) = status.bounds else {
+                    return;
+                };
+                if !editor.announced {
+                    editor.announced = true;
+                    editor.last = Some(b);
+                    self.say(Happened::Editor(EditorEvent::Opened(b)));
+                } else if editor.last != Some(b) {
+                    editor.last = Some(b);
+                    self.say(Happened::Editor(EditorEvent::Moved(b)));
+                }
+            }
+            Err(error) if not_answering(&error) => {
+                if !editor.hung {
+                    editor.hung = true;
+                    self.say(Happened::Editor(EditorEvent::NotResponding));
+                }
+            }
+            Err(_) => {}
         }
     }
 
@@ -687,6 +881,9 @@ mod tests {
                 Command::Set(id, v) => format!("set {id}={v}"),
                 Command::Text(id, v) => format!("text {id}={v}"),
                 Command::Typed(id, t) => format!("typed {id}={t}"),
+                Command::OpenEditor(_) => "open editor".into(),
+                Command::CloseEditor => "close editor".into(),
+                Command::End => "end".into(),
                 Command::Relink(..) => "relink".into(),
                 Command::Capture => "capture".into(),
                 Command::Quit => "quit".into(),
