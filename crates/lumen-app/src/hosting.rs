@@ -322,11 +322,19 @@ impl Hosting {
     }
 
     /// The plugin's own count of parameters, which may be more than listed.
+    #[allow(
+        dead_code,
+        reason = "the card's strip and the parameter panel use it (slice 4e)"
+    )]
     pub fn parameter_total(&self, device: Id) -> u32 {
         self.tracked.get(&device.0).map_or(0, |t| t.params.total)
     }
 
     /// The groups the plugin's parameters sit in.
+    #[allow(
+        dead_code,
+        reason = "the card's strip and the parameter panel use it (slice 4e)"
+    )]
     pub fn units(&self, device: Id) -> &[UnitInfo] {
         self.tracked
             .get(&device.0)
@@ -340,6 +348,10 @@ impl Hosting {
 
     /// Asks the plugin for its own text for `value` of a parameter; the answer
     /// is [`Hosting::text`] a moment later.
+    #[allow(
+        dead_code,
+        reason = "the card's strip and the parameter panel use it (slice 4e)"
+    )]
     pub fn ask_text(&self, device: Id, id: u32, value: f64) {
         if let Some(manager) = self.manager.as_ref() {
             manager.param_text(device.0, id, value);
@@ -347,11 +359,19 @@ impl Hosting {
     }
 
     /// The plugin's text for the value it was last asked about, and that value.
+    #[allow(
+        dead_code,
+        reason = "the card's strip and the parameter panel use it (slice 4e)"
+    )]
     pub fn text(&self, device: Id, id: u32) -> Option<&(f64, String)> {
         self.tracked.get(&device.0)?.params.texts.get(&id)
     }
 
     /// Events no parameter of the plugin took (it maps no controller to one).
+    #[allow(
+        dead_code,
+        reason = "the card's strip and the parameter panel use it (slice 4e)"
+    )]
     pub fn ignored_events(&self, device: Id) -> u32 {
         self.tracked.get(&device.0).map_or(0, |t| t.params.ignored)
     }
@@ -385,6 +405,10 @@ impl Hosting {
 
     /// Whether the plugin's state has moved on from what the project saved
     /// (a parameter changed, from Lumen or inside the plugin).
+    #[allow(
+        dead_code,
+        reason = "the card's strip and the parameter panel use it (slice 4e)"
+    )]
     pub fn dirty(&self, device: Id) -> bool {
         self.tracked.get(&device.0).is_some_and(|t| t.params.dirty)
     }

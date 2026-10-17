@@ -72,6 +72,7 @@ irreversible or external) · *Superseded*.
 | [0072](#adr-0072--the-devices-tab-cards-placement-and-dragging-m6-slice-2d) | The Devices tab: cards, placement and dragging (M6 slice 2d) | **Accepted** 2026-10-17 (owner's C4 design) | No |
 | [0074](#adr-0074--plugins-ring-out-until-their-output-is-quiet) | Plugins ring out until their output is quiet: a hosted instrument or effect is given blocks until it has been below −90 dBFS for two seconds (or its reported tail, at most ten), effects after Stop included | Accepted 2026-10-17 (owner's B; verified with fake hosts and the test plugin; no real plugin) | Decided by the owner |
 | [0075](#adr-0075--missed-plugin-blocks-notes-kept-hosts-at-full-speed-costs-measured) | Missed plugin blocks: notes a busy host could not take go with the next block, host processes run at high priority without power throttling, and each block's plugin work and wait are measured; the readout will be a block budget bar | Accepted 2026-10-17 (owner's fixes 1 to 3 and readout B) | Decided by the owner |
+| [0076](#adr-0076--plugin-parameters-values-the-project-holds-edits-from-inside-plugins-state-reads) | Plugin parameters (M6 slice 4): the project holds the values over a plugin's saved state (format v19), a plugin's own edits are gestures and one undo step, controllers reach plugin instruments through their own mapping, a changed plugin's state is read once it rests | Accepted 2026-10-17 (owner's P1 to P4); editor and interface parts open | Decided by the owner |
 
 ---
 
@@ -148,6 +149,7 @@ irreversible or external) · *Superseded*.
 | Plugins that ring out (fix, 2026-10-17; ADR-0074) | The owner reported a synth and an amp plugin cut off a second or two after the last note, and a high CPU reading while playing. Pitched A (run every plugin all the time) and B (run each until its output has been quiet), recommended B, **chosen: B**. Partly reverses **B2** above: a plugin effect's tail now rings out after Stop. The CPU readout's average and per-plugin time are a separate change, to show as a mock-up first. |
 | Missed plugin blocks (fix, 2026-10-17; ADR-0075) | The owner reported CPU 70 to 100% and pops with two plugins on one track. Proposed: keep a busy host's notes, run hosts at full speed, measure each plugin's work and wait, then a readout. **Chosen: all three, and readout B** (a block budget bar in the audio popover) over A (a table) and C (on the device cards), with every plugin listed in a scrolling list for long chains. Mock-ups use generic device names, never real plugin names. The audio-path change waits on the readout's numbers. |
 | Plugins' largest block (fix, 2026-10-17; ADR-0075) | The amp plugin did six times the work because it was promised 8192-frame blocks. Pitched A (always promise 256, the engine's largest) and B (promise the device's block, at most 256, and set plugins up again when the buffer size changes), recommended B, **chosen: B**. |
+| Plugin parameters (M6 slice 4, 2026-10-17; ADR-0076) | Pitched four choices with a recommendation each, **all chosen as recommended**: P1 the project holds the values (an overlay on the saved state, format v19) over a state snapshot per gesture or no undo; P2 the card's strip is chosen from a list or by Learn (eight slots); P3 the full list is a panel opened from the card; P4 an editor window's place and size are remembered per plugin in the app's settings. The strip's look (bars, knobs or tiles), the editor button row and the panel's layout (one list with group chips, or groups down the left) were pitched as rendered specimens (an artifact), answers pending. |
 | The hosting manager (M6 slice 2c, 2026-10-16) | Plan approved with **C1** (a plugin instrument receives notes only in 2c; controllers, bend, pressure and program are dropped and counted until parameters in slice 3), **C2** (the last reported latency and tail are written into the device when the host reports a different value, as a change that is not an undo step but marks the project changed) and **C3** (removing a device ends its process at once; undo starts a new one). Plan in `docs/milestones/M6.md`. |
 | MIDI learn moved to M7 (M5, 2026-10-13) | Asked, as recommended: **MIDI learn and its mapping list move to M7**, built with automation, where M6 and M7 define the parameters it maps and a mapped controller writes automation through the same path as Lumen's controls (Touch and Latch). M5 slice 7 keeps Standard MIDI Files and MIDI clock out (plan in `docs/milestones/M5.md`). Its choices, asked in chat, all as recommended: **F1 A** a multi-track file dropped on a track merges into one clip there, dropped between tracks or on empty lanes makes one MIDI track per file track (type 0 split by channel); **F2 A** notes are placed in beats and the project tempo is untouched, with a notice offering "Use them" for the file's tempo map and first time signature (one undo step); **F3 A** clock runs only while playing; **F4 A** a Sync delay per port, −20 to +50 ms. MTC out [S] is deferred, unscheduled. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
@@ -6820,3 +6822,81 @@ whole block), `hosting` (a relink promises the new block, and a longer block
 still plays), `promised_frames` units, and the E2E scenario
 `hosting::plugins_are_promised_the_devices_block_and_follow_a_new_buffer_size`
 (fails without the relink on a new block size).
+
+## ADR-0076 — Plugin parameters: values the project holds, edits from inside plugins, state reads
+
+**Status:** Accepted 2026-10-17 for the host, the model and the save (owner's P1
+to P4, all as recommended); the interface (strip, panel, editor button) waits for
+the owner's choice among rendered specimens, and the editor window is not yet
+built. Part of M6 slice 4; the plan is in `docs/milestones/M6.md`.
+
+**Context.** Undo is whole-project snapshots (ADR-0024), so a parameter change
+that is not in the project model cannot be undone, and a plugin's opaque state
+cannot be diffed. Until now the host listed a plugin's parameters without
+values or flags, dropped the host-side edits a plugin reports from its own
+window, sent only notes to plugin instruments, and the project saved the state
+it loaded with.
+
+**Decisions.**
+1. **The project holds the values (P1 A).** A VST3 device has `params`, the
+   normalized values set over its saved state, by the plugin's parameter id
+   (format v19, written only when set). The plugin is loaded from its state and
+   the values are set over it; every change, from Lumen's controls, from the
+   plugin's own window, from undo or redo, is an edit of this map. A value
+   Lumen no longer holds (an undone first change) goes back to what the saved
+   state had: the bridge keeps that baseline (`Parameters::base`) from the
+   parameter list read before the values were set. Changes inside a plugin that
+   are not parameters (a patch loaded, a sample) are not undoable.
+2. **Gestures.** `beginEdit`, `performEdit` and `endEdit` reach Lumen in order
+   (the host keeps them, merging only consecutive values of one parameter) and
+   become document edits: a gesture is one undo step (merge key per device and
+   parameter, the frame's automatic seal held off while a plugin gesture is
+   open, with a 10 s limit for a plugin that never ends one). Values outside a
+   gesture (loading a patch) in one poll are one step. What the processor
+   reports itself (an output parameter) is shown, never an edit.
+3. **The host's duties.** A controller only tells the host; the host applies an
+   edit to the processor at the start of the next block, and tells the
+   controller of values that reached only the processor (the controller hears
+   them from the control thread, never the audio thread). Values from Lumen
+   go over the control pipe (`SetParam`), coalesced per parameter, and take
+   effect at the start of the next block.
+4. **Controllers reach instruments through the plugin's own mapping.** CC,
+   pitch bend and channel pressure become parameter points at the event's sample
+   offset through `IMidiMapping` (asked lazily, once per channel and number);
+   events nothing maps are counted and shown. Program change is not carried
+   (the standard routes it through a program-list parameter: slice 5).
+5. **State reads.** A plugin that changed is read once it has rested 600 ms (a
+   drag is one read) and when a save starts; a read has a two-second deadline
+   on the host's own thread. A save stamps the read state, and clears the
+   values, only if the read came after the last change; otherwise it keeps the
+   state the plugin loaded with and the values (parameters lose nothing), and
+   a plugin that could not be read is named in the save's note. Reload starts
+   from the read state when fresh, else from the loaded state and the values.
+6. **Deviations from the plan.** (a) No real-time parameter queue: the plan's
+   fixed-size queue into the callback is cut, because a value set from the
+   interface reaches the processor at the start of its next block over the
+   control path either way, and automation (M7) needs per-block values from the
+   engine, a different API. (b) No paging of the parameter list: the existing
+   16,384-parameter cap and message bound hold. (c) No legacy-event fallback
+   for controllers: the standard has none for input.
+
+**Consequences / limits.**
+- A plugin that answers a value Lumen sets with edits of its own is recorded as
+  a new edit and ends redo (KNOWN_ISSUES); well-behaved controllers do not.
+- Reading state takes the instance lock the audio thread also uses, so a plugin
+  with a very large state can make a block late while it is read; reads happen
+  once a plugin rests, never while a gesture is open, and slice 5 revisits them
+  with the checkpoints.
+- The edit controller's own state (`controller_state`) is not read yet.
+- Format v19: `Device.params` and `ViewState.shown_params`, identity migration,
+  frozen golden. The shared region is version 3 and the host protocol version
+  3: rebuild `lumen-plugin-host` with Lumen.
+
+**Tests.** `lumen-plugin-host` `tests/params.rs` (14) and `com` units (4);
+`lumen-hosting` `tests/parameters.rs` (9); `lumen-project` golden v19 and its
+refusals; app units (`document::devices`, `app::plugin_edits`, `hosting`) and
+E2E `hosting` (a value heard and undone and redone; held values in place at
+load; a plugin's own edit as one step; state read when it rests; an unreadable
+plugin). Mutations checked: draining the processor's queued values, the bridge's
+push to the host.
+
