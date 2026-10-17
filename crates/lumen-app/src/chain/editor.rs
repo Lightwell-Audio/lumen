@@ -8,6 +8,7 @@ use std::time::Instant;
 
 use lumen_hosting::{Edit, EditKind, EditorBounds};
 use lumen_project::model::Id;
+use lumen_project::routing::all_tracks;
 
 use super::strip::{self, SLOTS};
 use crate::App;
@@ -63,6 +64,25 @@ impl App {
         self.chain.learning = Some(device);
         if matches!(self.hosting.editor(device), EditorState::Closed) {
             self.open_editor(device);
+        }
+    }
+
+    /// Keeps the plugins' windows with their track: those of the track the
+    /// Devices tab shows are on screen, any other is hidden (still open, so
+    /// coming back to its track shows it as it was). Once a frame; only a
+    /// change is sent to a host.
+    pub(crate) fn follow_chosen_track(&mut self) {
+        let project = self.document.project();
+        let shown: Vec<Id> = self
+            .chain_track()
+            .and_then(|track| all_tracks(project).find(|t| t.id == track))
+            .map(|t| t.devices.iter().map(|d| d.id).collect())
+            .unwrap_or_default();
+        for hidden in self.hosting.show_editors_of(&shown) {
+            // Learn needs the window it listens to.
+            if self.chain.learning == Some(hidden) {
+                self.chain.learning = None;
+            }
         }
     }
 

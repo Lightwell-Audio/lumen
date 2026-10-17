@@ -1891,6 +1891,9 @@ fn device_chain() {
         ("dark", 2.0, vec2(1600.0, 1000.0)),
         ("light", 1.5, vec2(1500.0, 900.0)),
         ("light", 2.0, vec2(1600.0, 1000.0)),
+        // The smallest window: no picture, the track's band on a rounded corner.
+        ("dark", 1.0, vec2(960.0, 540.0)),
+        ("light", 1.0, vec2(960.0, 540.0)),
     ] {
         let dir = TempDir::new("shots-chain");
         let mut track = midi_track(
@@ -2024,7 +2027,8 @@ fn device_chain() {
         h.run_steps(4);
         h.get_by_label("Overheat on Pad").click();
         h.run_steps(20);
-        let tag = format!("{appearance}-{scale}");
+        let small = if size.x < 1000.0 { "-small" } else { "" };
+        let tag = format!("{appearance}-{scale}{small}");
         save(&mut h, &format!("chain-stopped-{tag}"));
         h.state_mut().fold_device(Id(12));
         h.state_mut().fold_device(Id(14));
@@ -2033,7 +2037,7 @@ fn device_chain() {
         h.state_mut().fold_device(Id(12));
         h.state_mut().fold_device(Id(14));
         h.run_steps(30);
-        if appearance == "dark" && scale == 1.0 {
+        if appearance == "dark" && scale == 1.0 && small.is_empty() {
             h.key_press(Key::Space);
             for _ in 0..30 {
                 std::thread::sleep(std::time::Duration::from_millis(40));

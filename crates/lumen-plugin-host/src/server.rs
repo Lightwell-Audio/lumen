@@ -292,6 +292,7 @@ impl State {
                 }
             }
             Request::CloseEditor => Response::Editor(self.editors.close()),
+            Request::ShowEditor(visible) => Response::Editor(self.editors.set_visible(visible)),
             Request::EditorStatus => Response::Editor(self.editors.status()),
             Request::CaptureKeys(keys) => {
                 self.editors.capture_keys(keys);
@@ -419,7 +420,10 @@ enum Queued {
 fn about_the_window(request: &Request) -> bool {
     matches!(
         request,
-        Request::OpenEditor { .. } | Request::CloseEditor | Request::EditorStatus
+        Request::OpenEditor { .. }
+            | Request::CloseEditor
+            | Request::ShowEditor(_)
+            | Request::EditorStatus
     )
 }
 

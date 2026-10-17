@@ -188,6 +188,14 @@ impl Manager {
         }
     }
 
+    /// Hides the device's plugin editor window without closing it, or shows
+    /// it again.
+    pub fn show_editor(&self, device: u64, visible: bool) {
+        if let Some(entry) = self.entries.get(&device) {
+            entry.process.show_editor(visible);
+        }
+    }
+
     /// Ends the device's host, for a plugin whose window stopped answering.
     pub fn end(&self, device: u64) {
         if let Some(entry) = self.entries.get(&device) {

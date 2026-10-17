@@ -54,13 +54,13 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GA_ROOT,
     GWL_EXSTYLE, GetAncestor, GetClientRect, GetForegroundWindow, GetMessageW, GetWindowLongPtrW,
     GetWindowRect, GetWindowThreadProcessId, HWND_MESSAGE, HWND_NOTOPMOST, HWND_TOPMOST, IDC_ARROW,
-    IsIconic, KillTimer, LoadCursorW, MINMAXINFO, MSG, PostMessageW, PostQuitMessage,
-    RegisterClassExW, SIZE_MINIMIZED, SW_SHOWNORMAL, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-    SWP_NOZORDER, SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow, TranslateMessage,
-    WA_INACTIVE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_DPICHANGED, WM_GETMINMAXINFO, WM_KEYDOWN,
-    WM_KEYUP, WM_KILLFOCUS, WM_SETFOCUS, WM_SIZE, WM_TIMER, WNDCLASSEXW, WS_CAPTION,
-    WS_CLIPCHILDREN, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_OVERLAPPED, WS_POPUP, WS_SYSMENU,
-    WS_THICKFRAME,
+    IsIconic, IsWindowVisible, KillTimer, LoadCursorW, MINMAXINFO, MSG, PostMessageW,
+    PostQuitMessage, RegisterClassExW, SIZE_MINIMIZED, SW_HIDE, SW_SHOWNA, SW_SHOWNORMAL,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow, SetTimer,
+    SetWindowPos, ShowWindow, TranslateMessage, WA_INACTIVE, WM_ACTIVATE, WM_APP, WM_CLOSE,
+    WM_DPICHANGED, WM_GETMINMAXINFO, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_SETFOCUS, WM_SIZE,
+    WM_TIMER, WNDCLASSEXW, WS_CAPTION, WS_CLIPCHILDREN, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_OVERLAPPED, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
 };
 
 use super::{Editors, Notify};
@@ -754,8 +754,29 @@ impl Editors for Windows {
         }
         EditorStatus {
             open: open.is_some(),
+            // SAFETY: a plain query about a window this thread made.
+            visible: open.is_some_and(|hwnd| unsafe { IsWindowVisible(hwnd) } != 0),
             bounds: LAST.get(),
         }
+    }
+
+    fn set_visible(&mut self, visible: bool) -> EditorStatus {
+        if let Some(live) = live() {
+            if visible {
+                // SAFETY: our window. Shown where it was, without taking the
+                // keyboard from Lumen, which has it: the user just chose a
+                // track.
+                unsafe { ShowWindow(live.hwnd, SW_SHOWNA) };
+                raise_if_in_front();
+            } else {
+                // The keys taken from it are let go of, as when it loses the
+                // keyboard.
+                release_keys();
+                // SAFETY: our window.
+                unsafe { ShowWindow(live.hwnd, SW_HIDE) };
+            }
+        }
+        self.status()
     }
 
     fn capture_keys(&mut self, keys: Vec<u8>) {

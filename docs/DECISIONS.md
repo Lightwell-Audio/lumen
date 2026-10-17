@@ -6948,6 +6948,19 @@ Decisions that went beyond the spike:
   list) lets every layer above the window be tested where there is no window
   system; the real window is MT-VST-4's (steps 5 to 8).
 
+**Editors follow the chosen track (owner, 2026-10-17).** A plugin's window is
+only on screen with its own track: choosing another track hides every other
+open window, choosing the track again shows it where it was (the Devices tab's
+track is the last one selected, `App::chain_track`). Hiding is not closing:
+the window and its view stay, so a big editor is not rebuilt and shows what it
+showed. New request `ShowEditor(bool)` and `EditorStatus::visible` (**protocol
+version 5**: rebuild `lumen-plugin-host` with Lumen); `Hosting::show_editors_of`
+sends only a change, and a window still being made is dealt with once it is
+up. Learn ends when its window is hidden. Considered and set aside: closing
+and reopening (slow for large editors, loses the plugin's own state), and
+sinking the window behind Lumen when Lumen is clicked (the owner chose to keep
+editors in front; clicking Lumen still gives it the keyboard).
+
 **MT-VST-4 run 1 (2026-10-17, amended).** The owner's first Windows run found
 plugins failing around their own main thread, a keyboard that went quiet in a
 plugin's window, editors fighting over the front and a taskbar button per

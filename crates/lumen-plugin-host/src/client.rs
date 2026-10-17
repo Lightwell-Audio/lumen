@@ -672,6 +672,15 @@ impl HostProcess {
         self.editor_call(&Request::CloseEditor, within)
     }
 
+    /// Hides the editor window without closing it, or shows it again.
+    pub fn show_editor(
+        &mut self,
+        visible: bool,
+        within: Duration,
+    ) -> Result<EditorStatus, HostError> {
+        self.editor_call(&Request::ShowEditor(visible), within)
+    }
+
     /// Whether the editor window is open, and where.
     pub fn editor_status(&mut self, within: Duration) -> Result<EditorStatus, HostError> {
         self.editor_call(&Request::EditorStatus, within)

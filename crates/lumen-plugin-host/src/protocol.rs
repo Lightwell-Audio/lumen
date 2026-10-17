@@ -17,7 +17,7 @@ use crate::wire::{Reader, WireError, Writer};
 /// First four bytes of every frame.
 pub const MAGIC: u32 = 0x3148_504c; // "LPH1"
 /// Bumped when a message changes shape. A host of another version is refused.
-pub const VERSION: u16 = 4;
+pub const VERSION: u16 = 5;
 
 pub const MAX_FRAMES: usize = 8192;
 pub const MAX_CHANNELS: usize = 16;
@@ -179,6 +179,8 @@ pub const MAX_EDITOR_SIDE: u32 = 16_384;
 pub struct EditorStatus {
     /// The window exists. False after the user closes it.
     pub open: bool,
+    /// The window is shown: false while it is hidden (still open).
+    pub visible: bool,
     pub bounds: Option<EditorBounds>,
 }
 
@@ -371,6 +373,10 @@ pub enum Request {
     },
     /// Close the editor window, if open. Answered with `Editor`.
     CloseEditor,
+    /// Hide the editor window (it stays open: its view is still there and so
+    /// is its place) or show it again, without taking the keyboard. Answered
+    /// with `Editor`.
+    ShowEditor(bool),
     /// Ask whether the editor window is open and where it is.
     EditorStatus,
     /// Take the edits made since the last call (a plugin's own window, a
@@ -504,6 +510,7 @@ const REQ_OPEN_EDITOR: u16 = 14;
 const REQ_CLOSE_EDITOR: u16 = 15;
 const REQ_EDITOR_STATUS: u16 = 16;
 const REQ_CAPTURE_KEYS: u16 = 17;
+const REQ_SHOW_EDITOR: u16 = 18;
 
 const RES_LOADED: u16 = 101;
 const RES_CONFIGURED: u16 = 102;
@@ -654,6 +661,10 @@ impl Request {
                 REQ_OPEN_EDITOR
             }
             Request::CloseEditor => REQ_CLOSE_EDITOR,
+            Request::ShowEditor(visible) => {
+                w.u8(u8::from(*visible));
+                REQ_SHOW_EDITOR
+            }
             Request::EditorStatus => REQ_EDITOR_STATUS,
             Request::TakeEdits => REQ_TAKE_EDITS,
             Request::Attach { base, layout, wake } => {
@@ -791,6 +802,7 @@ impl Request {
                 bounds: read_bounds(&mut r)?,
             },
             REQ_CLOSE_EDITOR => Request::CloseEditor,
+            REQ_SHOW_EDITOR => Request::ShowEditor(r.bool()?),
             REQ_EDITOR_STATUS => Request::EditorStatus,
             REQ_TAKE_EDITS => Request::TakeEdits,
             REQ_ATTACH => {
@@ -906,6 +918,7 @@ impl Response {
             }
             Response::Editor(status) => {
                 w.bool(status.open);
+                w.bool(status.visible);
                 write_bounds(&mut w, status.bounds.as_ref());
                 RES_EDITOR
             }
@@ -993,6 +1006,7 @@ impl Response {
             RES_VALUE => Response::Value(r.f64()?),
             RES_EDITOR => Response::Editor(EditorStatus {
                 open: r.bool()?,
+                visible: r.bool()?,
                 bounds: read_bounds(&mut r)?,
             }),
             RES_EDITS => {
@@ -1234,6 +1248,8 @@ mod tests {
                 }),
             },
             Request::CloseEditor,
+            Request::ShowEditor(true),
+            Request::ShowEditor(false),
             Request::EditorStatus,
             Request::SetParam { id: 3, value: 1.0 },
             Request::TakeEdits,
@@ -1313,6 +1329,7 @@ mod tests {
             Response::Editor(EditorStatus::default()),
             Response::Editor(EditorStatus {
                 open: true,
+                visible: false,
                 bounds: Some(EditorBounds {
                     x: 10,
                     y: 20,

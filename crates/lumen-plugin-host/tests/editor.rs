@@ -58,6 +58,26 @@ fn an_editor_opens_where_it_was_and_closes() {
 }
 
 #[test]
+fn a_hidden_editor_stays_open_and_comes_back_where_it_was() {
+    let mut host = host_with("on");
+    let opened = host.open_editor(Some(AT), SLOW).unwrap();
+    assert!(opened.open && opened.visible);
+    let hidden = host.show_editor(false, SLOW).unwrap();
+    assert!(hidden.open, "hiding is not closing");
+    assert!(!hidden.visible);
+    assert_eq!(hidden.bounds, Some(AT));
+    // A second editor is still refused: the window is there.
+    assert!(host.open_editor(None, SLOW).is_err());
+    let shown = host.show_editor(true, SLOW).unwrap();
+    assert!(shown.open && shown.visible);
+    assert_eq!(shown.bounds, Some(AT));
+    // With no window there is nothing to show.
+    host.close_editor(SLOW).unwrap();
+    let none = host.show_editor(true, SLOW).unwrap();
+    assert!(!none.open && !none.visible);
+}
+
+#[test]
 fn a_second_editor_is_refused_with_a_reason() {
     let mut host = host_with("on");
     host.open_editor(None, SLOW).unwrap();

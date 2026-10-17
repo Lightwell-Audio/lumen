@@ -514,6 +514,12 @@ impl App {
         self.strip_ids(device)
     }
 
+    /// Whether the device's plugin window is open but hidden because the
+    /// Devices tab shows another track.
+    pub fn editor_hidden(&self, device: Id) -> bool {
+        self.hosting.editor_hidden(device)
+    }
+
     /// Where a plugin's window is remembered to open, by the device's class:
     /// `(x, y, width, height)`.
     pub fn editor_place(&self, device: Id) -> Option<(i32, i32, u32, u32)> {

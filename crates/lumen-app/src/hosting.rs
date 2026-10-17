@@ -98,6 +98,9 @@ struct Tracked {
     bypass: bool,
     params: Parameters,
     editor: EditorState,
+    /// Its window was hidden (asked for; it stays open): the user is on
+    /// another track.
+    editor_hidden: bool,
     /// Being set up again (a new rate or block size, or the plugin asked):
     /// the link it plays through now misses blocks until the new one comes,
     /// which is not the plugin failing.
@@ -456,6 +459,37 @@ impl Hosting {
         }
     }
 
+    /// Shows the plugin windows of `devices` and hides every other that is
+    /// open (the user is on a track that has them or not), so a window is
+    /// only on screen with its own track. Only a change is sent: a window
+    /// still being made is dealt with once it is up. Returns the devices
+    /// whose windows were hidden by this call.
+    pub fn show_editors_of(&mut self, devices: &[Id]) -> Vec<Id> {
+        let mut hidden_now = Vec::new();
+        for (&id, t) in &mut self.tracked {
+            if !matches!(t.editor, EditorState::Open | EditorState::NotResponding) {
+                continue;
+            }
+            let hide = !devices.contains(&Id(id));
+            if t.editor_hidden == hide {
+                continue;
+            }
+            t.editor_hidden = hide;
+            if let Some(manager) = self.manager.as_ref() {
+                manager.show_editor(id, !hide);
+            }
+            if hide {
+                hidden_now.push(Id(id));
+            }
+        }
+        hidden_now
+    }
+
+    /// Whether the device's plugin window is hidden while open.
+    pub fn editor_hidden(&self, device: Id) -> bool {
+        self.tracked.get(&device.0).is_some_and(|t| t.editor_hidden)
+    }
+
     /// Closes the device's plugin window.
     pub fn close_editor(&mut self, device: Id) {
         if let Some(manager) = self.manager.as_ref() {
@@ -730,6 +764,7 @@ impl Hosting {
                                 ..Parameters::default()
                             },
                             editor: EditorState::Closed,
+                            editor_hidden: false,
                             relinking: false,
                         },
                     );
@@ -777,6 +812,7 @@ impl Hosting {
                         // A fresh host has no window; a new link of the same
                         // host (the buffer size changed) keeps its own.
                         t.editor = EditorState::Closed;
+                        t.editor_hidden = false;
                         t.params.base = linked.params.iter().map(|p| (p.id, p.value)).collect();
                         t.params.values = t.params.base.clone();
                         for (&id, &v) in &t.params.started_with {
@@ -802,6 +838,7 @@ impl Hosting {
                 }
                 Happened::Failed(why) => {
                     t.editor = EditorState::Closed;
+                    t.editor_hidden = false;
                     t.relinking = false;
                     t.state = State::Failed(why.to_string());
                 }
@@ -816,10 +853,15 @@ impl Hosting {
                         {
                             t.editor = EditorState::Open;
                         }
+                        if matches!(news, EditorEvent::Opened(_)) {
+                            // A window comes up shown.
+                            t.editor_hidden = false;
+                        }
                         self.places.push((t.class.clone(), b));
                     }
                     EditorEvent::Closed(place) => {
                         t.editor = EditorState::Closed;
+                        t.editor_hidden = false;
                         if let Some(b) = place {
                             self.places.push((t.class.clone(), b));
                         }

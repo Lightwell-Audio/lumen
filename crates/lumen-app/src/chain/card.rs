@@ -5,8 +5,8 @@
 //! device swaps the strip for what happened and what to do.
 
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, FontId, Rect, Response, Sense, Shadow, Stroke, StrokeKind,
-    Ui, pos2, vec2,
+    self, Align2, Color32, CornerRadius, FontId, Painter, Rect, Response, Sense, Shadow, Stroke,
+    StrokeKind, Ui, pos2, vec2,
 };
 use eframe::emath::GuiRounding as _;
 
@@ -86,6 +86,41 @@ const FADE: f32 = 28.0;
 /// The parameter strip's rows.
 const ROWS: usize = 3;
 
+/// The track-coloured band down a header's left edge. Where the header's top
+/// corner is rounded (a short tray has no picture above it) the band follows
+/// the curve, so it never sticks out past the card.
+fn track_band(painter: &Painter, header: Rect, top_radius: u8, colour: Color32) {
+    const WIDTH: f32 = 3.0;
+    let radius = f32::from(top_radius);
+    if radius <= WIDTH {
+        painter.rect_filled(
+            Rect::from_min_size(header.min, vec2(WIDTH, header.height())),
+            0.0,
+            colour,
+        );
+        return;
+    }
+    // The arc's inner edge, from where it is WIDTH in from the card's edge
+    // down to where the edge is straight.
+    let inset = |down: f32| radius - (radius * radius - (radius - down).powi(2)).sqrt();
+    let first = radius - (2.0 * radius * WIDTH - WIDTH * WIDTH).sqrt();
+    let steps = 8;
+    let mut points = vec![
+        pos2(header.left() + WIDTH, header.bottom()),
+        pos2(header.left(), header.bottom()),
+    ];
+    for step in (0..=steps).rev() {
+        let down = first + (radius - first) * step as f32 / steps as f32;
+        points.push(pos2(header.left() + inset(down), header.top() + down));
+    }
+    points.push(pos2(header.left() + WIDTH, header.top() + first));
+    painter.add(egui::Shape::convex_polygon(
+        points,
+        colour,
+        egui::Stroke::NONE,
+    ));
+}
+
 /// Paints the card in `rect` and answers its pointer. `id` is stable per
 /// device.
 pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> Out {
@@ -156,11 +191,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
     );
     if look.instrument {
         // The track's colour marks an instrument's header.
-        painter.rect_filled(
-            Rect::from_min_size(header.min, vec2(3.0, header.height())),
-            0.0,
-            look.track_color,
-        );
+        track_band(&painter, header, top_rounded, look.track_color);
     }
 
     // The header: power, name and vendor, the kind badge.

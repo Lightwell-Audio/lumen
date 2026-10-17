@@ -15,6 +15,7 @@ use super::Lumen;
 use super::plugins::{built, plugin_root};
 
 const KEYS: Id = Id(1);
+const PADS: Id = Id(7);
 const PLUGIN: Id = Id(20);
 const TRIGGER: u32 = 90;
 const WAVE: u32 = 1;
@@ -36,7 +37,9 @@ fn project() -> Project {
         "Lumen",
         DeviceKind::Instrument,
     )];
-    project_of("Editors", vec![track])
+    // A second track with nothing on it, to go to and come back from.
+    let pads = midi_track(PADS.0, "Pads", "poly", (0, 64), None, vec![], vec![]);
+    project_of("Editors", vec![track, pads])
 }
 
 fn faults(stem: &str) -> Option<&'static str> {
@@ -68,7 +71,7 @@ fn launch(name: &str, module: &str) -> Lumen {
             .with_plugins(vec![root], &built().1, cache)
             .with_plugin_faults(faults)
     });
-    lumen.wait_for("the project", |app| app.project().tracks.len() == 1);
+    lumen.wait_for("the project", |app| app.project().tracks.len() == 2);
     lumen.wait_for("the plugin scan", |app| !app.plugins_busy());
     lumen.app_mut().select_tracks(&[KEYS]);
     lumen.wait_for("the plugin to run", |app| {
@@ -137,6 +140,42 @@ fn the_editor_button_opens_the_window_where_it_was_and_closes_it() {
     lumen.click("Close editor");
     wait_shows(&mut lumen, "Open editor");
     assert_eq!(lumen.app().editor_place(PLUGIN), Some((321, 123, 640, 480)));
+}
+
+#[test]
+fn a_window_goes_when_another_track_is_chosen_and_comes_back_with_its_own() {
+    let mut lumen = launch("tracks", "Window");
+    lumen.click("Open editor");
+    wait_shows(&mut lumen, "Close editor");
+    assert!(!lumen.app().editor_hidden(PLUGIN));
+    // On the other track the window is hidden, not closed.
+    lumen.app_mut().select_tracks(&[PADS]);
+    lumen.wait_for("the window to be hidden", |app| app.editor_hidden(PLUGIN));
+    // Back on its own track it is shown again, and the card still reports it
+    // open: nothing was lost.
+    lumen.app_mut().select_tracks(&[KEYS]);
+    lumen.wait_for("the window to be shown", |app| !app.editor_hidden(PLUGIN));
+    lumen.app_mut().choose_card(PLUGIN);
+    wait_shows(&mut lumen, "Close editor");
+}
+
+#[test]
+fn learn_ends_when_its_window_goes_with_the_track() {
+    let mut lumen = launch("learn-tracks", "Window");
+    lumen.click("Open editor");
+    wait_shows(&mut lumen, "Close editor");
+    lumen.click("Learn");
+    lumen.frames(4);
+    lumen.app_mut().select_tracks(&[PADS]);
+    lumen.wait_for("the window to be hidden", |app| app.editor_hidden(PLUGIN));
+    lumen.app_mut().select_tracks(&[KEYS]);
+    lumen.wait_for("the window to be shown", |app| !app.editor_hidden(PLUGIN));
+    lumen.app_mut().choose_card(PLUGIN);
+    lumen.frames(10);
+    assert!(
+        !lumen.shows("Stop learning"),
+        "Learn does not come back by itself"
+    );
 }
 
 #[test]

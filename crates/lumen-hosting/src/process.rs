@@ -280,6 +280,8 @@ enum Command {
     /// Open the editor window where it was, or where the system puts it.
     OpenEditor(Option<EditorBounds>),
     CloseEditor,
+    /// Hide the open editor window without closing it, or show it again.
+    ShowEditor(bool),
     /// End the host, as the user chose for a plugin whose window stopped
     /// answering.
     End,
@@ -306,6 +308,9 @@ fn coalesce(commands: Vec<Command>) -> Vec<Command> {
                 .into_iter()
                 .any(|d| matches!(d, Command::Text(other, _) if other == id)),
             Command::Keys(_) => later.into_iter().any(|d| matches!(d, Command::Keys(_))),
+            Command::ShowEditor(_) => later
+                .into_iter()
+                .any(|d| matches!(d, Command::ShowEditor(_) | Command::CloseEditor)),
             _ => false,
         };
         keep[i] = !superseded;
@@ -441,6 +446,12 @@ impl Process {
     /// Closes the editor window; the answer comes as [`Happened::Editor`].
     pub fn close_editor(&self) {
         let _ = self.commands.send(Command::CloseEditor);
+    }
+
+    /// Hides the editor window without closing it (the plugin keeps its view
+    /// and its place), or shows it again.
+    pub fn show_editor(&self, visible: bool) {
+        let _ = self.commands.send(Command::ShowEditor(visible));
     }
 
     /// Ends the host (a plugin whose window stopped answering); the device
@@ -612,6 +623,13 @@ impl Run {
                         }
                     }
                     Command::CloseEditor => self.close_editor(&mut up, &mut editor),
+                    Command::ShowEditor(visible) => {
+                        if editor.open {
+                            // A window that does not answer is found out by
+                            // the poll; nothing is said here.
+                            let _ = up.host.show_editor(visible, EDITOR_WAIT);
+                        }
+                    }
                     Command::End => {
                         self.ended.store(true, Ordering::Release);
                         up.host.kill();
@@ -911,6 +929,7 @@ mod tests {
                 Command::Typed(id, t) => format!("typed {id}={t}"),
                 Command::OpenEditor(_) => "open editor".into(),
                 Command::CloseEditor => "close editor".into(),
+                Command::ShowEditor(_) => "show or hide editor".into(),
                 Command::End => "end".into(),
                 Command::Relink(..) => "relink".into(),
                 Command::Capture => "capture".into(),

@@ -47,6 +47,13 @@ pub trait Editors {
     /// Closes the window, if there is one. The status says where it was.
     fn close(&mut self) -> EditorStatus;
 
+    /// Hides the open window (it stays open, with its view and its place) or
+    /// shows it again, never taking the keyboard. Nothing happens without a
+    /// window.
+    fn set_visible(&mut self, _visible: bool) -> EditorStatus {
+        self.status()
+    }
+
     /// The window as it is now. A window the user closed reads as not open,
     /// still with the place it was last seen at.
     fn status(&mut self) -> EditorStatus;
@@ -109,6 +116,7 @@ pub struct Headless {
     /// The key the "user" presses once it is asked for.
     press: Option<u8>,
     opened: Option<Instant>,
+    hidden: bool,
     bounds: Option<EditorBounds>,
     notify: Option<Notify>,
 }
@@ -126,6 +134,7 @@ impl Headless {
             close_after: number("close").map(Duration::from_millis),
             press: number("press").and_then(|c| u8::try_from(c).ok()),
             opened: None,
+            hidden: false,
             bounds: None,
             notify: None,
         }
@@ -146,6 +155,7 @@ impl Editors for Headless {
             std::thread::sleep(hang);
         }
         self.opened = Some(Instant::now());
+        self.hidden = false;
         self.bounds = Some(wanted.unwrap_or(EditorBounds {
             x: 100,
             y: 100,
@@ -160,8 +170,16 @@ impl Editors for Headless {
         self.opened = None;
         EditorStatus {
             open: false,
+            visible: false,
             bounds: self.bounds,
         }
+    }
+
+    fn set_visible(&mut self, visible: bool) -> EditorStatus {
+        if self.opened.is_some() {
+            self.hidden = !visible;
+        }
+        self.status()
     }
 
     fn status(&mut self) -> EditorStatus {
@@ -172,6 +190,7 @@ impl Editors for Headless {
         }
         EditorStatus {
             open: self.opened.is_some(),
+            visible: self.opened.is_some() && !self.hidden,
             bounds: self.bounds,
         }
     }
@@ -213,6 +232,10 @@ mod tests {
             editors.open("Plugin", None, None).is_err(),
             "one window at a time"
         );
+        assert!(editors.status().visible);
+        assert!(!editors.set_visible(false).visible, "hidden");
+        assert!(editors.status().open, "hidden is still open");
+        assert!(editors.set_visible(true).visible, "shown again");
         let closed = editors.close();
         assert!(!closed.open);
         assert_eq!(closed.bounds, Some(at), "where it was, to be remembered");

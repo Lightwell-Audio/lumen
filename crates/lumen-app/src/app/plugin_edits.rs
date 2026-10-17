@@ -31,6 +31,7 @@ impl App {
             record(&mut self.document, news.device, &news.edits, title);
         }
         self.follow_editors(ctx, &touched);
+        self.follow_chosen_track();
         for typed in self.hosting.take_typed() {
             let Some(value) = typed.value else {
                 self.say(format!(
