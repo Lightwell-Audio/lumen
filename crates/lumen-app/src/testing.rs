@@ -370,6 +370,20 @@ impl App {
         let _ = self.document.remove_device(track, device);
     }
 
+    /// Moves a device to a track: right after `after` on it, or at the end.
+    /// A drag will do this (one undo step).
+    pub fn move_device(&mut self, from: Id, device: Id, to: Id, after: Option<Id>) {
+        let slot = after.map_or(crate::document::Slot::End, crate::document::Slot::After);
+        let _ = self.document.move_device(from, device, to, slot);
+    }
+
+    /// Copies a device to a track, placed like [`Self::move_device`]; returns
+    /// the copy's id.
+    pub fn copy_device(&mut self, from: Id, device: Id, to: Id, after: Option<Id>) -> Option<Id> {
+        let slot = after.map_or(crate::document::Slot::End, crate::document::Slot::After);
+        self.document.copy_device(from, device, to, slot).ok()
+    }
+
     /// Bypasses or turns on a device, as the interface will.
     pub fn set_device_bypass(&mut self, track: Id, device: Id, bypass: bool) {
         let _ = self.document.set_device_bypass(track, device, bypass);
