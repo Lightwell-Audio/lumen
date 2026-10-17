@@ -2024,3 +2024,67 @@ fn device_chain() {
         }
     }
 }
+
+/// The audio panel's block budget (ADR-0075, the owner's B) with a long
+/// chain: twelve plugins, two of them missing blocks.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn block_budget() {
+    use egui_kittest::kittest::Queryable;
+    let plugins = [
+        ("Amp", "MIDI 1 · effect 1", 440, 900, 7),
+        ("Synth", "MIDI 1 · instrument", 350, 520, 0),
+        ("Reverb", "Vocal return · effect 1", 210, 270, 0),
+        ("Drum sampler", "Drums · instrument", 140, 190, 2),
+        ("Compressor", "Drums · effect 1", 90, 130, 0),
+        ("Equalizer", "Bass · effect 1", 50, 80, 0),
+        ("Delay", "Vocal return · effect 2", 40, 70, 0),
+        ("Limiter", "Master · effect 1", 40, 60, 0),
+        ("Saturator", "Bass · effect 2", 30, 50, 0),
+        ("Chorus", "Keys · effect 1", 20, 40, 0),
+        ("Noise gate", "Guitar · effect 1", 20, 40, 0),
+        ("Tuner", "Guitar · effect 2", 10, 30, 0),
+    ];
+    let sizes = [
+        ("dark", 1.0_f32, vec2(1400.0, 900.0)),
+        ("dark", 1.5, vec2(1400.0, 900.0)),
+        ("dark", 2.0, vec2(1400.0, 900.0)),
+        ("light", 1.0, vec2(1400.0, 900.0)),
+        ("light", 1.5, vec2(1400.0, 900.0)),
+        ("light", 2.0, vec2(1400.0, 900.0)),
+        // The smallest window: the panel must fit, its list shorter.
+        ("dark", 1.0, vec2(960.0, 540.0)),
+    ];
+    for (appearance, scale, size) in sizes {
+        {
+            let dir = TempDir::new("shots-budget");
+            let launch = Launch::for_test(dir.path()).appearing(appearance);
+            let mut h = Harness::builder()
+                .with_size(size)
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(30);
+            h.state_mut().pretend_budget(2_902, 2_560, &plugins);
+            h.get_by_label_contains("Audio: ").click();
+            h.run_steps(20);
+            save(
+                &mut h,
+                &format!(
+                    "budget-{appearance}-{}-{}",
+                    (scale * 100.0) as u32,
+                    size.y as u32
+                ),
+            );
+        }
+    }
+}

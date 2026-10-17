@@ -90,20 +90,23 @@ impl Manager {
         self.entries.remove(&device);
     }
 
-    /// Asks every host for a fresh link at `rate`, for a new engine.
-    pub fn relink_all(&mut self, rate: f64) {
+    /// Asks every host for a fresh link at `rate` with blocks of at most
+    /// `frames`: a new engine, or the device's block size changed.
+    pub fn relink_all(&mut self, rate: f64, frames: u32) {
         for entry in self.entries.values_mut() {
             entry.start.rate = rate;
-            entry.process.relink(rate);
+            entry.start.frames = frames;
+            entry.process.relink(rate, frames);
         }
     }
 
-    /// Asks one host for a fresh link at `rate`: the plugin asked to be
-    /// restarted, or the device's rate changed.
-    pub fn relink(&mut self, device: u64, rate: f64) {
+    /// Asks one host for a fresh link at `rate` with blocks of at most
+    /// `frames`: the plugin asked to be restarted.
+    pub fn relink(&mut self, device: u64, rate: f64, frames: u32) {
         if let Some(entry) = self.entries.get_mut(&device) {
             entry.start.rate = rate;
-            entry.process.relink(rate);
+            entry.start.frames = frames;
+            entry.process.relink(rate, frames);
         }
     }
 

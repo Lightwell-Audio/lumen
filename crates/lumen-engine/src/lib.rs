@@ -29,7 +29,7 @@ pub mod testing;
 mod timeline;
 
 pub use clips::{Clip, ClipAudio, ClipPlayer, ClipShape, ClipsHandle, FadeFrames, clip_player};
-pub use engine::{Command, Engine, EngineHandle, Region, engine};
+pub use engine::{Command, Engine, EngineHandle, HOST_SHARE, Region, engine};
 pub use metronome::{ClickSound, MetronomeSettings};
 pub use midi::{
     AUDITION, CLOCK_TICKS, Captured, INPUT_SLOTS, InstrumentSpec, KEYBOARD, Listen, LiveIn,

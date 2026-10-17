@@ -105,6 +105,9 @@ pub struct Palette {
     /// A lit M, and its letter.
     pub mute: Color32,
     pub on_mute: Color32,
+    /// The block budget bar's five costliest plugins, darkest first: the
+    /// accent stepped in lightness so neighbours stay apart (ADR-0075).
+    pub budget: [Color32; 5],
 }
 
 pub const DARK: Palette = Palette {
@@ -157,6 +160,13 @@ pub const DARK: Palette = Palette {
     on_accent: Color32::from_rgb(0x06, 0x18, 0x2E),
     mute: Color32::from_rgb(0xC8, 0xCC, 0xD4),
     on_mute: Color32::from_rgb(0x0B, 0x0D, 0x10),
+    budget: [
+        Color32::from_rgb(0x2B, 0x6C, 0xB8),
+        Color32::from_rgb(0x4F, 0xA3, 0xFF),
+        Color32::from_rgb(0x7D, 0xBA, 0xFF),
+        Color32::from_rgb(0xA9, 0xD1, 0xFF),
+        Color32::from_rgb(0xD3, 0xE8, 0xFF),
+    ],
 };
 
 pub const LIGHT: Palette = Palette {
@@ -209,6 +219,13 @@ pub const LIGHT: Palette = Palette {
     on_accent: Color32::WHITE,
     mute: Color32::from_rgb(0x5A, 0x61, 0x70),
     on_mute: Color32::WHITE,
+    budget: [
+        Color32::from_rgb(0x0F, 0x3F, 0x7A),
+        Color32::from_rgb(0x1F, 0x6F, 0xD1),
+        Color32::from_rgb(0x4F, 0x93, 0xE3),
+        Color32::from_rgb(0x86, 0xB6, 0xEE),
+        Color32::from_rgb(0xB4, 0xD2, 0xF5),
+    ],
 };
 
 /// Track and clip colours: muted, medium lightness, so white names read on
@@ -527,6 +544,12 @@ pub mod size {
     pub const LABEL_COLUMN_NARROW: f32 = 72.0;
     /// The tallest a dropdown's list of choices gets before it scrolls.
     pub const MENU_LIST: f32 = 320.0;
+    /// The audio panel's block budget bar (ADR-0075): its height, the
+    /// swatches beside its legend and list, and how tall its plugin list
+    /// gets before it scrolls (about six plugins).
+    pub const BUDGET_BAR: f32 = 18.0;
+    pub const BUDGET_SWATCH: f32 = 10.0;
+    pub const BUDGET_LIST: f32 = 216.0;
 }
 
 /// Which theme the user asked for.

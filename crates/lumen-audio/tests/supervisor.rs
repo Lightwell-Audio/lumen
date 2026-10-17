@@ -243,6 +243,12 @@ fn load_is_measured() {
         "a trivial callback should use well under the budget: {load}"
     );
     assert_eq!(audio.status().overloads(), 0);
+    let time = audio.status().take_block_time();
+    assert!(time.blocks >= 20, "every callback counted: {time:?}");
+    assert!(
+        time.block > Duration::ZERO && time.used < time.block,
+        "{time:?}"
+    );
 }
 
 /// The starvation check over 200 ms windows.

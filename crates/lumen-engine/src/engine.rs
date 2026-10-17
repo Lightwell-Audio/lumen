@@ -201,7 +201,7 @@ pub struct Engine<S> {
 
 /// The share of a callback's period a plugin host has to answer in
 /// (ADR-0069: three quarters, the rest is the engine's to finish in).
-const HOST_SHARE: (u64, u64) = (3, 4);
+pub const HOST_SHARE: (u64, u64) = (3, 4);
 
 /// Creates the engine pair. Allocates, so call it off the audio thread.
 pub fn engine<S: Source>(

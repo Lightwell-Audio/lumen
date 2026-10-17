@@ -70,6 +70,11 @@ impl Link {
         }
     }
 
+    /// The longest block the plugin was configured for, in frames.
+    pub fn most_frames(&self) -> u32 {
+        self.link.layout().max_frames
+    }
+
     pub fn counts(&self) -> Arc<Counts> {
         self.counts.clone()
     }
@@ -142,6 +147,7 @@ impl Hosted for Link {
                     latency: answer.latency,
                     tail: self.tail,
                     restart: answer.restart != 0,
+                    work_ns: answer.work_ns,
                 }
             }
             // A block the host answered without processing (stale,

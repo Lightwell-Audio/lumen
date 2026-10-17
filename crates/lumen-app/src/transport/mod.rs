@@ -5,6 +5,8 @@
 //! settings window in `status.rs`. Keys are commands (`crate::commands`).
 
 mod bar;
+pub(crate) mod budget;
+mod budget_view;
 mod compensation;
 mod dropouts;
 mod fit;
@@ -61,6 +63,9 @@ pub struct Transport {
     /// CPU load shown: the peak over the last second, refreshed once a second.
     cpu_peak: f32,
     cpu_taken: Option<Instant>,
+    /// Where each block's time goes, for the audio panel (ADR-0075); the
+    /// app feeds it the hosts' costs once a second.
+    pub(crate) budget: budget::Budget,
     /// Dropouts told as episodes in the bar and counts in the panel.
     dropouts: dropouts::Dropouts,
     /// The playhead as drawn while playing: smooth, where the engine's
@@ -132,6 +137,7 @@ impl Transport {
             midi_lights: Default::default(),
             cpu_peak: 0.0,
             cpu_taken: None,
+            budget: Default::default(),
             dropouts: Default::default(),
             clip_memory: 0,
             clock: Default::default(),

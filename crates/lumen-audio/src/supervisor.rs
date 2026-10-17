@@ -46,6 +46,11 @@ pub struct Status {
     /// Callback time ÷ block duration, in thousandths.
     last_load: AtomicU32,
     peak_load: AtomicU32,
+    /// Callbacks, their time and their blocks' length since the interface
+    /// last took them, in nanoseconds: the mean of a stretch.
+    window_blocks: AtomicU32,
+    window_used: AtomicU64,
+    window_budget: AtomicU64,
     /// Blocks whose processing took longer than their duration.
     overloads: AtomicU64,
     /// Frames processed, for the starvation check.
@@ -88,6 +93,19 @@ impl Status {
     pub fn take_peak_load(&self) -> f32 {
         self.peak_load.swap(0, Ordering::Relaxed) as f32 / 1000.0
     }
+    /// The callbacks since the last call to this method: how many, and their
+    /// mean time and block length.
+    pub fn take_block_time(&self) -> BlockTime {
+        let blocks = self.window_blocks.swap(0, Ordering::Relaxed);
+        let used = self.window_used.swap(0, Ordering::Relaxed);
+        let budget = self.window_budget.swap(0, Ordering::Relaxed);
+        let mean = |sum: u64| Duration::from_nanos(sum.checked_div(u64::from(blocks)).unwrap_or(0));
+        BlockTime {
+            blocks,
+            used: mean(used),
+            block: mean(budget),
+        }
+    }
     pub fn overloads(&self) -> u64 {
         self.overloads.load(Ordering::Relaxed)
     }
@@ -117,6 +135,17 @@ impl Status {
     }
 }
 
+/// What the callbacks of a stretch of time took, on average.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BlockTime {
+    /// Callbacks in the stretch; none while the audio is off.
+    pub blocks: u32,
+    /// Mean time a callback took.
+    pub used: Duration,
+    /// Mean length of a block: the time each callback had.
+    pub block: Duration,
+}
+
 /// Wraps the user's callback to measure its load and spot skipped buffers.
 /// Real-time safe.
 struct Metered {
@@ -134,6 +163,13 @@ impl AudioCallback for Metered {
         let used = started.elapsed().as_secs_f64();
         let budget = block.frames as f64 / f64::from(block.sample_rate.max(1));
         let load = (used / budget * 1000.0) as u32;
+        self.status.window_blocks.fetch_add(1, Ordering::Relaxed);
+        self.status
+            .window_used
+            .fetch_add((used * 1e9) as u64, Ordering::Relaxed);
+        self.status
+            .window_budget
+            .fetch_add((budget * 1e9) as u64, Ordering::Relaxed);
         self.status.last_load.store(load, Ordering::Relaxed);
         self.status.peak_load.fetch_max(load, Ordering::Relaxed);
         if load > 1000 {

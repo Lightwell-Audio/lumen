@@ -427,14 +427,21 @@ impl eframe::App for App {
         }
         self.poll_midi_files(&ctx);
         self.plugins.poll();
+        let block = self
+            .transport
+            .audio
+            .info
+            .as_ref()
+            .map_or(0, |info| info.buffer_frames);
         let hosts = self.hosting.update(
             self.document.project(),
             self.plugins.catalog(),
-            rate,
+            (rate, block),
             &mut self.transport.audio.mixer,
             &mut self.lanes.devices.hosted,
         );
         self.lanes.midi_changed(hosts.midi);
+        self.take_budget();
         if let Some(ms) = self.test_latency
             && let Some(first) = self.document.project().tracks.first()
         {

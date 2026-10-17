@@ -133,6 +133,7 @@ impl Hosted for FakeEffect {
             latency: self.latency,
             tail: 0,
             restart: false,
+            work_ns: 0,
         }
     }
 

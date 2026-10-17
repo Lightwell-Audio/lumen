@@ -77,6 +77,47 @@ pub fn log(line: &str) {
     eprintln!("{LOG_PREFIX}{line}");
 }
 
+/// Asks Windows to run this process at full speed: high priority, so a
+/// plugin's own worker threads are not kept waiting behind ordinary programs
+/// while the audio thread waits on them, and no power throttling, which
+/// Windows may apply to a process without a window (lower clocks, coarser
+/// timers). The audio thread has its own scheduling class (MMCSS); this is
+/// for everything else the plugin runs. Says on stderr what was refused.
+#[cfg(windows)]
+pub fn run_at_full_speed() {
+    use windows_sys::Win32::System::Threading::{
+        GetCurrentProcess, HIGH_PRIORITY_CLASS, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+        PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
+        PROCESS_POWER_THROTTLING_STATE, ProcessPowerThrottling, SetPriorityClass,
+        SetProcessInformation,
+    };
+    // SAFETY: the pseudo-handle of this process, which needs no closing.
+    let me = unsafe { GetCurrentProcess() };
+    // SAFETY: a valid process handle and priority class.
+    if unsafe { SetPriorityClass(me, HIGH_PRIORITY_CLASS) } == 0 {
+        log("could not raise the process priority");
+    }
+    // Controlled and off: never throttled, whatever Windows decides.
+    let state = PROCESS_POWER_THROTTLING_STATE {
+        Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+        ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED
+            | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
+        StateMask: 0,
+    };
+    // SAFETY: a valid handle, and a pointer to a state of the size given.
+    let set = unsafe {
+        SetProcessInformation(
+            me,
+            ProcessPowerThrottling,
+            (&raw const state).cast(),
+            size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+        )
+    };
+    if set == 0 {
+        log("could not turn off power throttling");
+    }
+}
+
 /// Makes denormal floats flush to zero on the calling thread (the audio
 /// thread). Hosts do this, and plugins with feedback paths (physical models,
 /// reverbs, filters) are written to expect it: without it their tails decay

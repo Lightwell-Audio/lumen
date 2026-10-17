@@ -21,7 +21,7 @@ pub mod types;
 pub mod wasapi;
 
 pub use backend::{Backend, OpenError, Stream, StreamEvent, Unavailable};
-pub use supervisor::{AudioSystem, DeviceEvent, State, Status, Timing};
+pub use supervisor::{AudioSystem, BlockTime, DeviceEvent, State, Status, Timing};
 pub use types::{
     AudioCallback, AudioError, Block, BufferSizes, DeviceId, DeviceInfo, DriverKind, StreamConfig,
     StreamInfo,

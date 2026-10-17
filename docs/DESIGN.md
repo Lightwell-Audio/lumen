@@ -137,6 +137,7 @@ Windows** are in the app menu (click **Lumen** at the left of the transport bar)
 | `accent_hi`, `accent_lo` | `#5DAEFF`, `#3F8FEA` | `#2A74D4`, `#1A62BD` | Filled accent (the one primary of a view, a lit S, the chosen tool): a gradient, no halo |
 | `on_accent` | `#06182E` | `#FFFFFF` | Letters and icons on filled accent |
 | `mute`, `on_mute` | `#C8CCD4`, `#0B0D10` | `#5A6170`, `#FFFFFF` | A lit M, and its letter |
+| `budget` | `#2B6CB8` `#4FA3FF` `#7DBAFF` `#A9D1FF` `#D3E8FF` | `#0F3F7A` `#1F6FD1` `#4F93E3` `#86B6EE` `#B4D2F5` | The block budget bar's five costliest plugins, darkest first: the accent stepped in lightness so neighbours stay apart (§7g) |
 | `record` | `#E5484D` | `#D33A40` | Record only |
 | `record_note` | `#F27B7F` | `#E06066` | The notes of a clip being recorded: record red, lighter (M5 slice 6d) |
 | `warning` | `#F2B14C` | `#A86400` | Problems that need attention |
@@ -1040,6 +1041,32 @@ a soft shadow, radius `XL`).
   plus on the cable at the gap it will land in; neighbours stay put.
 - **Empty:** two chips and a cable, with "Double-click a device in the browser
   to add it here". No track selected: "Select a track to see its devices".
+
+## 7g. The block budget (ADR-0075, the owner's B)
+
+In the audio panel, under the test tone: where an average audio block's time
+went over the last second.
+
+- **Headline:** "Each block" and, in the monospace, "2.56 of 2.90 ms · 88%",
+  `warning` when the mean passes the plugins' deadline.
+- **Bar** (`size::BUDGET_BAR`, 18 pt, a `well` with radius `SMALL`): Lumen's
+  own time in `text_secondary`, then each of the five costliest plugins in
+  `budget[0..5]`, solid for the part of the wait it was working and hatched
+  (its colour over `accent_muted`, 1.5 pt lines 5 pt apart) for the rest of
+  the wait; every other plugin shares one `text_disabled` segment. A 2 pt
+  `warning` line marks the deadline, its time under it at `size::SCALE`.
+  Hovering a row leaves its segment lit and dims the rest to 30%.
+- **Legend:** work, waiting on the trip, plugins answer by.
+- **Missed blocks:** a `warning` box (fill at 10%, hairline at 35%, radius
+  `MEDIUM`) with ▲ and "N plugins missed blocks in the last minute…"; the
+  rows that missed carry "▲ n".
+- **List:** "PLUGINS · N" and "by time · work + trip, ms" in captions; a
+  Lumen row; then every plugin, costliest first, as a two-line row (name in
+  `text`, track and slot in `text_hint`, figures in the monospace at the
+  right, a `size::BUDGET_SWATCH` swatch at the left). It scrolls past
+  `size::BUDGET_LIST`; in a short window it gives way first, down to two
+  rows, and then the whole panel scrolls.
+- Mock-ups of it use generic device names (the owner, 2026-10-17).
 
 ## 8. Key flows
 

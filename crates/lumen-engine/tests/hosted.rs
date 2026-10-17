@@ -171,6 +171,7 @@ impl Hosted for FakeHost {
             latency: 0,
             tail: 0,
             restart: false,
+            work_ns: 0,
         }
     }
 

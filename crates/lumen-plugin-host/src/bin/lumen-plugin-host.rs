@@ -50,6 +50,9 @@ fn main() -> ExitCode {
     if args.next().is_some_and(|a| a == "scan") {
         return scan(args.next(), protocol);
     }
+    // A host session plays audio: it runs at full speed (a scan does not).
+    #[cfg(windows)]
+    process::run_at_full_speed();
     let mut input = BufReader::new(io::stdin().lock());
     let mut output = BufWriter::new(protocol);
     match serve(&mut input, &mut output) {

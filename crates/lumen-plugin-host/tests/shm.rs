@@ -164,14 +164,39 @@ fn a_layout_that_differs_from_the_format_is_invalid() {
     let generation = host.generation();
     link.submit(generation, 64, &[], &[], &[]).unwrap();
     assert!(matches!(link.wait(soon()), Poll::Done(a) if a.outcome == Outcome::Invalid));
-    // And a block longer than the format's maximum.
-    let mut host = instrument("");
-    let mut link = host
-        .attach(Layout::new(2048, 0, 2), Wake::EVENT, SLOW)
-        .expect("attach");
-    let generation = host.generation();
-    link.submit(generation, 1024, &[], &[], &[]).unwrap();
-    assert!(matches!(link.wait(soon()), Poll::Done(a) if a.outcome == Outcome::Invalid));
+}
+
+#[test]
+fn a_block_longer_than_the_plugin_was_promised_is_played_in_pieces_exactly() {
+    // A plugin is told the device's block (ADR-0075); a driver that delivers
+    // more must not hand it more. The host gives it pieces it accepts, each
+    // with its notes and parameter points, and the result is the same as one
+    // call to a plugin promised the whole block.
+    let events = [note_on(100, 60), note_off(700, 60), note_on(900, 64)];
+    let params = vec![ParamQueue {
+        id: LEVEL,
+        points: vec![(0, 0.5), (600, 1.0)],
+    }];
+    let mut heard = Vec::new();
+    for promised in [512, 2048] {
+        let mut host = spawn("");
+        host.load(plugin(), None, SLOW).expect("load");
+        host.configure(48_000.0, promised, 0, 2, SLOW)
+            .expect("configure");
+        let mut link = host
+            .attach(Layout::new(2048, 0, 2), Wake::EVENT, SLOW)
+            .expect("attach");
+        let generation = host.generation();
+        link.submit(generation, 1024, &[], &events, &params)
+            .unwrap();
+        assert!(
+            matches!(link.wait(soon()), Poll::Done(a) if a.outcome == Outcome::Done),
+            "promised {promised}"
+        );
+        heard.push(take(&mut link, 2, 1024));
+    }
+    assert!(heard[1][0].iter().any(|&s| s != 0.0), "the notes sound");
+    assert_eq!(heard[0], heard[1]);
 }
 
 #[test]

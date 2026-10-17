@@ -36,6 +36,21 @@ impl App {
         self.arrangement.meters.moving()
     }
 
+    /// Once a second, takes where the audio blocks' time went: the callbacks'
+    /// mean and each running plugin's work and wait (ADR-0075).
+    pub(crate) fn take_budget(&mut self) {
+        let now = Instant::now();
+        if !self.transport.budget.due(now) {
+            return;
+        }
+        let Some(meters) = self.transport.audio.meters().cloned() else {
+            return;
+        };
+        let time = meters.take_block_time();
+        let costs = self.hosting.take_costs(self.document.project());
+        self.transport.budget.update(now, time, &costs);
+    }
+
     /// Opens the device's output pairs the project plays to (the owner's
     /// B6), and lends the strips the device's outputs for their menus. The
     /// device's channel names are looked up only once something needs them.

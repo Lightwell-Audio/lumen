@@ -21,11 +21,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use lumen_devices::{Guard, HostedInstrument, Status};
+use lumen_devices::{Cost, Guard, HostedInstrument, Status};
 use lumen_engine::{InstrumentSpec, MidiTrack, MixerHandle};
 use lumen_hosting::{Happened, HostLog, Manager, Start};
 use lumen_plugin_catalog::catalog::Catalog;
-use lumen_project::model::{Device, DeviceKind, Id, Project, Reported, Track, TrackKind};
+use lumen_project::model::{
+    Device, DeviceKind, Id, PluginRef, Project, Reported, Track, TrackKind,
+};
 use lumen_project::routing::all_tracks;
 
 /// Why a running plugin was given up on, with what its host recorded: the
@@ -88,7 +90,23 @@ struct Tracked {
     latency: u32,
     tail: u32,
     rate: u32,
+    /// The longest block its plugin was promised (0 until linked).
+    frames: u32,
     bypass: bool,
+}
+
+/// What a running plugin's blocks cost over a stretch of time, for the
+/// audio panel's budget bar (ADR-0075).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PluginCost {
+    pub device: Id,
+    /// The plugin's name.
+    pub name: String,
+    /// Where it is: its track, and its slot there ("Bass · effect 2").
+    pub place: String,
+    pub cost: Cost,
+    /// Blocks it missed since its host started.
+    pub late: u32,
 }
 
 /// What a frame's update changed outside the hosting itself.
@@ -109,6 +127,16 @@ pub struct Hosting {
     /// Effects the mixer's queue had no room for.
     waiting: Vec<(u64, Guard)>,
     rate: u32,
+    /// The longest block plugins are promised: the device's (ADR-0075).
+    frames: u32,
+}
+
+/// The longest block to promise plugins for a device block of `block`
+/// frames (0 when no stream is open): the device's, at most what the engine
+/// ever hands a plugin.
+pub fn promised_frames(block: u32) -> u32 {
+    let most = lumen_devices::MOST_FRAMES as u32;
+    if block == 0 { most } else { block.min(most) }
 }
 
 /// What a device needs of the project to get a host.
@@ -157,6 +185,7 @@ impl Hosting {
             instruments: HashMap::new(),
             waiting: Vec::new(),
             rate: 0,
+            frames: promised_frames(0),
         }
     }
 
@@ -177,6 +206,14 @@ impl Hosting {
 
     pub fn state(&self, device: Id) -> Option<&State> {
         self.tracked.get(&device.0).map(|t| &t.state)
+    }
+
+    /// The longest block the device's plugin was promised, once linked.
+    pub fn promised(&self, device: Id) -> Option<u32> {
+        self.tracked
+            .get(&device.0)
+            .map(|t| t.frames)
+            .filter(|&f| f != 0)
     }
 
     /// Frames the plugin holds back, as it reported (at the current rate).
@@ -219,16 +256,18 @@ impl Hosting {
     }
 
     /// Keeps the hosts in step with the project and the engine. Call every
-    /// frame. `latencies` receives each effect's latency for the routing.
+    /// frame with the device's rate and block size (0 for unknown).
+    /// `latencies` receives each effect's latency for the routing.
     pub fn update(
         &mut self,
         project: &Project,
         catalog: &Catalog,
-        rate: u32,
+        (rate, block): (u32, u32),
         mixer: &mut MixerHandle,
         latencies: &mut std::collections::BTreeMap<Id, u32>,
     ) -> Changed {
         let mut changed = Changed::default();
+        let frames = promised_frames(block);
         let list = wanted(project);
 
         // Devices that left the project, or changed which plugin they hold,
@@ -270,7 +309,7 @@ impl Hosting {
             if !matches!(known, None | Some(State::Missing)) {
                 continue;
             }
-            let state = self.start(w, catalog, rate);
+            let state = self.start(w, catalog, rate, frames);
             match self.tracked.get_mut(&id) {
                 Some(t) => t.state = state,
                 None => {
@@ -286,6 +325,7 @@ impl Hosting {
                             latency: w.device.reported.map_or(0, |r| r.latency_at(rate.max(1))),
                             tail: w.device.reported.map_or(0, |r| r.tail),
                             rate,
+                            frames: 0,
                             bypass: false,
                         },
                     );
@@ -293,14 +333,16 @@ impl Hosting {
             }
         }
 
-        // A new rate: every host configures again at it.
-        if rate != 0 && rate != self.rate {
+        // A new rate or block size: every host configures again for it, so
+        // a plugin is always promised the device's block (ADR-0075).
+        if rate != 0 && (rate != self.rate || frames != self.frames) {
             if self.rate != 0
                 && let Some(manager) = self.manager.as_mut()
             {
-                manager.relink_all(f64::from(rate));
+                manager.relink_all(f64::from(rate), frames);
             }
             self.rate = rate;
+            self.frames = frames;
         }
 
         // What the hosts said.
@@ -319,6 +361,7 @@ impl Hosting {
                     t.latency = linked.latency;
                     t.tail = linked.tail;
                     t.rate = self.rate;
+                    t.frames = linked.frames;
                     t.state = State::Ready;
                     t.bypass = false;
                     if t.instrument {
@@ -368,7 +411,7 @@ impl Hosting {
             if status.take_restart()
                 && let Some(manager) = self.manager.as_mut()
             {
-                manager.relink(id, f64::from(self.rate));
+                manager.relink(id, f64::from(self.rate), self.frames);
             }
             if status.failed() && t.state == State::Ready {
                 t.state = State::Failed(gave_up_words(t.log.as_deref()));
@@ -386,7 +429,7 @@ impl Hosting {
     }
 
     /// Starts a host for `w`, and says how that went so far.
-    fn start(&mut self, w: &Wanted<'_>, catalog: &Catalog, rate: u32) -> State {
+    fn start(&mut self, w: &Wanted<'_>, catalog: &Catalog, rate: u32, frames: u32) -> State {
         let (Some(manager), Some(host)) = (self.manager.as_mut(), self.host.as_ref()) else {
             return State::Missing;
         };
@@ -411,6 +454,7 @@ impl Hosting {
             f64::from(rate),
         );
         start.state = w.device.state.clone();
+        start.frames = frames;
         if let Some(faults) = self.faults
             && let Some(stem) = module.file_stem()
             && let Some(fault) = faults(&stem.to_string_lossy())
@@ -442,6 +486,45 @@ impl Hosting {
                 self.instruments.insert(track.id, spec);
             }
         }
+    }
+
+    /// What every running plugin's blocks cost since the last call, in the
+    /// project's order. Each call starts a fresh stretch.
+    pub fn take_costs(&self, project: &Project) -> Vec<PluginCost> {
+        let mut costs = Vec::new();
+        for track in all_tracks(project) {
+            let mut effects = 0;
+            for device in &track.devices {
+                let instrument = device.kind() == DeviceKind::Instrument;
+                if !instrument {
+                    effects += 1;
+                }
+                let Some(status) = self
+                    .tracked
+                    .get(&device.id.0)
+                    .filter(|t| t.state == State::Ready)
+                    .and_then(|t| t.status.as_ref())
+                else {
+                    continue;
+                };
+                let slot = if instrument {
+                    "instrument".to_string()
+                } else {
+                    format!("effect {effects}")
+                };
+                let name = match &device.plugin {
+                    PluginRef::Vst3 { name, .. } | PluginRef::Builtin { name } => name.clone(),
+                };
+                costs.push(PluginCost {
+                    device: device.id,
+                    name,
+                    place: format!("{} · {slot}", track.name),
+                    cost: status.take_cost(),
+                    late: status.late_blocks(),
+                });
+            }
+        }
+        costs
     }
 
     /// Stamps what the running plugins reported into `project`, to be saved.
@@ -484,6 +567,14 @@ pub fn stand_in() -> InstrumentSpec {
 mod tests {
     use super::*;
     use crate::document::{Document, Slot};
+
+    #[test]
+    fn plugins_are_promised_the_devices_block_at_most_the_engines() {
+        assert_eq!(super::promised_frames(128), 128);
+        assert_eq!(super::promised_frames(64), 64);
+        assert_eq!(super::promised_frames(1024), 256, "the engine splits");
+        assert_eq!(super::promised_frames(0), 256, "no stream yet");
+    }
     use lumen_project::model::PluginRef;
 
     const CLASS: &str = "00112233445566778899AABBCCDDEEFF";
@@ -526,7 +617,13 @@ mod tests {
         let mut mixer = mixer_handle();
         let mut latencies = Default::default();
         let catalog = Catalog::build(&Default::default(), Vec::new());
-        hosting.update(doc.project(), &catalog, 96_000, &mut mixer, &mut latencies);
+        hosting.update(
+            doc.project(),
+            &catalog,
+            (96_000, 128),
+            &mut mixer,
+            &mut latencies,
+        );
         assert_eq!(hosting.state(effect), Some(&State::Missing));
         assert_eq!(
             latencies.get(&effect),
@@ -552,10 +649,22 @@ mod tests {
         let mut mixer = mixer_handle();
         let mut latencies = Default::default();
         let catalog = Catalog::build(&Default::default(), Vec::new());
-        hosting.update(doc.project(), &catalog, 48_000, &mut mixer, &mut latencies);
+        hosting.update(
+            doc.project(),
+            &catalog,
+            (48_000, 128),
+            &mut mixer,
+            &mut latencies,
+        );
         assert!(hosting.state(device).is_some());
         doc.undo();
-        hosting.update(doc.project(), &catalog, 48_000, &mut mixer, &mut latencies);
+        hosting.update(
+            doc.project(),
+            &catalog,
+            (48_000, 128),
+            &mut mixer,
+            &mut latencies,
+        );
         assert!(hosting.state(device).is_none());
         assert!(latencies.is_empty());
     }

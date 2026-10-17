@@ -71,6 +71,7 @@ irreversible or external) · *Superseded*.
 | [0071](#adr-0071--the-hosting-manager-a-process-per-plugin-device-the-link-and-the-apps-bridge-m6-slice-2c) | The hosting manager (`lumen-hosting`): a process and a thread per plugin device, loaded in the background, the `Link` the engine plays it through, the app's bridge, and the engine's rule that a host in a new or skipped track list is never given away (M6 slice 2c) | Accepted 2026-10-16 (verified with the test plugin in real host processes on Windows, and in the app's end-to-end tests; no real plugin, no Linux or macOS run of the app) | No |
 | [0072](#adr-0072--the-devices-tab-cards-placement-and-dragging-m6-slice-2d) | The Devices tab: cards, placement and dragging (M6 slice 2d) | **Accepted** 2026-10-17 (owner's C4 design) | No |
 | [0074](#adr-0074--plugins-ring-out-until-their-output-is-quiet) | Plugins ring out until their output is quiet: a hosted instrument or effect is given blocks until it has been below −90 dBFS for two seconds (or its reported tail, at most ten), effects after Stop included | Accepted 2026-10-17 (owner's B; verified with fake hosts and the test plugin; no real plugin) | Decided by the owner |
+| [0075](#adr-0075--missed-plugin-blocks-notes-kept-hosts-at-full-speed-costs-measured) | Missed plugin blocks: notes a busy host could not take go with the next block, host processes run at high priority without power throttling, and each block's plugin work and wait are measured; the readout will be a block budget bar | Accepted 2026-10-17 (owner's fixes 1 to 3 and readout B) | Decided by the owner |
 
 ---
 
@@ -145,6 +146,8 @@ irreversible or external) · *Superseded*.
 | Device chain behavior (M6 slice 2, 2026-10-16) | Asked one at a time and chosen, as recommended except D5: **D1** a failed or missing effect is bypassed with its last-known latency kept and a short crossfade, and flagged; **D2** a failed or missing instrument is silent and flagged, with notes still flowing so Reload resumes at the playhead (held notes sound again when re-struck); **D3** double-clicking a plugin with no compatible track selected creates a track (MIDI for an instrument, audio for an effect) and adds the device, one undo step; **D4** adding an instrument to a track that has one replaces it, one undo step, and the replaced state stays in the history; **D5** a double-click puts an effect after the selected card, else at the end, **and** a drag shows an insertion preview and drops where shown (the owner asked for both); **D6** a project opens at once and its plugins load in the background, cards showing "loading", playback not held; **D7** a bypassed device keeps its latency (no timing jump, no graph rebuild); **D8** a failed plugin comes back with a Reload button only, no automatic restart (the full policy is slice 5), restoring the last saved state, and the card says so; **D9** a saved VST3 device holds the component state and the controller state as separate blobs, the plugin's version, and its last-known latency and tail (format v17; v16 blobs migrate in as the component state). **Look**, chosen from the "Lumen Device Chain Specimens" canvas: **variant C** (wide 200 pt cards with a three-parameter strip) with **C2's kind treatment** (a track-colour stripe, a keyboard or sliders glyph, and a signal line, "MIDI → audio" or "audio → audio") and a **generated artwork band** (96 pt, monogram on a clip-colour gradient chosen from the class ID, fading into the header, greyscale when the device is bypassed) with a preference to turn it off, in a **sunk tray** with **lit cables** between the devices (C4: unlit when stopped, the Beam while audio plays through; MIDI into an instrument dotted), all in slice 2; **the plugins' own snapshot pictures move to slice 3** as their own part. Plan in `docs/milestones/M6.md`. |
 | The engine's host path (M6 slice 2b, 2026-10-16) | Plan approved with **B1** (two or more hosted effects on one track, and effects on a group, run one after another in 2b; measured in 2f), **B2** (an effect's tail is cut at Stop until slice 6, which builds real tails) and **B3** (the clock is read for the callback's deadline only when a host is attached, so projects without plugins cost what they did). Plan in `docs/milestones/M6.md`. |
 | Plugins that ring out (fix, 2026-10-17; ADR-0074) | The owner reported a synth and an amp plugin cut off a second or two after the last note, and a high CPU reading while playing. Pitched A (run every plugin all the time) and B (run each until its output has been quiet), recommended B, **chosen: B**. Partly reverses **B2** above: a plugin effect's tail now rings out after Stop. The CPU readout's average and per-plugin time are a separate change, to show as a mock-up first. |
+| Missed plugin blocks (fix, 2026-10-17; ADR-0075) | The owner reported CPU 70 to 100% and pops with two plugins on one track. Proposed: keep a busy host's notes, run hosts at full speed, measure each plugin's work and wait, then a readout. **Chosen: all three, and readout B** (a block budget bar in the audio popover) over A (a table) and C (on the device cards), with every plugin listed in a scrolling list for long chains. Mock-ups use generic device names, never real plugin names. The audio-path change waits on the readout's numbers. |
+| Plugins' largest block (fix, 2026-10-17; ADR-0075) | The amp plugin did six times the work because it was promised 8192-frame blocks. Pitched A (always promise 256, the engine's largest) and B (promise the device's block, at most 256, and set plugins up again when the buffer size changes), recommended B, **chosen: B**. |
 | The hosting manager (M6 slice 2c, 2026-10-16) | Plan approved with **C1** (a plugin instrument receives notes only in 2c; controllers, bend, pressure and program are dropped and counted until parameters in slice 3), **C2** (the last reported latency and tail are written into the device when the host reports a different value, as a change that is not an undo step but marks the project changed) and **C3** (removing a device ends its process at once; undo starts a new one). Plan in `docs/milestones/M6.md`. |
 | MIDI learn moved to M7 (M5, 2026-10-13) | Asked, as recommended: **MIDI learn and its mapping list move to M7**, built with automation, where M6 and M7 define the parameters it maps and a mapped controller writes automation through the same path as Lumen's controls (Touch and Latch). M5 slice 7 keeps Standard MIDI Files and MIDI clock out (plan in `docs/milestones/M5.md`). Its choices, asked in chat, all as recommended: **F1 A** a multi-track file dropped on a track merges into one clip there, dropped between tracks or on empty lanes makes one MIDI track per file track (type 0 split by channel); **F2 A** notes are placed in beats and the project tempo is untouched, with a notice offering "Use them" for the file's tempo map and first time signature (one undo step); **F3 A** clock runs only while playing; **F4 A** a Sync delay per port, −20 to +50 ms. MTC out [S] is deferred, unscheduled. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
@@ -6671,3 +6674,149 @@ cross-clippy is clean. The WSL performance gate passes: `engine_hosted_64`
 +0.78% (the level scan of each answered block), every other scenario within
 ±0.21%. **Not run:** any real plugin (the owner's check), RealtimeSanitizer,
 Linux and macOS runs.
+
+## ADR-0075 — Missed plugin blocks: notes kept, hosts at full speed, costs measured
+
+**Status:** Accepted 2026-10-17 (the owner's fixes 1 to 3, and readout B,
+the block budget bar, chosen from the "Lumen Plugin Cost Readout Specimens"
+canvas; built). Branch `fix/plugin-host-misses`,
+cut from `main`.
+
+**Context.** With one MIDI track playing a plugin synth into a plugin amp
+(128 frames, 44.1 kHz, ASIO, a Ryzen 7 7700X on the Balanced power plan) the
+owner saw the CPU readout at 70 to 100% and heard occasional pops while
+playing and while playing live. Measured on the owner's machine:
+- `lumen-host-bench` with each real plugin, one host, 128 frames, 44.1 kHz,
+  event wake-up, no notes: 14 µs median (47 µs worst) a round trip for the amp,
+  66 µs (147 µs worst) for the synth. No deadline missed.
+- The running Lumen's amp host used 9 to 15% of one core, all on its audio
+  thread (priority 24, MMCSS); the synth's host was idle at the time.
+
+So the plugins' own work is about 15% of a block and the handover is quick
+in the bench, yet the callback's wall time reached the 75% deadline
+(the readout's 1-second peak was 75.1%). Where the rest goes is not known:
+nothing measured a plugin's work or the callback's wait for it. A block past
+the deadline is silence for an instrument and the dry signal for an effect,
+and the host is then usually still busy for the next block, which is missed
+too. None of this was shown: Overloads and Dropouts count only the device.
+
+Two defects were found reading the code:
+- A hosted instrument's events for a block its host refused as busy were
+  dropped. A lost note-off leaves the note hanging in the plugin.
+- Host processes ran at normal priority with Windows free to throttle them.
+  Windows may slow a process with no window (lower clocks, coarse timers), and
+  a plugin's own worker threads compete with ordinary programs while the audio
+  waits on them.
+
+**Decision.**
+1. `HostedInstrument::begin`: when the host refuses a block as busy (and has
+   not failed), the block's events go back to `pending`, at offset 0, and ride
+   on the next block, ahead of its own. Late by a block, never lost.
+2. `lumen-plugin-host` sessions (not scans) call
+   `process::run_at_full_speed` on Windows: `HIGH_PRIORITY_CLASS`, and power
+   throttling controlled and off for execution speed and timer resolution.
+   The audio thread keeps its MMCSS class.
+3. The host times `Instance::process_into` for every block and returns it in
+   the answer (`Answer::work_ns`; the shared region's version is 2, so a host
+   built before this is refused rather than misread). `Reply::Ready` carries
+   it; `Guard` times its own wait in `collect` and adds both to
+   `Status::take_cost` (`hosted/timing.rs`: blocks, mean and peak of work and
+   wait, late blocks included in the wait). Missed blocks were already
+   counted (`Status::late_blocks`).
+4. The readout is B, a block budget bar in the audio popover (the owner's
+   choice over A, a table, and C, on the device cards): one bar for the
+   block, Lumen's own work, then each plugin's work and its wait beyond it
+   (hatched), the plugins' deadline marked. The five costliest plugins have
+   their own segments and the rest share one; under it every plugin is
+   listed by time in a list that scrolls, since a project may hold many,
+   and hovering a row finds its segment. Missed blocks are marked on the
+   row and summed in a warning. Owner: mock-ups use generic device names,
+   never real plugin names.
+5. How it is fed: the audio status adds every callback's time and block
+   length (`Status::take_block_time`, the mean of a stretch); once a second
+   the app takes it and each running plugin's cost (`Hosting::take_costs`).
+   A plugin's work and wait are spread over every callback of the stretch
+   (one asked for every other block costs half). The bar's solid part is the
+   smaller of work and wait and the hatched part the rest of the wait; an
+   instrument handed its block early works while Lumen does, so its wait can
+   be shorter than its work and it shows no trip. Lumen's part is the
+   callback's time less every wait. Misses are counted over the last minute
+   from each host's total (a restarted host counts afresh). The deadline is
+   `HOST_SHARE` of the block (now public in `lumen-engine`).
+6. The panel scrolls when the window is too short for it; the plugin list
+   gives way first, down to two rows, so Panic stays in view at any normal
+   window height. "CPU now" left the panel (the headline replaces it; the
+   transport keeps its readout).
+
+**Consequences.**
+- Notes are no longer lost when a host is late; they sound a block late.
+- A misbehaving plugin's busy threads now run at high priority: on a machine
+  with few cores this can slow the interface. Lumen still kills a hung host.
+- Two clock reads per hosted block on the audio thread (both already done for
+  deadlines).
+- If waiting turns out to be most of the cost, the next step is the audio
+  path itself: the pipelined path ADR-0069 keeps as its fallback, or one
+  process per track's chain. That is the owner's decision, with the readout's
+  numbers.
+
+**Verification.** `lumen-devices`: a busy host's note-off goes with the next
+block (fails without the fix), costs are counted for answered and late blocks,
+`timing` totals. `lumen-plugin-host`: a host session runs at high priority
+(Windows), the region round-trips `work_ns`. `lumen-hosting`: a real host
+reports a nonzero work time. Workspace clippy and tests (1,888) on Windows,
+the WSL Linux clippy and tests, and the macOS cross-clippy pass. The WSL
+performance gate read `engine_hosted_64` +3.90% (two clock reads and the
+cost counters per hosted block, about 190 instructions against a real
+plugin's hundreds of thousands), every other scenario within ±0.21%; the
+baseline was updated for it. **Not run:** any real plugin with the fixes, the
+owner's power-plan comparison. Readout: unit tests of the budget (spreading,
+work and trip, no audio, the minute's misses, taking once a second),
+`lumen-audio`'s mean block time, the E2E scenario
+`hosting::the_audio_panel_shows_each_plugins_work_in_the_block_budget` (the
+test plugin with 3 ms of work a block is listed with it, through the real
+host), and shots `block_budget` (both themes at 100, 150 and 200%, and the
+960 × 540 window).
+
+**Cause found (2026-10-17, with the readout).** The owner's block budget
+showed 1.56 of 2.90 ms a block: Lumen 0.01 ms, the trip 0.01 ms, the amp
+plugin's own work 1.54 ms. The host told every plugin its blocks could be
+8192 frames long (the protocol's `MAX_FRAMES`), while the engine never hands
+one more than 256 (the mixer's chunk). Timed in process on the owner's
+machine, the amp plugin on 128-frame blocks of a 110 Hz tone, told a largest
+block of:
+
+| Largest block | Mean | Median | p99 |
+|---|---|---|---|
+| 128 | 0.227 ms | 0.222 ms | 0.313 ms |
+| 256 | 0.224 ms | 0.220 ms | 0.312 ms |
+| 1024 | 0.306 ms | 0.306 ms | 0.425 ms |
+| 8192 | 1.357 ms | 1.326 ms | 1.733 ms |
+
+Some plugins size their work by the largest block on every call (a
+convolution partitioned at that size does one transform of it per call, however
+short the block). **Fix:** plugins are configured, and their shared region
+laid out, for `lumen_devices::MOST_FRAMES` (256) frames; the engine asserts at
+compile time that its chunk is no longer. 256 costs what 128 does, and a
+change of buffer size needs no reconfiguring. The earlier bench (14 µs) gave
+the amp no input, which is why it showed nothing. Test: `lumen-hosting`'s
+`hosting` asserts the link's largest block. **To verify:** the owner's
+MT-VST-B step 7.
+
+**The device's block (2026-10-17, the owner's B).** Pitched: A, always promise
+256 (no restart when the buffer size changes); B, promise the device's block,
+at most 256, and set every plugin up again when the buffer size changes
+(recommended: what hosts usually do, and nothing left to a plugin that does
+more at 256 than at 128). **Chosen: B.** `hosting::promised_frames(block)` is
+the device's `buffer_frames` capped at `MOST_FRAMES` (256 while no stream is
+open); `Hosting::update` takes the rate and block and relinks every host when
+either changes (`Manager::relink_all(rate, frames)`, `Start::frames`,
+`Linked::frames`). The shared region keeps room for 256, and the host gives a
+plugin a longer block than it was promised in pieces it accepts, each with its
+events and parameter points (`Instance::process_into`), so a driver that
+delivers more than its stated buffer cannot break a plugin's contract.
+Tests: `shm::a_block_longer_than_the_plugin_was_promised_is_played_in_pieces_exactly`
+(the same output, sample for sample, as one call to a plugin promised the
+whole block), `hosting` (a relink promises the new block, and a longer block
+still plays), `promised_frames` units, and the E2E scenario
+`hosting::plugins_are_promised_the_devices_block_and_follow_a_new_buffer_size`
+(fails without the relink on a new block size).
