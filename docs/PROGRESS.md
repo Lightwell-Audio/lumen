@@ -2,6 +2,26 @@
 
 ## Status
 
+**M6 slice 3 (chain editing) is built, 2026-10-17** on `m6-s3-chain-editing`
+(cut from `m6-s2-chain-states`, which is not merged; ADR-0073; plan and
+progress in `docs/milestones/M6.md`). *Shipped:* format v18 (the view keeps
+which cards are folded); `Document::{move_device, copy_device, paste_device}`
+(one undo step each, a reason for every refusal); drag to reorder or onto
+another track's header (Alt copies), Alt+Left and Alt+Right, Left and Right,
+Ctrl+C, Ctrl+V and Ctrl+D on cards, six new device commands, the card's menu,
+folding to a strip; the master's chain; the plugin's own picture on the card.
+*Moved out, with the owner's choice:* the preset menu (slice 5), the editor
+button and the parameter strip (slice 4). *Verified (Windows, test plugin and
+real host):* workspace clippy, workspace tests, E2E for moving, copying and
+reordering under playback, drops on headers and the master, folding and its
+saving, pictures; mutation checks on the move gap, Alt copying, the strip's
+width and an instrument's track. *Found, not fixed:* a plugin instrument that
+finishes loading while a note is held does not sound it until the next note
+(an engine change, proposed). *Not run:* the WSL performance gate and Linux and
+macOS runs (the branch is not pushed), any real plugin, MT-VST-3 (the owner's).
+*Still open from slice 2:* the ADR-0069 measurements and the real-plugin reload
+result.
+
 **M6 slice 2 (the first complete device workflow) is built, report 2026-10-17**
 on `m6-s2-device-chain` (merged, PR #26) and `m6-s2-chain-states` (ADR-0070 to
 ADR-0072; plan and progress in `docs/milestones/M6.md`). *Shipped:* format v17;

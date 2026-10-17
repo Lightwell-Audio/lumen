@@ -27,6 +27,8 @@ struct Row {
     name: String,
     vendor: String,
     identity: String,
+    /// A VST3 plugin: its class id is the identity.
+    vst3: bool,
     instrument: bool,
     bypass: bool,
     face: OwnedFace,
@@ -141,6 +143,8 @@ impl App {
             .map(|r| self.chain.folded.contains(&r.id))
             .collect();
         let layout = Layout::new(&folded, tray.height());
+        let pictures: Vec<Option<egui::TextureHandle>> =
+            rows.iter().map(|r| self.picture_of(ui.ctx(), r)).collect();
         let playing = self.transport.state().playing;
         let beam = motion::hover(ui.ctx(), egui::Id::new("chain beam"), playing);
         let mut events = Events::default();
@@ -223,9 +227,11 @@ impl App {
                         selected: selected == Some(row.id),
                         face: row.face.face(),
                         latency_ms: row.latency_ms,
+                        reports_latency: row.vst3,
                         track_color: track_colour,
                         band: super::geometry::band(layout.card_h),
                         folded: folded[i],
+                        picture: pictures[i].as_ref(),
                     };
                     let out = card::paint(ui, rect, egui::Id::new(("device", row.id.0)), &look);
                     // A second device of the same name says which it is.
@@ -346,6 +352,25 @@ impl App {
         }
     }
 
+    /// The plugin's own picture for `row`, once its bundle has been read.
+    fn picture_of(&mut self, ctx: &egui::Context, row: &Row) -> Option<egui::TextureHandle> {
+        if !row.vst3 {
+            return None;
+        }
+        let module = self
+            .plugins
+            .catalog()
+            .find(&format!("vst3:{}", row.identity))
+            .and_then(|listed| listed.module.clone());
+        let wake = ctx.clone();
+        let pictures = self
+            .chain
+            .pictures
+            .get_or_insert_with(|| super::Pictures::new(move || wake.request_repaint()));
+        pictures.poll(ctx);
+        pictures.get(&row.identity, module.as_deref())
+    }
+
     /// The shown track's devices as rows, with how each is running.
     fn rows_of(&self, track: &Track, rate: u32) -> Vec<Row> {
         track.devices.iter().map(|d| self.row_of(d, rate)).collect()
@@ -392,6 +417,7 @@ impl App {
             name,
             vendor,
             identity,
+            vst3: d.is_vst3(),
             instrument: d.is_instrument(),
             bypass: d.bypass,
             face,

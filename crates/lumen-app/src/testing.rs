@@ -355,6 +355,61 @@ impl App {
         );
     }
 
+    /// Gives a plugin device a picture of `width` by `height` pixels from
+    /// `pixel(x, y)`, as if its bundle held one (screenshots of the card).
+    pub fn give_device_picture(
+        &mut self,
+        ctx: &egui::Context,
+        device: Id,
+        (width, height): (usize, usize),
+        pixel: impl Fn(usize, usize) -> [u8; 4],
+    ) {
+        let class = self
+            .document
+            .project()
+            .tracks
+            .iter()
+            .flat_map(|t| t.devices.iter())
+            .find(|d| d.id == device)
+            .and_then(|d| match &d.plugin {
+                lumen_project::model::PluginRef::Vst3 { class_id, .. } => Some(class_id.clone()),
+                _ => None,
+            });
+        let Some(class) = class else { return };
+        let mut rgba = Vec::with_capacity(width * height * 4);
+        for y in 0..height {
+            for x in 0..width {
+                rgba.extend(pixel(x, y));
+            }
+        }
+        let image = egui::ColorImage::from_rgba_unmultiplied([width, height], &rgba);
+        let wake = ctx.clone();
+        self.chain
+            .pictures
+            .get_or_insert_with(|| crate::chain::Pictures::new(move || wake.request_repaint()))
+            .put(ctx, &class, image);
+    }
+
+    /// How a plugin device's own picture stands: `none`, `loading`, `absent`
+    /// or `ready` (the card shows it when ready).
+    pub fn device_picture(&self, device: Id) -> &'static str {
+        let class = self
+            .document
+            .project()
+            .tracks
+            .iter()
+            .flat_map(|t| t.devices.iter())
+            .find(|d| d.id == device)
+            .and_then(|d| match &d.plugin {
+                lumen_project::model::PluginRef::Vst3 { class_id, .. } => Some(class_id.clone()),
+                _ => None,
+            });
+        match (class, &self.chain.pictures) {
+            (Some(class), Some(pictures)) => pictures.state(&class),
+            _ => "none",
+        }
+    }
+
     /// The latency a plugin device last reported, in frames.
     pub fn device_latency(&self, device: Id) -> Option<u32> {
         self.hosting.latency(device)

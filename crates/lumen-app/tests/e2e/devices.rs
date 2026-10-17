@@ -783,3 +783,92 @@ fn the_keys_that_edit_tracks_leave_a_selected_master_alone() {
     );
     assert_eq!(lumen.app().project().master.devices, before.master.devices);
 }
+
+// Slice 3e: the plugin's own picture on its card.
+
+/// A small picture, as a plugin ships its snapshot: a plain colour.
+fn snapshot_png() -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut encoder = png::Encoder::new(&mut out, 96, 48);
+    encoder.set_color(png::ColorType::Rgb);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().unwrap();
+    writer
+        .write_image_data(&[180u8, 90, 30].repeat(96 * 48))
+        .unwrap();
+    writer.finish().unwrap();
+    out
+}
+
+/// Puts `bytes` where a bundle keeps its snapshot of the test effect.
+fn put_snapshot(lumen_dir: &std::path::Path, bytes: &[u8]) {
+    let folder = lumen_dir.join("plugins/Plug.vst3/Contents/Resources/Snapshots");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join(format!(
+            "{}_snapshot.png",
+            effect_class().to_ascii_uppercase()
+        )),
+        bytes,
+    )
+    .unwrap();
+}
+
+/// Like `launch`, with `snapshot` in the bundle before Lumen starts.
+fn launch_with_snapshot(name: &str, project: &Project, snapshot: &[u8]) -> Lumen {
+    let dir = TempDir::new(&format!("e2e-devices-{name}"));
+    let path = dir.path().join("song.lumen");
+    lumen_project::save(project, &path, &Default::default()).expect("save the test project");
+    let root = plugin_root(dir.path(), &["Plug"]);
+    put_snapshot(dir.path(), snapshot);
+    let cache = dir.path().join("plugin-cache.json");
+    let tracks = project.tracks.len();
+    let mut lumen = Lumen::start_with(dir, move |launch| {
+        launch
+            .opening(path)
+            .with_audio_buffer(1024)
+            .with_plugins(vec![root], &built().1, cache)
+            .with_plugin_faults(faults)
+    });
+    lumen.wait_for("the project", move |app| {
+        app.project().tracks.len() == tracks
+    });
+    lumen.wait_for("the plugin scan", |app| !app.plugins_busy());
+    lumen.frames(30);
+    lumen
+}
+
+#[test]
+fn a_plugin_with_a_snapshot_in_its_bundle_shows_it_on_its_card() {
+    let project = project(vec![effect_device(FIRST)]);
+    let mut lumen = launch_with_snapshot("snapshot", &project, &snapshot_png());
+    lumen.app_mut().select_tracks(&[AUDIO]);
+    lumen.show_devices_tab();
+    lumen.wait_for("the picture", |app| app.device_picture(FIRST) == "ready");
+    // The built-in synth has no bundle.
+    lumen.app_mut().select_tracks(&[KEYS]);
+    lumen.frames(10);
+    let synth = lumen.app().project().tracks[0].devices[0].id;
+    assert_eq!(lumen.app().device_picture(synth), "none");
+}
+
+#[test]
+fn a_damaged_or_missing_snapshot_leaves_the_generated_picture() {
+    let project = project(vec![effect_device(FIRST)]);
+    let mut lumen = launch_with_snapshot("bad-snapshot", &project, b"this is not a png");
+    lumen.app_mut().select_tracks(&[AUDIO]);
+    lumen.show_devices_tab();
+    lumen.wait_for("the picture to be given up", |app| {
+        app.device_picture(FIRST) == "absent"
+    });
+    // The card still works.
+    assert!(lumen.shows(&format!("Power {EFFECT}")));
+
+    // A bundle with no snapshot at all is the same.
+    let mut lumen = launch("no-snapshot", &project, &["Plug"]);
+    lumen.app_mut().select_tracks(&[AUDIO]);
+    lumen.show_devices_tab();
+    lumen.wait_for("the picture to be given up", |app| {
+        app.device_picture(FIRST) == "absent"
+    });
+}

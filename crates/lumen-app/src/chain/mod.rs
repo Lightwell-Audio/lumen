@@ -8,6 +8,7 @@ mod actions;
 mod art;
 mod card;
 mod geometry;
+mod pictures;
 pub(crate) mod place;
 mod view;
 
@@ -16,6 +17,7 @@ use std::collections::HashSet;
 use lumen_project::model::{Device, Id};
 
 pub(crate) use geometry::panel_height;
+pub(crate) use pictures::Pictures;
 pub(crate) use view::paint_drag_ghost;
 
 /// What is being dragged from the browser: a device's catalog id.
@@ -48,4 +50,6 @@ pub(crate) struct Chain {
     pub folded: HashSet<Id>,
     /// The device last copied, with its settings as they were then.
     pub clipboard: Option<Device>,
+    /// The plugins' own pictures, read in the background (made on first use).
+    pub pictures: Option<Pictures>,
 }

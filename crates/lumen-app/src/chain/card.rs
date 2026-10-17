@@ -40,11 +40,17 @@ pub(super) struct Look<'a> {
     pub face: Face<'a>,
     /// The time it holds back, in milliseconds.
     pub latency_ms: f32,
+    /// Whether the device reports a latency (a plugin does; the built-in
+    /// synth has none to report, so its footer says nothing of one).
+    pub reports_latency: bool,
     pub track_color: Color32,
     /// The picture's height now (0 when the tray is short).
     pub band: f32,
     /// Folded to a strip: the power button and the name, set on end.
     pub folded: bool,
+    /// The plugin's own picture, when its bundle has one and the device is
+    /// running: it takes the artwork band.
+    pub picture: Option<&'a egui::TextureHandle>,
 }
 
 /// What a card's own buttons asked for.
@@ -119,7 +125,12 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
         palette.header,
     );
     if look.band > 0.0 {
-        paint_picture(&painter, rect, look, muted, radius);
+        match look.picture {
+            Some(texture) if matches!(look.face, Face::Ready | Face::Loading) => {
+                paint_snapshot(ui, rect, look, texture, muted);
+            }
+            _ => paint_picture(&painter, rect, look, muted, radius),
+        }
     }
     painter.rect_filled(
         footer,
@@ -314,8 +325,21 @@ fn paint_rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Resp
 
 /// What the footer says on each side: the signal that passes, and what the
 /// device holds back (kept, when it is bypassed or not running).
+/// "2.7 ms kept", or nothing for a device with no latency to keep.
+fn kept(ms: &str) -> String {
+    if ms.is_empty() {
+        String::new()
+    } else {
+        format!("{ms} kept")
+    }
+}
+
 fn footer_words(look: &Look<'_>) -> (String, String) {
-    let ms = format!("{:.1} ms", look.latency_ms);
+    let ms = if look.reports_latency {
+        format!("{:.1} ms", look.latency_ms)
+    } else {
+        String::new()
+    };
     let signal = if look.instrument {
         "MIDI \u{2192} audio"
     } else {
@@ -323,10 +347,61 @@ fn footer_words(look: &Look<'_>) -> (String, String) {
     };
     match look.face {
         Face::Loading => ("starting\u{2026}".to_owned(), String::new()),
-        Face::Failed(_) | Face::Missing { .. } => ("bypassed".to_owned(), format!("{ms} kept")),
-        Face::Ready if look.bypass => ("bypassed".to_owned(), format!("{ms} kept")),
+        Face::Failed(_) | Face::Missing { .. } => ("bypassed".to_owned(), kept(&ms)),
+        Face::Ready if look.bypass => ("bypassed".to_owned(), kept(&ms)),
         Face::Ready => (signal.to_owned(), ms),
     }
+}
+
+/// The plugin's own picture in the band, cropped to fill it and fading into
+/// the header; greyed while the device is bypassed.
+fn paint_snapshot(
+    ui: &mut Ui,
+    rect: Rect,
+    look: &Look<'_>,
+    texture: &egui::TextureHandle,
+    muted: bool,
+) {
+    let palette = theme::p();
+    // Above the header, so the name stays on its own colour; the picture
+    // fades into the header's colour at its foot.
+    let area = Rect::from_min_size(rect.min, vec2(rect.width(), look.band));
+    // Cover: the largest centred part of the picture with the band's shape.
+    let size = texture.size_vec2();
+    let (want, have) = (area.width() / area.height(), size.x / size.y);
+    let uv = if have > want {
+        let share = want / have;
+        Rect::from_min_max(
+            pos2((1.0 - share) / 2.0, 0.0),
+            pos2((1.0 + share) / 2.0, 1.0),
+        )
+    } else {
+        let share = have / want;
+        Rect::from_min_max(
+            pos2(0.0, (1.0 - share) / 2.0),
+            pos2(1.0, (1.0 + share) / 2.0),
+        )
+    };
+    let top = CornerRadius {
+        nw: RADIUS,
+        ne: RADIUS,
+        sw: 0,
+        se: 0,
+    };
+    egui::Image::from_texture(egui::load::SizedTexture::new(texture.id(), size))
+        .uv(uv)
+        .corner_radius(top)
+        .tint(if muted {
+            Color32::from_gray(110)
+        } else {
+            Color32::WHITE
+        })
+        .paint_at(ui, area);
+    let fade = Rect::from_min_max(
+        pos2(area.left(), area.bottom() - FADE.min(area.height())),
+        area.max,
+    );
+    widgets::gradient(ui.painter(), fade, Color32::TRANSPARENT, palette.header);
 }
 
 fn paint_picture(painter: &egui::Painter, rect: Rect, look: &Look<'_>, muted: bool, radius: f32) {
@@ -595,9 +670,11 @@ mod tests {
             selected: false,
             face,
             latency_ms: 2.7,
+            reports_latency: true,
             track_color: Color32::WHITE,
             band: 96.0,
             folded: false,
+            picture: None,
         }
     }
 
@@ -623,6 +700,19 @@ mod tests {
             footer_words(&look(Face::Loading, false, false)).0,
             "starting\u{2026}"
         );
+    }
+
+    #[test]
+    fn a_device_with_no_latency_to_report_says_nothing_of_one() {
+        let mut quiet = look(Face::Ready, false, true);
+        quiet.reports_latency = false;
+        assert_eq!(
+            footer_words(&quiet),
+            ("MIDI \u{2192} audio".into(), String::new())
+        );
+        let mut bypassed = look(Face::Ready, true, true);
+        bypassed.reports_latency = false;
+        assert_eq!(footer_words(&bypassed), ("bypassed".into(), String::new()));
     }
 
     #[test]
