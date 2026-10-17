@@ -165,3 +165,64 @@ fn controllers_reach_a_plugin_that_maps_them_and_the_ones_it_does_not_are_told()
     );
     assert_eq!(ignored, 1);
 }
+
+#[test]
+fn the_plugins_state_is_read_on_request_and_a_reload_can_start_from_it() {
+    let mut manager = manager();
+    manager.want(1, instrument("")).unwrap();
+    let mut linked = linked(&mut manager, 1);
+    manager.set_param(1, LEVEL, 0.25);
+    // Wait until the plugin has it, then read the state it would save.
+    for _ in 0..200 {
+        if loudness(&mut linked.link, &held()) == 0.25 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    manager.capture(1);
+    let state = wait_for(
+        &mut manager,
+        Duration::from_secs(10),
+        |_, happened| match happened {
+            Happened::State(state) => Ok(state),
+            other => Err(other),
+        },
+    )
+    .expect("the state was read");
+    assert!(!state.is_empty());
+
+    // A host started from that state plays at the level that was set.
+    assert!(manager.reload_from(1, Some(state), Vec::new()).unwrap());
+    let mut fresh = linked_again(&mut manager, 1);
+    assert_eq!(loudness(&mut fresh.link, &held()), 0.25);
+    // And a device that is not there is not reloaded.
+    assert!(!manager.reload_from(99, None, Vec::new()).unwrap());
+}
+
+/// The next link `device` gets, after its host was started again.
+fn linked_again(manager: &mut Manager, device: u64) -> Box<lumen_hosting::Linked> {
+    support::linked(manager, device)
+}
+
+#[test]
+fn a_state_that_cannot_be_read_in_time_is_a_failure_not_a_wait() {
+    let mut manager = manager();
+    manager.want(1, instrument("state_hang")).unwrap();
+    let _linked = linked(&mut manager, 1);
+    manager.capture(1);
+    let started = std::time::Instant::now();
+    let state = wait_for(
+        &mut manager,
+        Duration::from_secs(15),
+        |_, happened| match happened {
+            Happened::State(state) => Ok(state),
+            other => Err(other),
+        },
+    );
+    assert!(state.is_err(), "a hung state read must fail");
+    assert!(
+        started.elapsed() < Duration::from_secs(6),
+        "the answer came late: {:?}",
+        started.elapsed()
+    );
+}

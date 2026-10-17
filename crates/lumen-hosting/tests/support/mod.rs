@@ -133,7 +133,7 @@ pub fn linked_all(manager: &mut Manager, devices: &[u64]) -> Vec<Linked> {
             match event.happened {
                 Happened::Linked(l) => found[at] = Some(*l),
                 Happened::Failed(f) => panic!("device {} failed: {f}", event.device),
-                Happened::Edits(_) | Happened::Text { .. } => {}
+                Happened::Edits(_) | Happened::Text { .. } | Happened::State(_) => {}
             }
         }
         assert!(Instant::now() < end, "devices did not all link");

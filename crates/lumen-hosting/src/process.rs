@@ -201,6 +201,9 @@ pub enum Happened {
     Edits(Taken),
     /// The plugin's own text for a value that was asked for.
     Text { id: u32, value: f64, text: String },
+    /// The plugin's saved state, as asked for ([`Process::capture`]): the
+    /// bytes, or why they could not be read in time.
+    State(Result<Vec<u8>, String>),
 }
 
 pub struct Linked {
@@ -242,6 +245,8 @@ enum Command {
     Set(u32, f64),
     /// Ask the plugin for its text for a value.
     Text(u32, f64),
+    /// Read the plugin's state now.
+    Capture,
     Quit,
 }
 
@@ -275,6 +280,9 @@ const EDIT_POLL: Duration = Duration::from_millis(25);
 /// How long an ask for edits or text may take; a miss is only a miss (the
 /// audio side finds a host that has stopped answering).
 const QUICK: Duration = Duration::from_millis(300);
+/// How long reading a plugin's state may take before the answer is a failure
+/// and the project is saved with the state it has (M6 slice 4g).
+pub const CAPTURE: Duration = Duration::from_secs(2);
 
 /// A permit to load: only a few plugins load at once, as the scanner's.
 pub(crate) struct Gate {
@@ -355,6 +363,12 @@ impl Process {
     /// Sets a parameter of the plugin (normalized, 0 to 1).
     pub fn set_param(&self, id: u32, value: f64) {
         let _ = self.commands.send(Command::Set(id, value));
+    }
+
+    /// Asks the host for the plugin's state; the answer comes as
+    /// [`Happened::State`], within the state deadline or as a failure.
+    pub fn capture(&self) {
+        let _ = self.commands.send(Command::Capture);
     }
 
     /// Asks for the plugin's text for a value; the answer comes as
@@ -470,6 +484,10 @@ impl Run {
                         if let Ok(text) = up.host.param_text(id, value, QUICK) {
                             self.say(Happened::Text { id, value, text });
                         }
+                    }
+                    Command::Capture => {
+                        let state = up.host.state(CAPTURE).map_err(|e| e.to_string());
+                        self.say(Happened::State(state));
                     }
                     Command::Quit => {
                         up.host.quit(d.quit);
@@ -650,6 +668,7 @@ mod tests {
                 Command::Set(id, v) => format!("set {id}={v}"),
                 Command::Text(id, v) => format!("text {id}={v}"),
                 Command::Relink(..) => "relink".into(),
+                Command::Capture => "capture".into(),
                 Command::Quit => "quit".into(),
             })
             .collect()

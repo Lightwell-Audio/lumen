@@ -192,6 +192,8 @@ impl App {
 
     fn start_save_with(&mut self, path: PathBuf, normalize_project_path: bool) {
         trace::log(|| format!("files: saving {}", path.display()));
+        // Plugins that changed are read now, so the next save holds them.
+        self.hosting.capture_changed();
         self.saving = Some(files::save(files::SaveRequest {
             project: self.stamped(),
             path,
@@ -311,8 +313,19 @@ impl App {
                         1 => " (1 audio file copied in)".into(),
                         n => format!(" ({n} audio files copied in)"),
                     };
+                    // A plugin that changed and could not be read is saved
+                    // with the state it was loaded with and the parameter
+                    // values changed since: say so.
+                    let unread = match self.hosting.unread() {
+                        0 => String::new(),
+                        1 => ". A plugin could not be read: only its parameter values are current"
+                            .into(),
+                        n => format!(
+                            ". {n} plugins could not be read: only their parameter values are current"
+                        ),
+                    };
                     self.toast = Some((
-                        format!("Saved {}{copied}", self.document.name()),
+                        format!("Saved {}{copied}{unread}", self.document.name()),
                         Instant::now(),
                     ));
                     self.file_notice = None;

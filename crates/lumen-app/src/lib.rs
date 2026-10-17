@@ -441,6 +441,9 @@ impl eframe::App for App {
             &mut self.lanes.devices.hosted,
         );
         self.lanes.midi_changed(hosts.midi);
+        if let Some(ms) = hosts.again_in_ms {
+            ctx.request_repaint_after(std::time::Duration::from_millis(ms));
+        }
         self.apply_plugin_edits();
         self.take_budget();
         if let Some(ms) = self.test_latency

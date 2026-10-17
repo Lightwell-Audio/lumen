@@ -128,7 +128,40 @@ struct Parameters {
     linked_before: bool,
     /// Whether the plugin's state is ahead of what the project saved.
     dirty: bool,
+    /// How many times it has changed, and when last: a state read after the
+    /// last change is the plugin's state now.
+    edit_count: u64,
+    last_edit: Option<std::time::Instant>,
+    /// The plugin's state as last read, and the edit count it was read at.
+    captured: Option<Vec<u8>>,
+    captured_at: u64,
+    /// A read in flight, started at this edit count.
+    capturing: Option<u64>,
+    /// The last read failed (hung, crashed, refused); not tried again until
+    /// the plugin changes again.
+    capture_failed: bool,
+    /// The values the project holds for the device, as last seen.
+    held: BTreeMap<u32, f64>,
 }
+
+impl Parameters {
+    /// The plugin has changed: its state read before is out of date.
+    fn touch(&mut self) {
+        self.dirty = true;
+        self.edit_count += 1;
+        self.last_edit = Some(std::time::Instant::now());
+        self.capture_failed = false;
+    }
+
+    /// Whether the state read last is the plugin's state now.
+    fn fresh(&self) -> bool {
+        self.captured.is_some() && self.captured_at == self.edit_count
+    }
+}
+
+/// How long a plugin is left alone after its last change before its state
+/// is read (a drag is many changes; the state is read when it rests).
+const REST: std::time::Duration = std::time::Duration::from_millis(600);
 
 /// The edits one device's plugin made inside itself, for the document.
 #[derive(Debug, Clone, PartialEq)]
@@ -162,6 +195,9 @@ pub struct PluginCost {
 pub struct Changed {
     /// A running instrument is ready for the next MIDI track list.
     pub midi: bool,
+    /// Something is waiting out a delay (a plugin's state is to be read once
+    /// it has rested): ask for a frame this many milliseconds from now.
+    pub again_in_ms: Option<u64>,
 }
 
 pub struct Hosting {
@@ -360,16 +396,26 @@ impl Hosting {
         };
         if let Some(t) = self.tracked.get_mut(&device.0)
             && matches!(t.state, State::Failed(_))
-            && manager.reload(device.0).unwrap_or(false)
         {
-            t.state = State::Loading;
-            t.status = None;
-            t.log = None;
-            // A new process starts from the saved state.
-            t.params = Parameters {
-                started_with: t.params.started_with.clone(),
-                ..Parameters::default()
+            // The new process starts from the plugin's state as last read if
+            // that was after its last change; otherwise from the state it was
+            // loaded with, and the values the project holds over it.
+            let (state, values) = if t.params.fresh() {
+                (t.params.captured.clone(), BTreeMap::new())
+            } else {
+                (None, t.params.held.clone())
             };
+            let list = values.iter().map(|(&id, &v)| (id, v)).collect();
+            if manager.reload_from(device.0, state, list).unwrap_or(false) {
+                t.state = State::Loading;
+                t.status = None;
+                t.log = None;
+                t.params = Parameters {
+                    started_with: values,
+                    held: t.params.held.clone(),
+                    ..Parameters::default()
+                };
+            }
         }
     }
 
@@ -527,6 +573,21 @@ impl Hosting {
                 Happened::Text { id, value, text } => {
                     t.params.texts.insert(id, (value, text));
                 }
+                Happened::State(state) => {
+                    let p = &mut t.params;
+                    let at = p.capturing.take().unwrap_or(0);
+                    match state {
+                        Ok(bytes) => {
+                            p.captured = Some(bytes);
+                            p.captured_at = at;
+                            p.capture_failed = false;
+                            if at == p.edit_count {
+                                p.dirty = false;
+                            }
+                        }
+                        Err(_) => p.capture_failed = true,
+                    }
+                }
                 Happened::Edits(taken) => {
                     t.params.ignored = t.params.ignored.saturating_add(taken.ignored);
                     for edit in taken.list {
@@ -536,7 +597,7 @@ impl Hosting {
                                 if let Some(&now) = p.values.get(&edit.id) {
                                     p.base.entry(edit.id).or_insert(now);
                                 }
-                                p.dirty = true;
+                                p.touch();
                                 p.open = Some((edit.id, std::time::Instant::now()));
                                 p.edits.push((edit, true));
                             }
@@ -545,7 +606,7 @@ impl Hosting {
                                 if let Some(before) = before {
                                     p.base.entry(edit.id).or_insert(before);
                                 }
-                                p.dirty = true;
+                                p.touch();
                                 let inside = p.open.is_some_and(|(id, _)| id == edit.id);
                                 if inside {
                                     p.open = Some((edit.id, std::time::Instant::now()));
@@ -607,7 +668,28 @@ impl Hosting {
                 for (id, value) in t.params.differences(&w.device.params) {
                     manager.set_param(w.device.id.0, id, value);
                     t.params.values.insert(id, value);
-                    t.params.dirty = true;
+                    t.params.touch();
+                }
+            }
+            if t.params.held != w.device.params {
+                t.params.held = w.device.params.clone();
+            }
+            // A plugin that has changed is read once it rests, so the next
+            // save holds what it is now.
+            if t.state == State::Ready
+                && t.params.dirty
+                && t.params.capturing.is_none()
+                && !t.params.capture_failed
+                && let Some(since) = t.params.last_edit
+                && let Some(manager) = self.manager.as_ref()
+            {
+                let waited = since.elapsed();
+                if waited >= REST {
+                    manager.capture(id);
+                    t.params.capturing = Some(t.params.edit_count);
+                } else {
+                    let left = (REST - waited).as_millis() as u64 + 1;
+                    changed.again_in_ms = Some(changed.again_in_ms.map_or(left, |m| m.min(left)));
                 }
             }
         }
@@ -722,9 +804,41 @@ impl Hosting {
         costs
     }
 
+    /// Asks every changed plugin for its state now (a save is under way), so
+    /// the next save holds it.
+    pub fn capture_changed(&mut self) {
+        let Some(manager) = self.manager.as_ref() else {
+            return;
+        };
+        for (&id, t) in &mut self.tracked {
+            if t.state == State::Ready
+                && t.params.dirty
+                && t.params.capturing.is_none()
+                && !t.params.fresh()
+            {
+                manager.capture(id);
+                t.params.capturing = Some(t.params.edit_count);
+            }
+        }
+    }
+
+    /// How many plugins have changed and could not be read, so a save holds
+    /// the state they were loaded with and the parameter values the project
+    /// keeps, but nothing else that changed inside them.
+    pub fn unread(&self) -> usize {
+        self.tracked
+            .values()
+            .filter(|t| t.state == State::Ready && t.params.dirty && t.params.capture_failed)
+            .count()
+    }
+
     /// Stamps what the running plugins reported into `project`, to be saved.
     pub fn stamp(&self, project: &mut Project) {
-        for track in &mut project.tracks {
+        for track in project
+            .tracks
+            .iter_mut()
+            .chain(std::iter::once(&mut project.master))
+        {
             if !track.devices.iter().any(|d| {
                 self.tracked
                     .get(&d.id.0)
@@ -743,6 +857,15 @@ impl Hosting {
                         tail: t.tail,
                         rate: t.rate,
                     });
+                    // A state read since the plugin last changed is what it
+                    // is now, with every value in it: it replaces the saved
+                    // state and the values the project held over it.
+                    if t.params.fresh()
+                        && let Some(bytes) = &t.params.captured
+                    {
+                        device.state = bytes.clone();
+                        device.params.clear();
+                    }
                 }
             }
         }

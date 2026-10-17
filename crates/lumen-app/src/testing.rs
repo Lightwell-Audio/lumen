@@ -503,6 +503,11 @@ impl App {
             .unwrap_or_default()
     }
 
+    /// How many changed plugins could not be read for the save.
+    pub fn unread_plugins(&self) -> usize {
+        self.hosting.unread()
+    }
+
     /// A parameter's value as far as the host bridge knows it.
     pub fn device_param_known(&self, device: Id, id: u32) -> Option<f64> {
         self.hosting.value(device, id)

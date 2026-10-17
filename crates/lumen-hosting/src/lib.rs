@@ -22,7 +22,7 @@ pub use link::{Counts, Link};
 pub use lumen_plugin_host::client::HostLog;
 pub use lumen_plugin_host::protocol::{Edit, EditKind, ParamInfo, Taken, UnitInfo};
 pub use manager::{Event, Manager};
-pub use process::{Deadlines, Failure, Happened, Linked, Start, Step, WAKE};
+pub use process::{CAPTURE, Deadlines, Failure, Happened, Linked, Start, Step, WAKE};
 
 /// The 32 hexadecimal digits a project stores for a class id, as bytes.
 pub fn parse_class_id(hex: &str) -> Option<[u8; 16]> {

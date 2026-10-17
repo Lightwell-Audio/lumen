@@ -94,6 +94,8 @@ fn faults(stem: &str) -> Option<&'static str> {
         // The instrument has a trigger that makes it edit its wave, as a
         // control moved in its own window would.
         "Edits" => Some("window_edits"),
+        // Reading the plugin's state never returns.
+        "Stuck" => Some("state_hang"),
         // Many parameters, in groups, some hidden, some read-only.
         "Many" => Some("many_params=300"),
         _ => None,
@@ -693,4 +695,64 @@ fn what_a_plugin_does_inside_itself_is_recorded_as_one_undo_step() {
         app.device_param_known(PLUGIN, WAVE) == Some(0.0)
     });
     assert_eq!(lumen.app().device_params(PLUGIN), [(TRIGGER, 1.0)]);
+}
+
+// Slice 4g: what a save holds of a plugin that changed.
+
+fn saved_device(lumen: &Lumen) -> Device {
+    lumen.app().project_as_saved().tracks[0].devices[0].clone()
+}
+
+#[test]
+fn a_plugin_that_changed_is_read_once_it_rests_and_the_save_holds_what_it_is_now() {
+    let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
+    let mut lumen = launch("capture", &project, &["Edits"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    assert!(
+        saved_device(&lumen).state.is_empty(),
+        "loaded with no state"
+    );
+
+    lumen.app_mut().set_device_param(PLUGIN, LEVEL, 0.3);
+    // Until it is read, a save keeps the old state and the project's values.
+    assert!(saved_device(&lumen).state.is_empty());
+    assert_eq!(saved_device(&lumen).params.get(&LEVEL), Some(&0.3));
+
+    lumen.wait_for("the plugin's state to be read", |app| {
+        !app.project_as_saved().tracks[0].devices[0].state.is_empty()
+    });
+    let saved = saved_device(&lumen);
+    assert!(saved.state.starts_with(b"LTP1"), "the plugin's own state");
+    assert!(saved.params.is_empty(), "the values are in the state now");
+    // The project in memory is untouched by it: still the edit, undoable.
+    assert_eq!(lumen.app().device_params(PLUGIN), [(LEVEL, 0.3)]);
+
+    // Another change makes the read state old again: the save falls back to the
+    // state it was loaded with, and the values the project holds.
+    lumen.app_mut().set_device_param(PLUGIN, LEVEL, 0.9);
+    lumen.frames(2);
+    assert!(saved_device(&lumen).state.is_empty());
+    assert_eq!(saved_device(&lumen).params.get(&LEVEL), Some(&0.9));
+}
+
+#[test]
+fn a_plugin_that_cannot_be_read_is_saved_with_the_values_the_project_holds_and_the_save_says_so() {
+    let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
+    let mut lumen = launch("stuck", &project, &["Stuck"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    lumen.app_mut().set_device_param(PLUGIN, LEVEL, 0.3);
+    lumen.wait_for("the read to fail", |app| app.unread_plugins() == 1);
+    let saved = saved_device(&lumen);
+    assert!(saved.state.is_empty());
+    assert_eq!(saved.params.get(&LEVEL), Some(&0.3), "nothing set is lost");
+    lumen.key(Modifiers::COMMAND, Key::S);
+    lumen.frames(3);
+    assert!(
+        lumen
+            .app()
+            .note()
+            .is_some_and(|t| t.contains("could not be read")),
+        "{:?}",
+        lumen.app().note()
+    );
 }

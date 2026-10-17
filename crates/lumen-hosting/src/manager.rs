@@ -75,6 +75,35 @@ impl Manager {
         Ok(())
     }
 
+    /// Asks the device's plugin for its state; the answer comes from
+    /// [`Manager::poll`] as [`crate::Happened::State`].
+    pub fn capture(&self, device: u64) {
+        if let Some(entry) = self.entries.get(&device) {
+            entry.process.capture();
+        }
+    }
+
+    /// Starts the device's host again from `state` (the saved state, or a
+    /// fresher one) with `values` set over it (the card's Reload after a
+    /// crash, which should come back with the work since the project loaded).
+    pub fn reload_from(
+        &mut self,
+        device: u64,
+        state: Option<Vec<u8>>,
+        values: Vec<(u32, f64)>,
+    ) -> std::io::Result<bool> {
+        match self.entries.get(&device).map(|e| e.start.clone()) {
+            Some(mut start) => {
+                if let Some(state) = state {
+                    start.state = state;
+                }
+                start.values = values;
+                self.want(device, start).map(|()| true)
+            }
+            None => Ok(false),
+        }
+    }
+
     /// Starts the device's host again with the same settings (the card's
     /// Reload).
     pub fn reload(&mut self, device: u64) -> std::io::Result<bool> {
