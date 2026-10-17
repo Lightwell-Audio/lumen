@@ -272,7 +272,7 @@ enum Style {
 /// One button of the row.
 struct Part<'a> {
     /// What is painted.
-    shown: &'a str,
+    shown: std::borrow::Cow<'a, str>,
     /// What a screen reader says (and the tests look for).
     name: String,
     tip: &'a str,
@@ -283,6 +283,16 @@ struct Part<'a> {
     output: Option<Output>,
 }
 
+/// A parameter count short enough for the All button, never cut to a wrong
+/// number: exact below a thousand, then 1.2k, then 12k.
+fn count_words(count: usize) -> String {
+    match count {
+        0..1000 => count.to_string(),
+        1000..10_000 => format!("{}.{}k", count / 1000, count % 1000 / 100),
+        _ => format!("{}k", count / 1000),
+    }
+}
+
 /// The editor, Learn and All buttons in `area`, as the editor's state allows:
 /// a plugin with no window hides Learn; a stuck one offers to be ended; a
 /// plugin with no parameters has only its window.
@@ -290,16 +300,16 @@ pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -
     let mut parts: Vec<Part<'_>> = Vec::new();
     let learn_ok = row.parameters > 0;
     let all = Part {
-        shown: "All\u{2026}",
+        shown: format!("All {}\u{2026}", count_words(row.parameters)).into(),
         name: format!("All parameters ({})", row.parameters),
         tip: "Every parameter of the plugin, with search",
         style: Style::Plain,
         dot: false,
-        weight: 0.7,
+        weight: 0.95,
         output: Some(Output::All),
     };
     let learn = |on: bool| Part {
-        shown: if on { "Learning\u{2026}" } else { "Learn" },
+        shown: if on { "Learning\u{2026}" } else { "Learn" }.into(),
         name: if on { "Stop learning" } else { "Learn" }.to_owned(),
         tip: "Touch a control in the plugin's window and it takes the next free slot. \
               Esc or a second click ends it",
@@ -331,12 +341,12 @@ pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -
                 ),
             };
             parts.push(Part {
-                shown,
+                shown: shown.into(),
                 name: name.to_owned(),
                 tip,
                 style,
                 dot: *row.editor == Editor::Open,
-                weight: 1.35,
+                weight: 1.25,
                 output: (*row.editor != Editor::Opening).then_some(Output::Editor),
             });
             if learn_ok {
@@ -346,7 +356,7 @@ pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -
         }
         Editor::NotResponding => {
             parts.push(Part {
-                shown: "Not responding",
+                shown: "Not responding".into(),
                 name: "Editor not responding".to_owned(),
                 tip: "The plugin's window has stopped answering. Lumen never ends a plugin on its own",
                 style: Style::Warn,
@@ -355,7 +365,7 @@ pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -
                 output: None,
             });
             parts.push(Part {
-                shown: "End plugin",
+                shown: "End plugin".into(),
                 name: "End plugin".to_owned(),
                 tip: "Ends this plugin. The card then offers Reload",
                 style: Style::Fill,
@@ -366,7 +376,7 @@ pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -
         }
         Editor::Unavailable(why) => {
             parts.push(Part {
-                shown: "No editor",
+                shown: "No editor".into(),
                 name: "No editor".to_owned(),
                 tip: why,
                 style: Style::Disabled,
@@ -433,7 +443,7 @@ fn pill(ui: &mut Ui, rect: Rect, id: egui::Id, part: &Part<'_>) -> bool {
         face.text()
     };
     let font = FontId::proportional(theme::size::CAPTION);
-    let text = fit(ui.painter(), part.shown, font.clone(), body.width() - 10.0);
+    let text = fit(ui.painter(), &part.shown, font.clone(), body.width() - 10.0);
     let galley = ui.painter().layout_no_wrap(text, font, ink);
     let dot = if part.dot { 10.0 } else { 0.0 };
     let width = galley.size().x + dot;
@@ -477,6 +487,17 @@ mod tests {
     const HIDDEN: u32 = 1 << 4;
     const PROGRAM: u32 = 1 << 15;
     const BYPASS: u32 = 1 << 16;
+
+    #[test]
+    fn the_all_buttons_count_is_exact_then_rounded_down_in_thousands() {
+        assert_eq!(count_words(6), "6");
+        assert_eq!(count_words(259), "259");
+        assert_eq!(count_words(999), "999");
+        assert_eq!(count_words(1000), "1.0k");
+        assert_eq!(count_words(1204), "1.2k");
+        assert_eq!(count_words(9999), "9.9k");
+        assert_eq!(count_words(12_345), "12k");
+    }
 
     #[test]
     fn the_default_strip_is_the_first_parameters_a_person_would_move() {

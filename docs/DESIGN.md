@@ -1049,9 +1049,11 @@ a soft shadow, radius `XL`).
   you to the track's Instrument menu.
 - **The row under the knobs** (M6 slice 4f; the owner's specimens): up to three
   raised buttons at the caption size, 22 pt tall, 4 pt apart, with widths in
-  proportion 1.35 : 1.15 : 0.7. The editor button reads "Open editor" and, when
+  proportion 1.25 : 1.15 : 0.95. The editor button reads "Open editor" and, when
   the window is up, "Editor open" lit (`Tone::On`) with a dot; Learn reads
-  "Learn" and "Learning…" lit; the third is "All…" (named "All parameters (N)").
+  "Learn" and "Learning…" lit; the third carries the plugin's parameter count, "All 259…" (exact below a
+  thousand, then "1.2k", then "12k"; named "All parameters (N)"; it opens the
+  panel of every parameter).
   A window that stopped answering gives "Not responding" in the warning colour
   beside a filled "End plugin"; a plugin with no window gives a disabled "No
   editor" and no Learn. A plugin that lists no parameters shows only the editor
