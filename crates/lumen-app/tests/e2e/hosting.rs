@@ -736,6 +736,41 @@ fn a_plugin_that_changed_is_read_once_it_rests_and_the_save_holds_what_it_is_now
 }
 
 #[test]
+fn a_save_reads_every_running_plugin_first_even_one_that_reported_no_change() {
+    // A plugin keeps most of what the user sets (a patch, a preset) without
+    // telling the host: nothing marks it changed, so only reading it at the
+    // save finds out. The owner's BBC Symphony Orchestra and Ozone lost their
+    // settings on reopening because nothing was read.
+    let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
+    let mut lumen = launch("save-reads", &project, &["Edits"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    assert!(saved_device(&lumen).state.is_empty(), "no change reported");
+    let path = lumen.dir().join("saved.lumen");
+    lumen.app_mut().save_to(path.clone());
+    lumen.wait_for("the save", |app| !app.is_busy());
+    let reopened = lumen_project::load(&path).expect("the saved project loads");
+    assert!(
+        reopened.tracks[0].devices[0].state.starts_with(b"LTP1"),
+        "the plugin's own state is in the file"
+    );
+}
+
+#[test]
+fn a_save_does_not_wait_for_a_plugin_that_cannot_answer() {
+    let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
+    let mut lumen = launch("save-stuck", &project, &["Stuck"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    let path = lumen.dir().join("saved.lumen");
+    lumen.app_mut().save_to(path.clone());
+    lumen.wait_for("the save", |app| !app.is_busy());
+    let reopened = lumen_project::load(&path).expect("the saved project loads");
+    assert!(
+        reopened.tracks[0].devices[0].state.is_empty(),
+        "saved with what the project had"
+    );
+}
+
+#[test]
 fn a_plugin_that_cannot_be_read_is_saved_with_the_values_the_project_holds_and_the_save_says_so() {
     let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
     let mut lumen = launch("stuck", &project, &["Stuck"]);
@@ -746,7 +781,8 @@ fn a_plugin_that_cannot_be_read_is_saved_with_the_values_the_project_holds_and_t
     assert!(saved.state.is_empty());
     assert_eq!(saved.params.get(&LEVEL), Some(&0.3), "nothing set is lost");
     lumen.key(Modifiers::COMMAND, Key::S);
-    lumen.frames(3);
+    // The save waits for the plugin's read to fail, then writes what it has.
+    lumen.wait_for("the save", |app| !app.is_busy());
     assert!(
         lumen
             .app()

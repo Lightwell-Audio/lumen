@@ -809,6 +809,7 @@ impl App {
     /// Background work is in progress: a save, an open, or files loading.
     pub fn is_busy(&self) -> bool {
         self.saving.is_some()
+            || self.save_waiting.is_some()
             || self.opening.is_some()
             || self.lanes.is_loading()
             || self.midi_reader.busy()

@@ -129,6 +129,7 @@ impl App {
             opening: None,
             prompt: None,
             after_save: None,
+            save_waiting: None,
             file_notice: None,
             quitting: false,
             owner: None,

@@ -125,6 +125,9 @@ pub struct App {
     prompt: Option<Next>,
     /// What to do after the save in progress succeeds.
     after_save: Option<Next>,
+    /// A save waiting for the running plugins' states to be read: where to,
+    /// whether to normalize the path, and since when.
+    save_waiting: Option<(std::path::PathBuf, bool, std::time::Instant)>,
     /// A problem with saving or opening, shown until dismissed.
     file_notice: Option<String>,
     /// Closing for real, after the unsaved-changes prompt.

@@ -6948,6 +6948,21 @@ Decisions that went beyond the spike:
   list) lets every layer above the window be tested where there is no window
   system; the real window is MT-VST-4's (steps 5 to 8).
 
+**A save reads every running plugin (owner's report, 2026-10-17).** A plugin
+was read for its state only after an edit it reported as a parameter change,
+and the save did not wait for the answer. A plugin keeps most of what the user
+sets (BBC Symphony Orchestra's patches, Ozone's bands) without telling the host,
+so a project saved from the owner's ten plugin devices held the state of one;
+the rest reopened as they were first loaded. Now saving (Save, Save As, and
+the save a prompt starts) asks every running plugin for its state and writes
+the file when the answers are in, after at most four seconds
+(`Hosting::request_captures`, `captures_pending`, `App::save_waiting`); a
+plugin that cannot answer is saved with the state the project held, as before.
+Not covered yet: a change made only inside a plugin does not mark the project
+unsaved (no prompt on Quit, no dot), nor does autosave read the plugins; the
+plugin's own "dirty" call (`IComponentHandler2::setDirty`) is the way to know,
+and is not handled.
+
 **Editors follow the chosen track (owner, 2026-10-17).** A plugin's window is
 only on screen with its own track: choosing another track hides every other
 open window, choosing the track again shows it where it was (the Devices tab's

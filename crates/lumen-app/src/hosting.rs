@@ -1118,22 +1118,34 @@ impl Hosting {
         costs
     }
 
-    /// Asks every changed plugin for its state now (a save is under way), so
-    /// the next save holds it.
-    pub fn capture_changed(&mut self) {
+    /// Asks every running plugin for its state now, because a save is about
+    /// to be written. Every plugin, not only those that reported a change: a
+    /// plugin keeps most of what the user sets (a patch, a preset, its own
+    /// pages) without telling the host, so nothing says it has changed. True
+    /// when a read is in flight, to be waited for ([`Hosting::captures_pending`]).
+    pub fn request_captures(&mut self) -> bool {
         let Some(manager) = self.manager.as_ref() else {
-            return;
+            return false;
         };
+        let mut any = false;
         for (&id, t) in &mut self.tracked {
-            if t.state == State::Ready
-                && t.params.dirty
-                && t.params.capturing.is_none()
-                && !t.params.fresh()
-            {
+            if t.state != State::Ready {
+                continue;
+            }
+            if t.params.capturing.is_none() {
                 manager.capture(id);
                 t.params.capturing = Some(t.params.edit_count);
             }
+            any = true;
         }
+        any
+    }
+
+    /// Whether a plugin's state is still being read.
+    pub fn captures_pending(&self) -> bool {
+        self.tracked
+            .values()
+            .any(|t| t.state == State::Ready && t.params.capturing.is_some())
     }
 
     /// How many plugins have changed and could not be read, so a save holds
