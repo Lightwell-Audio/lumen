@@ -4,8 +4,6 @@
 //! and remove, and a card that is failed or missing says so and offers a way
 //! on. The plugins and the host are the real ones (the test plugin).
 
-use std::time::Duration;
-
 use eframe::egui::{Key, Modifiers, pos2};
 use egui_kittest::kittest::Queryable;
 use lumen_core::time::Ticks;
@@ -52,6 +50,15 @@ fn project(on_audio: Vec<Device>) -> Project {
     project_of("Chain", vec![keys, audio])
 }
 
+/// The fault a module's host is given, by the module's name: "Dies" crashes
+/// on its 40th block, as in `hosting.rs`.
+fn faults(stem: &str) -> Option<&'static str> {
+    match stem {
+        "Dies" => Some("process_crash@40"),
+        _ => None,
+    }
+}
+
 /// Lumen with `project` open and the test plugins installed.
 fn launch(name: &str, project: &Project, modules: &[&str]) -> Lumen {
     let dir = TempDir::new(&format!("e2e-devices-{name}"));
@@ -65,6 +72,7 @@ fn launch(name: &str, project: &Project, modules: &[&str]) -> Lumen {
             .opening(path)
             .with_audio_buffer(1024)
             .with_plugins(vec![root], &built().1, cache)
+            .with_plugin_faults(faults)
     });
     lumen.wait_for("the project", move |app| {
         app.project().tracks.len() == tracks
@@ -331,8 +339,6 @@ fn a_failed_plugin_offers_reload_and_it_starts_again() {
     lumen.wait_for("the new host", |app| {
         app.device_state(FIRST).is_some_and(|s| s == "ready")
     });
-    // Nothing waited on the audio thread for it.
-    let _ = Duration::from_millis(0);
 }
 
 #[test]
@@ -354,4 +360,134 @@ fn the_command_adds_the_device_selected_in_the_browser() {
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.frames(10);
     assert_eq!(lumen.devices_on(AUDIO), [EFFECT]);
+}
+
+/// Starts the song and waits for the "Dies" plugin's host to die under it.
+#[track_caller]
+fn play_until_it_fails(lumen: &mut Lumen, device: Id) {
+    lumen.wait_for("the host", move |app| {
+        app.device_state(device).is_some_and(|s| s == "ready")
+    });
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("the failure", move |app| {
+        app.device_state(device)
+            .is_some_and(|s| s.starts_with("failed"))
+    });
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("stop", |app| !app.is_playing());
+    lumen.frames(5);
+}
+
+#[test]
+fn a_host_that_dies_under_the_song_shows_on_its_card_and_reload_brings_it_back() {
+    let mut lumen = launch("dies", &project(vec![effect_device(FIRST)]), &["Dies"]);
+    lumen.app_mut().select_tracks(&[AUDIO]);
+    lumen.show_devices_tab();
+    play_until_it_fails(&mut lumen, FIRST);
+    assert!(lumen.shows("Reload"), "the failed card's button");
+    // The card says what happened, not only that it did.
+    let why = lumen.app().device_state(FIRST).unwrap_or_default();
+    assert!(why.len() > "failed: ".len(), "a reason on the card: {why}");
+    lumen.click("Reload");
+    lumen.wait_for("the new host", |app| {
+        app.device_state(FIRST).is_some_and(|s| s == "ready")
+    });
+    assert!(!lumen.shows("Reload"), "the button goes with the failure");
+}
+
+#[test]
+fn removing_a_failed_device_and_undoing_it_loads_it_again_with_its_settings() {
+    // The test plugin's state: its tag, its kind (1, an effect) and two
+    // parameter values.
+    let state = [
+        b"LTP1".as_slice(),
+        &[1],
+        &0.25_f64.to_le_bytes(),
+        &0.5_f64.to_le_bytes(),
+    ]
+    .concat();
+    let mut device = effect_device(FIRST);
+    device.state = state.clone();
+    let mut lumen = launch("undo-failed", &project(vec![device]), &["Dies"]);
+    lumen.app_mut().select_tracks(&[AUDIO]);
+    lumen.show_devices_tab();
+    play_until_it_fails(&mut lumen, FIRST);
+    lumen.app_mut().remove_device(AUDIO, FIRST);
+    lumen.frames(5);
+    assert!(lumen.devices_on(AUDIO).is_empty());
+    assert_eq!(lumen.app().device_state(FIRST), None, "no host remains");
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(5);
+    assert_eq!(lumen.devices_on(AUDIO), [EFFECT]);
+    let kept = lumen.app().project().tracks[1].devices[0].state.clone();
+    assert_eq!(kept, state, "the settings came back with it");
+    // A new host, not the dead one.
+    lumen.wait_for("a new host", |app| {
+        app.device_state(FIRST).is_some_and(|s| s == "ready")
+    });
+}
+
+#[test]
+fn removing_a_device_while_it_is_loading_leaves_no_host_and_no_card() {
+    let mut lumen = launch(
+        "remove-loading",
+        &project(vec![effect_device(FIRST)]),
+        &["Plug"],
+    );
+    lumen.app_mut().select_tracks(&[AUDIO]);
+    lumen.show_devices_tab();
+    lumen.app_mut().remove_device(AUDIO, FIRST);
+    lumen.frames(60);
+    assert!(lumen.devices_on(AUDIO).is_empty());
+    assert_eq!(lumen.app().device_state(FIRST), None);
+    assert!(
+        lumen
+            .harness
+            .query_all_by_label_contains(&format!("Power {EFFECT}"))
+            .next()
+            .is_none()
+    );
+}
+
+#[test]
+fn every_control_on_every_card_face_has_a_name_and_tab_reaches_them() {
+    use super::access::{focused, unnamed};
+
+    let mut lumen = launch(
+        "access",
+        &project(vec![effect_device(FIRST), effect_device(Id(21))]),
+        &["Plug"],
+    );
+    lumen.app_mut().select_tracks(&[AUDIO]);
+    lumen.show_devices_tab();
+    lumen.wait_for("both hosts", |app| {
+        [FIRST, Id(21)]
+            .iter()
+            .all(|d| app.device_state(*d).is_some_and(|s| s == "ready"))
+    });
+    for face in ["ready", "loading", "failed", "missing"] {
+        lumen.app_mut().pretend_device_state(FIRST, face);
+        lumen.frames(5);
+        let problems = unnamed(&lumen);
+        assert!(problems.is_empty(), "{face}: {problems:#?}");
+    }
+    // The failed card's button is a stop of its own, named for what it does.
+    lumen.app_mut().pretend_device_state(FIRST, "failed");
+    lumen.frames(5);
+    let mut seen = Vec::new();
+    for _ in 0..80 {
+        lumen.key(Modifiers::NONE, Key::Tab);
+        let focused = focused(&lumen);
+        if let Some(name) = focused {
+            seen.push(name);
+        }
+    }
+    assert!(
+        seen.iter().any(|n| n == "Reload"),
+        "Tab never reached Reload: {seen:#?}"
+    );
+    assert!(
+        seen.iter().any(|n| n.starts_with("Power ")),
+        "Tab never reached a power button: {seen:#?}"
+    );
 }

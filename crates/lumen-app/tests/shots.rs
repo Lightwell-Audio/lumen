@@ -1889,6 +1889,8 @@ fn device_chain() {
         ("light", 1.0, vec2(1900.0, 900.0)),
         ("dark", 1.5, vec2(1500.0, 900.0)),
         ("dark", 2.0, vec2(1600.0, 1000.0)),
+        ("light", 1.5, vec2(1500.0, 900.0)),
+        ("light", 2.0, vec2(1600.0, 1000.0)),
     ] {
         let dir = TempDir::new("shots-chain");
         let mut track = midi_track(

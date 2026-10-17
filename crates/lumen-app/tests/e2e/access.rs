@@ -11,7 +11,7 @@ use super::Lumen;
 use super::properties::{select, with_two_clips};
 
 /// Controls a user can act on that have no name, as "role at (x, y)".
-fn unnamed(lumen: &Lumen) -> Vec<String> {
+pub(super) fn unnamed(lumen: &Lumen) -> Vec<String> {
     lumen
         .harness
         .query_all(by().predicate(|node| {
@@ -186,7 +186,7 @@ fn every_control_in_every_m4_view_has_a_name() {
 
 /// What a screen reader says for the control with the keyboard focus:
 /// its name, or its text.
-fn focused(lumen: &Lumen) -> Option<String> {
+pub(super) fn focused(lumen: &Lumen) -> Option<String> {
     lumen
         .harness
         .query_all(by().predicate(|node| node.is_focused()))
