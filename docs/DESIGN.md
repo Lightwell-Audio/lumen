@@ -1021,14 +1021,34 @@ The owner's C4. A track's chain sits in a sunk tray (`well`, with the lip);
 each device is a card standing out of it (`raised`, the `border_strong` edge,
 a soft shadow, radius `XL`).
 
-- **Card, top to bottom:** a picture up to 96 pt tall (a monogram in a clip
+- **Card, top to bottom:** a picture up to 72 pt tall (a monogram in a clip
   colour chosen from the class id, the kind glyph at its right; greyscale and
   dim when bypassed, failed or missing), fading into the header; the header
   (`header`: power at the left, name in medium weight over the vendor in
   `text_secondary`, a kind badge at the right; an instrument has a 3 pt stripe
-  in the track's colour); three sunk parameter rows; the footer (`header`, mono
+  in the track's colour); the parameter strip (below); the footer (`header`, mono
   caption: "MIDI → audio" or "audio → audio" and the latency, or "bypassed" and
   "2.7 ms kept").
+- **The parameter strip** (M6 slice 4, the owner's S2 with the send knobs'
+  comet style): eight comet knobs in two rows of four (`widgets::param`,
+  drawn by the send knob's own `draw`: the ring in `control_press`, the trail
+  and head in `accent`, dimmed when the parameter is read only), each with its
+  name in `text_secondary` caption under it and the plugin's own text for its
+  value in mono. A card is 232 pt wide and 310 pt tall with its picture. An
+  empty slot is a dashed ring with a "+" that opens the panel. Drag up or
+  right (Shift for fine), double-click for the plugin's default, the wheel and
+  arrow keys; a stepped parameter moves a step at a time; right-click: Reset
+  to default, Remove from strip. Under the knobs one raised button, "All
+  parameters (N)". A plugin that lists none says so; the built-in synth sends
+  you to the track's Instrument menu.
+- **The All parameters panel** (the owner's L1): a `Dialog`, "<device>
+  parameters", 400 pt wide: a search field, group chips ("All 259", one for each
+  of the plugin's groups, "On the strip"), then one list, rows of 28 pt drawn
+  only when in view: a star (puts the parameter on the strip), the name with
+  its group in `text_hint`, and a bar (a sunk trough filled to the value with
+  the plugin's text at its right). Hidden parameters never show; read-only ones
+  show no fill movement and cannot be dragged. Up and down move a highlighted
+  row and Enter stars it. The strip holds eight: a ninth star says so.
 - **Chosen:** a 1.5 pt accent edge. Under the pointer: the Ember wash.
 - **Cables:** 2 pt `border_strong` when unlit; the Beam (accent line, `core`
   inside, halo and cast) while the song plays. Dotted for notes. A port is a
