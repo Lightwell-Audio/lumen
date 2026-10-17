@@ -7,11 +7,9 @@
 //! processes froze Lumen's window moves when a plugin hung. It is owned by a
 //! hidden window of its own host instead, so it has no taskbar button and
 //! nothing to minimize to. To stay above Lumen without being above other
-//! programs it is on top only while an editor has the foreground; a click on
-//! Lumen (or another program) puts the window directly behind the one clicked
-//! (the activation message does it at once, a timer on this thread catches
-//! the rest, and the order changes only when that changes, so two editors
-//! never fight over which is in front). No
+//! programs it is on top only while Lumen or one of its editors has the
+//! foreground (a timer on this thread decides, and changes the order only when
+//! that changes, so two editors never fight over which is in front). No
 //! shortcut of Lumen reaches a plugin's window, and none of the plugin's
 //! reaches Lumen; while Lumen's computer keyboard is on, its note keys pressed
 //! alone in the window are taken and told to Lumen (the owner's choice, M6
@@ -314,13 +312,7 @@ unsafe extern "system" fn frame_proc(
         }
         // Another window has the keyboard now: its key-ups will not come
         // here, so the keys taken and still down are let go of.
-        // And the window being activated is told to the order at once, so a
-        // click on Lumen puts Lumen over the editor without waiting for the
-        // timer.
-        WM_ACTIVATE if (wparam & 0xFFFF) as u32 == WA_INACTIVE => {
-            release_keys();
-            raise_if_in_front(Some(lparam as HWND));
-        }
+        WM_ACTIVATE if (wparam & 0xFFFF) as u32 == WA_INACTIVE => release_keys(),
         WM_DPICHANGED => {
             let dpi = (wparam & 0xFFFF) as u32;
             let scale = dpi as f32 / 96.0;
@@ -388,7 +380,7 @@ fn start_raising() {
     if !dispatcher.is_null() {
         // SAFETY: a timer on the dispatcher window of this thread.
         unsafe { SetTimer(dispatcher, RAISE_TIMER, RAISE_EVERY_MS, None) };
-        raise_if_in_front(None);
+        raise_if_in_front();
     }
 }
 
@@ -400,25 +392,15 @@ fn stop_raising() {
     }
 }
 
-/// Who has the foreground.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Front {
-    /// An editor: a window of this process or of another host of Lumen's.
-    Editor,
-    /// Lumen's own window.
-    Lumen,
-    /// Another program, or nothing.
-    Other,
-}
-
-/// Who owns the window `hwnd`: this process or a process with the same
-/// parent (an editor), the parent (Lumen), or someone else.
-fn who_owns(hwnd: HWND) -> Front {
-    if hwnd.is_null() {
-        return Front::Other;
-    }
-    // SAFETY: a read-only query about a window.
+/// Whether the program in front is Lumen or one of its hosts: this process,
+/// its parent, or a process with the same parent.
+fn lumen_is_in_front() -> bool {
+    // SAFETY: read-only queries about the foreground window.
     let front = unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_null() {
+            return false;
+        }
         let mut pid = 0;
         GetWindowThreadProcessId(hwnd, &mut pid);
         pid
@@ -426,10 +408,10 @@ fn who_owns(hwnd: HWND) -> Front {
     // SAFETY: a plain query.
     let me = unsafe { GetCurrentProcessId() };
     if front == 0 {
-        return Front::Other;
+        return false;
     }
     if front == me {
-        return Front::Editor;
+        return true;
     }
     let (mut mine, mut theirs) = (None, None);
     // SAFETY: a snapshot of the process list, walked with correctly sized
@@ -437,7 +419,7 @@ fn who_owns(hwnd: HWND) -> Front {
     unsafe {
         let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if snapshot.is_null() || snapshot as isize == -1 {
-            return Front::Other;
+            return false;
         }
         let mut entry: PROCESSENTRY32W = std::mem::zeroed();
         entry.dwSize = size_of::<PROCESSENTRY32W>() as u32;
@@ -454,10 +436,9 @@ fn who_owns(hwnd: HWND) -> Front {
         CloseHandle(snapshot);
     }
     match (mine, theirs) {
-        (Some(parent), _) if front == parent => Front::Lumen,
-        // Another of Lumen's hosts.
-        (Some(parent), Some(other)) if other == parent => Front::Editor,
-        _ => Front::Other,
+        // Lumen itself, or another of its hosts.
+        (Some(parent), Some(other)) => front == parent || other == parent,
+        _ => false,
     }
 }
 
@@ -468,29 +449,23 @@ fn is_topmost(hwnd: HWND) -> bool {
     style & WS_EX_TOPMOST != 0
 }
 
-/// Puts the editor above everything while an editor is in front, and lets it
-/// sink directly behind the window in front when Lumen or another program is:
-/// a click on Lumen brings Lumen over the editor (the owner's choice, M6
-/// slice 4). Only a change is made: an editor already where it should be is
-/// left alone, so two editors on top keep the order the user clicked them into
-/// instead of trading places on every tick.
-///
-/// `front` is the window known to be in front (the one being activated, when a
-/// window procedure learns of it); without one, the system is asked.
-fn raise_if_in_front(front: Option<HWND>) {
+/// Puts the editor above Lumen while Lumen is in front, and lets it sink
+/// behind the program in front when another is. Only a change is made: an
+/// editor already where it should be is left alone, so two editors on top
+/// keep the order the user clicked them into instead of trading places on
+/// every tick.
+fn raise_if_in_front() {
     let Some(live) = live() else {
         return;
     };
-    let front = front.filter(|f| !f.is_null()).unwrap_or_else(|| {
-        // SAFETY: a read-only query.
-        unsafe { GetForegroundWindow() }
-    });
     let topmost = is_topmost(live.hwnd);
-    let after = match (who_owns(front), topmost) {
-        (Front::Editor, false) => HWND_TOPMOST,
-        (Front::Lumen | Front::Other, true) => {
-            // Behind the window in front (a window placed after one that is
+    let after = match (lumen_is_in_front(), topmost) {
+        (true, false) => HWND_TOPMOST,
+        (false, true) => {
+            // Behind the program in front (a window placed after one that is
             // not on top stops being on top), not above it.
+            // SAFETY: a read-only query.
+            let front = unsafe { GetForegroundWindow() };
             if front.is_null() || is_topmost(front) {
                 HWND_NOTOPMOST
             } else {
@@ -841,7 +816,7 @@ unsafe extern "system" fn dispatch_proc(
             return 0;
         }
         WM_TIMER if wparam == RAISE_TIMER => {
-            raise_if_in_front(None);
+            raise_if_in_front();
             return 0;
         }
         _ => {}
