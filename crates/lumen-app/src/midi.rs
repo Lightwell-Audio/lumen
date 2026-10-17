@@ -136,6 +136,11 @@ impl Midi {
         self.system.as_ref().map_or(0, |s| s.activity(id))
     }
 
+    /// Whether a key is held down on an input port now.
+    pub fn held(&self, id: &PortId) -> bool {
+        self.system.as_ref().is_some_and(|s| s.held(id))
+    }
+
     /// A handle that sends from other threads, if MIDI is on.
     pub fn sender(&self) -> Option<lumen_midi::MidiSender> {
         self.system.as_ref().map(MidiSystem::sender)

@@ -1,6 +1,7 @@
 //! The light after a MIDI track's name (M5 slice 2e, the owner's H B): it
-//! flashes at the BEAM level when live input reaches the track, so a
-//! producer sees which track hears the keys. It exists only while the track
+//! flashes at the BEAM level when live input reaches the track, and stays
+//! lit while a key is held down, so a producer sees which track hears the
+//! keys. It exists only while the track
 //! listens (monitor In, or Auto while selected or armed) and is unlit
 //! between flashes: it is drawn just past the name's last letter. A track
 //! that listens keeps [`ROOM`] for it at the end of its name, lit or not,
@@ -33,26 +34,33 @@ pub(crate) const ROOM: f32 = GAP + 2.0 * RADIUS;
 pub(crate) struct Live {
     /// Which tracks are selected and which inputs are on for tracks.
     pub inputs: Inputs,
-    /// Each present input's slot and its traffic count.
-    pub counts: Vec<(u16, u32)>,
+    /// Each present input's slot, its traffic count and whether a key is
+    /// held on it.
+    pub counts: Vec<(u16, u32, bool)>,
     /// The computer keyboard's traffic count.
     pub keyboard: u32,
+    /// A key of the computer keyboard is held down.
+    pub keyboard_held: bool,
 }
 
 impl Live {
-    /// The traffic of the sources `sources` names, as one number: it
-    /// changes when any of them has a message.
-    fn traffic(&self, sources: u64) -> u32 {
+    /// The traffic of the sources `sources` names, as one number that
+    /// changes when any of them has a message, and whether a key is held on
+    /// any of them.
+    fn traffic(&self, sources: u64) -> (u32, bool) {
         let mut total = 0_u32;
-        for &(slot, count) in &self.counts {
+        let mut held = false;
+        for &(slot, count, down) in &self.counts {
             if slot < u16::from(INPUT_SLOTS) && sources & (1 << slot) != 0 {
                 total = total.wrapping_add(count);
+                held |= down;
             }
         }
         if sources & (1 << KEYBOARD) != 0 {
             total = total.wrapping_add(self.keyboard);
+            held |= self.keyboard_held;
         }
-        total
+        (total, held)
     }
 
     /// Whether `track` listens now (`heard`: its output is not silenced).
@@ -67,8 +75,10 @@ impl Live {
         if track.kind != TrackKind::Midi {
             return;
         }
-        let count = self.traffic(from_sources(track, &self.inputs));
-        let brightness = light::flash(ui.ctx(), Id::new(("listen light", track.id)), count);
+        let (count, held) = self.traffic(from_sources(track, &self.inputs));
+        // Lit for as long as a key is down, then it fades.
+        let brightness =
+            light::flash_held(ui.ctx(), Id::new(("listen light", track.id)), count, held);
         let shown = if self.listens(track, heard) {
             brightness
         } else {

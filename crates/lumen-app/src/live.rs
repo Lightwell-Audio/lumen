@@ -122,6 +122,8 @@ pub struct LiveKeys {
     clock: Arc<StreamClock>,
     /// Messages sent so far: the activity light compares it frame to frame.
     sent: u32,
+    /// The keys held down, one bit a key: the light stays lit while any is.
+    held: u128,
 }
 
 impl LiveKeys {
@@ -141,6 +143,11 @@ impl LiveKeys {
         let sent = self.tx.push(Keyed { nanos, track, msg }).is_ok();
         if sent {
             self.sent = self.sent.wrapping_add(1);
+            match msg.kind() {
+                Kind::NoteOn { key, .. } => self.held |= 1_u128 << (key & 127),
+                Kind::NoteOff { key, .. } => self.held &= !(1_u128 << (key & 127)),
+                _ => {}
+            }
         }
         sent
     }
@@ -148,6 +155,11 @@ impl LiveKeys {
     /// How many messages have been sent (for the activity light).
     pub fn activity(&self) -> u32 {
         self.sent
+    }
+
+    /// Whether a key is held down now (for the activity light).
+    pub fn held(&self) -> bool {
+        self.held != 0
     }
 }
 
@@ -197,7 +209,12 @@ pub fn live(input: Option<rtrb::Consumer<Timed>>, clock: Arc<StreamClock>) -> (L
             pending: [empty; PENDING],
             len: 0,
         },
-        LiveKeys { tx, clock, sent: 0 },
+        LiveKeys {
+            tx,
+            clock,
+            sent: 0,
+            held: 0,
+        },
     )
 }
 

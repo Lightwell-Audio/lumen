@@ -176,6 +176,9 @@ report: {}",
             self.live_keys
                 .as_ref()
                 .map_or(0, crate::live::LiveKeys::activity),
+            self.live_keys
+                .as_ref()
+                .is_some_and(crate::live::LiveKeys::held),
         );
         ui.scope_builder(row(left), |ui| {
             // Whatever does not fit is cut off here rather than drawn over

@@ -573,7 +573,10 @@ impl eframe::App for App {
         panels::sliding(
             ui,
             "browser",
-            (panels::Side::Left, egui::Rangef::new(96.0, f32::INFINITY)),
+            (
+                panels::Side::Left,
+                egui::Rangef::new(BROWSER_MIN, f32::INFINITY),
+            ),
             self.show_browser,
             &mut browser_size,
             |ui| {
@@ -590,7 +593,12 @@ impl eframe::App for App {
         }
         let mut detail_size = self.detail_size;
         let mut detail_content = None;
-        let detail_min = arrangement::strips::min_height() + DETAIL_CHROME;
+        // The Devices tab is never so short that its card leaves the tray.
+        let detail_min = if self.detail_tab == app::detail::DetailTab::Devices {
+            chain::panel_min_height()
+        } else {
+            arrangement::strips::min_height() + DETAIL_CHROME
+        };
         // Never so tall that the arrangement loses its rulers and a track.
         let detail_max = ui.available_rect_before_wrap().height() - ARRANGEMENT_MIN;
         panels::sliding(
@@ -640,6 +648,9 @@ impl eframe::App for App {
     }
 }
 
+/// The browser's least width: its list shows names and the filter chips
+/// whole (narrower, only icons were left).
+pub(crate) const BROWSER_MIN: f32 = 200.0;
 /// The detail panel's tab row and margins, above and around its content.
 pub(crate) const DETAIL_CHROME: f32 = 48.0;
 /// The arrangement's least height beside the detail panel: its rulers, a

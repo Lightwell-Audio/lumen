@@ -162,6 +162,21 @@ impl MidiSystem {
         }
     }
 
+    /// Whether a key is held down on an input port now (a light stays lit
+    /// for as long as it is).
+    pub fn held(&self, id: &PortId) -> bool {
+        if id.direction != Direction::Input {
+            return false;
+        }
+        let shared = lock(&self.shared);
+        shared
+            .ports
+            .iter()
+            .find(|p| p.info.id == *id)
+            .and_then(|p| p.slot)
+            .is_some_and(|s| self.activity.input_held(s))
+    }
+
     /// Plugging, unplugging and failures since the last call.
     pub fn events(&self) -> Vec<PortEvent> {
         self.events.try_iter().collect()
@@ -326,6 +341,14 @@ impl Worker {
         true
     }
 
+    /// Lets go of the keys held on an input that is closing: its note-offs
+    /// will not come.
+    fn release(&self, id: &PortId) {
+        if let Some(slot) = self.slots.get(id) {
+            self.activity.release(*slot);
+        }
+    }
+
     fn slot(&mut self, id: &PortId) -> u16 {
         let next = self.slots.len() as u16;
         *self.slots.entry(id.clone()).or_insert(next)
@@ -339,6 +362,7 @@ impl Worker {
         let after: HashSet<PortId> = now.iter().map(|p| p.id.clone()).collect();
         for info in self.present.clone() {
             if !after.contains(&info.id) {
+                self.release(&info.id);
                 self.inputs.remove(&info.id);
                 self.outputs.remove(&info.id);
                 self.failed.remove(&info.id);
@@ -361,6 +385,7 @@ impl Worker {
             };
             let open = self.inputs.contains_key(&id) || self.outputs.contains_key(&id);
             if !wanted {
+                self.release(&id);
                 self.inputs.remove(&id);
                 self.outputs.remove(&id);
             } else if !open && !self.failed.contains_key(&id) {

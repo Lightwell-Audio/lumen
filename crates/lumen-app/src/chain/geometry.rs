@@ -32,6 +32,13 @@ pub(crate) fn panel_height() -> f32 {
     CARD_H + 2.0 * PAD + 2.0 * crate::theme::space::S + crate::DETAIL_CHROME
 }
 
+/// The least the detail panel can be on the Devices tab: a card without its
+/// picture, in the tray's padding (the tray's inner edge takes a point each
+/// side), so the card never sits past the tray.
+pub(crate) fn panel_min_height() -> f32 {
+    HEADER + BODY + FOOTER + 2.0 * PAD + 2.0 * crate::theme::space::S + 2.0 + crate::DETAIL_CHROME
+}
+
 /// The card height when `room` points are free: the card shrinks (the
 /// picture first) until there is no picture, then stops.
 pub(super) fn card_height(room: f32) -> f32 {
@@ -138,6 +145,19 @@ impl Layout {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn at_the_shortest_panel_the_card_sits_whole_inside_the_tray() {
+        let space = crate::theme::space::S;
+        let tray = panel_min_height() - crate::DETAIL_CHROME - 2.0 * space;
+        let layout = Layout::new(&[false], tray);
+        let card = layout.card(0);
+        // The tray's scrolling area is a point in from each edge.
+        assert!(card.top() >= 1.0, "{card:?}");
+        assert!(card.bottom() <= tray - 1.0, "{card:?} in {tray}");
+        assert!(card.height() >= HEADER + BODY + FOOTER);
+        assert!(panel_min_height() < panel_height());
+    }
 
     #[test]
     fn the_cards_are_spaced_by_a_cable_and_the_output_follows_the_last() {
