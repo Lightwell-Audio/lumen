@@ -67,6 +67,9 @@ irreversible or external) · *Superseded*.
 | [0067](#adr-0067--the-shared-memory-audio-path-and-the-measurement-harness) | The shared-memory audio path (`lumen_plugin_host::shm`): one block in flight, untrusted-region rules, two-sided wake-up settings, Windows job object, and the measurement harness (M6 slice 0, part 3) | Accepted 2026-10-15 for the transport (the wake-up, the real-time wait contract and the process grouping wait for MT-VST-0) | No |
 | [0068](#adr-0068--plugin-discovery-scanning-the-cache-and-the-browser-m6-slice-1) | Plugin discovery (`lumen-plugin-catalog`): a scan child per module with a deadline, a cache keyed by file stamp, a blocked list that retries when the file changes, startup scan in the background, the browser's Devices tab (M6 slice 1) | Accepted 2026-10-16 (verified on Linux with the test plugin; MT-VST-1 passed on Windows with real plugins, owner-reported) | No |
 | [0069](#adr-0069--the-audio-path-to-plugin-hosts-wake-up-the-callbacks-wait-process-grouping-m6-slice-0-close) | The audio path to plugin hosts: `event` wake-up, a bounded callback wait under a narrow contract, one process per instance, the working budget (M6 slice 0 close) | Accepted 2026-10-16, decision 2 (the callback's bounded wait) on trial until slice 2's measurements (measured on Windows with the test plugin) | Decided by the owner (the trial's check: MT-VST-2) |
+| [0070](#adr-0070--hosted-devices-in-the-engine-the-contract-two-phase-instruments-and-effects-with-a-fallback-m6-slice-2b) | Hosted devices in the engine: the `Hosted` contract and its `Guard`, hosted instruments begun before the clips render, hosted effects in the mixer with a delay-line fallback and a glide, and what 2b leaves to later (M6 slice 2b) | Accepted 2026-10-16 (verified with fake hosts on Windows, and the new tests under RealtimeSanitizer and the performance gate in WSL; no real plugin, no process, no full macOS run) | No |
+| [0071](#adr-0071--the-hosting-manager-a-process-per-plugin-device-the-link-and-the-apps-bridge-m6-slice-2c) | The hosting manager (`lumen-hosting`): a process and a thread per plugin device, loaded in the background, the `Link` the engine plays it through, the app's bridge, and the engine's rule that a host in a new or skipped track list is never given away (M6 slice 2c) | Accepted 2026-10-16 (verified with the test plugin in real host processes on Windows, and in the app's end-to-end tests; no real plugin, no Linux or macOS run of the app) | No |
+| [0072](#adr-0072--the-devices-tab-cards-placement-and-dragging-m6-slice-2d) | The Devices tab: cards, placement and dragging (M6 slice 2d) | **Accepted** 2026-10-17 (owner's C4 design) | No |
 
 ---
 
@@ -138,6 +141,9 @@ irreversible or external) · *Superseded*.
 | Overdub at clip edges (M5, 2026-10-13, MT-MIDI-7 run 7) | Asked for directly, reversing part of the row above: Overdub begun before a clip and reaching its start, or begun exactly at its start, records a **new clip** and does not merge into or grow the clip there in the arrangement; the new clip carries the track's existing notes along with the take, and the old clip stays a clip of its own. Built as stated. ADR-0060. |
 | The audio callback and plugin hosts (M6 slice 0, 2026-10-16; ADR-0069) | Asked and chosen: **the callback may make a bounded wait on a plugin host's completion event** (option A), under ADR-0069's contract, **on trial**: slice 2's MT-VST-2, above all recording with monitoring through an effect at 64 and 128 frames, decides whether it stays; the pipelined path (one block of extra latency) is the fallback. The owner asked whether other production hosts do this; no source found says how any of them synchronise, so the choice rests on the measurements. |
 | Plugin discovery (M6 slice 1, 2026-10-16) | Asked and chosen: **scan at startup, in the background** (known plugins from the saved list at once, only new or changed ones loaded); a plugin that crashes or hangs while scanned is **blocked with its reason and retried only when its file changes or on Retry**; the browser uses **layout B** (grouped by vendor, with category chips) from the "Lumen Plugin Browser Specimens" canvas, **plus a type filter** (All, Instruments, Effects) for the grouping by type the owner liked in layout A. The slice started while slice 0's audio-path ADR is still open; the owner ran MT-VST-0 and said to go on. Plan in `docs/milestones/M6.md`. |
+| Device chain behavior (M6 slice 2, 2026-10-16) | Asked one at a time and chosen, as recommended except D5: **D1** a failed or missing effect is bypassed with its last-known latency kept and a short crossfade, and flagged; **D2** a failed or missing instrument is silent and flagged, with notes still flowing so Reload resumes at the playhead (held notes sound again when re-struck); **D3** double-clicking a plugin with no compatible track selected creates a track (MIDI for an instrument, audio for an effect) and adds the device, one undo step; **D4** adding an instrument to a track that has one replaces it, one undo step, and the replaced state stays in the history; **D5** a double-click puts an effect after the selected card, else at the end, **and** a drag shows an insertion preview and drops where shown (the owner asked for both); **D6** a project opens at once and its plugins load in the background, cards showing "loading", playback not held; **D7** a bypassed device keeps its latency (no timing jump, no graph rebuild); **D8** a failed plugin comes back with a Reload button only, no automatic restart (the full policy is slice 5), restoring the last saved state, and the card says so; **D9** a saved VST3 device holds the component state and the controller state as separate blobs, the plugin's version, and its last-known latency and tail (format v17; v16 blobs migrate in as the component state). **Look**, chosen from the "Lumen Device Chain Specimens" canvas: **variant C** (wide 200 pt cards with a three-parameter strip) with **C2's kind treatment** (a track-colour stripe, a keyboard or sliders glyph, and a signal line, "MIDI → audio" or "audio → audio") and a **generated artwork band** (96 pt, monogram on a clip-colour gradient chosen from the class ID, fading into the header, greyscale when the device is bypassed) with a preference to turn it off, in a **sunk tray** with **lit cables** between the devices (C4: unlit when stopped, the Beam while audio plays through; MIDI into an instrument dotted), all in slice 2; **the plugins' own snapshot pictures move to slice 3** as their own part. Plan in `docs/milestones/M6.md`. |
+| The engine's host path (M6 slice 2b, 2026-10-16) | Plan approved with **B1** (two or more hosted effects on one track, and effects on a group, run one after another in 2b; measured in 2f), **B2** (an effect's tail is cut at Stop until slice 6, which builds real tails) and **B3** (the clock is read for the callback's deadline only when a host is attached, so projects without plugins cost what they did). Plan in `docs/milestones/M6.md`. |
+| The hosting manager (M6 slice 2c, 2026-10-16) | Plan approved with **C1** (a plugin instrument receives notes only in 2c; controllers, bend, pressure and program are dropped and counted until parameters in slice 3), **C2** (the last reported latency and tail are written into the device when the host reports a different value, as a change that is not an undo step but marks the project changed) and **C3** (removing a device ends its process at once; undo starts a new one). Plan in `docs/milestones/M6.md`. |
 | MIDI learn moved to M7 (M5, 2026-10-13) | Asked, as recommended: **MIDI learn and its mapping list move to M7**, built with automation, where M6 and M7 define the parameters it maps and a mapped controller writes automation through the same path as Lumen's controls (Touch and Latch). M5 slice 7 keeps Standard MIDI Files and MIDI clock out (plan in `docs/milestones/M5.md`). Its choices, asked in chat, all as recommended: **F1 A** a multi-track file dropped on a track merges into one clip there, dropped between tracks or on empty lanes makes one MIDI track per file track (type 0 split by channel); **F2 A** notes are placed in beats and the project tempo is untouched, with a notice offering "Use them" for the file's tempo map and first time signature (one undo step); **F3 A** clock runs only while playing; **F4 A** a Sync delay per port, −20 to +50 ms. MTC out [S] is deferred, unscheduled. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
@@ -6210,3 +6216,335 @@ decision until it is measured there); memory and start-up of 64 host
 processes; frame times and the other shipped paths with hosts running; more
 than one machine or power state beyond Balanced and High performance; the
 second monitor of MT-VST-0 "Editors" and any macOS or Linux run.
+
+
+## ADR-0070 — Hosted devices in the engine: the contract, two-phase instruments, and effects with a fallback (M6 slice 2b)
+
+**Status:** Accepted 2026-10-16. Verified on Windows with fake hosts (unit and
+engine tests, the allocation guard, and mutation checks). In WSL (Linux): the
+new tests pass under RealtimeSanitizer and the performance gate passes against
+the regenerated baseline. macOS: cross-clippy only. No real plugin, no host
+process, no measurement of a whole callback (that is slice 2f's MT-VST-2). ·
+**Date:** 2026-10-16
+
+**Context.** ADR-0069 fixed the contract between the callback and the plugin
+hosts: submit to every host first, then wait for each against one deadline of
+three quarters of the period; a silent or bypassed result when a host misses;
+one process per instance. Slice 2b builds the engine's side of it, below the
+host crate (the engine depends only on core, rt and `lumen-devices`), so the
+real adapter over `BlockLink` (2c) and the interface (2d) can follow without
+touching the engine again. The owner took B1, B2 and B3 (decisions table).
+
+**Decision.**
+1. **The contract is in `lumen-devices`** (`hosted.rs`): `Hosted` has `submit`
+   (never blocks), `collect(deadline, ..)` (waits at most until the deadline)
+   and `ended`. `Guard` wraps one host with the shared rules: a refused or late
+   block is silence (or the unprocessed input), three late blocks in a row, or
+   an ended process, fail the host for good, and a changed latency is news
+   once. It reports to the interface through `Status` (atomics): failed, late
+   blocks, latency, tail, a restart request, and the one flag the interface
+   writes, bypass.
+2. **The deadline** is `RenderContext::deadline`: three quarters of the
+   callback's period from its start, read from the clock only while a host is
+   attached (`Source::hosted`, B3). A list of hosts still waiting to be taken
+   counts as attached (`Consumer::peek`), so the callback that takes them
+   already has its deadline.
+3. **Instruments** are `HostedInstrument`, an `Instrument` that can start a
+   block early (`begin`) and complete it later (`finish`). `TrackSource::begin`
+   is called before the clips render; the MIDI player then does the first half
+   of its part for every track (gathers events, hands hosted instruments their
+   blocks) and `render` plays the tracks, collecting the hosted ones. Without
+   hosts nothing changes: `begin` does nothing and `render` does the whole of
+   it. An instrument is left alone while nothing sounds, and rung for the
+   reported tail (at least one second, at most ten) after its last event;
+   messages that have no block to ride on (a track let go of its notes) go
+   with the next. The app builds the real instrument when it attaches a host
+   and a placeholder in every later track list, because the player carries
+   a track's instrument across lists by its kind.
+4. **Effects** are `Device::Hosted { host, latency }`, found in a fixed-size
+   pool (`MAX_HOSTS` 256) by id, attached and detached by messages
+   (`MixerHandle::attach_host`, `detach_host`) and freed by
+   `collect_garbage`, never on the audio thread. Every hosted device runs a
+   **fallback** each block: the node's input through a delay line of the
+   reported latency, so it is primed when needed. The node hears the host's
+   output through a 20 ms glide (`wet`), the fallback while the host is
+   bypassed, failed, absent or late. A host that misses mid-glide has nothing
+   to fade from, so that block falls back at once. A bypassed host is not asked
+   for blocks once its glide is out. A node that nothing feeds hands its first
+   hosted device its block before the node loop (scaled as the loop would),
+   and the loop collects it where it reaches it: independent tracks overlap.
+5. **Latency news** is read from `Status::take_news`; the interface then sends
+   the routing again with the new latency, and the plan swap and delay
+   compensation of ADR-0041 do the rest.
+
+**Differences from the plan.** The crossfade is the mixer's 20 ms level glide,
+not 5 ms, so it matches every other level; and a plan fading out in a swap
+plays its fallbacks only (a host is asked once for a block), so for the 5 ms
+of a swap the old plan contributes the unprocessed input.
+
+**Consequences.**
+- Chains of two or more hosted effects on one track, and effects on a group,
+  run one after another (B1); measured in 2f.
+- An effect's tail is cut at Stop (B2): while stopped the engine renders
+  nothing, so a reverb tail ends with the playing. Slice 6 builds real tails.
+- A tail rendered ahead of a jump uses the fallback and leaves the host and the
+  glide alone, since that audio is not what the host should hear next.
+- A hosted instrument adds no preview for the 2 ms crossfade across a jump
+  (the default adds nothing); its notes are released by the note tracker and
+  ring out in the plugin.
+- The overlap is proved by counting, not timing: a test counts the blocks
+  handed over when the first host is collected (64 for 64 tracks, 1 if the
+  early hand-over is removed; both tests were run against that mutation). A
+  first version that counted blocks in flight at once passed with the hand-over
+  removed, because hosts slower than the deadline are abandoned in turn.
+
+- **Performance gate.** The host path adds a fixed cost per callback of about 45
+  instructions (a flag for the hosts, a flag for a waiting MIDI list, the
+  deadline test, a larger render context): +0.6% on `engine_transport`, whose
+  mixer is empty, and under 0.01% on `engine_synth_64`, both measured against
+  `main` in the same environment (WSL Ubuntu 26.04, Callgrind). A first version
+  that read the ring buffers' state on every callback cost about 180
+  instructions; it now reads one flag. The stored baseline was already 1.4%
+  (synth) and 1.5% (transport) below `main`'s counts, from earlier work that did
+  not regenerate it, so it was regenerated here with `perf-gate --update`, which
+  also adds `engine_hosted_64`: 64 MIDI tracks, each a hosted instrument and a
+  hosted effect, with fake hosts that answer inside `submit` (636,696,004
+  instructions, about 10,000 per track per block: the engine's own cost of
+  hosting, none of a plugin's).
+
+**Not verified, and not claimed.** Any real plugin or host process; the whole
+callback with the engine, device and hosts together (MT-VST-2); frame times with
+hosts attached; macOS and Linux; recording with monitoring through an effect.
+
+## ADR-0071 — The hosting manager: a process per plugin device, the link, and the app's bridge (M6 slice 2c)
+
+**Status:** Accepted 2026-10-16. Verified on Windows against the test plugins in
+real host processes: the link sample for sample against the pipe, every way a
+load fails, a host that crashes or hangs, no process left behind, and the app's
+end-to-end tests; the link does not allocate (guarded, and a mutation that
+allocates fails the test). Not verified: any real plugin, Linux and macOS runs,
+a changed sample rate in the app, the whole callback with real hosts
+(MT-VST-2). · **Date:** 2026-10-16
+
+**Context.** ADR-0070 built the engine's side of a host with fake ones. 2c puts
+a real process behind it: one `lumen-plugin-host` process per plugin device
+(ADR-0069), started without blocking the interface, restored from the saved
+state, played through the shared-memory link, and noticed when it ends.
+
+**Decision.**
+1. **A new crate, `lumen-hosting`**, with no UI and no project types, so the
+   engine stays below the host crate. `Link` is a `Hosted` over `BlockLink`:
+   `submit` turns the engine's MIDI into the host's note events and calls
+   `BlockLink::submit` (a block that does not fit counts as a miss); `collect`
+   waits at the callback's deadline and copies a finished block out (a mono
+   output to both sides); a block the host answered without processing is a
+   miss; `ended` reads an atomic. Nothing in it allocates, locks or asks the
+   system.
+2. **A thread per host owns its `HostProcess`** and runs the load sequence with
+   a deadline on every step (spawn and load 20 s, state 10 s, configure 5 s,
+   attach 2 s): `Load`, `SetState` when the device has saved state, `Configure`
+   at the stream's rate and the protocol's largest block (8,192 frames, so no
+   device buffer outgrows the region), `Attach` with `Wake::EVENT` both ways,
+   the setting ADR-0069's runs support (one constant, re-measured in MT-VST-2).
+   Afterwards it looks at the process every 10 ms and sets the flag the callback
+   reads, so the callback never makes a system call to ask whether a host has
+   ended. Four plugins load at once. A hung plugin blocks only its thread.
+3. **`Manager`** keeps the devices by id: `want` starts (and replaces),
+   `reload` starts again with the same settings, `forget` ends the host now (the
+   owner's C3: removing a device keeps nothing running; undo starts a new one),
+   `relink` asks for a fresh link at a rate (a second `Attach`, which the host
+   already supports), `poll` returns what the threads said, leaving out what a
+   replaced or forgotten start still says (a serial per start).
+4. **The app's bridge, `hosting.rs`**, derives from the project which devices
+   want a host (a plugin the catalog finds; one instrument to a MIDI track),
+   starts them, and attaches what loads: an effect to the mixer by the device's
+   id, an instrument as the real `HostedInstrument` in the next MIDI track list
+   (a stand-in in every list before and after; a list the engine had no room
+   for gives its running instrument back, `reclaim`). The routing names every
+   plugin effect (`Device::Hosted`) at its last known latency from the moment
+   the project holds it, so a loading, failed or missing effect plays the
+   engine's fallback line and timing never shifts (D1, D7); an instrument that
+   is not attached is silent (D2). Bypass reaches the engine as `Status::
+   set_bypass` each frame, never as a routing change. Latency news from the
+   engine becomes the routing's latency, a restart request a new link, a failed
+   status a `Failed` state with words; nothing restarts by itself (D8).
+5. **Two engine fixes the bridge needed**, found while planning it (tests fail
+   without either): (a) when a new track list brings a running host, the old
+   list's instrument of the same kind no longer swaps places with it (the swap
+   had put the stand-in into the playing list and the real host into the list
+   being freed); (b) a list skipped because a newer one is waiting hands its
+   running hosts to that list's stand-ins before it is freed.
+6. **The saved latency and tail (the owner's C2), refined.** The plan said they
+   would be written into the device as a change that is not an undo step but
+   marks the project changed. They are stamped into the project when it is
+   saved, as the view is (`stamped()`): the project is not marked changed by
+   hearing it, and nothing is lost, because a load reports them again. A device
+   that is not running keeps what the file held.
+7. **Notes only (the owner's C1).** The host protocol carries note-on and
+   note-off; controllers, pitch bend, pressure and program change are dropped at
+   the link and counted (`Counts::dropped_events`). A sustain pedal or a bend
+   does not reach a plugin instrument until parameters (slice 3).
+
+**Consequences.**
+- A project with plugins opens at once; cards, once they exist (2d), read
+  `Hosting::state` (`Loading`, `Ready`, `Failed(reason)`, `Missing`).
+- A catalog that has not loaded yet reads as `Missing`; a device found later
+  starts when the catalog has it.
+- On a changed sample rate every host configures again and a fresh link
+  replaces the old; for the moment between, the old link plays at the old rate
+  (the stream restarts across it). Not exercised by a test in the app.
+- A hosted instrument's own latency is not compensated (only effects are
+  named in the routing); instruments report none in practice.
+
+**Not verified, and not claimed.** Any real plugin; Linux and macOS runs of the
+app; the whole callback with the engine, device and real hosts (MT-VST-2);
+frame times with hosts attached.
+
+## ADR-0072 — The Devices tab: cards, placement and dragging (M6 slice 2d)
+
+**Status.** Accepted 2026-10-17: the owner chose the card design (variant C4,
+"a defined chain with lit cables") and D3, D5 and D8 earlier (slice 2 plan).
+
+**Context.** 2a gave the model its device edits, 2b and 2c made a device play.
+2d is the first interface that adds one: the Devices tab of the detail panel,
+the browser's double-click and drag, and three commands.
+
+**Decisions.**
+1. **The chain is a sunk tray of cards joined by cables** (`chain/`): a chip
+   for the track's input and one for its output at the ends, a port at every
+   card edge, a cable between each pair (dotted into an instrument, because it
+   carries notes). Cables follow the light levels: unlit while stopped, a Beam
+   while the song plays; a bypassed, failed or missing device keeps its cables
+   lit, because signal still passes (D1, D7). A card is 200 pt wide and 284 pt
+   tall at most: a picture (a monogram on a clip colour chosen from the class
+   id by FNV-1a, so it never changes) fades into the header; power, name and
+   vendor, a kind badge; a parameter strip (its frame now; slice 3 fills it);
+   a footer with the signal and the latency (kept, when bypassed). A short
+   panel takes the picture's height first, then stops shrinking the card.
+2. **A card knows four faces** (`Face`): ready, loading, failed and missing. The
+   last two replace the strip with what happened and a button (Reload,
+   Rescan plugins). They were planned for 2e; the face is the same code as the
+   card, so they are built here, and 2e keeps the remaining polish and the
+   wider tests.
+3. **Where a choice goes is one pure function** (`chain::place`): the last
+   selected track that fits (an instrument needs a MIDI track, an effect takes
+   any but the master); an effect lands after the chosen card when that card is
+   on the track, else at the end (D5); with no track that fits, a new track of
+   the right kind is made after the selection (D3). A drag drops at the gap
+   under the pointer, never before the instrument, and an instrument takes the
+   first place.
+4. **A new track with its device is one undo step.** `Document::
+   add_device_on_new_track` goes through the same `insert_track` as
+   `add_track`, with the first device given, instead of two edits merged.
+5. **Dragging uses egui's drag-and-drop payload** (`chain::Dragged`, a catalog
+   id): the browser row senses drag, the chain reads the payload and draws a
+   line and a plus at the gap while neighbours stay put. An instrument over an
+   audio track shows the not-allowed cursor and drops nothing.
+6. **The detail panel grows to fit a card, and only grows.** Choosing the
+   Devices tab, or adding a device, raises the panel to `chain::panel_height`
+   if it is shorter; the user can still drag it down. The request is read
+   before the panel's size is taken for the frame (a write made while the panel
+   is drawn is overwritten by the frame's copy).
+7. **Names for accessibility:** a card is "<device> on <track>"; a second
+   device of the same name is "<device> (2) on <track>"; the power button is
+   "Power <device>" (a toggle). Commands: `devices.add`, `devices.remove`,
+   `devices.bypass`; Delete removes the chosen card while the tab holds the
+   keyboard (the pointer over it, or the detail pane focused).
+
+**Consequences.** `Document::add_track` is now `insert_track(.., None)`; the
+shipped behaviour is unchanged (a test covers the synth's default preset on a
+device added from the browser). `Hosting::pretend` and
+`testing::pretend_device_state` exist for screenshots and E2E of every face.
+
+**Amendment, 2026-10-17 (owner's first Windows run).** Two real plugins ended
+their host while loading. The card's message overlapped its button and hid the
+exit code: it now has a fixed room above the button, ends in "…" and is whole
+in the tooltip, and the failure is worded short with its cause first
+("Crashed while loading: access violation, exception 0xc0000005."). The host
+now gives its setup thread single-threaded COM and its audio thread
+multi-threaded COM on Windows, which plugins expect of a host; whether that
+cures these two is unconfirmed until the owner reloads them (KNOWN_ISSUES).
+
+**Second amendment, 2026-10-17 (the owner's next run: still failing).** The
+cards now named the cause: an access violation, in RP-1 while running and in
+RP-2 while loading. The host was reviewed against what a real plugin expects of
+it, and the test plugin gained two behaviours that demand it (`needs_message`,
+`aux_buses`; `crates/lumen-plugin-host/tests/conformance.rs`), both crashing
+the old host and passing the new one: the host's `createInstance` makes an
+`IMessage` and an `IAttributeList` (`com.rs`); `setBusArrangements` and the
+process data carry an entry for every audio bus the plugin declares, only the
+main one on (`instance.rs`, at most 32 each way); the factory is given the host
+context; the process context carries a 4/4 time signature. Still not done, and
+the next suspects if these plugins fail again: aligned buffers, the host's
+stack size, a licence or copy-protection check, `IComponentHandler2`/`3`,
+and setting the controller's state from the component's.
+
+**Third amendment, 2026-10-17 (the owner's next run: two plugins still fail).**
+RP-1 still died while running; RP-3 was given up on as "stopped answering".
+More departures from what hosts do were found by reading and each reproduced
+first (`conformance.rs`): the output parameter list gave plugins no queue to
+report into (`reports_params`; a plugin that reports its own edits dereferenced
+null: the likeliest cause of RP-1); note-offs carried the id -1 (now the id of
+their note-on); the audio thread did not flush denormals (a physical-model
+plugin's tails cost a hundred times as much). The host now also says where it
+died: on Windows an unhandled-exception filter writes the module, the offset
+and the address touched to stderr, which Lumen reads, with the first and the
+slow blocks' timings (`HostLog`, `Failure::detail`, the card's tooltip). The
+three-late-blocks rule (ADR-0069) is the likeliest reason RP-3 failed and is
+the owner's to decide: recommended, fail only after about a second of late
+blocks in a row, so a slow first block is a glitch, not a kill.
+
+**Fourth amendment, 2026-10-17 (the failure rule changed; the owner's report: a
+plugin dropped on the chain shows "Stopped responding").** The card for RP-3
+read "block 1 (128 frames) took ..." and then failed: the guard gave up after
+three late blocks in a row, which at 128 frames and 48 kHz is 8 ms. A plugin
+that fills its state or loads samples in its first blocks is late for longer
+than that and was ended while it was starting up. The rule is now a span of
+audio, not a count of blocks: `FAILED_AFTER_FRAMES` (48,000 frames, about a
+second at 48 kHz) of late audio in a row, whatever the buffer size; an answer
+in time starts the count again. Meanwhile blocks are silence (or the
+unprocessed input) as before, a host whose process ended still fails at once,
+and the guard's tests, the engine's and the hosted-effects test run a second of
+audio to see it fail. This is the change the third amendment recommended, made
+at the owner's report; ADR-0069's rule of three is superseded, the rest of
+ADR-0069 stands, and the constant stays under MT-VST-2.
+
+**Fifth amendment, 2026-10-17 (a fourth real plugin, RP-4, an instrument, ended
+its host on its first block).** Reproduced on the owner's machine by driving
+the plugin from a small probe (not kept): the host died on the first block, with
+no note played, reading address 0x0 at one instruction, `mov rax,[r9+r8*8]` with
+both registers zero, which is `channelBuffers32[0]` read through a null list.
+The host gave a bus that is off (and every auxiliary bus) `numChannels` 0 and a
+null buffer list; the plugin walks the list without looking at the count. Now
+every off bus is given a list that is never null, pointing at a silent spare
+buffer as long as a block (`empty_bus`, `Instance::spare`), the channel count
+still 0. The test plugin's `aux_buses` behaviour now walks each bus's list and
+crashes on a null one: the conformance test failed before the change and passes
+after. The crash report also carries the registers, the bytes at the fault and
+the stack words that point into the dead module (`regs`, `code`, `stack` lines,
+shown in the card's tooltip), which is how this was found. **Not verified:**
+that the plugin sounds right: with nothing loaded in it (no editor until slice
+3) it is silent, and 300 blocks with a note ran without a crash.
+
+**Sixth amendment, 2026-10-17 (the owner's report: a held note cuts out after
+about a second).** A hosted instrument was asked for blocks only while it
+counted as ringing, and that was counted from the last block that carried an
+event, for a plugin tail of one second at least (`RING_MIN`). A held note sends
+no events, so after a second the host was no longer given blocks and the note
+went silent. `HostedInstrument` now follows which notes are down (a bit for each
+channel and key) and which channels have the sustain pedal down (`Holding`), is
+asked for a block every block while any is, and rings out for the tail after the
+last release; all notes off and all sound off clear it, as does `silence`. Two
+unit tests reproduce it (a note held thirty blocks past the tail; a held pedal)
+and failed before the change; the older test that pinned the bug (a note with
+no release stopping after a second) now plays a note that ends.
+
+**Not built, and said so.** Moving between cards with the arrow keys (cards
+and their power buttons are Tab stops); reordering, copying and the preset menu
+(slice 3); the master's chain (a refusal says so); snapshots of the plugin's own
+picture (slice 3).
+
+**Not verified, and not claimed.** Any real plugin's card; Windows and macOS
+runs of the interface. The cards were looked at by eye in the dark theme at
+100% and 200% and in the light theme at 100%; 150%, and 150% and 200% in the
+light theme, were rendered (`shots::device_chain`) but not inspected.

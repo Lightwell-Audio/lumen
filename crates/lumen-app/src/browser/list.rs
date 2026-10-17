@@ -300,7 +300,12 @@ fn draw_device(
     let id = Id::new(("browser device", &device.id));
     let selected = input.selected == Some(&Selection::Device(device.id.clone()));
     let favorite = input.favorites.contains(&device.id);
-    let response = ui.interact(rect, id, Sense::CLICK);
+    let response = ui.interact(rect, id, Sense::click_and_drag());
+    // Dragged onto the Devices tab it is added where the line shows.
+    response.dnd_set_drag_payload(crate::chain::Dragged(device.id.clone()));
+    if response.dragged() {
+        crate::chain::paint_drag_ghost(ui.ctx(), &device.name);
+    }
     let kind = match device.kind {
         Kind::Instrument => "instrument",
         Kind::Effect => "effect",

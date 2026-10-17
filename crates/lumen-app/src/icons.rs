@@ -57,11 +57,17 @@ pub enum Icon {
     Knob,
     /// A plugin Lumen will not load (M6 slice 1): a triangle with a mark.
     Warning,
+    /// A power symbol: a device's on and off.
+    Power,
+    /// Three sliders: an effect.
+    Sliders,
+    /// A plug with a slash: a plugin that is not installed.
+    PlugOff,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 24] = [
+    pub const ALL: [Icon; 27] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
@@ -86,6 +92,9 @@ impl Icon {
         Icon::Keys,
         Icon::Knob,
         Icon::Warning,
+        Icon::Power,
+        Icon::Sliders,
+        Icon::PlugOff,
     ];
 }
 
@@ -196,6 +205,42 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             Shape::closed_line(vec![g.p(8.0, 2.4), g.p(14.2, 13.2), g.p(1.8, 13.2)], stroke),
             Shape::line_segment([g.p(8.0, 6.6), g.p(8.0, 9.6)], stroke),
             Shape::circle_filled(g.p(8.0, 11.5), 0.9 * g.unit, color),
+        ],
+        Icon::Power => {
+            // An open ring with a bar through its gap.
+            let (centre, radius) = (g.p(8.0, 8.5), 4.8 * g.unit);
+            let (start, sweep) = (-PI / 2.0 + 0.7, TAU - 1.4);
+            let arc: Vec<Pos2> = (0..=28)
+                .map(|i| centre + radius * Vec2::angled(start + sweep * i as f32 / 28.0))
+                .collect();
+            vec![
+                Shape::line(arc, stroke),
+                Shape::line_segment([g.p(8.0, 2.2), g.p(8.0, 7.6)], stroke),
+            ]
+        }
+        Icon::Sliders => vec![
+            Shape::line_segment([g.p(2.5, 4.0), g.p(13.5, 4.0)], stroke),
+            Shape::line_segment([g.p(2.5, 8.0), g.p(13.5, 8.0)], stroke),
+            Shape::line_segment([g.p(2.5, 12.0), g.p(13.5, 12.0)], stroke),
+            Shape::circle_filled(g.p(10.0, 4.0), 1.7 * g.unit, color),
+            Shape::circle_filled(g.p(5.5, 8.0), 1.7 * g.unit, color),
+            Shape::circle_filled(g.p(9.5, 12.0), 1.7 * g.unit, color),
+        ],
+        Icon::PlugOff => vec![
+            Shape::line_segment([g.p(6.0, 2.2), g.p(6.0, 5.0)], stroke),
+            Shape::line_segment([g.p(10.0, 2.2), g.p(10.0, 5.0)], stroke),
+            Shape::closed_line(
+                vec![
+                    g.p(4.2, 5.0),
+                    g.p(11.8, 5.0),
+                    g.p(11.8, 8.2),
+                    g.p(8.0, 11.0),
+                    g.p(4.2, 8.2),
+                ],
+                stroke,
+            ),
+            Shape::line_segment([g.p(8.0, 11.0), g.p(8.0, 13.8)], stroke),
+            Shape::line_segment([g.p(2.6, 2.6), g.p(13.4, 13.4)], stroke),
         ],
         Icon::ToStart => vec![
             Shape::rect_filled(g.rect(3.0, 3.0, 5.0, 13.0), 0.3 * g.unit, color),

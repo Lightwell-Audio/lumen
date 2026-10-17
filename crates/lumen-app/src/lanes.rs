@@ -34,6 +34,8 @@ pub struct Handles<'a> {
     pub clips: &'a mut ClipsHandle,
     pub midi: &'a mut MidiHandle,
     pub mixer: &'a mut MixerHandle,
+    /// The plugin devices' hosts, for the instruments in the MIDI tracks.
+    pub hosting: &'a mut crate::hosting::Hosting,
 }
 
 #[derive(Default)]
@@ -165,6 +167,12 @@ pub fn engine_clips(
 }
 
 impl Lanes {
+    /// A plugin instrument is ready for the next MIDI track list (M6
+    /// slice 2c).
+    pub fn midi_changed(&mut self, changed: bool) {
+        self.midi_dirty |= changed;
+    }
+
     /// Files are still loading for import.
     /// Files dropped for import are still loading (not an opened
     /// project's media: `library.is_loading()` covers every load).
@@ -268,7 +276,12 @@ impl Lanes {
         cue: &crate::routing::Cue,
         inputs: &crate::midi_play::Inputs,
     ) {
-        let Handles { clips, midi, mixer } = engine;
+        let Handles {
+            clips,
+            midi,
+            mixer,
+            hosting,
+        } = engine;
         self.rate = rate;
         if self.library.update(rate, ctx) {
             self.dirty = true;
@@ -303,13 +316,22 @@ impl Lanes {
                 .as_ref()
                 .is_none_or(|(s, i)| (*s, i) != midi_wanted)
         {
-            let tracks = crate::midi_play::engine_midi(
+            let tracks = crate::midi_play::engine_midi_with(
                 doc.project(),
                 inputs,
                 &mut self.midi_ports,
                 &mut self.midi_cache,
+                hosting,
             );
-            self.midi_dirty = midi.set(tracks).is_err();
+            self.midi_dirty = match midi.set(tracks) {
+                Ok(()) => false,
+                // Full: a plugin instrument in the list is kept for the
+                // next one, not lost with it.
+                Err(tracks) => {
+                    hosting.reclaim(tracks);
+                    true
+                }
+            };
             self.midi_built = Some((doc.state(), inputs.clone()));
         }
         // The routing follows the clips, never ahead of them: a deleted
@@ -866,6 +888,7 @@ mod tests {
             let (mut transport, mut engine) = engine(Timeline::default(), source, 48_000);
             let mut lanes = Lanes::default();
             let (cue, inputs) = (Default::default(), Default::default());
+            let mut hosting = crate::hosting::Hosting::off();
             let mut update = |lanes: &mut Lanes, doc: &mut Document| {
                 lanes.update(
                     48_000,
@@ -875,6 +898,7 @@ mod tests {
                         clips: &mut clips,
                         midi: &mut midi,
                         mixer: &mut routing,
+                        hosting: &mut hosting,
                     },
                     &cue,
                     &inputs,

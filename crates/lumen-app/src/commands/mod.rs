@@ -144,6 +144,9 @@ pub(crate) enum Command {
     DevicesAddFolder,
     DevicesFavorite,
     DevicesScanAtStartup,
+    DevicesAdd,
+    DeviceRemove,
+    DeviceBypass,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -354,6 +357,9 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::DevicesAddFolder, "devices.add_folder", "Add plugin folder…", Area::Devices, &[], "Adds a folder to search for plugins, besides the standard ones, and scans it."),
     info(Command::DevicesFavorite, "devices.favorite", "Favorite device", Area::Devices, &[plain(Key::F)], "Stars or unstars the device selected in the browser."),
     info(Command::DevicesScanAtStartup, "devices.scan_at_startup", "Scan plugins at startup", Area::Devices, &[], "Looks for new and changed plugins in the background each time Lumen starts. Off, the list changes only when you rescan."),
+    info(Command::DevicesAdd, "devices.add", "Add device to selected track", Area::Devices, &[], "Puts the device chosen in the browser on the selected track (after the chosen card), or on a new track when none fits."),
+    info(Command::DeviceRemove, "devices.remove", "Remove device", Area::Devices, &[], "Takes the chosen device off its track. Undo puts it back with its settings."),
+    info(Command::DeviceBypass, "devices.bypass", "Bypass device", Area::Devices, &[], "Turns the chosen device off, or on again. A bypassed device keeps its delay, so nothing shifts in time."),
 ];
 
 const fn info(
@@ -403,7 +409,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::DevicesScanAtStartup as usize + 1,
+            Command::DeviceBypass as usize + 1,
             ALL.len(),
             "a command is missing"
         );

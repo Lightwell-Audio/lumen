@@ -6,8 +6,12 @@
 //! or blocking while rendering. Devices allocate in their constructors,
 //! which run on the UI side.
 
+pub mod hosted;
 pub mod instrument;
 pub mod synth;
 
+pub use hosted::{
+    FAILED_AFTER_FRAMES, Guard, Hosted, HostedInstrument, Outcome, Refused, Reply, Status,
+};
 pub use instrument::Instrument;
 pub use synth::{Preset, Synth};

@@ -1,6 +1,8 @@
 //! What the engine plays: a [`Source`] renders timeline audio for a range of
 //! samples. Slice 6 implements it for audio clips; tests use probes.
 
+use std::time::Instant;
+
 use crate::timeline::Timeline;
 
 /// Where a source writes: part of a channel-major block.
@@ -104,6 +106,11 @@ pub struct RenderContext<'a> {
     /// The active loop as `[start, end)` samples, so live input played just
     /// before a wrap is placed at the loop's end.
     pub looping: Option<(i64, i64)>,
+    /// When a plugin host must have answered for this callback's blocks:
+    /// three quarters of the period from its start (ADR-0069). `Some` only
+    /// while a host is attached ([`Source::hosted`]), so a project without
+    /// plugins never reads the clock.
+    pub deadline: Option<Instant>,
 }
 
 /// Why playback jumped, so sources can choose whether to fade in.
@@ -158,6 +165,12 @@ pub trait Source: Send {
     /// stopped (an instrument's release tail, a note-off): the engine then
     /// renders the source with [`Mode::Ring`] instead of calling `idle`.
     fn ringing(&self) -> bool {
+        false
+    }
+
+    /// A plugin host is attached: the engine then gives every render the
+    /// callback's [`RenderContext::deadline`].
+    fn hosted(&self) -> bool {
         false
     }
 }

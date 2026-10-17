@@ -54,7 +54,13 @@ pub fn used_ports(project: &Project) -> std::collections::BTreeSet<String> {
 
 /// The instrument a track's synth device asks for. A preset this version
 /// does not know (a project from a later one) plays as the default sound.
-fn instrument(track: &model::Track) -> Option<InstrumentSpec> {
+fn instrument(track: &model::Track, hosts: &mut dyn Hosts) -> Option<InstrumentSpec> {
+    // A plugin instrument: a host's, or a stand-in while there is none.
+    if let Some(device) = track.sound_source()
+        && device.is_vst3()
+    {
+        return Some(hosts.instrument(track.id));
+    }
     let device = track.instrument()?;
     let preset = device
         .preset()
@@ -65,6 +71,29 @@ fn instrument(track: &model::Track) -> Option<InstrumentSpec> {
         preset: preset.number(),
         instrument: Box::new(Synth::new(preset)),
     })
+}
+
+/// Where a track's plugin instrument comes from (M6 slice 2c).
+pub trait Hosts {
+    /// The instrument slot for the plugin on MIDI track `track`.
+    fn instrument(&mut self, track: Id) -> InstrumentSpec;
+}
+
+impl Hosts for crate::hosting::Hosting {
+    fn instrument(&mut self, track: Id) -> InstrumentSpec {
+        crate::hosting::Hosting::instrument(self, track)
+    }
+}
+
+/// No hosts: every plugin instrument is a stand-in that plays nothing.
+#[cfg(test)]
+pub struct NoHosts;
+
+#[cfg(test)]
+impl Hosts for NoHosts {
+    fn instrument(&mut self, _: Id) -> InstrumentSpec {
+        crate::hosting::stand_in()
+    }
 }
 
 /// What decides which tracks play what is played live (M5 slice 2): the
@@ -230,11 +259,23 @@ pub fn busy_keys(project: &Project, id: Id, at: Ticks, playing: bool) -> Vec<u8>
 /// output that is muted (or silenced by another track's solo) plays
 /// nothing, so it sends nothing and lets go of what it sounded; one sent to
 /// the instrument leaves muting to the mixer, which silences the audio.
+#[cfg(test)]
 pub fn engine_midi(
     project: &Project,
     inputs: &Inputs,
     ports: &mut PortTable,
     cache: &mut Cache,
+) -> Vec<MidiTrack> {
+    engine_midi_with(project, inputs, ports, cache, &mut NoHosts)
+}
+
+/// [`engine_midi`] with the hosts that play the plugin instruments.
+pub fn engine_midi_with(
+    project: &Project,
+    inputs: &Inputs,
+    ports: &mut PortTable,
+    cache: &mut Cache,
+    hosts: &mut dyn Hosts,
 ) -> Vec<MidiTrack> {
     cache.retain(project);
     let heard = lumen_project::solo::hearing(project);
@@ -274,7 +315,7 @@ pub fn engine_midi(
             );
         }
         tracks.push(
-            MidiTrack::new(track.id.0, target, instrument(track), clips)
+            MidiTrack::new(track.id.0, target, instrument(track, hosts), clips)
                 .listening(listening(track, inputs, silent))
                 .recording(recording(track, inputs))
                 .recording_within(inputs.record_window)

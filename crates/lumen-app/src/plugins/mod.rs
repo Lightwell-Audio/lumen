@@ -76,6 +76,26 @@ impl Source {
     }
 }
 
+impl Source {
+    /// The faults the test plugin's hosts are given, by module name (tests).
+    pub(crate) fn host_faults(&self) -> Option<Faults> {
+        match self {
+            Source::Fixed(fixed) => fixed.faults,
+            _ => None,
+        }
+    }
+
+    /// The program that runs a plugin: the one that scans, beside Lumen
+    /// unless the caller chose another. None when plugins are off.
+    pub(crate) fn host_program(&self) -> Option<PathBuf> {
+        match self {
+            Source::Off => None,
+            Source::System => Some(default_host()),
+            Source::Fixed(fixed) => Some(fixed.host.clone()),
+        }
+    }
+}
+
 /// The scan program sits beside the Lumen executable.
 pub(crate) fn default_host() -> PathBuf {
     let name = if cfg!(windows) {

@@ -119,6 +119,7 @@ mod tests {
             device,
             recording: true,
             looping,
+            deadline: None,
         }
     }
 

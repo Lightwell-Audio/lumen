@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use super::delay::{LineId, Lines, NO_LINE};
+use super::hosts::{self, HostScratch, Hosting, NO_HOST};
 use super::meter::{LoudnessTap, MeterBank, keep};
 use super::smooth::Smoothed;
 use super::spec::Compensation;
@@ -35,13 +36,23 @@ pub(super) struct Send {
     pub line: LineId,
 }
 
-/// A compiled device: for now the synthetic delay (its line).
+/// A compiled device: the synthetic delay (its line), or a plugin effect in
+/// a host (its fallback line, and the glide to its output).
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Dev {
     pub line: LineId,
     /// Adds the node's sidechain input before delaying.
     pub listen: bool,
+    /// The host's id in the mixer's pool, or [`NO_HOST`].
+    pub host: u64,
+    /// 1 while the host's output is what the node hears, 0 for the fallback.
+    pub wet: Smoothed,
+    /// The device's block was handed to its host ahead of the node loop.
+    pub began: bool,
 }
+
+/// A node with no device to hand its host early.
+pub(super) const NO_DEV: u32 = u32::MAX;
 
 /// A sidechain leaving a node.
 #[derive(Debug, Clone, Copy)]
@@ -83,6 +94,10 @@ pub(super) struct Node {
     /// Its devices: `devices[first_device..first_device + devices]`.
     pub first_device: u32,
     pub devices: u32,
+    /// Nothing feeds the node and its first device is hosted: that device's
+    /// index, whose host gets its block ahead of the node loop, else
+    /// [`NO_DEV`].
+    pub early: u32,
     /// The sidechains it feeds: `taps[first_tap..first_tap + taps]`.
     pub first_tap: u32,
     pub taps: u32,
@@ -110,6 +125,9 @@ pub struct Plan {
     /// sides, `CHUNK` frames each. Held here rather than zeroed on the
     /// stack every block.
     pub(super) scratch: Box<[f32; 2 * CHUNK]>,
+    /// Where hosted devices work, and whether the plan has any.
+    pub(super) host_scratch: Box<HostScratch>,
+    pub(super) hosted: bool,
     /// `(id, index)` sorted by id: where tracks find their bus.
     pub(super) by_id: Vec<(u64, u32)>,
     /// Every node's bus, `BUS` samples each: left then right, `CHUNK`
@@ -164,6 +182,8 @@ impl Plan {
             taps: Vec::new(),
             lines: Lines::default(),
             scratch: Box::new([0.0; 2 * CHUNK]),
+            host_scratch: HostScratch::new(),
+            hosted: false,
             by_id: Vec::new(),
             buses: Vec::new(),
             sides: Vec::new(),
@@ -296,6 +316,17 @@ impl Plan {
                     node.cue.carry(&before.cue);
                     node.post[0].carry(&before.post[0]);
                     node.post[1].carry(&before.post[1]);
+                    // A hosted device keeps where it was in the glide
+                    // between its host and its fallback.
+                    let mine =
+                        node.first_device as usize..(node.first_device + node.devices) as usize;
+                    let theirs = before.first_device as usize
+                        ..(before.first_device + before.devices) as usize;
+                    for (dev, was) in self.devices[mine].iter_mut().zip(&old.devices[theirs]) {
+                        if dev.host != NO_HOST && dev.host == was.host {
+                            dev.wet.carry(&was.wet);
+                        }
+                    }
                     let mine = node.first as usize..(node.first + node.count) as usize;
                     let theirs = before.first as usize..(before.first + before.count) as usize;
                     for send in &mut self.sends[mine] {
@@ -354,6 +385,7 @@ impl Plan {
         ramp: Ramp<'_>,
         advance: bool,
         tap: Option<&mut LoudnessTap>,
+        hosting: &mut Hosting<'_>,
     ) {
         let frames = out.frames();
         let mut gain = [0.0f32; CHUNK];
@@ -374,6 +406,30 @@ impl Plan {
                 let (left, right) = bus.split_at_mut(CHUNK);
                 self.lines
                     .run(node.input_line, &mut left[..frames], &mut right[..frames]);
+            }
+        }
+        // Hosts work while the rest of the mixer does: a node that nothing
+        // feeds hands its first hosted device its block now, scaled as the
+        // node loop would, and the loop collects it where it reaches it.
+        if self.hosted && advance && hosting.pool.is_some() {
+            for index in 0..self.nodes.len() {
+                let early = self.nodes[index].early;
+                if early == NO_DEV {
+                    continue;
+                }
+                self.nodes[index].pre.fill(gain, rate, false);
+                let bus = &self.buses[index * BUS..(index + 1) * BUS];
+                let (input_left, input_right) = self.host_scratch.input.split_at_mut(CHUNK);
+                for k in 0..frames {
+                    input_left[k] = bus[k] * gain[k];
+                    input_right[k] = bus[CHUNK + k] * gain[k];
+                }
+                hosts::begin_early(
+                    &mut self.devices[early as usize],
+                    hosting,
+                    &self.host_scratch,
+                    frames,
+                );
             }
         }
         for index in 0..self.nodes.len() {
@@ -438,7 +494,18 @@ impl Plan {
                 );
                 let devices =
                     node.first_device as usize..(node.first_device + node.devices) as usize;
-                for device in &self.devices[devices] {
+                for device in &mut self.devices[devices] {
+                    if device.host != NO_HOST {
+                        hosts::run(
+                            device,
+                            &mut self.lines,
+                            &mut self.host_scratch,
+                            hosting,
+                            (&mut *left, &mut *right),
+                            (rate, advance),
+                        );
+                        continue;
+                    }
                     if device.listen && node.side != NO_SIDE {
                         let side = &self.sides[node.side as usize * BUS..][..BUS];
                         add(left, &side[..frames]);

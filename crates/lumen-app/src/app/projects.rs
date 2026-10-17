@@ -71,6 +71,9 @@ impl App {
             ..project.view.clone()
         };
         self.arrangement.save_into(&mut project.view);
+        // What the running plugins report goes in with the view: it is not an
+        // edit (M6 slice 2c, the owner's C2).
+        self.hosting.stamp(&mut project);
         project
     }
 

@@ -7,7 +7,8 @@ use vst3::Steinberg::Vst::{
     AudioBusBuffers, BusDirection, BusDirections, BusDirections_, BusInfo, BusInfo_, BusTypes_,
     Event,
     Event_::EventTypes_::{kNoteOffEvent, kNoteOnEvent},
-    IAudioProcessor, IAudioProcessorTrait, IComponent, IComponentTrait, IEventListTrait,
+    IAttributeListTrait, IAudioProcessor, IAudioProcessorTrait, IComponent, IComponentTrait,
+    IEventListTrait, IHostApplication, IHostApplicationTrait, IMessage, IMessageTrait,
     IParamValueQueueTrait, IParameterChangesTrait, IoMode, MediaType, MediaTypes, MediaTypes_,
     ProcessData, ProcessSetup, RoutingInfo, SpeakerArr, SpeakerArrangement, SymbolicSampleSizes_,
 };
@@ -15,7 +16,7 @@ use vst3::Steinberg::{
     FUnknown, IBStream, IPluginBaseTrait, TBool, TUID, kInternalError, kInvalidArgument,
     kNotImplemented, kResultFalse, kResultOk, kResultTrue, tresult,
 };
-use vst3::{Class, ComRef};
+use vst3::{Class, ComPtr, ComRef, Interface};
 
 use crate::faults::{self, Faults, Kind as Fault};
 use crate::params::Kind;
@@ -64,13 +65,45 @@ impl Processor {
     fn audio_buses(&self, dir: BusDirection) -> i32 {
         match (self.kind, dir as BusDirections) {
             (Kind::Instrument, BusDirections_::kInput) => 0,
+            (Kind::Instrument, BusDirections_::kOutput) if self.faults.has(Fault::AuxBuses) => 4,
             _ => 1,
         }
     }
 }
 
 impl IPluginBaseTrait for Processor {
-    unsafe fn initialize(&self, _context: *mut FUnknown) -> tresult {
+    unsafe fn initialize(&self, context: *mut FUnknown) -> tresult {
+        if self.faults.has(Fault::NeedsMessage) {
+            // What a plugin with a separate controller does: ask the host for
+            // a message and fill it, without a thought for the host saying no.
+            // SAFETY: the host passes its context, which is valid or null.
+            let host =
+                unsafe { ComRef::from_raw(context) }.and_then(|c| c.cast::<IHostApplication>());
+            let Some(host) = host else {
+                faults::crash();
+            };
+            let mut object = std::ptr::null_mut();
+            // SAFETY: valid interface ids and out pointer.
+            unsafe {
+                host.createInstance(
+                    IMessage::IID.as_ptr().cast_mut().cast(),
+                    IMessage::IID.as_ptr().cast_mut().cast(),
+                    &mut object,
+                )
+            };
+            // SAFETY: an owned IMessage reference, or null.
+            let Some(message) = (unsafe { ComPtr::<IMessage>::from_raw(object.cast()) }) else {
+                faults::crash();
+            };
+            // SAFETY: a plain call on a live message.
+            let attributes = unsafe { message.getAttributes() };
+            // SAFETY: null, or a list owned by the message.
+            let Some(attributes) = (unsafe { ComRef::from_raw(attributes) }) else {
+                faults::crash();
+            };
+            // SAFETY: valid id string and a live list.
+            unsafe { attributes.setInt(c"count".as_ptr(), 1) };
+        }
         kResultOk
     }
 
@@ -119,6 +152,14 @@ impl IComponentTrait for Processor {
         bus.direction = dir;
         bus.busType = BusTypes_::kMain as i32;
         bus.flags = BusInfo_::BusFlags_::kDefaultActive as u32;
+        if media as MediaTypes == MediaTypes_::kAudio
+            && dir as BusDirections == BusDirections_::kOutput
+            && index > 0
+        {
+            // An auxiliary output, off until the host turns it on.
+            bus.busType = BusTypes_::kAux as i32;
+            bus.flags = 0;
+        }
         if media as MediaTypes == MediaTypes_::kEvent {
             bus.channelCount = 1;
             text::copy_wstring("Notes", &mut bus.name);
@@ -274,6 +315,40 @@ impl IAudioProcessorTrait for Processor {
         }
         // SAFETY: the host passes valid process data for this call.
         let data = unsafe { &*data };
+        // A plugin that indexes its buses by its own count needs every one
+        // of them in the data, active or not.
+        if self.faults.has(Fault::AuxBuses) && data.numOutputs != 4 {
+            faults::crash();
+        }
+        if self.faults.has(Fault::AuxBuses) {
+            // And it walks each bus's buffer list without looking at the
+            // channel count, the way a widely used synthesizer does: a null
+            // list, for a bus that is off, takes it down.
+            for bus in 0..4 {
+                // SAFETY: the host passed four entries (checked above).
+                let list = unsafe { (*data.outputs.add(bus)).__field0.channelBuffers32 };
+                if list.is_null() {
+                    faults::crash();
+                }
+            }
+        }
+        if self.faults.has(Fault::ReportsParams) {
+            // SAFETY: the host's list, valid or null.
+            let list = unsafe { ComRef::from_raw(data.outputParameterChanges) };
+            let Some(list) = list else {
+                faults::crash();
+            };
+            let (id, mut index) = (7_u32, 0_i32);
+            // SAFETY: valid id and index pointers.
+            let queue = unsafe { list.addParameterData(&id, &mut index) };
+            // SAFETY: null, or a queue owned by the list.
+            let Some(queue) = (unsafe { ComRef::from_raw(queue) }) else {
+                faults::crash();
+            };
+            let mut at = 0_i32;
+            // SAFETY: a live queue and a valid out pointer.
+            unsafe { queue.addPoint(0, 0.5, &mut at) };
+        }
         let frames = data.numSamples.max(0) as usize;
 
         let mut changes = [Timed {

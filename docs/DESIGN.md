@@ -4,6 +4,14 @@
 (2026-10-11, ADR-0052)** follows the owner's **Lumen design system** (a
 Design System artifact: tokens, a Material card and a card per component).
 Where this file and the design system differ, the design system wins.
+**Design system v3 (2026-10-16)** is saved as
+[`docs/design-system/lumen-tokens.json`](design-system/lumen-tokens.json)
+(colour for both themes, type, spacing, radius, size, duration and stroke
+tokens, each with its usage). It was checked against `theme.rs`: every colour
+value, the 12 clip colours and the size, radius, stroke and duration values
+agree; v3 adds the spacing steps `space_xl` (24) and `space_2xl` (32), which
+the code does not have yet (add them to `theme::space` when a screen needs
+them, not before).
 Code: `crates/lumen-app/src/theme.rs` (colour, type, spacing, shape,
 strokes, the on states and the egui style built from them), `motion.rs`
 (motion), `light.rs` (light) and `widgets/raised.rs` (material, §5a).
@@ -1005,6 +1013,33 @@ caps and the light hangs below. In a menu row the highlight reaches a
 little past the row, so the label and the keycaps sit equally far in from
 its edges; on a highlighted row the key's outline and the modifier caps
 step up (`theme::controls(true)`), or they vanish into the highlight.
+
+## 7f. The Devices tab (M6 slice 2d, ADR-0072)
+
+The owner's C4. A track's chain sits in a sunk tray (`well`, with the lip);
+each device is a card standing out of it (`raised`, the `border_strong` edge,
+a soft shadow, radius `XL`).
+
+- **Card, top to bottom:** a picture up to 96 pt tall (a monogram in a clip
+  colour chosen from the class id, the kind glyph at its right; greyscale and
+  dim when bypassed, failed or missing), fading into the header; the header
+  (`header`: power at the left, name in medium weight over the vendor in
+  `text_secondary`, a kind badge at the right; an instrument has a 3 pt stripe
+  in the track's colour); three sunk parameter rows; the footer (`header`, mono
+  caption: "MIDI → audio" or "audio → audio" and the latency, or "bypassed" and
+  "2.7 ms kept").
+- **Chosen:** a 1.5 pt accent edge. Under the pointer: the Ember wash.
+- **Cables:** 2 pt `border_strong` when unlit; the Beam (accent line, `core`
+  inside, halo and cast) while the song plays. Dotted for notes. A port is a
+  ring with the light's dot at the card edge.
+- **Faces:** loading shows three empty rows and "starting…"; failed shows
+  "Stopped responding" in `warning`, what happened and a **Reload** button;
+  missing shows "Not installed", the size of the settings kept and **Rescan
+  plugins**. Both keep the cables lit.
+- **Dragging a device from the browser:** an accent line across the tray and a
+  plus on the cable at the gap it will land in; neighbours stay put.
+- **Empty:** two chips and a cable, with "Double-click a device in the browser
+  to add it here". No track selected: "Select a track to see its devices".
 
 ## 8. Key flows
 

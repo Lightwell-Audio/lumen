@@ -51,6 +51,38 @@ pub enum ExitKind {
     Killed,
 }
 
+impl fmt::Display for ExitKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ExitKind::Clean => f.write_str("it quit"),
+            ExitKind::Failed(code) => write!(f, "it exited with code {code}"),
+            ExitKind::Killed => f.write_str("it was ended after it stopped answering"),
+            ExitKind::Crashed(how) => match crash_name(how) {
+                Some(name) => write!(f, "it crashed: {name}, {how}"),
+                None => write!(f, "it crashed: {how}"),
+            },
+        }
+    }
+}
+
+/// What a Windows exception code means, for the codes plugins most often
+/// die of.
+fn crash_name(how: &str) -> Option<&'static str> {
+    let code = how.strip_prefix("exception ")?.to_ascii_lowercase();
+    Some(match code.as_str() {
+        "0xc0000005" => "access violation",
+        "0xc000001d" => "illegal instruction",
+        "0xc0000094" => "integer divide by zero",
+        "0xc00000fd" => "stack overflow",
+        "0xc0000135" => "a library it needs was not found",
+        "0xc0000142" => "a library it needs could not start",
+        "0xc0000374" => "heap corruption",
+        "0xc0000409" => "the plugin stopped itself (a failed check)",
+        "0xe06d7363" => "an uncaught C++ exception",
+        _ => return None,
+    })
+}
+
 impl ExitKind {
     pub(crate) fn of(status: std::process::ExitStatus) -> Self {
         #[cfg(unix)]
@@ -89,7 +121,7 @@ impl fmt::Display for HostError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             HostError::Timeout => write!(f, "the plugin host did not answer in time"),
-            HostError::Ended(how) => write!(f, "the plugin host ended: {how:?}"),
+            HostError::Ended(how) => write!(f, "the plugin host ended: {how}"),
             HostError::Protocol(what) => write!(f, "the plugin host broke the protocol: {what}"),
             HostError::Failed { message, .. } => write!(f, "{message}"),
         }
@@ -110,7 +142,53 @@ pub struct Block {
 
 type Incoming = Result<Response, FrameError>;
 
+/// What the host process said about itself on stderr (its own lines, marked
+/// with [`crate::process::LOG_PREFIX`]; anything else a plugin prints is
+/// read and dropped). Shared between the reader thread and whoever shows it.
+#[derive(Default)]
+pub struct HostLog {
+    lines: std::sync::Mutex<std::collections::VecDeque<String>>,
+    /// Counts lines added, so a watcher can tell when to look.
+    added: AtomicU32,
+}
+
+impl HostLog {
+    const MOST_LINES: usize = 40;
+    const MOST_BYTES: usize = 400;
+
+    fn push(&self, line: &str) {
+        let mut line = line.to_owned();
+        line.truncate(Self::MOST_BYTES.min(line.floor_char_boundary(Self::MOST_BYTES)));
+        let mut lines = self.lines.lock().unwrap_or_else(|e| e.into_inner());
+        if lines.len() == Self::MOST_LINES {
+            lines.pop_front();
+        }
+        lines.push_back(line);
+        self.added.fetch_add(1, Ordering::Release);
+    }
+
+    /// How many lines have been said in all.
+    pub fn added(&self) -> u32 {
+        self.added.load(Ordering::Acquire)
+    }
+
+    /// What the host said, oldest first.
+    pub fn lines(&self) -> Vec<String> {
+        let lines = self.lines.lock().unwrap_or_else(|e| e.into_inner());
+        lines.iter().cloned().collect()
+    }
+
+    /// The crash the host reported, if it did: where the plugin died.
+    pub fn crash(&self) -> Option<String> {
+        self.lines()
+            .into_iter()
+            .rev()
+            .find_map(|l| l.strip_prefix("crash ").map(str::to_owned))
+    }
+}
+
 pub struct HostProcess {
+    log: std::sync::Arc<HostLog>,
     child: Child,
     writer: Option<Sender<Vec<u8>>>,
     incoming: Receiver<Incoming>,
@@ -123,13 +201,18 @@ pub struct HostProcess {
 }
 
 impl HostProcess {
+    /// What the host process has said about itself.
+    pub fn log(&self) -> std::sync::Arc<HostLog> {
+        self.log.clone()
+    }
+
     /// Starts `exe` as a host, with `env` added to its environment.
     pub fn spawn(exe: &Path, env: &[(&str, &str)]) -> std::io::Result<Self> {
         let mut command = Command::new(exe);
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null());
+            .stderr(Stdio::piped());
         for (key, value) in env {
             command.env(key, value);
         }
@@ -142,6 +225,35 @@ impl HostProcess {
         }
         let mut stdin = child.stdin.take().expect("piped stdin");
         let mut stdout = child.stdout.take().expect("piped stdout");
+        let log = std::sync::Arc::new(HostLog::default());
+        let stderr = child.stderr.take().expect("piped stderr");
+        let reader_log = log.clone();
+        // Always drained, so a plugin that prints a lot never blocks on a
+        // full pipe; only the host's own lines are kept.
+        // Not joined with the others: a helper process a plugin started can keep
+        // the pipe open after the host is gone, and the thread simply ends with it.
+        std::thread::Builder::new()
+            .name("host-stderr".into())
+            .spawn(move || {
+                use std::io::{BufRead, Read};
+                let mut lines = std::io::BufReader::new(stderr);
+                let mut buf = Vec::new();
+                loop {
+                    buf.clear();
+                    // Bounded: a line without an end is cut, not grown.
+                    match lines.by_ref().take(4096).read_until(b'\n', &mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {
+                            let text = String::from_utf8_lossy(&buf);
+                            if let Some(rest) =
+                                text.trim_end().strip_prefix(crate::process::LOG_PREFIX)
+                            {
+                                reader_log.push(rest);
+                            }
+                        }
+                    }
+                }
+            })?;
 
         let (tx, incoming) = mpsc::channel();
         let reader = std::thread::Builder::new()
@@ -174,6 +286,7 @@ impl HostProcess {
             })?;
 
         Ok(Self {
+            log,
             child,
             writer: Some(writer),
             incoming,
@@ -477,5 +590,24 @@ impl Drop for HostProcess {
             // blocked write ends when the killed child's pipe breaks.
             let _ = thread.join();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_crash_is_worded_with_its_code_and_what_the_code_means() {
+        let words = ExitKind::Crashed("exception 0xc0000005".into()).to_string();
+        assert!(words.contains("access violation"), "{words}");
+        assert!(words.contains("0xc0000005"), "the code stays: {words}");
+        let unknown = ExitKind::Crashed("exception 0xc0001234".into()).to_string();
+        assert_eq!(unknown, "it crashed: exception 0xc0001234");
+        assert_eq!(
+            ExitKind::Crashed("signal 11".into()).to_string(),
+            "it crashed: signal 11"
+        );
+        assert_eq!(ExitKind::Failed(3).to_string(), "it exited with code 3");
     }
 }

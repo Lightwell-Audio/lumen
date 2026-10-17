@@ -1,5 +1,7 @@
 //! What the engine asks of an instrument.
 
+use std::time::Instant;
+
 use lumen_core::midi::Event;
 
 /// A device that turns MIDI into stereo audio. Every method except the
@@ -31,4 +33,25 @@ pub trait Instrument: Send {
 
     /// Stops every voice at once, without a release tail.
     fn silence(&mut self);
+
+    /// Whether this instrument runs in a plugin host (M6 slice 2b). Only a
+    /// hosted instrument overrides [`Instrument::begin`] and
+    /// [`Instrument::finish`].
+    fn hosted(&self) -> bool {
+        false
+    }
+
+    /// Starts the next block early, before the engine's own work for it:
+    /// a hosted instrument hands its host the block and the host works while
+    /// the engine does. Returns whether the block was started, in which case
+    /// [`Instrument::finish`] must follow instead of `render`. The default
+    /// starts nothing, and `render` does everything.
+    fn begin(&mut self, _rate: u32, _frames: usize, _events: &[Event]) -> bool {
+        false
+    }
+
+    /// Completes a block [`Instrument::begin`] started: overwrites `left` and
+    /// `right` with its output, waiting for the host until `deadline` at
+    /// most. A host that does not answer leaves them untouched (silence).
+    fn finish(&mut self, _deadline: Instant, _left: &mut [f32], _right: &mut [f32]) {}
 }

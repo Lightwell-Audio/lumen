@@ -57,6 +57,13 @@ pub enum Device {
     /// sidechain input to what it delays, as a compressor's listen button
     /// does, so tests can hear a sidechain line up.
     Delay { frames: u32, listen: bool },
+    /// A plugin effect in a host process (M6 slice 2b), found in the mixer's
+    /// host pool by the id `host`. `latency` is what the plugin last
+    /// reported, in frames: delay compensation counts it, and it is the
+    /// delay the device falls back to while its host is bypassed, failed or
+    /// absent, so timing never shifts (the owner's D1 and D7). A change of
+    /// it is a new routing.
+    Hosted { host: u64, latency: u32 },
 }
 
 impl Device {
@@ -64,6 +71,7 @@ impl Device {
     pub fn latency(&self) -> u32 {
         match *self {
             Self::Delay { frames, .. } => frames.min(super::MAX_DEVICE_LATENCY),
+            Self::Hosted { latency, .. } => latency.min(super::MAX_DEVICE_LATENCY),
         }
     }
 }

@@ -18,6 +18,7 @@ use lumen_project::model::{Color, Device, Id, Marker, Project, TimeSignature, Tr
 pub const MAX_BEATS_PER_BAR: u32 = 64;
 
 mod clips;
+mod devices;
 mod groups;
 mod import;
 mod instrument;
@@ -28,6 +29,7 @@ mod mixer;
 mod notes;
 mod record;
 pub use clips::{CLIP_GAIN, ClipMove};
+pub use devices::{Slot, name_of as device_name};
 pub use groups::Place;
 pub use import::{DropInto, Imported, Places, import_place};
 pub use lanes::{Drag, Line, Shift};
@@ -190,6 +192,18 @@ impl Document {
     /// (or at the end), in `after`'s group, named "Audio 3", "MIDI 1" and
     /// so on. Returns its id.
     pub fn add_track(&mut self, kind: TrackKind, after: Option<Id>) -> Id {
+        self.insert_track(kind, after, None)
+    }
+
+    /// The one way a track is made. `first` is a device it starts with
+    /// instead of the MIDI track's synth (one undo step, the owner's D3);
+    /// the label then names it.
+    pub(super) fn insert_track(
+        &mut self,
+        kind: TrackKind,
+        after: Option<Id>,
+        first: Option<Device>,
+    ) -> Id {
         let id = self.fresh_id();
         let (word, label) = match kind {
             TrackKind::Audio => ("Audio", "Add audio track"),
@@ -207,9 +221,13 @@ impl Document {
                 .find(|t| t.kind == TrackKind::Return)
                 .map_or(self.project().master.id, |t| t.id);
         }
+        let label = match &first {
+            Some(device) => format!("Add {} on a new track", devices::name_of(device)),
+            None => label.to_owned(),
+        };
         // A MIDI track starts with the synth on Poly (format v12).
-        let synth = (kind == TrackKind::Midi).then(|| self.fresh_id());
-        self.history.apply(label, None, |project| {
+        let synth = (kind == TrackKind::Midi && first.is_none()).then(|| self.fresh_id());
+        self.history.apply(&label, None, |project| {
             let number = project.tracks.iter().filter(|t| t.kind == kind).count() + 1;
             let after = after.and_then(|a| project.tracks.iter().position(|t| t.id == a));
             let index = after.map_or(project.tracks.len(), |i| {
@@ -223,8 +241,11 @@ impl Document {
                 index,
                 Arc::new(Track {
                     parent,
-                    devices: synth
-                        .map(|d| Device::synth(d, instrument::DEFAULT_PRESET.id()))
+                    devices: first
+                        .clone()
+                        .or_else(|| {
+                            synth.map(|d| Device::synth(d, instrument::DEFAULT_PRESET.id()))
+                        })
                         .into_iter()
                         .collect(),
                     ..Track::new(id, format!("{word} {number}"), kind, color)

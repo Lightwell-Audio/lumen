@@ -6,7 +6,9 @@ use std::collections::{HashMap, HashSet};
 
 use lumen_core::time::{TempoMap, Ticks};
 
-use crate::model::{ClipContent, Id, Output, Project, Track, TrackKind};
+use crate::model::{
+    ClipContent, Device, Id, MAX_DEVICE_STATE, Output, PluginRef, Project, Track, TrackKind,
+};
 
 /// The furthest a position or length may reach: about 3 billion beats, past
 /// any song, and far enough from `i64`'s limit that sums of a few never
@@ -16,6 +18,47 @@ pub(crate) const LONGEST: Ticks = Ticks(1 << 52);
 /// Whether `t` lies within [`LONGEST`] of the start, either side of it.
 fn within(t: Ticks) -> bool {
     t.0.unsigned_abs() <= LONGEST.0.unsigned_abs()
+}
+
+/// What a device may hold: bounded state, and the VST3-only data only on a
+/// VST3 device (format v17). Everything here comes from a file a person may
+/// have damaged or crafted.
+fn device_data(device: &Device) -> Result<(), String> {
+    if device.state.len() > MAX_DEVICE_STATE || device.controller_state.len() > MAX_DEVICE_STATE {
+        return Err("a device's saved state is too large".into());
+    }
+    match &device.plugin {
+        PluginRef::Vst3 {
+            class_id,
+            name,
+            vendor,
+            ..
+        } => {
+            if class_id.len() != 32 || !class_id.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err("a plugin's class id is not 32 hex digits".into());
+            }
+            if name.is_empty() || name.chars().count() > 256 || vendor.chars().count() > 256 {
+                return Err("a plugin's name or vendor is empty or too long".into());
+            }
+            if device.plugin_version.chars().count() > 64 {
+                return Err("a plugin's version is too long".into());
+            }
+            if let Some(reported) = &device.reported
+                && (!(8_000..=384_000).contains(&reported.rate) || reported.latency > 1 << 24)
+            {
+                return Err("a plugin's reported latency or rate is out of range".into());
+            }
+        }
+        PluginRef::Builtin { .. } => {
+            if !device.controller_state.is_empty()
+                || !device.plugin_version.is_empty()
+                || device.reported.is_some()
+            {
+                return Err("a built-in device holds plugin-only data".into());
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn validate(project: &Project) -> Result<(), String> {
@@ -113,6 +156,7 @@ pub fn validate(project: &Project) -> Result<(), String> {
                 ));
             }
         }
+        let mut instruments = 0;
         for device in &track.devices {
             if !ids.insert(device.id) {
                 return Err(format!(
@@ -132,6 +176,22 @@ pub fn validate(project: &Project) -> Result<(), String> {
                     return Err(format!("{}: the synth's preset is unreadable", at()));
                 }
             }
+            // Where the instrument sits is an edit-time rule, not checked
+            // here: a file written before v17 may hold a plugin before the
+            // synth, and every older file must open.
+            if device.is_instrument() {
+                if track.kind != TrackKind::Midi {
+                    return Err(format!(
+                        "{}: an instrument on a track that is not MIDI",
+                        at()
+                    ));
+                }
+                instruments += 1;
+                if instruments > 1 {
+                    return Err(format!("{}: more than one instrument", at()));
+                }
+            }
+            device_data(device).map_err(|why| format!("{}: {why}", at()))?;
         }
         for (index, clip) in track.clips.iter().enumerate() {
             let at = || format!("{}, clip {index} {:?}", at(), clip.name);

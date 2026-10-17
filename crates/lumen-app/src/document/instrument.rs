@@ -41,6 +41,9 @@ impl Document {
             match preset {
                 Some(p) => {
                     track.midi_to = None;
+                    // One instrument a track: choosing the synth replaces a
+                    // plugin instrument (the owner's D4).
+                    track.devices.retain(|d| d.is_synth() || !d.is_instrument());
                     match track.devices.iter_mut().find(|d| d.is_synth()) {
                         Some(synth) => synth.state = p.id().as_bytes().to_vec(),
                         None => track.devices.insert(0, Device::synth(*device_id, p.id())),

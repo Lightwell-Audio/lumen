@@ -76,6 +76,15 @@ impl App {
                 std::sync::Arc::new(move || ctx.request_repaint()),
             )
         };
+        let hosting = match launch.plugins.host_program() {
+            Some(program) => {
+                let ctx = cc.egui_ctx.clone();
+                hosting::Hosting::new(program, launch.plugins.host_faults(), move || {
+                    ctx.request_repaint()
+                })
+            }
+            None => hosting::Hosting::off(),
+        };
         let plugins = plugins::Plugins::start(
             launch.plugins,
             settings_path.as_deref(),
@@ -86,6 +95,8 @@ impl App {
             transport,
             midi,
             plugins,
+            hosting,
+            chain: Default::default(),
             browser: Default::default(),
             midi_out: None,
             live_keys: None,

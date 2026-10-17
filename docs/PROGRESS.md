@@ -300,7 +300,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Every parameter automatable and MIDI-mappable; generic parameter UI | M | 🔲 | 6–7 |
 | Floating editors: remembered position and size, resizing, high-DPI, keyboard focus | M | 🔲 | 6 |
 | Crash and hang isolation with recovery; separate-process isolation by 1.0 | M | 🔲 | 6, 10 |
-| Device chain: cards, bypass, presets, parameter strip, reorder, copy between tracks, ordering rules | M | 🔲 | 6 |
+| Device chain: cards, bypass, presets, parameter strip, reorder, copy between tracks, ordering rules | M | 🟡 cards, bypass, add, remove and ordering rules built (slice 2d); presets, parameter strip, reorder, copy pending | 6 |
 | Built-ins: utility, parametric EQ with analyzer, compressor with sidechain, limiter, delay, reverb, polysynth, sampler | M | 🟡 The polysynth exists as a fixed-preset instrument (M5 slice 1, ADR-0045: 16 voices, five presets, no knobs yet); the rest in M8 | 8 |
 | Spectrum analyzer, tuner | S | 🔲 | 8 |
 | Device browser: categories, vendors, search, favourites, recents, drag, double-click | M | 🔲 | 6 |

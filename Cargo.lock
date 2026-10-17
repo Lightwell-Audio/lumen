@@ -2164,12 +2164,14 @@ dependencies = [
  "lumen-core",
  "lumen-devices",
  "lumen-engine",
+ "lumen-hosting",
  "lumen-media",
  "lumen-midi",
  "lumen-plugin-catalog",
  "lumen-project",
  "lumen-render",
  "lumen-rt",
+ "lumen-test-plugin",
  "png",
  "raw-window-handle",
  "rfd",
@@ -2213,6 +2215,17 @@ dependencies = [
  "lumen-devices",
  "lumen-rt",
  "rtrb",
+]
+
+[[package]]
+name = "lumen-hosting"
+version = "0.0.1"
+dependencies = [
+ "lumen-core",
+ "lumen-devices",
+ "lumen-plugin-host",
+ "lumen-rt",
+ "lumen-test-plugin",
 ]
 
 [[package]]

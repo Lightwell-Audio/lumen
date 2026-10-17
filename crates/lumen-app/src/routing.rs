@@ -71,14 +71,17 @@ pub fn device_pairs(project: &Project) -> BTreeSet<u16> {
 /// pair (the owner's O1).
 const CUE_CHANNEL: u16 = crate::settings::CUE_CHANNEL;
 
-/// Devices on tracks, until devices join the project (VST3 in M6, the
-/// built-in ones in M8). For now only the engine's synthetic latent
-/// device, which end-to-end tests put on tracks to see delay compensation
-/// at work (`testing`, M4 slice 6).
+/// What the session knows of devices on tracks that the project does not
+/// say: the engine's synthetic latent device, which end-to-end tests put on
+/// tracks to see delay compensation at work (`testing`, M4 slice 6), and the
+/// latency of each plugin effect (M6 slice 2c).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Devices {
     /// Frames of latency on each track that has some.
     pub latent: BTreeMap<Id, u32>,
+    /// Frames of latency of each plugin effect, by device: what it last
+    /// reported, or what the project saved while it loads or is missing.
+    pub hosted: BTreeMap<Id, u32>,
 }
 
 /// Whether `track` plays mono material: an audio track whose clips are all
@@ -139,13 +142,25 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices) -> Routing {
                 devices: devices
                     .latent
                     .get(&track.id)
-                    .map(|&frames| {
-                        vec![Device::Delay {
-                            frames,
-                            listen: false,
-                        }]
+                    .map(|&frames| Device::Delay {
+                        frames,
+                        listen: false,
                     })
-                    .unwrap_or_default(),
+                    .into_iter()
+                    // A plugin effect is named for as long as the project
+                    // holds it: the engine plays the host where one is
+                    // attached and the same time without it (D1, D7).
+                    .chain(
+                        track
+                            .devices
+                            .iter()
+                            .filter(|d| d.is_vst3() && !d.is_instrument())
+                            .map(|d| Device::Hosted {
+                                host: d.id.0,
+                                latency: devices.hosted.get(&d.id).copied().unwrap_or(0),
+                            }),
+                    )
+                    .collect(),
                 ..NodeSpec::unity(track.id.0, output(project, track, &cue.outputs))
             }
         })

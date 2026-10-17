@@ -82,7 +82,7 @@ pub(super) fn row_button(
         .x
         > room
     {
-        super::sends::shorten(painter, text, font.clone(), room)
+        widgets::shorten(painter, text, font.clone(), room)
     } else {
         text.to_owned()
     };

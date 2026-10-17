@@ -1,0 +1,178 @@
+//! Where everything in the chain sits, in points from the tray's left edge
+//! (scroll is applied by the caller). Pure, so the layout is tested without
+//! a window.
+
+use eframe::egui::{Rect, pos2, vec2};
+
+/// A card's width.
+pub(super) const CARD_W: f32 = 200.0;
+/// A card at its tallest, with the picture.
+pub(super) const CARD_H: f32 = 284.0;
+/// The picture's height at the tallest.
+pub(super) const BAND: f32 = 96.0;
+/// The card's header (power, name, badge).
+pub(super) const HEADER: f32 = 48.0;
+/// The footer (signal and latency).
+pub(super) const FOOTER: f32 = 32.0;
+/// Below the header: the parameter strip, or the message that replaces it.
+pub(super) const BODY: f32 = 108.0;
+/// A cable between two cards.
+pub(super) const CABLE: f32 = 40.0;
+/// The chips at each end of the chain.
+pub(super) const CHIP_W: f32 = 112.0;
+pub(super) const CHIP_H: f32 = 28.0;
+/// Space round the chain inside the tray.
+pub(super) const PAD: f32 = 16.0;
+/// A port's radius.
+pub(super) const PORT: f32 = 4.0;
+
+/// How tall the detail panel needs to be for a whole card with its picture:
+/// the card, the tray's padding and room, and the panel's tabs.
+pub(crate) fn panel_height() -> f32 {
+    CARD_H + 2.0 * PAD + 2.0 * crate::theme::space::S + crate::DETAIL_CHROME
+}
+
+/// The card height when `room` points are free: the card shrinks (the
+/// picture first) until there is no picture, then stops.
+pub(super) fn card_height(room: f32) -> f32 {
+    room.clamp(HEADER + BODY + FOOTER, CARD_H)
+}
+
+/// The picture's height for a card `height` tall.
+pub(super) fn band(height: f32) -> f32 {
+    (height - HEADER - BODY - FOOTER).clamp(0.0, BAND)
+}
+
+/// The laid-out chain for `cards` devices, in a tray `height` tall.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Layout {
+    pub cards: usize,
+    pub card_h: f32,
+    /// The y of the cables and chips, from the tray's top.
+    pub cable_y: f32,
+    top: f32,
+}
+
+impl Layout {
+    pub fn new(cards: usize, tray_height: f32) -> Self {
+        let card_h = card_height(tray_height - 2.0 * PAD);
+        let top = ((tray_height - card_h) / 2.0).max(PAD.min(tray_height / 2.0));
+        Self {
+            cards,
+            card_h,
+            cable_y: top + card_h * 0.54,
+            top,
+        }
+    }
+
+    /// Where card `i` starts, from the chain's left edge.
+    fn card_x(&self, i: usize) -> f32 {
+        PAD + CHIP_W + CABLE + i as f32 * (CARD_W + CABLE)
+    }
+
+    pub fn card(&self, i: usize) -> Rect {
+        Rect::from_min_size(pos2(self.card_x(i), self.top), vec2(CARD_W, self.card_h))
+    }
+
+    pub fn input(&self) -> Rect {
+        Rect::from_min_size(pos2(PAD, self.cable_y - CHIP_H / 2.0), vec2(CHIP_W, CHIP_H))
+    }
+
+    pub fn output(&self) -> Rect {
+        // A cable past the last card (or past the input chip, when empty).
+        Rect::from_min_size(
+            pos2(self.card_x(self.cards), self.cable_y - CHIP_H / 2.0),
+            vec2(CHIP_W, CHIP_H),
+        )
+    }
+
+    /// The whole chain's width, with its padding.
+    pub fn width(&self) -> f32 {
+        self.output().right() + PAD
+    }
+
+    /// The cable segments, left to right: between the input chip, every
+    /// card and the output chip, as `(from x, to x)` at `cable_y`.
+    pub fn cables(&self) -> Vec<(f32, f32)> {
+        let mut ends = vec![(self.input().right(), 0.0)];
+        for i in 0..self.cards {
+            let card = self.card(i);
+            ends.last_mut().expect("the input is first").1 = card.left();
+            ends.push((card.right(), 0.0));
+        }
+        ends.last_mut().expect("the input is first").1 = self.output().left();
+        ends
+    }
+
+    /// The gap a pointer at `x` (from the chain's left edge) would drop
+    /// into: 0 is before the first card, `cards` after the last.
+    pub fn gap_at(&self, x: f32) -> usize {
+        (0..self.cards)
+            .find(|&i| x < self.card(i).center().x)
+            .unwrap_or(self.cards)
+    }
+
+    /// The x of the middle of gap `i`, where a drop line goes.
+    pub fn gap_x(&self, i: usize) -> f32 {
+        if i == 0 {
+            self.input().right() + CABLE / 2.0
+        } else {
+            self.card(i - 1).right() + CABLE / 2.0
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_cards_are_spaced_by_a_cable_and_the_output_follows_the_last() {
+        let layout = Layout::new(3, 330.0);
+        assert_eq!(layout.card(0).left(), PAD + CHIP_W + CABLE);
+        assert_eq!(layout.card(1).left() - layout.card(0).right(), CABLE);
+        assert_eq!(layout.output().left() - layout.card(2).right(), CABLE);
+        assert_eq!(layout.width(), layout.output().right() + PAD);
+    }
+
+    #[test]
+    fn an_empty_chain_is_two_chips_and_one_cable() {
+        let layout = Layout::new(0, 330.0);
+        let cables = layout.cables();
+        assert_eq!(cables.len(), 1);
+        assert_eq!(cables[0].0, layout.input().right());
+        assert_eq!(cables[0].1, layout.output().left());
+        assert_eq!(layout.output().left() - layout.input().right(), CABLE);
+    }
+
+    #[test]
+    fn a_cable_joins_every_pair() {
+        let layout = Layout::new(2, 330.0);
+        let cables = layout.cables();
+        assert_eq!(cables.len(), 3);
+        for (a, b) in &cables {
+            assert_eq!(b - a, CABLE);
+        }
+    }
+
+    #[test]
+    fn a_short_tray_loses_the_picture_before_the_card_shrinks_further() {
+        assert_eq!(card_height(1000.0), CARD_H);
+        assert_eq!(band(CARD_H), BAND);
+        assert_eq!(band(card_height(150.0)), 0.0);
+        assert_eq!(card_height(10.0), HEADER + BODY + FOOTER);
+        let mid = card_height(HEADER + BODY + FOOTER + 40.0);
+        assert_eq!(band(mid), 40.0);
+    }
+
+    #[test]
+    fn the_drop_gap_is_found_from_the_pointer() {
+        let layout = Layout::new(3, 330.0);
+        assert_eq!(layout.gap_at(0.0), 0);
+        assert_eq!(layout.gap_at(layout.card(0).center().x + 1.0), 1);
+        assert_eq!(layout.gap_at(layout.card(1).center().x + 1.0), 2);
+        assert_eq!(layout.gap_at(layout.card(2).right()), 3);
+        assert_eq!(layout.gap_x(0), layout.input().right() + CABLE / 2.0);
+        assert_eq!(layout.gap_x(3), layout.card(2).right() + CABLE / 2.0);
+    }
+}

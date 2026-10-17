@@ -1,6 +1,6 @@
 //! The detail panel's tabs and what each shows (M5 slice 3c extracted this
-//! from the frame loop): Devices arrive in Milestone 6, Clip is the MIDI
-//! note editor, Mixer is the channel strips.
+//! from the frame loop): Devices is the selected track's chain (M6 slice
+//! 2d), Clip is the MIDI note editor, Mixer is the channel strips.
 
 use eframe::egui::{self, Rect, Ui};
 
@@ -25,14 +25,13 @@ impl DetailTab {
 
 impl App {
     /// The tab row, as words over a sliding underline (the interface
-    /// audit's T4). Devices arrives with Milestone 6.
+    /// audit's T4).
     pub(crate) fn detail_tabs(&mut self, ui: &mut Ui) {
-        let devices = crate::arrives("Milestone 6");
         let tabs = [
             widgets::Tab {
                 label: "Devices",
-                disabled_because: Some(&devices),
-                tip: "",
+                disabled_because: None,
+                tip: "The devices on the selected track",
             },
             widgets::Tab {
                 label: "Clip",
@@ -48,6 +47,10 @@ impl App {
         let chosen = self.detail_tab.index();
         if let Some(picked) = widgets::tabs(ui, egui::Id::new("detail tabs"), chosen, &tabs) {
             self.detail_tab = DetailTab::ALL[picked];
+            if self.detail_tab == DetailTab::Devices {
+                // Tall enough for a whole card; the user can still drag it.
+                self.chain.grow = true;
+            }
         }
     }
 
@@ -80,7 +83,8 @@ impl App {
                     self.note_editor_surface(&mut child, content, crate::canvas::Surface::Docked);
                 }
             }
-            DetailTab::Devices | DetailTab::Mixer => {
+            DetailTab::Devices => self.devices_panel(&mut child, content),
+            DetailTab::Mixer => {
                 self.lend_cue_controls();
                 self.arrangement
                     .mixer_panel(&mut child, &mut self.document, &self.keymap);

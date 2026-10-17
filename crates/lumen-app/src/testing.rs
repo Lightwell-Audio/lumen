@@ -326,6 +326,55 @@ impl App {
         }
     }
 
+    /// How a plugin device's host is doing: `loading`, `ready`, `failed: ...`
+    /// or `missing`; none when the project holds no such device.
+    pub fn device_state(&self, device: Id) -> Option<String> {
+        use crate::hosting::State;
+        self.hosting.state(device).map(|s| match s {
+            State::Loading => "loading".to_owned(),
+            State::Ready => "ready".to_owned(),
+            State::Failed(why) => format!("failed: {why}"),
+            State::Missing => "missing".to_owned(),
+        })
+    }
+
+    /// Shows a plugin device as `loading`, `ready`, `failed` or `missing`
+    /// whatever its host is doing (screenshots of every card face).
+    pub fn pretend_device_state(&mut self, device: Id, state: &str) {
+        use crate::hosting::State;
+        self.hosting.pretend(
+            device,
+            match state {
+                "loading" => State::Loading,
+                "ready" => State::Ready,
+                "failed" => State::Failed(
+                    "Crashed while loading: access violation, exception 0xc0000005.".into(),
+                ),
+                _ => State::Missing,
+            },
+        );
+    }
+
+    /// The latency a plugin device last reported, in frames.
+    pub fn device_latency(&self, device: Id) -> Option<u32> {
+        self.hosting.latency(device)
+    }
+
+    /// Starts a failed device's host again, as its card's Reload will.
+    pub fn reload_device(&mut self, device: Id) {
+        self.hosting.reload(device);
+    }
+
+    /// Removes a device from a track, as the interface will (one undo step).
+    pub fn remove_device(&mut self, track: Id, device: Id) {
+        let _ = self.document.remove_device(track, device);
+    }
+
+    /// Bypasses or turns on a device, as the interface will.
+    pub fn set_device_bypass(&mut self, track: Id, device: Id, bypass: bool) {
+        let _ = self.document.set_device_bypass(track, device, bypass);
+    }
+
     /// The delay compensation the engine was last sent, in frames.
     pub fn compensation(&self) -> u32 {
         self.transport.audio.mixer.compensation().frames
@@ -800,6 +849,16 @@ impl App {
     /// The ids of the favorite devices, as the settings keep them.
     pub fn favorite_devices(&self) -> Vec<String> {
         self.settings.plugins.favorites.clone()
+    }
+
+    /// Selects these tracks, as clicking their headers would.
+    pub fn select_tracks(&mut self, ids: &[Id]) {
+        self.arrangement.selected = ids.to_vec();
+    }
+
+    /// The card chosen in the Devices tab, if one is.
+    pub fn chosen_card(&self) -> Option<Id> {
+        self.chain.selected
     }
 
     /// The ids of the recently chosen devices, most recent first.
