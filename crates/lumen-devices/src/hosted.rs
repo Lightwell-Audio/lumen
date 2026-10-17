@@ -9,8 +9,8 @@
 //!
 //! [`Guard`] adds the rules every user of a host shares: a block that cannot
 //! be answered is silence (or the unprocessed input, for an effect); a host
-//! that misses [`MISSES_BEFORE_FAILED`] blocks in a row, or whose process has
-//! ended, is failed for good; a changed latency is reported once. It tells the
+//! that stays late for [`FAILED_AFTER_FRAMES`] of audio in a row, or whose
+//! process has ended, is failed for good; a changed latency is reported once. It tells the
 //! interface what it learns through a [`Status`] of atomics. [`HostedInstrument`]
 //! plays a host as an [`Instrument`]. Everything here is real-time safe: no
 //! allocation, no lock, and the only wait is the one `collect` makes, bounded
@@ -24,8 +24,13 @@ use lumen_core::midi::{Event, Msg, cc};
 
 use crate::Instrument;
 
-/// Missed blocks in a row after which a host is failed (ADR-0069).
-pub const MISSES_BEFORE_FAILED: u32 = 3;
+/// Frames of audio a host may stay late for, in a row, before it is failed:
+/// about a second at 48 kHz. Blocks are silence (or the unprocessed input)
+/// meanwhile. A count of blocks would fail a plugin whose first blocks are slow
+/// (it fills its state, or loads samples) in a few milliseconds at small
+/// buffers; a span of audio does not depend on the buffer size (ADR-0069,
+/// amended).
+pub const FAILED_AFTER_FRAMES: u64 = 48_000;
 
 /// Why a host did not take a block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,7 +160,10 @@ pub struct Guard {
     host: Box<dyn Hosted>,
     /// A block was submitted and not yet collected.
     sent: bool,
-    missed: u32,
+    /// The frames of the block in flight.
+    frames: usize,
+    /// Frames of audio late in a row.
+    missed: u64,
     status: Arc<Status>,
 }
 
@@ -166,6 +174,7 @@ impl Guard {
         Self {
             host,
             sent: false,
+            frames: 0,
             missed: 0,
             status: Status::new(latency),
         }
@@ -209,6 +218,7 @@ impl Guard {
     /// [`Guard::finish`] answers [`Outcome::Silent`] at once.
     pub fn begin(&mut self, frames: usize, input: &[&[f32]], events: &[Event]) -> bool {
         self.sent = false;
+        self.frames = frames;
         if self.failed() {
             return false;
         }
@@ -272,9 +282,9 @@ impl Guard {
     }
 
     fn miss(&mut self) {
-        self.missed += 1;
+        self.missed += self.frames as u64;
         self.status.late.fetch_add(1, Ordering::Relaxed);
-        if self.missed >= MISSES_BEFORE_FAILED {
+        if self.missed >= FAILED_AFTER_FRAMES {
             self.fail();
         }
     }
@@ -555,26 +565,29 @@ mod tests {
     }
 
     #[test]
-    fn three_late_blocks_in_a_row_fail_the_host_and_an_answer_in_between_resets_the_count() {
-        let (host, seen) = Fake::new(vec![
-            Reply::Late,
-            Reply::Late,
-            READY,
-            Reply::Late,
-            Reply::Late,
-            Reply::Late,
-        ]);
+    fn a_second_of_late_audio_in_a_row_fails_the_host_and_an_answer_in_between_resets_it() {
+        // Blocks of 4 frames: the span is counted in audio, not blocks.
+        let per_second = (FAILED_AFTER_FRAMES / 4) as usize;
+        let mut script = vec![Reply::Late; per_second - 1];
+        script.push(READY);
+        script.extend(vec![Reply::Late; per_second]);
+        let (host, seen) = Fake::new(script);
         let mut guard = Guard::new(host, 0);
-        for _ in 0..2 {
+        for _ in 0..per_second - 1 {
             assert_eq!(run(&mut guard).0, Outcome::Silent);
         }
-        assert!(!guard.failed());
+        assert!(!guard.failed(), "a few milliseconds late is a glitch");
         assert_eq!(run(&mut guard).0, Outcome::Ready);
-        for _ in 0..3 {
+        for _ in 0..per_second - 1 {
             assert_eq!(run(&mut guard).0, Outcome::Silent);
         }
-        assert!(guard.failed(), "three in a row");
-        assert_eq!(guard.late_blocks(), 5);
+        assert!(
+            !guard.failed(),
+            "an answer in between started the count again"
+        );
+        assert_eq!(run(&mut guard).0, Outcome::Silent);
+        assert!(guard.failed(), "a second late in a row");
+        assert_eq!(guard.late_blocks(), (2 * per_second - 1) as u32);
         let asked = submits(&seen);
         assert_eq!(run(&mut guard).0, Outcome::Silent);
         assert_eq!(
@@ -589,7 +602,7 @@ mod tests {
         let (mut host, _) = Fake::new(vec![READY]);
         host.refuse = Some(Refused::Busy);
         let mut guard = Guard::new(host, 0);
-        for _ in 0..2 {
+        for _ in 0..FAILED_AFTER_FRAMES / 4 - 1 {
             assert_eq!(run(&mut guard).0, Outcome::Silent);
         }
         assert!(!guard.failed());

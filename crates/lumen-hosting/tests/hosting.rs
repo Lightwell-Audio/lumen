@@ -222,7 +222,7 @@ fn a_host_that_crashes_in_a_block_is_noticed_and_the_guard_fails_it() {
 }
 
 #[test]
-fn a_host_that_hangs_misses_three_blocks_and_is_failed_and_forgetting_it_kills_it() {
+fn a_host_that_hangs_is_failed_after_a_second_of_late_audio_and_forgetting_it_kills_it() {
     let mut manager = manager();
     manager.want(1, instrument("process_hang@2")).unwrap();
     let linked = linked(&mut manager, 1);
@@ -230,17 +230,18 @@ fn a_host_that_hangs_misses_three_blocks_and_is_failed_and_forgetting_it_kills_i
     assert!(exists(pid));
     let mut guard = Guard::new(Box::new(linked.link), linked.latency);
     let status = guard.status();
-    let (mut l, mut r) = (vec![0.0; 64], vec![0.0; 64]);
+    let (mut l, mut r) = (vec![0.0; 8192], vec![0.0; 8192]);
     let mut blocks = 0;
+    // Long blocks, so a second of audio is a handful of them.
     while !status.failed() && blocks < 12 {
         let deadline = Instant::now() + Duration::from_millis(60);
-        if guard.begin(64, &[], &pattern(blocks)) {
+        if guard.begin(8192, &[], &pattern(blocks)) {
             guard.finish(deadline, &mut l, &mut r);
         }
         blocks += 1;
     }
     assert!(status.failed(), "still trying after {blocks} blocks");
-    assert!(blocks <= 6, "{blocks} blocks to give up on a hung host");
+    assert!(blocks <= 9, "{blocks} blocks to give up on a hung host");
     manager.forget(1);
     assert!(
         gone_within(pid, Duration::from_secs(10)),

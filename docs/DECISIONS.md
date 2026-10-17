@@ -6494,6 +6494,21 @@ three-late-blocks rule (ADR-0069) is the likeliest reason RP-3 failed and is
 the owner's to decide: recommended, fail only after about a second of late
 blocks in a row, so a slow first block is a glitch, not a kill.
 
+**Fourth amendment, 2026-10-17 (the failure rule changed; the owner's report: a
+plugin dropped on the chain shows "Stopped responding").** The card for RP-3
+read "block 1 (128 frames) took ..." and then failed: the guard gave up after
+three late blocks in a row, which at 128 frames and 48 kHz is 8 ms. A plugin
+that fills its state or loads samples in its first blocks is late for longer
+than that and was ended while it was starting up. The rule is now a span of
+audio, not a count of blocks: `FAILED_AFTER_FRAMES` (48,000 frames, about a
+second at 48 kHz) of late audio in a row, whatever the buffer size; an answer
+in time starts the count again. Meanwhile blocks are silence (or the
+unprocessed input) as before, a host whose process ended still fails at once,
+and the guard's tests, the engine's and the hosted-effects test run a second of
+audio to see it fail. This is the change the third amendment recommended, made
+at the owner's report; ADR-0069's rule of three is superseded, the rest of
+ADR-0069 stands, and the constant stays under MT-VST-2.
+
 **Not built, and said so.** Moving between cards with the arrow keys (cards
 and their power buttons are Tab stops); reordering, copying and the preset menu
 (slice 3); the master's chain (a refusal says so); snapshots of the plugin's own

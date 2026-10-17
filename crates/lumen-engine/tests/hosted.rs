@@ -395,7 +395,7 @@ fn stop_and_a_loop_wrap_let_go_of_what_the_host_is_holding() {
 }
 
 #[test]
-fn a_host_that_misses_is_silent_and_fails_after_three_and_the_other_tracks_play_on() {
+fn a_host_that_misses_is_silent_and_fails_after_a_second_and_the_other_tracks_play_on() {
     let reference = {
         let track = MidiTrack::new(
             2,
@@ -405,7 +405,7 @@ fn a_host_that_misses_is_silent_and_fails_after_three_and_the_other_tracks_play_
         );
         let mut rig = rig(Timeline::default(), 48_000, vec![track]);
         rig.play();
-        impulses(&rig.run(48_000, 128))
+        impulses(&rig.run(144_000, 128))
     };
     // A host that takes 200 ms to answer a block of 128 frames.
     let (slow, status) = hosted(FakeHost::new(Duration::from_millis(200), false, None));
@@ -423,12 +423,12 @@ fn a_host_that_misses_is_silent_and_fails_after_three_and_the_other_tracks_play_
     );
     let mut rig = rig(Timeline::default(), 48_000, vec![slow_track, fast_track]);
     rig.play();
-    let found = impulses(&rig.run(48_000, 128));
+    let found = impulses(&rig.run(144_000, 128));
     assert_eq!(
         found, reference,
         "only the built-in track is heard, exactly"
     );
-    assert!(status.failed(), "three missed blocks in a row");
+    assert!(status.failed(), "a second of missed blocks in a row");
     assert!(status.late_blocks() >= 3);
 }
 

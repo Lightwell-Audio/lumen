@@ -350,8 +350,8 @@ fn a_host_that_fails_is_replaced_by_its_fallback_at_the_same_time() {
     let (effect, _) = FakeEffect::new(Mode::Late, latency);
     let status = rig.attach(7, effect, latency);
     rig.play();
-    let out = rig.run(20_000, 128);
-    assert!(status.failed(), "three late blocks in a row");
+    let out = rig.run(60_000, 128);
+    assert!(status.failed(), "a second of late blocks in a row");
     assert_matches(&out, 0, 2_000, "the fallback", |n| r[n - 32]);
 }
 
