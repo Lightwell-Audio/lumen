@@ -6932,7 +6932,12 @@ Decisions that went beyond the spike:
   open) looks at the program in front: this process, its parent (Lumen), or a
   process with the same parent (another host) means on top; anything else
   means not. No traffic from Lumen's window thread, and several editors raise
-  each other correctly.
+  each other correctly. *Amended (owner, 2026-10-17):* only an editor in front
+  means on top. Lumen in front puts the editor directly behind Lumen's window,
+  so a click on Lumen brings Lumen over the editor (the editor's deactivation
+  does it at once; the timer catches the rest). Cost: a Lumen window that
+  covers an editor completely hides it, and it has no taskbar button; the
+  card's button closes and reopens it where it was.
 - *Where it opens.* The place (outer corner) and content size are kept per
   plugin class in the app settings (`settings.plugins.editors`, an added field,
   no version change); the host opens there if a screen still shows the
