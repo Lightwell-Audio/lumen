@@ -2,6 +2,31 @@
 
 ## Status
 
+**M6 slice 2 (the first complete device workflow) is built, report 2026-10-17**
+on `m6-s2-device-chain` (merged, PR #26) and `m6-s2-chain-states` (ADR-0070 to
+ADR-0072; plan and progress in `docs/milestones/M6.md`). *Shipped:* format v17;
+`Document::{add_device, remove_device, set_device_bypass}` (one undo step each);
+the engine's host path for hosted instruments and effects (fake hosts); the
+hosting manager (`lumen-hosting`, one `lumen-plugin-host` process per device,
+loaded in the background); the Devices tab (cards in four faces, browser
+double-click and drag, `devices.add`, `devices.remove`, `devices.bypass`);
+failed and missing cards with Reload and Rescan; 14 device E2E scenarios plus
+hosting scenarios, all against the real host and the test plugin. *Verified:*
+workspace clippy, the macOS cross-clippy, 374 E2E and 6 smoke on Windows; the
+WSL performance gate and RealtimeSanitizer at 2b and 2c. *Owner:* the MT-VST-2
+walkthrough passed ("everything is good"), reported without step detail or
+numbers. *Deferred:* the ADR-0069 measurements (the whole callback with hosts at
+64 and 128 frames; recording with monitoring through an effect, with loopback
+latency) were **not taken**, so **the callback's bounded wait stays on trial**
+and the pipelined path stays the fallback; the sample-rate-change reaction with
+plugins loaded is untested in the app; real plugins RP-1 to RP-4 failed in
+earlier runs and their reload result is unreported. *Not run:* macOS, any run
+of the new scenarios on Linux, the WSL performance gate after 2e (tests only).
+*Risks:* the trial's outcome decides the latency of monitoring through
+effects; real-plugin compatibility is unknown beyond one passing editor spike.
+Slice 3 (chain editing) may start; the measurements are due before the M6
+report and before ADR-0069 leaves "on trial".
+
 **M6 slice 1 (plugin discovery) built 2026-10-16** on `m6-s1-plugin-scan`
 (ADR-0068; plan in `docs/milestones/M6.md`). Startup scan in the background, a
 child process per module with a deadline, a cache keyed by file stamp, a
@@ -68,7 +93,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 4 | Mixer, Routing & Groups | ✅ Complete 2026-10-10 (review fixes merged, PR #3) | Plan: `docs/milestones/M4.md` |
 | 4.5 | Polish pass (mid milestone: the interface audit's fixes) | 🟡 Built 2026-10-10; MT-POL-5 and 6 wait | Plan: `docs/milestones/M4.5.md`; audit: `docs/audits/2026-10-10-design.md` |
 | 5 | MIDI & Piano Roll | 🟡 Approved 2026-10-10; slices 0 to 7 built, slice 8 underway (review done); MT-MIDI-7, MT-MIDI-8 and MT-MIDI-9 wait | Plan: `docs/milestones/M5.md` |
-| 6 | VST3 Hosting & Device System | 🟡 Started 2026-10-15 at the owner's instruction; slice 0 complete 2026-10-16 (report below; ADR-0069 accepted, the callback's wait on trial) and slice 1 built (MT-VST-1 passed on Windows, owner-reported); slice 2 next | Plan: [milestones/M6.md](milestones/M6.md); M5 closeout (MT-MIDI-7 to 9, the report) remains pending and is not marked passed |
+| 6 | VST3 Hosting & Device System | 🟡 Started 2026-10-15 at the owner's instruction; slice 0 complete 2026-10-16 (report below; ADR-0069 accepted, the callback's wait on trial) and slice 1 built (MT-VST-1 passed on Windows, owner-reported); slice 2 built and its walkthrough passed (owner-reported; ADR-0069 measurements outstanding); slice 3 next | Plan: [milestones/M6.md](milestones/M6.md); M5 closeout (MT-MIDI-7 to 9, the report) remains pending and is not marked passed |
 | 7 | Automation, Envelopes & Advanced Editing | 🔲 | |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | |
 | 9 | Recording, Media, Export & Production Workflow | 🔲 | |
