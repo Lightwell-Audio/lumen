@@ -118,6 +118,8 @@ pub struct Instance {
     in_buses: usize,
     out_buses: usize,
     notes: NoteIds,
+    /// Silence for the buses that are off to point at (see `empty_bus`).
+    spare: Vec<f32>,
     format: Option<Format>,
     processing: bool,
     latency: u32,
@@ -176,13 +178,16 @@ impl NoteIds {
 /// instruments declare a handful to a few dozen.
 const MAX_BUSES: usize = 32;
 
-/// A bus entry with nothing in it: what an off bus is given.
-fn empty_bus() -> AudioBusBuffers {
+/// A bus entry with no channels: what an off bus is given. Its buffer list is
+/// never null: a plugin that walks the list of a bus it has off, without
+/// looking at the count, would otherwise read through a null pointer, as one
+/// widely used synthesizer does. The list points at silence.
+fn empty_bus(buffers: *mut *mut f32) -> AudioBusBuffers {
     AudioBusBuffers {
         numChannels: 0,
         silenceFlags: 0,
         __field0: AudioBusBuffers__type0 {
-            channelBuffers32: ptr::null_mut(),
+            channelBuffers32: buffers,
         },
     }
 }
@@ -325,6 +330,7 @@ impl Instance {
             in_buses: 0,
             out_buses: 0,
             notes: NoteIds::new(),
+            spare: Vec::new(),
             format: None,
             processing: false,
             latency: 0,
@@ -601,8 +607,11 @@ impl Instance {
 
         // An entry for every bus the plugin declares; only the main bus of
         // each direction carries audio, the rest are off (no channels).
-        let mut in_buses = [empty_bus(); MAX_BUSES];
-        let mut out_buses = [empty_bus(); MAX_BUSES];
+        // The silence the off buses point at: as long as a block can be.
+        self.spare.resize(format.max_frames as usize, 0.0);
+        let mut spare_ptrs = [self.spare.as_mut_ptr(); MAX_CHANNELS];
+        let mut in_buses = [empty_bus(spare_ptrs.as_mut_ptr()); MAX_BUSES];
+        let mut out_buses = [empty_bus(spare_ptrs.as_mut_ptr()); MAX_BUSES];
         if ins > 0 {
             in_buses[0] = AudioBusBuffers {
                 numChannels: ins as i32,

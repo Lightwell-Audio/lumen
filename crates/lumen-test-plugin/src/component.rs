@@ -320,6 +320,18 @@ impl IAudioProcessorTrait for Processor {
         if self.faults.has(Fault::AuxBuses) && data.numOutputs != 4 {
             faults::crash();
         }
+        if self.faults.has(Fault::AuxBuses) {
+            // And it walks each bus's buffer list without looking at the
+            // channel count, the way a widely used synthesizer does: a null
+            // list, for a bus that is off, takes it down.
+            for bus in 0..4 {
+                // SAFETY: the host passed four entries (checked above).
+                let list = unsafe { (*data.outputs.add(bus)).__field0.channelBuffers32 };
+                if list.is_null() {
+                    faults::crash();
+                }
+            }
+        }
         if self.faults.has(Fault::ReportsParams) {
             // SAFETY: the host's list, valid or null.
             let list = unsafe { ComRef::from_raw(data.outputParameterChanges) };

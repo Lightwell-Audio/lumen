@@ -36,7 +36,7 @@ fn a_plugin_that_asks_the_host_for_a_message_object_gets_one() {
 }
 
 #[test]
-fn a_plugin_with_auxiliary_outputs_is_given_every_bus_each_block() {
+fn a_plugin_with_auxiliary_outputs_is_given_every_bus_each_block_with_a_buffer_list_for_each() {
     let mut host = instrument("aux_buses");
     let block = host
         .process(

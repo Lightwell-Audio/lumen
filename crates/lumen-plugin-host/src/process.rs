@@ -209,6 +209,85 @@ pub fn report_crashes() {
                 &mut written,
                 std::ptr::null_mut(),
             );
+            // What the plugin held and ran at the fault, and where it was
+            // called from, for a plugin that cannot be looked at any other
+            // way (x86-64 only).
+            #[cfg(target_arch = "x86_64")]
+            {
+                let context = &*(*info).ContextRecord;
+                let mut detail = Line {
+                    bytes: [0; 512],
+                    len: 0,
+                };
+                let _ = writeln!(
+                    detail,
+                    "{LOG_PREFIX}regs rax={:x} rcx={:x} rdx={:x} rbx={:x} rsi={:x} rdi={:x} r8={:x} r9={:x}",
+                    context.Rax,
+                    context.Rcx,
+                    context.Rdx,
+                    context.Rbx,
+                    context.Rsi,
+                    context.Rdi,
+                    context.R8,
+                    context.R9
+                );
+                WriteFile(
+                    GetStdHandle(STD_ERROR_HANDLE),
+                    detail.bytes.as_ptr(),
+                    detail.len as u32,
+                    &mut written,
+                    std::ptr::null_mut(),
+                );
+                detail.len = 0;
+                let _ = write!(detail, "{LOG_PREFIX}code ");
+                let code_at = context.Rip as *const u8;
+                // Some of the bytes before the fault and the ones after.
+                for i in -8_isize..8 {
+                    let _ = write!(detail, "{:02x}", *code_at.offset(i));
+                    if i == -1 {
+                        let _ = detail.write_char('|');
+                    }
+                }
+                let _ = detail.write_char('\n');
+                WriteFile(
+                    GetStdHandle(STD_ERROR_HANDLE),
+                    detail.bytes.as_ptr(),
+                    detail.len as u32,
+                    &mut written,
+                    std::ptr::null_mut(),
+                );
+                // Words on the stack that point into the module that died:
+                // the calls it was inside.
+                detail.len = 0;
+                let _ = write!(detail, "{LOG_PREFIX}stack");
+                let (base, size) = if found {
+                    let mut size = 0;
+                    let header = module as *const u8;
+                    // The PE header's image size, at a fixed offset.
+                    let pe = *(header.add(0x3c) as *const u32) as usize;
+                    size = size.max(*(header.add(pe + 0x18 + 0x38) as *const u32) as usize);
+                    (module as usize, size)
+                } else {
+                    (0, 0)
+                };
+                let sp = context.Rsp as *const usize;
+                let mut seen = 0;
+                for i in 0..512 {
+                    let word = *sp.add(i);
+                    if word > base && word < base + size && seen < 14 {
+                        let _ = write!(detail, " +{:x}", word - base);
+                        seen += 1;
+                    }
+                }
+                let _ = detail.write_char('\n');
+                WriteFile(
+                    GetStdHandle(STD_ERROR_HANDLE),
+                    detail.bytes.as_ptr(),
+                    detail.len as u32,
+                    &mut written,
+                    std::ptr::null_mut(),
+                );
+            }
             TerminateProcess(GetCurrentProcess(), code);
         }
         // Not reached; if it were, the system would end the process.

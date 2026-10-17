@@ -19,7 +19,7 @@
 //! | `bad_params` | the controller reports millions of duplicate parameters |
 //! | `needs_message` | `initialize` asks the host for a message object (and its attribute list) and crashes if it gets none: what plugins with a separate controller do |
 //! | `reports_params` | `process` reports a parameter change through the host's output list and crashes if the host gives it no queue to put it in: what plugins that report their own edits do |
-//! | `aux_buses` | the instrument declares one main and three auxiliary output buses (the auxiliary ones off by default) and crashes in `process` unless the host passes all four |
+//! | `aux_buses` | the instrument declares one main and three auxiliary output buses (the auxiliary ones off by default) and crashes in `process` unless the host passes all four, each with a buffer list that is not null even when the bus is off |
 //! | `editor` | the controller offers an editor view (Windows): a text field to type in, a resize button, user resizing and a scale readout; without it there is no view |
 //! | `editor_hang=MS` | as `editor`, and the editor's window thread stops answering `MS` milliseconds after it is attached |
 //!

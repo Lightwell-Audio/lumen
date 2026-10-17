@@ -6509,6 +6509,23 @@ audio to see it fail. This is the change the third amendment recommended, made
 at the owner's report; ADR-0069's rule of three is superseded, the rest of
 ADR-0069 stands, and the constant stays under MT-VST-2.
 
+**Fifth amendment, 2026-10-17 (a fourth real plugin, RP-4, an instrument, ended
+its host on its first block).** Reproduced on the owner's machine by driving
+the plugin from a small probe (not kept): the host died on the first block, with
+no note played, reading address 0x0 at one instruction, `mov rax,[r9+r8*8]` with
+both registers zero, which is `channelBuffers32[0]` read through a null list.
+The host gave a bus that is off (and every auxiliary bus) `numChannels` 0 and a
+null buffer list; the plugin walks the list without looking at the count. Now
+every off bus is given a list that is never null, pointing at a silent spare
+buffer as long as a block (`empty_bus`, `Instance::spare`), the channel count
+still 0. The test plugin's `aux_buses` behaviour now walks each bus's list and
+crashes on a null one: the conformance test failed before the change and passes
+after. The crash report also carries the registers, the bytes at the fault and
+the stack words that point into the dead module (`regs`, `code`, `stack` lines,
+shown in the card's tooltip), which is how this was found. **Not verified:**
+that the plugin sounds right: with nothing loaded in it (no editor until slice
+3) it is silent, and 300 blocks with a note ran without a crash.
+
 **Not built, and said so.** Moving between cards with the arrow keys (cards
 and their power buttons are Tab stops); reordering, copying and the preset menu
 (slice 3); the master's chain (a refusal says so); snapshots of the plugin's own
