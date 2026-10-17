@@ -39,6 +39,21 @@ fn until_shown(lumen: &mut Lumen, label: &str, shown: bool) {
     );
 }
 
+/// Runs frames until the switch named `label` is (or is no longer) on. A
+/// switch shows the MIDI worker's published state, which follows a click
+/// only after a round trip to that thread: never read it straight after one.
+#[track_caller]
+fn until_on(lumen: &mut Lumen, label: &str, on: bool) {
+    for _ in 0..400 {
+        lumen.frames(1);
+        if lumen.is_on(label) == on {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    panic!("{label:?} never turned {}", if on { "on" } else { "off" });
+}
+
 #[test]
 fn with_no_devices_the_page_says_so() {
     let fake = FakeControl::new();
@@ -72,7 +87,7 @@ fn a_switch_opens_the_port_and_is_remembered_with_the_device() {
     until_shown(&mut lumen, "Track Keystation input", true);
     assert_eq!(fake.open_inputs(), 0, "off until switched on");
     lumen.click("Track Keystation input");
-    assert!(lumen.is_on("Track Keystation input"));
+    until_on(&mut lumen, "Track Keystation input", true);
     for _ in 0..200 {
         if fake.open_inputs() == 1 {
             break;
@@ -100,7 +115,7 @@ fn a_switch_opens_the_port_and_is_remembered_with_the_device() {
         std::thread::sleep(Duration::from_millis(5));
     }
     assert_eq!(fake.open_inputs(), 1);
-    assert!(lumen.is_on("Track Keystation input"));
+    until_on(&mut lumen, "Track Keystation input", true);
 }
 
 #[test]
@@ -111,13 +126,15 @@ fn remote_and_track_are_separate_switches() {
     open_midi_page(&mut lumen);
     until_shown(&mut lumen, "Remote Pad input", true);
     lumen.click("Remote Pad input");
-    assert!(lumen.is_on("Remote Pad input"));
+    until_on(&mut lumen, "Remote Pad input", true);
     assert!(!lumen.is_on("Track Pad input"));
     assert_eq!(
         lumen.app().saved_midi_ports(),
         [("input".to_owned(), "Pad".to_owned(), false, true)]
     );
+    // The second click reads the switch as shown, so it must show on first.
     lumen.click("Remote Pad input");
+    until_on(&mut lumen, "Remote Pad input", false);
     assert!(
         lumen.app().saved_midi_ports().is_empty(),
         "off everywhere: forgotten"
