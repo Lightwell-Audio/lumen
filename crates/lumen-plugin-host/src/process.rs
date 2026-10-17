@@ -69,6 +69,156 @@ pub fn end_now(code: u32) -> ! {
     std::process::exit(code as i32)
 }
 
+/// What the host says about itself on stderr, where Lumen collects it: one
+/// line, prefixed so it is told from what a plugin prints.
+pub const LOG_PREFIX: &str = "lumen-host: ";
+
+pub fn log(line: &str) {
+    eprintln!("{LOG_PREFIX}{line}");
+}
+
+/// Makes denormal floats flush to zero on the calling thread (the audio
+/// thread). Hosts do this, and plugins with feedback paths (physical models,
+/// reverbs, filters) are written to expect it: without it their tails decay
+/// through denormals, which cost a hundred times as much, and a block that
+/// should take a fraction of a millisecond takes several.
+pub fn flush_denormals() {
+    #[cfg(target_arch = "x86_64")]
+    {
+        let mut csr: u32 = 0;
+        // SAFETY: reads and writes this thread's SSE control register; the
+        // bits set are flush-to-zero (15) and denormals-are-zero (6).
+        unsafe {
+            std::arch::asm!("stmxcsr [{}]", in(reg) &mut csr, options(nostack));
+            csr |= 0x8040;
+            std::arch::asm!("ldmxcsr [{}]", in(reg) &csr, options(nostack));
+        }
+    }
+    #[cfg(target_arch = "aarch64")]
+    {
+        // SAFETY: sets the flush-to-zero bit (24) of this thread's FPCR.
+        unsafe {
+            let mut fpcr: u64;
+            std::arch::asm!("mrs {}, fpcr", out(reg) fpcr, options(nomem, nostack));
+            fpcr |= 1 << 24;
+            std::arch::asm!("msr fpcr, {}", in(reg) fpcr, options(nomem, nostack));
+        }
+    }
+}
+
+/// On Windows, says where a crash happened: the exception, the module the
+/// faulting code is in and its offset into it, and for an access violation
+/// what was touched. It tells Lumen whether the plugin or the host died, and
+/// where. The process then ends with the exception code as its exit code, as
+/// it would have without this. Written without allocating, with whatever
+/// state the crash left.
+#[cfg(windows)]
+pub fn report_crashes() {
+    use std::fmt::Write as _;
+    use windows_sys::Win32::Foundation::HMODULE;
+    use windows_sys::Win32::Storage::FileSystem::WriteFile;
+    use windows_sys::Win32::System::Console::{GetStdHandle, STD_ERROR_HANDLE};
+    use windows_sys::Win32::System::Diagnostics::Debug::{
+        EXCEPTION_POINTERS, SetUnhandledExceptionFilter,
+    };
+    use windows_sys::Win32::System::LibraryLoader::{
+        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        GetModuleFileNameW, GetModuleHandleExW,
+    };
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, TerminateProcess};
+
+    /// A line built in a fixed buffer.
+    struct Line {
+        bytes: [u8; 512],
+        len: usize,
+    }
+    impl std::fmt::Write for Line {
+        fn write_str(&mut self, s: &str) -> std::fmt::Result {
+            let room = self.bytes.len() - self.len;
+            let take = s.len().min(room);
+            self.bytes[self.len..self.len + take].copy_from_slice(&s.as_bytes()[..take]);
+            self.len += take;
+            Ok(())
+        }
+    }
+
+    unsafe extern "system" fn filter(info: *const EXCEPTION_POINTERS) -> i32 {
+        // SAFETY: the system passes valid exception pointers.
+        let (code, at, record) = unsafe {
+            let record = &*(*info).ExceptionRecord;
+            (
+                record.ExceptionCode as u32,
+                record.ExceptionAddress as usize,
+                record,
+            )
+        };
+        let mut line = Line {
+            bytes: [0; 512],
+            len: 0,
+        };
+        let _ = write!(line, "{LOG_PREFIX}crash in ");
+        let mut module: HMODULE = std::ptr::null_mut();
+        // SAFETY: a plain call; the flags ask for the module holding `at`
+        // without taking a reference.
+        let found = unsafe {
+            GetModuleHandleExW(
+                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                    | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                at as *const u16,
+                &mut module,
+            )
+        } != 0;
+        if found {
+            let mut name = [0_u16; 260];
+            // SAFETY: a buffer of the length given.
+            let n = unsafe { GetModuleFileNameW(module, name.as_mut_ptr(), name.len() as u32) }
+                as usize;
+            // The file's own name: after the last separator.
+            let start = name[..n]
+                .iter()
+                .rposition(|&c| c == u16::from(b'\\') || c == u16::from(b'/'))
+                .map_or(0, |i| i + 1);
+            for c in char::decode_utf16(name[start..n].iter().copied()) {
+                let _ = line.write_char(c.unwrap_or('?'));
+            }
+            let _ = write!(line, "+{:#x}", at - module as usize);
+        } else {
+            let _ = write!(line, "an unknown module at {at:#x}");
+        }
+        // An access violation says whether it read, wrote or ran, and where.
+        if code == 0xC000_0005 && record.NumberParameters >= 2 {
+            let what = match record.ExceptionInformation[0] {
+                0 => "reading",
+                1 => "writing",
+                _ => "running",
+            };
+            let _ = write!(
+                line,
+                ", {what} address {:#x}",
+                record.ExceptionInformation[1]
+            );
+        }
+        let _ = line.write_char('\n');
+        // SAFETY: plain calls; the buffer holds `len` bytes.
+        unsafe {
+            let mut written = 0;
+            WriteFile(
+                GetStdHandle(STD_ERROR_HANDLE),
+                line.bytes.as_ptr(),
+                line.len as u32,
+                &mut written,
+                std::ptr::null_mut(),
+            );
+            TerminateProcess(GetCurrentProcess(), code);
+        }
+        // Not reached; if it were, the system would end the process.
+        0
+    }
+
+    // SAFETY: installs the filter for the process; it is our own.
+    unsafe { SetUnhandledExceptionFilter(Some(filter)) };
+}
+
 /// Gives the calling thread COM, as a plugin on Windows expects of its host
 /// (the VST3 hosting notes ask for it): single-threaded for the thread that
 /// creates and sets up plugins, multi-threaded for the one that processes

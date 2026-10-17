@@ -43,6 +43,9 @@ pub enum Step {
 pub struct Failure {
     pub step: Step,
     pub error: HostError,
+    /// Where the plugin died, when the host could say ("in Name.dll+0x1f2a,
+    /// reading address 0x0"): it tells a plugin's fault from the host's.
+    pub detail: Option<String>,
 }
 
 impl Step {
@@ -89,7 +92,12 @@ impl fmt::Display for Failure {
             HostError::Ended(ExitKind::Crashed(how)) => {
                 let cause = ExitKind::Crashed(how.clone()).to_string();
                 let cause = cause.strip_prefix("it crashed: ").unwrap_or(&cause);
-                write!(f, "Crashed while {}: {cause}.", self.step.doing())
+                match &self.detail {
+                    Some(detail) => {
+                        write!(f, "Crashed while {}: {cause}, {detail}.", self.step.doing())
+                    }
+                    None => write!(f, "Crashed while {}: {cause}.", self.step.doing()),
+                }
             }
             HostError::Timeout => write!(f, "The plugin did not answer while trying to {what}."),
             HostError::Ended(how) => {
@@ -187,6 +195,9 @@ pub struct Linked {
     pub latency: u32,
     pub tail: u32,
     pub pid: u32,
+    /// What the host says about itself: how long its first blocks took, and
+    /// where it died if it does. For the card when the plugin is given up on.
+    pub log: Arc<lumen_plugin_host::client::HostLog>,
 }
 
 impl fmt::Debug for Linked {
@@ -308,6 +319,26 @@ struct Run {
     counts: Arc<Counts>,
 }
 
+/// Where a crashed host said it died. The host writes the line as it goes
+/// down and Lumen reads it from the pipe a moment later, so look for it for
+/// a short while.
+fn crash_detail(host: &HostProcess, error: &HostError) -> Option<String> {
+    if !matches!(
+        error,
+        HostError::Ended(lumen_plugin_host::client::ExitKind::Crashed(_))
+    ) {
+        return None;
+    }
+    let log = host.log();
+    for _ in 0..20 {
+        if let Some(line) = log.crash() {
+            return Some(line);
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    None
+}
+
 struct Up {
     host: HostProcess,
     name: String,
@@ -359,9 +390,12 @@ impl Run {
                     .host
                     .ended()
                     .unwrap_or(lumen_plugin_host::client::ExitKind::Killed);
+                let error = HostError::Ended(how);
+                let detail = crash_detail(&up.host, &error);
                 self.say(Happened::Failed(Failure {
                     step: Step::Running,
-                    error: HostError::Ended(how),
+                    error,
+                    detail,
                 }));
                 return;
             }
@@ -371,7 +405,12 @@ impl Run {
     fn fail(&self, host: &mut HostProcess, step: Step, error: HostError) -> Failure {
         self.ended.store(true, Ordering::Release);
         host.kill();
-        Failure { step, error }
+        let detail = crash_detail(host, &error);
+        Failure {
+            step,
+            error,
+            detail,
+        }
     }
 
     fn load(&self) -> Result<(Up, Linked), Failure> {
@@ -387,6 +426,7 @@ impl Run {
                 kind: lumen_plugin_host::protocol::FailureKind::Load,
                 message: e.to_string(),
             },
+            detail: None,
         })?;
         let class = host
             .load(&s.module, Some(s.class), s.deadlines.load)
@@ -435,6 +475,7 @@ impl Run {
             latency,
             tail,
             pid: up.host.id(),
+            log: up.host.log(),
         })
     }
 
@@ -452,14 +493,25 @@ mod tests {
         let failure = Failure {
             step: Step::Load,
             error: HostError::Ended(ExitKind::Crashed("exception 0xc0000005".into())),
+            detail: None,
         };
         assert_eq!(
             failure.to_string(),
             "Crashed while loading: access violation, exception 0xc0000005."
         );
+        let located = Failure {
+            step: Step::Running,
+            error: HostError::Ended(ExitKind::Crashed("exception 0xc0000005".into())),
+            detail: Some("in Plug.dll+0x1f2a, reading address 0x0".into()),
+        };
+        assert_eq!(
+            located.to_string(),
+            "Crashed while running: access violation, exception 0xc0000005, in Plug.dll+0x1f2a, reading address 0x0."
+        );
         let timeout = Failure {
             step: Step::Configure,
             error: HostError::Timeout,
+            detail: None,
         };
         assert!(timeout.to_string().contains("did not answer"));
     }
@@ -494,6 +546,7 @@ mod tests {
         let hung = Failure {
             step: Step::Load,
             error: HostError::Timeout,
+            detail: None,
         };
         assert!(hung.hung() && !hung.crashed());
         assert!(hung.to_string().contains("did not answer"));

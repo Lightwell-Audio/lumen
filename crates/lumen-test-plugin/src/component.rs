@@ -320,6 +320,23 @@ impl IAudioProcessorTrait for Processor {
         if self.faults.has(Fault::AuxBuses) && data.numOutputs != 4 {
             faults::crash();
         }
+        if self.faults.has(Fault::ReportsParams) {
+            // SAFETY: the host's list, valid or null.
+            let list = unsafe { ComRef::from_raw(data.outputParameterChanges) };
+            let Some(list) = list else {
+                faults::crash();
+            };
+            let (id, mut index) = (7_u32, 0_i32);
+            // SAFETY: valid id and index pointers.
+            let queue = unsafe { list.addParameterData(&id, &mut index) };
+            // SAFETY: null, or a queue owned by the list.
+            let Some(queue) = (unsafe { ComRef::from_raw(queue) }) else {
+                faults::crash();
+            };
+            let mut at = 0_i32;
+            // SAFETY: a live queue and a valid out pointer.
+            unsafe { queue.addPoint(0, 0.5, &mut at) };
+        }
         let frames = data.numSamples.max(0) as usize;
 
         let mut changes = [Timed {

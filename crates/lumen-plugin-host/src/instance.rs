@@ -117,11 +117,59 @@ pub struct Instance {
     /// carries an entry for every one, those that are off included.
     in_buses: usize,
     out_buses: usize,
+    notes: NoteIds,
     format: Option<Format>,
     processing: bool,
     latency: u32,
     // Kept alive for the component's life.
     _host: ComPtr<vst3::Steinberg::Vst::IHostApplication>,
+}
+
+/// Hands out the ids that tie a note-off to its note-on: samplers key their
+/// voices by note id, and a host that gives every event -1 leaves them
+/// guessing which voice to release.
+pub(crate) struct NoteIds {
+    /// The id of the note sounding on each channel and pitch, or -1.
+    held: Vec<i32>,
+    next: i32,
+}
+
+impl NoteIds {
+    const CHANNELS: usize = 16;
+    const PITCHES: usize = 128;
+
+    pub(crate) fn new() -> Self {
+        Self {
+            held: vec![-1; Self::CHANNELS * Self::PITCHES],
+            next: 0,
+        }
+    }
+
+    fn slot(channel: i16, pitch: i16) -> Option<usize> {
+        let (c, p) = (usize::try_from(channel).ok()?, usize::try_from(pitch).ok()?);
+        (c < Self::CHANNELS && p < Self::PITCHES).then_some(c * Self::PITCHES + p)
+    }
+
+    /// A new id for a note starting on `channel` and `pitch`.
+    pub(crate) fn on(&mut self, channel: i16, pitch: i16) -> i32 {
+        let id = self.next;
+        self.next = self.next.wrapping_add(1).max(0);
+        if let Some(slot) = Self::slot(channel, pitch) {
+            self.held[slot] = id;
+        }
+        id
+    }
+
+    /// The id the note ending on `channel` and `pitch` began with, or -1
+    /// when it is not known.
+    pub(crate) fn off(&mut self, channel: i16, pitch: i16) -> i32 {
+        Self::slot(channel, pitch).map_or(-1, |slot| std::mem::replace(&mut self.held[slot], -1))
+    }
+
+    /// Forgets every note (the plugin was stopped).
+    pub(crate) fn clear(&mut self) {
+        self.held.fill(-1);
+    }
 }
 
 /// The most audio buses a plugin may declare each way. Multi-output
@@ -254,7 +302,7 @@ impl Instance {
         let events_out_ptr = events_out.to_com_ptr::<IEventList>().expect("listed");
         let changes = ComWrapper::new(Changes::new());
         let changes_ptr = changes.to_com_ptr::<IParameterChanges>().expect("listed");
-        let no_changes_out = ComWrapper::new(NoOutputChanges)
+        let no_changes_out = ComWrapper::new(NoOutputChanges::new())
             .to_com_ptr::<IParameterChanges>()
             .expect("listed");
 
@@ -276,6 +324,7 @@ impl Instance {
             context: unsafe { std::mem::zeroed() },
             in_buses: 0,
             out_buses: 0,
+            notes: NoteIds::new(),
             format: None,
             processing: false,
             latency: 0,
@@ -309,6 +358,7 @@ impl Instance {
     }
 
     fn stop(&mut self) {
+        self.notes.clear();
         if self.processing {
             // SAFETY: shutdown calls on live objects.
             unsafe {
@@ -543,7 +593,9 @@ impl Instance {
         }
         let (ins, outs) = (buffers.input.len(), buffers.output.len());
 
-        self.events_in.set(events.iter().map(vst_event));
+        let notes = &mut self.notes;
+        self.events_in
+            .set(events.iter().map(|e| vst_event(e, notes)));
         self.events_out.set([]);
         self.changes.set(params);
 
@@ -679,7 +731,7 @@ fn wide(buf: &[u16]) -> String {
     String::from_utf16_lossy(&units)
 }
 
-fn vst_event(event: &Event) -> VstEvent {
+fn vst_event(event: &Event, ids: &mut NoteIds) -> VstEvent {
     let (kind, body) = match event.kind {
         EventKind::NoteOn {
             channel,
@@ -694,7 +746,7 @@ fn vst_event(event: &Event) -> VstEvent {
                     tuning: 0.0,
                     velocity,
                     length: 0,
-                    noteId: -1,
+                    noteId: ids.on(channel, pitch),
                 },
             },
         ),
@@ -709,7 +761,7 @@ fn vst_event(event: &Event) -> VstEvent {
                     channel,
                     pitch,
                     velocity,
-                    noteId: -1,
+                    noteId: ids.off(channel, pitch),
                     tuning: 0.0,
                 },
             },
@@ -737,5 +789,30 @@ impl Drop for Instance {
             }
             self.component.terminate();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_note_off_carries_the_id_its_note_on_was_given() {
+        let mut ids = NoteIds::new();
+        let a = ids.on(0, 60);
+        let b = ids.on(0, 64);
+        assert_ne!(a, b);
+        assert_eq!(ids.off(0, 64), b);
+        assert_eq!(ids.off(0, 60), a);
+        // Ended, or never started: not known.
+        assert_eq!(ids.off(0, 60), -1);
+        assert_eq!(ids.off(3, 10), -1);
+        // Out of range is allowed, and has no id to find again.
+        let wild = ids.on(40, 300);
+        assert!(wild >= 0);
+        assert_eq!(ids.off(40, 300), -1);
+        ids.on(1, 1);
+        ids.clear();
+        assert_eq!(ids.off(1, 1), -1);
     }
 }

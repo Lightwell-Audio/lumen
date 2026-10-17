@@ -504,8 +504,64 @@ impl IParameterChangesTrait for Changes {
     }
 }
 
-/// An empty list of output parameter changes.
-pub struct NoOutputChanges;
+/// A queue that takes a plugin's reported changes and keeps none of them.
+struct Sink;
+
+impl Class for Sink {
+    type Interfaces = (IParamValueQueue,);
+}
+
+impl IParamValueQueueTrait for Sink {
+    unsafe fn getParameterId(&self) -> ParamID {
+        0
+    }
+    unsafe fn getPointCount(&self) -> int32 {
+        0
+    }
+    unsafe fn getPoint(
+        &self,
+        _index: int32,
+        _sample_offset: *mut int32,
+        _value: *mut ParamValue,
+    ) -> tresult {
+        kResultFalse
+    }
+    unsafe fn addPoint(
+        &self,
+        _sample_offset: int32,
+        _value: ParamValue,
+        index: *mut int32,
+    ) -> tresult {
+        if !index.is_null() {
+            // SAFETY: a valid out pointer from the caller.
+            unsafe { *index = 0 };
+        }
+        kResultOk
+    }
+}
+
+/// The list of output parameter changes a plugin reports its own edits in.
+/// It takes them and keeps none: a plugin that reports a change uses the
+/// queue it is given without looking, so there must be one.
+pub struct NoOutputChanges {
+    sink: ComPtr<IParamValueQueue>,
+}
+
+impl NoOutputChanges {
+    pub fn new() -> Self {
+        Self {
+            sink: ComWrapper::new(Sink)
+                .to_com_ptr::<IParamValueQueue>()
+                .expect("interface listed"),
+        }
+    }
+}
+
+impl Default for NoOutputChanges {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Class for NoOutputChanges {
     type Interfaces = (IParameterChanges,);
@@ -521,9 +577,13 @@ impl IParameterChangesTrait for NoOutputChanges {
     unsafe fn addParameterData(
         &self,
         _id: *const ParamID,
-        _index: *mut int32,
+        index: *mut int32,
     ) -> *mut IParamValueQueue {
-        std::ptr::null_mut()
+        if !index.is_null() {
+            // SAFETY: a valid out pointer from the caller.
+            unsafe { *index = 0 };
+        }
+        self.sink.as_ptr()
     }
 }
 

@@ -19,6 +19,7 @@ pub mod manager;
 pub mod process;
 
 pub use link::{Counts, Link};
+pub use lumen_plugin_host::client::HostLog;
 pub use manager::{Event, Manager};
 pub use process::{Deadlines, Failure, Happened, Linked, Start, Step, WAKE};
 

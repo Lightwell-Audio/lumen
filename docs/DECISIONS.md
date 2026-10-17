@@ -6479,6 +6479,21 @@ the next suspects if these plugins fail again: aligned buffers, the host's
 stack size, a licence or copy-protection check, `IComponentHandler2`/`3`,
 and setting the controller's state from the component's.
 
+**Third amendment, 2026-10-17 (the owner's next run: two plugins still fail).**
+RP-1 still died while running; RP-3 was given up on as "stopped answering".
+More departures from what hosts do were found by reading and each reproduced
+first (`conformance.rs`): the output parameter list gave plugins no queue to
+report into (`reports_params`; a plugin that reports its own edits dereferenced
+null: the likeliest cause of RP-1); note-offs carried the id -1 (now the id of
+their note-on); the audio thread did not flush denormals (a physical-model
+plugin's tails cost a hundred times as much). The host now also says where it
+died: on Windows an unhandled-exception filter writes the module, the offset
+and the address touched to stderr, which Lumen reads, with the first and the
+slow blocks' timings (`HostLog`, `Failure::detail`, the card's tooltip). The
+three-late-blocks rule (ADR-0069) is the likeliest reason RP-3 failed and is
+the owner's to decide: recommended, fail only after about a second of late
+blocks in a row, so a slow first block is a glitch, not a kill.
+
 **Not built, and said so.** Moving between cards with the arrow keys (cards
 and their power buttons are Tab stops); reordering, copying and the preset menu
 (slice 3); the master's chain (a refusal says so); snapshots of the plugin's own

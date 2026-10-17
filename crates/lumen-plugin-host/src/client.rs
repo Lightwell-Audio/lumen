@@ -142,7 +142,53 @@ pub struct Block {
 
 type Incoming = Result<Response, FrameError>;
 
+/// What the host process said about itself on stderr (its own lines, marked
+/// with [`crate::process::LOG_PREFIX`]; anything else a plugin prints is
+/// read and dropped). Shared between the reader thread and whoever shows it.
+#[derive(Default)]
+pub struct HostLog {
+    lines: std::sync::Mutex<std::collections::VecDeque<String>>,
+    /// Counts lines added, so a watcher can tell when to look.
+    added: AtomicU32,
+}
+
+impl HostLog {
+    const MOST_LINES: usize = 40;
+    const MOST_BYTES: usize = 400;
+
+    fn push(&self, line: &str) {
+        let mut line = line.to_owned();
+        line.truncate(Self::MOST_BYTES.min(line.floor_char_boundary(Self::MOST_BYTES)));
+        let mut lines = self.lines.lock().unwrap_or_else(|e| e.into_inner());
+        if lines.len() == Self::MOST_LINES {
+            lines.pop_front();
+        }
+        lines.push_back(line);
+        self.added.fetch_add(1, Ordering::Release);
+    }
+
+    /// How many lines have been said in all.
+    pub fn added(&self) -> u32 {
+        self.added.load(Ordering::Acquire)
+    }
+
+    /// What the host said, oldest first.
+    pub fn lines(&self) -> Vec<String> {
+        let lines = self.lines.lock().unwrap_or_else(|e| e.into_inner());
+        lines.iter().cloned().collect()
+    }
+
+    /// The crash the host reported, if it did: where the plugin died.
+    pub fn crash(&self) -> Option<String> {
+        self.lines()
+            .into_iter()
+            .rev()
+            .find_map(|l| l.strip_prefix("crash ").map(str::to_owned))
+    }
+}
+
 pub struct HostProcess {
+    log: std::sync::Arc<HostLog>,
     child: Child,
     writer: Option<Sender<Vec<u8>>>,
     incoming: Receiver<Incoming>,
@@ -155,13 +201,18 @@ pub struct HostProcess {
 }
 
 impl HostProcess {
+    /// What the host process has said about itself.
+    pub fn log(&self) -> std::sync::Arc<HostLog> {
+        self.log.clone()
+    }
+
     /// Starts `exe` as a host, with `env` added to its environment.
     pub fn spawn(exe: &Path, env: &[(&str, &str)]) -> std::io::Result<Self> {
         let mut command = Command::new(exe);
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null());
+            .stderr(Stdio::piped());
         for (key, value) in env {
             command.env(key, value);
         }
@@ -174,6 +225,35 @@ impl HostProcess {
         }
         let mut stdin = child.stdin.take().expect("piped stdin");
         let mut stdout = child.stdout.take().expect("piped stdout");
+        let log = std::sync::Arc::new(HostLog::default());
+        let stderr = child.stderr.take().expect("piped stderr");
+        let reader_log = log.clone();
+        // Always drained, so a plugin that prints a lot never blocks on a
+        // full pipe; only the host's own lines are kept.
+        // Not joined with the others: a helper process a plugin started can keep
+        // the pipe open after the host is gone, and the thread simply ends with it.
+        std::thread::Builder::new()
+            .name("host-stderr".into())
+            .spawn(move || {
+                use std::io::{BufRead, Read};
+                let mut lines = std::io::BufReader::new(stderr);
+                let mut buf = Vec::new();
+                loop {
+                    buf.clear();
+                    // Bounded: a line without an end is cut, not grown.
+                    match lines.by_ref().take(4096).read_until(b'\n', &mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {
+                            let text = String::from_utf8_lossy(&buf);
+                            if let Some(rest) =
+                                text.trim_end().strip_prefix(crate::process::LOG_PREFIX)
+                            {
+                                reader_log.push(rest);
+                            }
+                        }
+                    }
+                }
+            })?;
 
         let (tx, incoming) = mpsc::channel();
         let reader = std::thread::Builder::new()
@@ -206,6 +286,7 @@ impl HostProcess {
             })?;
 
         Ok(Self {
+            log,
             child,
             writer: Some(writer),
             incoming,

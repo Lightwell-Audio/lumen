@@ -328,6 +328,7 @@ fn many_devices_load_at_once_and_all_play() {
                     Err(lumen_hosting::Happened::Failed(lumen_hosting::Failure {
                         step: Step::Start,
                         error: lumen_plugin_host::client::HostError::Timeout,
+                        detail: None,
                     }))
                 }
             }

@@ -56,3 +56,42 @@ fn a_plugin_with_auxiliary_outputs_is_given_every_bus_each_block() {
     );
     assert_eq!(host.quit(SLOW), ExitKind::Clean);
 }
+
+#[test]
+fn a_plugin_that_reports_a_parameter_change_is_given_a_queue_to_put_it_in() {
+    let mut host = instrument("reports_params");
+    let block = host
+        .process(64, vec![], vec![note_on(0, 69)], full(), SLOW)
+        .expect("process");
+    assert_eq!(block.status, 0);
+    assert_eq!(host.quit(SLOW), ExitKind::Clean);
+}
+
+#[test]
+fn the_host_says_how_long_its_first_blocks_took_and_lumen_keeps_it() {
+    use lumen_plugin_host::shm::{Layout, Poll, Wake};
+    let mut host = instrument("");
+    let mut link = host
+        .attach(Layout::new(512, 0, 2), Wake::EVENT, SLOW)
+        .expect("attach");
+    let generation = host.generation();
+    for _ in 0..3 {
+        link.submit(generation, 64, &[], &[], &[]).expect("submit");
+        let soon = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        assert!(matches!(link.wait(soon), Poll::Done(_)));
+    }
+    // The reader thread picks the host's lines up from its pipe.
+    let log = host.log();
+    let started = std::time::Instant::now();
+    while log.lines().len() < 2 && started.elapsed() < std::time::Duration::from_secs(5) {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let lines = log.lines();
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("block 1 (64 frames) took ")),
+        "{lines:?}"
+    );
+    assert!(log.crash().is_none());
+}

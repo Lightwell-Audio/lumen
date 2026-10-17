@@ -33,6 +33,9 @@ fn main() -> ExitCode {
     // A crash must end this process, not park it behind an error dialog.
     #[cfg(windows)]
     process::quiet_crashes();
+    // And say where a crash happened, for Lumen to show.
+    #[cfg(windows)]
+    process::report_crashes();
     // The thread that creates plugins gets COM, as a plugin expects.
     #[cfg(windows)]
     process::init_com(true);

@@ -84,7 +84,9 @@ fn run(mut link: HostLink, shared: &Shared) {
     let layout = *link.region().layout();
     let mut scratch = BlockScratch::new(&layout);
     audio_thread_priority();
+    crate::process::flush_denormals();
     link.mark_ready();
+    let mut timing = Timing::default();
     while let Next::Block(seq) = link.wait_for_block() {
         let mut answer = Answer {
             seq,
@@ -113,13 +115,43 @@ fn run(mut link: HostLink, shared: &Shared) {
                     } else if !fits {
                         Outcome::Invalid
                     } else {
-                        process(instance, n, &mut scratch, &mut answer)
+                        let began = std::time::Instant::now();
+                        let outcome = process(instance, n, &mut scratch, &mut answer);
+                        timing.note(began.elapsed(), n);
+                        outcome
                     }
                 }
                 _ => Outcome::NotReady,
             };
         }
         link.finish(&answer, frames, &scratch.buffers.output);
+    }
+}
+
+/// What the plugin's blocks cost, said on stderr for the first few and for
+/// the slow ones, so a plugin that is given up on has left a record of why.
+#[derive(Default)]
+struct Timing {
+    blocks: u64,
+    said: u32,
+}
+
+impl Timing {
+    /// Longer than this is worth saying: well over what a small block allows.
+    const SLOW: std::time::Duration = std::time::Duration::from_millis(3);
+    const MOST_LINES: u32 = 12;
+
+    fn note(&mut self, took: std::time::Duration, frames: u32) {
+        let first = self.blocks < 2;
+        self.blocks += 1;
+        if (first || took >= Self::SLOW) && self.said < Self::MOST_LINES {
+            self.said += 1;
+            crate::process::log(&format!(
+                "block {} ({frames} frames) took {:.1} ms in the plugin",
+                self.blocks,
+                took.as_secs_f64() * 1000.0
+            ));
+        }
     }
 }
 

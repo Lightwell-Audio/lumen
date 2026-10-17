@@ -23,10 +23,41 @@ use std::sync::Arc;
 
 use lumen_devices::{Guard, HostedInstrument, Status};
 use lumen_engine::{InstrumentSpec, MidiTrack, MixerHandle};
-use lumen_hosting::{Happened, Manager, Start};
+use lumen_hosting::{Happened, HostLog, Manager, Start};
 use lumen_plugin_catalog::catalog::Catalog;
 use lumen_project::model::{Device, DeviceKind, Id, Project, Reported, Track, TrackKind};
 use lumen_project::routing::all_tracks;
+
+/// Why a running plugin was given up on, with what its host recorded: the
+/// first blocks and the slow ones took this long, which says a plugin that is
+/// slow from a plugin that never answers.
+fn gave_up_words(log: Option<&HostLog>) -> String {
+    let timings: Vec<String> = log
+        .map(|log| {
+            log.lines()
+                .into_iter()
+                .filter(|l| l.starts_with("block "))
+                .collect()
+        })
+        .unwrap_or_default();
+    let base = "The plugin stopped answering, and its host was ended.";
+    match timings.len() {
+        0 => format!("{base} It never finished a block it was given. Reload to start it again."),
+        _ => {
+            let last: Vec<&str> = timings
+                .iter()
+                .rev()
+                .take(3)
+                .rev()
+                .map(String::as_str)
+                .collect();
+            format!(
+                "{base} Its blocks: {}. Reload to start it again.",
+                last.join("; ")
+            )
+        }
+    }
+}
 
 /// The engine's instrument kind for a plugin host: tracks keep it across
 /// track lists while the kind stays the same (the synth is 1).
@@ -51,6 +82,8 @@ struct Tracked {
     instrument: bool,
     state: State,
     status: Option<Arc<Status>>,
+    /// What the host said about itself (block timings, where it died).
+    log: Option<Arc<HostLog>>,
     /// What the plugin reported, in frames at `rate`, and the rate.
     latency: u32,
     tail: u32,
@@ -171,6 +204,7 @@ impl Hosting {
         {
             t.state = State::Loading;
             t.status = None;
+            t.log = None;
         }
     }
 
@@ -243,6 +277,7 @@ impl Hosting {
                             instrument: w.instrument,
                             state,
                             status: None,
+                            log: None,
                             latency: w.device.reported.map_or(0, |r| r.latency_at(rate.max(1))),
                             tail: w.device.reported.map_or(0, |r| r.tail),
                             rate,
@@ -275,6 +310,7 @@ impl Hosting {
                     let linked = *linked;
                     let guard = Guard::new(Box::new(linked.link), linked.latency);
                     t.status = Some(guard.status());
+                    t.log = Some(linked.log.clone());
                     t.latency = linked.latency;
                     t.tail = linked.tail;
                     t.rate = self.rate;
@@ -330,10 +366,7 @@ impl Hosting {
                 manager.relink(id, f64::from(self.rate));
             }
             if status.failed() && t.state == State::Ready {
-                t.state = State::Failed(
-                    "The plugin stopped answering, and its host was ended. Reload to start it again."
-                        .into(),
-                );
+                t.state = State::Failed(gave_up_words(t.log.as_deref()));
             }
         }
 
