@@ -16,6 +16,11 @@ ignore = [
     # Linux AT-SPI bridge (accesskit_unix -> zbus). No safe upgrade exists
     # until eframe/accesskit moves to zbus 6. Revisit then.
     { id = "RUSTSEC-2026-0372", reason = "transitive via accesskit_unix (zbus 5); no safe upgrade available yet" },
+    # Unmaintained (not a vulnerability): zvariant and zbus_names were merged
+    # into zbus 6. Same path as above; even accesskit_unix 0.24 still needs
+    # zbus 5. Drop all three zbus entries once accesskit_unix moves to zbus 6.
+    { id = "RUSTSEC-2026-0370", reason = "zvariant, transitive via accesskit_unix (zbus 5); no safe upgrade available yet" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names, transitive via accesskit_unix (zbus 5); no safe upgrade available yet" },
 ]
 
 [licenses]
