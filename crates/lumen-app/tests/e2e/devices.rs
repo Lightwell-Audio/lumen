@@ -471,6 +471,12 @@ fn every_control_on_every_card_face_has_a_name_and_tab_reaches_them() {
         let problems = unnamed(&lumen);
         assert!(problems.is_empty(), "{face}: {problems:#?}");
     }
+    // A pretended "missing" makes the app look for the plugin again, which
+    // it finds, so a host starts and its link arrives some time later and
+    // would put the card back to ready. Let it arrive first.
+    lumen.wait_for("the host that missing started", |app| {
+        app.device_state(FIRST).is_some_and(|s| s == "ready")
+    });
     // The failed card's button is a stop of its own, named for what it does.
     lumen.app_mut().pretend_device_state(FIRST, "failed");
     lumen.frames(5);
@@ -484,7 +490,8 @@ fn every_control_on_every_card_face_has_a_name_and_tab_reaches_them() {
     }
     assert!(
         seen.iter().any(|n| n == "Reload"),
-        "Tab never reached Reload: {seen:#?}"
+        "Tab never reached Reload (the card is {:?}): {seen:#?}",
+        lumen.app().device_state(FIRST)
     );
     assert!(
         seen.iter().any(|n| n.starts_with("Power ")),
