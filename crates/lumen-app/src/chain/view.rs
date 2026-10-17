@@ -7,6 +7,7 @@ use eframe::egui::{
     self, Align2, Color32, FontId, Pos2, Rangef, Rect, Sense, Stroke, Ui, UiBuilder, pos2, vec2,
 };
 use lumen_project::model::{Device, DeviceKind, Id, Output, PluginRef, Project, Track, TrackKind};
+use lumen_project::routing::all_tracks;
 
 use super::card::{self, Action, Face, Look};
 use super::geometry::{CHIP_H, Layout, PORT};
@@ -79,9 +80,7 @@ impl App {
         let project = self.document.project();
         let still_there = |chosen: Id| {
             shown.is_some_and(|track| {
-                project
-                    .tracks
-                    .iter()
+                all_tracks(project)
                     .any(|t| t.id == track && t.devices.iter().any(|d| d.id == chosen))
             })
         };
@@ -112,7 +111,7 @@ impl App {
         };
         let rate = self.transport.state().sample_rate;
         let project = self.document.project();
-        let Some(track) = project.tracks.iter().find(|t| t.id == track_id) else {
+        let Some(track) = all_tracks(project).find(|t| t.id == track_id) else {
             return;
         };
         let rows = self.rows_of(track, rate);
@@ -579,12 +578,17 @@ fn paint_cables(
 /// Where a track's sound goes, in words for the output chip.
 fn output_name(project: &Project, track: &Track) -> String {
     let named = |id: Id| {
-        project
-            .tracks
-            .iter()
+        all_tracks(project)
             .find(|t| t.id == id)
             .map(|t| t.name.clone())
     };
+    if track.kind == TrackKind::Master {
+        // The master plays to a pair of the device (the main one by default).
+        return match track.output {
+            Output::Device(pair) => format!("Out {}/{}", 2 * pair + 1, 2 * pair + 2),
+            _ => "Out 1/2".to_owned(),
+        };
+    }
     match track.output {
         Output::Master => "Master".to_owned(),
         Output::Track(id) => named(id).unwrap_or_else(|| "Master".to_owned()),

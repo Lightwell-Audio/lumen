@@ -451,10 +451,34 @@ impl Arrangement {
         let palette = *theme::p();
         let master = doc.project().master.clone();
         let id = EguiId::new(("track header", master.id));
-        let selected = false;
+        let selected = self.selected.contains(&master.id);
         let look = theme::controls(selected);
         let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 0.0, palette.header);
+        // Click to show its devices (and a card dropped here lands on it).
+        let background = ui.interact(rect, id, Sense::click());
+        background.widget_info(|| {
+            egui::WidgetInfo::selected(
+                egui::WidgetType::SelectableLabel,
+                true,
+                selected,
+                "Track Master, master track",
+            )
+        });
+        if background.clicked() {
+            let modifiers = ui.input(|i| i.modifiers);
+            self.click_select(doc.project(), master.id, modifiers);
+        }
+        painter.rect_filled(
+            rect,
+            0.0,
+            if selected {
+                palette.selected_row
+            } else {
+                palette.header
+            },
+        );
+        let alt = ui.input(|i| i.modifiers.alt);
+        self.device_drop_target(ui.ctx(), &painter, doc, rect, master.id, alt);
         let rail = Rect::from_min_size(rect.min, vec2(4.0, rect.height()));
         painter.rect_filled(rail, 0.0, palette.text_hint);
         let mid = rect.top() + FOLDED / 2.0;

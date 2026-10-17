@@ -434,3 +434,45 @@ fn an_instrument_moved_to_another_track_starts_there_and_nothing_hangs() {
         "a note is left sounding on the old track or the new"
     );
 }
+
+// Slice 3d: the master takes effects like any track.
+
+#[test]
+fn an_effect_on_the_master_is_heard_on_everything_and_bypass_lets_it_through() {
+    let mut project = project(|_| {});
+    std::sync::Arc::make_mut(&mut project.master).devices = vec![quiet_effect(PLUGIN)];
+    let mut lumen = launch("master-effect", &project, &["Plug"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    play(&mut lumen);
+    assert!(
+        quietest(&mut lumen) < 0.005,
+        "the keys are taken down on the master"
+    );
+    let master = lumen.app().project().master.id;
+    lumen.app_mut().set_device_bypass(master, PLUGIN, true);
+    lumen.frames(5);
+    assert!(level(&mut lumen) > 0.01, "bypassed, the keys come through");
+    assert_eq!(state(&lumen, PLUGIN), "ready", "bypass keeps the host");
+}
+
+#[test]
+fn an_effect_moved_onto_the_master_takes_everything_down_and_undo_restores_it() {
+    let project = two_tracks(|d| d.push(quiet_effect(PLUGIN)), |_| {}, vec![]);
+    let mut lumen = launch("move-to-master", &project, &["Plug"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    play(&mut lumen);
+    assert!(quietest(&mut lumen) < 0.005);
+    let master = lumen.app().project().master.id;
+    // Keys is the only track with notes: the effect on the master quiets it
+    // the same, and still on the same host.
+    lumen.app_mut().move_device(KEYS, PLUGIN, master, None);
+    lumen.frames(1);
+    assert_eq!(state(&lumen, PLUGIN), "ready", "the same host");
+    lumen.frames(5);
+    assert!(quietest(&mut lumen) < 0.005, "now on the master");
+    assert_eq!(lumen.app().project().master.devices.len(), 1);
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(5);
+    assert!(lumen.app().project().master.devices.is_empty());
+    assert!(quietest(&mut lumen) < 0.005, "and back on the keys");
+}

@@ -7,7 +7,8 @@ use std::fmt;
 
 use std::sync::Arc;
 
-use lumen_project::model::{Device, DeviceKind, Id, PluginRef, SYNTH, Track, TrackKind};
+use lumen_project::model::{Device, DeviceKind, Id, PluginRef, Project, SYNTH, Track, TrackKind};
+use lumen_project::routing::all_tracks;
 
 use super::Document;
 
@@ -28,8 +29,6 @@ pub enum Slot {
 pub enum Refusal {
     /// The track is gone.
     NoTrack,
-    /// The master track takes devices with chain editing (slice 3).
-    Unsupported,
     InstrumentNeedsMidi,
     BeforeInstrument,
     /// A track plays one instrument, so one can't be copied onto its own track.
@@ -44,7 +43,6 @@ impl fmt::Display for Refusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Refusal::NoTrack => "That track is gone.",
-            Refusal::Unsupported => "The master track takes devices in a later update.",
             Refusal::InstrumentNeedsMidi => "An instrument needs a MIDI track.",
             Refusal::BeforeInstrument => "An effect can't go before the instrument.",
             Refusal::OneInstrument => "A track plays one instrument.",
@@ -112,14 +110,24 @@ struct Transfer {
     to_name: String,
 }
 
+/// A track, or the master (the chain of every one of them can be edited).
+fn find(project: &Project, id: Id) -> Option<&Track> {
+    all_tracks(project).find(|t| t.id == id)
+}
+
+/// The same, to change.
+fn find_mut(project: &mut Project, id: Id) -> Option<&mut Track> {
+    let slot = if project.master.id == id {
+        Some(&mut project.master)
+    } else {
+        project.tracks.iter_mut().find(|t| t.id == id)
+    };
+    slot.map(Arc::make_mut)
+}
+
 /// Takes `device` off `track` and hands it back.
-fn take_device(project: &mut lumen_project::model::Project, track: Id, device: Id) -> Device {
-    let track = project
-        .tracks
-        .iter_mut()
-        .find(|t| t.id == track)
-        .expect("the move was checked against this project");
-    let track = Arc::make_mut(track);
+fn take_device(project: &mut Project, track: Id, device: Id) -> Device {
+    let track = find_mut(project, track).expect("the move was checked against this project");
     let at = track
         .devices
         .iter()
@@ -130,19 +138,8 @@ fn take_device(project: &mut lumen_project::model::Project, track: Id, device: I
 
 /// Puts `device` on `track` at `index`. An instrument first drives out the
 /// one there and returns a MIDI-output track to it.
-fn put_device(
-    project: &mut lumen_project::model::Project,
-    track: Id,
-    device: Device,
-    index: usize,
-    instrument: bool,
-) {
-    let track = project
-        .tracks
-        .iter_mut()
-        .find(|t| t.id == track)
-        .expect("the edit was checked against this project");
-    let track = Arc::make_mut(track);
+fn put_device(project: &mut Project, track: Id, device: Device, index: usize, instrument: bool) {
+    let track = find_mut(project, track).expect("the edit was checked against this project");
     if instrument {
         track.devices.retain(|d| !d.is_instrument());
         track.midi_to = None;
@@ -200,15 +197,7 @@ impl Document {
         {
             return Err(Refusal::BadPlugin);
         }
-        if self.project().master.id == track {
-            return Err(Refusal::Unsupported);
-        }
-        let current = self
-            .project()
-            .tracks
-            .iter()
-            .find(|t| t.id == track)
-            .ok_or(Refusal::NoTrack)?;
+        let current = find(self.project(), track).ok_or(Refusal::NoTrack)?;
         let kind = plugin.kind();
         let replaced = current.devices.iter().any(|d| d.is_instrument());
         let index = place_in(current, kind, slot)?;
@@ -219,12 +208,12 @@ impl Document {
             (DeviceKind::Instrument, true) => format!("Replace instrument with {name}"),
             _ => format!("Add {name}"),
         };
-        self.edit_tracks(&label, &[track], |t| {
+        self.edit_chain(&label, track, |t| {
             if kind == DeviceKind::Instrument {
                 t.devices.retain(|d| !d.is_instrument());
                 t.midi_to = None;
             }
-            t.devices.insert(index.min(t.devices.len()), device.clone());
+            t.devices.insert(index.min(t.devices.len()), device);
         });
         Ok(id)
     }
@@ -232,7 +221,7 @@ impl Document {
     /// Takes `device` off `track`'s chain.
     pub fn remove_device(&mut self, track: Id, device: Id) -> Result<(), Refusal> {
         let name = self.device_name(track, device)?;
-        self.edit_tracks(&format!("Remove {name}"), &[track], |t| {
+        self.edit_chain(&format!("Remove {name}"), track, |t| {
             t.devices.retain(|d| d.id != device)
         });
         Ok(())
@@ -252,7 +241,7 @@ impl Document {
         } else {
             format!("Enable {name}")
         };
-        self.edit_tracks(&label, &[track], |t| {
+        self.edit_chain(&label, track, |t| {
             if let Some(d) = t.devices.iter_mut().find(|d| d.id == device) {
                 d.bypass = bypass;
             }
@@ -324,15 +313,7 @@ impl Document {
     /// gone or changed since. An instrument replaces the one on the track
     /// (D4). Returns the copy's id. One undo step.
     pub fn paste_device(&mut self, device: &Device, to: Id, slot: Slot) -> Result<Id, Refusal> {
-        if self.project().master.id == to {
-            return Err(Refusal::Unsupported);
-        }
-        let target = self
-            .project()
-            .tracks
-            .iter()
-            .find(|t| t.id == to)
-            .ok_or(Refusal::NoTrack)?;
+        let target = find(self.project(), to).ok_or(Refusal::NoTrack)?;
         let index = place_in(target, device.kind(), slot)?;
         let id = self.fresh_id();
         let mut copy = device.clone();
@@ -348,16 +329,8 @@ impl Document {
     /// What a move or a copy needs, checked: the device, where it lands and
     /// the target's name.
     fn transfer(&self, from: Id, device: Id, to: Id, slot: Slot) -> Result<Transfer, Refusal> {
-        let master = self.project().master.id;
-        if from == master || to == master {
-            return Err(Refusal::Unsupported);
-        }
-        let tracks = &self.project().tracks;
-        let source = tracks
-            .iter()
-            .find(|t| t.id == from)
-            .ok_or(Refusal::NoTrack)?;
-        let target = tracks.iter().find(|t| t.id == to).ok_or(Refusal::NoTrack)?;
+        let source = find(self.project(), from).ok_or(Refusal::NoTrack)?;
+        let target = find(self.project(), to).ok_or(Refusal::NoTrack)?;
         let from_at = source
             .devices
             .iter()
@@ -373,13 +346,17 @@ impl Document {
         })
     }
 
+    /// One undo step changing the chain of `track` (the master included).
+    fn edit_chain(&mut self, label: &str, track: Id, change: impl FnOnce(&mut Track)) {
+        self.history.apply(label, None, |project| {
+            if let Some(track) = find_mut(project, track) {
+                change(track);
+            }
+        });
+    }
+
     fn device_name(&self, track: Id, device: Id) -> Result<String, Refusal> {
-        let track = self
-            .project()
-            .tracks
-            .iter()
-            .find(|t| t.id == track)
-            .ok_or(Refusal::NoTrack)?;
+        let track = find(self.project(), track).ok_or(Refusal::NoTrack)?;
         track
             .devices
             .iter()
@@ -517,8 +494,9 @@ mod tests {
         );
         let master = doc.project().master.id;
         assert_eq!(
-            doc.add_device(master, effect, Slot::End),
-            Err(Refusal::Unsupported)
+            doc.add_device(master, instrument.clone(), Slot::End),
+            Err(Refusal::InstrumentNeedsMidi),
+            "the master plays no notes"
         );
         let bad = PluginRef::Vst3 {
             class_id: "nope".into(),
@@ -538,7 +516,6 @@ mod tests {
         );
         for refusal in [
             Refusal::NoTrack,
-            Refusal::Unsupported,
             Refusal::InstrumentNeedsMidi,
             Refusal::BeforeInstrument,
             Refusal::OneInstrument,
@@ -810,12 +787,9 @@ mod tests {
             Err(Refusal::NoTrack)
         );
         assert_eq!(
-            doc.move_device(audio, verb, master, Slot::End),
-            Err(Refusal::Unsupported)
-        );
-        assert_eq!(
-            doc.copy_device(master, verb, audio, Slot::End),
-            Err(Refusal::Unsupported)
+            doc.copy_device(midi, synth, master, Slot::End),
+            Err(Refusal::InstrumentNeedsMidi),
+            "the master plays no notes"
         );
         assert_eq!(
             doc.copy_device(midi, synth, midi, Slot::End),
@@ -911,18 +885,18 @@ mod tests {
         expected.id = id;
         assert_eq!(pasted, expected);
         assert_eq!(doc.undo().as_deref(), Some("Paste A"));
-        // The same rules as an add: not before the instrument, none on the
-        // master, an instrument pasted on an audio track is refused.
+        // The same rules as an add: not before the instrument, an instrument
+        // pasted on an audio track or the master is refused.
         assert_eq!(
             doc.paste_device(&kept, midi, Slot::At(0)),
             Err(Refusal::BeforeInstrument)
         );
         let master = doc.project().master.id;
-        assert_eq!(
-            doc.paste_device(&kept, master, Slot::End),
-            Err(Refusal::Unsupported)
-        );
         let synth = track(&doc, midi).devices[0].clone();
+        assert_eq!(
+            doc.paste_device(&synth, master, Slot::End),
+            Err(Refusal::InstrumentNeedsMidi)
+        );
         assert_eq!(
             doc.paste_device(&synth, audio, Slot::End),
             Err(Refusal::InstrumentNeedsMidi)
@@ -931,6 +905,49 @@ mod tests {
             doc.paste_device(&kept, GONE, Slot::End),
             Err(Refusal::NoTrack)
         );
+    }
+
+    #[test]
+    fn the_master_takes_effects_like_any_track_and_each_edit_is_one_undo_step() {
+        let (mut doc, midi, audio) = doc();
+        let master = doc.project().master.id;
+        let before = doc.project().clone();
+        let a = effect(&mut doc, audio, "A");
+        let on_master = doc
+            .add_device(master, plugin("Limiter", DeviceKind::Effect), Slot::End)
+            .unwrap();
+        assert_eq!(doc.undo().as_deref(), Some("Add Limiter"));
+        doc.redo();
+        let names_of = |doc: &Document| -> Vec<String> {
+            doc.project().master.devices.iter().map(name_of).collect()
+        };
+        assert_eq!(names_of(&doc), ["Limiter"]);
+
+        // A track's effect moves to the master, ahead of the limiter, and
+        // another is copied there; undo takes each back.
+        doc.move_device(audio, a, master, Slot::At(0)).unwrap();
+        assert_eq!(names_of(&doc), ["A", "Limiter"]);
+        assert!(names(&doc, audio).is_empty());
+        let copy = doc.copy_device(midi, track(&doc, midi).devices[0].id, midi, Slot::End);
+        assert_eq!(copy, Err(Refusal::OneInstrument), "the synth stays one");
+        doc.set_device_bypass(master, on_master, true).unwrap();
+        assert!(doc.project().master.devices[1].bypass);
+        doc.remove_device(master, a).unwrap();
+        assert_eq!(names_of(&doc), ["Limiter"]);
+        for _ in 0..2 {
+            doc.undo();
+        }
+        assert_eq!(names_of(&doc), ["A", "Limiter"]);
+        doc.undo();
+        doc.undo();
+        doc.undo();
+        assert_eq!(*doc.project(), before);
+
+        // It survives a save.
+        doc.add_device(master, plugin("Limiter", DeviceKind::Effect), Slot::End)
+            .unwrap();
+        let bytes = lumen_project::to_bytes(doc.project()).expect("the project can be saved");
+        assert_eq!(lumen_project::from_bytes(&bytes).unwrap(), *doc.project());
     }
 
     #[test]

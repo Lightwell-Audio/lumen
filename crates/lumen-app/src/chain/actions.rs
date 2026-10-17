@@ -9,6 +9,8 @@ use lumen_plugin_catalog::catalog::{Device as Listed, Kind, Source};
 use lumen_project::model::{DeviceKind, Id, PluginRef, SYNTH};
 
 use super::place::{Place, place};
+use lumen_project::routing::all_tracks;
+
 use crate::App;
 use crate::app::detail::DetailTab;
 use crate::document::{Refusal, Slot};
@@ -42,7 +44,7 @@ impl App {
             .iter()
             .rev()
             .copied()
-            .find(|id| project.tracks.iter().any(|t| t.id == *id))
+            .find(|id| all_tracks(project).any(|t| t.id == *id))
     }
 
     /// Double-click or Enter in the browser: puts the device on the selected
@@ -86,12 +88,8 @@ impl App {
     /// The chosen card's track and id, if it is still there.
     fn chosen_device(&self) -> Option<(Id, Id)> {
         let card = self.chain.selected?;
-        let track = self
-            .document
-            .project()
-            .tracks
-            .iter()
-            .find(|t| t.devices.iter().any(|d| d.id == card))?;
+        let track =
+            all_tracks(self.document.project()).find(|t| t.devices.iter().any(|d| d.id == card))?;
         Some((track.id, card))
     }
 
@@ -105,11 +103,7 @@ impl App {
         let Some((track, device)) = self.chosen_device() else {
             return;
         };
-        let neighbour = self
-            .document
-            .project()
-            .tracks
-            .iter()
+        let neighbour = all_tracks(self.document.project())
             .find(|t| t.id == track)
             .and_then(|t| {
                 let at = t.devices.iter().position(|d| d.id == device)?;
@@ -129,11 +123,7 @@ impl App {
         let Some((track, device)) = self.chosen_device() else {
             return;
         };
-        let bypass = self
-            .document
-            .project()
-            .tracks
-            .iter()
+        let bypass = all_tracks(self.document.project())
             .find(|t| t.id == track)
             .and_then(|t| t.devices.iter().find(|d| d.id == device))
             .is_some_and(|d| d.bypass);
@@ -195,11 +185,7 @@ impl App {
         let Some((track, device)) = self.chosen_device() else {
             return;
         };
-        let kept = self
-            .document
-            .project()
-            .tracks
-            .iter()
+        let kept = all_tracks(self.document.project())
             .find(|t| t.id == track)
             .and_then(|t| t.devices.iter().find(|d| d.id == device))
             .cloned();
@@ -280,31 +266,24 @@ impl App {
 
     /// The ids of a track's devices, in order.
     pub(crate) fn devices_of(&self, track: Id) -> Vec<Id> {
-        self.document
-            .project()
-            .tracks
-            .iter()
+        all_tracks(self.document.project())
             .find(|t| t.id == track)
             .map(|t| t.devices.iter().map(|d| d.id).collect())
             .unwrap_or_default()
     }
 
-    /// The tracks that can take the chosen device, as (id, name): any but the
-    /// master, and only MIDI tracks for an instrument.
+    /// The tracks that can take the chosen device, as (id, name): any, the
+    /// master too, and only MIDI tracks for an instrument.
     pub(crate) fn send_targets(&self) -> Vec<(Id, String)> {
         let Some((track, device)) = self.chosen_device() else {
             return Vec::new();
         };
         let project = self.document.project();
-        let instrument = project
-            .tracks
-            .iter()
+        let instrument = all_tracks(project)
             .find(|t| t.id == track)
             .and_then(|t| t.devices.iter().find(|d| d.id == device))
             .is_some_and(|d| d.is_instrument());
-        project
-            .tracks
-            .iter()
+        all_tracks(project)
             .filter(|t| !instrument || t.kind == lumen_project::model::TrackKind::Midi)
             .map(|t| (t.id, t.name.clone()))
             .collect()

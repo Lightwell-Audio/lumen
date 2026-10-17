@@ -715,3 +715,71 @@ fn double_clicking_a_card_folds_it_to_a_strip_and_again_opens_it() {
     lumen.frames(5);
     assert_eq!(lumen.card(CARD_2).width(), wide, "opened again");
 }
+
+// Slice 3d: the master's chain in the Devices tab.
+
+#[test]
+fn clicking_the_master_shows_its_chain_and_a_device_can_be_added_dropped_and_removed_there() {
+    let mut lumen = launch(
+        "master-chain",
+        &project(vec![effect_device(FIRST)]),
+        &["Plug"],
+    );
+    lumen.show_devices_tab();
+    let master = lumen.app().project().master.id;
+    lumen.click("Track Master, master track");
+    lumen.frames(5);
+
+    // Double-click in the browser puts the effect on the master.
+    lumen.choose_in_browser(EFFECT);
+    assert_eq!(lumen.app().project().master.devices.len(), 1);
+    assert_eq!(
+        lumen.app().undo_label(),
+        Some("Add Deterministic Test Effect")
+    );
+    assert!(lumen.shows("Deterministic Test Effect on Master"));
+
+    // A card dropped on the master's header lands there too (Alt: a copy).
+    lumen.app_mut().select_tracks(&[AUDIO]);
+    lumen.frames(5);
+    let card = lumen.card(CARD_1);
+    let header = lumen
+        .harness
+        .get_by_label("Track Master, master track")
+        .rect();
+    lumen.drag(card.center(), header.center(), Modifiers::ALT);
+    assert_eq!(lumen.app().project().master.devices.len(), 2);
+    assert_eq!(lumen.ids_on(AUDIO), [FIRST], "the original stayed");
+
+    // With the chain holding the keyboard, Delete takes the chosen one off
+    // the master again.
+    lumen.click("Deterministic Test Effect (2) on Master");
+    lumen.key(Modifiers::NONE, Key::Delete);
+    lumen.frames(5);
+    assert_eq!(lumen.app().project().master.devices.len(), 1);
+    assert_eq!(lumen.app().project().master.id, master);
+}
+
+#[test]
+fn the_keys_that_edit_tracks_leave_a_selected_master_alone() {
+    let mut lumen = launch("master-keys", &project(vec![]), &["Plug"]);
+    lumen.click("Track Master, master track");
+    lumen.frames(3);
+    let before = lumen.app().project().clone();
+    for (modifiers, key) in [
+        (Modifiers::COMMAND, Key::D),
+        (Modifiers::COMMAND, Key::G),
+        (Modifiers::NONE, Key::Delete),
+        (Modifiers::NONE, Key::ArrowLeft),
+        (Modifiers::NONE, Key::ArrowDown),
+    ] {
+        lumen.key(modifiers, key);
+        lumen.frames(2);
+    }
+    assert_eq!(
+        lumen.app().project().tracks.len(),
+        before.tracks.len(),
+        "no track was made or lost"
+    );
+    assert_eq!(lumen.app().project().master.devices, before.master.devices);
+}
