@@ -138,6 +138,9 @@ pub(crate) struct Plugins {
     /// written. Cleared by [`Plugins::dismiss_note`].
     note: Option<String>,
     finished_at: Option<SystemTime>,
+    /// Safe mode: the cache is read, and nothing is scanned (a scan loads every
+    /// plugin binary).
+    safe: bool,
 }
 
 /// Said when the scan program is not where it should be.
@@ -161,6 +164,7 @@ impl Plugins {
             stale: false,
             note: None,
             finished_at: None,
+            safe: false,
         }
     }
 
@@ -169,9 +173,11 @@ impl Plugins {
         source: Source,
         settings_path: Option<&std::path::Path>,
         settings: &PluginSettings,
+        safe: bool,
         ctx: &egui::Context,
     ) -> Self {
         let mut plugins = Self::off();
+        plugins.safe = safe;
         let cache_path = match &source {
             Source::Off => return plugins,
             Source::System => settings_path
@@ -184,11 +190,23 @@ impl Plugins {
         plugins.status = Status::Loading;
         plugins.run(
             None,
-            settings.scan_at_startup.then_some(Mode::Changed),
+            (settings.scan_at_startup && !safe).then_some(Mode::Changed),
             settings,
             ctx,
         );
         plugins
+    }
+
+    /// Ends safe mode: the scan the start left out runs now, if the settings
+    /// ask for one at start.
+    pub(crate) fn leave_safe(&mut self, settings: &PluginSettings, ctx: &egui::Context) {
+        if !self.safe {
+            return;
+        }
+        self.safe = false;
+        if settings.scan_at_startup && !self.is_off() && !self.busy() {
+            self.run(Some(self.cache.clone()), Some(Mode::Changed), settings, ctx);
+        }
     }
 
     pub(crate) fn catalog(&self) -> &Catalog {
@@ -223,7 +241,7 @@ impl Plugins {
     /// Looks for new and changed plugins; with [`Mode::All`], loads every
     /// one again. Does nothing while a scan runs.
     pub(crate) fn rescan(&mut self, mode: Mode, settings: &PluginSettings, ctx: &egui::Context) {
-        if self.is_off() || self.busy() {
+        if self.is_off() || self.busy() || self.safe {
             return;
         }
         self.run(Some(self.cache.clone()), Some(mode), settings, ctx);
@@ -232,7 +250,7 @@ impl Plugins {
     /// Forgets what is known about one module and loads it again: Retry on
     /// a blocked plugin, or "rescan this plugin".
     pub(crate) fn retry(&mut self, module: &str, settings: &PluginSettings, ctx: &egui::Context) {
-        if self.is_off() || self.busy() {
+        if self.is_off() || self.busy() || self.safe {
             return;
         }
         self.cache.forget(module);
@@ -470,7 +488,7 @@ mod tests {
             deadline: None,
             faults: None,
         });
-        let p = Plugins::start(source, None, &PluginSettings::default(), &ctx);
+        let p = Plugins::start(source, None, &PluginSettings::default(), false, &ctx);
         let Status::Failed(why) = p.status() else {
             panic!("failed: {:?}", p.status());
         };

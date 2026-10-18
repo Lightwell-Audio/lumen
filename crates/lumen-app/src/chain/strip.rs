@@ -1,13 +1,16 @@
 //! The card's parameter strip (M6 slice 4, the owner's S2 with the send
 //! knobs' comet style): eight chosen parameters as knobs in two rows, each
 //! with its name and the plugin's own text for its value, and under them one
-//! row of buttons: the plugin's own window, Learn, and every parameter. A
-//! slot with nothing in it offers to be filled.
+//! row of buttons: Learn and every parameter (the plugin's own window has its
+//! button in the card's header). A slot with nothing in it offers to be
+//! filled.
 
 use eframe::egui::{self, Align2, FontId, Rect, Shape, Stroke, Ui, pos2, vec2};
 use eframe::emath::GuiRounding as _;
 use lumen_hosting::ParamInfo;
 
+use super::stepped::{self, Kind};
+use crate::icons::{self, Icon};
 use crate::theme::Tone;
 use crate::widgets::param::{ParamLook, param_knob, start_typing};
 use crate::widgets::{self, raised};
@@ -33,6 +36,9 @@ pub(super) struct Slot {
     pub default: f64,
     pub steps: i32,
     pub read_only: bool,
+    /// The plugin's own word for each step of a stepped parameter, as far as
+    /// it has said them (empty for the rest, and for a knob).
+    pub choices: Vec<String>,
 }
 
 /// What the strip asked for.
@@ -40,6 +46,8 @@ pub(super) struct Slot {
 pub(super) enum Output {
     /// A parameter was moved.
     Set(u32, f64),
+    /// A switch or a chooser picked a value: one undo step each.
+    Choose(u32, f64),
     /// The user typed text for a parameter: the plugin reads it.
     Type(u32, String),
     /// A parameter leaves the strip.
@@ -116,6 +124,11 @@ pub(super) fn resolve(list: &[ParamInfo], chosen: Option<&[u32]>) -> Vec<u32> {
     }
 }
 
+/// Room between neighbouring controls, each side.
+const PAD: f32 = 3.0;
+/// How far the grid of controls reaches past the strip's margins.
+const GRID_OUT: f32 = 8.0;
+
 /// Paints the strip in `area` and answers it.
 pub(super) fn paint(
     ui: &mut Ui,
@@ -127,7 +140,12 @@ pub(super) fn paint(
 ) -> Vec<Output> {
     let palette = *theme::p();
     let mut out = Vec::new();
-    let grid = Rect::from_min_max(area.min, pos2(area.right(), area.bottom() - BUTTONS - GAP));
+    // The grid reaches a little past the card's margins, so a chooser has the
+    // room its word needs while the buttons below keep to the margins.
+    let grid = Rect::from_min_max(
+        pos2(area.left() - GRID_OUT, area.top()),
+        pos2(area.right() + GRID_OUT, area.bottom() - BUTTONS - GAP),
+    );
     let cell_w = grid.width() / COLUMNS as f32;
     let cell_h = (grid.height() - GAP) / 2.0;
     let caption = FontId::proportional(theme::size::CAPTION);
@@ -149,28 +167,55 @@ pub(super) fn paint(
         let slot_id = id.with(("slot", i));
         match slots.get(i).and_then(Option::as_ref) {
             Some(slot) => {
-                let (response, moved) = param_knob(
-                    ui,
-                    knob,
-                    slot_id,
-                    ParamLook {
-                        name: &slot.name,
-                        text: &slot.text,
-                        value: slot.value,
-                        default: slot.default,
-                        steps: slot.steps,
-                        read_only: slot.read_only,
-                        selected,
-                    },
-                );
-                if let Some(value) = moved.value {
-                    out.push(Output::Set(slot.id, value));
-                }
-                if let Some(text) = moved.typed {
-                    out.push(Output::Type(slot.id, text));
-                }
+                // The whole cell says the parameter's full name when the
+                // pointer rests on it (its name below may be cut short); the
+                // control on top has its own words.
+                ui.interact(cell, slot_id.with("cell"), egui::Sense::hover())
+                    .on_hover_text(&slot.name);
+                let kind = stepped::kind_of(slot);
+                let response = match kind {
+                    Kind::Knob => {
+                        let (response, moved) = param_knob(
+                            ui,
+                            knob,
+                            slot_id,
+                            ParamLook {
+                                name: &slot.name,
+                                text: &slot.text,
+                                value: slot.value,
+                                default: slot.default,
+                                steps: slot.steps,
+                                read_only: slot.read_only,
+                                selected,
+                            },
+                        );
+                        if let Some(value) = moved.value {
+                            out.push(Output::Set(slot.id, value));
+                        }
+                        if let Some(text) = moved.typed {
+                            out.push(Output::Type(slot.id, text));
+                        }
+                        response
+                    }
+                    Kind::Switch => {
+                        let (response, asks) = stepped::switch(ui, knob, slot_id, slot);
+                        if let Some(value) = asks {
+                            out.push(Output::Choose(slot.id, value));
+                        }
+                        response
+                    }
+                    Kind::Chooser => {
+                        let area =
+                            Rect::from_center_size(knob.center(), vec2(cell_w, knob.height()));
+                        let (response, asks) = stepped::chooser(ui, area, slot_id, slot, selected);
+                        if let Some(value) = asks {
+                            out.push(Output::Choose(slot.id, value));
+                        }
+                        response
+                    }
+                };
                 let painter = ui.painter();
-                let name = fit(painter, &slot.name, caption.clone(), cell_w - 2.0);
+                let name = fit(painter, &slot.name, caption.clone(), cell_w - 2.0 * PAD);
                 painter.text(
                     pos2(cell.center().x, knob.bottom() + 3.0),
                     Align2::CENTER_TOP,
@@ -178,18 +223,23 @@ pub(super) fn paint(
                     caption.clone(),
                     palette.text_secondary,
                 );
-                let text = fit(painter, &slot.text, mono.clone(), cell_w - 2.0);
-                painter.text(
-                    pos2(cell.center().x, knob.bottom() + 3.0 + 13.0),
-                    Align2::CENTER_TOP,
-                    text,
-                    mono.clone(),
-                    palette.text,
-                );
+                // A chooser shows its word in its own body.
+                if kind != Kind::Chooser {
+                    let text = fit(painter, &slot.text, mono.clone(), cell_w - 2.0 * PAD);
+                    painter.text(
+                        pos2(cell.center().x, knob.bottom() + 3.0 + 13.0),
+                        Align2::CENTER_TOP,
+                        text,
+                        mono.clone(),
+                        palette.text,
+                    );
+                }
                 let (slot_value, slot_default, slot_id_param, read_only) =
                     (slot.value, slot.default, slot.id, slot.read_only);
                 widgets::Menu::context(&response).show(|ui| {
-                    if widgets::menu_item(ui, "Type a value…", None, !read_only).clicked() {
+                    if kind == Kind::Knob
+                        && widgets::menu_item(ui, "Type a value…", None, !read_only).clicked()
+                    {
                         start_typing(ui, slot_id, &slot.text);
                         ui.close();
                     }
@@ -266,7 +316,6 @@ enum Style {
     Fill,
     /// Says how things are and cannot be pressed.
     Warn,
-    Disabled,
 }
 
 /// One button of the row.
@@ -277,8 +326,6 @@ struct Part<'a> {
     name: String,
     tip: &'a str,
     style: Style,
-    /// A lit dot before the letters.
-    dot: bool,
     weight: f32,
     output: Option<Output>,
 }
@@ -293,19 +340,101 @@ fn count_words(count: usize) -> String {
     }
 }
 
-/// The editor, Learn and All buttons in `area`, as the editor's state allows:
-/// a plugin with no window hides Learn; a stuck one offers to be ended; a
-/// plugin with no parameters has only its window.
+/// The plugin window's button, in the card's header beside the power button
+/// (the owner's choice D, slice 5h): the window glyph in the power button's
+/// make, lit while the window is open or opening, warm when it stopped
+/// answering and dim when there is none. Its name says what a click does.
+pub(super) fn editor_button(
+    ui: &mut Ui,
+    rect: Rect,
+    id: egui::Id,
+    editor: &Editor,
+) -> Option<Output> {
+    let (name, tip, on, output) = match editor {
+        Editor::Closed => (
+            "Open editor",
+            "Open the plugin's own window",
+            false,
+            Some(Output::Editor),
+        ),
+        Editor::Opening => (
+            "Opening editor",
+            "The plugin's window is opening",
+            true,
+            None,
+        ),
+        Editor::Open => (
+            "Close editor",
+            "Close the plugin's window",
+            true,
+            Some(Output::Editor),
+        ),
+        Editor::NotResponding => (
+            "Editor not responding",
+            "The plugin's window has stopped answering. Lumen never ends a plugin on its own",
+            false,
+            None,
+        ),
+        Editor::Unavailable(why) => ("No editor", why.as_str(), false, None),
+    };
+    let id = id.with("editor");
+    let response = ui.interact(
+        rect,
+        id,
+        if output.is_some() {
+            egui::Sense::click()
+        } else {
+            egui::Sense::hover()
+        },
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::Button,
+            output.is_some(),
+            on,
+            name.to_owned(),
+        )
+    });
+    let palette = *theme::p();
+    let lit = motion::hover(ui.ctx(), id.with("lit"), on);
+    let dim = matches!(editor, Editor::Unavailable(_));
+    let face = raised::face_of(ui, &response)
+        .enabled(!dim)
+        .lit(lit, Tone::On);
+    let body = raised::paint(
+        ui.painter(),
+        rect,
+        theme::radius::for_height(rect.height()),
+        &face,
+    );
+    let ink = if matches!(editor, Editor::NotResponding) {
+        palette.warning
+    } else {
+        face.text()
+    };
+    ui.painter().extend(icons::shapes(
+        Icon::Window,
+        Rect::from_center_size(body.center(), vec2(16.0, 16.0)),
+        ink,
+    ));
+    raised::focus_ring(ui.painter(), &response, rect);
+    let clicked = response.on_hover_text(tip).clicked();
+    output.filter(|_| clicked)
+}
+
+/// Learn and All buttons in `area`, as the editor's state allows: a plugin
+/// with no window hides Learn; a stuck one offers to be ended in their place
+/// (the window button itself is in the header); a plugin with no parameters
+/// has neither.
 pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -> Vec<Output> {
     let mut parts: Vec<Part<'_>> = Vec::new();
     let learn_ok = row.parameters > 0;
     let all = Part {
-        shown: format!("All {}\u{2026}", count_words(row.parameters)).into(),
+        shown: format!("All {} parameters", count_words(row.parameters)).into(),
         name: format!("All parameters ({})", row.parameters),
         tip: "Every parameter of the plugin, with search",
         style: Style::Plain,
-        dot: false,
-        weight: 0.95,
+        weight: 2.2,
         output: Some(Output::All),
     };
     let learn = |on: bool| Part {
@@ -314,41 +443,11 @@ pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -
         tip: "Touch a control in the plugin's window and it takes the next free slot. \
               Esc or a second click ends it",
         style: if on { Style::On } else { Style::Plain },
-        dot: false,
-        weight: 1.15,
+        weight: 1.0,
         output: Some(Output::Learn),
     };
     match row.editor {
         Editor::Closed | Editor::Opening | Editor::Open => {
-            let (shown, name, tip, style) = match row.editor {
-                Editor::Closed => (
-                    "Open editor",
-                    "Open editor",
-                    "Open the plugin's own window",
-                    Style::Plain,
-                ),
-                Editor::Opening => (
-                    "Opening\u{2026}",
-                    "Opening editor",
-                    "The plugin's window is opening",
-                    Style::On,
-                ),
-                _ => (
-                    "Editor open",
-                    "Close editor",
-                    "Close the plugin's window",
-                    Style::On,
-                ),
-            };
-            parts.push(Part {
-                shown: shown.into(),
-                name: name.to_owned(),
-                tip,
-                style,
-                dot: *row.editor == Editor::Open,
-                weight: 1.25,
-                output: (*row.editor != Editor::Opening).then_some(Output::Editor),
-            });
             if learn_ok {
                 parts.push(learn(row.learning));
                 parts.push(all);
@@ -357,10 +456,9 @@ pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -
         Editor::NotResponding => {
             parts.push(Part {
                 shown: "Not responding".into(),
-                name: "Editor not responding".to_owned(),
+                name: "Window not responding".to_owned(),
                 tip: "The plugin's window has stopped answering. Lumen never ends a plugin on its own",
                 style: Style::Warn,
-                dot: false,
                 weight: 1.4,
                 output: None,
             });
@@ -369,21 +467,11 @@ pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -
                 name: "End plugin".to_owned(),
                 tip: "Ends this plugin. The card then offers Reload",
                 style: Style::Fill,
-                dot: false,
                 weight: 1.0,
                 output: Some(Output::End),
             });
         }
-        Editor::Unavailable(why) => {
-            parts.push(Part {
-                shown: "No editor".into(),
-                name: "No editor".to_owned(),
-                tip: why,
-                style: Style::Disabled,
-                dot: false,
-                weight: 1.2,
-                output: None,
-            });
+        Editor::Unavailable(_) => {
             if learn_ok {
                 parts.push(all);
             }
@@ -408,7 +496,7 @@ pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -
 
 /// A raised button with a label; true when it was pressed.
 fn pill(ui: &mut Ui, rect: Rect, id: egui::Id, part: &Part<'_>) -> bool {
-    let enabled = part.output.is_some() && part.style != Style::Disabled;
+    let enabled = part.output.is_some();
     let sense = if enabled {
         egui::Sense::click()
     } else {
@@ -425,7 +513,7 @@ fn pill(ui: &mut Ui, rect: Rect, id: egui::Id, part: &Part<'_>) -> bool {
     });
     let palette = *theme::p();
     let lit = motion::hover(ui.ctx(), id.with("lit"), part.style == Style::On);
-    let mut face = raised::face_of(ui, &response).enabled(part.style != Style::Disabled);
+    let mut face = raised::face_of(ui, &response).enabled(true);
     face = match part.style {
         Style::On => face.lit(lit, Tone::On),
         Style::Fill => face.lit(1.0, Tone::Accent),
@@ -443,21 +531,12 @@ fn pill(ui: &mut Ui, rect: Rect, id: egui::Id, part: &Part<'_>) -> bool {
         face.text()
     };
     let font = FontId::proportional(theme::size::CAPTION);
-    let text = fit(ui.painter(), &part.shown, font.clone(), body.width() - 10.0);
+    // A little air on both sides.
+    let text = fit(ui.painter(), &part.shown, font.clone(), body.width() - 16.0);
     let galley = ui.painter().layout_no_wrap(text, font, ink);
-    let dot = if part.dot { 10.0 } else { 0.0 };
-    let width = galley.size().x + dot;
-    if part.dot {
-        ui.painter().circle_filled(
-            pos2(body.center().x - width / 2.0 + 3.0, body.center().y),
-            2.5,
-            ink,
-        );
-    }
-    let mid = pos2(body.center().x + dot / 2.0, body.center().y);
     raised::centre_galley(
         ui.painter(),
-        Rect::from_center_size(mid, galley.size()),
+        Rect::from_center_size(body.center(), galley.size()),
         galley,
         ink,
     );

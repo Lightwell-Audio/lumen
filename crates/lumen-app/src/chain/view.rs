@@ -9,7 +9,7 @@ use eframe::egui::{
 use lumen_project::model::{Device, DeviceKind, Id, Output, PluginRef, Project, Track, TrackKind};
 use lumen_project::routing::all_tracks;
 
-use super::card::{self, Action, Face, Look};
+use super::card::{self, Action, Face, Failure, Field, Look};
 use super::geometry::{CHIP_H, Layout, PORT};
 use super::place::Place;
 use super::strip;
@@ -40,13 +40,20 @@ struct Row {
     /// The plugin's own window and Learn.
     editor: strip::Editor,
     learning: bool,
+    /// The preset field of a running plugin.
+    field: Option<super::presets::FieldLook>,
 }
 
 enum OwnedFace {
     Ready,
     Loading,
-    Failed(String),
+    Failed {
+        words: String,
+        from: String,
+        keeps: bool,
+    },
     Missing(usize),
+    Safe(usize),
 }
 
 impl OwnedFace {
@@ -54,8 +61,13 @@ impl OwnedFace {
         match self {
             OwnedFace::Ready => Face::Ready,
             OwnedFace::Loading => Face::Loading,
-            OwnedFace::Failed(words) => Face::Failed(words),
+            OwnedFace::Failed { words, from, keeps } => Face::Failed(Failure {
+                words,
+                from,
+                keeps: *keeps,
+            }),
             OwnedFace::Missing(saved) => Face::Missing { saved: *saved },
+            OwnedFace::Safe(saved) => Face::Safe { saved: *saved },
         }
     }
 }
@@ -67,7 +79,10 @@ struct Events {
     fold: Option<Id>,
     power: Option<(Id, bool)>,
     reload: Option<Id>,
+    reload_clean: Option<Id>,
+    step: Option<(Id, bool)>,
     rescan: bool,
+    load_one: Option<Id>,
     strip: Vec<(Id, strip::Output)>,
 }
 
@@ -125,6 +140,28 @@ impl App {
             return;
         };
         let rows = self.rows_of(track, rate);
+        let ctx = ui.ctx().clone();
+        let ids: Vec<Id> = rows
+            .iter()
+            .filter(|r| r.field.is_some())
+            .map(|r| r.id)
+            .collect();
+        let stopped = rows
+            .iter()
+            .any(|r| matches!(r.face, OwnedFace::Failed { .. }));
+        for id in ids {
+            self.ensure_listed(&ctx, id);
+            let shown = self.strip_ids(id);
+            self.hosting.ask_choices(id, &shown);
+        }
+        if stopped {
+            // The age of the sound Reload would use keeps counting.
+            ctx.request_repaint_after(std::time::Duration::from_secs(1));
+        }
+        let project = self.document.project();
+        let Some(track) = all_tracks(project).find(|t| t.id == track_id) else {
+            return;
+        };
         let midi = track.kind == TrackKind::Midi;
         let input = Chip {
             name: track.name.clone(),
@@ -244,8 +281,18 @@ impl App {
                         parameters: row.parameters,
                         editor: &row.editor,
                         learning: row.learning,
+                        field: row.field.as_ref().map(|f| Field {
+                            name: f.name.as_deref(),
+                            changed: f.changed,
+                        }),
                     };
                     let out = card::paint(ui, rect, egui::Id::new(("device", row.id.0)), &look);
+                    if let Some(field) = &out.field {
+                        self.preset_menu(field, row.id);
+                    }
+                    if let Some(forward) = out.step {
+                        events.step = Some((row.id, forward));
+                    }
                     // A second device of the same name says which it is.
                     let nth = rows[..i].iter().filter(|r| r.name == row.name).count();
                     let spoken = if nth == 0 {
@@ -285,7 +332,9 @@ impl App {
                     }
                     match out.action {
                         Some(Action::Reload) => events.reload = Some(row.id),
+                        Some(Action::ReloadClean) => events.reload_clean = Some(row.id),
                         Some(Action::Rescan) => events.rescan = true,
+                        Some(Action::LoadOne) => events.load_one = Some(row.id),
                         None => {}
                     }
                     let (id, bypass, is_folded) = (row.id, row.bypass, folded[i]);
@@ -370,6 +419,16 @@ impl App {
         if let Some(id) = events.reload {
             self.hosting.reload(id);
         }
+        if let Some(id) = events.reload_clean {
+            self.hosting.reload_clean(id);
+        }
+        if let Some((id, forward)) = events.step {
+            self.chain.selected = Some(id);
+            self.step_preset(ui.ctx(), id, forward);
+        }
+        if let Some(id) = events.load_one {
+            self.load_one_plugin(id);
+        }
         if events.rescan {
             self.rescan_plugins(ui.ctx(), lumen_plugin_catalog::scan::Mode::Changed);
         }
@@ -416,10 +475,15 @@ impl App {
         let (face, frames) = if d.is_vst3() {
             let face = match self.hosting.state(d.id) {
                 Some(State::Ready) => OwnedFace::Ready,
-                Some(State::Failed(words)) => OwnedFace::Failed(words.clone()),
+                Some(State::Failed(words)) => OwnedFace::Failed {
+                    words: words.clone(),
+                    from: self.reload_source(d),
+                    keeps: self.hosting.keeps_failing(d.id),
+                },
                 Some(State::Missing) => {
                     OwnedFace::Missing(d.state.len() + d.controller_state.len())
                 }
+                Some(State::Safe) => OwnedFace::Safe(d.state.len() + d.controller_state.len()),
                 Some(State::Loading) | None => OwnedFace::Loading,
             };
             let frames = self
@@ -447,6 +511,7 @@ impl App {
             parameters,
             editor,
             learning: self.chain.learning == Some(d.id),
+            field: self.field_look(d.id),
             name,
             vendor,
             identity,
@@ -456,6 +521,29 @@ impl App {
             face,
             latency_ms,
         }
+    }
+}
+
+impl App {
+    /// Where Reload would start a stopped plugin from, in words: the sound
+    /// last read from it and how long ago, or what the project holds.
+    fn reload_source(&self, d: &Device) -> String {
+        match self.hosting.last_good_age(d.id) {
+            Some(age) => format!("its sound from {} ago", ago(age)),
+            None if d.state.is_empty() => "the plugin as it was added".to_owned(),
+            None => "the sound saved in the project".to_owned(),
+        }
+    }
+}
+
+/// How long ago, roughly: "a moment", "40 s", "3 min", "2 h".
+fn ago(age: std::time::Duration) -> String {
+    let seconds = age.as_secs();
+    match seconds {
+        0..5 => "a moment".to_owned(),
+        5..60 => format!("{seconds} s"),
+        60..3600 => format!("{} min", seconds / 60),
+        _ => format!("{} h", seconds / 3600),
     }
 }
 
@@ -662,6 +750,15 @@ fn output_name(project: &Project, track: &Track) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_age_is_said_roughly() {
+        use std::time::Duration;
+        assert_eq!(ago(Duration::from_secs(2)), "a moment");
+        assert_eq!(ago(Duration::from_secs(40)), "40 s");
+        assert_eq!(ago(Duration::from_secs(185)), "3 min");
+        assert_eq!(ago(Duration::from_secs(7300)), "2 h");
+    }
 
     #[test]
     fn the_output_chip_names_where_the_sound_goes() {

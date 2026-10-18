@@ -131,6 +131,11 @@ impl App {
                 self.device_chosen() && self.chosen_has_parameters(),
                 "Choose a plugin that has parameters first",
             ),
+            Command::LeaveSafeMode => need(self.safe.on, "Lumen is not in safe mode"),
+            Command::DevicePreset | Command::DeviceSavePreset => need(
+                self.chosen_has_presets(),
+                "Choose a plugin that is running first",
+            ),
             Command::DeviceEditor | Command::DeviceLearn => need(
                 self.device_chosen() && self.chosen_has_editor(),
                 "Choose a plugin that is running first",
@@ -754,6 +759,13 @@ impl App {
             Command::DeviceDuplicate => self.duplicate_chain_device(),
             Command::DeviceFold => self.toggle_chain_fold(),
             Command::DeviceParameters => self.open_parameters(),
+            Command::LeaveSafeMode => self.leave_safe_mode(ctx),
+            Command::DevicePreset => {
+                if let Some(device) = self.chain.selected {
+                    self.open_preset_menu(ctx, device, false);
+                }
+            }
+            Command::DeviceSavePreset => self.save_chosen_preset(ctx),
             Command::DeviceEditor => {
                 if let Some(device) = self.chain.selected {
                     self.toggle_editor(device);

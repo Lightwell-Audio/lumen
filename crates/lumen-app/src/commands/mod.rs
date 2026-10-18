@@ -156,6 +156,9 @@ pub(crate) enum Command {
     DeviceParameters,
     DeviceEditor,
     DeviceLearn,
+    LeaveSafeMode,
+    DevicePreset,
+    DeviceSavePreset,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -378,6 +381,9 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::DeviceParameters, "devices.parameters", "Device parameters", Area::Devices, &[], "Opens every parameter of the chosen plugin, with search. A star puts a parameter on the card's strip."),
     info(Command::DeviceEditor, "devices.editor", "Open or close the plugin's own window", Area::Devices, &[], "Opens the chosen plugin's own window where it was last, or closes it. The window belongs to the plugin; a plugin that stops answering can be ended from its card."),
     info(Command::DeviceLearn, "devices.learn", "Learn a parameter from the plugin's window", Area::Devices, &[], "Opens the plugin's window and puts the next control you touch there on the next free slot of the card's strip. Run it again, or press Esc, to stop."),
+    info(Command::LeaveSafeMode, "devices.leave_safe_mode", "Leave safe mode", Area::Devices, &[], "Ends safe mode: the plugins start loading, each as it would have, and Lumen looks for new ones as set in the settings. A plugin that stopped Lumen loading last time may do so again."),
+    info(Command::DevicePreset, "devices.preset", "Choose a preset for the plugin", Area::Devices, &[], "Opens the chosen plugin's preset menu: its own factory programs and the preset files saved for it, with a search. The arrows beside the name step to the previous and next."),
+    info(Command::DeviceSavePreset, "devices.save_preset", "Save the plugin's sound as a preset", Area::Devices, &[], "Saves the chosen plugin's sound as a preset file. A sound that came from one of your own preset files is saved over it; otherwise Lumen asks for a name and never writes over a file."),
 ];
 
 const fn info(
@@ -427,7 +433,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::DeviceLearn as usize + 1,
+            Command::DeviceSavePreset as usize + 1,
             ALL.len(),
             "a command is missing"
         );

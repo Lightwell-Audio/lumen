@@ -7,7 +7,9 @@ use std::fmt;
 
 use std::sync::Arc;
 
-use lumen_project::model::{Device, DeviceKind, Id, PluginRef, Project, SYNTH, Track, TrackKind};
+use lumen_project::model::{
+    Device, DeviceKind, Id, MAX_DEVICE_STATE, PluginRef, Project, SYNTH, Track, TrackKind,
+};
 use lumen_project::routing::all_tracks;
 
 use super::Document;
@@ -37,6 +39,10 @@ pub enum Refusal {
     NoDevice,
     /// The plugin's identity could not be saved.
     BadPlugin,
+    /// A preset can only be loaded into a plugin.
+    NotAPlugin,
+    /// The preset's state is larger than a project keeps.
+    TooLarge,
 }
 
 impl fmt::Display for Refusal {
@@ -48,6 +54,8 @@ impl fmt::Display for Refusal {
             Refusal::OneInstrument => "A track plays one instrument.",
             Refusal::NoDevice => "That device is gone.",
             Refusal::BadPlugin => "That plugin can't be added: its identity is not valid.",
+            Refusal::NotAPlugin => "Only a plugin can load a preset.",
+            Refusal::TooLarge => "That preset is too large to keep in a project.",
         })
     }
 }
@@ -286,6 +294,48 @@ impl Document {
                 }
             }
         });
+        Ok(())
+    }
+
+    /// Replaces a plugin's whole sound with a preset's: its state, its
+    /// controller's state when the preset has one, and no held parameter values
+    /// over them (they belonged to the sound that is gone). One undo step,
+    /// "Load <name>"; undo gives back the exact state and values it had.
+    /// `state_rev` goes up so the running plugin is set up from the new state.
+    pub fn load_device_state(
+        &mut self,
+        device: Id,
+        name: &str,
+        state: Vec<u8>,
+        controller: Option<Vec<u8>>,
+    ) -> Result<(), Refusal> {
+        let (track, held) = find_device(self.project(), device).ok_or(Refusal::NoDevice)?;
+        if !matches!(held.plugin, PluginRef::Vst3 { .. }) {
+            return Err(Refusal::NotAPlugin);
+        }
+        if state.len() > MAX_DEVICE_STATE
+            || controller
+                .as_ref()
+                .is_some_and(|c| c.len() > MAX_DEVICE_STATE)
+        {
+            return Err(Refusal::TooLarge);
+        }
+        let label = format!("Load {name}");
+        // A step of its own, whatever came before and after.
+        self.seal();
+        self.history.apply(&label, None, |project| {
+            if let Some(t) = find_mut(project, track)
+                && let Some(d) = t.devices.iter_mut().find(|d| d.id == device)
+            {
+                d.state = state;
+                if let Some(c) = controller {
+                    d.controller_state = c;
+                }
+                d.params.clear();
+                d.state_rev = d.state_rev.wrapping_add(1);
+            }
+        });
+        self.seal();
         Ok(())
     }
 
@@ -1104,5 +1154,92 @@ mod tests {
         assert_eq!(held(&doc, audio, copy), held(&doc, audio, fx));
         doc.move_device(audio, fx, midi, Slot::End).unwrap();
         assert_eq!(held(&doc, midi, fx).len(), 2);
+    }
+
+    fn whole(doc: &Document, device: Id) -> Device {
+        find_device(doc.project(), device).unwrap().1.clone()
+    }
+
+    #[test]
+    fn loading_a_preset_replaces_the_sound_in_one_step_and_undo_gives_it_back() {
+        let (mut doc, _, audio) = doc();
+        let verb = effect(&mut doc, audio, "Verb");
+        set_up(&mut doc, audio, verb, &[1, 2, 3]);
+        doc.set_device_params(verb, &[(4, 0.25)], "Change Mix", None)
+            .unwrap();
+        doc.seal();
+        let before = whole(&doc, verb);
+        let steps_before = steps(&doc);
+
+        doc.load_device_state(verb, "Warm hall", vec![7; 40], Some(vec![8, 8]))
+            .unwrap();
+        let loaded = whole(&doc, verb);
+        assert_eq!(loaded.state, vec![7; 40]);
+        assert_eq!(loaded.controller_state, vec![8, 8]);
+        assert!(loaded.params.is_empty(), "the old sound's values are gone");
+        assert_eq!(loaded.state_rev, before.state_rev + 1);
+        assert_eq!(steps(&doc), steps_before + 1, "one coherent step");
+
+        assert_eq!(doc.undo().as_deref(), Some("Load Warm hall"));
+        let back = whole(&doc, verb);
+        assert_eq!(
+            (&back.state, &back.controller_state, &back.params),
+            (&before.state, &before.controller_state, &before.params)
+        );
+        // The revision goes back too: the running plugin sees a different
+        // sound than the one it has and is set up from the old state.
+        assert_eq!(back.state_rev, before.state_rev);
+        doc.redo();
+        assert_eq!(whole(&doc, verb), loaded);
+    }
+
+    #[test]
+    fn a_preset_without_controller_state_leaves_the_controllers_alone() {
+        let (mut doc, _, audio) = doc();
+        let verb = effect(&mut doc, audio, "Verb");
+        set_up(&mut doc, audio, verb, &[1, 2, 3]);
+        doc.load_device_state(verb, "Plain", vec![5; 4], None)
+            .unwrap();
+        let d = whole(&doc, verb);
+        assert_eq!(d.state, vec![5; 4]);
+        assert_eq!(d.controller_state, vec![9, 9]);
+    }
+
+    #[test]
+    fn a_preset_is_refused_where_it_cannot_go() {
+        let (mut doc, midi, audio) = doc();
+        let verb = effect(&mut doc, audio, "Verb");
+        let synth = PluginRef::Builtin { name: SYNTH.into() };
+        let (_, built_in) = doc.add_device_on_new_track(synth, None).unwrap();
+        doc.seal();
+        let steps_before = steps(&doc);
+        assert_eq!(
+            doc.load_device_state(GONE, "x", vec![1], None),
+            Err(Refusal::NoDevice)
+        );
+        assert_eq!(
+            doc.load_device_state(built_in, "x", vec![1], None),
+            Err(Refusal::NotAPlugin)
+        );
+        assert_eq!(
+            doc.load_device_state(verb, "x", vec![0; MAX_DEVICE_STATE + 1], None),
+            Err(Refusal::TooLarge)
+        );
+        assert_eq!(
+            doc.load_device_state(verb, "x", vec![1], Some(vec![0; MAX_DEVICE_STATE + 1])),
+            Err(Refusal::TooLarge)
+        );
+        assert_eq!(steps(&doc), steps_before, "refusals record nothing");
+        let _ = midi;
+    }
+
+    #[test]
+    fn a_copy_of_a_device_keeps_the_sound_it_was_loaded_with() {
+        let (mut doc, _, audio) = doc();
+        let verb = effect(&mut doc, audio, "Verb");
+        doc.load_device_state(verb, "Warm hall", vec![7; 8], None)
+            .unwrap();
+        let copy = doc.copy_device(audio, verb, audio, Slot::End).unwrap();
+        assert_eq!(whole(&doc, copy).state, vec![7; 8]);
     }
 }

@@ -22,8 +22,8 @@ use vst3::Steinberg::Vst::{
     IAudioProcessor, IAudioProcessorTrait, IComponent, IComponentHandler, IComponentTrait,
     IConnectionPoint, IConnectionPointTrait, IEditController, IEditControllerTrait, IEventList,
     IMidiMapping, IMidiMappingTrait, IParameterChanges, IUnitInfo, IUnitInfoTrait, NoteOffEvent,
-    NoteOnEvent, ParameterInfo, ProcessContext, ProcessData, ProcessSetup, SpeakerArr,
-    SpeakerArrangement, UnitInfo as VstUnitInfo,
+    NoteOnEvent, ParameterInfo, ProcessContext, ProcessData, ProcessSetup, ProgramListInfo,
+    SpeakerArr, SpeakerArrangement, UnitInfo as VstUnitInfo,
 };
 use vst3::Steinberg::{
     IPlugView, IPluginBaseTrait, IPluginFactory3, IPluginFactory3Trait, IPluginFactoryTrait, TUID,
@@ -35,7 +35,8 @@ use crate::com::{self, Changes, EventList, Handler, MOST_PENDING, MemoryStream, 
 use crate::module::{AUDIO_CLASS, Module, to_tuid};
 use crate::protocol::{
     ClassId, ClassInfo, Edit, EditKind, Event, EventKind, MAX_CHANNELS, MAX_FRAMES, MAX_PARAMETERS,
-    MAX_STATE, MAX_UNITS, ParamInfo, ParamQueue, Taken, UnitInfo,
+    MAX_PROGRAM_LISTS, MAX_PROGRAMS, MAX_PROGRAMS_ALL, MAX_STATE, MAX_UNITS, ParamInfo, ParamQueue,
+    ProgramList, Taken, UnitInfo,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,7 +133,11 @@ pub struct Instance {
     /// This block's controller events as `(parameter id, offset in the
     /// block, normalized value)`.
     mapped: Vec<(u32, u32, f64)>,
-    /// Controller events no parameter took, since the last `take_edits`.
+    /// The plugin's program-change parameter and its step count, if it has
+    /// one: a program change (MIDI) sets it to `program / steps`.
+    program_param: Option<(u32, i32)>,
+    /// Controller and program events no parameter took, since the last
+    /// `take_edits`.
     ignored: u32,
     /// The processor's reported values after a block, before they are noted.
     reported: Vec<(u32, f64)>,
@@ -330,6 +335,7 @@ impl Instance {
         }
 
         let mapping = controller.as_ref().and_then(|c| c.cast::<IMidiMapping>());
+        let program_param = controller.as_ref().and_then(program_parameter);
         let events_in = ComWrapper::new(EventList::default());
         let events_in_ptr = events_in.to_com_ptr::<IEventList>().expect("listed");
         let events_out = ComWrapper::new(EventList::default());
@@ -356,6 +362,7 @@ impl Instance {
             outputs_ptr,
             now: Vec::with_capacity(MOST_PENDING),
             mapping,
+            program_param,
             midi_map: vec![MAP_UNKNOWN; MAP_CHANNELS * MAP_NUMBERS],
             mapped: Vec::with_capacity(256),
             ignored: 0,
@@ -669,18 +676,36 @@ impl Instance {
         let (ins, outs) = (buffers.input.len(), buffers.output.len());
 
         // Controller, bend and pressure become parameter points through the
-        // plugin's own mapping.
+        // plugin's own mapping, and program changes through its program
+        // parameter.
         self.mapped.clear();
         for e in events
             .iter()
             .filter(|e| (start..end).contains(&(e.offset as usize)))
         {
-            if let Some((channel, number, value)) = controller_value(&e.kind) {
+            if let EventKind::Program { program, .. } = e.kind {
+                match self.program_param {
+                    Some((id, steps)) if steps > 0 => {
+                        let value =
+                            f64::from(i32::from(program).clamp(0, steps)) / f64::from(steps);
+                        self.mapped.push((id, e.offset, value));
+                    }
+                    _ => self.ignored = self.ignored.saturating_add(1),
+                }
+            } else if let Some((channel, number, value)) = controller_value(&e.kind) {
                 match self.mapped_param(channel, number) {
                     Some(id) => self.mapped.push((id, e.offset, value)),
                     None => self.ignored = self.ignored.saturating_add(1),
                 }
             }
+        }
+        // The controller hears what the processor is given through the
+        // mapping too (a plugin's window follows a controller, and a program
+        // change is carried out by the controller: it sets the parameters the
+        // program holds).
+        for i in 0..self.mapped.len() {
+            let (id, _, value) = self.mapped[i];
+            self.note(id, value);
         }
         let notes = &mut self.notes;
         self.events_in.set(
@@ -1018,6 +1043,115 @@ impl Controls {
         }
     }
 
+    /// The edit controller's own state (a window size, a view), apart from
+    /// the component's. A controller that keeps none writes nothing.
+    pub fn controller_state(&self) -> Result<Vec<u8>, InstanceError> {
+        let Some(controller) = &self.controller else {
+            return Ok(Vec::new());
+        };
+        let (stream, ptr) = MemoryStream::open(Vec::new(), MAX_STATE);
+        // SAFETY: a live stream object.
+        let result = unsafe { controller.getState(ptr.as_ptr()) };
+        if result != kResultOk {
+            return Err(plugin(format!(
+                "the controller's getState failed ({result})"
+            )));
+        }
+        Ok(stream.bytes())
+    }
+
+    /// Restores the edit controller's own state.
+    pub fn set_controller_state(&self, state: &[u8]) -> Result<(), InstanceError> {
+        let Some(controller) = &self.controller else {
+            return Ok(());
+        };
+        let (_stream, ptr) = MemoryStream::open(state.to_vec(), MAX_STATE);
+        // SAFETY: a live stream object.
+        let result = unsafe { controller.setState(ptr.as_ptr()) };
+        if result != kResultOk {
+            return Err(plugin(format!(
+                "the controller's setState failed ({result})"
+            )));
+        }
+        Ok(())
+    }
+
+    /// The program lists the plugin offers, capped, each with the parameter
+    /// that selects its programs. A plugin with none has an empty list.
+    pub fn programs(&self) -> Vec<ProgramList> {
+        let Some(controller) = &self.controller else {
+            return Vec::new();
+        };
+        let Some(info) = controller.cast::<IUnitInfo>() else {
+            return Vec::new();
+        };
+        // The unit each list sits in, and the program-change parameter of each
+        // unit.
+        let mut unit_of: Vec<(i32, i32)> = Vec::new();
+        let mut changers: Vec<(i32, u32)> = Vec::new();
+        // SAFETY: plain calls on live interfaces with valid out pointers.
+        unsafe {
+            let units = info.getUnitCount().max(0) as usize;
+            for i in 0..units.min(MAX_UNITS) as i32 {
+                let mut unit: VstUnitInfo = std::mem::zeroed();
+                if info.getUnitInfo(i, &mut unit) == kResultOk && unit.programListId >= 0 {
+                    unit_of.push((unit.programListId, unit.id));
+                }
+            }
+            let params = controller.getParameterCount().max(0) as usize;
+            for i in 0..params.min(MAX_PARAMETERS) as i32 {
+                let mut p: ParameterInfo = std::mem::zeroed();
+                if controller.getParameterInfo(i, &mut p) == kResultOk
+                    && p.flags as u32 & crate::protocol::FLAG_PROGRAM_CHANGE != 0
+                    && !changers.iter().any(|&(unit, _)| unit == p.unitId)
+                {
+                    changers.push((p.unitId, p.id));
+                }
+            }
+            let count = info.getProgramListCount().max(0) as usize;
+            let mut all = 0;
+            let mut lists = Vec::new();
+            for i in 0..count.min(MAX_PROGRAM_LISTS) as i32 {
+                let mut list: ProgramListInfo = std::mem::zeroed();
+                if info.getProgramListInfo(i, &mut list) != kResultOk {
+                    continue;
+                }
+                let n = (list.programCount.max(0) as usize)
+                    .min(MAX_PROGRAMS)
+                    .min(MAX_PROGRAMS_ALL - all);
+                let programs = (0..n as i32)
+                    .map(|k| {
+                        let mut name: vst3::Steinberg::Vst::String128 = [0; 128];
+                        let named = info.getProgramName(list.id, k, &mut name) == kResultOk;
+                        let text = if named { wide(&name) } else { String::new() };
+                        if text.is_empty() {
+                            format!("Program {}", k + 1)
+                        } else {
+                            text
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                all += programs.len();
+                let unit = unit_of
+                    .iter()
+                    .find(|&&(l, _)| l == list.id)
+                    .map_or(-1, |&(_, u)| u);
+                let parameter = changers
+                    .iter()
+                    .find(|&&(u, _)| u == unit)
+                    .map(|&(_, id)| id);
+                lists.push(ProgramList {
+                    id: list.id,
+                    name: wide(&list.name),
+                    unit,
+                    parameter,
+                    programs,
+                });
+            }
+            lists
+        }
+    }
+
     /// The plugin's own text for a normalized value, if it has one.
     pub fn param_text(&self, id: u32, value: f64) -> Option<String> {
         let controller = self.controller.as_ref()?;
@@ -1079,6 +1213,26 @@ impl Controls {
             ignored: heard.ignored,
         }
     }
+}
+
+/// The parameter a program change sets, and how many steps it has: the first
+/// program-change parameter in the root unit, else the first anywhere.
+fn program_parameter(controller: &ComPtr<IEditController>) -> Option<(u32, i32)> {
+    let mut found: Option<(u32, i32, i32)> = None;
+    // SAFETY: plain calls on a live controller with valid out pointers.
+    unsafe {
+        let count = controller.getParameterCount().max(0) as usize;
+        for i in 0..count.min(MAX_PARAMETERS) as i32 {
+            let mut p: ParameterInfo = std::mem::zeroed();
+            if controller.getParameterInfo(i, &mut p) == kResultOk
+                && p.flags as u32 & crate::protocol::FLAG_PROGRAM_CHANGE != 0
+                && found.is_none_or(|(_, _, unit)| unit != 0 && p.unitId == 0)
+            {
+                found = Some((p.id, p.stepCount, p.unitId));
+            }
+        }
+    }
+    found.map(|(id, steps, _)| (id, steps))
 }
 
 fn wide(buf: &[u16]) -> String {

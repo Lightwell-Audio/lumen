@@ -17,7 +17,9 @@ use std::time::{Duration, Instant};
 
 use lumen_devices::MOST_FRAMES;
 use lumen_plugin_host::client::{ExitKind, HostError, HostProcess};
-use lumen_plugin_host::protocol::{EditorBounds, ParamInfo, Response, Taken, UnitInfo};
+use lumen_plugin_host::protocol::{
+    EditorBounds, ParamInfo, ProgramList, Response, Taken, UnitInfo,
+};
 use lumen_plugin_host::shm::{Layout, Wake};
 
 use crate::link::{Counts, Link};
@@ -147,6 +149,10 @@ pub struct Start {
     pub instrument: bool,
     /// The saved component state, restored at load; empty for none.
     pub state: Vec<u8>,
+    /// The saved edit-controller state, restored after the component's; empty
+    /// for none. A controller that will not take it leaves the plugin as it
+    /// is: its own view settings are not worth a plugin that does not start.
+    pub controller_state: Vec<u8>,
     /// Parameter values set after the state is restored, as `(id,
     /// normalized value)`: what the project holds over the saved state.
     pub values: Vec<(u32, f64)>,
@@ -178,6 +184,7 @@ impl Start {
             class,
             instrument,
             state: Vec::new(),
+            controller_state: Vec::new(),
             values: Vec::new(),
             rate,
             frames: MOST_FRAMES as u32,
@@ -212,10 +219,26 @@ pub enum Happened {
     },
     /// The plugin's saved state, as asked for ([`Process::capture`]): the
     /// bytes, or why they could not be read in time.
-    State(Result<Vec<u8>, String>),
+    State(Result<Captured, String>),
+    /// Every parameter's value now, as asked for ([`Process::refresh`]): what
+    /// a plugin changed inside itself without saying which (a patch loaded in
+    /// its window, a program change).
+    Values(Vec<(u32, f64)>),
+    /// A state loaded into the plugin ([`Process::load_state`]): the value of
+    /// every parameter now, or why the plugin would not take it (it keeps the
+    /// sound it had).
+    Loaded(Result<Vec<(u32, f64)>, String>),
     /// A key Lumen asked for ([`Process::capture_keys`]) went down or up in
     /// the plugin's window (a virtual-key code).
     Key { code: u8, down: bool },
+}
+
+/// A plugin's state as read: the component's, and the edit controller's when
+/// it keeps any.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Captured {
+    pub component: Vec<u8>,
+    pub controller: Option<Vec<u8>>,
 }
 
 /// What happened to a plugin's editor window (M6 slice 4f).
@@ -250,6 +273,9 @@ pub struct Linked {
     pub params: Vec<ParamInfo>,
     pub params_total: u32,
     pub units: Vec<UnitInfo>,
+    /// The programs the plugin offers, with the parameter that selects each
+    /// list's program.
+    pub programs: Vec<ProgramList>,
     pub pid: u32,
     /// What the host says about itself: how long its first blocks took, and
     /// where it died if it does. For the card when the plugin is given up on.
@@ -275,6 +301,10 @@ enum Command {
     Set(u32, f64),
     /// Ask the plugin for its text for a value.
     Text(u32, f64),
+    /// Ask the plugin for its text for each of these values of one parameter
+    /// (the steps of a list): every one is answered, none is dropped for a
+    /// later one.
+    Texts(u32, Vec<f64>),
     /// Ask the plugin to read text the user typed for a parameter.
     Typed(u32, String),
     /// Open the editor window where it was, or where the system puts it.
@@ -287,6 +317,16 @@ enum Command {
     End,
     /// Read the plugin's state now.
     Capture,
+    /// Read every parameter's value now.
+    Refresh,
+    /// Load a state into the plugin (a preset, or the project's state after
+    /// an undo): the component's, the controller's when given, then these
+    /// parameter values over them.
+    Load {
+        state: Vec<u8>,
+        controller: Option<Vec<u8>>,
+        values: Vec<(u32, f64)>,
+    },
     /// Take these keys from the plugin's window (none: give them back).
     Keys(Vec<u8>),
     Quit,
@@ -308,6 +348,7 @@ fn coalesce(commands: Vec<Command>) -> Vec<Command> {
                 .into_iter()
                 .any(|d| matches!(d, Command::Text(other, _) if other == id)),
             Command::Keys(_) => later.into_iter().any(|d| matches!(d, Command::Keys(_))),
+            Command::Refresh => later.into_iter().any(|d| matches!(d, Command::Refresh)),
             Command::ShowEditor(_) => later
                 .into_iter()
                 .any(|d| matches!(d, Command::ShowEditor(_) | Command::CloseEditor)),
@@ -425,10 +466,32 @@ impl Process {
         let _ = self.commands.send(Command::Capture);
     }
 
+    /// Asks for every parameter's value; the answer comes as
+    /// [`Happened::Values`].
+    pub fn refresh(&self) {
+        let _ = self.commands.send(Command::Refresh);
+    }
+
+    /// Loads a state into the plugin; the answer comes as
+    /// [`Happened::Loaded`].
+    pub fn load_state(&self, state: Vec<u8>, controller: Option<Vec<u8>>, values: Vec<(u32, f64)>) {
+        let _ = self.commands.send(Command::Load {
+            state,
+            controller,
+            values,
+        });
+    }
+
     /// Asks for the plugin's text for a value; the answer comes as
     /// [`Happened::Text`].
     pub fn param_text(&self, id: u32, value: f64) {
         let _ = self.commands.send(Command::Text(id, value));
+    }
+
+    /// Asks for the plugin's text for each of `values` of one parameter; the
+    /// answers come as [`Happened::Text`], one each.
+    pub fn param_texts(&self, id: u32, values: Vec<f64>) {
+        let _ = self.commands.send(Command::Texts(id, values));
     }
 
     /// Asks the plugin to read `text` the user typed for a parameter; the
@@ -560,6 +623,7 @@ struct Up {
     params: Vec<ParamInfo>,
     params_total: u32,
     units: Vec<UnitInfo>,
+    programs: Vec<ProgramList>,
 }
 
 impl Run {
@@ -613,6 +677,13 @@ impl Run {
                             self.say(Happened::Text { id, value, text });
                         }
                     }
+                    Command::Texts(id, values) => {
+                        for value in values {
+                            if let Ok(text) = up.host.param_text(id, value, QUICK) {
+                                self.say(Happened::Text { id, value, text });
+                            }
+                        }
+                    }
                     Command::Typed(id, text) => {
                         let value = up.host.param_value(id, &text, QUICK).ok();
                         self.say(Happened::Typed { id, text, value });
@@ -646,8 +717,36 @@ impl Run {
                         return;
                     }
                     Command::Capture => {
-                        let state = up.host.state(CAPTURE).map_err(|e| e.to_string());
+                        let state = up
+                            .host
+                            .state(CAPTURE)
+                            .map(|component| Captured {
+                                component,
+                                // The controller's own state is a courtesy: a
+                                // plugin that cannot give it still has a state.
+                                controller: up
+                                    .host
+                                    .controller_state(CAPTURE)
+                                    .ok()
+                                    .filter(|c| !c.is_empty()),
+                            })
+                            .map_err(|e| e.to_string());
                         self.say(Happened::State(state));
+                    }
+                    Command::Refresh => {
+                        if let Ok((_, list)) = up.host.parameters(CAPTURE) {
+                            self.say(Happened::Values(
+                                list.iter().map(|p| (p.id, p.value)).collect(),
+                            ));
+                        }
+                    }
+                    Command::Load {
+                        state,
+                        controller,
+                        values,
+                    } => {
+                        let answer = self.load_state(&mut up, state, controller, &values);
+                        self.say(Happened::Loaded(answer));
                     }
                     Command::Keys(keys) => {
                         let _ = up.host.capture_keys(keys, QUICK);
@@ -771,6 +870,32 @@ impl Run {
         }
     }
 
+    /// Loads a state into the running plugin and reads every parameter's
+    /// value afterwards. A plugin that refuses the state keeps its own.
+    fn load_state(
+        &self,
+        up: &mut Up,
+        state: Vec<u8>,
+        controller: Option<Vec<u8>>,
+        values: &[(u32, f64)],
+    ) -> Result<Vec<(u32, f64)>, String> {
+        let d = self.start.deadlines;
+        up.host
+            .set_state(state, d.state)
+            .map_err(|e| e.to_string())?;
+        if let Some(controller) = controller {
+            // The controller's view of its own state is not worth failing for.
+            let _ = up.host.set_controller_state(controller, d.state);
+        }
+        for &(id, value) in values {
+            up.host
+                .set_param(id, value, d.state)
+                .map_err(|e| e.to_string())?;
+        }
+        let (_, list) = up.host.parameters(d.state).map_err(|e| e.to_string())?;
+        Ok(list.iter().map(|p| (p.id, p.value)).collect())
+    }
+
     fn fail(&self, host: &mut HostProcess, step: Step, error: HostError) -> Failure {
         self.ended.store(true, Ordering::Release);
         host.kill();
@@ -813,6 +938,9 @@ impl Run {
             host.set_state(s.state.clone(), s.deadlines.state)
                 .map_err(|e| self.fail(&mut host, Step::State, e))?;
         }
+        if !s.controller_state.is_empty() {
+            let _ = host.set_controller_state(s.controller_state.clone(), s.deadlines.state);
+        }
         // The parameters are for the interface: a plugin whose controller
         // will not list them still plays. They are listed before the project's
         // own values are set, so their values are what the saved state holds:
@@ -821,6 +949,7 @@ impl Run {
             .parameters(s.deadlines.state)
             .unwrap_or((0, Vec::new()));
         let units = host.units(s.deadlines.state).unwrap_or_default();
+        let programs = host.programs(s.deadlines.state).unwrap_or_default();
         for &(id, value) in &s.values {
             host.set_param(id, value, s.deadlines.state)
                 .map_err(|e| self.fail(&mut host, Step::State, e))?;
@@ -833,6 +962,7 @@ impl Run {
             params,
             params_total,
             units,
+            programs,
         };
         let linked = self.configure_and_link(&mut up, s.rate, s.frames)?;
         Ok((up, linked))
@@ -876,6 +1006,7 @@ impl Run {
             params: up.params.clone(),
             params_total: up.params_total,
             units: up.units.clone(),
+            programs: up.programs.clone(),
             pid: up.host.id(),
             log: up.host.log(),
         })
@@ -926,6 +1057,7 @@ mod tests {
             .map(|c| match c {
                 Command::Set(id, v) => format!("set {id}={v}"),
                 Command::Text(id, v) => format!("text {id}={v}"),
+                Command::Texts(id, v) => format!("texts {id} x{}", v.len()),
                 Command::Typed(id, t) => format!("typed {id}={t}"),
                 Command::OpenEditor(_) => "open editor".into(),
                 Command::CloseEditor => "close editor".into(),
@@ -933,6 +1065,8 @@ mod tests {
                 Command::End => "end".into(),
                 Command::Relink(..) => "relink".into(),
                 Command::Capture => "capture".into(),
+                Command::Load { .. } => "load".into(),
+                Command::Refresh => "refresh".into(),
                 Command::Keys(keys) => format!("keys {}", keys.len()),
                 Command::Quit => "quit".into(),
             })

@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use crate::protocol::{
     ClassId, ClassInfo, EditorBounds, EditorStatus, Event, FailureKind, FrameError, ParamInfo,
-    ParamQueue, Request, Response, Taken, UnitInfo, read_response, write_request,
+    ParamQueue, ProgramList, Request, Response, Taken, UnitInfo, read_response, write_request,
 };
 use crate::shm::sys::remove_names;
 use crate::shm::{BlockLink, Layout, Wake};
@@ -619,6 +619,34 @@ impl HostProcess {
         match self.call(&Request::Units, within)? {
             Response::Units(list) => Ok(list),
             _ => Err(HostError::Protocol("expected Units".into())),
+        }
+    }
+
+    /// The programs the plugin offers, with the parameter that selects each
+    /// list's program.
+    pub fn programs(&mut self, within: Duration) -> Result<Vec<ProgramList>, HostError> {
+        match self.call(&Request::Programs, within)? {
+            Response::Programs(lists) => Ok(lists),
+            _ => Err(HostError::Protocol("expected Programs".into())),
+        }
+    }
+
+    /// The edit controller's own state (apart from the component's).
+    pub fn controller_state(&mut self, within: Duration) -> Result<Vec<u8>, HostError> {
+        match self.call(&Request::GetControllerState, within)? {
+            Response::State(bytes) => Ok(bytes),
+            _ => Err(HostError::Protocol("expected State".into())),
+        }
+    }
+
+    pub fn set_controller_state(
+        &mut self,
+        state: Vec<u8>,
+        within: Duration,
+    ) -> Result<(), HostError> {
+        match self.call(&Request::SetControllerState(state), within)? {
+            Response::Done => Ok(()),
+            _ => Err(HostError::Protocol("expected Done".into())),
         }
     }
 

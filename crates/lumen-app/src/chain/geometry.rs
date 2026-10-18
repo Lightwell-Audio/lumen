@@ -7,15 +7,18 @@ use eframe::egui::{Rect, pos2, vec2};
 /// A card's width.
 pub(super) const CARD_W: f32 = 232.0;
 /// A card at its tallest, with the picture.
-pub(super) const CARD_H: f32 = 310.0;
+pub(super) const CARD_H: f32 = 344.0;
 /// The picture's height at the tallest.
 pub(super) const BAND: f32 = 72.0;
 /// The card's header (power, name, badge).
 pub(super) const HEADER: f32 = 48.0;
 /// The footer (signal and latency).
 pub(super) const FOOTER: f32 = 32.0;
-/// Below the header: the parameter strip, or the message that replaces it.
-pub(super) const BODY: f32 = 158.0;
+/// The row under the header that holds a running plugin's preset field.
+pub(super) const PRESET: f32 = 34.0;
+/// Below the header: the preset row (when there is one) and the parameter
+/// strip, or the message that replaces it.
+pub(super) const BODY: f32 = 158.0 + PRESET;
 /// A cable between two cards.
 pub(super) const CABLE: f32 = 40.0;
 /// The chips at each end of the chain.

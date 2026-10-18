@@ -12,6 +12,8 @@ mod geometry;
 mod params;
 mod pictures;
 pub(crate) mod place;
+pub(crate) mod presets;
+mod stepped;
 mod strip;
 mod view;
 
@@ -70,4 +72,7 @@ pub(crate) struct Chain {
     /// The device whose Learn is on: the next control touched in its window
     /// takes a slot of its strip.
     pub learning: Option<Id>,
+    /// The cards' preset menus: the sound each card has, the files found, and
+    /// a save under way.
+    pub presets: presets::Presets,
 }

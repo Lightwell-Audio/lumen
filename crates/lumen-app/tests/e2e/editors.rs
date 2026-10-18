@@ -92,11 +92,14 @@ fn launch(name: &str, module: &str) -> Lumen {
 /// Takes the knob called `name` off the strip, by its menu.
 #[track_caller]
 fn take_off(lumen: &mut Lumen, name: &str) {
-    let at = lumen
+    // A knob is named "<name>, parameter: <text>", a switch by its name.
+    let at = match lumen
         .harness
-        .get_by_label_contains(&format!("{name}, parameter"))
-        .rect()
-        .center();
+        .query_by_label_contains(&format!("{name}, parameter"))
+    {
+        Some(knob) => knob.rect().center(),
+        None => lumen.harness.get_by_label(name).rect().center(),
+    };
     lumen.right_click(at);
     lumen.click("Remove from strip");
     lumen.frames(4);
@@ -274,7 +277,7 @@ fn learn_puts_the_next_control_touched_in_the_window_on_the_strip() {
     assert!(lumen.app().learning(PLUGIN));
     // A control touched in the plugin's window: its trigger makes it edit
     // its wave as a gesture.
-    lumen.app_mut().set_device_param(PLUGIN, TRIGGER, 1.0);
+    lumen.app_mut().poke_plugin(PLUGIN, TRIGGER, 1.0);
     lumen.wait_for("the wave to join the strip", |app| {
         app.strip_parameters(PLUGIN).contains(&WAVE)
     });
@@ -332,7 +335,7 @@ fn learn_will_not_start_with_no_room_and_ends_when_the_strip_fills() {
     take_off(&mut lumen, "Wave");
     lumen.click("Learn");
     wait_shows(&mut lumen, "Stop learning");
-    lumen.app_mut().set_device_param(PLUGIN, TRIGGER, 1.0);
+    lumen.app_mut().poke_plugin(PLUGIN, TRIGGER, 1.0);
     lumen.wait_for("the strip to fill", |app| {
         app.strip_parameters(PLUGIN).len() == 8
     });

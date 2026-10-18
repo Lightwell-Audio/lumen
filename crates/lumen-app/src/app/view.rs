@@ -55,6 +55,16 @@ pub(crate) fn notice_panel_frame() -> egui::Frame {
 /// `add` on one row. Say what happened and what is safe; buttons are
 /// `raised::button`, at most one `primary_button` for the main action.
 pub(crate) fn notice_card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+    notice_card_with(ui, None, add);
+}
+
+/// A notice with its own icon in place of the warning sign (safe mode's
+/// shield), still in the warning colour: it is a state worth noticing.
+pub(crate) fn notice_card_with(
+    ui: &mut egui::Ui,
+    icon: Option<crate::icons::Icon>,
+    add: impl FnOnce(&mut egui::Ui),
+) {
     egui::Frame::new()
         .fill(theme::p().raised)
         .stroke(Stroke::new(theme::stroke::HAIRLINE, theme::warning_edge()))
@@ -66,7 +76,17 @@ pub(crate) fn notice_card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
-                ui.label(RichText::new("\u{26A0}").color(theme::p().warning));
+                match icon {
+                    Some(icon) => {
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+                        ui.painter()
+                            .extend(crate::icons::shapes(icon, rect, theme::p().warning));
+                    }
+                    None => {
+                        ui.label(RichText::new("\u{26A0}").color(theme::p().warning));
+                    }
+                }
                 add(ui);
             });
         });

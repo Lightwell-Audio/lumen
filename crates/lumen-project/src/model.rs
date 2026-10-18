@@ -526,6 +526,13 @@ pub struct Device {
     /// some; a save that captures the plugin's state afresh clears it.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub params: BTreeMap<u32, f64>,
+    /// How many times the device's sound was replaced as a whole (a preset
+    /// loaded), so the running plugin can tell that the project holds another
+    /// sound than the one it has, after an undo or redo, without comparing
+    /// megabytes of state. Not saved: a project opens with the plugin set up
+    /// from what the file holds.
+    #[serde(skip)]
+    pub state_rev: u32,
 }
 
 impl Device {
@@ -540,6 +547,7 @@ impl Device {
             plugin_version: String::new(),
             reported: None,
             params: BTreeMap::new(),
+            state_rev: 0,
         }
     }
 

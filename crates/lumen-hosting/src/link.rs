@@ -81,10 +81,11 @@ impl Link {
 }
 
 /// A MIDI message as the host's event, if the host can take it: notes,
-/// controllers, pitch bend and channel pressure (a plugin hears the last
-/// three through its own controller mapping). Velocities and values are 0 to
-/// 1 in the host's terms; bend has its centre at 0.5. Program change, key
-/// pressure and system messages are not carried: the caller counts them.
+/// controllers, pitch bend and channel pressure (a plugin hears these through
+/// its own controller mapping) and program changes (through its program
+/// parameter). Velocities and values are 0 to 1 in the host's terms; bend
+/// has its centre at 0.5. Key pressure and system messages are not carried:
+/// the caller counts them.
 fn host_event(event: &Event, frames: usize) -> Option<HostEvent> {
     let channel = i16::from(event.msg.channel());
     let kind = match event.msg.kind() {
@@ -106,6 +107,10 @@ fn host_event(event: &Event, frames: usize) -> Option<HostEvent> {
         Kind::Pressure { value } => EventKind::Pressure {
             channel,
             value: f32::from(value) / 127.0,
+        },
+        Kind::Program { program } => EventKind::Program {
+            channel,
+            program: i16::from(program),
         },
         Kind::PitchBend { value } => EventKind::PitchBend {
             channel,

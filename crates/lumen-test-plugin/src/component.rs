@@ -35,6 +35,8 @@ pub struct Processor {
     /// Process calls since the component was last activated.
     calls: AtomicU64,
     latency: AtomicU32,
+    /// `setState` calls so far (for `state_refused`).
+    state_calls: AtomicU64,
     dsp: Mutex<Dsp>,
 }
 
@@ -50,6 +52,7 @@ impl Processor {
             faults,
             calls: AtomicU64::new(0),
             latency: AtomicU32::new(0),
+            state_calls: AtomicU64::new(0),
             dsp: Mutex::new(Dsp::new(kind)),
         }
     }
@@ -198,6 +201,10 @@ impl IComponentTrait for Processor {
     }
 
     unsafe fn setState(&self, stream: *mut IBStream) -> tresult {
+        let refusals = self.faults.state_refusals();
+        if refusals > 0 && self.state_calls.fetch_add(1, Ordering::Relaxed) < refusals {
+            return kResultFalse;
+        }
         // SAFETY: the host passes a live stream or null.
         let Some(bytes) = (unsafe { streams::read_all(stream, STATE_LIMIT) }) else {
             return kResultFalse;

@@ -63,15 +63,19 @@ pub enum Icon {
     Sliders,
     /// A plug with a slash: a plugin that is not installed.
     PlugOff,
+    /// Safe mode (M6 slice 5e): a shield with a check.
+    Shield,
     /// The browser (the left panel): a window with its left column marked.
     PanelLeft,
     /// The detail panel: a window with its bottom strip marked.
     PanelBottom,
+    /// A plugin's own window (M6 slice 5h): a window with its title bar.
+    Window,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 29] = [
+    pub const ALL: [Icon; 31] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
@@ -99,8 +103,10 @@ impl Icon {
         Icon::Power,
         Icon::Sliders,
         Icon::PlugOff,
+        Icon::Shield,
         Icon::PanelLeft,
         Icon::PanelBottom,
+        Icon::Window,
     ];
 }
 
@@ -247,6 +253,22 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             ),
             Shape::line_segment([g.p(8.0, 11.0), g.p(8.0, 13.8)], stroke),
             Shape::line_segment([g.p(2.6, 2.6), g.p(13.4, 13.4)], stroke),
+        ],
+        Icon::Shield => vec![
+            Shape::closed_line(
+                vec![
+                    g.p(8.0, 2.0),
+                    g.p(13.2, 4.0),
+                    g.p(13.2, 8.4),
+                    g.p(11.4, 11.6),
+                    g.p(8.0, 14.0),
+                    g.p(4.6, 11.6),
+                    g.p(2.8, 8.4),
+                    g.p(2.8, 4.0),
+                ],
+                stroke,
+            ),
+            Shape::line(vec![g.p(5.6, 8.2), g.p(7.4, 10.0), g.p(10.6, 6.2)], stroke),
         ],
         Icon::ToStart => vec![
             Shape::rect_filled(g.rect(3.0, 3.0, 5.0, 13.0), 0.3 * g.unit, color),
@@ -417,6 +439,15 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
                 Shape::line_segment([g.p(from[0], from[1]), g.p(to[0], to[1])], stroke),
             ]
         }
+        Icon::Window => vec![
+            Shape::rect_stroke(
+                g.rect(1.5, 2.5, 14.5, 13.5),
+                2.0 * g.unit,
+                stroke,
+                egui::StrokeKind::Middle,
+            ),
+            Shape::line_segment([g.p(1.5, 6.0), g.p(14.5, 6.0)], stroke),
+        ],
         Icon::Follow => vec![
             Shape::line_segment([g.p(4.0, 2.5), g.p(4.0, 13.5)], stroke),
             Shape::line_segment([g.p(6.5, 8.0), g.p(11.5, 8.0)], stroke),

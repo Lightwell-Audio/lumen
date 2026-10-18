@@ -13,6 +13,8 @@ impl App {
     /// Records the plugins' own edits since the last frame. Called every
     /// frame after the hosts have been polled.
     pub(crate) fn apply_plugin_edits(&mut self, ctx: &eframe::egui::Context) {
+        self.poll_presets(ctx);
+        self.apply_presets();
         let all = self.hosting.take_edits();
         let touched: Vec<(Id, Vec<u32>)> = all
             .iter()
@@ -28,7 +30,16 @@ impl App {
                     .find(|p| p.id == id)
                     .map_or_else(|| "parameter".to_owned(), |p| p.title.clone())
             };
-            record(&mut self.document, news.device, &news.edits, title);
+            // While a program the user chose is being loaded, what the plugin
+            // sets in answer is part of that choice.
+            let loading = hosting.program_loading(news.device).map(str::to_owned);
+            record(
+                &mut self.document,
+                news.device,
+                &news.edits,
+                title,
+                loading.as_deref(),
+            );
         }
         if self.hosting.take_inside_changes() {
             self.document.mark_changed_inside();
@@ -70,16 +81,28 @@ fn gesture_key(device: Id, parameter: u32) -> String {
 
 /// Applies `edits`, which a plugin made in this order, to `device`. A
 /// gesture's values merge into the step its begin opens; the rest are
-/// gathered into one step.
+/// gathered into one step. While `loading` names a program the user chose,
+/// every edit joins that choice's step instead, whatever its shape.
 pub(crate) fn record(
     doc: &mut Document,
     device: Id,
     edits: &[(Edit, bool)],
     title: impl Fn(u32) -> String,
+    loading: Option<&str>,
 ) {
     let mut loose: Vec<(u32, f64)> = Vec::new();
     let flush = |doc: &mut Document, loose: &mut Vec<(u32, f64)>| {
         if loose.is_empty() {
+            return;
+        }
+        if let Some(name) = loading {
+            let _ = doc.set_device_params(
+                device,
+                loose,
+                &format!("Load {name}"),
+                Some(&super::presets::load_key(device)),
+            );
+            loose.clear();
             return;
         }
         let label = match loose.as_slice() {
@@ -95,12 +118,19 @@ pub(crate) fn record(
         match edit.kind {
             EditKind::Begin => {
                 flush(doc, &mut loose);
-                doc.seal();
+                if loading.is_none() {
+                    doc.seal();
+                }
             }
             EditKind::Perform if inside => {
                 flush(doc, &mut loose);
-                let label = format!("Change {}", title(edit.id));
-                let key = gesture_key(device, edit.id);
+                let (label, key) = match loading {
+                    Some(name) => (format!("Load {name}"), super::presets::load_key(device)),
+                    None => (
+                        format!("Change {}", title(edit.id)),
+                        gesture_key(device, edit.id),
+                    ),
+                };
                 let _ = doc.set_device_params(device, &[(edit.id, edit.value)], &label, Some(&key));
             }
             EditKind::Perform => {
@@ -112,7 +142,9 @@ pub(crate) fn record(
             }
             EditKind::End => {
                 flush(doc, &mut loose);
-                doc.seal();
+                if loading.is_none() {
+                    doc.seal();
+                }
             }
             // Not an edit of the project.
             EditKind::Output | EditKind::Dirty => {}
@@ -181,6 +213,7 @@ mod tests {
                 e(3, 0.0, EditKind::End, true),
             ],
             name,
+            None,
         );
         assert_eq!(params(&doc, device), [(3, 0.9)]);
         assert_eq!(doc.undo().as_deref(), Some("Change P3"));
@@ -192,12 +225,19 @@ mod tests {
     #[test]
     fn a_gesture_that_spans_several_calls_is_still_one_step() {
         let (mut doc, device) = with_device();
-        record(&mut doc, device, &[e(3, 0.0, EditKind::Begin, true)], name);
+        record(
+            &mut doc,
+            device,
+            &[e(3, 0.0, EditKind::Begin, true)],
+            name,
+            None,
+        );
         record(
             &mut doc,
             device,
             &[e(3, 0.2, EditKind::Perform, true)],
             name,
+            None,
         );
         // The frame-by-frame seal does not run while the gesture is open.
         record(
@@ -205,8 +245,15 @@ mod tests {
             device,
             &[e(3, 0.6, EditKind::Perform, true)],
             name,
+            None,
         );
-        record(&mut doc, device, &[e(3, 0.0, EditKind::End, true)], name);
+        record(
+            &mut doc,
+            device,
+            &[e(3, 0.0, EditKind::End, true)],
+            name,
+            None,
+        );
         doc.undo();
         assert!(params(&doc, device).is_empty());
     }
@@ -224,6 +271,7 @@ mod tests {
                     e(3, 0.0, EditKind::End, true),
                 ],
                 name,
+                None,
             );
         }
         doc.undo();
@@ -238,7 +286,7 @@ mod tests {
         let batch: Vec<_> = (0..50)
             .map(|i| e(i, f64::from(i) / 100.0, EditKind::Perform, false))
             .collect();
-        record(&mut doc, device, &batch, name);
+        record(&mut doc, device, &batch, name, None);
         assert_eq!(params(&doc, device).len(), 50);
         assert_eq!(doc.undo().as_deref(), Some("Change 50 parameters"));
         assert!(params(&doc, device).is_empty());
@@ -253,6 +301,7 @@ mod tests {
             device,
             &[e(9, 0.5, EditKind::Output, false)],
             name,
+            None,
         );
         assert_eq!(doc.state(), before);
     }

@@ -12,6 +12,7 @@ use lumen_core::time::Ticks;
 use lumen_project::model::{Id, Project};
 
 use crate::audio::{self, Status};
+use crate::document::find_device;
 use crate::launch::Launch;
 use crate::timeview::TimeView;
 use crate::{App, files, settings};
@@ -58,6 +59,9 @@ impl Launch {
             bench_size: None,
             autoplay: None,
             test_latency: None,
+            safe_mode: false,
+            preset_places: None,
+            plugin_marker: Some(dir.join(crate::app::safe_mode::MARKER)),
             save_as: None,
             scripted_dialogs: true,
         }
@@ -121,6 +125,18 @@ impl Launch {
         if let crate::plugins::Source::Fixed(f) = &mut self.plugins {
             f.faults = Some(faults);
         }
+        self
+    }
+
+    /// Starts with preset files kept in `user` (and read from `system`).
+    pub fn with_preset_folders(mut self, user: PathBuf, system: Vec<PathBuf>) -> Self {
+        self.preset_places = Some(crate::preset_files::Places::fixed(user, system));
+        self
+    }
+
+    /// Starts in safe mode, as `--safe-mode` does.
+    pub fn in_safe_mode(mut self) -> Self {
+        self.safe_mode = true;
         self
     }
 
@@ -326,6 +342,39 @@ impl App {
         }
     }
 
+    /// The name of the sound the card of `device` shows (the field), and
+    /// whether it is marked changed; none when the card has no field or no
+    /// sound was chosen.
+    pub fn device_preset(&self, device: Id) -> Option<(String, bool)> {
+        let look = self.field_look(device)?;
+        look.name.map(|name| (name, look.changed))
+    }
+
+    /// Whether the card of `device` shows a preset field.
+    pub fn device_has_preset_field(&self, device: Id) -> bool {
+        self.field_look(device).is_some()
+    }
+
+    /// The folders "Show presets folder" opened, oldest first.
+    pub fn revealed_folders(&self) -> Vec<PathBuf> {
+        self.chain.presets.revealed.clone()
+    }
+
+    /// Whether Lumen is in safe mode, and whether it is offering it.
+    pub fn safe_mode(&self) -> (bool, bool) {
+        (self.safe.on, self.safe.offer)
+    }
+
+    /// How many plugin hosts exist.
+    pub fn plugin_hosts(&self) -> usize {
+        self.hosting.host_count()
+    }
+
+    /// Loads one plugin in safe mode, as its card's "Load this plugin" will.
+    pub fn load_one(&mut self, device: Id) {
+        self.load_one_plugin(device);
+    }
+
     /// How a plugin device's host is doing: `loading`, `ready`, `failed: ...`
     /// or `missing`; none when the project holds no such device.
     pub fn device_state(&self, device: Id) -> Option<String> {
@@ -335,6 +384,7 @@ impl App {
             State::Ready => "ready".to_owned(),
             State::Failed(why) => format!("failed: {why}"),
             State::Missing => "missing".to_owned(),
+            State::Safe => "safe".to_owned(),
         })
     }
 
@@ -391,9 +441,59 @@ impl App {
                 "failed" => State::Failed(
                     "Crashed while loading: access violation, exception 0xc0000005.".into(),
                 ),
+                "safe" => State::Safe,
                 _ => State::Missing,
             },
         );
+    }
+
+    /// Gives a plugin device a program list, a chosen sound (changed or not)
+    /// and preset files, without a host (screenshots of the preset menu).
+    pub fn give_device_presets(
+        &mut self,
+        device: Id,
+        programs: &[&str],
+        chosen: &str,
+        changed: bool,
+        files: &[(Option<&str>, &str, bool)],
+    ) {
+        self.hosting.pretend_programs(device, "Factory", programs);
+        let params = find_device(self.document.project(), device)
+            .map(|(_, d)| d.params.clone())
+            .unwrap_or_default();
+        let baseline = if changed {
+            let mut other = params.clone();
+            other.insert(9999, 1.0);
+            other
+        } else {
+            params
+        };
+        self.chain
+            .presets
+            .pretend(device, chosen, Some(baseline), files);
+    }
+
+    /// Opens the preset menu of a card (screenshots).
+    pub fn open_preset_menu_of(&mut self, ctx: &egui::Context, device: Id) {
+        self.open_preset_menu(ctx, device, false);
+    }
+
+    /// Says a plugin device failed `count` times just now and that its last
+    /// good state is `age_seconds` old (screenshots of the failed card).
+    pub fn pretend_failures(&mut self, device: Id, count: usize, age_seconds: Option<u64>) {
+        self.hosting.pretend_failures(
+            device,
+            count,
+            age_seconds.map(std::time::Duration::from_secs),
+        );
+    }
+
+    /// Shows safe mode (and, when `offer`, its offer) without a host: for
+    /// screenshots.
+    pub fn pretend_safe_mode(&mut self, on: bool, offer: bool) {
+        self.safe.on = on;
+        self.safe.offer = offer;
+        self.hosting.set_safe(on);
     }
 
     /// Gives a plugin device a picture of `width` by `height` pixels from
@@ -461,6 +561,33 @@ impl App {
         self.hosting.reload(device);
     }
 
+    /// Starts a failed device's host again with no sound of its own, as its
+    /// card's "Reload without sound" will.
+    pub fn reload_device_clean(&mut self, device: Id) {
+        self.hosting.reload_clean(device);
+    }
+
+    /// Ends a device's host as a crash would leave it (the user ending a plugin
+    /// that stopped answering).
+    pub fn end_device_host(&mut self, device: Id) {
+        self.hosting.end_plugin(device);
+    }
+
+    /// How often running plugins are read for a checkpoint.
+    pub fn set_checkpoint_every(&mut self, every: Duration) {
+        self.hosting.set_checkpoint_every(every);
+    }
+
+    /// Whether a device's plugin has stopped three times in two minutes.
+    pub fn device_keeps_failing(&self, device: Id) -> bool {
+        self.hosting.keeps_failing(device)
+    }
+
+    /// How long ago a device's last good state was read, if one was.
+    pub fn device_last_good_age(&self, device: Id) -> Option<Duration> {
+        self.hosting.last_good_age(device)
+    }
+
     /// Removes a device from a track, as the interface will (one undo step).
     pub fn remove_device(&mut self, track: Id, device: Id) {
         let _ = self.document.remove_device(track, device);
@@ -496,6 +623,34 @@ impl App {
         );
     }
 
+    /// The programs a device's plugin offers: each list's name and its
+    /// programs' names.
+    pub fn device_programs(&self, device: Id) -> Vec<(String, Vec<String>)> {
+        self.hosting
+            .programs(device)
+            .iter()
+            .map(|l| (l.name.clone(), l.programs.clone()))
+            .collect()
+    }
+
+    /// Chooses a program as the card's preset menu will.
+    pub fn choose_program(&mut self, device: Id, list: usize, program: usize) {
+        self.load_program(device, list, program);
+    }
+
+    /// Loads a preset file's bytes into a device's plugin as the card's preset
+    /// menu will; what the file is wrong with is the error.
+    pub fn load_preset_from_bytes(
+        &mut self,
+        device: Id,
+        name: &str,
+        bytes: &[u8],
+    ) -> Result<(), String> {
+        let preset = lumen_hosting::Preset::parse(bytes).map_err(|e| e.to_string())?;
+        self.load_preset(device, name, preset);
+        Ok(())
+    }
+
     /// The parameter values the project holds for a device, by id.
     pub fn device_params(&self, device: Id) -> Vec<(u32, f64)> {
         crate::document::find_device(self.document.project(), device)
@@ -509,9 +664,27 @@ impl App {
         self.hosting.pretend_parameters(device, list);
     }
 
+    /// Gives a device stepped parameters after those it has (screenshots of
+    /// the switches and choosers): `(title, steps, value, choices)` each.
+    pub fn give_device_stepped(&mut self, device: Id, list: &[(&str, i32, f64, &[&str])]) {
+        self.hosting.pretend_stepped(device, list);
+    }
+
     /// The parameter ids on a device's card strip, in order.
     pub fn strip_parameters(&self, device: Id) -> Vec<u32> {
         self.strip_ids(device)
+    }
+
+    /// The plugin's words for each step of a stepped parameter, as far as it
+    /// has said them.
+    pub fn device_choices(&self, device: Id, parameter: u32) -> Vec<String> {
+        self.hosting.choices(device, parameter).to_vec()
+    }
+
+    /// Puts exactly these parameters on the device's strip, as a person does
+    /// from the panel.
+    pub fn show_on_strip(&mut self, device: Id, ids: &[u32]) {
+        self.chain.shown.insert(device, ids.to_vec());
     }
 
     /// Sends a parameter value to the device's plugin as a control in its own

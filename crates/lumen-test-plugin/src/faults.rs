@@ -28,6 +28,7 @@
 //! | `headless_hang=MS` | as `headless_editor`, and opening it blocks the host's main thread for `MS` milliseconds |
 //! | `headless_close=MS` | as `headless_editor`, and the "user" closes it `MS` milliseconds after it opens |
 //! | `headless_press=CODE` | as `headless_editor`, and once Lumen asks for the key `CODE` (a Windows virtual-key code) while the window is open, the "user" presses and lets go of it there |
+//! | `presets` | the instrument offers a program list (three programs, selected by a program-change parameter, id 91, that sets its level and wave as edits of its own) and both plugins keep an edit-controller state (a view value) that `getState` writes and `setState` restores |
 //! | `release=MS` | the instrument's released notes fade out over `MS` milliseconds while it reports no tail: what a synth with a long release does |
 //!
 //! `@N` counts process calls from 0 and defaults to 0.
@@ -48,6 +49,9 @@ pub enum Kind {
     ProcessSlow,
     StateFail,
     StateGarbage,
+    /// The component refuses its first `arg` `setState` calls (a plugin still
+    /// loading its content).
+    StateRefused,
     StateHang,
     BadBuses,
     BadParams,
@@ -58,6 +62,7 @@ pub enum Kind {
     EditorHang,
     Release,
     ManyParams,
+    Presets,
     WindowEdits,
     SetDirty,
     ValuesChanged,
@@ -102,6 +107,7 @@ impl Faults {
                 "process_slow" => Kind::ProcessSlow,
                 "state_fail" => Kind::StateFail,
                 "state_garbage" => Kind::StateGarbage,
+                "state_refused" => Kind::StateRefused,
                 "state_hang" => Kind::StateHang,
                 "bad_buses" => Kind::BadBuses,
                 "bad_params" => Kind::BadParams,
@@ -112,6 +118,7 @@ impl Faults {
                 "editor_hang" => Kind::EditorHang,
                 "release" => Kind::Release,
                 "many_params" => Kind::ManyParams,
+                "presets" => Kind::Presets,
                 "window_edits" => Kind::WindowEdits,
                 "set_dirty" => Kind::SetDirty,
                 "values_changed" => Kind::ValuesChanged,
@@ -123,6 +130,9 @@ impl Faults {
             };
             if matches!(kind, Kind::ProcessSlow) && arg.is_none() {
                 return Err(format!("`{entry}`: needs `=microseconds`"));
+            }
+            if matches!(kind, Kind::StateRefused) && arg.is_none() {
+                return Err(format!("`{entry}`: needs `=count`"));
             }
             if matches!(kind, Kind::ManyParams) && arg.is_none() {
                 return Err(format!("`{entry}`: needs `=count`"));
@@ -184,6 +194,14 @@ impl Faults {
             .iter()
             .find(|f| f.kind == Kind::EditorHang)
             .map(|f| Duration::from_millis(f.arg))
+    }
+
+    /// How many `setState` calls are refused first (`state_refused`).
+    pub fn state_refusals(&self) -> u64 {
+        self.0
+            .iter()
+            .find(|f| f.kind == Kind::StateRefused)
+            .map_or(0, |f| f.arg)
     }
 
     /// How long released notes take to fade out (`release`), if asked.

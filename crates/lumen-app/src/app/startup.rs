@@ -4,7 +4,7 @@ use crate::*;
 
 impl App {
     /// Starts Lumen as `launch` says: from the command line, or a test.
-    pub fn new(cc: &eframe::CreationContext<'_>, launch: Launch) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, mut launch: Launch) -> Self {
         let Launch {
             started,
             settings: saved,
@@ -76,6 +76,18 @@ impl App {
                 std::sync::Arc::new(move || ctx.request_repaint()),
             )
         };
+        let safe = app::safe_mode::SafeMode::start(
+            launch.safe_mode,
+            launch.plugin_marker.clone(),
+            launch.plugins.host_program().is_some(),
+        );
+        let places = launch.preset_places.take().unwrap_or_else(|| {
+            if matches!(launch.plugins, plugins::Source::System) {
+                crate::preset_files::Places::standard()
+            } else {
+                crate::preset_files::Places::default()
+            }
+        });
         let hosting = match launch.plugins.host_program() {
             Some(program) => {
                 let ctx = cc.egui_ctx.clone();
@@ -85,10 +97,13 @@ impl App {
             }
             None => hosting::Hosting::off(),
         };
+        let mut hosting = hosting;
+        hosting.set_safe(safe.on);
         let plugins = plugins::Plugins::start(
             launch.plugins,
             settings_path.as_deref(),
             &saved.plugins,
+            safe.on,
             &cc.egui_ctx,
         );
         let mut app = App {
@@ -96,7 +111,11 @@ impl App {
             midi,
             plugins,
             hosting,
-            chain: Default::default(),
+            safe,
+            chain: chain::Chain {
+                presets: chain::presets::Presets::new(places),
+                ..Default::default()
+            },
             browser: Default::default(),
             midi_out: None,
             live_keys: None,
