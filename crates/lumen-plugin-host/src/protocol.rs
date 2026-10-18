@@ -77,6 +77,9 @@ pub enum EventKind {
     PitchBend { channel: i16, value: f32 },
     /// Channel pressure (aftertouch), 0 to 1.
     Pressure { channel: i16, value: f32 },
+    /// A program change: program number 0 to 127. A plugin hears it through
+    /// its program-change parameter.
+    Program { channel: i16, program: i16 },
 }
 
 /// The wire tags of event kinds, shared with the shared-memory region.
@@ -85,6 +88,7 @@ pub const TAG_NOTE_OFF: u8 = 1;
 pub const TAG_CONTROLLER: u8 = 2;
 pub const TAG_PITCH_BEND: u8 = 3;
 pub const TAG_PRESSURE: u8 = 4;
+pub const TAG_PROGRAM: u8 = 5;
 
 impl EventKind {
     /// `(tag, channel, number, value)`: the four fields every event is
@@ -109,6 +113,7 @@ impl EventKind {
             } => (TAG_CONTROLLER, channel, number, value),
             EventKind::PitchBend { channel, value } => (TAG_PITCH_BEND, channel, 0, value),
             EventKind::Pressure { channel, value } => (TAG_PRESSURE, channel, 0, value),
+            EventKind::Program { channel, program } => (TAG_PROGRAM, channel, program, 0.0),
         }
     }
 
@@ -136,6 +141,10 @@ impl EventKind {
             },
             TAG_PITCH_BEND => EventKind::PitchBend { channel, value },
             TAG_PRESSURE => EventKind::Pressure { channel, value },
+            TAG_PROGRAM => EventKind::Program {
+                channel,
+                program: number,
+            },
             _ => return None,
         })
     }

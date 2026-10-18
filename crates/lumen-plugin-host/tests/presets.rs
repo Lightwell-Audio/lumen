@@ -166,3 +166,52 @@ fn a_file_that_is_not_this_plugins_state_is_refused_and_the_plugin_keeps_its_sou
     let block = play(&mut host);
     assert!(block[1..60].iter().all(|&s| s.abs() == 0.75), "{block:?}");
 }
+
+fn program_event(offset: u32, program: i16) -> lumen_plugin_host::protocol::Event {
+    lumen_plugin_host::protocol::Event {
+        offset,
+        kind: lumen_plugin_host::protocol::EventKind::Program {
+            channel: 0,
+            program,
+        },
+    }
+}
+
+#[test]
+fn a_midi_program_change_selects_the_program_through_the_program_parameter() {
+    let mut host = instrument("presets");
+    host.process(64, vec![], vec![program_event(4, 0)], vec![], SLOW)
+        .unwrap();
+    // The controller hears it, the plugin sets its own level and wave, and
+    // the processor hears those in the next block.
+    let taken = host.take_edits(SLOW).unwrap();
+    assert!(
+        taken
+            .list
+            .iter()
+            .any(|e| e.id == LEVEL && e.kind == EditKind::Perform),
+        "{:?}",
+        taken.list
+    );
+    let block = play(&mut host);
+    assert!(block[1..60].iter().all(|&s| s.abs() == 0.25), "{block:?}");
+    assert_eq!(taken.ignored, 0);
+}
+
+#[test]
+fn a_program_number_past_the_end_selects_the_last_program() {
+    let mut host = instrument("presets");
+    host.process(64, vec![], vec![program_event(0, 99)], vec![], SLOW)
+        .unwrap();
+    host.take_edits(SLOW).unwrap();
+    let (_, params) = host.parameters(SLOW).unwrap();
+    assert_eq!(params.iter().find(|p| p.id == PROGRAM).unwrap().value, 1.0);
+}
+
+#[test]
+fn a_program_change_for_a_plugin_with_no_program_parameter_is_counted_not_lost_silently() {
+    let mut host = instrument("");
+    host.process(64, vec![], vec![program_event(0, 3)], vec![], SLOW)
+        .unwrap();
+    assert_eq!(host.take_edits(SLOW).unwrap().ignored, 1);
+}

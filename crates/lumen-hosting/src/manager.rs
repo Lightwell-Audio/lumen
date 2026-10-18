@@ -9,7 +9,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 
 use lumen_plugin_host::protocol::EditorBounds;
 
-use crate::process::{Gate, Happened, Process, Start, Tag};
+use crate::process::{Captured, Gate, Happened, Process, Start, Tag};
 
 /// Plugins loading at once.
 const LOADS_AT_ONCE: usize = 4;
@@ -97,18 +97,55 @@ impl Manager {
     pub fn reload_from(
         &mut self,
         device: u64,
-        state: Option<Vec<u8>>,
+        state: Option<Captured>,
         values: Vec<(u32, f64)>,
     ) -> std::io::Result<bool> {
         match self.entries.get(&device).map(|e| e.start.clone()) {
             Some(mut start) => {
                 if let Some(state) = state {
-                    start.state = state;
+                    start.state = state.component;
+                    start.controller_state = state.controller.unwrap_or_default();
                 }
                 start.values = values;
                 self.want(device, start).map(|()| true)
             }
             None => Ok(false),
+        }
+    }
+
+    /// Asks the device's plugin for every parameter's value; the answer comes
+    /// from [`Manager::poll`] as [`crate::Happened::Values`].
+    pub fn refresh(&self, device: u64) {
+        if let Some(entry) = self.entries.get(&device) {
+            entry.process.refresh();
+        }
+    }
+
+    /// Loads a state into the device's running plugin (a preset, or the
+    /// project's state after an undo), then `values` over it; the answer
+    /// comes from [`Manager::poll`] as [`crate::Happened::Loaded`].
+    pub fn load_state(
+        &self,
+        device: u64,
+        state: Vec<u8>,
+        controller: Option<Vec<u8>>,
+        values: Vec<(u32, f64)>,
+    ) {
+        if let Some(entry) = self.entries.get(&device) {
+            entry.process.load_state(state, controller, values);
+        }
+    }
+
+    /// Makes `state` what a host started again for the device starts from: a
+    /// state the plugin took ([`crate::Happened::Loaded`] said so), which a
+    /// card's Reload after a crash should come back to.
+    pub fn keep_state(&mut self, device: u64, state: Captured) {
+        if let Some(entry) = self.entries.get_mut(&device) {
+            entry.start.state = state.component;
+            if let Some(controller) = state.controller {
+                entry.start.controller_state = controller;
+            }
+            entry.start.values.clear();
         }
     }
 

@@ -21,7 +21,7 @@ use super::Lumen;
 use super::plugins::{built, plugin_root};
 
 const KEYS: Id = Id(1);
-const PLUGIN: Id = Id(20);
+pub(super) const PLUGIN: Id = Id(20);
 
 fn instrument_class() -> String {
     class_id(&lumen_test_plugin::INSTRUMENT.map(|c| c as u8))
@@ -33,7 +33,7 @@ fn effect_class() -> String {
 
 /// A MIDI track holding one long note, with its devices changed by `devices`
 /// (it starts with the synth).
-fn project(devices: impl FnOnce(&mut Vec<Device>)) -> Project {
+pub(super) fn project(devices: impl FnOnce(&mut Vec<Device>)) -> Project {
     let mut track = midi_track(
         KEYS.0,
         "Keys",
@@ -47,7 +47,7 @@ fn project(devices: impl FnOnce(&mut Vec<Device>)) -> Project {
     project_of("Hosted", vec![track])
 }
 
-fn instrument_device(id: Id) -> Device {
+pub(super) fn instrument_device(id: Id) -> Device {
     Device::vst3(
         id,
         &instrument_class(),
@@ -103,12 +103,14 @@ fn faults(stem: &str) -> Option<&'static str> {
         "Stuck" => Some("state_hang"),
         // Many parameters, in groups, some hidden, some read-only.
         "Many" => Some("many_params=300"),
+        // A program list and a program-change parameter, and a controller state.
+        "Presets" => Some("presets"),
         _ => None,
     }
 }
 
 /// Lumen with `project` open and the modules named installed.
-fn launch(name: &str, project: &Project, modules: &[&str]) -> Lumen {
+pub(super) fn launch(name: &str, project: &Project, modules: &[&str]) -> Lumen {
     let dir = TempDir::new(&format!("e2e-hosting-{name}"));
     let path = dir.path().join("song.lumen");
     lumen_project::save(project, &path, &Default::default()).expect("save the test project");
@@ -138,7 +140,7 @@ fn state(lumen: &Lumen, device: Id) -> String {
 }
 
 #[track_caller]
-fn wait_for_state(lumen: &mut Lumen, device: Id, want: &str) {
+pub(super) fn wait_for_state(lumen: &mut Lumen, device: Id, want: &str) {
     let want = want.to_owned();
     lumen.wait_for(&format!("device {} to be {want}", device.0), move |app| {
         app.device_state(device)
@@ -146,7 +148,7 @@ fn wait_for_state(lumen: &mut Lumen, device: Id, want: &str) {
     });
 }
 
-fn play(lumen: &mut Lumen) {
+pub(super) fn play(lumen: &mut Lumen) {
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.is_playing());
 }
@@ -337,7 +339,7 @@ fn two_tracks(
     project
 }
 
-fn level(lumen: &mut Lumen) -> f32 {
+pub(super) fn level(lumen: &mut Lumen) -> f32 {
     peak(&lumen.listen(Duration::from_millis(600), 4_800))
 }
 
@@ -616,8 +618,8 @@ fn plugins_are_promised_the_devices_block_and_follow_a_new_buffer_size() {
 // saved state, so setting one, undoing and redoing are heard, and what the
 // plugin does inside itself is recorded as an edit.
 
-const LEVEL: u32 = 0;
-const WAVE: u32 = 1;
+pub(super) const LEVEL: u32 = 0;
+pub(super) const WAVE: u32 = 1;
 const TRIGGER: u32 = 90;
 
 #[test]
@@ -680,15 +682,14 @@ fn what_a_plugin_does_inside_itself_is_recorded_as_one_undo_step() {
     let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
     let mut lumen = launch("param-inside", &project, &["Edits"]);
     wait_for_state(&mut lumen, PLUGIN, "ready");
-    // The trigger makes the plugin move its wave in a gesture of its own.
-    lumen.app_mut().set_device_param(PLUGIN, TRIGGER, 1.0);
+    // The trigger makes the plugin move its wave in a gesture of its own, as a
+    // control moved in its window would (and not as an answer to a value of
+    // Lumen's, which is not recorded as an edit).
+    lumen.app_mut().poke_plugin(PLUGIN, TRIGGER, 1.0);
     lumen.wait_for("the plugin's own edit to be recorded", |app| {
         app.device_params(PLUGIN).iter().any(|&(id, _)| id == WAVE)
     });
-    assert_eq!(
-        lumen.app().device_params(PLUGIN),
-        [(WAVE, 1.0), (TRIGGER, 1.0)]
-    );
+    assert_eq!(lumen.app().device_params(PLUGIN), [(WAVE, 1.0)]);
     // The edit is already known to the host, so nothing was sent back.
     assert_eq!(lumen.app().device_param_known(PLUGIN, WAVE), Some(1.0));
     assert!(lumen.app().is_dirty());
@@ -699,7 +700,7 @@ fn what_a_plugin_does_inside_itself_is_recorded_as_one_undo_step() {
     lumen.wait_for("the wave to go back", |app| {
         app.device_param_known(PLUGIN, WAVE) == Some(0.0)
     });
-    assert_eq!(lumen.app().device_params(PLUGIN), [(TRIGGER, 1.0)]);
+    assert!(lumen.app().device_params(PLUGIN).is_empty());
 }
 
 // Slice 4g: what a save holds of a plugin that changed.

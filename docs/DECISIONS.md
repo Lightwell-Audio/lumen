@@ -150,6 +150,7 @@ irreversible or external) · *Superseded*.
 | Missed plugin blocks (fix, 2026-10-17; ADR-0075) | The owner reported CPU 70 to 100% and pops with two plugins on one track. Proposed: keep a busy host's notes, run hosts at full speed, measure each plugin's work and wait, then a readout. **Chosen: all three, and readout B** (a block budget bar in the audio popover) over A (a table) and C (on the device cards), with every plugin listed in a scrolling list for long chains. Mock-ups use generic device names, never real plugin names. The audio-path change waits on the readout's numbers. |
 | Plugins' largest block (fix, 2026-10-17; ADR-0075) | The amp plugin did six times the work because it was promised 8192-frame blocks. Pitched A (always promise 256, the engine's largest) and B (promise the device's block, at most 256, and set plugins up again when the buffer size changes), recommended B, **chosen: B**. |
 | Plugin parameters (M6 slice 4, 2026-10-17; ADR-0076) | Pitched four choices with a recommendation each, **all chosen as recommended**: P1 the project holds the values (an overlay on the saved state, format v19) over a state snapshot per gesture or no undo; P2 the card's strip is chosen from a list or by Learn (eight slots); P3 the full list is a panel opened from the card; P4 an editor window's place and size are remembered per plugin in the app's settings. The strip's look, pitched as rendered specimens (an artifact): **S2 knobs, in the style of the return tracks' send knobs** over bars (S1, recommended) and tiles (S3); the panel: **L1**, one list with group chips, over groups down the left. The editor button row was shown and not answered; it is built with the editor window. |
+| Presets and resilient state (M6 slice 5, 2026-10-17; ADR-0077) | Pitched five choices, **all chosen as recommended**: R1 the card's preset menu lists the plugin's own programs and preset files in one searchable menu; R2 loading a preset is one undo step that replaces the saved state; R3 background checkpoints about every 30 seconds; R4 a failed plugin is never restarted by itself (Reload, and after three failures in two minutes Reload without sound); R5 safe mode by flag, by Shift at start, and by an offer after a start that did not finish. Looks chosen from rendered specimens: **preset menu A** (a field in the card's header with previous and next arrows), **safe-mode indicator I2** (a strip under the transport bar), **card face F2** (the card keeps its shape and knobs, load one at a time), and the two failed-card faces. |
 | The hosting manager (M6 slice 2c, 2026-10-16) | Plan approved with **C1** (a plugin instrument receives notes only in 2c; controllers, bend, pressure and program are dropped and counted until parameters in slice 3), **C2** (the last reported latency and tail are written into the device when the host reports a different value, as a change that is not an undo step but marks the project changed) and **C3** (removing a device ends its process at once; undo starts a new one). Plan in `docs/milestones/M6.md`. |
 | MIDI learn moved to M7 (M5, 2026-10-13) | Asked, as recommended: **MIDI learn and its mapping list move to M7**, built with automation, where M6 and M7 define the parameters it maps and a mapped controller writes automation through the same path as Lumen's controls (Touch and Latch). M5 slice 7 keeps Standard MIDI Files and MIDI clock out (plan in `docs/milestones/M5.md`). Its choices, asked in chat, all as recommended: **F1 A** a multi-track file dropped on a track merges into one clip there, dropped between tracks or on empty lanes makes one MIDI track per file track (type 0 split by channel); **F2 A** notes are placed in beats and the project tempo is untouched, with a notice offering "Use them" for the file's tempo map and first time signature (one undo step); **F3 A** clock runs only while playing; **F4 A** a Sync delay per port, −20 to +50 ms. MTC out [S] is deferred, unscheduled. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
@@ -7044,3 +7045,59 @@ hosting `tests/editor.rs` (keys reach the app); E2E
 codes asked for). Mutations checked: the owed answers, the stuck rule, the
 state call under the lock. The Windows window code (owner, stacking, keys) is
 compile-checked here and is MT-VST-4 steps 20 to 22.
+
+## ADR-0077 — Presets and programs: a sound is replaced as a whole, tried before it is kept
+
+**Status:** Accepted 2026-10-17 for the host, the model and the bridge (owner's
+R1 to R5, all as recommended); checkpoints, safe mode and the interface (the
+card's preset menu, the failed and safe-mode faces) are parts 5d to 5f of M6
+slice 5, and the preset files' folders are listed with the menu. The plan is in
+`docs/milestones/M6.md`.
+
+**Context.** Slice 4 let the project hold parameter values over a plugin's saved
+state. A program or a preset file replaces the whole sound, including things no
+parameter shows, and a preset file comes from outside Lumen.
+
+**Decisions.**
+1. **Programs and the edit controller's state in the host (protocol 6).** The host
+   lists the program lists a plugin offers with the parameter that selects each
+   (`Programs`), reads and sets the edit controller's own state
+   (`GetControllerState`, `SetControllerState`), and carries a MIDI program
+   change to a plugin instrument through that parameter (`EventKind::Program`,
+   steps of `program / steps`, counted when the plugin has none). What the
+   processor is given through a MIDI mapping is told to the controller too, as it
+   is for explicit queues: a program is carried out by the controller, which sets
+   the parameters the program holds.
+2. **A preset file is checked before anything is read from it** (`preset`):
+   header, version, a class id, a chunk list inside the file, every offset and
+   size inside the data, no chunk twice, state chunks and the description under
+   limits, and no component state is a refusal. A damaged file is an error with
+   its reason, never a panic.
+3. **A factory program is a choice of the program parameter, one undo step.** The
+   choice and the values the plugin sets in answer are recorded with one merge
+   key and a label naming the program; the window in which the answer counts is
+   a constant, and an answer to a value Lumen sent later (an undo or a redo
+   across the choice) is not recorded: after any value Lumen sends, what the
+   plugin says for 400 ms is taken as its answer, not as the user's edit, so an
+   undo does not end redo. The program parameter is sent before the values the
+   project holds over it, which the program would otherwise overwrite.
+4. **A preset file is tried, then kept.** The state is given to the running
+   plugin first; only when the plugin took it does the project change
+   (`Document::load_device_state`, one undo step, "Load <name>", the held values
+   cleared). A state the plugin refuses, or a preset made for another plugin,
+   changes nothing and says so. The device has a revision (`state_rev`, not
+   saved) that the model bumps on a load, so the bridge can tell, without
+   comparing megabytes, that undo or redo went across a load: it gives the plugin
+   the project's state, reads every value back, and sets the held values over
+   it. A project with no state (a plugin as it was added) cannot be loaded into a
+   running plugin, so the plugin is started again from nothing.
+5. **Values that moved without a word are read** (`Refresh`, after a plugin
+   rests, with the state): a value that differs from what Lumen knows is taken
+   as an edit of the project, except outputs and bypass.
+
+**Consequences.** Format is unchanged (the revision is not saved). A plugin that
+reports nothing when it changes a value inside itself is found by the read at
+rest, not at once. The state is loaded while the plugin is processing, as the
+standard allows; whether real plugins take it is MT-VST-5's. A restarted
+instrument does not sound a note that is already held until the next one
+(KNOWN_ISSUES, slice 3).

@@ -496,6 +496,34 @@ impl App {
         );
     }
 
+    /// The programs a device's plugin offers: each list's name and its
+    /// programs' names.
+    pub fn device_programs(&self, device: Id) -> Vec<(String, Vec<String>)> {
+        self.hosting
+            .programs(device)
+            .iter()
+            .map(|l| (l.name.clone(), l.programs.clone()))
+            .collect()
+    }
+
+    /// Chooses a program as the card's preset menu will.
+    pub fn choose_program(&mut self, device: Id, list: usize, program: usize) {
+        self.load_program(device, list, program);
+    }
+
+    /// Loads a preset file's bytes into a device's plugin as the card's preset
+    /// menu will; what the file is wrong with is the error.
+    pub fn load_preset_from_bytes(
+        &mut self,
+        device: Id,
+        name: &str,
+        bytes: &[u8],
+    ) -> Result<(), String> {
+        let preset = lumen_hosting::Preset::parse(bytes).map_err(|e| e.to_string())?;
+        self.load_preset(device, name, preset);
+        Ok(())
+    }
+
     /// The parameter values the project holds for a device, by id.
     pub fn device_params(&self, device: Id) -> Vec<(u32, f64)> {
         crate::document::find_device(self.document.project(), device)

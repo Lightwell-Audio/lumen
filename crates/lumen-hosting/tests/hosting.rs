@@ -353,7 +353,7 @@ fn many_devices_load_at_once_and_all_play() {
 }
 
 #[test]
-fn program_changes_are_dropped_and_counted_while_controllers_are_carried() {
+fn only_key_pressure_is_dropped_and_counted_while_controllers_and_programs_are_carried() {
     let mut manager = manager();
     manager.want(1, instrument("")).unwrap();
     let mut linked = linked(&mut manager, 1);
@@ -375,12 +375,16 @@ fn program_changes_are_dropped_and_counted_while_controllers_are_carried() {
             offset: 16,
             msg: Msg::program(0, 3),
         },
+        Event {
+            offset: 20,
+            msg: Msg([0xA0, 60, 40]),
+        },
         note_off(32, 60),
     ];
     let (left, _, reply) = play(&mut linked.link, 64, &[], &events);
     assert!(matches!(reply, Some(Reply::Ready { .. })));
     assert!(left[..32].iter().any(|s| *s != 0.0), "the note sounded");
-    // Only the program change is not carried.
+    // Only the key pressure is not carried.
     assert_eq!(linked.link.counts().dropped_events(), 1);
 }
 

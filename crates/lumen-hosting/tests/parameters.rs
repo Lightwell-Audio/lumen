@@ -209,7 +209,7 @@ fn the_plugins_state_is_read_on_request_and_a_reload_can_start_from_it() {
         },
     )
     .expect("the state was read");
-    assert!(!state.is_empty());
+    assert!(!state.component.is_empty());
 
     // A host started from that state plays at the level that was set.
     assert!(manager.reload_from(1, Some(state), Vec::new()).unwrap());

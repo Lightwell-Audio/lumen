@@ -133,7 +133,11 @@ pub struct Instance {
     /// This block's controller events as `(parameter id, offset in the
     /// block, normalized value)`.
     mapped: Vec<(u32, u32, f64)>,
-    /// Controller events no parameter took, since the last `take_edits`.
+    /// The plugin's program-change parameter and its step count, if it has
+    /// one: a program change (MIDI) sets it to `program / steps`.
+    program_param: Option<(u32, i32)>,
+    /// Controller and program events no parameter took, since the last
+    /// `take_edits`.
     ignored: u32,
     /// The processor's reported values after a block, before they are noted.
     reported: Vec<(u32, f64)>,
@@ -331,6 +335,7 @@ impl Instance {
         }
 
         let mapping = controller.as_ref().and_then(|c| c.cast::<IMidiMapping>());
+        let program_param = controller.as_ref().and_then(program_parameter);
         let events_in = ComWrapper::new(EventList::default());
         let events_in_ptr = events_in.to_com_ptr::<IEventList>().expect("listed");
         let events_out = ComWrapper::new(EventList::default());
@@ -357,6 +362,7 @@ impl Instance {
             outputs_ptr,
             now: Vec::with_capacity(MOST_PENDING),
             mapping,
+            program_param,
             midi_map: vec![MAP_UNKNOWN; MAP_CHANNELS * MAP_NUMBERS],
             mapped: Vec::with_capacity(256),
             ignored: 0,
@@ -670,18 +676,36 @@ impl Instance {
         let (ins, outs) = (buffers.input.len(), buffers.output.len());
 
         // Controller, bend and pressure become parameter points through the
-        // plugin's own mapping.
+        // plugin's own mapping, and program changes through its program
+        // parameter.
         self.mapped.clear();
         for e in events
             .iter()
             .filter(|e| (start..end).contains(&(e.offset as usize)))
         {
-            if let Some((channel, number, value)) = controller_value(&e.kind) {
+            if let EventKind::Program { program, .. } = e.kind {
+                match self.program_param {
+                    Some((id, steps)) if steps > 0 => {
+                        let value =
+                            f64::from(i32::from(program).clamp(0, steps)) / f64::from(steps);
+                        self.mapped.push((id, e.offset, value));
+                    }
+                    _ => self.ignored = self.ignored.saturating_add(1),
+                }
+            } else if let Some((channel, number, value)) = controller_value(&e.kind) {
                 match self.mapped_param(channel, number) {
                     Some(id) => self.mapped.push((id, e.offset, value)),
                     None => self.ignored = self.ignored.saturating_add(1),
                 }
             }
+        }
+        // The controller hears what the processor is given through the
+        // mapping too (a plugin's window follows a controller, and a program
+        // change is carried out by the controller: it sets the parameters the
+        // program holds).
+        for i in 0..self.mapped.len() {
+            let (id, _, value) = self.mapped[i];
+            self.note(id, value);
         }
         let notes = &mut self.notes;
         self.events_in.set(
@@ -1189,6 +1213,26 @@ impl Controls {
             ignored: heard.ignored,
         }
     }
+}
+
+/// The parameter a program change sets, and how many steps it has: the first
+/// program-change parameter in the root unit, else the first anywhere.
+fn program_parameter(controller: &ComPtr<IEditController>) -> Option<(u32, i32)> {
+    let mut found: Option<(u32, i32, i32)> = None;
+    // SAFETY: plain calls on a live controller with valid out pointers.
+    unsafe {
+        let count = controller.getParameterCount().max(0) as usize;
+        for i in 0..count.min(MAX_PARAMETERS) as i32 {
+            let mut p: ParameterInfo = std::mem::zeroed();
+            if controller.getParameterInfo(i, &mut p) == kResultOk
+                && p.flags as u32 & crate::protocol::FLAG_PROGRAM_CHANGE != 0
+                && found.is_none_or(|(_, _, unit)| unit != 0 && p.unitId == 0)
+            {
+                found = Some((p.id, p.stepCount, p.unitId));
+            }
+        }
+    }
+    found.map(|(id, steps, _)| (id, steps))
 }
 
 fn wide(buf: &[u16]) -> String {
