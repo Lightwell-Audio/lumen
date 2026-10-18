@@ -26,7 +26,7 @@ const BAR_GAP: f32 = 0.5;
 /// The folded hairline: 1.5 pt a side, 6 pt above the row's bottom (clear
 /// of the resize edge).
 const HAIRLINE: f32 = 1.5;
-const HAIRLINE_ABOVE: f32 = 6.0;
+const HAIRLINE_ABOVE: f32 = 3.0;
 /// The trough behind the hairline is too thin for more than a soft corner.
 const HAIRLINE_RADIUS: u8 = 1;
 

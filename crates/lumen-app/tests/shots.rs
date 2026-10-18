@@ -2195,3 +2195,59 @@ fn block_budget() {
         }
     }
 }
+
+/// The UI polish pass: an armed folded track clear of its level hairline,
+/// the panel toggles as icons beside the palette, the keycap with the
+/// computer keyboard on, the narrowest browser, and the Devices tab at its
+/// shortest.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn ui_polish() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_project::testing::{midi_track, project_of};
+    for (appearance, scale) in [("dark", 1.0), ("light", 1.0), ("dark", 2.0)] {
+        let dir = TempDir::new("shots-polish");
+        let project = project_of(
+            "Polish",
+            vec![
+                midi_track(1, "Harp", "poly", (0, 8), None, vec![], vec![]),
+                midi_track(11, "Flute", "poly", (0, 8), None, vec![], vec![]),
+            ],
+        );
+        let path = dir.path().join("song.lumen");
+        lumen_project::save(&project, &path, &Default::default()).expect("save the project");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .opening(path);
+        let mut h = Harness::builder()
+            .with_size(vec2(1280.0, 800.0))
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(60);
+        h.get_by_label("Arm Flute").click();
+        h.run_steps(20);
+        h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::K);
+        h.run_steps(20);
+        let tag = format!("{appearance}-{scale}");
+        save(&mut h, &format!("polish-main-{tag}"));
+        h.state_mut().set_browser_size(40.0);
+        let harp = h.state().project().tracks[0].id;
+        h.state_mut().select_tracks(&[harp]);
+        h.run_steps(10);
+        h.get_all_by_label("Devices tab").last().unwrap().click();
+        h.run_steps(20);
+        h.state_mut().set_detail_size(40.0);
+        h.run_steps(30);
+        save(&mut h, &format!("polish-devices-{tag}"));
+    }
+}

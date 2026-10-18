@@ -218,3 +218,54 @@ fn an_input_that_is_on_and_quiet_asks_for_no_frames() {
     }
     assert!(woke, "the note reached the chip");
 }
+
+#[test]
+fn a_light_stays_lit_for_as_long_as_a_key_is_held_then_fades() {
+    let fake = FakeControl::new();
+    fake.plug(Direction::Input, "Keystation");
+    let mut lumen = launch("live-held", &fake);
+    switch_on_for_tracks(&mut lumen, &fake, "Keystation");
+    select(&mut lumen, "Keys");
+    lumen.frames(10);
+
+    assert!(fake.send_to_input("Keystation", 1_000, &[0x90, 60, 100]));
+    // A flash lasts well under a second: two seconds of frames later the
+    // key is still down, and so are the lights.
+    lumen.frames(3);
+    lumen.frames(120);
+    assert!(
+        header_light(&lumen, KEYS) > 0.99,
+        "the track's light stays lit"
+    );
+    assert!(
+        lumen.app().midi_chip_lights().0 > 0.99,
+        "the chip's IN light stays lit"
+    );
+
+    // Released: they fade from full, and go out.
+    assert!(fake.send_to_input("Keystation", 2_000, &[0x80, 60, 0]));
+    let started = std::time::Instant::now();
+    while header_light(&lumen, KEYS) > 0.99 && started.elapsed() < Duration::from_secs(2) {
+        lumen.frames(1);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    lumen.frames(90);
+    assert_eq!(header_light(&lumen, KEYS), 0.0);
+    assert_eq!(lumen.app().midi_chip_lights().0, 0.0);
+}
+
+#[test]
+fn the_computer_keyboard_lights_stay_lit_while_a_key_is_held() {
+    let fake = FakeControl::new();
+    let mut lumen = launch("live-held-keyboard", &fake);
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::K);
+    select(&mut lumen, "Keys");
+    key(&mut lumen, Key::A, true);
+    lumen.frames(120);
+    assert!(header_light(&lumen, KEYS) > 0.99, "lit while A is down");
+    assert!(lumen.app().midi_chip_lights().0 > 0.99);
+    key(&mut lumen, Key::A, false);
+    lumen.frames(90);
+    assert_eq!(header_light(&lumen, KEYS), 0.0);
+    assert_eq!(lumen.app().midi_chip_lights().0, 0.0);
+}

@@ -13,10 +13,10 @@ const TIME: &str = "0:00.000";
 const DOT: &str = "Audio: ";
 const CHIP: &str = "MIDI: ";
 const READOUT: &str = "Computer keyboard: ";
-/// The narrowest window that shows the keyboard readout again. Record and
-/// Overdub (M5 slice 6d) are essentials, so the essentials take 1280 to 1320
-/// pt; the readout gives way below that.
-const READOUT_ROOM: f32 = 1320.0;
+/// The narrowest window (of those tried) that shows the keyboard readout
+/// again. Record and Overdub (M5 slice 6d) are essentials; with the panel
+/// toggles as icon buttons the readout fits from 1280 pt and gives way below.
+const READOUT_ROOM: f32 = 1280.0;
 
 /// The node's rect; of several (the Browser's toggle and its pane), the
 /// one in the bar.

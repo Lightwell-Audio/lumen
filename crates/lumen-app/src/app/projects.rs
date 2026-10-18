@@ -414,7 +414,7 @@ impl App {
                     self.grid = view.grid;
                     self.show_browser = view.browser_open;
                     self.show_detail = view.detail_open;
-                    self.browser_size = view.browser_size.clamp(120.0, 600.0);
+                    self.browser_size = view.browser_size.clamp(crate::BROWSER_MIN, 600.0);
                     self.detail_size = view.detail_size.clamp(80.0, 600.0);
                     let what = if recovered {
                         "Recovered unsaved changes to"
