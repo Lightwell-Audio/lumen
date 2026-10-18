@@ -19,7 +19,7 @@ const PROGRAM: u32 = 91;
 /// A preset file for the test instrument holding `level` and `wave` (the
 /// plugin's saved state is its tag, its kind (0 for the instrument) and its two
 /// parameters' values).
-fn preset_for_instrument(level: f64, wave: f64) -> Vec<u8> {
+pub(super) fn preset_for_instrument(level: f64, wave: f64) -> Vec<u8> {
     Preset {
         class_id: lumen_test_plugin::INSTRUMENT.map(|c| c as u8),
         component: state(level, wave),
@@ -29,7 +29,7 @@ fn preset_for_instrument(level: f64, wave: f64) -> Vec<u8> {
     .to_bytes()
 }
 
-fn state(level: f64, wave: f64) -> Vec<u8> {
+pub(super) fn state(level: f64, wave: f64) -> Vec<u8> {
     [
         b"LTP1".as_slice(),
         &[0],

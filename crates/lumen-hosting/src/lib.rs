@@ -20,7 +20,7 @@ pub mod process;
 
 pub use link::{Counts, Link};
 pub use lumen_plugin_host::client::HostLog;
-pub use lumen_plugin_host::preset::{Preset, PresetError, info_xml};
+pub use lumen_plugin_host::preset::{MAX_FILE, Preset, PresetError, info_xml};
 pub use lumen_plugin_host::protocol::{
     Edit, EditKind, EditorBounds, EditorStatus, ParamInfo, ProgramList, Taken, UnitInfo,
 };

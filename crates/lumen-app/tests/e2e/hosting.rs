@@ -83,7 +83,7 @@ pub(super) fn effect_device(id: Id) -> Device {
 }
 
 /// The fault a module's host is given, by the module's name.
-fn faults(stem: &str) -> Option<&'static str> {
+pub(super) fn faults(stem: &str) -> Option<&'static str> {
     match stem {
         // The host dies on its 40th block.
         "Dies" => Some("process_crash@40"),
@@ -94,6 +94,9 @@ fn faults(stem: &str) -> Option<&'static str> {
         // The instrument has a trigger that makes it edit its wave, as a
         // control moved in its own window would.
         "Edits" => Some("window_edits"),
+        // Programs, and a trigger that edits the wave as a control moved in
+        // the plugin's window would (the preset menu's dot).
+        "PresetEdits" => Some("presets,window_edits"),
         // Stepping the trigger makes it tell the host it changed inside
         // (`setDirty`, or a restart that says its values changed), as a patch
         // loaded in its own window does; no parameter shows it.

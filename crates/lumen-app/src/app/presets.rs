@@ -90,12 +90,17 @@ impl App {
                             if let Some((_, held)) = find_device(self.document.project(), device) {
                                 // The plugin already has this sound.
                                 self.hosting.synced(device, held.state_rev);
+                                self.chain.presets.loaded(device, &name, held.state_rev);
                             }
                         }
-                        Err(refusal) => self.say(refusal.to_string()),
+                        Err(refusal) => {
+                            self.chain.presets.refused(device);
+                            self.say(refusal.to_string());
+                        }
                     }
                 }
-                PresetNews::Refused { name, why, .. } => {
+                PresetNews::Refused { device, name, why } => {
+                    self.chain.presets.refused(device);
                     self.say(format!(
                         "The plugin could not use \u{201c}{name}\u{201d}: {why}"
                     ));

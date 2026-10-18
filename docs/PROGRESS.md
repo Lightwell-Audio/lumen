@@ -2,6 +2,29 @@
 
 ## Status
 
+**M6 slice 5 (presets and resilient state) is built, 2026-10-17** on
+`m6-s5-presets-state` (cut from `main` after PR #33; ADR-0077; plan, owner
+choices R1 to R5 and progress in `docs/milestones/M6.md`). *Shipped:* host
+program lists, the edit controller's own state and bounded `.vstpreset` files
+(protocol version 6); program change for plugin instruments; loading a program
+or a preset file as one undo step that undo gives back exactly
+(`Document::load_device_state`); background checkpoints about every 30 s with an
+immutable last good state, failures counted per plugin and never restarted by
+themselves, Reload from the last good state and Reload without sound; safe mode
+(`--safe-mode`, Shift at start on Windows, an offer after a start that did not
+finish; no plugin scanned, loaded or hosted, cards keep their state, load one at
+a time, leave to load the rest); the card's preset field with arrows, a
+searchable menu of factory programs and preset files, Save, Save as… and Show
+presets folder, a dot for a changed sound; the failed card saying where Reload
+starts from, and "Keeps stopping" after three failures. *Verified (Windows, test
+plugin and real host):* workspace clippy, workspace tests, E2E for every part,
+mutation checks on the program-change flag, reload from the last good state and
+hosts starting in safe mode, screenshots in both themes at 100, 150 and 200%.
+*Not run:* any real plugin (MT-VST-5 is the owner's), smoke tests, the WSL
+gates, macOS and Linux runs. Format unchanged (v19). Known limits are in
+KNOWN_ISSUES (the sound's name is kept for the session; choosing the program a
+plugin already has does nothing).
+
 **M6 slice 3 (chain editing) is built, 2026-10-17** on `m6-s3-chain-editing`
 (cut from `m6-s2-chain-states`, which is not merged; ADR-0073; plan and
 progress in `docs/milestones/M6.md`). *Shipped:* format v18 (the view keeps

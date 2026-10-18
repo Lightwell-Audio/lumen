@@ -2048,6 +2048,138 @@ fn device_chain() {
     }
 }
 
+/// The preset field on a card, its menu, and the failed faces (M6 slice 5f).
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn preset_menu() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_core::time::Ticks;
+    use lumen_project::model::{Device, DeviceKind, Id, Note};
+    use lumen_project::testing::{midi_track, project_of};
+
+    let class = |n: u8| lumen_plugin_catalog::catalog::class_id(&[n; 16]);
+    for (appearance, scale, size) in [
+        ("dark", 1.0, vec2(1500.0, 800.0)),
+        ("light", 1.0, vec2(1500.0, 800.0)),
+        ("dark", 1.5, vec2(1500.0, 900.0)),
+        ("dark", 2.0, vec2(1900.0, 1000.0)),
+        ("dark", 1.0, vec2(960.0, 540.0)),
+        ("light", 2.0, vec2(1900.0, 1000.0)),
+    ] {
+        for menu in [false, true] {
+            let dir = TempDir::new("shots-presets");
+            let mut track = midi_track(
+                1,
+                "Pad",
+                "poly",
+                (0, 64),
+                None,
+                vec![Note::new(Ticks::ZERO, Ticks::quarters(60), 69, 100)],
+                vec![],
+            );
+            track.devices = vec![
+                Device::vst3(
+                    Id(10),
+                    &class(1),
+                    "Bass Synth",
+                    "Vendor C",
+                    DeviceKind::Instrument,
+                ),
+                Device::vst3(
+                    Id(11),
+                    &class(2),
+                    "Overheat",
+                    "Sampleson",
+                    DeviceKind::Effect,
+                ),
+                Device::vst3(
+                    Id(12),
+                    &class(3),
+                    "Tape Delay",
+                    "Vendor D",
+                    DeviceKind::Effect,
+                ),
+                Device::vst3(
+                    Id(13),
+                    &class(4),
+                    "Bus Comp",
+                    "Vendor C",
+                    DeviceKind::Effect,
+                ),
+                Device::vst3(
+                    Id(14),
+                    &class(5),
+                    "Soft Clip",
+                    "Vendor C",
+                    DeviceKind::Effect,
+                ),
+            ];
+            let project = project_of("Presets", vec![track]);
+            let path = dir.path().join("song.lumen");
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(size)
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(30);
+            h.state_mut().select_tracks(&[Id(1)]);
+            h.run_steps(4);
+            h.get_all_by_label("Devices tab")
+                .last()
+                .expect("the tabs")
+                .click();
+            h.run_steps(20);
+            for id in [10, 11, 12] {
+                h.state_mut().pretend_device_state(Id(id), "ready");
+            }
+            h.state_mut().pretend_device_state(Id(13), "failed");
+            h.state_mut().pretend_device_state(Id(14), "failed");
+            h.state_mut().pretend_failures(Id(13), 3, Some(125));
+            h.state_mut().pretend_failures(Id(14), 1, Some(40));
+            let programs = ["Warm Pad", "Glass Keys", "Sub Bass", "Pluck Lead", "Drone"];
+            let files = [
+                (None, "Dusty Rhodes", true),
+                (None, "Night Drive", true),
+                (Some("Bass"), "Deep Wobble", false),
+                (Some("Bass"), "Round Sub", false),
+            ];
+            h.state_mut()
+                .give_device_presets(Id(10), &programs, "Warm Pad", false, &files);
+            h.state_mut()
+                .give_device_presets(Id(11), &programs, "Dusty Rhodes", true, &files);
+            h.state_mut()
+                .give_device_presets(Id(12), &programs, "Glass Keys", false, &files);
+            h.run_steps(20);
+            h.get_by_label("Overheat on Pad").click();
+            h.run_steps(10);
+            let small = if size.x < 1000.0 { "-small" } else { "" };
+            let what = if menu { "menu" } else { "cards" };
+            if menu {
+                let ctx = h.ctx.clone();
+                h.state_mut().open_preset_menu_of(&ctx, Id(11));
+                h.run_steps(30);
+            }
+            save(
+                &mut h,
+                &format!("presets-{what}-{appearance}-{scale}{small}"),
+            );
+        }
+    }
+}
+
 /// Safe mode (M6 slice 5e, the owner's I2 and F2): the strip under the
 /// transport bar, the card that is not loaded, and the offer.
 #[test]

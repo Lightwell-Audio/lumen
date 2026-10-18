@@ -8,6 +8,8 @@
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers};
+use egui_kittest::kittest::{NodeT, Queryable};
+use lumen_project::model::Id;
 
 use super::hosting::{
     LEVEL, PLUGIN, WAVE, effect_device, instrument_device, launch, play, project, wait_for_state,
@@ -131,4 +133,78 @@ fn a_plugin_that_keeps_stopping_is_counted_and_never_restarted_by_itself() {
             wait_for_state(&mut lumen, PLUGIN, "ready");
         }
     }
+}
+
+/// The chain's tab for the track the devices are on.
+fn show_cards(lumen: &mut super::Lumen) {
+    lumen.app_mut().select_tracks(&[Id(1)]);
+    lumen
+        .harness
+        .get_all_by_label("Devices tab")
+        .last()
+        .expect("the detail panel's tabs")
+        .click();
+    lumen.frames(20);
+}
+
+#[test]
+fn a_stopped_card_says_which_sound_reload_starts_from_and_how_old_it_is() {
+    let mut lumen = with_a_checkpoint("card-first");
+    show_cards(&mut lumen);
+    lumen.app_mut().end_device_host(PLUGIN);
+    wait_for_state(&mut lumen, PLUGIN, "failed");
+    lumen.frames(10);
+    // One failure: the plain card, with the one button.
+    let words = lumen
+        .harness
+        .get_by_label_contains("Stopped responding")
+        .accesskit_node()
+        .value()
+        .unwrap_or_default();
+    assert!(
+        words.contains("Reload starts it again from its sound from"),
+        "{words}"
+    );
+    assert!(words.contains(" ago"), "{words}");
+    assert!(lumen.shows("Reload"));
+    assert!(
+        !lumen.shows("Reload without sound"),
+        "only once it keeps stopping"
+    );
+}
+
+#[test]
+fn a_card_that_keeps_stopping_offers_reload_without_sound_and_it_starts_clean() {
+    let project = project(|d| d.push(effect_device(PLUGIN)));
+    let mut lumen = launch("keeps-card", &project, &["Dies"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    show_cards(&mut lumen);
+    for failures in 1..=3 {
+        play(&mut lumen);
+        wait_for_state(&mut lumen, PLUGIN, "failed");
+        // Two words about one failure within a second count once.
+        std::thread::sleep(Duration::from_millis(1200));
+        lumen.key(Modifiers::NONE, Key::Space);
+        lumen.wait_for("stop", |app| !app.is_playing());
+        if failures < 3 {
+            lumen.app_mut().reload_device(PLUGIN);
+            wait_for_state(&mut lumen, PLUGIN, "ready");
+        }
+    }
+    lumen.frames(10);
+    assert!(lumen.app().device_keeps_failing(PLUGIN));
+    let words = lumen
+        .harness
+        .get_by_label_contains("Keeps stopping")
+        .accesskit_node()
+        .value()
+        .unwrap_or_default();
+    assert!(
+        words.contains("stopped three times in two minutes"),
+        "{words}"
+    );
+    assert!(lumen.shows("Reload") && lumen.shows("Reload without sound"));
+    lumen.click("Reload without sound");
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    assert!(!lumen.shows("Reload without sound"));
 }

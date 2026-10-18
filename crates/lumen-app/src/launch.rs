@@ -57,6 +57,9 @@ pub struct Launch {
     pub(crate) test_latency: Option<f64>,
     /// `--safe-mode`: no plugin is scanned, loaded or hosted (M6 slice 5e).
     pub(crate) safe_mode: bool,
+    /// Where preset files are kept, when the caller chose (tests); the
+    /// standard folders when plugins come from this machine.
+    pub(crate) preset_places: Option<crate::preset_files::Places>,
     /// Where the marker of a start that did not finish loading plugins is
     /// kept: beside the settings.
     pub(crate) plugin_marker: Option<PathBuf>,
@@ -160,6 +163,7 @@ impl Launch {
                 .and_then(|ms| ms.parse().ok())
                 .filter(|ms: &f64| ms.is_finite() && *ms > 0.0),
             safe_mode: has("--safe-mode"),
+            preset_places: None,
             plugin_marker,
             save_as: value("--save-as").map(PathBuf::from),
             scripted_dialogs: false,

@@ -11,7 +11,7 @@ use eframe::egui::{
 use eframe::emath::GuiRounding as _;
 
 use super::art;
-use super::geometry::{FOOTER, HEADER};
+use super::geometry::{FOOTER, HEADER, PRESET};
 use super::strip;
 use crate::icons::{self, Icon};
 use crate::widgets::raised;
@@ -23,7 +23,7 @@ pub(super) enum Face<'a> {
     /// Its host is starting.
     Loading,
     /// Crashed, hung or refused; the words say what.
-    Failed(&'a str),
+    Failed(Failure<'a>),
     /// Not installed; `saved` is the size of the settings kept.
     Missing {
         saved: usize,
@@ -32,6 +32,24 @@ pub(super) enum Face<'a> {
     Safe {
         saved: usize,
     },
+}
+
+/// A device that stopped, and what Reload would do about it.
+pub(super) struct Failure<'a> {
+    /// What happened.
+    pub words: &'a str,
+    /// The sound Reload starts it from, and how old it is.
+    pub from: &'a str,
+    /// It has stopped three times in two minutes.
+    pub keeps: bool,
+}
+
+/// The preset field of a running plugin's card.
+pub(super) struct Field<'a> {
+    /// The sound chosen, when one was.
+    pub name: Option<&'a str>,
+    /// Changed since it was chosen.
+    pub changed: bool,
 }
 
 pub(super) struct Look<'a> {
@@ -60,6 +78,8 @@ pub(super) struct Look<'a> {
     pub slots: &'a [Option<strip::Slot>],
     /// How many parameters the plugin lists.
     pub parameters: usize,
+    /// The preset field, for a running plugin.
+    pub field: Option<Field<'a>>,
     /// The plugin's own window: what its button says.
     pub editor: &'a strip::Editor,
     /// Learn is on: the next control touched in the plugin's window takes a
@@ -71,6 +91,8 @@ pub(super) struct Look<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Action {
     Reload,
+    /// Start it again with no sound of its own.
+    ReloadClean,
     Rescan,
     /// Load this one plugin although safe mode is on.
     LoadOne,
@@ -80,6 +102,10 @@ pub(super) struct Out {
     /// The card as a whole: click chooses it, right-click opens its menu.
     pub body: Response,
     pub power: Response,
+    /// The preset field (it opens the menu), and the arrow pressed: true for
+    /// next.
+    pub field: Option<Response>,
+    pub step: Option<bool>,
     pub action: Option<Action>,
     /// What the strip's knobs and button asked for.
     pub strip: Vec<strip::Output>,
@@ -159,8 +185,15 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
         vec2(rect.width(), HEADER),
     );
     let footer = Rect::from_min_max(pos2(rect.left(), rect.bottom() - FOOTER), rect.max);
+    let preset_row = look
+        .field
+        .is_some()
+        .then(|| Rect::from_min_size(header.left_bottom(), vec2(rect.width(), PRESET)));
     let strip = Rect::from_min_max(
-        pos2(rect.left(), header.bottom()),
+        pos2(
+            rect.left(),
+            preset_row.map_or(header.bottom(), |row| row.bottom()),
+        ),
         pos2(rect.right(), footer.top()),
     );
 
@@ -177,6 +210,9 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
         },
         palette.header,
     );
+    if let Some(row) = preset_row {
+        painter.rect_filled(row, 0.0, palette.header);
+    }
     if look.band > 0.0 {
         match look.picture {
             Some(texture) if matches!(look.face, Face::Ready | Face::Loading) => {
@@ -244,6 +280,11 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
         palette.text_secondary,
     );
 
+    let (field, step) = match (&look.field, preset_row) {
+        (Some(shown), Some(row)) => paint_field(ui, row, id, look, shown),
+        _ => (None, None),
+    };
+
     // Between header and footer: the strip, or what replaces it.
     let (action, strip) = paint_strip(
         ui,
@@ -291,6 +332,8 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
     Out {
         body,
         power,
+        field,
+        step,
         action,
         strip,
     }
@@ -334,7 +377,7 @@ fn paint_rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Resp
     let power = power_button(ui, power_rect, id, look);
 
     let ink = match look.face {
-        Face::Failed(_) => palette.warning,
+        Face::Failed { .. } => palette.warning,
         _ if look.bypass || matches!(look.face, Face::Missing { .. }) => palette.text_secondary,
         _ => palette.text,
     };
@@ -369,6 +412,8 @@ fn paint_rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Resp
     Out {
         body,
         power,
+        field: None,
+        step: None,
         strip: Vec::new(),
         action: None,
     }
@@ -398,7 +443,7 @@ fn footer_words(look: &Look<'_>) -> (String, String) {
     };
     match look.face {
         Face::Loading => ("starting\u{2026}".to_owned(), String::new()),
-        Face::Failed(_) | Face::Missing { .. } | Face::Safe { .. } => {
+        Face::Failed { .. } | Face::Missing { .. } | Face::Safe { .. } => {
             ("bypassed".to_owned(), kept(&ms))
         }
         Face::Ready if look.bypass => ("bypassed".to_owned(), kept(&ms)),
@@ -481,7 +526,7 @@ fn paint_picture(painter: &egui::Painter, rect: Rect, look: &Look<'_>, muted: bo
     let area = Rect::from_min_size(rect.min, vec2(rect.width(), look.band));
     let clipped = painter.with_clip_rect(area);
     match look.face {
-        Face::Failed(_) => glyph(&clipped, area, Icon::Warning, palette.warning),
+        Face::Failed { .. } => glyph(&clipped, area, Icon::Warning, palette.warning),
         Face::Missing { .. } => {
             // A hatch: the picture is not there.
             let step = 8.0;
@@ -657,15 +702,39 @@ fn paint_strip(
                 },
             ),
         ),
-        Face::Failed(words) => no_strip(message(
-            ui,
-            area,
-            id,
-            "Stopped responding",
-            palette.warning,
-            words,
-            ("Reload", Action::Reload, Some(Icon::Loop)),
-        )),
+        Face::Failed(ref failure) => {
+            let (title, words, buttons): (_, String, Vec<(&str, Action)>) = if failure.keeps {
+                (
+                    "Keeps stopping",
+                    format!(
+                        "{} It has stopped three times in two minutes. Reload starts it again from {}. Reload without sound starts it clean; the saved sound stays until you save.",
+                        failure.words, failure.from
+                    ),
+                    vec![
+                        ("Reload", Action::Reload),
+                        ("Reload without sound", Action::ReloadClean),
+                    ],
+                )
+            } else {
+                (
+                    "Stopped responding",
+                    format!(
+                        "{} Reload starts it again from {}.",
+                        failure.words, failure.from
+                    ),
+                    vec![("Reload", Action::Reload)],
+                )
+            };
+            no_strip(message(
+                ui,
+                area,
+                id,
+                title,
+                palette.warning,
+                &words,
+                &buttons,
+            ))
+        }
         Face::Missing { saved } => no_strip(message(
             ui,
             area,
@@ -673,7 +742,7 @@ fn paint_strip(
             "Not installed",
             palette.text,
             &format!("Settings kept ({}).", kilobytes(saved)),
-            ("Rescan plugins", Action::Rescan, None),
+            &[("Rescan plugins", Action::Rescan)],
         )),
         Face::Safe { saved } => {
             // The card keeps its shape: the knobs stand there, greyed, and
@@ -700,7 +769,7 @@ fn paint_strip(
                 "Not loaded \u{00B7} safe mode",
                 palette.text,
                 &format!("Its settings ({}) are kept.", kilobytes(saved)),
-                ("Load this plugin", Action::LoadOne, None),
+                &[("Load this plugin", Action::LoadOne)],
             ))
         }
     }
@@ -710,9 +779,10 @@ fn kilobytes(bytes: usize) -> String {
     format!("{} KB", bytes.div_ceil(1024))
 }
 
-/// A title, the words and a button, in the strip's place. The button is
-/// pinned to the strip's bottom; the words take the room between, end in
-/// "\u{2026}" when they do not fit, and are whole in the tooltip.
+/// A title, the words and buttons, in the strip's place. The buttons are
+/// pinned to the strip's bottom, one above the other with the first on top;
+/// the words take the room between, end in "\u{2026}" when they do not fit, and
+/// are whole in the tooltip. Returns the action of the button pressed.
 fn message(
     ui: &mut Ui,
     area: Rect,
@@ -720,7 +790,7 @@ fn message(
     title: &str,
     title_colour: Color32,
     words: &str,
-    button: (&str, Action, Option<Icon>),
+    buttons: &[(&str, Action)],
 ) -> Option<Action> {
     let palette = *theme::p();
     let painter = ui.painter().with_clip_rect(area);
@@ -731,18 +801,16 @@ fn message(
         fonts::medium(theme::size::BODY),
         title_colour,
     );
-    let (label, action, _icon) = button;
-    let size = vec2(
-        (label.len() as f32 * 7.0 + 28.0).min(area.width()),
-        theme::size::CONTROL,
-    );
-    let button_rect = Rect::from_min_size(pos2(area.left(), area.bottom() - size.y), size)
-        .round_to_pixels(ui.pixels_per_point());
+    let gap = theme::space::XS;
+    let height = theme::size::CONTROL;
+    let top_of_buttons = area.bottom()
+        - buttons.len() as f32 * height
+        - buttons.len().saturating_sub(1) as f32 * gap;
 
-    // The words, in the room above the button.
+    // The words, in the room above the buttons.
     let font = FontId::proportional(theme::size::CAPTION);
     let words_top = area.top() + 20.0;
-    let room = button_rect.top() - theme::space::XS - words_top;
+    let room = top_of_buttons - theme::space::XS - words_top;
     let line = painter.fonts_mut(|f| f.row_height(&font));
     let mut job =
         egui::text::LayoutJob::simple(words.to_owned(), font, palette.text_secondary, area.width());
@@ -753,7 +821,7 @@ fn message(
     let hover = ui.interact(
         Rect::from_min_max(
             pos2(area.left(), area.top()),
-            pos2(area.right(), button_rect.top()),
+            pos2(area.right(), top_of_buttons),
         ),
         id.with("words"),
         Sense::hover(),
@@ -763,24 +831,155 @@ fn message(
     });
     hover.on_hover_text(words);
 
-    let response = ui.interact(button_rect, id.with(label), Sense::click());
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
-    let face = raised::face_of(ui, &response);
-    let body = raised::paint(
+    let mut pressed = None;
+    for (i, (label, action)) in buttons.iter().enumerate() {
+        let size = vec2((label.len() as f32 * 7.0 + 28.0).min(area.width()), height);
+        let top = top_of_buttons + i as f32 * (height + gap);
+        let button_rect = Rect::from_min_size(pos2(area.left(), top), size)
+            .round_to_pixels(ui.pixels_per_point());
+        let response = ui.interact(button_rect, id.with(label), Sense::click());
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, *label));
+        let face = raised::face_of(ui, &response);
+        let body = raised::paint(
+            ui.painter(),
+            button_rect,
+            theme::radius::for_height(button_rect.height()),
+            &face,
+        );
+        ui.painter().text(
+            body.center(),
+            Align2::CENTER_CENTER,
+            label,
+            FontId::proportional(theme::size::BODY),
+            face.text(),
+        );
+        raised::focus_ring(ui.painter(), &response, button_rect);
+        if response.clicked() {
+            pressed = Some(*action);
+        }
+    }
+    pressed
+}
+
+/// The preset field in the card's second header row: an arrow back, the name
+/// of the sound with a dot when it was changed, an arrow forward. The field
+/// opens the menu. Returns the field's response and the arrow pressed.
+fn paint_field(
+    ui: &mut Ui,
+    row: Rect,
+    id: egui::Id,
+    look: &Look<'_>,
+    field: &Field<'_>,
+) -> (Option<Response>, Option<bool>) {
+    let palette = *theme::p();
+    let height = theme::size::CONTROL;
+    let inner = Rect::from_center_size(
+        row.center(),
+        vec2(row.width() - 2.0 * theme::space::M, height),
+    )
+    .round_to_pixels(ui.pixels_per_point());
+    let arrow = theme::size::CONTROL;
+    let previous = Rect::from_min_size(inner.min, vec2(arrow, height));
+    let next = Rect::from_min_size(
+        pos2(inner.right() - arrow, inner.top()),
+        vec2(arrow, height),
+    );
+    let middle = Rect::from_min_max(
+        pos2(previous.right() + 4.0, inner.top()),
+        pos2(next.left() - 4.0, inner.bottom()),
+    );
+
+    let mut step = None;
+    for (rect, forward) in [(previous, false), (next, true)] {
+        let name = format!(
+            "{} preset of {}",
+            if forward { "Next" } else { "Previous" },
+            look.name
+        );
+        let response = ui.interact(rect, id.with(("preset step", forward)), Sense::click());
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
+        let face = raised::face_of(ui, &response);
+        let body = raised::paint(
+            ui.painter(),
+            rect,
+            theme::radius::for_height(rect.height()),
+            &face,
+        );
+        let c = body.center();
+        let (dx, tip) = if forward { (-2.0, 3.0) } else { (2.0, -3.0) };
+        ui.painter().add(egui::Shape::line(
+            vec![
+                pos2(c.x + dx, c.y - 4.0),
+                pos2(c.x + dx + tip, c.y),
+                pos2(c.x + dx, c.y + 4.0),
+            ],
+            Stroke::new(1.5, face.text()),
+        ));
+        raised::focus_ring(ui.painter(), &response, rect);
+        if response
+            .on_hover_text(if forward {
+                "Next preset"
+            } else {
+                "Previous preset"
+            })
+            .clicked()
+        {
+            step = Some(forward);
+        }
+    }
+
+    let response = ui.interact(middle, id.with("preset field"), Sense::click());
+    let label = format!("Preset of {}", look.name);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
+    let open = widgets::Menu::is_open_for(ui.ctx(), response.id);
+    let hover = motion::hover(
+        ui.ctx(),
+        id.with("preset hover"),
+        response.hovered() || open,
+    );
+    raised::paint_field(
         ui.painter(),
-        button_rect,
-        theme::radius::for_height(button_rect.height()),
-        &face,
+        middle,
+        theme::radius::for_height(middle.height()),
+        hover,
     );
-    ui.painter().text(
-        body.center(),
-        Align2::CENTER_CENTER,
-        label,
-        FontId::proportional(theme::size::BODY),
-        face.text(),
+    let painter = ui.painter().with_clip_rect(middle);
+    // The chevron at the right, the dot and the name from the left.
+    let c = pos2(middle.right() - 12.0, middle.center().y);
+    painter.add(egui::Shape::line(
+        vec![
+            pos2(c.x - 3.5, c.y - 1.5),
+            pos2(c.x, c.y + 2.0),
+            pos2(c.x + 3.5, c.y - 1.5),
+        ],
+        Stroke::new(1.5, palette.text_secondary),
+    ));
+    let mut left = middle.left() + theme::space::S;
+    if field.changed {
+        painter.circle_filled(pos2(left + 3.0, middle.center().y), 3.0, palette.accent);
+        left += 11.0;
+    }
+    let font = FontId::proportional(theme::size::CAPTION);
+    let room = c.x - 10.0 - left;
+    let (text, ink) = match field.name {
+        Some(name) => (name, palette.text),
+        None => ("Preset", palette.text_hint),
+    };
+    let shown = widgets::fit(&painter, text, font.clone(), room);
+    painter.text(
+        pos2(left, middle.center().y),
+        Align2::LEFT_CENTER,
+        shown,
+        font,
+        ink,
     );
-    raised::focus_ring(ui.painter(), &response, button_rect);
-    response.clicked().then_some(action)
+    raised::focus_ring(ui.painter(), &response, middle);
+    let response = response.on_hover_text(match (field.name, field.changed) {
+        (Some(name), true) => format!("{name} (changed). Choose a preset"),
+        (Some(name), false) => format!("{name}. Choose a preset"),
+        (None, _) => "Choose a preset".to_owned(),
+    });
+    (Some(response), step)
 }
 
 #[cfg(test)]
@@ -806,6 +1005,7 @@ mod tests {
             picture: None,
             slots: &[],
             parameters: 0,
+            field: None,
             editor: &CLOSED,
             learning: false,
         }
@@ -826,7 +1026,16 @@ mod tests {
             ("bypassed".into(), "2.7 ms kept".into())
         );
         assert_eq!(
-            footer_words(&look(Face::Failed("x"), false, false)).0,
+            footer_words(&look(
+                Face::Failed(Failure {
+                    words: "x",
+                    from: "y",
+                    keeps: false
+                }),
+                false,
+                false
+            ))
+            .0,
             "bypassed"
         );
         assert_eq!(

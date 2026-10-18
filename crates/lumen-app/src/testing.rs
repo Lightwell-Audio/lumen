@@ -12,6 +12,7 @@ use lumen_core::time::Ticks;
 use lumen_project::model::{Id, Project};
 
 use crate::audio::{self, Status};
+use crate::document::find_device;
 use crate::launch::Launch;
 use crate::timeview::TimeView;
 use crate::{App, files, settings};
@@ -59,6 +60,7 @@ impl Launch {
             autoplay: None,
             test_latency: None,
             safe_mode: false,
+            preset_places: None,
             plugin_marker: Some(dir.join(crate::app::safe_mode::MARKER)),
             save_as: None,
             scripted_dialogs: true,
@@ -123,6 +125,12 @@ impl Launch {
         if let crate::plugins::Source::Fixed(f) = &mut self.plugins {
             f.faults = Some(faults);
         }
+        self
+    }
+
+    /// Starts with preset files kept in `user` (and read from `system`).
+    pub fn with_preset_folders(mut self, user: PathBuf, system: Vec<PathBuf>) -> Self {
+        self.preset_places = Some(crate::preset_files::Places::fixed(user, system));
         self
     }
 
@@ -334,6 +342,24 @@ impl App {
         }
     }
 
+    /// The name of the sound the card of `device` shows (the field), and
+    /// whether it is marked changed; none when the card has no field or no
+    /// sound was chosen.
+    pub fn device_preset(&self, device: Id) -> Option<(String, bool)> {
+        let look = self.field_look(device)?;
+        look.name.map(|name| (name, look.changed))
+    }
+
+    /// Whether the card of `device` shows a preset field.
+    pub fn device_has_preset_field(&self, device: Id) -> bool {
+        self.field_look(device).is_some()
+    }
+
+    /// The folders "Show presets folder" opened, oldest first.
+    pub fn revealed_folders(&self) -> Vec<PathBuf> {
+        self.chain.presets.revealed.clone()
+    }
+
     /// Whether Lumen is in safe mode, and whether it is offering it.
     pub fn safe_mode(&self) -> (bool, bool) {
         (self.safe.on, self.safe.offer)
@@ -418,6 +444,47 @@ impl App {
                 "safe" => State::Safe,
                 _ => State::Missing,
             },
+        );
+    }
+
+    /// Gives a plugin device a program list, a chosen sound (changed or not)
+    /// and preset files, without a host (screenshots of the preset menu).
+    pub fn give_device_presets(
+        &mut self,
+        device: Id,
+        programs: &[&str],
+        chosen: &str,
+        changed: bool,
+        files: &[(Option<&str>, &str, bool)],
+    ) {
+        self.hosting.pretend_programs(device, "Factory", programs);
+        let params = find_device(self.document.project(), device)
+            .map(|(_, d)| d.params.clone())
+            .unwrap_or_default();
+        let baseline = if changed {
+            let mut other = params.clone();
+            other.insert(9999, 1.0);
+            other
+        } else {
+            params
+        };
+        self.chain
+            .presets
+            .pretend(device, chosen, Some(baseline), files);
+    }
+
+    /// Opens the preset menu of a card (screenshots).
+    pub fn open_preset_menu_of(&mut self, ctx: &egui::Context, device: Id) {
+        self.open_preset_menu(ctx, device, false);
+    }
+
+    /// Says a plugin device failed `count` times just now and that its last
+    /// good state is `age_seconds` old (screenshots of the failed card).
+    pub fn pretend_failures(&mut self, device: Id, count: usize, age_seconds: Option<u64>) {
+        self.hosting.pretend_failures(
+            device,
+            count,
+            age_seconds.map(std::time::Duration::from_secs),
         );
     }
 

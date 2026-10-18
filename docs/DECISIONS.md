@@ -7127,3 +7127,23 @@ rest, not at once. The state is loaded while the plugin is processing, as the
 standard allows; whether real plugins take it is MT-VST-5's. A restarted
 instrument does not sound a note that is already held until the next one
 (KNOWN_ISSUES, slice 3).
+
+**The interface (slice 5f).** A running plugin's card has a second header row:
+previous and next arrows round a field with the sound's name, and a dot when
+the values the project holds are no longer those the sound settled at. The field
+opens a menu with a search, the plugin's factory programs, the preset files
+found for it (the user's folder, then the system's, sub-folders as groups), Save,
+Save as… and Show presets folder. The arrows step through the same list and
+wrap. Choosing a program or a file is the slice-5c edit; a file is read and
+checked off the interface's thread (`preset_files.rs`) and a damaged one says
+why and changes nothing. Save writes over the user's own file the sound came
+from; Save as… and Save with no such file ask for a name, and a name already
+taken gets "name 2": **Lumen never writes over a file by saving as**. A save
+asks the running plugin for its state, waits for a read taken since its last
+change, and writes the file on the preset thread; it gives up after eight
+seconds and says so. The failed card says which sound Reload starts from and how
+old it is; after three failures in two minutes it says "Keeps stopping" and adds
+Reload without sound. The card grows by one row (CARD_H 344). New commands at
+the end of the table: `devices.preset` and `devices.save_preset`. The preset
+folders are the standard ones (the user's `Documents\VST3 Presets` on Windows,
+`~/Library/Audio/Presets`, `~/.vst3/presets`), chosen by the caller in tests.

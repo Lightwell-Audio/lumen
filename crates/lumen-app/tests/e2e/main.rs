@@ -57,6 +57,7 @@ mod parameters;
 mod playback;
 mod plugins;
 mod pops;
+mod preset_menu;
 mod presets;
 mod properties;
 mod quantize;

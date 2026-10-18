@@ -13,6 +13,7 @@ impl App {
     /// Records the plugins' own edits since the last frame. Called every
     /// frame after the hosts have been polled.
     pub(crate) fn apply_plugin_edits(&mut self, ctx: &eframe::egui::Context) {
+        self.poll_presets(ctx);
         self.apply_presets();
         let all = self.hosting.take_edits();
         let touched: Vec<(Id, Vec<u32>)> = all

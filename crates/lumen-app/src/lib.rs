@@ -72,6 +72,7 @@ mod piano_roll;
 mod playhead;
 mod plugins;
 mod position;
+mod preset_files;
 mod probe;
 mod record_settings;
 mod recorder;
