@@ -24,8 +24,8 @@ use std::sync::Arc;
 use lumen_devices::{Cost, Guard, HostedInstrument, Status};
 use lumen_engine::{InstrumentSpec, MidiTrack, MixerHandle};
 use lumen_hosting::{
-    Captured, Edit, EditKind, EditorBounds, EditorEvent, Happened, HostLog, Manager, ParamInfo,
-    ProgramList, Start, UnitInfo,
+    Aux, BusInfo, Captured, Edit, EditKind, EditorBounds, EditorEvent, Happened, HostLog, Manager,
+    ParamInfo, ProgramList, Start, UnitInfo,
 };
 use lumen_plugin_catalog::catalog::Catalog;
 use lumen_project::model::{
@@ -61,6 +61,26 @@ fn gave_up_words(log: Option<&HostLog>) -> String {
                 last.join("; ")
             )
         }
+    }
+}
+
+/// The audio input a sidechain feeds: the first auxiliary one that is mono or
+/// stereo (bus 0 is the plugin's own audio).
+fn sidechain_bus(inputs: &[BusInfo]) -> Option<usize> {
+    inputs
+        .iter()
+        .enumerate()
+        .skip(1)
+        .find(|(_, bus)| !bus.main && (1..=2).contains(&bus.channels))
+        .map(|(index, _)| index)
+}
+
+/// The auxiliary inputs to turn on for a plugin with these inputs: its
+/// sidechain input when a sidechain is wanted.
+fn sidechain_mask(wanted: bool, inputs: &[BusInfo]) -> u32 {
+    match sidechain_bus(inputs) {
+        Some(bus) if wanted => 1 << bus,
+        _ => 0,
     }
 }
 
@@ -111,6 +131,10 @@ struct Tracked {
     /// the link it plays through now misses blocks until the new one comes,
     /// which is not the plugin failing.
     relinking: bool,
+    /// The audio inputs the plugin declares, and the auxiliary buses its
+    /// link has on (M6 slice 6c): a sidechain turns one on.
+    inputs: Vec<BusInfo>,
+    aux: Aux,
     /// When its host failed, most recent last, over the last couple of
     /// minutes: a plugin that keeps stopping is told apart from one that
     /// stopped once. Nothing restarts it: the person does, from its card.
@@ -555,6 +579,13 @@ impl Hosting {
             .filter(|&f| f != 0)
     }
 
+    /// Whether the running plugin has a sidechain input to key (M6 slice 6c).
+    pub fn takes_sidechain(&self, device: Id) -> bool {
+        self.tracked
+            .get(&device.0)
+            .is_some_and(|t| sidechain_bus(&t.inputs).is_some())
+    }
+
     /// Frames the plugin holds back, as it reported (at the current rate).
     pub fn latency(&self, device: Id) -> Option<u32> {
         self.tracked.get(&device.0).map(|t| t.latency)
@@ -566,6 +597,20 @@ impl Hosting {
     pub fn pretend(&mut self, device: Id, state: State) {
         if let Some(t) = self.tracked.get_mut(&device.0) {
             t.state = state;
+        }
+    }
+
+    /// Gives `device` a sidechain input without a host (screenshots and
+    /// tests of the card's row).
+    pub fn pretend_sidechain_input(&mut self, device: Id) {
+        if let Some(t) = self.tracked.get_mut(&device.0) {
+            let bus = |name: &str, main: bool| BusInfo {
+                name: name.into(),
+                channels: 2,
+                main,
+                default_active: main,
+            };
+            t.inputs = vec![bus("Input", true), bus("Sidechain", false)];
         }
     }
 
@@ -1190,6 +1235,8 @@ impl Hosting {
                             linked_at: None,
                             editor_hidden: false,
                             relinking: false,
+                            inputs: Vec::new(),
+                            aux: Aux::default(),
                             failures: Vec::new(),
                         },
                     );
@@ -1233,6 +1280,8 @@ impl Hosting {
                     t.linked_at = Some(std::time::Instant::now());
                     t.bypass = false;
                     t.relinking = false;
+                    t.inputs = linked.buses.0.clone();
+                    t.aux = linked.aux;
                     if !t.params.linked_before {
                         t.params.linked_before = true;
                         // A fresh host has no window; a new link of the same
@@ -1508,6 +1557,22 @@ impl Hosting {
             let Some(status) = t.status.clone() else {
                 continue;
             };
+            // A sidechain turns the plugin's sidechain input on, and taking
+            // it away turns it off: the plugin is set up again with the buses
+            // it should have.
+            if !t.instrument && t.state == State::Ready && !t.relinking {
+                let want = sidechain_mask(w.device.sidechain.is_some(), &t.inputs);
+                if want != t.aux.inputs
+                    && let Some(manager) = self.manager.as_mut()
+                {
+                    let aux = Aux {
+                        inputs: want,
+                        outputs: t.aux.outputs,
+                    };
+                    manager.relink_with(id, f64::from(self.rate), self.frames, aux);
+                    t.relinking = true;
+                }
+            }
             if t.bypass != w.device.bypass {
                 status.set_bypass(w.device.bypass);
                 t.bypass = w.device.bypass;

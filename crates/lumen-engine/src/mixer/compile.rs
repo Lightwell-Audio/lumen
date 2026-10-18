@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use super::delay::{LineKey, Lines};
 use super::hosts::{HostScratch, NO_HOST};
-use super::meter::MeterBank;
+use super::meter::{MeterBank, SIDE_KEY};
 use super::plan::{BUS, CHUNK, Dev, NO_DEV, NO_METER, NO_SIDE, Node, Out, Plan, Send, TapOut};
 use super::smooth::Smoothed;
 use super::spec::{Compensation, Destination, Routing, RoutingError, Tap};
@@ -87,6 +87,8 @@ pub(super) fn compile_metered(
             }
             feeds[from].push((i, Edge::Sidechain(sidechain.tap)));
             incoming[i] += 1;
+            // What a sidechain brings is not there until its source has run.
+            fed[i] = true;
         }
     }
 
@@ -266,6 +268,11 @@ pub(super) fn compile_metered(
             lined: false,
             meter: if meters.is_some() {
                 slot(spec.id)
+            } else {
+                NO_METER
+            },
+            side_meter: if meters.is_some() && side_of[i] != NO_SIDE {
+                slot(spec.id | SIDE_KEY)
             } else {
                 NO_METER
             },

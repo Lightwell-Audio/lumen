@@ -42,6 +42,8 @@ struct Row {
     learning: bool,
     /// The preset field of a running plugin.
     field: Option<super::presets::FieldLook>,
+    /// The sidechain row of a plugin effect with a sidechain input.
+    sidechain: Option<super::sidechain::Look>,
 }
 
 enum OwnedFace {
@@ -135,6 +137,14 @@ impl App {
             return;
         };
         let rate = self.transport.state().sample_rate;
+        // What arrives for the track's sidechain, for the cards' lights.
+        let keyed = all_tracks(self.document.project())
+            .find(|t| t.id == track_id)
+            .is_some_and(|t| t.devices.iter().any(|d| d.is_vst3() && !d.is_instrument()));
+        if keyed {
+            let playing = self.transport.state().playing;
+            self.read_sidechain(ui.ctx(), track_id, playing);
+        }
         let project = self.document.project();
         let Some(track) = all_tracks(project).find(|t| t.id == track_id) else {
             return;
@@ -187,7 +197,12 @@ impl App {
             .iter()
             .map(|r| self.chain.folded.contains(&r.id))
             .collect();
-        let layout = Layout::new(&folded, tray.height());
+        let extra = if rows.iter().any(|r| r.sidechain.is_some()) {
+            super::geometry::KEY_ROOM
+        } else {
+            0.0
+        };
+        let layout = Layout::keyed(&folded, tray.height(), extra);
         let pictures: Vec<Option<egui::TextureHandle>> =
             rows.iter().map(|r| self.picture_of(ui.ctx(), r)).collect();
         let playing = self.transport.state().playing;
@@ -274,7 +289,14 @@ impl App {
                         latency_ms: row.latency_ms,
                         reports_latency: row.vst3,
                         track_color: track_colour,
-                        band: super::geometry::band(layout.card_h),
+                        band: super::geometry::band(
+                            layout.card_h
+                                - if row.sidechain.is_some() {
+                                    super::sidechain::ROOM
+                                } else {
+                                    0.0
+                                },
+                        ),
                         folded: folded[i],
                         picture: pictures[i].as_ref(),
                         slots: &row.slots,
@@ -285,10 +307,14 @@ impl App {
                             name: f.name.as_deref(),
                             changed: f.changed,
                         }),
+                        sidechain: row.sidechain.as_ref(),
                     };
                     let out = card::paint(ui, rect, egui::Id::new(("device", row.id.0)), &look);
                     if let Some(field) = &out.field {
                         self.preset_menu(field, row.id);
+                    }
+                    if let Some(chooser) = &out.sidechain {
+                        self.sidechain_menu(chooser, row.id);
                     }
                     if let Some(forward) = out.step {
                         events.step = Some((row.id, forward));
@@ -455,7 +481,16 @@ impl App {
 
     /// The shown track's devices as rows, with how each is running.
     fn rows_of(&self, track: &Track, rate: u32) -> Vec<Row> {
-        track.devices.iter().map(|d| self.row_of(d, rate)).collect()
+        let playing = self.transport.state().playing;
+        track
+            .devices
+            .iter()
+            .map(|d| {
+                let mut row = self.row_of(d, rate);
+                row.sidechain = self.sidechain_look(track.id, d, playing);
+                row
+            })
+            .collect()
     }
 
     fn row_of(&self, d: &Device, rate: u32) -> Row {
@@ -520,6 +555,7 @@ impl App {
             bypass: d.bypass,
             face,
             latency_ms,
+            sidechain: None,
         }
     }
 }

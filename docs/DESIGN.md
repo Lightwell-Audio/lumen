@@ -1071,6 +1071,23 @@ a soft shadow, radius `XL`).
   show no fill movement and cannot be dragged. Up and down move a highlighted
   row and Enter stars it. The strip holds eight: a ninth star says so. A bar
   is typed into the same way as a knob (the field takes the bar's place).
+- **The sidechain row** (M6 slice 6c; the owner's B with the light of I1, from
+  rendered specimens): a running plugin effect that has a sidechain input has a
+  row between the knobs and the Learn row, 22 pt tall in a 28 pt space: the word
+  "Sidechain" in `text_secondary` (62 pt) and one raised chooser. The chooser
+  shows a 8 pt swatch in the source track's colour, the track's name, " ·
+  Post FX" in `text_hint` (the name alone when both do not fit), the light and
+  an arrow; "None" in `text_secondary` when there is no source; "▲ Source
+  removed" in `warning` when the track was deleted. **The light** is a cable
+  port's ring (`border_strong`, `well` inside) with the Beam's dot lit by the
+  level of what arrives, and a `warning` hollow ring when the song plays and
+  nothing has arrived for two seconds. Its menu (named "Sidechain source, …"
+  for the chooser): None, then Tracks, Groups, Returns with a swatch each, a
+  track that would feed back greyed with the reason; a rule; "Taken from the
+  track" with a three-way switch (Pre FX, Post FX, Post mixer, greyed until a
+  source is chosen) and one line saying what the chosen tap is. A card with the
+  row takes its 28 pt from the picture, and the Devices panel's least height is
+  28 pt more while the shown track has one.
 - **Chosen:** a 1.5 pt accent edge. Under the pointer: the Ember wash.
 - **Cables:** 2 pt `border_strong` when unlit; the Beam (accent line, `core`
   inside, halo and cast) while the song plays. Dotted for notes. A port is a

@@ -496,6 +496,27 @@ impl Reported {
     }
 }
 
+/// Where on the source track a sidechain is taken from (format v20).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SidechainTap {
+    /// Before the track's devices: mute and fader do not touch it.
+    PreFx,
+    /// After the track's devices, before mute and fader.
+    #[default]
+    PostFx,
+    /// What the track plays: after mute, fader and pan.
+    PostMixer,
+}
+
+/// A sidechain: another track whose sound keys an effect (format v20).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sidechain {
+    pub from: Id,
+    #[serde(default)]
+    pub tap: SidechainTap,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Device {
     pub id: Id,
@@ -526,6 +547,11 @@ pub struct Device {
     /// some; a save that captures the plugin's state afresh clears it.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub params: BTreeMap<u32, f64>,
+    /// The track whose sound keys this effect, if it takes a sidechain
+    /// (format v20): where the signal is taken from on that track. Written
+    /// only when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sidechain: Option<Sidechain>,
     /// How many times the device's sound was replaced as a whole (a preset
     /// loaded), so the running plugin can tell that the project holds another
     /// sound than the one it has, after an undo or redo, without comparing
@@ -547,6 +573,7 @@ impl Device {
             plugin_version: String::new(),
             reported: None,
             params: BTreeMap::new(),
+            sidechain: None,
             state_rev: 0,
         }
     }

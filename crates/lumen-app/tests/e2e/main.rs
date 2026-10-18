@@ -69,6 +69,7 @@ mod safe_mode;
 mod scrubbing;
 mod sends;
 mod shortcuts;
+mod sidechain;
 mod smf;
 mod solo;
 mod stepped;

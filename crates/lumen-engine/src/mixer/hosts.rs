@@ -199,7 +199,8 @@ pub(super) fn begin_early(
 }
 
 /// Runs a hosted device over a node's `left` and `right`: the host's output,
-/// or the fallback, or a glide between them. `advance` is false for a tail
+/// or the fallback, or a glide between them. `key` is what arrives for the
+/// node's sidechain, given to the plugin as its sidechain input. `advance` is false for a tail
 /// rendered ahead of a jump, which plays the fallback and leaves the host
 /// and the glide alone (the audio is not what the host should hear next).
 pub(super) fn run(
@@ -208,6 +209,7 @@ pub(super) fn run(
     scratch: &mut HostScratch,
     hosting: &mut Hosting<'_>,
     (left, right): (&mut [f32], &mut [f32]),
+    key: Option<(&[f32], &[f32])>,
     (rate, advance): (u32, bool),
 ) {
     let n = left.len();
@@ -234,7 +236,13 @@ pub(super) fn run(
         && (dev.began || wanted(guard, dev))
     {
         if !dev.began {
-            dev.began = guard.begin(n, &[&*left, &*right], &[]);
+            dev.began = match key {
+                // The plugin's sidechain follows its audio in the block.
+                Some((key_left, key_right)) => {
+                    guard.begin(n, &[&*left, &*right, key_left, key_right], &[])
+                }
+                None => guard.begin(n, &[&*left, &*right], &[]),
+            };
         }
         let deadline = hosting.deadline.unwrap_or_else(|| {
             Instant::now() + Duration::from_micros(n as u64 * 750_000 / u64::from(rate.max(1)))

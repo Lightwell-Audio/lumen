@@ -601,7 +601,7 @@ impl eframe::App for App {
         let mut detail_content = None;
         // The Devices tab is never so short that its card leaves the tray.
         let detail_min = if self.detail_tab == app::detail::DetailTab::Devices {
-            chain::panel_min_height()
+            chain::panel_min_height_keyed(self.shown_chain_keyed())
         } else {
             arrangement::strips::min_height() + DETAIL_CHROME
         };

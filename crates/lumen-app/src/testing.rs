@@ -355,6 +355,25 @@ impl App {
         self.field_look(device).is_some()
     }
 
+    /// Gives a plugin effect a sidechain input, and the light of `track`'s
+    /// sidechain a level (0 to 1) and, when `silent_seconds` is over two
+    /// while the song plays, the warning ring: screenshots of the card's row.
+    pub fn give_device_sidechain(
+        &mut self,
+        device: Id,
+        track: Id,
+        level: f32,
+        silent_seconds: f32,
+    ) {
+        self.hosting.pretend_sidechain_input(device);
+        self.chain.sidechain.pretend(track, level, silent_seconds);
+    }
+
+    /// How lit the sidechain light of the shown track is, 0 to 1.
+    pub fn sidechain_light(&self, track: Id) -> f32 {
+        self.chain.sidechain.level_of(track)
+    }
+
     /// The folders "Show presets folder" opened, oldest first.
     pub fn revealed_folders(&self) -> Vec<PathBuf> {
         self.chain.presets.revealed.clone()

@@ -8,7 +8,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use lumen_project::model::{
-    Device, DeviceKind, Id, MAX_DEVICE_STATE, PluginRef, Project, SYNTH, Track, TrackKind,
+    Device, DeviceKind, Id, MAX_DEVICE_STATE, PluginRef, Project, SYNTH, Sidechain, Track,
+    TrackKind,
 };
 use lumen_project::routing::all_tracks;
 
@@ -43,6 +44,13 @@ pub enum Refusal {
     NotAPlugin,
     /// The preset's state is larger than a project keeps.
     TooLarge,
+    /// Only a plugin effect takes a sidechain.
+    NotAnEffect,
+    /// A track cannot key its own effect.
+    SidechainSelf,
+    /// The source is fed by this track (through its output, a send or another
+    /// sidechain), so the sound would go round.
+    SidechainLoop,
 }
 
 impl fmt::Display for Refusal {
@@ -56,6 +64,9 @@ impl fmt::Display for Refusal {
             Refusal::BadPlugin => "That plugin can't be added: its identity is not valid.",
             Refusal::NotAPlugin => "Only a plugin can load a preset.",
             Refusal::TooLarge => "That preset is too large to keep in a project.",
+            Refusal::NotAnEffect => "Only a plugin effect takes a sidechain.",
+            Refusal::SidechainSelf => "A track can't key its own effect.",
+            Refusal::SidechainLoop => "That track is fed by this one, so the sound would go round.",
         })
     }
 }
@@ -262,6 +273,60 @@ impl Document {
         Ok(())
     }
 
+    /// Why `device` could not be keyed from track `from`, if it could not:
+    /// the track is its own, or it is fed by this one so the sound would go
+    /// round. The menu greys such tracks with the reason.
+    pub fn sidechain_refusal(&self, device: Id, from: Id) -> Option<Refusal> {
+        let (track, _) = find_device(self.project(), device)?;
+        if from == track {
+            return Some(Refusal::SidechainSelf);
+        }
+        let mut trial = self.project().clone();
+        let keyed = find_mut(&mut trial, track)
+            .and_then(|t| t.devices.iter_mut().find(|d| d.id == device))?;
+        keyed.sidechain = Some(Sidechain {
+            from,
+            tap: keyed.sidechain.map_or_else(Default::default, |s| s.tap),
+        });
+        lumen_project::routing::has_loop(&trial).then_some(Refusal::SidechainLoop)
+    }
+
+    /// Sets which track keys `device` and where on it the signal is taken, or
+    /// takes the sidechain away (`None`). Refused when `device` is not a
+    /// plugin effect, when the source is the device's own track, and when it
+    /// would make the routing feed back. A source that is not there is kept as
+    /// named, so undoing a track's removal restores the link. One undo step;
+    /// the same choice again records nothing.
+    pub fn set_sidechain(
+        &mut self,
+        device: Id,
+        sidechain: Option<Sidechain>,
+    ) -> Result<(), Refusal> {
+        let (track, held) = find_device(self.project(), device).ok_or(Refusal::NoDevice)?;
+        if !matches!(held.plugin, PluginRef::Vst3 { .. }) || held.is_instrument() {
+            return Err(Refusal::NotAnEffect);
+        }
+        if held.sidechain == sidechain {
+            return Ok(());
+        }
+        if let Some(source) = sidechain
+            && let Some(why) = self.sidechain_refusal(device, source.from)
+        {
+            return Err(why);
+        }
+        let name = name_of(held);
+        let label = match sidechain {
+            Some(_) => format!("Sidechain {name}"),
+            None => format!("Remove sidechain from {name}"),
+        };
+        self.edit_chain(&label, track, |t| {
+            if let Some(d) = t.devices.iter_mut().find(|d| d.id == device) {
+                d.sidechain = sidechain;
+            }
+        });
+        Ok(())
+    }
+
     /// Sets plugin parameters (normalized, 0 to 1, by the plugin's own ids) on
     /// whichever track holds `device`. The project keeps these values over the
     /// plugin's saved state, so undo and redo are edits to them (format v19).
@@ -365,7 +430,11 @@ impl Document {
             plan.index
         };
         self.history.apply(&label, None, |project| {
-            let moved = take_device(project, from, device);
+            let mut moved = take_device(project, from, device);
+            if from != to {
+                // A sidechain is a path into the track the effect sits on.
+                moved.sidechain = None;
+            }
             put_device(project, to, moved, index, instrument);
         });
         Ok(())
@@ -386,6 +455,9 @@ impl Document {
         let mut copy = plan.device;
         let name = name_of(&copy);
         copy.id = id;
+        if from != to {
+            copy.sidechain = None;
+        }
         let label = if from == to {
             format!("Copy {name}")
         } else {
@@ -408,6 +480,7 @@ impl Document {
         let id = self.fresh_id();
         let mut copy = device.clone();
         copy.id = id;
+        copy.sidechain = None;
         let label = format!("Paste {}", name_of(&copy));
         let instrument = copy.is_instrument();
         self.history.apply(&label, None, |project| {
@@ -614,6 +687,110 @@ mod tests {
         ] {
             assert!(!refusal.to_string().is_empty());
         }
+    }
+
+    fn key(from: Id) -> Option<Sidechain> {
+        Some(Sidechain {
+            from,
+            tap: lumen_project::model::SidechainTap::PostFx,
+        })
+    }
+
+    #[test]
+    fn a_sidechain_is_one_undo_step_and_the_same_choice_again_records_nothing() {
+        let (mut doc, midi, audio) = doc();
+        let id = doc
+            .add_device(audio, plugin("Comp", DeviceKind::Effect), Slot::End)
+            .unwrap();
+        doc.set_sidechain(id, key(midi)).unwrap();
+        assert_eq!(track(&doc, audio).devices[0].sidechain, key(midi));
+        doc.set_sidechain(id, key(midi)).unwrap();
+        assert_eq!(doc.undo().as_deref(), Some("Sidechain Comp"));
+        assert_eq!(track(&doc, audio).devices[0].sidechain, None, "one step");
+        doc.redo();
+        doc.set_sidechain(id, None).unwrap();
+        assert_eq!(doc.undo().as_deref(), Some("Remove sidechain from Comp"));
+        assert_eq!(track(&doc, audio).devices[0].sidechain, key(midi));
+    }
+
+    #[test]
+    fn a_sidechain_that_cannot_work_is_refused_with_a_reason_and_changes_nothing() {
+        let (mut doc, midi, audio) = doc();
+        let comp = doc
+            .add_device(audio, plugin("Comp", DeviceKind::Effect), Slot::End)
+            .unwrap();
+        let synth = doc
+            .add_device(midi, plugin("Keys", DeviceKind::Instrument), Slot::End)
+            .unwrap();
+        assert_eq!(doc.set_sidechain(GONE, key(midi)), Err(Refusal::NoDevice));
+        assert_eq!(
+            doc.set_sidechain(synth, key(audio)),
+            Err(Refusal::NotAnEffect)
+        );
+        assert_eq!(
+            doc.set_sidechain(comp, key(audio)),
+            Err(Refusal::SidechainSelf)
+        );
+        // The audio track keys the MIDI track's effect; the MIDI track then
+        // cannot be keyed from the audio track.
+        let tail = doc
+            .add_device(midi, plugin("Tail", DeviceKind::Effect), Slot::End)
+            .unwrap();
+        doc.set_sidechain(comp, key(midi)).unwrap();
+        assert_eq!(
+            doc.set_sidechain(tail, key(audio)),
+            Err(Refusal::SidechainLoop)
+        );
+        assert_eq!(track(&doc, midi).devices.last().unwrap().sidechain, None);
+        // A source that is gone is kept as named.
+        doc.set_sidechain(comp, key(GONE)).unwrap();
+        assert_eq!(track(&doc, audio).devices[0].sidechain, key(GONE));
+    }
+
+    #[test]
+    fn a_sidechain_stays_through_a_reorder_and_does_not_follow_a_device_to_another_track() {
+        let (mut doc, midi, audio) = doc();
+        let comp = doc
+            .add_device(audio, plugin("Comp", DeviceKind::Effect), Slot::End)
+            .unwrap();
+        let other = doc
+            .add_device(audio, plugin("Eq", DeviceKind::Effect), Slot::End)
+            .unwrap();
+        doc.set_sidechain(comp, key(midi)).unwrap();
+        doc.move_device(audio, comp, audio, Slot::End).unwrap();
+        assert_eq!(
+            track(&doc, audio)
+                .devices
+                .iter()
+                .find(|d| d.id == comp)
+                .unwrap()
+                .sidechain,
+            key(midi)
+        );
+        let copy = doc.copy_device(audio, comp, audio, Slot::End).unwrap();
+        assert_eq!(
+            track(&doc, audio)
+                .devices
+                .iter()
+                .find(|d| d.id == copy)
+                .unwrap()
+                .sidechain,
+            key(midi),
+            "a copy on its own track keeps its source"
+        );
+        doc.move_device(audio, comp, midi, Slot::End).unwrap();
+        assert_eq!(track(&doc, midi).devices.last().unwrap().sidechain, None);
+        let elsewhere = doc.copy_device(audio, copy, midi, Slot::End).unwrap();
+        assert_eq!(
+            track(&doc, midi)
+                .devices
+                .iter()
+                .find(|d| d.id == elsewhere)
+                .unwrap()
+                .sidechain,
+            None
+        );
+        let _ = other;
     }
 
     #[test]

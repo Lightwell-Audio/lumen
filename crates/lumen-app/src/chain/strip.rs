@@ -23,7 +23,7 @@ const COLUMNS: usize = 4;
 const KNOB: f32 = 26.0;
 /// The row of buttons under the knobs.
 pub(super) const BUTTONS: f32 = 22.0;
-const GAP: f32 = 6.0;
+pub(super) const GAP: f32 = 6.0;
 
 /// One chosen parameter, as the card needs it.
 #[derive(Debug, Clone, PartialEq)]
@@ -137,6 +137,7 @@ pub(super) fn paint(
     slots: &[Option<Slot>],
     selected: bool,
     row: Buttons<'_>,
+    key_room: f32,
 ) -> Vec<Output> {
     let palette = *theme::p();
     let mut out = Vec::new();
@@ -144,7 +145,10 @@ pub(super) fn paint(
     // room its word needs while the buttons below keep to the margins.
     let grid = Rect::from_min_max(
         pos2(area.left() - GRID_OUT, area.top()),
-        pos2(area.right() + GRID_OUT, area.bottom() - BUTTONS - GAP),
+        pos2(
+            area.right() + GRID_OUT,
+            area.bottom() - BUTTONS - GAP - key_room,
+        ),
     );
     let cell_w = grid.width() / COLUMNS as f32;
     let cell_h = (grid.height() - GAP) / 2.0;

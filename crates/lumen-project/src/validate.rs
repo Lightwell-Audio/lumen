@@ -54,6 +54,9 @@ fn device_data(device: &Device) -> Result<(), String> {
             {
                 return Err("a plugin's parameter values are out of range".into());
             }
+            if device.sidechain.is_some() && device.is_instrument() {
+                return Err("an instrument takes no sidechain".into());
+            }
             if let Some(reported) = &device.reported
                 && (!(8_000..=384_000).contains(&reported.rate) || reported.latency > 1 << 24)
             {
@@ -65,6 +68,7 @@ fn device_data(device: &Device) -> Result<(), String> {
                 || !device.plugin_version.is_empty()
                 || device.reported.is_some()
                 || !device.params.is_empty()
+                || device.sidechain.is_some()
             {
                 return Err("a built-in device holds plugin-only data".into());
             }
@@ -212,6 +216,11 @@ pub fn validate(project: &Project) -> Result<(), String> {
                 }
             }
             device_data(device).map_err(|why| format!("{}: {why}", at()))?;
+            // A source that was deleted stays named: the row says so and the
+            // engine plays no sidechain, so undoing the delete brings it back.
+            if device.sidechain.is_some_and(|s| s.from == track.id) {
+                return Err(format!("{}: its sidechain is its own track", at()));
+            }
         }
         for (index, clip) in track.clips.iter().enumerate() {
             let at = || format!("{}, clip {index} {:?}", at(), clip.name);

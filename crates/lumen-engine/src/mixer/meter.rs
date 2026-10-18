@@ -18,6 +18,10 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use lumen_core::loudness::{Blocks, TruePeak};
 
+/// Added to a node's id to name the reading of its sidechain bus, in the
+/// slots that name nodes (M6 slice 6c): what is arriving to key its devices.
+pub(super) const SIDE_KEY: u64 = 1 << 63;
+
 /// How long the RMS reading averages over: 300 ms, as most DAW meters.
 pub const RMS_SECONDS: f32 = 0.3;
 /// 100 ms loudness blocks the queue holds: 51 seconds of a UI that does

@@ -21,7 +21,7 @@ pub const FIRST_VERSION: u64 = 1;
 pub const MIGRATIONS: &[Migration] = &[
     v1_to_v2, v2_to_v3, v3_to_v4, v4_to_v5, v5_to_v6, v6_to_v7, v7_to_v8, v8_to_v9, v9_to_v10,
     v10_to_v11, v11_to_v12, v12_to_v13, v13_to_v14, v14_to_v15, v15_to_v16, v16_to_v17, v17_to_v18,
-    v18_to_v19,
+    v18_to_v19, v19_to_v20,
 ];
 
 /// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
@@ -366,6 +366,14 @@ fn v17_to_v18(document: Value) -> Result<Value, String> {
 /// set. A file without them holds no overrides and lets the card choose, which
 /// is what every older project did.
 fn v18_to_v19(document: Value) -> Result<Value, String> {
+    Ok(document)
+}
+
+/// v20 (M6 slice 6): a VST3 effect may take a sidechain (`sidechain`: the
+/// track it is keyed from and where on that track the signal is taken),
+/// written only when set. A file without it has none, which is what every
+/// older project had.
+fn v19_to_v20(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 

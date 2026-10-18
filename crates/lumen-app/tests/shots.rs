@@ -2493,3 +2493,136 @@ fn ui_polish() {
         save(&mut h, &format!("polish-devices-{tag}"));
     }
 }
+
+/// The sidechain row on a plugin effect's card (M6 slice 6c, the owner's B
+/// with the light of I1): unset, keyed with the light lit, keyed with the
+/// warning ring, and the menu open.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn sidechain_row() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_core::time::Ticks;
+    use lumen_project::model::{Device, DeviceKind, Id, Note, Sidechain, SidechainTap};
+    use lumen_project::testing::{midi_track, project_of};
+
+    let class = |n: u8| lumen_plugin_catalog::catalog::class_id(&[n; 16]);
+    for (appearance, scale, size) in [
+        ("dark", 1.0, vec2(1500.0, 800.0)),
+        ("light", 1.0, vec2(1500.0, 800.0)),
+        ("dark", 1.5, vec2(1500.0, 900.0)),
+        ("dark", 2.0, vec2(1900.0, 1000.0)),
+        ("light", 2.0, vec2(1900.0, 1000.0)),
+        ("dark", 1.0, vec2(960.0, 540.0)),
+    ] {
+        for (what, keyed, level, silent, open) in [
+            ("none", false, 0.0, 0.0, false),
+            ("lit", true, 0.8, 0.0, false),
+            ("quiet", true, 0.0, 3.0, false),
+            ("menu", true, 0.5, 0.0, true),
+        ] {
+            let dir = TempDir::new("shots-sidechain");
+            let kick = midi_track(
+                2,
+                "Kick",
+                "poly",
+                (0, 64),
+                None,
+                vec![Note::new(Ticks::ZERO, Ticks::quarters(60), 36, 100)],
+                vec![],
+            );
+            let mut pad = midi_track(
+                20,
+                "Pad",
+                "poly",
+                (0, 64),
+                None,
+                vec![Note::new(Ticks::ZERO, Ticks::quarters(60), 69, 100)],
+                vec![],
+            );
+            let mut effect = Device::vst3(
+                Id(31),
+                &class(2),
+                "Compressor A",
+                "Vendor A",
+                DeviceKind::Effect,
+            );
+            if keyed {
+                effect.sidechain = Some(Sidechain {
+                    from: Id(2),
+                    tap: SidechainTap::PostFx,
+                });
+            }
+            pad.devices = vec![
+                Device::vst3(
+                    Id(30),
+                    &class(1),
+                    "Bass Synth",
+                    "Vendor C",
+                    DeviceKind::Instrument,
+                ),
+                effect,
+            ];
+            let project = project_of("Sidechain", vec![kick, pad]);
+            let path = dir.path().join("song.lumen");
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(size)
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(30);
+            h.state_mut().select_tracks(&[Id(20)]);
+            h.run_steps(4);
+            h.get_all_by_label("Devices tab")
+                .last()
+                .expect("the tabs")
+                .click();
+            h.run_steps(20);
+            h.state_mut().pretend_device_state(Id(30), "ready");
+            h.state_mut().pretend_device_state(Id(31), "ready");
+            h.state_mut().give_device_parameters(
+                Id(31),
+                &[
+                    ("Threshold", 0.62, "-18 dB"),
+                    ("Ratio", 0.40, "4:1"),
+                    ("Attack", 0.25, "10 ms"),
+                    ("Release", 0.55, "120 ms"),
+                    ("Knee", 0.30, "6 dB"),
+                    ("Makeup", 0.45, "+3 dB"),
+                    ("Mix", 1.0, "100%"),
+                    ("Output", 0.70, "0 dB"),
+                ],
+            );
+            h.state_mut()
+                .give_device_sidechain(Id(31), Id(20), level, silent);
+            h.run_steps(20);
+            h.get_by_label("Compressor A on Pad").click();
+            h.run_steps(10);
+            if keyed {
+                // The song plays: the light shows what arrives.
+                h.key_press(eframe::egui::Key::Space);
+                h.run_steps(20);
+            }
+            if open {
+                h.get_by_label("Sidechain source, Kick, Post FX").click();
+                h.run_steps(20);
+            }
+            save(
+                &mut h,
+                &format!("sidechain-{what}-{appearance}-{scale}-{}", size.x as u32),
+            );
+        }
+    }
+}
