@@ -205,14 +205,17 @@ fn a_sidechain_input_reaches_the_effect_on_the_same_samples() {
         )
         .unwrap();
     let left = &block.output[0];
+    // The effect follows the key's peak: nothing before the loud sample is
+    // touched, and from it the effect is held silent (the key falls away over
+    // a tenth of a second, far longer than this block).
     assert_eq!(left[10], 0.0, "the loud sidechain sample is silenced");
     let kept = left[9];
     assert!(kept != 0.0);
     assert!(
         left.iter()
             .enumerate()
-            .all(|(i, &s)| if i == 10 { s == 0.0 } else { s == kept }),
-        "and no other: {left:?}"
+            .all(|(i, &s)| if i >= 10 { s == 0.0 } else { s == kept }),
+        "the samples before it are untouched and the rest held down: {left:?}"
     );
 }
 
