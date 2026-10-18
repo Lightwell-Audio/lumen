@@ -159,7 +159,13 @@ impl App {
             .ports()
             .into_iter()
             .filter(|p| p.info.id.direction == Direction::Input)
-            .filter_map(|p| Some((p.slot?, self.midi.activity(&p.info.id))))
+            .filter_map(|p| {
+                Some((
+                    p.slot?,
+                    self.midi.activity(&p.info.id),
+                    self.midi.held(&p.info.id),
+                ))
+            })
             .collect();
         self.arrangement.live = crate::arrangement::Live {
             inputs,
@@ -168,6 +174,10 @@ impl App {
                 .live_keys
                 .as_ref()
                 .map_or(0, crate::live::LiveKeys::activity),
+            keyboard_held: self
+                .live_keys
+                .as_ref()
+                .is_some_and(crate::live::LiveKeys::held),
         };
     }
 

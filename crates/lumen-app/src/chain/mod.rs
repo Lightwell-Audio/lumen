@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use lumen_project::model::{Device, Id};
 
-pub(crate) use geometry::panel_height;
+pub(crate) use geometry::{panel_height, panel_min_height};
 pub(crate) use pictures::Pictures;
 pub(crate) use view::paint_drag_ghost;
 

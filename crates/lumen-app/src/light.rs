@@ -226,7 +226,19 @@ const STEADY_FLASH: f64 = 0.15;
 /// at a counter only notes it, so old traffic does not flash. `id` keeps
 /// the light's memory; with Reduce motion the flash is steady, then off.
 pub fn flash(ctx: &egui::Context, id: egui::Id, count: u32) -> f32 {
+    flash_held(ctx, id, count, false)
+}
+
+/// [`flash`] for a light that stays lit while something is held (a key
+/// down): at full brightness for as long as `held`, then it fades as a flash
+/// does. Releasing is traffic too (the note-off), so a frame comes then.
+pub fn flash_held(ctx: &egui::Context, id: egui::Id, count: u32, held: bool) -> f32 {
     let now = ctx.input(|i| i.time);
+    if held {
+        // The fade starts from the last frame it was held.
+        ctx.data_mut(|d| d.insert_temp(id, Seen { count, at: now }));
+        return 1.0;
+    }
     let seen = match ctx.data(|d| d.get_temp::<Seen>(id)) {
         None => Seen {
             count,

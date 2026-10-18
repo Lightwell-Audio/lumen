@@ -93,7 +93,17 @@ fn a_note_flashes_the_in_light_and_its_row_and_the_clock_does_not() {
         Some(0.0)
     );
 
-    // It fades.
+    // The key is still down: the light stays lit. Released, it fades.
+    lumen.frames(120);
+    assert!(lumen.app().midi_chip_lights().0 > 0.99, "lit while held");
+    assert!(fake.send_to_input("Keystation", 4, &[0x80, 60, 0]));
+    for _ in 0..400 {
+        lumen.frames(1);
+        if lumen.app().midi_chip_lights().0 < 0.99 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
     lumen.frames(120);
     assert!(lumen.app().midi_chip_lights().0 < input / 2.0);
 }

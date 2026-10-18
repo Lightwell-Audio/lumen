@@ -32,6 +32,8 @@ pub struct Row {
     pub failed: bool,
     /// Traffic so far: a change is a flash.
     pub count: u32,
+    /// A key is held down on it: the light stays lit.
+    pub held: bool,
 }
 
 impl Row {
@@ -48,17 +50,19 @@ impl Row {
 pub struct View {
     pub inputs: Vec<Row>,
     pub outputs: Vec<Row>,
-    /// The computer keyboard's traffic.
+    /// The computer keyboard's traffic, and whether a key of it is held.
     pub keyboard: u32,
+    pub keyboard_held: bool,
     /// Why MIDI is not there, if it is not.
     pub unavailable: Option<String>,
 }
 
 impl View {
     /// The ports present now, then the remembered ones that are away.
-    pub fn gather(midi: &Midi, saved: &settings::Midi, keyboard: u32) -> Self {
+    pub fn gather(midi: &Midi, saved: &settings::Midi, keyboard: u32, keyboard_held: bool) -> Self {
         let mut view = View {
             keyboard,
+            keyboard_held,
             unavailable: midi.unavailable(),
             ..View::default()
         };
@@ -66,6 +70,7 @@ impl View {
             let id = port.info.id.clone();
             let row = Row {
                 count: midi.activity(&id),
+                held: midi.held(&id),
                 present: true,
                 using: port.using,
                 failed: port.error.is_some(),
@@ -101,6 +106,7 @@ impl View {
                     },
                     failed: false,
                     count: 0,
+                    held: false,
                 });
             }
         }
@@ -184,16 +190,19 @@ impl Transport {
     pub fn midi_chip(&mut self, ui: &mut Ui, view: &View) -> egui::Response {
         let ctx = ui.ctx().clone();
         // The lights: each port's own memory, the chip taking the brightest.
-        let keyboard = light::flash(&ctx, keyboard_id(), view.keyboard);
+        let keyboard = light::flash_held(&ctx, keyboard_id(), view.keyboard, view.keyboard_held);
         let mut lights = Lights {
             keyboard,
             input: keyboard,
             ..Lights::default()
         };
         for row in view.inputs.iter().filter(|r| r.present) {
-            lights.input = lights
-                .input
-                .max(light::flash(&ctx, light_id(&row.id), row.count));
+            lights.input = lights.input.max(light::flash_held(
+                &ctx,
+                light_id(&row.id),
+                row.count,
+                row.held,
+            ));
         }
         for row in view.outputs.iter().filter(|r| r.present) {
             lights.output = lights
@@ -280,7 +289,7 @@ impl Transport {
             ui.separator();
         } else {
             widgets::menu_caption(ui, "Inputs");
-            self.keyboard_row(ui, view.keyboard);
+            self.keyboard_row(ui, view.keyboard, view.keyboard_held);
             for row in &view.inputs {
                 self.port_row(ui, row);
             }
@@ -309,8 +318,8 @@ impl Transport {
 
     /// The computer keyboard: an input that is always there for tracks
     /// (its switch is lit and cannot be turned off).
-    fn keyboard_row(&mut self, ui: &mut Ui, count: u32) {
-        let brightness = light::flash(ui.ctx(), keyboard_id(), count);
+    fn keyboard_row(&mut self, ui: &mut Ui, count: u32, held: bool) {
+        let brightness = light::flash_held(ui.ctx(), keyboard_id(), count, held);
         ui.horizontal(|ui| {
             light_cell(ui, Resting::Open, brightness);
             name_cell(ui, "Computer keyboard", theme::p().text, &[]);
@@ -347,7 +356,7 @@ impl Transport {
 
     fn port_row(&mut self, ui: &mut Ui, row: &Row) {
         let brightness = if row.present {
-            light::flash(ui.ctx(), light_id(&row.id), row.count)
+            light::flash_held(ui.ctx(), light_id(&row.id), row.count, row.held)
         } else {
             0.0
         };
