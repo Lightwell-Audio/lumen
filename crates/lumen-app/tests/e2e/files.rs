@@ -167,6 +167,48 @@ fn importing_with_nothing_selected_makes_tracks_and_cancelling_does_nothing() {
     );
 }
 
+/// The empty arrangement's prompt keeps inside the lanes above the master's
+/// row. With the detail panel open in a short window little room is left, and
+/// the prompt gives up its button rather than run over the master and the time
+/// ruler (the owner's report); in a tall window it is whole.
+#[test]
+fn the_empty_prompt_stays_inside_the_lanes_in_a_short_window() {
+    use eframe::egui::vec2;
+    use egui_kittest::kittest::Queryable;
+
+    const BUTTON: &str = "Import audio or MIDI…";
+    let mut lumen = Lumen::start("empty-short");
+    lumen.harness.set_size(vec2(960.0, 900.0));
+    lumen.frames(20);
+    assert!(lumen.shows(BUTTON), "a tall window shows the button");
+
+    let master_top = |lumen: &Lumen| {
+        lumen
+            .harness
+            .query_all_by_label_contains("Master")
+            .map(|n| n.rect())
+            .filter(|r| r.top() > 60.0)
+            .map(|r| r.top())
+            .fold(f32::INFINITY, f32::min)
+    };
+    let mut hidden = 0;
+    for height in [700.0, 600.0, 540.0, 480.0, 440.0] {
+        lumen.harness.set_size(vec2(960.0, height));
+        lumen.frames(20);
+        match lumen.harness.query_by_label(BUTTON) {
+            Some(button) => {
+                let (button, master) = (button.rect(), master_top(&lumen));
+                assert!(
+                    button.bottom() <= master + 0.5,
+                    "at {height} the button {button:?} reaches the master row at {master}"
+                );
+            }
+            None => hidden += 1,
+        }
+    }
+    assert!(hidden > 0, "the smallest window has no room for the button");
+}
+
 /// Files dropped together become tracks in the order they were dropped,
 /// not the order they finish loading (a short file loads first; the cause
 /// of flaky runs, seen in the M3 review).
