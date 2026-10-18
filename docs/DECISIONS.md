@@ -7203,5 +7203,5 @@ counts a plugin instrument's latency.
 orchestra plugin) gives silent output tracks in the others; Lumen shows the
 outputs the plugin declares. Setting a plugin up again drops the notes it holds.
 The cost of every output being on is to be measured with real plugins (MT-VST-6).
-**Not run:** smoke tests, the WSL performance gate and RealtimeSanitizer over the
-changed link path, macOS.
+**Run:** the smoke tests, the WSL performance gate (largest change +1.06%, `engine_hosted_64`, the rest within +0.5%; no baseline change) and RealtimeSanitizer over the engine, hosted, link and
+plugin-host audio-path tests, all passing. **Not run:** macOS app runs.
