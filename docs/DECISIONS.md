@@ -7095,6 +7095,21 @@ parameter shows, and a preset file comes from outside Lumen.
    rests, with the state): a value that differs from what Lumen knows is taken
    as an edit of the project, except outputs and bypass.
 
+6. **Checkpoints and the last good state (5d, R3 and R4).** Every running
+   plugin is read for a checkpoint about every 30 seconds (staggered by device,
+   not while a control is held in its window, a program is being chosen or a
+   state is being loaded), whether or not it said it changed. A read is kept with
+   the values the plugin had when it was asked for and is never replaced by a
+   failed one: it is the last good state. A plugin that fails is **never**
+   restarted by itself. The card's Reload starts it from the last good state and
+   sets over it what the project holds and every value that moved since
+   (`Parameters::catch_up`); "Reload without sound" starts it as it was added
+   with only what the project holds, leaving the project's saved state alone
+   until the next save writes what the plugin then is. A plugin that fails three
+   times in two minutes keeps failing (`keeps_failing`, for the card). A save and
+   an autosave hold the last good state (with the values since set over it) when
+   a fresher read is not to be had.
+
 **Consequences.** Format is unchanged (the revision is not saved). A plugin that
 reports nothing when it changes a value inside itself is found by the read at
 rest, not at once. The state is loaded while the plugin is processing, as the

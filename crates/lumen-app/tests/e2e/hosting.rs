@@ -72,7 +72,7 @@ fn quiet_effect(id: Id) -> Device {
     device
 }
 
-fn effect_device(id: Id) -> Device {
+pub(super) fn effect_device(id: Id) -> Device {
     Device::vst3(
         id,
         &effect_class(),
@@ -733,11 +733,12 @@ fn a_plugin_that_changed_is_read_once_it_rests_and_the_save_holds_what_it_is_now
     // The project in memory is untouched by it: still the edit, undoable.
     assert_eq!(lumen.app().device_params(PLUGIN), [(LEVEL, 0.3)]);
 
-    // Another change makes the read state old again: the save falls back to the
-    // state it was loaded with, and the values the project holds.
+    // Another change makes the read state old again: the save holds that last
+    // good state (never less than it had) with the values that moved since set
+    // over it.
     lumen.app_mut().set_device_param(PLUGIN, LEVEL, 0.9);
     lumen.frames(2);
-    assert!(saved_device(&lumen).state.is_empty());
+    assert!(saved_device(&lumen).state.starts_with(b"LTP1"));
     assert_eq!(saved_device(&lumen).params.get(&LEVEL), Some(&0.9));
 }
 

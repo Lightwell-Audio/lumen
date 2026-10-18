@@ -61,6 +61,7 @@ mod presets;
 mod properties;
 mod quantize;
 mod record;
+mod resilience;
 mod returns;
 mod rulers;
 mod scrubbing;

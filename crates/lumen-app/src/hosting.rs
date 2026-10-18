@@ -108,6 +108,10 @@ struct Tracked {
     /// the link it plays through now misses blocks until the new one comes,
     /// which is not the plugin failing.
     relinking: bool,
+    /// When its host failed, most recent last, over the last couple of
+    /// minutes: a plugin that keeps stopping is told apart from one that
+    /// stopped once. Nothing restarts it: the person does, from its card.
+    failures: Vec<std::time::Instant>,
 }
 
 /// What Lumen knows of a plugin's own window (M6 slice 4f).
@@ -165,8 +169,17 @@ struct Parameters {
     /// last change is the plugin's state now.
     edit_count: u64,
     last_edit: Option<std::time::Instant>,
-    /// The plugin's state as last read, and the edit count it was read at.
+    /// The plugin's state as last read, and the edit count it was read at. A
+    /// read is never replaced by a failed one: this is the last good state, the
+    /// one a plugin that fails starts again from.
     captured: Option<Captured>,
+    /// When it was read, and the plugin's values when it was asked for.
+    captured_when: Option<std::time::Instant>,
+    captured_values: BTreeMap<u32, f64>,
+    /// The values as they were when the read in flight was asked for.
+    capturing_values: Option<BTreeMap<u32, f64>>,
+    /// When the plugin was last read for a checkpoint (or loaded).
+    last_checkpoint: Option<std::time::Instant>,
     captured_at: u64,
     /// A read in flight, started at this edit count.
     capturing: Option<u64>,
@@ -235,6 +248,51 @@ impl Parameters {
     fn fresh(&self) -> bool {
         self.captured.is_some() && self.captured_at == self.edit_count
     }
+
+    /// Whether Lumen may set the parameter: not an output the plugin reports
+    /// and not its bypass.
+    fn settable(&self, id: u32) -> bool {
+        self.list
+            .iter()
+            .find(|i| i.id == id)
+            .is_none_or(|i| !i.read_only() && !i.bypass())
+    }
+
+    /// The values a plugin started again from its last good state needs set
+    /// over it: what the project holds, and every value that moved since that
+    /// state was read (or since the plugin loaded, when none was), by the
+    /// plugin's own doing or Lumen's.
+    fn catch_up(&self, held: &BTreeMap<u32, f64>) -> BTreeMap<u32, f64> {
+        let then = if self.captured.is_some() {
+            &self.captured_values
+        } else {
+            &self.base
+        };
+        let mut all = held.clone();
+        for (&id, &value) in &self.values {
+            if self.settable(id) && !all.contains_key(&id) && then.get(&id) != Some(&value) {
+                all.insert(id, value);
+            }
+        }
+        all
+    }
+
+    /// Whether the user holds a control in the plugin's window, or has just
+    /// chosen a program: not a moment to read the plugin.
+    fn gesture_is_open(&self) -> bool {
+        self.open
+            .is_some_and(|(_, since)| since.elapsed() < GESTURE_LIMIT)
+            || self
+                .program
+                .as_ref()
+                .is_some_and(|(_, since)| since.elapsed() < PROGRAM_WINDOW)
+    }
+
+    /// Notes that a read is asked for now.
+    fn asked(&mut self) {
+        self.capturing = Some(self.edit_count);
+        self.capturing_values = Some(self.values.clone());
+    }
 }
 
 /// How long a plugin is left alone after its last change before its state
@@ -261,6 +319,27 @@ pub struct DeviceEdits {
     pub device: Id,
     /// In the order the plugin made them; `true` when inside a gesture.
     pub edits: Vec<(Edit, bool)>,
+}
+
+/// How often a running plugin is read for a checkpoint.
+const CHECKPOINT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// A plugin that fails this many times within [`FAILURE_WINDOW`] keeps failing.
+const FAILURES_THAT_COUNT: usize = 3;
+const FAILURE_WINDOW: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Notes a failure now, forgetting the ones too old to count. A second word
+/// about the same failure (the engine gave up on a host that then reported its
+/// end) is not another failure.
+fn note_failure(failures: &mut Vec<std::time::Instant>) {
+    let now = std::time::Instant::now();
+    failures.retain(|at| at.elapsed() < FAILURE_WINDOW);
+    if failures
+        .last()
+        .is_none_or(|at| now.duration_since(*at) > std::time::Duration::from_secs(1))
+    {
+        failures.push(now);
+    }
 }
 
 /// How long what a plugin does inside itself after a state was loaded into it
@@ -323,6 +402,8 @@ pub struct Hosting {
     keys: Vec<(u8, bool)>,
     /// Presets the plugins took or refused, waiting for the document.
     presets: Vec<PresetNews>,
+    /// How often a running plugin is read for a checkpoint.
+    checkpoint_every: std::time::Duration,
 }
 
 /// The host's stand-in for an editor window, as a test asks for it in the
@@ -408,6 +489,7 @@ impl Hosting {
             inside_changes: false,
             keys: Vec::new(),
             presets: Vec::new(),
+            checkpoint_every: CHECKPOINT,
         }
     }
 
@@ -672,15 +754,34 @@ impl Hosting {
     /// Whether a plugin has a gesture open (a control held in its window): the
     /// document keeps the undo step open until it ends.
     pub fn gesture_open(&self) -> bool {
-        self.tracked.values().any(|t| {
-            t.params
-                .open
-                .is_some_and(|(_, since)| since.elapsed() < GESTURE_LIMIT)
-                || t.params
-                    .program
-                    .as_ref()
-                    .is_some_and(|(_, since)| since.elapsed() < PROGRAM_WINDOW)
+        self.tracked.values().any(|t| t.params.gesture_is_open())
+    }
+
+    /// Whether the plugin has stopped three times in the last two minutes: it
+    /// keeps stopping, and the card says so rather than offering the same
+    /// Reload as for one that stopped once.
+    pub fn keeps_failing(&self, device: Id) -> bool {
+        self.tracked.get(&device.0).is_some_and(|t| {
+            t.failures
+                .iter()
+                .filter(|at| at.elapsed() < FAILURE_WINDOW)
+                .count()
+                >= FAILURES_THAT_COUNT
         })
+    }
+
+    /// How long ago the plugin's last good state was read, if one was.
+    pub fn last_good_age(&self, device: Id) -> Option<std::time::Duration> {
+        self.tracked
+            .get(&device.0)?
+            .params
+            .captured_when
+            .map(|at| at.elapsed())
+    }
+
+    /// Changes how often running plugins are read for a checkpoint (tests).
+    pub fn set_checkpoint_every(&mut self, every: std::time::Duration) {
+        self.checkpoint_every = every;
     }
 
     /// The programs a plugin offers, as it listed them when it loaded.
@@ -793,21 +894,38 @@ impl Hosting {
         }
     }
 
-    /// Starts a new host for a failed device (the card's Reload).
+    /// Starts a new host for a failed device (the card's Reload), from the last
+    /// good state it was read at and the values that moved since.
     pub fn reload(&mut self, device: Id) {
+        self.restart_failed(device, false);
+    }
+
+    /// Starts a new host for a failed device with no sound of its own (the
+    /// card's "Reload without sound", for a plugin whose last good state is
+    /// what keeps it failing): the plugin as it was added, with the values the
+    /// project holds over it. The project's saved state is left alone until the
+    /// next save writes what the plugin is then.
+    pub fn reload_clean(&mut self, device: Id) {
+        self.restart_failed(device, true);
+    }
+
+    fn restart_failed(&mut self, device: Id, clean: bool) {
         let Some(manager) = self.manager.as_mut() else {
             return;
         };
         if let Some(t) = self.tracked.get_mut(&device.0)
             && matches!(t.state, State::Failed(_))
         {
-            // The new process starts from the plugin's state as last read if
-            // that was after its last change; otherwise from the state it was
-            // loaded with, and the values the project holds over it.
-            let (state, values) = if t.params.fresh() {
-                (t.params.captured.clone(), BTreeMap::new())
+            let (state, values) = if clean {
+                (
+                    Some(Captured {
+                        component: Vec::new(),
+                        controller: None,
+                    }),
+                    t.params.held.clone(),
+                )
             } else {
-                (None, t.params.held.clone())
+                (t.params.captured.clone(), t.params.catch_up(&t.params.held))
             };
             let list = values.iter().map(|(&id, &v)| (id, v)).collect();
             if manager.reload_from(device.0, state, list).unwrap_or(false) {
@@ -915,6 +1033,7 @@ impl Hosting {
                             linked_at: None,
                             editor_hidden: false,
                             relinking: false,
+                            failures: Vec::new(),
                         },
                     );
                 }
@@ -967,7 +1086,14 @@ impl Hosting {
                         t.params.values = t.params.base.clone();
                         for (&id, &v) in &t.params.started_with {
                             t.params.values.insert(id, v);
+                            // A value recovered from before a failure is the
+                            // plugin's now, not the project's: it is not
+                            // something to put back.
+                            if !t.params.held.contains_key(&id) {
+                                t.params.base.insert(id, v);
+                            }
                         }
+                        t.params.last_checkpoint = Some(std::time::Instant::now());
                         t.params.list = linked.params;
                         t.params.total = linked.params_total;
                         t.params.units = linked.units;
@@ -992,6 +1118,7 @@ impl Hosting {
                     t.editor_hidden = false;
                     t.relinking = false;
                     t.state = State::Failed(why.to_string());
+                    note_failure(&mut t.failures);
                 }
                 Happened::Key { code, down } => self.keys.push((code, down)),
                 Happened::Text { id, value, text } => {
@@ -1034,13 +1161,19 @@ impl Hosting {
                     match state {
                         Ok(bytes) => {
                             p.captured = Some(bytes);
+                            p.captured_when = Some(std::time::Instant::now());
+                            p.captured_values = p.capturing_values.take().unwrap_or_default();
                             p.captured_at = at;
                             p.capture_failed = false;
                             if at == p.edit_count {
                                 p.dirty = false;
                             }
                         }
-                        Err(_) => p.capture_failed = true,
+                        Err(_) => {
+                            // The state read before stays the last good one.
+                            p.capturing_values = None;
+                            p.capture_failed = true;
+                        }
                     }
                 }
                 Happened::Values(all) => {
@@ -1086,6 +1219,8 @@ impl Hosting {
                             p.base = values.clone();
                             p.values = values;
                             p.captured = Some(load.state.clone());
+                            p.captured_when = Some(std::time::Instant::now());
+                            p.captured_values = p.values.clone();
                             p.captured_at = p.edit_count;
                             p.dirty = false;
                             p.capture_failed = false;
@@ -1202,6 +1337,7 @@ impl Hosting {
             }
             if status.failed() && t.state == State::Ready && !t.relinking {
                 t.state = State::Failed(gave_up_words(t.log.as_deref()));
+                note_failure(&mut t.failures);
             }
             // The sound the project holds is the plugin's: after a preset was
             // loaded, or an undo or redo went across one, the plugin is given
@@ -1312,10 +1448,39 @@ impl Hosting {
                     manager.capture(id);
                     // And every value, for what moved without a word.
                     manager.refresh(id);
-                    t.params.capturing = Some(t.params.edit_count);
+                    t.params.asked();
+                    t.params.last_checkpoint = Some(std::time::Instant::now());
                 } else {
                     let left = (REST - waited).as_millis() as u64 + 1;
                     changed.again_in_ms = Some(changed.again_in_ms.map_or(left, |m| m.min(left)));
+                }
+            }
+        }
+
+        // Checkpoints: every running plugin is read now and then, whether or not
+        // it said it changed (a plugin keeps most of what the user sets without
+        // a word), so a plugin that fails, or a crash of Lumen's own, costs the
+        // time since the last one and not the session.
+        if let Some(manager) = self.manager.as_ref() {
+            let every = self.checkpoint_every;
+            let busy = self.tracked.values().any(|t| t.params.gesture_is_open());
+            for (&id, t) in &mut self.tracked {
+                if t.state != State::Ready {
+                    continue;
+                }
+                let Some(last) = t.params.last_checkpoint else {
+                    continue;
+                };
+                // Staggered by device, so plugins are not all read at once.
+                let due = last + every + every / 8 * (id % 4) as u32;
+                let now = std::time::Instant::now();
+                if now < due {
+                    let left = (due - now).as_millis() as u64 + 1;
+                    changed.again_in_ms = Some(changed.again_in_ms.map_or(left, |m| m.min(left)));
+                } else if t.params.capturing.is_none() && t.params.loads.is_empty() && !busy {
+                    manager.capture(id);
+                    t.params.asked();
+                    t.params.last_checkpoint = Some(now);
                 }
             }
         }
@@ -1456,7 +1621,7 @@ impl Hosting {
             }
             if t.params.capturing.is_none() {
                 manager.capture(id);
-                t.params.capturing = Some(t.params.edit_count);
+                t.params.asked();
             }
             any = true;
         }
@@ -1515,14 +1680,20 @@ impl Hosting {
                     // A state read since the plugin last changed is what it
                     // is now, with every value in it: it replaces the saved
                     // state and the values the project held over it.
-                    if t.params.fresh()
-                        && let Some(captured) = &t.params.captured
-                    {
+                    if let Some(captured) = &t.params.captured {
                         device.state = captured.component.clone();
                         if let Some(controller) = &captured.controller {
                             device.controller_state = controller.clone();
                         }
-                        device.params.clear();
+                        // A state read since the plugin last changed is what it
+                        // is now, with every value in it. An older one (a
+                        // checkpoint, or a read that failed since) has the
+                        // values that moved after it set over it.
+                        device.params = if t.params.fresh() {
+                            BTreeMap::new()
+                        } else {
+                            t.params.catch_up(&device.params)
+                        };
                     }
                 }
             }

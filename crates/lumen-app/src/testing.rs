@@ -461,6 +461,33 @@ impl App {
         self.hosting.reload(device);
     }
 
+    /// Starts a failed device's host again with no sound of its own, as its
+    /// card's "Reload without sound" will.
+    pub fn reload_device_clean(&mut self, device: Id) {
+        self.hosting.reload_clean(device);
+    }
+
+    /// Ends a device's host as a crash would leave it (the user ending a plugin
+    /// that stopped answering).
+    pub fn end_device_host(&mut self, device: Id) {
+        self.hosting.end_plugin(device);
+    }
+
+    /// How often running plugins are read for a checkpoint.
+    pub fn set_checkpoint_every(&mut self, every: Duration) {
+        self.hosting.set_checkpoint_every(every);
+    }
+
+    /// Whether a device's plugin has stopped three times in two minutes.
+    pub fn device_keeps_failing(&self, device: Id) -> bool {
+        self.hosting.keeps_failing(device)
+    }
+
+    /// How long ago a device's last good state was read, if one was.
+    pub fn device_last_good_age(&self, device: Id) -> Option<Duration> {
+        self.hosting.last_good_age(device)
+    }
+
     /// Removes a device from a track, as the interface will (one undo step).
     pub fn remove_device(&mut self, track: Id, device: Id) {
         let _ = self.document.remove_device(track, device);
