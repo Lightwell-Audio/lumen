@@ -33,10 +33,9 @@ pub(crate) fn panel_height() -> f32 {
 }
 
 /// The least the detail panel can be on the Devices tab: a card without its
-/// picture, in the tray's padding (the tray's inner edge takes a point each
-/// side), so the card never sits past the tray.
+/// picture, in the tray's padding, so the card never sits past the tray.
 pub(crate) fn panel_min_height() -> f32 {
-    HEADER + BODY + FOOTER + 2.0 * PAD + 2.0 * crate::theme::space::S + 2.0 + crate::DETAIL_CHROME
+    HEADER + BODY + FOOTER + 2.0 * PAD + 2.0 * crate::theme::space::S + crate::DETAIL_CHROME
 }
 
 /// The card height when `room` points are free: the card shrinks (the
@@ -45,9 +44,14 @@ pub(super) fn card_height(room: f32) -> f32 {
     room.clamp(HEADER + BODY + FOOTER, CARD_H)
 }
 
+/// A picture shorter than this is not drawn: a few points of it would only
+/// show a clipped sliver of its lettering above the header.
+const BAND_LEAST: f32 = 24.0;
+
 /// The picture's height for a card `height` tall.
 pub(super) fn band(height: f32) -> f32 {
-    (height - HEADER - BODY - FOOTER).clamp(0.0, BAND)
+    let room = (height - HEADER - BODY - FOOTER).clamp(0.0, BAND);
+    if room < BAND_LEAST { 0.0 } else { room }
 }
 
 /// A folded card's width: its power button and its name set on end.
@@ -147,6 +151,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_sliver_of_picture_is_not_drawn() {
+        let least = HEADER + BODY + FOOTER;
+        assert_eq!(band(least), 0.0);
+        assert_eq!(band(least + BAND_LEAST - 1.0), 0.0);
+        assert_eq!(band(least + BAND_LEAST), BAND_LEAST);
+        assert_eq!(band(CARD_H), BAND);
+    }
+
+    #[test]
     fn at_the_shortest_panel_the_card_sits_whole_inside_the_tray() {
         let space = crate::theme::space::S;
         let tray = panel_min_height() - crate::DETAIL_CHROME - 2.0 * space;
@@ -155,7 +168,8 @@ mod tests {
         // The tray's scrolling area is a point in from each edge.
         assert!(card.top() >= 1.0, "{card:?}");
         assert!(card.bottom() <= tray - 1.0, "{card:?} in {tray}");
-        assert!(card.height() >= HEADER + BODY + FOOTER);
+        assert_eq!(card.height(), HEADER + BODY + FOOTER);
+        assert_eq!(band(card.height()), 0.0, "no picture: nothing to clip");
         assert!(panel_min_height() < panel_height());
     }
 

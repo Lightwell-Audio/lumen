@@ -650,7 +650,7 @@ impl eframe::App for App {
 
 /// The browser's least width: its list shows names and the filter chips
 /// whole (narrower, only icons were left).
-pub(crate) const BROWSER_MIN: f32 = 200.0;
+pub(crate) const BROWSER_MIN: f32 = 220.0;
 /// The detail panel's tab row and margins, above and around its content.
 pub(crate) const DETAIL_CHROME: f32 = 48.0;
 /// The arrangement's least height beside the detail panel: its rulers, a

@@ -61,9 +61,22 @@ fn the_time_signature_is_one_field_that_takes_a_typed_meter() {
 #[test]
 fn the_browser_and_the_devices_tab_stop_before_they_stop_being_useful() {
     let mut lumen = Lumen::start("panel-limits");
+    // Tall enough that the window itself is not what limits the panel.
+    lumen.harness.set_size(eframe::egui::vec2(1280.0, 900.0));
+    lumen.frames(10);
     let (browser, devices) = lumen.app().panel_limits();
     lumen.app_mut().set_browser_size(40.0);
-    lumen.click("Devices tab");
+    // The Devices tab needs a track to show.
+    lumen.click("Add track in the mixer");
+    lumen.frames(30);
+    // The browser has a Devices tab too: the detail panel's comes last.
+    lumen
+        .harness
+        .get_all_by_label("Devices tab")
+        .last()
+        .expect("the detail panel's tabs")
+        .click();
+    lumen.frames(10);
     lumen.app_mut().set_detail_size(40.0);
     lumen.frames(10);
     assert!(
