@@ -301,6 +301,10 @@ enum Command {
     Set(u32, f64),
     /// Ask the plugin for its text for a value.
     Text(u32, f64),
+    /// Ask the plugin for its text for each of these values of one parameter
+    /// (the steps of a list): every one is answered, none is dropped for a
+    /// later one.
+    Texts(u32, Vec<f64>),
     /// Ask the plugin to read text the user typed for a parameter.
     Typed(u32, String),
     /// Open the editor window where it was, or where the system puts it.
@@ -484,6 +488,12 @@ impl Process {
         let _ = self.commands.send(Command::Text(id, value));
     }
 
+    /// Asks for the plugin's text for each of `values` of one parameter; the
+    /// answers come as [`Happened::Text`], one each.
+    pub fn param_texts(&self, id: u32, values: Vec<f64>) {
+        let _ = self.commands.send(Command::Texts(id, values));
+    }
+
     /// Asks the plugin to read `text` the user typed for a parameter; the
     /// answer comes as [`Happened::Typed`].
     pub fn param_value(&self, id: u32, text: String) {
@@ -665,6 +675,13 @@ impl Run {
                     Command::Text(id, value) => {
                         if let Ok(text) = up.host.param_text(id, value, QUICK) {
                             self.say(Happened::Text { id, value, text });
+                        }
+                    }
+                    Command::Texts(id, values) => {
+                        for value in values {
+                            if let Ok(text) = up.host.param_text(id, value, QUICK) {
+                                self.say(Happened::Text { id, value, text });
+                            }
                         }
                     }
                     Command::Typed(id, text) => {
@@ -1040,6 +1057,7 @@ mod tests {
             .map(|c| match c {
                 Command::Set(id, v) => format!("set {id}={v}"),
                 Command::Text(id, v) => format!("text {id}={v}"),
+                Command::Texts(id, v) => format!("texts {id} x{}", v.len()),
                 Command::Typed(id, t) => format!("typed {id}={t}"),
                 Command::OpenEditor(_) => "open editor".into(),
                 Command::CloseEditor => "close editor".into(),

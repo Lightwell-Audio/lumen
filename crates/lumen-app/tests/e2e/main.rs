@@ -71,6 +71,7 @@ mod sends;
 mod shortcuts;
 mod smf;
 mod solo;
+mod stepped;
 mod walkthrough;
 mod walkthrough_mix;
 

@@ -151,6 +151,11 @@ struct Parameters {
     started_with: BTreeMap<u32, f64>,
     /// The plugin's own text for a value, last asked for, by parameter.
     texts: HashMap<u32, (f64, String)>,
+    /// The plugin's own word for each step of a stepped parameter, by
+    /// parameter (a chooser's list), as far as it has said them.
+    choices: HashMap<u32, Vec<String>>,
+    /// The parameters whose steps have been asked about.
+    choices_asked: std::collections::HashSet<u32>,
     /// What the plugin made of text the user typed, waiting for the document:
     /// the parameter, the text, and the value or `None` when it did not
     /// understand.
@@ -303,6 +308,10 @@ impl Parameters {
         self.capturing_values = Some(self.values.clone());
     }
 }
+
+/// The most steps a parameter may have to be shown as a list of choices; a
+/// parameter with more is a knob, and its steps are not asked for.
+pub const MOST_CHOICES: i32 = 64;
 
 /// How many more times a preset a plugin refused is given to it, and how long
 /// after each refusal (a plugin that is still loading its content may take
@@ -745,6 +754,42 @@ impl Hosting {
         self.tracked.get(&device.0)?.params.texts.get(&id)
     }
 
+    /// The plugin's own word for each step of a stepped parameter, as far as
+    /// it has said them.
+    pub fn choices(&self, device: Id, id: u32) -> &[String] {
+        self.tracked
+            .get(&device.0)
+            .and_then(|t| t.params.choices.get(&id))
+            .map_or(&[], Vec::as_slice)
+    }
+
+    /// Asks the plugin for the word of every step of the stepped parameters
+    /// `ids` (once each), for the chooser's list.
+    pub fn ask_choices(&mut self, device: Id, ids: &[u32]) {
+        let (Some(manager), Some(t)) = (self.manager.as_ref(), self.tracked.get_mut(&device.0))
+        else {
+            return;
+        };
+        for &id in ids {
+            let Some(steps) = t
+                .params
+                .list
+                .iter()
+                .find(|i| i.id == id)
+                .map(|i| i.steps)
+                .filter(|s| (2..=MOST_CHOICES).contains(s))
+            else {
+                continue;
+            };
+            if t.params.choices_asked.insert(id) {
+                let values = (0..=steps)
+                    .map(|step| f64::from(step) / f64::from(steps))
+                    .collect();
+                manager.param_texts(device.0, id, values);
+            }
+        }
+    }
+
     /// Events no parameter of the plugin took (it maps no controller to one).
     #[allow(
         dead_code,
@@ -966,6 +1011,37 @@ impl Hosting {
             t.failures = vec![std::time::Instant::now(); count];
             t.params.captured_when = age.and_then(|age| std::time::Instant::now().checked_sub(age));
         }
+    }
+
+    /// Gives a tracked device stepped parameters after the ones it has, for
+    /// screenshots: `(title, steps, value, choices)` each, with the plugin's
+    /// word for the current value taken from `choices`.
+    pub fn pretend_stepped(&mut self, device: Id, list: &[(&str, i32, f64, &[&str])]) {
+        let Some(t) = self.tracked.get_mut(&device.0) else {
+            return;
+        };
+        for (title, steps, value, choices) in list {
+            let id = t.params.list.len() as u32 + 1;
+            t.params.list.push(ParamInfo {
+                id,
+                title: (*title).to_owned(),
+                units: String::new(),
+                steps: *steps,
+                default: 0.0,
+                flags: 1,
+                unit: 0,
+                value: *value,
+            });
+            t.params.values.insert(id, *value);
+            let at = (value * f64::from((*steps).max(1))).round() as usize;
+            let text = choices.get(at).copied().unwrap_or("");
+            t.params.texts.insert(id, (*value, text.to_owned()));
+            t.params
+                .choices
+                .insert(id, choices.iter().map(|c| (*c).to_owned()).collect());
+            t.params.choices_asked.insert(id);
+        }
+        t.params.total = t.params.list.len() as u32;
     }
 
     /// Sets what a tracked device's plugin window is doing, for screenshots.
@@ -1203,6 +1279,26 @@ impl Hosting {
                 }
                 Happened::Key { code, down } => self.keys.push((code, down)),
                 Happened::Text { id, value, text } => {
+                    // A value that is a step of a stepped parameter is also
+                    // one of its choices' words.
+                    if let Some(steps) = t
+                        .params
+                        .list
+                        .iter()
+                        .find(|i| i.id == id)
+                        .map(|i| i.steps)
+                        .filter(|s| *s > 1)
+                    {
+                        let at = value * f64::from(steps);
+                        if (at - at.round()).abs() < 1e-6 {
+                            let words = t.params.choices.entry(id).or_default();
+                            let index = at.round().max(0.0) as usize;
+                            if words.len() <= index {
+                                words.resize(index + 1, String::new());
+                            }
+                            words[index] = text.clone();
+                        }
+                    }
                     t.params.texts.insert(id, (value, text));
                 }
                 Happened::Editor(news) => match news {

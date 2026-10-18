@@ -211,6 +211,14 @@ impl Manager {
         }
     }
 
+    /// Asks the device's plugin for its text for each of `values` of one
+    /// parameter (the steps of a list).
+    pub fn param_texts(&self, device: u64, id: u32, values: Vec<f64>) {
+        if let Some(entry) = self.entries.get(&device) {
+            entry.process.param_texts(id, values);
+        }
+    }
+
     /// Asks the device's plugin to read `text` the user typed for a
     /// parameter; the answer comes from [`Manager::poll`] as
     /// [`crate::Happened::Typed`].

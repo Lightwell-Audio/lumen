@@ -151,6 +151,8 @@ impl App {
             .any(|r| matches!(r.face, OwnedFace::Failed { .. }));
         for id in ids {
             self.ensure_listed(&ctx, id);
+            let shown = self.strip_ids(id);
+            self.hosting.ask_choices(id, &shown);
         }
         if stopped {
             // The age of the sound Reload would use keeps counting.

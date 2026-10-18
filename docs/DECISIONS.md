@@ -7147,3 +7147,13 @@ Reload without sound. The card grows by one row (CARD_H 344). New commands at
 the end of the table: `devices.preset` and `devices.save_preset`. The preset
 folders are the standard ones (the user's `Documents\VST3 Presets` on Windows,
 `~/Library/Audio/Presets`, `~/.vst3/presets`), chosen by the caller in tests.
+
+**Stepped parameters (slice 5g, the owner's choice A).** A plugin parameter that
+reports two states is a switch on the card's strip, one that reports two to 64
+steps is a chooser, and a knob stays for the rest. The choice is the plugin's:
+its step count says which. The chooser shows the plugin's own word for each step,
+asked for once in one batch; a click goes to the next, an arrow opens the list,
+and every change is one undo step set at once (a knob's drag still merges into one
+step). A preset a plugin refuses is given to it again twice, 1.5 s apart, before
+the refusal is shown, because a plugin still loading its content can refuse a
+state it takes a moment later. Preset names are cut to 30 characters.

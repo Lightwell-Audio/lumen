@@ -8,6 +8,7 @@ use eframe::egui::{self, Align2, FontId, Rect, Shape, Stroke, Ui, pos2, vec2};
 use eframe::emath::GuiRounding as _;
 use lumen_hosting::ParamInfo;
 
+use super::stepped::{self, Kind};
 use crate::theme::Tone;
 use crate::widgets::param::{ParamLook, param_knob, start_typing};
 use crate::widgets::{self, raised};
@@ -33,6 +34,9 @@ pub(super) struct Slot {
     pub default: f64,
     pub steps: i32,
     pub read_only: bool,
+    /// The plugin's own word for each step of a stepped parameter, as far as
+    /// it has said them (empty for the rest, and for a knob).
+    pub choices: Vec<String>,
 }
 
 /// What the strip asked for.
@@ -40,6 +44,8 @@ pub(super) struct Slot {
 pub(super) enum Output {
     /// A parameter was moved.
     Set(u32, f64),
+    /// A switch or a chooser picked a value: one undo step each.
+    Choose(u32, f64),
     /// The user typed text for a parameter: the plugin reads it.
     Type(u32, String),
     /// A parameter leaves the strip.
@@ -116,6 +122,11 @@ pub(super) fn resolve(list: &[ParamInfo], chosen: Option<&[u32]>) -> Vec<u32> {
     }
 }
 
+/// Room between neighbouring controls, each side.
+const PAD: f32 = 3.0;
+/// How far the grid of controls reaches past the strip's margins.
+const GRID_OUT: f32 = 8.0;
+
 /// Paints the strip in `area` and answers it.
 pub(super) fn paint(
     ui: &mut Ui,
@@ -127,7 +138,12 @@ pub(super) fn paint(
 ) -> Vec<Output> {
     let palette = *theme::p();
     let mut out = Vec::new();
-    let grid = Rect::from_min_max(area.min, pos2(area.right(), area.bottom() - BUTTONS - GAP));
+    // The grid reaches a little past the card's margins, so a chooser has the
+    // room its word needs while the buttons below keep to the margins.
+    let grid = Rect::from_min_max(
+        pos2(area.left() - GRID_OUT, area.top()),
+        pos2(area.right() + GRID_OUT, area.bottom() - BUTTONS - GAP),
+    );
     let cell_w = grid.width() / COLUMNS as f32;
     let cell_h = (grid.height() - GAP) / 2.0;
     let caption = FontId::proportional(theme::size::CAPTION);
@@ -149,28 +165,55 @@ pub(super) fn paint(
         let slot_id = id.with(("slot", i));
         match slots.get(i).and_then(Option::as_ref) {
             Some(slot) => {
-                let (response, moved) = param_knob(
-                    ui,
-                    knob,
-                    slot_id,
-                    ParamLook {
-                        name: &slot.name,
-                        text: &slot.text,
-                        value: slot.value,
-                        default: slot.default,
-                        steps: slot.steps,
-                        read_only: slot.read_only,
-                        selected,
-                    },
-                );
-                if let Some(value) = moved.value {
-                    out.push(Output::Set(slot.id, value));
-                }
-                if let Some(text) = moved.typed {
-                    out.push(Output::Type(slot.id, text));
-                }
+                // The whole cell says the parameter's full name when the
+                // pointer rests on it (its name below may be cut short); the
+                // control on top has its own words.
+                ui.interact(cell, slot_id.with("cell"), egui::Sense::hover())
+                    .on_hover_text(&slot.name);
+                let kind = stepped::kind_of(slot);
+                let response = match kind {
+                    Kind::Knob => {
+                        let (response, moved) = param_knob(
+                            ui,
+                            knob,
+                            slot_id,
+                            ParamLook {
+                                name: &slot.name,
+                                text: &slot.text,
+                                value: slot.value,
+                                default: slot.default,
+                                steps: slot.steps,
+                                read_only: slot.read_only,
+                                selected,
+                            },
+                        );
+                        if let Some(value) = moved.value {
+                            out.push(Output::Set(slot.id, value));
+                        }
+                        if let Some(text) = moved.typed {
+                            out.push(Output::Type(slot.id, text));
+                        }
+                        response
+                    }
+                    Kind::Switch => {
+                        let (response, asks) = stepped::switch(ui, knob, slot_id, slot);
+                        if let Some(value) = asks {
+                            out.push(Output::Choose(slot.id, value));
+                        }
+                        response
+                    }
+                    Kind::Chooser => {
+                        let area =
+                            Rect::from_center_size(knob.center(), vec2(cell_w, knob.height()));
+                        let (response, asks) = stepped::chooser(ui, area, slot_id, slot, selected);
+                        if let Some(value) = asks {
+                            out.push(Output::Choose(slot.id, value));
+                        }
+                        response
+                    }
+                };
                 let painter = ui.painter();
-                let name = fit(painter, &slot.name, caption.clone(), cell_w - 2.0);
+                let name = fit(painter, &slot.name, caption.clone(), cell_w - 2.0 * PAD);
                 painter.text(
                     pos2(cell.center().x, knob.bottom() + 3.0),
                     Align2::CENTER_TOP,
@@ -178,18 +221,23 @@ pub(super) fn paint(
                     caption.clone(),
                     palette.text_secondary,
                 );
-                let text = fit(painter, &slot.text, mono.clone(), cell_w - 2.0);
-                painter.text(
-                    pos2(cell.center().x, knob.bottom() + 3.0 + 13.0),
-                    Align2::CENTER_TOP,
-                    text,
-                    mono.clone(),
-                    palette.text,
-                );
+                // A chooser shows its word in its own body.
+                if kind != Kind::Chooser {
+                    let text = fit(painter, &slot.text, mono.clone(), cell_w - 2.0 * PAD);
+                    painter.text(
+                        pos2(cell.center().x, knob.bottom() + 3.0 + 13.0),
+                        Align2::CENTER_TOP,
+                        text,
+                        mono.clone(),
+                        palette.text,
+                    );
+                }
                 let (slot_value, slot_default, slot_id_param, read_only) =
                     (slot.value, slot.default, slot.id, slot.read_only);
                 widgets::Menu::context(&response).show(|ui| {
-                    if widgets::menu_item(ui, "Type a value…", None, !read_only).clicked() {
+                    if kind == Kind::Knob
+                        && widgets::menu_item(ui, "Type a value…", None, !read_only).clicked()
+                    {
                         start_typing(ui, slot_id, &slot.text);
                         ui.close();
                     }

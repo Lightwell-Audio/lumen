@@ -664,9 +664,27 @@ impl App {
         self.hosting.pretend_parameters(device, list);
     }
 
+    /// Gives a device stepped parameters after those it has (screenshots of
+    /// the switches and choosers): `(title, steps, value, choices)` each.
+    pub fn give_device_stepped(&mut self, device: Id, list: &[(&str, i32, f64, &[&str])]) {
+        self.hosting.pretend_stepped(device, list);
+    }
+
     /// The parameter ids on a device's card strip, in order.
     pub fn strip_parameters(&self, device: Id) -> Vec<u32> {
         self.strip_ids(device)
+    }
+
+    /// The plugin's words for each step of a stepped parameter, as far as it
+    /// has said them.
+    pub fn device_choices(&self, device: Id, parameter: u32) -> Vec<String> {
+        self.hosting.choices(device, parameter).to_vec()
+    }
+
+    /// Puts exactly these parameters on the device's strip, as a person does
+    /// from the panel.
+    pub fn show_on_strip(&mut self, device: Id, ids: &[u32]) {
+        self.chain.shown.insert(device, ids.to_vec());
     }
 
     /// Sends a parameter value to the device's plugin as a control in its own

@@ -92,11 +92,14 @@ fn launch(name: &str, module: &str) -> Lumen {
 /// Takes the knob called `name` off the strip, by its menu.
 #[track_caller]
 fn take_off(lumen: &mut Lumen, name: &str) {
-    let at = lumen
+    // A knob is named "<name>, parameter: <text>", a switch by its name.
+    let at = match lumen
         .harness
-        .get_by_label_contains(&format!("{name}, parameter"))
-        .rect()
-        .center();
+        .query_by_label_contains(&format!("{name}, parameter"))
+    {
+        Some(knob) => knob.rect().center(),
+        None => lumen.harness.get_by_label(name).rect().center(),
+    };
     lumen.right_click(at);
     lumen.click("Remove from strip");
     lumen.frames(4);

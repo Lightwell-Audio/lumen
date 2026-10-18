@@ -2180,6 +2180,116 @@ fn preset_menu() {
     }
 }
 
+/// Switches and choosers on a card's strip (M6 slice 5g, the owner's A).
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn stepped_controls() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_core::time::Ticks;
+    use lumen_project::model::{Device, DeviceKind, Id, Note};
+    use lumen_project::testing::{midi_track, project_of};
+
+    let class = |n: u8| lumen_plugin_catalog::catalog::class_id(&[n; 16]);
+    for (appearance, scale, size) in [
+        ("dark", 1.0, vec2(1500.0, 800.0)),
+        ("light", 1.0, vec2(1500.0, 800.0)),
+        ("dark", 1.5, vec2(1500.0, 900.0)),
+        ("dark", 2.0, vec2(1900.0, 1000.0)),
+        ("light", 2.0, vec2(1900.0, 1000.0)),
+    ] {
+        for open in [false, true] {
+            let dir = TempDir::new("shots-stepped");
+            let mut track = midi_track(
+                1,
+                "Pad",
+                "poly",
+                (0, 64),
+                None,
+                vec![Note::new(Ticks::ZERO, Ticks::quarters(60), 69, 100)],
+                vec![],
+            );
+            track.devices = vec![
+                Device::vst3(
+                    Id(10),
+                    &class(1),
+                    "Bass Synth",
+                    "Vendor C",
+                    DeviceKind::Instrument,
+                ),
+                Device::vst3(
+                    Id(11),
+                    &class(2),
+                    "Overheat",
+                    "Sampleson",
+                    DeviceKind::Effect,
+                ),
+            ];
+            let project = project_of("Stepped", vec![track]);
+            let path = dir.path().join("song.lumen");
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(size)
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(30);
+            h.state_mut().select_tracks(&[Id(1)]);
+            h.run_steps(4);
+            h.get_all_by_label("Devices tab")
+                .last()
+                .expect("the tabs")
+                .click();
+            h.run_steps(20);
+            h.state_mut().pretend_device_state(Id(10), "ready");
+            h.state_mut().pretend_device_state(Id(11), "ready");
+            h.state_mut().give_device_parameters(
+                Id(11),
+                &[
+                    ("Cutoff", 0.62, "2.4 kHz"),
+                    ("Resonance", 0.30, "0.31"),
+                    ("Attack", 0.80, "12 ms"),
+                ],
+            );
+            h.state_mut().give_device_stepped(
+                Id(11),
+                &[
+                    ("Unison", 1, 1.0, &["Off", "On"]),
+                    ("Retrig", 1, 0.0, &["Off", "On"]),
+                    ("Wave", 3, 2.0 / 3.0, &["Sine", "Triangle", "Saw", "Square"]),
+                    ("Mode", 2, 0.0, &["Poly", "Mono", "Legato"]),
+                    (
+                        "Filter",
+                        5,
+                        0.2,
+                        &["LP 12", "LP 24", "HP", "BP", "Notch", "Peak"],
+                    ),
+                ],
+            );
+            h.run_steps(20);
+            h.get_by_label("Overheat on Pad").click();
+            h.run_steps(10);
+            if open {
+                h.get_by_label("Choose Wave").click();
+                h.run_steps(20);
+            }
+            let what = if open { "list" } else { "strip" };
+            save(&mut h, &format!("stepped-{what}-{appearance}-{scale}"));
+        }
+    }
+}
+
 /// Safe mode (M6 slice 5e, the owner's I2 and F2): the strip under the
 /// transport bar, the card that is not loaded, and the offer.
 #[test]

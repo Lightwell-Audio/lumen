@@ -13,6 +13,7 @@ mod params;
 mod pictures;
 pub(crate) mod place;
 pub(crate) mod presets;
+mod stepped;
 mod strip;
 mod view;
 

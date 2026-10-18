@@ -160,6 +160,11 @@ impl App {
             default: p.default,
             steps: p.steps,
             read_only: p.read_only(),
+            choices: if p.steps > 1 {
+                self.hosting.choices(d.id, p.id).to_vec()
+            } else {
+                Vec::new()
+            },
         }
     }
 
@@ -207,6 +212,22 @@ impl App {
     pub(super) fn apply_strip(&mut self, device: Id, output: strip::Output) {
         match output {
             strip::Output::Set(id, value) => self.set_parameter(device, id, value, "strip"),
+            strip::Output::Choose(id, value) => {
+                // A click on a switch or a choice is a change of its own.
+                self.document.seal();
+                let title = self
+                    .hosting
+                    .parameters(device)
+                    .iter()
+                    .find(|p| p.id == id)
+                    .map_or_else(|| "parameter".to_owned(), |p| p.title.clone());
+                let _ = self.document.set_device_params(
+                    device,
+                    &[(id, value)],
+                    &format!("Change {title}"),
+                    None,
+                );
+            }
             strip::Output::Type(id, text) => self.hosting.ask_value(device, id, text),
             strip::Output::Editor => self.toggle_editor(device),
             strip::Output::Learn => self.toggle_learn(device),
