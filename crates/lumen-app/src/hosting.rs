@@ -24,8 +24,8 @@ use std::sync::Arc;
 use lumen_devices::{Cost, Guard, HostedInstrument, Status};
 use lumen_engine::{InstrumentSpec, MidiTrack, MixerHandle};
 use lumen_hosting::{
-    Aux, BusInfo, Captured, Edit, EditKind, EditorBounds, EditorEvent, Happened, HostLog, Manager,
-    ParamInfo, ProgramList, Start, UnitInfo,
+    Aux, BusInfo, Captured, Edit, EditKind, EditorBounds, EditorEvent, Happened, HostLog,
+    MAX_CHANNELS, Manager, ParamInfo, ProgramList, Start, UnitInfo,
 };
 use lumen_plugin_catalog::catalog::Catalog;
 use lumen_project::model::{
@@ -75,21 +75,43 @@ fn sidechain_bus(inputs: &[BusInfo]) -> Option<usize> {
         .map(|(index, _)| index)
 }
 
+/// The channels the auxiliary outputs may use in all: a block carries at most
+/// `MAX_CHANNELS`, the main output's first (so a stereo main leaves seven
+/// stereo outputs).
+fn output_budget(outputs: &[BusInfo]) -> usize {
+    MAX_CHANNELS.saturating_sub(outputs.first().map_or(2, |main| usize::from(main.channels)))
+}
+
+/// Whether `bus` is an auxiliary output Lumen can play: mono or stereo.
+fn playable(outputs: &[BusInfo], bus: u32) -> bool {
+    outputs
+        .get(bus as usize)
+        .is_some_and(|b| !b.main && (1..=2).contains(&b.channels))
+}
+
 /// The auxiliary outputs to turn on for the instrument `device`: the ones the
 /// project has a track playing, when the plugin has them as mono or stereo
-/// outputs (M6 slice 6d).
+/// outputs, lowest first while they fit a block (M6 slice 6d).
 fn output_mask(project: &Project, device: Id, outputs: &[BusInfo]) -> u32 {
-    project
+    let mut wanted: Vec<u32> = project
         .tracks
         .iter()
         .filter_map(|t| t.plugin_output)
-        .filter(|o| o.device == device)
-        .filter(|o| {
-            outputs
-                .get(o.bus as usize)
-                .is_some_and(|bus| !bus.main && (1..=2).contains(&bus.channels))
-        })
-        .fold(0, |mask, o| mask | 1 << o.bus)
+        .filter(|o| o.device == device && playable(outputs, o.bus))
+        .map(|o| o.bus)
+        .collect();
+    wanted.sort_unstable();
+    wanted.dedup();
+    let mut room = output_budget(outputs);
+    let mut mask = 0;
+    for bus in wanted {
+        let width = usize::from(outputs[bus as usize].channels);
+        if width <= room {
+            room -= width;
+            mask |= 1 << bus;
+        }
+    }
+    mask
 }
 
 /// The auxiliary inputs to turn on for a plugin with these inputs: its
@@ -602,6 +624,21 @@ impl Hosting {
     /// link has on, one bit for each bus (M6 slice 6d).
     pub fn outputs_on(&self, device: Id) -> u32 {
         self.tracked.get(&device.0).map_or(0, |t| t.aux.outputs)
+    }
+
+    /// Whether the plugin's output `bus` can be turned on besides the outputs
+    /// `on` already are: a block carries at most `MAX_CHANNELS` in all.
+    pub fn output_fits(&self, device: Id, on: &[u32], bus: u32) -> bool {
+        let Some(t) = self.tracked.get(&device.0) else {
+            return false;
+        };
+        let width = |b: u32| {
+            t.outputs
+                .get(b as usize)
+                .map_or(0, |i| usize::from(i.channels))
+        };
+        let used: usize = on.iter().filter(|&&b| b != bus).map(|&b| width(b)).sum();
+        used + width(bus) <= output_budget(&t.outputs)
     }
 
     /// The names of every audio output the plugin declares, by bus number (the
@@ -2132,6 +2169,41 @@ mod tests {
         assert_eq!(super::promised_frames(0), 256, "no stream yet");
     }
     use lumen_project::model::PluginRef;
+
+    /// A plugin with a stereo main output and fifteen stereo ones, and a track
+    /// playing each (the owner's orchestra with every output on).
+    fn orchestra() -> (Project, Vec<BusInfo>) {
+        use lumen_project::model::{Color, PluginOutput};
+        let bus = |n: usize| BusInfo {
+            name: format!("St.{}", n + 1),
+            channels: 2,
+            main: n == 0,
+            default_active: n == 0,
+        };
+        let outputs: Vec<BusInfo> = (0..16).map(bus).collect();
+        let tracks = (1..16u32)
+            .map(|b| {
+                let mut t = Track::new(Id(100 + u64::from(b)), "Out", TrackKind::Audio, Color(0));
+                t.plugin_output = Some(PluginOutput {
+                    device: Id(30),
+                    bus: b,
+                });
+                t
+            })
+            .collect();
+        (
+            lumen_project::testing::project_of("Outputs", tracks),
+            outputs,
+        )
+    }
+
+    #[test]
+    fn a_block_carries_sixteen_channels_so_the_lowest_seven_stereo_outputs_are_turned_on() {
+        let (project, outputs) = orchestra();
+        let mask = super::output_mask(&project, Id(30), &outputs);
+        assert_eq!(mask.count_ones(), 7, "main pair and seven pairs make 16");
+        assert_eq!(mask, 0b1111_1110, "the lowest buses, in order");
+    }
 
     fn known(values: &[(u32, f64)], base: &[(u32, f64)]) -> Parameters {
         Parameters {

@@ -225,6 +225,8 @@ impl App {
                 .find(|t| t.id == track)
                 .map_or_else(String::new, |t| t.name.clone())
         };
+        let on_buses: Vec<u32> = on.iter().map(|(bus, _)| *bus).collect();
+        let mut crowded = false;
         let mut turn_on: Vec<(u32, String)> = Vec::new();
         let mut turn_off: Vec<u32> = Vec::new();
 
@@ -246,6 +248,10 @@ impl App {
                 for (bus, name) in &extra {
                     let track = track_of(*bus);
                     let mut is_on = track.is_some();
+                    // A block carries only so many channels: past that an
+                    // output cannot be turned on until another is off.
+                    let fits = is_on || self.hosting.output_fits(device, &on_buses, *bus);
+                    crowded |= !fits;
                     // One widget per row: the track's name is painted inside
                     // it, so nothing laid out after the switch can widen the
                     // menu (a row beside a full-width switch grew it on
@@ -257,7 +263,12 @@ impl App {
                         .map(track_name)
                         .filter(|named| *named != made)
                         .unwrap_or_default();
-                    if widgets::switch_noted(ui, &mut is_on, name, true, &note).clicked() {
+                    let row = widgets::switch_noted(ui, &mut is_on, name, fits, &note);
+                    if !fits {
+                        row.on_hover_text(
+                            "Not room for it: a block carries 16 channels, the main pair included. Turn another output off first.",
+                        );
+                    } else if row.clicked() {
                         if is_on {
                             turn_on.push((*bus, format!("{instrument} \u{b7} {name}")));
                         } else {
@@ -266,14 +277,23 @@ impl App {
                     }
                 }
             });
+        if crowded {
+            widgets::menu_caption(ui, "16 channels at most, the main pair included");
+        }
         ui.separator();
         ui.horizontal(|ui| {
-            if raised::button(ui, "All on").clicked() {
-                turn_on = extra
-                    .iter()
-                    .filter(|(bus, _)| track_of(*bus).is_none())
-                    .map(|(bus, name)| (*bus, format!("{instrument} \u{b7} {name}")))
-                    .collect();
+            if raised::button(ui, "All on")
+                .on_hover_text("Every output that fits in a block (16 channels with the main pair)")
+                .clicked()
+            {
+                let mut now = on_buses.clone();
+                turn_on.clear();
+                for (bus, name) in &extra {
+                    if track_of(*bus).is_none() && self.hosting.output_fits(device, &now, *bus) {
+                        now.push(*bus);
+                        turn_on.push((*bus, format!("{instrument} \u{b7} {name}")));
+                    }
+                }
             }
             if raised::button(ui, "All off").clicked() {
                 turn_off = on.iter().map(|(bus, _)| *bus).collect();

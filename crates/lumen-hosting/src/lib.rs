@@ -22,8 +22,8 @@ pub use link::{Counts, Link, Pair};
 pub use lumen_plugin_host::client::HostLog;
 pub use lumen_plugin_host::preset::{MAX_FILE, Preset, PresetError, info_xml};
 pub use lumen_plugin_host::protocol::{
-    Aux, BusInfo, Edit, EditKind, EditorBounds, EditorStatus, ParamInfo, ProgramList, Taken,
-    UnitInfo,
+    Aux, BusInfo, Edit, EditKind, EditorBounds, EditorStatus, MAX_CHANNELS, ParamInfo, ProgramList,
+    Taken, UnitInfo,
 };
 pub use manager::{Event, Manager};
 pub use process::{

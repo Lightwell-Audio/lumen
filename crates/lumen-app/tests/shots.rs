@@ -2648,7 +2648,11 @@ fn outputs_row() {
         ("dark", 2.0, vec2(1900.0, 1000.0)),
         ("dark", 1.0, vec2(960.0, 540.0)),
     ] {
-        for (what, open) in [("closed", false), ("menu", true)] {
+        for (what, open, on) in [
+            ("closed", false, 2),
+            ("menu", true, 2),
+            ("crowded", true, 7),
+        ] {
             let dir = TempDir::new("shots-outputs");
             let mut strings = midi_track(
                 20,
@@ -2667,7 +2671,8 @@ fn outputs_row() {
                 DeviceKind::Instrument,
             )];
             let mut tracks = vec![strings];
-            for (id, bus) in [(41, 1), (42, 2)] {
+            for bus in 1..=on {
+                let id = 40 + u64::from(bus);
                 let mut t = Track::new(
                     Id(id),
                     format!("Orchestra A \u{b7} St.{}", bus + 1),
@@ -2712,7 +2717,8 @@ fn outputs_row() {
             h.state_mut().give_device_outputs(Id(30), &names);
             h.run_steps(20);
             if open {
-                h.get_by_label_contains("Outputs, Main + 2").click();
+                h.get_by_label_contains(&format!("Outputs, Main + {on}"))
+                    .click();
                 h.run_steps(20);
             }
             save(
