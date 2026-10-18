@@ -734,6 +734,22 @@ impl App {
         self.detail_size = size;
     }
 
+    /// The browser's width, in points.
+    pub fn browser_size(&self) -> f32 {
+        self.browser_size
+    }
+
+    /// Sets the browser's width, as a saved layout does.
+    pub fn set_browser_size(&mut self, size: f32) {
+        self.browser_size = size;
+    }
+
+    /// The browser's least width and the least height of the detail panel
+    /// on the Devices tab, in points.
+    pub fn panel_limits(&self) -> (f32, f32) {
+        (crate::BROWSER_MIN, crate::chain::panel_min_height())
+    }
+
     /// Some meter is still moving, so the app keeps drawing frames.
     pub fn meters_moving(&self) -> bool {
         self.arrangement.meters.moving()

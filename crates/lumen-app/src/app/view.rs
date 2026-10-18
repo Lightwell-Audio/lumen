@@ -225,11 +225,34 @@ report: {}",
             {
                 self.toggle_palette();
             }
-            widgets::toggle_button(ui, &mut self.show_browser, "Browser")
-                .on_hover_text("Show or hide the browser");
-            let detail = widgets::toggle_button(ui, &mut self.show_detail, "Detail");
+            // The two panel toggles are icon buttons of the palette's size,
+            // lit while their panel is open.
+            let panel = |ui: &mut egui::Ui, icon, shown: &mut bool, label, hint, keys| {
+                let tip = widgets::Tip {
+                    keys,
+                    hint: Some(hint),
+                };
+                if icons::button(ui, icon, label, tip, *shown, true, "").clicked() {
+                    *shown = !*shown;
+                }
+            };
+            panel(
+                ui,
+                Icon::PanelLeft,
+                &mut self.show_browser,
+                "Browser",
+                "Show or hide the browser",
+                None,
+            );
             let keys = self.keymap.keys(Command::ToggleDetail);
-            widgets::tip(detail, "Show or hide the detail panel", keys.as_ref(), None);
+            panel(
+                ui,
+                Icon::PanelBottom,
+                &mut self.show_detail,
+                "Detail",
+                "Show or hide the detail panel",
+                keys.as_ref(),
+            );
         });
         let used = toggles.response.rect.width();
         if (used - width).abs() > 0.5 {

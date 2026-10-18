@@ -57,3 +57,23 @@ fn the_time_signature_is_one_field_that_takes_a_typed_meter() {
     let meter = lumen.app().project().time_signature;
     assert_eq!((meter.numerator, meter.denominator), (7, 8));
 }
+
+#[test]
+fn the_browser_and_the_devices_tab_stop_before_they_stop_being_useful() {
+    let mut lumen = Lumen::start("panel-limits");
+    let (browser, devices) = lumen.app().panel_limits();
+    lumen.app_mut().set_browser_size(40.0);
+    lumen.click("Devices tab");
+    lumen.app_mut().set_detail_size(40.0);
+    lumen.frames(10);
+    assert!(
+        lumen.app().browser_size() >= browser,
+        "the browser keeps {browser} pt: {}",
+        lumen.app().browser_size()
+    );
+    assert!(
+        lumen.app().detail_size() >= devices,
+        "the Devices tab keeps room for a whole card: {} < {devices}",
+        lumen.app().detail_size()
+    );
+}

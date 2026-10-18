@@ -63,11 +63,15 @@ pub enum Icon {
     Sliders,
     /// A plug with a slash: a plugin that is not installed.
     PlugOff,
+    /// The browser (the left panel): a window with its left column marked.
+    PanelLeft,
+    /// The detail panel: a window with its bottom strip marked.
+    PanelBottom,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 27] = [
+    pub const ALL: [Icon; 29] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
@@ -95,6 +99,8 @@ impl Icon {
         Icon::Power,
         Icon::Sliders,
         Icon::PlugOff,
+        Icon::PanelLeft,
+        Icon::PanelBottom,
     ];
 }
 
@@ -341,13 +347,13 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
         ],
         Icon::Keycap => vec![
             Shape::rect_stroke(
-                g.rect(1.5, 2.5, 14.5, 14.5),
+                g.rect(1.5, 1.5, 14.5, 14.5),
                 3.0 * g.unit,
                 stroke,
                 egui::StrokeKind::Middle,
             ),
             Shape::rect_stroke(
-                g.rect(4.5, 4.5, 11.5, 10.0),
+                g.rect(4.5, 4.0, 11.5, 9.5),
                 1.5 * g.unit,
                 stroke,
                 egui::StrokeKind::Middle,
@@ -394,6 +400,22 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
                 ));
             }
             shapes
+        }
+        Icon::PanelLeft | Icon::PanelBottom => {
+            let (from, to) = if icon == Icon::PanelLeft {
+                ([6.0, 2.5], [6.0, 13.5])
+            } else {
+                ([1.5, 9.5], [14.5, 9.5])
+            };
+            vec![
+                Shape::rect_stroke(
+                    g.rect(1.5, 2.5, 14.5, 13.5),
+                    2.0 * g.unit,
+                    stroke,
+                    egui::StrokeKind::Middle,
+                ),
+                Shape::line_segment([g.p(from[0], from[1]), g.p(to[0], to[1])], stroke),
+            ]
         }
         Icon::Follow => vec![
             Shape::line_segment([g.p(4.0, 2.5), g.p(4.0, 13.5)], stroke),
