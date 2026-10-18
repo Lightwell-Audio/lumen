@@ -169,3 +169,55 @@ fn deleting_any_kind_of_track_from_its_menu_or_by_key_never_crashes() {
     }
     assert_eq!(lumen.track_names(), all);
 }
+
+fn armed_names(lumen: &Lumen) -> Vec<String> {
+    lumen
+        .app()
+        .project()
+        .tracks
+        .iter()
+        .filter(|t| t.armed)
+        .map(|t| t.name.clone())
+        .collect()
+}
+
+#[test]
+fn arming_a_track_disarms_the_others_unless_ctrl_is_held() {
+    let mut lumen = Lumen::start("arm-exclusive");
+    for _ in 0..3 {
+        lumen.key(Modifiers::COMMAND, Key::T);
+    }
+    let names = lumen.track_names();
+    let arm = |n: &String| format!("Arm {n}");
+
+    lumen.click(&arm(&names[0]));
+    lumen.click(&arm(&names[1]));
+    assert_eq!(
+        armed_names(&lumen),
+        [names[1].clone()],
+        "the last one alone"
+    );
+    assert!(!lumen.is_on(&arm(&names[0])));
+
+    // One undo step gives the first track back.
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    assert_eq!(armed_names(&lumen), [names[0].clone()]);
+    lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
+    assert_eq!(armed_names(&lumen), [names[1].clone()]);
+
+    // Ctrl adds another without letting go of the first.
+    lumen
+        .harness
+        .get_by_label(&arm(&names[2]))
+        .click_modifiers(Modifiers::COMMAND);
+    lumen.frames(3);
+    assert_eq!(
+        armed_names(&lumen),
+        [names[1].clone(), names[2].clone()],
+        "Ctrl keeps the armed tracks"
+    );
+
+    // An armed track's button disarms it, and only it.
+    lumen.click(&arm(&names[1]));
+    assert_eq!(armed_names(&lumen), [names[2].clone()]);
+}

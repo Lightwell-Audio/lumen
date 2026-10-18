@@ -31,7 +31,7 @@
 //! | `presets` | the instrument offers a program list (three programs, selected by a program-change parameter, id 91, that sets its level and wave as edits of its own) and both plugins keep an edit-controller state (a view value) that `getState` writes and `setState` restores |
 //! | `release=MS` | the instrument's released notes fade out over `MS` milliseconds while it reports no tail: what a synth with a long release does |
 //! | `multi_out=N` | the instrument declares one main and `N - 1` auxiliary stereo output buses (off by default) and plays each note on the bus its pitch picks (`pitch % N`) when the host has that bus on, on the main bus when it has not |
-//! | `sidechain` | the effect declares a stereo sidechain input (an auxiliary bus, off by default) and, when the host has it on, silences its output on every sample where the sidechain is loud (by the louder of its two channels, linearly: a sidechain of 1.0 mutes the sample) |
+//! | `sidechain` | the effect declares a stereo sidechain input (an auxiliary bus, off by default) and, when the host has it on, silences its output by how loud the sidechain has been (the louder of its two channels, as a peak that falls away over 0.1 s: a level of 0.25 or more mutes it completely, a quiet one takes away a part) |
 //! | `bus_change` | the instrument lists the trigger, and stepping it on adds one more auxiliary output bus and asks the host to restart with `kIoChanged`, as a plugin does when its outputs change |
 //! | `instrument_latency=N` | the instrument reports `N` samples of latency (at most 4096) and plays its notes that late, as a plugin that looks ahead does |
 //!

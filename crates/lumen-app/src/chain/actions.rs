@@ -14,6 +14,7 @@ use lumen_project::routing::all_tracks;
 use crate::App;
 use crate::app::detail::DetailTab;
 use crate::document::{Refusal, Slot};
+use crate::hosting::State;
 
 /// The project's name for a device the browser lists; `None` for one that
 /// cannot be put on a track.
@@ -64,8 +65,52 @@ impl App {
         self.add_device_at(plugin, place);
     }
 
-    /// Applies `place` for `plugin`.
-    pub(crate) fn add_device_at(&mut self, plugin: PluginRef, place: Place) {
+    /// A device let go on `track` from the browser (its header or lane): it
+    /// goes on that track, or on a new one when it does not fit (an
+    /// instrument on an audio track). The Devices tab shows it and, once its
+    /// plugin is running, its own window opens.
+    pub(crate) fn add_dropped_device(&mut self, id: &str, track: Id) {
+        let Some(plugin) = self.plugins.catalog().find(id).and_then(plugin_ref) else {
+            self.say("That device can't be put on a track".to_owned());
+            return;
+        };
+        let place = place(self.document.project(), &[track], None, plugin.kind());
+        self.add_device_showing_window(plugin, place);
+    }
+
+    /// Adds a device a person carried from the browser, and opens its own
+    /// window once its plugin runs (a built-in device has none).
+    pub(crate) fn add_device_showing_window(&mut self, plugin: PluginRef, place: Place) {
+        let hosted = matches!(plugin, PluginRef::Vst3 { .. });
+        if let Some(device) = self.add_device_at(plugin, place)
+            && hosted
+        {
+            self.chain.open_when_ready = Some(device);
+        }
+    }
+
+    /// Opens the window of a device dropped on a track as soon as its plugin
+    /// runs; forgets it if the device went or its plugin failed.
+    pub(crate) fn open_dropped_editor(&mut self) {
+        let Some(device) = self.chain.open_when_ready else {
+            return;
+        };
+        let there =
+            all_tracks(self.document.project()).any(|t| t.devices.iter().any(|d| d.id == device));
+        match self.hosting.state(device) {
+            Some(State::Ready) if there => {
+                self.chain.open_when_ready = None;
+                self.toggle_editor(device);
+            }
+            // Not tracked until the frame after it was added.
+            Some(State::Loading) | None if there => {}
+            // Failed, missing, safe mode or gone.
+            _ => self.chain.open_when_ready = None,
+        }
+    }
+
+    /// Applies `place` for `plugin`; the device it made, if it did.
+    pub(crate) fn add_device_at(&mut self, plugin: PluginRef, place: Place) -> Option<Id> {
         let result = match place {
             Place::Track { track, slot } => self
                 .document
@@ -80,8 +125,12 @@ impl App {
                 self.show_detail = true;
                 self.detail_tab = DetailTab::Devices;
                 self.chain.grow = true;
+                Some(device)
             }
-            Err(refusal) => self.say(refusal.to_string()),
+            Err(refusal) => {
+                self.say(refusal.to_string());
+                None
+            }
         }
     }
 

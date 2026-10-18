@@ -235,6 +235,9 @@ struct Parameters {
     open: Option<(u32, std::time::Instant)>,
     /// Controller, bend and pressure events no parameter took, in all.
     ignored: u32,
+    /// Values Lumen has sent the plugin to match the project (a plugin's own
+    /// edits need none).
+    sent: u32,
     /// Whether the host has linked before: a fresh link of the same process
     /// keeps what is known.
     linked_before: bool,
@@ -948,6 +951,11 @@ impl Hosting {
     )]
     pub fn ignored_events(&self, device: Id) -> u32 {
         self.tracked.get(&device.0).map_or(0, |t| t.params.ignored)
+    }
+
+    /// How many values Lumen has sent the device's plugin to match the project.
+    pub fn values_sent(&self, device: Id) -> u32 {
+        self.tracked.get(&device.0).map_or(0, |t| t.params.sent)
     }
 
     /// The edits plugins made inside themselves since the last call, oldest
@@ -1784,8 +1792,13 @@ impl Hosting {
             // The values the project holds are the plugin's: what an edit,
             // an undo or a redo changed is sent to the host (not while a state
             // is on its way: its values are not known yet).
+            // Edits the plugin made itself and the document has not recorded
+            // yet make the project the older of the two: nothing is sent
+            // until it has caught up, or the old value would go back into the
+            // plugin for a moment before the new one.
             if t.state == State::Ready
                 && t.params.loads.is_empty()
+                && t.params.edits.is_empty()
                 && let Some(manager) = self.manager.as_ref()
             {
                 let mut send = t.params.differences(&w.device.params);
@@ -1810,6 +1823,7 @@ impl Hosting {
                         t.params.quiet_until = Some(std::time::Instant::now() + QUIET);
                     }
                 }
+                t.params.sent = t.params.sent.saturating_add(send.len() as u32);
                 for (id, value) in send {
                     manager.set_param(w.device.id.0, id, value);
                     t.params.values.insert(id, value);

@@ -82,4 +82,7 @@ pub(crate) struct Chain {
     /// The cards' preset menus: the sound each card has, the files found, and
     /// a save under way.
     pub presets: presets::Presets,
+    /// A device just dropped on a track from the browser: its window opens
+    /// as soon as its plugin is running.
+    pub open_when_ready: Option<Id>,
 }

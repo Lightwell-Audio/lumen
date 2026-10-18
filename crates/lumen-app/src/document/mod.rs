@@ -409,16 +409,38 @@ impl Document {
     /// track inside it (the owner's choice, M4 slice 3).
     pub fn set_armed(&mut self, ids: &[Id], armed: bool) {
         let label = if armed { "Arm for recording" } else { "Disarm" };
+        let ids = self.armable(ids);
+        self.edit_tracks(label, &ids, |t| t.armed = armed);
+    }
+
+    /// Arms tracks and disarms every other track, in one step: pressing a
+    /// record arm records on that track alone, as the arm of a track does
+    /// in a mixer. Holding Ctrl while pressing it adds the track instead
+    /// ([`Document::set_armed`]).
+    pub fn arm_only(&mut self, ids: &[Id]) {
+        let ids = self.armable(ids);
+        self.history.apply("Arm for recording", None, |project| {
+            for track in &mut project.tracks {
+                let armed = ids.contains(&track.id);
+                if track.armed != armed {
+                    Arc::make_mut(track).armed = armed;
+                }
+            }
+        });
+    }
+
+    /// The tracks that can be armed among `ids`: a group stands for the
+    /// tracks inside it, and is not armed itself.
+    fn armable(&self, ids: &[Id]) -> Vec<Id> {
         let tracks = &self.project().tracks;
-        let ids: Vec<Id> = lumen_project::groups::with_contents(tracks, ids)
+        lumen_project::groups::with_contents(tracks, ids)
             .into_iter()
             .filter(|id| {
                 tracks
                     .iter()
                     .any(|t| t.id == *id && t.kind != TrackKind::Group)
             })
-            .collect();
-        self.edit_tracks(label, &ids, |t| t.armed = armed);
+            .collect()
     }
 
     /// Track volume in dB (−60 to +6), the master's too. A drag merges
@@ -933,6 +955,28 @@ mod tests {
         assert_eq!(parent(keys), None);
         assert_eq!(parent(ret), None, "returns stay at the top");
         assert_eq!(lumen_project::validate(doc.project()), Ok(()));
+    }
+
+    #[test]
+    fn arming_only_leaves_the_other_tracks_disarmed_in_one_undo_step() {
+        let mut doc = Document::new(crate::empty_project());
+        let a = doc.add_track(TrackKind::Midi, None);
+        let b = doc.add_track(TrackKind::Midi, None);
+        let c = doc.add_track(TrackKind::Midi, None);
+        doc.set_armed(&[a, b], true);
+        let armed = |doc: &Document| -> Vec<Id> {
+            doc.project()
+                .tracks
+                .iter()
+                .filter(|t| t.armed)
+                .map(|t| t.id)
+                .collect()
+        };
+        assert_eq!(armed(&doc), [a, b]);
+        doc.arm_only(&[c]);
+        assert_eq!(armed(&doc), [c]);
+        doc.undo();
+        assert_eq!(armed(&doc), [a, b], "one step gives both back");
     }
 
     #[test]

@@ -269,3 +269,25 @@ fn the_command_opens_the_menu_of_the_chosen_card() {
         "the menu is open under the chooser"
     );
 }
+
+/// The key is muted (as a solo elsewhere mutes it) and the voice plays
+/// nothing: whatever the effect is keyed to, nothing of the key reaches the
+/// output, because the effect only takes away from its own input.
+#[test]
+fn the_key_does_not_leak_into_the_keyed_track() {
+    let mut project = song(Some(SidechainTap::PostFx));
+    let voice = project
+        .tracks
+        .iter_mut()
+        .find(|t| t.id == VOICE)
+        .expect("the voice");
+    for clip in std::sync::Arc::make_mut(voice).clips.iter_mut() {
+        std::sync::Arc::make_mut(clip).content = lumen_project::model::ClipContent::midi();
+    }
+    let mut lumen = launch("leak", &project, &["Keyed"]);
+    ready(&mut lumen);
+    play(&mut lumen);
+    lumen.frames(30);
+    let heard = peak(&mut lumen);
+    assert!(heard < 0.0001, "nothing of the key is heard: {heard}");
+}

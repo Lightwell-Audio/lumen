@@ -718,6 +718,11 @@ impl App {
         self.hosting.poke_param(device, id, value);
     }
 
+    /// How many values Lumen has sent the device's plugin to match the project.
+    pub fn values_sent_to(&self, device: Id) -> u32 {
+        self.hosting.values_sent(device)
+    }
+
     /// Whether the device's plugin window is open but hidden because the
     /// Devices tab shows another track.
     pub fn editor_hidden(&self, device: Id) -> bool {

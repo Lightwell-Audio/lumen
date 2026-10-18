@@ -80,6 +80,33 @@ impl Arrangement {
         }
     }
 
+    /// A device carried from the browser over a track's header or lane: the
+    /// track lights, and when it is let go the app puts the device there.
+    pub(super) fn browser_drop_target(
+        &mut self,
+        ctx: &egui::Context,
+        painter: &Painter,
+        rect: Rect,
+        to: Id,
+    ) {
+        let Some(device) = egui::DragAndDrop::payload::<crate::chain::Dragged>(ctx) else {
+            return;
+        };
+        if !ctx.pointer_latest_pos().is_some_and(|p| rect.contains(p)) {
+            return;
+        }
+        painter.rect_stroke(
+            rect.shrink(1.0),
+            0.0,
+            Stroke::new(theme::stroke::LIT, theme::p().accent),
+            egui::StrokeKind::Inside,
+        );
+        if ctx.input(|i| i.pointer.any_released()) {
+            self.browser_drop = Some((device.0.clone(), to));
+            egui::DragAndDrop::clear_payload(ctx);
+        }
+    }
+
     /// Draws one track's header in its zone (`painter` is clipped to it).
     /// Returns the track's bottom edge and how strongly it glows, while it
     /// does, so the lane can continue the glow.
@@ -127,6 +154,7 @@ impl Arrangement {
             self.click_select(doc.project(), track.id, modifiers);
         }
         self.device_drop_target(&ctx, &painter, doc, rect, track.id, modifiers.alt);
+        self.browser_drop_target(&ctx, &painter, rect, track.id);
         // Returns stay pinned in their own order (reordering them waits;
         // KNOWN_ISSUES).
         if background.drag_started() && track.kind != TrackKind::Return {
@@ -340,7 +368,7 @@ impl Arrangement {
         );
         // Returns record nothing: no arm button.
         if track.kind != TrackKind::Return && arm_button(ui, arm_rect, id, &track.name, arm, look) {
-            doc.set_armed(&self.targets(track.id), !arm.on());
+            self.press_arm(ui, doc, track.id, arm.on());
         }
 
         // Unfolded: volume and pan on a second row, then the sends.

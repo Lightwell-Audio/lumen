@@ -248,6 +248,9 @@ pub struct Arrangement {
     /// A device card was dropped on a track's header: the app follows it
     /// (shows the track, or says why it was refused).
     pub(crate) device_drop: Option<DeviceDrop>,
+    /// A device from the browser was let go over a track (its header or its
+    /// lane): the browser's id of the device, and the track.
+    pub(crate) browser_drop: Option<(String, Id)>,
     /// Selected clips (slice 6a). Selecting clips clears the track
     /// selection, and the other way round.
     pub clips: BTreeSet<Id>,

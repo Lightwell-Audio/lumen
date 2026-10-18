@@ -105,6 +105,11 @@ impl App {
                 Err(refusal) => self.say(refusal.to_string()),
             }
         }
+        // A device let go on a track from the browser.
+        if let Some((device, track)) = self.arrangement.browser_drop.take() {
+            self.add_dropped_device(&device, track);
+        }
+        self.open_dropped_editor();
         let shown = self.chain_track();
         let project = self.document.project();
         let still_there = |chosen: Id| {
@@ -420,13 +425,13 @@ impl App {
             egui::DragAndDrop::clear_payload(ui.ctx());
             let slot = Slot::At(gap);
             match carried {
-                Carried::New(plugin) => self.add_device_at(
-                    plugin,
-                    Place::Track {
+                Carried::New(plugin) => {
+                    let place = Place::Track {
                         track: track_id,
                         slot,
-                    },
-                ),
+                    };
+                    self.add_device_showing_window(plugin, place);
+                }
                 Carried::Card(card) => {
                     self.send_device(track_id, card.device, track_id, slot, false);
                 }

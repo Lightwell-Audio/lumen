@@ -364,7 +364,7 @@ impl Arrangement {
             let arm = nesting::arm_look(doc.project(), i, &self.selected);
             let name = format!("{} in the mixer", track.name);
             if headers::arm_button(ui, next(), id, &name, arm, controls) {
-                doc.set_armed(&self.targets(track.id), !arm.on());
+                self.press_arm(ui, doc, track.id, arm.on());
             }
         }
 

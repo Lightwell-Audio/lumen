@@ -58,7 +58,15 @@ pub struct Dsp {
     instrument_latency: u32,
     /// Output buses the instrument declares (1 unless `multi_out`).
     output_buses: usize,
+    /// How loud the sidechain has been lately (a peak that falls away over
+    /// `KEY_RELEASE` seconds), which is what the effect ducks by.
+    key_level: f32,
 }
+
+/// How long the sidechain's level takes to fall to 37% of itself.
+const KEY_RELEASE: f64 = 0.1;
+/// The sidechain level that silences the effect completely.
+const KEY_FULL: f32 = 0.25;
 
 impl Dsp {
     pub fn new(kind: Kind) -> Self {
@@ -70,6 +78,7 @@ impl Dsp {
             delay: Delay::new(),
             instrument_latency: 0,
             output_buses: 1,
+            key_level: 0.0,
         }
     }
 
@@ -77,6 +86,7 @@ impl Dsp {
     pub fn reset(&mut self) {
         self.voices.silence();
         self.delay.clear();
+        self.key_level = 0.0;
     }
 
     /// The delay the effect reports as latency, in samples.
@@ -227,6 +237,7 @@ impl Dsp {
             Kind::Effect => {
                 let gain = db_to_gain(self.kind.plain(LEVEL, self.values[0]));
                 let delay = self.latency() as usize;
+                let fall = (-1.0 / (KEY_RELEASE * self.rate)).exp() as f32;
                 for i in range {
                     // SAFETY: valid for the block; read before the same
                     // sample is written, so shared memory is fine.
@@ -240,7 +251,9 @@ impl Dsp {
                     });
                     let out = self.delay.step(frame, delay);
                     // The sidechain, where the host gave one, silences the
-                    // sample in proportion to how loud it is there.
+                    // sample in proportion to how loud it has been lately: a
+                    // peak follower, so a drum hit holds the effect down for
+                    // a moment as a compressor's key does.
                     let duck = if buses.sidechain[0].is_null() {
                         1.0
                     } else {
@@ -252,7 +265,8 @@ impl Dsp {
                                 unsafe { p.add(i).read() }.abs()
                             }
                         });
-                        1.0 - loud[0].max(loud[1]).min(1.0)
+                        self.key_level = loud[0].max(loud[1]).max(self.key_level * fall);
+                        1.0 - (self.key_level / KEY_FULL).min(1.0)
                     };
                     for (c, o) in output.into_iter().enumerate() {
                         if !o.is_null() {
@@ -391,6 +405,44 @@ mod tests {
         unsafe { d.render(8, [p[0], p[1]], p, &[], &[]) };
         assert!(buf[0].iter().all(|&s| s == 0.5));
         assert!(buf[1].iter().all(|&s| s == -0.5));
+    }
+
+    #[test]
+    fn a_hit_on_the_sidechain_holds_the_effect_down_and_it_comes_back() {
+        let mut d = Dsp::new(Kind::Effect);
+        d.values[1] = 0.0;
+        d.rate = 1000.0;
+        // A hit of 0.5 for 10 samples, then nothing for 1,000 (a second).
+        let key = [0.5_f32; 10];
+        let quiet = [0.0_f32; 1000];
+        let signal = vec![1.0_f32; 1010];
+        let mut out = [vec![9.0_f32; 1010], vec![9.0_f32; 1010]];
+        let p = [out[0].as_mut_ptr(), out[1].as_mut_ptr()];
+        let mut sidechain = key.to_vec();
+        sidechain.extend_from_slice(&quiet);
+        let sc = [sidechain.as_ptr(), sidechain.as_ptr()];
+        let buses = Buses {
+            outputs: {
+                let mut o = [[std::ptr::null_mut(); 2]; MAX_BUSES];
+                o[0] = p;
+                o
+            },
+            sidechain: sc,
+        };
+        let input = [signal.as_ptr(), signal.as_ptr()];
+        // SAFETY: every buffer holds 1,010 samples.
+        unsafe { d.render_buses(1010, input, buses, &[], &[]) };
+        assert_eq!(out[0][5], 0.0, "a loud hit mutes the effect");
+        assert!(
+            out[0][100] < 0.3,
+            "it is still held down after 90 ms: {}",
+            out[0][100]
+        );
+        assert!(
+            out[0][1009] > 0.99,
+            "and it is back a second later: {}",
+            out[0][1009]
+        );
     }
 
     #[test]
