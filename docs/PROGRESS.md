@@ -363,7 +363,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
 | Non-blocking, crash-safe, cached scanning; blocklist; rescan; custom paths | M | 🔲 | 6 |
-| Multi-output instruments, sidechain inputs, latency and tail handling, bypass | M | 🔲 | 6 |
+| Multi-output instruments, sidechain inputs, latency and tail handling, bypass | M | 🟡 Built in M6 slice 6 (ADR-0078); MT-VST-6 is the owner's | 6 |
 | Full state save and restore; preset browsing, loading and saving | M | 🔲 | 6 |
 | Every parameter automatable and MIDI-mappable; generic parameter UI | M | 🔲 | 6–7 |
 | Floating editors: remembered position and size, resizing, high-DPI, keyboard focus | M | 🔲 | 6 |
@@ -443,8 +443,8 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | LUFS and true-peak metering; mono-check and dim | S | 🟡 LUFS (momentary, short-term, integrated) and true peak on the master (M4 slice 5, ADR-0040); mono-check and dim later |
 | Reference track | L | 🔲 |
 | Async cached VST3 scanning, custom paths, blocklist, search, favourites, recents | M | 🟡 Built and tested on Linux with the test plugin (M6 slice 1, ADR-0068); MT-VST-1 passed on Windows with real plugins (owner-reported, no measurements); not run on macOS |
-| Instruments and effects; multi-out; sidechain; bypass; presets; state; automation; generic UI; floating editors with DPI and focus | M | 🔲 |
-| Latency compensation; crash isolation; safe mode | M | 🔲 |
+| Instruments and effects; multi-out; sidechain; bypass; presets; state; automation; generic UI; floating editors with DPI and focus | M | 🟡 Built (M6 slice 6, ADR-0078; format v21, protocol version 8): the host lists and turns on a plugin's audio buses (a block carries up to 64 channels); a sidechain from any track at three taps with a row and a light on the effect's card; a plugin instrument's outputs as tracks of their own (the card's Outputs row); a plugin instrument's latency is compensated, effects flush on a locate and a scrub is not late. Verified on Windows with the test plugin through real host processes, a real sampler's outputs and a real orchestra plugin's buses; MT-VST-6 (real plugins) is the owner's; not run: smoke, WSL gates, macOS |
+| Latency compensation; crash isolation; safe mode | M | 🟡 A plugin instrument's reported latency is compensated like an effect's, a locate flushes effect tails, a scrub is not late (M6 slice 6, ADR-0078); crash isolation and safe mode are built (slices 0 and 5); MT-VST-6 is the owner's |
 | Built-in essentials | M | 🔲 |
 | Spectrum analyzer, tuner | S | 🔲 |
 | CLAP, racks with macros | L | 🔲 |
