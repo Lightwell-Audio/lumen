@@ -107,30 +107,31 @@ fn the_outputs_menu_keeps_its_width_when_an_output_is_switched_on() {
         .click();
     lumen.frames(20);
 
-    // The menu's switches: the main output's, then one for each other.
+    // The menu's switches: one for each output but the main one, below the
+    // menu's caption (the browser has switches of its own above).
     let switches = |lumen: &Lumen| -> Vec<(String, f32)> {
-        let all: Vec<(String, f32)> = lumen
+        let Some(caption) = lumen.harness.query_by_label_contains("Outputs of") else {
+            return Vec::new();
+        };
+        let below = caption.rect().bottom();
+        lumen
             .harness
             .query_all_by_role(eframe::egui::accesskit::Role::CheckBox)
+            .filter(|n| n.rect().top() >= below)
             .map(|n| {
                 (
                     n.accesskit_node().label().unwrap_or_default(),
                     n.rect().width(),
                 )
             })
-            .collect();
-        let main = all
-            .iter()
-            .position(|(l, _)| l == "Main")
-            .unwrap_or(all.len());
-        all[main..].to_vec()
+            .collect()
     };
     let widest = |lumen: &Lumen| switches(lumen).iter().fold(0.0_f32, |m, (_, w)| m.max(*w));
     lumen.click("Outputs, Main only");
     lumen.frames(10);
     let before = widest(&lumen);
     assert!(before > 100.0, "the menu is open: {before}");
-    let first = switches(&lumen)[1].0.clone();
+    let first = switches(&lumen)[0].0.clone();
     lumen.click(&first);
     lumen.frames(60);
     assert_eq!(

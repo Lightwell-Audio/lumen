@@ -231,13 +231,9 @@ impl App {
         let mut turn_off: Vec<u32> = Vec::new();
 
         widgets::menu_caption(ui, &format!("Outputs of {instrument}"));
-        // The main output is the instrument's own track: always on.
-        let mut main = true;
-        ui.add_enabled_ui(false, |ui| {
-            widgets::switch(ui, &mut main, "Main", false);
-        })
-        .response
-        .on_disabled_hover_text("The instrument's own track plays its main output");
+        // The main output is the instrument's own track: not a choice, so
+        // it is said and not offered as a switch.
+        widgets::menu_caption(ui, "Main plays on the instrument's own track");
         // A solid bar takes room of its own (when the list scrolls), so it
         // does not lie over the switches.
         ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
