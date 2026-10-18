@@ -64,14 +64,16 @@ fn gave_up_words(log: Option<&HostLog>) -> String {
     }
 }
 
-/// The audio input a sidechain feeds: the first auxiliary one that is mono or
-/// stereo (bus 0 is the plugin's own audio).
+/// The audio input a sidechain feeds: the first bus after the plugin's own
+/// audio (bus 0) that is mono or stereo. The bus's own "main" flag is not
+/// read: plugins mark every bus main (a real orchestra does, for all sixteen
+/// outputs), so the flag cannot tell a spare bus from the first.
 fn sidechain_bus(inputs: &[BusInfo]) -> Option<usize> {
     inputs
         .iter()
         .enumerate()
         .skip(1)
-        .find(|(_, bus)| !bus.main && (1..=2).contains(&bus.channels))
+        .find(|(_, bus)| (1..=2).contains(&bus.channels))
         .map(|(index, _)| index)
 }
 
@@ -82,11 +84,14 @@ fn output_budget(outputs: &[BusInfo]) -> usize {
     MAX_CHANNELS.saturating_sub(outputs.first().map_or(2, |main| usize::from(main.channels)))
 }
 
-/// Whether `bus` is an auxiliary output Lumen can play: mono or stereo.
+/// Whether `bus` is an output besides the first that Lumen can play: mono or
+/// stereo. The bus's "main" flag is not read (a real orchestra declares all
+/// sixteen outputs as main buses, and none was ever turned on while it was).
 fn playable(outputs: &[BusInfo], bus: u32) -> bool {
-    outputs
-        .get(bus as usize)
-        .is_some_and(|b| !b.main && (1..=2).contains(&b.channels))
+    bus >= 1
+        && outputs
+            .get(bus as usize)
+            .is_some_and(|b| (1..=2).contains(&b.channels))
 }
 
 /// The auxiliary outputs to turn on for the instrument `device`: the ones the
@@ -2177,7 +2182,8 @@ mod tests {
         let bus = |n: usize| BusInfo {
             name: format!("St.{}", n + 1),
             channels: 2,
-            main: n == 0,
+            // Every bus is flagged main, as a real orchestra plugin does.
+            main: true,
             default_active: n == 0,
         };
         let outputs: Vec<BusInfo> = (0..16).map(bus).collect();
