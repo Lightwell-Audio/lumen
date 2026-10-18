@@ -39,6 +39,8 @@ fn configure(generation: u32) -> Request {
         max_frames: 256,
         inputs: 0,
         outputs: 2,
+        aux_inputs: 0,
+        aux_outputs: 0,
     }
 }
 
@@ -105,6 +107,8 @@ fn a_failed_configuration_leaves_no_generation_to_process_in() {
             inputs: 0,
             // Not something the instrument will agree to.
             outputs: 1,
+            aux_inputs: 0,
+            aux_outputs: 0,
         },
         block(2, 0),
         block(1, 0),

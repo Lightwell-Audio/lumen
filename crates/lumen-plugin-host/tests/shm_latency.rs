@@ -153,3 +153,51 @@ fn a_latency_change_reaches_the_loop_in_the_same_block_and_costs_no_allocation()
         assert_eq!(s.nonzero, 1, "block {block}: only the impulse is heard");
     }
 }
+
+/// A jump in playback (M6 slice 6a): the effect holds an impulse in its delay;
+/// a block that asks the plugin to forget what it holds does not play it, and
+/// the same block without the request does. Allocation-free on Lumen's side.
+#[test]
+fn a_flushed_block_forgets_what_the_effect_was_holding() {
+    let mut host = effect("");
+    let wake = Wake {
+        host: Waiting::Event,
+        lumen: Waiting::Spin,
+    };
+    let mut link = host
+        .attach(Layout::new(512, 2, 2), wake, SLOW)
+        .expect("attach");
+    let generation = host.generation();
+    let delayed = delay(96);
+    let mut impulse = [0.0_f32; FRAMES];
+    impulse[0] = 1.0;
+    let silence = [0.0_f32; FRAMES];
+    let mut out = [0.0_f32; FRAMES];
+
+    let mut run = |link: &mut lumen_plugin_host::shm::BlockLink,
+                   input: &[f32; FRAMES],
+                   params: &[ParamQueue],
+                   flush: bool| {
+        if flush {
+            link.flush_next();
+        }
+        link.submit(generation, FRAMES as u32, &[input, input], &[], params)
+            .expect("submit");
+        let Poll::Done(answer) = link.wait(Instant::now() + SLOW) else {
+            panic!("no answer");
+        };
+        assert_eq!(answer.outcome, Outcome::Done);
+        link.copy_output(0, &mut out);
+        out.iter().filter(|&&s| s != 0.0).count()
+    };
+
+    for flush in [false, true] {
+        // The delay is set in the same block as the impulse: it comes out
+        // 96 frames later, in the block after next (the first is 64 long).
+        assert_eq!(run(&mut link, &impulse, &delayed, false), 0);
+        assert_eq!(run(&mut link, &silence, &[], flush), usize::from(!flush));
+        // Whatever it was holding is out, or gone; the next block is clean.
+        run(&mut link, &silence, &[], false);
+        assert_eq!(run(&mut link, &silence, &[], false), 0);
+    }
+}

@@ -15,7 +15,8 @@ use lumen_core::time::Ticks;
 use lumen_devices::{Guard, Hosted, Refused, Reply, Status};
 use lumen_engine::{
     Clip, ClipAudio, ClipPlayer, ClipsHandle, Command, Destination, Device, Engine, EngineHandle,
-    Mixer, MixerHandle, NodeSpec, Routing, Timeline, clip_player, engine, mixer,
+    Mixer, MixerHandle, NodeSpec, Routing, SidechainSpec, Tap, Timeline, clip_player, engine,
+    mixer,
 };
 use lumen_rt::count_rt_violations;
 
@@ -36,6 +37,9 @@ enum Mode {
     /// Halves and adds a level of its own (the bits of an `f32`), as an amp
     /// with a long reverb sounds on after its input has stopped.
     Hum(Arc<AtomicU32>),
+    /// Plays the left channel of its sidechain input (the third channel it
+    /// is given) and nothing of its audio; silence when it is given none.
+    Key,
 }
 
 #[derive(Default)]
@@ -55,6 +59,8 @@ struct FakeEffect {
     out: [Vec<f32>; 2],
     done: Option<Arc<AtomicBool>>,
     submits: Arc<AtomicU32>,
+    /// Times the engine asked it to forget what it holds.
+    flushes: Arc<AtomicU32>,
 }
 
 impl FakeEffect {
@@ -68,6 +74,7 @@ impl FakeEffect {
             out: [Vec::with_capacity(256), Vec::with_capacity(256)],
             done: None,
             submits: Arc::clone(&submits),
+            flushes: Arc::new(AtomicU32::new(0)),
         });
         (effect, submits)
     }
@@ -79,6 +86,13 @@ impl Hosted for FakeEffect {
         let depth = self.latency as usize;
         for (channel, out) in self.out.iter_mut().enumerate() {
             out.clear();
+            if matches!(self.mode, Mode::Key) {
+                match input.get(2) {
+                    Some(key) => out.extend_from_slice(&key[..frames]),
+                    None => out.resize(frames, 0.0),
+                }
+                continue;
+            }
             for (k, &sample) in input[channel][..frames].iter().enumerate() {
                 let heard = if depth == 0 {
                     sample
@@ -139,6 +153,11 @@ impl Hosted for FakeEffect {
 
     fn ended(&self) -> bool {
         false
+    }
+
+    fn flush(&mut self) {
+        self.flushes.fetch_add(1, Ordering::Relaxed);
+        self.ring.fill(0.0);
     }
 }
 
@@ -395,6 +414,161 @@ fn a_hosted_effect_rings_out_after_stop_until_its_output_is_quiet() {
         asked,
         "and left alone once quiet"
     );
+}
+
+/// Track 1 with a hosted effect that plays its sidechain, keyed from track 2
+/// at `tap`; track 2 plays to nowhere, so only the key reaches the master.
+fn keyed(tap: Tap, source: NodeSpec) -> Routing {
+    let mut effect = track(1, hosted(7, 0));
+    effect.sidechains.push(SidechainSpec { from: 2, tap });
+    routing_of(vec![effect, source])
+}
+
+fn source(devices: Vec<Device>, audible: bool) -> NodeSpec {
+    NodeSpec {
+        devices,
+        audible,
+        sends_audible: audible,
+        ..NodeSpec::unity(2, Destination::None)
+    }
+}
+
+/// Frames the effect's wet glide (20 ms) takes to be done with the fallback.
+const GLIDE: usize = 2_400;
+
+fn key_rig(routing: &Routing) -> (Rig, Vec<f32>) {
+    key_rig_in(routing, 128)
+}
+
+fn key_rig_in(routing: &Routing, block: usize) -> (Rig, Vec<f32>) {
+    let mut rig = rig(2, RATE, routing);
+    let (effect, _) = FakeEffect::new(Mode::Key, 0);
+    rig.attach(7, effect, 0);
+    rig.play();
+    let out = rig.run(RATE as usize / 2, block);
+    (rig, out)
+}
+
+fn latent_device(frames: u32) -> Vec<Device> {
+    vec![Device::Delay {
+        frames,
+        listen: false,
+    }]
+}
+
+#[test]
+fn a_hosted_effect_is_given_the_sidechain_on_the_samples_its_source_plays() {
+    // The effect plays its key; track 3 plays the same audio upside down
+    // straight into the master. Lined up, the two cancel exactly, whatever
+    // the source's own latency and the block size.
+    for (name, devices, block) in [
+        ("plain source", vec![], 128),
+        ("latent source", latent_device(240), 128),
+        ("latent source, odd blocks", latent_device(333), 100),
+    ] {
+        let mut routing = keyed(Tap::PostFx, source(devices, true));
+        routing.nodes.push(NodeSpec {
+            invert: true,
+            ..NodeSpec::unity(3, Destination::Node(MASTER))
+        });
+        let mut rig = rig(3, RATE, &routing);
+        let (effect, _) = FakeEffect::new(Mode::Key, 0);
+        rig.attach(7, effect, 0);
+        rig.play();
+        let out = rig.run(RATE as usize / 2, block);
+        assert_matches(&out, 0, GLIDE, name, |_| 0.0);
+        assert!(
+            peak(&rig_alone(&out)) == 0.0,
+            "{name}: something is left over"
+        );
+    }
+}
+
+fn rig_alone(out: &[f32]) -> Vec<f32> {
+    out[GLIDE..].to_vec()
+}
+
+fn peak(samples: &[f32]) -> f32 {
+    samples.iter().fold(0.0, |m, s| f32::max(m, s.abs()))
+}
+
+#[test]
+fn the_tap_decides_whether_a_muted_source_still_keys_the_effect() {
+    // Mute comes after the devices: Pre and Post FX still carry the sound;
+    // what the track plays does not.
+    for (tap, heard) in [
+        (Tap::PreFx, true),
+        (Tap::PostFx, true),
+        (Tap::PostMixer, false),
+    ] {
+        let (_, out) = key_rig(&keyed(tap, source(vec![], false)));
+        let level = peak(&out[GLIDE..]);
+        assert_eq!(level > 0.1, heard, "{tap:?}: peak {level}");
+    }
+}
+
+#[test]
+fn an_effect_with_no_sidechain_is_given_none_and_the_level_of_one_can_be_read() {
+    let plain = routing_of(vec![track(1, hosted(7, 0)), source(vec![], true)]);
+    let (rig, out) = key_rig(&plain);
+    assert_eq!(peak(&out[GLIDE..]), 0.0, "no key, nothing to play");
+    assert!(rig.routing.take_side_level(1).is_none());
+
+    let (rig, _) = key_rig(&keyed(Tap::PostFx, source(vec![], true)));
+    let level = rig
+        .routing
+        .take_side_level(1)
+        .expect("a sidechain is metered");
+    assert!(level.peak[0] > 0.1, "what arrives is measured: {level:?}");
+    assert!(
+        rig.routing.take_side_level(2).is_none(),
+        "the source has none"
+    );
+}
+
+#[test]
+fn a_locate_makes_effects_forget_what_they_hold_and_a_loop_wrap_or_a_start_does_not() {
+    let routing = routing_of(vec![track(1, hosted(7, 0)), track(2, hosted(8, 0))]);
+    let mut rig = rig(2, RATE, &routing);
+    let (effect, _) = FakeEffect::new(Mode::Halve, 0);
+    let flushes = Arc::clone(&effect.flushes);
+    rig.attach(7, effect, 0);
+    let (other, _) = FakeEffect::new(Mode::Halve, 0);
+    let others = Arc::clone(&other.flushes);
+    rig.attach(8, other, 0);
+    let count = |flushes: &Arc<AtomicU32>| flushes.load(Ordering::Relaxed);
+
+    rig.play();
+    rig.run(10_000, 128);
+    assert_eq!((count(&flushes), count(&others)), (0, 0), "playing on");
+    rig.transport
+        .send(Command::Locate(Ticks::quarters(4)))
+        .unwrap();
+    rig.run(1_000, 128);
+    assert_eq!(
+        (count(&flushes), count(&others)),
+        (1, 1),
+        "a move of the playhead reaches every effect once"
+    );
+
+    // A loop wraps seamlessly: nothing is forgotten.
+    rig.transport
+        .send(Command::SetLoop(lumen_engine::Region::new(
+            Ticks::ZERO,
+            Ticks::quarters(1),
+            true,
+        )))
+        .unwrap();
+    rig.run(RATE as usize * 3, 128);
+    assert_eq!(count(&flushes), 1, "three seconds of loop wraps");
+
+    // Stop, then start: the tail rings out after Stop (ADR-0074) and playing
+    // again is not a jump.
+    rig.transport.send(Command::Stop).unwrap();
+    rig.run(1_000, 128);
+    rig.play();
+    rig.run(1_000, 128);
+    assert_eq!(count(&flushes), 1, "stop and play");
 }
 
 #[test]

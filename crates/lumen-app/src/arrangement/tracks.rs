@@ -70,6 +70,26 @@ impl Arrangement {
         }
     }
 
+    /// A press on a record arm (`was_on`: the arm showed lit). Arming
+    /// records on the pressed tracks alone and disarms the rest; Ctrl (Cmd on
+    /// a Mac) keeps the others armed; a lit arm only disarms its own tracks.
+    pub(super) fn press_arm(
+        &self,
+        ui: &eframe::egui::Ui,
+        doc: &mut Document,
+        id: Id,
+        was_on: bool,
+    ) {
+        let targets = self.targets(id);
+        if was_on {
+            doc.set_armed(&targets, false);
+        } else if ui.input(|i| i.modifiers.command) {
+            doc.set_armed(&targets, true);
+        } else {
+            doc.arm_only(&targets);
+        }
+    }
+
     /// Moves the selected tracks one place up (`-1`) or down (`1`) among
     /// the tracks of their group, over a neighbouring group whole; they
     /// stay in their group (dragging or Ctrl+Shift+G takes them out).

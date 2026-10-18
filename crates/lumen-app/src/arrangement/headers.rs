@@ -500,9 +500,9 @@ pub(super) fn arm_button(
     let response = ui
         .interact(rect, id.with("arm"), Sense::click())
         .on_hover_text(if arm == Arm::Listening {
-            "Listening because selected \u{b7} click to arm for recording"
+            "Listening because selected \u{b7} click to arm for recording (Ctrl keeps the other tracks armed)"
         } else {
-            "Arm for recording (MIDI tracks record now; audio recording arrives in Milestone 9)"
+            "Arm for recording (Ctrl keeps the other tracks armed; MIDI tracks record now, audio recording arrives in Milestone 9)"
         });
     response.widget_info(|| {
         egui::WidgetInfo::selected(

@@ -108,6 +108,10 @@ pub struct NodeSpec {
     pub sends: Vec<SendSpec>,
     /// The node's devices, in order (M4 slice 6).
     pub devices: Vec<Device>,
+    /// Frames the node's own source trails the timeline: a plugin instrument
+    /// plays its notes this late (M6 slice 6). The source is not delayed,
+    /// and the engine delays every other path to meet it.
+    pub source: u32,
     /// Sidechains into the node's second input (M4 slice 6).
     pub sidechains: Vec<SidechainSpec>,
 }
@@ -129,6 +133,7 @@ impl NodeSpec {
             output,
             sends: Vec::new(),
             devices: Vec::new(),
+            source: 0,
             sidechains: Vec::new(),
         }
     }

@@ -87,6 +87,32 @@ fn an_instrument_sounds_exactly_as_the_host_makes_it_over_the_pipe() {
 }
 
 #[test]
+fn a_flush_makes_the_effect_forget_the_audio_it_was_holding() {
+    // The effect holds its input 96 frames before it plays it. A block that
+    // follows a flush finds nothing of the last one (M6 slice 6a).
+    for flush in [false, true] {
+        let mut manager = manager();
+        let mut start = effect("");
+        start.values = vec![(lumen_test_plugin::params::LATENCY, 96.0 / 4096.0)];
+        manager.want(2, start).unwrap();
+        let mut linked = linked(&mut manager, 2);
+        let mut impulse = vec![0.0_f32; 64];
+        impulse[0] = 1.0;
+        let silence = vec![0.0_f32; 64];
+        // The impulse goes in; the first block plays 64 frames of nothing.
+        let (l, _, _) = play(&mut linked.link, 64, &[&impulse, &impulse], &[]);
+        assert!(l.iter().all(|&s| s == 0.0));
+        if flush {
+            linked.link.flush();
+        }
+        let (l, _, reply) = play(&mut linked.link, 64, &[&silence, &silence], &[]);
+        assert!(matches!(reply, Some(Reply::Ready { .. })));
+        let heard = l.iter().filter(|&&s| s != 0.0).count();
+        assert_eq!(heard, usize::from(!flush), "flush: {flush}");
+    }
+}
+
+#[test]
 fn an_effect_processes_the_audio_it_is_given_and_reports_its_latency() {
     let mut manager = manager();
     manager.want(2, effect("")).unwrap();

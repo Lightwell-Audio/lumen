@@ -252,6 +252,8 @@ pub(super) fn copy_runs(
             .map(|(original, &id)| {
                 let mut copy = (**original).clone();
                 copy.id = id;
+                // A plugin's output is played by one track only.
+                copy.plugin_output = None;
                 // The head stays where it was; those inside follow the copies.
                 if original.id != head {
                     copy.parent = copy.parent.map(renamed);

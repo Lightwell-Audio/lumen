@@ -9,10 +9,12 @@ mod art;
 mod card;
 pub(crate) mod editor;
 mod geometry;
+pub(crate) mod outputs;
 mod params;
 mod pictures;
 pub(crate) mod place;
 pub(crate) mod presets;
+mod sidechain;
 mod stepped;
 mod strip;
 mod view;
@@ -22,7 +24,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use lumen_project::model::{Device, Id};
 
-pub(crate) use geometry::{panel_height, panel_min_height};
+pub(crate) use geometry::{panel_height, panel_min_height, panel_min_height_keyed};
 pub(crate) use pictures::Pictures;
 pub(crate) use view::paint_drag_ghost;
 
@@ -69,10 +71,18 @@ pub(crate) struct Chain {
     pub text_pending: Cell<bool>,
     /// The panel with every parameter of one plugin, when open.
     pub panel: Option<params::Panel>,
+    /// Outputs of an instrument being turned off whose tracks hold work,
+    /// waiting for the person's answer in the menu.
+    pub asking: outputs::Asking,
+    /// What the shown track's sidechain carried, as the cards' lights show it.
+    pub sidechain: sidechain::Readings,
     /// The device whose Learn is on: the next control touched in its window
     /// takes a slot of its strip.
     pub learning: Option<Id>,
     /// The cards' preset menus: the sound each card has, the files found, and
     /// a save under way.
     pub presets: presets::Presets,
+    /// A device just dropped on a track from the browser: its window opens
+    /// as soon as its plugin is running.
+    pub open_when_ready: Option<Id>,
 }

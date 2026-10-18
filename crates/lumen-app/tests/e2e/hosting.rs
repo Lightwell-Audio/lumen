@@ -89,6 +89,14 @@ pub(super) fn faults(stem: &str) -> Option<&'static str> {
         "Dies" => Some("process_crash@40"),
         // Released notes fade out over four seconds; no tail is reported.
         "Rings" => Some("release=4000"),
+        // The instrument plays its notes 50 ms (2,400 frames at 48 kHz) late
+        // and reports that as its latency.
+        "Late" => Some("instrument_latency=2400"),
+        // The instrument has three outputs: a note goes to the one its pitch
+        // picks (pitch mod 3), or to the main one when that output is off.
+        "Multi" => Some("multi_out=3"),
+        // The effect has a sidechain input (and the instrument is as it is).
+        "Keyed" => Some("sidechain"),
         // Every block takes 3 ms of the plugin's work.
         "Slow" => Some("process_slow=3000"),
         // The instrument has a trigger that makes it edit its wave, as a
@@ -186,6 +194,36 @@ fn a_plugin_instrument_loads_in_the_background_and_is_heard() {
     play(&mut lumen);
     let heard = lumen.listen(Duration::from_millis(100), 4_800);
     assert!(peak(&heard) > 0.01, "the plugin instrument is silent");
+}
+
+#[test]
+fn a_plugin_instruments_latency_is_compensated_and_kept_while_it_is_missing() {
+    // A plugin instrument that plays late makes the rest of the project wait
+    // for it, as an effect's delay does (M6 slice 6). The delay is what the
+    // plugin reports once it runs, and what the project saved before that.
+    let song = project(|d| *d = vec![instrument_device(PLUGIN)]);
+    let mut lumen = launch("instrument-latency", &song, &["Late"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    lumen.wait_for("the instrument's latency in the routing", |app| {
+        app.compensation() == 2_400
+    });
+    assert_eq!(lumen.app().device_latency(PLUGIN), Some(2_400));
+    play(&mut lumen);
+    let heard = lumen.listen(Duration::from_millis(100), 4_800);
+    assert!(peak(&heard) > 0.01, "the late instrument is heard");
+
+    let mut device = instrument_device(PLUGIN);
+    device.reported = Some(lumen_project::model::Reported {
+        latency: 360,
+        tail: 0,
+        rate: 48_000,
+    });
+    let song = project(|d| *d = vec![device]);
+    let mut lumen = launch("instrument-latency-missing", &song, &[]);
+    wait_for_state(&mut lumen, PLUGIN, "missing");
+    lumen.wait_for("the saved latency in the routing", |app| {
+        app.compensation() == 360
+    });
 }
 
 #[test]

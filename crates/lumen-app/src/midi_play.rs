@@ -77,11 +77,22 @@ fn instrument(track: &model::Track, hosts: &mut dyn Hosts) -> Option<InstrumentS
 pub trait Hosts {
     /// The instrument slot for the plugin on MIDI track `track`.
     fn instrument(&mut self, track: Id) -> InstrumentSpec;
+
+    /// The auxiliary output buses of the plugin instrument `device` that its
+    /// running host has on, one bit for each bus (bit 3 is the fourth). None
+    /// where it has no host.
+    fn outputs_on(&self, _device: Id) -> u32 {
+        0
+    }
 }
 
 impl Hosts for crate::hosting::Hosting {
     fn instrument(&mut self, track: Id) -> InstrumentSpec {
         crate::hosting::Hosting::instrument(self, track)
+    }
+
+    fn outputs_on(&self, device: Id) -> u32 {
+        crate::hosting::Hosting::outputs_on(self, device)
     }
 }
 
@@ -269,6 +280,34 @@ pub fn engine_midi(
     engine_midi_with(project, inputs, ports, cache, &mut NoHosts)
 }
 
+/// The instrument's other outputs that are on and the track that plays each:
+/// `(output pair, track)`. The pair counts the buses that are on in bus order
+/// from 1, as the host's link numbers them. Every output the plugin has is on,
+/// so what the plugin routes to an output is where it plays and never lands on
+/// another by the plugin's own choice; an output with no track of its own
+/// plays on the instrument's own track.
+fn plugin_outputs(project: &Project, track: &model::Track, hosts: &dyn Hosts) -> Vec<(u32, u64)> {
+    let Some(device) = track.sound_source().filter(|d| d.is_vst3()) else {
+        return Vec::new();
+    };
+    let on = hosts.outputs_on(device.id);
+    (1..32u32)
+        .filter(|bus| on & (1 << bus) != 0)
+        .map(|bus| {
+            let pair = 1 + (on & ((1 << bus) - 1)).count_ones();
+            let own = project
+                .tracks
+                .iter()
+                .find(|t| {
+                    t.plugin_output
+                        .is_some_and(|o| o.device == device.id && o.bus == bus)
+                })
+                .map_or(track.id, |t| t.id);
+            (pair, own.0)
+        })
+        .collect()
+}
+
 /// [`engine_midi`] with the hosts that play the plugin instruments.
 pub fn engine_midi_with(
     project: &Project,
@@ -316,6 +355,7 @@ pub fn engine_midi_with(
         }
         tracks.push(
             MidiTrack::new(track.id.0, target, instrument(track, hosts), clips)
+                .with_outputs(plugin_outputs(project, track, hosts))
                 .listening(listening(track, inputs, silent))
                 .recording(recording(track, inputs))
                 .recording_within(inputs.record_window)

@@ -12,6 +12,8 @@ use eframe::emath::GuiRounding as _;
 
 use super::art;
 use super::geometry::{FOOTER, HEADER, PRESET};
+use super::outputs;
+use super::sidechain;
 use super::strip;
 use crate::icons::{self, Icon};
 use crate::widgets::raised;
@@ -85,6 +87,10 @@ pub(super) struct Look<'a> {
     /// Learn is on: the next control touched in the plugin's window takes a
     /// slot.
     pub learning: bool,
+    /// The sidechain row of a plugin effect that has a sidechain input.
+    pub sidechain: Option<&'a sidechain::Look>,
+    /// The outputs row of a plugin instrument that has more than one output.
+    pub outputs: Option<&'a outputs::Look>,
 }
 
 /// What a card's own buttons asked for.
@@ -109,6 +115,10 @@ pub(super) struct Out {
     pub action: Option<Action>,
     /// What the strip's knobs and button asked for.
     pub strip: Vec<strip::Output>,
+    /// The sidechain row's chooser (it opens the menu).
+    pub sidechain: Option<Response>,
+    /// The outputs row's chooser (it opens the menu).
+    pub outputs: Option<Response>,
 }
 
 /// A card's corner radius.
@@ -294,13 +304,32 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
     };
 
     // Between header and footer: the strip, or what replaces it.
-    let (action, mut strip) = paint_strip(
-        ui,
-        strip.shrink2(vec2(theme::space::M, theme::space::S)),
-        id,
-        look,
-    );
+    let strip_area = strip.shrink2(vec2(theme::space::M, theme::space::S));
+    let key_room = if look.sidechain.is_some() || look.outputs.is_some() {
+        sidechain::ROOM
+    } else {
+        0.0
+    };
+    let (action, mut strip) = paint_strip(ui, strip_area, id, look, key_room);
     strip.extend(header_out);
+    // The sidechain row of an effect or the outputs row of an instrument,
+    // between the knobs and the buttons under them.
+    let key_row = {
+        let bottom = strip_area.bottom() - strip::BUTTONS - strip::GAP;
+        Rect::from_min_max(
+            pos2(strip_area.left(), bottom - sidechain::ROOM),
+            pos2(strip_area.right(), bottom),
+        )
+    };
+    let ready = matches!(look.face, Face::Ready);
+    let key = look
+        .sidechain
+        .filter(|_| ready)
+        .map(|shown| sidechain::paint(ui, key_row, sidechain::chooser_id_of(id), shown));
+    let outs = look
+        .outputs
+        .filter(|_| ready)
+        .map(|shown| outputs::paint(ui, key_row, outputs::chooser_id_of(id), shown));
 
     // The footer: the signal, and the time held back.
     let mono = FontId::monospace(theme::size::MONO_SMALL);
@@ -345,6 +374,8 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
         step,
         action,
         strip,
+        sidechain: key,
+        outputs: outs,
     }
 }
 
@@ -425,6 +456,8 @@ fn paint_rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Resp
         step: None,
         strip: Vec::new(),
         action: None,
+        sidechain: None,
+        outputs: None,
     }
 }
 
@@ -652,6 +685,7 @@ fn paint_strip(
     area: Rect,
     id: egui::Id,
     look: &Look<'_>,
+    key_room: f32,
 ) -> (Option<Action>, Vec<strip::Output>) {
     let palette = *theme::p();
     let no_strip = |action| (action, Vec::new());
@@ -716,6 +750,7 @@ fn paint_strip(
                     learning: look.learning,
                     parameters: look.parameters,
                 },
+                key_room,
             ),
         ),
         Face::Failed(ref failure) => {
@@ -1024,6 +1059,8 @@ mod tests {
             field: None,
             editor: &CLOSED,
             learning: false,
+            sidechain: None,
+            outputs: None,
         }
     }
 

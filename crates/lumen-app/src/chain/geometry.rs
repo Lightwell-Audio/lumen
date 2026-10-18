@@ -19,6 +19,9 @@ pub(super) const PRESET: f32 = 34.0;
 /// Below the header: the preset row (when there is one) and the parameter
 /// strip, or the message that replaces it.
 pub(super) const BODY: f32 = 158.0 + PRESET;
+/// What a plugin effect's sidechain row adds to a card: it takes this from
+/// the picture, and from the knobs below it where the picture is gone.
+pub(super) const KEY_ROOM: f32 = 28.0;
 /// A cable between two cards.
 pub(super) const CABLE: f32 = 40.0;
 /// The chips at each end of the chain.
@@ -35,6 +38,12 @@ pub(crate) fn panel_height() -> f32 {
     CARD_H + 2.0 * PAD + 2.0 * crate::theme::space::S + crate::DETAIL_CHROME
 }
 
+/// The least the detail panel can be on the Devices tab when a card has the
+/// sidechain row: the card keeps its knobs whole, so it is that much taller.
+pub(crate) fn panel_min_height_keyed(keyed: bool) -> f32 {
+    panel_min_height() + if keyed { KEY_ROOM } else { 0.0 }
+}
+
 /// The least the detail panel can be on the Devices tab: a card without its
 /// picture, in the tray's padding, so the card never sits past the tray.
 pub(crate) fn panel_min_height() -> f32 {
@@ -43,8 +52,15 @@ pub(crate) fn panel_min_height() -> f32 {
 
 /// The card height when `room` points are free: the card shrinks (the
 /// picture first) until there is no picture, then stops.
+#[cfg(test)]
 pub(super) fn card_height(room: f32) -> f32 {
-    room.clamp(HEADER + BODY + FOOTER, CARD_H)
+    card_height_with(room, 0.0)
+}
+
+/// As [`card_height`] for a chain with a sidechain row, `extra` taller at the
+/// least.
+pub(super) fn card_height_with(room: f32, extra: f32) -> f32 {
+    room.clamp(HEADER + BODY + FOOTER + extra, CARD_H)
 }
 
 /// A picture shorter than this is not drawn: a few points of it would only
@@ -76,8 +92,15 @@ pub(super) struct Layout {
 
 impl Layout {
     /// `folded[i]` is true when card `i` is folded.
+    #[cfg(test)]
     pub fn new(folded: &[bool], tray_height: f32) -> Self {
-        let card_h = card_height(tray_height - 2.0 * PAD);
+        Self::keyed(folded, tray_height, 0.0)
+    }
+
+    /// As [`Layout::new`], with `extra` more room for the sidechain row of a
+    /// card in the chain (0 when none has one).
+    pub fn keyed(folded: &[bool], tray_height: f32, extra: f32) -> Self {
+        let card_h = card_height_with(tray_height - 2.0 * PAD, extra);
         let top = ((tray_height - card_h) / 2.0).max(PAD.min(tray_height / 2.0));
         let mut x = PAD + CHIP_W + CABLE;
         let mut spans = Vec::with_capacity(folded.len());
@@ -174,6 +197,23 @@ mod tests {
         assert_eq!(card.height(), HEADER + BODY + FOOTER);
         assert_eq!(band(card.height()), 0.0, "no picture: nothing to clip");
         assert!(panel_min_height() < panel_height());
+    }
+
+    #[test]
+    fn with_a_sidechain_row_the_knobs_keep_their_room_at_the_shortest_panel() {
+        let space = crate::theme::space::S;
+        let tray = panel_min_height_keyed(true) - crate::DETAIL_CHROME - 2.0 * space;
+        let layout = Layout::keyed(&[false], tray, KEY_ROOM);
+        let card = layout.card(0);
+        assert!(card.bottom() <= tray - 1.0, "{card:?} in {tray}");
+        assert_eq!(card.height(), HEADER + BODY + FOOTER + KEY_ROOM);
+        // The same tray holds an unkeyed card as it always did.
+        assert_eq!(
+            Layout::new(&[false], tray).card(0).height(),
+            card_height(tray - 2.0 * PAD)
+        );
+        assert!(panel_min_height_keyed(true) > panel_min_height());
+        assert_eq!(panel_min_height_keyed(false), panel_min_height());
     }
 
     #[test]

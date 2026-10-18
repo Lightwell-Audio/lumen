@@ -7,6 +7,7 @@
 //! reads, so the callback never makes a system call to ask whether a host has
 //! ended. A host that hangs blocks only this thread.
 
+use std::cell::Cell;
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,11 +19,11 @@ use std::time::{Duration, Instant};
 use lumen_devices::MOST_FRAMES;
 use lumen_plugin_host::client::{ExitKind, HostError, HostProcess};
 use lumen_plugin_host::protocol::{
-    EditorBounds, ParamInfo, ProgramList, Response, Taken, UnitInfo,
+    Aux, BusInfo, EditorBounds, MAX_BUSES, ParamInfo, ProgramList, Response, Taken, UnitInfo,
 };
 use lumen_plugin_host::shm::{Layout, Wake};
 
-use crate::link::{Counts, Link};
+use crate::link::{Counts, Link, Pair};
 
 /// How the audio loop and the host wait for each other. The setting
 /// ADR-0069's runs support (inside the budget to 100 µs of plugin work per
@@ -167,6 +168,9 @@ pub struct Start {
     /// How the two sides wait for each other: [`WAKE`] unless a test asks
     /// for another.
     pub wake: Wake,
+    /// The auxiliary buses to turn on (extra outputs, a sidechain input);
+    /// none unless the project asks.
+    pub aux: Aux,
 }
 
 impl Start {
@@ -191,6 +195,7 @@ impl Start {
             env: Vec::new(),
             deadlines: Deadlines::default(),
             wake: WAKE,
+            aux: Aux::default(),
         }
     }
 }
@@ -276,6 +281,10 @@ pub struct Linked {
     /// The programs the plugin offers, with the parameter that selects each
     /// list's program.
     pub programs: Vec<ProgramList>,
+    /// The audio buses the plugin declares, inputs then outputs, and which
+    /// auxiliary ones are on.
+    pub buses: (Vec<BusInfo>, Vec<BusInfo>),
+    pub aux: Aux,
     pub pid: u32,
     /// What the host says about itself: how long its first blocks took, and
     /// where it died if it does. For the card when the plugin is given up on.
@@ -294,8 +303,9 @@ impl fmt::Debug for Linked {
 
 enum Command {
     /// A fresh link, at a rate and a longest block, for a new engine or a
-    /// new device block size.
-    Relink(f64, u32),
+    /// new device block size, and with these auxiliary buses on when given
+    /// (otherwise the ones it had).
+    Relink(f64, u32, Option<Aux>),
     /// Set a parameter (normalized): the plugin's controller is told and the
     /// processor hears it at the start of its next block.
     Set(u32, f64),
@@ -432,6 +442,7 @@ impl Process {
             .name("plugin-host".into())
             .spawn(move || {
                 Run {
+                    aux: Cell::new(start.aux),
                     start,
                     gate,
                     tag,
@@ -452,7 +463,12 @@ impl Process {
     /// Asks for a fresh link at `rate`, promising the plugin blocks of at
     /// most `frames`.
     pub fn relink(&self, rate: f64, frames: u32) {
-        let _ = self.commands.send(Command::Relink(rate, frames));
+        let _ = self.commands.send(Command::Relink(rate, frames, None));
+    }
+
+    /// As [`Process::relink`], with these auxiliary buses on.
+    pub fn relink_with(&self, rate: f64, frames: u32, aux: Aux) {
+        let _ = self.commands.send(Command::Relink(rate, frames, Some(aux)));
     }
 
     /// Sets a parameter of the plugin (normalized, 0 to 1).
@@ -556,6 +572,8 @@ struct Run {
     requests: Receiver<Command>,
     ended: Arc<AtomicBool>,
     counts: Arc<Counts>,
+    /// The auxiliary buses to turn on at the next set-up.
+    aux: Cell<Aux>,
 }
 
 /// Where a crashed host said it died. The host writes the line as it goes
@@ -660,15 +678,20 @@ impl Run {
             }
             for command in coalesce(commands) {
                 match command {
-                    Command::Relink(rate, frames) => match self.relink(&mut up, rate, frames) {
-                        Ok(linked) => self.say(Happened::Linked(Box::new(linked))),
-                        Err(failure) => {
-                            self.ended.store(true, Ordering::Release);
-                            up.host.kill();
-                            self.say(Happened::Failed(failure));
-                            return;
+                    Command::Relink(rate, frames, aux) => {
+                        if let Some(aux) = aux {
+                            self.aux.set(aux);
                         }
-                    },
+                        match self.relink(&mut up, rate, frames) {
+                            Ok(linked) => self.say(Happened::Linked(Box::new(linked))),
+                            Err(failure) => {
+                                self.ended.store(true, Ordering::Release);
+                                up.host.kill();
+                                self.say(Happened::Failed(failure));
+                                return;
+                            }
+                        }
+                    }
                     Command::Set(id, value) => {
                         let _ = up.host.set_param(id, value, QUICK);
                     }
@@ -977,27 +1000,36 @@ impl Run {
         let s = &self.start;
         let inputs = if s.instrument { 0 } else { 2 };
         let frames = frames.clamp(1, MOST_FRAMES as u32);
-        let (latency, tail) = up
+        let aux = self.aux.get();
+        // The buses the plugin declares; one that will not list them is
+        // played on its main buses.
+        let buses = up.host.buses(s.deadlines.configure).unwrap_or_default();
+        let configured = up
             .host
-            .configure(rate, frames, inputs, 2, s.deadlines.configure)
+            .configure_buses(rate, frames, (inputs, 2), aux, s.deadlines.configure)
             .map_err(|e| self.fail(&mut up.host, Step::Configure, e))?;
+        let (latency, tail) = (configured.latency, configured.tail);
         up.generation = up.host.generation();
         let block = up
             .host
             .attach(
-                Layout::new(MOST_FRAMES as u32, inputs, 2),
+                Layout::new(MOST_FRAMES as u32, configured.inputs, configured.outputs),
                 s.wake,
                 s.deadlines.attach,
             )
             .map_err(|e| self.fail(&mut up.host, Step::Attach, e))?;
+        let pairs = output_pairs(&buses.1, aux.outputs, configured.outputs);
         Ok(Linked {
             link: Link::new(
                 block,
                 up.generation,
                 tail,
+                pairs,
                 self.ended.clone(),
                 self.counts.clone(),
             ),
+            buses,
+            aux,
             name: up.name.clone(),
             vendor: up.vendor.clone(),
             latency,
@@ -1014,6 +1046,31 @@ impl Run {
 
     fn relink(&self, up: &mut Up, rate: f64, frames: u32) -> Result<Linked, Failure> {
         self.configure_and_link(up, rate, frames)
+    }
+}
+
+/// Where the output buses that are on sit in a block: the main bus first (2
+/// channels, as Lumen sets it up), then each auxiliary bus of `mask` in bus
+/// order. A list that does not add up to the `total` the host carries is
+/// played on its main bus alone.
+fn output_pairs(buses: &[BusInfo], mask: u32, total: u8) -> Vec<Pair> {
+    let mut pairs = vec![Pair {
+        first: 0,
+        channels: 2,
+    }];
+    let mut first = 2;
+    for bus in (1..buses.len().min(MAX_BUSES)).filter(|bus| mask & (1 << bus) != 0) {
+        let channels = usize::from(buses[bus].channels).clamp(1, 2);
+        pairs.push(Pair { first, channels });
+        first += channels;
+    }
+    if first == usize::from(total) {
+        pairs
+    } else {
+        vec![Pair {
+            first: 0,
+            channels: usize::from(total).clamp(1, 2),
+        }]
     }
 }
 
@@ -1080,7 +1137,7 @@ mod tests {
             Command::Set(2, 0.5),
             Command::Text(1, 0.1),
             Command::Set(1, 0.2),
-            Command::Relink(48_000.0, 128),
+            Command::Relink(48_000.0, 128, None),
             Command::Text(1, 0.2),
             Command::Set(1, 0.3),
             Command::Keys(vec![1, 2]),

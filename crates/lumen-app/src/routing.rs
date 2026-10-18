@@ -8,8 +8,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use lumen_core::pan::PanLaw;
-use lumen_engine::{CueOut, Destination, Device, NodeSpec, Routing, SendSpec};
-use lumen_project::model::{Id, Output, Project, Track, TrackKind};
+use lumen_engine::{CueOut, Destination, Device, NodeSpec, Routing, SendSpec, SidechainSpec, Tap};
+use lumen_project::model::{Id, Output, Project, SidechainTap, Track, TrackKind};
 use lumen_project::routing::{self as rules, destination};
 
 /// What is cued and how loud (M4 slice 4, the owner's C1), and where the
@@ -79,7 +79,7 @@ const CUE_CHANNEL: u16 = crate::settings::CUE_CHANNEL;
 pub struct Devices {
     /// Frames of latency on each track that has some.
     pub latent: BTreeMap<Id, u32>,
-    /// Frames of latency of each plugin effect, by device: what it last
+    /// Frames of latency of each plugin, by device: what it last
     /// reported, or what the project saved while it loads or is missing.
     pub hosted: BTreeMap<Id, u32>,
 }
@@ -161,6 +161,20 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices) -> Routing {
                             }),
                     )
                     .collect(),
+                // A plugin instrument plays its notes as late as it last
+                // reported, and every other path waits for it (slice 6).
+                source: track
+                    .devices
+                    .iter()
+                    .filter(|d| d.is_vst3() && d.is_instrument())
+                    .map(|d| d.id)
+                    // An audio track that plays an instrument's output waits as
+                    // long as that instrument does.
+                    .chain(track.plugin_output.map(|o| o.device))
+                    .filter_map(|d| devices.hosted.get(&d).copied())
+                    .max()
+                    .unwrap_or(0),
+                sidechains: sidechains(project, track),
                 ..NodeSpec::unity(track.id.0, output(project, track, &cue.outputs))
             }
         })
@@ -174,6 +188,30 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices) -> Routing {
         // The loudness readout measures what the master plays (slice 5).
         measure: Some(project.master.id.0),
     }
+}
+
+/// The sidechains into `track`: where each of its plugin effects is keyed
+/// from, once for each source and tap. A source that has been deleted plays
+/// nothing (the device keeps naming it, so undoing the delete restores it).
+fn sidechains(project: &Project, track: &Track) -> Vec<SidechainSpec> {
+    let mut found: Vec<SidechainSpec> = Vec::new();
+    for key in track.devices.iter().filter_map(|d| d.sidechain) {
+        if !rules::all_tracks(project).any(|t| t.id == key.from) {
+            continue;
+        }
+        let spec = SidechainSpec {
+            from: key.from.0,
+            tap: match key.tap {
+                SidechainTap::PreFx => Tap::PreFx,
+                SidechainTap::PostFx => Tap::PostFx,
+                SidechainTap::PostMixer => Tap::PostMixer,
+            },
+        };
+        if !found.contains(&spec) {
+            found.push(spec);
+        }
+    }
+    found
 }
 
 fn output(project: &Project, track: &Track, outputs: &Outputs) -> Destination {
@@ -224,6 +262,84 @@ mod tests {
         let plan = lumen_engine::compile_routing(&routing).unwrap();
         assert_eq!(plan.compensation().frames, 240);
         assert_eq!(plan.compensation().path, [(ids[0].0, 240)]);
+    }
+
+    #[test]
+    fn a_plugin_instruments_latency_makes_every_other_track_wait_for_it() {
+        use lumen_project::model::{DeviceKind, PluginRef};
+        let (mut doc, ids) = doc_with(&[TrackKind::Midi, TrackKind::Audio]);
+        let instrument = doc
+            .add_device(
+                ids[0],
+                PluginRef::Vst3 {
+                    class_id: "00112233445566778899AABBCCDDEEFF".into(),
+                    name: "Instrument A".into(),
+                    vendor: "Vendor A".into(),
+                    kind: DeviceKind::Instrument,
+                },
+                crate::document::Slot::End,
+            )
+            .unwrap();
+        let mut devices = Devices::default();
+        devices.hosted.insert(instrument, 360);
+        let routing = super::routing(doc.project(), &Cue::default(), &devices);
+        assert_eq!(node(&routing, ids[0]).source, 360);
+        assert!(
+            node(&routing, ids[0]).devices.is_empty(),
+            "an instrument is not a device in the chain"
+        );
+        assert_eq!(node(&routing, ids[1]).source, 0);
+        let plan = lumen_engine::compile_routing(&routing).unwrap();
+        assert_eq!(plan.compensation().frames, 360);
+        assert_eq!(plan.compensation().path, [(ids[0].0, 360)]);
+    }
+
+    #[test]
+    fn a_plugin_effects_sidechain_reaches_the_engine_once_for_each_source_and_tap() {
+        use lumen_project::model::{DeviceKind, PluginRef, Sidechain};
+        let (mut doc, ids) = doc_with(&[TrackKind::Audio, TrackKind::Audio]);
+        let effect = |doc: &mut Document, name: &str| {
+            doc.add_device(
+                ids[0],
+                PluginRef::Vst3 {
+                    class_id: "00112233445566778899AABBCCDDEEFF".into(),
+                    name: name.into(),
+                    vendor: "Vendor A".into(),
+                    kind: DeviceKind::Effect,
+                },
+                crate::document::Slot::End,
+            )
+            .unwrap()
+        };
+        let (a, b) = (effect(&mut doc, "Comp"), effect(&mut doc, "Gate"));
+        let key = |tap| Some(Sidechain { from: ids[1], tap });
+        doc.set_sidechain(a, key(SidechainTap::PostFx)).unwrap();
+        doc.set_sidechain(b, key(SidechainTap::PostFx)).unwrap();
+        let routing = routing(doc.project(), &Cue::default());
+        assert_eq!(
+            node(&routing, ids[0]).sidechains,
+            [SidechainSpec {
+                from: ids[1].0,
+                tap: Tap::PostFx
+            }],
+            "two effects keyed alike share one feed"
+        );
+        lumen_engine::compile_routing(&routing).unwrap();
+        doc.set_sidechain(b, key(SidechainTap::PreFx)).unwrap();
+        let routing = super::routing(doc.project(), &Cue::default(), &Devices::default());
+        assert_eq!(node(&routing, ids[0]).sidechains.len(), 2);
+        // A source that was deleted plays nothing, and the routing still compiles.
+        doc.set_sidechain(
+            a,
+            Some(Sidechain {
+                from: Id(9_999),
+                tap: SidechainTap::PostFx,
+            }),
+        )
+        .unwrap();
+        let routing = super::routing(doc.project(), &Cue::default(), &Devices::default());
+        assert_eq!(node(&routing, ids[0]).sidechains.len(), 1);
+        lumen_engine::compile_routing(&routing).unwrap();
     }
 
     #[test]

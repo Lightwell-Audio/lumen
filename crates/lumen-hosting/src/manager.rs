@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 
-use lumen_plugin_host::protocol::EditorBounds;
+use lumen_plugin_host::protocol::{Aux, EditorBounds};
 
 use crate::process::{Captured, Gate, Happened, Process, Start, Tag};
 
@@ -191,6 +191,18 @@ impl Manager {
             entry.start.rate = rate;
             entry.start.frames = frames;
             entry.process.relink(rate, frames);
+        }
+    }
+
+    /// As [`Manager::relink`], with these auxiliary buses on from now on (a
+    /// sidechain chosen, an extra output turned on): the host is set up
+    /// again with them.
+    pub fn relink_with(&mut self, device: u64, rate: f64, frames: u32, aux: Aux) {
+        if let Some(entry) = self.entries.get_mut(&device) {
+            entry.start.rate = rate;
+            entry.start.frames = frames;
+            entry.start.aux = aux;
+            entry.process.relink_with(rate, frames, aux);
         }
     }
 

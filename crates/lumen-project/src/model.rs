@@ -249,8 +249,22 @@ pub struct Track {
     /// kind of track; audio tracks use it from M9.
     #[serde(default, skip_serializing_if = "Monitor::is_default")]
     pub monitor: Monitor,
+    /// The plugin output this audio track plays, if it plays one (format
+    /// v21): an auxiliary output of an instrument, which Lumen made the track
+    /// for. Written only when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_output: Option<PluginOutput>,
     #[serde(default)]
     pub clips: Vec<Arc<Clip>>,
+}
+
+/// An output of a plugin instrument that a track plays (format v21): the
+/// device, and the number of its audio output bus (0 is the instrument's own
+/// track, so an output track is 1 or more).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginOutput {
+    pub device: Id,
+    pub bus: u32,
 }
 
 impl Track {
@@ -275,6 +289,7 @@ impl Track {
             midi_to: None,
             midi_from: MidiFrom::default(),
             monitor: Monitor::default(),
+            plugin_output: None,
             clips: Vec::new(),
         }
     }
@@ -496,6 +511,27 @@ impl Reported {
     }
 }
 
+/// Where on the source track a sidechain is taken from (format v20).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SidechainTap {
+    /// Before the track's devices: mute and fader do not touch it.
+    PreFx,
+    /// After the track's devices, before mute and fader.
+    #[default]
+    PostFx,
+    /// What the track plays: after mute, fader and pan.
+    PostMixer,
+}
+
+/// A sidechain: another track whose sound keys an effect (format v20).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sidechain {
+    pub from: Id,
+    #[serde(default)]
+    pub tap: SidechainTap,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Device {
     pub id: Id,
@@ -526,6 +562,11 @@ pub struct Device {
     /// some; a save that captures the plugin's state afresh clears it.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub params: BTreeMap<u32, f64>,
+    /// The track whose sound keys this effect, if it takes a sidechain
+    /// (format v20): where the signal is taken from on that track. Written
+    /// only when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sidechain: Option<Sidechain>,
     /// How many times the device's sound was replaced as a whole (a preset
     /// loaded), so the running plugin can tell that the project holds another
     /// sound than the one it has, after an undo or redo, without comparing
@@ -547,6 +588,7 @@ impl Device {
             plugin_version: String::new(),
             reported: None,
             params: BTreeMap::new(),
+            sidechain: None,
             state_rev: 0,
         }
     }

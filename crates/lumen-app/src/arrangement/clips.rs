@@ -448,6 +448,12 @@ impl Arrangement {
         // The drop line of a track drag continues across the lanes.
         self.draw_drop_line(painter, canvas, false);
         self.draw_selection(painter, canvas, project, &rows, time);
+        // A device from the browser, over a track's lane.
+        for row in &rows {
+            if let (RowKind::Track(index), Some(lane)) = (row.kind, lane_of(row)) {
+                self.browser_drop_target(ctx, painter, lane, project.tracks[index].id);
+            }
+        }
     }
 
     /// Rebuilds the GPU boxes if the project, the media or the theme

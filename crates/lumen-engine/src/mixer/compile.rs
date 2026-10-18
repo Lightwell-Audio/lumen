@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use super::delay::{LineKey, Lines};
 use super::hosts::{HostScratch, NO_HOST};
-use super::meter::MeterBank;
+use super::meter::{MeterBank, SIDE_KEY};
 use super::plan::{BUS, CHUNK, Dev, NO_DEV, NO_METER, NO_SIDE, Node, Out, Plan, Send, TapOut};
 use super::smooth::Smoothed;
 use super::spec::{Compensation, Destination, Routing, RoutingError, Tap};
@@ -87,6 +87,8 @@ pub(super) fn compile_metered(
             }
             feeds[from].push((i, Edge::Sidechain(sidechain.tap)));
             incoming[i] += 1;
+            // What a sidechain brings is not there until its source has run.
+            fed[i] = true;
         }
     }
 
@@ -140,10 +142,15 @@ pub(super) fn compile_metered(
             Destination::Hardware(_) => arrival.total - after,
             Destination::None => 0,
         };
-        (spec.id, spec.output).hash(&mut hasher);
+        (spec.id, spec.output, spec.source).hash(&mut hasher);
         let out_line = lines.add(LineKey::Output { from: spec.id }, out_delay);
         // What the tracks play into the node waits for its other inputs.
-        let input_line = lines.add(LineKey::Input { node: spec.id }, arrival.at[i]);
+        // A plugin instrument's own output is already late by its source
+        // latency, so only the rest of the wait is a line.
+        let input_line = lines.add(
+            LineKey::Input { node: spec.id },
+            arrival.at[i].saturating_sub(arrival.source[i]),
+        );
 
         let first_device = devices.len() as u32;
         for (index, device) in spec.devices.iter().enumerate() {
@@ -264,6 +271,11 @@ pub(super) fn compile_metered(
             } else {
                 NO_METER
             },
+            side_meter: if meters.is_some() && side_of[i] != NO_SIDE {
+                slot(spec.id | SIDE_KEY)
+            } else {
+                NO_METER
+            },
         });
     }
     lines.finish();
@@ -330,6 +342,8 @@ struct Arrival {
     at: Vec<u32>,
     /// Frames each node's devices add.
     latency: Vec<u32>,
+    /// Frames each node's own source trails the timeline.
+    source: Vec<u32>,
     /// What each node waits for: the node whose path arrives last, if any.
     latest: Vec<Option<usize>>,
     /// When the device outputs and the cue bus play.
@@ -342,7 +356,12 @@ impl Arrival {
     fn work_out(routing: &Routing, order: &[usize], feeds: &[Vec<(usize, Edge)>]) -> Self {
         let specs = &routing.nodes;
         let latency: Vec<u32> = specs.iter().map(|s| s.latency()).collect();
-        let mut at = vec![0u32; specs.len()];
+        let source: Vec<u32> = specs
+            .iter()
+            .map(|s| s.source.min(super::MAX_DEVICE_LATENCY))
+            .collect();
+        // A node's input is ready no sooner than its own source plays.
+        let mut at = source.clone();
         let mut latest = vec![None; specs.len()];
         for &i in order {
             let after = at[i].saturating_add(latency[i]);
@@ -376,6 +395,7 @@ impl Arrival {
         Self {
             at,
             latency,
+            source,
             latest,
             total,
             last,
@@ -391,8 +411,9 @@ impl Arrival {
         let mut at = self.last;
         // Each step goes to a node earlier in the order, so this ends.
         while let Some(i) = at {
-            if self.latency[i] > 0 {
-                path.push((routing.nodes[i].id, self.latency[i]));
+            let adds = self.source[i].saturating_add(self.latency[i]);
+            if adds > 0 {
+                path.push((routing.nodes[i].id, adds));
             }
             at = self.latest[i];
         }
@@ -653,6 +674,50 @@ mod tests {
                 .iter()
                 .any(|(key, _)| matches!(key, LineKey::Output { from: 1..=3 }))
         );
+    }
+
+    #[test]
+    fn an_instruments_latency_is_met_by_every_other_path_and_not_delayed_again() {
+        // Track 2 is an instrument that plays 100 frames late; track 3 is a
+        // plain track; both go to the master.
+        let mut instrument = node(2, Destination::Node(1));
+        instrument.source = 100;
+        let plan = compile(&routing(vec![
+            node(1, Destination::Hardware(0)),
+            instrument,
+            node(3, Destination::Node(1)),
+        ]))
+        .unwrap();
+        assert_eq!(
+            plan.compensation,
+            Compensation {
+                frames: 100,
+                path: vec![(2, 100)],
+            }
+        );
+        let lengths: Vec<(LineKey, usize)> = plan.lines.shape().collect();
+        assert!(lengths.contains(&(LineKey::Output { from: 3 }, 100)));
+        assert!(
+            !lengths.iter().any(|(key, _)| matches!(
+                key,
+                LineKey::Input { node: 2 } | LineKey::Output { from: 2 }
+            )),
+            "the instrument's own output is not delayed: {lengths:?}"
+        );
+    }
+
+    #[test]
+    fn an_instrument_with_a_slower_device_adds_both() {
+        let mut instrument = node(2, Destination::Node(1));
+        instrument.source = 100;
+        instrument.devices = latent(40);
+        let plan = compile(&routing(vec![
+            node(1, Destination::Hardware(0)),
+            instrument,
+        ]))
+        .unwrap();
+        assert_eq!(plan.compensation.frames, 140);
+        assert_eq!(plan.compensation.path, vec![(2, 140)]);
     }
 
     #[test]

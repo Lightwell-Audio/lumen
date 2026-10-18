@@ -20,6 +20,10 @@ fn within(t: Ticks) -> bool {
     t.0.unsigned_abs() <= LONGEST.0.unsigned_abs()
 }
 
+/// The most audio output buses of a plugin an output track can play (the
+/// host's own limit, less the main one).
+const MOST_BUSES: u32 = 31;
+
 /// The most parameters a plugin may list, and so the most a device holds
 /// values for (the host's own limit).
 const MOST_PARAMS: usize = 16_384;
@@ -54,6 +58,9 @@ fn device_data(device: &Device) -> Result<(), String> {
             {
                 return Err("a plugin's parameter values are out of range".into());
             }
+            if device.sidechain.is_some() && device.is_instrument() {
+                return Err("an instrument takes no sidechain".into());
+            }
             if let Some(reported) = &device.reported
                 && (!(8_000..=384_000).contains(&reported.rate) || reported.latency > 1 << 24)
             {
@@ -65,6 +72,7 @@ fn device_data(device: &Device) -> Result<(), String> {
                 || !device.plugin_version.is_empty()
                 || device.reported.is_some()
                 || !device.params.is_empty()
+                || device.sidechain.is_some()
             {
                 return Err("a built-in device holds plugin-only data".into());
             }
@@ -122,6 +130,7 @@ pub fn validate(project: &Project) -> Result<(), String> {
     }
 
     let mut ids = HashSet::new();
+    let mut outputs = HashSet::new();
     for (index, marker) in project.markers.iter().enumerate() {
         if !ids.insert(marker.id) {
             return Err(format!("marker {index} {:?}: duplicate id", marker.name));
@@ -144,6 +153,26 @@ pub fn validate(project: &Project) -> Result<(), String> {
             return Err(format!("{}: gain or pan is not a valid number", at()));
         }
         routing(track, &kinds).map_err(|e| format!("{}: {e}", at()))?;
+        if let Some(output) = &track.plugin_output {
+            if track.kind != TrackKind::Audio {
+                return Err(format!(
+                    "{}: only an audio track plays a plugin's output",
+                    at()
+                ));
+            }
+            if output.bus == 0 || output.bus > MOST_BUSES {
+                return Err(format!(
+                    "{}: a plugin output must be bus 1 to {MOST_BUSES}",
+                    at()
+                ));
+            }
+            if !outputs.insert((output.device, output.bus)) {
+                return Err(format!(
+                    "{}: another track plays the same plugin output",
+                    at()
+                ));
+            }
+        }
         if let Some(parent) = track.parent {
             if !crate::groups::can_be_grouped(track.kind) {
                 return Err(format!("{}: a return or master inside a group", at()));
@@ -212,6 +241,11 @@ pub fn validate(project: &Project) -> Result<(), String> {
                 }
             }
             device_data(device).map_err(|why| format!("{}: {why}", at()))?;
+            // A source that was deleted stays named: the row says so and the
+            // engine plays no sidechain, so undoing the delete brings it back.
+            if device.sidechain.is_some_and(|s| s.from == track.id) {
+                return Err(format!("{}: its sidechain is its own track", at()));
+            }
         }
         for (index, clip) in track.clips.iter().enumerate() {
             let at = || format!("{}, clip {index} {:?}", at(), clip.name);

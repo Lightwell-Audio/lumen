@@ -355,6 +355,31 @@ impl App {
         self.field_look(device).is_some()
     }
 
+    /// Gives a plugin effect a sidechain input, and the light of `track`'s
+    /// sidechain a level (0 to 1) and, when `silent_seconds` is over two
+    /// while the song plays, the warning ring: screenshots of the card's row.
+    pub fn give_device_sidechain(
+        &mut self,
+        device: Id,
+        track: Id,
+        level: f32,
+        silent_seconds: f32,
+    ) {
+        self.hosting.pretend_sidechain_input(device);
+        self.chain.sidechain.pretend(track, level, silent_seconds);
+    }
+
+    /// Gives a plugin instrument `extra` outputs besides its main one, as if
+    /// its host had listed them: screenshots of the card's outputs row.
+    pub fn give_device_outputs(&mut self, device: Id, extra: &[&str]) {
+        self.hosting.pretend_outputs(device, extra);
+    }
+
+    /// How lit the sidechain light of the shown track is, 0 to 1.
+    pub fn sidechain_light(&self, track: Id) -> f32 {
+        self.chain.sidechain.level_of(track)
+    }
+
     /// The folders "Show presets folder" opened, oldest first.
     pub fn revealed_folders(&self) -> Vec<PathBuf> {
         self.chain.presets.revealed.clone()
@@ -691,6 +716,11 @@ impl App {
     /// window would, with no edit of the project.
     pub fn poke_plugin(&mut self, device: Id, id: u32, value: f64) {
         self.hosting.poke_param(device, id, value);
+    }
+
+    /// How many values Lumen has sent the device's plugin to match the project.
+    pub fn values_sent_to(&self, device: Id) -> u32 {
+        self.hosting.values_sent(device)
     }
 
     /// Whether the device's plugin window is open but hidden because the

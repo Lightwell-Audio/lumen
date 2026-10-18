@@ -198,10 +198,22 @@ pub(crate) struct DeviceDrop {
     pub result: Result<Id, crate::document::Refusal>,
 }
 
+/// What a track that plays a plugin's output says about where its sound comes
+/// from, and whether that is not working.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutputNote {
+    pub text: String,
+    /// The instrument is not running: the track plays nothing.
+    pub warn: bool,
+}
+
 #[derive(Debug, Default)]
 pub struct Arrangement {
     /// Vertical scroll, in points.
     pub top: f32,
+    /// What each track that plays a plugin's output says of it, by track
+    /// (M6 slice 6d): set every frame by the app, which knows the plugins.
+    pub output_notes: std::collections::HashMap<Id, OutputNote>,
     /// Clips gliding to new places, and what undo changed (M4.5).
     glides: glide::ClipGlides,
     /// Rows gliding to new places, and new ones growing in (M4.5).
@@ -236,6 +248,9 @@ pub struct Arrangement {
     /// A device card was dropped on a track's header: the app follows it
     /// (shows the track, or says why it was refused).
     pub(crate) device_drop: Option<DeviceDrop>,
+    /// A device from the browser was let go over a track (its header or its
+    /// lane): the browser's id of the device, and the track.
+    pub(crate) browser_drop: Option<(String, Id)>,
     /// Selected clips (slice 6a). Selecting clips clears the track
     /// selection, and the other way round.
     pub clips: BTreeSet<Id>,

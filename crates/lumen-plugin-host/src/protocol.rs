@@ -16,11 +16,15 @@ use crate::wire::{Reader, WireError, Writer};
 
 /// First four bytes of every frame.
 pub const MAGIC: u32 = 0x3148_504c; // "LPH1"
-/// Bumped when a message changes shape. A host of another version is refused.
-pub const VERSION: u16 = 6;
+/// Bumped when a message changes shape or a limit both sides keep changes. A
+/// host of another version is refused (8: a block may carry 64 channels, 32
+/// stereo buses, where it was 16).
+pub const VERSION: u16 = 8;
 
 pub const MAX_FRAMES: usize = 8192;
-pub const MAX_CHANNELS: usize = 16;
+/// The channels a block carries each way in all: the main bus and every
+/// auxiliary one that is on, 32 stereo buses at most (`MAX_BUSES`).
+pub const MAX_CHANNELS: usize = 64;
 pub const MAX_EVENTS: usize = 4096;
 pub const MAX_QUEUES: usize = 1024;
 pub const MAX_POINTS: usize = 16_384;
@@ -36,6 +40,8 @@ pub const MAX_EDITS: usize = 4096;
 pub const MAX_PROGRAM_LISTS: usize = 64;
 pub const MAX_PROGRAMS: usize = 4096;
 pub const MAX_PROGRAMS_ALL: usize = 16_384;
+/// The most audio buses a plugin may declare each way.
+pub const MAX_BUSES: usize = 32;
 /// The longest base name of a shared-memory link.
 pub const MAX_BASE: usize = 64;
 /// The largest frame payload: a full block of audio both ways, with room.
@@ -53,6 +59,29 @@ pub const RESTART_RECONFIGURE: u32 = 1 | (1 << 1) | (1 << 3);
 
 /// The same 16 bytes as a VST3 class id.
 pub type ClassId = [u8; 16];
+
+/// Which auxiliary buses to turn on: bit `i` turns on the plugin's bus `i` of
+/// that direction (bit 0, the main bus, is ignored). Every other auxiliary
+/// bus is turned off. A block carries their channels after the main bus's, in
+/// bus order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Aux {
+    pub inputs: u32,
+    pub outputs: u32,
+}
+
+/// An audio bus a plugin declares, as the plugin describes it (M6 slice 6b).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BusInfo {
+    pub name: String,
+    /// Channels it has by default (a mono or stereo bus is 1 or 2).
+    pub channels: u8,
+    /// The plugin's main bus (the first of its direction) rather than an
+    /// auxiliary one: a sidechain input, an extra output.
+    pub main: bool,
+    /// The plugin has it on unless told otherwise.
+    pub default_active: bool,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EventKind {
@@ -369,7 +398,13 @@ pub enum Request {
         /// Channels of the main input and output bus; 0 for none.
         inputs: u8,
         outputs: u8,
+        /// The auxiliary buses to turn on (see [`Aux`]); every other one is
+        /// turned off. Their channels follow the main bus's in the block.
+        aux_inputs: u32,
+        aux_outputs: u32,
     },
+    /// List the audio buses the plugin declares.
+    Buses,
     Process {
         generation: u32,
         seq: u64,
@@ -445,6 +480,14 @@ pub enum Response {
         generation: u32,
         latency: u32,
         tail: u32,
+        /// The channels a block carries each way: the main bus's and every
+        /// turned-on auxiliary bus's.
+        inputs: u8,
+        outputs: u8,
+    },
+    Buses {
+        inputs: Vec<BusInfo>,
+        outputs: Vec<BusInfo>,
     },
     Processed {
         generation: u32,
@@ -556,6 +599,7 @@ const REQ_SHOW_EDITOR: u16 = 18;
 const REQ_PROGRAMS: u16 = 19;
 const REQ_GET_CONTROLLER_STATE: u16 = 20;
 const REQ_SET_CONTROLLER_STATE: u16 = 21;
+const REQ_BUSES: u16 = 22;
 
 const RES_LOADED: u16 = 101;
 const RES_CONFIGURED: u16 = 102;
@@ -572,6 +616,7 @@ const RES_VALUE: u16 = 112;
 const RES_EDITOR: u16 = 113;
 const RES_KEY: u16 = 114;
 const RES_PROGRAMS: u16 = 115;
+const RES_BUSES: u16 = 116;
 
 fn put_audio(w: &mut Writer, channels: &[Vec<f32>]) {
     w.u32(channels.len() as u32);
@@ -640,14 +685,19 @@ impl Request {
                 max_frames,
                 inputs,
                 outputs,
+                aux_inputs,
+                aux_outputs,
             } => {
                 w.u32(*generation);
                 w.f64(*sample_rate);
                 w.u32(*max_frames);
                 w.u8(*inputs);
                 w.u8(*outputs);
+                w.u32(*aux_inputs);
+                w.u32(*aux_outputs);
                 REQ_CONFIGURE
             }
+            Request::Buses => REQ_BUSES,
             Request::Process {
                 generation,
                 seq,
@@ -757,6 +807,8 @@ impl Request {
                     max_frames: r.u32()?,
                     inputs: r.u8()?,
                     outputs: r.u8()?,
+                    aux_inputs: r.u32()?,
+                    aux_outputs: r.u32()?,
                 };
                 if let Request::Configure {
                     sample_rate,
@@ -839,6 +891,7 @@ impl Request {
             REQ_PARAMETERS => Request::Parameters,
             REQ_UNITS => Request::Units,
             REQ_PROGRAMS => Request::Programs,
+            REQ_BUSES => Request::Buses,
             REQ_GET_CONTROLLER_STATE => Request::GetControllerState,
             REQ_SET_CONTROLLER_STATE => {
                 Request::SetControllerState(r.bytes("controller state", MAX_STATE)?.to_vec())
@@ -913,11 +966,27 @@ impl Response {
                 generation,
                 latency,
                 tail,
+                inputs,
+                outputs,
             } => {
                 w.u32(*generation);
                 w.u32(*latency);
                 w.u32(*tail);
+                w.u8(*inputs);
+                w.u8(*outputs);
                 RES_CONFIGURED
+            }
+            Response::Buses { inputs, outputs } => {
+                for side in [inputs, outputs] {
+                    w.u32(side.len() as u32);
+                    for bus in side {
+                        w.str(&bus.name);
+                        w.u8(bus.channels);
+                        w.bool(bus.main);
+                        w.bool(bus.default_active);
+                    }
+                }
+                RES_BUSES
             }
             Response::Processed {
                 generation,
@@ -1033,7 +1102,25 @@ impl Response {
                 generation: r.u32()?,
                 latency: r.u32()?,
                 tail: r.u32()?,
+                inputs: r.u8()?,
+                outputs: r.u8()?,
             },
+            RES_BUSES => {
+                let mut sides = [Vec::new(), Vec::new()];
+                for side in &mut sides {
+                    let n = r.count("buses", MAX_BUSES, 7)?;
+                    for _ in 0..n {
+                        side.push(BusInfo {
+                            name: r.str("bus name", MAX_TEXT)?,
+                            channels: r.u8()?,
+                            main: r.bool()?,
+                            default_active: r.bool()?,
+                        });
+                    }
+                }
+                let [inputs, outputs] = sides;
+                Response::Buses { inputs, outputs }
+            }
             RES_PROCESSED => Response::Processed {
                 generation: r.u32()?,
                 seq: r.u64()?,
@@ -1331,7 +1418,19 @@ mod tests {
                 max_frames: 512,
                 inputs: 2,
                 outputs: 2,
+                aux_inputs: 0,
+                aux_outputs: 0,
             },
+            Request::Configure {
+                generation: 2,
+                sample_rate: 44_100.0,
+                max_frames: 256,
+                inputs: 2,
+                outputs: 2,
+                aux_inputs: 0b10,
+                aux_outputs: 0b1110,
+            },
+            Request::Buses,
             process,
             Request::GetState,
             Request::SetState(vec![1, 2, 3]),
@@ -1396,6 +1495,25 @@ mod tests {
                 generation: 2,
                 latency: 24,
                 tail: 24,
+                inputs: 4,
+                outputs: 8,
+            },
+            Response::Buses {
+                inputs: vec![
+                    BusInfo {
+                        name: "Input".into(),
+                        channels: 2,
+                        main: true,
+                        default_active: true,
+                    },
+                    BusInfo {
+                        name: "Sidechain".into(),
+                        channels: 2,
+                        main: false,
+                        default_active: false,
+                    },
+                ],
+                outputs: vec![],
             },
             Response::Processed {
                 generation: 2,
@@ -1681,6 +1799,8 @@ mod tests {
                 max_frames: frames,
                 inputs,
                 outputs: 2,
+                aux_inputs: 0,
+                aux_outputs: 0,
             };
             assert!(rejects(&frame(REQ_CONFIGURE, &request.encode().1)));
         }

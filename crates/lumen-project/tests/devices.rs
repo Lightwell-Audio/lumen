@@ -384,3 +384,173 @@ fn parameter_values_that_cannot_be_a_plugins_are_refused_with_a_reason() {
     });
     assert!(why.contains("strip"), "{why}");
 }
+
+// Format v20 (M6 slice 6): an effect takes a sidechain from another track.
+
+/// The model the v20 golden file must always load as. Never change it.
+fn golden_v20_expected() -> Project {
+    use lumen_project::model::{Sidechain, SidechainTap};
+    let mut project = golden_v19_expected();
+    project.name = "Golden v20".into();
+    for track in &mut project.tracks {
+        let track = std::sync::Arc::make_mut(track);
+        if let Some(device) = track.devices.iter_mut().find(|d| d.id == Id(1011)) {
+            device.sidechain = Some(Sidechain {
+                from: Id(1000),
+                tap: SidechainTap::PreFx,
+            });
+        }
+    }
+    project
+}
+
+#[test]
+fn golden_v20_file_loads_forever() {
+    let path = fixture("v20/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v20_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v20 golden file must load");
+    assert_eq!(project, golden_v20_expected());
+}
+
+#[test]
+fn older_projects_have_no_sidechains_and_none_are_written_when_there_are_none() {
+    for old in [
+        "v16/golden.lumen",
+        "v17/golden.lumen",
+        "v18/golden.lumen",
+        "v19/golden.lumen",
+    ] {
+        let project = load(&fixture(old)).expect("an older golden file loads");
+        assert!(
+            project
+                .tracks
+                .iter()
+                .flat_map(|t| &t.devices)
+                .all(|d| d.sidechain.is_none()),
+            "{old}"
+        );
+    }
+    let text = String::from_utf8(to_bytes(&golden_v19_expected()).unwrap()).unwrap();
+    assert!(!text.contains("sidechain"));
+    let text = String::from_utf8(to_bytes(&golden_v20_expected()).unwrap()).unwrap();
+    assert!(text.contains("\"sidechain\"") && text.contains("pre_fx"));
+}
+
+#[test]
+fn a_sidechain_that_cannot_work_is_refused_with_a_reason() {
+    use lumen_project::model::{Sidechain, SidechainTap};
+    let key = |from: u64| Sidechain {
+        from: Id(from),
+        tap: SidechainTap::PostFx,
+    };
+    let refused = |edit: &dyn Fn(&mut Project)| {
+        let mut project = golden_v20_expected();
+        edit(&mut project);
+        to_bytes(&project)
+            .expect_err("must be refused when saved")
+            .to_string()
+    };
+    let why = refused(&|p| {
+        std::sync::Arc::make_mut(&mut p.tracks[1]).devices[0].sidechain = Some(key(1010));
+    });
+    assert!(why.contains("its own track"), "{why}");
+    // A source that was deleted is kept, so undoing the delete restores it.
+    let mut gone = golden_v20_expected();
+    std::sync::Arc::make_mut(&mut gone.tracks[1]).devices[0].sidechain = Some(key(77));
+    assert!(to_bytes(&gone).is_ok());
+    // Keys on one track from the other, and back: the routing would feed back.
+    let why = refused(&|p| {
+        std::sync::Arc::make_mut(&mut p.tracks[0]).devices[1].sidechain = Some(key(1010));
+    });
+    assert!(why.contains("feeds back"), "{why}");
+    // An instrument takes none.
+    let why = refused(&|p| {
+        std::sync::Arc::make_mut(&mut p.tracks[0]).devices[0].sidechain = Some(key(1010));
+    });
+    assert!(why.contains("instrument takes no sidechain"), "{why}");
+}
+
+// Format v21 (M6 slice 6): an audio track plays an output of a plugin
+// instrument.
+
+/// The model the v21 golden file must always load as. Never change it.
+fn golden_v21_expected() -> Project {
+    use lumen_project::model::PluginOutput;
+    let mut project = golden_v20_expected();
+    project.name = "Golden v21".into();
+    let mut kick = track(1020, TrackKind::Audio, vec![]);
+    kick.name = "Kick out".into();
+    kick.plugin_output = Some(PluginOutput {
+        device: Id(1001),
+        bus: 1,
+    });
+    let mut snare = track(1030, TrackKind::Audio, vec![]);
+    snare.name = "Snare out".into();
+    snare.plugin_output = Some(PluginOutput {
+        device: Id(1001),
+        bus: 3,
+    });
+    project.tracks.push(std::sync::Arc::new(kick));
+    project.tracks.push(std::sync::Arc::new(snare));
+    project
+}
+
+#[test]
+fn golden_v21_file_loads_forever() {
+    let path = fixture("v21/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v21_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v21 golden file must load");
+    assert_eq!(project, golden_v21_expected());
+}
+
+#[test]
+fn older_projects_play_no_plugin_outputs_and_none_are_written_when_there_are_none() {
+    for old in ["v16/golden.lumen", "v19/golden.lumen", "v20/golden.lumen"] {
+        let project = load(&fixture(old)).expect("an older golden file loads");
+        assert!(
+            project.tracks.iter().all(|t| t.plugin_output.is_none()),
+            "{old}"
+        );
+    }
+    let text = String::from_utf8(to_bytes(&golden_v20_expected()).unwrap()).unwrap();
+    assert!(!text.contains("plugin_output"));
+    let text = String::from_utf8(to_bytes(&golden_v21_expected()).unwrap()).unwrap();
+    assert!(text.contains("plugin_output"));
+}
+
+#[test]
+fn a_plugin_output_that_cannot_be_played_is_refused_with_a_reason() {
+    use lumen_project::model::PluginOutput;
+    let refused = |edit: &dyn Fn(&mut Project)| {
+        let mut project = golden_v21_expected();
+        edit(&mut project);
+        to_bytes(&project)
+            .expect_err("must be refused when saved")
+            .to_string()
+    };
+    let play = |device, bus| {
+        Some(PluginOutput {
+            device: Id(device),
+            bus,
+        })
+    };
+    let why =
+        refused(&|p| std::sync::Arc::make_mut(&mut p.tracks[0]).plugin_output = play(1001, 1));
+    assert!(why.contains("only an audio track"), "{why}");
+    let why =
+        refused(&|p| std::sync::Arc::make_mut(&mut p.tracks[2]).plugin_output = play(1001, 0));
+    assert!(why.contains("bus 1 to"), "{why}");
+    let why =
+        refused(&|p| std::sync::Arc::make_mut(&mut p.tracks[3]).plugin_output = play(1001, 1));
+    assert!(why.contains("same plugin output"), "{why}");
+    // A device that is no longer there is kept: the track says so.
+    let mut gone = golden_v21_expected();
+    std::sync::Arc::make_mut(&mut gone.tracks[2]).plugin_output = play(9_999, 1);
+    assert!(to_bytes(&gone).is_ok());
+}

@@ -110,6 +110,8 @@ pub(super) struct Node {
     pub lined: bool,
     /// Its slot in the plan's meter bank ([`NO_METER`] when unmetered).
     pub meter: u32,
+    /// The slot of its sidechain bus's reading, else [`NO_METER`].
+    pub side_meter: u32,
 }
 
 /// The slot of a node that is not metered.
@@ -483,6 +485,18 @@ impl Plan {
             scale(right, gain);
 
             let taps = &self.taps[node.first_tap as usize..(node.first_tap + node.taps) as usize];
+            if node.side != NO_SIDE
+                && let Some(meters) = meters
+            {
+                // What arrives to key the node's devices: every source is
+                // earlier in the order, so the bus is whole by now.
+                let side = &self.sides[node.side as usize * BUS..][..BUS];
+                meters.record(
+                    node.side_meter,
+                    [&side[..frames], &side[CHUNK..CHUNK + frames]],
+                    keep,
+                );
+            }
             if node.split {
                 let (lines, sides) = (&mut self.lines, &mut self.sides);
                 send_taps(
@@ -498,12 +512,19 @@ impl Plan {
                     node.first_device as usize..(node.first_device + node.devices) as usize;
                 for device in &mut self.devices[devices] {
                     if device.host != NO_HOST {
+                        // A plugin that takes a sidechain hears what arrives
+                        // for the node.
+                        let key = (node.side != NO_SIDE).then(|| {
+                            let side = &self.sides[node.side as usize * BUS..][..BUS];
+                            (&side[..frames], &side[CHUNK..CHUNK + frames])
+                        });
                         hosts::run(
                             device,
                             &mut self.lines,
                             &mut self.host_scratch,
                             hosting,
                             (&mut *left, &mut *right),
+                            key,
                             (rate, advance),
                         );
                         continue;

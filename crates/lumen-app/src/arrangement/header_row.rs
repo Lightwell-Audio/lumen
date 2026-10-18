@@ -80,6 +80,33 @@ impl Arrangement {
         }
     }
 
+    /// A device carried from the browser over a track's header or lane: the
+    /// track lights, and when it is let go the app puts the device there.
+    pub(super) fn browser_drop_target(
+        &mut self,
+        ctx: &egui::Context,
+        painter: &Painter,
+        rect: Rect,
+        to: Id,
+    ) {
+        let Some(device) = egui::DragAndDrop::payload::<crate::chain::Dragged>(ctx) else {
+            return;
+        };
+        if !ctx.pointer_latest_pos().is_some_and(|p| rect.contains(p)) {
+            return;
+        }
+        painter.rect_stroke(
+            rect.shrink(1.0),
+            0.0,
+            Stroke::new(theme::stroke::LIT, theme::p().accent),
+            egui::StrokeKind::Inside,
+        );
+        if ctx.input(|i| i.pointer.any_released()) {
+            self.browser_drop = Some((device.0.clone(), to));
+            egui::DragAndDrop::clear_payload(ctx);
+        }
+    }
+
     /// Draws one track's header in its zone (`painter` is clipped to it).
     /// Returns the track's bottom edge and how strongly it glows, while it
     /// does, so the lane can continue the glow.
@@ -127,6 +154,7 @@ impl Arrangement {
             self.click_select(doc.project(), track.id, modifiers);
         }
         self.device_drop_target(&ctx, &painter, doc, rect, track.id, modifiers.alt);
+        self.browser_drop_target(&ctx, &painter, rect, track.id);
         // Returns stay pinned in their own order (reordering them waits;
         // KNOWN_ISSUES).
         if background.drag_started() && track.kind != TrackKind::Return {
@@ -243,14 +271,20 @@ impl Arrangement {
             },
         );
         let kind_hover = Rect::from_center_size(pos2(left + ICON_X, mid), vec2(16.0, 16.0));
+        let note = self.output_notes.get(&track.id).cloned();
+        let kind_words = match &note {
+            Some(note) => format!("{} \u{b7} {}", kind_name(track.kind), note.text),
+            None => kind_name(track.kind).to_owned(),
+        };
         let kind = ui
             .interact(kind_hover, id.with("kind"), Sense::hover())
-            .on_hover_text(kind_name(track.kind));
+            .on_hover_text(&kind_words);
         kind.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Label, true, kind_name(track.kind))
+            egui::WidgetInfo::labeled(egui::WidgetType::Label, true, kind_words.clone())
         });
         // A MIDI track whose Monitor is not Auto shows a badge before M.
-        let badge = super::monitor_badge::shown(&track).then(|| {
+        let silent = note.as_ref().filter(|n| n.warn).map(|n| n.text.clone());
+        let badge = (super::monitor_badge::shown(&track) || silent.is_some()).then(|| {
             Rect::from_center_size(
                 pos2(
                     mute_rect.left() - BUTTON_GAP - theme::size::BADGE_W / 2.0,
@@ -303,10 +337,26 @@ impl Arrangement {
             });
         }
 
-        if let Some(badge) = badge
-            && let Some(next) = super::monitor_badge::badge(ui, badge, id, &track, look)
-        {
-            doc.set_monitor(&self.targets(track.id), next);
+        if let Some(badge) = badge {
+            if let Some(why) = &silent {
+                // The track plays a plugin's output and the plugin is not
+                // running: it is silent, and this says why.
+                painter.text(
+                    badge.center(),
+                    Align2::CENTER_CENTER,
+                    "\u{25B2}",
+                    fonts::medium(theme::size::CAPTION),
+                    palette.warning,
+                );
+                let warn = ui
+                    .interact(badge, id.with("output note"), Sense::hover())
+                    .on_hover_text(why);
+                warn.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Label, true, why.clone())
+                });
+            } else if let Some(next) = super::monitor_badge::badge(ui, badge, id, &track, look) {
+                doc.set_monitor(&self.targets(track.id), next);
+            }
         }
         self.mute_solo(
             ui,
@@ -318,7 +368,7 @@ impl Arrangement {
         );
         // Returns record nothing: no arm button.
         if track.kind != TrackKind::Return && arm_button(ui, arm_rect, id, &track.name, arm, look) {
-            doc.set_armed(&self.targets(track.id), !arm.on());
+            self.press_arm(ui, doc, track.id, arm.on());
         }
 
         // Unfolded: volume and pan on a second row, then the sends.

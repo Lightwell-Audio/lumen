@@ -353,3 +353,91 @@ fn where_there_are_no_windows_the_button_says_so_and_learn_hides() {
     assert!(!lumen.shows("Learn"));
     assert!(lumen.shows("All parameters (2)"));
 }
+
+/// Whether the track holds a hosted plugin (a new MIDI track has the
+/// built-in synth, which the plugin replaces).
+fn has_plugin(lumen: &Lumen, track: Id) -> bool {
+    lumen
+        .app()
+        .project()
+        .tracks
+        .iter()
+        .find(|t| t.id == track)
+        .is_some_and(|t| {
+            t.devices
+                .iter()
+                .any(|d| matches!(d.plugin, lumen_project::model::PluginRef::Vst3 { .. }))
+        })
+}
+
+#[test]
+fn a_device_dragged_from_the_browser_onto_a_track_header_shows_the_track_and_opens_its_window() {
+    let mut lumen = launch("drop-header", "Window");
+    assert!(!has_plugin(&lumen, PADS));
+    let row = lumen
+        .harness
+        .get_by_label_contains("Deterministic Test Instrument, ")
+        .rect()
+        .center();
+    let pads = lumen.harness.get_by_label_contains("Track Pads").rect();
+    lumen.drag(row, pads.center(), Modifiers::NONE);
+
+    assert!(has_plugin(&lumen, PADS), "the device is on the track");
+    assert!(lumen.shows("Deterministic Test Instrument on Pads"));
+    wait_shows(&mut lumen, "Close editor");
+    // One undo step put it there, and Undo takes it away again.
+    assert_eq!(
+        lumen.app().undo_label(),
+        Some("Replace instrument with Deterministic Test Instrument")
+    );
+}
+
+#[test]
+fn a_device_dragged_onto_a_tracks_lane_does_the_same() {
+    let mut lumen = launch("drop-lane", "Window");
+    let row = lumen
+        .harness
+        .get_by_label_contains("Deterministic Test Instrument, ")
+        .rect()
+        .center();
+    let pads = lumen.harness.get_by_label_contains("Track Pads").rect();
+    lumen.drag(
+        row,
+        eframe::egui::pos2(pads.right() + 300.0, pads.center().y),
+        Modifiers::NONE,
+    );
+    assert!(has_plugin(&lumen, PADS));
+    wait_shows(&mut lumen, "Close editor");
+}
+
+#[test]
+fn a_drag_that_ends_on_no_track_adds_nothing_and_opens_nothing() {
+    let mut lumen = launch("drop-nowhere", "Window");
+    let row = lumen
+        .harness
+        .get_by_label_contains("Deterministic Test Instrument, ")
+        .rect()
+        .center();
+    lumen.drag(row, eframe::egui::pos2(row.x, row.y + 3.0), Modifiers::NONE);
+    assert!(!has_plugin(&lumen, PADS));
+    lumen.frames(20);
+    assert!(!lumen.shows("Close editor"));
+}
+
+#[test]
+fn a_value_changed_in_the_plugins_window_is_never_sent_back_to_it() {
+    // The old value must not go back to the plugin in the moment before the
+    // project holds the new one: the control would jump back and forth.
+    let mut lumen = launch("no-snap-back", "Window");
+    assert_eq!(lumen.app().values_sent_to(PLUGIN), 0);
+    lumen.app_mut().poke_plugin(PLUGIN, TRIGGER, 1.0);
+    lumen.wait_for("the wave to reach the project", |app| {
+        app.device_params(PLUGIN).iter().any(|&(id, _)| id == WAVE)
+    });
+    lumen.frames(30);
+    assert_eq!(
+        lumen.app().values_sent_to(PLUGIN),
+        0,
+        "the plugin's own edit was sent back to it"
+    );
+}

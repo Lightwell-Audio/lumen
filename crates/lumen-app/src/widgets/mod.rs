@@ -47,8 +47,8 @@ pub use scroll_bar::{Axis, ScrollBar, scroll_bar};
 pub use signature::time_signature;
 pub use slider::*;
 pub use toggle::{
-    Choice, Tab, choice_row, menu_caption, segmented, segmented_styled, switch, tabs, tabs_flush,
-    toggle_button,
+    Choice, Tab, choice_row, menu_caption, segmented, segmented_styled, switch, switch_noted, tabs,
+    tabs_flush, toggle_button,
 };
 
 /// `text` as it is when it fits `width`, else cut to fit.

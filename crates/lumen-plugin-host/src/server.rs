@@ -18,7 +18,9 @@ use crate::blocks::{Blocks, Shared, lock};
 use crate::editor::{Editors, Notify, Unavailable};
 use crate::instance::{Controls, Format, Instance, InstanceError};
 use crate::module::Module;
-use crate::protocol::{FailureKind, FrameError, Request, Response, read_request, write_response};
+use crate::protocol::{
+    Aux, FailureKind, FrameError, Request, Response, read_request, write_response,
+};
 use crate::shm::HostLink;
 
 /// How long a request about the editor window may keep the main thread
@@ -123,6 +125,8 @@ impl State {
                 max_frames,
                 inputs,
                 outputs,
+                aux_inputs,
+                aux_outputs,
             } => {
                 let mut guard = lock(&self.shared);
                 let Some(instance) = &mut guard.instance else {
@@ -134,12 +138,19 @@ impl State {
                     inputs,
                     outputs,
                 };
-                match instance.configure(format) {
+                let aux = Aux {
+                    inputs: aux_inputs,
+                    outputs: aux_outputs,
+                };
+                match instance.configure_with(format, aux) {
                     Ok(()) => {
+                        let carried = instance.format().unwrap_or(format);
                         let response = Response::Configured {
                             generation,
                             latency: instance.latency(),
                             tail: instance.tail(),
+                            inputs: carried.inputs,
+                            outputs: carried.outputs,
                         };
                         guard.generation = Some(generation);
                         response
@@ -150,6 +161,14 @@ impl State {
                         from_instance(e)
                     }
                 }
+            }
+            Request::Buses => {
+                let guard = lock(&self.shared);
+                let Some(instance) = &guard.instance else {
+                    return failed(FailureKind::Sequence, "no plugin is loaded");
+                };
+                let (inputs, outputs) = instance.buses();
+                Response::Buses { inputs, outputs }
             }
             Request::Process {
                 generation,

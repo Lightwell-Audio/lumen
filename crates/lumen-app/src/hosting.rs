@@ -24,8 +24,8 @@ use std::sync::Arc;
 use lumen_devices::{Cost, Guard, HostedInstrument, Status};
 use lumen_engine::{InstrumentSpec, MidiTrack, MixerHandle};
 use lumen_hosting::{
-    Captured, Edit, EditKind, EditorBounds, EditorEvent, Happened, HostLog, Manager, ParamInfo,
-    ProgramList, Start, UnitInfo,
+    Aux, BusInfo, Captured, Edit, EditKind, EditorBounds, EditorEvent, Happened, HostLog,
+    MAX_CHANNELS, Manager, ParamInfo, ProgramList, Start, UnitInfo,
 };
 use lumen_plugin_catalog::catalog::Catalog;
 use lumen_project::model::{
@@ -61,6 +61,67 @@ fn gave_up_words(log: Option<&HostLog>) -> String {
                 last.join("; ")
             )
         }
+    }
+}
+
+/// The audio input a sidechain feeds: the first bus after the plugin's own
+/// audio (bus 0) that is mono or stereo. The bus's own "main" flag is not
+/// read: plugins mark every bus main (a real orchestra does, for all sixteen
+/// outputs), so the flag cannot tell a spare bus from the first.
+fn sidechain_bus(inputs: &[BusInfo]) -> Option<usize> {
+    inputs
+        .iter()
+        .enumerate()
+        .skip(1)
+        .find(|(_, bus)| (1..=2).contains(&bus.channels))
+        .map(|(index, _)| index)
+}
+
+/// The channels the auxiliary outputs may use in all: a block carries at most
+/// `MAX_CHANNELS`, the main output's first (so a stereo main leaves seven
+/// stereo outputs).
+fn output_budget(outputs: &[BusInfo]) -> usize {
+    MAX_CHANNELS.saturating_sub(outputs.first().map_or(2, |main| usize::from(main.channels)))
+}
+
+/// Whether `bus` is an output besides the first that Lumen can play: mono or
+/// stereo. The bus's "main" flag is not read (a real orchestra declares all
+/// sixteen outputs as main buses, and none was ever turned on while it was).
+fn playable(outputs: &[BusInfo], bus: u32) -> bool {
+    bus >= 1
+        && outputs
+            .get(bus as usize)
+            .is_some_and(|b| (1..=2).contains(&b.channels))
+}
+
+/// The auxiliary outputs to turn on for an instrument: every one it has as a
+/// mono or stereo output, lowest first while they fit a block (M6 slice 6d).
+/// Which have a track is the project's; an output nobody plays is heard on
+/// the instrument's own track. Turning on only the outputs that have a track
+/// left the plugin to move the rest by its own rule (one plugin sent a sound
+/// meant for an output that was off to the next output that was on).
+fn output_mask(outputs: &[BusInfo]) -> u32 {
+    let wanted: Vec<u32> = (1..outputs.len().min(32) as u32)
+        .filter(|&bus| playable(outputs, bus))
+        .collect();
+    let mut room = output_budget(outputs);
+    let mut mask = 0;
+    for bus in wanted {
+        let width = usize::from(outputs[bus as usize].channels);
+        if width <= room {
+            room -= width;
+            mask |= 1 << bus;
+        }
+    }
+    mask
+}
+
+/// The auxiliary inputs to turn on for a plugin with these inputs: its
+/// sidechain input when a sidechain is wanted.
+fn sidechain_mask(wanted: bool, inputs: &[BusInfo]) -> u32 {
+    match sidechain_bus(inputs) {
+        Some(bus) if wanted => 1 << bus,
+        _ => 0,
     }
 }
 
@@ -111,6 +172,12 @@ struct Tracked {
     /// the link it plays through now misses blocks until the new one comes,
     /// which is not the plugin failing.
     relinking: bool,
+    /// The audio inputs the plugin declares, and the auxiliary buses its
+    /// link has on (M6 slice 6c): a sidechain turns one on.
+    inputs: Vec<BusInfo>,
+    /// The audio outputs it declares (an instrument's other outputs).
+    outputs: Vec<BusInfo>,
+    aux: Aux,
     /// When its host failed, most recent last, over the last couple of
     /// minutes: a plugin that keeps stopping is told apart from one that
     /// stopped once. Nothing restarts it: the person does, from its card.
@@ -168,6 +235,9 @@ struct Parameters {
     open: Option<(u32, std::time::Instant)>,
     /// Controller, bend and pressure events no parameter took, in all.
     ignored: u32,
+    /// Values Lumen has sent the plugin to match the project (a plugin's own
+    /// edits need none).
+    sent: u32,
     /// Whether the host has linked before: a fresh link of the same process
     /// keeps what is known.
     linked_before: bool,
@@ -555,6 +625,60 @@ impl Hosting {
             .filter(|&f| f != 0)
     }
 
+    /// The auxiliary outputs of the running instrument `device` that its
+    /// link has on, one bit for each bus (M6 slice 6d).
+    pub fn outputs_on(&self, device: Id) -> u32 {
+        self.tracked.get(&device.0).map_or(0, |t| t.aux.outputs)
+    }
+
+    /// Whether the plugin's output `bus` can be turned on besides the outputs
+    /// `on` already are: a block carries at most `MAX_CHANNELS` in all.
+    pub fn output_fits(&self, device: Id, on: &[u32], bus: u32) -> bool {
+        let Some(t) = self.tracked.get(&device.0) else {
+            return false;
+        };
+        let width = |b: u32| {
+            t.outputs
+                .get(b as usize)
+                .map_or(0, |i| usize::from(i.channels))
+        };
+        let used: usize = on.iter().filter(|&&b| b != bus).map(|&b| width(b)).sum();
+        used + width(bus) <= output_budget(&t.outputs)
+    }
+
+    /// The names of every audio output the plugin declares, by bus number (the
+    /// main one is 0); empty until it has loaded.
+    pub fn output_names(&self, device: Id) -> Vec<String> {
+        self.tracked.get(&device.0).map_or_else(Vec::new, |t| {
+            t.outputs.iter().map(|b| b.name.clone()).collect()
+        })
+    }
+
+    /// The outputs a running instrument can play on tracks of their own, with
+    /// their bus numbers: every output past the main one that is mono or
+    /// stereo.
+    pub fn extra_outputs(&self, device: Id) -> Vec<(u32, String)> {
+        self.tracked
+            .get(&device.0)
+            .filter(|t| t.state == State::Ready)
+            .map_or_else(Vec::new, |t| {
+                t.outputs
+                    .iter()
+                    .enumerate()
+                    .skip(1)
+                    .filter(|(_, bus)| (1..=2).contains(&bus.channels))
+                    .map(|(index, bus)| (index as u32, bus.name.clone()))
+                    .collect()
+            })
+    }
+
+    /// Whether the running plugin has a sidechain input to key (M6 slice 6c).
+    pub fn takes_sidechain(&self, device: Id) -> bool {
+        self.tracked
+            .get(&device.0)
+            .is_some_and(|t| sidechain_bus(&t.inputs).is_some())
+    }
+
     /// Frames the plugin holds back, as it reported (at the current rate).
     pub fn latency(&self, device: Id) -> Option<u32> {
         self.tracked.get(&device.0).map(|t| t.latency)
@@ -566,6 +690,36 @@ impl Hosting {
     pub fn pretend(&mut self, device: Id, state: State) {
         if let Some(t) = self.tracked.get_mut(&device.0) {
             t.state = state;
+        }
+    }
+
+    /// Gives `device` a sidechain input without a host (screenshots and
+    /// tests of the card's row).
+    pub fn pretend_sidechain_input(&mut self, device: Id) {
+        if let Some(t) = self.tracked.get_mut(&device.0) {
+            let bus = |name: &str, main: bool| BusInfo {
+                name: name.into(),
+                channels: 2,
+                main,
+                default_active: main,
+            };
+            t.inputs = vec![bus("Input", true), bus("Sidechain", false)];
+        }
+    }
+
+    /// Gives `device` a main output and `extra` more stereo ones, named, without
+    /// a host (screenshots and tests of the card's outputs row).
+    pub fn pretend_outputs(&mut self, device: Id, extra: &[&str]) {
+        if let Some(t) = self.tracked.get_mut(&device.0) {
+            let bus = |name: &str, main: bool| BusInfo {
+                name: name.into(),
+                channels: 2,
+                main,
+                default_active: main,
+            };
+            t.outputs = std::iter::once(bus("Main", true))
+                .chain(extra.iter().map(|name| bus(name, false)))
+                .collect();
         }
     }
 
@@ -797,6 +951,11 @@ impl Hosting {
     )]
     pub fn ignored_events(&self, device: Id) -> u32 {
         self.tracked.get(&device.0).map_or(0, |t| t.params.ignored)
+    }
+
+    /// How many values Lumen has sent the device's plugin to match the project.
+    pub fn values_sent(&self, device: Id) -> u32 {
+        self.tracked.get(&device.0).map_or(0, |t| t.params.sent)
     }
 
     /// The edits plugins made inside themselves since the last call, oldest
@@ -1111,7 +1270,7 @@ impl Hosting {
 
     /// Keeps the hosts in step with the project and the engine. Call every
     /// frame with the device's rate and block size (0 for unknown).
-    /// `latencies` receives each effect's latency for the routing.
+    /// `latencies` receives each plugin's latency for the routing.
     pub fn update(
         &mut self,
         project: &Project,
@@ -1190,6 +1349,9 @@ impl Hosting {
                             linked_at: None,
                             editor_hidden: false,
                             relinking: false,
+                            inputs: Vec::new(),
+                            outputs: Vec::new(),
+                            aux: Aux::default(),
                             failures: Vec::new(),
                         },
                     );
@@ -1233,6 +1395,9 @@ impl Hosting {
                     t.linked_at = Some(std::time::Instant::now());
                     t.bypass = false;
                     t.relinking = false;
+                    t.inputs = linked.buses.0.clone();
+                    t.outputs = linked.buses.1.clone();
+                    t.aux = linked.aux;
                     if !t.params.linked_before {
                         t.params.linked_before = true;
                         // A fresh host has no window; a new link of the same
@@ -1508,6 +1673,29 @@ impl Hosting {
             let Some(status) = t.status.clone() else {
                 continue;
             };
+            // A sidechain turns the plugin's sidechain input on, and taking
+            // it away turns it off: the plugin is set up again with the buses
+            // it should have.
+            if t.state == State::Ready && !t.relinking {
+                let aux = Aux {
+                    inputs: if t.instrument {
+                        0
+                    } else {
+                        sidechain_mask(w.device.sidechain.is_some(), &t.inputs)
+                    },
+                    outputs: if t.instrument {
+                        output_mask(&t.outputs)
+                    } else {
+                        0
+                    },
+                };
+                if aux != t.aux
+                    && let Some(manager) = self.manager.as_mut()
+                {
+                    manager.relink_with(id, f64::from(self.rate), self.frames, aux);
+                    t.relinking = true;
+                }
+            }
             if t.bypass != w.device.bypass {
                 status.set_bypass(w.device.bypass);
                 t.bypass = w.device.bypass;
@@ -1604,8 +1792,13 @@ impl Hosting {
             // The values the project holds are the plugin's: what an edit,
             // an undo or a redo changed is sent to the host (not while a state
             // is on its way: its values are not known yet).
+            // Edits the plugin made itself and the document has not recorded
+            // yet make the project the older of the two: nothing is sent
+            // until it has caught up, or the old value would go back into the
+            // plugin for a moment before the new one.
             if t.state == State::Ready
                 && t.params.loads.is_empty()
+                && t.params.edits.is_empty()
                 && let Some(manager) = self.manager.as_ref()
             {
                 let mut send = t.params.differences(&w.device.params);
@@ -1630,6 +1823,7 @@ impl Hosting {
                         t.params.quiet_until = Some(std::time::Instant::now() + QUIET);
                     }
                 }
+                t.params.sent = t.params.sent.saturating_add(send.len() as u32);
                 for (id, value) in send {
                     manager.set_param(w.device.id.0, id, value);
                     t.params.values.insert(id, value);
@@ -1691,9 +1885,10 @@ impl Hosting {
             }
         }
 
-        // The routing's picture of each effect's latency.
+        // The routing's picture of each plugin's latency: an effect adds it
+        // to its track's path and an instrument plays that late.
         latencies.clear();
-        for w in list.iter().filter(|w| !w.instrument) {
+        for w in list.iter() {
             if let Some(t) = self.tracked.get(&w.device.id.0) {
                 latencies.insert(w.device.id, t.latency);
             }
@@ -1990,6 +2185,49 @@ mod tests {
         assert_eq!(super::promised_frames(0), 256, "no stream yet");
     }
     use lumen_project::model::PluginRef;
+
+    /// A plugin with a stereo main output and fifteen stereo ones, and a track
+    /// playing each (the owner's orchestra with every output on).
+    fn orchestra() -> (Project, Vec<BusInfo>) {
+        use lumen_project::model::{Color, PluginOutput};
+        let bus = |n: usize| BusInfo {
+            name: format!("St.{}", n + 1),
+            channels: 2,
+            // Every bus is flagged main, as a real orchestra plugin does.
+            main: true,
+            default_active: n == 0,
+        };
+        let outputs: Vec<BusInfo> = (0..16).map(bus).collect();
+        let tracks = (1..16u32)
+            .map(|b| {
+                let mut t = Track::new(Id(100 + u64::from(b)), "Out", TrackKind::Audio, Color(0));
+                t.plugin_output = Some(PluginOutput {
+                    device: Id(30),
+                    bus: b,
+                });
+                t
+            })
+            .collect();
+        (
+            lumen_project::testing::project_of("Outputs", tracks),
+            outputs,
+        )
+    }
+
+    #[test]
+    fn every_output_of_a_sixteen_output_plugin_is_turned_on_and_a_wide_main_leaves_less() {
+        let (_, mut outputs) = orchestra();
+        let mask = super::output_mask(&outputs);
+        assert_eq!(
+            mask, 0xFFFE,
+            "fifteen pairs and the main pair are 32 channels"
+        );
+        // Past the block's room the lowest buses come first: a main bus of 40
+        // channels leaves 24, twelve stereo pairs.
+        outputs[0].channels = 40;
+        let mask = super::output_mask(&outputs);
+        assert_eq!(mask, 0b1_1111_1111_1110, "the lowest twelve");
+    }
 
     fn known(values: &[(u32, f64)], base: &[(u32, f64)]) -> Parameters {
         Parameters {

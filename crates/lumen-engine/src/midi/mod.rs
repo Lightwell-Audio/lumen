@@ -146,6 +146,10 @@ pub struct MidiTrack {
     pub clips: Vec<MidiClip>,
     pub instrument: Option<InstrumentSpec>,
     pub target: Target,
+    /// The instrument's other outputs and the tracks that play them: the
+    /// instrument's output pair (1 and up, as [`lumen_devices::Instrument::output`]
+    /// numbers them) and the track's id. Empty for most tracks.
+    pub outputs: Vec<(u32, u64)>,
     /// The live input it plays ([`Listen::OFF`] for none).
     pub listen: Listen,
     /// The live input it keeps while the transport records
@@ -180,6 +184,7 @@ impl MidiTrack {
             clips,
             instrument,
             target,
+            outputs: Vec::new(),
             listen: Listen::OFF,
             record: Listen::OFF,
             record_window: hold::ALWAYS,
@@ -188,6 +193,13 @@ impl MidiTrack {
             dirty: true,
             begun: false,
         }
+    }
+
+    /// The same track, whose instrument's other outputs play on the tracks
+    /// named: `(output pair, track id)`.
+    pub fn with_outputs(mut self, outputs: Vec<(u32, u64)>) -> Self {
+        self.outputs = outputs;
+        self
     }
 
     /// The same track, playing the live input `listen` takes.
@@ -229,6 +241,7 @@ impl MidiTrack {
     /// Whether `other` plays the same notes the same way to the same place.
     fn same_as(&self, other: &MidiTrack) -> bool {
         self.target == other.target
+            && self.outputs == other.outputs
             && self.instrument.as_ref().map(|i| (i.kind, i.preset))
                 == other.instrument.as_ref().map(|i| (i.kind, i.preset))
             && self.clips.len() == other.clips.len()

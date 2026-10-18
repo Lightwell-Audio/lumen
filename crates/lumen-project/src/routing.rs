@@ -54,13 +54,13 @@ pub fn all_tracks(project: &Project) -> impl Iterator<Item = &Track> {
         .chain(std::iter::once(&*project.master))
 }
 
-/// Whether the routing feeds back into itself: through outputs, groups or
-/// sends. Feeds to tracks that are not there are ignored (validation
-/// reports them).
+/// Whether the routing feeds back into itself: through outputs, groups,
+/// sends or sidechains. Feeds to tracks that are not there are ignored
+/// (validation reports them).
 pub fn has_loop(project: &Project) -> bool {
     let tracks: Vec<&Track> = all_tracks(project).collect();
     let index: HashMap<Id, usize> = tracks.iter().enumerate().map(|(i, t)| (t.id, i)).collect();
-    let edges: Vec<Vec<usize>> = tracks
+    let mut edges: Vec<Vec<usize>> = tracks
         .iter()
         .map(|t| {
             feeds(project, t)
@@ -68,6 +68,14 @@ pub fn has_loop(project: &Project) -> bool {
                 .collect()
         })
         .collect();
+    // A sidechain feeds its source's sound into the track of the effect.
+    for (to, track) in tracks.iter().enumerate() {
+        for sidechain in track.devices.iter().filter_map(|d| d.sidechain) {
+            if let Some(&from) = index.get(&sidechain.from) {
+                edges[from].push(to);
+            }
+        }
+    }
     // Depth-first, iterative: 0 unvisited, 1 on the path, 2 done.
     let mut state = vec![0u8; tracks.len()];
     for start in 0..tracks.len() {

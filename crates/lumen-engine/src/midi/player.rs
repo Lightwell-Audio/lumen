@@ -11,7 +11,7 @@ use super::clock::ClockOut;
 use super::hold::{self, Clock, MAX_EVENTS};
 use super::live::{AUDITION, LiveIn, LiveInput};
 use super::recording::{live_position, record_window};
-use super::{MidiOut, MidiTrack, Target};
+use super::{InstrumentSpec, MidiOut, MidiTrack, Target};
 use crate::mixer::{Buses, CHUNK, TrackSource};
 use crate::source::{Jump, Mode, RenderContext};
 use crate::timeline::Timeline;
@@ -771,6 +771,7 @@ fn render_instrument(
                 }
             }
         }
+        play_outputs(&track.outputs, spec, frames, buses);
         track.state.events.clear();
         return;
     }
@@ -789,9 +790,38 @@ fn render_instrument(
                 }
             }
         }
+        play_outputs(&track.outputs, spec, frames, buses);
     }
     if events {
         track.state.events.clear();
+    }
+}
+
+/// Adds each of the instrument's other outputs that is on to the bus of the
+/// track that plays it, for the block just rendered. A track the routing does
+/// not have hears nothing.
+fn play_outputs(
+    outputs: &[(u32, u64)],
+    spec: &mut InstrumentSpec,
+    frames: usize,
+    buses: &mut Buses<'_>,
+) {
+    for &(pair, target) in outputs {
+        let mut left = [0.0f32; CHUNK];
+        let mut right = [0.0f32; CHUNK];
+        if !spec
+            .instrument
+            .output(pair as usize, &mut left[..frames], &mut right[..frames])
+        {
+            continue;
+        }
+        if let Some(mut bus) = buses.track(target) {
+            for (side, samples) in [(0, &left), (1, &right)] {
+                for (to, from) in bus.channel(side).iter_mut().zip(samples) {
+                    *to += from;
+                }
+            }
+        }
     }
 }
 

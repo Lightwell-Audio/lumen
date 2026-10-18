@@ -23,7 +23,11 @@ use crate::protocol::{
 
 const MAGIC: u32 = 0x4c42_4b31; // "LBK1"
 /// Bumped when the layout changes shape.
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
+
+/// A block flag: the plugin forgets what it holds (its tail, its filters)
+/// before it processes this block. Sent by a jump in playback.
+pub const FLAG_FLUSH: u32 = 1;
 
 /// The capacity of a block. Fixed when the region is made; a larger need
 /// means a new region, which happens off the audio thread.
@@ -161,6 +165,7 @@ struct Meta {
     events: AtomicU32,
     queues: AtomicU32,
     points: AtomicU32,
+    flags: AtomicU32,
 }
 
 #[repr(C)]
@@ -254,6 +259,8 @@ pub struct BlockScratch {
     events: Vec<Event>,
     queues: Vec<ParamQueue>,
     used: usize,
+    /// The block read last asked the plugin to forget what it holds.
+    pub flush: bool,
 }
 
 impl BlockScratch {
@@ -267,6 +274,7 @@ impl BlockScratch {
             events: Vec::with_capacity(layout.max_events as usize),
             queues: Vec::new(),
             used: 0,
+            flush: false,
         }
     }
 
@@ -381,6 +389,21 @@ impl Region {
         events: &[Event],
         params: &[ParamQueue],
     ) -> Result<(), SubmitError> {
+        self.write_flagged(seq, generation, frames, input, events, params, 0)
+    }
+
+    /// As [`Self::write_request`], with block flags ([`FLAG_FLUSH`]).
+    #[allow(clippy::too_many_arguments)]
+    pub fn write_flagged(
+        &self,
+        seq: u64,
+        generation: u32,
+        frames: u32,
+        input: &[&[f32]],
+        events: &[Event],
+        params: &[ParamQueue],
+        flags: u32,
+    ) -> Result<(), SubmitError> {
         let layout = &self.layout;
         if frames == 0 || frames > layout.max_frames {
             return Err(SubmitError::Invalid("frame count"));
@@ -458,6 +481,7 @@ impl Region {
         meta.events.store(events.len() as u32, Ordering::Relaxed);
         meta.queues.store(params.len() as u32, Ordering::Relaxed);
         meta.points.store(points as u32, Ordering::Relaxed);
+        meta.flags.store(flags, Ordering::Relaxed);
         self.control().request.0.store(seq, Ordering::Release);
         Ok(())
     }
@@ -523,6 +547,7 @@ impl Region {
         let events = meta.events.load(Ordering::Relaxed) as usize;
         let queues = meta.queues.load(Ordering::Relaxed) as usize;
         let points = meta.points.load(Ordering::Relaxed) as usize;
+        scratch.flush = meta.flags.load(Ordering::Relaxed) & FLAG_FLUSH != 0;
         if events > layout.max_events as usize
             || queues > layout.max_queues as usize
             || points > layout.max_points as usize
@@ -783,7 +808,7 @@ mod tests {
     fn a_layout_outside_the_limits_is_refused() {
         assert!(Layout::new(0, 2, 2).check().is_err());
         assert!(Layout::new(MAX_FRAMES as u32 + 1, 2, 2).check().is_err());
-        assert!(Layout::new(64, 17, 2).check().is_err());
+        assert!(Layout::new(64, MAX_CHANNELS as u8 + 1, 2).check().is_err());
         assert!(
             Layout {
                 max_points: MAX_POINTS as u32 + 1,

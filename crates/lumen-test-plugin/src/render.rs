@@ -2,7 +2,7 @@
 //! and note lands on its exact sample: the block is rendered in segments
 //! that begin where something happens. Nothing here allocates.
 
-use crate::dsp::{Delay, Voices};
+use crate::dsp::{Delay, MAX_BUSES, Voices};
 use crate::params::{Kind, LATENCY, LEVEL, WAVE, db_to_gain};
 
 /// A note event inside a block.
@@ -36,6 +36,16 @@ pub struct Change {
     pub value: f64,
 }
 
+/// The buses beyond the first that a block carries.
+#[derive(Clone, Copy)]
+pub struct Buses {
+    /// Every output bus's two channels, bus 0 the main one; null where the
+    /// bus is off.
+    pub outputs: [[*mut f32; 2]; MAX_BUSES],
+    /// The sidechain input's two channels; null where it is off.
+    pub sidechain: [*const f32; 2],
+}
+
 /// The sound of one plugin instance.
 pub struct Dsp {
     pub kind: Kind,
@@ -44,7 +54,19 @@ pub struct Dsp {
     pub values: [f64; 2],
     voices: Voices,
     delay: Delay,
+    /// Samples the instrument plays its notes late and reports as latency.
+    instrument_latency: u32,
+    /// Output buses the instrument declares (1 unless `multi_out`).
+    output_buses: usize,
+    /// How loud the sidechain has been lately (a peak that falls away over
+    /// `KEY_RELEASE` seconds), which is what the effect ducks by.
+    key_level: f32,
 }
+
+/// How long the sidechain's level takes to fall to 37% of itself.
+const KEY_RELEASE: f64 = 0.1;
+/// The sidechain level that silences the effect completely.
+const KEY_FULL: f32 = 0.25;
 
 impl Dsp {
     pub fn new(kind: Kind) -> Self {
@@ -54,6 +76,9 @@ impl Dsp {
             values: kind.defaults(),
             voices: Voices::new(),
             delay: Delay::new(),
+            instrument_latency: 0,
+            output_buses: 1,
+            key_level: 0.0,
         }
     }
 
@@ -61,14 +86,25 @@ impl Dsp {
     pub fn reset(&mut self) {
         self.voices.silence();
         self.delay.clear();
+        self.key_level = 0.0;
     }
 
     /// The delay the effect reports as latency, in samples.
     pub fn latency(&self) -> u32 {
         match self.kind {
             Kind::Effect => self.kind.plain(LATENCY, self.values[1]) as u32,
-            Kind::Instrument => 0,
+            Kind::Instrument => self.instrument_latency,
         }
+    }
+
+    /// The instrument plays on `buses` output buses.
+    pub fn set_output_buses(&mut self, buses: usize) {
+        self.output_buses = buses.clamp(1, MAX_BUSES);
+    }
+
+    /// The instrument plays its notes `samples` late and reports that.
+    pub fn set_instrument_latency(&mut self, samples: u32) {
+        self.instrument_latency = samples.min(crate::params::MAX_LATENCY);
     }
 
     pub fn sounding(&self) -> usize {
@@ -112,6 +148,29 @@ impl Dsp {
         changes: &[Timed<Change>],
         notes: &[Timed<Note>],
     ) {
+        let mut outputs = [[std::ptr::null_mut(); 2]; MAX_BUSES];
+        outputs[0] = output;
+        let buses = Buses {
+            outputs,
+            sidechain: [std::ptr::null(); 2],
+        };
+        // SAFETY: the caller's contract, with no other bus.
+        unsafe { self.render_buses(frames, input, buses, changes, notes) }
+    }
+
+    /// As [`Dsp::render`], with the instrument's other output buses and the
+    /// effect's sidechain.
+    ///
+    /// # Safety
+    /// Each non-null pointer must be valid for `frames` samples.
+    pub unsafe fn render_buses(
+        &mut self,
+        frames: usize,
+        input: [*const f32; 2],
+        buses: Buses,
+        changes: &[Timed<Change>],
+        notes: &[Timed<Note>],
+    ) {
         let (mut ci, mut ni, mut pos) = (0, 0, 0_usize);
         while pos < frames {
             while ci < changes.len() && changes[ci].at as i64 <= pos as i64 {
@@ -130,7 +189,7 @@ impl Dsp {
                 end = end.min(n.at.max(0) as usize);
             }
             // SAFETY: the caller vouches for the pointers; `pos < end <= frames`.
-            unsafe { self.segment(pos..end, input, output) };
+            unsafe { self.segment(pos..end, input, buses) };
             pos = end;
         }
     }
@@ -141,23 +200,44 @@ impl Dsp {
         &mut self,
         range: std::ops::Range<usize>,
         input: [*const f32; 2],
-        output: [*mut f32; 2],
+        buses: Buses,
     ) {
+        let output = buses.outputs[0];
         match self.kind {
             Kind::Instrument => {
                 let level = self.kind.plain(LEVEL, self.values[0]) as f32;
                 let saw = self.kind.plain(WAVE, self.values[1]) >= 0.5;
+                let late = self.instrument_latency as usize;
+                // The buses the host turned on, and how many it was asked to
+                // play on: notes go by pitch to the bus they pick.
+                let mut on = 0_u32;
+                for (bus, pair) in buses.outputs.iter().enumerate() {
+                    if !pair[0].is_null() {
+                        on |= 1 << bus;
+                    }
+                }
+                let declared = self.output_buses;
                 for i in range {
-                    let s = self.voices.next_sample(level, saw);
-                    for out in output.into_iter().filter(|p| !p.is_null()) {
-                        // SAFETY: valid for the block (see `render`).
-                        unsafe { out.add(i).write(s) };
+                    let mut sums = if declared > 1 {
+                        self.voices.next_routed(level, saw, declared, on)
+                    } else {
+                        [self.voices.next_sample(level, saw); MAX_BUSES]
+                    };
+                    if late > 0 {
+                        sums[0] = self.delay.step([sums[0], sums[0]], late)[0];
+                    }
+                    for (bus, pair) in buses.outputs.iter().enumerate() {
+                        for out in pair.iter().copied().filter(|p| !p.is_null()) {
+                            // SAFETY: valid for the block (see `render`).
+                            unsafe { out.add(i).write(sums[bus]) };
+                        }
                     }
                 }
             }
             Kind::Effect => {
                 let gain = db_to_gain(self.kind.plain(LEVEL, self.values[0]));
                 let delay = self.latency() as usize;
+                let fall = (-1.0 / (KEY_RELEASE * self.rate)).exp() as f32;
                 for i in range {
                     // SAFETY: valid for the block; read before the same
                     // sample is written, so shared memory is fine.
@@ -170,10 +250,28 @@ impl Dsp {
                         }
                     });
                     let out = self.delay.step(frame, delay);
+                    // The sidechain, where the host gave one, silences the
+                    // sample in proportion to how loud it has been lately: a
+                    // peak follower, so a drum hit holds the effect down for
+                    // a moment as a compressor's key does.
+                    let duck = if buses.sidechain[0].is_null() {
+                        1.0
+                    } else {
+                        let loud = buses.sidechain.map(|p| {
+                            if p.is_null() {
+                                0.0
+                            } else {
+                                // SAFETY: valid for the block (see `render`).
+                                unsafe { p.add(i).read() }.abs()
+                            }
+                        });
+                        self.key_level = loud[0].max(loud[1]).max(self.key_level * fall);
+                        1.0 - (self.key_level / KEY_FULL).min(1.0)
+                    };
                     for (c, o) in output.into_iter().enumerate() {
                         if !o.is_null() {
                             // SAFETY: as above.
-                            unsafe { o.add(i).write(out[c] * gain) };
+                            unsafe { o.add(i).write(out[c] * gain * duck) };
                         }
                     }
                 }
@@ -307,6 +405,44 @@ mod tests {
         unsafe { d.render(8, [p[0], p[1]], p, &[], &[]) };
         assert!(buf[0].iter().all(|&s| s == 0.5));
         assert!(buf[1].iter().all(|&s| s == -0.5));
+    }
+
+    #[test]
+    fn a_hit_on_the_sidechain_holds_the_effect_down_and_it_comes_back() {
+        let mut d = Dsp::new(Kind::Effect);
+        d.values[1] = 0.0;
+        d.rate = 1000.0;
+        // A hit of 0.5 for 10 samples, then nothing for 1,000 (a second).
+        let key = [0.5_f32; 10];
+        let quiet = [0.0_f32; 1000];
+        let signal = vec![1.0_f32; 1010];
+        let mut out = [vec![9.0_f32; 1010], vec![9.0_f32; 1010]];
+        let p = [out[0].as_mut_ptr(), out[1].as_mut_ptr()];
+        let mut sidechain = key.to_vec();
+        sidechain.extend_from_slice(&quiet);
+        let sc = [sidechain.as_ptr(), sidechain.as_ptr()];
+        let buses = Buses {
+            outputs: {
+                let mut o = [[std::ptr::null_mut(); 2]; MAX_BUSES];
+                o[0] = p;
+                o
+            },
+            sidechain: sc,
+        };
+        let input = [signal.as_ptr(), signal.as_ptr()];
+        // SAFETY: every buffer holds 1,010 samples.
+        unsafe { d.render_buses(1010, input, buses, &[], &[]) };
+        assert_eq!(out[0][5], 0.0, "a loud hit mutes the effect");
+        assert!(
+            out[0][100] < 0.3,
+            "it is still held down after 90 ms: {}",
+            out[0][100]
+        );
+        assert!(
+            out[0][1009] > 0.99,
+            "and it is back a second later: {}",
+            out[0][1009]
+        );
     }
 
     #[test]

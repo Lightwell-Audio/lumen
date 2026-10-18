@@ -37,6 +37,19 @@ pub(super) fn menu_inset(ui: &Ui) -> f32 {
 /// the accent's gradient in an `accent_muted` track. `enabled` false greys
 /// it out.
 pub fn switch(ui: &mut Ui, on: &mut bool, label: &str, enabled: bool) -> egui::Response {
+    switch_noted(ui, on, label, enabled, "")
+}
+
+/// [`switch`] with a quiet `note` in the row, right-aligned beside the
+/// switch (shortened to the room between the label and the switch). The row
+/// stays one widget, so nothing is laid out after it that could widen it.
+pub fn switch_noted(
+    ui: &mut Ui,
+    on: &mut bool,
+    label: &str,
+    enabled: bool,
+    note: &str,
+) -> egui::Response {
     let palette = theme::p();
     let text = if enabled {
         palette.text
@@ -48,6 +61,7 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str, enabled: bool) -> egui::R
         FontId::proportional(theme::size::BODY),
         text,
     );
+    let label_width = galley.size().x;
     let gap = if label.is_empty() {
         0.0
     } else {
@@ -76,10 +90,19 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str, enabled: bool) -> egui::R
     response.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, state, label)
     });
+    let ctx = ui.ctx().clone();
     if !ui.is_rect_visible(rect) {
+        // Out of view (scrolled away): follow the state without gliding, so
+        // that when the row comes back it is where it should be and does not
+        // glide there from where it was last seen.
+        motion::glide(
+            &ctx,
+            response.id.with("knob"),
+            if state { 1.0 } else { 0.0 },
+            false,
+        );
         return response;
     }
-    let ctx = ui.ctx().clone();
     let hover = motion::hover(&ctx, response.id.with("hover"), response.hovered());
     let travel = motion::glide(
         &ctx,
@@ -97,6 +120,18 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str, enabled: bool) -> egui::R
     let track = Align2::RIGHT_CENTER
         .anchor_size(inner.right_center(), TRACK)
         .round_to_pixels(ui.pixels_per_point());
+    if !note.is_empty() {
+        let font = FontId::proportional(theme::size::CAPTION);
+        let room = (track.left() - theme::space::M - (inner.left() + label_width + gap)).max(0.0);
+        let words = super::shorten(painter, note, font.clone(), room);
+        painter.text(
+            pos2(track.left() - theme::space::M, track.center().y),
+            Align2::RIGHT_CENTER,
+            words,
+            font,
+            palette.text_hint,
+        );
+    }
     // The track is a well with the shade lip; on, it turns `accent_muted`
     // with the 38% accent hairline (the Segmented card's switch).
     raised::paint_sunken(painter, track, theme::radius::FULL);
@@ -682,6 +717,34 @@ fn slide_between(spans: &[(f32, f32)], at: f32) -> (f32, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A switch flipped while it is scrolled out of view is already in its new
+    /// place when it comes back (the outputs menu: "All on", then scroll up,
+    /// showed the knobs gliding across).
+    #[test]
+    fn a_switch_changed_out_of_view_does_not_glide_when_it_returns() {
+        let ctx = context();
+        let mut id = None;
+        let mut frame = |on: bool, visible: bool| {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                if !visible {
+                    ui.set_clip_rect(Rect::from_min_size(pos2(-100.0, -100.0), vec2(1.0, 1.0)));
+                }
+                let mut on = on;
+                id = Some(switch(ui, &mut on, "Out", true).id);
+            });
+            output.textures_delta.clear();
+        };
+        frame(false, true);
+        frame(true, false);
+        frame(true, true);
+        let knob = id.expect("a switch was drawn").with("knob");
+        assert_eq!(
+            motion::glide(&ctx, knob, 1.0, true),
+            1.0,
+            "on at once, not gliding from off"
+        );
+    }
 
     #[test]
     fn sliding_lands_on_each_span_and_blends_between() {

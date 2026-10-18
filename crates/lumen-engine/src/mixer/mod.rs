@@ -55,7 +55,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use compile::compile_metered;
 use hosts::{HostMsg, HostPool, Hosting};
 use lumen_devices::Guard;
-use meter::{LoudnessReader, LoudnessTap, MeterBank};
+use meter::{LoudnessReader, LoudnessTap, MeterBank, SIDE_KEY};
 use plan::Ramp;
 
 use crate::declick::fade_frames;
@@ -205,18 +205,28 @@ impl MixerHandle {
     /// when the queue is full (send it again next frame). A routing that
     /// cannot play is refused, and the current one keeps playing.
     pub fn set(&mut self, routing: &Routing) -> Result<bool, RoutingError> {
+        // A node's slot, and one more for a node with a sidechain, which
+        // reads what arrives for it.
+        let keys = |node: &NodeSpec| {
+            [
+                Some(node.id),
+                (!node.sidechains.is_empty()).then_some(node.id | SIDE_KEY),
+            ]
+        };
         let fresh = routing
             .nodes
             .iter()
-            .filter(|n| !self.slots.contains_key(&n.id))
+            .flat_map(keys)
+            .flatten()
+            .filter(|key| !self.slots.contains_key(key))
             .count();
         if self.slots.len() + fresh > self.meters.capacity() {
-            self.meters = MeterBank::new((routing.nodes.len() * 2).max(MIN_METERS));
+            self.meters = MeterBank::new((routing.nodes.len() * 3).max(MIN_METERS));
             self.slots.clear();
         }
-        for node in &routing.nodes {
+        for key in routing.nodes.iter().flat_map(keys).flatten() {
             let next = self.slots.len() as u32;
-            self.slots.entry(node.id).or_insert(next);
+            self.slots.entry(key).or_insert(next);
         }
         let slots = &self.slots;
         let plan = compile_metered(routing, Some(Arc::clone(&self.meters)), |id| {
@@ -241,6 +251,15 @@ impl MixerHandle {
     /// clip since then, and its RMS now. `None` for a node not routed.
     pub fn take_level(&self, id: u64) -> Option<Level> {
         self.slots.get(&id).map(|&slot| self.meters.take(slot))
+    }
+
+    /// What arrived for node `id`'s sidechain since it was last taken
+    /// (peaks and the clip since then, RMS now). `None` for a node without
+    /// one.
+    pub fn take_side_level(&self, id: u64) -> Option<Level> {
+        self.slots
+            .get(&(id | SIDE_KEY))
+            .map(|&slot| self.meters.take(slot))
     }
 
     /// Hands the mean square of every 100 ms loudness block the measured
@@ -481,6 +500,12 @@ impl<T: TrackSource> Source for Mixer<T> {
         }
         let rate = cx.sample_rate;
         let advance = !cx.tail;
+        // A scrub is heard as it plays: no path waits for another's latency.
+        let scrubbing = cx.mode == Mode::Scrub;
+        self.plan.lines.set_bypass(scrubbing);
+        if let Some(swap) = self.swap.as_mut() {
+            swap.old.lines.set_bypass(scrubbing);
+        }
         let frames = out.frames();
         let mut done = 0;
         while done < frames {
@@ -584,6 +609,11 @@ impl<T: TrackSource> Source for Mixer<T> {
 
     fn locate(&mut self, timeline: &Timeline, sample_rate: u32, sample: i64, jump: Jump) {
         self.blend = None;
+        if jump == Jump::Locate {
+            // A move of the playhead in the song: no effect's tail carries
+            // over to the new place (the engine crossfades the jump itself).
+            self.hosts.flush();
+        }
         if jump != Jump::Play && self.plan.latency() > 0 {
             // Latent: the engine's crossfade would come before the jump is
             // heard. Blend where the tracks play in instead, from what they

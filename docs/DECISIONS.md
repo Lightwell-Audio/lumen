@@ -151,6 +151,7 @@ irreversible or external) · *Superseded*.
 | Plugins' largest block (fix, 2026-10-17; ADR-0075) | The amp plugin did six times the work because it was promised 8192-frame blocks. Pitched A (always promise 256, the engine's largest) and B (promise the device's block, at most 256, and set plugins up again when the buffer size changes), recommended B, **chosen: B**. |
 | Plugin parameters (M6 slice 4, 2026-10-17; ADR-0076) | Pitched four choices with a recommendation each, **all chosen as recommended**: P1 the project holds the values (an overlay on the saved state, format v19) over a state snapshot per gesture or no undo; P2 the card's strip is chosen from a list or by Learn (eight slots); P3 the full list is a panel opened from the card; P4 an editor window's place and size are remembered per plugin in the app's settings. The strip's look, pitched as rendered specimens (an artifact): **S2 knobs, in the style of the return tracks' send knobs** over bars (S1, recommended) and tiles (S3); the panel: **L1**, one list with group chips, over groups down the left. The editor button row was shown and not answered; it is built with the editor window. |
 | Presets and resilient state (M6 slice 5, 2026-10-17; ADR-0077) | Pitched five choices, **all chosen as recommended**: R1 the card's preset menu lists the plugin's own programs and preset files in one searchable menu; R2 loading a preset is one undo step that replaces the saved state; R3 background checkpoints about every 30 seconds; R4 a failed plugin is never restarted by itself (Reload, and after three failures in two minutes Reload without sound); R5 safe mode by flag, by Shift at start, and by an offer after a start that did not finish. Looks chosen from rendered specimens: **preset menu A** (a field in the card's header with previous and next arrows), **safe-mode indicator I2** (a strip under the transport bar), **card face F2** (the card keeps its shape and knobs, load one at a time), and the two failed-card faces. |
+| Production routing (M6 slice 6, 2026-10-18; ADR-0078) | Pitched and **all chosen as recommended**: B1 mono and stereo buses; S1 the sidechain row on the effect's card, with the tap inside its menu (option B) and the light I1 (from rendered specimens); M1 a plugin instrument's outputs as tracks of their own, listed on the card (O1, the row with a switch list, from rendered specimens); L1 effects flush and instruments ring out on a locate; L2 a plugin instrument's reported latency is compensated; C1 a scrub is not late by the compensation. Later, from the owner's runs: every output of a plugin is on and an output with no track plays on the instrument's own track; a block carries 64 channels. |
 | The hosting manager (M6 slice 2c, 2026-10-16) | Plan approved with **C1** (a plugin instrument receives notes only in 2c; controllers, bend, pressure and program are dropped and counted until parameters in slice 3), **C2** (the last reported latency and tail are written into the device when the host reports a different value, as a change that is not an undo step but marks the project changed) and **C3** (removing a device ends its process at once; undo starts a new one). Plan in `docs/milestones/M6.md`. |
 | MIDI learn moved to M7 (M5, 2026-10-13) | Asked, as recommended: **MIDI learn and its mapping list move to M7**, built with automation, where M6 and M7 define the parameters it maps and a mapped controller writes automation through the same path as Lumen's controls (Touch and Latch). M5 slice 7 keeps Standard MIDI Files and MIDI clock out (plan in `docs/milestones/M5.md`). Its choices, asked in chat, all as recommended: **F1 A** a multi-track file dropped on a track merges into one clip there, dropped between tracks or on empty lanes makes one MIDI track per file track (type 0 split by channel); **F2 A** notes are placed in beats and the project tempo is untouched, with a notice offering "Use them" for the file's tempo map and first time signature (one undo step); **F3 A** clock runs only while playing; **F4 A** a Sync delay per port, −20 to +50 ms. MTC out [S] is deferred, unscheduled. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
@@ -7157,3 +7158,50 @@ and every change is one undo step set at once (a knob's drag still merges into o
 step). A preset a plugin refuses is given to it again twice, 1.5 s apart, before
 the refusal is shown, because a plugin still loading its content can refuse a
 state it takes a moment later. Preset names are cut to 30 characters.
+
+## ADR-0078 — Production routing: buses, sidechain, outputs and plugin latency (M6 slice 6)
+
+**Status:** Accepted 2026-10-18 for the host's buses, the sidechain, the outputs
+and the latency work (owner's B1, S1, M1, L1, L2, C1, O1, I1, all as
+recommended); MT-VST-6 is the owner's. The plan is in `docs/milestones/M6.md`.
+
+**Context.** Slices 2 to 5 put a plugin on a track with one stereo output and
+no key input. The product needs a sidechain from any track, a plugin
+instrument's other outputs on tracks of their own, and delay compensation that
+counts a plugin instrument's latency.
+
+**Decisions.**
+1. **Buses.** The host lists every audio bus a plugin declares and turns on the
+   auxiliary ones a mask asks for (`protocol::Aux`, bit *i* is bus *i*), every
+   other explicitly off. A block carries the main bus's channels, then each bus
+   that is on in bus order, **up to 64 channels in all** (32 stereo buses; it was
+   16 and let seven extra outputs be on, which a plugin with sixteen exceeded:
+   protocol version 8). Only mono and stereo auxiliary buses are used. A bus's own
+   "main" flag is not read: a real orchestra plugin flags all sixteen outputs as
+   main, and the first version, which skipped those, never turned one on.
+2. **Sidechain** (format v20, `Device.sidechain: { from, tap }`). The key is the
+   source track's sound at its input, after its devices, or after the mixer
+   (`pre_fx`, `post_fx`, `post_mixer`), carried on a key bus the engine records
+   for each node and hands to a hosted effect as input channels 3 and 4. The
+   routing's loop check counts sidechain edges; setting or clearing one sets the
+   plugin up again. A track has one key bus for all its effects (KNOWN_ISSUES).
+3. **Outputs** (format v21, `Track.plugin_output: { device, bus }`). An output is
+   a track of its own: `Document::set_outputs` makes and removes the tracks in one
+   undo step, under the instrument's track; the engine adds each extra pair to its
+   track's bus. **Every output of a plugin is on** and an output with no track is
+   added to the instrument's own track: turning on only the outputs that had a
+   track left the plugin to move a sound routed to an off output to the next one
+   that was on (a drum plugin's snare). The track plays what the plugin routes to
+   its output, and where nothing is routed it is silent.
+4. **Latency.** A plugin instrument's reported latency is the node's source
+   latency (`NodeSpec::source`) and is compensated like an effect's. A locate
+   flushes hosted effects (`FLAG_FLUSH` in the block's flags: processing stops and
+   starts) and lets instruments ring out; a scrub bypasses the lines so it is not
+   late by the compensation.
+
+**Consequences.** A plugin that offers outputs in one edition only (one real
+orchestra plugin) gives silent output tracks in the others; Lumen shows the
+outputs the plugin declares. Setting a plugin up again drops the notes it holds.
+The cost of every output being on is to be measured with real plugins (MT-VST-6).
+**Run:** the smoke tests, the WSL performance gate (largest change +1.06%, `engine_hosted_64`, the rest within +0.5%; no baseline change) and RealtimeSanitizer over the engine, hosted, link and
+plugin-host audio-path tests, all passing. **Not run:** macOS app runs.

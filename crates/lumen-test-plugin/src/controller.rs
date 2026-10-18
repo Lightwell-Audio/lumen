@@ -106,7 +106,8 @@ impl Controller {
         self.kind == Kind::Instrument
             && (self.faults.has(Fault::WindowEdits)
                 || self.faults.has(Fault::SetDirty)
-                || self.faults.has(Fault::ValuesChanged))
+                || self.faults.has(Fault::ValuesChanged)
+                || self.faults.has(Fault::BusChange))
     }
 
     /// Which extra parameter `id` is, if it is one.
@@ -397,6 +398,11 @@ impl IEditControllerTrait for Controller {
                         }
                         if self.faults.has(Fault::ValuesChanged) {
                             handler.restartComponent(RestartFlags_::kParamValuesChanged);
+                        }
+                        if self.faults.has(Fault::BusChange) {
+                            // The instrument now has one output more.
+                            crate::component::EXTRA_OUTPUT.store(true, Ordering::Relaxed);
+                            handler.restartComponent(RestartFlags_::kIoChanged);
                         }
                     }
                 }
