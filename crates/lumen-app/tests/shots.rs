@@ -2626,3 +2626,99 @@ fn sidechain_row() {
         }
     }
 }
+
+/// The card's Outputs row and its menu: the list scrolls with room for its
+/// bar beside the switches, and a switched-on output names its track.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn outputs_row() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_core::time::Ticks;
+    use lumen_project::model::{
+        Color, Device, DeviceKind, Id, Note, PluginOutput, Track, TrackKind,
+    };
+    use lumen_project::testing::{midi_track, project_of};
+
+    let class = |n: u8| lumen_plugin_catalog::catalog::class_id(&[n; 16]);
+    let names: Vec<String> = (2..=16).map(|n| format!("St.{n}")).collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    for (appearance, scale, size) in [
+        ("dark", 1.0, vec2(1500.0, 800.0)),
+        ("light", 1.0, vec2(1500.0, 800.0)),
+        ("dark", 2.0, vec2(1900.0, 1000.0)),
+        ("dark", 1.0, vec2(960.0, 540.0)),
+    ] {
+        for (what, open) in [("closed", false), ("menu", true)] {
+            let dir = TempDir::new("shots-outputs");
+            let mut strings = midi_track(
+                20,
+                "Strings",
+                "poly",
+                (0, 64),
+                None,
+                vec![Note::new(Ticks::ZERO, Ticks::quarters(60), 60, 100)],
+                vec![],
+            );
+            strings.devices = vec![Device::vst3(
+                Id(30),
+                &class(1),
+                "Orchestra A",
+                "Vendor A",
+                DeviceKind::Instrument,
+            )];
+            let mut tracks = vec![strings];
+            for (id, bus) in [(41, 1), (42, 2)] {
+                let mut t = Track::new(
+                    Id(id),
+                    format!("Orchestra A \u{b7} St.{}", bus + 1),
+                    TrackKind::Audio,
+                    Color(0x5FA89A),
+                );
+                t.plugin_output = Some(PluginOutput {
+                    device: Id(30),
+                    bus,
+                });
+                tracks.push(t);
+            }
+            let project = project_of("Outputs", tracks);
+            let path = dir.path().join("song.lumen");
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(size)
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(30);
+            h.state_mut().select_tracks(&[Id(20)]);
+            h.run_steps(4);
+            h.get_all_by_label("Devices tab")
+                .last()
+                .expect("the tabs")
+                .click();
+            h.run_steps(20);
+            h.state_mut().pretend_device_state(Id(30), "ready");
+            h.state_mut().give_device_outputs(Id(30), &names);
+            h.run_steps(20);
+            if open {
+                h.get_by_label_contains("Outputs, Main + 2").click();
+                h.run_steps(20);
+            }
+            save(
+                &mut h,
+                &format!("outputs-{what}-{appearance}-{scale}-{}", size.x as u32),
+            );
+        }
+    }
+}

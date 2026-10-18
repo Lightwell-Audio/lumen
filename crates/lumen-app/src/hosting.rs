@@ -665,6 +665,22 @@ impl Hosting {
         }
     }
 
+    /// Gives `device` a main output and `extra` more stereo ones, named, without
+    /// a host (screenshots and tests of the card's outputs row).
+    pub fn pretend_outputs(&mut self, device: Id, extra: &[&str]) {
+        if let Some(t) = self.tracked.get_mut(&device.0) {
+            let bus = |name: &str, main: bool| BusInfo {
+                name: name.into(),
+                channels: 2,
+                main,
+                default_active: main,
+            };
+            t.outputs = std::iter::once(bus("Main", true))
+                .chain(extra.iter().map(|name| bus(name, false)))
+                .collect();
+        }
+    }
+
     /// The plugin's parameters as listed when it loaded (empty until it has).
     pub fn parameters(&self, device: Id) -> &[ParamInfo] {
         self.tracked

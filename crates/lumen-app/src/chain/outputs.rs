@@ -236,6 +236,9 @@ impl App {
         })
         .response
         .on_disabled_hover_text("The instrument's own track plays its main output");
+        // A solid bar takes room of its own (when the list scrolls), so it
+        // does not lie over the switches.
+        ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
         egui::ScrollArea::vertical()
             .max_height(LIST_HEIGHT)
             .auto_shrink([true, true])
@@ -247,7 +250,13 @@ impl App {
                     // it, so nothing laid out after the switch can widen the
                     // menu (a row beside a full-width switch grew it on
                     // every frame).
-                    let note = track.map(track_name).unwrap_or_default();
+                    // The name it was given when made says nothing new: only a
+                    // track that was renamed is named here.
+                    let made = format!("{instrument} \u{b7} {name}");
+                    let note = track
+                        .map(track_name)
+                        .filter(|named| *named != made)
+                        .unwrap_or_default();
                     if widgets::switch_noted(ui, &mut is_on, name, true, &note).clicked() {
                         if is_on {
                             turn_on.push((*bus, format!("{instrument} \u{b7} {name}")));

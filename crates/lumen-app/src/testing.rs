@@ -369,6 +369,12 @@ impl App {
         self.chain.sidechain.pretend(track, level, silent_seconds);
     }
 
+    /// Gives a plugin instrument `extra` outputs besides its main one, as if
+    /// its host had listed them: screenshots of the card's outputs row.
+    pub fn give_device_outputs(&mut self, device: Id, extra: &[&str]) {
+        self.hosting.pretend_outputs(device, extra);
+    }
+
     /// How lit the sidechain light of the shown track is, 0 to 1.
     pub fn sidechain_light(&self, track: Id) -> f32 {
         self.chain.sidechain.level_of(track)
