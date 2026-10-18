@@ -481,6 +481,12 @@ impl<T: TrackSource> Source for Mixer<T> {
         }
         let rate = cx.sample_rate;
         let advance = !cx.tail;
+        // A scrub is heard as it plays: no path waits for another's latency.
+        let scrubbing = cx.mode == Mode::Scrub;
+        self.plan.lines.set_bypass(scrubbing);
+        if let Some(swap) = self.swap.as_mut() {
+            swap.old.lines.set_bypass(scrubbing);
+        }
         let frames = out.frames();
         let mut done = 0;
         while done < frames {
@@ -584,6 +590,11 @@ impl<T: TrackSource> Source for Mixer<T> {
 
     fn locate(&mut self, timeline: &Timeline, sample_rate: u32, sample: i64, jump: Jump) {
         self.blend = None;
+        if jump == Jump::Locate {
+            // A move of the playhead in the song: no effect's tail carries
+            // over to the new place (the engine crossfades the jump itself).
+            self.hosts.flush();
+        }
         if jump != Jump::Play && self.plan.latency() > 0 {
             // Latent: the engine's crossfade would come before the jump is
             // heard. Blend where the tracks play in instead, from what they

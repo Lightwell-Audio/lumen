@@ -103,6 +103,11 @@ pub trait Hosted: Send {
 
     /// Whether the host's process has ended, without waiting.
     fn ended(&self) -> bool;
+
+    /// Asks the plugin to forget what it holds (its tail, its filters)
+    /// before the next block it is given. Never blocks. A host with nothing
+    /// to forget ignores it.
+    fn flush(&mut self) {}
 }
 
 /// What a block came to.
@@ -245,6 +250,15 @@ impl Guard {
     /// The plugin was told to stop every sound: it counts as quiet at once.
     pub fn hush(&mut self) {
         self.quiet = u64::MAX;
+    }
+
+    /// The plugin is asked to forget what it holds before its next block: a
+    /// reverb's tail must not carry to a new place in the song. It keeps
+    /// being asked for blocks and is heard quiet as soon as its output is.
+    pub fn flush(&mut self) {
+        if !self.failed() {
+            self.host.flush();
+        }
     }
 
     /// `frames` went by: a host that was not asked for a block since the

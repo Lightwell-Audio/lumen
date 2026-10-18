@@ -555,6 +555,26 @@ impl Instance {
         Ok(())
     }
 
+    /// Makes the plugin forget what it holds (a reverb's tail, a filter's
+    /// memory): processing is stopped and started again, which is where the
+    /// standard says a plugin clears its state. Runs on the audio path, like
+    /// [`Instance::process_into`]; a plugin that cannot start again has
+    /// failed.
+    pub fn flush(&mut self) -> Result<(), InstanceError> {
+        if !self.processing {
+            return Ok(());
+        }
+        // SAFETY: calls on live objects, from the thread that processes.
+        let result = unsafe {
+            self.processor.setProcessing(0);
+            self.processor.setProcessing(1)
+        };
+        if result != kResultOk && result != vst3::Steinberg::kNotImplemented {
+            return Err(plugin(format!("setProcessing failed ({result})")));
+        }
+        Ok(())
+    }
+
     /// Renders one block. `input` has one slice per input channel; the
     /// result's output has one per output channel, `frames` long. This
     /// allocates; the audio path uses [`Instance::process_into`].

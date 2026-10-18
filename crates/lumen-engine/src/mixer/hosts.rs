@@ -112,6 +112,16 @@ impl HostPool {
         }
     }
 
+    /// Every effect forgets what it holds (see [`Guard::flush`]).
+    pub fn flush(&mut self) {
+        if self.used == 0 {
+            return;
+        }
+        for (_, guard) in self.slots.iter_mut().flatten() {
+            guard.flush();
+        }
+    }
+
     pub fn remove(&mut self, id: u64) -> Option<Guard> {
         for slot in &mut self.slots {
             if slot.as_ref().is_some_and(|(slot, _)| *slot == id) {

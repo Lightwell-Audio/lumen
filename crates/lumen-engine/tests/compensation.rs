@@ -122,6 +122,10 @@ impl Rig {
         assert!(self.routing.set(routing).unwrap());
     }
 
+    fn routing_compensation(&self) -> u32 {
+        self.routing.compensation().frames
+    }
+
     fn playhead(&self) -> i64 {
         self.transport.transport().sample
     }
@@ -377,4 +381,53 @@ fn after_a_latency_change_what_is_heard_lines_up_again() {
     for (k, &heard) in out.iter().enumerate().skip(settled) {
         assert_eq!(heard, samples[k], "frame {k}");
     }
+}
+
+#[test]
+fn scrubbing_is_not_heard_late_by_the_compensation() {
+    // A track 50 ms late makes every path wait 50 ms while playing (ADR-0041).
+    // A scrub follows the hand: what it plays comes out at once, whatever the
+    // routing's delays (M6 slice 6a, the owner's C1).
+    let latent_track = NodeSpec {
+        devices: latent(2_400),
+        ..to_master(1)
+    };
+    let routing = routing_of(vec![latent_track, to_master(2)]);
+    let audio = audio(ramp());
+    let mut rig = rig(vec![clip(1, 1, &audio), clip(2, 2, &audio)], &routing);
+    assert_eq!(rig.routing_compensation(), 2_400);
+    rig.transport
+        .send(Command::Scrub {
+            at: Ticks::quarters(1),
+            style: lumen_engine::ScrubStyle::Loop {
+                length: Ticks::quarters(1),
+            },
+        })
+        .unwrap();
+    let heard = rig.run(1_200, 128);
+    assert!(
+        peak(&heard) > 0.05,
+        "nothing within 25 ms of the scrub's start: {}",
+        peak(&heard)
+    );
+    // Playing is compensated again afterwards, exactly as it is without a
+    // scrub before it.
+    rig.transport.send(Command::EndScrub).unwrap();
+    rig.run(4_800, 128);
+    rig.play();
+    let after = rig.run(9_600, 128);
+
+    let mut fresh = self::rig(vec![clip(1, 1, &audio), clip(2, 2, &audio)], &routing);
+    fresh
+        .transport
+        .send(Command::Locate(Ticks::quarters(1)))
+        .unwrap();
+    fresh.run(4_800, 128);
+    fresh.play();
+    let expected = fresh.run(9_600, 128);
+    assert_eq!(
+        after[BLEND * 2..],
+        expected[BLEND * 2..],
+        "the delay lines work again once playback starts"
+    );
 }

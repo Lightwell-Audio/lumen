@@ -311,6 +311,9 @@ impl IAudioProcessorTrait for Processor {
     }
 
     unsafe fn setProcessing(&self, _state: TBool) -> tresult {
+        // The standard's place for a plugin to forget what it holds: a
+        // reverb's tail, a delay's memory, notes still sounding.
+        self.dsp().reset();
         kResultOk
     }
 

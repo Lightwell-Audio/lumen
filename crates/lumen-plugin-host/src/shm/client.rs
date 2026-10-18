@@ -6,7 +6,7 @@
 use std::io;
 use std::time::Instant;
 
-use super::region::{Answer, Layout, Outcome, Region, SubmitError};
+use super::region::{Answer, FLAG_FLUSH, Layout, Outcome, Region, SubmitError};
 use super::sys::{Names, Signal};
 use super::{Waiting, Wake};
 use crate::protocol::{Event, ParamQueue};
@@ -38,6 +38,8 @@ pub struct BlockLink {
     answered_frames: u32,
     stale: u32,
     invalid: u32,
+    /// The next block asks the plugin to forget what it holds.
+    flush_next: bool,
 }
 
 impl BlockLink {
@@ -59,6 +61,7 @@ impl BlockLink {
             answered_frames: 0,
             stale: 0,
             invalid: 0,
+            flush_next: false,
         };
         Ok((link, names))
     }
@@ -92,6 +95,12 @@ impl BlockLink {
         self.in_flight.is_some()
     }
 
+    /// Asks the plugin to forget what it holds (its tail, its filters)
+    /// before the next block it processes. Allocation-free.
+    pub fn flush_next(&mut self) {
+        self.flush_next = true;
+    }
+
     /// Hands the host a block and returns its sequence number. Fails with
     /// `Busy` while the host is still on an earlier one; the caller then uses
     /// silence for this block.
@@ -114,8 +123,10 @@ impl BlockLink {
             }
         }
         let seq = self.next_seq;
+        let flags = if self.flush_next { FLAG_FLUSH } else { 0 };
         self.region
-            .write_request(seq, generation, frames, input, events, params)?;
+            .write_flagged(seq, generation, frames, input, events, params, flags)?;
+        self.flush_next = false;
         self.next_seq += 1;
         self.in_flight = Some(InFlight {
             seq,

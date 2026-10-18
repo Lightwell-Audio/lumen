@@ -55,6 +55,8 @@ struct FakeEffect {
     out: [Vec<f32>; 2],
     done: Option<Arc<AtomicBool>>,
     submits: Arc<AtomicU32>,
+    /// Times the engine asked it to forget what it holds.
+    flushes: Arc<AtomicU32>,
 }
 
 impl FakeEffect {
@@ -68,6 +70,7 @@ impl FakeEffect {
             out: [Vec::with_capacity(256), Vec::with_capacity(256)],
             done: None,
             submits: Arc::clone(&submits),
+            flushes: Arc::new(AtomicU32::new(0)),
         });
         (effect, submits)
     }
@@ -139,6 +142,11 @@ impl Hosted for FakeEffect {
 
     fn ended(&self) -> bool {
         false
+    }
+
+    fn flush(&mut self) {
+        self.flushes.fetch_add(1, Ordering::Relaxed);
+        self.ring.fill(0.0);
     }
 }
 
@@ -395,6 +403,51 @@ fn a_hosted_effect_rings_out_after_stop_until_its_output_is_quiet() {
         asked,
         "and left alone once quiet"
     );
+}
+
+#[test]
+fn a_locate_makes_effects_forget_what_they_hold_and_a_loop_wrap_or_a_start_does_not() {
+    let routing = routing_of(vec![track(1, hosted(7, 0)), track(2, hosted(8, 0))]);
+    let mut rig = rig(2, RATE, &routing);
+    let (effect, _) = FakeEffect::new(Mode::Halve, 0);
+    let flushes = Arc::clone(&effect.flushes);
+    rig.attach(7, effect, 0);
+    let (other, _) = FakeEffect::new(Mode::Halve, 0);
+    let others = Arc::clone(&other.flushes);
+    rig.attach(8, other, 0);
+    let count = |flushes: &Arc<AtomicU32>| flushes.load(Ordering::Relaxed);
+
+    rig.play();
+    rig.run(10_000, 128);
+    assert_eq!((count(&flushes), count(&others)), (0, 0), "playing on");
+    rig.transport
+        .send(Command::Locate(Ticks::quarters(4)))
+        .unwrap();
+    rig.run(1_000, 128);
+    assert_eq!(
+        (count(&flushes), count(&others)),
+        (1, 1),
+        "a move of the playhead reaches every effect once"
+    );
+
+    // A loop wraps seamlessly: nothing is forgotten.
+    rig.transport
+        .send(Command::SetLoop(lumen_engine::Region::new(
+            Ticks::ZERO,
+            Ticks::quarters(1),
+            true,
+        )))
+        .unwrap();
+    rig.run(RATE as usize * 3, 128);
+    assert_eq!(count(&flushes), 1, "three seconds of loop wraps");
+
+    // Stop, then start: the tail rings out after Stop (ADR-0074) and playing
+    // again is not a jump.
+    rig.transport.send(Command::Stop).unwrap();
+    rig.run(1_000, 128);
+    rig.play();
+    rig.run(1_000, 128);
+    assert_eq!(count(&flushes), 1, "stop and play");
 }
 
 #[test]

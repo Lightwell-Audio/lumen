@@ -190,4 +190,8 @@ impl Hosted for Link {
     fn ended(&self) -> bool {
         self.ended.load(Ordering::Relaxed)
     }
+
+    fn flush(&mut self) {
+        self.link.flush_next();
+    }
 }

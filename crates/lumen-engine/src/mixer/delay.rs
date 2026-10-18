@@ -71,6 +71,10 @@ pub(super) struct Lines {
     /// `(key, line)` sorted by key, to match lines across plans.
     by_key: Vec<(LineKey, LineId)>,
     data: Vec<f32>,
+    /// Nothing is delayed: a scrub follows the hand, not the song, and is
+    /// heard when it plays (M6 slice 6a). The rings are left as they are;
+    /// playback clears them when it starts.
+    bypass: bool,
 }
 
 impl Lines {
@@ -170,8 +174,16 @@ impl Lines {
         }
     }
 
+    /// Passes audio straight through (a scrub) or delays it again.
+    pub fn set_bypass(&mut self, bypass: bool) {
+        self.bypass = bypass;
+    }
+
     /// Delays `left` and `right` in place through `line`. Real-time safe.
     pub fn run(&mut self, line: LineId, left: &mut [f32], right: &mut [f32]) {
+        if self.bypass {
+            return;
+        }
         let Some(l) = self.lines.get_mut(line as usize) else {
             return;
         };
@@ -191,7 +203,7 @@ impl Lines {
         right: &'a [f32],
         scratch: &'a mut [f32; 2 * CHUNK],
     ) -> (&'a [f32], &'a [f32]) {
-        if line == NO_LINE {
+        if line == NO_LINE || self.bypass {
             return (left, right);
         }
         let n = left.len();
