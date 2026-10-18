@@ -79,7 +79,7 @@ const CUE_CHANNEL: u16 = crate::settings::CUE_CHANNEL;
 pub struct Devices {
     /// Frames of latency on each track that has some.
     pub latent: BTreeMap<Id, u32>,
-    /// Frames of latency of each plugin effect, by device: what it last
+    /// Frames of latency of each plugin, by device: what it last
     /// reported, or what the project saved while it loads or is missing.
     pub hosted: BTreeMap<Id, u32>,
 }
@@ -161,6 +161,15 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices) -> Routing {
                             }),
                     )
                     .collect(),
+                // A plugin instrument plays its notes as late as it last
+                // reported, and every other path waits for it (slice 6).
+                source: track
+                    .devices
+                    .iter()
+                    .filter(|d| d.is_vst3() && d.is_instrument())
+                    .filter_map(|d| devices.hosted.get(&d.id).copied())
+                    .max()
+                    .unwrap_or(0),
                 ..NodeSpec::unity(track.id.0, output(project, track, &cue.outputs))
             }
         })
@@ -224,6 +233,36 @@ mod tests {
         let plan = lumen_engine::compile_routing(&routing).unwrap();
         assert_eq!(plan.compensation().frames, 240);
         assert_eq!(plan.compensation().path, [(ids[0].0, 240)]);
+    }
+
+    #[test]
+    fn a_plugin_instruments_latency_makes_every_other_track_wait_for_it() {
+        use lumen_project::model::{DeviceKind, PluginRef};
+        let (mut doc, ids) = doc_with(&[TrackKind::Midi, TrackKind::Audio]);
+        let instrument = doc
+            .add_device(
+                ids[0],
+                PluginRef::Vst3 {
+                    class_id: "00112233445566778899AABBCCDDEEFF".into(),
+                    name: "Instrument A".into(),
+                    vendor: "Vendor A".into(),
+                    kind: DeviceKind::Instrument,
+                },
+                crate::document::Slot::End,
+            )
+            .unwrap();
+        let mut devices = Devices::default();
+        devices.hosted.insert(instrument, 360);
+        let routing = super::routing(doc.project(), &Cue::default(), &devices);
+        assert_eq!(node(&routing, ids[0]).source, 360);
+        assert!(
+            node(&routing, ids[0]).devices.is_empty(),
+            "an instrument is not a device in the chain"
+        );
+        assert_eq!(node(&routing, ids[1]).source, 0);
+        let plan = lumen_engine::compile_routing(&routing).unwrap();
+        assert_eq!(plan.compensation().frames, 360);
+        assert_eq!(plan.compensation().path, [(ids[0].0, 360)]);
     }
 
     #[test]

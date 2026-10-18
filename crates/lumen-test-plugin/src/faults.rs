@@ -30,6 +30,7 @@
 //! | `headless_press=CODE` | as `headless_editor`, and once Lumen asks for the key `CODE` (a Windows virtual-key code) while the window is open, the "user" presses and lets go of it there |
 //! | `presets` | the instrument offers a program list (three programs, selected by a program-change parameter, id 91, that sets its level and wave as edits of its own) and both plugins keep an edit-controller state (a view value) that `getState` writes and `setState` restores |
 //! | `release=MS` | the instrument's released notes fade out over `MS` milliseconds while it reports no tail: what a synth with a long release does |
+//! | `instrument_latency=N` | the instrument reports `N` samples of latency (at most 4096) and plays its notes that late, as a plugin that looks ahead does |
 //!
 //! `@N` counts process calls from 0 and defaults to 0.
 
@@ -61,6 +62,7 @@ pub enum Kind {
     Editor,
     EditorHang,
     Release,
+    InstrumentLatency,
     ManyParams,
     Presets,
     WindowEdits,
@@ -117,6 +119,7 @@ impl Faults {
                 "editor" => Kind::Editor,
                 "editor_hang" => Kind::EditorHang,
                 "release" => Kind::Release,
+                "instrument_latency" => Kind::InstrumentLatency,
                 "many_params" => Kind::ManyParams,
                 "presets" => Kind::Presets,
                 "window_edits" => Kind::WindowEdits,
@@ -210,6 +213,14 @@ impl Faults {
             .iter()
             .find(|f| f.kind == Kind::Release)
             .map(|f| Duration::from_millis(f.arg))
+    }
+
+    /// The instrument's latency in samples (`instrument_latency`), if asked.
+    pub fn instrument_latency(&self) -> Option<u32> {
+        self.0
+            .iter()
+            .find(|f| f.kind == Kind::InstrumentLatency)
+            .map(|f| f.arg.min(u64::from(crate::params::MAX_LATENCY)) as u32)
     }
 
     /// How many extra parameters `many_params` adds (0 when not asked).

@@ -44,6 +44,10 @@ struct FakeHost {
     events: Vec<Event>,
     log: Option<Log>,
     overlap: Option<Arc<Overlap>>,
+    /// What the plugin's latency delays its output by: the last `shift`
+    /// frames of the left channel, carried into the next block.
+    ring: Vec<f32>,
+    ring_at: usize,
 }
 
 /// Whether the engine hands every fake host its block before it waits for
@@ -99,7 +103,16 @@ impl FakeHost {
             events: Vec::with_capacity(4096),
             log,
             overlap,
+            ring: Vec::new(),
+            ring_at: 0,
         })
+    }
+
+    /// A host whose output trails what it was given by `frames`, as a plugin
+    /// that reports that latency does.
+    fn shifted(mut self: Box<Self>, frames: usize) -> Box<Self> {
+        self.ring = vec![0.0; frames];
+        self
     }
 }
 
@@ -165,6 +178,12 @@ impl Hosted for FakeHost {
                 Kind::NoteOn { .. } => left[at] += 1.0,
                 Kind::NoteOff { .. } => left[at] -= 1.0,
                 _ => {}
+            }
+        }
+        if !self.ring.is_empty() {
+            for sample in left.iter_mut() {
+                std::mem::swap(sample, &mut self.ring[self.ring_at]);
+                self.ring_at = (self.ring_at + 1) % self.ring.len();
             }
         }
         Reply::Ready {
@@ -267,14 +286,28 @@ struct Rig {
 
 /// Tracks `1..=tracks.len()`, one MIDI track each, all into the master.
 fn rig(timeline: Timeline, rate: u32, tracks: Vec<MidiTrack>) -> Rig {
+    rig_with_sources(timeline, rate, tracks, &[])
+}
+
+/// As [`rig`], with `(track, frames)` of source latency on some tracks.
+fn rig_with_sources(
+    timeline: Timeline,
+    rate: u32,
+    tracks: Vec<MidiTrack>,
+    sources: &[(u64, u32)],
+) -> Rig {
     let (_clips, players) = clip_player();
     let (mut midi, player) = midi_player();
     let mut nodes = vec![NodeSpec::unity(MASTER, Destination::Hardware(0))];
-    nodes.extend(
-        tracks
-            .iter()
-            .map(|t| NodeSpec::unity(t.id, Destination::Node(MASTER))),
-    );
+    nodes.extend(tracks.iter().map(|t| {
+        NodeSpec {
+            source: sources
+                .iter()
+                .find(|(id, _)| *id == t.id)
+                .map_or(0, |&(_, frames)| frames),
+            ..NodeSpec::unity(t.id, Destination::Node(MASTER))
+        }
+    }));
     midi.set(tracks).ok().unwrap();
     let (mut routing, source) = mixer(Layered(players, player));
     routing
@@ -358,6 +391,48 @@ fn a_hosted_instrument_plays_notes_on_the_same_samples_as_a_built_in_one() {
         );
         assert!(!status.failed());
         assert_eq!(status.late_blocks(), 0);
+    }
+}
+
+#[test]
+fn a_plugin_instruments_latency_is_compensated_so_it_lines_up_with_a_plain_track() {
+    let notes = vec![note(Q(2) + Ticks(12_345), Q(1), 60), note(Q(5), Q(1), 64)];
+    let timeline = Timeline::constant(120.0, Meter::FOUR_FOUR);
+    for (latency, block) in [(100, 128), (1_024, 128), (333, 100), (4_096, 64)] {
+        let play = |compensated: bool| {
+            let (spec, _) = hosted(FakeHost::new(Duration::ZERO, false, None).shifted(latency));
+            let late = MidiTrack::new(
+                1,
+                Target::Instrument,
+                spec,
+                vec![clip(1, Ticks::ZERO, Q(16), notes.clone())],
+            );
+            let plain = MidiTrack::new(
+                2,
+                Target::Instrument,
+                builtin(),
+                vec![clip(2, Ticks::ZERO, Q(16), notes.clone())],
+            );
+            let sources: &[(u64, u32)] = if compensated {
+                &[(1, latency as u32)]
+            } else {
+                &[]
+            };
+            let mut rig = rig_with_sources(timeline.clone(), 48_000, vec![late, plain], sources);
+            rig.play();
+            impulses(&rig.run(timeline.sample_at(Q(8), 48_000) as usize, block))
+        };
+        let together = play(true);
+        assert_eq!(
+            together.len(),
+            4,
+            "two notes, on and off, from both tracks on the same samples (latency {latency}): {together:?}"
+        );
+        assert_eq!(
+            play(false).len(),
+            8,
+            "without the compensation the plugin is heard {latency} frames late"
+        );
     }
 }
 

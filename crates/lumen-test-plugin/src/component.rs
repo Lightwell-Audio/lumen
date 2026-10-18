@@ -303,6 +303,10 @@ impl IAudioProcessorTrait for Processor {
         if let Some(release) = self.faults.release() {
             dsp.set_release(release.as_secs_f64());
         }
+        if let Some(samples) = self.faults.instrument_latency() {
+            dsp.set_instrument_latency(samples);
+            self.latency.store(dsp.latency(), Ordering::Relaxed);
+        }
         kResultOk
     }
 

@@ -44,6 +44,8 @@ pub struct Dsp {
     pub values: [f64; 2],
     voices: Voices,
     delay: Delay,
+    /// Samples the instrument plays its notes late and reports as latency.
+    instrument_latency: u32,
 }
 
 impl Dsp {
@@ -54,6 +56,7 @@ impl Dsp {
             values: kind.defaults(),
             voices: Voices::new(),
             delay: Delay::new(),
+            instrument_latency: 0,
         }
     }
 
@@ -67,8 +70,13 @@ impl Dsp {
     pub fn latency(&self) -> u32 {
         match self.kind {
             Kind::Effect => self.kind.plain(LATENCY, self.values[1]) as u32,
-            Kind::Instrument => 0,
+            Kind::Instrument => self.instrument_latency,
         }
+    }
+
+    /// The instrument plays its notes `samples` late and reports that.
+    pub fn set_instrument_latency(&mut self, samples: u32) {
+        self.instrument_latency = samples.min(crate::params::MAX_LATENCY);
     }
 
     pub fn sounding(&self) -> usize {
@@ -147,8 +155,12 @@ impl Dsp {
             Kind::Instrument => {
                 let level = self.kind.plain(LEVEL, self.values[0]) as f32;
                 let saw = self.kind.plain(WAVE, self.values[1]) >= 0.5;
+                let late = self.instrument_latency as usize;
                 for i in range {
-                    let s = self.voices.next_sample(level, saw);
+                    let mut s = self.voices.next_sample(level, saw);
+                    if late > 0 {
+                        s = self.delay.step([s, s], late)[0];
+                    }
                     for out in output.into_iter().filter(|p| !p.is_null()) {
                         // SAFETY: valid for the block (see `render`).
                         unsafe { out.add(i).write(s) };

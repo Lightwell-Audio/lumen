@@ -1111,7 +1111,7 @@ impl Hosting {
 
     /// Keeps the hosts in step with the project and the engine. Call every
     /// frame with the device's rate and block size (0 for unknown).
-    /// `latencies` receives each effect's latency for the routing.
+    /// `latencies` receives each plugin's latency for the routing.
     pub fn update(
         &mut self,
         project: &Project,
@@ -1691,9 +1691,10 @@ impl Hosting {
             }
         }
 
-        // The routing's picture of each effect's latency.
+        // The routing's picture of each plugin's latency: an effect adds it
+        // to its track's path and an instrument plays that late.
         latencies.clear();
-        for w in list.iter().filter(|w| !w.instrument) {
+        for w in list.iter() {
             if let Some(t) = self.tracked.get(&w.device.id.0) {
                 latencies.insert(w.device.id, t.latency);
             }
