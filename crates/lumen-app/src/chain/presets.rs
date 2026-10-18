@@ -19,7 +19,7 @@ use lumen_project::model::{Id, PluginRef};
 use crate::App;
 use crate::document::find_device;
 use crate::hosting::State;
-use crate::preset_files::{Done, Entry, Files, Places};
+use crate::preset_files::{Done, Entry, Files, NAME_LIMIT, Places};
 use crate::{theme, widgets};
 
 /// The menu's width and the height its list may reach.
@@ -551,24 +551,13 @@ impl App {
     /// Opens the menu of the chosen device's field (the command); with
     /// `naming` it opens on the name for Save as….
     pub(crate) fn open_preset_menu(&mut self, ctx: &egui::Context, device: Id, naming: bool) {
-        let menu = &mut self.chain.presets.menu;
-        *menu = MenuState {
+        let offered = naming.then(|| self.current_name(device));
+        self.chain.presets.menu = MenuState {
             open_for: Some(device),
+            focus: if naming { Focus::Name } else { Focus::Search },
+            naming: offered,
             ..MenuState::default()
         };
-        if naming {
-            menu.naming = Some(
-                self.chain
-                    .presets
-                    .current
-                    .get(&device)
-                    .map(|c| c.name.clone())
-                    .unwrap_or_default(),
-            );
-            self.chain.presets.menu.focus = Focus::Name;
-        } else {
-            self.chain.presets.menu.focus = Focus::Search;
-        }
         if let Some((vendor, plugin)) = self.plugin_vendor_name(device) {
             self.chain.presets.relist(ctx, device, &vendor, &plugin);
         }
@@ -584,8 +573,10 @@ impl App {
 
     /// The menu under `device`'s field, when it is open.
     pub(super) fn preset_menu(&mut self, field: &egui::Response, device: Id) {
+        // Staying: typing a name is no reason for the menu to go when the
+        // pointer leaves it; Esc or a click elsewhere closes it.
         let shown = widgets::Menu::below(field)
-            .keeping_open()
+            .staying()
             .show(|ui| self.preset_menu_body(ui, device));
         if shown.is_none() && self.chain.presets.menu.open_for == Some(device) {
             self.chain.presets.menu = MenuState::default();
@@ -621,6 +612,7 @@ impl App {
                 egui::TextEdit::singleline(name)
                     .id(egui::Id::new(("preset name", device.0)))
                     .hint_text("Name")
+                    .char_limit(NAME_LIMIT)
                     .desired_width(f32::INFINITY),
             );
             field.widget_info(|| {
@@ -653,7 +645,8 @@ impl App {
                 if typed.trim().is_empty() {
                     self.say("Give the preset a name first.".to_owned());
                 } else {
-                    self.begin_preset_save(device, typed.trim().to_owned(), None);
+                    let name: String = typed.trim().chars().take(NAME_LIMIT).collect();
+                    self.begin_preset_save(device, name, None);
                     close = true;
                 }
             }
@@ -722,12 +715,13 @@ impl App {
         }
     }
 
+    /// The name offered for Save as…: the sound's own, cut to the limit.
     fn current_name(&self, device: Id) -> String {
         self.chain
             .presets
             .current
             .get(&device)
-            .map(|c| c.name.clone())
+            .map(|c| c.name.chars().take(NAME_LIMIT).collect())
             .unwrap_or_default()
     }
 

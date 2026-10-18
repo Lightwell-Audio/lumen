@@ -106,6 +106,26 @@ impl Lumen {
     }
 }
 
+fn found(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let Ok(read) = std::fs::read_dir(root) else {
+        return out;
+    };
+    for entry in read.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_dir() {
+            out.extend(found(&path));
+        } else {
+            out.push(path);
+        }
+    }
+    out
+}
+
+fn any_preset(root: &Path) -> bool {
+    !found(root).is_empty()
+}
+
 fn saved_files(folder: &Path) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(folder)
         .map(|read| {
@@ -417,4 +437,159 @@ fn a_builtin_synth_and_a_plugin_that_is_not_running_have_no_preset_field() {
     lumen.frames(5);
     assert!(!lumen.shows(FIELD));
     assert!(!lumen.app().device_has_preset_field(PLUGIN));
+}
+
+#[test]
+fn a_preset_saved_from_a_device_added_again_loads_back() {
+    let (mut lumen, places) = launch("re-added");
+    // Take the instrument off the track and add the same plugin again.
+    lumen.click(&format!("{NAME} on Keys"));
+    lumen.key(Modifiers::COMMAND, Key::K);
+    lumen.harness.event(Event::Text("Remove device".to_owned()));
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.wait_for("the device to go", |app| {
+        app.project().tracks[0].devices.is_empty()
+    });
+    let at = lumen
+        .harness
+        .get_by_label_contains(&format!("{NAME}, "))
+        .rect()
+        .center();
+    lumen.double_click(at);
+    lumen.wait_for("the new device", |app| {
+        app.project().tracks[0].devices.len() == 1
+    });
+    let device = lumen.app().project().tracks[0].devices[0].id;
+    wait_for_state(&mut lumen, device, "ready");
+    lumen.wait_for("the card's field", move |app| {
+        app.device_has_preset_field(device)
+    });
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.frames(5);
+    play(&mut lumen);
+    lumen.app_mut().choose_program(device, 0, 1);
+    lumen.wait_for("the program", move |app| {
+        app.device_param_known(device, LEVEL) == Some(0.9)
+    });
+    lumen.frames(120);
+
+    lumen.open_preset_menu();
+    lumen.click("Save as\u{2026}");
+    lumen.type_into_menu("Again");
+    lumen.click("Save preset");
+    let user = places.user.clone();
+    lumen.wait_for("a file", move |_| any_preset(&user));
+    lumen.frames(30);
+
+    // And it loads: the plugin takes what it gave.
+    lumen.open_preset_menu();
+    lumen.click("Again");
+    lumen.wait_for("the preset to be taken", move |app| {
+        app.project().tracks[0]
+            .devices
+            .iter()
+            .any(|d| d.id == device && d.state == state(0.9, 1.0))
+    });
+    assert!(
+        !lumen
+            .app()
+            .note()
+            .is_some_and(|n| n.contains("could not use")),
+        "{:?}",
+        lumen.app().note()
+    );
+}
+
+#[test]
+fn a_preset_saved_from_a_device_put_back_by_undo_loads_back() {
+    let (mut lumen, places) = launch("undone");
+    // Take the instrument off the track and add the same plugin again.
+    lumen.click(&format!("{NAME} on Keys"));
+    lumen.key(Modifiers::COMMAND, Key::K);
+    lumen.harness.event(Event::Text("Remove device".to_owned()));
+    lumen.frames(2);
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.wait_for("the device to go", |app| {
+        app.project().tracks[0].devices.is_empty()
+    });
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.wait_for("the new device", |app| {
+        app.project().tracks[0].devices.len() == 1
+    });
+    let device = lumen.app().project().tracks[0].devices[0].id;
+    wait_for_state(&mut lumen, device, "ready");
+    lumen.wait_for("the card's field", move |app| {
+        app.device_has_preset_field(device)
+    });
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.frames(5);
+    play(&mut lumen);
+    lumen.app_mut().choose_program(device, 0, 1);
+    lumen.wait_for("the program", move |app| {
+        app.device_param_known(device, LEVEL) == Some(0.9)
+    });
+    lumen.frames(120);
+
+    lumen.open_preset_menu();
+    lumen.click("Save as\u{2026}");
+    lumen.type_into_menu("Again");
+    lumen.click("Save preset");
+    let user = places.user.clone();
+    lumen.wait_for("a file", move |_| any_preset(&user));
+    lumen.frames(30);
+
+    // And it loads: the plugin takes what it gave.
+    lumen.open_preset_menu();
+    lumen.click("Again");
+    lumen.wait_for("the preset to be taken", move |app| {
+        app.project().tracks[0]
+            .devices
+            .iter()
+            .any(|d| d.id == device && d.state == state(0.9, 1.0))
+    });
+    assert!(
+        !lumen
+            .app()
+            .note()
+            .is_some_and(|n| n.contains("could not use")),
+        "{:?}",
+        lumen.app().note()
+    );
+}
+
+#[test]
+fn the_name_is_cut_to_thirty_characters_in_the_field_and_in_the_file() {
+    let (mut lumen, places) = launch("long-name");
+    play(&mut lumen);
+    lumen.app_mut().choose_program(PLUGIN, 0, 1);
+    lumen.wait_for("the program", |app| {
+        app.device_param_known(PLUGIN, LEVEL) == Some(0.9)
+    });
+    lumen.frames(120);
+    lumen.open_preset_menu();
+    lumen.click("Save as\u{2026}");
+    // Typing more than the limit stops at it.
+    lumen.type_into_menu(&"abcdefghij".repeat(5));
+    lumen.click("Save preset");
+    let user = places.user.clone();
+    lumen.wait_for("a file", move |_| any_preset(&user));
+    let files = found(&places.user);
+    assert_eq!(files.len(), 1);
+    let stem = files[0].file_stem().unwrap().to_string_lossy().into_owned();
+    assert_eq!(stem, "abcdefghij".repeat(3), "thirty characters");
+}
+
+#[test]
+fn the_menu_stays_open_while_a_name_is_typed_whatever_the_pointer_does() {
+    let (mut lumen, _places) = launch("stays");
+    lumen.open_preset_menu();
+    lumen.click("Save as\u{2026}");
+    lumen.type_into_menu("My");
+    // The pointer leaves the menu and rests far from it: it used to close.
+    lumen.harness.hover_at(eframe::egui::pos2(5.0, 5.0));
+    lumen.frames(120);
+    assert!(lumen.shows("Preset name"), "the menu went away");
+    lumen.type_into_menu(" lead");
+    assert!(lumen.shows("Preset name"));
 }

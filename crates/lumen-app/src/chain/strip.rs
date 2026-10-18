@@ -315,7 +315,7 @@ pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -
               Esc or a second click ends it",
         style: if on { Style::On } else { Style::Plain },
         dot: false,
-        weight: 1.15,
+        weight: 1.3,
         output: Some(Output::Learn),
     };
     match row.editor {
@@ -333,8 +333,10 @@ pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -
                     "The plugin's window is opening",
                     Style::On,
                 ),
+                // The lit dot says it is open: the word is short enough to sit
+                // centred with room round it.
                 _ => (
-                    "Editor open",
+                    "Editor",
                     "Close editor",
                     "Close the plugin's window",
                     Style::On,
@@ -346,7 +348,7 @@ pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -
                 tip,
                 style,
                 dot: *row.editor == Editor::Open,
-                weight: 1.25,
+                weight: 1.2,
                 output: (*row.editor != Editor::Opening).then_some(Output::Editor),
             });
             if learn_ok {
@@ -443,9 +445,15 @@ fn pill(ui: &mut Ui, rect: Rect, id: egui::Id, part: &Part<'_>) -> bool {
         face.text()
     };
     let font = FontId::proportional(theme::size::CAPTION);
-    let text = fit(ui.painter(), &part.shown, font.clone(), body.width() - 10.0);
-    let galley = ui.painter().layout_no_wrap(text, font, ink);
+    // Room for the lit dot and a little air on both sides.
     let dot = if part.dot { 10.0 } else { 0.0 };
+    let text = fit(
+        ui.painter(),
+        &part.shown,
+        font.clone(),
+        body.width() - 16.0 - dot,
+    );
+    let galley = ui.painter().layout_no_wrap(text, font, ink);
     let width = galley.size().x + dot;
     if part.dot {
         ui.painter().circle_filled(

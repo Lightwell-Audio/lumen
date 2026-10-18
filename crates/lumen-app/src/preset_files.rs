@@ -19,7 +19,10 @@ pub const EXTENSION: &str = "vstpreset";
 /// The deepest a plugin's folder is searched, and the most files listed.
 const DEPTH: usize = 4;
 const MOST_FILES: usize = 2000;
-/// The longest a preset's file name is made.
+/// The longest name Lumen gives a preset it saves, in characters: a name that
+/// fits the card's field and a file list.
+pub const NAME_LIMIT: usize = 30;
+/// The longest a file or folder name is made (a plugin's own name may be long).
 const LONGEST_NAME: usize = 80;
 
 /// Where preset files are kept: the user's folder (saving writes here) and
