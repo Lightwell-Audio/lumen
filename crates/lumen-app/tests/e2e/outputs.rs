@@ -151,3 +151,20 @@ fn the_outputs_menu_keeps_its_width_when_an_output_is_switched_on() {
         "the menu stays {before} wide, it is {after}"
     );
 }
+
+#[test]
+fn an_output_without_a_track_is_heard_on_the_instruments_own_not_on_another_output() {
+    // Pitch 61 goes to output 1, which has no track; only output 2 has one
+    // (the snare). Every output is on, so the plugin sends the note to output
+    // 1 and the instrument's own track plays it: the snare's track, the next
+    // output on, hears nothing (a plugin that finds an output off may move its
+    // sound to the next one that is on).
+    let mut lumen = start("fold", &song(&[61], &[(SNARE, 2)]));
+    let keys = loudest(&mut lumen, KEYS);
+    assert!(
+        keys > -20.0,
+        "output 1 plays on the instrument's own: {keys} dB"
+    );
+    let snare = lumen.app().meter(SNARE).peak_db;
+    assert!(snare < -60.0, "the next output is silent: {snare} dB");
+}

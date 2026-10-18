@@ -280,20 +280,31 @@ pub fn engine_midi(
     engine_midi_with(project, inputs, ports, cache, &mut NoHosts)
 }
 
-/// The instrument's other outputs that are on and the tracks that play them:
+/// The instrument's other outputs that are on and the track that plays each:
 /// `(output pair, track)`. The pair counts the buses that are on in bus order
-/// from 1, as the host's link numbers them.
+/// from 1, as the host's link numbers them. Every output the plugin has is on,
+/// so what the plugin routes to an output is where it plays and never lands on
+/// another by the plugin's own choice; an output with no track of its own
+/// plays on the instrument's own track.
 fn plugin_outputs(project: &Project, track: &model::Track, hosts: &dyn Hosts) -> Vec<(u32, u64)> {
     let Some(device) = track.sound_source().filter(|d| d.is_vst3()) else {
         return Vec::new();
     };
     let on = hosts.outputs_on(device.id);
-    project
-        .tracks
-        .iter()
-        .filter_map(|t| t.plugin_output.map(|o| (o, t.id)))
-        .filter(|(o, _)| o.device == device.id && on & (1 << o.bus) != 0)
-        .map(|(o, id)| (1 + (on & ((1 << o.bus) - 1)).count_ones(), id.0))
+    (1..32u32)
+        .filter(|bus| on & (1 << bus) != 0)
+        .map(|bus| {
+            let pair = 1 + (on & ((1 << bus) - 1)).count_ones();
+            let own = project
+                .tracks
+                .iter()
+                .find(|t| {
+                    t.plugin_output
+                        .is_some_and(|o| o.device == device.id && o.bus == bus)
+                })
+                .map_or(track.id, |t| t.id);
+            (pair, own.0)
+        })
         .collect()
 }
 

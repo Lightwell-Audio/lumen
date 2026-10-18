@@ -94,19 +94,16 @@ fn playable(outputs: &[BusInfo], bus: u32) -> bool {
             .is_some_and(|b| (1..=2).contains(&b.channels))
 }
 
-/// The auxiliary outputs to turn on for the instrument `device`: the ones the
-/// project has a track playing, when the plugin has them as mono or stereo
-/// outputs, lowest first while they fit a block (M6 slice 6d).
-fn output_mask(project: &Project, device: Id, outputs: &[BusInfo]) -> u32 {
-    let mut wanted: Vec<u32> = project
-        .tracks
-        .iter()
-        .filter_map(|t| t.plugin_output)
-        .filter(|o| o.device == device && playable(outputs, o.bus))
-        .map(|o| o.bus)
+/// The auxiliary outputs to turn on for an instrument: every one it has as a
+/// mono or stereo output, lowest first while they fit a block (M6 slice 6d).
+/// Which have a track is the project's; an output nobody plays is heard on
+/// the instrument's own track. Turning on only the outputs that have a track
+/// left the plugin to move the rest by its own rule (one plugin sent a sound
+/// meant for an output that was off to the next output that was on).
+fn output_mask(outputs: &[BusInfo]) -> u32 {
+    let wanted: Vec<u32> = (1..outputs.len().min(32) as u32)
+        .filter(|&bus| playable(outputs, bus))
         .collect();
-    wanted.sort_unstable();
-    wanted.dedup();
     let mut room = output_budget(outputs);
     let mut mask = 0;
     for bus in wanted {
@@ -1679,7 +1676,7 @@ impl Hosting {
                         sidechain_mask(w.device.sidechain.is_some(), &t.inputs)
                     },
                     outputs: if t.instrument {
-                        output_mask(project, w.device.id, &t.outputs)
+                        output_mask(&t.outputs)
                     } else {
                         0
                     },
@@ -2205,8 +2202,8 @@ mod tests {
 
     #[test]
     fn every_output_of_a_sixteen_output_plugin_is_turned_on_and_a_wide_main_leaves_less() {
-        let (project, mut outputs) = orchestra();
-        let mask = super::output_mask(&project, Id(30), &outputs);
+        let (_, mut outputs) = orchestra();
+        let mask = super::output_mask(&outputs);
         assert_eq!(
             mask, 0xFFFE,
             "fifteen pairs and the main pair are 32 channels"
@@ -2214,7 +2211,7 @@ mod tests {
         // Past the block's room the lowest buses come first: a main bus of 40
         // channels leaves 24, twelve stereo pairs.
         outputs[0].channels = 40;
-        let mask = super::output_mask(&project, Id(30), &outputs);
+        let mask = super::output_mask(&outputs);
         assert_eq!(mask, 0b1_1111_1111_1110, "the lowest twelve");
     }
 
