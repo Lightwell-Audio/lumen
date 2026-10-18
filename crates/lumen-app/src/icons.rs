@@ -69,11 +69,13 @@ pub enum Icon {
     PanelLeft,
     /// The detail panel: a window with its bottom strip marked.
     PanelBottom,
+    /// A plugin's own window (M6 slice 5h): a window with its title bar.
+    Window,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 30] = [
+    pub const ALL: [Icon; 31] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
@@ -104,6 +106,7 @@ impl Icon {
         Icon::Shield,
         Icon::PanelLeft,
         Icon::PanelBottom,
+        Icon::Window,
     ];
 }
 
@@ -436,6 +439,15 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
                 Shape::line_segment([g.p(from[0], from[1]), g.p(to[0], to[1])], stroke),
             ]
         }
+        Icon::Window => vec![
+            Shape::rect_stroke(
+                g.rect(1.5, 2.5, 14.5, 13.5),
+                2.0 * g.unit,
+                stroke,
+                egui::StrokeKind::Middle,
+            ),
+            Shape::line_segment([g.p(1.5, 6.0), g.p(14.5, 6.0)], stroke),
+        ],
         Icon::Follow => vec![
             Shape::line_segment([g.p(4.0, 2.5), g.p(4.0, 13.5)], stroke),
             Shape::line_segment([g.p(6.5, 8.0), g.p(11.5, 8.0)], stroke),

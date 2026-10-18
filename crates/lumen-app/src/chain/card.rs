@@ -252,8 +252,16 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
             header.center().y,
         ),
         vec2(theme::size::CONTROL, theme::size::CONTROL),
-    );
-    paint_badge(&painter, badge, look);
+    )
+    .round_to_pixels(ui.pixels_per_point());
+    // A running plugin has its window's button where the kind badge was (the
+    // picture still says the kind); everything else keeps the badge.
+    let mut header_out = Vec::new();
+    if has_window_button(look) {
+        header_out.extend(strip::editor_button(ui, badge, id, look.editor));
+    } else {
+        paint_badge(&painter, badge, look);
+    }
     let text_left = power_rect.right() + theme::space::S;
     let room = badge.left() - theme::space::S - text_left;
     let ink = if muted {
@@ -286,12 +294,13 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> O
     };
 
     // Between header and footer: the strip, or what replaces it.
-    let (action, strip) = paint_strip(
+    let (action, mut strip) = paint_strip(
         ui,
         strip.shrink2(vec2(theme::space::M, theme::space::S)),
         id,
         look,
     );
+    strip.extend(header_out);
 
     // The footer: the signal, and the time held back.
     let mono = FontId::monospace(theme::size::MONO_SMALL);
@@ -572,6 +581,13 @@ fn glyph(painter: &egui::Painter, area: Rect, icon: Icon, colour: Color32) {
     let side = (area.height() * 0.4).clamp(16.0, 40.0);
     let rect = Rect::from_center_size(area.center(), vec2(side, side));
     painter.extend(icons::shapes(icon, rect, colour));
+}
+
+/// Whether the header carries the plugin window's button: a plugin that is
+/// running (the built-in synth has no window; a card that is not running has
+/// nothing to open).
+fn has_window_button(look: &Look<'_>) -> bool {
+    look.reports_latency && matches!(look.face, Face::Ready)
 }
 
 /// The kind badge: a keyboard for an instrument, sliders for an effect.

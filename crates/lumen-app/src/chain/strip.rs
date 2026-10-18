@@ -1,14 +1,16 @@
 //! The card's parameter strip (M6 slice 4, the owner's S2 with the send
 //! knobs' comet style): eight chosen parameters as knobs in two rows, each
 //! with its name and the plugin's own text for its value, and under them one
-//! row of buttons: the plugin's own window, Learn, and every parameter. A
-//! slot with nothing in it offers to be filled.
+//! row of buttons: Learn and every parameter (the plugin's own window has its
+//! button in the card's header). A slot with nothing in it offers to be
+//! filled.
 
 use eframe::egui::{self, Align2, FontId, Rect, Shape, Stroke, Ui, pos2, vec2};
 use eframe::emath::GuiRounding as _;
 use lumen_hosting::ParamInfo;
 
 use super::stepped::{self, Kind};
+use crate::icons::{self, Icon};
 use crate::theme::Tone;
 use crate::widgets::param::{ParamLook, param_knob, start_typing};
 use crate::widgets::{self, raised};
@@ -314,7 +316,6 @@ enum Style {
     Fill,
     /// Says how things are and cannot be pressed.
     Warn,
-    Disabled,
 }
 
 /// One button of the row.
@@ -325,8 +326,6 @@ struct Part<'a> {
     name: String,
     tip: &'a str,
     style: Style,
-    /// A lit dot before the letters.
-    dot: bool,
     weight: f32,
     output: Option<Output>,
 }
@@ -341,19 +340,101 @@ fn count_words(count: usize) -> String {
     }
 }
 
-/// The editor, Learn and All buttons in `area`, as the editor's state allows:
-/// a plugin with no window hides Learn; a stuck one offers to be ended; a
-/// plugin with no parameters has only its window.
+/// The plugin window's button, in the card's header beside the power button
+/// (the owner's choice D, slice 5h): the window glyph in the power button's
+/// make, lit while the window is open or opening, warm when it stopped
+/// answering and dim when there is none. Its name says what a click does.
+pub(super) fn editor_button(
+    ui: &mut Ui,
+    rect: Rect,
+    id: egui::Id,
+    editor: &Editor,
+) -> Option<Output> {
+    let (name, tip, on, output) = match editor {
+        Editor::Closed => (
+            "Open editor",
+            "Open the plugin's own window",
+            false,
+            Some(Output::Editor),
+        ),
+        Editor::Opening => (
+            "Opening editor",
+            "The plugin's window is opening",
+            true,
+            None,
+        ),
+        Editor::Open => (
+            "Close editor",
+            "Close the plugin's window",
+            true,
+            Some(Output::Editor),
+        ),
+        Editor::NotResponding => (
+            "Editor not responding",
+            "The plugin's window has stopped answering. Lumen never ends a plugin on its own",
+            false,
+            None,
+        ),
+        Editor::Unavailable(why) => ("No editor", why.as_str(), false, None),
+    };
+    let id = id.with("editor");
+    let response = ui.interact(
+        rect,
+        id,
+        if output.is_some() {
+            egui::Sense::click()
+        } else {
+            egui::Sense::hover()
+        },
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::Button,
+            output.is_some(),
+            on,
+            name.to_owned(),
+        )
+    });
+    let palette = *theme::p();
+    let lit = motion::hover(ui.ctx(), id.with("lit"), on);
+    let dim = matches!(editor, Editor::Unavailable(_));
+    let face = raised::face_of(ui, &response)
+        .enabled(!dim)
+        .lit(lit, Tone::On);
+    let body = raised::paint(
+        ui.painter(),
+        rect,
+        theme::radius::for_height(rect.height()),
+        &face,
+    );
+    let ink = if matches!(editor, Editor::NotResponding) {
+        palette.warning
+    } else {
+        face.text()
+    };
+    ui.painter().extend(icons::shapes(
+        Icon::Window,
+        Rect::from_center_size(body.center(), vec2(16.0, 16.0)),
+        ink,
+    ));
+    raised::focus_ring(ui.painter(), &response, rect);
+    let clicked = response.on_hover_text(tip).clicked();
+    output.filter(|_| clicked)
+}
+
+/// Learn and All buttons in `area`, as the editor's state allows: a plugin
+/// with no window hides Learn; a stuck one offers to be ended in their place
+/// (the window button itself is in the header); a plugin with no parameters
+/// has neither.
 pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -> Vec<Output> {
     let mut parts: Vec<Part<'_>> = Vec::new();
     let learn_ok = row.parameters > 0;
     let all = Part {
-        shown: format!("All {}\u{2026}", count_words(row.parameters)).into(),
+        shown: format!("All {} parameters", count_words(row.parameters)).into(),
         name: format!("All parameters ({})", row.parameters),
         tip: "Every parameter of the plugin, with search",
         style: Style::Plain,
-        dot: false,
-        weight: 0.95,
+        weight: 2.2,
         output: Some(Output::All),
     };
     let learn = |on: bool| Part {
@@ -362,43 +443,11 @@ pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -
         tip: "Touch a control in the plugin's window and it takes the next free slot. \
               Esc or a second click ends it",
         style: if on { Style::On } else { Style::Plain },
-        dot: false,
-        weight: 1.3,
+        weight: 1.0,
         output: Some(Output::Learn),
     };
     match row.editor {
         Editor::Closed | Editor::Opening | Editor::Open => {
-            let (shown, name, tip, style) = match row.editor {
-                Editor::Closed => (
-                    "Open editor",
-                    "Open editor",
-                    "Open the plugin's own window",
-                    Style::Plain,
-                ),
-                Editor::Opening => (
-                    "Opening\u{2026}",
-                    "Opening editor",
-                    "The plugin's window is opening",
-                    Style::On,
-                ),
-                // The lit dot says it is open: the word is short enough to sit
-                // centred with room round it.
-                _ => (
-                    "Editor",
-                    "Close editor",
-                    "Close the plugin's window",
-                    Style::On,
-                ),
-            };
-            parts.push(Part {
-                shown: shown.into(),
-                name: name.to_owned(),
-                tip,
-                style,
-                dot: *row.editor == Editor::Open,
-                weight: 1.2,
-                output: (*row.editor != Editor::Opening).then_some(Output::Editor),
-            });
             if learn_ok {
                 parts.push(learn(row.learning));
                 parts.push(all);
@@ -407,10 +456,9 @@ pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -
         Editor::NotResponding => {
             parts.push(Part {
                 shown: "Not responding".into(),
-                name: "Editor not responding".to_owned(),
+                name: "Window not responding".to_owned(),
                 tip: "The plugin's window has stopped answering. Lumen never ends a plugin on its own",
                 style: Style::Warn,
-                dot: false,
                 weight: 1.4,
                 output: None,
             });
@@ -419,21 +467,11 @@ pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -
                 name: "End plugin".to_owned(),
                 tip: "Ends this plugin. The card then offers Reload",
                 style: Style::Fill,
-                dot: false,
                 weight: 1.0,
                 output: Some(Output::End),
             });
         }
-        Editor::Unavailable(why) => {
-            parts.push(Part {
-                shown: "No editor".into(),
-                name: "No editor".to_owned(),
-                tip: why,
-                style: Style::Disabled,
-                dot: false,
-                weight: 1.2,
-                output: None,
-            });
+        Editor::Unavailable(_) => {
             if learn_ok {
                 parts.push(all);
             }
@@ -458,7 +496,7 @@ pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -
 
 /// A raised button with a label; true when it was pressed.
 fn pill(ui: &mut Ui, rect: Rect, id: egui::Id, part: &Part<'_>) -> bool {
-    let enabled = part.output.is_some() && part.style != Style::Disabled;
+    let enabled = part.output.is_some();
     let sense = if enabled {
         egui::Sense::click()
     } else {
@@ -475,7 +513,7 @@ fn pill(ui: &mut Ui, rect: Rect, id: egui::Id, part: &Part<'_>) -> bool {
     });
     let palette = *theme::p();
     let lit = motion::hover(ui.ctx(), id.with("lit"), part.style == Style::On);
-    let mut face = raised::face_of(ui, &response).enabled(part.style != Style::Disabled);
+    let mut face = raised::face_of(ui, &response).enabled(true);
     face = match part.style {
         Style::On => face.lit(lit, Tone::On),
         Style::Fill => face.lit(1.0, Tone::Accent),
@@ -493,27 +531,12 @@ fn pill(ui: &mut Ui, rect: Rect, id: egui::Id, part: &Part<'_>) -> bool {
         face.text()
     };
     let font = FontId::proportional(theme::size::CAPTION);
-    // Room for the lit dot and a little air on both sides.
-    let dot = if part.dot { 10.0 } else { 0.0 };
-    let text = fit(
-        ui.painter(),
-        &part.shown,
-        font.clone(),
-        body.width() - 16.0 - dot,
-    );
+    // A little air on both sides.
+    let text = fit(ui.painter(), &part.shown, font.clone(), body.width() - 16.0);
     let galley = ui.painter().layout_no_wrap(text, font, ink);
-    let width = galley.size().x + dot;
-    if part.dot {
-        ui.painter().circle_filled(
-            pos2(body.center().x - width / 2.0 + 3.0, body.center().y),
-            2.5,
-            ink,
-        );
-    }
-    let mid = pos2(body.center().x + dot / 2.0, body.center().y);
     raised::centre_galley(
         ui.painter(),
-        Rect::from_center_size(mid, galley.size()),
+        Rect::from_center_size(body.center(), galley.size()),
         galley,
         ink,
     );

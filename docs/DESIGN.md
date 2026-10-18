@@ -1047,17 +1047,21 @@ a soft shadow, radius `XL`).
   the knobs one raised button, "All
   parameters (N)". A plugin that lists none says so; the built-in synth sends
   you to the track's Instrument menu.
-- **The row under the knobs** (M6 slice 4f; the owner's specimens): up to three
-  raised buttons at the caption size, 22 pt tall, 4 pt apart, with widths in
-  proportion 1.25 : 1.15 : 0.95. The editor button reads "Open editor" and, when
-  the window is up, "Editor open" lit (`Tone::On`) with a dot; Learn reads
-  "Learn" and "Learning…" lit; the third carries the plugin's parameter count, "All 259…" (exact below a
-  thousand, then "1.2k", then "12k"; named "All parameters (N)"; it opens the
-  panel of every parameter).
-  A window that stopped answering gives "Not responding" in the warning colour
-  beside a filled "End plugin"; a plugin with no window gives a disabled "No
-  editor" and no Learn. A plugin that lists no parameters shows only the editor
-  button under its message.
+- **The plugin window's button** (M6 slice 5h; the owner's D from rendered
+  specimens): a running plugin's card has a 24 pt square raised button with a
+  window glyph in the header, where the kind badge was (the picture still says
+  the kind; the built-in synth and a card that is not running keep the badge).
+  Named "Open editor" or "Close editor"; lit (`Tone::On`) while the window is up
+  or opening, the glyph in the warning colour when it stopped answering, dim
+  when the plugin has no window (named "No editor", the tooltip says why).
+- **The row under the knobs** (M6 slice 4f, changed in 5h): up to two raised
+  buttons at the caption size, 22 pt tall, 4 pt apart, widths 1 : 2.2. Learn
+  reads "Learn" and "Learning…" lit; the other carries the plugin's parameter
+  count, "All 259 parameters" (exact below a thousand, then "1.2k", then "12k";
+  named "All parameters (N)"; it opens the panel of every parameter). A window
+  that stopped answering gives "Not responding" in the warning colour beside a
+  filled "End plugin" in their place; a plugin with no window has only the All
+  button. A plugin that lists no parameters has no row.
 - **The All parameters panel** (the owner's L1): a `Dialog`, "<device>
   parameters", 400 pt wide: a search field, group chips ("All 259", one for each
   of the plugin's groups, "On the strip"), then one list, rows of 28 pt drawn
