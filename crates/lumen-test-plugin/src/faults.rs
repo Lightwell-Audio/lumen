@@ -28,6 +28,7 @@
 //! | `headless_hang=MS` | as `headless_editor`, and opening it blocks the host's main thread for `MS` milliseconds |
 //! | `headless_close=MS` | as `headless_editor`, and the "user" closes it `MS` milliseconds after it opens |
 //! | `headless_press=CODE` | as `headless_editor`, and once Lumen asks for the key `CODE` (a Windows virtual-key code) while the window is open, the "user" presses and lets go of it there |
+//! | `presets` | the instrument offers a program list (three programs, selected by a program-change parameter, id 91, that sets its level and wave as edits of its own) and both plugins keep an edit-controller state (a view value) that `getState` writes and `setState` restores |
 //! | `release=MS` | the instrument's released notes fade out over `MS` milliseconds while it reports no tail: what a synth with a long release does |
 //!
 //! `@N` counts process calls from 0 and defaults to 0.
@@ -58,6 +59,7 @@ pub enum Kind {
     EditorHang,
     Release,
     ManyParams,
+    Presets,
     WindowEdits,
     SetDirty,
     ValuesChanged,
@@ -112,6 +114,7 @@ impl Faults {
                 "editor_hang" => Kind::EditorHang,
                 "release" => Kind::Release,
                 "many_params" => Kind::ManyParams,
+                "presets" => Kind::Presets,
                 "window_edits" => Kind::WindowEdits,
                 "set_dirty" => Kind::SetDirty,
                 "values_changed" => Kind::ValuesChanged,

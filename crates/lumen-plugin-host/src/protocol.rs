@@ -17,7 +17,7 @@ use crate::wire::{Reader, WireError, Writer};
 /// First four bytes of every frame.
 pub const MAGIC: u32 = 0x3148_504c; // "LPH1"
 /// Bumped when a message changes shape. A host of another version is refused.
-pub const VERSION: u16 = 5;
+pub const VERSION: u16 = 6;
 
 pub const MAX_FRAMES: usize = 8192;
 pub const MAX_CHANNELS: usize = 16;
@@ -31,6 +31,11 @@ pub const MAX_CLASSES: usize = 256;
 /// The most units and the most edits one answer carries.
 pub const MAX_UNITS: usize = 4096;
 pub const MAX_EDITS: usize = 4096;
+/// The most program lists, the most programs in one and the most in all that
+/// one answer carries.
+pub const MAX_PROGRAM_LISTS: usize = 64;
+pub const MAX_PROGRAMS: usize = 4096;
+pub const MAX_PROGRAMS_ALL: usize = 16_384;
 /// The longest base name of a shared-memory link.
 pub const MAX_BASE: usize = 64;
 /// The largest frame payload: a full block of audio both ways, with room.
@@ -234,6 +239,22 @@ pub struct UnitInfo {
     pub name: String,
 }
 
+/// A list of programs (patches) the plugin offers (VST3 `IUnitInfo`'s program
+/// lists), with the parameter that selects one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgramList {
+    pub id: i32,
+    pub name: String,
+    /// The unit the list belongs to.
+    pub unit: i32,
+    /// The program-change parameter of that unit: setting it to
+    /// `index / (count - 1)` selects program `index`. `None` when the plugin
+    /// lists programs but offers no way to select one.
+    pub parameter: Option<u32>,
+    /// The programs' names, in order.
+    pub programs: Vec<String>,
+}
+
 /// What happened to a parameter, as the plugin's controller told the host
 /// or as the processor reported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -354,6 +375,12 @@ pub enum Request {
     Parameters,
     /// The groups parameters belong to.
     Units,
+    /// The programs the plugin offers.
+    Programs,
+    /// The edit controller's own state (apart from the component's).
+    GetControllerState,
+    /// Restore the edit controller's own state.
+    SetControllerState(Vec<u8>),
     /// The plugin's own text for a normalized value ("2.4 kHz").
     ParamText {
         id: u32,
@@ -429,6 +456,7 @@ pub enum Response {
         list: Vec<ParamInfo>,
     },
     Units(Vec<UnitInfo>),
+    Programs(Vec<ProgramList>),
     Text(String),
     /// A normalized value read from the user's text.
     Value(f64),
@@ -516,6 +544,9 @@ const REQ_CLOSE_EDITOR: u16 = 15;
 const REQ_EDITOR_STATUS: u16 = 16;
 const REQ_CAPTURE_KEYS: u16 = 17;
 const REQ_SHOW_EDITOR: u16 = 18;
+const REQ_PROGRAMS: u16 = 19;
+const REQ_GET_CONTROLLER_STATE: u16 = 20;
+const REQ_SET_CONTROLLER_STATE: u16 = 21;
 
 const RES_LOADED: u16 = 101;
 const RES_CONFIGURED: u16 = 102;
@@ -531,6 +562,7 @@ const RES_EDITS: u16 = 111;
 const RES_VALUE: u16 = 112;
 const RES_EDITOR: u16 = 113;
 const RES_KEY: u16 = 114;
+const RES_PROGRAMS: u16 = 115;
 
 fn put_audio(w: &mut Writer, channels: &[Vec<f32>]) {
     w.u32(channels.len() as u32);
@@ -646,6 +678,12 @@ impl Request {
             }
             Request::Parameters => REQ_PARAMETERS,
             Request::Units => REQ_UNITS,
+            Request::Programs => REQ_PROGRAMS,
+            Request::GetControllerState => REQ_GET_CONTROLLER_STATE,
+            Request::SetControllerState(bytes) => {
+                w.bytes(bytes);
+                REQ_SET_CONTROLLER_STATE
+            }
             Request::ParamText { id, value } => {
                 w.u32(*id);
                 w.f64(*value);
@@ -791,6 +829,11 @@ impl Request {
             REQ_SET_STATE => Request::SetState(r.bytes("state", MAX_STATE)?.to_vec()),
             REQ_PARAMETERS => Request::Parameters,
             REQ_UNITS => Request::Units,
+            REQ_PROGRAMS => Request::Programs,
+            REQ_GET_CONTROLLER_STATE => Request::GetControllerState,
+            REQ_SET_CONTROLLER_STATE => {
+                Request::SetControllerState(r.bytes("controller state", MAX_STATE)?.to_vec())
+            }
             REQ_PARAM_TEXT => Request::ParamText {
                 id: r.u32()?,
                 value: r.f64()?,
@@ -913,6 +956,21 @@ impl Response {
                 }
                 RES_UNITS
             }
+            Response::Programs(lists) => {
+                w.u32(lists.len() as u32);
+                for l in lists {
+                    w.i32(l.id);
+                    w.str(&l.name);
+                    w.i32(l.unit);
+                    w.bool(l.parameter.is_some());
+                    w.u32(l.parameter.unwrap_or(0));
+                    w.u32(l.programs.len() as u32);
+                    for name in &l.programs {
+                        w.str(name);
+                    }
+                }
+                RES_PROGRAMS
+            }
             Response::Text(text) => {
                 w.str(text);
                 RES_TEXT
@@ -1006,6 +1064,39 @@ impl Response {
                     });
                 }
                 Response::Units(list)
+            }
+            RES_PROGRAMS => {
+                let n = r.count("program lists", MAX_PROGRAM_LISTS, 21)?;
+                let mut all = 0;
+                let mut lists = Vec::with_capacity(n);
+                for _ in 0..n {
+                    let id = r.i32()?;
+                    let name = r.str("list name", MAX_TEXT)?;
+                    let unit = r.i32()?;
+                    let has = r.bool()?;
+                    let parameter = r.u32()?;
+                    let count = r.count("programs", MAX_PROGRAMS, 4)?;
+                    all += count;
+                    if all > MAX_PROGRAMS_ALL {
+                        return Err(WireError::TooLarge {
+                            what: "programs in all",
+                            max: MAX_PROGRAMS_ALL,
+                            got: all,
+                        });
+                    }
+                    let mut programs = Vec::with_capacity(count);
+                    for _ in 0..count {
+                        programs.push(r.str("program name", MAX_TEXT)?);
+                    }
+                    lists.push(ProgramList {
+                        id,
+                        name,
+                        unit,
+                        parameter: has.then_some(parameter),
+                        programs,
+                    });
+                }
+                Response::Programs(lists)
             }
             RES_TEXT => Response::Text(r.str("text", MAX_TEXT)?),
             RES_VALUE => Response::Value(r.f64()?),
@@ -1237,6 +1328,9 @@ mod tests {
             Request::SetState(vec![1, 2, 3]),
             Request::Parameters,
             Request::Units,
+            Request::Programs,
+            Request::GetControllerState,
+            Request::SetControllerState(vec![3; 12]),
             Request::ParamText { id: 3, value: 0.5 },
             Request::ParamValue {
                 id: 3,
@@ -1327,6 +1421,22 @@ mod tests {
                     id: 2,
                     parent: 0,
                     name: "Filter".into(),
+                },
+            ]),
+            Response::Programs(vec![
+                ProgramList {
+                    id: 3,
+                    name: "Factory".into(),
+                    unit: 0,
+                    parameter: Some(91),
+                    programs: vec!["Warm pad".into(), "Glass bells".into()],
+                },
+                ProgramList {
+                    id: 4,
+                    name: "Empty".into(),
+                    unit: 1,
+                    parameter: None,
+                    programs: Vec::new(),
                 },
             ]),
             Response::Text("2.4 kHz".into()),

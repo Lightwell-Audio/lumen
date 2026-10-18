@@ -212,6 +212,24 @@ impl State {
                 Some(controls) => Response::Units(controls.units()),
                 None => not_loaded(),
             },
+            Request::Programs => match self.controls() {
+                Some(controls) => Response::Programs(controls.programs()),
+                None => not_loaded(),
+            },
+            Request::GetControllerState => match self.controls() {
+                Some(controls) => match controls.controller_state() {
+                    Ok(bytes) => Response::State(bytes),
+                    Err(e) => from_instance(e),
+                },
+                None => not_loaded(),
+            },
+            Request::SetControllerState(bytes) => match self.controls() {
+                Some(controls) => match controls.set_controller_state(&bytes) {
+                    Ok(()) => Response::Done,
+                    Err(e) => from_instance(e),
+                },
+                None => not_loaded(),
+            },
             Request::ParamText { id, value } => match self.controls() {
                 Some(controls) => match controls.param_text(id, value) {
                     Some(text) => Response::Text(text),

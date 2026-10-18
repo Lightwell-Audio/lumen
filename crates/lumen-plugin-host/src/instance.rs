@@ -22,8 +22,8 @@ use vst3::Steinberg::Vst::{
     IAudioProcessor, IAudioProcessorTrait, IComponent, IComponentHandler, IComponentTrait,
     IConnectionPoint, IConnectionPointTrait, IEditController, IEditControllerTrait, IEventList,
     IMidiMapping, IMidiMappingTrait, IParameterChanges, IUnitInfo, IUnitInfoTrait, NoteOffEvent,
-    NoteOnEvent, ParameterInfo, ProcessContext, ProcessData, ProcessSetup, SpeakerArr,
-    SpeakerArrangement, UnitInfo as VstUnitInfo,
+    NoteOnEvent, ParameterInfo, ProcessContext, ProcessData, ProcessSetup, ProgramListInfo,
+    SpeakerArr, SpeakerArrangement, UnitInfo as VstUnitInfo,
 };
 use vst3::Steinberg::{
     IPlugView, IPluginBaseTrait, IPluginFactory3, IPluginFactory3Trait, IPluginFactoryTrait, TUID,
@@ -35,7 +35,8 @@ use crate::com::{self, Changes, EventList, Handler, MOST_PENDING, MemoryStream, 
 use crate::module::{AUDIO_CLASS, Module, to_tuid};
 use crate::protocol::{
     ClassId, ClassInfo, Edit, EditKind, Event, EventKind, MAX_CHANNELS, MAX_FRAMES, MAX_PARAMETERS,
-    MAX_STATE, MAX_UNITS, ParamInfo, ParamQueue, Taken, UnitInfo,
+    MAX_PROGRAM_LISTS, MAX_PROGRAMS, MAX_PROGRAMS_ALL, MAX_STATE, MAX_UNITS, ParamInfo, ParamQueue,
+    ProgramList, Taken, UnitInfo,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1015,6 +1016,115 @@ impl Controls {
                     })
                 })
                 .collect()
+        }
+    }
+
+    /// The edit controller's own state (a window size, a view), apart from
+    /// the component's. A controller that keeps none writes nothing.
+    pub fn controller_state(&self) -> Result<Vec<u8>, InstanceError> {
+        let Some(controller) = &self.controller else {
+            return Ok(Vec::new());
+        };
+        let (stream, ptr) = MemoryStream::open(Vec::new(), MAX_STATE);
+        // SAFETY: a live stream object.
+        let result = unsafe { controller.getState(ptr.as_ptr()) };
+        if result != kResultOk {
+            return Err(plugin(format!(
+                "the controller's getState failed ({result})"
+            )));
+        }
+        Ok(stream.bytes())
+    }
+
+    /// Restores the edit controller's own state.
+    pub fn set_controller_state(&self, state: &[u8]) -> Result<(), InstanceError> {
+        let Some(controller) = &self.controller else {
+            return Ok(());
+        };
+        let (_stream, ptr) = MemoryStream::open(state.to_vec(), MAX_STATE);
+        // SAFETY: a live stream object.
+        let result = unsafe { controller.setState(ptr.as_ptr()) };
+        if result != kResultOk {
+            return Err(plugin(format!(
+                "the controller's setState failed ({result})"
+            )));
+        }
+        Ok(())
+    }
+
+    /// The program lists the plugin offers, capped, each with the parameter
+    /// that selects its programs. A plugin with none has an empty list.
+    pub fn programs(&self) -> Vec<ProgramList> {
+        let Some(controller) = &self.controller else {
+            return Vec::new();
+        };
+        let Some(info) = controller.cast::<IUnitInfo>() else {
+            return Vec::new();
+        };
+        // The unit each list sits in, and the program-change parameter of each
+        // unit.
+        let mut unit_of: Vec<(i32, i32)> = Vec::new();
+        let mut changers: Vec<(i32, u32)> = Vec::new();
+        // SAFETY: plain calls on live interfaces with valid out pointers.
+        unsafe {
+            let units = info.getUnitCount().max(0) as usize;
+            for i in 0..units.min(MAX_UNITS) as i32 {
+                let mut unit: VstUnitInfo = std::mem::zeroed();
+                if info.getUnitInfo(i, &mut unit) == kResultOk && unit.programListId >= 0 {
+                    unit_of.push((unit.programListId, unit.id));
+                }
+            }
+            let params = controller.getParameterCount().max(0) as usize;
+            for i in 0..params.min(MAX_PARAMETERS) as i32 {
+                let mut p: ParameterInfo = std::mem::zeroed();
+                if controller.getParameterInfo(i, &mut p) == kResultOk
+                    && p.flags as u32 & crate::protocol::FLAG_PROGRAM_CHANGE != 0
+                    && !changers.iter().any(|&(unit, _)| unit == p.unitId)
+                {
+                    changers.push((p.unitId, p.id));
+                }
+            }
+            let count = info.getProgramListCount().max(0) as usize;
+            let mut all = 0;
+            let mut lists = Vec::new();
+            for i in 0..count.min(MAX_PROGRAM_LISTS) as i32 {
+                let mut list: ProgramListInfo = std::mem::zeroed();
+                if info.getProgramListInfo(i, &mut list) != kResultOk {
+                    continue;
+                }
+                let n = (list.programCount.max(0) as usize)
+                    .min(MAX_PROGRAMS)
+                    .min(MAX_PROGRAMS_ALL - all);
+                let programs = (0..n as i32)
+                    .map(|k| {
+                        let mut name: vst3::Steinberg::Vst::String128 = [0; 128];
+                        let named = info.getProgramName(list.id, k, &mut name) == kResultOk;
+                        let text = if named { wide(&name) } else { String::new() };
+                        if text.is_empty() {
+                            format!("Program {}", k + 1)
+                        } else {
+                            text
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                all += programs.len();
+                let unit = unit_of
+                    .iter()
+                    .find(|&&(l, _)| l == list.id)
+                    .map_or(-1, |&(_, u)| u);
+                let parameter = changers
+                    .iter()
+                    .find(|&&(u, _)| u == unit)
+                    .map(|&(_, id)| id);
+                lists.push(ProgramList {
+                    id: list.id,
+                    name: wide(&list.name),
+                    unit,
+                    parameter,
+                    programs,
+                });
+            }
+            lists
         }
     }
 

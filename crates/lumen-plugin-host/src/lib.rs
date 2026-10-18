@@ -23,6 +23,7 @@ mod com;
 pub mod editor;
 pub mod instance;
 pub mod module;
+pub mod preset;
 pub mod process;
 pub mod protocol;
 pub mod scan;
