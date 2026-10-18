@@ -160,6 +160,7 @@ pub(crate) enum Command {
     DevicePreset,
     DeviceSavePreset,
     DeviceSidechain,
+    DeviceOutputs,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -386,6 +387,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::DevicePreset, "devices.preset", "Choose a preset for the plugin", Area::Devices, &[], "Opens the chosen plugin's preset menu: its own factory programs and the preset files saved for it, with a search. The arrows beside the name step to the previous and next."),
     info(Command::DeviceSavePreset, "devices.save_preset", "Save the plugin's sound as a preset", Area::Devices, &[], "Saves the chosen plugin's sound as a preset file. A sound that came from one of your own preset files is saved over it; otherwise Lumen asks for a name and never writes over a file."),
     info(Command::DeviceSidechain, "devices.sidechain", "Choose the sidechain of the effect", Area::Devices, &[], "Opens the chosen plugin effect's sidechain menu: which track keys it, and where on that track the signal is taken (before its devices, after them, or what it plays). Only an effect with a sidechain input has one."),
+    info(Command::DeviceOutputs, "devices.outputs", "Choose the outputs of the instrument", Area::Devices, &[], "Opens the chosen plugin instrument's outputs menu: a switch for each output besides the main one. Turning one on makes an audio track for it under the instrument's track; turning it off takes the track away. Only an instrument with several outputs has one."),
 ];
 
 const fn info(
@@ -435,7 +437,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::DeviceSidechain as usize + 1,
+            Command::DeviceOutputs as usize + 1,
             ALL.len(),
             "a command is missing"
         );

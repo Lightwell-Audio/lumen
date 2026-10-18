@@ -20,6 +20,10 @@ fn within(t: Ticks) -> bool {
     t.0.unsigned_abs() <= LONGEST.0.unsigned_abs()
 }
 
+/// The most audio output buses of a plugin an output track can play (the
+/// host's own limit, less the main one).
+const MOST_BUSES: u32 = 31;
+
 /// The most parameters a plugin may list, and so the most a device holds
 /// values for (the host's own limit).
 const MOST_PARAMS: usize = 16_384;
@@ -126,6 +130,7 @@ pub fn validate(project: &Project) -> Result<(), String> {
     }
 
     let mut ids = HashSet::new();
+    let mut outputs = HashSet::new();
     for (index, marker) in project.markers.iter().enumerate() {
         if !ids.insert(marker.id) {
             return Err(format!("marker {index} {:?}: duplicate id", marker.name));
@@ -148,6 +153,26 @@ pub fn validate(project: &Project) -> Result<(), String> {
             return Err(format!("{}: gain or pan is not a valid number", at()));
         }
         routing(track, &kinds).map_err(|e| format!("{}: {e}", at()))?;
+        if let Some(output) = &track.plugin_output {
+            if track.kind != TrackKind::Audio {
+                return Err(format!(
+                    "{}: only an audio track plays a plugin's output",
+                    at()
+                ));
+            }
+            if output.bus == 0 || output.bus > MOST_BUSES {
+                return Err(format!(
+                    "{}: a plugin output must be bus 1 to {MOST_BUSES}",
+                    at()
+                ));
+            }
+            if !outputs.insert((output.device, output.bus)) {
+                return Err(format!(
+                    "{}: another track plays the same plugin output",
+                    at()
+                ));
+            }
+        }
         if let Some(parent) = track.parent {
             if !crate::groups::can_be_grouped(track.kind) {
                 return Err(format!("{}: a return or master inside a group", at()));

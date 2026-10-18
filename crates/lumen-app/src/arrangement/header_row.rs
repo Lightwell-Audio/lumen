@@ -243,14 +243,20 @@ impl Arrangement {
             },
         );
         let kind_hover = Rect::from_center_size(pos2(left + ICON_X, mid), vec2(16.0, 16.0));
+        let note = self.output_notes.get(&track.id).cloned();
+        let kind_words = match &note {
+            Some(note) => format!("{} \u{b7} {}", kind_name(track.kind), note.text),
+            None => kind_name(track.kind).to_owned(),
+        };
         let kind = ui
             .interact(kind_hover, id.with("kind"), Sense::hover())
-            .on_hover_text(kind_name(track.kind));
+            .on_hover_text(&kind_words);
         kind.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Label, true, kind_name(track.kind))
+            egui::WidgetInfo::labeled(egui::WidgetType::Label, true, kind_words.clone())
         });
         // A MIDI track whose Monitor is not Auto shows a badge before M.
-        let badge = super::monitor_badge::shown(&track).then(|| {
+        let silent = note.as_ref().filter(|n| n.warn).map(|n| n.text.clone());
+        let badge = (super::monitor_badge::shown(&track) || silent.is_some()).then(|| {
             Rect::from_center_size(
                 pos2(
                     mute_rect.left() - BUTTON_GAP - theme::size::BADGE_W / 2.0,
@@ -303,10 +309,26 @@ impl Arrangement {
             });
         }
 
-        if let Some(badge) = badge
-            && let Some(next) = super::monitor_badge::badge(ui, badge, id, &track, look)
-        {
-            doc.set_monitor(&self.targets(track.id), next);
+        if let Some(badge) = badge {
+            if let Some(why) = &silent {
+                // The track plays a plugin's output and the plugin is not
+                // running: it is silent, and this says why.
+                painter.text(
+                    badge.center(),
+                    Align2::CENTER_CENTER,
+                    "\u{25B2}",
+                    fonts::medium(theme::size::CAPTION),
+                    palette.warning,
+                );
+                let warn = ui
+                    .interact(badge, id.with("output note"), Sense::hover())
+                    .on_hover_text(why);
+                warn.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Label, true, why.clone())
+                });
+            } else if let Some(next) = super::monitor_badge::badge(ui, badge, id, &track, look) {
+                doc.set_monitor(&self.targets(track.id), next);
+            }
         }
         self.mute_solo(
             ui,

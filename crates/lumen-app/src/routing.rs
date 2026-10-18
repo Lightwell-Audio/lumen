@@ -167,7 +167,11 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices) -> Routing {
                     .devices
                     .iter()
                     .filter(|d| d.is_vst3() && d.is_instrument())
-                    .filter_map(|d| devices.hosted.get(&d.id).copied())
+                    .map(|d| d.id)
+                    // An audio track that plays an instrument's output waits as
+                    // long as that instrument does.
+                    .chain(track.plugin_output.map(|o| o.device))
+                    .filter_map(|d| devices.hosted.get(&d).copied())
                     .max()
                     .unwrap_or(0),
                 sidechains: sidechains(project, track),

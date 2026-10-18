@@ -391,9 +391,13 @@ impl App {
         lumen_project::routing::all_tracks(self.document.project())
             .find(|t| t.id == track)
             .is_some_and(|t| {
-                t.devices
-                    .iter()
-                    .any(|d| !d.is_instrument() && self.hosting.takes_sidechain(d.id))
+                t.devices.iter().any(|d| {
+                    if d.is_instrument() {
+                        !self.hosting.extra_outputs(d.id).is_empty()
+                    } else {
+                        self.hosting.takes_sidechain(d.id)
+                    }
+                })
             })
     }
 

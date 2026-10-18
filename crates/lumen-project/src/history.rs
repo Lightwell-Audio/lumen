@@ -225,6 +225,7 @@ fn same_track(x: &Arc<Track>, y: &Arc<Track>) -> bool {
         midi_to,
         midi_from,
         monitor,
+        plugin_output,
         clips,
     } = &**x;
     let bits = |a: f32, b: f32| a.to_bits() == b.to_bits();
@@ -250,6 +251,7 @@ fn same_track(x: &Arc<Track>, y: &Arc<Track>) -> bool {
         && *midi_to == y.midi_to
         && *midi_from == y.midi_from
         && *monitor == y.monitor
+        && *plugin_output == y.plugin_output
         && clips.len() == y.clips.len()
         && clips
             .iter()

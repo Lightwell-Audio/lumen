@@ -92,6 +92,9 @@ pub(super) fn faults(stem: &str) -> Option<&'static str> {
         // The instrument plays its notes 50 ms (2,400 frames at 48 kHz) late
         // and reports that as its latency.
         "Late" => Some("instrument_latency=2400"),
+        // The instrument has three outputs: a note goes to the one its pitch
+        // picks (pitch mod 3), or to the main one when that output is off.
+        "Multi" => Some("multi_out=3"),
         // The effect has a sidechain input (and the instrument is as it is).
         "Keyed" => Some("sidechain"),
         // Every block takes 3 ms of the plugin's work.

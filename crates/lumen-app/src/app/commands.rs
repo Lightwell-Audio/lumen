@@ -136,6 +136,10 @@ impl App {
                 self.chosen_has_presets(),
                 "Choose a plugin that is running first",
             ),
+            Command::DeviceOutputs => need(
+                self.chosen_has_outputs(),
+                "Choose a plugin instrument that has several outputs first",
+            ),
             Command::DeviceSidechain => need(
                 self.chosen_has_sidechain(),
                 "Choose a plugin effect that has a sidechain input first",
@@ -771,6 +775,7 @@ impl App {
             }
             Command::DeviceSavePreset => self.save_chosen_preset(ctx),
             Command::DeviceSidechain => self.open_sidechain_menu(ctx),
+            Command::DeviceOutputs => self.open_outputs_menu(ctx),
             Command::DeviceEditor => {
                 if let Some(device) = self.chain.selected {
                     self.toggle_editor(device);

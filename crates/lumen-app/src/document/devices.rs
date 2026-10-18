@@ -48,6 +48,11 @@ pub enum Refusal {
     NotAnEffect,
     /// A track cannot key its own effect.
     SidechainSelf,
+    /// Only a plugin instrument has outputs to turn on.
+    NotAnInstrument,
+    /// An output to turn off has a track with clips or devices: it is removed
+    /// or kept as the person chooses.
+    OutputHasContent,
     /// The source is fed by this track (through its output, a send or another
     /// sidechain), so the sound would go round.
     SidechainLoop,
@@ -65,6 +70,8 @@ impl fmt::Display for Refusal {
             Refusal::NotAPlugin => "Only a plugin can load a preset.",
             Refusal::TooLarge => "That preset is too large to keep in a project.",
             Refusal::NotAnEffect => "Only a plugin effect takes a sidechain.",
+            Refusal::NotAnInstrument => "Only a plugin instrument has outputs.",
+            Refusal::OutputHasContent => "That output's track has clips or devices in it.",
             Refusal::SidechainSelf => "A track can't key its own effect.",
             Refusal::SidechainLoop => "That track is fed by this one, so the sound would go round.",
         })

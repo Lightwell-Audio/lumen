@@ -448,6 +448,7 @@ impl eframe::App for App {
             &mut self.lanes.devices.hosted,
         );
         self.watch_safe_mode();
+        self.arrangement.output_notes = chain::outputs::notes_of(self);
         self.lanes.midi_changed(hosts.midi);
         if let Some(ms) = hosts.again_in_ms {
             ctx.request_repaint_after(std::time::Duration::from_millis(ms));

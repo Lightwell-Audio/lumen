@@ -44,6 +44,8 @@ struct Row {
     field: Option<super::presets::FieldLook>,
     /// The sidechain row of a plugin effect with a sidechain input.
     sidechain: Option<super::sidechain::Look>,
+    /// The outputs row of a plugin instrument with several outputs.
+    outputs: Option<super::outputs::Look>,
 }
 
 enum OwnedFace {
@@ -197,7 +199,10 @@ impl App {
             .iter()
             .map(|r| self.chain.folded.contains(&r.id))
             .collect();
-        let extra = if rows.iter().any(|r| r.sidechain.is_some()) {
+        let extra = if rows
+            .iter()
+            .any(|r| r.sidechain.is_some() || r.outputs.is_some())
+        {
             super::geometry::KEY_ROOM
         } else {
             0.0
@@ -291,7 +296,7 @@ impl App {
                         track_color: track_colour,
                         band: super::geometry::band(
                             layout.card_h
-                                - if row.sidechain.is_some() {
+                                - if row.sidechain.is_some() || row.outputs.is_some() {
                                     super::sidechain::ROOM
                                 } else {
                                     0.0
@@ -308,6 +313,7 @@ impl App {
                             changed: f.changed,
                         }),
                         sidechain: row.sidechain.as_ref(),
+                        outputs: row.outputs.as_ref(),
                     };
                     let out = card::paint(ui, rect, egui::Id::new(("device", row.id.0)), &look);
                     if let Some(field) = &out.field {
@@ -315,6 +321,9 @@ impl App {
                     }
                     if let Some(chooser) = &out.sidechain {
                         self.sidechain_menu(chooser, row.id);
+                    }
+                    if let Some(chooser) = &out.outputs {
+                        self.outputs_menu(chooser, row.id);
                     }
                     if let Some(forward) = out.step {
                         events.step = Some((row.id, forward));
@@ -488,6 +497,7 @@ impl App {
             .map(|d| {
                 let mut row = self.row_of(d, rate);
                 row.sidechain = self.sidechain_look(track.id, d, playing);
+                row.outputs = self.outputs_look(d);
                 row
             })
             .collect()
@@ -556,6 +566,7 @@ impl App {
             face,
             latency_ms,
             sidechain: None,
+            outputs: None,
         }
     }
 }

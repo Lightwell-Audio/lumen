@@ -75,6 +75,23 @@ fn sidechain_bus(inputs: &[BusInfo]) -> Option<usize> {
         .map(|(index, _)| index)
 }
 
+/// The auxiliary outputs to turn on for the instrument `device`: the ones the
+/// project has a track playing, when the plugin has them as mono or stereo
+/// outputs (M6 slice 6d).
+fn output_mask(project: &Project, device: Id, outputs: &[BusInfo]) -> u32 {
+    project
+        .tracks
+        .iter()
+        .filter_map(|t| t.plugin_output)
+        .filter(|o| o.device == device)
+        .filter(|o| {
+            outputs
+                .get(o.bus as usize)
+                .is_some_and(|bus| !bus.main && (1..=2).contains(&bus.channels))
+        })
+        .fold(0, |mask, o| mask | 1 << o.bus)
+}
+
 /// The auxiliary inputs to turn on for a plugin with these inputs: its
 /// sidechain input when a sidechain is wanted.
 fn sidechain_mask(wanted: bool, inputs: &[BusInfo]) -> u32 {
@@ -134,6 +151,8 @@ struct Tracked {
     /// The audio inputs the plugin declares, and the auxiliary buses its
     /// link has on (M6 slice 6c): a sidechain turns one on.
     inputs: Vec<BusInfo>,
+    /// The audio outputs it declares (an instrument's other outputs).
+    outputs: Vec<BusInfo>,
     aux: Aux,
     /// When its host failed, most recent last, over the last couple of
     /// minutes: a plugin that keeps stopping is told apart from one that
@@ -577,6 +596,38 @@ impl Hosting {
             .get(&device.0)
             .map(|t| t.frames)
             .filter(|&f| f != 0)
+    }
+
+    /// The auxiliary outputs of the running instrument `device` that its
+    /// link has on, one bit for each bus (M6 slice 6d).
+    pub fn outputs_on(&self, device: Id) -> u32 {
+        self.tracked.get(&device.0).map_or(0, |t| t.aux.outputs)
+    }
+
+    /// The names of every audio output the plugin declares, by bus number (the
+    /// main one is 0); empty until it has loaded.
+    pub fn output_names(&self, device: Id) -> Vec<String> {
+        self.tracked.get(&device.0).map_or_else(Vec::new, |t| {
+            t.outputs.iter().map(|b| b.name.clone()).collect()
+        })
+    }
+
+    /// The outputs a running instrument can play on tracks of their own, with
+    /// their bus numbers: every output past the main one that is mono or
+    /// stereo.
+    pub fn extra_outputs(&self, device: Id) -> Vec<(u32, String)> {
+        self.tracked
+            .get(&device.0)
+            .filter(|t| t.state == State::Ready)
+            .map_or_else(Vec::new, |t| {
+                t.outputs
+                    .iter()
+                    .enumerate()
+                    .skip(1)
+                    .filter(|(_, bus)| (1..=2).contains(&bus.channels))
+                    .map(|(index, bus)| (index as u32, bus.name.clone()))
+                    .collect()
+            })
     }
 
     /// Whether the running plugin has a sidechain input to key (M6 slice 6c).
@@ -1236,6 +1287,7 @@ impl Hosting {
                             editor_hidden: false,
                             relinking: false,
                             inputs: Vec::new(),
+                            outputs: Vec::new(),
                             aux: Aux::default(),
                             failures: Vec::new(),
                         },
@@ -1281,6 +1333,7 @@ impl Hosting {
                     t.bypass = false;
                     t.relinking = false;
                     t.inputs = linked.buses.0.clone();
+                    t.outputs = linked.buses.1.clone();
                     t.aux = linked.aux;
                     if !t.params.linked_before {
                         t.params.linked_before = true;
@@ -1560,15 +1613,22 @@ impl Hosting {
             // A sidechain turns the plugin's sidechain input on, and taking
             // it away turns it off: the plugin is set up again with the buses
             // it should have.
-            if !t.instrument && t.state == State::Ready && !t.relinking {
-                let want = sidechain_mask(w.device.sidechain.is_some(), &t.inputs);
-                if want != t.aux.inputs
+            if t.state == State::Ready && !t.relinking {
+                let aux = Aux {
+                    inputs: if t.instrument {
+                        0
+                    } else {
+                        sidechain_mask(w.device.sidechain.is_some(), &t.inputs)
+                    },
+                    outputs: if t.instrument {
+                        output_mask(project, w.device.id, &t.outputs)
+                    } else {
+                        0
+                    },
+                };
+                if aux != t.aux
                     && let Some(manager) = self.manager.as_mut()
                 {
-                    let aux = Aux {
-                        inputs: want,
-                        outputs: t.aux.outputs,
-                    };
                     manager.relink_with(id, f64::from(self.rate), self.frames, aux);
                     t.relinking = true;
                 }

@@ -197,6 +197,25 @@ impl Hosted for FakeHost {
     fn ended(&self) -> bool {
         false
     }
+
+    /// One auxiliary output (pair 1): the same impulses, as the second bus of
+    /// a plugin that plays its notes there too.
+    fn output(&mut self, pair: usize, left: &mut [f32], right: &mut [f32]) -> bool {
+        if pair != 1 || self.shared.done.load(Ordering::Acquire) != self.seq {
+            return false;
+        }
+        left.fill(0.0);
+        right.fill(0.0);
+        for e in &self.events {
+            let at = (e.offset as usize).min(left.len().saturating_sub(1));
+            match e.msg.kind() {
+                Kind::NoteOn { .. } => left[at] += 1.0,
+                Kind::NoteOff { .. } => left[at] -= 1.0,
+                _ => {}
+            }
+        }
+        true
+    }
 }
 
 /// The built-in reference: the same impulses, in the same call.
@@ -432,6 +451,71 @@ fn a_plugin_instruments_latency_is_compensated_so_it_lines_up_with_a_plain_track
             play(false).len(),
             8,
             "without the compensation the plugin is heard {latency} frames late"
+        );
+    }
+}
+
+#[test]
+fn an_instruments_other_output_plays_on_its_own_track_on_the_same_samples() {
+    // Track 1 is the instrument (muted, so only its other output is heard);
+    // track 2 is the audio track that plays the instrument's output pair 1.
+    let notes = vec![note(Q(2) + Ticks(12_345), Q(1), 60), note(Q(4), Q(1), 64)];
+    let timeline = Timeline::constant(120.0, Meter::FOUR_FOUR);
+    for (rate, block) in [(48_000, 128), (44_100, 100), (96_000, 480)] {
+        let play = |outputs: Vec<(u32, u64)>, target_in_routing: bool| {
+            let (spec, _) = hosted(FakeHost::new(Duration::ZERO, false, None));
+            let track = MidiTrack::new(
+                1,
+                Target::Instrument,
+                spec,
+                vec![clip(1, Ticks::ZERO, Q(16), notes.clone())],
+            )
+            .with_outputs(outputs);
+            let (_clips, players) = clip_player();
+            let (mut midi, player) = midi_player();
+            midi.set(vec![track]).ok().unwrap();
+            let (mut routing, source) = mixer(Layered(players, player));
+            let mut nodes = vec![
+                NodeSpec::unity(MASTER, Destination::Hardware(0)),
+                NodeSpec {
+                    audible: false,
+                    sends_audible: false,
+                    ..NodeSpec::unity(1, Destination::Node(MASTER))
+                },
+            ];
+            if target_in_routing {
+                nodes.push(NodeSpec::unity(2, Destination::Node(MASTER)));
+            }
+            routing
+                .set(&Routing {
+                    nodes,
+                    cue: None,
+                    measure: None,
+                })
+                .unwrap();
+            let (transport, engine) = engine(timeline.clone(), source, rate);
+            let mut rig = Rig {
+                transport,
+                midi,
+                engine,
+                rate,
+            };
+            rig.play();
+            impulses(&rig.run(timeline.sample_at(Q(6), rate) as usize, block))
+        };
+        let heard = play(vec![(1, 2)], true);
+        assert_eq!(
+            heard.len(),
+            4,
+            "two notes, on and off ({rate} Hz): {heard:?}"
+        );
+        assert!(
+            play(vec![], true).is_empty(),
+            "with no output turned on the muted instrument is silent"
+        );
+        assert!(
+            play(vec![(1, 2)], false).is_empty(),
+            "a track the routing does not have hears nothing"
         );
     }
 }

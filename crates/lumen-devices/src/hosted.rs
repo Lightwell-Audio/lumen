@@ -362,7 +362,16 @@ impl Guard {
     /// `right`: false when that block was not the host's or there is no such
     /// pair. Finite samples only. Never blocks.
     pub fn output(&mut self, pair: usize, left: &mut [f32], right: &mut [f32]) -> bool {
-        self.ready && self.host.output(pair, left, right)
+        if !(self.ready && self.host.output(pair, left, right)) {
+            return false;
+        }
+        // An instrument that plays only on its other outputs is still
+        // sounding: they count as much as the main one.
+        let loud = |side: &[f32]| side.iter().any(|s| s.abs() > QUIET_LEVEL);
+        if loud(left) || loud(right) {
+            self.quiet = 0;
+        }
+        true
     }
 
     /// Takes the block's answer, waiting until `deadline` at most.
@@ -608,6 +617,12 @@ impl Instrument for HostedInstrument {
         }
         self.begun = sent;
         sent
+    }
+
+    fn output(&mut self, pair: usize, left: &mut [f32], right: &mut [f32]) -> bool {
+        self.guard
+            .as_mut()
+            .is_some_and(|guard| guard.output(pair, left, right))
     }
 
     fn finish(&mut self, deadline: Instant, left: &mut [f32], right: &mut [f32]) {

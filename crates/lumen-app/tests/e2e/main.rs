@@ -51,6 +51,7 @@ mod monitor_badge;
 mod motion;
 mod navigation;
 mod notes;
+mod outputs;
 mod overdub_seams;
 mod palette;
 mod parameters;

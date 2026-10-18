@@ -50,6 +50,14 @@ pub trait Instrument: Send {
         false
     }
 
+    /// The sound of auxiliary output pair `pair` (1 and up: the instrument's
+    /// other outputs that are on) for the block last finished, into `left` and
+    /// `right`. False when there is no such output or the block was not the
+    /// host's. The default has none.
+    fn output(&mut self, _pair: usize, _left: &mut [f32], _right: &mut [f32]) -> bool {
+        false
+    }
+
     /// Completes a block [`Instrument::begin`] started: overwrites `left` and
     /// `right` with its output, waiting for the host until `deadline` at
     /// most. A host that does not answer leaves them untouched (silence).

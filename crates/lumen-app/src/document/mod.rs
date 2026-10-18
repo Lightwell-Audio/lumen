@@ -27,6 +27,7 @@ mod midi_clips;
 mod midi_import;
 mod mixer;
 mod notes;
+mod outputs;
 mod record;
 pub use clips::{CLIP_GAIN, ClipMove};
 pub use devices::{Refusal, Slot, find_device, name_of as device_name};
@@ -36,6 +37,7 @@ pub use lanes::{Drag, Line, Shift};
 pub use midi_clips::NewClip;
 pub use mixer::{MAX_RETURNS, Refused};
 pub use notes::Resize;
+pub use outputs::{Leave, OutputEdit};
 pub use record::Recording;
 
 /// Track colours, cycled for new tracks (`theme::CLIP_COLORS`, as `#RRGGBB`).
