@@ -88,3 +88,65 @@ fn an_output_with_no_track_plays_on_the_instruments_own() {
         "the track of another output is silent: {kick} dB"
     );
 }
+
+/// The menu under the card's Outputs row keeps its width while it is open and
+/// when an output is switched on (the owner's report: it grew to the right on
+/// every frame once a row named its track).
+#[test]
+fn the_outputs_menu_keeps_its_width_when_an_output_is_switched_on() {
+    use egui_kittest::kittest::{NodeT, Queryable};
+
+    let mut lumen = launch("menu", &song(&[61], &[]), &["Multi"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    lumen.app_mut().select_tracks(&[KEYS]);
+    lumen
+        .harness
+        .get_all_by_label("Devices tab")
+        .last()
+        .expect("the detail panel's tabs")
+        .click();
+    lumen.frames(20);
+
+    // The menu's switches: the main output's, then one for each other.
+    let switches = |lumen: &Lumen| -> Vec<(String, f32)> {
+        let all: Vec<(String, f32)> = lumen
+            .harness
+            .query_all_by_role(eframe::egui::accesskit::Role::CheckBox)
+            .map(|n| {
+                (
+                    n.accesskit_node().label().unwrap_or_default(),
+                    n.rect().width(),
+                )
+            })
+            .collect();
+        let main = all
+            .iter()
+            .position(|(l, _)| l == "Main")
+            .unwrap_or(all.len());
+        all[main..].to_vec()
+    };
+    let widest = |lumen: &Lumen| switches(lumen).iter().fold(0.0_f32, |m, (_, w)| m.max(*w));
+    lumen.click("Outputs, Main only");
+    lumen.frames(10);
+    let before = widest(&lumen);
+    assert!(before > 100.0, "the menu is open: {before}");
+    let first = switches(&lumen)[1].0.clone();
+    lumen.click(&first);
+    lumen.frames(60);
+    assert_eq!(
+        lumen
+            .app()
+            .project()
+            .tracks
+            .iter()
+            .filter(|t| t.plugin_output.is_some())
+            .count(),
+        1,
+        "switching an output on makes its track"
+    );
+    let after = widest(&lumen);
+    assert!(
+        (after - before).abs() < 1.0,
+        "the menu stays {before} wide, it is {after}"
+    );
+}

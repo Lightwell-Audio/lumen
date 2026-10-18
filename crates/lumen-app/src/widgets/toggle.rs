@@ -37,6 +37,19 @@ pub(super) fn menu_inset(ui: &Ui) -> f32 {
 /// the accent's gradient in an `accent_muted` track. `enabled` false greys
 /// it out.
 pub fn switch(ui: &mut Ui, on: &mut bool, label: &str, enabled: bool) -> egui::Response {
+    switch_noted(ui, on, label, enabled, "")
+}
+
+/// [`switch`] with a quiet `note` in the row, right-aligned beside the
+/// switch (shortened to the room between the label and the switch). The row
+/// stays one widget, so nothing is laid out after it that could widen it.
+pub fn switch_noted(
+    ui: &mut Ui,
+    on: &mut bool,
+    label: &str,
+    enabled: bool,
+    note: &str,
+) -> egui::Response {
     let palette = theme::p();
     let text = if enabled {
         palette.text
@@ -48,6 +61,7 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str, enabled: bool) -> egui::R
         FontId::proportional(theme::size::BODY),
         text,
     );
+    let label_width = galley.size().x;
     let gap = if label.is_empty() {
         0.0
     } else {
@@ -97,6 +111,18 @@ pub fn switch(ui: &mut Ui, on: &mut bool, label: &str, enabled: bool) -> egui::R
     let track = Align2::RIGHT_CENTER
         .anchor_size(inner.right_center(), TRACK)
         .round_to_pixels(ui.pixels_per_point());
+    if !note.is_empty() {
+        let font = FontId::proportional(theme::size::CAPTION);
+        let room = (track.left() - theme::space::M - (inner.left() + label_width + gap)).max(0.0);
+        let words = super::shorten(painter, note, font.clone(), room);
+        painter.text(
+            pos2(track.left() - theme::space::M, track.center().y),
+            Align2::RIGHT_CENTER,
+            words,
+            font,
+            palette.text_hint,
+        );
+    }
     // The track is a well with the shade lip; on, it turns `accent_muted`
     // with the 38% accent hairline (the Segmented card's switch).
     raised::paint_sunken(painter, track, theme::radius::FULL);

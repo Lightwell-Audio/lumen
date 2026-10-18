@@ -243,32 +243,18 @@ impl App {
                 for (bus, name) in &extra {
                     let track = track_of(*bus);
                     let mut is_on = track.is_some();
-                    ui.horizontal(|ui| {
-                        if widgets::switch(ui, &mut is_on, name, true).clicked() {
-                            if is_on {
-                                turn_on.push((*bus, format!("{instrument} \u{b7} {name}")));
-                            } else {
-                                turn_off.push(*bus);
-                            }
+                    // One widget per row: the track's name is painted inside
+                    // it, so nothing laid out after the switch can widen the
+                    // menu (a row beside a full-width switch grew it on
+                    // every frame).
+                    let note = track.map(track_name).unwrap_or_default();
+                    if widgets::switch_noted(ui, &mut is_on, name, true, &note).clicked() {
+                        if is_on {
+                            turn_on.push((*bus, format!("{instrument} \u{b7} {name}")));
+                        } else {
+                            turn_off.push(*bus);
                         }
-                        if let Some(track) = track {
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    ui.label(
-                                        egui::RichText::new(widgets::shorten(
-                                            ui.painter(),
-                                            &track_name(track),
-                                            FontId::proportional(theme::size::CAPTION),
-                                            110.0,
-                                        ))
-                                        .small()
-                                        .color(palette.text_hint),
-                                    );
-                                },
-                            );
-                        }
-                    });
+                    }
                 }
             });
         ui.separator();
