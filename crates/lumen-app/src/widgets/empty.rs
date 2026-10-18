@@ -45,17 +45,33 @@ pub fn empty_state(ui: &mut Ui, rect: Rect, state: &EmptyState<'_>) -> bool {
         palette.text_hint,
         wrap,
     );
-    let icon_room = if state.icon.is_some() {
+    let full_icon = if state.icon.is_some() {
         state.icon_size + theme::space::S
     } else {
         0.0
     };
-    let button_room = if state.action.is_some() {
+    let full_hint = hint.size().y + theme::space::S;
+    let full_button = if state.action.is_some() {
         theme::space::S + theme::size::CONTROL
     } else {
         0.0
     };
-    let height = icon_room + title.size().y + theme::space::S + hint.size().y + button_room;
+    // In a short area (a small window) the whole stack would run past the
+    // edges, over the rulers. Parts give way in order: the icon, the hint,
+    // the button, and last the words (cut at the edge) so that nothing is
+    // ever drawn outside `rect`.
+    let room = rect.height() - 2.0 * theme::space::S;
+    let needed = |icon: f32, hint: f32, button: f32| icon + title.size().y + hint + button;
+    let (icon_room, hint_room, button_room) = [
+        (full_icon, full_hint, full_button),
+        (0.0, full_hint, full_button),
+        (0.0, 0.0, full_button),
+        (0.0, 0.0, 0.0),
+    ]
+    .into_iter()
+    .find(|&(i, h, b)| needed(i, h, b) <= room)
+    .unwrap_or((0.0, 0.0, 0.0));
+    let height = needed(icon_room, hint_room, button_room);
     let mut y = (rect.center().y - height / 2.0).max(rect.top() + theme::space::S);
     // The words are painted, which assistive technology cannot read: the
     // state says them as one labelled thing.
@@ -72,7 +88,7 @@ pub fn empty_state(ui: &mut Ui, rect: Rect, state: &EmptyState<'_>) -> bool {
         )
     });
     let painter = ui.painter_at(rect);
-    if let Some(icon) = state.icon {
+    if let Some(icon) = state.icon.filter(|_| icon_room > 0.0) {
         icon(
             &painter,
             pos2(rect.center().x, y + state.icon_size / 2.0),
@@ -88,17 +104,20 @@ pub fn empty_state(ui: &mut Ui, rect: Rect, state: &EmptyState<'_>) -> bool {
         title,
         palette.text_secondary,
     );
-    y += title_height + theme::space::S;
-    let hint_height = hint.size().y;
-    painter.galley(
-        Align2::CENTER_TOP
-            .anchor_size(pos2(rect.center().x, y), hint.size())
-            .min,
-        hint,
-        palette.text_hint,
-    );
-    y += hint_height;
-    let Some(action) = &state.action else {
+    y += title_height;
+    if hint_room > 0.0 {
+        y += theme::space::S;
+        let hint_height = hint.size().y;
+        painter.galley(
+            Align2::CENTER_TOP
+                .anchor_size(pos2(rect.center().x, y), hint.size())
+                .min,
+            hint,
+            palette.text_hint,
+        );
+        y += hint_height;
+    }
+    let Some(action) = state.action.as_ref().filter(|_| button_room > 0.0) else {
         return false;
     };
     y += theme::space::S;

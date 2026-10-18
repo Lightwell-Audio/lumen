@@ -584,6 +584,29 @@ fn smallest_window_at_200() {
     let _ = h.query_by_label("Lumen");
 }
 
+/// The empty arrangement's prompt in short windows, with the detail panel
+/// open under the lanes (the owner's report: the button ran over the time
+/// ruler and the hint was cut). The prompt gives up its icon, then its hint.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn empty_prompt_short() {
+    for (appearance, scale) in [("dark", 1.0), ("light", 1.5), ("dark", 2.0)] {
+        let dir = TempDir::new("shots-empty-short");
+        for height in [540.0, 440.0, 380.0] {
+            let mut h = bare_scaled(&dir, appearance, scale, vec2(960.0, height));
+            let name = format!(
+                "empty-short-{appearance}-{}-{height}",
+                (scale * 100.0) as u32
+            );
+            h.run_steps(30);
+            save(&mut h, &format!("{name}-panel-as-started"));
+            h.key_press_modifiers(Modifiers::SHIFT, Key::Tab);
+            h.run_steps(30);
+            save(&mut h, &format!("{name}-panel-toggled"));
+        }
+    }
+}
+
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn light_layer() {

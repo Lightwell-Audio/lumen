@@ -695,7 +695,18 @@ report: {}",
                     tip: "Choose audio or MIDI files to add",
                 }),
             };
-            let clicked = widgets::empty_state(ui, canvas, &state);
+            // Above the pinned master's row, not behind it: in a short window
+            // little room is left and the state gives up its icon and hint.
+            let free = egui::Rect::from_min_size(
+                canvas.min,
+                vec2(
+                    canvas.width(),
+                    self.arrangement
+                        .main_height(ui.ctx(), self.document.project(), canvas.height())
+                        .min(canvas.height()),
+                ),
+            );
+            let clicked = widgets::empty_state(ui, free, &state);
             if clicked && self.availability(ui.ctx(), Command::Import).is_ok() {
                 self.run(&ui.ctx().clone(), Command::Import);
             }
