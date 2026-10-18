@@ -2648,11 +2648,7 @@ fn outputs_row() {
         ("dark", 2.0, vec2(1900.0, 1000.0)),
         ("dark", 1.0, vec2(960.0, 540.0)),
     ] {
-        for (what, open, on) in [
-            ("closed", false, 2),
-            ("menu", true, 2),
-            ("crowded", true, 7),
-        ] {
+        for (what, open, on) in [("closed", false, 2), ("menu", true, 2), ("all", true, 15)] {
             let dir = TempDir::new("shots-outputs");
             let mut strings = midi_track(
                 20,

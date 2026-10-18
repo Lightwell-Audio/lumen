@@ -266,7 +266,7 @@ impl App {
                     let row = widgets::switch_noted(ui, &mut is_on, name, fits, &note);
                     if !fits {
                         row.on_hover_text(
-                            "Not room for it: a block carries 16 channels, the main pair included. Turn another output off first.",
+                            "Not room for it: a block carries 64 channels in all, the main pair included. Turn another output off first.",
                         );
                     } else if row.clicked() {
                         if is_on {
@@ -278,12 +278,12 @@ impl App {
                 }
             });
         if crowded {
-            widgets::menu_caption(ui, "16 channels at most, the main pair included");
+            widgets::menu_caption(ui, "64 channels at most, the main pair included");
         }
         ui.separator();
         ui.horizontal(|ui| {
             if raised::button(ui, "All on")
-                .on_hover_text("Every output that fits in a block (16 channels with the main pair)")
+                .on_hover_text("Every output of the plugin (as many as fit in a block)")
                 .clicked()
             {
                 let mut now = on_buses.clone();

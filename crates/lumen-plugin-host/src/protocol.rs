@@ -16,11 +16,15 @@ use crate::wire::{Reader, WireError, Writer};
 
 /// First four bytes of every frame.
 pub const MAGIC: u32 = 0x3148_504c; // "LPH1"
-/// Bumped when a message changes shape. A host of another version is refused.
-pub const VERSION: u16 = 7;
+/// Bumped when a message changes shape or a limit both sides keep changes. A
+/// host of another version is refused (8: a block may carry 64 channels, 32
+/// stereo buses, where it was 16).
+pub const VERSION: u16 = 8;
 
 pub const MAX_FRAMES: usize = 8192;
-pub const MAX_CHANNELS: usize = 16;
+/// The channels a block carries each way in all: the main bus and every
+/// auxiliary one that is on, 32 stereo buses at most (`MAX_BUSES`).
+pub const MAX_CHANNELS: usize = 64;
 pub const MAX_EVENTS: usize = 4096;
 pub const MAX_QUEUES: usize = 1024;
 pub const MAX_POINTS: usize = 16_384;

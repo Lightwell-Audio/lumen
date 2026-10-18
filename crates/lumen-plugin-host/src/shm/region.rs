@@ -808,7 +808,7 @@ mod tests {
     fn a_layout_outside_the_limits_is_refused() {
         assert!(Layout::new(0, 2, 2).check().is_err());
         assert!(Layout::new(MAX_FRAMES as u32 + 1, 2, 2).check().is_err());
-        assert!(Layout::new(64, 17, 2).check().is_err());
+        assert!(Layout::new(64, MAX_CHANNELS as u8 + 1, 2).check().is_err());
         assert!(
             Layout {
                 max_points: MAX_POINTS as u32 + 1,

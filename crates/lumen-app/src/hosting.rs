@@ -2204,11 +2204,18 @@ mod tests {
     }
 
     #[test]
-    fn a_block_carries_sixteen_channels_so_the_lowest_seven_stereo_outputs_are_turned_on() {
-        let (project, outputs) = orchestra();
+    fn every_output_of_a_sixteen_output_plugin_is_turned_on_and_a_wide_main_leaves_less() {
+        let (project, mut outputs) = orchestra();
         let mask = super::output_mask(&project, Id(30), &outputs);
-        assert_eq!(mask.count_ones(), 7, "main pair and seven pairs make 16");
-        assert_eq!(mask, 0b1111_1110, "the lowest buses, in order");
+        assert_eq!(
+            mask, 0xFFFE,
+            "fifteen pairs and the main pair are 32 channels"
+        );
+        // Past the block's room the lowest buses come first: a main bus of 40
+        // channels leaves 24, twelve stereo pairs.
+        outputs[0].channels = 40;
+        let mask = super::output_mask(&project, Id(30), &outputs);
+        assert_eq!(mask, 0b1_1111_1111_1110, "the lowest twelve");
     }
 
     fn known(values: &[(u32, f64)], base: &[(u32, f64)]) -> Parameters {
