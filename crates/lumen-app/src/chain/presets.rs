@@ -407,6 +407,9 @@ impl App {
         }
         self.drive_save(ctx);
         self.keep_names_honest();
+        if let Some(wait) = self.hosting.next_retry() {
+            ctx.request_repaint_after(wait);
+        }
     }
 
     /// A file was written: it is the card's sound now, and listed.

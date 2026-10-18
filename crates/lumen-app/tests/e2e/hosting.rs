@@ -97,6 +97,10 @@ pub(super) fn faults(stem: &str) -> Option<&'static str> {
         // Programs, and a trigger that edits the wave as a control moved in
         // the plugin's window would (the preset menu's dot).
         "PresetEdits" => Some("presets,window_edits"),
+        // A plugin still loading its content: it refuses a state twice, then
+        // takes it (the preset's retries), or refuses it every time.
+        "Reluctant" => Some("presets,state_refused=2"),
+        "Refuses" => Some("presets,state_refused=9"),
         // Stepping the trigger makes it tell the host it changed inside
         // (`setDirty`, or a restart that says its values changed), as a patch
         // loaded in its own window does; no parameter shows it.

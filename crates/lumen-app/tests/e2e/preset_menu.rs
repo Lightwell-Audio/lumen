@@ -42,6 +42,11 @@ fn put(folder: &Path, name: &str, bytes: &[u8]) {
 /// Lumen with the instrument on a track, its card showing, and system presets
 /// "Quiet square" (good), "Broken" (not a preset) and "Bass/Warm" (good).
 fn launch(name: &str) -> (Lumen, Places) {
+    launch_with(name, "Presets")
+}
+
+/// As [`launch`], with the module of the test plugin named `module` installed.
+fn launch_with(name: &str, module: &str) -> (Lumen, Places) {
     let dir = TempDir::new(&format!("e2e-preset-menu-{name}"));
     let places = Places {
         user: dir.path().join("user presets"),
@@ -62,7 +67,7 @@ fn launch(name: &str) -> (Lumen, Places) {
     let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
     let path = dir.path().join("song.lumen");
     lumen_project::save(&project, &path, &Default::default()).expect("save the test project");
-    let root = plugin_root(dir.path(), &["Presets"]);
+    let root = plugin_root(dir.path(), &[module]);
     let cache = dir.path().join("plugin-cache.json");
     let (user, sys) = (places.user.clone(), places.system.clone());
     let mut lumen = Lumen::start_with(dir, move |launch| {
@@ -592,4 +597,43 @@ fn the_menu_stays_open_while_a_name_is_typed_whatever_the_pointer_does() {
     assert!(lumen.shows("Preset name"), "the menu went away");
     lumen.type_into_menu(" lead");
     assert!(lumen.shows("Preset name"));
+}
+
+#[test]
+fn a_preset_a_plugin_refuses_at_first_is_given_to_it_again_and_taken() {
+    let (mut lumen, _places) = launch_with("reluctant", "Reluctant");
+    lumen.open_preset_menu();
+    lumen.click("Quiet square");
+    // Refused twice, then taken on the third try: no note of a refusal.
+    lumen.wait_for("the project to hold the preset", |app| {
+        app.project().tracks[0].devices[0].state == state(0.1, 0.0)
+    });
+    assert!(
+        !lumen
+            .app()
+            .note()
+            .is_some_and(|n| n.contains("could not use")),
+        "{:?}",
+        lumen.app().note()
+    );
+    lumen.wait_for("the field to name it", |app| {
+        app.device_preset(PLUGIN).map(|p| p.0) == Some("Quiet square".to_owned())
+    });
+}
+
+#[test]
+fn a_preset_a_plugin_always_refuses_says_so_after_its_tries_and_changes_nothing() {
+    let (mut lumen, _places) = launch_with("refuses", "Refuses");
+    let before = lumen.app().project().clone();
+    lumen.open_preset_menu();
+    lumen.click("Quiet square");
+    lumen.wait_for("the refusal", |app| {
+        app.note().is_some_and(|n| n.contains("could not use"))
+    });
+    assert_eq!(lumen.app().project(), &before);
+    assert_eq!(lumen.app().device_preset(PLUGIN), None);
+    // The plugin is free to take another try afterwards.
+    lumen.open_preset_menu();
+    lumen.click("Broken");
+    lumen.frames(10);
 }

@@ -200,6 +200,10 @@ struct Parameters {
     state_rev: u32,
     /// States sent to the plugin, answers not yet in, oldest first.
     loads: std::collections::VecDeque<Load>,
+    /// A preset the plugin refused, to be given to it again when the time
+    /// comes: a plugin still loading its content may refuse a state it takes
+    /// a moment later.
+    retry: Option<(std::time::Instant, Load)>,
     /// What the plugin does inside itself shortly after a state is loaded is
     /// the loading, not the user: its edits are not taken until this time.
     quiet_until: Option<std::time::Instant>,
@@ -218,6 +222,8 @@ struct Load {
     /// plugin has taken it (and not if it refuses). `None` for the project's
     /// own state sent again after an undo or redo.
     preset: Option<String>,
+    /// How many times the plugin has refused it already.
+    tries: u8,
 }
 
 /// What became of a preset the user chose to load.
@@ -297,6 +303,12 @@ impl Parameters {
         self.capturing_values = Some(self.values.clone());
     }
 }
+
+/// How many more times a preset a plugin refused is given to it, and how long
+/// after each refusal (a plugin that is still loading its content may take
+/// what it refused a moment before).
+const PRESET_RETRIES: u8 = 2;
+const PRESET_RETRY_WAIT: std::time::Duration = std::time::Duration::from_millis(1500);
 
 /// How long a plugin is left alone after its last change before its state
 /// is read (a drag is many changes; the state is read when it rests).
@@ -856,7 +868,10 @@ impl Hosting {
         else {
             return false;
         };
-        if t.state != State::Ready || t.params.loads.iter().any(|l| l.preset.is_some()) {
+        if t.state != State::Ready
+            || t.params.retry.is_some()
+            || t.params.loads.iter().any(|l| l.preset.is_some())
+        {
             return false;
         }
         manager.load_state(device.0, component.clone(), controller.clone(), Vec::new());
@@ -866,9 +881,19 @@ impl Hosting {
                 controller,
             },
             preset: Some(name),
+            tries: 0,
         });
         t.params.quiet_until = Some(std::time::Instant::now() + QUIET);
         true
+    }
+
+    /// When a refused preset is given to its plugin again, if one waits.
+    pub fn next_retry(&self) -> Option<std::time::Duration> {
+        self.tracked
+            .values()
+            .filter_map(|t| t.params.retry.as_ref())
+            .map(|(at, _)| at.saturating_duration_since(std::time::Instant::now()))
+            .min()
     }
 
     /// Presets plugins took or refused since the last call.
@@ -1293,7 +1318,16 @@ impl Hosting {
                             }
                         }
                         Err(why) => {
-                            if let Some(name) = load.preset {
+                            if load.preset.is_some() && load.tries < PRESET_RETRIES {
+                                // Try again in a moment before giving up.
+                                p.retry = Some((
+                                    std::time::Instant::now() + PRESET_RETRY_WAIT,
+                                    Load {
+                                        tries: load.tries + 1,
+                                        ..load
+                                    },
+                                ));
+                            } else if let Some(name) = load.preset {
                                 self.presets.push(PresetNews::Refused {
                                     device: Id(id),
                                     name,
@@ -1430,7 +1464,26 @@ impl Hosting {
                 }
             }
             if t.state == State::Ready
+                && t.params.loads.is_empty()
+                && t.params
+                    .retry
+                    .as_ref()
+                    .is_some_and(|(at, _)| std::time::Instant::now() >= *at)
+                && let Some(manager) = self.manager.as_ref()
+                && let Some((_, load)) = t.params.retry.take()
+            {
+                manager.load_state(
+                    id,
+                    load.state.component.clone(),
+                    load.state.controller.clone(),
+                    Vec::new(),
+                );
+                t.params.loads.push_back(load);
+                t.params.quiet_until = Some(std::time::Instant::now() + QUIET);
+            }
+            if t.state == State::Ready
                 && t.params.state_rev != w.device.state_rev
+                && t.params.retry.is_none()
                 && !t.params.loads.iter().any(|l| l.preset.is_some())
                 && let Some(manager) = self.manager.as_ref()
             {
@@ -1447,6 +1500,7 @@ impl Hosting {
                 t.params.loads.push_back(Load {
                     state,
                     preset: None,
+                    tries: 0,
                 });
                 t.params.state_rev = w.device.state_rev;
                 t.params.quiet_until = Some(std::time::Instant::now() + QUIET);
