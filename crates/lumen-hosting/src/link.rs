@@ -9,8 +9,17 @@ use std::time::Instant;
 
 use lumen_core::midi::{Event, Kind};
 use lumen_devices::{Hosted, Refused, Reply};
-use lumen_plugin_host::protocol::{Event as HostEvent, EventKind, RESTART_RECONFIGURE};
+use lumen_plugin_host::protocol::{
+    Event as HostEvent, EventKind, MAX_CHANNELS, RESTART_RECONFIGURE,
+};
 use lumen_plugin_host::shm::{BlockLink, Outcome, Poll, SubmitError};
+
+/// Where a bus's channels sit in a block, and how many it has (1 or 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Pair {
+    pub first: usize,
+    pub channels: usize,
+}
 
 /// What a link has dropped, readable from the interface thread.
 #[derive(Debug, Default)]
@@ -39,8 +48,13 @@ pub struct Link {
     /// The plugin's tail in frames, as reported when it was configured. The
     /// host's answers carry latency but not tail.
     tail: u32,
-    /// Output channels the plugin writes (1 or 2).
-    outputs: usize,
+    /// The output buses that are on, main first: where each sits in a block.
+    pairs: Vec<Pair>,
+    /// Channels a block carries in: the audio in and the sidechain.
+    inputs: usize,
+    /// Silence for the input channels the engine gave nothing for (a
+    /// sidechain nobody feeds), as long as a block can be.
+    silence: Vec<f32>,
     ended: Arc<AtomicBool>,
     counts: Arc<Counts>,
     /// The block's events in the host's terms, reused every block.
@@ -54,16 +68,20 @@ impl Link {
         link: BlockLink,
         generation: u32,
         tail: u32,
+        pairs: Vec<Pair>,
         ended: Arc<AtomicBool>,
         counts: Arc<Counts>,
     ) -> Self {
         let room = link.layout().max_events as usize;
-        let outputs = usize::from(link.layout().outputs).clamp(1, 2);
+        let inputs = usize::from(link.layout().inputs);
+        let silence = vec![0.0; link.layout().max_frames as usize];
         Self {
             link,
             generation,
             tail,
-            outputs,
+            pairs,
+            inputs,
+            silence,
             ended,
             counts,
             events: Vec::with_capacity(room),
@@ -141,10 +159,20 @@ impl Hosted for Link {
                 }
             }
         }
-        match self
-            .link
-            .submit(self.generation, frames as u32, input, &self.events, &[])
-        {
+        // The channels the layout carries, the engine's where it gave them
+        // and silence where it did not.
+        let mut channels: [&[f32]; MAX_CHANNELS] = [&[]; MAX_CHANNELS];
+        let silence = &self.silence[..frames.min(self.silence.len())];
+        for (k, slot) in channels.iter_mut().enumerate().take(self.inputs) {
+            *slot = input.get(k).copied().unwrap_or(silence);
+        }
+        match self.link.submit(
+            self.generation,
+            frames as u32,
+            &channels[..self.inputs],
+            &self.events,
+            &[],
+        ) {
             Ok(_) => Ok(()),
             Err(SubmitError::Busy) => Err(Refused::Busy),
             Err(SubmitError::Invalid(_)) => {
@@ -157,13 +185,7 @@ impl Hosted for Link {
     fn collect(&mut self, deadline: Instant, left: &mut [f32], right: &mut [f32]) -> Reply {
         match self.link.wait(deadline) {
             Poll::Done(answer) if answer.outcome == Outcome::Done => {
-                self.link.copy_output(0, left);
-                if self.outputs > 1 {
-                    self.link.copy_output(1, right);
-                } else {
-                    let n = left.len().min(right.len());
-                    right[..n].copy_from_slice(&left[..n]);
-                }
+                self.copy_pair(0, left, right);
                 Reply::Ready {
                     latency: answer.latency,
                     tail: self.tail,
@@ -191,7 +213,36 @@ impl Hosted for Link {
         self.ended.load(Ordering::Relaxed)
     }
 
+    fn output(&mut self, pair: usize, left: &mut [f32], right: &mut [f32]) -> bool {
+        if pair >= self.pairs.len() {
+            return false;
+        }
+        self.copy_pair(pair, left, right);
+        true
+    }
+
     fn flush(&mut self) {
         self.link.flush_next();
+    }
+}
+
+impl Link {
+    /// Bus pair `pair` of the block last answered, into `left` and `right`.
+    fn copy_pair(&mut self, pair: usize, left: &mut [f32], right: &mut [f32]) {
+        let Some(&Pair { first, channels }) = self.pairs.get(pair) else {
+            return;
+        };
+        self.link.copy_output(first, left);
+        if channels > 1 {
+            self.link.copy_output(first + 1, right);
+        } else {
+            let n = left.len().min(right.len());
+            right[..n].copy_from_slice(&left[..n]);
+        }
+    }
+
+    /// The output buses that are on, main first.
+    pub fn pairs(&self) -> &[Pair] {
+        &self.pairs
     }
 }

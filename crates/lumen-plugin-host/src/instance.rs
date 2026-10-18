@@ -34,9 +34,9 @@ use vst3::{ComPtr, ComWrapper, Interface};
 use crate::com::{self, Changes, EventList, Handler, MOST_PENDING, MemoryStream, OutputChanges};
 use crate::module::{AUDIO_CLASS, Module, to_tuid};
 use crate::protocol::{
-    ClassId, ClassInfo, Edit, EditKind, Event, EventKind, MAX_CHANNELS, MAX_FRAMES, MAX_PARAMETERS,
-    MAX_PROGRAM_LISTS, MAX_PROGRAMS, MAX_PROGRAMS_ALL, MAX_STATE, MAX_UNITS, ParamInfo, ParamQueue,
-    ProgramList, Taken, UnitInfo,
+    Aux, ClassId, ClassInfo, Edit, EditKind, Event, EventKind, MAX_CHANNELS, MAX_FRAMES,
+    MAX_PARAMETERS, MAX_PROGRAM_LISTS, MAX_PROGRAMS, MAX_PROGRAMS_ALL, MAX_STATE, MAX_UNITS,
+    ParamInfo, ParamQueue, ProgramList, Taken, UnitInfo,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,12 +65,24 @@ fn plugin(what: impl Into<String>) -> InstanceError {
     InstanceError::Plugin(what.into())
 }
 
+/// The processing format. To [`Instance::configure`] it gives the channels of
+/// the main buses; what [`Instance::format`] returns holds the channels a
+/// block carries each way (the main buses and every auxiliary bus turned on).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Format {
     pub sample_rate: f64,
     pub max_frames: u32,
     pub inputs: u8,
     pub outputs: u8,
+}
+
+/// A bus that is turned on: which of the plugin's buses it is, how many
+/// channels it has and where they start in a block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Slot {
+    bus: usize,
+    channels: u8,
+    first: usize,
 }
 
 /// What one block produced.
@@ -150,6 +162,9 @@ pub struct Instance {
     /// carries an entry for every one, those that are off included.
     in_buses: usize,
     out_buses: usize,
+    /// The buses turned on, in block order (set by `configure`).
+    in_slots: Vec<Slot>,
+    out_slots: Vec<Slot>,
     notes: NoteIds,
     /// Silence for the buses that are off to point at (see `empty_bus`).
     spare: Vec<f32>,
@@ -372,6 +387,8 @@ impl Instance {
             context: unsafe { std::mem::zeroed() },
             in_buses: 0,
             out_buses: 0,
+            in_slots: Vec::new(),
+            out_slots: Vec::new(),
             notes: NoteIds::new(),
             spare: Vec::new(),
             format: None,
@@ -406,9 +423,69 @@ impl Instance {
         }
     }
 
-    /// Sets the format and starts processing. Safe to call again with a new
-    /// format: the plugin is stopped first.
+    /// Sets the format and starts processing with no auxiliary bus turned on.
+    /// Safe to call again with a new format: the plugin is stopped first.
     pub fn configure(&mut self, format: Format) -> Result<(), InstanceError> {
+        self.configure_with(format, Aux::default())
+    }
+
+    /// The audio buses the plugin declares, inputs then outputs.
+    pub fn buses(&self) -> (Vec<crate::protocol::BusInfo>, Vec<crate::protocol::BusInfo>) {
+        let list = |direction: i32| -> Vec<crate::protocol::BusInfo> {
+            // SAFETY: plain calls on a live component with valid out pointers.
+            let count = unsafe { self.component.getBusCount(kAudio as i32, direction) }
+                .clamp(0, MAX_BUSES as i32);
+            (0..count)
+                .filter_map(|bus| {
+                    // SAFETY: an all-zero `BusInfo` is a valid value to fill in.
+                    let mut info: BusInfo = unsafe { std::mem::zeroed() };
+                    // SAFETY: as above.
+                    let got = unsafe {
+                        self.component
+                            .getBusInfo(kAudio as i32, direction, bus, &mut info)
+                    };
+                    (got == kResultOk).then(|| crate::protocol::BusInfo {
+                        name: wide(&info.name),
+                        channels: u8::try_from(info.channelCount.max(0)).unwrap_or(u8::MAX),
+                        main: info.busType == vst3::Steinberg::Vst::BusTypes_::kMain as i32,
+                        default_active: info.flags
+                            & vst3::Steinberg::Vst::BusInfo_::BusFlags_::kDefaultActive as u32
+                            != 0,
+                    })
+                })
+                .collect()
+        };
+        (list(kInput as i32), list(kOutput as i32))
+    }
+
+    /// How many audio buses the plugin declares in `direction`.
+    fn bus_count(&self, direction: i32) -> usize {
+        // SAFETY: a plain call on a live component.
+        unsafe { self.component.getBusCount(kAudio as i32, direction) }.max(0) as usize
+    }
+
+    /// How many channels bus `bus` has, as the plugin describes it now.
+    fn bus_width(&self, direction: i32, bus: usize) -> usize {
+        // SAFETY: a plain call with a valid out pointer; an all-zero
+        // `BusInfo` is a valid value to fill in.
+        unsafe {
+            let mut info: BusInfo = std::mem::zeroed();
+            if self
+                .component
+                .getBusInfo(kAudio as i32, direction, bus as i32, &mut info)
+                == kResultOk
+            {
+                usize::try_from(info.channelCount).unwrap_or(usize::MAX)
+            } else {
+                usize::MAX
+            }
+        }
+    }
+
+    /// Sets the format and starts processing, with the auxiliary buses `aux`
+    /// asks for turned on and every other one off. `format` gives the main
+    /// buses' channels; afterwards [`Instance::format`] holds the totals.
+    pub fn configure_with(&mut self, format: Format, aux: Aux) -> Result<(), InstanceError> {
         self.stop();
         let ins = usize::from(format.inputs);
         let outs = usize::from(format.outputs);
@@ -416,25 +493,40 @@ impl Instance {
             return Err(plugin("too many channels"));
         }
         // One arrangement per bus, as the plugin declares them: the main bus
-        // as asked, the others as they are (they stay off). A count that does
-        // not match what the plugin declares is refused by plugins that
-        // check, so the host never gives a shorter list.
-        // SAFETY: plain calls on live objects.
-        let (in_buses, out_buses) = unsafe {
-            (
-                self.component
-                    .getBusCount(kAudio as i32, kInput as i32)
-                    .max(0) as usize,
-                self.component
-                    .getBusCount(kAudio as i32, kOutput as i32)
-                    .max(0) as usize,
-            )
-        };
+        // as asked, the others as they are. A count that does not match what
+        // the plugin declares is refused by plugins that check, so the host
+        // never gives a shorter list.
+        let (in_buses, out_buses) = (
+            self.bus_count(kInput as i32),
+            self.bus_count(kOutput as i32),
+        );
         if in_buses > MAX_BUSES || out_buses > MAX_BUSES {
             return Err(plugin(format!(
                 "the plugin declares {} audio buses; at most {MAX_BUSES} are supported",
                 in_buses.max(out_buses)
             )));
+        }
+        // The auxiliary buses asked for must be there, and mono or stereo.
+        let mut wanted_aux = [Vec::new(), Vec::new()];
+        for (side, (name, direction, buses, mask)) in [
+            ("input", kInput as i32, in_buses, aux.inputs),
+            ("output", kOutput as i32, out_buses, aux.outputs),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            for bus in (1..MAX_BUSES).filter(|bus| mask & (1 << bus) != 0) {
+                if bus >= buses {
+                    return Err(plugin(format!("the plugin has no {name} bus {bus}")));
+                }
+                let channels = self.bus_width(direction, bus);
+                if !(1..=2).contains(&channels) {
+                    return Err(plugin(format!(
+                        "{name} bus {bus} has {channels} channels; only mono and stereo are supported"
+                    )));
+                }
+                wanted_aux[side].push((bus, channels as u8));
+            }
         }
         let layout = |direction: i32,
                       buses: usize,
@@ -479,32 +571,65 @@ impl Instance {
         self.out_buses = out_buses;
         // The plugin may refuse a layout; what it really has must match
         // what was asked, or blocks would be mis-sized.
-        for (direction, wanted) in [(kInput as i32, ins), (kOutput as i32, outs)] {
-            // SAFETY: plain calls with valid out pointers.
-            let have = unsafe {
-                if self.component.getBusCount(kAudio as i32, direction) > 0 {
-                    let mut info: BusInfo = std::mem::zeroed();
-                    if self
-                        .component
-                        .getBusInfo(kAudio as i32, direction, 0, &mut info)
-                        == kResultOk
-                    {
-                        usize::try_from(info.channelCount).unwrap_or(usize::MAX)
-                    } else {
-                        usize::MAX
-                    }
-                } else {
-                    0
-                }
-            };
+        for (direction, wanted, aux_buses) in [
+            (kInput as i32, ins, &wanted_aux[0]),
+            (kOutput as i32, outs, &wanted_aux[1]),
+        ] {
             // A plugin with a main bus can run it unused, but not with a
             // different count than the host fills.
-            if wanted > 0 && have != wanted {
-                return Err(plugin(format!(
-                    "the plugin's main bus has {have} channels, not {wanted}"
-                )));
+            if wanted > 0 {
+                let have = if self.bus_count(direction) > 0 {
+                    self.bus_width(direction, 0)
+                } else {
+                    0
+                };
+                if have != wanted {
+                    return Err(plugin(format!(
+                        "the plugin's main bus has {have} channels, not {wanted}"
+                    )));
+                }
+            }
+            for &(bus, channels) in aux_buses {
+                let have = self.bus_width(direction, bus);
+                if have != usize::from(channels) {
+                    return Err(plugin(format!(
+                        "bus {bus} has {have} channels, not {channels}"
+                    )));
+                }
             }
         }
+        // Where each turned-on bus's channels sit in a block: the main bus
+        // first, then the auxiliary ones in bus order.
+        let slots = |main: usize, aux_buses: &[(usize, u8)]| -> Vec<Slot> {
+            let mut list = Vec::with_capacity(1 + aux_buses.len());
+            let mut first = 0;
+            if main > 0 {
+                list.push(Slot {
+                    bus: 0,
+                    channels: main as u8,
+                    first,
+                });
+                first += main;
+            }
+            for &(bus, channels) in aux_buses {
+                list.push(Slot {
+                    bus,
+                    channels,
+                    first,
+                });
+                first += usize::from(channels);
+            }
+            list
+        };
+        let in_slots = slots(ins, &wanted_aux[0]);
+        let out_slots = slots(outs, &wanted_aux[1]);
+        let total = |list: &[Slot]| list.iter().map(|s| usize::from(s.channels)).sum::<usize>();
+        let (total_in, total_out) = (total(&in_slots), total(&out_slots));
+        if total_in > MAX_CHANNELS || total_out > MAX_CHANNELS {
+            return Err(plugin("too many channels in all"));
+        }
+        self.in_slots = in_slots;
+        self.out_slots = out_slots;
         // SAFETY: valid pointers to locals for each call.
         unsafe {
             let mut setup = ProcessSetup {
@@ -526,6 +651,18 @@ impl Instance {
                 if self.component.getBusCount(media, direction) > 0 {
                     self.component
                         .activateBus(media, direction, 0, u8::from(active));
+                }
+            }
+            // The auxiliary audio buses: the ones asked for on, the rest off
+            // (a plugin may have some on by default).
+            for (direction, buses, slots) in [
+                (kInput as i32, in_buses, &self.in_slots),
+                (kOutput as i32, out_buses, &self.out_slots),
+            ] {
+                for bus in 1..buses {
+                    let on = slots.iter().any(|slot| slot.bus == bus);
+                    self.component
+                        .activateBus(kAudio as i32, direction, bus as i32, u8::from(on));
                 }
             }
             let result = self.component.setActive(1);
@@ -550,7 +687,11 @@ impl Instance {
         self.context.state = (kPlaying | kTempoValid | kTimeSigValid) as u32;
         self.context.projectTimeSamples = 0;
         self.handler.restart.store(0, Ordering::Release);
-        self.format = Some(format);
+        self.format = Some(Format {
+            inputs: total_in as u8,
+            outputs: total_out as u8,
+            ..format
+        });
         self.processing = true;
         Ok(())
     }
@@ -693,7 +834,6 @@ impl Instance {
             channel[start..end].fill(0.0);
             *slot = channel[start..].as_mut_ptr();
         }
-        let (ins, outs) = (buffers.input.len(), buffers.output.len());
 
         // Controller, bend and pressure become parameter points through the
         // plugin's own mapping, and program changes through its program
@@ -751,21 +891,27 @@ impl Instance {
         let mut spare_ptrs = [self.spare.as_mut_ptr(); MAX_CHANNELS];
         let mut in_buses = [empty_bus(spare_ptrs.as_mut_ptr()); MAX_BUSES];
         let mut out_buses = [empty_bus(spare_ptrs.as_mut_ptr()); MAX_BUSES];
-        if ins > 0 {
-            in_buses[0] = AudioBusBuffers {
-                numChannels: ins as i32,
+        // A slot's channels lie inside the pointer arrays: `configure` checked
+        // the totals against `MAX_CHANNELS`, and the arrays hold that many.
+        for slot in &self.in_slots {
+            // SAFETY: `slot.first` is inside the array, as above.
+            let list = unsafe { in_ptrs.as_mut_ptr().add(slot.first) };
+            in_buses[slot.bus] = AudioBusBuffers {
+                numChannels: i32::from(slot.channels),
                 silenceFlags: 0,
                 __field0: AudioBusBuffers__type0 {
-                    channelBuffers32: in_ptrs.as_mut_ptr(),
+                    channelBuffers32: list,
                 },
             };
         }
-        if outs > 0 {
-            out_buses[0] = AudioBusBuffers {
-                numChannels: outs as i32,
+        for slot in &self.out_slots {
+            // SAFETY: `slot.first` is inside the array, as above.
+            let list = unsafe { out_ptrs.as_mut_ptr().add(slot.first) };
+            out_buses[slot.bus] = AudioBusBuffers {
+                numChannels: i32::from(slot.channels),
                 silenceFlags: 0,
                 __field0: AudioBusBuffers__type0 {
-                    channelBuffers32: out_ptrs.as_mut_ptr(),
+                    channelBuffers32: list,
                 },
             };
         }

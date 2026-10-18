@@ -20,8 +20,9 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::protocol::{
-    ClassId, ClassInfo, EditorBounds, EditorStatus, Event, FailureKind, FrameError, ParamInfo,
-    ParamQueue, ProgramList, Request, Response, Taken, UnitInfo, read_response, write_request,
+    Aux, BusInfo, ClassId, ClassInfo, EditorBounds, EditorStatus, Event, FailureKind, FrameError,
+    ParamInfo, ParamQueue, ProgramList, Request, Response, Taken, UnitInfo, read_response,
+    write_request,
 };
 use crate::shm::sys::remove_names;
 use crate::shm::{BlockLink, Layout, Wake};
@@ -131,6 +132,16 @@ impl fmt::Display for HostError {
 }
 
 impl std::error::Error for HostError {}
+
+/// What a plugin answered to being set up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Configured {
+    pub latency: u32,
+    pub tail: u32,
+    /// The channels a block carries each way.
+    pub inputs: u8,
+    pub outputs: u8,
+}
 
 /// What a processed block gave back.
 #[derive(Debug, Clone, PartialEq)]
@@ -494,6 +505,26 @@ impl HostProcess {
         outputs: u8,
         within: Duration,
     ) -> Result<(u32, u32), HostError> {
+        let done = self.configure_buses(
+            sample_rate,
+            max_frames,
+            (inputs, outputs),
+            Aux::default(),
+            within,
+        )?;
+        Ok((done.latency, done.tail))
+    }
+
+    /// As [`Self::configure`], with the auxiliary buses to turn on as well.
+    /// The answer says how many channels a block then carries each way.
+    pub fn configure_buses(
+        &mut self,
+        sample_rate: f64,
+        max_frames: u32,
+        (inputs, outputs): (u8, u8),
+        aux: Aux,
+        within: Duration,
+    ) -> Result<Configured, HostError> {
         self.generation += 1;
         let request = Request::Configure {
             generation: self.generation,
@@ -501,14 +532,31 @@ impl HostProcess {
             max_frames,
             inputs,
             outputs,
+            aux_inputs: aux.inputs,
+            aux_outputs: aux.outputs,
         };
         match self.call(&request, within)? {
             Response::Configured {
                 generation,
                 latency,
                 tail,
-            } if generation == self.generation => Ok((latency, tail)),
+                inputs,
+                outputs,
+            } if generation == self.generation => Ok(Configured {
+                latency,
+                tail,
+                inputs,
+                outputs,
+            }),
             _ => Err(HostError::Protocol("expected Configured".into())),
+        }
+    }
+
+    /// The audio buses the plugin declares, inputs then outputs.
+    pub fn buses(&mut self, within: Duration) -> Result<(Vec<BusInfo>, Vec<BusInfo>), HostError> {
+        match self.call(&Request::Buses, within)? {
+            Response::Buses { inputs, outputs } => Ok((inputs, outputs)),
+            _ => Err(HostError::Protocol("expected Buses".into())),
         }
     }
 

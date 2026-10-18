@@ -4,6 +4,8 @@
 use crate::params::MAX_LATENCY;
 
 pub const VOICES: usize = 16;
+/// The most output buses the instrument plays on.
+pub const MAX_BUSES: usize = 9;
 
 #[derive(Clone, Copy, Default)]
 struct Voice {
@@ -91,6 +93,42 @@ impl Voices {
                 v.on = false;
             }
         }
+    }
+
+    /// The next sample of each bus's voices, scaled by `level`: a voice
+    /// plays on the bus its pitch picks (`pitch % buses`) when `on` has that
+    /// bus's bit, and on bus 0 when it has not.
+    pub fn next_routed(
+        &mut self,
+        level: f32,
+        saw: bool,
+        buses: usize,
+        on: u32,
+    ) -> [f32; MAX_BUSES] {
+        let mut sums = [0.0; MAX_BUSES];
+        for v in self.voices.iter_mut().filter(|v| v.on) {
+            let wave = if saw {
+                (2.0 * v.phase - 1.0) as f32
+            } else if v.phase < 0.5 {
+                1.0
+            } else {
+                -1.0
+            };
+            let picked = v.pitch.rem_euclid(buses.max(1) as i16) as usize;
+            let bus = if on & (1 << picked) != 0 { picked } else { 0 };
+            sums[bus] += wave * v.amp;
+            v.phase += v.step;
+            if v.phase >= 1.0 {
+                v.phase -= 1.0;
+            }
+            if v.fade > 0.0 {
+                v.amp -= v.fade;
+                if v.amp <= v.fade * 0.5 {
+                    v.on = false;
+                }
+            }
+        }
+        sums.map(|s| s * level)
     }
 
     /// The next sample of the sum, scaled by `level`.

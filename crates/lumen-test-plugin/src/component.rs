@@ -1,7 +1,7 @@
 //! The audio component of both test plugins: buses, processing, state.
 
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use vst3::Steinberg::Vst::{
     AudioBusBuffers, BusDirection, BusDirections, BusDirections_, BusInfo, BusInfo_, BusTypes_,
@@ -18,10 +18,16 @@ use vst3::Steinberg::{
 };
 use vst3::{Class, ComPtr, ComRef, Interface};
 
+use crate::dsp::MAX_BUSES;
 use crate::faults::{self, Faults, Kind as Fault};
 use crate::params::Kind;
-use crate::render::{Change, Dsp, Note, Timed};
+use crate::render::{Buses, Change, Dsp, Note, Timed};
 use crate::{state, streams, text};
+
+/// Set by the controller's trigger under `bus_change`: the instrument then
+/// declares one output bus more. A static because the component and the
+/// controller are separate objects that share a process.
+pub static EXTRA_OUTPUT: AtomicBool = AtomicBool::new(false);
 
 /// Per block, the most parameter points and notes the plugin acts on.
 const POINTS: usize = 64;
@@ -66,9 +72,15 @@ impl Processor {
     }
 
     fn audio_buses(&self, dir: BusDirection) -> i32 {
+        let extra =
+            i32::from(self.faults.has(Fault::BusChange) && EXTRA_OUTPUT.load(Ordering::Relaxed));
         match (self.kind, dir as BusDirections) {
             (Kind::Instrument, BusDirections_::kInput) => 0,
             (Kind::Instrument, BusDirections_::kOutput) if self.faults.has(Fault::AuxBuses) => 4,
+            (Kind::Instrument, BusDirections_::kOutput) => {
+                self.faults.multi_out().map_or(1, |n| n as i32) + extra
+            }
+            (Kind::Effect, BusDirections_::kInput) if self.faults.has(Fault::Sidechain) => 2,
             _ => 1,
         }
     }
@@ -155,11 +167,9 @@ impl IComponentTrait for Processor {
         bus.direction = dir;
         bus.busType = BusTypes_::kMain as i32;
         bus.flags = BusInfo_::BusFlags_::kDefaultActive as u32;
-        if media as MediaTypes == MediaTypes_::kAudio
-            && dir as BusDirections == BusDirections_::kOutput
-            && index > 0
-        {
-            // An auxiliary output, off until the host turns it on.
+        if media as MediaTypes == MediaTypes_::kAudio && index > 0 {
+            // An auxiliary output or the sidechain input, off until the host
+            // turns it on.
             bus.busType = BusTypes_::kAux as i32;
             bus.flags = 0;
         }
@@ -173,7 +183,13 @@ impl IComponentTrait for Processor {
             } else {
                 2
             };
-            text::copy_wstring(if output { "Output" } else { "Input" }, &mut bus.name);
+            let name = match (output, index) {
+                (true, 0) => "Output".to_owned(),
+                (true, n) => format!("Output {}", n + 1),
+                (false, 0) => "Input".to_owned(),
+                (false, _) => "Sidechain".to_owned(),
+            };
+            text::copy_wstring(&name, &mut bus.name);
         }
         kResultOk
     }
@@ -386,13 +402,19 @@ impl IAudioProcessorTrait for Processor {
 
         // SAFETY: the host's bus arrays are valid for this call.
         let (input, output) = unsafe { channels(data) };
+        // SAFETY: as above.
+        let buses = unsafe { collect_buses(data) };
         let mut dsp = self.dsp();
+        dsp.set_output_buses(
+            self.audio_buses(BusDirections_::kOutput as BusDirection)
+                .max(1) as usize,
+        );
         // SAFETY: each channel pointer holds `numSamples` samples.
         unsafe {
-            dsp.render(
+            dsp.render_buses(
                 frames,
                 input,
-                output,
+                buses,
                 &changes[..n_changes],
                 &notes[..n_notes],
             )
@@ -446,6 +468,44 @@ unsafe fn channels(data: &ProcessData) -> ([*const f32; 2], [*mut f32; 2]) {
     }
     let input = first(data.inputs, data.numInputs).map(<*mut f32>::cast_const);
     (input, first(data.outputs, data.numOutputs))
+}
+
+/// Every output bus's first two channels, and the sidechain's (the second
+/// input bus); null where a bus is off or there is none.
+///
+/// # Safety
+/// The bus arrays in `data` must be valid.
+unsafe fn collect_buses(data: &ProcessData) -> Buses {
+    let pair = |buses: *mut AudioBusBuffers, count: i32, index: usize| -> [*mut f32; 2] {
+        let mut out = [std::ptr::null_mut(); 2];
+        if buses.is_null() || index as i32 >= count {
+            return out;
+        }
+        // SAFETY: the caller vouches for the arrays; the bus has
+        // `numChannels` buffers.
+        unsafe {
+            let bus = &*buses.add(index);
+            let list = bus.__field0.channelBuffers32;
+            if !list.is_null() {
+                for (c, slot) in out
+                    .iter_mut()
+                    .enumerate()
+                    .take(bus.numChannels.max(0) as usize)
+                {
+                    *slot = *list.add(c);
+                }
+            }
+        }
+        out
+    };
+    let mut outputs = [[std::ptr::null_mut(); 2]; MAX_BUSES];
+    for (index, slot) in outputs.iter_mut().enumerate() {
+        *slot = pair(data.outputs, data.numOutputs, index);
+    }
+    Buses {
+        outputs,
+        sidechain: pair(data.inputs, data.numInputs, 1).map(<*mut f32>::cast_const),
+    }
 }
 
 /// Collects this block's parameter points (ids 0 and 1) and note events,

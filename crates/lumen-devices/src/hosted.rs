@@ -104,6 +104,14 @@ pub trait Hosted: Send {
     /// Whether the host's process has ended, without waiting.
     fn ended(&self) -> bool;
 
+    /// The output of bus pair `pair` (0 is the main bus, then the auxiliary
+    /// outputs that are on, in bus order) for the block [`Hosted::collect`]
+    /// last answered, into `left` and `right`. False when there is no such
+    /// pair; a mono bus is copied to both sides. Never blocks.
+    fn output(&mut self, _pair: usize, _left: &mut [f32], _right: &mut [f32]) -> bool {
+        false
+    }
+
     /// Asks the plugin to forget what it holds (its tail, its filters)
     /// before the next block it is given. Never blocks. A host with nothing
     /// to forget ignores it.
@@ -212,6 +220,8 @@ pub struct Guard {
     quiet: u64,
     /// A block was asked for since the last [`Guard::age`].
     asked: bool,
+    /// The last block collected was the host's (see [`Guard::output`]).
+    ready: bool,
     status: Arc<Status>,
 }
 
@@ -226,6 +236,7 @@ impl Guard {
             missed: 0,
             quiet: u64::MAX,
             asked: false,
+            ready: false,
             status: Status::new(latency),
         }
     }
@@ -346,13 +357,23 @@ impl Guard {
         }
     }
 
+    /// Bus pair `pair` (0 is the main bus, then the auxiliary outputs that
+    /// are on) of the block [`Guard::finish`] last answered, into `left` and
+    /// `right`: false when that block was not the host's or there is no such
+    /// pair. Finite samples only. Never blocks.
+    pub fn output(&mut self, pair: usize, left: &mut [f32], right: &mut [f32]) -> bool {
+        self.ready && self.host.output(pair, left, right)
+    }
+
     /// Takes the block's answer, waiting until `deadline` at most.
     pub fn finish(&mut self, deadline: Instant, left: &mut [f32], right: &mut [f32]) -> Outcome {
+        self.ready = false;
         if !std::mem::take(&mut self.sent) {
             self.quiet_for(left.len());
             return Outcome::Silent;
         }
         let outcome = self.collect(deadline, left, right);
+        self.ready = outcome == Outcome::Ready;
         match outcome {
             Outcome::Ready => self.heard(left, right),
             Outcome::Silent => self.quiet_for(left.len()),

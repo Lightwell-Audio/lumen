@@ -30,6 +30,9 @@
 //! | `headless_press=CODE` | as `headless_editor`, and once Lumen asks for the key `CODE` (a Windows virtual-key code) while the window is open, the "user" presses and lets go of it there |
 //! | `presets` | the instrument offers a program list (three programs, selected by a program-change parameter, id 91, that sets its level and wave as edits of its own) and both plugins keep an edit-controller state (a view value) that `getState` writes and `setState` restores |
 //! | `release=MS` | the instrument's released notes fade out over `MS` milliseconds while it reports no tail: what a synth with a long release does |
+//! | `multi_out=N` | the instrument declares one main and `N - 1` auxiliary stereo output buses (off by default) and plays each note on the bus its pitch picks (`pitch % N`) when the host has that bus on, on the main bus when it has not |
+//! | `sidechain` | the effect declares a stereo sidechain input (an auxiliary bus, off by default) and, when the host has it on, silences its output on every sample where the sidechain is loud (by the louder of its two channels, linearly: a sidechain of 1.0 mutes the sample) |
+//! | `bus_change` | the instrument lists the trigger, and stepping it on adds one more auxiliary output bus and asks the host to restart with `kIoChanged`, as a plugin does when its outputs change |
 //! | `instrument_latency=N` | the instrument reports `N` samples of latency (at most 4096) and plays its notes that late, as a plugin that looks ahead does |
 //!
 //! `@N` counts process calls from 0 and defaults to 0.
@@ -63,6 +66,9 @@ pub enum Kind {
     EditorHang,
     Release,
     InstrumentLatency,
+    MultiOut,
+    Sidechain,
+    BusChange,
     ManyParams,
     Presets,
     WindowEdits,
@@ -120,6 +126,9 @@ impl Faults {
                 "editor_hang" => Kind::EditorHang,
                 "release" => Kind::Release,
                 "instrument_latency" => Kind::InstrumentLatency,
+                "multi_out" => Kind::MultiOut,
+                "sidechain" => Kind::Sidechain,
+                "bus_change" => Kind::BusChange,
                 "many_params" => Kind::ManyParams,
                 "presets" => Kind::Presets,
                 "window_edits" => Kind::WindowEdits,
@@ -136,6 +145,9 @@ impl Faults {
             }
             if matches!(kind, Kind::StateRefused) && arg.is_none() {
                 return Err(format!("`{entry}`: needs `=count`"));
+            }
+            if matches!(kind, Kind::MultiOut) && !arg.is_some_and(|n| (2..=8).contains(&n)) {
+                return Err(format!("`{entry}`: needs `=buses` from 2 to 8"));
             }
             if matches!(kind, Kind::ManyParams) && arg.is_none() {
                 return Err(format!("`{entry}`: needs `=count`"));
@@ -213,6 +225,14 @@ impl Faults {
             .iter()
             .find(|f| f.kind == Kind::Release)
             .map(|f| Duration::from_millis(f.arg))
+    }
+
+    /// The instrument's output buses (`multi_out`), if asked.
+    pub fn multi_out(&self) -> Option<u32> {
+        self.0
+            .iter()
+            .find(|f| f.kind == Kind::MultiOut)
+            .map(|f| f.arg as u32)
     }
 
     /// The instrument's latency in samples (`instrument_latency`), if asked.
