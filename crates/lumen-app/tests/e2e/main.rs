@@ -64,6 +64,7 @@ mod record;
 mod resilience;
 mod returns;
 mod rulers;
+mod safe_mode;
 mod scrubbing;
 mod sends;
 mod shortcuts;

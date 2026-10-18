@@ -76,6 +76,11 @@ impl App {
                 std::sync::Arc::new(move || ctx.request_repaint()),
             )
         };
+        let safe = app::safe_mode::SafeMode::start(
+            launch.safe_mode,
+            launch.plugin_marker.clone(),
+            launch.plugins.host_program().is_some(),
+        );
         let hosting = match launch.plugins.host_program() {
             Some(program) => {
                 let ctx = cc.egui_ctx.clone();
@@ -85,10 +90,13 @@ impl App {
             }
             None => hosting::Hosting::off(),
         };
+        let mut hosting = hosting;
+        hosting.set_safe(safe.on);
         let plugins = plugins::Plugins::start(
             launch.plugins,
             settings_path.as_deref(),
             &saved.plugins,
+            safe.on,
             &cc.egui_ctx,
         );
         let mut app = App {
@@ -96,6 +104,7 @@ impl App {
             midi,
             plugins,
             hosting,
+            safe,
             chain: Default::default(),
             browser: Default::default(),
             midi_out: None,

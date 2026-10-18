@@ -113,6 +113,16 @@ impl Manager {
         }
     }
 
+    /// How many devices have a host (running, loading or failed).
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Whether no device has a host.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     /// Asks the device's plugin for every parameter's value; the answer comes
     /// from [`Manager::poll`] as [`crate::Happened::Values`].
     pub fn refresh(&self, device: u64) {

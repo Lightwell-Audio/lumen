@@ -79,6 +79,9 @@ pub enum State {
     Failed(String),
     /// The plugin is not installed (or plugins are off).
     Missing,
+    /// Safe mode: no plugin is loaded, and this one has not been asked for. Its
+    /// settings are kept as the project holds them.
+    Safe,
 }
 
 struct Tracked {
@@ -404,6 +407,9 @@ pub struct Hosting {
     presets: Vec<PresetNews>,
     /// How often a running plugin is read for a checkpoint.
     checkpoint_every: std::time::Duration,
+    /// Safe mode: no plugin is loaded, except those asked for one at a time.
+    safe: bool,
+    allowed: std::collections::HashSet<u64>,
 }
 
 /// The host's stand-in for an editor window, as a test asks for it in the
@@ -490,6 +496,8 @@ impl Hosting {
             keys: Vec::new(),
             presets: Vec::new(),
             checkpoint_every: CHECKPOINT,
+            safe: false,
+            allowed: Default::default(),
         }
     }
 
@@ -757,6 +765,31 @@ impl Hosting {
         self.tracked.values().any(|t| t.params.gesture_is_open())
     }
 
+    /// Starts or ends safe mode. In safe mode no plugin binary is loaded or
+    /// hosted: each device is [`State::Safe`], keeping its settings and (for an
+    /// effect) its time. Ending it lets every device start, as it would have.
+    pub fn set_safe(&mut self, safe: bool) {
+        self.safe = safe;
+        if !safe {
+            self.allowed.clear();
+        }
+    }
+
+    /// Asks for one device's plugin to be loaded although safe mode is on.
+    pub fn allow(&mut self, device: Id) {
+        self.allowed.insert(device.0);
+    }
+
+    /// Whether any plugin is being loaded now.
+    pub fn loading_any(&self) -> bool {
+        self.tracked.values().any(|t| t.state == State::Loading)
+    }
+
+    /// How many plugin hosts exist (running, loading or failed).
+    pub fn host_count(&self) -> usize {
+        self.manager.as_ref().map_or(0, Manager::len)
+    }
+
     /// Whether the plugin has stopped three times in the last two minutes: it
     /// keeps stopping, and the card says so rather than offering the same
     /// Reload as for one that stopped once.
@@ -1003,7 +1036,7 @@ impl Hosting {
         for w in &list {
             let id = w.device.id.0;
             let known = self.tracked.get(&id).map(|t| t.state.clone());
-            if !matches!(known, None | Some(State::Missing)) {
+            if !matches!(known, None | Some(State::Missing | State::Safe)) {
                 continue;
             }
             let state = self.start(w, catalog, rate, frames);
@@ -1497,6 +1530,11 @@ impl Hosting {
 
     /// Starts a host for `w`, and says how that went so far.
     fn start(&mut self, w: &Wanted<'_>, catalog: &Catalog, rate: u32, frames: u32) -> State {
+        // Safe mode loads nothing: not even to find out whether the plugin is
+        // there. Only the ones asked for, one at a time, are started.
+        if self.safe && !self.allowed.contains(&w.device.id.0) {
+            return State::Safe;
+        }
         let (Some(manager), Some(host)) = (self.manager.as_mut(), self.host.as_ref()) else {
             return State::Missing;
         };

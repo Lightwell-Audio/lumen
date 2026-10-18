@@ -63,11 +63,13 @@ pub enum Icon {
     Sliders,
     /// A plug with a slash: a plugin that is not installed.
     PlugOff,
+    /// Safe mode (M6 slice 5e): a shield with a check.
+    Shield,
 }
 
 impl Icon {
     #[cfg(test)]
-    pub const ALL: [Icon; 27] = [
+    pub const ALL: [Icon; 28] = [
         Icon::ToStart,
         Icon::Play,
         Icon::Pause,
@@ -95,6 +97,7 @@ impl Icon {
         Icon::Power,
         Icon::Sliders,
         Icon::PlugOff,
+        Icon::Shield,
     ];
 }
 
@@ -241,6 +244,22 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             ),
             Shape::line_segment([g.p(8.0, 11.0), g.p(8.0, 13.8)], stroke),
             Shape::line_segment([g.p(2.6, 2.6), g.p(13.4, 13.4)], stroke),
+        ],
+        Icon::Shield => vec![
+            Shape::closed_line(
+                vec![
+                    g.p(8.0, 2.0),
+                    g.p(13.2, 4.0),
+                    g.p(13.2, 8.4),
+                    g.p(11.4, 11.6),
+                    g.p(8.0, 14.0),
+                    g.p(4.6, 11.6),
+                    g.p(2.8, 8.4),
+                    g.p(2.8, 4.0),
+                ],
+                stroke,
+            ),
+            Shape::line(vec![g.p(5.6, 8.2), g.p(7.4, 10.0), g.p(10.6, 6.2)], stroke),
         ],
         Icon::ToStart => vec![
             Shape::rect_filled(g.rect(3.0, 3.0, 5.0, 13.0), 0.3 * g.unit, color),

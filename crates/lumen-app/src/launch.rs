@@ -3,7 +3,7 @@
 //! settings, autosave folder and the silent test device, so it never touches
 //! the user's.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::{audio, bench, settings};
@@ -55,6 +55,11 @@ pub struct Launch {
     /// first track, to try delay compensation before devices exist (M4
     /// slice 6).
     pub(crate) test_latency: Option<f64>,
+    /// `--safe-mode`: no plugin is scanned, loaded or hosted (M6 slice 5e).
+    pub(crate) safe_mode: bool,
+    /// Where the marker of a start that did not finish loading plugins is
+    /// kept: beside the settings.
+    pub(crate) plugin_marker: Option<PathBuf>,
     /// `--save-as` (tests): save once imports are done, then close.
     pub(crate) save_as: Option<PathBuf>,
     /// Tests: file dialogs are answered by the test, never shown.
@@ -98,6 +103,10 @@ impl Launch {
             })
         });
         let screenshot = value("--screenshot").map(PathBuf::from);
+        let plugin_marker = settings_path
+            .as_deref()
+            .and_then(Path::parent)
+            .map(|dir| dir.join(crate::app::safe_mode::MARKER));
         Self {
             started: Instant::now(),
             settings,
@@ -150,6 +159,8 @@ impl Launch {
             test_latency: value("--test-latency")
                 .and_then(|ms| ms.parse().ok())
                 .filter(|ms: &f64| ms.is_finite() && *ms > 0.0),
+            safe_mode: has("--safe-mode"),
+            plugin_marker,
             save_as: value("--save-as").map(PathBuf::from),
             scripted_dialogs: false,
         }

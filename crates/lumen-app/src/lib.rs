@@ -178,6 +178,8 @@ pub struct App {
     plugins: plugins::Plugins,
     /// The host processes of the project's plugin devices (M6 slice 2c).
     hosting: hosting::Hosting,
+    /// Safe mode (M6 slice 5e): no plugin is loaded until it is left.
+    safe: app::safe_mode::SafeMode,
     /// The Devices tab's own state (M6 slice 2d).
     chain: chain::Chain,
     /// An exported MIDI file being made, before the dialog asks where it
@@ -323,6 +325,7 @@ impl eframe::App for App {
         if let Some(autosave) = &mut self.autosave {
             autosave.clear();
         }
+        self.safe.closing();
         self.hosting.shutdown();
     }
 
@@ -443,6 +446,7 @@ impl eframe::App for App {
             &mut self.transport.audio.mixer,
             &mut self.lanes.devices.hosted,
         );
+        self.watch_safe_mode();
         self.lanes.midi_changed(hosts.midi);
         if let Some(ms) = hosts.again_in_ms {
             ctx.request_repaint_after(std::time::Duration::from_millis(ms));
@@ -519,6 +523,7 @@ impl eframe::App for App {
         self.file_banner(ui);
         self.tempo_banner(ui);
         self.recovery_banner(ui);
+        self.safe_banner(ui);
         let shown = midi_settings::Shown {
             midi: &self.midi,
             saved: &self.settings.midi,

@@ -28,6 +28,7 @@ pub(crate) mod record;
 pub(crate) mod recovery;
 pub(crate) mod regions;
 pub(crate) mod rulers;
+pub(crate) mod safe_mode;
 pub(crate) mod scrub;
 pub(crate) mod shortcuts;
 mod startup;

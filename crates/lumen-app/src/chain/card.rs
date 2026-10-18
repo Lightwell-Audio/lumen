@@ -28,6 +28,10 @@ pub(super) enum Face<'a> {
     Missing {
         saved: usize,
     },
+    /// Safe mode: not loaded, settings kept (`saved` is their size).
+    Safe {
+        saved: usize,
+    },
 }
 
 pub(super) struct Look<'a> {
@@ -68,6 +72,8 @@ pub(super) struct Look<'a> {
 pub(super) enum Action {
     Reload,
     Rescan,
+    /// Load this one plugin although safe mode is on.
+    LoadOne,
 }
 
 pub(super) struct Out {
@@ -392,7 +398,9 @@ fn footer_words(look: &Look<'_>) -> (String, String) {
     };
     match look.face {
         Face::Loading => ("starting\u{2026}".to_owned(), String::new()),
-        Face::Failed(_) | Face::Missing { .. } => ("bypassed".to_owned(), kept(&ms)),
+        Face::Failed(_) | Face::Missing { .. } | Face::Safe { .. } => {
+            ("bypassed".to_owned(), kept(&ms))
+        }
         Face::Ready if look.bypass => ("bypassed".to_owned(), kept(&ms)),
         Face::Ready => (signal.to_owned(), ms),
     }
@@ -667,6 +675,34 @@ fn paint_strip(
             &format!("Settings kept ({}).", kilobytes(saved)),
             ("Rescan plugins", Action::Rescan, None),
         )),
+        Face::Safe { saved } => {
+            // The card keeps its shape: the knobs stand there, greyed, and
+            // the words and the one button take their place under them.
+            let painter = ui.painter().with_clip_rect(area);
+            let ghost = palette.control_press.gamma_multiply(0.5);
+            let radius = theme::size::KNOB / 2.0;
+            let step = area.width() / 4.0;
+            for i in 0..4 {
+                let centre = pos2(
+                    area.left() + step * (i as f32 + 0.5),
+                    area.top() + radius + 2.0,
+                );
+                painter.circle_stroke(centre, radius - 2.0, Stroke::new(3.0, ghost));
+            }
+            let below = Rect::from_min_max(
+                pos2(area.left(), area.top() + 2.0 * radius + 10.0),
+                area.max,
+            );
+            no_strip(message(
+                ui,
+                below,
+                id,
+                "Not loaded \u{00B7} safe mode",
+                palette.text,
+                &format!("Its settings ({}) are kept.", kilobytes(saved)),
+                ("Load this plugin", Action::LoadOne, None),
+            ))
+        }
     }
 }
 

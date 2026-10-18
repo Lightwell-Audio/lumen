@@ -7110,6 +7110,17 @@ parameter shows, and a preset file comes from outside Lumen.
    an autosave hold the last good state (with the values since set over it) when
    a fresher read is not to be had.
 
+7. **Safe mode (5e, R5).** A run in safe mode scans nothing, loads no plugin
+   binary and starts no host (`State::Safe`; the plugin cache is read, so a
+   plugin Lumen has seen can still be loaded one at a time), and saves the
+   project's state as it holds it. Entries: `--safe-mode`, Shift held while
+   starting (Windows), and an offer after a start that did not finish loading
+   plugins, found by a marker file beside the settings that is written when
+   plugins begin loading and removed when they have loaded or Lumen closes
+   properly (so one left behind means Lumen ended while plugins were loading).
+   While the offer is open nothing loads. Leaving safe mode lets every device
+   start and runs the scan the start left out.
+
 **Consequences.** Format is unchanged (the revision is not saved). A plugin that
 reports nothing when it changes a value inside itself is found by the read at
 rest, not at once. The state is loaded while the plugin is processing, as the

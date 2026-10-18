@@ -47,6 +47,7 @@ enum OwnedFace {
     Loading,
     Failed(String),
     Missing(usize),
+    Safe(usize),
 }
 
 impl OwnedFace {
@@ -56,6 +57,7 @@ impl OwnedFace {
             OwnedFace::Loading => Face::Loading,
             OwnedFace::Failed(words) => Face::Failed(words),
             OwnedFace::Missing(saved) => Face::Missing { saved: *saved },
+            OwnedFace::Safe(saved) => Face::Safe { saved: *saved },
         }
     }
 }
@@ -68,6 +70,7 @@ struct Events {
     power: Option<(Id, bool)>,
     reload: Option<Id>,
     rescan: bool,
+    load_one: Option<Id>,
     strip: Vec<(Id, strip::Output)>,
 }
 
@@ -286,6 +289,7 @@ impl App {
                     match out.action {
                         Some(Action::Reload) => events.reload = Some(row.id),
                         Some(Action::Rescan) => events.rescan = true,
+                        Some(Action::LoadOne) => events.load_one = Some(row.id),
                         None => {}
                     }
                     let (id, bypass, is_folded) = (row.id, row.bypass, folded[i]);
@@ -370,6 +374,9 @@ impl App {
         if let Some(id) = events.reload {
             self.hosting.reload(id);
         }
+        if let Some(id) = events.load_one {
+            self.load_one_plugin(id);
+        }
         if events.rescan {
             self.rescan_plugins(ui.ctx(), lumen_plugin_catalog::scan::Mode::Changed);
         }
@@ -420,6 +427,7 @@ impl App {
                 Some(State::Missing) => {
                     OwnedFace::Missing(d.state.len() + d.controller_state.len())
                 }
+                Some(State::Safe) => OwnedFace::Safe(d.state.len() + d.controller_state.len()),
                 Some(State::Loading) | None => OwnedFace::Loading,
             };
             let frames = self

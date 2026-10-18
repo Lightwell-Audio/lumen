@@ -58,6 +58,8 @@ impl Launch {
             bench_size: None,
             autoplay: None,
             test_latency: None,
+            safe_mode: false,
+            plugin_marker: Some(dir.join(crate::app::safe_mode::MARKER)),
             save_as: None,
             scripted_dialogs: true,
         }
@@ -121,6 +123,12 @@ impl Launch {
         if let crate::plugins::Source::Fixed(f) = &mut self.plugins {
             f.faults = Some(faults);
         }
+        self
+    }
+
+    /// Starts in safe mode, as `--safe-mode` does.
+    pub fn in_safe_mode(mut self) -> Self {
+        self.safe_mode = true;
         self
     }
 
@@ -326,6 +334,21 @@ impl App {
         }
     }
 
+    /// Whether Lumen is in safe mode, and whether it is offering it.
+    pub fn safe_mode(&self) -> (bool, bool) {
+        (self.safe.on, self.safe.offer)
+    }
+
+    /// How many plugin hosts exist.
+    pub fn plugin_hosts(&self) -> usize {
+        self.hosting.host_count()
+    }
+
+    /// Loads one plugin in safe mode, as its card's "Load this plugin" will.
+    pub fn load_one(&mut self, device: Id) {
+        self.load_one_plugin(device);
+    }
+
     /// How a plugin device's host is doing: `loading`, `ready`, `failed: ...`
     /// or `missing`; none when the project holds no such device.
     pub fn device_state(&self, device: Id) -> Option<String> {
@@ -335,6 +358,7 @@ impl App {
             State::Ready => "ready".to_owned(),
             State::Failed(why) => format!("failed: {why}"),
             State::Missing => "missing".to_owned(),
+            State::Safe => "safe".to_owned(),
         })
     }
 
@@ -391,9 +415,18 @@ impl App {
                 "failed" => State::Failed(
                     "Crashed while loading: access violation, exception 0xc0000005.".into(),
                 ),
+                "safe" => State::Safe,
                 _ => State::Missing,
             },
         );
+    }
+
+    /// Shows safe mode (and, when `offer`, its offer) without a host: for
+    /// screenshots.
+    pub fn pretend_safe_mode(&mut self, on: bool, offer: bool) {
+        self.safe.on = on;
+        self.safe.offer = offer;
+        self.hosting.set_safe(on);
     }
 
     /// Gives a plugin device a picture of `width` by `height` pixels from

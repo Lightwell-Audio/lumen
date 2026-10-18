@@ -2048,6 +2048,90 @@ fn device_chain() {
     }
 }
 
+/// Safe mode (M6 slice 5e, the owner's I2 and F2): the strip under the
+/// transport bar, the card that is not loaded, and the offer.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn safe_mode() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_core::time::Ticks;
+    use lumen_project::model::{Device, DeviceKind, Id, Note};
+    use lumen_project::testing::{midi_track, project_of};
+
+    let class = |n: u8| lumen_plugin_catalog::catalog::class_id(&[n; 16]);
+    for (appearance, scale, size) in [
+        ("dark", 1.0, vec2(1500.0, 800.0)),
+        ("light", 1.0, vec2(1500.0, 800.0)),
+        ("dark", 1.0, vec2(960.0, 540.0)),
+        ("dark", 2.0, vec2(1900.0, 1000.0)),
+    ] {
+        for offer in [false, true] {
+            let dir = TempDir::new("shots-safe");
+            let mut track = midi_track(
+                1,
+                "Pad",
+                "poly",
+                (0, 64),
+                None,
+                vec![Note::new(Ticks::ZERO, Ticks::quarters(60), 69, 100)],
+                vec![],
+            );
+            track.devices = vec![
+                Device::vst3(
+                    Id(10),
+                    &class(1),
+                    "Bass Synth",
+                    "Vendor C",
+                    DeviceKind::Instrument,
+                ),
+                Device::vst3(
+                    Id(11),
+                    &class(2),
+                    "Overheat",
+                    "Sampleson",
+                    DeviceKind::Effect,
+                ),
+            ];
+            track.devices[1].state = vec![0; 84 * 1024];
+            let project = project_of("Safe", vec![track]);
+            let path = dir.path().join("song.lumen");
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(size)
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(30);
+            h.state_mut().select_tracks(&[Id(1)]);
+            h.run_steps(4);
+            h.get_all_by_label("Devices tab")
+                .last()
+                .expect("the tabs")
+                .click();
+            h.run_steps(20);
+            h.state_mut().pretend_device_state(Id(10), "safe");
+            h.state_mut().pretend_device_state(Id(11), "safe");
+            h.state_mut().pretend_safe_mode(true, offer);
+            h.run_steps(30);
+            let small = if size.x < 1000.0 { "-small" } else { "" };
+            let what = if offer { "offer" } else { "strip" };
+            save(&mut h, &format!("safe-{what}-{appearance}-{scale}{small}"));
+        }
+    }
+}
+
 /// The audio panel's block budget (ADR-0075, the owner's B) with a long
 /// chain: twelve plugins, two of them missing blocks.
 #[test]

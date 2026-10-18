@@ -128,3 +128,5 @@ run. Add new ones here as they are found.
 Follow-ups owned by a later slice of the current milestone are also listed
 in its plan (`docs/milestones/`).
 | 2026-10-17 (M6 slice 5d, ADR-0077) | **A checkpoint holds what the plugin was when it was read, so a change a plugin makes inside itself without a word, since the last one, is lost with the plugin if it fails.** Checkpoints are about 30 seconds apart, staggered per plugin; a save reads every plugin first. | At most the last half minute of a non-parameter change inside a plugin that then crashes | Nothing planned: the interval is a constant (`CHECKPOINT`) |
+| 2026-10-17 (M6 slice 5e, ADR-0077) | **Shift held at start opens safe mode on Windows only.** macOS and Linux have the flag and the offer. | No key gesture into safe mode there | If native hosting off Windows is scheduled |
+| 2026-10-17 (M6 slice 5e, ADR-0077) | **In safe mode a plugin Lumen has never scanned cannot be loaded one at a time:** nothing is scanned, so it is not in the cache and its card says it is not installed. | A plugin added since the last normal run waits for Leave safe mode | By design: a scan loads every plugin binary |

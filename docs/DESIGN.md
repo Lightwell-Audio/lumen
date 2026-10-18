@@ -1075,6 +1075,17 @@ a soft shadow, radius `XL`).
   "Stopped responding" in `warning`, what happened and a **Reload** button;
   missing shows "Not installed", the size of the settings kept and **Rescan
   plugins**. Both keep the cables lit.
+- **Safe mode** (M6 slice 5e, the owner's I2 and F2): a strip under the
+  transport bar (the notice card with a shield in the warning colour: "Safe
+  mode: plugins are not loaded" and a raised **Leave safe mode**). A device
+  that is not loaded keeps its card's shape: the artwork, header and footer as
+  for a missing device, four knob rings greyed (`control_press` at 50%) where
+  the strip stands, then "Not loaded · safe mode", "Its settings (N KB) are
+  kept." and a raised **Load this plugin**. After a start that did not finish
+  loading plugins the strip is the offer: "Last time Lumen didn't finish loading
+  plugins. Start in safe mode to open this project without them.", with the
+  primary **Start in safe mode** and **Load plugins**; nothing loads until it is
+  answered.
 - **Dragging a device from the browser:** an accent line across the tray and a
   plus on the cable at the gap it will land in; neighbours stay put.
 - **Empty:** two chips and a cable, with "Double-click a device in the browser
