@@ -335,14 +335,24 @@ pub fn load(path: &Path) -> (Settings, Option<String>) {
     };
     match serde_json::from_str::<Settings>(&text) {
         Ok(settings) if settings.version <= VERSION => (settings, None),
-        Ok(settings) => (
-            Settings::default(),
-            Some(format!(
-                "The settings were saved by a newer version of {PRODUCT_NAME} (format {}); \
-                 starting with defaults and leaving the file untouched",
-                settings.version
-            )),
-        ),
+        Ok(settings) => {
+            // Defaults are used, and the first change would write them over
+            // this file: keep it aside, where the newer version can have it
+            // back.
+            let aside = path.with_extension("json.newer");
+            let kept = match std::fs::rename(path, &aside) {
+                Ok(()) => format!("it was kept as {}", aside.display()),
+                Err(e) => format!("it could not be kept aside ({e}) and may be overwritten"),
+            };
+            (
+                Settings::default(),
+                Some(format!(
+                    "The settings were saved by a newer version of {PRODUCT_NAME} (format {}); \
+                     starting with defaults, and {kept}",
+                    settings.version
+                )),
+            )
+        }
         Err(e) => {
             let aside = path.with_extension("json.bad");
             let _ = std::fs::rename(path, &aside);
@@ -565,15 +575,25 @@ mod tests {
     }
 
     #[test]
-    fn a_newer_format_is_left_alone() {
+    fn a_newer_format_is_kept_aside_and_not_overwritten_by_the_next_save() {
         let dir = temp_dir("newer");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("settings.json");
-        std::fs::write(&path, r#"{"version": 99}"#).unwrap();
+        let newer = r#"{"version": 99, "later": true}"#;
+        std::fs::write(&path, newer).unwrap();
         let (settings, warning) = load(&path);
         assert_eq!(settings, Settings::default());
-        assert!(warning.unwrap().contains("newer version"));
-        assert!(path.exists(), "a newer file is not moved or overwritten");
+        let warning = warning.unwrap();
+        assert!(warning.contains("newer version"), "{warning}");
+        assert!(warning.contains("settings.json.newer"), "{warning}");
+        // The first change saves over the path, as the app does.
+        save(&path, &settings).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join("settings.json.newer")).unwrap(),
+            newer,
+            "the newer file's words are still there"
+        );
+        assert_eq!(load(&path).0, Settings::default());
     }
 
     #[test]
