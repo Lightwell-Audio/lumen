@@ -175,6 +175,9 @@ pub fn plugin_factory() -> *mut IPluginFactory {
     if faults.has(Fault::FactoryHang) {
         faults::hang();
     }
+    if faults.has(Fault::Prints) {
+        println!("test plugin: stray output from the factory");
+    }
     if faults.has(Fault::FactoryNull) {
         return std::ptr::null_mut();
     }

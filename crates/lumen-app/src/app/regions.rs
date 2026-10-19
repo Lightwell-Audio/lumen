@@ -1,5 +1,4 @@
-//! Editing the loop brace on the locator strip (M3 slice 5c, as in
-//! Ableton): drag inside it to move it, drag an edge to resize it, drag in
+//! Editing the loop brace on the locator strip (M3 slice 5c): drag inside it to move it, drag an edge to resize it, drag in
 //! empty space to set a new loop, click it to turn looping on or off, and
 //! right-click for punch in and out. Every change snaps to the grid (Alt
 //! places freely) and is one undo step per drag.

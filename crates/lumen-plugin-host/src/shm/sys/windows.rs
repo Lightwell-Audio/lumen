@@ -168,7 +168,13 @@ impl Signal {
         // Negative means relative, in 100 ns units.
         let due = -((timeout.as_nanos() / 100).clamp(1, i64::MAX as u128) as i64);
         // SAFETY: a live timer and a valid due-time pointer; no completion routine.
-        unsafe { SetWaitableTimer(self.timer, &due, 0, None, ptr::null(), 0) };
+        let armed = unsafe { SetWaitableTimer(self.timer, &due, 0, None, ptr::null(), 0) };
+        if armed == 0 {
+            // Without a running timer the wait below would have no end.
+            let ms = timeout.as_millis().min(u128::from(u32::MAX - 1)) as u32;
+            // SAFETY: a live event handle.
+            return unsafe { WaitForSingleObject(self.event, ms) } == WAIT_OBJECT_0;
+        }
         let handles = [self.event, self.timer];
         // SAFETY: two live handles; wait for either. The event is first, so
         // it wins when both are ready.
@@ -281,5 +287,38 @@ impl Drop for Job {
     fn drop(&mut self) {
         // SAFETY: closing the handle this object owns; the kernel ends what is left.
         unsafe { CloseHandle(self.0) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+    use std::time::Instant;
+
+    /// A signal whose timer cannot be armed (the handle is an event, which
+    /// `SetWaitableTimer` refuses) still gives up at the timeout.
+    #[test]
+    fn a_wait_ends_at_its_timeout_even_when_the_timer_cannot_be_armed() {
+        let event = Signal::create("lumen-test-timer-arm-event").expect("an event");
+        // SAFETY: an unnamed auto-reset event, standing in for a bad timer.
+        let not_a_timer = unsafe { CreateEventW(ptr::null(), 0, 0, ptr::null()) };
+        assert!(!not_a_timer.is_null());
+        let signal = Signal {
+            event: event.event,
+            timer: not_a_timer,
+        };
+        std::mem::forget(event);
+        let (done, waited) = mpsc::channel();
+        std::thread::spawn(move || {
+            let began = Instant::now();
+            let set = signal.wait(Duration::from_millis(80));
+            let _ = done.send((set, began.elapsed()));
+        });
+        let (set, took) = waited
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the wait ended");
+        assert!(!set);
+        assert!(took >= Duration::from_millis(60), "{took:?}");
     }
 }

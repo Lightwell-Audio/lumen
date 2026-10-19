@@ -57,6 +57,7 @@ impl Launch {
             screenshot: None,
             bench: None,
             bench_size: None,
+            callback_bench: None,
             autoplay: None,
             test_latency: None,
             safe_mode: false,
@@ -65,6 +66,15 @@ impl Launch {
             save_as: None,
             scripted_dialogs: true,
         }
+    }
+
+    /// Runs the callback benchmark (`--bench-callback`) for `seconds` and
+    /// keeps the app open after its report; see [`App::callback_report`].
+    pub fn with_callback_bench(mut self, out: PathBuf, seconds: f64) -> Self {
+        self.callback_bench = Some(
+            crate::callback_bench::Callback::new(out, seconds, Instant::now()).keeping_alive(),
+        );
+        self
     }
 
     /// Opens `project` at start, as `lumen song.lumen` does.
@@ -217,6 +227,16 @@ pub struct MeterShown {
 pub const PROJECT_EXTENSION: &str = files::EXTENSION;
 
 impl App {
+    /// What the callback benchmark came to, once it has ended: the text
+    /// report, whether it passed and how many callbacks it measured, or why
+    /// it could not run.
+    pub fn callback_report(&self) -> Option<Result<(String, bool, u64), String>> {
+        self.callback_report.as_ref().map(|result| match result {
+            Ok(r) => Ok((r.text(), r.pass(), r.callbacks)),
+            Err(why) => Err(why.clone()),
+        })
+    }
+
     /// The open project.
     pub fn project(&self) -> &Project {
         self.document.project()

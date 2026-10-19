@@ -423,7 +423,7 @@ impl App {
             ui.label(egui::RichText::new(text).small().color(palette.text_hint));
         };
 
-        if ui.selectable_label(current.is_none(), "None").clicked() {
+        if widgets::choice_row(ui, "None", current.is_none()).clicked() {
             picked = Some(None);
             ui.close();
         }
@@ -445,11 +445,12 @@ impl App {
                 let on = current.is_some_and(|s| s.from == track.id);
                 match refusal {
                     Some(why) => {
-                        ui.add_enabled(false, egui::Button::selectable(false, &track.name))
+                        ui.add_enabled_ui(false, |ui| widgets::choice_row(ui, &track.name, false))
+                            .response
                             .on_disabled_hover_text(why.to_string());
                     }
                     None => {
-                        if ui.selectable_label(on, &track.name).clicked() {
+                        if widgets::choice_row(ui, &track.name, on).clicked() {
                             picked = Some(Some(track.id));
                             ui.close();
                         }

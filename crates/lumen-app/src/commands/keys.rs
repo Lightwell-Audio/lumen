@@ -158,7 +158,7 @@ pub(crate) struct Keymap {
 }
 
 impl Default for Keymap {
-    /// The defaults: Ableton's keys where it has them.
+    /// The default keys.
     fn default() -> Self {
         Self {
             chords: ALL

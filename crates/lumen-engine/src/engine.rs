@@ -5,11 +5,11 @@
 //! samples. When the tempo map or the device's sample rate changes, the
 //! position is carried over through ticks, so the bar and beat stay put.
 //!
-//! Transport semantics (ADR-0017), as in Ableton Live. There are two
+//! Transport semantics (ADR-0017). There are two
 //! positions: the **play marker** (where playback starts) and the
 //! **playhead** (where playback is).
 //! - **Play** starts from the play marker.
-//! - **Continue** starts from the playhead (Ableton's Shift+Space).
+//! - **Continue** starts from the playhead (Shift+Space).
 //! - **Stop** and **Pause** stop where playback is: the playhead stays there.
 //!   Stop while already stopped returns both to the start of the song.
 //! - **Locate** moves both; while playing, playback continues from there.

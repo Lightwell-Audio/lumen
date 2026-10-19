@@ -15,6 +15,21 @@ pub trait Instrument: Send {
     /// be 0, meaning unchanged).
     fn render(&mut self, rate: u32, events: &[Event], left: &mut [f32], right: &mut [f32]);
 
+    /// As [`Instrument::render`], for a callback that has one deadline for
+    /// every host (`deadline`, when it has): a hosted instrument that is
+    /// waited for here waits no longer than that, rather than for a share of
+    /// the block of its own. The default ignores it.
+    fn render_by(
+        &mut self,
+        rate: u32,
+        events: &[Event],
+        left: &mut [f32],
+        right: &mut [f32],
+        _deadline: Option<Instant>,
+    ) {
+        self.render(rate, events, left, right);
+    }
+
     /// Whether anything still sounds (a held note or a release tail). The
     /// engine keeps rendering a stopped project while this is true.
     fn active(&self) -> bool;

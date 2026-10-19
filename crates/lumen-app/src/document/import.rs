@@ -38,7 +38,7 @@ pub enum DropInto {
         group: Option<Id>,
     },
     /// Onto an audio track, one after another, cutting away what they
-    /// cover (Ableton's overlap rule).
+    /// cover (the overlap rule).
     Track(Id),
 }
 

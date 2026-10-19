@@ -48,7 +48,12 @@ impl Mapping {
             }
             return Err(error);
         }
-        Self::map(fd, len)
+        // A mapping that fails leaves the named object behind unless it is
+        // removed here: nothing else knows its name.
+        Self::map(fd, len).inspect_err(|_| {
+            // SAFETY: removing what this function created.
+            unsafe { libc::shm_unlink(name.as_ptr()) };
+        })
     }
 
     pub fn open(name: &str, len: usize) -> io::Result<Self> {

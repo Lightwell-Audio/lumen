@@ -237,6 +237,36 @@ bundles named for the fault each should have (a copy named `Crash` crashes,
 `Hang` hangs) and scans them with the real host program. The end-to-end
 scenarios in `tests/e2e/plugins.rs` do the same through the app.
 
+## The probe and the soak (M6 slice 7)
+
+`lumen-host-probe` runs installed VST3 plugins through the stages a host
+needs (scan, load, buses, configure, process, link, state, parameters, editor,
+shutdown), each in a host process of its own; see MT-VST-7 in
+`docs/manual-tests/M6.md`. Build the host first, as for scanning:
+
+```powershell
+cargo build --release -p lumen-plugin-host
+cargo run --release -p lumen-plugin-host --bin lumen-host-probe -- --table --no-editor <module or folder>
+```
+
+The fault soak is `crates/lumen-hosting/tests/soak.rs`. One pass through every
+fault runs with the workspace tests (about 20 seconds). The long run:
+
+```powershell
+$env:LUMEN_SOAK_SECONDS = 600
+cargo test --release -p lumen-hosting --test soak -- --ignored --nocapture
+```
+
+It prints its seed; `LUMEN_SOAK_SEED` repeats a run. Actions > Soak starts
+the same run on Windows and Linux by hand.
+
+The callback benchmark plays a project through the real audio device and
+reports the callback's time against its block:
+
+```powershell
+cargo run --release -p lumen-app -- --bench-callback bench.json --bench-seconds 60 song.lumen
+```
+
 ## Linux cloud containers
 
 A Linux cloud container needs system packages before the first build. The app

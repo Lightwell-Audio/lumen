@@ -1,5 +1,5 @@
 //! Returns and the master pinned at the bottom of the arrangement (M4
-//! slice 4, the owner's A1, as in Ableton): a divider, a "Returns" caption
+//! slice 4, the owner's A1): a divider, a "Returns" caption
 //! that folds them away, the return tracks lettered A, B, C, and the
 //! master's row last. The tracks above scroll; this area stays put. Its
 //! height is dragged at the divider (double-click: back to its natural

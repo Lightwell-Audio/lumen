@@ -7,7 +7,7 @@
 //! Grid line `i` sits at `i * step`. With swing, every odd line is delayed by
 //! `swing * step / 2`, so the grid stays in order for any swing up to 1.
 //! A position's target is its nearest line, with ties going to the later
-//! line (Ableton: a note exactly halfway moves forward). A position is pulled toward its target by `strength` only when the
+//! line (a note exactly halfway moves forward). A position is pulled toward its target by `strength` only when the
 //! distance to it is within `window * step / 2` (plus one tick, for rounding).
 //! A window of 1.0 is off: every position is pulled.
 //!
@@ -17,7 +17,7 @@
 //! - `End`: the end is pulled; the start stays, so the length changes. If the
 //!   nearest line is at or before the start, the end goes to the first line
 //!   after the start, so a note never collapses.
-//! - `StartAndEnd`: Ableton's order: the start is pulled first (the length
+//! - `StartAndEnd`: the start is pulled first (the length
 //!   stays), then the end of the note as it now is is pulled to its nearest
 //!   line. Two adjacent notes therefore stay adjacent.
 //! - `Length`: the length moves toward the nearest whole number of steps
@@ -137,7 +137,7 @@ impl Grid {
         k * self.step + if k.rem_euclid(2) == 1 { self.delay } else { 0 }
     }
 
-    /// The nearest line to `p`; a tie goes to the later line (Ableton).
+    /// The nearest line to `p`; a tie goes to the later line.
     fn nearest(&self, p: i64) -> i64 {
         let cell = (2 * p + self.step).div_euclid(2 * self.step);
         (cell - 1..=cell + 1)
@@ -436,7 +436,7 @@ mod tests {
         let n = one(note(t + 1_000, PPQ / 10, 60), &triplet);
         assert_eq!(n.start(), Ticks(t));
         // A straight eighth (half a beat) is equally near the first and
-        // second triplet lines: the later one wins (Ableton).
+        // second triplet lines: the later one wins.
         let n = one(note(PPQ / 2, PPQ / 10, 60), &triplet);
         assert_eq!(n.start(), Ticks(2 * t));
     }
@@ -507,7 +507,7 @@ mod tests {
         assert!(notes.iter().all(|n| n.start() == Ticks(S)));
     }
 
-    // The owner's test in Ableton (two adjacent eighth notes, grid 1/4): the
+    // The owner's comparison test (two adjacent eighth notes, grid 1/4): the
     // first starts on beat 3 (1.3), the second half a beat later (1.3.3),
     // exactly between lines 3 and 4. Positions are in beats from the start.
     fn pair() -> Vec<Note> {
@@ -526,7 +526,7 @@ mod tests {
     }
 
     #[test]
-    fn ableton_start_keeps_the_first_note_and_moves_the_halfway_note_forward() {
+    fn pair_start_keeps_the_first_note_and_moves_the_halfway_note_forward() {
         let mut notes = pair();
         quantize(&mut notes, &[0, 1], LEN, &quarters(Mode::Start));
         assert_eq!(notes[0].start(), Ticks(beat(2)));
@@ -535,7 +535,7 @@ mod tests {
     }
 
     #[test]
-    fn ableton_end_stretches_the_first_note_and_leaves_the_second() {
+    fn pair_end_stretches_the_first_note_and_leaves_the_second() {
         let mut notes = pair();
         quantize(&mut notes, &[0, 1], LEN, &quarters(Mode::End));
         // 1.3 to 1.4, and the second note already ends on the grid.
@@ -546,7 +546,7 @@ mod tests {
     }
 
     #[test]
-    fn ableton_both_does_start_then_end_and_the_notes_stay_adjacent() {
+    fn pair_both_does_start_then_end_and_the_notes_stay_adjacent() {
         let mut notes = pair();
         quantize(&mut notes, &[0, 1], LEN, &quarters(Mode::StartAndEnd));
         // First 1.3 to 1.4; second starts on 1.4 (start step, length kept)

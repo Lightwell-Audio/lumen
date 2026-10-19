@@ -2226,6 +2226,7 @@ dependencies = [
  "lumen-plugin-host",
  "lumen-rt",
  "lumen-test-plugin",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -39,6 +39,10 @@ impl App {
     /// Once a second, takes where the audio blocks' time went: the callbacks'
     /// mean and each running plugin's work and wait (ADR-0075).
     pub(crate) fn take_budget(&mut self) {
+        // The callback benchmark takes the same counters.
+        if self.callback_bench.is_some() {
+            return;
+        }
         let now = Instant::now();
         if !self.transport.budget.due(now) {
             return;

@@ -395,6 +395,7 @@ impl App {
                         self.say(format!("\u{201c}{name}\u{201d} cannot be used: {why}."));
                     }
                 },
+                Done::Folder { folder, exists, .. } => self.folder_found(folder, exists),
                 Done::Wrote {
                     device,
                     name,
@@ -497,7 +498,7 @@ impl App {
         }
         // Changed while it was read: ask again.
         self.hosting.capture_one(device);
-        ctx.request_repaint_after(Duration::from_millis(50));
+        ctx.request_repaint_after(crate::motion::RECHECK);
     }
 
     fn write_preset(
@@ -702,7 +703,7 @@ impl App {
                 menu.focus = Focus::Name;
             }
             Some(Act::Folder) => {
-                self.show_presets_folder(device);
+                self.show_presets_folder(ui.ctx(), device);
                 close = true;
             }
             None => {}
@@ -827,7 +828,7 @@ impl App {
     }
 
     /// Shows the folder where the plugin's presets are saved.
-    fn show_presets_folder(&mut self, device: Id) {
+    fn show_presets_folder(&mut self, ctx: &egui::Context, device: Id) {
         let Some((vendor, plugin)) = self.plugin_vendor_name(device) else {
             return;
         };
@@ -835,7 +836,14 @@ impl App {
             self.say("There is no presets folder on this computer.".to_owned());
             return;
         };
-        if !folder.exists() {
+        // Whether it is there is found out on the file thread.
+        self.chain.presets.files.folder(ctx, folder);
+    }
+
+    /// The file thread has looked for a plugin's presets folder: show it, or
+    /// say nothing is saved yet.
+    fn folder_found(&mut self, folder: PathBuf, exists: bool) {
+        if !exists {
             self.say(
                 "Nothing is saved for this plugin yet. Save as\u{2026} makes the folder."
                     .to_owned(),

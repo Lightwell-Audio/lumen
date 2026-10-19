@@ -173,9 +173,10 @@ impl App {
         let Some(changed) = self.settings_changed else {
             return;
         };
-        let settle = Duration::from_millis(500);
-        if changed.elapsed() < settle {
-            ctx.request_repaint_after(settle - changed.elapsed());
+        // The clock is read once: read twice, the time can cross the end of
+        // the wait between the reads and the subtraction underflows.
+        if let Some(left) = settle_left(changed.elapsed(), Duration::from_millis(500)) {
+            ctx.request_repaint_after(left);
             return;
         }
         self.write_settings();
@@ -191,5 +192,28 @@ impl App {
         if let Some(path) = &self.settings_path {
             self.settings_writer.save(path, &file);
         }
+    }
+}
+
+/// How much longer a change has to settle, or `None` once `settle` has passed.
+fn settle_left(elapsed: Duration, settle: Duration) -> Option<Duration> {
+    settle.checked_sub(elapsed).filter(|left| !left.is_zero())
+}
+
+#[cfg(test)]
+mod settle_tests {
+    use super::*;
+
+    #[test]
+    fn a_change_waits_out_what_is_left_and_then_is_written() {
+        let settle = Duration::from_millis(500);
+        assert_eq!(
+            settle_left(Duration::from_millis(120), settle),
+            Some(Duration::from_millis(380))
+        );
+        assert_eq!(settle_left(settle, settle), None, "exactly settled");
+        // A slow frame that comes after the wait ended: the subtraction this
+        // replaces panicked here.
+        assert_eq!(settle_left(Duration::from_millis(900), settle), None);
     }
 }

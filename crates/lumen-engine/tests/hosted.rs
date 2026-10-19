@@ -16,8 +16,8 @@ use lumen_core::time::Ticks;
 use lumen_devices::{Guard, Hosted, HostedInstrument, Instrument, Refused, Reply, Status};
 use lumen_engine::{
     Command, Destination, Engine, EngineHandle, InstrumentSpec, Layered, MidiClip, MidiHandle,
-    MidiNote, MidiPlayer, MidiTrack, Mixer, NodeSpec, Region, Routing, Target, Timeline,
-    clip_player, control_list, engine, midi_player, mixer, note_list,
+    MidiNote, MidiPlayer, MidiTrack, Mixer, NodeSpec, Region, Routing, ScrubStyle, Target,
+    Timeline, clip_player, control_list, engine, midi_player, mixer, note_list,
 };
 use lumen_rt::count_rt_violations;
 
@@ -674,6 +674,100 @@ fn hosted_instruments_never_touch_the_heap() {
     }
     assert!(statuses[3].failed(), "the slow host was given up on");
     assert!(statuses[..3].iter().all(|s| !s.failed()));
+}
+
+#[test]
+fn a_plugin_with_latency_and_another_output_never_touches_the_heap_through_every_transport_move() {
+    // Track 1: a hosted instrument that reports latency (its source is
+    // compensated), playing its other output on track 2; track 3 is a busy
+    // host that is refused and tried again; track 4 is a plain instrument.
+    let rate = 48_000;
+    let notes = vec![
+        note(Q(1), Q(6), 60),
+        note(Q(2), Q(1), 64),
+        note(Q(9), Q(3), 67),
+    ];
+    let (one, _) = hosted(FakeHost::new(Duration::ZERO, false, None).shifted(333));
+    let (busy, busy_status) = hosted(FakeHost::new(Duration::from_millis(30), false, None));
+    let tracks = vec![
+        MidiTrack::new(
+            1,
+            Target::Instrument,
+            one,
+            vec![clip(1, Ticks::ZERO, Q(64), notes.clone())],
+        )
+        .with_outputs(vec![(1, 2)]),
+        MidiTrack::new(
+            3,
+            Target::Instrument,
+            busy,
+            vec![clip(3, Ticks::ZERO, Q(64), notes.clone())],
+        ),
+        MidiTrack::new(
+            4,
+            Target::Instrument,
+            builtin(),
+            vec![clip(4, Ticks::ZERO, Q(64), notes)],
+        ),
+    ];
+    let (_clips, players) = clip_player();
+    let (mut midi, player) = midi_player();
+    midi.set(tracks).ok().unwrap();
+    let (mut routing, source) = mixer(Layered(players, player));
+    let mut nodes = vec![NodeSpec::unity(MASTER, Destination::Hardware(0))];
+    nodes.extend([1, 2, 3, 4].map(|id| NodeSpec {
+        source: if id == 1 { 333 } else { 0 },
+        ..NodeSpec::unity(id, Destination::Node(MASTER))
+    }));
+    routing
+        .set(&Routing {
+            nodes,
+            cue: None,
+            measure: None,
+        })
+        .unwrap();
+    let (transport, engine) = engine(Timeline::default(), source, rate);
+    let mut rig = Rig {
+        transport,
+        midi,
+        engine,
+        rate,
+    };
+    let mut data = vec![0.0; 2 * 128];
+    for block in 0..4_000_u32 {
+        match block {
+            0 => rig.play(),
+            10 => rig
+                .transport
+                .send(Command::SetLoop(Region::new(Ticks::ZERO, Q(4), true)))
+                .unwrap(),
+            1_000 => rig.transport.send(Command::Stop).unwrap(),
+            1_100 => rig
+                .transport
+                .send(Command::Scrub {
+                    at: Q(2),
+                    style: ScrubStyle::Loop { length: Q(1) },
+                })
+                .unwrap(),
+            1_300 => rig
+                .transport
+                .send(Command::Scrub {
+                    at: Q(3),
+                    style: ScrubStyle::Tape,
+                })
+                .unwrap(),
+            1_500 => rig.transport.send(Command::EndScrub).unwrap(),
+            1_700 => rig.play(),
+            2_500 => rig.transport.send(Command::Locate(Q(8))).unwrap(),
+            3_000 => rig.transport.send(Command::Pause).unwrap(),
+            3_100 => rig.play(),
+            _ => {}
+        }
+        let ((), heap) = count_rt_violations(|| rig.engine.process(rate, &mut data, 2, 128));
+        assert_eq!(heap, 0, "heap operation in process() at block {block}");
+        rig.transport.collect_garbage();
+    }
+    assert!(busy_status.failed(), "the slow host was given up on");
 }
 
 /// What the app puts in every track list after the one that attached the host.

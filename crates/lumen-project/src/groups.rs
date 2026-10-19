@@ -1,6 +1,6 @@
 //! Group tracks (M4 slice 3): the tree that `parent` describes, kept in the
 //! track list's order. A group's tracks follow it directly, nested ones
-//! inside theirs, as in Ableton: so a group and everything in it is always
+//! inside theirs: so a group and everything in it is always
 //! one run of the list (its *span*), and moving, deleting or duplicating a
 //! group can take the run whole.
 //!
@@ -30,7 +30,7 @@ pub fn nesting(tracks: &[Arc<Track>]) -> usize {
 }
 
 /// Whether a track of `kind` can be inside a group. Returns and the master
-/// stay at the top (Ableton's rule).
+/// stay at the top.
 pub fn can_be_grouped(kind: TrackKind) -> bool {
     matches!(kind, TrackKind::Audio | TrackKind::Midi | TrackKind::Group)
 }

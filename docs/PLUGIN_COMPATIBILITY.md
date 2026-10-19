@@ -16,6 +16,14 @@ third-party compatibility.
 
 **Stages:** Scan (module loads and its factory enumerates in a sandboxed
 process) · Instantiate · Process · State round trip · Editor · Automation.
+
+From M6 slice 7 the stages are produced by `lumen-host-probe`
+(`docs/manual-tests/M6.md`, MT-VST-7): scan, load, buses, configure,
+process, link, state, parameters, editor and shutdown. The matrix below
+still shows the earlier, coarser columns; rows are moved to the probe's
+columns as the owner reports each run, under the anonymous labels already
+in use. A probe run on the Lumen-owned test plugins is a check of the probe,
+not a compatibility record.
 **Legend:** ✅ pass · ❌ fail · — not tested yet
 
 Machine: Windows 11 23H2 (22631), Ryzen 7 7700X. Scan by

@@ -1,5 +1,5 @@
-//! The arrangement's rulers, in the owner's layout A (M3 slice 5b, as in
-//! Ableton): a strip for locators and the loop brace above the bar ruler,
+//! The arrangement's rulers, in the owner's layout A (M3 slice 5b): a
+//! strip for locators and the loop brace above the bar ruler,
 //! and a time ruler along the bottom in a chosen format (minutes and
 //! seconds, samples or timecode).
 //!
@@ -105,7 +105,7 @@ impl App {
         self.bar_labels(painter, at);
 
         // Click to locate (snapped; Alt places freely). Drag down or up to
-        // zoom, sideways to scroll, as in Ableton.
+        // zoom, sideways to scroll.
         let response = ui
             .interact(at.ruler, ui.id().with("ruler"), Sense::click_and_drag())
             .on_hover_text(
@@ -140,7 +140,7 @@ impl App {
             if response.clicked() {
                 trace::log(|| format!("ruler: locate {target:?} (snapped: {})", !free));
                 self.transport.locate(target);
-                // As in Ableton, a click on the ruler pauses Follow.
+                // A click on the ruler pauses Follow.
                 self.transport.follow_paused = true;
             }
         }

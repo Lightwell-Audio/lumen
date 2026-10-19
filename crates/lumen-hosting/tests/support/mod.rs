@@ -195,12 +195,20 @@ pub fn play(
     (left, right, Some(reply))
 }
 
-/// Whether a process with this id is still running.
+/// Whether a plugin host with this id is still running.
 pub fn exists(pid: u32) -> bool {
     #[cfg(windows)]
     {
+        // Windows hands a finished process's id to the next one that starts,
+        // so the id alone is not enough: it must still be a plugin host.
         let out = Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+            .args([
+                "/FI",
+                &format!("PID eq {pid}"),
+                "/FI",
+                "IMAGENAME eq lumen-plugin-host.exe",
+                "/NH",
+            ])
             .output()
             .expect("run tasklist");
         String::from_utf8_lossy(&out.stdout).contains(&pid.to_string())
@@ -233,4 +241,71 @@ pub fn gone_within(pid: u32, limit: Duration) -> bool {
         std::thread::sleep(Duration::from_millis(50));
     }
     !exists(pid)
+}
+
+/// What this process holds: working set in kilobytes and open handles (file
+/// descriptors off Windows). `None` where it cannot be read.
+pub fn resources() -> Option<(u64, u64)> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::ProcessStatus::{
+            GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+        };
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessHandleCount};
+        // SAFETY: plain queries about this process, into structures of the
+        // size they are told.
+        unsafe {
+            let process = GetCurrentProcess();
+            let mut counters: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
+            counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+            let mut handles = 0u32;
+            if GetProcessMemoryInfo(process, &mut counters, counters.cb) == 0
+                || GetProcessHandleCount(process, &mut handles) == 0
+            {
+                return None;
+            }
+            Some((counters.WorkingSetSize as u64 / 1024, u64::from(handles)))
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
+        let pages: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
+        let fds = std::fs::read_dir("/proc/self/fd").ok()?.count() as u64;
+        Some((pages * 4, fds))
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        None
+    }
+}
+
+/// Ends the process `pid` the way a task manager would.
+pub fn kill_from_outside(pid: u32) {
+    #[cfg(windows)]
+    let status = Command::new("taskkill")
+        .args(["/F", "/PID", &pid.to_string()])
+        .output();
+    #[cfg(unix)]
+    let status = Command::new("kill").args(["-9", &pid.to_string()]).output();
+    status.expect("run the kill command");
+}
+
+/// What the system says about `pid`, for a message about a process that
+/// should have gone.
+pub fn describe(pid: u32) -> String {
+    #[cfg(windows)]
+    {
+        let out = Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+            .output()
+            .expect("run tasklist");
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    }
+    #[cfg(unix)]
+    {
+        std::fs::read_to_string(format!("/proc/{pid}/cmdline"))
+            .map(|c| c.replace(' ', " "))
+            .unwrap_or_else(|_| "no /proc entry".into())
+    }
 }

@@ -108,7 +108,7 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices) -> Routing {
     let nodes = rules::all_tracks(project)
         .map(|track| {
             // Only mono material pans by the project's law; stereo keeps
-            // its level at the centre, as in Ableton, Logic and Pro Tools
+            // its level at the centre
             // (the owner's B, after M4 slice 7: a −3 dB centre on stereo
             // tracks made every file play and measure 3 dB under its own
             // level). Buses (groups, returns and the master) carry sound

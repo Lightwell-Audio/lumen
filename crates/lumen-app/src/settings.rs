@@ -5,8 +5,8 @@
 //! rest) join them in M9.
 //!
 //! The file is versioned JSON in the user's settings folder. It is written
-//! atomically (to a temporary file, then renamed), so a crash never leaves
-//! it half-written. A file that cannot be read is moved aside as
+//! atomically (to a temporary file, flushed, then renamed), so a crash never
+//! leaves it half-written. A file that cannot be read is moved aside as
 //! `settings.json.bad` and Lumen starts with defaults, saying why.
 
 use std::collections::BTreeMap;
@@ -18,6 +18,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::record_settings::RecordSettings;
 
+/// The file's version. A section added with defaults does not change it (an
+/// older file reads as before; ADR-0079); a field removed or given another
+/// meaning does, with a migration.
 pub const VERSION: u32 = 1;
 
 /// The device chosen in the audio settings.
@@ -106,7 +109,7 @@ impl From<&Metronome> for MetronomeSettings {
 #[serde(default)]
 pub struct Mixing {
     /// A click on Solo adds the track to what is soloed, and Ctrl+click
-    /// solos it alone (the owner's D2: off by default, Ableton's way).
+    /// solos it alone (the owner's D2: off by default).
     pub additive_solo: bool,
     /// The master's Solo/Cue switch is on Cue: the S buttons cue tracks to
     /// the cue pair (the owner's C1).
@@ -334,15 +337,28 @@ pub fn load(path: &Path) -> (Settings, Option<String>) {
         }
     };
     match serde_json::from_str::<Settings>(&text) {
-        Ok(settings) if settings.version <= VERSION => (settings, None),
-        Ok(settings) => (
-            Settings::default(),
-            Some(format!(
-                "The settings were saved by a newer version of {PRODUCT_NAME} (format {}); \
-                 starting with defaults and leaving the file untouched",
-                settings.version
-            )),
-        ),
+        Ok(mut settings) if settings.version <= VERSION => {
+            settings.plugins.bound();
+            (settings, None)
+        }
+        Ok(settings) => {
+            // Defaults are used, and the first change would write them over
+            // this file: keep it aside, where the newer version can have it
+            // back.
+            let aside = path.with_extension("json.newer");
+            let kept = match std::fs::rename(path, &aside) {
+                Ok(()) => format!("it was kept as {}", aside.display()),
+                Err(e) => format!("it could not be kept aside ({e}) and may be overwritten"),
+            };
+            (
+                Settings::default(),
+                Some(format!(
+                    "The settings were saved by a newer version of {PRODUCT_NAME} (format {}); \
+                     starting with defaults, and {kept}",
+                    settings.version
+                )),
+            )
+        }
         Err(e) => {
             let aside = path.with_extension("json.bad");
             let _ = std::fs::rename(path, &aside);
@@ -363,9 +379,8 @@ pub fn save(path: &Path, settings: &Settings) -> std::io::Result<()> {
         std::fs::create_dir_all(dir)?;
     }
     let text = serde_json::to_string_pretty(settings).map_err(std::io::Error::other)?;
-    let temporary = path.with_extension("json.tmp");
-    std::fs::write(&temporary, text)?;
-    std::fs::rename(&temporary, path)
+    // Flushed to disk before it replaces the old file, as a project is.
+    lumen_project::write_atomic(path, text.as_bytes())
 }
 
 /// Saves settings on a background thread, one save at a time and in order,
@@ -539,10 +554,11 @@ mod tests {
         assert_eq!(load(&path), (settings.clone(), None));
         let metronome = MetronomeSettings::from(&settings.metronome);
         assert_eq!(metronome.sound, ClickSound::Wood);
-        assert!(
-            !path.with_extension("json.tmp").exists(),
-            "no temporary file left behind"
-        );
+        let left: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(left, ["settings.json"], "no temporary file left behind");
     }
 
     #[test]
@@ -565,15 +581,25 @@ mod tests {
     }
 
     #[test]
-    fn a_newer_format_is_left_alone() {
+    fn a_newer_format_is_kept_aside_and_not_overwritten_by_the_next_save() {
         let dir = temp_dir("newer");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("settings.json");
-        std::fs::write(&path, r#"{"version": 99}"#).unwrap();
+        let newer = r#"{"version": 99, "later": true}"#;
+        std::fs::write(&path, newer).unwrap();
         let (settings, warning) = load(&path);
         assert_eq!(settings, Settings::default());
-        assert!(warning.unwrap().contains("newer version"));
-        assert!(path.exists(), "a newer file is not moved or overwritten");
+        let warning = warning.unwrap();
+        assert!(warning.contains("newer version"), "{warning}");
+        assert!(warning.contains("settings.json.newer"), "{warning}");
+        // The first change saves over the path, as the app does.
+        save(&path, &settings).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join("settings.json.newer")).unwrap(),
+            newer,
+            "the newer file's words are still there"
+        );
+        assert_eq!(load(&path).0, Settings::default());
     }
 
     #[test]

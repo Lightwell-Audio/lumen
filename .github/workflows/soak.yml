@@ -1,0 +1,38 @@
+name: Soak
+
+# The long fault soak (crates/lumen-hosting/tests/soak.rs). It costs Actions
+# minutes, so it runs only when asked: Actions > Soak > Run workflow. The
+# ordinary soak pass runs in every CI test job.
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: How long each system soaks, in minutes
+        default: "10"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  soak:
+    name: soak (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Soak
+        shell: bash
+        env:
+          LUMEN_SOAK_SECONDS: ${{ format('{0}', fromJSON(inputs.minutes) * 60) }}
+        run: cargo test --release --locked -p lumen-hosting --test soak -- --ignored --nocapture

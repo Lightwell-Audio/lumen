@@ -95,15 +95,15 @@ pub struct Marker {
 }
 
 /// The loop brace and the punch switches. Part of undo from format v4
-/// (M3 slice 5c), as in Ableton.
+/// (M3 slice 5c).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TransportState {
     pub loop_start: Ticks,
     pub loop_end: Ticks,
     pub loop_enabled: bool,
-    /// Punch in and out (format v4) at the loop brace's start and end, as
-    /// in Ableton: recording starts and stops there.
+    /// Punch in and out (format v4) at the loop brace's start and end:
+    /// recording starts and stops there.
     pub punch_in: bool,
     pub punch_out: bool,
 }

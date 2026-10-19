@@ -3,7 +3,7 @@
 //! dropped files, and later clip and note edits), so snapping behaves the
 //! same everywhere.
 //!
-//! As in Ableton, the grid is **adaptive** (the finest musical step that is
+//! The grid is **adaptive** (the finest musical step that is
 //! at least a set width on screen, in five widths) or **fixed** (8 bars down
 //! to 1/64), straight, triplet or dotted, and snapping can be switched off.
 //! Steps finer than a bar are counted from each bar's start, so they stay
@@ -324,7 +324,7 @@ impl Grid {
     }
 
     /// Fixed or adaptive (Ctrl+5). Turning fixed takes the size closest to
-    /// the step showing now (`shown`), as Ableton does.
+    /// the step showing now (`shown`).
     pub fn toggle_fixed(&mut self, shown: Step) {
         if !self.fixed {
             self.size = Size::nearest(shown, self.feel);

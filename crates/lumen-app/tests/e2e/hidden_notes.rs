@@ -1,7 +1,6 @@
 //! Notes outside a clip's window (ADR-0059): the arrangement hides them and
 //! does not play them (ADR-0056), but the clip editor shows them, in the
-//! dimmed time past the clip, to be picked and edited, as Ableton's clip
-//! view does.
+//! dimmed time past the clip, to be picked and edited.
 
 use eframe::egui::{Key, Modifiers};
 use lumen_app::TimeView;

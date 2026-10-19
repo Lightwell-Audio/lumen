@@ -1,4 +1,4 @@
-//! The editing grid in the app (M3 slice 5a): snapping, Ableton's keys, the
+//! The editing grid in the app (M3 slice 5a): snapping, its keys, the
 //! grid menu (right-click the lanes, or the grid button in the ruler's
 //! corner) and the snap guide. The grid itself is `lumen_core::grid`.
 

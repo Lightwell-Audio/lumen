@@ -3,7 +3,7 @@
 //!
 //! Every edit is a named method here that goes through the history's
 //! `apply`, so it is one undo step (ADR-0024); UI code never edits the
-//! project in a closure of its own (M3 review M2). The loop and punch are edits too (slice 5c, as in Ableton);
+//! project in a closure of its own (M3 review M2). The loop and punch are edits too (slice 5c);
 //! view state is not: it is stamped into the project when it is saved.
 
 use std::collections::HashMap;
@@ -294,8 +294,8 @@ impl Document {
         returns.filter(|t| t.kind == TrackKind::Return).count() >= mixer::MAX_RETURNS
     }
 
-    /// Deletes tracks, and everything inside the groups among them (as in
-    /// Ableton; ungrouping keeps a group's tracks). Their clips go with
+    /// Deletes tracks, and everything inside the groups among them (ungrouping
+    /// keeps a group's tracks). Their clips go with
     /// them; their media stays in the project (the media pool, M9).
     /// Outputs to deleted tracks go back to automatic, and sends to them go
     /// (M4 slice 2). The master is never deleted.
@@ -916,7 +916,7 @@ mod tests {
 
     #[test]
     fn deleting_a_group_takes_its_tracks() {
-        // The owner's choice (M4 slice 3), as in Ableton; Ungroup keeps them.
+        // The owner's choice (M4 slice 3); Ungroup keeps them.
         let mut doc = Document::new(crate::empty_project());
         let group = doc.add_track(TrackKind::Group, None);
         let other = doc.add_track(TrackKind::Audio, None);

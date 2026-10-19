@@ -511,7 +511,7 @@ impl App {
             field.widget_info(|| {
                 egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Search shortcuts")
             });
-            ui.label(RichText::new("Keymap: Ableton").color(palette.text_hint));
+            ui.label(RichText::new("Keymap: default").color(palette.text_hint));
             if ui
                 .add_enabled(!self.keymap.saved().is_empty(), |ui: &mut egui::Ui| {
                     raised::button(ui, "Reset all")

@@ -8,6 +8,7 @@
 use std::time::Duration;
 
 use eframe::egui::{self, Align2, Color32, FontId, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
+use lumen_core::product::PRODUCT_NAME;
 
 use super::budget::{Budget, MISS_WINDOW, Snapshot};
 use crate::{theme, widgets};
@@ -159,7 +160,7 @@ fn bar(ui: &mut Ui, snap: &Snapshot, hover: Option<usize>) {
         p.warning,
     );
     let summary = format!(
-        "Block budget: {} of {} ms, Lumen {} ms, {} plugins, plugins answer by {} ms",
+        "Block budget: {} of {} ms, {PRODUCT_NAME} {} ms, {} plugins, plugins answer by {} ms",
         ms(snap.used),
         ms(snap.block),
         ms(snap.lumen),
@@ -285,7 +286,7 @@ fn list(ui: &mut Ui, snap: &Snapshot, room: f32) -> (Option<usize>, f32) {
             lumen.center().y,
         ),
         Align2::LEFT_CENTER,
-        "Lumen",
+        PRODUCT_NAME,
         egui::FontId::proportional(theme::size::BODY),
         p.text,
     );

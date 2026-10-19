@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::time::{Duration, Instant};
 
 use lumen_plugin_host::protocol::{Aux, EditorBounds};
 
@@ -309,10 +310,76 @@ impl Manager {
         events
     }
 
-    /// Asks every host to quit and waits for them: when Lumen closes.
-    pub fn shutdown(&mut self) {
-        for (_, entry) in self.entries.drain() {
-            entry.process.join();
+    /// Asks every host to quit and waits for them, up to `grace` in all:
+    /// when Lumen closes. Every host is asked at once; one that is still
+    /// loading its plugin cannot hear it until the plugin has loaded, and is
+    /// not waited for past the grace (its process ends with Lumen's, and its
+    /// thread with the load's own deadline).
+    pub fn shutdown(&mut self, grace: Duration) {
+        let entries: Vec<Entry> = self.entries.drain().map(|(_, e)| e).collect();
+        for entry in &entries {
+            entry.process.ask_to_quit();
         }
+        let end = Instant::now() + grace;
+        for entry in entries {
+            while !entry.process.ended() && Instant::now() < end {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            // A host that has not ended is let go: dropping asks it again.
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant};
+
+    use super::*;
+
+    /// A start whose host program does not exist: its thread says it failed
+    /// at once.
+    fn missing() -> Start {
+        Start::new(
+            PathBuf::from("/nonexistent/lumen-plugin-host"),
+            PathBuf::from("/nonexistent/plugin.vst3"),
+            [0; 16],
+            false,
+            48_000.0,
+        )
+    }
+
+    fn drain_for(manager: &mut Manager, wait: Duration) -> Vec<Event> {
+        let end = Instant::now() + wait;
+        let mut all = Vec::new();
+        while Instant::now() < end {
+            all.extend(manager.poll());
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        all
+    }
+
+    #[test]
+    fn what_a_replaced_start_says_is_not_heard() {
+        let mut manager = Manager::new(|| {});
+        manager.want(7, missing()).unwrap();
+        // The device is started again before anyone polled: the first
+        // start's thread still says it failed, and that is stale.
+        manager.want(7, missing()).unwrap();
+        let heard = drain_for(&mut manager, Duration::from_millis(600));
+        assert_eq!(
+            heard.len(),
+            1,
+            "one failure, from the start that is current: {heard:?}"
+        );
+    }
+
+    #[test]
+    fn what_a_forgotten_device_says_is_not_heard() {
+        let mut manager = Manager::new(|| {});
+        manager.want(7, missing()).unwrap();
+        manager.forget(7);
+        let heard = drain_for(&mut manager, Duration::from_millis(600));
+        assert!(heard.is_empty(), "{heard:?}");
     }
 }

@@ -31,6 +31,9 @@ pub enum ModuleError {
     NoFactory,
     /// `GetPluginFactory` returned nothing.
     EmptyFactory,
+    /// The module's entry point (`InitDll`, `ModuleEntry`) returned false:
+    /// the module says it could not start.
+    EntryFailed,
     /// This platform's module entry is not supported yet.
     Unsupported(&'static str),
 }
@@ -52,6 +55,7 @@ impl fmt::Display for ModuleError {
             ModuleError::Load(e) => write!(f, "could not load the module: {e}"),
             ModuleError::NoFactory => write!(f, "the library has no GetPluginFactory export"),
             ModuleError::EmptyFactory => write!(f, "GetPluginFactory returned no factory"),
+            ModuleError::EntryFailed => write!(f, "the module's entry point reported failure"),
             ModuleError::Unsupported(what) => write!(f, "{what}"),
         }
     }
@@ -144,7 +148,9 @@ impl Module {
             let init = unsafe { library.get::<unsafe extern "system" fn() -> bool>(b"InitDll\0") };
             if let Ok(init) = init {
                 // SAFETY: calling the plugin's own initialiser once.
-                unsafe { init() };
+                if !unsafe { init() } {
+                    return Err(ModuleError::EntryFailed);
+                }
             }
         }
         #[cfg(target_os = "linux")]
@@ -155,7 +161,9 @@ impl Module {
             } {
                 // SAFETY: calling the plugin's own initialiser once, with the
                 // handle it was loaded by.
-                unsafe { entry(handle) };
+                if !unsafe { entry(handle) } {
+                    return Err(ModuleError::EntryFailed);
+                }
             }
         }
         #[cfg(not(target_os = "linux"))]

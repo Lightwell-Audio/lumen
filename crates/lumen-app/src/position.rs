@@ -1,5 +1,5 @@
 //! The transport position as the user reads and types it: bars, beats and
-//! sixteenths ("3.2.1", one-based, as in Ableton), or minutes and seconds
+//! sixteenths ("3.2.1", one-based), or minutes and seconds
 //! ("1:05.250").
 
 use lumen_core::time::{PPQ, Ticks};

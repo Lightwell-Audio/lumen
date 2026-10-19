@@ -217,6 +217,10 @@ enum Job {
         device: Id,
         path: PathBuf,
     },
+    /// Whether a folder is there.
+    Folder {
+        folder: PathBuf,
+    },
     Write {
         device: Id,
         folder: PathBuf,
@@ -240,6 +244,11 @@ pub enum Done {
         device: Id,
         name: String,
         result: Result<Preset, String>,
+    },
+    /// Whether the folder asked about exists.
+    Folder {
+        folder: PathBuf,
+        exists: bool,
     },
     /// A file written: where, or why not.
     Wrote {
@@ -280,6 +289,11 @@ impl Files {
     /// Looks for `device`'s presets in `folders`.
     pub fn list(&mut self, ctx: &egui::Context, device: Id, folders: Vec<(PathBuf, bool)>) {
         self.send(ctx, Job::List { device, folders });
+    }
+
+    /// Asks whether `folder` exists (a stat can be slow on a network drive).
+    pub fn folder(&mut self, ctx: &egui::Context, folder: PathBuf) {
+        self.send(ctx, Job::Folder { folder });
     }
 
     /// Reads the preset file at `path` for `device`.
@@ -337,6 +351,10 @@ fn run(job: Job) -> Done {
                 name,
                 result: read_file(&path),
             }
+        }
+        Job::Folder { folder } => {
+            let exists = folder.exists();
+            Done::Folder { folder, exists }
         }
         Job::Write {
             device,

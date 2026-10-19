@@ -2,6 +2,8 @@
 
 ## Status
 
+**M6 slice 7 (compatibility and closeout): the review is done; all its findings (High, Medium M1 to M14, Low L1 to L6) are fixed, 2026-10-19** on `m6-s7-compatibility-closeout` (`docs/audits/2026-10-18-m6.md`, Status table). Built in slice 7: the probe (`lumen-host-probe`), the fault soak (`lumen-hosting/tests/soak.rs`), the callback benchmark (`lumen --bench-callback`) and the combined walkthrough (E2E `walkthrough_plugins`). Not done: the owner's MT-VST-7 runs on real plugins, the M6 report. The earlier summaries follow.
+
 **M6 slice 5 (presets and resilient state) is built, 2026-10-17** on
 `m6-s5-presets-state` (cut from `main` after PR #33; ADR-0077; plan, owner
 choices R1 to R5 and progress in `docs/milestones/M6.md`). *Shipped:* host
@@ -136,7 +138,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 4 | Mixer, Routing & Groups | ✅ Complete 2026-10-10 (review fixes merged, PR #3) | Plan: `docs/milestones/M4.md` |
 | 4.5 | Polish pass (mid milestone: the interface audit's fixes) | 🟡 Built 2026-10-10; MT-POL-5 and 6 wait | Plan: `docs/milestones/M4.5.md`; audit: `docs/audits/2026-10-10-design.md` |
 | 5 | MIDI & Piano Roll | 🟡 Approved 2026-10-10; slices 0 to 7 built, slice 8 underway (review done); MT-MIDI-7, MT-MIDI-8 and MT-MIDI-9 wait | Plan: `docs/milestones/M5.md` |
-| 6 | VST3 Hosting & Device System | 🟡 Started 2026-10-15 at the owner's instruction; slice 0 complete 2026-10-16 (report below; ADR-0069 accepted, the callback's wait on trial) and slice 1 built (MT-VST-1 passed on Windows, owner-reported); slice 2 built and its walkthrough passed (owner-reported; ADR-0069 measurements outstanding); slice 3 next | Plan: [milestones/M6.md](milestones/M6.md); M5 closeout (MT-MIDI-7 to 9, the report) remains pending and is not marked passed |
+| 6 | VST3 Hosting & Device System | 🟡 Started 2026-10-15 at the owner's instruction; slice 0 complete 2026-10-16 (report below; ADR-0069 accepted, the callback's wait on trial) and slice 1 built (MT-VST-1 passed on Windows, owner-reported); slice 2 built and its walkthrough passed (owner-reported; ADR-0069 measurements outstanding); slices 3 to 6 built; slice 7 (compatibility and closeout) under way: the probe, the fault soak, the callback benchmark and the combined walkthrough are built (branch `m6-s7-compatibility-closeout`), the review is done and its seven High findings fixed (`docs/audits/2026-10-18-m6.md`); the owner's MT-VST-7 runs, the Medium and Low findings and the M6 report remain | Plan: [milestones/M6.md](milestones/M6.md); M5 closeout (MT-MIDI-7 to 9, the report) remains pending and is not marked passed |
 | 7 | Automation, Envelopes & Advanced Editing | 🔲 | |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | |
 | 9 | Recording, Media, Export & Production Workflow | 🔲 | |
@@ -243,9 +245,9 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Near-zero idle CPU | M | 🟡 | 3, 10 | 0.0–0.2% measured with audio running (M2 MT-APP-4; M3 slice 2 with the motion system). Animations repaint only while moving. Re-measured at scale in M3 slice 4b: 3 repaints in 3 s idle with the stress project (the once-a-second device check); M10 |
 | Cold start under 2 s; scanning and loading never block the UI | M | 🟡 | 3, 6, 10 | First frame 394 ms warm / 1,110 ms cold (M1 shell). Audio files, project open and save, file dialogs and ASIO driver checks all run in the background (M2, M3). Plugin scanning in M6 |
 | Autosave, crash recovery, atomic saves, backups | M | ✅ | 3 | Atomic save and rolling backups (`lumen-project`). Autosave a minute after unsaved changes, to the local app data folder; a recovery banner after a crash; tested by killing the process (M3 slice 3d) |
-| Crashing plugins isolated, flagged, recoverable; scanning never crashes the app | M | 🔲 | 6, 10 | P-ISO, P-VST3 |
+| Crashing plugins isolated, flagged, recoverable; scanning never crashes the app | M | 🟡 | 6, 10 | Built in M6: one host process per plugin (ADR-0066, 0067), scanning in child processes (ADR-0068), a failed card with Reload (slice 2e), kill-on-close job object, the fault soak (slice 7b: crashes, hangs, slow and non-finite blocks, hosts ended from outside; the others never fail). Verified with the test plugin; real plugins are the owner's MT-VST-* runs |
 | Device removal, rate and buffer changes, sleep and resume handled | M | 🔲 | 2, 10 | |
-| Safe mode without plugins | M | 🔲 | 6 | |
+| Safe mode without plugins | M | 🟡 | 6 | Built in M6 slice 5e (ADR-0077): `--safe-mode`, Shift at start on Windows, the offer after a start that did not finish; MT-VST-5 is the owner's |
 | Automated tests: core logic, editing, serialization and migration, audio (golden renders) | M | 🟡 | all | Unit and integration tests per crate; an end-to-end suite that drives the whole app (CI), and real-binary smoke tests run at the end of every slice (ADR-0029, 2026-10-08). Golden renders with export (M9) |
 | Benchmarks with regression gates in CI | M | ✅ | 1–3 | divan wall-clock benchmarks (smoke-run in CI), plus instruction-count gates under Callgrind that fail CI above +2% (M3 slice 1, ADR-0022). Each milestone adds its hot paths |
 | CI on Windows, macOS, Linux | M | ✅ | 1 | First run green on 2026-10-06 (run 37396217369): Windows MSVC, macOS, Linux, rustfmt, cargo-deny, VST3 self-test. macOS was paused from 2026-10-07 (Actions minutes ran out) and is **back since 2026-10-10** (owner): every job green on all three systems in run 38070627268, after fixing 20 E2E tests that only failed on macOS |
@@ -362,16 +364,16 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
-| Non-blocking, crash-safe, cached scanning; blocklist; rescan; custom paths | M | 🔲 | 6 |
+| Non-blocking, crash-safe, cached scanning; blocklist; rescan; custom paths | M | 🟡 Built in M6 slice 1 (ADR-0068); MT-VST-1 passed on Windows with real plugins (owner-reported) | 6 |
 | Multi-output instruments, sidechain inputs, latency and tail handling, bypass | M | 🟡 Built in M6 slice 6 (ADR-0078); MT-VST-6 is the owner's | 6 |
-| Full state save and restore; preset browsing, loading and saving | M | 🔲 | 6 |
-| Every parameter automatable and MIDI-mappable; generic parameter UI | M | 🔲 | 6–7 |
-| Floating editors: remembered position and size, resizing, high-DPI, keyboard focus | M | 🔲 | 6 |
-| Crash and hang isolation with recovery; separate-process isolation by 1.0 | M | 🔲 | 6, 10 |
-| Device chain: cards, bypass, presets, parameter strip, reorder, copy between tracks, ordering rules | M | 🟡 cards, bypass, add, remove and ordering rules built (slice 2d); presets, parameter strip, reorder, copy pending | 6 |
+| Full state save and restore; preset browsing, loading and saving | M | 🟡 Built in M6 slices 2 and 5 (ADR-0071, 0077): state saved with the project and read from every running plugin before a save; programs and `.vstpreset` files; MT-VST-5 is the owner's | 6 |
+| Every parameter automatable and MIDI-mappable; generic parameter UI | M | 🟡 The generic parameter UI (the card's strip and the All parameters panel) and plugin-side edits as undo steps are built (M6 slice 4, ADR-0076); automation and MIDI learn are M7 | 6–7 |
+| Floating editors: remembered position and size, resizing, high-DPI, keyboard focus | M | 🟡 Built in M6 slice 4f (ADR-0067, 0076): a host-owned window per plugin, its place kept per plugin, hidden with its track, computer-keyboard notes pass through; the real window is verified with a few real plugins by the owner (MT-VST-0 and 4), not on macOS or Linux | 6 |
+| Crash and hang isolation with recovery; separate-process isolation by 1.0 | M | 🟡 Separate process per plugin, recovery by Reload from the last good state (M6 slices 0 to 5, 7b); the quality bar's measurements with real plugins are MT-VST-7 | 6, 10 |
+| Device chain: cards, bypass, presets, parameter strip, reorder, copy between tracks, ordering rules | M | 🟡 Built in M6 slices 2 to 5: cards, bypass, add, remove, ordering rules, reorder, copy and paste, fold, the parameter strip, the preset menu; MT-VST-2 to 5 | 6 |
 | Built-ins: utility, parametric EQ with analyzer, compressor with sidechain, limiter, delay, reverb, polysynth, sampler | M | 🟡 The polysynth exists as a fixed-preset instrument (M5 slice 1, ADR-0045: 16 voices, five presets, no knobs yet); the rest in M8 | 8 |
 | Spectrum analyzer, tuner | S | 🔲 | 8 |
-| Device browser: categories, vendors, search, favourites, recents, drag, double-click | M | 🔲 | 6 |
+| Device browser: categories, vendors, search, favourites, recents, drag, double-click | M | 🟡 Built in M6 slices 1 and 2d (ADR-0068, 0072): vendors, type and category filters, search, favourites, recents, drag to a track or the chain, double-click to add | 6 |
 | CLAP hosting; racks with macros | L | 🔲 | — |
 | VST3 scanning and hosting on macOS and Linux, with the isolation self-test in CI on all platforms (owner, 2026-10-06) | L | 🔲 | Stretch |
 

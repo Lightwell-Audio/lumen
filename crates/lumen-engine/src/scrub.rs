@@ -1,6 +1,6 @@
 //! Audible scrubbing while stopped (M3 slice 5e). The owner chose both
 //! styles (2026-10-08):
-//! - **Loop** (Ableton-style, the default): the grid step under the
+//! - **Loop** (the default): the grid step under the
 //!   pointer plays at normal speed and pitch, over and over while held;
 //!   moving to another step crossfades there.
 //! - **Tape** (with Alt): a read head follows the hand. Its speed, and so
@@ -19,7 +19,7 @@ use crate::timeline::Timeline;
 /// How a scrub plays.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScrubStyle {
-    /// Ableton-style: `length` from the scrub position, looped.
+    /// Loop-style: `length` from the scrub position, looped.
     Loop { length: Ticks },
     /// Tape-style: speed and pitch follow the hand.
     Tape,

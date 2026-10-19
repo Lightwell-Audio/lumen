@@ -99,7 +99,7 @@ pub(super) fn search(ui: &mut Ui, text: &mut String, focus: &mut bool) -> Search
             palette.text_hint
         };
         let c = clear.center();
-        let stroke = egui::Stroke::new(1.5, ink);
+        let stroke = egui::Stroke::new(theme::stroke::LIT, ink);
         ui.painter()
             .line_segment([c + vec2(-3.5, -3.5), c + vec2(3.5, 3.5)], stroke);
         ui.painter()

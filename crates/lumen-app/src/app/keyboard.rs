@@ -1,5 +1,5 @@
 //! The computer keyboard as a MIDI keyboard (M5 slice 2, the owner's K A):
-//! a mode, held by the app and saved nowhere, in which Ableton's layout of
+//! a mode, held by the app and saved nowhere, in which a layout of
 //! letter keys plays notes. A to K are the white keys from the octave's C,
 //! W E T Y U the black keys between them, O and L two more past K; Z and X
 //! move the octave, C and V the velocity.
@@ -26,13 +26,13 @@ pub(crate) const VELOCITIES: [u8; 8] = [1, 20, 40, 60, 80, 100, 120, 127];
 const START_VELOCITY: usize = 5;
 /// The octave A plays in at the start: C3, MIDI note 60.
 const START_OCTAVE: i8 = 3;
-/// The lowest and highest octave (C-2 and C8, as Ableton).
+/// The lowest and highest octave (C-2 and C8).
 const LOWEST_OCTAVE: i8 = -2;
 const HIGHEST_OCTAVE: i8 = 8;
 
 /// The semitones above the octave's C that `key` plays, if it is a note
 /// key. A S D F G H J K are the white keys; W E T Y U the black ones; O and
-/// L the next octave's C sharp and D, as Ableton has.
+/// L the next octave's C sharp and D.
 pub(crate) fn semitone(key: Key) -> Option<u8> {
     Some(match key {
         Key::A => 0,
@@ -341,7 +341,7 @@ mod tests {
     }
 
     #[test]
-    fn the_letters_play_ableton_s_layout_from_c3() {
+    fn the_letters_play_the_layout_from_c3() {
         let k = on();
         let notes = [
             Key::A,

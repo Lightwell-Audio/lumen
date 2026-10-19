@@ -25,8 +25,7 @@ pub const EXTENSION: &str = "lumen";
 /// Where a project chosen in Save As is written. A file picked inside an
 /// existing project folder (one holding another project file or a `Samples`
 /// folder) or a folder already named after the project is used as it is;
-/// anywhere else, a folder named after the project is created for it, as
-/// Ableton does.
+/// anywhere else, a folder named after the project is created for it.
 pub fn project_file_for(chosen: &Path) -> PathBuf {
     let chosen = chosen.with_extension(EXTENSION);
     let (Some(dir), Some(stem)) = (chosen.parent(), chosen.file_stem()) else {

@@ -7,6 +7,8 @@
 //! | `factory_null` | `GetPluginFactory` returns no factory |
 //! | `factory_crash` | `GetPluginFactory` writes through a null pointer |
 //! | `factory_hang` | `GetPluginFactory` never returns |
+//! | `prints` | the factory and every process call write a line to the standard output, as a plugin with a stray `printf` does: a host that lets it reach the protocol's pipe is corrupted |
+//! | `entry_false` | the module's entry point (`InitDll`, `ModuleEntry`) returns false: the module says it could not start |
 //! | `process_crash@N` | the Nth process call after activation crashes |
 //! | `process_hang@N` | the Nth process call never returns |
 //! | `process_error@N` | process calls from the Nth on return an error |
@@ -14,7 +16,10 @@
 //! | `process_slow=US` | every process call busy-waits `US` microseconds |
 //! | `state_fail` | saving state reports failure |
 //! | `state_garbage` | saving state writes bytes loading rejects |
+//! | `state_refused=N` | the component refuses its first `N` `setState` calls: a plugin that is still loading its content |
 //! | `state_hang` | saving state never returns |
+//! | `many_params=N` | the controller lists `N` extra parameters (at most 20,000), ids from 100 |
+//! | `window_edits` | the instrument lists a trigger parameter (id 90); stepping it on makes the plugin edit its wave as a gesture of its own, as a control moved in its window would |
 //! | `bad_buses` | the output bus reports an absurd channel count |
 //! | `bad_params` | the controller reports millions of duplicate parameters |
 //! | `needs_message` | `initialize` asks the host for a message object (and its attribute list) and crashes if it gets none: what plugins with a separate controller do |
@@ -46,6 +51,10 @@ pub enum Kind {
     FactoryNull,
     FactoryCrash,
     FactoryHang,
+    /// Writes to the standard output, in the factory and in `process`.
+    Prints,
+    /// The module's entry point reports failure.
+    EntryFalse,
     ProcessCrash,
     ProcessHang,
     ProcessError,
@@ -108,6 +117,8 @@ impl Faults {
                 "factory_null" => Kind::FactoryNull,
                 "factory_crash" => Kind::FactoryCrash,
                 "factory_hang" => Kind::FactoryHang,
+                "entry_false" => Kind::EntryFalse,
+                "prints" => Kind::Prints,
                 "process_crash" => Kind::ProcessCrash,
                 "process_hang" => Kind::ProcessHang,
                 "process_error" => Kind::ProcessError,

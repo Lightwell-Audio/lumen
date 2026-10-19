@@ -14,6 +14,7 @@
 mod access;
 mod audition;
 mod barfit;
+mod bench_callback;
 mod chrome;
 mod clips;
 mod clock;
@@ -76,6 +77,7 @@ mod solo;
 mod stepped;
 mod walkthrough;
 mod walkthrough_mix;
+mod walkthrough_plugins;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};

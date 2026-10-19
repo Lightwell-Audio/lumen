@@ -110,8 +110,8 @@ impl EditorView {
 
     /// Whether `note` could show: inside the body's times and pitches. The
     /// editor shows every note of the clip, those outside its window too
-    /// (they sit in the dimmed time outside the clip, as in Ableton's clip
-    /// view; ADR-0059): the arrangement hides them, the editor does not.
+    /// (they sit in the dimmed time outside the clip; ADR-0059): the
+    /// arrangement hides them, the editor does not.
     pub fn shows(&self, note: Note) -> bool {
         let r = self.note_rect(note);
         r.right() >= self.body.left()

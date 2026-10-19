@@ -4,15 +4,15 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::{Duration, Instant};
 
 use super::capture::{self, Captured};
 use super::clock::ClockOut;
 use super::hold::{self, Clock, MAX_EVENTS};
 use super::live::{AUDITION, LiveIn, LiveInput};
 use super::recording::{live_position, record_window};
-use super::{InstrumentSpec, MidiOut, MidiTrack, Target};
-use crate::mixer::{Buses, CHUNK, TrackSource};
+use super::tracks::{gather_track, play_track, preview_instrument, start_host};
+use super::{MidiOut, MidiTrack, Target};
+use crate::mixer::{Buses, TrackSource};
 use crate::source::{Jump, Mode, RenderContext};
 use crate::timeline::Timeline;
 use lumen_core::midi::{Event, Kind, Msg, cc};
@@ -141,7 +141,7 @@ impl MidiHandle {
 }
 
 /// Where messages for hardware go.
-struct Out {
+pub(super) struct Out {
     tx: rtrb::Producer<MidiOut>,
     dropped: u32,
 }
@@ -158,7 +158,7 @@ impl Out {
     }
 
     /// Sends a hardware track's queued events from device frame `frame`.
-    fn forward(&mut self, track: &mut MidiTrack, frame: u64) {
+    pub(super) fn forward(&mut self, track: &mut MidiTrack, frame: u64) {
         if let Target::Port { port, .. } = track.target {
             for event in track.state.events.drain(..) {
                 self.at(frame + u64::from(event.offset), port, event.msg);
@@ -544,7 +544,13 @@ impl MidiPlayer {
             for track in &mut new.tracks {
                 if track.dirty && track.sounds() {
                     let channel = track.channel();
-                    hold::sync(&track.clips, &mut track.state, channel, clock, pos);
+                    hold::sync(
+                        (&track.clips, &track.index),
+                        &mut track.state,
+                        channel,
+                        clock,
+                        pos,
+                    );
                 }
                 track.dirty = false;
             }
@@ -690,162 +696,8 @@ fn apart_from_its_on(events: &mut [Event], msg: Msg, offset: u32, last: u32) -> 
 
 impl MidiTrack {
     /// Whether anything is listening: an instrument, or hardware.
-    fn sounds(&self) -> bool {
+    pub(super) fn sounds(&self) -> bool {
         matches!(self.target, Target::Port { .. }) || self.instrument.is_some()
-    }
-}
-
-/// A part's first half for one track: reads its clips into the track's event
-/// queue, in order.
-fn gather_track(track: &mut MidiTrack, cx: &RenderContext<'_>, frames: usize, clock: Clock<'_>) {
-    let channel = track.channel();
-    if cx.mode == Mode::Play && track.sounds() {
-        let from = cx.start;
-        hold::gather(
-            &track.clips,
-            &mut track.state,
-            channel,
-            clock,
-            (from, from + frames as i64),
-        );
-    }
-    hold::sort_events(&mut track.state.events);
-}
-
-/// Hands a hosted instrument its block now, so its host works while the
-/// engine renders the clips (ADR-0069). A built-in instrument is left to
-/// [`play_track`].
-fn start_host(track: &mut MidiTrack, cx: &RenderContext<'_>, frames: usize) {
-    let events: &[Event] = match track.target {
-        Target::Instrument => &track.state.events,
-        Target::Port { .. } => &[],
-    };
-    if let Some(spec) = track.instrument.as_mut()
-        && spec.instrument.hosted()
-    {
-        track.begun = spec.instrument.begin(cx.sample_rate, frames, events);
-    }
-}
-
-/// A part's second half for one track: sends hardware events out, and renders
-/// the instrument into the track's bus (or collects it, when it began early).
-fn play_track(track: &mut MidiTrack, cx: &RenderContext<'_>, buses: &mut Buses<'_>, out: &mut Out) {
-    let frames = buses.frames();
-    let id = track.id;
-    let sizes = (frames, cx.sample_rate);
-    match track.target {
-        Target::Port { .. } => {
-            out.forward(track, cx.stream);
-            render_instrument(track, id, sizes, cx.deadline, buses, false);
-        }
-        Target::Instrument => render_instrument(track, id, sizes, cx.deadline, buses, true),
-    }
-}
-
-/// Renders the track's instrument into its bus: with the queued events when
-/// `events`, otherwise only what still rings. An instrument that began early
-/// is collected, waiting for its host until `deadline`.
-fn render_instrument(
-    track: &mut MidiTrack,
-    id: u64,
-    (frames, cx_rate): (usize, u32),
-    deadline: Option<Instant>,
-    buses: &mut Buses<'_>,
-    events: bool,
-) {
-    if std::mem::take(&mut track.begun)
-        && let Some(spec) = track.instrument.as_mut()
-    {
-        let mut left = [0.0f32; CHUNK];
-        let mut right = [0.0f32; CHUNK];
-        let deadline = deadline.unwrap_or_else(|| {
-            Instant::now()
-                + Duration::from_micros(frames as u64 * 750_000 / u64::from(cx_rate.max(1)))
-        });
-        spec.instrument
-            .finish(deadline, &mut left[..frames], &mut right[..frames]);
-        if let Some(mut bus) = buses.track(id) {
-            for (side, samples) in [(0, &left), (1, &right)] {
-                for (to, from) in bus.channel(side).iter_mut().zip(samples) {
-                    *to += from;
-                }
-            }
-        }
-        play_outputs(&track.outputs, spec, frames, buses);
-        track.state.events.clear();
-        return;
-    }
-    let queued: &[Event] = if events { &track.state.events } else { &[] };
-    if let Some(spec) = track.instrument.as_mut()
-        && (!queued.is_empty() || spec.instrument.active())
-    {
-        let mut left = [0.0f32; CHUNK];
-        let mut right = [0.0f32; CHUNK];
-        spec.instrument
-            .render(cx_rate, queued, &mut left[..frames], &mut right[..frames]);
-        if let Some(mut bus) = buses.track(id) {
-            for (side, samples) in [(0, &left), (1, &right)] {
-                for (to, from) in bus.channel(side).iter_mut().zip(samples) {
-                    *to += from;
-                }
-            }
-        }
-        play_outputs(&track.outputs, spec, frames, buses);
-    }
-    if events {
-        track.state.events.clear();
-    }
-}
-
-/// Adds each of the instrument's other outputs that is on to the bus of the
-/// track that plays it, for the block just rendered. A track the routing does
-/// not have hears nothing.
-fn play_outputs(
-    outputs: &[(u32, u64)],
-    spec: &mut InstrumentSpec,
-    frames: usize,
-    buses: &mut Buses<'_>,
-) {
-    for &(pair, target) in outputs {
-        let mut left = [0.0f32; CHUNK];
-        let mut right = [0.0f32; CHUNK];
-        if !spec
-            .instrument
-            .output(pair as usize, &mut left[..frames], &mut right[..frames])
-        {
-            continue;
-        }
-        if let Some(mut bus) = buses.track(target) {
-            for (side, samples) in [(0, &left), (1, &right)] {
-                for (to, from) in bus.channel(side).iter_mut().zip(samples) {
-                    *to += from;
-                }
-            }
-        }
-    }
-}
-
-/// Adds the next frames of what the track's instrument sounds now to its
-/// bus, without moving the instrument on.
-fn preview_instrument(
-    track: &mut MidiTrack,
-    id: u64,
-    (frames, rate): (usize, u32),
-    buses: &mut Buses<'_>,
-) {
-    let Some(spec) = track.instrument.as_mut().filter(|s| s.instrument.active()) else {
-        return;
-    };
-    let mut left = [0.0f32; CHUNK];
-    let mut right = [0.0f32; CHUNK];
-    spec.instrument
-        .preview(rate, &mut left[..frames], &mut right[..frames]);
-    if let Some(mut bus) = buses.track(id) {
-        for (side, samples) in [(0, &left), (1, &right)] {
-            for (to, from) in bus.channel(side).iter_mut().zip(samples) {
-                *to += from;
-            }
-        }
     }
 }
 
@@ -907,8 +759,20 @@ impl TrackSource for MidiPlayer {
             let channel = track.channel();
             track.state.release_all(channel);
             if track.sounds() {
-                hold::chase_controls(&track.clips, &mut track.state, channel, clock, sample);
-                hold::chase_notes(&track.clips, &mut track.state, channel, clock, sample);
+                hold::chase_controls(
+                    (&track.clips, &track.index),
+                    &mut track.state,
+                    channel,
+                    clock,
+                    sample,
+                );
+                hold::chase_notes(
+                    (&track.clips, &track.index),
+                    &mut track.state,
+                    channel,
+                    clock,
+                    sample,
+                );
             }
         }
     }

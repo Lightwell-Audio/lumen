@@ -192,7 +192,7 @@ impl App {
             icon: None,
             icon_size: theme::space::L,
             title: "No plugins found yet",
-            hint: "Lumen looks in the standard VST3 folders. If yours are elsewhere, add the folder",
+            hint: "The standard VST3 folders are searched. If yours are elsewhere, add the folder",
             action: Some(widgets::EmptyAction {
                 label: "Scan now",
                 keys: None,

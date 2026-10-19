@@ -196,6 +196,8 @@ impl App {
             system_theme: None,
             banner: None,
             bench: launch.bench,
+            callback_bench: launch.callback_bench,
+            callback_report: None,
         };
         // `--scale` and `--appearance` are one-off overrides (tests,
         // screenshots); they are not saved unless changed in the menu.

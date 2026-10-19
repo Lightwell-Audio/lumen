@@ -25,9 +25,11 @@
 mod capture;
 mod clock;
 mod hold;
+mod index;
 mod live;
 mod player;
 mod recording;
+mod tracks;
 
 pub use capture::{Captured, WRAP, record_position};
 pub use clock::CLOCK_TICKS;
@@ -162,6 +164,9 @@ pub struct MidiTrack {
     /// The take's latency and original recording bounds, when recording.
     pub record_timing: Option<RecordTiming>,
     state: Box<TrackState>,
+    /// What the chase searches instead of reading every note, one per clip
+    /// ([`index::ClipIndex`]); made with the track.
+    index: Vec<index::ClipIndex>,
     /// Set when the list arrives: the track differs from the one it replaces,
     /// so its notes are brought in line with the position.
     dirty: bool,
@@ -179,9 +184,11 @@ impl MidiTrack {
         mut clips: Vec<MidiClip>,
     ) -> Self {
         clips.sort_by_key(|c| c.start);
+        let index = clips.iter().map(index::ClipIndex::new).collect();
         Self {
             id,
             clips,
+            index,
             instrument,
             target,
             outputs: Vec::new(),

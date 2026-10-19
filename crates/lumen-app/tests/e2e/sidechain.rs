@@ -291,3 +291,31 @@ fn the_key_does_not_leak_into_the_keyed_track() {
     let heard = peak(&mut lumen);
     assert!(heard < 0.0001, "nothing of the key is heard: {heard}");
 }
+
+#[test]
+fn a_key_whose_track_was_deleted_says_so_on_the_row_and_can_be_chosen_again() {
+    let mut lumen = open("removed", &song(Some(SidechainTap::PostFx)));
+    assert!(lumen.shows("Sidechain source, Key, Post FX"));
+    // Deleting the key track leaves the effect's sidechain pointing at
+    // nothing: the row says so, in words, instead of showing a blank.
+    lumen.app_mut().select_tracks(&[KEY]);
+    lumen.key(Modifiers::NONE, Key::Delete);
+    lumen.frames(20);
+    assert!(
+        lumen.app().project().tracks.iter().all(|t| t.id != KEY),
+        "the key track is gone"
+    );
+    lumen.app_mut().select_tracks(&[VOICE]);
+    lumen.frames(20);
+    assert!(
+        lumen.shows("Sidechain source, removed"),
+        "the row says its source is removed"
+    );
+    // The chooser still opens, and None clears it.
+    lumen.click("Sidechain source, removed");
+    lumen.frames(5);
+    lumen.click("None");
+    lumen.frames(5);
+    assert_eq!(keyed_from(&lumen), None);
+    assert!(lumen.shows(SOURCE));
+}

@@ -6,6 +6,7 @@
 use eframe::egui::{
     self, Align2, Color32, FontId, Pos2, Rangef, Rect, Sense, Stroke, Ui, UiBuilder, pos2, vec2,
 };
+use lumen_core::product::PRODUCT_NAME;
 use lumen_project::model::{Device, DeviceKind, Id, Output, PluginRef, Project, Track, TrackKind};
 use lumen_project::routing::all_tracks;
 
@@ -173,7 +174,7 @@ impl App {
         }
         if stopped {
             // The age of the sound Reload would use keeps counting.
-            ctx.request_repaint_after(std::time::Duration::from_secs(1));
+            ctx.request_repaint_after(crate::motion::AGE_FRAME);
         }
         let project = self.document.project();
         let Some(track) = all_tracks(project).find(|t| t.id == track_id) else {
@@ -453,8 +454,7 @@ impl App {
             self.apply_strip(device, output);
         }
         if self.chain.text_pending.replace(false) {
-            ui.ctx()
-                .request_repaint_after(std::time::Duration::from_millis(60));
+            ui.ctx().request_repaint_after(crate::motion::TEXT_FRAME);
         }
         if let Some(id) = events.reload {
             self.hosting.reload(id);
@@ -516,9 +516,12 @@ impl App {
                 vendor,
                 ..
             } => (name.clone(), vendor.clone(), class_id.clone()),
+            // The vendor of a built-in device is a label: it names who made
+            // the device, as a plugin's vendor does, and is the product's
+            // name by `PRODUCT_NAME`, not text about the product.
             PluginRef::Builtin { name } => (
                 crate::document::device_name(d),
-                "Lumen".to_owned(),
+                PRODUCT_NAME.to_owned(),
                 name.clone(),
             ),
         };
@@ -687,7 +690,7 @@ fn paint_drop_mark(painter: &egui::Painter, at: Pos2, y: Rangef) {
         1.0,
     );
     painter.circle_filled(at, 9.0, palette.accent);
-    let stroke = Stroke::new(1.5, palette.on_accent);
+    let stroke = Stroke::new(theme::stroke::LIT, palette.on_accent);
     painter.hline(Rangef::new(at.x - 4.0, at.x + 4.0), at.y, stroke);
     painter.vline(at.x, Rangef::new(at.y - 4.0, at.y + 4.0), stroke);
 }
@@ -760,7 +763,7 @@ fn paint_cables(
             painter.hline(
                 Rangef::new(from, to),
                 y,
-                Stroke::new(2.0, palette.border_strong),
+                Stroke::new(theme::stroke::FOCUS, palette.border_strong),
             );
             light::hline(
                 painter,

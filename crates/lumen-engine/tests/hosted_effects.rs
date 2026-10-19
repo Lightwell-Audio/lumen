@@ -15,8 +15,8 @@ use lumen_core::time::Ticks;
 use lumen_devices::{Guard, Hosted, Refused, Reply, Status};
 use lumen_engine::{
     Clip, ClipAudio, ClipPlayer, ClipsHandle, Command, Destination, Device, Engine, EngineHandle,
-    Mixer, MixerHandle, NodeSpec, Routing, SidechainSpec, Tap, Timeline, clip_player, engine,
-    mixer,
+    Mixer, MixerHandle, NodeSpec, Routing, ScrubStyle, SidechainSpec, Tap, Timeline, clip_player,
+    engine, mixer,
 };
 use lumen_rt::count_rt_violations;
 
@@ -31,6 +31,8 @@ enum Mode {
     Halve,
     /// Never answers in time.
     Late,
+    /// Is always still on an earlier block: refuses every one.
+    Busy,
     /// Halves, but a worker takes this long first (each block is counted in
     /// `overlap`).
     Slow(Duration, Arc<Overlap>),
@@ -83,6 +85,9 @@ impl FakeEffect {
 impl Hosted for FakeEffect {
     fn submit(&mut self, frames: usize, input: &[&[f32]], _: &[Event]) -> Result<(), Refused> {
         self.submits.fetch_add(1, Ordering::Relaxed);
+        if matches!(self.mode, Mode::Busy) {
+            return Err(Refused::Busy);
+        }
         let depth = self.latency as usize;
         for (channel, out) in self.out.iter_mut().enumerate() {
             out.clear();
@@ -380,6 +385,20 @@ fn a_host_that_fails_is_replaced_by_its_fallback_at_the_same_time() {
     let out = rig.run(60_000, 128);
     assert!(status.failed(), "a second of late blocks in a row");
     assert_matches(&out, 0, 2_000, "the fallback", |n| r[n - 32]);
+}
+
+#[test]
+fn a_block_a_busy_host_refused_is_one_missed_block_however_often_it_is_tried() {
+    // The first device of a node is handed its block early and again at the
+    // node: the host being busy is one missed block, not two (review H4).
+    let routing = routing_of(vec![track(1, hosted(7, 0))]);
+    let mut rig = rig(1, RATE, &routing);
+    let (effect, submits) = FakeEffect::new(Mode::Busy, 0);
+    let status = rig.attach(7, effect, 0);
+    rig.play();
+    rig.run(128, 128);
+    assert!(submits.load(Ordering::Relaxed) >= 1, "the host was asked");
+    assert_eq!(status.late_blocks(), 1);
 }
 
 #[test]
@@ -700,6 +719,67 @@ fn hosted_effects_never_touch_the_heap() {
     }
     assert!(late.failed());
     assert!(!a.failed());
+}
+
+#[test]
+fn keyed_hosted_effects_at_every_tap_and_a_refusing_host_never_touch_the_heap() {
+    // Three effects, each keyed from a latent track at another tap; a fourth
+    // host that refuses every block; a fifth that has no sidechain.
+    let latent = |id| NodeSpec {
+        devices: latent_device(240),
+        ..NodeSpec::unity(id, Destination::None)
+    };
+    let mut nodes = Vec::new();
+    for (effect, key, tap, host) in [
+        (1, 5, Tap::PreFx, 21),
+        (2, 6, Tap::PostFx, 22),
+        (3, 7, Tap::PostMixer, 23),
+    ] {
+        let mut keyed = track(effect, hosted(host, 0));
+        keyed.sidechains.push(SidechainSpec { from: key, tap });
+        nodes.push(keyed);
+        nodes.push(latent(key));
+    }
+    nodes.push(track(4, hosted(24, 0)));
+    nodes.push(track(8, hosted(25, 0)));
+    let routing = routing_of(nodes);
+    let mut rig = rig(8, RATE, &routing);
+    for host in [21, 22, 23] {
+        rig.attach(host, FakeEffect::new(Mode::Key, 0).0, 0);
+    }
+    let refusing = rig.attach(24, FakeEffect::new(Mode::Busy, 0).0, 0);
+    rig.attach(25, FakeEffect::new(Mode::Halve, 0).0, 0);
+    let mut data = vec![0.0; 2 * 128];
+    for block in 0..3_000_u32 {
+        match block {
+            0 => rig.play(),
+            800 => rig.transport.send(Command::Stop).unwrap(),
+            1_000 => rig
+                .transport
+                .send(Command::Scrub {
+                    at: Ticks::quarters(2),
+                    style: ScrubStyle::Loop {
+                        length: Ticks::quarters(1),
+                    },
+                })
+                .unwrap(),
+            1_300 => rig.transport.send(Command::EndScrub).unwrap(),
+            1_500 => rig.play(),
+            2_000 => rig
+                .transport
+                .send(Command::Locate(Ticks::quarters(8)))
+                .unwrap(),
+            _ => {}
+        }
+        let ((), heap) = count_rt_violations(|| rig.engine.process(RATE, &mut data, 2, 128));
+        assert_eq!(heap, 0, "heap operation in process() at block {block}");
+        rig.transport.collect_garbage();
+        rig.routing.collect_garbage();
+    }
+    assert!(
+        refusing.failed(),
+        "the host that refused every block failed"
+    );
 }
 
 // Keeps the shared log type in step with the instrument tests.

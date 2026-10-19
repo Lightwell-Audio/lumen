@@ -134,6 +134,10 @@ pub(crate) struct Plugins {
     cancel: Arc<AtomicBool>,
     /// The cache changed since the catalog was built.
     stale: bool,
+    /// When the catalog was last built, and how many times: during a scan
+    /// it is rebuilt at most every [`REBUILD_EVERY`].
+    built_at: Option<std::time::Instant>,
+    builds: u32,
     /// A note for the person: the cache was thrown away, or could not be
     /// written. Cleared by [`Plugins::dismiss_note`].
     note: Option<String>,
@@ -142,6 +146,9 @@ pub(crate) struct Plugins {
     /// plugin binary).
     safe: bool,
 }
+
+/// The most often the browser's list is rebuilt while a scan runs.
+const REBUILD_EVERY: std::time::Duration = std::time::Duration::from_millis(200);
 
 /// Said when the scan program is not where it should be.
 pub(crate) fn host_missing(host: &std::path::Path) -> String {
@@ -162,6 +169,8 @@ impl Plugins {
             rx: None,
             cancel: Arc::new(AtomicBool::new(false)),
             stale: false,
+            built_at: None,
+            builds: 0,
             note: None,
             finished_at: None,
             safe: false,
@@ -277,26 +286,16 @@ impl Plugins {
         };
         let mut roots = roots;
         roots.extend(settings.folders.iter().map(PathBuf::from));
-        // A scan needs its program; without it the cache is still read, and
-        // the browser says what is missing.
-        let host = scan.and_then(|_| {
-            if host.is_file() {
-                Some(host)
-            } else {
-                self.status = Status::Failed(host_missing(&host));
-                None
-            }
-        });
-        if scan.is_some() && host.is_none() && cache.is_some() {
-            return;
-        }
+        // A scan needs its program; whether it is there is found out on the
+        // scan thread (a stat can be slow), which says what is missing.
+        let host = scan.map(|_| host);
         self.cancel.store(false, Ordering::Relaxed);
         let (tx, rx) = mpsc::channel();
         self.rx = Some(rx);
         if host.is_some() {
             self.status = Status::Scanning { done: 0, total: 0 };
         }
-        worker::spawn(
+        let started = worker::spawn(
             Job {
                 host,
                 roots,
@@ -310,6 +309,10 @@ impl Plugins {
             Arc::clone(&self.cancel),
             ctx.clone(),
         );
+        if let Err(e) = started {
+            self.rx = None;
+            self.status = Status::Failed(format!("The plugin scan could not start: {e}"));
+        }
     }
 
     /// Takes what the thread has sent; true if anything the browser shows
@@ -332,11 +335,28 @@ impl Plugins {
                 }
             }
         }
-        if self.stale {
+        if self.stale && self.rebuild_wait().is_none() {
             self.catalog = Catalog::build(&self.cache, builtin_devices());
             self.stale = false;
+            self.built_at = Some(std::time::Instant::now());
+            self.builds += 1;
         }
         changed
+    }
+
+    /// How long until the list the browser shows is brought up to date with
+    /// what the scan has found, when it is not yet: building it is work
+    /// that grows with the library, so during a scan it is done a few times
+    /// a second and not once for every module.
+    pub(crate) fn rebuild_wait(&self) -> Option<std::time::Duration> {
+        if !self.stale {
+            return None;
+        }
+        if !matches!(self.status, Status::Scanning { .. }) {
+            return None;
+        }
+        let since = self.built_at?.elapsed();
+        REBUILD_EVERY.checked_sub(since).filter(|d| !d.is_zero())
     }
 
     fn apply(&mut self, message: Message) {
@@ -369,6 +389,12 @@ impl Plugins {
                     Some(why) => Status::Failed(why.clone()),
                     None => Status::Idle,
                 };
+                if summary.truncated {
+                    self.note = Some(format!(
+                        "More than {} plugins were found. Only the first were listed.",
+                        lumen_plugin_catalog::discover::MAX_MODULES
+                    ));
+                }
                 if let Err(why) = saved {
                     self.note = Some(format!("The plugin list could not be saved: {why}"));
                 }
@@ -398,6 +424,63 @@ mod tests {
                 at: 1,
             },
         }
+    }
+
+    #[test]
+    fn the_list_is_rebuilt_a_few_times_a_second_during_a_scan_not_once_a_module() {
+        let mut p = Plugins::off();
+        let (tx, rx) = mpsc::channel();
+        p.rx = Some(rx);
+        p.status = Status::Scanning {
+            done: 0,
+            total: 300,
+        };
+        let before = p.builds;
+        for i in 0..300 {
+            tx.send(Message::Scanned {
+                done: i + 1,
+                total: 300,
+                entry: blocked(&format!("/m/Bad{i}.vst3")),
+            })
+            .unwrap();
+            // A frame after every module.
+            p.poll();
+        }
+        let built = p.builds - before;
+        assert!(built <= 3, "{built} rebuilds for 300 modules in an instant");
+        assert!(
+            p.rebuild_wait().is_some(),
+            "the last modules are not shown yet"
+        );
+        // The scan ends: everything is shown at once.
+        tx.send(Message::Finished {
+            summary: Summary::default(),
+            cache: p.cache.clone(),
+            saved: Ok(()),
+        })
+        .unwrap();
+        p.poll();
+        assert_eq!(p.catalog().blocked().len(), 300);
+        assert!(p.rebuild_wait().is_none());
+    }
+
+    #[test]
+    fn a_scan_that_left_modules_out_says_so() {
+        let mut p = Plugins::off();
+        let (tx, rx) = mpsc::channel();
+        p.rx = Some(rx);
+        p.status = Status::Scanning { done: 0, total: 1 };
+        tx.send(Message::Finished {
+            summary: Summary {
+                truncated: true,
+                ..Summary::default()
+            },
+            cache: Cache::new(),
+            saved: Ok(()),
+        })
+        .unwrap();
+        p.poll();
+        assert!(p.note().is_some_and(|n| n.contains("Only the first")));
     }
 
     #[test]
@@ -461,7 +544,6 @@ mod tests {
         .unwrap();
         assert!(p.poll());
         assert_eq!(*p.status(), Status::Scanning { done: 1, total: 2 });
-        assert_eq!(p.catalog().blocked().len(), 1);
 
         let mut cache = Cache::new();
         cache.set(blocked("/m/Bad.vst3"));
@@ -472,6 +554,11 @@ mod tests {
         })
         .unwrap();
         assert!(p.poll());
+        assert_eq!(
+            p.catalog().blocked().len(),
+            1,
+            "built once the scan is over"
+        );
         assert_eq!(*p.status(), Status::Idle);
         assert!(!p.busy());
         assert!(p.note().unwrap().contains("disk full"));
@@ -488,7 +575,19 @@ mod tests {
             deadline: None,
             faults: None,
         });
-        let p = Plugins::start(source, None, &PluginSettings::default(), false, &ctx);
+        let mut p = Plugins::start(source, None, &PluginSettings::default(), false, &ctx);
+        // The scan thread looks for the program, not the interface's thread.
+        assert!(
+            !matches!(p.status(), Status::Failed(_)),
+            "found out on the frame that started it"
+        );
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while matches!(p.status(), Status::Scanning { .. } | Status::Loading)
+            && std::time::Instant::now() < end
+        {
+            p.poll();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
         let Status::Failed(why) = p.status() else {
             panic!("failed: {:?}", p.status());
         };

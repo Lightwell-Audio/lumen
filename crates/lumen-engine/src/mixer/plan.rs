@@ -51,6 +51,9 @@ pub(super) struct Dev {
     pub wet: Smoothed,
     /// The device's block was handed to its host ahead of the node loop.
     pub began: bool,
+    /// The early attempt was refused: the node's own attempt is the same
+    /// missed block, not another.
+    pub refused: bool,
 }
 
 /// A node with no device to hand its host early.

@@ -440,8 +440,8 @@ pub const TEXT_ON_LIGHT: Color32 = Color32::from_rgb(0x0B, 0x0D, 0x10);
 /// Text on clips.
 pub const CLIP_TEXT: Color32 = Color32::WHITE;
 
-/// A muted clip (the owner's M1, slice 6e): its colour drains to this grey,
-/// as in Ableton. Medium lightness like [`CLIP_COLORS`], so its name and
+/// A muted clip (the owner's M1, slice 6e): its colour drains to this grey.
+/// Medium lightness like [`CLIP_COLORS`], so its name and
 /// waveform stay readable in both themes.
 pub const CLIP_MUTED: Color32 = Color32::from_rgb(0x6C, 0x70, 0x78);
 
@@ -485,6 +485,16 @@ pub mod radius {
 }
 
 /// Line widths (`DESIGN.md` §5).
+/// The tint of a picture that is switched off: the picture, dimmed.
+pub const PICTURE_OFF: Color32 = Color32::from_gray(110);
+
+/// The grey of a colour (its average), for what is switched off.
+pub fn grey_of(colour: Color32) -> Color32 {
+    Color32::from_gray(
+        ((u16::from(colour.r()) + u16::from(colour.g()) + u16::from(colour.b())) / 3) as u8,
+    )
+}
+
 pub mod stroke {
     /// Separators, outlines, edge lights and lips.
     pub const HAIRLINE: f32 = 1.0;

@@ -89,6 +89,10 @@ impl MeterBank {
             } else {
                 sum / samples.len() as f32
             };
+            // A chunk with a non-finite sample would leave the average
+            // non-finite for the rest of the session; the peak and the clip
+            // light show the fault, and the average carries on from silence.
+            let mean = if mean.is_finite() { mean } else { 0.0 };
             smooth(&slot.power[side], mean, keep);
         }
         if over {
@@ -258,6 +262,29 @@ mod tests {
         // Slots past the end are ignored.
         bank.record(9, [&[1.0], &[1.0]], 0.0);
         assert_eq!(bank.take(9), Level::default());
+    }
+
+    #[test]
+    fn one_non_finite_sample_does_not_leave_the_average_broken() {
+        let bank = MeterBank::new(1);
+        let k = keep(128, 48_000);
+        let sine: Vec<f32> = (0..128).map(|i| (i as f32 * 0.2).sin()).collect();
+        for _ in 0..50 {
+            bank.record(0, [&sine, &sine], k);
+        }
+        let mut bad = sine.clone();
+        bad[40] = f32::NAN;
+        bad[41] = f32::INFINITY;
+        bank.record(0, [&bad, &sine], k);
+        for _ in 0..50 {
+            bank.record(0, [&sine, &sine], k);
+        }
+        let level = bank.take(0);
+        assert!(
+            level.rms.iter().all(|r| r.is_finite() && *r > 0.0),
+            "{:?}",
+            level.rms
+        );
     }
 
     #[test]

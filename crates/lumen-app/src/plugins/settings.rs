@@ -117,6 +117,20 @@ impl PluginSettings {
         true
     }
 
+    /// The most folders, favorites and recents a file may hold.
+    pub const MAX_LISTED: usize = 4_096;
+
+    /// Cuts what a file holds to what the app keeps: a damaged or crafted
+    /// settings file cannot make the lists grow without end.
+    pub fn bound(&mut self) {
+        self.folders.truncate(Self::MAX_LISTED);
+        self.favorites.truncate(Self::MAX_LISTED);
+        self.recents.truncate(Self::MAX_RECENTS);
+        while self.editors.len() > Self::MAX_EDITORS {
+            self.editors.pop_last();
+        }
+    }
+
     /// Adds a search folder; false if it is already there.
     pub fn add_folder(&mut self, path: &Path) -> bool {
         let text = path.to_string_lossy().into_owned();
@@ -177,6 +191,30 @@ mod tests {
         let text = serde_json::to_string(&s).unwrap();
         let back: PluginSettings = serde_json::from_str(&text).unwrap();
         assert_eq!(back.editors["vst3:AB"], moved);
+    }
+
+    #[test]
+    fn a_file_with_huge_lists_is_cut_to_what_is_kept() {
+        let mut s = PluginSettings {
+            folders: (0..10_000).map(|i| format!("/f{i}")).collect(),
+            favorites: (0..10_000).map(|i| format!("vst3:{i}")).collect(),
+            recents: (0..100).map(|i| format!("vst3:{i}")).collect(),
+            ..PluginSettings::default()
+        };
+        let place = EditorPlace {
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 10,
+            dpi: 96,
+        };
+        s.editors = (0..2_000).map(|i| (format!("c{i}"), place)).collect();
+        s.bound();
+        assert_eq!(s.folders.len(), PluginSettings::MAX_LISTED);
+        assert_eq!(s.favorites.len(), PluginSettings::MAX_LISTED);
+        assert_eq!(s.recents.len(), PluginSettings::MAX_RECENTS);
+        assert_eq!(s.editors.len(), PluginSettings::MAX_EDITORS);
+        assert_eq!(s.folders[0], "/f0", "the first are kept");
     }
 
     #[test]
