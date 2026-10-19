@@ -263,6 +263,11 @@ impl Controls {
             return;
         }
         let value = value.clamp(0.0, 1.0);
+        // TEMP TRACE (remove before merge)
+        crate::instance::trace(&format!(
+            "set param {id} = {value} (controller {})",
+            self.controller.is_some()
+        ));
         if let Some(controller) = &self.controller {
             // SAFETY: a plain call on a live controller.
             unsafe { controller.setParamNormalized(id, value) };
