@@ -235,9 +235,9 @@ Lumen can scan, load, play and save real third-party VST3 plugins while survivin
 
 ---
 
-## 7. Automation, Envelopes & Advanced Editing
+## 7. Automation & Envelopes
 
-**Goal:** Give users professional DAW editing and automation workflows.
+**Goal:** Give users professional automation workflows.
 
 Implement:
 
@@ -258,7 +258,21 @@ Implement:
 - Freehand automation
 - Point simplification
 
-Then implement:
+Deferred by the owner (2026-10-19): tempo ramps (the tempo lane edits steps) and the
+audio pitch envelope (it needs a time-stretch and pitch engine).
+
+### Exit criteria
+
+Automation, envelopes and MIDI learn work end to end and survive save/load and undo/redo.
+
+---
+
+## 7b. Advanced Editing & Render
+
+**Goal:** Give users professional editing workflows. Split from milestone 7 at the owner's decision (2026-10-19).
+
+Implement:
+
 
 - Split
 - Join
@@ -274,6 +288,7 @@ Then implement:
 - Render selection
 - Freeze/unfreeze/flatten
 - Crossfades
+- Tool model (pointer, draw, erase, split, mute, zoom)
 
 Every operation should be undoable and testable.
 

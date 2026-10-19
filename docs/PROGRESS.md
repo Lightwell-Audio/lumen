@@ -139,7 +139,8 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 4.5 | Polish pass (mid milestone: the interface audit's fixes) | 🟡 Built 2026-10-10; MT-POL-5 and 6 wait | Plan: `docs/milestones/M4.5.md`; audit: `docs/audits/2026-10-10-design.md` |
 | 5 | MIDI & Piano Roll | 🟡 Approved 2026-10-10; slices 0 to 7 built, slice 8 underway (review done); MT-MIDI-7, MT-MIDI-8 and MT-MIDI-9 wait | Plan: `docs/milestones/M5.md`; report written 2026-10-19 (below), awaiting the owner's approval |
 | 6 | VST3 Hosting & Device System | 🟡 Started 2026-10-15 at the owner's instruction; slice 0 complete 2026-10-16 (report below; ADR-0069 accepted, the callback's wait on trial) and slice 1 built (MT-VST-1 passed on Windows, owner-reported); slice 2 built and its walkthrough passed (owner-reported; ADR-0069 measurements outstanding); slices 3 to 6 built; slice 7 (compatibility and closeout) under way: the probe, the fault soak, the callback benchmark and the combined walkthrough are built (branch `m6-s7-compatibility-closeout`), the review is done and its seven High findings fixed (`docs/audits/2026-10-18-m6.md`); the owner's MT-VST-7 runs, the Medium and Low findings and the M6 report remain | Plan: [milestones/M6.md](milestones/M6.md); M5 closeout (MT-MIDI-7 to 9, the report) remains pending and is not marked passed |
-| 7 | Automation, Envelopes & Advanced Editing | 🔲 Plan written 2026-10-19 for the owner's review, not started; proposes M7 (automation, slices A0 to A8) and M7b (editing and render, E0 to E5). Waits for the owner's sign-off of M5 and M6 and the owner choices S1, T1, X1, P1, K1, L1 in the plan | Plan: `docs/milestones/M7.md` |
+| 7 | Automation & Envelopes | 🔲 Plan written 2026-10-19 for the owner's review, not started. Slices A0 to A8. Owner decisions 2026-10-19: the milestone is split (editing and render are 7b), tempo ramps and the audio pitch envelope are deferred. Waits for the owner's sign-off of M5 and M6 and the lane look (L1, from specimens) | Plan: `docs/milestones/M7.md` |
+| 7b | Advanced Editing & Render | 🔲 Plan written 2026-10-19 for the owner's review, not started. Slices E0 to E6: tool model and split, clip commands, crossfades, consolidate, bounce, freeze. Open choices: crossfade model (X1), tool keys and the cut gesture (K1), the static clip pitch (Y1) | Plan: `docs/milestones/M7b.md` |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | |
 | 9 | Recording, Media, Export & Production Workflow | 🔲 | |
 | 10 | Hardening, Performance & Release | 🔲 | |
@@ -268,7 +269,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Group tracks: create, drag in, nest, fold, sum, own devices/sends/fader/automation, one-step ungroup, sensible solo/mute/arm | M | 🟡 M4 slice 3 (format v8, ADR-0037): Ctrl+G and Ctrl+Shift+G (one step each), nesting three deep at most, folding (saved), dragging tracks in and out, groups summing their tracks (slice 1), mute, a group's arm arming its tracks, deleting and duplicating a group with its tracks. Solo across groups and returns by the agreed rules, a soloed group showing its tracks with a hollow S, and a group's sends on its header (slice 4, ADR-0038); a group's devices with M6, automation in M7 | 4 |
 | Linked editing across selected tracks | S | 🔲 | 4 |
 | Clips: move, copy-drag, trim, slip, fades, gain handle, loop-extend, rename, recolour, mute, lock | M | 🟡 M3 6a: move across tracks and Ctrl+copy-drag by the top half (snapped, one undo step, kinds respected, locked clips stay). 6c: trim edges (within the file), Shift loop-extend, Ctrl+Alt slip, and the clip overlap rule (a clip put down cuts away what it covers). 6d: fade handles with a free bend dot and Alt for S-shape (owner's F3 and C3; curves in format v6, ADR-0031), presets in the menu, a clip gain line (G1), heard and drawn alike; moved clips crossfade while playing. 6e (ADR-0032): 0 mutes (grey, the owner's M1), lock from the menu or card (padlock and clamps, K3; locked clips can still be muted, renamed and recoloured), Ctrl+R or F2 renames in the title bar, clips take their own colour, and the properties card (P1) sets all of it, gain and fades from the keyboard | 3 |
-| Selection: clip, marquee, time range with cut/copy/duplicate/delete/split/consolidate | M | 🟡 Clip and marquee selection and time ranges across tracks (M3 6a); cut, copy, paste, duplicate and delete on clips and ranges (6b). From the keyboard (M3 review H2, the owner's choice): with a clip selected the arrows move between clips (←/→ along its track, ↑/↓ to the nearest clip above or below), Shift adds. Split and consolidate in M7 | 3, 7 |
+| Selection: clip, marquee, time range with cut/copy/duplicate/delete/split/consolidate | M | 🟡 Clip and marquee selection and time ranges across tracks (M3 6a); cut, copy, paste, duplicate and delete on clips and ranges (6b). From the keyboard (M3 review H2, the owner's choice): with a clip selected the arrows move between clips (←/→ along its track, ↑/↓ to the nearest clip above or below), Shift adds. Split and consolidate in M7b | 3, 7b |
 | Loop and punch regions, markers and locators, tempo and time-signature lanes | M | 🟡 Engine side of loop and punch done (slice 3); loop brace and punch (M3 5c) and named locators (M3 5d) done; tempo and time-signature lanes later in M3 | 2–3 |
 | Track height presets, collapse, hide, reorder by drag, multi-select | M | 🟡 Fold and unfold, resize by dragging or Alt+wheel, H fits every track, multi-select (Ctrl, Shift), move with Alt+arrows and the menu (4a), reorder by drag with auto-scroll (4d). Hide and height presets later | 3 |
 | Track templates, delay offset, lock, overview strip | S | 🔲 | 3, 9 |
@@ -285,8 +286,8 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Crisp, fast waveforms at every zoom | M | ✅ | 3 | M3 slice 4c (ADR-0027): peak pyramids built at load, drawn per pixel on the GPU; no measurable frame cost with 10,000 waveforms. Disk cache deferred to M9 with disk streaming (owner approved); drawn sample by sample below 16 frames per pixel (4d, ADR-0028) |
 | Recording: multi-arm, monitoring, multichannel, crash-safe capture, latency compensation and offset, punch, count-in, input meters | M | 🔲 | 9 |
 | Loop recording into takes; capture MIDI | S | 🟡 Loop passes layer into one MIDI clip (M5 slice 6, ADR-0055); takes and Capture MIDI are M9 | 9 |
-| Clip gain, fade shapes, automatic crossfades, reverse, normalize, polarity, pitch | M | 🟡 Clip gain and fades along free curves, with four presets (M3 6d, ADR-0031; golden renders, and E2E scenarios that listen). Automatic crossfades, reverse, normalize, polarity and pitch in M7 | 3, 7 |
-| Warp and time-stretch with quality modes | S | 🔲 | 7 |
+| Clip gain, fade shapes, automatic crossfades, reverse, normalize, polarity, pitch | M | 🟡 Clip gain and fades along free curves, with four presets (M3 6d, ADR-0031; golden renders, and E2E scenarios that listen). Automatic crossfades (model chosen in M7b, X1), reverse, normalize and polarity in M7b. The clip's static pitch needs a pitch engine; the owner has deferred the audio pitch envelope (2026-10-19) and has not yet decided this one (M7b plan, Y1) | 3, 7b |
+| Warp and time-stretch with quality modes | S | 🔲 Not in M7 or M7b. It also carries the audio pitch envelope (deferred by the owner, 2026-10-19) and, if the owner defers it, the clip's static pitch | — |
 | Take lanes and comping | S | 🔲 | 9 |
 | Mono, stereo, multichannel material | M | 🔲 | 2–3 |
 
@@ -326,26 +327,26 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Everything with a value is automatable | M | 🔲 | 7 |
 | Lanes with searchable parameter chooser; show/hide key | M | 🔲 | 7 |
 | Point editing, ranges, curve types, shape tools, freehand with simplification, snapping, value tooltip | M | 🔲 | 7 |
-| Clip envelopes (audio gain/pan/pitch, MIDI CC/bend/pressure), looping, lock-envelopes option | M | 🔲 | 7 |
+| Clip envelopes (audio gain/pan/pitch, MIDI CC/bend/pressure), looping, lock-envelopes option | M | 🟡 MIDI clips already carry looping controller events (M5). Audio gain and pan envelopes and the lock option are M7 slice A7. **The audio pitch envelope is deferred with the owner's approval (2026-10-19)** until a time-stretch and pitch engine exists | 7 |
 | Read / Write / Touch / Latch recording with thinning | M | 🔲 | 7 |
 | Trim mode | L | 🔲 | — |
 | Override state with one-click re-enable | M | 🔲 | 7 |
 | Smooth, sample-accurate automation for built-ins and plugins | M | 🔲 | 7 |
-| Tempo and time-signature changes recalculate the timeline | M | 🟡 The engine keeps the bar and beat across tempo and meter changes, and loop and punch follow (slice 3); clips and automation follow when they exist | 7 |
+| Tempo and time-signature changes recalculate the timeline | M | 🟡 The engine keeps the bar and beat across tempo and meter changes, and loop and punch follow (slice 3); clips and automation follow when they exist. The tempo lane edits steps (M7 slice A6); **tempo ramps are deferred with the owner's approval (2026-10-19)** | 7 |
 
 ## §6.6 Editing actions
 
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
-| Split (playhead, cursor, grid, range edges), click-free | M | 🔲 Open for M7. Owner request (2026-10-08): select a clip and drag it to cut it; the gesture is still to be chosen (M3 plan, out of scope) | 7 |
-| Join / glue MIDI; consolidate audio (rendered) and MIDI (merged), originals kept | M | 🔲 | 7 |
-| Trim, crop, delete, ripple delete, insert silence, cut, copy, paste, duplicate clip and range, loop/unloop, reverse, normalize, nudge, move, rename, recolour, mute, lock | M | 🟡 Trim and loop-extend (6c); move and copy (6a); cut, copy, paste, duplicate, delete, delete time (ripple) and insert time (6b); rename, recolour, mute and lock (6e). Crop, unloop into copies, reverse, normalize and clip nudge are not built yet (M7) | 3, 7 |
-| Bounce in place; render selection to new track | M | 🔲 | 7 |
-| Freeze, unfreeze, flatten | M | 🔲 | 7 |
-| Select all / none / invert / in track / to start / to end | M | 🟡 Select all (Ctrl+A) and none (Esc) in M3 7d; invert, in track, to start and to end with the editing tools (M7) | 3 |
+| Split (playhead, cursor, grid, range edges), click-free | M | 🔲 Open for M7b (slice E0). Owner request (2026-10-08): select a clip and drag it to cut it; the gesture is still to be chosen (M3 plan, out of scope) | 7b |
+| Join / glue MIDI; consolidate audio (rendered) and MIDI (merged), originals kept | M | 🔲 | 7b |
+| Trim, crop, delete, ripple delete, insert silence, cut, copy, paste, duplicate clip and range, loop/unloop, reverse, normalize, nudge, move, rename, recolour, mute, lock | M | 🟡 Trim and loop-extend (6c); move and copy (6a); cut, copy, paste, duplicate, delete, delete time (ripple) and insert time (6b); rename, recolour, mute and lock (6e). Crop, unloop into copies, reverse, normalize and clip nudge are not built yet (M7b) | 3, 7b |
+| Bounce in place; render selection to new track | M | 🔲 | 7b |
+| Freeze, unfreeze, flatten | M | 🔲 | 7b |
+| Select all / none / invert / in track / to start / to end | M | 🟡 Select all (Ctrl+A) and none (Esc) in M3 7d; invert, in track, to start and to end with the editing tools (M7b) | 3 |
 | Slice audio to MIDI or drum map | S | 🔲 | 8 |
 | Group and ungroup clips | L | 🔲 | — |
-| Guarantees: split+join is identity; consolidating unprocessed audio is identical; undo restores exactly | M | 🟡 | 3, 7 | Undo restores exactly by construction (shared snapshots, ADR-0024) and is property-tested; split, join and consolidate in M7 |
+| Guarantees: split+join is identity; consolidating unprocessed audio is identical; undo restores exactly | M | 🟡 | 3, 7b | Undo restores exactly by construction (shared snapshots, ADR-0024) and is property-tested; split, join and consolidate in M7b |
 
 ## §6.7 Mixer, routing and grouping
 
@@ -419,13 +420,13 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Clock / MTC in, network tempo synchronization | L | 🔲 |
 | Tracks: add, delete, duplicate, rename, recolour, reorder, multi-select | M | 🟡 All of these from the track menu, the "+ Add track" menu button and keys (Ctrl+T, Ctrl+Shift+T, Ctrl+D, Delete, F2, Alt+arrows), each one undo step (M3 slice 4a). Drag to reorder (slice 4d) |
 | Track types with routing, arm, monitor, polarity | M | 🔲 |
-| Freeze, unfreeze, flatten | M | 🔲 |
+| Freeze, unfreeze, flatten | M | 🔲 Planned in M7b (slice E5) |
 | Track delay, lock, icons, templates | S | 🔲 |
-| Select, marquee, range; cut/copy/paste/duplicate/delete/ripple delete/insert silence | M | 🟡 M3 6a: click, Ctrl and Shift selection, marquee, time ranges across tracks (a clip's bottom half). M3 6b (`lumen_project::edit`): cut, copy, paste (at the playhead or into a range, overwriting the destination range), duplicate, delete, delete time (ripple, the whole song) and insert time, on clips and ranges, each one undo step, in the lanes' right-click menu. Crop and the remaining range edits come with M7's split |
-| Split, join, consolidate, trim, crop, slip, nudge, move, loop/unloop | M | 🟡 Trim, slip, move and loop-extend (M3 6a to 6c). Split (with the drag-to-cut gesture the owner asked for), join, consolidate, crop, unloop into copies and clip nudge in M7 |
-| Fades, crossfades, clip gain, reverse, normalize, polarity | M | 🟡 Fades with free curves and four presets, and clip gain (M3 6d, ADR-0031). Moved clips crossfade while playing (5 ms, engine). Automatic crossfades on overlaps, reverse, normalize and polarity in M7 |
+| Select, marquee, range; cut/copy/paste/duplicate/delete/ripple delete/insert silence | M | 🟡 M3 6a: click, Ctrl and Shift selection, marquee, time ranges across tracks (a clip's bottom half). M3 6b (`lumen_project::edit`): cut, copy, paste (at the playhead or into a range, overwriting the destination range), duplicate, delete, delete time (ripple, the whole song) and insert time, on clips and ranges, each one undo step, in the lanes' right-click menu. Crop and the remaining range edits come with M7b's split |
+| Split, join, consolidate, trim, crop, slip, nudge, move, loop/unloop | M | 🟡 Trim, slip, move and loop-extend (M3 6a to 6c). Split (with the drag-to-cut gesture the owner asked for), join, consolidate, crop, unloop into copies and clip nudge in M7b |
+| Fades, crossfades, clip gain, reverse, normalize, polarity | M | 🟡 Fades with free curves and four presets, and clip gain (M3 6d, ADR-0031). Moved clips crossfade while playing (5 ms, engine). Automatic crossfades (M7b, model chosen at X1), reverse, normalize and polarity in M7b |
 | Snap and grid; zoom; clip name/colour/mute/lock; clip properties | M | ✅ | Grid and snapping (M3 5a) and zoom (4d) done; clip name, colour, mute, lock and the properties card done in M3 6e (ADR-0032; MT-APP-14 passed in run 4) |
-| Tool model: pointer, draw, erase, split, mute and zoom, with single-key switching and temporary modifiers (CLAUDE.md §5). Not built, and in no milestone plan yet; proposed for M7 with split | M | 🔲 Proposed for M7 (owner to confirm) |
+| Tool model: pointer, draw, erase, split, mute and zoom, with single-key switching and temporary modifiers (CLAUDE.md §5). Not built, and in no milestone plan yet; planned for M7b with split | M | 🔲 M7b slice E0; the key map and cursors are chosen from specimens (K1) |
 | Warp, transient and tempo detection, pitch shift | S | 🔲 |
 | Take lanes and comping | S | 🔲 |
 | Unlimited undo/redo with visible history | M | 🟡 Undo and redo for imports, tempo and time signature (Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y), a History window, and a note after each undo (M3 slice 3, ADR-0024). Every later edit joins it as it is built |
@@ -568,7 +569,8 @@ workstation names.
 4. Windows is the only system with timing and editor results.
 
 **Next.** The owner runs MT-VST-7 (or waives items, recorded in DECISIONS), then
-approves or rejects M6. Then M7, planned in `docs/milestones/M7.md` (draft).
+approves or rejects M6. Then M7 (automation) and M7b (editing and render), planned in `docs/milestones/M7.md` and
+`docs/milestones/M7b.md`.
 
 ### Milestone 6, slice 0 — report (2026-10-16)
 **Status:** Complete. Slice 0 settled how plugins are hosted before any
@@ -969,7 +971,7 @@ state.*
 **Not done or deferred:**
 - Deferred with owner approval: the waveform peak disk cache and
   relinking missing media → M9; app and file icons and file association
-  → M9; the drag-to-cut gesture and the tool model → M7 with split; group
+  → M9; the drag-to-cut gesture and the tool model → M7b with split; group
   summing, sends and routing → M4; a UX pass on hints and tooltips →
   scheduled when the next milestones are planned.
 - Recorded for later (KNOWN_ISSUES): a second instance offering to recover

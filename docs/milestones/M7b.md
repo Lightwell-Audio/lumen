@@ -1,0 +1,160 @@
+# Milestone 7b — Advanced Editing & Render: plan
+
+**Status:** Plan for the owner's review, 2026-10-19. **Not approved and not
+started.** No code has been written. This is the second half of the roadmap's
+milestone 7, split off at the owner's decision of 2026-10-19 (S1 A). The
+automation half is [M7](M7.md). M8 keeps its number.
+
+**Why a separate milestone.** CLAUDE.md §9 lists "Automation and envelopes" and
+"Editing power tools" as separate steps. They share almost nothing: M7
+changes the engine, the model and the lane interface, and M7b changes clip
+functions, the command table, the clip player, and adds an offline renderer.
+The tool model and the clip commands (E0, E1, E2) need no automation, so they
+may run alongside M7's A1 to A4 if the owner wants editing sooner. Only E3
+onward uses M7: a render must include clip envelopes (A7) once they exist.
+
+**How this plan was made.** The same three read-only explorations as M7
+(engine, project model, app interface). Nothing was built or run; each slice
+re-reads its own area before it starts.
+
+**Goal (ROADMAP §7, CLAUDE.md §5 and §6.6).** The editing tools of a
+professional workstation work on clips and time ranges: a tool model, split
+(with the drag-to-cut gesture), join, crop, reverse, normalize, crossfades,
+consolidate, bounce, and freeze.
+
+**Exit criterion.** A user can split and rejoin clips and hear no change,
+crossfade two clips at a join, consolidate and bounce a track with effects,
+freeze and unfreeze a track, save and reopen, and hear the same result.
+
+Requirements covered: CLAUDE.md §5 (tool model), §6.2 (clip properties,
+automatic crossfades), §6.6 (editing actions), and the matching rows of §7.
+
+## 1. What the code gives us
+
+| Area | Fact (pointer) | Consequence |
+|---|---|---|
+| Existing clip edits | Pure functions in `lumen-project/src/edit/mod.rs`: `slice`, `clear`, `clear_except`, `overwrite`, `trim`, `slip`, `delete_time` (ripple), `insert_time`; copy and paste in `edit/clipboard.rs`; Document methods in `document/clips.rs`; duplicate in `app/editing.rs`. Notes-only (MIDI) versions of split, glue, nudge and reverse exist in `edit/notes.rs`. | Clip split is a thin use of `slice`; the rest are new pure functions plus commands. |
+| Missing for clips | Split at the playhead, join/glue, crop to selection, consolidate, unloop into copies, reverse, normalize, nudge, polarity, select invert and its variants. | The editing list. |
+| Overlap rule | Owner rule (M3 6, ADR-0032): a clip put down on others cuts away what it covers (`edit::overwrite`). Clips never overlap in the model. | A crossfade cannot be an overlap without a model change (§3, X1). |
+| Edge fades | The engine declicks moves (5 ms) and gives every clip edge a 2 ms fade (`clips.rs`, `declick.rs`). | After a split of contiguous material, playback must still equal the unsplit clip (§3, E0 pass condition). |
+| Fades | `Clip.fade_in/out: Fade{length, curve}` (`lumen-core/src/fade.rs`) edited by handles in `arrangement/handles.rs`. | A crossfade can build on the fade-in. |
+| Audio clip data | `ClipContent::Audio{media, offset, gain_db}`, `Clip.loop_length`; no pan or polarity on a clip. Time ranges are `TimeRange{start, end, tracks}` (`arrangement/select.rs`). | Polarity is a clip flag the clip player multiplies by. |
+| Media | `Media{id, path (relative, `/` separators), frames, channels, sample_rate}`; the save worker copies imported audio into the project and `Document.media_files` maps ids to paths. Unreferenced media can sit in `Project.media`; no purge exists. | Rendered files register like imports and Save copies them. |
+| No audio writer | `lumen-media` decodes (symphonia) and resamples (rubato) only. A test WAV encoder exists in `lumen-media/tests/files.rs`; `lumen_project::write_atomic` gives atomic writes. | A hand-written WAV writer settles M7b; FLAC waits for M9. |
+| Offline rendering | No production device-free renderer. The pattern exists: `Engine::process` driven directly (`lumen-engine/tests/mixer.rs` `Rig::run`), `Lanes::update` builds an engine from a document (`lumen-app/src/lanes.rs`), `app/audio.rs` assembles the set. | A worker can build and drive an engine without a device. |
+| Plugin hosts offline | The host's process mode is real time (`instance/mod.rs`, `setup.rs`) and has no protocol field. `Engine::process` computes a wall-clock deadline (`HOST_SHARE` 3/4 of the period) and `Guard` turns a late block into silence. Each host is one process per plugin and cannot be shared with the live engine. | Plugin tracks in a render need an offline host mode and a deadline override. Unproven (§3, R2). |
+| Tools and keys | No global tool. The piano roll has `note_editor::Tool{Pointer, Draw}`. Plain keys in use include B, L, Q, M, F, X, W, H, Z, 0. A, E, J, S, V are free. Ctrl+E (split notes) and Ctrl+J (glue notes) are note commands today, available only with notes picked. | The tool model is new state; widening the two chords is an availability change in `app/commands.rs`. |
+| Gestures | `Gesture::{Move, Marquee, Range, Trim, Slip, Fade, Bend, Gain}` in `select.rs`, started in `start_gesture` (`app/editing.rs`). | Drag-to-cut is a new `Gesture`; a tool state is read there. |
+
+## 2. Scope and shape
+
+Seven slices (§5). Order: E0 and E1 first; E2 (crossfades) next; E3 to E5 are
+the render chain and follow in order; E6 closes.
+
+## 3. Decisions the evidence settles, and one design to choose
+
+Each becomes an ADR when its slice starts. The owner may overrule any of them.
+
+**R1. One render core.** Consolidate, bounce and render selection use one
+device-free render driver in a worker thread (the pattern `Lanes::update` and
+the mixer tests already use) and a hand-written WAV writer (16, 24 and 32-bit
+float, no new dependency, no licence question). Output is written beside the
+project's media and registered like an imported file, so Save copies it. FLAC
+waits for M9's export, where its dependency is decided.
+
+**R2. Plugin tracks in bounce and freeze are decided by a spike**, not by
+opinion: render the test plugins offline through a separate host process per
+plugin and compare against a real-time render. If hosts can render offline
+with a repeatable result, they do. If not, plugin tracks bounce by capturing
+the live engine (real time, with progress and cancel), and the plan records
+that deviation from the quality bar (F1).
+
+**E0 seamless joins.** Clips cut from one source that touch and are
+contiguous in the source play as one clip: no edge fade, no dip. The engine
+test is a null test of a split clip against the original.
+
+**X1. Crossfades.** Automatic short crossfades on overlaps are an [M] item
+(§6.2), so they are in scope. The model keeps clips from overlapping (the
+overwrite rule), so a crossfade needs a design:
+
+| Option | What it is | Cost |
+|---|---|---|
+| **A (recommended): a crossfade at a join.** The later clip's fade-in can be marked as crossing. While it plays, the clip before it keeps playing past its end, from its own source, fading out with the mirrored curve. It needs source material beyond the earlier clip's end; where there is none, the crossfade shortens or is skipped. No clips overlap in the model; the overwrite rule is untouched. A project setting turns on an automatic short crossfade (default 5 ms) at every join of clips that were not cut from contiguous material, and a handle at the join lengthens it | One flag on `Clip` (format v23), engine reads the earlier clip's tail, one handle in the arrangement |
+| B | Allow a bounded overlap only inside a crossfade pair, stored as an overlap | Clips overlap in the model in one case; hit testing, selection and the overwrite rule need exceptions |
+| C | Full overlap with the later clip on top and an automatic crossfade over the overlap | Reverses the owner's overwrite rule (M3) and touches every edit function |
+
+The owner chooses (X1). The recommendation is A because it keeps the rule the
+owner already chose and gives the same sound.
+
+## 4. Choices for the owner
+
+| # | Choice | State |
+|---|---|---|
+| S1 | Scope | **Decided 2026-10-19: A.** This is M7b, split from M7 |
+| X1 | Crossfade model | **Open**, three options in §3, recommendation A. A specimen of the handle and of the automatic setting comes with K1's |
+| K1 | The tool model and the split gesture | **Open.** Pointer, draw, erase, split, mute, zoom with single-key switching and temporary modifiers, plus the drag-to-cut gesture requested on 2026-10-08. Rendered specimens first (key map, cursors, two or three cut gestures) |
+| Y1 | The static clip pitch property | **Open, needs approval to defer.** CLAUDE.md §6.2 lists clip "pitch" as [M]. The owner deferred the audio pitch envelope because it needs a time-stretch and pitch engine; a static pitch shift needs the same engine (or a resampling change that alters the clip's length). Recommendation: defer it with the envelope, to be built with warp and time-stretch ([S]) |
+| F1 | Real-time bounce for plugin tracks | **Conditional.** Asked only if the R2 spike fails: A real-time capture for plugin tracks with the deviation recorded, or B hold bounce and freeze for plugin tracks until the host gains an offline mode |
+
+## 5. Slices
+
+Branches follow `lumen-branching` (`m7b-s<n>-<topic>`), cut from `origin/main`.
+Parts are commits. Each slice ends with a manual test and the gates in §6.
+Sizes are rough (S/M/L).
+
+| # | Slice | Delivers | Pass condition |
+|---|---|---|---|
+| E0 (M) | Tools and split | K1 as chosen: the global tool state, single-key switching with temporary overrides, split at playhead, edit cursor, grid and range edges (click-free), the drag-to-cut gesture, Ctrl+E widened to clips, seamless joins | Split then join returns the original; playback across a split equals the unsplit clip (null test); the keymap has no conflict; every tool and command is in the palette |
+| E1 (M) | Clip commands | Join (glue), crop to selection, unloop into copies, nudge by grid and finely, reverse (engine clip flag and reversed peaks), normalize (peak scan off the UI thread), polarity (clip flag), select invert, in track, to start, to end | Each is one undo step; reverse and normalize are golden renders; undo restores exactly |
+| E2 (M) | Crossfades | X1 as chosen: format v23, the engine tail read, the handle, the project setting, equal-power default curve | A crossfade is click-free and null-tests against an equal-power reference; an edit that breaks the join clears or ignores it; golden render |
+| E3 (L) | Render core and consolidate | R1: the worker render driver, WAV writer with atomic writes, registration as media, Ctrl+J widened to clips, consolidate for audio (gain, fades, envelopes, gaps as silence) and MIDI (merge and bake loops), originals kept in the media pool; the R2 spike runs first and its result is recorded | Consolidating unprocessed audio is identical to the original (null test); render equals real-time playback in a golden render; progress and cancel |
+| E4 (M) | Bounce | Bounce in place and render selection to a new track, with or without effects and tails | Bounce equals playback; a tail setting is honoured; the new track is one undo step |
+| E5 (L) | Freeze family | Freeze, unfreeze and flatten, including hosted plugins by the R2 route | A frozen track runs no plugin processes; a plugin crash during freeze is a result, not an exit; F1 only if the spike failed |
+| E6 (S) | Close M7b | Walkthrough (split, crossfade, consolidate, bounce, freeze, save, reopen), `lumen-review`, report, manual tests | The owner's MT-EDIT series passes; review findings fixed or tracked |
+
+## 6. Validation and records
+
+- Gates before each commit: `cargo fmt --all`, workspace clippy with
+  `-D warnings`, `cargo test --workspace`. Before pushing: the macOS
+  cross-clippy; the WSL mirror and the performance gate for engine and project
+  changes (+2% fails). Real-time paths run under the allocation guard and
+  RealtimeSanitizer in CI.
+- End of every slice (ADR-0029): the E2E suite and the six smoke tests pass, and
+  new E2E scenarios cover each delivered workflow. E2E waits for what the engine
+  answers, never a fixed time.
+- Format: each new persisted field bumps the version with a migration and a
+  frozen golden.
+- Specimens come first for visual and gesture choices (K1, X1), rendered for
+  the owner to choose from.
+- Manual tests (owner, Windows): MT-EDIT-1 to 6 for E0 to E6, written in
+  `docs/manual-tests/M7b.md` when each slice lands.
+- Records per slice: PROGRESS (§6.2, §6.6 and §7 rows), DECISIONS, ARCHITECTURE,
+  KNOWN_ISSUES, the handoff in `CLAUDE.md`.
+- Documentation follows the owner's naming rule.
+
+## 7. Risks
+
+1. **Offline plugin rendering is unproven** (R2). If it fails, bounce and
+   freeze of plugin tracks deviate from "offline equals real time" and the
+   owner decides (F1).
+2. **Seamless joins.** The 2 ms edge fades are there to avoid clicks; skipping
+   them for contiguous material must not reintroduce clicks at a locate or a
+   loop. The null test and a locate test cover it.
+3. **Crossfade tail needs material.** A clip trimmed to the end of its file has
+   no tail to play; the crossfade shortens or is skipped, and the interface
+   says so.
+4. **Reverse changes the clip player** and the peak display; both are tested
+   with golden renders.
+5. **Static clip pitch** (Y1) stays an [M] item until the owner approves the
+   deferral.
+6. **Cannot be verified in the cloud container:** installed plugins in a render,
+   and anything on macOS. Those are the owner's manual runs.
+
+## 8. Alternatives rejected
+
+- **A new encoder dependency now.** A hand-written WAV writer settles M7b; the
+  FLAC decision belongs to M9 with the export design.
+- **Bounce through the live engine for every track.** Takes the song's length
+  and blocks the engine for other work; kept only as the plugin fallback (F1).
+- **Consolidate by writing beside the source file.** Breaks relative paths and
+  collect-and-save; rendered files live in the project's media.
