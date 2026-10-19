@@ -288,7 +288,7 @@ pub(super) fn paint_field(
                 pos2(c.x + dx + tip, c.y),
                 pos2(c.x + dx, c.y + 4.0),
             ],
-            Stroke::new(1.5, face.text()),
+            Stroke::new(theme::stroke::LIT, face.text()),
         ));
         raised::focus_ring(ui.painter(), &response, rect);
         if response
@@ -327,7 +327,7 @@ pub(super) fn paint_field(
             pos2(c.x, c.y + 2.0),
             pos2(c.x + 3.5, c.y - 1.5),
         ],
-        Stroke::new(1.5, palette.text_secondary),
+        Stroke::new(theme::stroke::LIT, palette.text_secondary),
     ));
     let mut left = middle.left() + theme::space::S;
     if field.changed {

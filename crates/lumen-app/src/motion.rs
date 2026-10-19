@@ -29,6 +29,17 @@ pub const BREATH: f32 = 2.4;
 /// moves too slowly to need the display's full rate.
 pub const BREATH_FRAME: std::time::Duration = std::time::Duration::from_millis(33);
 
+/// How long a plugin is left before its text for a changing value is asked
+/// again (the knob's words follow a drag a little late), and the frame that
+/// shows the answer.
+pub const TEXT_EVERY: std::time::Duration = std::time::Duration::from_millis(50);
+/// The frame after a plugin's text was asked for, to show what came back.
+pub const TEXT_FRAME: std::time::Duration = std::time::Duration::from_millis(60);
+/// A state read again after it changed while being read.
+pub const RECHECK: std::time::Duration = std::time::Duration::from_millis(50);
+/// Once a second: the age of a sound that Reload would use.
+pub const AGE_FRAME: std::time::Duration = std::time::Duration::from_secs(1);
+
 static REDUCED: AtomicBool = AtomicBool::new(false);
 
 pub fn set_reduced(reduced: bool) {

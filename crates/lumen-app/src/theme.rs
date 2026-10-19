@@ -485,6 +485,16 @@ pub mod radius {
 }
 
 /// Line widths (`DESIGN.md` §5).
+/// The tint of a picture that is switched off: the picture, dimmed.
+pub const PICTURE_OFF: Color32 = Color32::from_gray(110);
+
+/// The grey of a colour (its average), for what is switched off.
+pub fn grey_of(colour: Color32) -> Color32 {
+    Color32::from_gray(
+        ((u16::from(colour.r()) + u16::from(colour.g()) + u16::from(colour.b())) / 3) as u8,
+    )
+}
+
 pub mod stroke {
     /// Separators, outlines, edge lights and lips.
     pub const HAIRLINE: f32 = 1.0;

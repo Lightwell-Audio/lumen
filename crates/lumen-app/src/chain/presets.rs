@@ -498,7 +498,7 @@ impl App {
         }
         // Changed while it was read: ask again.
         self.hosting.capture_one(device);
-        ctx.request_repaint_after(Duration::from_millis(50));
+        ctx.request_repaint_after(crate::motion::RECHECK);
     }
 
     fn write_preset(

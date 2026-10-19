@@ -2,7 +2,7 @@
 //! from the plugin, what they do, and the panel with every parameter (the
 //! owner's L1: one list, group chips, a star to put a parameter on the strip).
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use eframe::egui::{self, Align2, FontId, Key, Rect, Sense, Ui, pos2, vec2};
 use lumen_hosting::{ParamInfo, UnitInfo};
@@ -59,8 +59,7 @@ impl Panel {
     }
 }
 
-/// How long the plugin is left before its text for a value is asked again.
-const TEXT_EVERY: Duration = Duration::from_millis(50);
+use crate::motion::TEXT_EVERY;
 /// A row of the list.
 const ROW: f32 = 28.0;
 

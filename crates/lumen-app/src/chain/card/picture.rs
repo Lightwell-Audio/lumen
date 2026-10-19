@@ -41,7 +41,7 @@ pub(super) fn paint_snapshot(
         .uv(uv)
         .corner_radius(top)
         .tint(if muted {
-            Color32::from_gray(110)
+            theme::PICTURE_OFF
         } else {
             Color32::WHITE
         })
@@ -63,9 +63,7 @@ pub(super) fn paint_picture(
     let palette = theme::p();
     let base = art::colour(look.identity);
     let (top, ink) = if muted {
-        let grey = Color32::from_gray(
-            ((u16::from(base.r()) + u16::from(base.g()) + u16::from(base.b())) / 3) as u8,
-        );
+        let grey = theme::grey_of(base);
         (palette.raised.lerp_to_gamma(grey, 0.35), palette.text_hint)
     } else {
         (
@@ -91,7 +89,7 @@ pub(super) fn paint_picture(
             while x < area.right() {
                 clipped.line_segment(
                     [pos2(x, area.bottom()), pos2(x + area.height(), area.top())],
-                    Stroke::new(1.0, palette.border.gamma_multiply(0.6)),
+                    Stroke::new(theme::stroke::HAIRLINE, palette.border.gamma_multiply(0.6)),
                 );
                 x += step;
             }

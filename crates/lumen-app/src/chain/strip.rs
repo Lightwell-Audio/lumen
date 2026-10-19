@@ -281,7 +281,12 @@ pub(super) fn paint(
                 } else {
                     palette.border_strong
                 };
-                painter.extend(Shape::dashed_line(&ring, Stroke::new(1.0, ink), 2.0, 3.0));
+                painter.extend(Shape::dashed_line(
+                    &ring,
+                    Stroke::new(theme::stroke::HAIRLINE, ink),
+                    2.0,
+                    3.0,
+                ));
                 painter.text(
                     knob.center(),
                     Align2::CENTER_CENTER,

@@ -211,7 +211,7 @@ pub(super) fn chooser(
             pos2(c.x, c.y + 2.0),
             pos2(c.x + 3.5, c.y - 1.5),
         ],
-        Stroke::new(1.5, palette.text_secondary),
+        Stroke::new(theme::stroke::LIT, palette.text_secondary),
     ));
     raised::focus_ring(ui.painter(), &word_response, word_rect);
     raised::focus_ring(ui.painter(), &arrow_response, arrow_rect);
