@@ -192,6 +192,26 @@ impl Said {
     }
 }
 
+fn process(
+    instance: &mut Instance,
+    frames: u32,
+    scratch: &mut BlockScratch,
+    answer: &mut Answer,
+) -> Outcome {
+    let (buffers, events, params) = scratch.parts();
+    match instance.process_into(frames, buffers, events, params) {
+        Ok(done) => {
+            answer.status = done.status;
+            answer.latency = done.latency;
+            answer.restart = done.restart;
+            answer.repaired = done.repaired;
+            Outcome::Done
+        }
+        Err(InstanceError::Sequence(_)) => Outcome::NotReady,
+        Err(_) => Outcome::Failed,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,25 +233,5 @@ mod tests {
             said += u32::from(timing.note(Duration::from_millis(4), 64).is_some());
         }
         assert_eq!(said, Timing::MOST_LINES, "the lines are capped");
-    }
-}
-
-fn process(
-    instance: &mut Instance,
-    frames: u32,
-    scratch: &mut BlockScratch,
-    answer: &mut Answer,
-) -> Outcome {
-    let (buffers, events, params) = scratch.parts();
-    match instance.process_into(frames, buffers, events, params) {
-        Ok(done) => {
-            answer.status = done.status;
-            answer.latency = done.latency;
-            answer.restart = done.restart;
-            answer.repaired = done.repaired;
-            Outcome::Done
-        }
-        Err(InstanceError::Sequence(_)) => Outcome::NotReady,
-        Err(_) => Outcome::Failed,
     }
 }
