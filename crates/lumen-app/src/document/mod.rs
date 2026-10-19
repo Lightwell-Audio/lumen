@@ -30,6 +30,7 @@ mod mixer;
 mod notes;
 mod outputs;
 mod record;
+pub use automation::LaneRefusal;
 pub use clips::{CLIP_GAIN, ClipMove};
 pub use devices::{Refusal, Slot, find_device, name_of as device_name};
 pub use groups::Place;

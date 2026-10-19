@@ -30,6 +30,29 @@ const FLOOR_MS: f64 = 1000.0 / 60.0;
 /// notes, M5 slice 3b).
 pub const DENSE_NOTES: usize = 100_000;
 
+/// Gives every track of the stress project a volume lane of 200 points
+/// (`--bench-lanes`), a slow wave across 400 beats, for the lanes' drawing
+/// to be measured with all 200 tracks showing one.
+pub fn add_lanes(project: &mut lumen_project::model::Project) {
+    use lumen_core::automation::{Lane, Point};
+    use lumen_core::time::Ticks;
+    use lumen_project::automation::{AutomationLane, Target};
+    use std::sync::Arc;
+
+    let points = (0..200)
+        .map(|i| {
+            let wave = (i as f32 * 0.35).sin();
+            Point::new(Ticks::quarters(i * 2), -12.0 + 10.0 * wave)
+        })
+        .collect();
+    let lane = Lane::new(points).expect("sorted, finite points");
+    for track in &mut project.tracks {
+        Arc::make_mut(track)
+            .automation
+            .push(AutomationLane::new(Target::Volume, lane.clone()));
+    }
+}
+
 /// Adds the stress project's dense MIDI track: one clip of
 /// [`DENSE_NOTES`] notes across 400 beats over a six-octave range, for the
 /// arrangement's mini notes and the piano roll to be measured on.

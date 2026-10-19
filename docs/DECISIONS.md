@@ -93,6 +93,7 @@ irreversible or external) · *Superseded*.
 | [0079](#adr-0079--settings-sections-added-with-defaults-keep-the-version-and-the-file-is-flushed) | Settings: sections added with defaults keep the version, and the file is flushed | Accepted 2026-10-18 (review M11) | No |
 | [0080](#adr-0080--compatibility-tools-the-probe-the-fault-soak-and-the-callback-benchmark-m6-slice-7) | Compatibility tools: the probe, the fault soak and the callback benchmark (M6 slice 7) | Accepted 2026-10-19 (owner's P1, K1, W1, R1, V1 of 2026-10-18); MT-VST-7 is the owner's | Decided by the owner |
 | [0081](#adr-0081--automation-lanes-in-the-model-and-the-mixer-m7-slice-a0) | Automation lanes in the model and the mixer (M7 slice A0) | Accepted 2026-10-19 (the owner approved starting A0); MT-AUTO-1 passed (owner, 2026-10-19) | Claude, with the owner's M7 decisions |
+| [0082](#adr-0082--seeing-and-adding-an-automation-lane-m7-slice-a1) | Seeing and adding an automation lane (M7 slice A1) | Proposed 2026-10-19 (built on the owner's go-ahead; the look is the owner's L1 B) | Claude |
 
 ---
 
@@ -7393,3 +7394,69 @@ could not tell a mixer node where in the song a block was.
 - **Cost.** A node without lanes pays two `Option` checks a block. New perf scenario
   `engine_automated_64` (the routed mix with five kinds of lane on its 64 tracks).
 
+## ADR-0082 — Seeing and adding an automation lane (M7 slice A1)
+
+**Context.** A0 made lanes play and left them invisible. A1 is the first interface:
+the owner chose the look (L1 B: the lane over the track's own clip lane, the clips
+stepping back, a chip at the lane's top-left, the track header's A button).
+
+**Choices.**
+1. **State is the view's, not the project's.** `Arrangement.auto` (`arrangement/auto_view.rs`)
+   holds which parameter each track shows, the picked point and the one under the pointer.
+   It is not saved: a reopened project shows no lanes until A is pressed. Saving it would
+   be a format change, and the time-signature map is v23 (A6); the shown lanes join that
+   bump if the owner wants them kept.
+2. **One lane at a time per track.** The chip's menu lists the track's parameters (volume,
+   pan, trim, mute and a send for each return it sends to) with how many points each lane
+   holds, then turns the lane off or on, removes it, or hides lanes. A track with a lane
+   already opens on its first one, else volume.
+3. **Height.** A track showing a lane is at least five steps (110 pt, `UNFOLDED + STEP`)
+   whatever its fold: the chip needs a band of its own, and the values live under it
+   (`Frame::area`), so the chip never covers a point. The A button sits in the unfolded
+   header's second row, after pan; a folded header has none, and the A key and the
+   palette cover it.
+4. **Hit order.** A lane shown over a track takes the pointer on that track's whole row
+   (`app/auto_editing.rs`, called before the clip gestures); Ctrl reaches the clips
+   under it, exactly as on any clip. A plain press on a point picks it up, on empty lane
+   adds a point there and picks that up; a click adds or picks without a drag. Points
+   snap to the grid in time (Alt places freely), never pass their neighbours (a tick clear),
+   and a drag is one undo step. Value snapping and box selection are A2.
+5. **Keys.** `A` shows or hides the lane of the selected tracks; commands add a point at
+   the playhead (holding the lane's value there, or the control's own when the lane is new,
+   so nothing jumps), choose the parameter, turn the lane on or off, and remove it. With a
+   point picked and neither the clip editor nor the Devices tab holding the keyboard, the
+   arrows move it (Left and Right by a grid step, Up and Down by 2% of the lane, with Shift
+   0.5%) and Delete takes it; the last point takes the lane with it and the control is its
+   own again.
+6. **Scale.** `auto_scale.rs` is the one place values meet heights: levels put silence on
+   the lane's floor (the bottom 4%) and −60 to +6 dB above it, as the volume slider does;
+   trim, pan and parameters run straight across their range; mute has two heights.
+7. **Drawing.** The curve and points are drawn with egui over the GPU clips, only for the
+   tracks in view, and only the part of a segment in view (a segment millions of points wide
+   at sample zoom is two vertices; a curve is sampled across the view only: a tested
+   property). The clips behind it are drawn at 45% (`UNDER_LANE`), their names too. Not a
+   GPU layer as the plan guessed: the points in view are few, and egui keeps the chip and
+   the lane in one pass.
+
+**Deviations from the plan, for the owner's information.**
+- The master has no lane view yet (its row is not a track row); its lanes still play.
+- D5 (the controls show the lane's value) is not built: a fader whose lane plays does
+  not move. It comes with override and re-enable in A4, which changes the same controls.
+- No right-click menu on the lane itself: right-click opens the lanes' menu (grid, paste);
+  the chip's menu and the commands are the lane's. A2 can add one with box select.
+- Showing lanes is not saved with the project (choice 1).
+
+**Consequences.**
+- 13 end-to-end scenarios (`tests/e2e/lane_view.rs`), mutation checked: letting Ctrl
+  fall to the lane fails the Ctrl scenario; not merging a drag's steps fails the two
+  undo scenarios. 16 unit tests for the scale, the point edits, the nearest-point search
+  and the line.
+- New commands, at the end of `Command` and `ALL`: `view.automation` (A),
+  `view.automation_parameter`, `edit.automation_point`, `view.automation_on`,
+  `edit.automation_remove`.
+- New size tokens `AUTO_*` in `theme::size`. New flag `--bench-lanes` (with `--stress`:
+  a 200-point volume lane on every one of the 200 tracks, all shown).
+- Frame cost with 200 shown lanes: **release not measured** (the owner's Lumen held the
+  release binary); the debug build read p50 +1.0 to +2.5 ms against the same debug run
+  without lanes, idle 3 repaints in 3 s both ways. MT-AUTO-2 asks the owner for the
+  release numbers.

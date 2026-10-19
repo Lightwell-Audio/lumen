@@ -15,6 +15,11 @@ use crate::motion;
 impl Arrangement {
     /// The height a track is drawn at (before the glide).
     pub(super) fn target_height(&self, id: Id) -> f32 {
+        self.lane_floor(id, self.unlaned_height(id))
+    }
+
+    /// The height a track has before a lane shown over it asks for room.
+    fn unlaned_height(&self, id: Id) -> f32 {
         if self.expanded.contains(&id) {
             // A track with sends to show opens a step taller, so the
             // knobs have their own row (slice 4).
@@ -191,6 +196,7 @@ impl Arrangement {
         self.heights.retain(|id, _| exists(id));
         self.expanded.retain(exists);
         self.collapsed.retain(exists);
+        self.auto.prune(project);
         let returns = project.tracks.iter().any(|t| t.kind == TrackKind::Return);
         self.with_sends = project
             .tracks

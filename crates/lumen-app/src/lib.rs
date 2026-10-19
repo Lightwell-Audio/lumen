@@ -25,7 +25,9 @@
 //!                                vsync off, report, exit (status 3 below 60 fps);
 //!                                --bench-size 3440x1400 sets the window;
 //!                                --bench-editor opens the 100,000-note clip
-//!                                in the clip editor while it runs
+//!                                in the clip editor while it runs;
+//!                                --bench-lanes shows a 200-point volume lane
+//!                                over every track
 //! lumen --test-latency 12.4      the engine's synthetic latent device on the
 //!                                first track, to try delay compensation
 //! lumen --smoke-test            render a few frames, report start-up time, exit

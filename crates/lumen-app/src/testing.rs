@@ -49,6 +49,7 @@ impl Launch {
             open: None,
             open_audio: None,
             stress: false,
+            bench_lanes: false,
             audio_settings: false,
             recover_latest: false,
             scale: None,
@@ -1141,6 +1142,73 @@ impl App {
             .into_iter()
             .find(|(_, clip, _)| *clip == id)
             .map(|(_, _, rect)| rect)
+    }
+
+    /// The parameter `track`'s shown lane draws, if it shows one (M7 slice A1).
+    pub fn automation_shown(&self, track: Id) -> Option<lumen_project::automation::Target> {
+        self.arrangement.auto.shown.get(&track).copied()
+    }
+
+    /// Where `track`'s shown lane is on screen: its whole row.
+    pub fn automation_row(&self, ctx: &egui::Context, track: Id) -> Option<egui::Rect> {
+        self.lane_frame_of(ctx, track).map(|(_, frame)| frame.row)
+    }
+
+    /// Where a point at `quarters` of `value` would be drawn on `track`'s
+    /// shown lane, for pressing there.
+    pub fn automation_spot(
+        &self,
+        ctx: &egui::Context,
+        track: Id,
+        quarters: f64,
+        value: f32,
+    ) -> Option<egui::Pos2> {
+        let (target, frame) = self.lane_frame_of(ctx, track)?;
+        Some(egui::pos2(
+            frame.x(crate::ruler::ticks_at(quarters)),
+            frame.y(target, value),
+        ))
+    }
+
+    /// Where point `index` of `track`'s shown lane is drawn.
+    pub fn automation_point_pos(
+        &self,
+        ctx: &egui::Context,
+        track: Id,
+        index: usize,
+    ) -> Option<egui::Pos2> {
+        let (target, frame) = self.lane_frame_of(ctx, track)?;
+        let held = self
+            .document
+            .project()
+            .tracks
+            .iter()
+            .find(|t| t.id == track)?;
+        let point = held.lane(target)?.lane.points().get(index).copied()?;
+        Some(frame.pos(target, &point))
+    }
+
+    /// The point picked on a lane: its track and place in the lane.
+    pub fn automation_picked(&self) -> Option<(Id, usize)> {
+        self.arrangement.auto.picked.map(|p| (p.track, p.index))
+    }
+
+    fn lane_frame_of(
+        &self,
+        ctx: &egui::Context,
+        track: Id,
+    ) -> Option<(
+        lumen_project::automation::Target,
+        crate::arrangement::auto_view::Frame,
+    )> {
+        self.arrangement.lane_frame(
+            ctx,
+            self.canvas,
+            self.document.project(),
+            self.lanes.pending().len(),
+            self.nav.view,
+            track,
+        )
     }
 
     /// Where clip `id` is drawn on the timeline now: on its way while it

@@ -166,7 +166,13 @@ impl App {
                 "Select clips, a time range or tracks",
             ),
             Command::Delete => need(
-                clips || tracks || locator || notes || self.lane_keys_picked() || self.chain.live,
+                clips
+                    || tracks
+                    || locator
+                    || notes
+                    || self.lane_keys_picked()
+                    || self.auto_keys_picked()
+                    || self.chain.live,
                 "Select clips, a time range, tracks or a locator",
             ),
             Command::DeleteTime | Command::InsertTime => need(
@@ -361,9 +367,18 @@ impl App {
                     .any(|t| t.kind == TrackKind::Group),
                 "There are no group tracks yet",
             ),
-            Command::FoldTracks | Command::UnfoldTracks => {
-                need(tracks || clip || notes, "Select a clip or tracks first")
+            Command::FoldTracks | Command::UnfoldTracks => need(
+                tracks || clip || notes || self.auto_keys_picked(),
+                "Select a clip or tracks first",
+            ),
+            Command::AutomationShow => need(!self.auto_tracks().is_empty(), "Select a track first"),
+            Command::AutomationChoose | Command::AutomationAddPoint => {
+                need(self.auto_chosen().is_some(), "Show a lane first (A)")
             }
+            Command::AutomationToggleLane | Command::AutomationRemoveLane => need(
+                self.auto_chosen_has_lane(),
+                "The shown lane has no points yet: click it to add one",
+            ),
             Command::SelectTrackAbove
             | Command::SelectTrackBelow
             | Command::ExtendSelectionUp
@@ -425,6 +440,7 @@ impl App {
         let clip = !self.arrangement.clips.is_empty();
         let notes = self.note_keys_picked();
         let lane_points = self.lane_keys_picked();
+        let auto_point = self.auto_keys_picked();
         let note_keys = self.note_keys();
         if command == Command::Deselect && self.note_editor.cancel_gesture() {
             self.end_audition();
@@ -502,6 +518,7 @@ impl App {
             // With the clip editor holding the keyboard and notes picked,
             // the keys that act on a selection act on them.
             Command::Delete if lane_points => self.lane_delete(),
+            Command::Delete if auto_point && !notes => self.auto_delete(),
             Command::Delete if notes => self.note_op(NoteOp::Delete),
             Command::Delete if self.chain.live => self.remove_chain_device(),
             Command::Duplicate if notes => self.note_op(NoteOp::Duplicate),
@@ -526,6 +543,19 @@ impl App {
                 direction: 1,
                 fine: false,
             }),
+            // A picked automation point: the arrows move it, Shift for
+            // fine value steps.
+            Command::FoldTracks if auto_point => self.auto_nudge(-1, 0, false),
+            Command::UnfoldTracks if auto_point => self.auto_nudge(1, 0, false),
+            Command::SelectTrackAbove if auto_point => self.auto_nudge(0, 1, false),
+            Command::SelectTrackBelow if auto_point => self.auto_nudge(0, -1, false),
+            Command::ExtendSelectionUp if auto_point => self.auto_nudge(0, 1, true),
+            Command::ExtendSelectionDown if auto_point => self.auto_nudge(0, -1, true),
+            Command::AutomationShow => self.auto_show(),
+            Command::AutomationChoose => self.auto_choose(ctx),
+            Command::AutomationAddPoint => self.auto_add_point(),
+            Command::AutomationToggleLane => self.auto_toggle_lane(),
+            Command::AutomationRemoveLane => self.auto_remove_lane(),
             Command::TransposeUp => self.note_op(NoteOp::Transpose(1)),
             Command::TransposeDown => self.note_op(NoteOp::Transpose(-1)),
             Command::OctaveUp => self.note_op(NoteOp::Transpose(12)),
@@ -594,6 +624,7 @@ impl App {
             Command::DeleteTime => self.edit(Edit::DeleteTime),
             Command::InsertTime => self.edit(Edit::InsertTime),
             Command::Deselect => {
+                self.arrangement.auto.picked = None;
                 self.arrangement.clips.clear();
                 self.arrangement.range = None;
                 self.locators.selected = None;
