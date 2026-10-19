@@ -50,6 +50,7 @@ irreversible or external) · *Superseded*.
 | [0037](#adr-0037--group-tracks-format-v8) | Group tracks (format v8): a group's tracks always follow it in the list; grouping, ungrouping, folding, nested rails, lane bars, arming and deleting a group | Accepted 2026-10-09 | No |
 | [0038](#adr-0038--mute-solo-returns-master-and-cue-m4-slice-4-format-v10) | Mute, solo, returns, master and cue (format v10) | Accepted 2026-10-09 | No |
 | [0039](#adr-0039--lumens-licence-gpl-30-or-later-supersedes-adr-0012) | Lumen's licence: GPL-3.0-or-later, sold packaged binaries (supersedes ADR-0012) | Accepted 2026-10-09 | Yes (owner items) |
+| [0040](#adr-0040--the-mixer-panel-and-meters-m4-slice-5) | The mixer panel and meters: console strips, accent meters, loudness column, the latching wheel (M4 slice 5) | Accepted 2026-10-09 | No |
 | [0041](#adr-0041--sidechains-and-delay-compensation-m4-slice-6) | Sidechains and delay compensation: devices and taps in the graph, delay lines, read ahead, the D1 readout | Accepted 2026-10-10 | No |
 | [0042](#adr-0042--the-m4-exit-walkthrough-and-known-issues-m4-slice-7) | The M4 exit walkthrough; edits taken while stopped; session locks for autosaves; submenu names; the pipeline cache off the UI thread | Accepted 2026-10-10 | No |
 | [0043](#adr-0043--the-light-layer-and-the-mark) | The light layer (five levels of light) and the mark (Dawn in Sunrise): the playhead beam, meter heads, the mark as a master meter, the window icon | Accepted 2026-10-10 | No |
@@ -57,11 +58,24 @@ irreversible or external) · *Superseded*.
 | [0045](#adr-0045--hearing-midi-the-event-path-the-synth-and-midi-to-m5-slice-1-format-v12) | Hearing MIDI: the event path, the synth (`lumen-devices`) and MIDI To (format v12) | Accepted 2026-10-10 | No |
 | [0046](#adr-0046--playing-live-midi-from-monitoring-the-computer-keyboard-and-the-midi-chip-m5-slice-2-format-v13) | Playing live: live input in the engine, MIDI From and Monitor (format v13), the computer keyboard, the MIDI chip | Accepted 2026-10-11 | No |
 | [0047](#adr-0047--midi-clips-and-the-piano-roll-m5-slice-3-format-v14) | MIDI clips and the piano roll: note edits and mute (format v14), notes on the GPU, the clip editor and its pop-out, auditioning | Accepted 2026-10-11 | No |
+| [0048](#adr-0048--the-clip-editors-own-zoom-and-scroll-m5-slice-3-amendment) | The clip editor's own zoom and scroll (M5 slice 3 amendment) | Accepted 2026-10-11 (owner) | No |
+| [0049](#adr-0049--time-selection-in-empty-lanes-m5-amendment) | Time selection in empty lanes (M5 amendment) | Accepted 2026-10-11 (owner's request; modifier and rules for the owner to confirm) | No |
+| [0050](#adr-0050--velocity-and-controller-lanes-m5-slice-4-no-format-change) | Velocity and controller lanes: stems, one lane with tabs, Pencil, Line and Curve, a 1/64 event density (M5 slice 4, no format change) | Accepted 2026-10-11 | No |
+| [0051](#adr-0051--premium-control-look-approved-from-canvas-mock-ups-2026-10-11) | Premium control look (approved from canvas mock-ups 2026-10-11) | Accepted 2026-10-11; replaced in part by ADR-0052 | No |
 | [0052](#adr-0052--the-design-system-replaces-adr-0051s-lit-look) | The design system's material and tokens replace ADR-0051's lit look | Accepted 2026-10-11 | No |
+| [0053](#adr-0053--clip-headers-move-bodies-select-time) | Clip headers move; bodies select time | Accepted 2026-10-11 (owner) | No |
+| [0054](#adr-0054--quantize-and-its-tools-m5-slice-5-no-format-change) | Quantize and its tools: ghost-trail preview, comet sliders, one-key apply (M5 slice 5, no format change) | Accepted 2026-10-12 | No |
 | [0055](#adr-0055--recording-midi-m5-slice-6-no-format-change) | Recording MIDI (M5 slice 6, no format change): the engine's Record with a count-in, live capture with its timeline sample, a pure take builder (Replace, Overdub, loops, punch) and one undo step per take | Accepted 2026-10-13 | No |
+| [0056](#adr-0056--a-midi-clip-is-a-window-onto-its-notes-format-v15) | A MIDI clip is a window onto its notes (format v15) | Accepted 2026-10-13 (owner) | No |
+| [0057](#adr-0057--recording-at-clip-edges-and-midi-trims-that-follow-the-hand) | Recording at clip edges, and MIDI trims that follow the hand | Accepted 2026-10-13 (owner's request); the Overdub merge superseded by ADR-0060 | No |
 | [0058](#adr-0058--notes-carry-on-across-seams-and-overdub-shows-its-clip-at-once) | Notes carry on across seams (touching MIDI clips that hold the same note play it as one), and Overdub shows its clip at once | Accepted 2026-10-13 | No |
 | [0059](#adr-0059--a-carried-note-belongs-to-its-clip-and-the-clip-editor-shows-hidden-notes) | A carried note belongs to the clip it began in (a chase there does not strike it), and the clip editor shows notes outside the window | Accepted 2026-10-13 | No |
 | [0014](#adr-0014--repository-layout-and-ci) | Repository layout and CI | Accepted: **private GitHub repository** (owner creates it) | — |
+| [0060](#adr-0060--overdub-always-records-a-new-clip) | Overdub always records a new clip | Accepted 2026-10-13 (owner's report) | No |
+| [0061](#adr-0061--a-sounding-note-is-known-by-where-it-began) | A sounding note is known by where it began | Accepted 2026-10-13 (owner's report) | No |
+| [0062](#adr-0062--standard-midi-files-and-midi-clock-out) | Standard MIDI Files and MIDI clock out | Accepted 2026-10-13 (owner's F1 to F4) | No |
+| [0063](#adr-0063--the-test-audio-device-keeps-its-pace) | The test audio device keeps its pace | Accepted 2026-10-14 | No |
+| [0064](#adr-0064--midi-recording-brackets-mask-continuous-capture) | MIDI recording brackets mask continuous capture | Accepted 2026-10-14 (owner's correction) | No |
 | [0065](#adr-0065--deterministic-test-plugins-lumen-test-plugin) | Deterministic test plugins with injectable faults (`lumen-test-plugin`, M6 slice 0) | Accepted 2026-10-15 | No |
 | [0066](#adr-0066--the-plugin-host-crate-and-its-protocol) | The plugin host crate (`lumen-plugin-host`): loading through the OS loader, a bounded versioned protocol, stale-block rejection and deadlines (M6 slice 0, part 2) | Accepted 2026-10-15 (the audio path and the process-grouping policy are not decided) | No |
 | [0067](#adr-0067--the-shared-memory-audio-path-and-the-measurement-harness) | The shared-memory audio path (`lumen_plugin_host::shm`): one block in flight, untrusted-region rules, two-sided wake-up settings, Windows job object, and the measurement harness (M6 slice 0, part 3) | Accepted 2026-10-15 for the transport (the wake-up, the real-time wait contract and the process grouping wait for MT-VST-0) | No |
@@ -70,9 +84,13 @@ irreversible or external) · *Superseded*.
 | [0070](#adr-0070--hosted-devices-in-the-engine-the-contract-two-phase-instruments-and-effects-with-a-fallback-m6-slice-2b) | Hosted devices in the engine: the `Hosted` contract and its `Guard`, hosted instruments begun before the clips render, hosted effects in the mixer with a delay-line fallback and a glide, and what 2b leaves to later (M6 slice 2b) | Accepted 2026-10-16 (verified with fake hosts on Windows, and the new tests under RealtimeSanitizer and the performance gate in WSL; no real plugin, no process, no full macOS run) | No |
 | [0071](#adr-0071--the-hosting-manager-a-process-per-plugin-device-the-link-and-the-apps-bridge-m6-slice-2c) | The hosting manager (`lumen-hosting`): a process and a thread per plugin device, loaded in the background, the `Link` the engine plays it through, the app's bridge, and the engine's rule that a host in a new or skipped track list is never given away (M6 slice 2c) | Accepted 2026-10-16 (verified with the test plugin in real host processes on Windows, and in the app's end-to-end tests; no real plugin, no Linux or macOS run of the app) | No |
 | [0072](#adr-0072--the-devices-tab-cards-placement-and-dragging-m6-slice-2d) | The Devices tab: cards, placement and dragging (M6 slice 2d) | **Accepted** 2026-10-17 (owner's C4 design) | No |
+| [0073](#adr-0073--editing-the-chain-moving-copying-folding-the-master-and-the-plugins-picture-m6-slice-3) | Editing the chain: moving, copying, folding, the master and the plugin's picture (M6 slice 3) | Accepted 2026-10-17 (owner's E1 and E2) | No |
 | [0074](#adr-0074--plugins-ring-out-until-their-output-is-quiet) | Plugins ring out until their output is quiet: a hosted instrument or effect is given blocks until it has been below −90 dBFS for two seconds (or its reported tail, at most ten), effects after Stop included | Accepted 2026-10-17 (owner's B; verified with fake hosts and the test plugin; no real plugin) | Decided by the owner |
 | [0075](#adr-0075--missed-plugin-blocks-notes-kept-hosts-at-full-speed-costs-measured) | Missed plugin blocks: notes a busy host could not take go with the next block, host processes run at high priority without power throttling, and each block's plugin work and wait are measured; the readout will be a block budget bar | Accepted 2026-10-17 (owner's fixes 1 to 3 and readout B) | Decided by the owner |
 | [0076](#adr-0076--plugin-parameters-values-the-project-holds-edits-from-inside-plugins-state-reads) | Plugin parameters (M6 slice 4): the project holds the values over a plugin's saved state (format v19), a plugin's own edits are gestures and one undo step, controllers reach plugin instruments through their own mapping, a changed plugin's state is read once it rests | Accepted 2026-10-17 (owner's P1 to P4); editor and interface parts open | Decided by the owner |
+| [0077](#adr-0077--presets-and-programs-a-sound-is-replaced-as-a-whole-tried-before-it-is-kept) | Presets and programs: a sound is replaced as a whole, tried before it is kept (M6 slice 5) | Accepted 2026-10-17 (owner's R1 to R5); MT-VST-5 is the owner's | Decided by the owner |
+| [0078](#adr-0078--production-routing-buses-sidechain-outputs-and-plugin-latency-m6-slice-6) | Production routing: buses, sidechain, outputs and plugin latency (M6 slice 6) | Accepted 2026-10-18 (owner's B1, S1, M1, L1, L2, C1, O1, I1); MT-VST-6 is the owner's | Decided by the owner |
+| [0079](#adr-0079--settings-sections-added-with-defaults-keep-the-version-and-the-file-is-flushed) | Settings: sections added with defaults keep the version, and the file is flushed | Accepted 2026-10-18 (review M11) | No |
 
 ---
 
@@ -7205,3 +7223,25 @@ outputs the plugin declares. Setting a plugin up again drops the notes it holds.
 The cost of every output being on is to be measured with real plugins (MT-VST-6).
 **Run:** the smoke tests, the WSL performance gate (largest change +1.06%, `engine_hosted_64`, the rest within +0.5%; no baseline change) and RealtimeSanitizer over the engine, hosted, link and
 plugin-host audio-path tests, all passing. **Not run:** macOS app runs.
+
+## ADR-0079 — Settings: sections added with defaults keep the version, and the file is flushed
+
+**Status:** Accepted 2026-10-18 (the M6 review, M11).
+
+**Context.** The settings file is versioned (`VERSION`, 1). Two sections were
+added later with defaults (`record` in M5 slice 6c, `plugins` in M6 slice 1) and
+the version stayed 1: an older file reads as before, and a newer Lumen's file read
+by an older one is set aside, not overwritten (review H2). The rule lived only in
+comments. The write also did not flush the file before renaming it, while the module
+says a crash never leaves it half-written (a project and the plugin cache do flush).
+
+**Decision.** (1) A section added with defaults does not change `VERSION`; a field
+removed, renamed or given another meaning does, with a migration. (2) The settings
+are written with `lumen_project::write_atomic` (temporary file, flush, rename, flush
+the folder), as projects are.
+
+**Consequences.** No migration is needed for the existing files. A file written by
+a newer version that added a section still reads in an older one (the section is
+ignored) but is set aside on load by the version rule only when the version itself is
+higher.
+

@@ -5,8 +5,8 @@
 //! rest) join them in M9.
 //!
 //! The file is versioned JSON in the user's settings folder. It is written
-//! atomically (to a temporary file, then renamed), so a crash never leaves
-//! it half-written. A file that cannot be read is moved aside as
+//! atomically (to a temporary file, flushed, then renamed), so a crash never
+//! leaves it half-written. A file that cannot be read is moved aside as
 //! `settings.json.bad` and Lumen starts with defaults, saying why.
 
 use std::collections::BTreeMap;
@@ -18,6 +18,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::record_settings::RecordSettings;
 
+/// The file's version. A section added with defaults does not change it (an
+/// older file reads as before; ADR-0079); a field removed or given another
+/// meaning does, with a migration.
 pub const VERSION: u32 = 1;
 
 /// The device chosen in the audio settings.
@@ -373,9 +376,8 @@ pub fn save(path: &Path, settings: &Settings) -> std::io::Result<()> {
         std::fs::create_dir_all(dir)?;
     }
     let text = serde_json::to_string_pretty(settings).map_err(std::io::Error::other)?;
-    let temporary = path.with_extension("json.tmp");
-    std::fs::write(&temporary, text)?;
-    std::fs::rename(&temporary, path)
+    // Flushed to disk before it replaces the old file, as a project is.
+    lumen_project::write_atomic(path, text.as_bytes())
 }
 
 /// Saves settings on a background thread, one save at a time and in order,
@@ -549,10 +551,11 @@ mod tests {
         assert_eq!(load(&path), (settings.clone(), None));
         let metronome = MetronomeSettings::from(&settings.metronome);
         assert_eq!(metronome.sound, ClickSound::Wood);
-        assert!(
-            !path.with_extension("json.tmp").exists(),
-            "no temporary file left behind"
-        );
+        let left: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(left, ["settings.json"], "no temporary file left behind");
     }
 
     #[test]
