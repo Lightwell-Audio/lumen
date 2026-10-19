@@ -633,3 +633,44 @@ fn a_preset_a_plugin_always_refuses_says_so_after_its_tries_and_changes_nothing(
     lumen.click("Broken");
     lumen.frames(10);
 }
+
+#[test]
+fn a_preset_saved_before_a_later_change_still_loads_its_own_values() {
+    let (mut lumen, places) = launch("save-twice");
+    let folder = plugin_folder(&places.user);
+
+    lumen.app_mut().set_device_param(PLUGIN, LEVEL, 0.4);
+    lumen.wait_for("the plugin to hear it", |app| {
+        app.device_param_known(PLUGIN, LEVEL) == Some(0.4)
+    });
+    save_as(&mut lumen, "test");
+    let first = folder.join("test.vstpreset");
+    let wait = first.clone();
+    lumen.wait_for("the first file", move |_| wait.exists());
+
+    lumen.app_mut().set_device_param(PLUGIN, LEVEL, 0.7);
+    lumen.wait_for("the plugin to hear the change", |app| {
+        app.device_param_known(PLUGIN, LEVEL) == Some(0.7)
+    });
+    save_as(&mut lumen, "test 2");
+    let second = folder.join("test 2.vstpreset");
+    let wait = second.clone();
+    lumen.wait_for("the second file", move |_| wait.exists());
+
+    let saved = Preset::parse(&std::fs::read(&first).unwrap()).unwrap();
+    assert_eq!(saved.component, state(0.4, 0.0), "the first file's sound");
+
+    lumen.open_preset_menu();
+    lumen.click("test");
+    lumen.wait_for("the plugin to hold the first sound", |app| {
+        app.device_param_known(PLUGIN, LEVEL) == Some(0.4)
+    });
+}
+
+fn save_as(lumen: &mut Lumen, name: &str) {
+    lumen.open_preset_menu();
+    lumen.click("Save as\u{2026}");
+    lumen.type_into_menu(name);
+    lumen.click("Save preset");
+    lumen.frames(60);
+}

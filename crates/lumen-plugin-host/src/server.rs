@@ -206,7 +206,7 @@ impl State {
                     Err(e) => from_instance(e),
                 }
             }
-            Request::GetState => match self.controls() {
+            Request::GetState => match self.controls_with_values() {
                 Some(controls) => match controls.state() {
                     Ok(bytes) => Response::State(bytes),
                     Err(e) => from_instance(e),
@@ -343,6 +343,16 @@ impl State {
     /// used without it.
     fn controls(&self) -> Option<Controls> {
         lock(&self.shared).instance.as_ref().map(Instance::controls)
+    }
+
+    /// As [`Self::controls`], after the values Lumen set are given to the
+    /// processor, so a state read holds them. A block that fails leaves the
+    /// read to report the state as it is.
+    fn controls_with_values(&self) -> Option<Controls> {
+        let mut guard = lock(&self.shared);
+        let instance = guard.instance.as_mut()?;
+        let _ = instance.flush_parameters();
+        Some(instance.controls())
     }
 
     /// What follows the last request: the audio thread ends first, then the

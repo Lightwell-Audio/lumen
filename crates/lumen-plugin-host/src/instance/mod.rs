@@ -503,6 +503,22 @@ impl Instance {
         }
     }
 
+    /// Gives the processor the values Lumen set since its last block. A value
+    /// set while the plugin is not processing reaches the processor only in a
+    /// block, so a state read taken before one would miss it. Runs one block of
+    /// silence on the calling thread when values are waiting, and nothing
+    /// otherwise. Call with the instance lock held, as for any control call.
+    pub fn flush_parameters(&mut self) -> Result<(), InstanceError> {
+        let Some(format) = self.format.filter(|_| self.processing) else {
+            return Ok(());
+        };
+        if !self.handler.has_pending() {
+            return Ok(());
+        }
+        let silence = vec![vec![0.0_f32; 1]; usize::from(format.inputs)];
+        self.process(1, &silence, &[], &[]).map(|_| ())
+    }
+
     pub fn create_editor_view(&self) -> Option<ComPtr<IPlugView>> {
         self.controls().create_editor_view()
     }

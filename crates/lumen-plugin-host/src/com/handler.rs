@@ -94,6 +94,13 @@ impl Handler {
             into.extend(queued.drain(..));
         }
     }
+
+    /// Whether values are queued for the processor's next block.
+    pub fn has_pending(&self) -> bool {
+        self.to_processor
+            .lock()
+            .is_ok_and(|queued| !queued.is_empty())
+    }
 }
 
 /// The most distinct parameters waiting for a block, and the most a block
