@@ -328,7 +328,7 @@ impl App {
             Gesture::Wave(waving) => {
                 waving.to = self.snapped(frame.ticks_at(p.x), free).max(Ticks::ZERO);
                 waving.end = Self::snap_to_rest(target, frame, frame.height_at(p.y), free).0;
-                let points = pure::wave(
+                let mut points = pure::wave(
                     waving.kind,
                     waving.from,
                     waving.to,
@@ -337,6 +337,12 @@ impl App {
                     waving.end,
                     |h| scale::value(target, h),
                 );
+                // A mute lane holds each value until the next point.
+                if target == Target::Mute {
+                    for point in &mut points {
+                        point.shape = Shape::Step;
+                    }
+                }
                 let (a, b) = (waving.from.min(waving.to), waving.from.max(waving.to));
                 if !points.is_empty()
                     && let Some(lane) = pure::replace_span(&waving.base, a, b, &points)

@@ -6,6 +6,8 @@ run. Add new ones here as they are found.
 
 | Found | Issue | Effect | Addressed in |
 |---|---|---|---|
+| 2026-10-19 (M7 slice A2) | **A point at the very start of the song is hard to grab.** It sits on the lane's left edge and a press exactly on the edge misses it; a press a few points to its right picks it. | The first point of a lane takes a careful click (or Ctrl+A, or the arrow keys once it is picked) | M7 slice A2 follow-up if the owner finds it in MT-AUTO-3; the fix is to let the lane's hit area reach the points' reach past the edge |
+| 2026-10-19 (M7 slice A2) | **Shape tools, the pencil and the box are not shown as specimens first.** The strip, the shape chooser, the bend dot and the box use the design system's existing pieces. | The look may need the owner's changes | MT-AUTO-3 steps 12 and 13 |
 | 2026-10-19 (M7 slice A1) | **Which lanes are shown is not saved with the project.** A reopened project shows no lanes until A is pressed. | Re-show lanes after opening | Decide with the time-signature format bump (M7 slice A6), if the owner wants it kept |
 | 2026-10-19 (M7 slice A1) | **The master has no lane view.** Its lanes still play. | A master volume lane cannot be drawn or edited yet | M7 slice A2 or later, with the master's row |
 | 2026-10-19 (M7 slice A1) | **A track's controls do not follow a playing lane** (D5): a fader with a volume lane does not move with it. | The control and what is heard differ until the lane is off | M7 slice A4, with the override state |

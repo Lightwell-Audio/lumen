@@ -477,3 +477,26 @@ fn a_tooltip_shows_the_value_while_a_point_moves() {
     lumen.harness.drop_at(spot(&lumen, track, 3.0, -20.0));
     lumen.frames(3);
 }
+
+#[test]
+fn a_shape_on_a_mute_lane_is_made_of_steps() {
+    let (mut lumen, track) = tone_with_lane("lane-mute-shape");
+    lumen.click("Automation lane of tone: Volume");
+    lumen.click("Mute");
+    run_command(&mut lumen, "Automation tool: sine");
+    let from = spot(&lumen, track, 4.0, 0.0);
+    let to = spot(&lumen, track, 12.0, 1.0);
+    lumen.drag(from, to, Modifiers::NONE);
+    let held = lane(&lumen, track, Target::Mute);
+    assert!(held.len() >= 4, "{} points", held.len());
+    assert!(
+        held.points().iter().all(|p| p.shape == Shape::Step),
+        "a mute lane holds each value: {:?}",
+        held.points()
+    );
+    assert!(
+        held.points()
+            .iter()
+            .all(|p| p.value == 0.0 || p.value == 1.0)
+    );
+}
