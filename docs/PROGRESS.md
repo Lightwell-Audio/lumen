@@ -2,7 +2,7 @@
 
 ## Status
 
-**M6 slice 7 (compatibility and closeout): the review is done; its High findings and Medium findings M1 to M6 and M8 to M12 are fixed, 2026-10-18** on `m6-s7-compatibility-closeout` (`docs/audits/2026-10-18-m6.md`, Status table). Built in slice 7: the probe (`lumen-host-probe`), the fault soak (`lumen-hosting/tests/soak.rs`), the callback benchmark (`lumen --bench-callback`) and the combined walkthrough (E2E `walkthrough_plugins`). Not done: the owner's MT-VST-7 runs on real plugins, M7 and M13 of the review, the Low findings, the M6 report. The earlier summaries follow.
+**M6 slice 7 (compatibility and closeout): the review is done; its High findings, Medium findings M1 to M12 and M14, and Low findings L1 to L6 are fixed, 2026-10-18** on `m6-s7-compatibility-closeout` (`docs/audits/2026-10-18-m6.md`, Status table). Built in slice 7: the probe (`lumen-host-probe`), the fault soak (`lumen-hosting/tests/soak.rs`), the callback benchmark (`lumen --bench-callback`) and the combined walkthrough (E2E `walkthrough_plugins`). Not done: the owner's MT-VST-7 runs on real plugins, M13 of the review (the owner decides), the M6 report. The earlier summaries follow.
 
 **M6 slice 5 (presets and resilient state) is built, 2026-10-17** on
 `m6-s5-presets-state` (cut from `main` after PR #33; ADR-0077; plan, owner
