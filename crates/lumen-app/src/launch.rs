@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crate::{audio, bench, settings};
+use crate::{audio, bench, callback_bench, settings};
 
 /// Everything start-up needs to know.
 pub struct Launch {
@@ -49,6 +49,9 @@ pub struct Launch {
     /// `--bench-frames`: the frame-time benchmark, and `--bench-size`.
     pub(crate) bench: Option<bench::Bench>,
     pub(crate) bench_size: Option<(f32, f32)>,
+    /// `--bench-callback <out.json>` with `--bench-seconds`: the callback
+    /// benchmark (M6 slice 7c).
+    pub(crate) callback_bench: Option<callback_bench::Callback>,
     /// `--autoplay-ms`: toggle play and stop this often (latency tests).
     pub(crate) autoplay: Option<Duration>,
     /// `--test-latency <ms>`: the engine's synthetic latent device on the
@@ -151,6 +154,12 @@ impl Launch {
             screenshot,
             bench: value("--bench-frames").map(|out| {
                 bench::Bench::new(PathBuf::from(out)).with_editor(has("--bench-editor"))
+            }),
+            callback_bench: value("--bench-callback").map(|out| {
+                let seconds = value("--bench-seconds")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(30.0);
+                callback_bench::Callback::new(PathBuf::from(out), seconds, Instant::now())
             }),
             bench_size: value("--bench-size").and_then(|v| {
                 let (w, h) = v.split_once('x')?;

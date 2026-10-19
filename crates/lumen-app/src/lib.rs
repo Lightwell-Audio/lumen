@@ -16,6 +16,10 @@
 //! lumen --probe-asio <clsid>     (helper) report one ASIO driver as JSON
 //! lumen --stress                 open the generated quality-bar project
 //!                                (200 tracks, 20,000 clips)
+//! lumen --bench-callback out.json [--bench-seconds 30] song.lumen
+//!                                the callback benchmark: plays the project
+//!                                and reports the audio callback's time
+//!                                against the block (callback_bench.rs)
 //! lumen --stress --bench-frames out.json
 //!                                frame-time benchmark: scroll and zoom it with
 //!                                vsync off, report, exit (status 3 below 60 fps);
@@ -42,6 +46,7 @@ mod autosave;
 mod bench;
 mod brand;
 mod browser;
+mod callback_bench;
 mod canvas;
 mod chain;
 mod commands;
@@ -282,6 +287,10 @@ pub struct App {
     banner: Option<(String, bool)>,
     /// `--bench-frames`: the frame-time benchmark in progress.
     bench: Option<bench::Bench>,
+    /// `--bench-callback`: the callback benchmark in progress, and its report
+    /// once it has finished (M6 slice 7c).
+    callback_bench: Option<callback_bench::Callback>,
+    callback_report: Option<Result<callback_bench::Report, String>>,
 }
 
 pub(crate) fn empty_project() -> Project {
@@ -399,6 +408,7 @@ impl eframe::App for App {
             crash::fail(test);
         }
         self.drive_bench(&ctx);
+        self.drive_callback_bench(&ctx);
         self.hint = None;
         self.transport.update();
         self.restore_clipboard_keys(&ctx);

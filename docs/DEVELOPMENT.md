@@ -260,6 +260,13 @@ cargo test --release -p lumen-hosting --test soak -- --ignored --nocapture
 It prints its seed; `LUMEN_SOAK_SEED` repeats a run. Actions > Soak starts
 the same run on Windows and Linux by hand.
 
+The callback benchmark plays a project through the real audio device and
+reports the callback's time against its block:
+
+```powershell
+cargo run --release -p lumen-app -- --bench-callback bench.json --bench-seconds 60 song.lumen
+```
+
 ## Linux cloud containers
 
 A Linux cloud container needs system packages before the first build. The app

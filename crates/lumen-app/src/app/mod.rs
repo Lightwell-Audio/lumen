@@ -2,6 +2,7 @@
 //! start-up stay in `main.rs`; these modules hold its `impl` blocks (audit
 //! M1).
 
+mod bench_callback;
 pub(crate) mod clip_card;
 pub(crate) mod clipboard_keys;
 mod commands;

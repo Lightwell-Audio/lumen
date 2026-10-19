@@ -14,6 +14,7 @@
 mod access;
 mod audition;
 mod barfit;
+mod bench_callback;
 mod chrome;
 mod clips;
 mod clock;

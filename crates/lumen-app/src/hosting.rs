@@ -1001,6 +1001,29 @@ impl Hosting {
         self.tracked.values().any(|t| t.state == State::Loading)
     }
 
+    /// The plugin devices of `project` that are not running and are not
+    /// loading, with how: "Bass · Name (failed)". Missing and safe-mode ones
+    /// count; the callback benchmark will not measure a project that is not
+    /// all there.
+    pub fn not_running(&self, project: &Project) -> Vec<String> {
+        let mut found = Vec::new();
+        for track in all_tracks(project) {
+            for device in &track.devices {
+                let PluginRef::Vst3 { name, .. } = &device.plugin else {
+                    continue;
+                };
+                let how = match self.tracked.get(&device.id.0).map(|t| &t.state) {
+                    Some(State::Ready) | Some(State::Loading) => continue,
+                    Some(State::Failed(_)) => "failed",
+                    Some(State::Safe) => "not loaded in safe mode",
+                    Some(State::Missing) | None => "not installed",
+                };
+                found.push(format!("{} · {name} ({how})", track.name));
+            }
+        }
+        found
+    }
+
     /// How many plugin hosts exist (running, loading or failed).
     pub fn host_count(&self) -> usize {
         self.manager.as_ref().map_or(0, Manager::len)
