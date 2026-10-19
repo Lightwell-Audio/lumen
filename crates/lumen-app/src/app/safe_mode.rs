@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 
 use eframe::egui;
+use lumen_core::product::PRODUCT_NAME;
 
 use crate::App;
 use crate::icons::Icon;
@@ -135,9 +136,9 @@ impl App {
             .show(ui, |ui| {
                 super::view::notice_card_with(ui, Some(Icon::Shield), |ui| {
                     if offer {
-                        ui.label(
-                            "Last time Lumen didn't finish loading plugins. Start in safe mode to open this project without them.",
-                        );
+                        ui.label(format!(
+                            "Last time {PRODUCT_NAME} didn't finish loading plugins. Start in safe mode to open this project without them."
+                        ));
                         stay = raised::primary_button(ui, "Start in safe mode").clicked();
                         leave = raised::button(ui, "Load plugins").clicked();
                     } else {

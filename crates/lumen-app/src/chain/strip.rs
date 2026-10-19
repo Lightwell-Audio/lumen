@@ -375,7 +375,7 @@ pub(super) fn editor_button(
         ),
         Editor::NotResponding => (
             "Editor not responding",
-            "The plugin's window has stopped answering. Lumen never ends a plugin on its own",
+            "The plugin's window has stopped answering. The app never ends a plugin on its own",
             false,
             None,
         ),
@@ -461,7 +461,7 @@ pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -
             parts.push(Part {
                 shown: "Not responding".into(),
                 name: "Window not responding".to_owned(),
-                tip: "The plugin's window has stopped answering. Lumen never ends a plugin on its own",
+                tip: "The plugin's window has stopped answering. The app never ends a plugin on its own",
                 style: Style::Warn,
                 weight: 1.4,
                 output: None,

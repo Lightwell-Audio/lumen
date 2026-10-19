@@ -131,7 +131,7 @@ impl App {
                 self.device_chosen() && self.chosen_has_parameters(),
                 "Choose a plugin that has parameters first",
             ),
-            Command::LeaveSafeMode => need(self.safe.on, "Lumen is not in safe mode"),
+            Command::LeaveSafeMode => need(self.safe.on, "Safe mode is not on"),
             Command::DevicePreset | Command::DeviceSavePreset => need(
                 self.chosen_has_presets(),
                 "Choose a plugin that is running first",

@@ -6,6 +6,7 @@
 use eframe::egui::{
     self, Align2, Color32, FontId, Pos2, Rangef, Rect, Sense, Stroke, Ui, UiBuilder, pos2, vec2,
 };
+use lumen_core::product::PRODUCT_NAME;
 use lumen_project::model::{Device, DeviceKind, Id, Output, PluginRef, Project, Track, TrackKind};
 use lumen_project::routing::all_tracks;
 
@@ -518,7 +519,7 @@ impl App {
             } => (name.clone(), vendor.clone(), class_id.clone()),
             PluginRef::Builtin { name } => (
                 crate::document::device_name(d),
-                "Lumen".to_owned(),
+                PRODUCT_NAME.to_owned(),
                 name.clone(),
             ),
         };
