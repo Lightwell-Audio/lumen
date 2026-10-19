@@ -22,9 +22,18 @@ pub(crate) struct Guarded {
 // SAFETY: an `Instance` holds COM pointers, which are not `Send` by type.
 // VST3 does not tie a plugin to a thread (its own host calls the audio
 // processor and the controller from different threads); it requires only that
-// calls are not made concurrently where the interface forbids it. Every
-// access goes through the one mutex in `Shared`, so calls are serialised and
-// the instance is never touched by two threads at once.
+// calls are not made concurrently where the interface forbids it. The
+// instance moves between threads only inside this mutex, and everything that
+// sets the plugin up, tears it down or processes a block (the processor's and
+// the component's interfaces) is called with the lock held, so those calls
+// are serialised. The exception is deliberate and is the VST3 rule: the host's
+// control thread calls the controller and the component's state through
+// `instance::Controls`, clones of those pointers taken out of the instance,
+// without the lock while the audio thread processes. VST3 allows exactly
+// those calls from the main thread during processing. A clone lives for one
+// request on the control thread, which is also the only thread that ends the
+// instance (`State::finish`, after the audio thread has stopped), so no clone
+// outlives the object.
 unsafe impl Send for Guarded {}
 
 pub(crate) type Shared = Arc<Mutex<Guarded>>;
