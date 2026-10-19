@@ -1036,7 +1036,10 @@ mod tests {
         let (mut l, mut r) = ([0.0f32; 64], [0.0f32; 64]);
         synth.render(48_000, &[on(0, 60)], &mut l, &mut r);
         let (mut al, mut ar) = ([0.0f32; 64], [0.0f32; 64]);
-        assert!(synth.output(1, &mut al, &mut ar), "a finished block has them");
+        assert!(
+            synth.output(1, &mut al, &mut ar),
+            "a finished block has them"
+        );
         // The host is still on an earlier block: this one is refused, and the
         // main output is silent; the other outputs are not the last block's.
         seen.lock().unwrap().busy = 1;
