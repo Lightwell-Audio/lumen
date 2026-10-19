@@ -65,7 +65,11 @@ impl Handler {
         match self.reports.lock() {
             // Drained, not taken: the list keeps its room, so reporting the
             // next edits (on the block path) does not allocate again.
-            Ok(mut r) => (r.list.drain(..).collect(), std::mem::take(&mut r.dropped)),
+            Ok(mut r) => {
+                let taken = r.list.to_vec();
+                r.list.clear();
+                (taken, std::mem::take(&mut r.dropped))
+            }
             Err(_) => (Vec::new(), 0),
         }
     }
