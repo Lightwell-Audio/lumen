@@ -83,16 +83,16 @@ overwrite rule), so a crossfade needs a design:
 | B | Allow a bounded overlap only inside a crossfade pair, stored as an overlap | Clips overlap in the model in one case; hit testing, selection and the overwrite rule need exceptions |
 | C | Full overlap with the later clip on top and an automatic crossfade over the overlap | Reverses the owner's overwrite rule (M3) and touches every edit function |
 
-The owner chooses (X1). The recommendation is A because it keeps the rule the
-owner already chose and gives the same sound.
+**Decided 2026-10-19: A.** It keeps the rule the owner already chose and gives
+the same sound. B and C stay on the specimen board as the options not taken.
 
 ## 4. Choices for the owner
 
 | # | Choice | State |
 |---|---|---|
 | S1 | Scope | **Decided 2026-10-19: A.** This is M7b, split from M7 |
-| X1 | Crossfade model | **Open**, three options in §3, recommendation A. A specimen of the handle and of the automatic setting comes with K1's |
-| K1 | The tool model and the split gesture | **Open.** Pointer, draw, erase, split, mute, zoom with single-key switching and temporary modifiers, plus the drag-to-cut gesture requested on 2026-10-08. Rendered specimens first (key map, cursors, two or three cut gestures) |
+| X1 | Crossfade model | **Decided 2026-10-19: A.** A crossfade at a join, with a project setting for an automatic short one (default 5 ms) and a handle to lengthen it. The specimen of the handle and of the setting was accepted |
+| K1 | The tool model and the split gesture | **Decided 2026-10-19.** Pointer, draw, erase, split, mute and zoom, picked from a switch in the corner above the track headers. **Keys follow the common workstation convention listed in CLAUDE.md §5, with no new single-letter tool keys**: B toggles Pointer and Draw, Esc returns to Pointer, Ctrl+E cuts, 0 mutes, Z and X zoom, Delete erases the selection. **Cut gestures**: press, aim and release with the Split tool (a click without moving cuts at once), and the edit cursor with Ctrl+E for the keyboard. The ghost-line variant was not taken. Every tool has a command and a palette entry |
 | Y1 | The static clip pitch property | **Open, needs approval to defer.** CLAUDE.md §6.2 lists clip "pitch" as [M]. The owner deferred the audio pitch envelope because it needs a time-stretch and pitch engine; a static pitch shift needs the same engine (or a resampling change that alters the clip's length). Recommendation: defer it with the envelope, to be built with warp and time-stretch ([S]) |
 | F1 | Real-time bounce for plugin tracks | **Conditional.** Asked only if the R2 spike fails: A real-time capture for plugin tracks with the deviation recorded, or B hold bounce and freeze for plugin tracks until the host gains an offline mode |
 
@@ -104,7 +104,7 @@ Sizes are rough (S/M/L).
 
 | # | Slice | Delivers | Pass condition |
 |---|---|---|---|
-| E0 (M) | Tools and split | K1 as chosen: the global tool state, single-key switching with temporary overrides, split at playhead, edit cursor, grid and range edges (click-free), the drag-to-cut gesture, Ctrl+E widened to clips, seamless joins | Split then join returns the original; playback across a split equals the unsplit clip (null test); the keymap has no conflict; every tool and command is in the palette |
+| E0 (M) | Tools and split | K1 as chosen: the global tool state and its switch, the keys above, split at playhead, edit cursor, grid and range edges (click-free), the press-aim-release cut gesture, Ctrl+E widened to clips, seamless joins | Split then join returns the original; playback across a split equals the unsplit clip (null test); the keymap has no conflict; every tool and command is in the palette |
 | E1 (M) | Clip commands | Join (glue), crop to selection, unloop into copies, nudge by grid and finely, reverse (engine clip flag and reversed peaks), normalize (peak scan off the UI thread), polarity (clip flag), select invert, in track, to start, to end | Each is one undo step; reverse and normalize are golden renders; undo restores exactly |
 | E2 (M) | Crossfades | X1 as chosen: format v23, the engine tail read, the handle, the project setting, equal-power default curve | A crossfade is click-free and null-tests against an equal-power reference; an edit that breaks the join clears or ignores it; golden render |
 | E3 (L) | Render core and consolidate | R1: the worker render driver, WAV writer with atomic writes, registration as media, Ctrl+J widened to clips, consolidate for audio (gain, fades, envelopes, gaps as silence) and MIDI (merge and bake loops), originals kept in the media pool; the R2 spike runs first and its result is recorded | Consolidating unprocessed audio is identical to the original (null test); render equals real-time playback in a golden render; progress and cancel |
