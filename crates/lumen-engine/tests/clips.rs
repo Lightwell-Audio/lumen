@@ -708,3 +708,29 @@ fn a_looping_clip_repeats_its_content_with_clean_seams() {
         expected(&audio, offset, period.min(length - repeat), pos - repeat)
     });
 }
+
+#[test]
+fn a_clip_with_no_channels_plays_silence_and_does_not_stop_the_others() {
+    let audio = ramp(1_000, RATE);
+    let make = |id, track, audio: Arc<ClipAudio>| Clip {
+        id,
+        start: Ticks::ZERO,
+        offset: 0,
+        length: 1_000,
+        gain: 1.0,
+        track,
+        audio,
+        shape: Default::default(),
+    };
+    let empty = Arc::new(ClipAudio {
+        sample_rate: RATE,
+        channels: vec![],
+    });
+    let (mut handle, _clips, mut engine) =
+        setup(vec![make(1, 0, empty), make(2, 0, Arc::clone(&audio))]);
+    handle.send(Command::Play).unwrap();
+    // Past the 2 ms the engine reads ahead (the pre-roll), the second clip
+    // plays and the first adds nothing.
+    let out = run(&mut engine, 100_000, 128);
+    assert!(out.iter().any(|&(l, _)| l != 0.0), "the other clip plays");
+}

@@ -47,6 +47,16 @@ impl Holding {
         *self = Self::NONE;
     }
 
+    /// Lets go of one channel's notes and pedal: its 128 bits are two words.
+    fn clear_channel(&mut self, channel: u8) {
+        let first = usize::from(channel & 15) * 2;
+        for word in &mut self.notes[first..first + 2] {
+            self.down -= word.count_ones();
+            *word = 0;
+        }
+        self.pedals &= !(1 << (channel & 15));
+    }
+
     fn set(&mut self, channel: u8, key: u8, down: bool) {
         let bit = usize::from(channel & 15) * 128 + usize::from(key & 127);
         let (word, mask) = (bit / 64, 1_u64 << (bit % 64));
@@ -68,8 +78,8 @@ impl Holding {
             Kind::Controller { number, value } => match number {
                 cc::SUSTAIN if value >= 64 => self.pedals |= 1 << channel,
                 cc::SUSTAIN => self.pedals &= !(1 << channel),
-                // The plugin lets go of what it holds, pedal or not.
-                cc::ALL_SOUND_OFF | cc::ALL_NOTES_OFF => self.clear(),
+                // The plugin lets go of what that channel holds, pedal or not.
+                cc::ALL_SOUND_OFF | cc::ALL_NOTES_OFF => self.clear_channel(channel),
                 _ => {}
             },
             _ => {}
@@ -280,5 +290,31 @@ impl Instrument for HostedInstrument {
                 msg: Msg::controller(0, cc::ALL_SOUND_OFF, 0),
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_notes_off_on_one_channel_lets_go_of_that_channels_notes_only() {
+        let mut held = Holding::NONE;
+        held.note(Msg::note_on(0, 60, 100));
+        held.note(Msg::note_on(0, 64, 100));
+        held.note(Msg::note_on(5, 60, 100));
+        held.note(Msg::controller(5, cc::SUSTAIN, 127));
+        held.note(Msg::controller(0, cc::SUSTAIN, 127));
+        assert_eq!(held.down, 3);
+        held.note(Msg::controller(0, cc::ALL_NOTES_OFF, 0));
+        assert_eq!(held.down, 1, "channel 5's note is still down");
+        assert_eq!(held.pedals, 1 << 5, "and its pedal");
+        assert!(held.any());
+        held.note(Msg::controller(5, cc::ALL_SOUND_OFF, 0));
+        assert_eq!(held.down, 0);
+        assert!(!held.any());
+        // Letting go of what is not held changes nothing.
+        held.note(Msg::controller(9, cc::ALL_NOTES_OFF, 0));
+        assert_eq!(held.down, 0);
     }
 }

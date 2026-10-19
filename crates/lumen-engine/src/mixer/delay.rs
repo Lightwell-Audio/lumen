@@ -162,8 +162,13 @@ impl Lines {
                         // read last.
                         let (silence, kept) = ring.split_at_mut(line.frames - keep);
                         silence.fill(0.0);
-                        for (k, sample) in kept.iter_mut().enumerate() {
-                            *sample = source[(from.write + from.frames - keep + k) % from.frames];
+                        if keep > 0 {
+                            // The newest `keep` frames lie in the ring from
+                            // `begin`, wrapping at most once: two copies.
+                            let begin = (from.write + from.frames - keep) % from.frames;
+                            let first = keep.min(from.frames - begin);
+                            kept[..first].copy_from_slice(&source[begin..begin + first]);
+                            kept[first..].copy_from_slice(&source[..keep - first]);
                         }
                     }
                     line.write = 0;
@@ -308,6 +313,24 @@ mod tests {
         let (mut left, mut right) = (ramp(16, 8), ramp(16, 8));
         longer.run(line, &mut left, &mut right);
         assert_eq!(left, [0.0, 0.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0]);
+    }
+
+    #[test]
+    fn a_shorter_or_longer_line_takes_the_newest_frames_from_a_ring_that_has_wrapped() {
+        let mut old = Lines::default();
+        let line = old.add(KEY, 7);
+        old.finish();
+        // Ten frames through a ring of seven: the write position has wrapped.
+        let (mut left, mut right) = (ramp(0, 10), ramp(0, 10));
+        old.run(line, &mut left, &mut right);
+        // Shorter: the newest five frames in flight are 6 to 10.
+        assert_eq!(continue_from(&old, 5, 10, 5), ramp(5, 5));
+        // As long: all seven, 4 to 10.
+        assert_eq!(continue_from(&old, 7, 10, 7), ramp(3, 7));
+        // Longer: silence first, then the seven.
+        let longer = continue_from(&old, 10, 10, 10);
+        assert_eq!(&longer[..3], [0.0; 3]);
+        assert_eq!(&longer[3..], ramp(3, 7));
     }
 
     #[test]

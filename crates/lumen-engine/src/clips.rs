@@ -417,6 +417,10 @@ fn play(
         return;
     }
     let sources = clip.audio.channels.len();
+    if sources == 0 {
+        // A clip with no channels has nothing to play (and no side to pick).
+        return;
+    }
     let at = Placement {
         start,
         from: block.from,

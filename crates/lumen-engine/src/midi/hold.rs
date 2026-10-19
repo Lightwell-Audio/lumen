@@ -614,25 +614,27 @@ pub(super) fn chase_controls(
 
 /// Orders events by frame, then note-offs, controllers and note-ons, so a
 /// note retriggered on one frame ends before it starts. A stable insertion
-/// sort: no allocation, and short lists.
+/// sort that finds each place by bisection and moves the events with one
+/// rotation: no allocation, and a list of up to [`MAX_EVENTS`] out of order
+/// costs a few memory moves, not a million comparisons.
 pub(super) fn sort_events(events: &mut [Event]) {
-    fn rank(msg: Msg) -> u8 {
+    fn key(event: &Event) -> (u32, u8) {
         use lumen_core::midi::Kind;
-        match msg.kind() {
+        let rank = match event.msg.kind() {
             Kind::NoteOff { .. } => 0,
             Kind::NoteOn { .. } => 2,
             _ => 1,
-        }
+        };
+        (event.offset, rank)
     }
     for i in 1..events.len() {
-        let mut j = i;
-        while j > 0
-            && (events[j - 1].offset, rank(events[j - 1].msg))
-                > (events[j].offset, rank(events[j].msg))
-        {
-            events.swap(j - 1, j);
-            j -= 1;
+        let this = key(&events[i]);
+        if key(&events[i - 1]) <= this {
+            continue;
         }
+        // After every event that is not greater: equal keys keep their order.
+        let at = events[..i].partition_point(|e| key(e) <= this);
+        events[at..=i].rotate_right(1);
     }
 }
 
@@ -713,6 +715,42 @@ mod tests {
             seams: Default::default(),
             notes: note_list(notes),
             controls: control_list(controls),
+        }
+    }
+
+    #[test]
+    fn events_sort_by_frame_then_offs_controllers_and_ons_and_equal_ones_keep_their_order() {
+        let mut next = rng(0x1234_5678);
+        for len in [0, 1, 2, 3, 17, 100, 1_024] {
+            let events: Vec<Event> = (0..len)
+                .map(|i| Event {
+                    offset: (next() % 24) as u32,
+                    msg: match next() % 3 {
+                        0 => Msg::note_on(0, (next() % 128) as u8, 100),
+                        1 => Msg::note_off(0, (next() % 128) as u8),
+                        _ => Msg::controller(0, 1, (i % 128) as u8),
+                    },
+                })
+                .collect();
+            let rank = |e: &Event| match e.msg.kind() {
+                Kind::NoteOff { .. } => 0,
+                Kind::NoteOn { .. } => 2,
+                _ => 1,
+            };
+            // The old sort, a bubble of swaps, is the reference.
+            let mut want = events.clone();
+            for i in 1..want.len() {
+                let mut j = i;
+                while j > 0
+                    && (want[j - 1].offset, rank(&want[j - 1])) > (want[j].offset, rank(&want[j]))
+                {
+                    want.swap(j - 1, j);
+                    j -= 1;
+                }
+            }
+            let mut got = events;
+            sort_events(&mut got);
+            assert_eq!(got, want, "{len} events");
         }
     }
 

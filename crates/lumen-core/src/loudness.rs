@@ -332,9 +332,14 @@ impl TruePeak {
             self.at = if self.at + 1 == TAPS { 0 } else { self.at + 1 };
             self.history[self.at] = x;
             self.history[self.at + TAPS] = x;
-            let window: &[f32; TAPS] = self.history[self.at + 1..=self.at + TAPS]
-                .try_into()
-                .expect("the window is TAPS long");
+            // `at` is below TAPS, so the window is TAPS long inside the
+            // doubled history; an array reference with no `expect`.
+            let start = self.at + 1;
+            let window: &[f32; TAPS] = self
+                .history
+                .get(start..start + TAPS)
+                .and_then(|w| w.try_into().ok())
+                .unwrap_or(&[0.0; TAPS]);
             for phase in &self.phases {
                 let y: f32 = phase.iter().zip(window).map(|(h, s)| h * s).sum();
                 peak = peak.max(y.abs());
