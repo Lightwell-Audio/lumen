@@ -31,6 +31,8 @@ enum Mode {
     Halve,
     /// Never answers in time.
     Late,
+    /// Is always still on an earlier block: refuses every one.
+    Busy,
     /// Halves, but a worker takes this long first (each block is counted in
     /// `overlap`).
     Slow(Duration, Arc<Overlap>),
@@ -83,6 +85,9 @@ impl FakeEffect {
 impl Hosted for FakeEffect {
     fn submit(&mut self, frames: usize, input: &[&[f32]], _: &[Event]) -> Result<(), Refused> {
         self.submits.fetch_add(1, Ordering::Relaxed);
+        if matches!(self.mode, Mode::Busy) {
+            return Err(Refused::Busy);
+        }
         let depth = self.latency as usize;
         for (channel, out) in self.out.iter_mut().enumerate() {
             out.clear();
@@ -380,6 +385,20 @@ fn a_host_that_fails_is_replaced_by_its_fallback_at_the_same_time() {
     let out = rig.run(60_000, 128);
     assert!(status.failed(), "a second of late blocks in a row");
     assert_matches(&out, 0, 2_000, "the fallback", |n| r[n - 32]);
+}
+
+#[test]
+fn a_block_a_busy_host_refused_is_one_missed_block_however_often_it_is_tried() {
+    // The first device of a node is handed its block early and again at the
+    // node: the host being busy is one missed block, not two (review H4).
+    let routing = routing_of(vec![track(1, hosted(7, 0))]);
+    let mut rig = rig(1, RATE, &routing);
+    let (effect, submits) = FakeEffect::new(Mode::Busy, 0);
+    let status = rig.attach(7, effect, 0);
+    rig.play();
+    rig.run(128, 128);
+    assert!(submits.load(Ordering::Relaxed) >= 1, "the host was asked");
+    assert_eq!(status.late_blocks(), 1);
 }
 
 #[test]

@@ -173,6 +173,7 @@ pub(super) fn compile_metered(
                 host,
                 wet: Smoothed::new(0.0),
                 began: false,
+                refused: false,
             });
         }
         // Nothing feeds the node, so its input is ready as soon as the

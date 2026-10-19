@@ -195,6 +195,7 @@ pub(super) fn begin_early(
     {
         let (left, right) = scratch.input.split_at(CHUNK);
         dev.began = guard.begin(frames, &[&left[..frames], &right[..frames]], &[]);
+        dev.refused = !dev.began && !guard.failed();
     }
 }
 
@@ -236,12 +237,22 @@ pub(super) fn run(
         && (dev.began || wanted(guard, dev))
     {
         if !dev.began {
+            // A block refused early is tried once more here, and is one
+            // missed block however often it is tried.
+            let again = std::mem::take(&mut dev.refused);
+            let begin = |guard: &mut Guard, input: &[&[f32]]| {
+                if again {
+                    guard.begin_again(n, input, &[])
+                } else {
+                    guard.begin(n, input, &[])
+                }
+            };
             dev.began = match key {
                 // The plugin's sidechain follows its audio in the block.
                 Some((key_left, key_right)) => {
-                    guard.begin(n, &[&*left, &*right, key_left, key_right], &[])
+                    begin(guard, &[&*left, &*right, key_left, key_right])
                 }
-                None => guard.begin(n, &[&*left, &*right], &[]),
+                None => begin(guard, &[&*left, &*right]),
             };
         }
         let deadline = hosting.deadline.unwrap_or_else(|| {
@@ -251,6 +262,7 @@ pub(super) fn run(
         target = if guard.bypassed() { 0.0 } else { 1.0 };
     }
     dev.began = false;
+    dev.refused = false;
 
     if !ready {
         // Nothing to fade from: the fallback, at once.

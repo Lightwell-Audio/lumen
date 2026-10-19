@@ -331,6 +331,17 @@ impl Guard {
     /// Hands the host a block. Returns whether it took it; when it did not,
     /// [`Guard::finish`] answers [`Outcome::Silent`] at once.
     pub fn begin(&mut self, frames: usize, input: &[&[f32]], events: &[Event]) -> bool {
+        self.start(frames, input, events, true)
+    }
+
+    /// As [`Guard::begin`], for a block the host already refused once in
+    /// this callback (it was tried early, and is tried again before it is
+    /// given up on): a second refusal is the same missed block, not another.
+    pub fn begin_again(&mut self, frames: usize, input: &[&[f32]], events: &[Event]) -> bool {
+        self.start(frames, input, events, false)
+    }
+
+    fn start(&mut self, frames: usize, input: &[&[f32]], events: &[Event], count: bool) -> bool {
         self.sent = false;
         self.frames = frames;
         self.asked = true;
@@ -347,7 +358,9 @@ impl Guard {
                 true
             }
             Err(Refused::Busy) => {
-                self.miss();
+                if count {
+                    self.miss();
+                }
                 false
             }
             Err(Refused::Gone) => {
@@ -528,6 +541,9 @@ pub struct HostedInstrument {
     /// The block's events, pending ones first.
     block: Vec<Event>,
     begun: bool,
+    /// The early `begin` of this block was refused and its events are in
+    /// `pending`: `render` retries the block without them.
+    refused: bool,
     rate: u32,
     holding: Holding,
     dropped: u32,
@@ -541,6 +557,7 @@ impl HostedInstrument {
             pending: Vec::with_capacity(EVENTS),
             block: Vec::with_capacity(EVENTS),
             begun: false,
+            refused: false,
             rate: 0,
             holding: Holding::NONE,
             dropped: 0,
@@ -555,24 +572,17 @@ impl HostedInstrument {
             pending: Vec::new(),
             block: Vec::new(),
             begun: false,
+            refused: false,
             rate: 0,
             holding: Holding::NONE,
             dropped: 0,
         }
     }
 
-    /// Events dropped because a block had more than the host takes.
-    pub fn dropped_events(&self) -> u32 {
-        self.dropped
-    }
-}
-
-impl Instrument for HostedInstrument {
-    fn hosted(&self) -> bool {
-        self.guard.is_some()
-    }
-
-    fn begin(&mut self, rate: u32, frames: usize, events: &[Event]) -> bool {
+    /// Hands the host a block, with `events` and what is pending. `retry`:
+    /// the block was refused by an early [`Instrument::begin`], which put its
+    /// events in `pending`, so they are not added again.
+    fn offer(&mut self, rate: u32, frames: usize, events: &[Event], retry: bool) -> bool {
         self.begun = false;
         if rate > 0 {
             self.rate = rate;
@@ -581,6 +591,9 @@ impl Instrument for HostedInstrument {
         let Some(guard) = self.guard.as_mut() else {
             return false;
         };
+        // A block refused early has its events in `pending`: they are not
+        // said again.
+        let events = if retry { &[] } else { events };
         let held = self.holding.any();
         if rate == 0
             || (events.is_empty() && self.pending.is_empty() && !held && !guard.sounding(rate))
@@ -594,8 +607,13 @@ impl Instrument for HostedInstrument {
         let room = EVENTS - self.block.len();
         self.block.extend(events.iter().take(room));
         self.dropped += events.len().saturating_sub(room) as u32;
-        let sent = guard.begin(frames, &[], &self.block);
-        if !sent && !guard.failed() {
+        let sent = if retry {
+            guard.begin_again(frames, &[], &self.block)
+        } else {
+            guard.begin(frames, &[], &self.block)
+        };
+        self.refused = !sent && !guard.failed();
+        if self.refused {
             // The host is still on an earlier block: what was said goes with
             // the next one, at its start, rather than being lost (a lost
             // note-off would leave a note hanging).
@@ -617,6 +635,21 @@ impl Instrument for HostedInstrument {
         }
         self.begun = sent;
         sent
+    }
+
+    /// Events dropped because a block had more than the host takes.
+    pub fn dropped_events(&self) -> u32 {
+        self.dropped
+    }
+}
+
+impl Instrument for HostedInstrument {
+    fn hosted(&self) -> bool {
+        self.guard.is_some()
+    }
+
+    fn begin(&mut self, rate: u32, frames: usize, events: &[Event]) -> bool {
+        self.offer(rate, frames, events, false)
     }
 
     fn output(&mut self, pair: usize, left: &mut [f32], right: &mut [f32]) -> bool {
@@ -654,7 +687,8 @@ impl Instrument for HostedInstrument {
             }
             return;
         }
-        if self.begin(rate, frames, events) {
+        let retry = std::mem::take(&mut self.refused);
+        if self.offer(rate, frames, events, retry) {
             let rate = u64::from(self.rate.max(1));
             let deadline = Instant::now() + Duration::from_micros(frames as u64 * 750_000 / rate);
             self.finish(deadline, left, right);
@@ -1205,6 +1239,49 @@ mod tests {
             ],
             "late, at the start of the block, before what is new"
         );
+    }
+
+    #[test]
+    fn a_block_refused_early_and_tried_again_by_render_is_sent_once() {
+        // The engine hands an instrument its block early (`begin`) and, when
+        // that is refused, renders it with the same events (review H3): what
+        // was refused is in `pending`, and must not be added a second time.
+        let (mut synth, seen) = instrument(vec![READY, READY]);
+        let (mut l, mut r) = ([0.0f32; 64], [0.0f32; 64]);
+        assert!(synth.begin(48_000, 64, &[on(0, 60)]));
+        synth.finish(Instant::now(), &mut l, &mut r);
+        seen.lock().unwrap().busy = 1;
+        let off = Event {
+            offset: 37,
+            msg: Msg::note_off(0, 60),
+        };
+        assert!(!synth.begin(48_000, 64, &[off]), "refused early");
+        // The host is free again when render tries.
+        synth.render(48_000, &[off], &mut l, &mut r);
+        let sent = seen.lock().unwrap().events.clone();
+        assert_eq!(
+            sent.last().unwrap(),
+            &vec![Event {
+                offset: 0,
+                msg: Msg::note_off(0, 60)
+            }],
+            "one note-off, once"
+        );
+    }
+
+    #[test]
+    fn a_block_refused_early_and_again_by_render_is_one_missed_block() {
+        let (mut synth, seen) = instrument(vec![READY]);
+        let (mut l, mut r) = ([0.0f32; 64], [0.0f32; 64]);
+        assert!(synth.begin(48_000, 64, &[on(0, 60)]));
+        synth.finish(Instant::now(), &mut l, &mut r);
+        seen.lock().unwrap().busy = 2;
+        assert!(!synth.begin(48_000, 64, &[on(0, 64)]));
+        synth.render(48_000, &[on(0, 64)], &mut l, &mut r);
+        let late = synth.guard.as_ref().unwrap().late_blocks();
+        assert_eq!(late, 1, "the same block, refused twice, counted once");
+        // And what was said still waits, once.
+        assert_eq!(synth.pending.len(), 1);
     }
 
     #[test]
