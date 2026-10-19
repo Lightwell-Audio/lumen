@@ -92,7 +92,7 @@ irreversible or external) · *Superseded*.
 | [0078](#adr-0078--production-routing-buses-sidechain-outputs-and-plugin-latency-m6-slice-6) | Production routing: buses, sidechain, outputs and plugin latency (M6 slice 6) | Accepted 2026-10-18 (owner's B1, S1, M1, L1, L2, C1, O1, I1); MT-VST-6 is the owner's | Decided by the owner |
 | [0079](#adr-0079--settings-sections-added-with-defaults-keep-the-version-and-the-file-is-flushed) | Settings: sections added with defaults keep the version, and the file is flushed | Accepted 2026-10-18 (review M11) | No |
 | [0080](#adr-0080--compatibility-tools-the-probe-the-fault-soak-and-the-callback-benchmark-m6-slice-7) | Compatibility tools: the probe, the fault soak and the callback benchmark (M6 slice 7) | Accepted 2026-10-19 (owner's P1, K1, W1, R1, V1 of 2026-10-18); MT-VST-7 is the owner's | Decided by the owner |
-| [0081](#adr-0081--automation-lanes-in-the-model-and-the-mixer-m7-slice-a0) | Automation lanes in the model and the mixer (M7 slice A0) | Accepted 2026-10-19 (the owner approved starting A0); MT-AUTO-1 is the owner's | Claude, with the owner's M7 decisions |
+| [0081](#adr-0081--automation-lanes-in-the-model-and-the-mixer-m7-slice-a0) | Automation lanes in the model and the mixer (M7 slice A0) | Accepted 2026-10-19 (the owner approved starting A0); MT-AUTO-1 passed (owner, 2026-10-19) | Claude, with the owner's M7 decisions |
 
 ---
 
@@ -7318,7 +7318,8 @@ numbers from the whole callback. A reviewer could not rerun any of it.
 deferrals (S1, T1, P1, Y1) and told this slice to start. D1 to D5 of
 `docs/milestones/M7.md` are carried out here; the deviations are listed below. The
 lane interface is slice A1, so nothing on screen shows a lane yet: the owner's check
-(MT-AUTO-1) is by ear, with `tests/projects/automation-demo.lumen`.
+(MT-AUTO-1) is by ear, with `tests/projects/automation-demo.lumen`; it passed on
+2026-10-19.
 
 **Context.** Every value a mixer has is a block target that glides over 20 ms. Nothing
 in the model or the engine could change a value along the timeline, and the engine
