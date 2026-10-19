@@ -28,6 +28,7 @@ mod hold;
 mod live;
 mod player;
 mod recording;
+mod tracks;
 
 pub use capture::{Captured, WRAP, record_position};
 pub use clock::CLOCK_TICKS;
