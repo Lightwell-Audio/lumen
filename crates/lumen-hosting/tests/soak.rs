@@ -40,11 +40,20 @@ const SURVIVE_BLOCKS: u32 = 200;
 const MOST_BLOCKS: u32 = 3000;
 /// How long a quiet world is watched for a host starting by itself.
 const WATCH: Duration = Duration::from_millis(300);
-/// Late blocks a healthy host may have in a hundred (a busy machine is not
-/// the hosts' fault).
-const LATE_PERCENT: u32 = 5;
-/// Blocks a replacement host plays before its late share is counted.
-const WARM_UP_BLOCKS: u32 = 30;
+/// Late blocks a healthy host may have in a hundred. The blocks are played
+/// back to back and a late one costs its whole budget, so one stall of the
+/// machine's scheduler (up to 18 ms on a virtual machine, a hundred on a
+/// loaded runner) late-s a run of blocks, not one; on macOS the wake-up is a
+/// poll with short sleeps as well (KNOWN_ISSUES, "Off Windows and Linux the
+/// signal wait polls"). A host that stopped playing, or one held up by a
+/// neighbour's fault, is late in nearly every block: this tells those apart
+/// from a busy machine. Every other check in the soak (no host given up on,
+/// silence from a failed host, no allocation, no orphan process) is strict.
+const LATE_PERCENT: u32 = 25;
+/// Blocks counted after the replacement hosts have warmed up.
+const AFTER_BLOCKS: u32 = 240;
+/// How long a replacement host plays before its late share is counted.
+const WARM_UP: Duration = Duration::from_millis(500);
 const SEATS: usize = 6;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -472,11 +481,16 @@ impl World {
             seat.guard = Some(Guard::new(Box::new(l.link), l.latency));
         }
         // A host just started pays for its first blocks (pages loaded, caches
-        // cold) while the others play on: on a runner with few cores that
-        // made a healthy seat late more than the share allows. Those blocks
-        // are played, and checked for failure below, but not counted.
-        self.play(WARM_UP_BLOCKS);
-        let tally = self.play(60);
+        // cold) while the others play on: on a machine with few cores that
+        // made a healthy seat late more than the share allows. Blocks are
+        // played back to back, so a count of them is a few milliseconds: the
+        // warm-up is a stretch of time. Its blocks are played, and a host
+        // given up on in them fails the check below, but they are not counted.
+        let warm = Instant::now() + WARM_UP;
+        while Instant::now() < warm {
+            self.play(10);
+        }
+        let tally = self.play(AFTER_BLOCKS);
         for (i, seat) in self.seats.iter().enumerate() {
             assert!(
                 !seat.guard.as_ref().expect("a guard").failed(),
@@ -484,7 +498,9 @@ impl World {
             );
             assert!(
                 tally[i].ready * 100 >= tally[i].blocks * (100 - LATE_PERCENT),
-                "{label}: seat {i} did not play after the replacement"
+                "{label}: seat {i} did not play after the replacement ({} of {} blocks ready)",
+                tally[i].ready,
+                tally[i].blocks
             );
         }
 

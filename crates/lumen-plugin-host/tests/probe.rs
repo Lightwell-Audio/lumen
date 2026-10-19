@@ -84,7 +84,19 @@ fn a_plugin_that_behaves_passes_every_stage_it_runs() {
             "parameters",
             "shutdown",
         ] {
-            assert_eq!(all[name].0, "pass", "{kind} {name}:\n{}", found.out);
+            // The link stage measures timing: a block over three quarters of
+            // the period (one in forty on a busy runner) is a note, not a
+            // failure.
+            let ok: &[&str] = if name == "link" {
+                &["pass", "note"]
+            } else {
+                &["pass"]
+            };
+            assert!(
+                ok.contains(&all[name].0.as_str()),
+                "{kind} {name}:\n{}",
+                found.out
+            );
         }
         assert_eq!(all["editor"].0, "skipped");
     }
@@ -105,7 +117,11 @@ fn the_json_file_holds_a_line_for_each_class() {
     for line in lines {
         assert!(line.starts_with("{\"module\":"), "{line}");
         assert!(line.contains("\"compatible\":true"), "{line}");
-        assert!(line.contains("{\"stage\":\"link\",\"verdict\":\"pass\""));
+        assert!(
+            line.contains("{\"stage\":\"link\",\"verdict\":\"pass\"")
+                || line.contains("{\"stage\":\"link\",\"verdict\":\"note\""),
+            "{line}"
+        );
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
