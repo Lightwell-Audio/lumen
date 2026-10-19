@@ -139,7 +139,7 @@ impl Arrangement {
         if toggle(ui, mute_rect, Toggle::Mute, Tone::Mute) {
             doc.set_mute(&self.targets(track.id), !track.mute);
         }
-        // Ableton's way by default: a click solos (or cues) this track
+        // Exclusive by default: a click solos (or cues) this track
         // alone, Ctrl+click adds it; the additive preference swaps them.
         let exclusive = modifiers.command == additive;
         if cueing {

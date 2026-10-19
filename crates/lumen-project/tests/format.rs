@@ -481,7 +481,7 @@ fn golden_v14_file_loads_forever() {
 
 /// The model the v15 golden file must always load as: v14 with the MIDI
 /// clip keeping a note before its start and one past its end, hidden (a
-/// clip is a window onto its notes, as in Ableton).
+/// clip is a window onto its notes).
 fn golden_v15_expected() -> Project {
     let mut project = Project {
         name: "Golden v15".into(),

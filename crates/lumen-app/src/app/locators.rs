@@ -1,4 +1,4 @@
-//! Named locators on the strip (M3 slice 5d, as in Ableton): flags above
+//! Named locators on the strip (M3 slice 5d): flags above
 //! the loop brace. Set one at the playhead with the Set button or M (again
 //! on the same place removes it); click a flag to jump there, drag it to
 //! move it (snapped; Alt places freely), double-click or F2 to rename,

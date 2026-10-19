@@ -1,6 +1,6 @@
 //! Moving around the arrangement (M3 slice 4d): scrolling; zooming with
 //! the wheel, a pinch or the keys; fitting; stepping back; and Alt+wheel
-//! track heights. The keys (as in Ableton: `+`/`-` zoom, X back, W fit
+//! track heights. The keys (`+`/`-` zoom, X back, W fit
 //! width, H fit height) are commands (`app/commands.rs`) that queue a
 //! [`ViewStep`] here. The view itself is `crate::timeview`.
 
@@ -126,7 +126,7 @@ impl Nav {
 }
 
 impl App {
-    /// Dragging the bar ruler, as in Ableton: down zooms in, up zooms out,
+    /// Dragging the bar ruler: down zooms in, up zooms out,
     /// sideways scrolls, and the grabbed beat stays under the pointer. True
     /// while a drag is moving the view.
     pub(crate) fn drag_ruler(&mut self, response: &egui::Response, canvas: Rect) -> bool {
@@ -176,8 +176,8 @@ impl App {
         }
     }
 
-    /// How far the view may zoom and scroll: out to the song (as in
-    /// Ableton), in to single samples at the tempo where the view is.
+    /// How far the view may zoom and scroll: out to the song, in to single
+    /// samples at the tempo where the view is.
     pub(crate) fn zoom_limits(&self, width: f32) -> Limits {
         self.zoom_limits_at(width, self.nav.view.left)
     }
@@ -320,7 +320,7 @@ impl App {
                         limits,
                     );
                     self.nav.glide_to(to, None, now);
-                    // Looking around pauses Follow, as in Ableton.
+                    // Looking around pauses Follow.
                     self.transport.follow_paused = true;
                     ctx.request_repaint();
                 }
@@ -369,7 +369,7 @@ impl App {
                 .toggle_fit_heights(self.document.project(), room);
         }
         if zoom_in || zoom_out || fit_width || back {
-            // Looking around pauses Follow, as in Ableton.
+            // Looking around pauses Follow.
             self.transport.follow_paused = true;
         }
         if zoom_in || zoom_out || fit_width || back || fit_height {

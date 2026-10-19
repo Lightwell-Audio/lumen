@@ -25,7 +25,7 @@ pub const EDGE_ZONE: f32 = 6.0;
 pub use lumen_project::edit::Edge;
 
 /// Where an arrow key takes the clip selection (M3 review H2; the owner's
-/// choice: the arrows follow the selection, as in Logic and Cubase).
+/// choice: the arrows follow the selection).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClipStep {
     /// The clip before, on the same track.

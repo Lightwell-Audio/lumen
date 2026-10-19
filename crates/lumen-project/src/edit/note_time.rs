@@ -7,7 +7,7 @@
 //! repeats from the clip's start for as long as the clip lasts; without one,
 //! the content is the clip.
 //!
-//! **A clip is a window onto its notes** (format v15, as in Ableton): edits
+//! **A clip is a window onto its notes** (format v15): edits
 //! that shorten, cover or split a clip move its edges and never delete a
 //! note. Notes before the clip's start (a negative start) or at or past its
 //! content's end are kept but hidden: not played, not drawn, not picked

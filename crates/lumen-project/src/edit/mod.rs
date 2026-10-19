@@ -154,7 +154,7 @@ pub fn clear_except(
     }
 }
 
-/// Ableton's rule for clips put down on others (slice 6c, owner): the
+/// The rule for clips put down on others (slice 6c, owner): the
 /// clips `placed` win, and whatever they cover on their own track is cut
 /// away, as [`clear`] does.
 pub fn overwrite(project: &mut Project, placed: &[Id], fresh: &mut impl FnMut() -> Id) {
@@ -318,7 +318,7 @@ fn closed(t: Ticks, a: Ticks, b: Ticks) -> Ticks {
     }
 }
 
-/// Deletes `[a, b)` from the whole song, as Ableton's Delete Time: every
+/// Deletes `[a, b)` from the whole song (Delete Time): every
 /// track is cleared there and everything after moves back; locators inside
 /// go, those after move; the loop closes up (unless that would empty it).
 pub fn delete_time(project: &mut Project, a: Ticks, b: Ticks, fresh: &mut impl FnMut() -> Id) {
@@ -348,8 +348,8 @@ pub fn delete_time(project: &mut Project, a: Ticks, b: Ticks, fresh: &mut impl F
     sort_clips(project);
 }
 
-/// Inserts `length` of silence at `at` across the whole song (Ableton's
-/// Insert Time): clips crossing it split, and everything after moves on,
+/// Inserts `length` of silence at `at` across the whole song (Insert
+/// Time): clips crossing it split, and everything after moves on,
 /// locators and the loop included.
 pub fn insert_time(
     project: &mut Project,
@@ -522,7 +522,7 @@ mod tests {
 
     #[test]
     fn a_midi_slice_is_a_window_that_keeps_every_note() {
-        // Ableton's window (format v15): the slice from 4 to 6 shows the note
+        // The clip window (format v15): the slice from 4 to 6 shows the note
         // at 5 and keeps the others, hidden, so nothing is lost.
         let p = song();
         let mut clip = (*p.tracks[1].clips[0]).clone();

@@ -26,8 +26,8 @@ pub struct SendSpec {
     pub pre_fader: bool,
 }
 
-/// Where a sidechain is taken from on the node that feeds it: Ableton's
-/// three (owner, ADR-0041).
+/// Where a sidechain is taken from on the node that feeds it: one of
+/// three points (owner, ADR-0041).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum Tap {
     /// After trim and polarity, before the node's devices. The fader and
@@ -81,7 +81,7 @@ impl Device {
 /// The signal path: the node's input (its clips, the outputs of the nodes
 /// routed into it and the sends into it) → trim → polarity → devices →
 /// mute → pre-fader sends → volume → pan → post-fader sends → output.
-/// Mute silences sends too, as in Ableton; the output can be silent while
+/// Mute silences sends too; the output can be silent while
 /// the sends play (a soloed return plays wet only). Sidechains taken from
 /// the node leave at their [`Tap`].
 #[derive(Debug, Clone, PartialEq)]

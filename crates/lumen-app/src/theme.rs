@@ -440,8 +440,8 @@ pub const TEXT_ON_LIGHT: Color32 = Color32::from_rgb(0x0B, 0x0D, 0x10);
 /// Text on clips.
 pub const CLIP_TEXT: Color32 = Color32::WHITE;
 
-/// A muted clip (the owner's M1, slice 6e): its colour drains to this grey,
-/// as in Ableton. Medium lightness like [`CLIP_COLORS`], so its name and
+/// A muted clip (the owner's M1, slice 6e): its colour drains to this grey.
+/// Medium lightness like [`CLIP_COLORS`], so its name and
 /// waveform stay readable in both themes.
 pub const CLIP_MUTED: Color32 = Color32::from_rgb(0x6C, 0x70, 0x78);
 

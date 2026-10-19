@@ -4629,7 +4629,7 @@ withdrawn:
 - **Both** quantizes in this order: Start first (the length stays), then the end
   of the note as it now is. Adjacent notes stay adjacent. They had been
   quantized independently from their original positions and overlapped.
-Unit tests `ableton_start_*`, `ableton_end_*` and `ableton_both_*` in
+Unit tests `pair_start_*`, `pair_end_*` and `pair_both_*` in
 `edit/quantize.rs` are the owner's scenario. The owner has not yet verified
 swing in quantize, the window, what Ctrl+U does with no selection,
 and a note that collapses in End (Lumen takes the next line).
@@ -6971,7 +6971,8 @@ Decisions that went beyond the spike:
 **A save reads every running plugin (owner's report, 2026-10-17).** A plugin
 was read for its state only after an edit it reported as a parameter change,
 and the save did not wait for the answer. A plugin keeps most of what the user
-sets (BBC Symphony Orchestra's patches, Ozone's bands) without telling the host,
+sets (an orchestral instrument's patches, a mastering effect's bands: the
+anonymous RP-11 and RP-12) without telling the host,
 so a project saved from the owner's ten plugin devices held the state of one;
 the rest reopened as they were first loaded. Now saving (Save, Save As, and
 the save a prompt starts) asks every running plugin for its state and writes

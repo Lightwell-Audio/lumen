@@ -4,7 +4,7 @@
 //! The box layer places a box vertically only by its row slots, so a track
 //! gets [`BANDS`] slots, thin horizontal bands under its clips' title bars,
 //! divided evenly among the pitches its MIDI clips play ([`Fit`],
-//! [`track_range`]). As in Ableton's arrangement, every clip on a track
+//! [`track_range`]). Every clip on a track
 //! shares that layout, so a pitch is at the same height in all of them and
 //! a part an octave up sits higher; every pitch is a row of the same height,
 //! and neighbouring pitches touch, as in the piano roll. A note covers its
@@ -26,7 +26,7 @@ use super::notes::{ClipNotes, pack, velocity_alpha};
 pub(crate) const BANDS: u32 = 128;
 /// A track's pitch range is shown at least this many semitones tall (four
 /// octaves, centred on its notes), so a few notes are thin rows with room
-/// to show where they move, as in Ableton, instead of filling the clips.
+/// to show where they move, instead of filling the clips.
 const MIN_RANGE: u8 = 48;
 
 /// The lowest and highest pitch of every note the MIDI clips in `clips`

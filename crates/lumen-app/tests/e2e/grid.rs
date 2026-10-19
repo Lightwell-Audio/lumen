@@ -1,4 +1,4 @@
-//! The editing grid: Ableton's keys, the grid menu, snapping on the ruler
+//! The editing grid: its keys, the grid menu, snapping on the ruler
 //! (and Alt to place freely), and the grid saved with the project.
 
 use eframe::egui::{Key, Modifiers};

@@ -21,8 +21,8 @@ impl Document {
     /// Puts clips at new places (M3 slice 6): each [`ClipMove`] moves that
     /// clip to its start on its track, starting from `base`, the project as
     /// the drag found it, so every frame of a drag is the same edit redone
-    /// (one undo step with `merge`). Moved clips cut away what they cover,
-    /// as in Ableton (owner, slice 6c). Locked clips, and moves to tracks
+    /// (one undo step with `merge`). Moved clips cut away what they cover
+    /// (owner, slice 6c). Locked clips, and moves to tracks
     /// that do not exist, are left out.
     pub fn move_clips(&mut self, base: &Project, moves: &[ClipMove], merge: Option<&str>) {
         let label = plural(moves.len(), "Move clip", "Move {} clips");
@@ -248,7 +248,7 @@ impl Document {
         });
     }
 
-    /// Deletes `[a, b)` from the whole song (Ableton's Delete Time).
+    /// Deletes `[a, b)` from the whole song (Delete Time).
     pub fn delete_time(&mut self, a: Ticks, b: Ticks) {
         let next = &mut self.next_id;
         self.history.apply("Delete time", None, |project| {
@@ -447,7 +447,7 @@ mod tests {
         assert_eq!(doc.project().tracks[0].clips[0].id, kick);
     }
 
-    /// The owner's request (Ableton's arrangement): a MIDI clip dropped on
+    /// The owner's request: a MIDI clip dropped on
     /// another cuts it, but only its window. Moving the top clip away and
     /// dragging the covered clip's end back brings its notes back intact.
     #[test]

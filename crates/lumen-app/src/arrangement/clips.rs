@@ -42,8 +42,8 @@ const SPLIT_BELOW: f32 = 40.0;
 const NAME_MIN_WIDTH: f32 = 24.0;
 /// Width of a clip still loading for import, before it has a length.
 const PENDING_WIDTH: f32 = 160.0;
-/// How opaque a clip's body is: the grid shows faintly through it, as in
-/// Ableton (the owner's G1, MT-APP-14 run 2). The title bar and waveform
+/// How opaque a clip's body is: the grid shows faintly through it
+/// (the owner's G1, MT-APP-14 run 2). The title bar and waveform
 /// stay solid.
 const BODY_OPACITY: f32 = 0.55;
 /// A locked clip's padlock, and the narrowest title that shows it.

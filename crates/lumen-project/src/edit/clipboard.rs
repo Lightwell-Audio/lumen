@@ -105,7 +105,7 @@ pub fn landing_tracks(project: &Project, clipboard: &Clipboard, track: usize) ->
 }
 
 /// Pastes `clipboard` at `at`, its first track on the track with index
-/// `track`, overwriting what is there (as Ableton). Clips land only on
+/// `track`, overwriting what is there. Clips land only on
 /// tracks of their kind; the rest are left out. Returns the new clips'
 /// ids.
 pub fn paste(

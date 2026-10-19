@@ -109,7 +109,7 @@ impl From<&Metronome> for MetronomeSettings {
 #[serde(default)]
 pub struct Mixing {
     /// A click on Solo adds the track to what is soloed, and Ctrl+click
-    /// solos it alone (the owner's D2: off by default, Ableton's way).
+    /// solos it alone (the owner's D2: off by default).
     pub additive_solo: bool,
     /// The master's Solo/Cue switch is on Cue: the S buttons cue tracks to
     /// the cue pair (the owner's C1).

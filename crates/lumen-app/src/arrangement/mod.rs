@@ -10,7 +10,7 @@
 //!   track's a faint blue one; tracks that cannot be heard (muted, or not
 //!   soloed while another track is) have their clips dimmed.
 //!
-//! Tracks fold and unfold, as in Ableton. Folded is a compact row; unfolded
+//! Tracks fold and unfold. Folded is a compact row; unfolded
 //! is taller, with volume and pan in the header (automation lanes join it in
 //! M7). Dragging a track's bottom edge resizes it: a folded track dragged
 //! taller unfolds, and an unfolded one dragged small folds. Heights glide
@@ -271,8 +271,8 @@ pub struct Arrangement {
     /// arrow goes from while it is selected.
     pub(crate) clip_cursor: Option<Id>,
     /// The track last clicked in the lanes, on a clip or empty: Paste
-    /// lands there (at the playhead) unless tracks are selected, as
-    /// Ableton's insert point sits on a track (owner, after M4 slice 7).
+    /// lands there (at the playhead) unless tracks are selected: the
+    /// insert point sits on a track (owner, after M4 slice 7).
     pub(crate) insert: Option<Id>,
     /// Where the lanes were right-clicked, for the menu's Paste: the time
     /// (snapped) and the track there.

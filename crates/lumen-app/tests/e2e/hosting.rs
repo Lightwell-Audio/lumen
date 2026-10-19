@@ -860,7 +860,7 @@ fn a_plugin_saying_it_changed_while_it_loads_is_not_the_users_change() {
 fn a_save_reads_every_running_plugin_first_even_one_that_reported_no_change() {
     // A plugin keeps most of what the user sets (a patch, a preset) without
     // telling the host: nothing marks it changed, so only reading it at the
-    // save finds out. The owner's BBC Symphony Orchestra and Ozone lost their
+    // save finds out. The owner's RP-11 and RP-12 lost their
     // settings on reopening because nothing was read.
     let project = project(|d| *d = vec![instrument_device(PLUGIN)]);
     let mut lumen = launch("save-reads", &project, &["Edits"]);

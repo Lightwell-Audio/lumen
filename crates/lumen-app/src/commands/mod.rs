@@ -226,8 +226,7 @@ pub(crate) struct Info {
     pub id: &'static str,
     pub name: &'static str,
     pub area: Area,
-    /// The default shortcuts, Ableton's where it has one; the first is the
-    /// one shown.
+    /// The default shortcuts; the first is the one shown.
     pub keys: &'static [Chord],
     /// What it does, in one sentence (the palette's detail strip).
     pub about: &'static str,

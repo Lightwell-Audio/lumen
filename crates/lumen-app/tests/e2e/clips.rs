@@ -681,7 +681,7 @@ fn an_edge_trims_within_the_file_and_shift_loops_it() {
 }
 
 #[test]
-fn a_clip_dropped_on_another_cuts_it_back_as_in_ableton() {
+fn a_clip_dropped_on_another_cuts_it_back() {
     let (mut lumen, kick, snare) = with_two_clips("clip-overwrite");
     lumen.key(Modifiers::COMMAND, Key::Num1);
     lumen.key(Modifiers::COMMAND, Key::Num1);

@@ -670,8 +670,7 @@ impl Transport {
 }
 
 /// Loop and punch switches: the loop button's and the loop brace's
-/// right-click menus. Punch in and out act at the loop's edges, as in
-/// Ableton.
+/// right-click menus. Punch in and out act at the loop's edges.
 pub fn punch_menu(ui: &mut Ui, doc: &mut crate::document::Document) {
     let t = doc.project().transport;
     if ui

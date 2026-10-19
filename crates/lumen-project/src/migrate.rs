@@ -212,7 +212,7 @@ fn v6_to_v7(mut document: Value) -> Result<Value, String> {
 /// Version 8 (M4 slice 3) keeps a group's tracks right under it, nested
 /// ones inside theirs, and saves which groups are folded (`collapsed`, none
 /// at first). Tracks are put in that order, keeping the order of tracks
-/// that share a group; returns leave their groups (Ableton's rule).
+/// that share a group; returns leave their groups.
 fn v7_to_v8(mut document: Value) -> Result<Value, String> {
     let project = document
         .get_mut("project")
@@ -328,8 +328,8 @@ fn v13_to_v14(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v15 (M5, after MT-MIDI-7): a MIDI clip is a window onto its notes, as in
-/// Ableton. Trimming, covering and splitting no longer delete notes, so a
+/// v15 (M5, after MT-MIDI-7): a MIDI clip is a window onto its notes.
+/// Trimming, covering and splitting no longer delete notes, so a
 /// note may start before its clip (a negative start) or at or past its end,
 /// kept but hidden. An older file has none such, and means the same.
 fn v14_to_v15(document: Value) -> Result<Value, String> {

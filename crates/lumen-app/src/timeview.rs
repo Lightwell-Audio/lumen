@@ -40,7 +40,7 @@ pub struct Limits {
 }
 
 impl Limits {
-    /// As in Ableton, the song sets how far out the view goes: `song` is
+    /// The song sets how far out the view goes: `song` is
     /// the furthest beat in use (clips, playhead, loop), shown `width`
     /// points wide with [`ROOM`] after it. In, it goes to
     /// [`MAX_POINTS_PER_SAMPLE`] for audio at `frames_per_beat` (the device

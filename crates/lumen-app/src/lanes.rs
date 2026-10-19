@@ -357,7 +357,7 @@ impl Lanes {
     /// Loads that finished join the project as one step, once all the
     /// files dropped with them have, in the order they were dropped,
     /// whatever order their loads finish in (a short file loads first, and
-    /// used to come first; Ableton keeps the dropped order). Files for new
+    /// used to come first; the dropped order is kept). Files for new
     /// tracks also wait for every earlier drop, so tracks keep the order of
     /// the drops too; files dropped on a track only for their own drop.
     fn join_loaded(&mut self, doc: &mut Document) {

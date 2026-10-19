@@ -1,7 +1,7 @@
-//! The scrub strip (M3 slice 5e, as in Ableton): the strip's upper part,
+//! The scrub strip (M3 slice 5e): the strip's upper part,
 //! around the locator flags. Click to jump there (snapped; Alt places
 //! freely). Drag to hear the song under the pointer: by default the grid
-//! step under it loops at normal pitch (Ableton-style); with Alt, the audio
+//! step under it loops at normal pitch; with Alt, the audio
 //! follows the hand like tape. While playing, a drag jumps playback from
 //! step to step instead. Right-click adds a locator there.
 
@@ -45,7 +45,7 @@ impl App {
             )
         });
         // Right-click: add a locator where it was clicked, leaving the
-        // playhead alone (MT-APP-13 run 1, as in Ableton).
+        // playhead alone (MT-APP-13 run 1).
         let menu_at = id.with("menu at");
         if response.secondary_clicked()
             && let Some(p) = response.interact_pointer_pos()

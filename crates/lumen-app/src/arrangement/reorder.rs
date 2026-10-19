@@ -1,5 +1,5 @@
 //! Reordering tracks by dragging their headers (M3 slice 4d, the owner's
-//! Ableton-style request): an accent line shows where they will land, the
+//! request): an accent line shows where they will land, the
 //! list scrolls when the pointer nears its top or bottom edge, and the drop
 //! is one undo step (`Document::move_tracks`). Esc cancels.
 //!

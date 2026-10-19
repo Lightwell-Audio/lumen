@@ -1,5 +1,5 @@
 //! A smooth playhead while playing (owner, after slice 7: Follow was
-//! choppy and jittered now and then, where Ableton's glides).
+//! choppy and jittered now and then).
 //!
 //! The engine publishes its position once per audio block, and blocks do not
 //! line up with frames: at 512 samples and 48 kHz a block is 10.7 ms and a

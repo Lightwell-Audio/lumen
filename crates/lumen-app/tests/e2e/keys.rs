@@ -176,7 +176,7 @@ fn a_right_click_on_a_track_name_opens_its_menu() {
 }
 
 /// The M3 review's H2, in the owner's choice: with a clip selected the
-/// arrows move between clips (as in Logic and Cubase), Shift adds to the
+/// arrows move between clips, Shift adds to the
 /// selection, and the view follows; with tracks selected they act on
 /// tracks as before. Ctrl+A then an arrow reaches a single clip.
 #[test]
