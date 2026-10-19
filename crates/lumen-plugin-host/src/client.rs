@@ -826,9 +826,27 @@ impl Drop for HostProcess {
         // No host outlives the handle that started it.
         self.kill();
         self.writer = None;
-        for thread in self.threads.drain(..) {
-            // The pipes are closed now; the threads end. A writer stuck in a
-            // blocked write ends when the killed child's pipe breaks.
+        // The pipes are closed now; the threads end. A writer stuck in a
+        // blocked write ends when the killed child's pipe breaks. A reader
+        // does not, if a helper process the plugin started inherited the
+        // pipe: it is let go after a moment rather than waited for, as the
+        // stderr reader is.
+        join_within(self.threads.drain(..), THREADS_END_WITHIN);
+    }
+}
+
+/// How long dropping a host waits for its pipe threads to end.
+const THREADS_END_WITHIN: Duration = Duration::from_millis(500);
+
+/// Joins the threads that end within `within` in all; the rest are let go
+/// (they end by themselves when what they wait on does).
+fn join_within(threads: impl Iterator<Item = JoinHandle<()>>, within: Duration) {
+    let end = Instant::now() + within;
+    for thread in threads {
+        while !thread.is_finished() && Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        if thread.is_finished() {
             let _ = thread.join();
         }
     }
@@ -837,6 +855,22 @@ impl Drop for HostProcess {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_thread_that_does_not_end_is_let_go_not_waited_for() {
+        let (stop, wait) = mpsc::channel::<()>();
+        let stuck = std::thread::spawn(move || {
+            let _ = wait.recv();
+        });
+        let quick = std::thread::spawn(|| {});
+        let started = Instant::now();
+        join_within([quick, stuck].into_iter(), Duration::from_millis(100));
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "dropping waited for a reader that never ends"
+        );
+        drop(stop);
+    }
 
     #[test]
     fn a_crash_is_worded_with_its_code_and_what_the_code_means() {
