@@ -403,17 +403,33 @@ impl Gate {
         })
     }
 
-    fn take(&self) {
+    /// Waits for a permit; it goes back when the returned value is dropped,
+    /// however the load ends (a panic included).
+    fn permit(&self) -> Permit<'_> {
         let mut free = self.free.lock().unwrap_or_else(|e| e.into_inner());
         while *free == 0 {
             free = self.freed.wait(free).unwrap_or_else(|e| e.into_inner());
         }
         *free -= 1;
+        Permit(self)
     }
+}
 
-    fn give(&self) {
-        *self.free.lock().unwrap_or_else(|e| e.into_inner()) += 1;
-        self.freed.notify_one();
+/// A load's place at the gate.
+struct Permit<'a>(&'a Gate);
+
+impl Drop for Permit<'_> {
+    fn drop(&mut self) {
+        *self.0.free.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+        self.0.freed.notify_one();
+    }
+}
+
+/// Runs `work`; if it panics, `on_panic` runs instead, so a device's thread
+/// that fails says so rather than leaving the device "loading" for good.
+fn catching(work: impl FnOnce(), on_panic: impl FnOnce()) {
+    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)).is_err() {
+        on_panic();
     }
 }
 
@@ -441,18 +457,36 @@ impl Process {
         let thread = std::thread::Builder::new()
             .name("plugin-host".into())
             .spawn(move || {
-                Run {
+                let ended = Arc::new(AtomicBool::new(false));
+                let run = Run {
                     aux: Cell::new(start.aux),
                     start,
                     gate,
                     tag,
-                    out,
-                    wake,
+                    out: out.clone(),
+                    wake: Arc::clone(&wake),
                     requests,
-                    ended: Arc::new(AtomicBool::new(false)),
+                    ended: Arc::clone(&ended),
                     counts: Arc::new(Counts::default()),
-                }
-                .run();
+                };
+                // A panic here (a bug, not a plugin: nothing a plugin sends
+                // can cause one) ends the host with the thread's state and
+                // is said, so the device fails and Reload is offered.
+                catching(
+                    || run.run(),
+                    || {
+                        ended.store(true, Ordering::Release);
+                        let failure = Failure {
+                            step: Step::Running,
+                            error: HostError::Protocol(
+                                "the app's thread for this plugin failed".into(),
+                            ),
+                            detail: None,
+                        };
+                        let _ = out.send((tag, Happened::Failed(failure)));
+                        wake();
+                    },
+                );
             })?;
         Ok(Self {
             commands,
@@ -661,9 +695,10 @@ impl Run {
     }
 
     fn run(self) {
-        self.gate.take();
-        let loaded = self.load();
-        self.gate.give();
+        let loaded = {
+            let _place = self.gate.permit();
+            self.load()
+        };
         let mut up = match loaded {
             Ok((up, linked)) => {
                 self.say(Happened::Linked(Box::new(linked)));
@@ -1175,12 +1210,11 @@ mod tests {
             .map(|_| {
                 let (gate, inside, most) = (gate.clone(), inside.clone(), most.clone());
                 std::thread::spawn(move || {
-                    gate.take();
+                    let _place = gate.permit();
                     let now = inside.fetch_add(1, Ordering::SeqCst) + 1;
                     most.fetch_max(now, Ordering::SeqCst);
                     std::thread::sleep(Duration::from_millis(20));
                     inside.fetch_sub(1, Ordering::SeqCst);
-                    gate.give();
                 })
             })
             .collect();
@@ -1188,6 +1222,38 @@ mod tests {
             t.join().unwrap();
         }
         assert_eq!(most.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn a_load_that_panics_gives_its_permit_back() {
+        let gate = Gate::new(1);
+        for _ in 0..4 {
+            let gate = gate.clone();
+            let result = std::thread::spawn(move || {
+                let _place = gate.permit();
+                panic!("a load that went wrong");
+            })
+            .join();
+            assert!(result.is_err());
+        }
+        // The one permit is free: this does not wait for ever.
+        let (done, heard) = mpsc::channel();
+        let again = gate.clone();
+        std::thread::spawn(move || {
+            let _place = again.permit();
+            done.send(()).unwrap();
+        });
+        assert!(heard.recv_timeout(Duration::from_secs(5)).is_ok());
+    }
+
+    #[test]
+    fn a_thread_that_panics_says_so() {
+        let said = Cell::new(false);
+        catching(|| panic!("a bug"), || said.set(true));
+        assert!(said.get());
+        let said = Cell::new(false);
+        catching(|| {}, || said.set(true));
+        assert!(!said.get());
     }
 
     #[test]
