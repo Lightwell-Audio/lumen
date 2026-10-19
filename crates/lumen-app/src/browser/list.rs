@@ -172,29 +172,33 @@ fn draw_row(ui: &mut Ui, rect: Rect, row: &Row, input: &Input<'_>, out: &mut Out
             folded,
         } => draw_header(
             ui,
-            rect,
-            Id::new(("browser vendor", name.to_lowercase())),
-            name,
-            *count,
-            *folded,
-            input.selected == Some(&Selection::Vendor(name.to_lowercase())),
+            Header {
+                rect,
+                id: Id::new(("browser vendor", name.to_lowercase())),
+                name,
+                count: *count,
+                folded: *folded,
+                selected: input.selected == Some(&Selection::Vendor(name.to_lowercase())),
+                select: Selection::Vendor(name.to_lowercase()),
+                hover: Hover::Vendor(name.clone()),
+            },
             |out| out.toggle_fold = Some(name.clone()),
-            Selection::Vendor(name.to_lowercase()),
             out,
-            Hover::Vendor(name.clone()),
         ),
         Row::BlockedHeader { count, folded } => draw_header(
             ui,
-            rect,
-            Id::new("browser blocked header"),
-            "Blocked",
-            *count,
-            *folded,
-            input.selected == Some(&Selection::BlockedHeader),
+            Header {
+                rect,
+                id: Id::new("browser blocked header"),
+                name: "Blocked",
+                count: *count,
+                folded: *folded,
+                selected: input.selected == Some(&Selection::BlockedHeader),
+                select: Selection::BlockedHeader,
+                hover: Hover::Vendor("blocked".into()),
+            },
             |out| out.toggle_blocked = true,
-            Selection::BlockedHeader,
             out,
-            Hover::Vendor("blocked".into()),
         ),
         Row::Device(i) => draw_device(ui, rect, &input.catalog.devices()[*i], *i, input, out),
         Row::Blocked(i) => draw_blocked(ui, rect, &input.catalog.blocked()[*i], *i, input, out),
@@ -202,21 +206,30 @@ fn draw_row(ui: &mut Ui, rect: Rect, row: &Row, input: &Input<'_>, out: &mut Out
     }
 }
 
-/// A header the pointer folds: an arrow that turns, a name, a count.
-#[allow(clippy::too_many_arguments)]
-fn draw_header(
-    ui: &mut Ui,
+/// What a header shows and what choosing it means.
+struct Header<'a> {
     rect: Rect,
     id: Id,
-    name: &str,
+    name: &'a str,
     count: usize,
     folded: bool,
     selected: bool,
-    fold: impl FnOnce(&mut Out),
     select: Selection,
-    out: &mut Out,
     hover: Hover,
-) {
+}
+
+/// A header the pointer folds: an arrow that turns, a name, a count.
+fn draw_header(ui: &mut Ui, header: Header<'_>, fold: impl FnOnce(&mut Out), out: &mut Out) {
+    let Header {
+        rect,
+        id,
+        name,
+        count,
+        folded,
+        selected,
+        select,
+        hover,
+    } = header;
     let palette = *theme::p();
     let response = ui.interact(rect, id, Sense::CLICK);
     response.widget_info(|| {

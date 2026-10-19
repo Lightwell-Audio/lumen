@@ -64,6 +64,15 @@ const TEXT_EVERY: Duration = Duration::from_millis(50);
 /// A row of the list.
 const ROW: f32 = 28.0;
 
+/// What one row of the panel shows.
+struct RowLook<'a> {
+    device: &'a Device,
+    p: &'a ParamInfo,
+    units: &'a [UnitInfo],
+    starred_now: bool,
+    under_cursor: bool,
+}
+
 /// The name of a group: the plugin's, or "General" for the root and
 /// "Group n" for one it did not name.
 pub(crate) fn unit_name(units: &[UnitInfo], id: i32) -> String {
@@ -403,16 +412,14 @@ impl App {
                     .show_rows(ui, ROW, rows.len(), |ui, range| {
                         for r in range {
                             let p = &list[rows[r]];
-                            self.parameter_row(
-                                ui,
-                                &device,
+                            let look = RowLook {
+                                device: &device,
                                 p,
-                                &units,
-                                shown.contains(&p.id),
-                                r == panel.cursor,
-                                &mut starred,
-                                &mut act,
-                            );
+                                units: &units,
+                                starred_now: shown.contains(&p.id),
+                                under_cursor: r == panel.cursor,
+                            };
+                            self.parameter_row(ui, look, &mut starred, &mut act);
                         }
                     });
                 ui.add_space(theme::space::XS);
@@ -437,18 +444,20 @@ impl App {
     }
 
     /// One row of the panel: the star, the name and its group, the bar.
-    #[allow(clippy::too_many_arguments)]
     fn parameter_row(
         &self,
         ui: &mut Ui,
-        device: &Device,
-        p: &ParamInfo,
-        units: &[UnitInfo],
-        starred_now: bool,
-        under_cursor: bool,
+        look: RowLook<'_>,
         starred: &mut Vec<u32>,
         act: &mut RowOut,
     ) {
+        let RowLook {
+            device,
+            p,
+            units,
+            starred_now,
+            under_cursor,
+        } = look;
         let palette = *theme::p();
         let width = ui.available_width();
         let (row, _) = ui.allocate_exact_size(vec2(width, ROW), Sense::hover());
