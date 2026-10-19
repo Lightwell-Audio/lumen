@@ -58,6 +58,11 @@ pub(super) fn coalesce(commands: Vec<Command>) -> Vec<Command> {
             Command::Text(id, _) => later
                 .into_iter()
                 .any(|d| matches!(d, Command::Text(other, _) if other == id)),
+            // The words for a stepped parameter's steps, asked again: the
+            // later ask has the same steps.
+            Command::Texts(id, _) => later
+                .into_iter()
+                .any(|d| matches!(d, Command::Texts(other, _) if other == id)),
             Command::Keys(_) => later.into_iter().any(|d| matches!(d, Command::Keys(_))),
             Command::Refresh => later.into_iter().any(|d| matches!(d, Command::Refresh)),
             Command::ShowEditor(_) => later

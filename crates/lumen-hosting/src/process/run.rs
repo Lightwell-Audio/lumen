@@ -142,8 +142,12 @@ impl Run {
                     }
                     Command::Texts(id, values) => {
                         for value in values {
-                            if let Ok(text) = up.host.param_text(id, value, QUICK) {
-                                self.say(Happened::Text { id, value, text });
+                            match up.host.param_text(id, value, QUICK) {
+                                Ok(text) => self.say(Happened::Text { id, value, text }),
+                                // A host that does not answer would take the
+                                // same time for each of the rest.
+                                Err(HostError::Timeout) => break,
+                                Err(_) => {}
                             }
                         }
                     }

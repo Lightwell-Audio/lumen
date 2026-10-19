@@ -378,16 +378,10 @@ fn show_presets_folder_names_the_folder_once_something_is_saved_there() {
     let (mut lumen, places) = launch("folder");
     lumen.open_preset_menu();
     lumen.click("Show presets folder");
-    lumen.frames(3);
+    lumen.wait_for("the folder to be looked for", |app| {
+        app.note().is_some_and(|n| n.contains("Nothing is saved"))
+    });
     assert!(lumen.app().revealed_folders().is_empty());
-    assert!(
-        lumen
-            .app()
-            .note()
-            .is_some_and(|n| n.contains("Nothing is saved")),
-        "{:?}",
-        lumen.app().note()
-    );
 
     play(&mut lumen);
     lumen.app_mut().choose_program(PLUGIN, 0, 1);
@@ -400,7 +394,9 @@ fn show_presets_folder_names_the_folder_once_something_is_saved_there() {
     lumen.wait_for("the file", move |_| file.exists());
     lumen.open_preset_menu();
     lumen.click("Show presets folder");
-    lumen.frames(3);
+    lumen.wait_for("the folder to be shown", |app| {
+        !app.revealed_folders().is_empty()
+    });
     assert_eq!(
         lumen.app().revealed_folders(),
         [plugin_folder(&places.user)]

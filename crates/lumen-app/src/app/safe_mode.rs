@@ -24,6 +24,9 @@ use crate::widgets::raised;
 /// The marker's name, beside the settings file.
 pub(crate) const MARKER: &str = "plugin-loading.marker";
 
+/// How long closing waits for the marker to be removed.
+const CLOSING_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
+
 pub(crate) struct SafeMode {
     /// No plugin is loaded (but those asked for one at a time).
     pub(crate) on: bool,
@@ -34,6 +37,7 @@ pub(crate) struct SafeMode {
     /// Whether this run has written the marker (and so removes it).
     written: bool,
     writer: Option<Sender<Mark>>,
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 enum Mark {
@@ -55,6 +59,7 @@ impl SafeMode {
             marker,
             written: false,
             writer: None,
+            thread: None,
         }
     }
 
@@ -80,17 +85,31 @@ impl SafeMode {
     /// this does not.
     pub(crate) fn closing(&mut self) {
         if self.written
-            && let Some(path) = &self.marker
+            && let Some(path) = self.marker.clone()
         {
-            let _ = std::fs::remove_file(path);
+            // The writer thread removes it, and the exit waits for that a
+            // moment: a removal that is not done is a start that looks cut
+            // short.
+            self.send(Mark::Clear(path));
             self.written = false;
+        }
+        self.writer = None;
+        if let Some(thread) = self.thread.take() {
+            let end = std::time::Instant::now() + CLOSING_WAIT;
+            while !thread.is_finished() && std::time::Instant::now() < end {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            if thread.is_finished() {
+                let _ = thread.join();
+            }
         }
     }
 
     fn send(&mut self, mark: Mark) {
+        let thread = &mut self.thread;
         let writer = self.writer.get_or_insert_with(|| {
             let (tx, rx) = mpsc::channel::<Mark>();
-            std::thread::spawn(move || {
+            *thread = Some(std::thread::spawn(move || {
                 for mark in rx {
                     match mark {
                         Mark::Set(path) => {
@@ -101,7 +120,7 @@ impl SafeMode {
                         }
                     }
                 }
-            });
+            }));
             tx
         });
         let _ = writer.send(mark);

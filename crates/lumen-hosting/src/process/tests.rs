@@ -56,6 +56,16 @@ fn describe(commands: &[Command]) -> Vec<String> {
 }
 
 #[test]
+fn a_second_ask_for_the_words_of_one_parameter_replaces_the_first() {
+    let kept = coalesce(vec![
+        Command::Texts(4, vec![0.0, 0.5, 1.0]),
+        Command::Texts(5, vec![0.0, 1.0]),
+        Command::Texts(4, vec![0.0, 0.5, 1.0]),
+    ]);
+    assert_eq!(describe(&kept), ["texts 5 x2", "texts 4 x3"]);
+}
+
+#[test]
 fn a_drag_of_one_parameter_is_one_value_and_the_order_of_the_rest_is_kept() {
     let kept = coalesce(vec![
         Command::Set(1, 0.1),

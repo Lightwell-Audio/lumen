@@ -75,6 +75,19 @@ fn run(job: Job, tx: &Sender<Message>, cancel: &AtomicBool, ctx: &egui::Context)
     let Some(host) = job.host else {
         return;
     };
+    // Without its program there is nothing to scan with: the cache stands,
+    // and the browser says what is missing and how to build it.
+    if !host.is_file() {
+        send(Message::Finished {
+            summary: Summary {
+                host_missing: Some(super::host_missing(&host)),
+                ..Summary::default()
+            },
+            cache,
+            saved: Ok(()),
+        });
+        return;
+    }
     let mut scanner = Scanner::new(host);
     if let Some(deadline) = job.deadline {
         scanner.deadline = deadline;

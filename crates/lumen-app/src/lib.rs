@@ -444,6 +444,9 @@ impl eframe::App for App {
         }
         self.poll_midi_files(&ctx);
         self.plugins.poll();
+        if let Some(wait) = self.plugins.rebuild_wait() {
+            ctx.request_repaint_after(wait);
+        }
         let block = self
             .transport
             .audio
