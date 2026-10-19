@@ -193,6 +193,8 @@ pub(crate) struct AutoView {
     /// The last lane press was in a lane: Ctrl+A, copy, paste and duplicate
     /// mean its points until a press somewhere else.
     pub focus: bool,
+    /// The live value drawn beside the gesture this frame, for the tests.
+    pub tip: Option<String>,
     /// What copy last took from a lane.
     pub clip: Option<LaneClip>,
 }

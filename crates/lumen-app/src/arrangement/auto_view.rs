@@ -276,6 +276,7 @@ impl Arrangement {
             timeline,
         } = scene;
         self.auto.prune(doc.project());
+        self.auto.tip = None;
         if self.auto.shown.is_empty() {
             return;
         }

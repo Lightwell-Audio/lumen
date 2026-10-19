@@ -183,24 +183,20 @@ impl Arrangement {
                 matches!(&a.how, Gesture::Bend(b) if b.index == one.index) && a.track == track
             });
             let big = if hot { 1.0 } else { 0.0 };
+            // Solid, where the points are hollow: it is a handle, not a point.
             painter.circle_filled(
                 dot,
-                theme::size::AUTO_BEND + 2.0 + big,
-                palette.accent.gamma_multiply(0.2),
+                theme::size::AUTO_BEND + 3.0 + big,
+                palette.accent.gamma_multiply(0.22),
             );
-            painter.circle(
-                dot,
-                theme::size::AUTO_BEND + big,
-                palette.clip_body,
-                Stroke::new(1.5, palette.accent),
-            );
+            painter.circle_filled(dot, theme::size::AUTO_BEND + big, palette.accent);
         }
     }
 
     /// The value, and where in the song, beside the point being moved or the
     /// stroke being drawn, over everything.
     pub(super) fn lane_tip(
-        &self,
+        &mut self,
         ctx: &egui::Context,
         frame: &Frame,
         track: Id,
@@ -228,12 +224,20 @@ impl Arrangement {
             return;
         };
         let text = format!("{}  \u{00B7}  {}", scale::text(target, value), position(at));
-        let pos = pos2(frame.x(at) + 12.0, frame.y(target, value) - 14.0);
+        // Above the point, or below it when that would cover the tool strip.
+        let y = frame.y(target, value);
+        let lift = if y - 14.0 < frame.area().top() {
+            16.0
+        } else {
+            -14.0
+        };
+        let pos = pos2(frame.x(at) + 12.0, y + lift);
         let layer = egui::LayerId::new(
             egui::Order::Tooltip,
             egui::Id::new(("automation tip", track)),
         );
         widgets::draw_hint(&ctx.layer_painter(layer), pos, &text, ctx.content_rect());
+        self.auto.tip = Some(text);
     }
 }
 

@@ -565,7 +565,7 @@ pub mod size {
     /// values, and how far apart a curve's samples are.
     pub const AUTO_POINT: f32 = 4.0;
     /// The dot that bends a segment.
-    pub const AUTO_BEND: f32 = 4.5;
+    pub const AUTO_BEND: f32 = 3.5;
     pub const AUTO_GRAB: f32 = 9.0;
     pub const AUTO_PAD: f32 = 8.0;
     pub const AUTO_STEP: f32 = 6.0;
