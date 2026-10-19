@@ -2747,3 +2747,53 @@ fn outputs_row() {
         }
     }
 }
+
+/// Automation lanes over the clips (M7 slice A1): a volume lane with a
+/// curve and a picked point on the first track, a pan lane that is switched
+/// off on the second, the A button lit in the unfolded headers; both themes
+/// at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn automation_lanes() {
+    use lumen_core::automation::{Lane, Point, Shape};
+    use lumen_core::time::Ticks;
+    use lumen_project::automation::Target;
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new(&format!("shots-lanes-{appearance}-{scale}"));
+            let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1280.0, 760.0));
+            let tracks: Vec<_> = h.state().project().tracks.iter().map(|t| t.id).collect();
+            let q = Ticks::quarters;
+            let volume = Lane::new(vec![
+                Point::new(q(0), 0.0),
+                Point::new(q(2), -3.0).with_shape(Shape::Curve(Default::default())),
+                Point::new(q(5), -18.0),
+                Point::new(q(7), -18.0).with_shape(Shape::Step),
+                Point::new(q(9), 0.0),
+            ])
+            .unwrap();
+            let pan = Lane::new(vec![Point::new(q(1), -0.6), Point::new(q(6), 0.5)]).unwrap();
+            h.state_mut()
+                .give_lane(tracks[0], Target::Volume, volume)
+                .unwrap();
+            h.state_mut()
+                .give_lane(tracks[1], Target::Pan, pan)
+                .unwrap();
+            h.state_mut()
+                .switch_lane(tracks[1], Target::Pan, false)
+                .unwrap();
+            h.state_mut().select_tracks(&tracks[..2]);
+            h.run_steps(4);
+            h.key_press(Key::A);
+            h.run_steps(60);
+            // Pick the third point of the first lane, as a click would.
+            let p = h
+                .state()
+                .automation_point_pos(&h.ctx, tracks[0], 2)
+                .expect("in view");
+            click(&mut h, p);
+            h.run_steps(10);
+            save(&mut h, &format!("lanes-{appearance}-{scale}"));
+        }
+    }
+}

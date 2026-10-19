@@ -1,0 +1,39 @@
+{
+  "idle_causes": {
+    "C:\\Users\\Claire Li\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\egui-0.36.2\\src\\context.rs:538 ": 22,
+    "crates\\lumen-app\\src\\app\\info.rs:236 ": 2,
+    "crates\\lumen-app\\src\\app\\view.rs:140 ": 151,
+    "crates\\lumen-app\\src\\lib.rs:666 ": 151,
+    "crates\\lumen-app\\src\\widgets\\scroll_bar.rs:101 ": 123,
+    "crates\\lumen-app\\src\\widgets\\scroll_bar.rs:103 ": 45
+  },
+  "idle_repaints": 151,
+  "idle_seconds": 3,
+  "pass": true,
+  "phases": {
+    "scroll_time": {
+      "fps_p50": 424.8990864669641,
+      "frames": 600,
+      "max_ms": 3.1869,
+      "p50_ms": 2.3535,
+      "p95_ms": 2.7396,
+      "p99_ms": 2.9499
+    },
+    "scroll_tracks": {
+      "fps_p50": 387.20669093161933,
+      "frames": 600,
+      "max_ms": 9.956700000000001,
+      "p50_ms": 2.5826,
+      "p95_ms": 3.382,
+      "p99_ms": 5.1687
+    },
+    "zoom": {
+      "fps_p50": 404.31811749484496,
+      "frames": 600,
+      "max_ms": 6.765000000000001,
+      "p50_ms": 2.4733,
+      "p95_ms": 4.4694,
+      "p99_ms": 4.8513
+    }
+  }
+}

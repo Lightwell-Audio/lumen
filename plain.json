@@ -1,0 +1,35 @@
+{
+  "idle_causes": {
+    "crates\\lumen-app\\src\\app\\view.rs:140 ": 3,
+    "crates\\lumen-app\\src\\lib.rs:666 ": 3
+  },
+  "idle_repaints": 3,
+  "idle_seconds": 3,
+  "pass": true,
+  "phases": {
+    "scroll_time": {
+      "fps_p50": 425.9850905218317,
+      "frames": 600,
+      "max_ms": 6.5578,
+      "p50_ms": 2.3475,
+      "p95_ms": 3.4488000000000003,
+      "p99_ms": 5.0104
+    },
+    "scroll_tracks": {
+      "fps_p50": 417.8331174528893,
+      "frames": 600,
+      "max_ms": 5.7084,
+      "p50_ms": 2.3933,
+      "p95_ms": 4.0126,
+      "p99_ms": 5.0842
+    },
+    "zoom": {
+      "fps_p50": 426.4028654272556,
+      "frames": 600,
+      "max_ms": 5.5952,
+      "p50_ms": 2.3452,
+      "p95_ms": 3.2575,
+      "p99_ms": 4.062600000000001
+    }
+  }
+}

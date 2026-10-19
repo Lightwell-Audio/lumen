@@ -10,7 +10,7 @@ use lumen_project::model::{Id, TrackKind};
 
 use super::header_row::HeaderRow;
 use super::nesting::Arm;
-use super::{Arrangement, FOLDED, RowKind, STEP, Zone};
+use super::{Arrangement, BUTTON, FOLDED, RowKind, STEP, Zone};
 use crate::commands::{Command, Keymap};
 use crate::document::Document;
 use crate::lanes::Lanes;
@@ -431,9 +431,14 @@ impl Arrangement {
         let center_y = rect.top() + FOLDED + STEP / 2.0;
         let left = rect.left() + 30.0;
         let right = rect.right() - 8.0;
+        // The A button ends the row (M7 slice A1), then pan, then volume.
+        let auto_rect = Rect::from_min_size(
+            pos2(right - BUTTON, center_y - BUTTON / 2.0),
+            vec2(BUTTON, BUTTON),
+        );
         let pan_rect = Rect::from_min_max(
-            pos2(right - 54.0, center_y - 10.0),
-            pos2(right, center_y + 10.0),
+            pos2(auto_rect.left() - 6.0 - 54.0, center_y - 10.0),
+            pos2(auto_rect.left() - 6.0, center_y + 10.0),
         );
         let volume_rect = Rect::from_min_max(
             pos2(left, center_y - 10.0),
@@ -469,6 +474,7 @@ impl Arrangement {
         if pan != track.pan {
             doc.set_pan(track.id, pan);
         }
+        self.auto_button(ui, doc, track, auto_rect, id, look);
     }
 }
 

@@ -15,10 +15,22 @@ impl App {
         let mut document = document::Document::new(if launch.stress {
             let mut project = lumen_project::testing::synthetic(42, 200, 100, 10, 0);
             bench::add_dense_midi(&mut project);
+            if launch.bench_lanes {
+                bench::add_lanes(&mut project);
+            }
             project
         } else {
             empty_project()
         });
+        let mut arrangement = arrangement::Arrangement::default();
+        if launch.bench_lanes {
+            for track in &document.project().tracks {
+                arrangement
+                    .auto
+                    .shown
+                    .insert(track.id, lumen_project::automation::Target::Volume);
+            }
+        }
         let mut transport = Transport::new(document.project(), &launch.audio);
         transport.restore_metronome((&saved.metronome).into());
         transport.restore_follow(saved.follow);
@@ -140,7 +152,7 @@ impl App {
             document,
             synced: None,
             show_history: false,
-            arrangement: arrangement::Arrangement::default(),
+            arrangement,
             toast: None,
             dialog: None,
             dialog_answers: launch.scripted_dialogs.then(Default::default),

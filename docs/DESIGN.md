@@ -1153,6 +1153,20 @@ went over the last second.
   rows, and then the whole panel scrolls.
 - Mock-ups of it use generic device names (the owner, 2026-10-17).
 
+## 7h. Automation lanes (M7 slice A1, ADR-0082, the owner's L1 B)
+
+A lane is drawn over its track's clip lane, not in a row of its own. While a track shows
+one: the clips behind it step back to 45% (`UNDER_LANE`, names too); the lane takes a faint
+accent wash with accent hairlines at its top and bottom and a hairline where the control
+rests (0 dB, centre); the line is the accent at `stroke::LIT`, and a lane that is off is
+`text_hint`. Points are `size::AUTO_POINT` circles: hollow at rest (the canvas colour
+inside, an accent ring), a point larger under the pointer, and the picked one solid with a
+ring round it so it never rests on colour alone. Values are drawn under the chip, which
+sits at the top-left, a raised combo naming the parameter ("Volume", "Send to Reverb",
+"Pan · off") with its menu. A track with a lane is at least five steps tall. The **A**
+button ends the unfolded header's second row (`size::CONTROL_SMALL`, lit with `Tone::On`
+while a lane is shown). Sizes are `size::AUTO_*`.
+
 ## 8. Key flows
 
 Each flow lists its steps, its keyboard path and its feedback. Flows marked

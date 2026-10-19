@@ -5,11 +5,6 @@
 //! copied and go when it is removed (`devices.rs`), a send's lane goes with
 //! its return (`mixer.rs`).
 
-#![allow(
-    dead_code,
-    reason = "removing a lane has no caller until the lane interface (M7 slice A1)"
-)]
-
 use std::sync::Arc;
 
 use lumen_core::automation::{Lane, Point};

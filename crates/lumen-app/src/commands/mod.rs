@@ -161,6 +161,11 @@ pub(crate) enum Command {
     DeviceSavePreset,
     DeviceSidechain,
     DeviceOutputs,
+    AutomationShow,
+    AutomationChoose,
+    AutomationAddPoint,
+    AutomationToggleLane,
+    AutomationRemoveLane,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -387,6 +392,11 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::DeviceSavePreset, "devices.save_preset", "Save the plugin's sound as a preset", Area::Devices, &[], "Saves the chosen plugin's sound as a preset file. A sound that came from one of your own preset files is saved over it; otherwise it asks for a name and never writes over a file."),
     info(Command::DeviceSidechain, "devices.sidechain", "Choose the sidechain of the effect", Area::Devices, &[], "Opens the chosen plugin effect's sidechain menu: which track keys it, and where on that track the signal is taken (before its devices, after them, or what it plays). Only an effect with a sidechain input has one."),
     info(Command::DeviceOutputs, "devices.outputs", "Choose the outputs of the instrument", Area::Devices, &[], "Opens the chosen plugin instrument's outputs menu: a switch for each output besides the main one. Turning one on makes an audio track for it under the instrument's track; turning it off takes the track away. Only an instrument with several outputs has one."),
+    info(Command::AutomationShow, "view.automation", "Show or hide automation lanes", Area::View, &[plain(Key::A)], "Shows the automation lane over the selected tracks' clips, or hides it. The lane draws one parameter of the track, volume to begin with; click it to add points."),
+    info(Command::AutomationChoose, "view.automation_parameter", "Choose the automation parameter", Area::View, &[], "Opens the list of parameters the shown lane can draw: volume, pan, trim, mute and the track's sends."),
+    info(Command::AutomationAddPoint, "edit.automation_point", "Add an automation point at the playhead", Area::Edit, &[], "Adds a point to the shown lane at the playhead, holding the value the lane has there. With the point picked, the arrows move it and Delete takes it away."),
+    info(Command::AutomationToggleLane, "view.automation_on", "Turn the automation lane on or off", Area::View, &[], "Switches the shown lane on or off, keeping its points. A lane that is off plays nothing and the control keeps the value it was set to."),
+    info(Command::AutomationRemoveLane, "edit.automation_remove", "Remove the automation lane", Area::Edit, &[], "Takes the shown lane away, points and all."),
 ];
 
 const fn info(
@@ -436,7 +446,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::DeviceOutputs as usize + 1,
+            Command::AutomationRemoveLane as usize + 1,
             ALL.len(),
             "a command is missing"
         );

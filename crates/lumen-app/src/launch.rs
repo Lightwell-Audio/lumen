@@ -35,6 +35,9 @@ pub struct Launch {
     pub(crate) open_audio: Option<PathBuf>,
     /// `--stress`: the generated quality-bar project.
     pub(crate) stress: bool,
+    /// `--bench-lanes`: with `--stress`, every track has a volume lane of
+    /// 200 points and shows it (the frame benchmark with lanes, M7 slice A1).
+    pub(crate) bench_lanes: bool,
     /// `--audio-settings`: the audio settings window open at start.
     pub(crate) audio_settings: bool,
     /// `--recover-latest` (tests): press Recover at once.
@@ -144,6 +147,7 @@ impl Launch {
                 .map(PathBuf::from),
             open_audio: value("--open-audio").map(PathBuf::from),
             stress: has("--stress"),
+            bench_lanes: has("--bench-lanes"),
             audio_settings: has("--audio-settings"),
             recover_latest: has("--recover-latest"),
             scale: value("--scale")

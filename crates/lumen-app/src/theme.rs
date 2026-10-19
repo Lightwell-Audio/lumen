@@ -560,6 +560,19 @@ pub mod size {
     pub const BUDGET_BAR: f32 = 18.0;
     pub const BUDGET_SWATCH: f32 = 10.0;
     pub const BUDGET_LIST: f32 = 216.0;
+    /// Automation lanes (M7 slice A1): a point's radius, how near the
+    /// pointer must be to grab one, the room kept above and below the
+    /// values, and how far apart a curve's samples are.
+    pub const AUTO_POINT: f32 = 4.0;
+    pub const AUTO_GRAB: f32 = 9.0;
+    pub const AUTO_PAD: f32 = 8.0;
+    pub const AUTO_STEP: f32 = 6.0;
+    /// The lane chip: room for its arrow beside the name, and its widths.
+    pub const AUTO_CHIP_PAD: f32 = 28.0;
+    pub const AUTO_CHIP_MIN: f32 = 64.0;
+    pub const AUTO_CHIP_MAX: f32 = 200.0;
+    /// The chooser's least width.
+    pub const AUTO_MENU: f32 = 220.0;
 }
 
 /// Which theme the user asked for.

@@ -420,7 +420,12 @@ report: {}",
                 "Lanes: click to move the playhead while stopped, drag clip headers to move, or drag clip bodies and empty lanes to select time",
             )
         });
-        self.clip_editing(ui, &hover, canvas, &painter);
+        if !self.auto_editing(ui, &hover, canvas, &painter) {
+            self.clip_editing(ui, &hover, canvas, &painter);
+        }
+        let pending = self.lanes.pending().len();
+        self.arrangement
+            .lane_overlay(ui, &painter, canvas, &mut self.document, view, pending);
         widgets::Menu::context(&hover).show(|ui| self.lanes_menu(ui));
         // Where the tracks are scrolled: a bar that shows while scrolling
         // or near the right edge (M4.5, U2).

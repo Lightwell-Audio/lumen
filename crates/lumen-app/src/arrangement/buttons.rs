@@ -160,4 +160,59 @@ impl Arrangement {
             doc.set_solo(&self.targets(track.id), !track.solo, exclusive);
         }
     }
+
+    /// The A button of an unfolded header (M7 slice A1): shows or hides the
+    /// automation lane over the track's clips. Lit while one is shown; it
+    /// acts on the selection when the track is in it, like M and S.
+    pub(super) fn auto_button(
+        &mut self,
+        ui: &mut Ui,
+        doc: &Document,
+        track: &Track,
+        rect: Rect,
+        id: EguiId,
+        look: theme::Controls,
+    ) {
+        let on = self.auto.shown.contains_key(&track.id);
+        let response = ui
+            .interact(rect, id.with("automation"), Sense::click())
+            .on_hover_text(if on {
+                "Hide the automation lane (A)"
+            } else {
+                "Show the automation lane over the clips (A)"
+            });
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(
+                egui::WidgetType::Checkbox,
+                true,
+                on,
+                format!("Automation {}", track.name),
+            )
+        });
+        let hover = motion::hover(ui.ctx(), id.with("automation hover"), response.hovered());
+        let lit = motion::hover(ui.ctx(), id.with("automation lit"), on);
+        let face = raised::Face::new(look)
+            .hover(hover)
+            .pressed(response.is_pointer_button_down_on())
+            .lit(lit, Tone::On);
+        let r = rect.round_to_pixels(ui.pixels_per_point());
+        let body = raised::paint(
+            ui.painter(),
+            r,
+            theme::radius::for_height(r.height()),
+            &face,
+        );
+        ui.painter().text(
+            body.center(),
+            Align2::CENTER_CENTER,
+            "A",
+            fonts::medium(theme::size::CAPTION),
+            face.text(),
+        );
+        raised::focus_ring(ui.painter(), &response, r);
+        if response.clicked() {
+            let tracks = self.targets(track.id);
+            self.auto.toggle(doc.project(), &tracks);
+        }
+    }
 }
