@@ -34,5 +34,7 @@ jobs:
       - name: Soak
         shell: bash
         env:
-          LUMEN_SOAK_SECONDS: ${{ format('{0}', fromJSON(inputs.minutes) * 60) }}
-        run: cargo test --release --locked -p lumen-hosting --test soak -- --ignored --nocapture
+          SOAK_MINUTES: ${{ inputs.minutes }}
+        run: |
+          export LUMEN_SOAK_SECONDS=$((SOAK_MINUTES * 60))
+          cargo test --release --locked -p lumen-hosting --test soak -- --ignored --nocapture
