@@ -43,6 +43,8 @@ const WATCH: Duration = Duration::from_millis(300);
 /// Late blocks a healthy host may have in a hundred (a busy machine is not
 /// the hosts' fault).
 const LATE_PERCENT: u32 = 5;
+/// Blocks a replacement host plays before its late share is counted.
+const WARM_UP_BLOCKS: u32 = 30;
 const SEATS: usize = 6;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -469,6 +471,11 @@ impl World {
             seat.pid = l.pid;
             seat.guard = Some(Guard::new(Box::new(l.link), l.latency));
         }
+        // A host just started pays for its first blocks (pages loaded, caches
+        // cold) while the others play on: on a runner with few cores that
+        // made a healthy seat late more than the share allows. Those blocks
+        // are played, and checked for failure below, but not counted.
+        self.play(WARM_UP_BLOCKS);
         let tally = self.play(60);
         for (i, seat) in self.seats.iter().enumerate() {
             assert!(

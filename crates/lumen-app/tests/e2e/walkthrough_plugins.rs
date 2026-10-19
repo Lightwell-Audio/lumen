@@ -83,10 +83,12 @@ fn song() -> Project {
 }
 
 /// The loudest a track's meter reads over a few windows, stopping early once
-/// it is above `db`.
+/// it is above `db`. A plugin that is set up again after an edit is silent
+/// until it has run, which takes longer on a slow runner: the limit is
+/// generous, and a run that is not slow leaves early.
 fn loudest(lumen: &mut Lumen, track: Id, db: f32) -> f32 {
     let mut best = f32::MIN;
-    for _ in 0..40 {
+    for _ in 0..150 {
         lumen.listen(Duration::from_millis(100), 4_800);
         best = best.max(lumen.app().meter(track).peak_db);
         if best > db {
