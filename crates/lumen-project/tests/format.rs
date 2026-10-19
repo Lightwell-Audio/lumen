@@ -1035,8 +1035,8 @@ fn the_automation_demo_project_file_is_current_and_valid() {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, to_bytes(&demo).unwrap()).unwrap();
     }
-    let loaded = load(&path)
-        .expect("the demo project must load (regenerate with LUMEN_WRITE_FIXTURES=1)");
+    let loaded =
+        load(&path).expect("the demo project must load (regenerate with LUMEN_WRITE_FIXTURES=1)");
     assert_eq!(loaded, demo, "regenerate with LUMEN_WRITE_FIXTURES=1");
     assert_eq!(loaded.tracks.len(), 3);
     assert!(loaded.tracks.iter().all(|t| t.automation.len() == 1));

@@ -462,4 +462,3 @@ pub fn automation_demo() -> Project {
     }
     project
 }
-
