@@ -378,6 +378,11 @@ impl Instance {
                 }
             }
         }
+        // Past the room a span has for them, controller events are dropped,
+        // and counted with those no parameter took.
+        self.ignored = self
+            .ignored
+            .saturating_add(keep_most(&mut self.mapped, MOST_PENDING));
         // The controller hears what the processor is given through the
         // mapping too (a plugin's window follows a controller, and a program
         // change is carried out by the controller: it sets the parameters the
@@ -633,6 +638,13 @@ mod setup;
 
 #[cfg(test)]
 mod tests;
+
+/// Shortens `mapped` to `most` entries; how many it dropped.
+fn keep_most<T>(mapped: &mut Vec<T>, most: usize) -> u32 {
+    let over = mapped.len().saturating_sub(most);
+    mapped.truncate(most);
+    over as u32
+}
 
 pub use controls::{Controls, Heard};
 use controls::{program_parameter, wide};

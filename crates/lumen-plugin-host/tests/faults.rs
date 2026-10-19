@@ -154,6 +154,20 @@ fn state_the_plugin_will_not_read_back_is_found_before_it_is_saved_over_good_sta
 }
 
 #[test]
+fn a_module_whose_entry_point_says_it_failed_is_a_load_failure_that_says_so() {
+    let mut host = spawn("entry_false");
+    let err = host.load(plugin(), None, SLOW).unwrap_err();
+    match err {
+        HostError::Failed {
+            kind: FailureKind::Load,
+            message,
+        } => assert!(message.contains("entry point"), "{message}"),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(host.ended(), None, "the host reported it and stayed up");
+}
+
+#[test]
 fn a_factory_that_returns_nothing_or_crashes_is_a_load_failure() {
     let mut host = spawn("factory_null");
     let err = host.load(plugin(), None, SLOW).unwrap_err();
@@ -191,4 +205,19 @@ fn a_missing_module_is_a_load_failure_that_leaves_the_host_usable() {
         }
     ));
     host.load(plugin(), None, SLOW).expect("then a real one");
+}
+
+#[test]
+fn a_plugin_that_prints_cannot_corrupt_the_protocol() {
+    // The factory writes a line to the standard output while the module
+    // loads, and every process call writes another. The host's protocol
+    // uses the real standard output; the plugin's goes to the error stream.
+    let mut host = instrument("prints");
+    for _ in 0..3 {
+        let block = host
+            .process(64, vec![], vec![note_on(0, 69)], vec![], SLOW)
+            .expect("the protocol is intact");
+        assert_eq!(block.status, 0);
+    }
+    assert_eq!(host.ended(), None);
 }

@@ -32,7 +32,7 @@ pub use factory::{
 #[cfg(target_os = "windows")]
 #[unsafe(no_mangle)]
 pub extern "system" fn InitDll() -> bool {
-    true
+    !faults::Faults::from_env().has(faults::Kind::EntryFalse)
 }
 
 #[cfg(target_os = "windows")]
@@ -56,7 +56,7 @@ pub extern "system" fn BundleExit() -> bool {
 #[cfg(target_os = "linux")]
 #[unsafe(no_mangle)]
 pub extern "system" fn ModuleEntry(_library: *mut std::ffi::c_void) -> bool {
-    true
+    !faults::Faults::from_env().has(faults::Kind::EntryFalse)
 }
 
 #[cfg(target_os = "linux")]

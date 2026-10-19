@@ -17,11 +17,22 @@ pub struct Handler {
     to_processor: Mutex<Vec<(u32, f64)>>,
 }
 
-#[derive(Default)]
 struct Reports {
     list: Vec<Edit>,
     dropped: u32,
 }
+
+impl Default for Reports {
+    fn default() -> Self {
+        Self {
+            list: Vec::with_capacity(REPORT_ROOM),
+            dropped: 0,
+        }
+    }
+}
+
+/// Edits the list has room for before it grows.
+const REPORT_ROOM: usize = 256;
 
 impl Handler {
     /// Records an edit for Lumen. A value that follows a value of the same
@@ -52,7 +63,9 @@ impl Handler {
     /// The edits since the last call, and how many were dropped for want of room.
     pub fn take_reports(&self) -> (Vec<Edit>, u32) {
         match self.reports.lock() {
-            Ok(mut r) => (std::mem::take(&mut r.list), std::mem::take(&mut r.dropped)),
+            // Drained, not taken: the list keeps its room, so reporting the
+            // next edits (on the block path) does not allocate again.
+            Ok(mut r) => (r.list.drain(..).collect(), std::mem::take(&mut r.dropped)),
             Err(_) => (Vec::new(), 0),
         }
     }
@@ -162,5 +175,34 @@ impl IComponentHandlerTrait for Handler {
             self.report_dirty();
         }
         kResultOk
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn edit(id: u32) -> Edit {
+        Edit {
+            id,
+            value: 0.5,
+            kind: EditKind::Begin,
+        }
+    }
+
+    #[test]
+    fn taking_the_reports_leaves_the_list_its_room() {
+        let handler = Handler::default();
+        let room = handler.reports.lock().unwrap().list.capacity();
+        assert!(room >= REPORT_ROOM);
+        for id in 0..300 {
+            handler.report(edit(id));
+        }
+        let (taken, dropped) = handler.take_reports();
+        assert_eq!((taken.len(), dropped), (300, 0));
+        let after = handler.reports.lock().unwrap().list.capacity();
+        assert!(after >= 300, "the room grown to is kept: {after}");
+        handler.report(edit(1));
+        assert_eq!(handler.reports.lock().unwrap().list.capacity(), after);
     }
 }

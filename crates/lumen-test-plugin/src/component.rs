@@ -422,6 +422,9 @@ impl IAudioProcessorTrait for Processor {
         self.latency.store(dsp.latency(), Ordering::Relaxed);
         drop(dsp);
 
+        if self.faults.has(Fault::Prints) {
+            println!("test plugin: stray output from process");
+        }
         if self.faults.from_call(Fault::ProcessNan, call) {
             for p in output.into_iter().filter(|p| !p.is_null()) {
                 for i in 0..frames {
