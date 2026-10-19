@@ -137,9 +137,9 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 3 | Arrangement & Project System | ✅ Complete, approved 2026-10-09 | Plan: `docs/milestones/M3.md` |
 | 4 | Mixer, Routing & Groups | ✅ Complete 2026-10-10 (review fixes merged, PR #3) | Plan: `docs/milestones/M4.md` |
 | 4.5 | Polish pass (mid milestone: the interface audit's fixes) | 🟡 Built 2026-10-10; MT-POL-5 and 6 wait | Plan: `docs/milestones/M4.5.md`; audit: `docs/audits/2026-10-10-design.md` |
-| 5 | MIDI & Piano Roll | 🟡 Approved 2026-10-10; slices 0 to 7 built, slice 8 underway (review done); MT-MIDI-7, MT-MIDI-8 and MT-MIDI-9 wait | Plan: `docs/milestones/M5.md` |
+| 5 | MIDI & Piano Roll | 🟡 Approved 2026-10-10; slices 0 to 7 built, slice 8 underway (review done); MT-MIDI-7, MT-MIDI-8 and MT-MIDI-9 wait | Plan: `docs/milestones/M5.md`; report written 2026-10-19 (below), awaiting the owner's approval |
 | 6 | VST3 Hosting & Device System | 🟡 Started 2026-10-15 at the owner's instruction; slice 0 complete 2026-10-16 (report below; ADR-0069 accepted, the callback's wait on trial) and slice 1 built (MT-VST-1 passed on Windows, owner-reported); slice 2 built and its walkthrough passed (owner-reported; ADR-0069 measurements outstanding); slices 3 to 6 built; slice 7 (compatibility and closeout) under way: the probe, the fault soak, the callback benchmark and the combined walkthrough are built (branch `m6-s7-compatibility-closeout`), the review is done and its seven High findings fixed (`docs/audits/2026-10-18-m6.md`); the owner's MT-VST-7 runs, the Medium and Low findings and the M6 report remain | Plan: [milestones/M6.md](milestones/M6.md); M5 closeout (MT-MIDI-7 to 9, the report) remains pending and is not marked passed |
-| 7 | Automation, Envelopes & Advanced Editing | 🔲 | |
+| 7 | Automation, Envelopes & Advanced Editing | 🔲 Draft plan 2026-10-19, not started; waits for the owner's sign-off of M5 and M6 and the owner choices in the plan | Plan: `docs/milestones/M7.md` |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | |
 | 9 | Recording, Media, Export & Production Workflow | 🔲 | |
 | 10 | Hardening, Performance & Release | 🔲 | |
@@ -485,6 +485,91 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 ## Milestone reports
 
+### Milestone 6 — report (2026-10-19)
+**Status:** Built, not signed off. Every slice is built and merged into `main`
+(slices 0 to 7; the last is PR #38). The owner's Windows runs of MT-VST-3 to
+MT-VST-7 are not recorded as passed, so this report names what was verified and
+what was not. The owner's approval is still required before M7.
+
+**Shipped** (ADRs 0065 to 0080; formats v17 to v21; host protocol version 8).
+- **Slice 0, the host and the audio path.** Deterministic test plugins with
+  chosen faults (ADR-0065), a host process per plugin with a bounded versioned
+  protocol (ADR-0066), a shared-memory audio path and measurement harness
+  (ADR-0067), and the decision that the audio callback may wait a bounded time on
+  a host (ADR-0069, **on trial**). The slice 0 report is below.
+- **Slice 1, discovery** (ADR-0068). Scanning in a process of its own with a
+  deadline, a cache keyed by file stamp, a blocklist with the reason, and the
+  browser's Devices tab. MT-VST-1 passed on Windows (owner-reported).
+- **Slice 2, a device on a track** (ADRs 0070 to 0072). Hosted instruments and
+  effects in the engine with a fallback of the reported latency, the hosting
+  manager, and the Devices tab with cards for ready, loading, failed and missing
+  states. The slice 2 walkthrough (MT-VST-2) passed (owner-reported, no step detail).
+- **Slice 3, chain editing** (ADR-0073). Move, copy, paste, duplicate and fold
+  cards; the master takes effects; the plugin's own picture.
+- **Slice 4, parameters and editors** (ADR-0076). Parameter lists, the card's strip
+  of eight knobs and the All parameters panel, plugin-side edits as undo steps, and
+  native editor windows that follow their track.
+- **Slice 5, presets and resilient state** (ADR-0077). Programs and preset files
+  in one menu, loading as one undo step, state read about every 30 s and before every
+  save, failures counted per plugin, and safe mode.
+- **Slice 6, production routing** (ADR-0078). Multi-bus plugins, sidechain from any
+  track, an instrument's other outputs as tracks, and plugin latency compensated.
+- **Slice 7, compatibility and closeout** (ADR-0080). The probe `lumen-host-probe`,
+  the fault soak, `lumen --bench-callback`, the combined walkthrough
+  `walkthrough_plugins`, and the repository review.
+- **Fixes from the owner's runs.** Plugins ring out until quiet (ADR-0074); missed
+  plugin blocks (ADR-0075), where the cause was plugins configured for 8,192-frame
+  blocks while the engine gives them at most 256; saving reads every running plugin
+  first; a plugin's window follows its track; stepped controls on the strip.
+
+**Measured.**
+- Owner's machine, MT-VST-B run 1: the block budget used fell from 1.56 of 2.90 ms
+  (54%, CPU peak 70%) to 0.31 ms (11%, peak 20 to 24%) once plugins were promised the
+  device's block. One run; steps 2 to 6 and 8 and whether pops are gone were not
+  reported.
+- Hand-over of a block to a host and back: 12 µs median and 34 µs p99 on the owner's
+  machine (`lumen-host-bench`). Slice 0's 64-host numbers are in its report below.
+- Performance gate after the review's fixes: largest change +0.11% (WSL); the
+  `engine_hosted_64` baseline was updated twice, each with its reason recorded.
+- Tests at the review's close: 2,207 workspace tests on Windows, 495 E2E on Linux,
+  6 smoke tests. Mutation checks are recorded per slice.
+- The soak ran five random 90-second runs on one machine (67 to 98 rounds each); it
+  found nothing in the product.
+
+**Review.** `lumen-review` ran on 2026-10-18 (`docs/audits/2026-10-18-m6.md`): 7 High,
+14 Medium and a list of Low findings. All Highs, Mediums and Lows are fixed or
+recorded (the audit's Status table), each with a test that fails without the fix.
+The owner's naming rule now reaches the code: a test scans the sources for
+workstation names.
+
+**Not verified, and where it goes.**
+- **The owner's Windows runs:** MT-VST-3, MT-VST-4's re-check steps, MT-VST-5,
+  MT-VST-6 and MT-VST-7. The real Windows editor window is compile-checked only in
+  the cloud container; its behavior was seen by the owner in MT-VST-4 run 1.
+- **ADR-0069's measurements.** The callback numbers at 64 and 128 frames with 16 and
+  64 hosted tracks (MT-VST-7 steps 7 to 9). **Monitoring through an effect waits for
+  audio input in M9.** Until both exist the callback's wait stays on trial.
+- **Installed plugins.** Twelve anonymous labels (RP-1 to RP-12) have been tried in
+  parts; the probe has not been run over the installed library. This is not a
+  compatibility claim.
+- **Not run:** RealtimeSanitizer after the review's fixes, macOS tests (cross-clippy
+  only), Linux and macOS timing and editors.
+- **Moved to later milestones:** automation and MIDI learn (M7), built-in devices and
+  the sampler (M8), audio recording and export (M9), hosting on macOS and Linux
+  (stretch).
+
+**Risks.**
+1. The callback's wait is on trial; if the numbers fail, the pipelined path adds one
+   block of latency to monitored tracks.
+2. One machine and mostly synthetic load. The working budget (64 tracks at 100 µs of
+   plugin work) is an assumption, not a promise about real plugins.
+3. A plugin the test plugins cannot imitate may behave differently in its editor,
+   state or latency. A saved state that fails to restore is reported per plugin.
+4. Windows is the only system with timing and editor results.
+
+**Next.** The owner runs MT-VST-7 (or waives items, recorded in DECISIONS), then
+approves or rejects M6. Then M7, planned in `docs/milestones/M7.md` (draft).
+
 ### Milestone 6, slice 0 — report (2026-10-16)
 **Status:** Complete. Slice 0 settled how plugins are hosted before any
 device workflow is built: separate host processes, a shared-memory audio
@@ -562,6 +647,55 @@ with a synthetic busy loop; one run per scenario; the machine was in use).
 **Next.** Slice 2, the first complete device workflow (a device on a track,
 hearing it, bypass, save and reopen), pitching behaviour variants first. It
 needs the audio-path ADR, now accepted.
+
+### Milestone 5 — report (2026-10-19)
+**Status:** Built, not signed off. All nine slices are built and merged. MT-MIDI-1
+and 4 to 6 passed; MT-MIDI-2 and 3 passed functionally, with follow-ups in KNOWN_ISSUES. MT-MIDI-7, 8 and 9 and the WSL gates on the final branch are the
+owner's and are not recorded as passed. The owner's approval is still required.
+
+**Shipped** (ADRs 0044 to 0064; formats v11 to v16).
+- **Devices and the model** (slice 0). `lumen-midi`, the MIDI settings page, and
+  controller, bend, pressure and program events in clips.
+- **Hearing MIDI** (slice 1). A sample-exact event path with a note tracker, chase and
+  every release case; a built-in synth with five presets; MIDI To for hardware.
+- **Playing live** (slice 2). MIDI From, monitoring, the computer keyboard as a MIDI
+  keyboard, and the MIDI activity chip.
+- **MIDI clips and the piano roll** (slice 3). Notes drawn on the GPU, the clip editor
+  in the Clip tab and a pop-out window, and note mute (format v14).
+- **Velocity and controller lanes** (slice 4).
+- **Quantize and its tools** (slice 5). Grid, modes, strength, swing, a sensitivity
+  window, a live-preview popover, humanize, fixed length, scale-constrain, reverse.
+- **Recording MIDI** (slice 6). Count-in, Replace and Overdub, loop passes, punch,
+  takes committed about once a second, and autosave while recording.
+- **MIDI files and clock out** (slice 7). Standard MIDI File import and export at 960
+  PPQ and MIDI clock with a delay per output.
+- **Closeout** (slice 8). The combined E2E `midi_walkthrough` (record, quantize, save,
+  reopen, play) and the repository review (`docs/audits/2026-10-13-m5.md`).
+- **Corrections after owner runs.** The clip window model (ADR-0056); overdub and
+  seams (ADRs 0057 to 0060); resizing a playing clip (ADR-0061); the recording window
+  and punch masking (ADR-0064).
+
+**Measured.**
+- With a 100,000-note clip open, frame time p99 is at most 1.82 ms at 1600 × 900 and
+  2.22 ms at 3440 × 1380; three idle repaints in three seconds (`--bench-editor`).
+- The built-in synth costs 0.36 ms a block (13.5%) with 64 tracks (`engine_synth_64`).
+- At the review's close: 1,436 tests, 333 E2E, 6 smoke. The WSL performance gate
+  passed all nine scenarios after the recording-window fix (largest +1.50%, limit 2%).
+
+**Review.** Two High findings, an audio-thread free and a UI-thread disk check, are
+fixed, along with module splits and bounds on positions in projects and MIDI files.
+
+**Not verified.**
+- **MT-MIDI-7** (recording with a physical controller, count-in, overdub, replace, loop
+  and punch), **MT-MIDI-8** (a file from another workstation in and out, and clock to
+  real hardware) and **MT-MIDI-9** (the closeout run) are the owner's.
+- Timing on real MIDI hardware, macOS tests, and the WSL gates on the final M5 branch.
+
+**Moved.** MIDI learn moved to M7 (owner, 2026-10-13). Restore recorded timing,
+groove templates and MIDI effects are not built. Manual latency offset waits for M9.
+
+**Risks.** MIDI port identity, overflow note-off loss and edits to a recording track
+during a take remain in KNOWN_ISSUES.
 
 ### Milestone 4.5 — report (2026-10-10)
 **Status:** Built 2026-10-10, a mid milestone between M4 and M5. All six

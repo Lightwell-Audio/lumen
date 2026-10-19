@@ -91,6 +91,7 @@ irreversible or external) · *Superseded*.
 | [0077](#adr-0077--presets-and-programs-a-sound-is-replaced-as-a-whole-tried-before-it-is-kept) | Presets and programs: a sound is replaced as a whole, tried before it is kept (M6 slice 5) | Accepted 2026-10-17 (owner's R1 to R5); MT-VST-5 is the owner's | Decided by the owner |
 | [0078](#adr-0078--production-routing-buses-sidechain-outputs-and-plugin-latency-m6-slice-6) | Production routing: buses, sidechain, outputs and plugin latency (M6 slice 6) | Accepted 2026-10-18 (owner's B1, S1, M1, L1, L2, C1, O1, I1); MT-VST-6 is the owner's | Decided by the owner |
 | [0079](#adr-0079--settings-sections-added-with-defaults-keep-the-version-and-the-file-is-flushed) | Settings: sections added with defaults keep the version, and the file is flushed | Accepted 2026-10-18 (review M11) | No |
+| [0080](#adr-0080--compatibility-tools-the-probe-the-fault-soak-and-the-callback-benchmark-m6-slice-7) | Compatibility tools: the probe, the fault soak and the callback benchmark (M6 slice 7) | Accepted 2026-10-19 (owner's P1, K1, W1, R1, V1 of 2026-10-18); MT-VST-7 is the owner's | Decided by the owner |
 
 ---
 
@@ -7246,3 +7247,65 @@ a newer version that added a section still reads in an older one (the section is
 ignored) but is set aside on load by the version rule only when the version itself is
 higher.
 
+## ADR-0080 — Compatibility tools: the probe, the fault soak and the callback benchmark (M6 slice 7)
+
+**Status:** Accepted 2026-10-19. The owner chose P1 A, K1 A, W1 A, R1 A and V1 on
+2026-10-18 (`docs/milestones/M6.md`, "Slice 7 plan"). The tools are built and tested
+with the Lumen-owned test plugins; running them over installed plugins and a real
+device is MT-VST-7, which is the owner's.
+
+**Context.** Before slice 7, plugin compatibility was recorded by hand. The matrix
+held scan results for 40 modules and a full run for one instrument; the earlier probe
+program was not kept. Faults were tested one behavior at a time, with no long run that
+mixed them. ADR-0069 left the audio callback's wait on a plugin host on trial, pending
+numbers from the whole callback. A reviewer could not rerun any of it.
+
+**Options.**
+- *Probe.* A tool in the host package that runs each installed plugin through the
+  stages (P1 A), or only manual steps in the interface (P1 B).
+- *Soak.* An automated mixed-fault run with a fixed count and a wall-clock mode
+  (K1 A), or one short scenario in the E2E suite (K1 B).
+- *Callback numbers.* A measurement mode in the app that plays a project through the
+  real device (R1 A), or keeping the wait on trial and calling it unmeasured (R1 B).
+
+**Decision.**
+1. **`lumen-host-probe`**, a binary of `lumen-plugin-host`. For each audio class of
+   each module it runs scan, load, buses, configure, process, link, state, parameters,
+   editor and shutdown, each stage in a host process of its own with a deadline
+   (`--deadline`, 20 s). A crash or hang in a stage is a result; the later stages are
+   skipped with the reason. Output is words, `--json FILE` (real names, for the owner's
+   own files) and `--table` (rows labelled "Probe N", with no product names).
+2. **The fault soak**, `crates/lumen-hosting/tests/soak.rs`. Six real hosts are played
+   as the engine plays them while faults are applied one at a time and then in pairs
+   (crash, hang, slow, non-finite, errors, ended from outside, five ways to fail at
+   load), and each victim is replaced. Every round checks that the other hosts are not
+   given up on and miss at most 5% of blocks, a given-up host is silent, nothing is
+   restarted that nothing asked for, the audio work allocates nothing, and no host
+   process is left. At the end the test process must not hold more than 100 MB or
+   30 handles more than after its first pass. `LUMEN_SOAK_SECONDS` and
+   `LUMEN_SOAK_SEED` select the long variant; `.github/workflows/soak.yml` starts it by
+   hand only.
+3. **`lumen --bench-callback <out.json> [--bench-seconds N] <project>`.** It plays a
+   project through the real device and reports the callback's time as a share of the
+   block (mean, median, p99 of windows, worst), overloads, dropouts, and each plugin's
+   wait and work, against the quality bar (mean under 50%, worst under 75%). Exit status
+   0, 3 for an overrun, 2 when it could not run. It reads counters the audio layer
+   already keeps; it adds nothing to the audio path.
+4. **One combined E2E scenario**, `walkthrough_plugins`, with real host processes
+   running the test plugin: instruments, a second output on its own track, a sidechain,
+   a return, grouping while the plugins run, undo, save and reopen, and a host ended
+   from outside followed by Reload.
+5. **Anonymous records.** Results for installed plugins are kept under labels
+   (RP-1 to RP-12), as the documentation rule requires. This limits reproducibility, and
+   the labels do not show broad compatibility.
+
+**Consequences.**
+- The matrix can be written from a tool's output and rerun, instead of from notes.
+- The soak and the probe find faults the test plugins can show. They do not show what an
+  installed plugin does, so slice 7 is not a compatibility claim until MT-VST-7 is run.
+- **ADR-0069 stays on trial.** The benchmark supplies the callback numbers once the
+  owner runs it at 64 and 128 frames with 16 and 64 hosted tracks. The other half of the
+  trial, monitoring through an effect, cannot be taken until audio input exists (M9).
+- The soak found nothing in the product on its first runs; its one failure was the test's
+  own block size. Mutation checks (an allocation in `Guard::collect`, a late host never
+  given up on, the non-finite rule, a missing sidechain) each fail the matching test.
