@@ -19,7 +19,9 @@ use lumen_project::model::{
 use lumen_project::testing::{midi_track, project_of};
 
 use super::Lumen;
-use super::hosting::{effect_device, faults, instrument_device, launch_with, play, wait_for_state};
+use super::hosting::{
+    effect_device, faults, instrument_device, launch_with, play, timing_sensitive, wait_for_state,
+};
 use super::plugins::built;
 
 const KICK: Id = Id(1);
@@ -32,6 +34,13 @@ const PERC_PLUGIN: Id = Id(11);
 const BASS_PLUGIN: Id = Id(12);
 const KEYED: Id = Id(13);
 const VERB_PLUGIN: Id = Id(14);
+/// Frames in a block of the test device. The hosts get three quarters of a
+/// block to answer; at the other scenarios' 1024 (21 ms) a stall of the
+/// machine's scheduler a little over 16 ms makes the keyed effect late, and
+/// a late effect passes its input dry. A sidechain that is meant to hold the
+/// bass at silence then shows a burst, and the meter needs seconds of quiet to
+/// fall back. 2048 (43 ms, a 32 ms wait, the test device's largest) rides such stalls out.
+const BUFFER: u32 = 2048;
 const PLUGINS: [Id; 5] = [KICK_PLUGIN, PERC_PLUGIN, BASS_PLUGIN, KEYED, VERB_PLUGIN];
 
 /// A kick and a percussion instrument, the percussion's second output on a
@@ -89,10 +98,12 @@ fn loudest(lumen: &mut Lumen, track: Id, db: f32) -> f32 {
 
 /// A track's meter once it has fallen below `db` (it has not heard the key
 /// at first, or the plugin has to be set up for its sidechain), or the
-/// lowest reading in the end.
+/// lowest reading in the end. The meter falls 20 dB a second, so a stall that
+/// lets a block through sends it back up and it needs a few quiet seconds
+/// again: the limit is generous, and a run that is not stalled leaves early.
 fn quietest(lumen: &mut Lumen, track: Id, db: f32) -> f32 {
     let mut least = f32::MAX;
-    for _ in 0..60 {
+    for _ in 0..150 {
         lumen.listen(Duration::from_millis(100), 4_800);
         least = least.min(lumen.app().meter(track).peak_db);
         if least < db {
@@ -124,7 +135,9 @@ fn sounds_as_it_should(lumen: &mut Lumen, why: &str) {
 }
 
 fn start(project: &Project) -> Lumen {
-    let mut lumen = launch_with("walkthrough-plugins", project, &["Walk"], |l| l);
+    let mut lumen = launch_with("walkthrough-plugins", project, &["Walk"], |l| {
+        l.with_audio_buffer(BUFFER)
+    });
     for device in PLUGINS {
         wait_for_state(&mut lumen, device, "ready");
     }
@@ -133,6 +146,7 @@ fn start(project: &Project) -> Lumen {
 
 #[test]
 fn plugins_in_a_group_with_a_return_a_sidechain_and_outputs_save_reopen_and_survive_a_crash() {
+    let _turn = timing_sensitive();
     let mut lumen = start(&song());
 
     // Group the kick and the percussion: one step, and the plugins keep
@@ -190,7 +204,7 @@ fn plugins_in_a_group_with_a_return_a_sidechain_and_outputs_save_reopen_and_surv
     let mut again = Lumen::start_with(dir, move |launch| {
         launch
             .opening(path)
-            .with_audio_buffer(1024)
+            .with_audio_buffer(BUFFER)
             .with_plugins(vec![root], &built().1, cache)
             .with_plugin_faults(faults)
     });

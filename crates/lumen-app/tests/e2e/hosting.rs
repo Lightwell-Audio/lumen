@@ -82,6 +82,16 @@ pub(super) fn effect_device(id: Id) -> Device {
     )
 }
 
+/// Held for the length of a scenario whose result depends on the hosts
+/// keeping their deadlines for blocks of real work (a plugin that busy-waits,
+/// levels that a missed block would change). Two such scenarios side by side
+/// on a machine with few cores starve each other's hosts, so they take turns.
+pub(super) fn timing_sensitive() -> std::sync::MutexGuard<'static, ()> {
+    static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    TURN.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// The fault a module's host is given, by the module's name.
 pub(super) fn faults(stem: &str) -> Option<&'static str> {
     match stem {
@@ -609,9 +619,13 @@ fn the_audio_panel_shows_each_plugins_work_in_the_block_budget() {
     // readout was high and nothing said where the time went. The audio
     // panel's budget lists each running plugin with its own work and the
     // wait beyond it.
+    let _turn = timing_sensitive();
     const EFFECT: Id = Id(21);
     let project = project(|d| *d = vec![instrument_device(PLUGIN), effect_device(EFFECT)]);
-    let mut lumen = launch("budget", &project, &["Slow"]);
+    // Blocks of 2048 frames (the test device's largest, a 32 ms wait): the
+    // figure is the work per block of the audio, so a block the host answers
+    // late lowers it, and a stall of the machine over 16 ms would.
+    let mut lumen = launch_with("budget", &project, &["Slow"], |l| l.with_audio_buffer(2048));
     wait_for_state(&mut lumen, PLUGIN, "ready");
     wait_for_state(&mut lumen, EFFECT, "ready");
     play(&mut lumen);
