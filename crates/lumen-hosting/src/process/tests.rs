@@ -1,5 +1,6 @@
 //! The device thread's tests.
 
+use super::run::output_pairs;
 use super::*;
 
 #[test]
@@ -145,4 +146,30 @@ fn failures_say_what_was_tried_and_how_it_went() {
     assert!(hung.hung() && !hung.crashed());
     assert!(hung.to_string().contains("did not answer"));
     assert!(hung.to_string().contains("load the plugin"));
+}
+
+#[test]
+fn the_output_pairs_follow_the_buses_that_are_on_in_order_and_fall_back_to_the_main_bus() {
+    let bus = |channels| BusInfo {
+        name: String::new(),
+        channels,
+        main: false,
+        default_active: false,
+    };
+    let buses = [bus(2), bus(2), bus(1), bus(2)];
+    let pair = |first, channels| Pair { first, channels };
+    // Main only.
+    assert_eq!(output_pairs(&buses, 0, 2), [pair(0, 2)]);
+    // Buses 1 and 3: stereo, then stereo, behind the main pair.
+    assert_eq!(
+        output_pairs(&buses, 0b1010, 6),
+        [pair(0, 2), pair(2, 2), pair(4, 2)]
+    );
+    // A mono bus is one channel wide.
+    assert_eq!(output_pairs(&buses, 0b0100, 3), [pair(0, 2), pair(2, 1)]);
+    // A mask bit with no bus behind it, or a block that does not add up, is
+    // the main bus alone.
+    assert_eq!(output_pairs(&buses, 0b1_0000, 2), [pair(0, 2)]);
+    assert_eq!(output_pairs(&buses, 0b0010, 7), [pair(0, 2)]);
+    assert_eq!(output_pairs(&buses, 0b0010, 1), [pair(0, 1)]);
 }

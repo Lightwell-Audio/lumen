@@ -493,7 +493,7 @@ impl Run {
 /// channels, as Lumen sets it up), then each auxiliary bus of `mask` in bus
 /// order. A list that does not add up to the `total` the host carries is
 /// played on its main bus alone.
-fn output_pairs(buses: &[BusInfo], mask: u32, total: u8) -> Vec<Pair> {
+pub(super) fn output_pairs(buses: &[BusInfo], mask: u32, total: u8) -> Vec<Pair> {
     let mut pairs = vec![Pair {
         first: 0,
         channels: 2,

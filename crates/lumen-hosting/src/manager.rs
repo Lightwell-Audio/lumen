@@ -329,3 +329,57 @@ impl Manager {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant};
+
+    use super::*;
+
+    /// A start whose host program does not exist: its thread says it failed
+    /// at once.
+    fn missing() -> Start {
+        Start::new(
+            PathBuf::from("/nonexistent/lumen-plugin-host"),
+            PathBuf::from("/nonexistent/plugin.vst3"),
+            [0; 16],
+            false,
+            48_000.0,
+        )
+    }
+
+    fn drain_for(manager: &mut Manager, wait: Duration) -> Vec<Event> {
+        let end = Instant::now() + wait;
+        let mut all = Vec::new();
+        while Instant::now() < end {
+            all.extend(manager.poll());
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        all
+    }
+
+    #[test]
+    fn what_a_replaced_start_says_is_not_heard() {
+        let mut manager = Manager::new(|| {});
+        manager.want(7, missing()).unwrap();
+        // The device is started again before anyone polled: the first
+        // start's thread still says it failed, and that is stale.
+        manager.want(7, missing()).unwrap();
+        let heard = drain_for(&mut manager, Duration::from_millis(600));
+        assert_eq!(
+            heard.len(),
+            1,
+            "one failure, from the start that is current: {heard:?}"
+        );
+    }
+
+    #[test]
+    fn what_a_forgotten_device_says_is_not_heard() {
+        let mut manager = Manager::new(|| {});
+        manager.want(7, missing()).unwrap();
+        manager.forget(7);
+        let heard = drain_for(&mut manager, Duration::from_millis(600));
+        assert!(heard.is_empty(), "{heard:?}");
+    }
+}

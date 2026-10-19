@@ -246,3 +246,97 @@ impl Link {
         &self.pairs
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lumen_core::midi::Msg;
+
+    fn at(offset: u32, msg: Msg) -> Event {
+        Event { offset, msg }
+    }
+
+    fn kind_of(event: &Event) -> EventKind {
+        host_event(event, 128).expect("the host takes it").kind
+    }
+
+    #[test]
+    fn notes_controllers_pressure_and_programs_reach_the_host_in_its_terms() {
+        assert_eq!(
+            kind_of(&at(0, Msg::note_on(3, 60, 127))),
+            EventKind::NoteOn {
+                channel: 3,
+                pitch: 60,
+                velocity: 1.0
+            }
+        );
+        assert_eq!(
+            kind_of(&at(0, Msg::note_off(15, 61))),
+            EventKind::NoteOff {
+                channel: 15,
+                pitch: 61,
+                velocity: 64.0 / 127.0
+            }
+        );
+        assert_eq!(
+            kind_of(&at(0, Msg::controller(0, 74, 127))),
+            EventKind::Controller {
+                channel: 0,
+                number: 74,
+                value: 1.0
+            }
+        );
+        assert_eq!(
+            kind_of(&at(0, Msg::pressure(1, 0))),
+            EventKind::Pressure {
+                channel: 1,
+                value: 0.0
+            }
+        );
+        assert_eq!(
+            kind_of(&at(0, Msg::program(2, 9))),
+            EventKind::Program {
+                channel: 2,
+                program: 9
+            }
+        );
+    }
+
+    #[test]
+    fn pitch_bend_runs_from_zero_to_one_with_its_centre_in_the_middle() {
+        let bend = |v| match kind_of(&at(0, Msg::pitch_bend(0, v))) {
+            EventKind::PitchBend { value, .. } => value,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(bend(-8192), 0.0);
+        assert_eq!(bend(8191), 1.0);
+        assert!((bend(0) - 0.5).abs() < 1e-3, "{}", bend(0));
+        assert!(bend(-1) < bend(0) && bend(0) < bend(1));
+    }
+
+    #[test]
+    fn messages_the_host_cannot_take_are_left_out() {
+        // Key pressure (0xA0) and system messages.
+        let key_pressure = Msg([0xA0, 60, 40]);
+        assert!(host_event(&at(0, key_pressure), 128).is_none());
+        assert!(host_event(&at(0, Msg::CLOCK), 128).is_none());
+        assert!(host_event(&at(0, Msg::song_position(8)), 128).is_none());
+    }
+
+    #[test]
+    fn an_event_at_or_past_the_end_of_the_block_goes_on_its_last_frame() {
+        let note = Msg::note_on(0, 60, 100);
+        for (offset, frames, want) in [
+            (0, 128, 0),
+            (127, 128, 127),
+            (128, 128, 127),
+            (5_000, 128, 127),
+            (u32::MAX, 64, 63),
+            (3, 1, 0),
+            (3, 0, 0),
+        ] {
+            let e = host_event(&at(offset, note), frames).expect("a note");
+            assert_eq!(e.offset, want, "offset {offset} in {frames} frames");
+        }
+    }
+}
