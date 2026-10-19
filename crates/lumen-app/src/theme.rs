@@ -564,9 +564,13 @@ pub mod size {
     /// pointer must be to grab one, the room kept above and below the
     /// values, and how far apart a curve's samples are.
     pub const AUTO_POINT: f32 = 4.0;
+    /// The dot that bends a segment.
+    pub const AUTO_BEND: f32 = 4.5;
     pub const AUTO_GRAB: f32 = 9.0;
     pub const AUTO_PAD: f32 = 8.0;
     pub const AUTO_STEP: f32 = 6.0;
+    /// How near a resting place (0 dB, centre...) a dragged value lands on it.
+    pub const AUTO_SNAP: f32 = 4.0;
     /// The lane chip: room for its arrow beside the name, and its widths.
     pub const AUTO_CHIP_PAD: f32 = 28.0;
     pub const AUTO_CHIP_MIN: f32 = 64.0;

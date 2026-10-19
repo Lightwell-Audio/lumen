@@ -151,7 +151,7 @@ fn a_click_adds_a_point_on_the_grid_and_it_is_heard() {
         "about −20 dB where it was clicked: {}",
         held[0].1
     );
-    assert_eq!(lumen.app().automation_picked(), Some((track, 0)));
+    assert_eq!(lumen.app().automation_picked(), Some((track, vec![0])));
     assert!(lumen.app().is_dirty());
     // The lane plays: a single point holds its value.
     lumen.key(Modifiers::NONE, Key::Space);
@@ -315,7 +315,7 @@ fn delete_takes_the_picked_point_and_the_last_one_takes_the_lane() {
     lumen.frames(40);
     let first = point_pos(&lumen, track, 0);
     click_at(&mut lumen, first);
-    assert_eq!(lumen.app().automation_picked(), Some((track, 0)));
+    assert_eq!(lumen.app().automation_picked(), Some((track, vec![0])));
     lumen.key(Modifiers::NONE, Key::Delete);
     assert_eq!(
         points(&lumen, track, Target::Volume),
@@ -371,7 +371,7 @@ fn the_keys_alone_make_a_lane_and_move_and_delete_its_point() {
     assert_eq!(held.len(), 1, "{held:?}");
     assert_eq!(held[0].0, Ticks::quarters(4));
     assert_eq!(held[0].1, 0.0, "the control's own value, so nothing jumps");
-    assert_eq!(lumen.app().automation_picked(), Some((track, 0)));
+    assert_eq!(lumen.app().automation_picked(), Some((track, vec![0])));
     // Right moves it a grid step later, Up raises it, Delete takes it.
     lumen.key(Modifiers::NONE, Key::ArrowRight);
     assert_eq!(

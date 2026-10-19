@@ -89,6 +89,32 @@ pub(crate) fn default_value(target: Target) -> f32 {
     }
 }
 
+/// The heights (0 to 1) where a value likes to rest: the ends of the
+/// control and where it is neutral (unity, centre), so a point dragged near
+/// one lands on it. Few, because every one makes the lane stickier. Mute has
+/// only its two ends, which it already snaps to.
+fn detents(target: Target) -> Vec<f32> {
+    let values: &[f32] = match target {
+        Target::Volume | Target::Send { .. } => &[FLOOR_DB, 0.0, LEVEL_HIGH],
+        Target::Trim => &[-24.0, 0.0, 24.0],
+        Target::Pan => &[-1.0, 0.0, 1.0],
+        Target::Device { .. } => &[0.0, 0.5, 1.0],
+        Target::Mute => &[],
+    };
+    values.iter().map(|&v| fraction(target, v)).collect()
+}
+
+/// `height` taken to the nearest resting place within `reach` of it (both
+/// as shares of the lane's height), and whether it was.
+pub(crate) fn snap_height(target: Target, height: f32, reach: f32) -> (f32, bool) {
+    detents(target)
+        .into_iter()
+        .map(|d| (d, (d - height).abs()))
+        .filter(|(_, away)| *away <= reach)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map_or((height, false), |(d, _)| (d, true))
+}
+
 /// The value as a person reads it: "−6.0 dB", "L 30", "Muted".
 pub(crate) fn text(target: Target, value: f32) -> String {
     match (target, slider(target)) {
@@ -176,6 +202,26 @@ mod tests {
             let v = value(Target::Volume, f);
             assert_eq!(Target::Volume.clamp(v), v);
         }
+    }
+
+    #[test]
+    fn a_height_near_a_resting_place_lands_on_it_and_one_far_from_all_does_not() {
+        let zero = fraction(Target::Volume, 0.0);
+        let (at, snapped) = snap_height(Target::Volume, zero + 0.004, 0.01);
+        assert!(snapped);
+        assert_eq!(at, zero);
+        assert_eq!(value(Target::Volume, at), 0.0, "exactly 0 dB, not near it");
+        let (same, snapped) = snap_height(Target::Volume, zero + 0.03, 0.01);
+        assert!(!snapped);
+        assert_eq!(same, zero + 0.03);
+        // Pan rests in the middle, and nothing rests on a mute lane.
+        assert_eq!(snap_height(Target::Pan, 0.505, 0.01), (0.5, true));
+        assert!(!snap_height(Target::Mute, 0.5, 0.2).1);
+        // The nearer of two wins.
+        let (at, _) = snap_height(Target::Pan, 0.76, 0.5);
+        assert_eq!(at, 1.0);
+        let (at, _) = snap_height(Target::Pan, 0.74, 0.5);
+        assert_eq!(at, 0.5);
     }
 
     #[test]

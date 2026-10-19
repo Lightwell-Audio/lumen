@@ -166,6 +166,14 @@ pub(crate) enum Command {
     AutomationAddPoint,
     AutomationToggleLane,
     AutomationRemoveLane,
+    AutomationSegmentLinear,
+    AutomationSegmentStep,
+    AutomationSegmentCurve,
+    AutomationToolRamp,
+    AutomationToolSine,
+    AutomationToolTriangle,
+    AutomationToolSaw,
+    AutomationToolSquare,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -397,6 +405,14 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::AutomationAddPoint, "edit.automation_point", "Add an automation point at the playhead", Area::Edit, &[], "Adds a point to the shown lane at the playhead, holding the value the lane has there. With the point picked, the arrows move it and Delete takes it away."),
     info(Command::AutomationToggleLane, "view.automation_on", "Turn the automation lane on or off", Area::View, &[], "Switches the shown lane on or off, keeping its points. A lane that is off plays nothing and the control keeps the value it was set to."),
     info(Command::AutomationRemoveLane, "edit.automation_remove", "Remove the automation lane", Area::Edit, &[], "Takes the shown lane away, points and all."),
+    info(Command::AutomationSegmentLinear, "edit.automation_segment_linear", "Make the automation segments straight", Area::Edit, &[], "The segments leaving the picked automation points run in a straight line to the next point."),
+    info(Command::AutomationSegmentStep, "edit.automation_segment_step", "Make the automation segments steps", Area::Edit, &[], "The segments leaving the picked automation points hold their value until the next point, then jump."),
+    info(Command::AutomationSegmentCurve, "edit.automation_segment_curve", "Make the automation segments curved", Area::Edit, &[], "The segments leaving the picked automation points follow a smooth S curve. Pick one point and drag the dot on its segment to bend it."),
+    info(Command::AutomationToolRamp, "edit.automation_tool_ramp", "Automation tool: ramp", Area::Edit, &[], "Drag across the shown lane to draw a straight ramp from where you press to where you let go."),
+    info(Command::AutomationToolSine, "edit.automation_tool_sine", "Automation tool: sine", Area::Edit, &[], "Drag across the shown lane to draw a sine wave, one cycle to a grid step, between the height you press at and the height you let go at."),
+    info(Command::AutomationToolTriangle, "edit.automation_tool_triangle", "Automation tool: triangle", Area::Edit, &[], "Drag across the shown lane to draw a triangle wave, one cycle to a grid step."),
+    info(Command::AutomationToolSaw, "edit.automation_tool_saw", "Automation tool: saw", Area::Edit, &[], "Drag across the shown lane to draw a saw wave that rises over each grid step and drops at its end."),
+    info(Command::AutomationToolSquare, "edit.automation_tool_square", "Automation tool: square", Area::Edit, &[], "Drag across the shown lane to draw a square wave, one cycle to a grid step, as steps."),
 ];
 
 const fn info(
@@ -446,7 +462,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::AutomationRemoveLane as usize + 1,
+            Command::AutomationToolSquare as usize + 1,
             ALL.len(),
             "a command is missing"
         );

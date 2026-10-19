@@ -1188,9 +1188,13 @@ impl App {
         Some(frame.pos(target, &point))
     }
 
-    /// The point picked on a lane: its track and place in the lane.
-    pub fn automation_picked(&self) -> Option<(Id, usize)> {
-        self.arrangement.auto.picked.map(|p| (p.track, p.index))
+    /// The points picked on a lane: its track and their places in the lane.
+    pub fn automation_picked(&self) -> Option<(Id, Vec<usize>)> {
+        self.arrangement
+            .auto
+            .picks
+            .as_ref()
+            .map(|p| (p.track, p.list()))
     }
 
     fn lane_frame_of(
