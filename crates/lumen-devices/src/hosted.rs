@@ -328,6 +328,12 @@ impl Guard {
         self.status.take_restart()
     }
 
+    /// Lets go of the last block's outputs: [`Guard::output`] answers nothing
+    /// until the next block is finished.
+    pub fn forget_block(&mut self) {
+        self.ready = false;
+    }
+
     /// Hands the host a block. Returns whether it took it; when it did not,
     /// [`Guard::finish`] answers [`Outcome::Silent`] at once.
     pub fn begin(&mut self, frames: usize, input: &[&[f32]], events: &[Event]) -> bool {
@@ -591,6 +597,9 @@ impl HostedInstrument {
         let Some(guard) = self.guard.as_mut() else {
             return false;
         };
+        // The other outputs are those of the block now begun, if any: not
+        // those of the last one, when this one is refused or skipped.
+        guard.forget_block();
         // A block refused early has its events in `pending`: they are not
         // said again.
         let events = if retry { &[] } else { events };
@@ -668,6 +677,17 @@ impl Instrument for HostedInstrument {
     }
 
     fn render(&mut self, rate: u32, events: &[Event], left: &mut [f32], right: &mut [f32]) {
+        self.render_by(rate, events, left, right, None);
+    }
+
+    fn render_by(
+        &mut self,
+        rate: u32,
+        events: &[Event],
+        left: &mut [f32],
+        right: &mut [f32],
+        deadline: Option<Instant>,
+    ) {
         let frames = left.len();
         if self.guard.is_none() {
             return;
@@ -689,8 +709,10 @@ impl Instrument for HostedInstrument {
         }
         let retry = std::mem::take(&mut self.refused);
         if self.offer(rate, frames, events, retry) {
-            let rate = u64::from(self.rate.max(1));
-            let deadline = Instant::now() + Duration::from_micros(frames as u64 * 750_000 / rate);
+            let deadline = deadline.unwrap_or_else(|| {
+                let rate = u64::from(self.rate.max(1));
+                Instant::now() + Duration::from_micros(frames as u64 * 750_000 / rate)
+            });
             self.finish(deadline, left, right);
         }
     }
@@ -733,6 +755,8 @@ mod tests {
         busy: u32,
         events: Vec<Vec<Event>>,
         value: f32,
+        /// The deadline of the last collect.
+        deadline: Option<Instant>,
     }
 
     /// A host that answers from a script and records what it is asked.
@@ -776,7 +800,8 @@ mod tests {
             Ok(())
         }
 
-        fn collect(&mut self, _: Instant, left: &mut [f32], right: &mut [f32]) -> Reply {
+        fn collect(&mut self, deadline: Instant, left: &mut [f32], right: &mut [f32]) -> Reply {
+            self.seen.lock().unwrap().deadline = Some(deadline);
             let reply = self.script[self.next.min(self.script.len() - 1)];
             self.next += 1;
             if matches!(reply, Reply::Ready { .. }) {
@@ -789,6 +814,16 @@ mod tests {
 
         fn ended(&self) -> bool {
             self.ended
+        }
+
+        /// Auxiliary pair 1 plays a quarter of full scale.
+        fn output(&mut self, pair: usize, left: &mut [f32], right: &mut [f32]) -> bool {
+            if pair != 1 {
+                return false;
+            }
+            left.fill(0.25);
+            right.fill(0.25);
+            true
         }
     }
 
@@ -993,6 +1028,41 @@ mod tests {
             ]],
             "the carried message goes first, at the block's start"
         );
+    }
+
+    #[test]
+    fn the_other_outputs_are_those_of_this_block_never_the_last_ones() {
+        let (mut synth, seen) = instrument(vec![READY]);
+        let (mut l, mut r) = ([0.0f32; 64], [0.0f32; 64]);
+        synth.render(48_000, &[on(0, 60)], &mut l, &mut r);
+        let (mut al, mut ar) = ([0.0f32; 64], [0.0f32; 64]);
+        assert!(synth.output(1, &mut al, &mut ar), "a finished block has them");
+        // The host is still on an earlier block: this one is refused, and the
+        // main output is silent; the other outputs are not the last block's.
+        seen.lock().unwrap().busy = 1;
+        let (mut l, mut r) = ([0.0f32; 64], [0.0f32; 64]);
+        synth.render(48_000, &[on(0, 62)], &mut l, &mut r);
+        assert_eq!(l[0], 0.0, "a refused block is silent");
+        assert!(
+            !synth.output(1, &mut al, &mut ar),
+            "and has no other outputs to repeat"
+        );
+    }
+
+    #[test]
+    fn a_block_waited_for_in_render_waits_until_the_callbacks_deadline_when_it_has_one() {
+        let (mut synth, seen) = instrument(vec![READY]);
+        let (mut l, mut r) = ([0.0f32; 64], [0.0f32; 64]);
+        let shared = Instant::now() + Duration::from_millis(3);
+        synth.render_by(48_000, &[on(0, 60)], &mut l, &mut r, Some(shared));
+        assert_eq!(seen.lock().unwrap().deadline, Some(shared));
+        // With none it waits for a share of the block of its own (75% of
+        // 64 frames at 48 kHz is 1 ms).
+        let before = Instant::now();
+        synth.render(48_000, &[on(0, 62)], &mut l, &mut r);
+        let own = seen.lock().unwrap().deadline.unwrap();
+        assert!(own >= before + Duration::from_micros(900));
+        assert!(own <= Instant::now() + Duration::from_millis(1));
     }
 
     /// Blocks the instrument is given, at 1 kHz in blocks of 100 frames, until

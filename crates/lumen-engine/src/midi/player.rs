@@ -781,8 +781,13 @@ fn render_instrument(
     {
         let mut left = [0.0f32; CHUNK];
         let mut right = [0.0f32; CHUNK];
-        spec.instrument
-            .render(cx_rate, queued, &mut left[..frames], &mut right[..frames]);
+        spec.instrument.render_by(
+            cx_rate,
+            queued,
+            &mut left[..frames],
+            &mut right[..frames],
+            deadline,
+        );
         if let Some(mut bus) = buses.track(id) {
             for (side, samples) in [(0, &left), (1, &right)] {
                 for (to, from) in bus.channel(side).iter_mut().zip(samples) {
