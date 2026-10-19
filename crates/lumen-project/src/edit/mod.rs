@@ -21,6 +21,7 @@ use lumen_core::time::{TempoMap, Ticks};
 use crate::model::EventKind;
 use crate::model::{Clip, ClipContent, ClipEvent, Id, Note, Project};
 
+pub mod automation;
 mod clipboard;
 pub mod events;
 mod note_selection;
