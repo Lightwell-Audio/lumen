@@ -16,5 +16,10 @@ lumen-plugin-host = { path = "../lumen-plugin-host" }
 lumen-rt.workspace = true
 lumen-test-plugin = { path = "../lumen-test-plugin" }
 
+# The soak reads the test process's memory and handle counts.
+[target.'cfg(windows)'.dev-dependencies.windows-sys]
+workspace = true
+features = ["Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading"]
+
 [lints]
 workspace = true
