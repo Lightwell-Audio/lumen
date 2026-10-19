@@ -516,6 +516,9 @@ impl App {
                 vendor,
                 ..
             } => (name.clone(), vendor.clone(), class_id.clone()),
+            // The vendor of a built-in device is a label: it names who made
+            // the device, as a plugin's vendor does, and is the product's
+            // name by `PRODUCT_NAME`, not text about the product.
             PluginRef::Builtin { name } => (
                 crate::document::device_name(d),
                 PRODUCT_NAME.to_owned(),
