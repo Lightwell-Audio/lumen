@@ -17,8 +17,9 @@
 use lumen_core::midi::{Event, Kind, Msg, cc};
 use lumen_core::time::Ticks;
 
+use super::index::{ClipIndex, SLOTS};
 use super::live::LiveState;
-use super::{MidiClip, MidiNote};
+use super::{MidiClip, MidiControl, MidiNote};
 use crate::timeline::Timeline;
 
 /// Most notes one track holds at once; past it, new notes are dropped.
@@ -379,7 +380,7 @@ fn with_channel(msg: Msg, channel: u8) -> Msg {
 /// note that is gone or begins elsewhere is released (and chased again if
 /// it sounds at `pos`).
 pub(super) fn sync(
-    clips: &[MidiClip],
+    (clips, index): (&[MidiClip], &[ClipIndex]),
     state: &mut TrackState,
     channel: u8,
     clock: Clock<'_>,
@@ -402,7 +403,7 @@ pub(super) fn sync(
             }
         }
     }
-    chase_notes(clips, state, channel, clock, pos);
+    chase_notes((clips, index), state, channel, clock, pos);
 }
 
 /// Where `held` ends now, if a note that began where it did on its key is
@@ -453,17 +454,21 @@ fn owning_start(clip: &MidiClip, clock: Clock<'_>, pos: i64) -> i64 {
 /// the clip `pos` is in: one carried on from the clip before belongs to
 /// that clip, so playing from the next one does not strike it again.
 pub(super) fn chase_notes(
-    clips: &[MidiClip],
+    (clips, index): (&[MidiClip], &[ClipIndex]),
     state: &mut TrackState,
     channel: u8,
     clock: Clock<'_>,
     pos: i64,
 ) {
     let at = clock.tick(pos);
-    for clip in clips {
+    // A note that ended at or before this tick had ended by the sample `pos`
+    // (with a sample's rounding to spare).
+    let over = clock.tick(pos.saturating_sub(4));
+    for (k, clip) in clips.iter().enumerate() {
         if clip.start.0 > at + MARGIN {
             break;
         }
+        let notes = index.get(k).and_then(|i| i.notes_for(clip));
         let period = period(clip);
         let (first, last) = repeats(clip, period, at, at);
         // Only the repeat the position is in: notes end with their repeat.
@@ -477,10 +482,13 @@ pub(super) fn chase_notes(
                 None => owning_start(clip, clock, pos),
             };
             let first = clip.notes[..end].partition_point(|n| n.start.0 < owned);
-            for note in &clip.notes[first..end] {
+            let mut visit = |i: usize| -> bool {
+                let note = &clip.notes[i];
                 if note.start.0 >= span {
-                    break;
+                    return false;
                 }
+                #[cfg(test)]
+                VISITED.with(|v| v.set(v.get() + 1));
                 let on = clock.sample(base + note.start.0);
                 let off_t = off_tick(base, note, span);
                 let off = clock.sample(off_t).max(on + 1);
@@ -505,15 +513,31 @@ pub(super) fn chase_notes(
                         0,
                     );
                 }
+                true
+            };
+            match notes {
+                Some(notes) => {
+                    notes.each_ending_after(&clip.notes, (first, end), over - base, &mut visit);
+                }
+                None => {
+                    for i in first..end {
+                        if !visit(i) {
+                            break;
+                        }
+                    }
+                }
             }
         }
     }
 }
 
-/// Slots in the controller table: 128 controllers, bend, pressure, program.
-const SLOTS: usize = 131;
+// Notes the chase on this thread has looked at (a test counts them).
+#[cfg(test)]
+thread_local! {
+    pub(super) static VISITED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
-fn slot(msg: Msg) -> Option<usize> {
+pub(super) fn slot(msg: Msg) -> Option<usize> {
     use lumen_core::midi::Kind;
     match msg.kind() {
         Kind::Controller { number, .. } => Some(usize::from(number)),
@@ -528,7 +552,7 @@ fn slot(msg: Msg) -> Option<usize> {
 /// set before `pos`, at the start of the next part (bank selects and
 /// controllers first, the program last).
 pub(super) fn chase_controls(
-    clips: &[MidiClip],
+    (clips, index): (&[MidiClip], &[ClipIndex]),
     state: &mut TrackState,
     channel: u8,
     clock: Clock<'_>,
@@ -536,10 +560,11 @@ pub(super) fn chase_controls(
 ) {
     let mut latest: [Option<(i64, Msg)>; SLOTS] = [None; SLOTS];
     let at = clock.tick(pos);
-    for clip in clips {
+    for (k, clip) in clips.iter().enumerate() {
         if clip.start.0 > at {
             break;
         }
+        let controls = index.get(k).and_then(|i| i.controls_for(clip));
         let period = period(clip);
         // A clip that has ended still leaves its controllers as they were.
         let count = ((clip.length.0 + period - 1) / period).max(1);
@@ -547,16 +572,37 @@ pub(super) fn chase_controls(
         for rep in (last - CHASE_REPEATS).max(0)..=last {
             let base = clip.start.0 + rep * period;
             let span = span(clip, period, rep);
-            for control in clip.controls.iter() {
-                if control.at.0 >= span {
-                    break;
-                }
+            let mut keep = |slot: usize, control: &MidiControl| {
                 let tick = base + control.at.0;
-                let Some(slot) = slot(control.msg) else {
-                    continue;
-                };
-                if clock.sample(tick) < pos && latest[slot].is_none_or(|(t, _)| tick >= t) {
+                if latest[slot].is_none_or(|(t, _)| tick >= t) {
                     latest[slot] = Some((tick, control.msg));
+                }
+            };
+            match controls {
+                // The last event of each controller before the position.
+                Some(controls) => {
+                    for (slot, list) in controls.slots() {
+                        let before = list.partition_point(|&j| {
+                            let c = &clip.controls[j as usize];
+                            c.at.0 < span && clock.sample(base + c.at.0) < pos
+                        });
+                        if before > 0 {
+                            keep(slot, &clip.controls[list[before - 1] as usize]);
+                        }
+                    }
+                }
+                None => {
+                    for control in clip.controls.iter() {
+                        if control.at.0 >= span {
+                            break;
+                        }
+                        let Some(slot) = slot(control.msg) else {
+                            continue;
+                        };
+                        if clock.sample(base + control.at.0) < pos {
+                            keep(slot, control);
+                        }
+                    }
                 }
             }
         }
@@ -614,6 +660,141 @@ mod tests {
                 msg: Msg::controller(0, 11, 90),
             }]),
         }
+    }
+
+    /// A repeatable stream of numbers.
+    fn rng(mut seed: u64) -> impl FnMut() -> u64 {
+        move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        }
+    }
+
+    /// A clip with many short notes, some long ones, controllers on a few
+    /// slots, and optionally repeating.
+    fn busy_clip(next: &mut impl FnMut() -> u64, start: i64, repeats: bool) -> MidiClip {
+        let q = Ticks::quarters(1).0;
+        let length = q * 400;
+        let notes = (0..2_000)
+            .map(|_| {
+                let at = (next() % (length as u64 - 1)) as i64;
+                let long = next().is_multiple_of(40);
+                MidiNote {
+                    start: Ticks(at),
+                    length: Ticks(if long {
+                        (next() % (q as u64 * 120)) as i64
+                    } else {
+                        (next() % (q as u64 / 2)) as i64
+                    }),
+                    pitch: 30 + (next() % 60) as u8,
+                    velocity: 100,
+                }
+            })
+            .collect();
+        let controls = (0..500)
+            .map(|_| {
+                let at = Ticks((next() % (length as u64 - 1)) as i64);
+                let msg = match next() % 4 {
+                    0 => Msg::controller(0, 1, (next() % 128) as u8),
+                    1 => Msg::controller(0, 74, (next() % 128) as u8),
+                    2 => Msg::pitch_bend(0, (next() % 16_000) as i16),
+                    _ => Msg::program(0, (next() % 100) as u8),
+                };
+                super::super::MidiControl { at, msg }
+            })
+            .collect();
+        MidiClip {
+            id: 1,
+            start: Ticks(start),
+            length: Ticks(length),
+            period: repeats.then_some(Ticks(q * 64)),
+            seams: Default::default(),
+            notes: note_list(notes),
+            controls: control_list(controls),
+        }
+    }
+
+    #[test]
+    fn the_indexed_chase_starts_the_same_notes_and_controllers_as_reading_every_note() {
+        let mut next = rng(0x9e37_79b9);
+        for (bpm, rate) in [
+            (120.0, 48_000),
+            (20.0, 192_000),
+            (999.0, 44_100),
+            (97.3, 48_000),
+        ] {
+            let timeline = Timeline::constant(bpm, Meter::FOUR_FOUR);
+            let clock = Clock {
+                timeline: &timeline,
+                rate,
+            };
+            for repeats in [false, true] {
+                let clips = vec![
+                    busy_clip(&mut next, 0, repeats),
+                    busy_clip(&mut next, Ticks::quarters(300).0, repeats),
+                ];
+                let index: Vec<ClipIndex> = clips.iter().map(ClipIndex::new).collect();
+                for _ in 0..60 {
+                    let tick = (next() % (Ticks::quarters(800).0 as u64)) as i64;
+                    let pos = clock.sample(tick);
+                    let mut plain = TrackState::new();
+                    let mut fast = TrackState::new();
+                    chase_notes((&clips, &[]), &mut plain, 0, clock, pos);
+                    chase_controls((&clips, &[]), &mut plain, 0, clock, pos);
+                    chase_notes((&clips, &index), &mut fast, 0, clock, pos);
+                    chase_controls((&clips, &index), &mut fast, 0, clock, pos);
+                    let words = |s: &TrackState| format!("{:?} {:?}", s.held, s.events);
+                    assert_eq!(
+                        words(&fast),
+                        words(&plain),
+                        "{bpm} BPM, {rate} Hz, tick {tick}, repeating {repeats}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_chase_late_in_a_big_clip_reads_the_notes_that_can_sound_not_the_song_so_far() {
+        let timeline = Timeline::constant(120.0, Meter::FOUR_FOUR);
+        let clock = Clock {
+            timeline: &timeline,
+            rate: 48_000,
+        };
+        let step = Ticks::quarters(1).0 / 4;
+        let notes: Vec<MidiNote> = (0..100_000)
+            .map(|i| MidiNote {
+                start: Ticks(i * step),
+                length: Ticks(step),
+                pitch: 36 + (i % 48) as u8,
+                velocity: 100,
+            })
+            .collect();
+        let mut c = clip(Ticks::ZERO, Ticks::ZERO);
+        c.length = Ticks(100_001 * step);
+        c.notes = note_list(notes);
+        let clips = [c];
+        let index: Vec<ClipIndex> = clips.iter().map(ClipIndex::new).collect();
+        // Half a sixteenth into the last thousand notes.
+        let pos = clock.sample(99_000 * step + step / 2);
+        let looked = |index: &[ClipIndex]| {
+            VISITED.with(|v| v.set(0));
+            let mut state = TrackState::new();
+            chase_notes((&clips, index), &mut state, 0, clock, pos);
+            (VISITED.with(|v| v.get()), state.held.len())
+        };
+        let (visited, held) = looked(&index);
+        assert_eq!(held, 1, "the one note that sounds is started");
+        assert!(
+            visited <= 130,
+            "{visited} notes were read to find one that sounds"
+        );
+        // Without the index every note before the position is read.
+        let (every, held_plain) = looked(&[]);
+        assert_eq!(held_plain, 1);
+        assert!(every > 90_000, "{every}");
     }
 
     #[test]
@@ -693,7 +874,7 @@ mod tests {
         for starting in [false, true] {
             let mut state = TrackState::new();
             if starting {
-                chase_notes(&clips, &mut state, 0, clock, sample);
+                chase_notes((&clips, &[]), &mut state, 0, clock, sample);
             } else {
                 gather(&clips, &mut state, 0, clock, (sample - 128, sample));
             }

@@ -544,7 +544,13 @@ impl MidiPlayer {
             for track in &mut new.tracks {
                 if track.dirty && track.sounds() {
                     let channel = track.channel();
-                    hold::sync(&track.clips, &mut track.state, channel, clock, pos);
+                    hold::sync(
+                        (&track.clips, &track.index),
+                        &mut track.state,
+                        channel,
+                        clock,
+                        pos,
+                    );
                 }
                 track.dirty = false;
             }
@@ -753,8 +759,20 @@ impl TrackSource for MidiPlayer {
             let channel = track.channel();
             track.state.release_all(channel);
             if track.sounds() {
-                hold::chase_controls(&track.clips, &mut track.state, channel, clock, sample);
-                hold::chase_notes(&track.clips, &mut track.state, channel, clock, sample);
+                hold::chase_controls(
+                    (&track.clips, &track.index),
+                    &mut track.state,
+                    channel,
+                    clock,
+                    sample,
+                );
+                hold::chase_notes(
+                    (&track.clips, &track.index),
+                    &mut track.state,
+                    channel,
+                    clock,
+                    sample,
+                );
             }
         }
     }

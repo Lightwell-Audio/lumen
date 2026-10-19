@@ -219,6 +219,16 @@ fn what_the_chase_and_the_list_swap_cost_at_a_hundred_thousand_notes() {
         let clips = clips_of(&shape, &lists);
         let late = Q(per_track as i64 / 4 - 10);
 
+        // Making the track list, on the UI thread (the index included).
+        let mut times = Vec::new();
+        for _ in 0..15 {
+            let started = Instant::now();
+            let made = tracks(&clips);
+            times.push(us(started.elapsed()));
+            drop(made);
+        }
+        row(&shape, "making the track list (UI thread)", times);
+
         // Steady playing, early in the song.
         let mut r = rig(&shape, &clips);
         r.send(Command::Play);
