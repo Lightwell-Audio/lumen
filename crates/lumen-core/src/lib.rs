@@ -1,5 +1,6 @@
 //! Product identity and foundational types shared by every Lumen crate.
 
+pub mod automation;
 pub mod curve;
 pub mod fade;
 pub mod grid;

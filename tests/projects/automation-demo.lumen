@@ -1,0 +1,320 @@
+{
+  "format": "lumen-project",
+  "version": 22,
+  "generator": "Lumen 0.0.1",
+  "project": {
+    "name": "Automation demo",
+    "sample_rate": 48000,
+    "tempo": [
+      {
+        "at": 0,
+        "bpm": 120.0
+      }
+    ],
+    "time_signature": {
+      "numerator": 4,
+      "denominator": 4
+    },
+    "tracks": [
+      {
+        "id": "0000000000000001",
+        "name": "Chords",
+        "kind": "midi",
+        "color": "#4F81BD",
+        "gain_db": 0.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "armed": false,
+        "devices": [
+          {
+            "id": "0000000000000002",
+            "plugin": {
+              "format": "builtin",
+              "name": "synth"
+            },
+            "bypass": false,
+            "state": "cG9seQ=="
+          }
+        ],
+        "automation": [
+          {
+            "target": "pan",
+            "lane": [
+              {
+                "at": 0,
+                "value": -1.0
+              },
+              {
+                "at": 11289600,
+                "value": 1.0
+              },
+              {
+                "at": 22579200,
+                "value": -1.0
+              },
+              {
+                "at": 33868800,
+                "value": 1.0
+              },
+              {
+                "at": 45158400,
+                "value": -1.0
+              }
+            ]
+          }
+        ],
+        "clips": [
+          {
+            "id": "0000000000000003",
+            "name": "Chords",
+            "start": 0,
+            "length": 45158400,
+            "muted": false,
+            "loop_length": 22579200,
+            "content": {
+              "type": "midi",
+              "notes": [
+                [0, 5644800, 57, 88],
+                [0, 5644800, 60, 88],
+                [0, 5644800, 64, 88],
+                [5644800, 5644800, 53, 88],
+                [5644800, 5644800, 57, 88],
+                [5644800, 5644800, 60, 88],
+                [11289600, 1411200, 48, 88],
+                [11289600, 1411200, 55, 88],
+                [11289600, 1411200, 60, 88],
+                [11289600, 1411200, 64, 88],
+                [16934400, 5644800, 55, 88],
+                [16934400, 5644800, 59, 88],
+                [16934400, 5644800, 62, 88]
+              ],
+              "events": [
+                {
+                  "at": 11289600,
+                  "kind": "controller",
+                  "number": 64,
+                  "value": 127
+                },
+                {
+                  "at": 16934400,
+                  "kind": "controller",
+                  "number": 64,
+                  "value": 0
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "000000000000000a",
+        "name": "Pad",
+        "kind": "midi",
+        "color": "#4F81BD",
+        "gain_db": 0.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "armed": false,
+        "devices": [
+          {
+            "id": "000000000000000b",
+            "plugin": {
+              "format": "builtin",
+              "name": "synth"
+            },
+            "bypass": false,
+            "state": "cGFk"
+          }
+        ],
+        "automation": [
+          {
+            "target": "volume",
+            "lane": [
+              {
+                "at": 0,
+                "value": -60.0
+              },
+              {
+                "at": 11289600,
+                "value": 0.0
+              },
+              {
+                "at": 33868800,
+                "value": 0.0
+              },
+              {
+                "at": 45158400,
+                "value": -18.0
+              }
+            ]
+          }
+        ],
+        "clips": [
+          {
+            "id": "000000000000000c",
+            "name": "Pad",
+            "start": 0,
+            "length": 45158400,
+            "muted": false,
+            "content": {
+              "type": "midi",
+              "notes": [
+                [0, 45158400, 48, 70],
+                [0, 45158400, 55, 70]
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "0000000000000014",
+        "name": "Bass",
+        "kind": "midi",
+        "color": "#4F81BD",
+        "gain_db": 0.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "armed": false,
+        "devices": [
+          {
+            "id": "0000000000000015",
+            "plugin": {
+              "format": "builtin",
+              "name": "synth"
+            },
+            "bypass": false,
+            "state": "YmFzcw=="
+          }
+        ],
+        "automation": [
+          {
+            "target": "mute",
+            "lane": [
+              {
+                "at": 0,
+                "value": 0.0,
+                "shape": "step"
+              },
+              {
+                "at": 11289600,
+                "value": 1.0,
+                "shape": "step"
+              },
+              {
+                "at": 16934400,
+                "value": 0.0,
+                "shape": "step"
+              },
+              {
+                "at": 33868800,
+                "value": 1.0,
+                "shape": "step"
+              },
+              {
+                "at": 39513600,
+                "value": 0.0,
+                "shape": "step"
+              }
+            ]
+          }
+        ],
+        "clips": [
+          {
+            "id": "0000000000000016",
+            "name": "Bass",
+            "start": 0,
+            "length": 45158400,
+            "muted": false,
+            "loop_length": 22579200,
+            "content": {
+              "type": "midi",
+              "notes": [
+                [0, 704600, 33, 100],
+                [705600, 704600, 33, 100],
+                [1411200, 704600, 40, 100],
+                [2116800, 704600, 33, 100],
+                [2822400, 704600, 33, 100],
+                [3528000, 704600, 33, 100],
+                [4233600, 704600, 40, 100],
+                [4939200, 704600, 33, 100],
+                [5644800, 704600, 29, 100],
+                [6350400, 704600, 29, 100],
+                [7056000, 704600, 36, 100],
+                [7761600, 704600, 29, 100],
+                [8467200, 704600, 29, 100],
+                [9172800, 704600, 29, 100],
+                [9878400, 704600, 36, 100],
+                [10584000, 704600, 29, 100],
+                [11289600, 704600, 36, 100],
+                [11995200, 704600, 36, 100],
+                [12700800, 704600, 43, 100],
+                [13406400, 704600, 36, 100],
+                [14112000, 704600, 36, 100],
+                [14817600, 704600, 36, 100],
+                [15523200, 704600, 43, 100],
+                [16228800, 704600, 36, 100],
+                [16934400, 704600, 31, 100],
+                [17640000, 704600, 31, 100],
+                [18345600, 704600, 38, 100],
+                [19051200, 704600, 31, 100],
+                [19756800, 704600, 31, 100],
+                [20462400, 704600, 31, 100],
+                [21168000, 704600, 38, 100],
+                [21873600, 704600, 31, 100]
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "master": {
+      "id": "00000000000003e7",
+      "name": "Master",
+      "kind": "master",
+      "color": "#8A8F99",
+      "gain_db": 0.0,
+      "pan": 0.0,
+      "mute": false,
+      "solo": false,
+      "armed": false,
+      "devices": [],
+      "clips": []
+    },
+    "pan_law": "constant_power",
+    "media": [],
+    "markers": [],
+    "transport": {
+      "loop_start": 0,
+      "loop_end": 22579200,
+      "loop_enabled": false,
+      "punch_in": false,
+      "punch_out": false
+    },
+    "view": {
+      "left_beat": 0.0,
+      "px_per_beat": 24.0,
+      "browser_open": true,
+      "detail_open": true,
+      "browser_size": 220.0,
+      "detail_size": 220.0,
+      "top": 0.0,
+      "track_heights": {},
+      "expanded": [],
+      "grid": {
+        "fixed": false,
+        "width": "narrow",
+        "size": {
+          "note": 16
+        },
+        "feel": "straight",
+        "snap": true
+      },
+      "collapsed": [],
+      "header_width": 204.0,
+      "returns_folded": false
+    }
+  }
+}

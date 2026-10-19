@@ -4,6 +4,8 @@
 
 use lumen_core::pan::PanLaw;
 
+use super::auto::NodeAutomation;
+
 /// Where a node's output goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Destination {
@@ -114,6 +116,11 @@ pub struct NodeSpec {
     pub source: u32,
     /// Sidechains into the node's second input (M4 slice 6).
     pub sidechains: Vec<SidechainSpec>,
+    /// The lanes that drive the node's trim, mute, fader, pan and sends
+    /// (M7 slice A0). A value with a lane is the lane's: the fixed trim,
+    /// volume, pan, mute (`audible` and `sends_audible` as the track's own
+    /// switch would make them) and send gain above are used for the rest.
+    pub automation: Option<NodeAutomation>,
 }
 
 impl NodeSpec {
@@ -135,6 +142,7 @@ impl NodeSpec {
             devices: Vec::new(),
             source: 0,
             sidechains: Vec::new(),
+            automation: None,
         }
     }
 

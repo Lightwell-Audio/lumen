@@ -79,7 +79,7 @@ overwrite rule), so a crossfade needs a design:
 
 | Option | What it is | Cost |
 |---|---|---|
-| **A (recommended): a crossfade at a join.** The later clip's fade-in can be marked as crossing. While it plays, the clip before it keeps playing past its end, from its own source, fading out with the mirrored curve. It needs source material beyond the earlier clip's end; where there is none, the crossfade shortens or is skipped. No clips overlap in the model; the overwrite rule is untouched. A project setting turns on an automatic short crossfade (default 5 ms) at every join of clips that were not cut from contiguous material, and a handle at the join lengthens it | One flag on `Clip` (format v23), engine reads the earlier clip's tail, one handle in the arrangement |
+| **A (recommended): a crossfade at a join.** The later clip's fade-in can be marked as crossing. While it plays, the clip before it keeps playing past its end, from its own source, fading out with the mirrored curve. It needs source material beyond the earlier clip's end; where there is none, the crossfade shortens or is skipped. No clips overlap in the model; the overwrite rule is untouched. A project setting turns on an automatic short crossfade (default 5 ms) at every join of clips that were not cut from contiguous material, and a handle at the join lengthens it | One flag on `Clip` (format v24), engine reads the earlier clip's tail, one handle in the arrangement |
 | B | Allow a bounded overlap only inside a crossfade pair, stored as an overlap | Clips overlap in the model in one case; hit testing, selection and the overwrite rule need exceptions |
 | C | Full overlap with the later clip on top and an automatic crossfade over the overlap | Reverses the owner's overwrite rule (M3) and touches every edit function |
 
@@ -93,7 +93,7 @@ the same sound. B and C stay on the specimen board as the options not taken.
 | S1 | Scope | **Decided 2026-10-19: A.** This is M7b, split from M7 |
 | X1 | Crossfade model | **Decided 2026-10-19: A.** A crossfade at a join, with a project setting for an automatic short one (default 5 ms) and a handle to lengthen it. The specimen of the handle and of the setting was accepted |
 | K1 | The tool model and the split gesture | **Decided 2026-10-19.** Pointer, draw, erase, split, mute and zoom, picked from a switch in the corner above the track headers. **Keys follow the common workstation convention listed in CLAUDE.md §5, with no new single-letter tool keys**: B toggles Pointer and Draw, Esc returns to Pointer, Ctrl+E cuts, 0 mutes, Z and X zoom, Delete erases the selection. **Cut gestures**: press, aim and release with the Split tool (a click without moving cuts at once), and the edit cursor with Ctrl+E for the keyboard. The ghost-line variant was not taken. Every tool has a command and a palette entry |
-| Y1 | The static clip pitch property | **Open, needs approval to defer.** CLAUDE.md §6.2 lists clip "pitch" as [M]. The owner deferred the audio pitch envelope because it needs a time-stretch and pitch engine; a static pitch shift needs the same engine (or a resampling change that alters the clip's length). Recommendation: defer it with the envelope, to be built with warp and time-stretch ([S]) |
+| Y1 | The static clip pitch property | **Decided 2026-10-19: deferred.** CLAUDE.md §6.2 lists clip "pitch" as [M]. The owner deferred the audio pitch envelope because it needs a time-stretch and pitch engine; a static pitch shift needs the same engine (or a resampling change that alters the clip's length). The owner approved deferring it with the envelope, to be built with warp and time-stretch ([S]) |
 | F1 | Real-time bounce for plugin tracks | **Conditional.** Asked only if the R2 spike fails: A real-time capture for plugin tracks with the deviation recorded, or B hold bounce and freeze for plugin tracks until the host gains an offline mode |
 
 ## 5. Slices
@@ -106,7 +106,7 @@ Sizes are rough (S/M/L).
 |---|---|---|---|
 | E0 (M) | Tools and split | K1 as chosen: the global tool state and its switch, the keys above, split at playhead, edit cursor, grid and range edges (click-free), the press-aim-release cut gesture, Ctrl+E widened to clips, seamless joins | Split then join returns the original; playback across a split equals the unsplit clip (null test); the keymap has no conflict; every tool and command is in the palette |
 | E1 (M) | Clip commands | Join (glue), crop to selection, unloop into copies, nudge by grid and finely, reverse (engine clip flag and reversed peaks), normalize (peak scan off the UI thread), polarity (clip flag), select invert, in track, to start, to end | Each is one undo step; reverse and normalize are golden renders; undo restores exactly |
-| E2 (M) | Crossfades | X1 as chosen: format v23, the engine tail read, the handle, the project setting, equal-power default curve | A crossfade is click-free and null-tests against an equal-power reference; an edit that breaks the join clears or ignores it; golden render |
+| E2 (M) | Crossfades | X1 as chosen: format v24, the engine tail read, the handle, the project setting, equal-power default curve | A crossfade is click-free and null-tests against an equal-power reference; an edit that breaks the join clears or ignores it; golden render |
 | E3 (L) | Render core and consolidate | R1: the worker render driver, WAV writer with atomic writes, registration as media, Ctrl+J widened to clips, consolidate for audio (gain, fades, envelopes, gaps as silence) and MIDI (merge and bake loops), originals kept in the media pool; the R2 spike runs first and its result is recorded | Consolidating unprocessed audio is identical to the original (null test); render equals real-time playback in a golden render; progress and cancel |
 | E4 (M) | Bounce | Bounce in place and render selection to a new track, with or without effects and tails | Bounce equals playback; a tail setting is honoured; the new track is one undo step |
 | E5 (L) | Freeze family | Freeze, unfreeze and flatten, including hosted plugins by the R2 route | A frozen track runs no plugin processes; a plugin crash during freeze is a result, not an exit; F1 only if the spike failed |
@@ -145,8 +145,8 @@ Sizes are rough (S/M/L).
    says so.
 4. **Reverse changes the clip player** and the peak display; both are tested
    with golden renders.
-5. **Static clip pitch** (Y1) stays an [M] item until the owner approves the
-   deferral.
+5. **Static clip pitch** (Y1) is deferred with the owner's approval (2026-10-19)
+   and is built with warp and time-stretch.
 6. **Cannot be verified in the cloud container:** installed plugins in a render,
    and anything on macOS. Those are the owner's manual runs.
 

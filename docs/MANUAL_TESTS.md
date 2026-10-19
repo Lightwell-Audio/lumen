@@ -13,3 +13,4 @@ Run commands from the repository root (`D:\Projects\lumen`). Prefer `cargo run -
 | M4.5 · Polish pass | [M4.5.md](manual-tests/M4.5.md) |
 | M5 · MIDI | [M5.md](manual-tests/M5.md) |
 | M6 · VST3 hosting and the device system | [M6.md](manual-tests/M6.md) |
+| M7 · Automation and envelopes | [M7.md](manual-tests/M7.md) |

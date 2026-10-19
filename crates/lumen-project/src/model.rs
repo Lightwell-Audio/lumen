@@ -12,6 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use crate::automation::AutomationLane;
 use lumen_core::fade::Fade;
 use lumen_core::grid::Grid;
 use lumen_core::pan::PanLaw;
@@ -254,6 +255,11 @@ pub struct Track {
     /// for. Written only when set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugin_output: Option<PluginOutput>,
+    /// The lanes that automate this track's values and its devices'
+    /// parameters (format v22), at most one for each target. Written only
+    /// when there are some.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub automation: Vec<AutomationLane>,
     #[serde(default)]
     pub clips: Vec<Arc<Clip>>,
 }
@@ -290,6 +296,7 @@ impl Track {
             midi_from: MidiFrom::default(),
             monitor: Monitor::default(),
             plugin_output: None,
+            automation: Vec::new(),
             clips: Vec::new(),
         }
     }

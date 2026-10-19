@@ -7,6 +7,7 @@ use std::fmt;
 
 use std::sync::Arc;
 
+use lumen_project::automation::Target;
 use lumen_project::model::{
     Device, DeviceKind, Id, MAX_DEVICE_STATE, PluginRef, Project, SYNTH, Sidechain, Track,
     TrackKind,
@@ -174,6 +175,7 @@ fn put_device(project: &mut Project, track: Id, device: Device, index: usize, in
     if instrument {
         track.devices.retain(|d| !d.is_instrument());
         track.midi_to = None;
+        track.prune_device_lanes();
     }
     track.devices.insert(index.min(track.devices.len()), device);
 }
@@ -242,6 +244,7 @@ impl Document {
         self.edit_chain(&label, track, |t| {
             if kind == DeviceKind::Instrument {
                 t.devices.retain(|d| !d.is_instrument());
+                t.prune_device_lanes();
                 t.midi_to = None;
             }
             t.devices.insert(index.min(t.devices.len()), device);
@@ -253,7 +256,8 @@ impl Document {
     pub fn remove_device(&mut self, track: Id, device: Id) -> Result<(), Refusal> {
         let name = self.device_name(track, device)?;
         self.edit_chain(&format!("Remove {name}"), track, |t| {
-            t.devices.retain(|d| d.id != device)
+            t.devices.retain(|d| d.id != device);
+            t.prune_device_lanes();
         });
         Ok(())
     }
@@ -437,12 +441,23 @@ impl Document {
             plan.index
         };
         self.history.apply(&label, None, |project| {
+            // The device's lanes go with it.
+            let lanes = if from == to {
+                Vec::new()
+            } else {
+                find_mut(project, from)
+                    .expect("the move was checked against this project")
+                    .take_device_lanes(device)
+            };
             let mut moved = take_device(project, from, device);
             if from != to {
                 // A sidechain is a path into the track the effect sits on.
                 moved.sidechain = None;
             }
             put_device(project, to, moved, index, instrument);
+            if let Some(track) = find_mut(project, to) {
+                track.automation.extend(lanes);
+            }
         });
         Ok(())
     }
@@ -471,8 +486,24 @@ impl Document {
             format!("Copy {name} to {}", plan.to_name)
         };
         let instrument = copy.is_instrument();
+        // The copy's lanes are the original's, on the copy.
+        let lanes: Vec<_> = find(self.project(), from)
+            .into_iter()
+            .flat_map(|t| &t.automation)
+            .filter(|l| l.target.device() == Some(device))
+            .map(|l| {
+                let mut lane = l.clone();
+                if let Target::Device { param, .. } = lane.target {
+                    lane.target = Target::Device { device: id, param };
+                }
+                lane
+            })
+            .collect();
         self.history.apply(&label, None, |project| {
             put_device(project, to, copy, plan.index, instrument);
+            if let Some(track) = find_mut(project, to) {
+                track.automation.extend(lanes);
+            }
         });
         Ok(id)
     }

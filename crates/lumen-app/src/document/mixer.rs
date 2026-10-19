@@ -211,6 +211,10 @@ pub(super) fn forget_routes_to(project: &mut Project, gone: &[Id]) {
                 track.output = Output::Auto;
             }
             track.sends.retain(|s| !gone.contains(&s.to));
+            // A send's lane goes with the send.
+            track.automation.retain(
+                |l| !matches!(l.target, lumen_project::automation::Target::Send { to } if gone.contains(&to)),
+            );
         }
     }
 }

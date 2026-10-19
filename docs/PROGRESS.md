@@ -139,7 +139,7 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 4.5 | Polish pass (mid milestone: the interface audit's fixes) | 🟡 Built 2026-10-10; MT-POL-5 and 6 wait | Plan: `docs/milestones/M4.5.md`; audit: `docs/audits/2026-10-10-design.md` |
 | 5 | MIDI & Piano Roll | 🟡 Approved 2026-10-10; slices 0 to 7 built, slice 8 underway (review done); MT-MIDI-7, MT-MIDI-8 and MT-MIDI-9 wait | Plan: `docs/milestones/M5.md`; report written 2026-10-19 (below), awaiting the owner's approval |
 | 6 | VST3 Hosting & Device System | 🟡 Started 2026-10-15 at the owner's instruction; slice 0 complete 2026-10-16 (report below; ADR-0069 accepted, the callback's wait on trial) and slice 1 built (MT-VST-1 passed on Windows, owner-reported); slice 2 built and its walkthrough passed (owner-reported; ADR-0069 measurements outstanding); slices 3 to 6 built; slice 7 (compatibility and closeout) under way: the probe, the fault soak, the callback benchmark and the combined walkthrough are built (branch `m6-s7-compatibility-closeout`), the review is done and its seven High findings fixed (`docs/audits/2026-10-18-m6.md`); the owner's MT-VST-7 runs, the Medium and Low findings and the M6 report remain | Plan: [milestones/M6.md](milestones/M6.md); M5 closeout (MT-MIDI-7 to 9, the report) remains pending and is not marked passed |
-| 7 | Automation & Envelopes | 🔲 Plan written 2026-10-19 for the owner's review, not started. Slices A0 to A8. Owner decisions 2026-10-19: the milestone is split (editing and render are 7b), tempo ramps and the audio pitch envelope are deferred. Waits for the owner's sign-off of M5 and M6 Lane look chosen (L1 B, the overlay on the clip lane) | Plan: `docs/milestones/M7.md` |
+| 7 | Automation & Envelopes | 🟡 Under way (the owner told A0 to start, 2026-10-19). **A0 built** (ADR-0081, format v22): lanes in the model, the baking and the mixer play trim, mute, fader, pan and send lanes on their sample; no interface yet (A1); MT-AUTO-1 is the owner's, by ear. Slices A1 to A8 follow. Decisions 2026-10-19: the milestone is split (editing and render are 7b), tempo ramps, the audio pitch envelope and the static clip pitch are deferred; the lane look is the overlay on the clip lane (L1 B). M5 and M6 are not signed off | Plan: `docs/milestones/M7.md` |
 | 7b | Advanced Editing & Render | 🔲 Plan written 2026-10-19 for the owner's review, not started. Slices E0 to E6: tool model and split, clip commands, crossfades, consolidate, bounce, freeze. Chosen 2026-10-19: a crossfade at a join (X1 A), the press-aim-release cut and the Ctrl+E edit cursor, keys per the CLAUDE.md §5 convention (K1). Open: the static clip pitch (Y1) | Plan: `docs/milestones/M7b.md` |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | |
 | 9 | Recording, Media, Export & Production Workflow | 🔲 | |
@@ -286,7 +286,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Crisp, fast waveforms at every zoom | M | ✅ | 3 | M3 slice 4c (ADR-0027): peak pyramids built at load, drawn per pixel on the GPU; no measurable frame cost with 10,000 waveforms. Disk cache deferred to M9 with disk streaming (owner approved); drawn sample by sample below 16 frames per pixel (4d, ADR-0028) |
 | Recording: multi-arm, monitoring, multichannel, crash-safe capture, latency compensation and offset, punch, count-in, input meters | M | 🔲 | 9 |
 | Loop recording into takes; capture MIDI | S | 🟡 Loop passes layer into one MIDI clip (M5 slice 6, ADR-0055); takes and Capture MIDI are M9 | 9 |
-| Clip gain, fade shapes, automatic crossfades, reverse, normalize, polarity, pitch | M | 🟡 Clip gain and fades along free curves, with four presets (M3 6d, ADR-0031; golden renders, and E2E scenarios that listen). Automatic crossfades (model chosen in M7b, X1), reverse, normalize and polarity in M7b. The clip's static pitch needs a pitch engine; the owner has deferred the audio pitch envelope (2026-10-19) and has not yet decided this one (M7b plan, Y1) | 3, 7b |
+| Clip gain, fade shapes, automatic crossfades, reverse, normalize, polarity, pitch | M | 🟡 Clip gain and fades along free curves, with four presets (M3 6d, ADR-0031; golden renders, and E2E scenarios that listen). Automatic crossfades (model chosen in M7b, X1), reverse, normalize and polarity in M7b. The clip's static pitch needs a pitch engine; the owner deferred it with the audio pitch envelope (2026-10-19, M7b plan, Y1) until warp and time-stretch | 3, 7b |
 | Warp and time-stretch with quality modes | S | 🔲 Not in M7 or M7b. It also carries the audio pitch envelope (deferred by the owner, 2026-10-19) and, if the owner defers it, the clip's static pitch | — |
 | Take lanes and comping | S | 🔲 | 9 |
 | Mono, stereo, multichannel material | M | 🔲 | 2–3 |
@@ -324,14 +324,14 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
-| Everything with a value is automatable | M | 🔲 | 7 |
+| Everything with a value is automatable | M | 🟡 The model holds a lane for a track's fader, pan, trim, mute and sends and for a device's parameters (M7 A0, format v22); the engine plays the first five. Device parameters are slice A3 | 7 |
 | Lanes with searchable parameter chooser; show/hide key | M | 🔲 | 7 |
 | Point editing, ranges, curve types, shape tools, freehand with simplification, snapping, value tooltip | M | 🔲 | 7 |
 | Clip envelopes (audio gain/pan/pitch, MIDI CC/bend/pressure), looping, lock-envelopes option | M | 🟡 MIDI clips already carry looping controller events (M5). Audio gain and pan envelopes and the lock option are M7 slice A7. **The audio pitch envelope is deferred with the owner's approval (2026-10-19)** until a time-stretch and pitch engine exists | 7 |
 | Read / Write / Touch / Latch recording with thinning | M | 🔲 | 7 |
 | Trim mode | L | 🔲 | — |
 | Override state with one-click re-enable | M | 🔲 | 7 |
-| Smooth, sample-accurate automation for built-ins and plugins | M | 🔲 | 7 |
+| Smooth, sample-accurate automation for built-ins and plugins | M | 🟡 Mixer values are sample-exact, the same at any block size, delay-compensated and heap-free (M7 A0; golden renders, allocation guard). Plugin parameters are slice A3; built-in device parameters wait for M8 | 7 |
 | Tempo and time-signature changes recalculate the timeline | M | 🟡 The engine keeps the bar and beat across tempo and meter changes, and loop and punch follow (slice 3); clips and automation follow when they exist. The tempo lane edits steps (M7 slice A6); **tempo ramps are deferred with the owner's approval (2026-10-19)** | 7 |
 
 ## §6.6 Editing actions
@@ -441,7 +441,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Drum maps, drum editor, step sequencer | M | 🔲 |
 | MIDI effects; on-screen keyboard | S | 🔲 |
 | MPE, MIDI 2.0 | L | 🔲 |
-| Automation: all parameters, curves, R/W/T/L, clip envelopes, tempo and signature, override, simplification | M | 🔲 |
+| Automation: all parameters, curves, R/W/T/L, clip envelopes, tempo and signature, override, simplification | M | 🟡 Lanes, curves and steps play for the mixer (M7 A0), and point simplification is in the model; the rest is A1 to A7 |
 | Mixer: fader, pan law, mute, solo, sends, returns, groups, master, routing, sidechain, PDC, meters, cue | M | 🟡 The engine graph (M4 slice 1, ADR-0035); routing in the model (slice 2); groups (slice 3); mute, solo, sends, returns, the master and cue (slice 4, ADR-0038); the Mixer tab, meters, the pan law and output pairs (slice 5, ADR-0040); sidechains and delay compensation in the engine with the transport's readout (slice 6, ADR-0041) |
 | LUFS and true-peak metering; mono-check and dim | S | 🟡 LUFS (momentary, short-term, integrated) and true peak on the master (M4 slice 5, ADR-0040); mono-check and dim later |
 | Reference track | L | 🔲 |

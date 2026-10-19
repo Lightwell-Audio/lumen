@@ -51,6 +51,7 @@ impl Document {
                 }
                 None => track.devices.retain(|d| !d.is_synth()),
             }
+            track.prune_device_lanes();
         });
     }
 

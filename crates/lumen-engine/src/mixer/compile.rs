@@ -16,6 +16,7 @@ use std::collections::BTreeSet;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use super::auto::NodeStages;
 use super::delay::{LineKey, Lines};
 use super::hosts::{HostScratch, NO_HOST};
 use super::meter::{MeterBank, SIDE_KEY};
@@ -206,9 +207,32 @@ pub(super) fn compile_metered(
             });
         }
 
+        // The node's lanes (M7 slice A0). A value with a lane is played by
+        // the lane alone, so the fixed level it replaces is unity here; which
+        // lanes there are is part of the plan's shape, so switching one on or
+        // off crossfades.
+        let lanes = spec.automation.as_ref().filter(|a| !a.is_empty());
+        lanes
+            .map(|a| {
+                (
+                    a.shape(),
+                    a.sends.iter().map(Option::is_some).collect::<Vec<_>>(),
+                )
+            })
+            .hash(&mut hasher);
+        let has = |pick: fn(&super::auto::NodeAutomation) -> bool| lanes.is_some_and(pick);
+        let (trim_lane, volume_lane, pan_lane) = (
+            has(|a| a.trim.is_some()),
+            has(|a| a.volume.is_some()),
+            has(|a| a.pan.is_some()),
+        );
+
         let first = sends.len() as u32;
-        for send in &spec.sends {
+        for (index, send) in spec.sends.iter().enumerate() {
             (send.to, send.pre_fader).hash(&mut hasher);
+            let send_lane = lanes
+                .and_then(|a| a.sends.get(index))
+                .is_some_and(Option::is_some);
             let to = index_of(spec.id, send.to)?;
             let key = LineKey::Send {
                 from: spec.id,
@@ -219,7 +243,7 @@ pub(super) fn compile_metered(
                 to: position[to],
                 to_id: send.to,
                 pre_fader: send.pre_fader,
-                gain: Smoothed::new(finite(send.gain)),
+                gain: Smoothed::new(if send_lane { 1.0 } else { finite(send.gain) }),
                 line: lines.add(key, arrival.at[to] - after),
             });
         }
@@ -229,13 +253,10 @@ pub(super) fn compile_metered(
         // With devices or sidechains taken from it, mute comes after them;
         // otherwise it is folded into the input gain.
         let split = !spec.devices.is_empty() || first_tap < taps.len() as u32;
-        let pre = if split || heard {
-            finite(spec.trim) * sign
-        } else {
-            0.0
-        };
+        let trim = if trim_lane { 1.0 } else { finite(spec.trim) };
+        let pre = if split || heard { trim * sign } else { 0.0 };
         let cued = spec.cue && routing.cue.is_some();
-        let cue = if cued { finite(spec.trim) * sign } else { 0.0 };
+        let cue = if cued { trim * sign } else { 0.0 };
         let cue_line = if cued {
             lines.add(
                 LineKey::Cue { from: spec.id },
@@ -244,8 +265,16 @@ pub(super) fn compile_metered(
         } else {
             super::delay::NO_LINE
         };
-        let volume = finite(spec.volume);
-        let [left, right] = spec.law.gains(spec.pan);
+        let volume = if volume_lane {
+            1.0
+        } else {
+            finite(spec.volume)
+        };
+        let [left, right] = if pan_lane {
+            [1.0, 1.0]
+        } else {
+            spec.law.gains(spec.pan)
+        };
         nodes.push(Node {
             id: spec.id,
             input_line,
@@ -277,6 +306,7 @@ pub(super) fn compile_metered(
             } else {
                 NO_METER
             },
+            auto: lanes.map(|a| Box::new(NodeStages::new(a, spec.law, arrival.at[i], after))),
         });
     }
     lines.finish();

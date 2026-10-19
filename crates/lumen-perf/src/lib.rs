@@ -16,7 +16,7 @@ use std::hint::black_box;
 use std::sync::Arc;
 
 use lumen_core::time::{TempoMap, TempoPoint, Ticks};
-use lumen_engine::testing::{latent, routed};
+use lumen_engine::testing::{automated, latent, routed};
 use lumen_engine::{
     ClickSound, Clip, ClipAudio, ClipPlayer, Command, Destination, Engine, MetronomeSettings,
     Mixer, MixerHandle, NodeSpec, Region, Routing, Timeline, clip_player, engine, mixer,
@@ -42,6 +42,10 @@ pub const SCENARIOS: &[(&str, &str)] = &[
     (
         "engine_latent_swaps_64",
         "1,000 blocks of 128 frames: the compensated mix with new levels every block (a fader drag)",
+    ),
+    (
+        "engine_automated_64",
+        "1,000 blocks of 128 frames: the routed mix with a fader, pan, send, trim and mute lane on its 64 tracks",
     ),
     (
         "engine_synth_64",
@@ -95,6 +99,10 @@ pub fn run(name: &str) -> bool {
                 routing.collect_garbage();
             }
         }
+        "engine_automated_64" => {
+            let mut engine = playing_clips(64, Mix::Automated);
+            measured_engine_automated_64(&mut engine);
+        }
         "engine_synth_64" => {
             let mut engine = playing_synths(64);
             measured_engine_synth_64(&mut engine);
@@ -140,6 +148,8 @@ enum Mix {
     Routed,
     /// Each on its own track in [`latent`].
     Latent,
+    /// Each on its own track in [`automated`].
+    Automated,
 }
 
 /// `clips` clips playing, mixed as `mix`.
@@ -175,6 +185,7 @@ fn playing_clips_routed(clips: usize, mix: Mix) -> (MixerHandle, Player) {
     let plan = match mix {
         Mix::Routed => routed(clips as u64, 0),
         Mix::Latent => latent(clips as u64, 0),
+        Mix::Automated => automated(clips as u64, 0),
         Mix::Direct => Routing {
             nodes: vec![NodeSpec::unity(0, Destination::Hardware(0))],
             cue: None,
@@ -223,6 +234,17 @@ pub fn measured_engine_latent_64(engine: &mut Player) {
     }
     // Distinct from the other scenarios, so the linker keeps it apart.
     black_box((&data, engine.transport().ticks));
+}
+
+#[unsafe(no_mangle)]
+#[inline(never)]
+pub fn measured_engine_automated_64(engine: &mut Player) {
+    let mut data = vec![0.0; 2 * FRAMES];
+    for _ in 0..1_000 {
+        engine.process(RATE, &mut data, 2, FRAMES);
+    }
+    // Distinct from the other scenarios, so the linker keeps it apart.
+    black_box((&data, engine.transport().punching));
 }
 
 /// One block that takes a new plan, as during a fader drag. Called once
@@ -541,6 +563,7 @@ mod tests {
             "engine_routed_64",
             "engine_latent_64",
             "engine_latent_swaps_64",
+            "engine_automated_64",
             "engine_synth_64",
             "engine_hosted_64",
             "engine_transport",

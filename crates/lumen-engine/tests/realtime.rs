@@ -166,6 +166,67 @@ fn delay_compensation_never_touches_the_heap() {
 }
 
 #[test]
+fn automated_lanes_never_touch_the_heap() {
+    use std::sync::Arc;
+
+    use lumen_engine::testing::automated;
+    use lumen_engine::{Clip, ClipAudio, clip_player, mixer};
+
+    assert!(guard_is_active(), "guarded allocator not installed");
+    let audio = Arc::new(ClipAudio {
+        sample_rate: 48_000,
+        channels: vec![vec![0.1; 96_000], vec![0.1; 96_000]],
+    });
+    let clips: Vec<Clip> = (0..64)
+        .map(|i| Clip {
+            id: i,
+            start: Ticks(i as i64 * 997),
+            offset: 0,
+            length: 96_000,
+            gain: 0.5,
+            track: i,
+            audio: Arc::clone(&audio),
+            shape: Default::default(),
+        })
+        .collect();
+    let (mut clips_handle, player) = clip_player();
+    let (mut routing, source) = mixer(player);
+    let (mut handle, mut engine) = engine(Timeline::default(), source, 48_000);
+    clips_handle.set(clips).unwrap();
+    assert!(routing.set(&automated(64, 0)).unwrap());
+    handle
+        .send(Command::SetLoop(Region::new(
+            Ticks::ZERO,
+            Ticks::quarters(8),
+            true,
+        )))
+        .unwrap();
+    handle.send(Command::Play).unwrap();
+    let mut data = vec![0.0; 2 * 128];
+    for block in 0..3_000_i64 {
+        // Lanes are edited while playing: a new plan of the same shape takes
+        // over and every lane glides in; an odd variant moves a track and
+        // crossfades.
+        if block % 200 == 100 {
+            let _ = routing.set(&automated(64, (block / 200) as u32));
+        }
+        match block % 700 {
+            350 => handle.send(Command::Locate(Ticks::quarters(5))).unwrap(),
+            500 => handle.send(Command::Pause).unwrap(),
+            520 => handle.send(Command::Continue).unwrap(),
+            600 => handle.send(Command::Stop).unwrap(),
+            610 => handle.send(Command::Play).unwrap(),
+            _ => {}
+        }
+        let ((), heap) = count_rt_violations(|| engine.process(48_000, &mut data, 2, 128));
+        assert_eq!(heap, 0, "heap operation in process() at block {block}");
+        let _ = handle.transport();
+        routing.collect_garbage();
+        handle.collect_garbage();
+    }
+}
+
+#[test]
 fn routed_clips_metronome_and_tone_never_touch_the_heap() {
     use std::sync::Arc;
 

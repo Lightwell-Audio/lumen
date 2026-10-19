@@ -394,3 +394,72 @@ pub fn midi_demo() -> Project {
     project.transport.loop_enabled = false;
     project
 }
+
+/// The project for the manual test MT-AUTO-1 (`tests/projects/automation-demo.lumen`):
+/// there is no lane interface until M7 slice A1, so the project holds what
+/// slice A0 has to prove, by ear. 120 BPM, eight bars, three tracks of
+/// [`midi_demo`]:
+/// - **Pad** swells in from near silence over two bars (a fader lane in dB),
+///   holds, and falls 18 dB over the last two;
+/// - **Chords** sweeps from the left to the right and back, every two bars
+///   (a pan lane);
+/// - **Bass** drops out for the third bar and the seventh (a mute lane of
+///   steps).
+pub fn automation_demo() -> Project {
+    use crate::automation::{AutomationLane, Target};
+    use lumen_core::automation::{Lane, Point, Shape};
+    let q = Ticks::quarters;
+    let lane = |target: Target, points: &[(i64, f32, Shape)]| {
+        AutomationLane::new(
+            target,
+            Lane::new(
+                points
+                    .iter()
+                    .map(|&(beat, value, shape)| Point::new(q(beat), value).with_shape(shape))
+                    .collect(),
+            )
+            .expect("the demo's lanes are in time order"),
+        )
+    };
+    let mut project = midi_demo();
+    project.name = "Automation demo".into();
+    project
+        .tracks
+        .retain(|t| ["Chords", "Pad", "Bass"].contains(&t.name.as_str()));
+    for track in &mut project.tracks {
+        let track = Arc::make_mut(track);
+        track.automation = match track.name.as_str() {
+            "Pad" => vec![lane(
+                Target::Volume,
+                &[
+                    (0, -60.0, Shape::Linear),
+                    (8, 0.0, Shape::Linear),
+                    (24, 0.0, Shape::Linear),
+                    (32, -18.0, Shape::Linear),
+                ],
+            )],
+            "Chords" => vec![lane(
+                Target::Pan,
+                &[
+                    (0, -1.0, Shape::Linear),
+                    (8, 1.0, Shape::Linear),
+                    (16, -1.0, Shape::Linear),
+                    (24, 1.0, Shape::Linear),
+                    (32, -1.0, Shape::Linear),
+                ],
+            )],
+            _ => vec![lane(
+                Target::Mute,
+                &[
+                    (0, 0.0, Shape::Step),
+                    (8, 1.0, Shape::Step),
+                    (12, 0.0, Shape::Step),
+                    (24, 1.0, Shape::Step),
+                    (28, 0.0, Shape::Step),
+                ],
+            )],
+        };
+    }
+    project
+}
+

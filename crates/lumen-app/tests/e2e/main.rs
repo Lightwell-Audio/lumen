@@ -13,6 +13,7 @@
 
 mod access;
 mod audition;
+mod automation;
 mod barfit;
 mod bench_callback;
 mod chrome;
