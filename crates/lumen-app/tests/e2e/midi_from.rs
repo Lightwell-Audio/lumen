@@ -192,7 +192,7 @@ fn arming_a_second_track_layers_it() {
     assert!(two > one * 1.5, "layered: {one} then {two}");
     // Selecting the audio track leaves only the armed one.
     select(&mut lumen, "Vox");
-    let armed = keyboard_note(&mut lumen);
+    let armed = eventually(&mut lumen, keyboard_note);
     assert!(armed > HEARD && armed < two * 0.75, "{armed} vs {two}");
 }
 
