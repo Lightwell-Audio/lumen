@@ -88,6 +88,11 @@ fn run(mut link: HostLink, shared: &Shared) {
     link.mark_ready();
     let mut timing = Timing::default();
     while let Next::Block(seq) = link.wait_for_block() {
+        // What is worth saying about this block, said once the plugin's lock
+        // is let go and the answer is out: a line to stderr must not make
+        // configure and state calls wait, and a failed write must not stop
+        // the block loop with the lock held.
+        let mut said = None;
         let mut answer = Answer {
             seq,
             generation: 0,
@@ -124,7 +129,7 @@ fn run(mut link: HostLink, shared: &Shared) {
                         };
                         let took = began.elapsed();
                         answer.work_ns = u32::try_from(took.as_nanos()).unwrap_or(u32::MAX);
-                        timing.note(took, n);
+                        said = timing.note(took, n);
                         outcome
                     }
                 }
@@ -132,6 +137,9 @@ fn run(mut link: HostLink, shared: &Shared) {
             };
         }
         link.finish(&answer, frames, &scratch.buffers.output);
+        if let Some(said) = said {
+            said.say();
+        }
     }
 }
 
@@ -148,17 +156,63 @@ impl Timing {
     const SLOW: std::time::Duration = std::time::Duration::from_millis(3);
     const MOST_LINES: u32 = 12;
 
-    fn note(&mut self, took: std::time::Duration, frames: u32) {
+    /// Counts a block, and returns what to say about it, if anything. Does
+    /// not say it: the caller does, away from any lock.
+    fn note(&mut self, took: std::time::Duration, frames: u32) -> Option<Said> {
         let first = self.blocks < 2;
         self.blocks += 1;
         if (first || took >= Self::SLOW) && self.said < Self::MOST_LINES {
             self.said += 1;
-            crate::process::log(&format!(
-                "block {} ({frames} frames) took {:.1} ms in the plugin",
-                self.blocks,
-                took.as_secs_f64() * 1000.0
-            ));
+            return Some(Said {
+                block: self.blocks,
+                frames,
+                took,
+            });
         }
+        None
+    }
+}
+
+/// A block worth a line on stderr.
+#[derive(Debug, PartialEq)]
+struct Said {
+    block: u64,
+    frames: u32,
+    took: std::time::Duration,
+}
+
+impl Said {
+    fn say(self) {
+        crate::process::log(&format!(
+            "block {} ({} frames) took {:.1} ms in the plugin",
+            self.block,
+            self.frames,
+            self.took.as_secs_f64() * 1000.0
+        ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn the_first_two_blocks_and_the_slow_ones_are_worth_a_line_and_no_more_than_twelve() {
+        let mut timing = Timing::default();
+        let fast = Duration::from_micros(100);
+        assert!(timing.note(fast, 64).is_some(), "the first");
+        assert!(timing.note(fast, 64).is_some(), "the second");
+        assert_eq!(timing.note(fast, 64), None, "a fast block after them");
+        let slow = timing
+            .note(Duration::from_millis(4), 64)
+            .expect("a slow one");
+        assert_eq!(slow.block, 4);
+        let mut said = 3;
+        for _ in 0..100 {
+            said += u32::from(timing.note(Duration::from_millis(4), 64).is_some());
+        }
+        assert_eq!(said, Timing::MOST_LINES, "the lines are capped");
     }
 }
 
