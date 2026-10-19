@@ -870,3 +870,17 @@ pub fn stand_in() -> InstrumentSpec {
 
 #[cfg(test)]
 mod tests;
+
+/// TEMP TRACE (remove before merge): appends a line to the file named by
+/// LUMEN_FLUSH_TRACE, when it is set.
+pub(crate) fn trace_app(line: &str) {
+    if let Some(path) = std::env::var_os("LUMEN_FLUSH_TRACE")
+        && let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+    {
+        use std::io::Write;
+        let _ = writeln!(file, "{line}");
+    }
+}

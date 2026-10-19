@@ -48,6 +48,14 @@ impl Hosting {
         else {
             return false;
         };
+        // TEMP TRACE (remove before merge)
+        trace_app(&format!(
+            "capture_one: capturing={} fresh={} edit_count={} captured_at={}",
+            t.params.capturing.is_some(),
+            t.params.fresh(),
+            t.params.edit_count,
+            t.params.captured_at
+        ));
         if t.params.capturing.is_none() && !t.params.fresh() {
             manager.capture(device.0);
             t.params.asked();

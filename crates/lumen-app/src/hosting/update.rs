@@ -362,6 +362,15 @@ impl Hosting {
                 }
             }
             Happened::Edits(taken) => {
+                // TEMP TRACE (remove before merge)
+                trace_app(&format!(
+                    "edits: {} kinds {:?} quiet={}",
+                    taken.list.len(),
+                    taken.list.iter().map(|e| e.kind).collect::<Vec<_>>(),
+                    t.params
+                        .quiet_until
+                        .is_some_and(|at| std::time::Instant::now() < at)
+                ));
                 t.params.ignored = t.params.ignored.saturating_add(taken.ignored);
                 let quiet = t
                     .params
