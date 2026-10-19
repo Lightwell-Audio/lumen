@@ -59,6 +59,9 @@ pub struct Link {
     counts: Arc<Counts>,
     /// The block's events in the host's terms, reused every block.
     events: Vec<HostEvent>,
+    /// How many of them a block may hold: the region's room (a `Vec` may
+    /// have been given more than it was asked for).
+    room: usize,
 }
 
 impl Link {
@@ -85,6 +88,7 @@ impl Link {
             ended,
             counts,
             events: Vec::with_capacity(room),
+            room,
         }
     }
 
@@ -150,7 +154,7 @@ impl Hosted for Link {
             return Err(Refused::Gone);
         }
         self.events.clear();
-        let room = self.events.capacity();
+        let room = self.room;
         for event in events {
             match host_event(event, frames) {
                 Some(e) if self.events.len() < room => self.events.push(e),

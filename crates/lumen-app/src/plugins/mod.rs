@@ -295,7 +295,7 @@ impl Plugins {
         if host.is_some() {
             self.status = Status::Scanning { done: 0, total: 0 };
         }
-        worker::spawn(
+        let started = worker::spawn(
             Job {
                 host,
                 roots,
@@ -309,6 +309,10 @@ impl Plugins {
             Arc::clone(&self.cancel),
             ctx.clone(),
         );
+        if let Err(e) = started {
+            self.rx = None;
+            self.status = Status::Failed(format!("The plugin scan could not start: {e}"));
+        }
     }
 
     /// Takes what the thread has sent; true if anything the browser shows
@@ -385,6 +389,12 @@ impl Plugins {
                     Some(why) => Status::Failed(why.clone()),
                     None => Status::Idle,
                 };
+                if summary.truncated {
+                    self.note = Some(format!(
+                        "More than {} plugins were found. Only the first were listed.",
+                        lumen_plugin_catalog::discover::MAX_MODULES
+                    ));
+                }
                 if let Err(why) = saved {
                     self.note = Some(format!("The plugin list could not be saved: {why}"));
                 }
@@ -452,6 +462,25 @@ mod tests {
         p.poll();
         assert_eq!(p.catalog().blocked().len(), 300);
         assert!(p.rebuild_wait().is_none());
+    }
+
+    #[test]
+    fn a_scan_that_left_modules_out_says_so() {
+        let mut p = Plugins::off();
+        let (tx, rx) = mpsc::channel();
+        p.rx = Some(rx);
+        p.status = Status::Scanning { done: 0, total: 1 };
+        tx.send(Message::Finished {
+            summary: Summary {
+                truncated: true,
+                ..Summary::default()
+            },
+            cache: Cache::new(),
+            saved: Ok(()),
+        })
+        .unwrap();
+        p.poll();
+        assert!(p.note().is_some_and(|n| n.contains("Only the first")));
     }
 
     #[test]

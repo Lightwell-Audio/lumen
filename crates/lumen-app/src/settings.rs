@@ -337,7 +337,10 @@ pub fn load(path: &Path) -> (Settings, Option<String>) {
         }
     };
     match serde_json::from_str::<Settings>(&text) {
-        Ok(settings) if settings.version <= VERSION => (settings, None),
+        Ok(mut settings) if settings.version <= VERSION => {
+            settings.plugins.bound();
+            (settings, None)
+        }
         Ok(settings) => {
             // Defaults are used, and the first change would write them over
             // this file: keep it aside, where the newer version can have it

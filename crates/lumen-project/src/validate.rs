@@ -29,6 +29,8 @@ const MOST_BUSES: u32 = 31;
 const MOST_PARAMS: usize = 16_384;
 /// The most parameters a card's strip may name for one device.
 const MOST_SHOWN: usize = 256;
+/// The most devices the view may hold a fold or a strip for.
+const MOST_VIEWED: usize = 65_536;
 
 /// What a device may hold: bounded state, and the VST3-only data only on a
 /// VST3 device (format v17). Everything here comes from a file a person may
@@ -82,6 +84,11 @@ fn device_data(device: &Device) -> Result<(), String> {
 }
 
 pub fn validate(project: &Project) -> Result<(), String> {
+    if project.view.shown_params.len() > MOST_VIEWED
+        || project.view.folded_devices.len() > MOST_VIEWED
+    {
+        return Err("the view names too many devices".into());
+    }
     if project
         .view
         .shown_params

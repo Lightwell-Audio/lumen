@@ -511,20 +511,24 @@ impl Hosting {
                 component: Vec::new(),
                 controller: None,
             };
-            if manager
-                .reload_from(id, Some(nothing), values)
-                .unwrap_or(false)
-            {
-                t.state = State::Loading;
-                t.status = None;
-                t.log = None;
-                t.params = Parameters {
-                    started_with: w.device.params.clone(),
-                    held: w.device.params.clone(),
-                    state_rev: w.device.state_rev,
-                    ..Parameters::default()
-                };
-                return true;
+            match manager.reload_from(id, Some(nothing), values) {
+                Ok(true) => {
+                    t.state = State::Loading;
+                    t.status = None;
+                    t.log = None;
+                    t.params = Parameters {
+                        started_with: w.device.params.clone(),
+                        held: w.device.params.clone(),
+                        state_rev: w.device.state_rev,
+                        ..Parameters::default()
+                    };
+                    return true;
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    t.state = State::Failed(format!("The plugin host could not be started: {e}"));
+                    return true;
+                }
             }
         }
         if t.state == State::Ready

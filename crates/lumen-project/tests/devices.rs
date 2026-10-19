@@ -383,6 +383,15 @@ fn parameter_values_that_cannot_be_a_plugins_are_refused_with_a_reason() {
         p.view.shown_params.insert(Id(1002), (0..300).collect());
     });
     assert!(why.contains("strip"), "{why}");
+    // And the view cannot name devices without end.
+    let why = refused(&|p| {
+        p.view.folded_devices = (0..70_000).map(Id).collect();
+    });
+    assert!(why.contains("too many devices"), "{why}");
+    let why = refused(&|p| {
+        p.view.shown_params = (0..70_000).map(|i| (Id(i), vec![0])).collect();
+    });
+    assert!(why.contains("too many devices"), "{why}");
 }
 
 // Format v20 (M6 slice 6): an effect takes a sidechain from another track.

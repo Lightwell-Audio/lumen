@@ -1,6 +1,6 @@
 //! A small VST3 host, just enough to drive the test plugins through their
 //! COM interfaces the way a real host does.
-#![allow(dead_code)]
+#![allow(dead_code, reason = "each test binary uses some of these helpers")]
 // The bindings' enum constants are `i32` on Windows and `u32` elsewhere.
 #![allow(clippy::unnecessary_cast)]
 

@@ -30,6 +30,8 @@ pub struct Discovered {
     pub without_binary: Vec<PathBuf>,
     /// Roots that do not exist or cannot be read.
     pub missing_roots: Vec<PathBuf>,
+    /// There were more than [`MAX_MODULES`] modules: the rest were left out.
+    pub truncated: bool,
 }
 
 /// The folders VST3 plugins install to by default on this platform.
@@ -78,7 +80,10 @@ pub fn discover(roots: &[PathBuf]) -> Discovered {
     found
         .modules
         .retain(|m| seen.insert(m.binary.canonicalize().unwrap_or_else(|_| m.binary.clone())));
-    found.modules.truncate(MAX_MODULES);
+    if found.modules.len() > MAX_MODULES {
+        found.truncated = true;
+        found.modules.truncate(MAX_MODULES);
+    }
     found.without_binary.sort();
     found
 }
@@ -96,6 +101,7 @@ fn walk(dir: &Path, depth: usize, visited: &mut HashSet<PathBuf>, out: &mut Disc
     paths.sort();
     for path in paths {
         if out.modules.len() >= MAX_MODULES {
+            out.truncated = true;
             return;
         }
         // `is_dir` follows links, which some installers use for bundles.
@@ -265,5 +271,21 @@ mod tests {
     #[test]
     fn the_standard_roots_are_not_empty_and_are_never_read_by_tests() {
         assert!(!standard_roots().is_empty());
+    }
+
+    #[test]
+    fn more_modules_than_the_cap_are_left_out_and_it_is_said() {
+        let tree = Tree::new("cap");
+        for i in 0..MAX_MODULES + 3 {
+            tree.file(&format!("P{i:05}.vst3"));
+        }
+        let found = discover(std::slice::from_ref(&tree.0));
+        assert_eq!(found.modules.len(), MAX_MODULES);
+        assert!(found.truncated);
+
+        let few = Tree::new("cap-few");
+        few.file("A.vst3");
+        let found = discover(std::slice::from_ref(&few.0));
+        assert!(!found.truncated);
     }
 }

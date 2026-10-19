@@ -1,5 +1,5 @@
 //! Shared by the integration tests: the built test plugin and the host binary.
-#![allow(dead_code)]
+#![allow(dead_code, reason = "each test binary uses some of these helpers")]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

@@ -690,16 +690,24 @@ impl Hosting {
                 (t.params.captured.clone(), t.params.catch_up(&t.params.held))
             };
             let list = values.iter().map(|(&id, &v)| (id, v)).collect();
-            if manager.reload_from(device.0, state, list).unwrap_or(false) {
-                t.state = State::Loading;
-                t.status = None;
-                t.log = None;
-                t.params = Parameters {
-                    started_with: values,
-                    held: t.params.held.clone(),
-                    state_rev: t.params.state_rev,
-                    ..Parameters::default()
-                };
+            match manager.reload_from(device.0, state, list) {
+                Ok(true) => {
+                    t.state = State::Loading;
+                    t.status = None;
+                    t.log = None;
+                    t.params = Parameters {
+                        started_with: values,
+                        held: t.params.held.clone(),
+                        state_rev: t.params.state_rev,
+                        ..Parameters::default()
+                    };
+                }
+                Ok(false) => {}
+                // The host could not be started at all (no thread to run it
+                // on): the card says so, and Reload is still there.
+                Err(e) => {
+                    t.state = State::Failed(format!("The plugin host could not be started: {e}"));
+                }
             }
         }
     }

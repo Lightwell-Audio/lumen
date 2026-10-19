@@ -68,6 +68,9 @@ pub struct Summary {
     pub without_binary: usize,
     /// Folders that do not exist.
     pub missing_roots: usize,
+    /// More modules were found than one scan takes (`discover::MAX_MODULES`):
+    /// the rest were left out.
+    pub truncated: bool,
 }
 
 type ChildEnv = Box<dyn Fn(&Module) -> Vec<(String, String)> + Send + Sync>;
@@ -107,6 +110,7 @@ impl Scanner {
             discovered: found.modules.len(),
             without_binary: found.without_binary.len(),
             missing_roots: found.missing_roots.len(),
+            truncated: found.truncated,
             ..Summary::default()
         };
 

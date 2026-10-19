@@ -49,11 +49,17 @@ pub(super) struct Job {
     pub faults: Option<Faults>,
 }
 
-pub(super) fn spawn(job: Job, tx: Sender<Message>, cancel: Arc<AtomicBool>, ctx: egui::Context) {
+/// Starts the scan thread; an error when the system would not give one.
+pub(super) fn spawn(
+    job: Job,
+    tx: Sender<Message>,
+    cancel: Arc<AtomicBool>,
+    ctx: egui::Context,
+) -> std::io::Result<()> {
     std::thread::Builder::new()
         .name("lumen-plugin-scan".into())
         .spawn(move || run(job, &tx, &cancel, &ctx))
-        .expect("spawn the plugin scan thread");
+        .map(|_| ())
 }
 
 fn run(job: Job, tx: &Sender<Message>, cancel: &AtomicBool, ctx: &egui::Context) {
