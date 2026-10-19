@@ -137,9 +137,10 @@ Statuses: 🔲 Not started · 🟡 In progress · ✅ Complete · ⚠️ Partial
 | 3 | Arrangement & Project System | ✅ Complete, approved 2026-10-09 | Plan: `docs/milestones/M3.md` |
 | 4 | Mixer, Routing & Groups | ✅ Complete 2026-10-10 (review fixes merged, PR #3) | Plan: `docs/milestones/M4.md` |
 | 4.5 | Polish pass (mid milestone: the interface audit's fixes) | 🟡 Built 2026-10-10; MT-POL-5 and 6 wait | Plan: `docs/milestones/M4.5.md`; audit: `docs/audits/2026-10-10-design.md` |
-| 5 | MIDI & Piano Roll | 🟡 Approved 2026-10-10; slices 0 to 7 built, slice 8 underway (review done); MT-MIDI-7, MT-MIDI-8 and MT-MIDI-9 wait | Plan: `docs/milestones/M5.md` |
+| 5 | MIDI & Piano Roll | 🟡 Approved 2026-10-10; slices 0 to 7 built, slice 8 underway (review done); MT-MIDI-7, MT-MIDI-8 and MT-MIDI-9 wait | Plan: `docs/milestones/M5.md`; report written 2026-10-19 (below), awaiting the owner's approval |
 | 6 | VST3 Hosting & Device System | 🟡 Started 2026-10-15 at the owner's instruction; slice 0 complete 2026-10-16 (report below; ADR-0069 accepted, the callback's wait on trial) and slice 1 built (MT-VST-1 passed on Windows, owner-reported); slice 2 built and its walkthrough passed (owner-reported; ADR-0069 measurements outstanding); slices 3 to 6 built; slice 7 (compatibility and closeout) under way: the probe, the fault soak, the callback benchmark and the combined walkthrough are built (branch `m6-s7-compatibility-closeout`), the review is done and its seven High findings fixed (`docs/audits/2026-10-18-m6.md`); the owner's MT-VST-7 runs, the Medium and Low findings and the M6 report remain | Plan: [milestones/M6.md](milestones/M6.md); M5 closeout (MT-MIDI-7 to 9, the report) remains pending and is not marked passed |
-| 7 | Automation, Envelopes & Advanced Editing | 🔲 | |
+| 7 | Automation & Envelopes | 🟡 Under way (the owner told A0 to start, 2026-10-19). **A0 built** (ADR-0081, format v22): lanes in the model, the baking and the mixer play trim, mute, fader, pan and send lanes on their sample; no interface yet (A1); MT-AUTO-1 passed (owner, by ear, 2026-10-19; no step detail reported). Gates run 2026-10-19 (Linux container): fmt, workspace clippy, 2,301 workspace tests (500 E2E), 6 smoke, macOS cross-clippy, the Valgrind performance gate (new scenario `engine_automated_64` 2,052,748,374 instructions, added to the baseline by hand; existing engine scenarios +0.03% to +0.63%; `project_parse` reads +4.61% here against +5.70% at the base commit, the known offset of this machine). Not run: RealtimeSanitizer, Windows and macOS runs, the WSL gate. Slices A1 to A8 follow. Decisions 2026-10-19: the milestone is split (editing and render are 7b), tempo ramps, the audio pitch envelope and the static clip pitch are deferred; the lane look is the overlay on the clip lane (L1 B). M5 and M6 are not signed off | Plan: `docs/milestones/M7.md` |
+| 7b | Advanced Editing & Render | 🔲 Plan written 2026-10-19 for the owner's review, not started. Slices E0 to E6: tool model and split, clip commands, crossfades, consolidate, bounce, freeze. Chosen 2026-10-19: a crossfade at a join (X1 A), the press-aim-release cut and the Ctrl+E edit cursor, keys per the CLAUDE.md §5 convention (K1). Open: the static clip pitch (Y1) | Plan: `docs/milestones/M7b.md` |
 | 8 | Drum Maps, Drum Editor & Built-In Devices | 🔲 | |
 | 9 | Recording, Media, Export & Production Workflow | 🔲 | |
 | 10 | Hardening, Performance & Release | 🔲 | |
@@ -268,7 +269,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Group tracks: create, drag in, nest, fold, sum, own devices/sends/fader/automation, one-step ungroup, sensible solo/mute/arm | M | 🟡 M4 slice 3 (format v8, ADR-0037): Ctrl+G and Ctrl+Shift+G (one step each), nesting three deep at most, folding (saved), dragging tracks in and out, groups summing their tracks (slice 1), mute, a group's arm arming its tracks, deleting and duplicating a group with its tracks. Solo across groups and returns by the agreed rules, a soloed group showing its tracks with a hollow S, and a group's sends on its header (slice 4, ADR-0038); a group's devices with M6, automation in M7 | 4 |
 | Linked editing across selected tracks | S | 🔲 | 4 |
 | Clips: move, copy-drag, trim, slip, fades, gain handle, loop-extend, rename, recolour, mute, lock | M | 🟡 M3 6a: move across tracks and Ctrl+copy-drag by the top half (snapped, one undo step, kinds respected, locked clips stay). 6c: trim edges (within the file), Shift loop-extend, Ctrl+Alt slip, and the clip overlap rule (a clip put down cuts away what it covers). 6d: fade handles with a free bend dot and Alt for S-shape (owner's F3 and C3; curves in format v6, ADR-0031), presets in the menu, a clip gain line (G1), heard and drawn alike; moved clips crossfade while playing. 6e (ADR-0032): 0 mutes (grey, the owner's M1), lock from the menu or card (padlock and clamps, K3; locked clips can still be muted, renamed and recoloured), Ctrl+R or F2 renames in the title bar, clips take their own colour, and the properties card (P1) sets all of it, gain and fades from the keyboard | 3 |
-| Selection: clip, marquee, time range with cut/copy/duplicate/delete/split/consolidate | M | 🟡 Clip and marquee selection and time ranges across tracks (M3 6a); cut, copy, paste, duplicate and delete on clips and ranges (6b). From the keyboard (M3 review H2, the owner's choice): with a clip selected the arrows move between clips (←/→ along its track, ↑/↓ to the nearest clip above or below), Shift adds. Split and consolidate in M7 | 3, 7 |
+| Selection: clip, marquee, time range with cut/copy/duplicate/delete/split/consolidate | M | 🟡 Clip and marquee selection and time ranges across tracks (M3 6a); cut, copy, paste, duplicate and delete on clips and ranges (6b). From the keyboard (M3 review H2, the owner's choice): with a clip selected the arrows move between clips (←/→ along its track, ↑/↓ to the nearest clip above or below), Shift adds. Split and consolidate in M7b | 3, 7b |
 | Loop and punch regions, markers and locators, tempo and time-signature lanes | M | 🟡 Engine side of loop and punch done (slice 3); loop brace and punch (M3 5c) and named locators (M3 5d) done; tempo and time-signature lanes later in M3 | 2–3 |
 | Track height presets, collapse, hide, reorder by drag, multi-select | M | 🟡 Fold and unfold, resize by dragging or Alt+wheel, H fits every track, multi-select (Ctrl, Shift), move with Alt+arrows and the menu (4a), reorder by drag with auto-scroll (4d). Hide and height presets later | 3 |
 | Track templates, delay offset, lock, overview strip | S | 🔲 | 3, 9 |
@@ -285,8 +286,8 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Crisp, fast waveforms at every zoom | M | ✅ | 3 | M3 slice 4c (ADR-0027): peak pyramids built at load, drawn per pixel on the GPU; no measurable frame cost with 10,000 waveforms. Disk cache deferred to M9 with disk streaming (owner approved); drawn sample by sample below 16 frames per pixel (4d, ADR-0028) |
 | Recording: multi-arm, monitoring, multichannel, crash-safe capture, latency compensation and offset, punch, count-in, input meters | M | 🔲 | 9 |
 | Loop recording into takes; capture MIDI | S | 🟡 Loop passes layer into one MIDI clip (M5 slice 6, ADR-0055); takes and Capture MIDI are M9 | 9 |
-| Clip gain, fade shapes, automatic crossfades, reverse, normalize, polarity, pitch | M | 🟡 Clip gain and fades along free curves, with four presets (M3 6d, ADR-0031; golden renders, and E2E scenarios that listen). Automatic crossfades, reverse, normalize, polarity and pitch in M7 | 3, 7 |
-| Warp and time-stretch with quality modes | S | 🔲 | 7 |
+| Clip gain, fade shapes, automatic crossfades, reverse, normalize, polarity, pitch | M | 🟡 Clip gain and fades along free curves, with four presets (M3 6d, ADR-0031; golden renders, and E2E scenarios that listen). Automatic crossfades (model chosen in M7b, X1), reverse, normalize and polarity in M7b. The clip's static pitch needs a pitch engine; the owner deferred it with the audio pitch envelope (2026-10-19, M7b plan, Y1) until warp and time-stretch | 3, 7b |
+| Warp and time-stretch with quality modes | S | 🔲 Not in M7 or M7b. It also carries the audio pitch envelope (deferred by the owner, 2026-10-19) and, if the owner defers it, the clip's static pitch | — |
 | Take lanes and comping | S | 🔲 | 9 |
 | Mono, stereo, multichannel material | M | 🔲 | 2–3 |
 
@@ -323,29 +324,29 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
-| Everything with a value is automatable | M | 🔲 | 7 |
+| Everything with a value is automatable | M | 🟡 The model holds a lane for a track's fader, pan, trim, mute and sends and for a device's parameters (M7 A0, format v22); the engine plays the first five. Device parameters are slice A3 | 7 |
 | Lanes with searchable parameter chooser; show/hide key | M | 🔲 | 7 |
 | Point editing, ranges, curve types, shape tools, freehand with simplification, snapping, value tooltip | M | 🔲 | 7 |
-| Clip envelopes (audio gain/pan/pitch, MIDI CC/bend/pressure), looping, lock-envelopes option | M | 🔲 | 7 |
+| Clip envelopes (audio gain/pan/pitch, MIDI CC/bend/pressure), looping, lock-envelopes option | M | 🟡 MIDI clips already carry looping controller events (M5). Audio gain and pan envelopes and the lock option are M7 slice A7. **The audio pitch envelope is deferred with the owner's approval (2026-10-19)** until a time-stretch and pitch engine exists | 7 |
 | Read / Write / Touch / Latch recording with thinning | M | 🔲 | 7 |
 | Trim mode | L | 🔲 | — |
 | Override state with one-click re-enable | M | 🔲 | 7 |
-| Smooth, sample-accurate automation for built-ins and plugins | M | 🔲 | 7 |
-| Tempo and time-signature changes recalculate the timeline | M | 🟡 The engine keeps the bar and beat across tempo and meter changes, and loop and punch follow (slice 3); clips and automation follow when they exist | 7 |
+| Smooth, sample-accurate automation for built-ins and plugins | M | 🟡 Mixer values are sample-exact, the same at any block size, delay-compensated and heap-free (M7 A0; golden renders, allocation guard). Plugin parameters are slice A3; built-in device parameters wait for M8 | 7 |
+| Tempo and time-signature changes recalculate the timeline | M | 🟡 The engine keeps the bar and beat across tempo and meter changes, and loop and punch follow (slice 3); clips and automation follow when they exist. The tempo lane edits steps (M7 slice A6); **tempo ramps are deferred with the owner's approval (2026-10-19)** | 7 |
 
 ## §6.6 Editing actions
 
 | Requirement | Tier | Status | Planned |
 |---|---|---|---|
-| Split (playhead, cursor, grid, range edges), click-free | M | 🔲 Open for M7. Owner request (2026-10-08): select a clip and drag it to cut it; the gesture is still to be chosen (M3 plan, out of scope) | 7 |
-| Join / glue MIDI; consolidate audio (rendered) and MIDI (merged), originals kept | M | 🔲 | 7 |
-| Trim, crop, delete, ripple delete, insert silence, cut, copy, paste, duplicate clip and range, loop/unloop, reverse, normalize, nudge, move, rename, recolour, mute, lock | M | 🟡 Trim and loop-extend (6c); move and copy (6a); cut, copy, paste, duplicate, delete, delete time (ripple) and insert time (6b); rename, recolour, mute and lock (6e). Crop, unloop into copies, reverse, normalize and clip nudge are not built yet (M7) | 3, 7 |
-| Bounce in place; render selection to new track | M | 🔲 | 7 |
-| Freeze, unfreeze, flatten | M | 🔲 | 7 |
-| Select all / none / invert / in track / to start / to end | M | 🟡 Select all (Ctrl+A) and none (Esc) in M3 7d; invert, in track, to start and to end with the editing tools (M7) | 3 |
+| Split (playhead, cursor, grid, range edges), click-free | M | 🔲 Open for M7b (slice E0). Owner request (2026-10-08): select a clip and drag it to cut it; the gesture is still to be chosen (M3 plan, out of scope) | 7b |
+| Join / glue MIDI; consolidate audio (rendered) and MIDI (merged), originals kept | M | 🔲 | 7b |
+| Trim, crop, delete, ripple delete, insert silence, cut, copy, paste, duplicate clip and range, loop/unloop, reverse, normalize, nudge, move, rename, recolour, mute, lock | M | 🟡 Trim and loop-extend (6c); move and copy (6a); cut, copy, paste, duplicate, delete, delete time (ripple) and insert time (6b); rename, recolour, mute and lock (6e). Crop, unloop into copies, reverse, normalize and clip nudge are not built yet (M7b) | 3, 7b |
+| Bounce in place; render selection to new track | M | 🔲 | 7b |
+| Freeze, unfreeze, flatten | M | 🔲 | 7b |
+| Select all / none / invert / in track / to start / to end | M | 🟡 Select all (Ctrl+A) and none (Esc) in M3 7d; invert, in track, to start and to end with the editing tools (M7b) | 3 |
 | Slice audio to MIDI or drum map | S | 🔲 | 8 |
 | Group and ungroup clips | L | 🔲 | — |
-| Guarantees: split+join is identity; consolidating unprocessed audio is identical; undo restores exactly | M | 🟡 | 3, 7 | Undo restores exactly by construction (shared snapshots, ADR-0024) and is property-tested; split, join and consolidate in M7 |
+| Guarantees: split+join is identity; consolidating unprocessed audio is identical; undo restores exactly | M | 🟡 | 3, 7b | Undo restores exactly by construction (shared snapshots, ADR-0024) and is property-tested; split, join and consolidate in M7b |
 
 ## §6.7 Mixer, routing and grouping
 
@@ -419,13 +420,13 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Clock / MTC in, network tempo synchronization | L | 🔲 |
 | Tracks: add, delete, duplicate, rename, recolour, reorder, multi-select | M | 🟡 All of these from the track menu, the "+ Add track" menu button and keys (Ctrl+T, Ctrl+Shift+T, Ctrl+D, Delete, F2, Alt+arrows), each one undo step (M3 slice 4a). Drag to reorder (slice 4d) |
 | Track types with routing, arm, monitor, polarity | M | 🔲 |
-| Freeze, unfreeze, flatten | M | 🔲 |
+| Freeze, unfreeze, flatten | M | 🔲 Planned in M7b (slice E5) |
 | Track delay, lock, icons, templates | S | 🔲 |
-| Select, marquee, range; cut/copy/paste/duplicate/delete/ripple delete/insert silence | M | 🟡 M3 6a: click, Ctrl and Shift selection, marquee, time ranges across tracks (a clip's bottom half). M3 6b (`lumen_project::edit`): cut, copy, paste (at the playhead or into a range, overwriting the destination range), duplicate, delete, delete time (ripple, the whole song) and insert time, on clips and ranges, each one undo step, in the lanes' right-click menu. Crop and the remaining range edits come with M7's split |
-| Split, join, consolidate, trim, crop, slip, nudge, move, loop/unloop | M | 🟡 Trim, slip, move and loop-extend (M3 6a to 6c). Split (with the drag-to-cut gesture the owner asked for), join, consolidate, crop, unloop into copies and clip nudge in M7 |
-| Fades, crossfades, clip gain, reverse, normalize, polarity | M | 🟡 Fades with free curves and four presets, and clip gain (M3 6d, ADR-0031). Moved clips crossfade while playing (5 ms, engine). Automatic crossfades on overlaps, reverse, normalize and polarity in M7 |
+| Select, marquee, range; cut/copy/paste/duplicate/delete/ripple delete/insert silence | M | 🟡 M3 6a: click, Ctrl and Shift selection, marquee, time ranges across tracks (a clip's bottom half). M3 6b (`lumen_project::edit`): cut, copy, paste (at the playhead or into a range, overwriting the destination range), duplicate, delete, delete time (ripple, the whole song) and insert time, on clips and ranges, each one undo step, in the lanes' right-click menu. Crop and the remaining range edits come with M7b's split |
+| Split, join, consolidate, trim, crop, slip, nudge, move, loop/unloop | M | 🟡 Trim, slip, move and loop-extend (M3 6a to 6c). Split (with the drag-to-cut gesture the owner asked for), join, consolidate, crop, unloop into copies and clip nudge in M7b |
+| Fades, crossfades, clip gain, reverse, normalize, polarity | M | 🟡 Fades with free curves and four presets, and clip gain (M3 6d, ADR-0031). Moved clips crossfade while playing (5 ms, engine). Automatic crossfades (M7b, model chosen at X1), reverse, normalize and polarity in M7b |
 | Snap and grid; zoom; clip name/colour/mute/lock; clip properties | M | ✅ | Grid and snapping (M3 5a) and zoom (4d) done; clip name, colour, mute, lock and the properties card done in M3 6e (ADR-0032; MT-APP-14 passed in run 4) |
-| Tool model: pointer, draw, erase, split, mute and zoom, with single-key switching and temporary modifiers (CLAUDE.md §5). Not built, and in no milestone plan yet; proposed for M7 with split | M | 🔲 Proposed for M7 (owner to confirm) |
+| Tool model: pointer, draw, erase, split, mute and zoom, with single-key switching and temporary modifiers (CLAUDE.md §5). Not built, and in no milestone plan yet; planned for M7b with split | M | 🔲 M7b slice E0; keys follow the CLAUDE.md §5 convention (B, Esc, Ctrl+E, 0, Z and X, Del), chosen 2026-10-19 (K1) |
 | Warp, transient and tempo detection, pitch shift | S | 🔲 |
 | Take lanes and comping | S | 🔲 |
 | Unlimited undo/redo with visible history | M | 🟡 Undo and redo for imports, tempo and time signature (Ctrl+Z, Ctrl+Shift+Z, Ctrl+Y), a History window, and a note after each undo (M3 slice 3, ADR-0024). Every later edit joins it as it is built |
@@ -440,7 +441,7 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 | Drum maps, drum editor, step sequencer | M | 🔲 |
 | MIDI effects; on-screen keyboard | S | 🔲 |
 | MPE, MIDI 2.0 | L | 🔲 |
-| Automation: all parameters, curves, R/W/T/L, clip envelopes, tempo and signature, override, simplification | M | 🔲 |
+| Automation: all parameters, curves, R/W/T/L, clip envelopes, tempo and signature, override, simplification | M | 🟡 Lanes, curves and steps play for the mixer (M7 A0), and point simplification is in the model; the rest is A1 to A7 |
 | Mixer: fader, pan law, mute, solo, sends, returns, groups, master, routing, sidechain, PDC, meters, cue | M | 🟡 The engine graph (M4 slice 1, ADR-0035); routing in the model (slice 2); groups (slice 3); mute, solo, sends, returns, the master and cue (slice 4, ADR-0038); the Mixer tab, meters, the pan law and output pairs (slice 5, ADR-0040); sidechains and delay compensation in the engine with the transport's readout (slice 6, ADR-0041) |
 | LUFS and true-peak metering; mono-check and dim | S | 🟡 LUFS (momentary, short-term, integrated) and true peak on the master (M4 slice 5, ADR-0040); mono-check and dim later |
 | Reference track | L | 🔲 |
@@ -484,6 +485,92 @@ follow the order of `CLAUDE.md`. "Planned" is the roadmap milestone.
 ---
 
 ## Milestone reports
+
+### Milestone 6 — report (2026-10-19)
+**Status:** Built, not signed off. Every slice is built and merged into `main`
+(slices 0 to 7; the last is PR #38). The owner's Windows runs of MT-VST-3 to
+MT-VST-7 are not recorded as passed, so this report names what was verified and
+what was not. The owner's approval is still required before M7.
+
+**Shipped** (ADRs 0065 to 0080; formats v17 to v21; host protocol version 8).
+- **Slice 0, the host and the audio path.** Deterministic test plugins with
+  chosen faults (ADR-0065), a host process per plugin with a bounded versioned
+  protocol (ADR-0066), a shared-memory audio path and measurement harness
+  (ADR-0067), and the decision that the audio callback may wait a bounded time on
+  a host (ADR-0069, **on trial**). The slice 0 report is below.
+- **Slice 1, discovery** (ADR-0068). Scanning in a process of its own with a
+  deadline, a cache keyed by file stamp, a blocklist with the reason, and the
+  browser's Devices tab. MT-VST-1 passed on Windows (owner-reported).
+- **Slice 2, a device on a track** (ADRs 0070 to 0072). Hosted instruments and
+  effects in the engine with a fallback of the reported latency, the hosting
+  manager, and the Devices tab with cards for ready, loading, failed and missing
+  states. The slice 2 walkthrough (MT-VST-2) passed (owner-reported, no step detail).
+- **Slice 3, chain editing** (ADR-0073). Move, copy, paste, duplicate and fold
+  cards; the master takes effects; the plugin's own picture.
+- **Slice 4, parameters and editors** (ADR-0076). Parameter lists, the card's strip
+  of eight knobs and the All parameters panel, plugin-side edits as undo steps, and
+  native editor windows that follow their track.
+- **Slice 5, presets and resilient state** (ADR-0077). Programs and preset files
+  in one menu, loading as one undo step, state read about every 30 s and before every
+  save, failures counted per plugin, and safe mode.
+- **Slice 6, production routing** (ADR-0078). Multi-bus plugins, sidechain from any
+  track, an instrument's other outputs as tracks, and plugin latency compensated.
+- **Slice 7, compatibility and closeout** (ADR-0080). The probe `lumen-host-probe`,
+  the fault soak, `lumen --bench-callback`, the combined walkthrough
+  `walkthrough_plugins`, and the repository review.
+- **Fixes from the owner's runs.** Plugins ring out until quiet (ADR-0074); missed
+  plugin blocks (ADR-0075), where the cause was plugins configured for 8,192-frame
+  blocks while the engine gives them at most 256; saving reads every running plugin
+  first; a plugin's window follows its track; stepped controls on the strip.
+
+**Measured.**
+- Owner's machine, MT-VST-B run 1: the block budget used fell from 1.56 of 2.90 ms
+  (54%, CPU peak 70%) to 0.31 ms (11%, peak 20 to 24%) once plugins were promised the
+  device's block. One run; steps 2 to 6 and 8 and whether pops are gone were not
+  reported.
+- Hand-over of a block to a host and back: 12 µs median and 34 µs p99 on the owner's
+  machine (`lumen-host-bench`). Slice 0's 64-host numbers are in its report below.
+- Performance gate after the review's fixes: largest change +0.11% (WSL); the
+  `engine_hosted_64` baseline was updated twice, each with its reason recorded.
+- Tests at the review's close: 2,207 workspace tests on Windows, 495 E2E on Linux,
+  6 smoke tests. Mutation checks are recorded per slice.
+- The soak ran five random 90-second runs on one machine (67 to 98 rounds each); it
+  found nothing in the product.
+
+**Review.** `lumen-review` ran on 2026-10-18 (`docs/audits/2026-10-18-m6.md`): 7 High,
+14 Medium and a list of Low findings. All Highs, Mediums and Lows are fixed or
+recorded (the audit's Status table), each with a test that fails without the fix.
+The owner's naming rule now reaches the code: a test scans the sources for
+workstation names.
+
+**Not verified, and where it goes.**
+- **The owner's Windows runs:** MT-VST-3, MT-VST-4's re-check steps, MT-VST-5,
+  MT-VST-6 and MT-VST-7. The real Windows editor window is compile-checked only in
+  the cloud container; its behavior was seen by the owner in MT-VST-4 run 1.
+- **ADR-0069's measurements.** The callback numbers at 64 and 128 frames with 16 and
+  64 hosted tracks (MT-VST-7 steps 7 to 9). **Monitoring through an effect waits for
+  audio input in M9.** Until both exist the callback's wait stays on trial.
+- **Installed plugins.** Twelve anonymous labels (RP-1 to RP-12) have been tried in
+  parts; the probe has not been run over the installed library. This is not a
+  compatibility claim.
+- **Not run:** RealtimeSanitizer after the review's fixes, macOS tests (cross-clippy
+  only), Linux and macOS timing and editors.
+- **Moved to later milestones:** automation and MIDI learn (M7), built-in devices and
+  the sampler (M8), audio recording and export (M9), hosting on macOS and Linux
+  (stretch).
+
+**Risks.**
+1. The callback's wait is on trial; if the numbers fail, the pipelined path adds one
+   block of latency to monitored tracks.
+2. One machine and mostly synthetic load. The working budget (64 tracks at 100 µs of
+   plugin work) is an assumption, not a promise about real plugins.
+3. A plugin the test plugins cannot imitate may behave differently in its editor,
+   state or latency. A saved state that fails to restore is reported per plugin.
+4. Windows is the only system with timing and editor results.
+
+**Next.** The owner runs MT-VST-7 (or waives items, recorded in DECISIONS), then
+approves or rejects M6. Then M7 (automation) and M7b (editing and render), planned in `docs/milestones/M7.md` and
+`docs/milestones/M7b.md`.
 
 ### Milestone 6, slice 0 — report (2026-10-16)
 **Status:** Complete. Slice 0 settled how plugins are hosted before any
@@ -562,6 +649,55 @@ with a synthetic busy loop; one run per scenario; the machine was in use).
 **Next.** Slice 2, the first complete device workflow (a device on a track,
 hearing it, bypass, save and reopen), pitching behaviour variants first. It
 needs the audio-path ADR, now accepted.
+
+### Milestone 5 — report (2026-10-19)
+**Status:** Built, not signed off. All nine slices are built and merged. MT-MIDI-1
+and 4 to 6 passed; MT-MIDI-2 and 3 passed functionally, with follow-ups in KNOWN_ISSUES. MT-MIDI-7, 8 and 9 and the WSL gates on the final branch are the
+owner's and are not recorded as passed. The owner's approval is still required.
+
+**Shipped** (ADRs 0044 to 0064; formats v11 to v16).
+- **Devices and the model** (slice 0). `lumen-midi`, the MIDI settings page, and
+  controller, bend, pressure and program events in clips.
+- **Hearing MIDI** (slice 1). A sample-exact event path with a note tracker, chase and
+  every release case; a built-in synth with five presets; MIDI To for hardware.
+- **Playing live** (slice 2). MIDI From, monitoring, the computer keyboard as a MIDI
+  keyboard, and the MIDI activity chip.
+- **MIDI clips and the piano roll** (slice 3). Notes drawn on the GPU, the clip editor
+  in the Clip tab and a pop-out window, and note mute (format v14).
+- **Velocity and controller lanes** (slice 4).
+- **Quantize and its tools** (slice 5). Grid, modes, strength, swing, a sensitivity
+  window, a live-preview popover, humanize, fixed length, scale-constrain, reverse.
+- **Recording MIDI** (slice 6). Count-in, Replace and Overdub, loop passes, punch,
+  takes committed about once a second, and autosave while recording.
+- **MIDI files and clock out** (slice 7). Standard MIDI File import and export at 960
+  PPQ and MIDI clock with a delay per output.
+- **Closeout** (slice 8). The combined E2E `midi_walkthrough` (record, quantize, save,
+  reopen, play) and the repository review (`docs/audits/2026-10-13-m5.md`).
+- **Corrections after owner runs.** The clip window model (ADR-0056); overdub and
+  seams (ADRs 0057 to 0060); resizing a playing clip (ADR-0061); the recording window
+  and punch masking (ADR-0064).
+
+**Measured.**
+- With a 100,000-note clip open, frame time p99 is at most 1.82 ms at 1600 × 900 and
+  2.22 ms at 3440 × 1380; three idle repaints in three seconds (`--bench-editor`).
+- The built-in synth costs 0.36 ms a block (13.5%) with 64 tracks (`engine_synth_64`).
+- At the review's close: 1,436 tests, 333 E2E, 6 smoke. The WSL performance gate
+  passed all nine scenarios after the recording-window fix (largest +1.50%, limit 2%).
+
+**Review.** Two High findings, an audio-thread free and a UI-thread disk check, are
+fixed, along with module splits and bounds on positions in projects and MIDI files.
+
+**Not verified.**
+- **MT-MIDI-7** (recording with a physical controller, count-in, overdub, replace, loop
+  and punch), **MT-MIDI-8** (a file from another workstation in and out, and clock to
+  real hardware) and **MT-MIDI-9** (the closeout run) are the owner's.
+- Timing on real MIDI hardware, macOS tests, and the WSL gates on the final M5 branch.
+
+**Moved.** MIDI learn moved to M7 (owner, 2026-10-13). Restore recorded timing,
+groove templates and MIDI effects are not built. Manual latency offset waits for M9.
+
+**Risks.** MIDI port identity, overflow note-off loss and edits to a recording track
+during a take remain in KNOWN_ISSUES.
 
 ### Milestone 4.5 — report (2026-10-10)
 **Status:** Built 2026-10-10, a mid milestone between M4 and M5. All six
@@ -835,7 +971,7 @@ state.*
 **Not done or deferred:**
 - Deferred with owner approval: the waveform peak disk cache and
   relinking missing media → M9; app and file icons and file association
-  → M9; the drag-to-cut gesture and the tool model → M7 with split; group
+  → M9; the drag-to-cut gesture and the tool model → M7b with split; group
   summing, sends and routing → M4; a UX pass on hints and tooltips →
   scheduled when the next milestones are planned.
 - Recorded for later (KNOWN_ISSUES): a second instance offering to recover

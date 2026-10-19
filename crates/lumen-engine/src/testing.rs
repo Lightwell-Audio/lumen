@@ -97,6 +97,69 @@ pub fn latent(tracks: u64, variant: u32) -> Routing {
     routing
 }
 
+/// [`routed`] with every track automated (M7 slice A0): a fader and a pan
+/// lane on all of them, an input trim on every fourth, a mute lane that
+/// steps on every fifth, and a lane on both sends. The lanes run the length
+/// of eight bars at 120 BPM and 48 kHz and are curves, straight lines and
+/// steps; each `variant` changes every value, with the same shape.
+pub fn automated(tracks: u64, variant: u32) -> Routing {
+    use lumen_core::automation::Shape;
+    use lumen_core::curve::Curve;
+
+    use crate::mixer::{AutoLane, AutoPoint, NodeAutomation};
+
+    const SECONDS: i64 = 16;
+    let lane = |seed: u64, count: i64, low: f32, high: f32, shape: &dyn Fn(i64) -> Shape| {
+        let points = (0..count)
+            .map(|k| {
+                // A small deterministic scatter of values.
+                let x = ((seed * 7919 + k as u64 * 104_729 + u64::from(variant) * 31) % 1000)
+                    as f32
+                    / 1000.0;
+                AutoPoint {
+                    at: k * SECONDS * 48_000 / (count - 1),
+                    value: low + (high - low) * x,
+                    shape: shape(k),
+                }
+            })
+            .collect();
+        AutoLane::new(points)
+    };
+    let mixed = |k: i64| match k % 3 {
+        0 => Shape::Linear,
+        1 => Shape::Curve(Curve::S_CURVE),
+        _ => Shape::Step,
+    };
+    let mut routing = routed(tracks, variant);
+    for node in routing.nodes.iter_mut().filter(|n| n.id < tracks) {
+        let id = node.id;
+        node.automation = Some(NodeAutomation {
+            volume: lane(id, 33, -24.0, 0.0, &mixed),
+            pan: lane(id + 1, 25, -1.0, 1.0, &|_| Shape::Linear),
+            trim: (id % 4 == 0)
+                .then(|| lane(id + 2, 9, -6.0, 6.0, &|_| Shape::Linear))
+                .flatten(),
+            mute: (id % 5 == 0)
+                .then(|| {
+                    AutoLane::new(
+                        (0..16)
+                            .map(|k| AutoPoint {
+                                at: k * SECONDS * 48_000 / 15,
+                                value: (k % 2) as f32 * f32::from(u8::from(id % 2 == 0)),
+                                shape: Shape::Step,
+                            })
+                            .collect(),
+                    )
+                })
+                .flatten(),
+            sends: (0..node.sends.len() as u64)
+                .map(|k| lane(id + 3 + k, 17, -30.0, 0.0, &|_| Shape::Linear))
+                .collect(),
+        });
+    }
+    routing
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,6 +170,7 @@ mod tests {
             crate::mixer::compile(&routed(64, variant)).unwrap();
             let plan = crate::mixer::compile(&latent(64, variant)).unwrap();
             assert!(plan.compensation().frames > 128);
+            crate::mixer::compile(&automated(64, variant)).unwrap();
         }
     }
 }

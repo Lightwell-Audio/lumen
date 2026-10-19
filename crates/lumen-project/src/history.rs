@@ -7,6 +7,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use crate::automation::AutomationLane;
 use crate::model::{Project, Track};
 
 /// Steps kept by default; the oldest are dropped beyond this.
@@ -226,6 +227,7 @@ fn same_track(x: &Arc<Track>, y: &Arc<Track>) -> bool {
         midi_from,
         monitor,
         plugin_output,
+        automation,
         clips,
     } = &**x;
     let bits = |a: f32, b: f32| a.to_bits() == b.to_bits();
@@ -252,11 +254,25 @@ fn same_track(x: &Arc<Track>, y: &Arc<Track>) -> bool {
         && *midi_from == y.midi_from
         && *monitor == y.monitor
         && *plugin_output == y.plugin_output
+        && automation_unchanged(automation, &y.automation)
         && clips.len() == y.clips.len()
         && clips
             .iter()
             .zip(&y.clips)
             .all(|(c, d)| Arc::ptr_eq(c, d) || c == d)
+}
+
+/// Whether two sets of lanes are the same, point values by their bits.
+fn automation_unchanged(a: &[AutomationLane], b: &[AutomationLane]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(x, y)| {
+            x.target == y.target
+                && x.enabled == y.enabled
+                && x.lane.len() == y.lane.len()
+                && x.lane.points().iter().zip(y.lane.points()).all(|(p, q)| {
+                    p.at == q.at && p.shape == q.shape && p.value.to_bits() == q.value.to_bits()
+                })
+        })
 }
 
 #[cfg(test)]
@@ -417,6 +433,38 @@ mod tests {
             assert!(history.apply("change", None, change));
             assert!(history.can_undo());
         }
+    }
+
+    #[test]
+    fn a_change_to_a_lane_is_an_edit_down_to_the_bit() {
+        use crate::automation::{AutomationLane, Target};
+        use lumen_core::automation::{Lane, Point};
+        let lane = |value: f32| {
+            AutomationLane::new(
+                Target::Pan,
+                Lane::new(vec![Point::new(Ticks(0), value)]).unwrap(),
+            )
+        };
+        let mut history = History::new(small_project(2));
+        assert!(history.apply("Add a lane", None, |p| {
+            Arc::make_mut(&mut p.tracks[0]).automation.push(lane(0.0));
+        }));
+        assert!(history.apply("Move the point", None, |p| {
+            Arc::make_mut(&mut p.tracks[0]).automation[0] = lane(0.5);
+        }));
+        assert!(!history.apply("Same again", None, |p| {
+            Arc::make_mut(&mut p.tracks[0]).automation[0] = lane(0.5);
+        }));
+        assert!(history.apply("Back to zero", None, |p| {
+            Arc::make_mut(&mut p.tracks[0]).automation[0] = lane(0.0);
+        }));
+        assert!(history.apply("Negative zero", None, |p| {
+            Arc::make_mut(&mut p.tracks[0]).automation[0] = lane(-0.0);
+        }));
+        assert!(history.apply("Disable", None, |p| {
+            Arc::make_mut(&mut p.tracks[0]).automation[0].enabled = false;
+        }));
+        assert_eq!(history.steps().0.len(), 5);
     }
 
     #[test]

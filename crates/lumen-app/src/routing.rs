@@ -7,8 +7,14 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use lumen_core::automation::{Lane, Shape};
 use lumen_core::pan::PanLaw;
-use lumen_engine::{CueOut, Destination, Device, NodeSpec, Routing, SendSpec, SidechainSpec, Tap};
+use lumen_core::time::{TempoMap, Ticks};
+use lumen_engine::{
+    AutoLane, AutoPoint, CueOut, Destination, Device, NodeAutomation, NodeSpec, Routing, SendSpec,
+    SidechainSpec, Tap,
+};
+use lumen_project::automation::Target;
 use lumen_project::model::{Id, Output, Project, SidechainTap, Track, TrackKind};
 use lumen_project::routing::{self as rules, destination};
 
@@ -102,9 +108,120 @@ fn plays_mono(project: &Project, track: &Track) -> bool {
     })
 }
 
-/// The routing that plays `project`, with `cue` and `devices`.
-pub fn routing(project: &Project, cue: &Cue, devices: &Devices) -> Routing {
-    let heard = lumen_project::solo::hearing(project);
+/// Frames between the points a curved segment is resampled to when the tempo
+/// changes along it (about 21 ms at 48 kHz).
+const RESAMPLE: i64 = 1024;
+
+/// `lane` on the sample clock of a device at `rate`, tempo as `tempo`: each
+/// point at the sample the tempo puts it at. A segment is straight in music
+/// time, so one that a change of tempo falls inside is not straight in samples:
+/// a straight segment is split at the change (each part is straight again) and
+/// a curved one is resampled to short straight parts.
+fn bake(lane: &Lane, tempo: &TempoMap, rate: u32) -> Option<AutoLane> {
+    let model = lane.points();
+    let at = |t: Ticks| tempo.sample_at(t, rate);
+    let mut baked = Vec::with_capacity(model.len());
+    for (i, point) in model.iter().enumerate() {
+        let next = model.get(i + 1);
+        let changes: Vec<Ticks> = match next {
+            Some(next) if point.shape != Shape::Step => tempo
+                .points()
+                .iter()
+                .map(|t| t.at)
+                .filter(|&t| t > point.at && t < next.at)
+                .collect(),
+            _ => Vec::new(),
+        };
+        let shape = match point.shape {
+            Shape::Curve(_) if !changes.is_empty() => Shape::Linear,
+            shape => shape,
+        };
+        baked.push(AutoPoint {
+            at: at(point.at),
+            value: point.value,
+            shape,
+        });
+        if let (Some(next), false) = (next, changes.is_empty()) {
+            let (from, to) = (at(point.at), at(next.at));
+            // The parts are cut at each change of tempo, where the shape of the
+            // segment in samples has a corner; a curve is cut every so often as
+            // well.
+            let mut inside: Vec<i64> = changes.iter().map(|&t| at(t)).collect();
+            if matches!(point.shape, Shape::Curve(_)) {
+                inside.extend((1..).map(|k| from + k * RESAMPLE).take_while(|&s| s < to));
+                inside.sort_unstable();
+                inside.dedup();
+            }
+            for sample in inside {
+                let value = lane
+                    .value_at(tempo.ticks_at_sample(sample, rate))
+                    .unwrap_or(point.value);
+                baked.push(AutoPoint {
+                    at: sample,
+                    value,
+                    shape: Shape::Linear,
+                });
+            }
+        }
+    }
+    AutoLane::new(baked)
+}
+
+/// A track's lanes on the device's sample clock (M7 slice A0, D3). Only lanes
+/// that are on and drive something the track has are baked; a device's
+/// parameters are the plugin host's (slice A3).
+fn automation(track: &Track, tempo: Option<&TempoMap>, rate: u32) -> Option<NodeAutomation> {
+    let tempo = tempo?;
+    let on = |target| {
+        track
+            .lane(target)
+            .filter(|l| l.enabled && track.has_target(target))
+            .and_then(|l| bake(&l.lane, tempo, rate))
+    };
+    let lanes = NodeAutomation {
+        trim: on(Target::Trim),
+        mute: on(Target::Mute),
+        volume: on(Target::Volume),
+        pan: on(Target::Pan),
+        sends: track
+            .sends
+            .iter()
+            .map(|send| on(Target::Send { to: send.to }))
+            .collect(),
+    };
+    (!lanes.is_empty()).then_some(lanes)
+}
+
+/// Whether `track` has a mute lane that is on: the lane, not the track's
+/// own switch, then says when it is heard.
+fn mute_lane(track: &Track) -> bool {
+    track.lane(Target::Mute).is_some_and(|l| l.enabled)
+}
+
+/// The routing that plays `project`, with `cue` and `devices`, its lanes
+/// baked for a device at `rate`.
+pub fn routing(project: &Project, cue: &Cue, devices: &Devices, rate: u32) -> Routing {
+    let tempo = TempoMap::new(project.tempo.clone()).ok();
+    // A track with a mute lane is heard when its lane says so: what solo and
+    // the other tracks make of it is worked out as if its own switch were off.
+    let unmuted;
+    let rules_project = if rules::all_tracks(project).any(|t| t.mute && mute_lane(t)) {
+        let mut copy = project.clone();
+        for track in copy
+            .tracks
+            .iter_mut()
+            .chain(std::iter::once(&mut copy.master))
+        {
+            if track.mute && mute_lane(track) {
+                std::sync::Arc::make_mut(track).mute = false;
+            }
+        }
+        unmuted = copy;
+        &unmuted
+    } else {
+        project
+    };
+    let heard = lumen_project::solo::hearing(rules_project);
     let nodes = rules::all_tracks(project)
         .map(|track| {
             // Only mono material pans by the project's law; stereo keeps
@@ -175,6 +292,7 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices) -> Routing {
                     .max()
                     .unwrap_or(0),
                 sidechains: sidechains(project, track),
+                automation: automation(track, tempo.as_ref(), rate),
                 ..NodeSpec::unity(track.id.0, output(project, track, &cue.outputs))
             }
         })
@@ -240,8 +358,10 @@ mod tests {
     use super::*;
     use crate::document::Document;
 
+    const RATE: u32 = 48_000;
+
     fn routing(project: &Project, cue: &Cue) -> Routing {
-        super::routing(project, cue, &Devices::default())
+        super::routing(project, cue, &Devices::default(), RATE)
     }
 
     #[test]
@@ -250,7 +370,7 @@ mod tests {
         doc.set_volume(ids[0], 0.0);
         let mut devices = Devices::default();
         devices.latent.insert(ids[0], 240);
-        let routing = super::routing(doc.project(), &Cue::default(), &devices);
+        let routing = super::routing(doc.project(), &Cue::default(), &devices, RATE);
         assert_eq!(
             node(&routing, ids[0]).devices,
             [Device::Delay {
@@ -282,7 +402,7 @@ mod tests {
             .unwrap();
         let mut devices = Devices::default();
         devices.hosted.insert(instrument, 360);
-        let routing = super::routing(doc.project(), &Cue::default(), &devices);
+        let routing = super::routing(doc.project(), &Cue::default(), &devices, RATE);
         assert_eq!(node(&routing, ids[0]).source, 360);
         assert!(
             node(&routing, ids[0]).devices.is_empty(),
@@ -326,7 +446,7 @@ mod tests {
         );
         lumen_engine::compile_routing(&routing).unwrap();
         doc.set_sidechain(b, key(SidechainTap::PreFx)).unwrap();
-        let routing = super::routing(doc.project(), &Cue::default(), &Devices::default());
+        let routing = super::routing(doc.project(), &Cue::default(), &Devices::default(), RATE);
         assert_eq!(node(&routing, ids[0]).sidechains.len(), 2);
         // A source that was deleted plays nothing, and the routing still compiles.
         doc.set_sidechain(
@@ -337,7 +457,7 @@ mod tests {
             }),
         )
         .unwrap();
-        let routing = super::routing(doc.project(), &Cue::default(), &Devices::default());
+        let routing = super::routing(doc.project(), &Cue::default(), &Devices::default(), RATE);
         assert_eq!(node(&routing, ids[0]).sidechains.len(), 1);
         lumen_engine::compile_routing(&routing).unwrap();
     }
@@ -348,7 +468,7 @@ mod tests {
         doc.set_send(ids[0], ids[1], Level(0.0)).unwrap();
         let mut devices = Devices::default();
         devices.latent.insert(ids[1], 480);
-        let routing = super::routing(doc.project(), &Cue::default(), &devices);
+        let routing = super::routing(doc.project(), &Cue::default(), &devices, RATE);
         let plan = lumen_engine::compile_routing(&routing).unwrap();
         assert_eq!(plan.compensation().frames, 480);
     }
@@ -364,6 +484,206 @@ mod tests {
 
     fn node(routing: &Routing, id: Id) -> &NodeSpec {
         routing.nodes.iter().find(|n| n.id == id.0).unwrap()
+    }
+
+    fn lane(points: &[(i64, f32)]) -> lumen_core::automation::Lane {
+        lumen_core::automation::Lane::new(
+            points
+                .iter()
+                .map(|&(q, v)| {
+                    lumen_core::automation::Point::new(lumen_core::time::Ticks::quarters(q), v)
+                })
+                .collect(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn lanes_reach_the_engine_on_the_samples_the_tempo_puts_them_at() {
+        let (mut doc, ids) = doc_with(&[TrackKind::Audio, TrackKind::Return]);
+        doc.set_send(ids[0], ids[1], lumen_project::model::Level(-6.0))
+            .unwrap();
+        doc.set_lane(ids[0], Target::Volume, lane(&[(0, -6.0), (4, 0.0)]), false)
+            .unwrap();
+        doc.set_lane(
+            ids[0],
+            Target::Send { to: ids[1] },
+            lane(&[(2, -3.0)]),
+            false,
+        )
+        .unwrap();
+        // 120 BPM: a quarter note is half a second.
+        let routing = super::routing(doc.project(), &Cue::default(), &Devices::default(), RATE);
+        let lanes = node(&routing, ids[0]).automation.as_ref().expect("lanes");
+        let at: Vec<i64> = lanes
+            .volume
+            .as_ref()
+            .unwrap()
+            .points()
+            .iter()
+            .map(|p| p.at)
+            .collect();
+        assert_eq!(at, [0, 96_000]);
+        assert!(lanes.pan.is_none() && lanes.trim.is_none() && lanes.mute.is_none());
+        assert_eq!(lanes.sends.len(), 1);
+        assert_eq!(lanes.sends[0].as_ref().unwrap().points()[0].at, 48_000);
+        // Another rate puts the points on its own samples.
+        let routing = super::routing(doc.project(), &Cue::default(), &Devices::default(), 44_100);
+        let lanes = node(&routing, ids[0]).automation.as_ref().unwrap();
+        assert_eq!(lanes.volume.as_ref().unwrap().points()[1].at, 88_200);
+        // A track with no lanes has none.
+        assert!(node(&routing, ids[1]).automation.is_none());
+        lumen_engine::compile_routing(&routing).unwrap();
+    }
+
+    #[test]
+    fn a_tempo_change_moves_the_samples_a_lane_lands_on() {
+        let (mut doc, ids) = doc_with(&[TrackKind::Audio]);
+        doc.set_lane(ids[0], Target::Pan, lane(&[(0, -1.0), (8, 1.0)]), false)
+            .unwrap();
+        let last = |doc: &Document| {
+            let routing = super::routing(doc.project(), &Cue::default(), &Devices::default(), RATE);
+            node(&routing, ids[0])
+                .automation
+                .as_ref()
+                .unwrap()
+                .pan
+                .as_ref()
+                .unwrap()
+                .points()
+                .last()
+                .unwrap()
+                .at
+        };
+        assert_eq!(last(&doc), 192_000);
+        doc.set_tempo(240.0, None);
+        assert_eq!(last(&doc), 96_000);
+        // A change of tempo partway along: four quarters at 120, four at 240.
+        doc.set_tempo(120.0, None);
+        doc.apply("tempo", None, |p| {
+            p.tempo.push(lumen_core::time::TempoPoint {
+                at: lumen_core::time::Ticks::quarters(4),
+                bpm: 240.0,
+            })
+        });
+        assert_eq!(last(&doc), 96_000 + 48_000);
+    }
+
+    #[test]
+    fn lanes_that_are_off_or_drive_nothing_the_track_has_are_not_sent() {
+        let (mut doc, ids) = doc_with(&[TrackKind::Audio, TrackKind::Return]);
+        doc.set_lane(ids[0], Target::Volume, lane(&[(0, -6.0)]), false)
+            .unwrap();
+        doc.set_lane_enabled(ids[0], Target::Volume, false).unwrap();
+        let plan = routing(doc.project(), &Cue::default());
+        assert!(
+            node(&plan, ids[0]).automation.is_none(),
+            "a lane that is off plays nothing"
+        );
+        // A lane left naming a send the track no longer makes is ignored.
+        doc.set_send(ids[0], ids[1], lumen_project::model::Level(0.0))
+            .unwrap();
+        doc.set_lane(
+            ids[0],
+            Target::Send { to: ids[1] },
+            lane(&[(0, -6.0)]),
+            false,
+        )
+        .unwrap();
+        doc.apply("lose the send", None, |p| {
+            std::sync::Arc::make_mut(&mut p.tracks[0]).sends.clear()
+        });
+        let plan = routing(doc.project(), &Cue::default());
+        assert!(node(&plan, ids[0]).automation.is_none());
+        lumen_engine::compile_routing(&plan).unwrap();
+    }
+
+    #[test]
+    fn a_mute_lane_not_the_tracks_own_switch_says_when_it_is_heard() {
+        let (mut doc, ids) = doc_with(&[TrackKind::Audio, TrackKind::Audio]);
+        doc.set_mute(&[ids[0]], true);
+        let plan = routing(doc.project(), &Cue::default());
+        assert!(!node(&plan, ids[0]).audible, "muted by its switch");
+        doc.set_lane(ids[0], Target::Mute, lane(&[(0, 0.0), (4, 1.0)]), false)
+            .unwrap();
+        let plan = routing(doc.project(), &Cue::default());
+        assert!(node(&plan, ids[0]).audible, "the lane decides");
+        assert!(
+            node(&plan, ids[0])
+                .automation
+                .as_ref()
+                .unwrap()
+                .mute
+                .is_some()
+        );
+        // Solo still silences it: a mute lane is not a solo.
+        doc.set_solo(&[ids[1]], true, false);
+        let plan = routing(doc.project(), &Cue::default());
+        assert!(!node(&plan, ids[0]).audible);
+        // Turned off, the switch is the track's again.
+        doc.set_solo(&[ids[1]], false, false);
+        doc.set_lane_enabled(ids[0], Target::Mute, false).unwrap();
+        let plan = routing(doc.project(), &Cue::default());
+        assert!(!node(&plan, ids[0]).audible);
+    }
+
+    #[test]
+    fn the_engine_form_of_a_lane_agrees_with_the_model_everywhere() {
+        use lumen_core::automation::{Lane, Point, Shape};
+        use lumen_core::curve::Curve;
+        use lumen_core::time::{TempoMap, TempoPoint, Ticks};
+        // Two tempos, and lanes of every shape of segment.
+        let tempo = TempoMap::new(vec![
+            TempoPoint {
+                at: Ticks::ZERO,
+                bpm: 93.0,
+            },
+            TempoPoint {
+                at: Ticks::quarters(6),
+                bpm: 141.5,
+            },
+        ])
+        .unwrap();
+        let mut seed = 5u64;
+        let mut next = move || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (seed >> 33) as f32 / (1u64 << 31) as f32
+        };
+        for case in 0..60 {
+            let mut at = 0i64;
+            let points: Vec<Point> = (0..2 + case % 12)
+                .map(|_| {
+                    // At least a sixteenth apart, so a segment is not so steep that half
+                    // a sample of rounding moves its value.
+                    at += lumen_core::time::PPQ / 4
+                        + (next() * 4.0 * lumen_core::time::PPQ as f32) as i64;
+                    let shape = match (next() * 3.0) as u32 {
+                        0 => Shape::Linear,
+                        1 => Shape::Curve(Curve::FAST),
+                        _ => Shape::Step,
+                    };
+                    Point::new(Ticks(at), next() * 20.0 - 14.0).with_shape(shape)
+                })
+                .collect();
+            let model = Lane::new(points.clone()).unwrap();
+            let baked = bake(&model, &tempo, RATE).unwrap();
+            let end = tempo.sample_at(points.last().unwrap().at, RATE);
+            for sample in (0..end + 5_000).step_by(37) {
+                // Within two samples of a point the two may be either side of
+                // it: skip those.
+                if baked.points().iter().any(|p| (p.at - sample).abs() < 3) {
+                    continue;
+                }
+                let want = model.value_at(tempo.ticks_at_sample(sample, RATE)).unwrap();
+                let got = baked.value_at(sample);
+                assert!(
+                    (want - got).abs() < 0.01,
+                    "case {case} at sample {sample}: {want} against {got}"
+                );
+            }
+        }
     }
 
     #[test]

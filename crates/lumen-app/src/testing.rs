@@ -237,6 +237,32 @@ impl App {
         })
     }
 
+    /// Gives track `track` a lane for `target` (M7 slice A0: the lane
+    /// interface arrives in slice A1, so end-to-end tests make lanes here).
+    /// Returns why not when the lane is refused.
+    pub fn give_lane(
+        &mut self,
+        track: Id,
+        target: lumen_project::automation::Target,
+        lane: lumen_core::automation::Lane,
+    ) -> Result<(), &'static str> {
+        self.document
+            .set_lane(track, target, lane, false)
+            .map_err(|refusal| refusal.reason())
+    }
+
+    /// Switches a lane on or off, as the lane's switch in slice A4 will.
+    pub fn switch_lane(
+        &mut self,
+        track: Id,
+        target: lumen_project::automation::Target,
+        on: bool,
+    ) -> Result<(), &'static str> {
+        self.document
+            .set_lane_enabled(track, target, on)
+            .map_err(|refusal| refusal.reason())
+    }
+
     /// The open project.
     pub fn project(&self) -> &Project {
         self.document.project()

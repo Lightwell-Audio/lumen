@@ -1027,6 +1027,22 @@ fn the_midi_demo_project_file_is_current_and_valid() {
 }
 
 #[test]
+fn the_automation_demo_project_file_is_current_and_valid() {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/projects/automation-demo.lumen");
+    let demo = lumen_project::testing::automation_demo();
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&demo).unwrap()).unwrap();
+    }
+    let loaded =
+        load(&path).expect("the demo project must load (regenerate with LUMEN_WRITE_FIXTURES=1)");
+    assert_eq!(loaded, demo, "regenerate with LUMEN_WRITE_FIXTURES=1");
+    assert_eq!(loaded.tracks.len(), 3);
+    assert!(loaded.tracks.iter().all(|t| t.automation.len() == 1));
+}
+
+#[test]
 fn the_midi_demo_arpeggio_and_bass_start_on_each_chords_root_on_the_downbeat() {
     use lumen_project::model::ClipContent;
     let demo = lumen_project::testing::midi_demo();

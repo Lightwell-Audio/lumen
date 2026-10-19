@@ -67,7 +67,7 @@ pub struct Lanes {
     pub(crate) midi_ports: crate::midi_play::PortTable,
     /// The project state, cue and devices the engine's routing was built
     /// from.
-    routed: Option<(u64, crate::routing::Cue, crate::routing::Devices)>,
+    routed: Option<(u64, crate::routing::Cue, crate::routing::Devices, u32)>,
     /// Devices on tracks, until devices join the project (M6).
     pub(crate) devices: crate::routing::Devices,
     /// A message about files that could not be added.
@@ -337,9 +337,15 @@ impl Lanes {
         // The routing follows the clips, never ahead of them: a deleted
         // track's clips fade out while its node is still there, and a new
         // track's clips wait for their node, then fade in.
-        let wanted = (doc.state(), cue.clone(), self.devices.clone());
+        // Lanes are baked for the device's rate, so a new rate is a new routing.
+        let wanted = (doc.state(), cue.clone(), self.devices.clone(), rate);
         if !self.dirty && self.routed.as_ref() != Some(&wanted) {
-            match mixer.set(&crate::routing::routing(doc.project(), cue, &self.devices)) {
+            match mixer.set(&crate::routing::routing(
+                doc.project(),
+                cue,
+                &self.devices,
+                rate,
+            )) {
                 Ok(true) => self.routed = Some(wanted),
                 // The queue is full: the engine has not caught up.
                 Ok(false) => {}

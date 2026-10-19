@@ -17,6 +17,7 @@ use lumen_project::model::{Color, Device, Id, Marker, Project, TimeSignature, Tr
 /// The most beats a bar may have (`lumen_project::validate`).
 pub const MAX_BEATS_PER_BAR: u32 = 64;
 
+mod automation;
 mod clips;
 mod devices;
 mod groups;

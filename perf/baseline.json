@@ -1,6 +1,7 @@
 {
   "about": "Instruction counts per scenario under Callgrind (ADR-0022). Regenerate with `perf-gate --update` on Linux.",
   "scenarios": {
+    "engine_automated_64": 2052748374,
     "engine_clips_64": 454666268,
     "engine_hosted_64": 674848747,
     "engine_latent_64": 1331702097,

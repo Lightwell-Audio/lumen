@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use super::auto::NodeStages;
 use super::delay::{LineId, Lines, NO_LINE};
 use super::hosts::{self, HostScratch, Hosting, NO_HOST};
 use super::meter::{LoudnessTap, MeterBank, keep};
@@ -115,6 +116,8 @@ pub(super) struct Node {
     pub meter: u32,
     /// The slot of its sidechain bus's reading, else [`NO_METER`].
     pub side_meter: u32,
+    /// Its automation lanes playing (M7 slice A0), if it has any.
+    pub auto: Option<Box<NodeStages>>,
 }
 
 /// The slot of a node that is not metered.
@@ -177,6 +180,18 @@ pub(super) enum Ramp<'a> {
     Full,
     /// Per frame: the plan is crossfading in or out.
     Fade(&'a [f32]),
+}
+
+/// How one part of a block is processed.
+#[derive(Clone, Copy)]
+pub(super) struct Pass<'a> {
+    /// The timeline sample the tracks played the first of the part's frames
+    /// at, which automation lanes are read against.
+    pub start: i64,
+    pub rate: u32,
+    pub ramp: Ramp<'a>,
+    /// False for a tail rendered ahead of a jump: levels are read, not moved.
+    pub advance: bool,
 }
 
 impl Plan {
@@ -323,6 +338,9 @@ impl Plan {
                     node.cue.carry(&before.cue);
                     node.post[0].carry(&before.post[0]);
                     node.post[1].carry(&before.post[1]);
+                    if let (Some(new), Some(was)) = (node.auto.as_deref_mut(), &before.auto) {
+                        new.carry(was);
+                    }
                     // A hosted device keeps where it was in the glide
                     // between its host and its fallback.
                     let mine =
@@ -371,6 +389,9 @@ impl Plan {
             node.gate.settle();
             node.cue.settle();
             node.post.iter_mut().for_each(Smoothed::settle);
+            if let Some(auto) = node.auto.as_deref_mut() {
+                auto.settle();
+            }
         }
         for send in &mut self.sends {
             send.gain.settle();
@@ -388,12 +409,16 @@ impl Plan {
     pub(super) fn process(
         &mut self,
         out: &mut Output<'_>,
-        rate: u32,
-        ramp: Ramp<'_>,
-        advance: bool,
+        pass: Pass<'_>,
         tap: Option<&mut LoudnessTap>,
         hosting: &mut Hosting<'_>,
     ) {
+        let Pass {
+            start,
+            rate,
+            ramp,
+            advance,
+        } = pass;
         let frames = out.frames();
         let mut gain = [0.0f32; CHUNK];
         let gain = &mut gain[..frames];
@@ -425,6 +450,10 @@ impl Plan {
                     continue;
                 }
                 self.nodes[index].pre.fill(gain, rate, false);
+                let split = self.nodes[index].split;
+                if let Some(auto) = self.nodes[index].auto.as_deref_mut() {
+                    auto.input(start, rate, false, split, gain);
+                }
                 let bus = &self.buses[index * BUS..(index + 1) * BUS];
                 let (input_left, input_right) = self.host_scratch.input.split_at_mut(CHUNK);
                 for k in 0..frames {
@@ -455,6 +484,9 @@ impl Plan {
                 && let Some(cue) = self.cue_bus.as_chunks_mut::<BUS>().0.first_mut()
             {
                 node.cue.fill(gain, rate, advance);
+                if let Some(auto) = node.auto.as_deref_mut() {
+                    auto.cue(start, rate, advance, gain);
+                }
                 let (cue_left, cue_right) = cue.split_at_mut(CHUNK);
                 if lined_cue {
                     let (a, b) = self.scratch.split_at_mut(CHUNK);
@@ -484,6 +516,9 @@ impl Plan {
                 continue;
             }
             node.pre.fill(gain, rate, advance);
+            if let Some(auto) = node.auto.as_deref_mut() {
+                auto.input(start, rate, advance, node.split, gain);
+            }
             scale(left, gain);
             scale(right, gain);
 
@@ -550,17 +585,28 @@ impl Plan {
                     &mut self.scratch,
                 );
                 // Mute, after the devices.
-                if !(node.heard.settled() && node.heard.value() == 1.0) {
+                let lane = node.auto.as_deref().is_some_and(NodeStages::has_mute);
+                if lane || !(node.heard.settled() && node.heard.value() == 1.0) {
                     node.heard.fill(gain, rate, advance);
+                    if let Some(auto) = node.auto.as_deref_mut() {
+                        auto.heard(start, rate, advance, gain);
+                    }
                     scale(left, gain);
                     scale(right, gain);
                 }
             }
 
             let sends = node.first as usize..(node.first + node.count) as usize;
-            for send in self.sends[sends.clone()].iter_mut().filter(|s| s.pre_fader) {
+            for (k, send) in self.sends[sends.clone()]
+                .iter_mut()
+                .enumerate()
+                .filter(|(_, s)| s.pre_fader)
+            {
                 let at = target(send.to);
                 send.gain.fill(gain, rate, advance);
+                if let Some(auto) = node.auto.as_deref_mut() {
+                    auto.send(k, start, rate, advance, gain);
+                }
                 let (l, r) = self
                     .lines
                     .through(send.line, left, right, &mut self.scratch);
@@ -572,10 +618,20 @@ impl Plan {
             scale(left, gain);
             node.post[1].fill(gain, rate, advance);
             scale(right, gain);
+            if let Some(auto) = node.auto.as_deref_mut() {
+                auto.mix(start, rate, advance, left, right);
+            }
 
-            for send in self.sends[sends].iter_mut().filter(|s| !s.pre_fader) {
+            for (k, send) in self.sends[sends]
+                .iter_mut()
+                .enumerate()
+                .filter(|(_, s)| !s.pre_fader)
+            {
                 let at = target(send.to);
                 send.gain.fill(gain, rate, advance);
+                if let Some(auto) = node.auto.as_deref_mut() {
+                    auto.send(k, start, rate, advance, gain);
+                }
                 let (l, r) = self
                     .lines
                     .through(send.line, left, right, &mut self.scratch);

@@ -91,6 +91,8 @@ irreversible or external) · *Superseded*.
 | [0077](#adr-0077--presets-and-programs-a-sound-is-replaced-as-a-whole-tried-before-it-is-kept) | Presets and programs: a sound is replaced as a whole, tried before it is kept (M6 slice 5) | Accepted 2026-10-17 (owner's R1 to R5); MT-VST-5 is the owner's | Decided by the owner |
 | [0078](#adr-0078--production-routing-buses-sidechain-outputs-and-plugin-latency-m6-slice-6) | Production routing: buses, sidechain, outputs and plugin latency (M6 slice 6) | Accepted 2026-10-18 (owner's B1, S1, M1, L1, L2, C1, O1, I1); MT-VST-6 is the owner's | Decided by the owner |
 | [0079](#adr-0079--settings-sections-added-with-defaults-keep-the-version-and-the-file-is-flushed) | Settings: sections added with defaults keep the version, and the file is flushed | Accepted 2026-10-18 (review M11) | No |
+| [0080](#adr-0080--compatibility-tools-the-probe-the-fault-soak-and-the-callback-benchmark-m6-slice-7) | Compatibility tools: the probe, the fault soak and the callback benchmark (M6 slice 7) | Accepted 2026-10-19 (owner's P1, K1, W1, R1, V1 of 2026-10-18); MT-VST-7 is the owner's | Decided by the owner |
+| [0081](#adr-0081--automation-lanes-in-the-model-and-the-mixer-m7-slice-a0) | Automation lanes in the model and the mixer (M7 slice A0) | Accepted 2026-10-19 (the owner approved starting A0); MT-AUTO-1 passed (owner, 2026-10-19) | Claude, with the owner's M7 decisions |
 
 ---
 
@@ -130,7 +132,7 @@ irreversible or external) · *Superseded*.
 | Clip properties (M3 slice 6e, 2026-10-08) | Chosen from rendered specimens: **M1**, a muted clip drains to grey (name and waveform stay readable); **K3**, a locked clip shows a padlock in its title bar and light clamp bars at both ends; **P1**, the properties view is the hover card pinned beside its clip and edited in place (Alt+Enter, or Properties in the right-click menu), after seeing it in context, over a strip under the arrangement (P2) and a toolbar above the clip (P3). ADR-0032. |
 | Lanes menu and grid behind clips (MT-APP-14 run 2, 2026-10-08) | Chosen from rendered specimens: **A**, each right-click gets the menu for what it landed on (a clip, a time range, or empty lanes; commands that cannot run are left out), over B (grouped submenus) and C (an action strip); **G1**, the grid shows through a see-through clip body, the owner chose G1 unless there was a strong argument for G2; none held up, over G2 (lines drawn across clips) and G3 (bar lines only). The owner also asked for a click anywhere on the lanes to move the playhead. ADR-0032. |
 | Hints and tooltips (2026-10-08) | The owner noted that hints have piled up slice by slice: behaviour should come across without reading much (cursors, handle shapes, motion before text). **A dedicated UX pass**, scheduled when the next milestones are planned; until then new hints stay short. |
-| Split and tools (2026-10-08) | The owner asked to select a clip and drag it to cut it. **Split** is planned in M7 with the rest of the split work, and the drag-to-cut gesture is chosen there from rendered specimens. The tool model (pointer, draw, erase, split, mute, zoom; CLAUDE.md §5) is proposed for M7 with it, for the owner to confirm. |
+| Split and tools (2026-10-08) | The owner asked to select a clip and drag it to cut it. **Split** is planned in M7b (the editing half of the roadmap's milestone 7, split off on 2026-10-19) with the rest of the split work, and the drag-to-cut gesture is chosen there from rendered specimens. The tool model (pointer, draw, erase, split, mute, zoom; CLAUDE.md §5) is planned in M7b with it; its keys are chosen from specimens (K1). |
 | Commands and shortcuts (M3 slice 7, 2026-10-08) | Chosen from interactive specimens: palette **P2 with P3's values** (context names such as "Duplicate 2 clips", commands that cannot run listed dimmed with the reason, a detail strip, typed values becoming actions); keycaps **K5 area light** after asking for more personality than the first round (plain modifiers, the main key outlined with a light in its area's colour); shortcut editor **E2 with E3** (a keyboard map lit by area over the list, plus rebinding from a palette result); **Shift+Tab depends on focus**, F6 and Shift+F6 between panes (ADR-0015). |
 | Clips from the keyboard (M3 review H2, 2026-10-08) | **The arrows follow the selection**: with a clip selected ←/→ select the previous or next clip on its track and ↑/↓ the nearest clip on the track above or below, Shift adds; with tracks selected the arrows act on tracks as before (over Alt+←/→ only, and [ and ]). ADR-0033. |
 | M3 close (2026-10-09) | M3 approved after MT-APP-16 passed. The M4 plan (`docs/milestones/M4.md`) waits for approval and its three questions. |
@@ -172,6 +174,7 @@ irreversible or external) · *Superseded*.
 | Production routing (M6 slice 6, 2026-10-18; ADR-0078) | Pitched and **all chosen as recommended**: B1 mono and stereo buses; S1 the sidechain row on the effect's card, with the tap inside its menu (option B) and the light I1 (from rendered specimens); M1 a plugin instrument's outputs as tracks of their own, listed on the card (O1, the row with a switch list, from rendered specimens); L1 effects flush and instruments ring out on a locate; L2 a plugin instrument's reported latency is compensated; C1 a scrub is not late by the compensation. Later, from the owner's runs: every output of a plugin is on and an output with no track plays on the instrument's own track; a block carries 64 channels. |
 | The hosting manager (M6 slice 2c, 2026-10-16) | Plan approved with **C1** (a plugin instrument receives notes only in 2c; controllers, bend, pressure and program are dropped and counted until parameters in slice 3), **C2** (the last reported latency and tail are written into the device when the host reports a different value, as a change that is not an undo step but marks the project changed) and **C3** (removing a device ends its process at once; undo starts a new one). Plan in `docs/milestones/M6.md`. |
 | MIDI learn moved to M7 (M5, 2026-10-13) | Asked, as recommended: **MIDI learn and its mapping list move to M7**, built with automation, where M6 and M7 define the parameters it maps and a mapped controller writes automation through the same path as Lumen's controls (Touch and Latch). M5 slice 7 keeps Standard MIDI Files and MIDI clock out (plan in `docs/milestones/M5.md`). Its choices, asked in chat, all as recommended: **F1 A** a multi-track file dropped on a track merges into one clip there, dropped between tracks or on empty lanes makes one MIDI track per file track (type 0 split by channel); **F2 A** notes are placed in beats and the project tempo is untouched, with a notice offering "Use them" for the file's tempo map and first time signature (one undo step); **F3 A** clock runs only while playing; **F4 A** a Sync delay per port, −20 to +50 ms. MTC out [S] is deferred, unscheduled. |
+| M7 split and deferrals (2026-10-19) | Asked, with a recommendation each: **S1 A** the roadmap's milestone 7 is two milestones, M7 (automation and envelopes) and M7b (advanced editing and render); **T1 A** tempo ramps are deferred, the tempo lane edits steps; **P1 A** the audio pitch envelope is deferred until a time-stretch and pitch engine exists. **X1**: asked why crossfades were to be deferred, the owner kept them in scope; the reason offered (clips never overlap under the owner's overwrite rule) is a design question, so X1 became a choice of crossfade model, recommendation A (a crossfade at a join). **Chosen from the specimens, later the same day:** L1 B (the lane drawn over the track's clip lane); X1 A (a crossfade at a join); K1 the cut gestures (press, aim and release, and the edit cursor with Ctrl+E) and tool keys that follow the common workstation convention listed in CLAUDE.md §5 with no new single-letter tool keys; the rest of the specimens accepted. **Y1 (later the same day): A.** The static clip pitch property is deferred with the envelope, until warp and time-stretch. Plans: `docs/milestones/M7.md`, `docs/milestones/M7b.md`. |
 | Waveform peak cache (M3 slice 4c, 2026-10-07) | **Deferred to M9**, built with disk streaming: until then audio is decoded into memory at load and peaks take about 21 ms per 5 minutes (ADR-0027). |
 | App and file icons (2026-10-07) | An app icon, a `.lumen` file icon and per-user file association in M9, shown as specimens first. Project folders keep the standard folder icon. |
 | Logo and light (2026-10-10) | Chosen from rendered specimens on the identity canvas (a Design artifact): four marks, then six colourways. **D, Dawn, in Sunrise**: a sun rising over a horizon, its reflection breaking into a waveform; an amber sun (`#FFC46B`) over water in the accent. **The light layer holds** (five levels: Unlit, Ember, Lit, Beam, Flare, and five rules), and **the mark is a meter** (the sun rises with the master's level, red while recording), with every proposed use of light: the playhead beam, Play's beam, meter heads, the mark above an empty arrangement. ADR-0043. A guitarist-first direction was pitched and set aside by the owner. |
@@ -7245,4 +7248,148 @@ the folder), as projects are.
 a newer version that added a section still reads in an older one (the section is
 ignored) but is set aside on load by the version rule only when the version itself is
 higher.
+
+## ADR-0080 — Compatibility tools: the probe, the fault soak and the callback benchmark (M6 slice 7)
+
+**Status:** Accepted 2026-10-19. The owner chose P1 A, K1 A, W1 A, R1 A and V1 on
+2026-10-18 (`docs/milestones/M6.md`, "Slice 7 plan"). The tools are built and tested
+with the Lumen-owned test plugins; running them over installed plugins and a real
+device is MT-VST-7, which is the owner's.
+
+**Context.** Before slice 7, plugin compatibility was recorded by hand. The matrix
+held scan results for 40 modules and a full run for one instrument; the earlier probe
+program was not kept. Faults were tested one behavior at a time, with no long run that
+mixed them. ADR-0069 left the audio callback's wait on a plugin host on trial, pending
+numbers from the whole callback. A reviewer could not rerun any of it.
+
+**Options.**
+- *Probe.* A tool in the host package that runs each installed plugin through the
+  stages (P1 A), or only manual steps in the interface (P1 B).
+- *Soak.* An automated mixed-fault run with a fixed count and a wall-clock mode
+  (K1 A), or one short scenario in the E2E suite (K1 B).
+- *Callback numbers.* A measurement mode in the app that plays a project through the
+  real device (R1 A), or keeping the wait on trial and calling it unmeasured (R1 B).
+
+**Decision.**
+1. **`lumen-host-probe`**, a binary of `lumen-plugin-host`. For each audio class of
+   each module it runs scan, load, buses, configure, process, link, state, parameters,
+   editor and shutdown, each stage in a host process of its own with a deadline
+   (`--deadline`, 20 s). A crash or hang in a stage is a result; the later stages are
+   skipped with the reason. Output is words, `--json FILE` (real names, for the owner's
+   own files) and `--table` (rows labelled "Probe N", with no product names).
+2. **The fault soak**, `crates/lumen-hosting/tests/soak.rs`. Six real hosts are played
+   as the engine plays them while faults are applied one at a time and then in pairs
+   (crash, hang, slow, non-finite, errors, ended from outside, five ways to fail at
+   load), and each victim is replaced. Every round checks that the other hosts are not
+   given up on and miss at most 5% of blocks, a given-up host is silent, nothing is
+   restarted that nothing asked for, the audio work allocates nothing, and no host
+   process is left. At the end the test process must not hold more than 100 MB or
+   30 handles more than after its first pass. `LUMEN_SOAK_SECONDS` and
+   `LUMEN_SOAK_SEED` select the long variant; `.github/workflows/soak.yml` starts it by
+   hand only.
+3. **`lumen --bench-callback <out.json> [--bench-seconds N] <project>`.** It plays a
+   project through the real device and reports the callback's time as a share of the
+   block (mean, median, p99 of windows, worst), overloads, dropouts, and each plugin's
+   wait and work, against the quality bar (mean under 50%, worst under 75%). Exit status
+   0, 3 for an overrun, 2 when it could not run. It reads counters the audio layer
+   already keeps; it adds nothing to the audio path.
+4. **One combined E2E scenario**, `walkthrough_plugins`, with real host processes
+   running the test plugin: instruments, a second output on its own track, a sidechain,
+   a return, grouping while the plugins run, undo, save and reopen, and a host ended
+   from outside followed by Reload.
+5. **Anonymous records.** Results for installed plugins are kept under labels
+   (RP-1 to RP-12), as the documentation rule requires. This limits reproducibility, and
+   the labels do not show broad compatibility.
+
+**Consequences.**
+- The matrix can be written from a tool's output and rerun, instead of from notes.
+- The soak and the probe find faults the test plugins can show. They do not show what an
+  installed plugin does, so slice 7 is not a compatibility claim until MT-VST-7 is run.
+- **ADR-0069 stays on trial.** The benchmark supplies the callback numbers once the
+  owner runs it at 64 and 128 frames with 16 and 64 hosted tracks. The other half of the
+  trial, monitoring through an effect, cannot be taken until audio input exists (M9).
+- The soak found nothing in the product on its first runs; its one failure was the test's
+  own block size. Mutation checks (an allocation in `Guard::collect`, a late host never
+  given up on, the non-finite rule, a missing sidechain) each fail the matching test.
+
+## ADR-0081 — Automation lanes in the model and the mixer (M7 slice A0)
+
+**Status:** Accepted 2026-10-19. The owner approved the M7 plan's split and its
+deferrals (S1, T1, P1, Y1) and told this slice to start. D1 to D5 of
+`docs/milestones/M7.md` are carried out here; the deviations are listed below. The
+lane interface is slice A1, so nothing on screen shows a lane yet: the owner's check
+(MT-AUTO-1) is by ear, with `tests/projects/automation-demo.lumen`; it passed on
+2026-10-19.
+
+**Context.** Every value a mixer has is a block target that glides over 20 ms. Nothing
+in the model or the engine could change a value along the timeline, and the engine
+could not tell a mixer node where in the song a block was.
+
+**Decision.**
+1. **The data (`lumen_core::automation`).** A `Lane` is points in time order, one to a
+   position, saved as the list. A `Point` has a position in ticks, a value in the
+   target's own units and the `Shape` of the segment that leaves it (`Step`, `Linear`
+   or a `Curve`, the same Bézier fades use). Before the first point the first value
+   holds, after the last the last does. `Shape::between` is the one formula; the
+   interface reads `Lane::value_at` and the engine plays a baked copy with the same
+   function. `Lane::simplify` thins runs of straight segments to within a tolerance
+   (a tested bound, for freehand and recording in A2 and A4).
+2. **Lanes belong to the track** (`Track.automation`, format v22, written only when
+   present): `AutomationLane { target, lane, enabled }`, at most one for each
+   `Target` (`Volume`, `Pan`, `Trim`, `Mute`, `Send { to }`, `Device { device, param }`)
+   and 256 to a track. Level targets are in dB with a floor of −100 dB, which is
+   silence, so every value in a file is a finite number; pan is −1 to 1; mute is 0 or
+   1; a device parameter is 0 to 1. Validation checks the order, the range, the
+   duplicates and the count. `Document::{set_lane, set_lane_enabled, remove_lane}` are
+   one undo step each, a drag passes `gesture` and is one step, values are brought into
+   range, and an empty lane takes the lane away. A device's lanes move with it
+   (`move_device`), are copied with a copy (`copy_device`) and go with the device
+   (`remove_device`, a replaced instrument); a send's lane goes with its return.
+3. **Baking (`routing.rs`).** The interface turns each lane that is on into sample
+   positions with the project's tempo map and the device rate when it builds a routing,
+   and a new rate is a new routing. A segment that a change of tempo falls inside is not
+   straight in samples: a straight one is split at the change (each part is straight
+   again), a curved one is resampled every 1,024 frames and at the change. A test checks
+   the baked form against `Lane::value_at` over random lanes across a tempo change.
+4. **Playing (`lumen_engine::mixer::auto`).** `NodeSpec.automation` holds a lane for
+   trim, mute, fader, pan and each send. A value with a lane is the lane's alone: the
+   fixed level it replaces is unity in the plan, and the lane's gain multiplies in at
+   the stage the control sits at (trim and the input mute before the devices, the
+   split mute, fader, pan and sends after them). `Plan::process` takes the timeline
+   sample the part starts at. Each lane is read at the time of the audio it acts on: the
+   node's position less how far its input trails the timeline there (`Arrival`), so a
+   latent device does not move a lane. Inside a straight or curved segment the value is
+   worked out every 32 frames counted from the segment's start and the gain runs
+   straight between (a level lane's dB become a gain at those knots); the same numbers
+   come at any block size. A step is held to the sample, then ramps over 1 ms from its
+   point, so a mute or a stepped fader never clicks. An edited lane that takes over from
+   another glides from where the old one was over 20 ms, compared at the frame before
+   the block; a locate settles it. Which lanes a node has is part of the plan's shape, so
+   switching one on or off crossfades over 5 ms.
+5. **Mute and solo.** A track with a mute lane that is on is heard when its lane says so.
+   Solo and the other tracks' audibility are worked out as if the track's own switch were
+   off, and the lane multiplies on top. A lane that is off, or names a send or device the
+   track no longer has, is not played and the control keeps its own value.
+
+**Deviations from the plan, for the owner's information.**
+- *`Project.meter` is not in v22.* Moving the time signature to a map belongs with the
+  code that reads it (A6), so it takes the next version, and M7b's crossfade flag the
+  one after (v24). Everything else in A0's list is here.
+- *Dangling lanes are kept and ignored,* as sidechains to deleted tracks are, not
+  dropped on load: undoing a delete brings the target back, and a damaged file is not
+  silently edited. D2 said "dropped".
+- *Pasting a device does not paste its lanes.* The clipboard holds the device alone;
+  device targets and their lanes arrive in A3, where the clipboard grows to carry them.
+
+**Consequences.**
+- A project file with lanes plays them: render tests per target, the same frames at
+  block sizes 1 to 1,000, a latent device in the path, an edit while playing, and five
+  end-to-end scenarios that play lanes through the whole app, save and reopen. Mutation
+  checks: an allocation in `Stage::render` fails `automated_lanes_never_touch_the_heap`;
+  routing no lanes into the engine fails all five scenarios.
+- **Audible limits.** A gain straight between knots is within 0.001 of the curve for any
+  shape and within 0.02 (0.17 dB) at the one bend a pan law has, at its centre. A mute
+  lane does not change what solo makes of other tracks while it is muted.
+- **Cost.** A node without lanes pays two `Option` checks a block. New perf scenario
+  `engine_automated_64` (the routed mix with five kinds of lane on its 64 tracks).
 

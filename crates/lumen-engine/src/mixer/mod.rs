@@ -29,6 +29,7 @@
 //! into their buses, so the crossfade is heard when the jump is: the
 //! engine's crossfade at the output would come too early.
 
+mod auto;
 mod compile;
 mod delay;
 mod hosts;
@@ -37,6 +38,7 @@ mod plan;
 mod smooth;
 mod spec;
 
+pub use auto::{AutoLane, AutoPoint, KNOT, NodeAutomation, db_gain};
 pub use compile::compile;
 pub use delay::MAX_DEVICE_LATENCY;
 pub use hosts::MAX_HOSTS;
@@ -56,7 +58,7 @@ use compile::compile_metered;
 use hosts::{HostMsg, HostPool, Hosting};
 use lumen_devices::Guard;
 use meter::{LoudnessReader, LoudnessTap, MeterBank, SIDE_KEY};
-use plan::Ramp;
+use plan::{Pass, Ramp};
 
 use crate::declick::fade_frames;
 use crate::source::{Jump, Mode, Output, RenderContext, Source};
@@ -544,8 +546,13 @@ impl<T: TrackSource> Source for Mixer<T> {
                         pool: Some(&mut self.hosts),
                         deadline: part_cx.deadline,
                     };
-                    self.plan
-                        .process(&mut part, rate, Ramp::Full, advance, tap, &mut hosting);
+                    let pass = Pass {
+                        start: part_cx.start,
+                        rate,
+                        ramp: Ramp::Full,
+                        advance,
+                    };
+                    self.plan.process(&mut part, pass, tap, &mut hosting);
                 }
                 Some(swap) => {
                     if swap.length == 0 {
@@ -568,17 +575,19 @@ impl<T: TrackSource> Source for Mixer<T> {
                         pool: Some(&mut self.hosts),
                         deadline: part_cx.deadline,
                     };
-                    self.plan
-                        .process(&mut part, rate, ramp_in, advance, tap, &mut hosting);
-                    let ramp_out = Ramp::Fade(&fade_out[..n]);
-                    swap.old.process(
-                        &mut part,
+                    let pass = Pass {
+                        start: part_cx.start,
                         rate,
-                        ramp_out,
+                        ramp: ramp_in,
                         advance,
-                        None,
-                        &mut Hosting::none(),
-                    );
+                    };
+                    self.plan.process(&mut part, pass, tap, &mut hosting);
+                    let pass = Pass {
+                        ramp: Ramp::Fade(&fade_out[..n]),
+                        ..pass
+                    };
+                    swap.old
+                        .process(&mut part, pass, None, &mut Hosting::none());
                     if advance {
                         swap.done += n;
                     }

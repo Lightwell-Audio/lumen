@@ -5,6 +5,7 @@
 //! `{ "format": "lumen-project", "version": N, "generator": ..., "project": ... }`.
 //! Older versions are upgraded by [`migrate`]; newer ones are refused.
 
+pub mod automation;
 pub mod edit;
 pub mod groups;
 pub mod history;

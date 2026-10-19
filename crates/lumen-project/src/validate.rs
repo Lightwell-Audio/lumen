@@ -16,7 +16,7 @@ use crate::model::{
 pub(crate) const LONGEST: Ticks = Ticks(1 << 52);
 
 /// Whether `t` lies within [`LONGEST`] of the start, either side of it.
-fn within(t: Ticks) -> bool {
+pub(crate) fn within(t: Ticks) -> bool {
     t.0.unsigned_abs() <= LONGEST.0.unsigned_abs()
 }
 
@@ -160,6 +160,7 @@ pub fn validate(project: &Project) -> Result<(), String> {
             return Err(format!("{}: gain or pan is not a valid number", at()));
         }
         routing(track, &kinds).map_err(|e| format!("{}: {e}", at()))?;
+        crate::automation::check(track).map_err(|e| format!("{}: {e}", at()))?;
         if let Some(output) = &track.plugin_output {
             if track.kind != TrackKind::Audio {
                 return Err(format!(

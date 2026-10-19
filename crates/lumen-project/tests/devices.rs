@@ -563,3 +563,167 @@ fn a_plugin_output_that_cannot_be_played_is_refused_with_a_reason() {
     std::sync::Arc::make_mut(&mut gone.tracks[2]).plugin_output = play(9_999, 1);
     assert!(to_bytes(&gone).is_ok());
 }
+
+// Format v22 (M7 slice A0): a track holds automation lanes.
+
+/// The model the v22 golden file must always load as. Never change it.
+fn golden_v22_expected() -> Project {
+    use lumen_core::automation::{Lane, Point, Shape};
+    use lumen_core::curve::Curve;
+    use lumen_core::time::Ticks;
+    use lumen_project::automation::{AutomationLane, Target};
+    use lumen_project::model::{Level, Send};
+    let lane = |points: Vec<Point>| Lane::new(points).expect("a lane in time order");
+    let at = Ticks::quarters;
+    let mut project = golden_v21_expected();
+    project.name = "Golden v22".into();
+    let reverb = track(1040, TrackKind::Return, vec![]);
+    project.tracks.push(std::sync::Arc::new(reverb));
+    for track in &mut project.tracks {
+        let track = std::sync::Arc::make_mut(track);
+        match track.id {
+            Id(1000) => {
+                track.automation = vec![
+                    AutomationLane::new(
+                        Target::Volume,
+                        lane(vec![
+                            Point::new(at(0), -100.0),
+                            Point::new(at(4), 0.0).with_shape(Shape::Curve(Curve::S_CURVE)),
+                            Point::new(at(8), -6.0).with_shape(Shape::Step),
+                            Point::new(at(12), 3.0),
+                        ]),
+                    ),
+                    AutomationLane {
+                        target: Target::Mute,
+                        lane: lane(vec![
+                            Point::new(at(16), 0.0).with_shape(Shape::Step),
+                            Point::new(at(17), 1.0).with_shape(Shape::Step),
+                        ]),
+                        enabled: false,
+                    },
+                ];
+            }
+            Id(1010) => {
+                track.sends.push(Send {
+                    to: Id(1040),
+                    level: Level(-12.0),
+                    pre_fader: false,
+                });
+                track.automation = vec![
+                    AutomationLane::new(
+                        Target::Pan,
+                        lane(vec![Point::new(at(0), -1.0), Point::new(at(8), 1.0)]),
+                    ),
+                    AutomationLane::new(
+                        Target::Send { to: Id(1040) },
+                        lane(vec![Point::new(at(2), -30.0), Point::new(at(6), 0.0)]),
+                    ),
+                    AutomationLane::new(
+                        Target::Device {
+                            device: Id(1011),
+                            param: 7,
+                        },
+                        lane(vec![Point::new(at(0), 0.0), Point::new(at(4), 0.75)]),
+                    ),
+                ];
+            }
+            _ => {}
+        }
+    }
+    project
+}
+
+#[test]
+fn golden_v22_file_loads_forever() {
+    let path = fixture("v22/golden.lumen");
+    if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, to_bytes(&golden_v22_expected()).unwrap()).unwrap();
+    }
+    let project = load(&path).expect("v22 golden file must load");
+    assert_eq!(project, golden_v22_expected());
+}
+
+#[test]
+fn older_projects_have_no_lanes_and_none_are_written_when_there_are_none() {
+    for old in ["v16/golden.lumen", "v20/golden.lumen", "v21/golden.lumen"] {
+        let project = load(&fixture(old)).expect("an older golden file loads");
+        assert!(
+            lumen_project::routing::all_tracks(&project).all(|t| t.automation.is_empty()),
+            "{old}"
+        );
+    }
+    let text = String::from_utf8(to_bytes(&golden_v21_expected()).unwrap()).unwrap();
+    assert!(!text.contains("automation"));
+    let text = String::from_utf8(to_bytes(&golden_v22_expected()).unwrap()).unwrap();
+    assert!(text.contains("\"automation\"") && text.contains("\"enabled\": false"));
+}
+
+#[test]
+fn lanes_that_cannot_play_are_refused_with_a_reason() {
+    use lumen_core::automation::{Lane, Point};
+    use lumen_core::time::Ticks;
+    use lumen_project::automation::{AutomationLane, MAX_LANES, Target};
+    let refused = |edit: &dyn Fn(&mut Project)| {
+        let mut project = golden_v22_expected();
+        edit(&mut project);
+        to_bytes(&project)
+            .expect_err("must be refused when saved")
+            .to_string()
+    };
+    let one = |target, value, at: i64| {
+        AutomationLane::new(
+            target,
+            Lane::new(vec![Point::new(Ticks(at), value)]).unwrap(),
+        )
+    };
+    let why = refused(&|p| {
+        std::sync::Arc::make_mut(&mut p.tracks[0])
+            .automation
+            .push(one(Target::Volume, 0.0, 0));
+    });
+    assert!(why.contains("same"), "{why}");
+    let why = refused(&|p| {
+        std::sync::Arc::make_mut(&mut p.tracks[0]).automation[0] = one(Target::Volume, 7.0, 0);
+    });
+    assert!(why.contains("outside"), "{why}");
+    let why = refused(&|p| {
+        std::sync::Arc::make_mut(&mut p.tracks[0]).automation[0] = one(Target::Volume, 0.0, -5);
+    });
+    assert!(why.contains("out of range"), "{why}");
+    let why = refused(&|p| {
+        let track = std::sync::Arc::make_mut(&mut p.tracks[1]);
+        track.automation = (0..=MAX_LANES as u32)
+            .map(|param| {
+                one(
+                    Target::Device {
+                        device: Id(1011),
+                        param,
+                    },
+                    0.5,
+                    0,
+                )
+            })
+            .collect();
+    });
+    assert!(why.contains("more than"), "{why}");
+    // A lane whose send or device is gone is kept: undoing the deletion
+    // brings the target back.
+    let mut kept = golden_v22_expected();
+    std::sync::Arc::make_mut(&mut kept.tracks[1])
+        .automation
+        .push(one(Target::Send { to: Id(77) }, 0.0, 0));
+    assert!(to_bytes(&kept).is_ok());
+}
+
+#[test]
+fn a_lane_out_of_time_order_is_a_damaged_file() {
+    let text = String::from_utf8(to_bytes(&golden_v22_expected()).unwrap()).unwrap();
+    // Move a later point of the fader lane (8 quarter notes) before its
+    // neighbours.
+    let eight = format!("\"at\": {}", lumen_core::time::PPQ * 8);
+    let damaged = text.replacen(&eight, "\"at\": 1", 1);
+    assert_ne!(text, damaged);
+    let error = from_bytes(damaged.as_bytes()).expect_err("must be refused");
+    assert!(error.to_string().contains("not after"), "{error}");
+}
