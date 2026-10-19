@@ -151,6 +151,8 @@ impl IComponentHandler2Trait for Handler {
 
 impl IComponentHandlerTrait for Handler {
     unsafe fn beginEdit(&self, id: ParamID) -> tresult {
+        // TEMP TRACE (remove before merge)
+        crate::instance::trace(&format!("handler: beginEdit"));
         self.report(Edit {
             id,
             value: 0.0,
@@ -160,6 +162,8 @@ impl IComponentHandlerTrait for Handler {
     }
 
     unsafe fn performEdit(&self, id: ParamID, value: ParamValue) -> tresult {
+        // TEMP TRACE (remove before merge)
+        crate::instance::trace(&format!("handler: performEdit"));
         if value.is_finite() {
             self.report(Edit {
                 id,
@@ -172,6 +176,8 @@ impl IComponentHandlerTrait for Handler {
     }
 
     unsafe fn endEdit(&self, id: ParamID) -> tresult {
+        // TEMP TRACE (remove before merge)
+        crate::instance::trace(&format!("handler: endEdit"));
         self.report(Edit {
             id,
             value: 0.0,
@@ -181,6 +187,8 @@ impl IComponentHandlerTrait for Handler {
     }
 
     unsafe fn restartComponent(&self, flags: int32) -> tresult {
+        // TEMP TRACE (remove before merge)
+        crate::instance::trace(&format!("handler: restartComponent"));
         self.restart.fetch_or(flags as u32, Ordering::AcqRel);
         if flags as u32 & RESTART_CHANGED_STATE != 0 {
             self.report_dirty();

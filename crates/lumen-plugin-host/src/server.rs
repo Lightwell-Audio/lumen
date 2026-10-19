@@ -237,7 +237,14 @@ impl State {
             },
             Request::GetControllerState => match self.controls() {
                 Some(controls) => match controls.controller_state() {
-                    Ok(bytes) => Response::State(bytes),
+                    Ok(bytes) => {
+                        // TEMP TRACE (remove before merge)
+                        crate::instance::trace(&format!(
+                            "get controller state: {} bytes",
+                            bytes.len()
+                        ));
+                        Response::State(bytes)
+                    }
                     Err(e) => from_instance(e),
                 },
                 None => not_loaded(),
