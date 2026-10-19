@@ -509,6 +509,13 @@ impl Instance {
     /// silence on the calling thread when values are waiting, and nothing
     /// otherwise. Call with the instance lock held, as for any control call.
     pub fn flush_parameters(&mut self) -> Result<(), InstanceError> {
+        // TEMP TRACE (remove before merge)
+        trace(&format!(
+            "flush: processing={} format={} pending={}",
+            self.processing,
+            self.format.is_some(),
+            self.handler.has_pending()
+        ));
         let Some(format) = self.format.filter(|_| self.processing) else {
             return Ok(());
         };
@@ -516,7 +523,9 @@ impl Instance {
             return Ok(());
         }
         let silence = vec![vec![0.0_f32; 1]; usize::from(format.inputs)];
-        self.process(1, &silence, &[], &[]).map(|_| ())
+        let result = self.process(1, &silence, &[], &[]).map(|_| ());
+        trace(&format!("flush: block {result:?}"));
+        result
     }
 
     pub fn create_editor_view(&self) -> Option<ComPtr<IPlugView>> {
@@ -666,3 +675,17 @@ pub use controls::{Controls, Heard};
 use controls::{program_parameter, wide};
 pub(crate) use events::NoteIds;
 use events::{MAP_CHANNELS, MAP_NONE, MAP_NUMBERS, MAP_UNKNOWN, controller_value, vst_event};
+
+/// TEMP TRACE (remove before merge): appends a line to the file named by
+/// LUMEN_FLUSH_TRACE, when it is set.
+pub(crate) fn trace(line: &str) {
+    if let Some(path) = std::env::var_os("LUMEN_FLUSH_TRACE")
+        && let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+    {
+        use std::io::Write;
+        let _ = writeln!(file, "{line}");
+    }
+}
