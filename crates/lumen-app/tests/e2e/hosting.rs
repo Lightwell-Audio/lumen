@@ -116,6 +116,9 @@ pub(super) fn faults(stem: &str) -> Option<&'static str> {
         "Values" => Some("values_changed"),
         // Reading the plugin's state never returns.
         "Stuck" => Some("state_hang"),
+        // The walkthrough's plugins: a sidechain on the effect and three
+        // outputs on the instrument.
+        "Walk" => Some("sidechain,multi_out=3"),
         // Many parameters, in groups, some hidden, some read-only.
         "Many" => Some("many_params=300"),
         // A program list and a program-change parameter, and a controller state.
