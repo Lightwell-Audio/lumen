@@ -546,12 +546,22 @@ impl Process {
         let _ = self.commands.send(Command::Keys(keys));
     }
 
-    /// Asks the host to quit and waits for the thread.
+    /// Asks the host to quit and waits for the thread, as long as it takes.
     pub fn join(mut self) {
         let _ = self.commands.send(Command::Quit);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
+    }
+
+    /// Asks the host to quit, without waiting.
+    pub fn ask_to_quit(&self) {
+        let _ = self.commands.send(Command::Quit);
+    }
+
+    /// Whether the thread has ended (its host with it).
+    pub fn ended(&self) -> bool {
+        self.thread.as_ref().is_none_or(JoinHandle::is_finished)
     }
 }
 

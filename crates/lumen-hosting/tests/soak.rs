@@ -505,7 +505,7 @@ impl World {
     /// The end: every host process ever started has gone, the audio thread
     /// never allocated.
     fn finish(mut self, baseline: Option<(u64, u64)>) {
-        self.manager.shutdown();
+        self.manager.shutdown(Duration::from_secs(10));
         drop(self.seats);
         for pid in &self.pids {
             assert!(

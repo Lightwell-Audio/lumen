@@ -415,6 +415,9 @@ pub struct DeviceEdits {
     pub edits: Vec<(Edit, bool)>,
 }
 
+/// The longest closing Lumen waits for plugin hosts to quit.
+const EXIT_GRACE: std::time::Duration = std::time::Duration::from_millis(1500);
+
 /// How often a running plugin is read for a checkpoint.
 const CHECKPOINT: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -1281,10 +1284,12 @@ impl Hosting {
         }
     }
 
-    /// Ends every host; when Lumen closes.
+    /// Ends every host; when Lumen closes. Waits for them no longer than
+    /// [`EXIT_GRACE`]: a plugin still loading cannot hear it, and its host
+    /// ends with Lumen's process.
     pub fn shutdown(&mut self) {
         if let Some(manager) = self.manager.as_mut() {
-            manager.shutdown();
+            manager.shutdown(EXIT_GRACE);
         }
         self.tracked.clear();
         self.instruments.clear();

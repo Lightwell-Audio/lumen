@@ -321,6 +321,30 @@ fn forgetting_and_reloading_leave_no_process_behind() {
 }
 
 #[test]
+fn shutting_down_does_not_wait_for_a_plugin_that_is_still_loading() {
+    // A plugin stuck in its load cannot hear Quit until the load's deadline
+    // (here 8 s). Closing Lumen waits for the grace only (review H1).
+    let mut manager = manager();
+    let mut start = instrument("factory_hang");
+    start.deadlines.load = Duration::from_secs(8);
+    manager.want(1, start).unwrap();
+    manager.want(2, instrument("")).unwrap();
+    let healthy = linked(&mut manager, 2);
+    std::thread::sleep(Duration::from_millis(400));
+    let began = Instant::now();
+    manager.shutdown(Duration::from_millis(600));
+    let took = began.elapsed();
+    assert!(
+        took < Duration::from_secs(3),
+        "closing waited {took:?} for a plugin that was loading"
+    );
+    assert!(
+        gone_within(healthy.pid, Duration::from_secs(10)),
+        "the running host still ends"
+    );
+}
+
+#[test]
 fn shutting_down_ends_every_host() {
     let mut manager = manager();
     for device in 1..=3 {
@@ -330,7 +354,7 @@ fn shutting_down_ends_every_host() {
         .iter()
         .map(|l| l.pid)
         .collect();
-    manager.shutdown();
+    manager.shutdown(SLOW);
     for pid in pids {
         assert!(
             gone_within(pid, Duration::from_secs(10)),
