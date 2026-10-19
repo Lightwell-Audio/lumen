@@ -13,7 +13,14 @@ fn a_buffer_size_is_picked_by_click_and_by_keyboard() {
     let mut lumen = Lumen::start("dropdown");
     lumen.click("Lumen");
     lumen.click("Audio and MIDI settings\u{2026}");
-    lumen.frames(5);
+    // The window opens over a few frames; wait for the combo, not for a count.
+    for _ in 0..400 {
+        lumen.frames(1);
+        if lumen.shows("Buffer size: 128 samples") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
     assert!(
         lumen.shows("Buffer size: 128 samples"),
         "the combo is named"
