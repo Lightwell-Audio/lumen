@@ -94,7 +94,7 @@ irreversible or external) · *Superseded*.
 | [0080](#adr-0080--compatibility-tools-the-probe-the-fault-soak-and-the-callback-benchmark-m6-slice-7) | Compatibility tools: the probe, the fault soak and the callback benchmark (M6 slice 7) | Accepted 2026-10-19 (owner's P1, K1, W1, R1, V1 of 2026-10-18); MT-VST-7 is the owner's | Decided by the owner |
 | [0081](#adr-0081--automation-lanes-in-the-model-and-the-mixer-m7-slice-a0) | Automation lanes in the model and the mixer (M7 slice A0) | Accepted 2026-10-19 (the owner approved starting A0); MT-AUTO-1 passed (owner, 2026-10-19) | Claude, with the owner's M7 decisions |
 | [0082](#adr-0082--seeing-and-adding-an-automation-lane-m7-slice-a1) | Seeing and adding an automation lane (M7 slice A1) | Accepted 2026-10-19 (merged by the owner; MT-AUTO-2 passed except its release frame numbers) | Claude |
-| [0083](#adr-0083--editing-an-automation-lane-m7-slice-a2) | Editing an automation lane (M7 slice A2) | Proposed 2026-10-19 (built on the owner's go-ahead to start the next slice; the gesture and look choices are Claude's, for the owner's check in MT-AUTO-3) | Claude |
+| [0083](#adr-0083--editing-an-automation-lane-m7-slice-a2) | Editing an automation lane (M7 slice A2) | Accepted 2026-10-20 (MT-AUTO-3 passed, owner); choice 4 (points, not ranges) to be revisited after the core product | Claude |
 
 ---
 
@@ -7492,7 +7492,7 @@ here for the check in MT-AUTO-3. Every one is a small, reversible change.
    the same time and the same share of the lane's height; the arrows and Delete act on
    all of them. Ctrl+A picks the whole lane while a lane has the keyboard (the last
    press was in a lane); Esc lets go.
-4. **Copy, paste and duplicate act on the picked points, not on a time range.** The plan
+4. **Copy, paste and duplicate act on the picked points, not on a time range** (the owner passed it, and asked on 2026-10-20 to revisit it after the core product is finished: ranges make more sense, since a range may have no points at its edges). The plan
    said "ranges"; a lane's points are the range, so the span from the first pick to the
    last is what is copied. Paste puts the first copied point at the playhead and
    **replaces the points in the span it covers**, as drawing a shape does. Duplicate repeats
