@@ -95,6 +95,15 @@ shutdown, each in a host process of its own, and prints a compatibility table
 processes (MT-VST-0); `lumen-editor-spike` settled how plugin windows take focus
 (ADR-0067). The fault soak is `lumen-hosting/tests/soak.rs`.
 
+Native macOS hosting (ADR-0085): `module/macos.rs` resolves bundle metadata
+without loading code and initializes the retained `CFBundleRef` in the child;
+`editor/mac.rs` owns the AppKit window, event pump and `NSView` lifecycle on
+the child's main thread. `process.rs` arms a `kqueue` parent-exit watcher
+before loading plugins. The macOS worker waits in `sem_wait`; request and
+stop publish their state before posting the semaphore. Bounded client waits
+retain the existing deadline path. `Stopper::stop` is the way to wake a worker
+for shutdown; the shared region's quit setter is internal.
+
 ## Prototypes (M1)
 
 | Prototype | Status |
