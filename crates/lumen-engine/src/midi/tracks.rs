@@ -14,6 +14,10 @@ use crate::mixer::{Buses, CHUNK, fill_param_lane};
 use crate::source::{Mode, RenderContext};
 
 use super::InstrumentSpec;
+
+/// What a block with no lane to play says to a hosted instrument.
+static NO_PARAMS: ParamBlock = ParamBlock::none();
+
 /// A part's first half for one track: reads its clips into the track's event
 /// queue, in order.
 pub(super) fn gather_track(
@@ -49,7 +53,7 @@ pub(super) fn gather_track(
                 }
                 spec.instrument.automate(block);
             }
-            _ => spec.instrument.automate(&ParamBlock::none()),
+            _ => spec.instrument.automate(&NO_PARAMS),
         }
     }
 }

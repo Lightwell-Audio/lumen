@@ -219,6 +219,11 @@ impl Instrument for HostedInstrument {
     }
 
     fn automate(&mut self, params: &ParamBlock) {
+        // Nothing to say, and nothing left from before to take back: the
+        // common case, at every block of every instrument without a lane.
+        if params.is_empty() && self.params.is_empty() {
+            return;
+        }
         self.params.copy_from(params);
     }
 
