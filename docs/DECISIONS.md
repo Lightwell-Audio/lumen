@@ -7810,9 +7810,8 @@ slice is following and overriding; recording (Read, Write, Touch, Latch) is A4b.
    the lane is (look B) was offered as an addition and not chosen, so it is not built.
 
 **Deviations from the plan, for the owner's information.**
-- The All parameters window's bars follow the lane but carry no ring; the master and the returns
-  have no lane view, so no chip and no Re-enable button (the command gives the lane back):
-  both in KNOWN_ISSUES.
+- The master and the returns have no lane view, so no chip and no Re-enable button (the command
+  gives the lane back): in KNOWN_ISSUES.
 - Controls follow the playhead the transport reports, not a value read back from the plugin.
 
 **Consequences.**
@@ -7828,7 +7827,8 @@ slice is following and overriding; recording (Read, Write, Touch, Latch) is A4b.
   playhead and listen (taking a lane over, then back) and a seventh in `plugin_lanes.rs`; one E2E of
   A3 was rewritten (its knob move is now a take-over). Mutation checked: ignoring the override in
   the bridge, in the routing rule, or in the fader's setter each fails a test. A shot,
-  `automation_override` (dark and light, 100, 150 and 200%), was looked at.
+  `automation_override` and, for the plugin controls (the card's knobs and the All parameters
+  window's bars), `automation_override_parameters` (dark and light, 100, 150 and 200%), were looked at.
 - Gates run on Windows: fmt, workspace clippy, the workspace tests (all pass except one fixture
   check that fails only because of an unrelated uncommitted edit to the demo project file in the
   working tree; it passes against the committed file), 6 smoke tests, macOS cross-clippy. **Not

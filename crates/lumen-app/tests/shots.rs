@@ -2936,6 +2936,96 @@ fn automation_override() {
     }
 }
 
+/// A plugin parameter's lane taken over (M7 slice A4a): the card's strip knob
+/// and the All parameters window's bar, both with the amber ring, beside a
+/// parameter whose lane plays and follows. Dark and light at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn automation_override_parameters() {
+    use egui_kittest::kittest::Queryable as _;
+    use lumen_core::automation::{Lane, Point};
+    use lumen_core::time::Ticks;
+    use lumen_project::automation::Target;
+    use lumen_project::model::{Device, DeviceKind, Id, Note};
+    use lumen_project::testing::{midi_track, project_of};
+
+    let class = |n: u8| lumen_plugin_catalog::catalog::class_id(&[n; 16]);
+    let words = ["Cutoff", "Resonance", "Drive", "Mix", "Attack", "Release"];
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new(&format!("shots-override-params-{appearance}-{scale}"));
+            let mut track = midi_track(
+                1,
+                "Pad",
+                "poly",
+                (0, 64),
+                None,
+                vec![Note::new(Ticks::ZERO, Ticks::quarters(60), 69, 100)],
+                vec![],
+            );
+            track.devices = vec![Device::vst3(
+                Id(11),
+                &class(2),
+                "Bus Comp",
+                "Vendor C",
+                DeviceKind::Effect,
+            )];
+            let project = project_of("Override", vec![track]);
+            let path = dir.path().join("song.lumen");
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(vec2(1280.0, 760.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(30);
+            h.state_mut().pretend_device_state(Id(11), "ready");
+            let list: Vec<(&str, f64, &str)> = words.iter().map(|w| (*w, 0.5, "50%")).collect();
+            h.state_mut().give_device_parameters(Id(11), &list);
+            h.state_mut().select_tracks(&[Id(1)]);
+            h.run_steps(4);
+            // The first two parameters have lanes: the first is taken over,
+            // the second plays and its knob follows.
+            let q = Ticks::quarters;
+            for (param, from, to) in [(1, 0.2, 0.8), (2, 0.7, 0.3)] {
+                let lane = Lane::new(vec![Point::new(q(0), from), Point::new(q(8), to)]).unwrap();
+                h.state_mut()
+                    .give_lane(
+                        Id(1),
+                        Target::Device {
+                            device: Id(11),
+                            param,
+                        },
+                        lane,
+                    )
+                    .unwrap();
+            }
+            h.state_mut().set_device_param(Id(11), 1, 0.5);
+            h.get_all_by_label("Devices tab")
+                .last()
+                .expect("the detail panel's tab")
+                .click();
+            h.run_steps(30);
+            save(&mut h, &format!("override-card-{appearance}-{scale}"));
+            h.get_by_label_contains("All parameters (").click();
+            h.run_steps(20);
+            save(&mut h, &format!("override-panel-{appearance}-{scale}"));
+        }
+    }
+}
+
 /// Choosing a plugin's parameter for a lane (M7 slice A3): the chooser open
 /// on a plugin with a dozen parameters, a search narrowing it, and the lane
 /// it chose drawn under its name. Dark and light at 100, 150 and 200%.

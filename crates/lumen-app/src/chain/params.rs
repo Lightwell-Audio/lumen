@@ -575,6 +575,10 @@ impl App {
                 selected: false,
             },
         );
+        // A lane the user has taken over (M7 slice A4a), as on the strip's knob.
+        if self.parameter_taken_over(device, p) {
+            crate::arrangement::follow::ring(ui, bar);
+        }
         if let Some(v) = out.value {
             act.set = Some((p.id, v));
         }
