@@ -241,7 +241,7 @@ fn a_host_that_crashes_in_a_block_is_noticed_and_the_guard_fails_it() {
     let mut outcomes = Vec::new();
     for block in 0..6 {
         let deadline = Instant::now() + Duration::from_millis(400);
-        let sent = guard.begin(64, &[], &pattern(block));
+        let sent = guard.begin(64, &[], &pattern(block), &lumen_devices::ParamBlock::none());
         let outcome = if sent {
             guard.finish(deadline, &mut l, &mut r)
         } else {
@@ -273,7 +273,12 @@ fn a_host_that_hangs_is_failed_after_a_second_of_late_audio_and_forgetting_it_ki
     // Long blocks, so a second of audio is a handful of them.
     while !status.failed() && blocks < 12 {
         let deadline = Instant::now() + Duration::from_millis(60);
-        if guard.begin(8192, &[], &pattern(blocks)) {
+        if guard.begin(
+            8192,
+            &[],
+            &pattern(blocks),
+            &lumen_devices::ParamBlock::none(),
+        ) {
             guard.finish(deadline, &mut l, &mut r);
         }
         blocks += 1;
@@ -443,7 +448,12 @@ fn a_block_too_long_for_the_region_is_refused_and_counted_not_a_crash() {
     let mut manager = manager();
     manager.want(1, instrument("")).unwrap();
     let mut linked = linked(&mut manager, 1);
-    assert_eq!(linked.link.submit(9_000, &[], &[]), Err(Refused::Busy));
+    assert_eq!(
+        linked
+            .link
+            .submit(9_000, &[], &[], &lumen_devices::ParamBlock::none()),
+        Err(Refused::Busy)
+    );
     assert_eq!(linked.link.counts().unfit_blocks(), 1);
     // The link is fine afterwards.
     let (_, _, reply) = play(&mut linked.link, 64, &[], &[note_on(0, 60)]);

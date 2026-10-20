@@ -572,6 +572,7 @@ impl eframe::App for App {
         self.update_audition(&ctx);
         self.history_window(&ctx);
         self.parameters_panel(&ctx);
+        self.lane_parameters(&ctx);
         self.prompt_window(&ctx);
         self.shortcuts_window(&ctx);
         self.palette_window(&ctx);

@@ -5,6 +5,9 @@ use std::sync::Mutex;
 use super::instrument::EVENTS;
 use super::*;
 
+/// One parameter's points in a block: its id and `(offset, value)` each.
+type Queue = (u32, Vec<(u32, f64)>);
+
 /// What a fake host was asked, and the level it answers with (the test
 /// may change it while the host is in use).
 #[derive(Default)]
@@ -14,7 +17,7 @@ struct Seen {
     busy: u32,
     events: Vec<Vec<Event>>,
     /// Each block's parameter queues: id and points.
-    params: Vec<Vec<(u32, Vec<(u32, f64)>)>>,
+    params: Vec<Vec<Queue>>,
     value: f32,
     /// The deadline of the last collect.
     deadline: Option<Instant>,
@@ -673,4 +676,24 @@ fn a_block_with_no_automation_carries_none() {
     };
     assert!(synth.begin(48_000, 64, &[on]));
     assert_eq!(seen.lock().unwrap().params, vec![vec![]]);
+}
+
+#[test]
+fn parameters_cut_from_a_block_are_counted_once_however_often_it_is_tried() {
+    let (host, seen) = Fake::new(vec![READY]);
+    seen.lock().unwrap().busy = 1;
+    let mut guard = Guard::new(host, 0);
+    let status = guard.status();
+    let mut block = ParamBlock::new();
+    block.start(8);
+    block.note_cut();
+    block.note_cut();
+    assert!(!guard.begin(8, &[], &[], &block), "busy: refused");
+    assert_eq!(status.params_cut(), 2);
+    assert!(guard.begin_again(8, &[], &[], &block), "tried again");
+    assert_eq!(
+        status.params_cut(),
+        2,
+        "the same block is not counted twice"
+    );
 }

@@ -316,6 +316,38 @@ mod tests {
     use super::*;
     use lumen_core::midi::Msg;
 
+    fn block(queues: &[usize]) -> ParamBlock {
+        let mut block = ParamBlock::new();
+        block.start(64);
+        for (id, &points) in queues.iter().enumerate() {
+            assert!(block.open(id as u32));
+            for at in 0..points as u32 {
+                assert!(block.point(at, 0.5));
+            }
+        }
+        block
+    }
+
+    #[test]
+    fn a_block_goes_whole_when_the_region_has_room_for_it() {
+        let b = block(&[3, 5, 2]);
+        let (fit, left_out) = Fit::of(&b, 64, 1024);
+        assert_eq!((fit.queue_count(), left_out), (3, 0));
+        assert_eq!(fit.queue(1).1.len(), 5);
+    }
+
+    #[test]
+    fn a_parameter_is_left_out_whole_or_not_at_all() {
+        let b = block(&[3, 5, 2, 4]);
+        // Room for two queues: the first two go.
+        let (fit, left_out) = Fit::of(&b, 2, 1024);
+        assert_eq!((fit.queue_count(), left_out), (2, 2));
+        // Room for nine points: 3 + 5 fit; the next would make ten, so the
+        // rest wait, and a later small queue is not let past it.
+        let (fit, left_out) = Fit::of(&b, 64, 9);
+        assert_eq!((fit.queue_count(), left_out), (2, 2));
+    }
+
     fn at(offset: u32, msg: Msg) -> Event {
         Event { offset, msg }
     }

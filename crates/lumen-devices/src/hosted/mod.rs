@@ -146,6 +146,9 @@ pub struct Status {
     tail: AtomicU32,
     news: AtomicBool,
     restart: AtomicBool,
+    /// Parameters whose lanes were cut down or left out of a block for want
+    /// of room (M7 slice A3).
+    params_cut: AtomicU32,
     /// The one thing the interface writes: the device is bypassed.
     bypass: AtomicBool,
     costs: Costs,
@@ -160,6 +163,7 @@ impl Status {
             tail: AtomicU32::new(0),
             news: AtomicBool::new(false),
             restart: AtomicBool::new(false),
+            params_cut: AtomicU32::new(0),
             bypass: AtomicBool::new(false),
             costs: Costs::default(),
         })
@@ -190,6 +194,13 @@ impl Status {
     /// Blocks that went without the host's answer, since it was attached.
     pub fn late_blocks(&self) -> u32 {
         self.late.load(Ordering::Relaxed)
+    }
+
+    /// How many parameters' lanes were cut down to their ends or left out
+    /// of a block, since the host was attached: a plugin with more lanes than
+    /// a block can carry.
+    pub fn params_cut(&self) -> u32 {
+        self.params_cut.load(Ordering::Relaxed)
     }
 
     /// The plugin's latency in frames, as last reported.

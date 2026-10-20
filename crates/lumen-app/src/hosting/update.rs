@@ -595,6 +595,11 @@ impl Hosting {
             && let Some(manager) = self.manager.as_ref()
         {
             let mut send = t.params.differences(&w.device.params);
+            // A parameter a lane drives is the lane's: the engine gives the
+            // plugin its value with every block, so the value the project
+            // holds at rest is not also sent over the control channel
+            // (M7 slice A3, ADR-0084).
+            send.retain(|&(id, _)| !w.track.drives(w.device.id, id));
             // A program parameter first: choosing a program sets other
             // parameters as it goes, and the values the project holds
             // for those must be set after, not overwritten by it.

@@ -131,6 +131,8 @@ pub(super) fn faults(stem: &str) -> Option<&'static str> {
         "Walk" => Some("sidechain,multi_out=3"),
         // Many parameters, in groups, some hidden, some read-only.
         "Many" => Some("many_params=300"),
+        // Two thousand of them, as a big plugin lists.
+        "Thousands" => Some("many_params=2000"),
         // A program list and a program-change parameter, and a controller state.
         "Presets" => Some("presets"),
         _ => None,

@@ -175,9 +175,44 @@ pub(crate) struct LaneClip {
     pub range: (f32, f32),
 }
 
+/// The chooser for a plugin's parameters (M7 slice A3): whose they are, the
+/// search over them and the group chosen.
+#[derive(Debug, Clone)]
+pub(crate) struct ParamChooser {
+    pub track: Id,
+    pub device: Id,
+    pub search: String,
+    /// One group of the plugin's, or all of them.
+    pub group: Option<i32>,
+    /// The search field takes the keyboard when the chooser opens or changes
+    /// plugin.
+    pub focus: bool,
+    /// The row Enter chooses.
+    pub cursor: usize,
+}
+
+impl ParamChooser {
+    pub fn new(track: Id, device: Id) -> Self {
+        Self {
+            track,
+            device,
+            search: String::new(),
+            group: None,
+            focus: true,
+            cursor: 0,
+        }
+    }
+}
+
 /// What the arrangement knows of the lanes it shows.
 #[derive(Debug, Default)]
 pub(crate) struct AutoView {
+    /// The plugin parameter chooser, when open.
+    pub chooser: Option<ParamChooser>,
+    /// What the plugins call the parameters lanes drive, by device and the
+    /// plugin's parameter id: "Filter · Cutoff". Filled each frame for the
+    /// lanes of the tracks shown.
+    pub names: BTreeMap<(Id, u32), String>,
     /// The lane each track shows, by track.
     pub shown: BTreeMap<Id, Target>,
     /// The points picked, on one lane.
@@ -200,6 +235,17 @@ pub(crate) struct AutoView {
 }
 
 impl AutoView {
+    /// What `target` is called: the plugin's word for a parameter when it has
+    /// said it, else the lane's own name.
+    pub fn name_of(&self, project: &Project, target: Target) -> String {
+        if let Target::Device { device, param } = target
+            && let Some(name) = self.names.get(&(device, param))
+        {
+            return name.clone();
+        }
+        super::auto_scale::name(project, target)
+    }
+
     /// Shows the lanes of `tracks`, or hides them when every one already
     /// shows one. A track opens on the first lane it has, else volume.
     pub fn toggle(&mut self, project: &Project, tracks: &[Id]) {

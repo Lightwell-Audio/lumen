@@ -153,7 +153,7 @@ impl App {
             .as_ref()
             .and_then(|l| frame.nearest(target, l, p).map(|i| (i, l.points()[i])));
         let project = self.document.project();
-        let name = scale::name(project, target);
+        let name = self.arrangement.auto.name_of(project, target);
         let bend = self
             .arrangement
             .auto

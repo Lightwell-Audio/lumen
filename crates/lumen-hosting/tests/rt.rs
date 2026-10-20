@@ -8,7 +8,7 @@ mod support;
 use std::time::{Duration, Instant};
 
 use lumen_core::midi::{Event, Msg};
-use lumen_devices::{Hosted, Reply};
+use lumen_devices::{Hosted, ParamBlock, Reply};
 use lumen_hosting::Manager;
 use lumen_plugin_host::shm::{Waiting, Wake};
 use support::*;
@@ -51,9 +51,20 @@ fn the_link_does_not_allocate_on_the_audio_thread() {
             let stereo: [&[f32]; 2] = [&input, &input];
             let audio: &[&[f32]] = if is_instrument { &[] } else { &stereo };
             let (mut left, mut right) = (vec![0.0_f32; 128], vec![0.0_f32; 128]);
+            // Parameters change in every block: a stepped one and a ramped
+            // one (M7 slice A3), written into the region like the events.
+            let mut params = ParamBlock::new();
+            params.start(128);
+            params.open(0);
+            for (at, value) in [(0, 0.4), (63, 0.4), (64, 0.8)] {
+                params.point(at, value);
+            }
+            params.open(1);
+            params.point(0, 0.0);
+            params.point(127, 1.0);
 
             // Warm up outside the section, so start-up work does not count.
-            linked.link.submit(128, audio, &events).unwrap();
+            linked.link.submit(128, audio, &events, &params).unwrap();
             linked.link.collect(
                 Instant::now() + Duration::from_secs(5),
                 &mut left,
@@ -63,7 +74,9 @@ fn the_link_does_not_allocate_on_the_audio_thread() {
             let (ready, violations) = lumen_rt::count_rt_violations(|| {
                 let mut ready = 0_u32;
                 for _ in 0..500 {
-                    if linked.link.ended() || linked.link.submit(128, audio, &events).is_err() {
+                    if linked.link.ended()
+                        || linked.link.submit(128, audio, &events, &params).is_err()
+                    {
                         continue;
                     }
                     let deadline = Instant::now() + Duration::from_millis(500);

@@ -109,6 +109,12 @@ impl Track {
         }
     }
 
+    /// Whether a lane that is on drives parameter `param` of `device`.
+    pub fn drives(&self, device: Id, param: u32) -> bool {
+        self.lane(Target::Device { device, param })
+            .is_some_and(|l| l.enabled)
+    }
+
     /// Drops the lanes of devices the track no longer has. Call it after any
     /// edit that takes a device off the track, in the same undo step.
     pub fn prune_device_lanes(&mut self) {

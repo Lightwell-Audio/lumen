@@ -174,6 +174,11 @@ impl Guard {
             self.fail();
             return false;
         }
+        if params.cut() > 0 && count {
+            self.status
+                .params_cut
+                .fetch_add(params.cut(), Ordering::Relaxed);
+        }
         match self.host.submit(frames, input, events, params) {
             Ok(()) => {
                 self.sent = true;
