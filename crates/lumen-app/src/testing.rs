@@ -264,6 +264,17 @@ impl App {
             .map_err(|refusal| refusal.reason())
     }
 
+    /// Takes a lane away, as the lane chip's menu does.
+    pub fn take_lane_away(
+        &mut self,
+        track: Id,
+        target: lumen_project::automation::Target,
+    ) -> Result<(), &'static str> {
+        self.document
+            .remove_lane(track, target)
+            .map_err(|refusal| refusal.reason())
+    }
+
     /// The open project.
     pub fn project(&self) -> &Project {
         self.document.project()

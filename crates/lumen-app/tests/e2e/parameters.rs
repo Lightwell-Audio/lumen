@@ -170,6 +170,55 @@ fn dragging_a_knob_sets_the_value_as_one_undo_step_and_double_click_resets_it() 
     );
 }
 
+/// A lane drives the gain, the song plays, the lane is let go of (`remove`
+/// takes it away, else it is switched off) and the knob is dragged.
+fn lane_then_drag(name: &str, remove: bool) {
+    use lumen_core::automation::{Lane, Point, Shape};
+    use lumen_project::automation::Target;
+    let mut lumen = launch(name);
+    let target = Target::Device {
+        device: FX,
+        param: GAIN,
+    };
+    let lane = Lane::new(vec![
+        Point::new(Ticks::ZERO, 0.2).with_shape(Shape::Step),
+        Point::new(Ticks::quarters(1), 0.4).with_shape(Shape::Step),
+    ])
+    .unwrap();
+    lumen.app_mut().give_lane(AUDIO, target, lane).unwrap();
+    lumen.frames(30);
+    lumen.key(Modifiers::NONE, Key::Space);
+    lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(2));
+    if remove {
+        lumen.app_mut().take_lane_away(AUDIO, target).unwrap();
+    } else {
+        lumen.app_mut().switch_lane(AUDIO, target, false).unwrap();
+    }
+    lumen.frames(60);
+    let knob = at(&lumen, "Gain, parameter");
+    lumen.drag(knob, knob + vec2(0.0, -48.0), Modifiers::NONE);
+    let held = lumen.app().device_params(FX);
+    assert_eq!(held.len(), 1, "{held:?}");
+    assert!(held[0].1 > 0.9, "dragged up: {}", held[0].1);
+    lumen.frames(60);
+    let known = lumen.app().device_param_known(FX, GAIN);
+    assert!(
+        known.is_some_and(|v| v > 0.9),
+        "the plugin has the dragged value: {known:?}"
+    );
+    lumen.key(Modifiers::NONE, Key::Space);
+}
+
+#[test]
+fn a_knob_can_be_dragged_again_once_its_lane_is_switched_off() {
+    lane_then_drag("lane-off-drag", false);
+}
+
+#[test]
+fn a_knob_can_be_dragged_again_once_its_lane_is_removed() {
+    lane_then_drag("lane-removed-drag", true);
+}
+
 /// Types `text` into the focused knob of `label` and confirms with Enter.
 #[track_caller]
 fn type_value(lumen: &mut Lumen, label: &str, text: &str) {

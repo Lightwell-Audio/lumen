@@ -54,6 +54,8 @@ struct FakeHost {
     level: f32,
     /// The followed parameter's points in the block being answered.
     points: Vec<(u32, f64)>,
+    /// How many blocks carried a point of the followed parameter.
+    carried: Option<Arc<AtomicU32>>,
 }
 
 /// Whether the engine hands every fake host its block before it waits for
@@ -114,12 +116,20 @@ impl FakeHost {
             follow: None,
             level: 0.0,
             points: Vec::with_capacity(1024),
+            carried: None,
         })
     }
 
     /// A host that plays the value of parameter `id` as its output.
     fn following(mut self: Box<Self>, id: u32) -> Box<Self> {
         self.follow = Some(id);
+        self
+    }
+
+    /// A host that counts the blocks that carry a point of its followed
+    /// parameter in `count`.
+    fn counting(mut self: Box<Self>, count: Arc<AtomicU32>) -> Box<Self> {
+        self.carried = Some(count);
         self
     }
 
@@ -159,6 +169,11 @@ impl Hosted for FakeHost {
                     self.points.extend_from_slice(params.queue(i).1);
                 }
             }
+        }
+        if let Some(count) = &self.carried
+            && !self.points.is_empty()
+        {
+            count.fetch_add(1, Ordering::Relaxed);
         }
         self.events.clear();
         self.events.extend_from_slice(events);
@@ -917,6 +932,67 @@ fn a_parameter_lane_changes_a_plugin_instruments_parameter_on_its_exact_sample()
         }
         assert!(!status.failed());
     }
+}
+
+#[test]
+fn a_lane_that_is_taken_away_stops_reaching_a_plugin_instrument() {
+    // The owner's report: with the lane off or removed, a parameter could not
+    // be changed, because the instrument was given the lane's last block again
+    // with every block after it.
+    use lumen_core::automation::Shape;
+    use lumen_engine::{AutoLane, AutoPoint, ParamLane};
+    let timeline = Timeline::constant(120.0, Meter::FOUR_FOUR);
+    let lane = ParamLane {
+        param: 4,
+        lane: AutoLane::new(vec![AutoPoint {
+            at: 0,
+            value: 0.5,
+            shape: Shape::Step,
+        }])
+        .unwrap(),
+    };
+    let carried = Arc::new(AtomicU32::new(0));
+    let (spec, status) = hosted(
+        FakeHost::new(Duration::ZERO, false, None)
+            .following(4)
+            .counting(Arc::clone(&carried)),
+    );
+    let held = || {
+        vec![clip(
+            1,
+            Ticks::ZERO,
+            Q(16),
+            vec![note(Ticks::ZERO, Q(16), 60)],
+        )]
+    };
+    let track = MidiTrack::new(1, Target::Instrument, spec, held()).with_automation(vec![lane]);
+    let mut rig = rig(timeline, 48_000, vec![track]);
+    rig.play();
+    let out = rig.run(6_000, 128);
+    assert!(
+        out[3_000..].iter().all(|&s| (s - 0.5).abs() < 1e-6),
+        "the lane holds the parameter"
+    );
+    // The same track again, as the app sends it with the lane gone.
+    assert!(
+        rig.midi
+            .set(vec![MidiTrack::new(
+                1,
+                Target::Instrument,
+                standin(),
+                held()
+            )])
+            .is_ok()
+    );
+    rig.run(1_000, 128);
+    let before = carried.load(Ordering::Relaxed);
+    rig.run(6_000, 128);
+    assert_eq!(
+        carried.load(Ordering::Relaxed),
+        before,
+        "without the lane the instrument is told nothing"
+    );
+    assert!(!status.failed());
 }
 
 #[test]

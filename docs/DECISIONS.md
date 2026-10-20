@@ -7674,6 +7674,21 @@ changed).** Three causes, each with a test that fails without its fix.
 E2E `a_parameter_can_be_changed_again_once_its_lane_is_switched_off` (12 runs in a row
 passed).
 
+**Second amendment, 2026-10-20 (the owner still could not change a parameter after the lane
+was off or removed, with a plugin instrument).** A fourth cause. A plugin instrument keeps the
+parameter block it was last given (`Instrument::automate`), and the engine called `automate`
+only for a track that still had lanes. With the lane switched off or removed the track had
+none, so the instrument was offered the lane's last block with every block after it and the
+lane's value overrode any change, in Lumen's controls and in the plugin's window. The
+engine now says "no parameters" to a hosted instrument every block it has no lane to play
+(lanes gone, or the song not playing; `midi/tracks.rs` `gather_track`, `ParamBlock::none()`,
+which allocates nothing). Engine test `a_lane_that_is_taken_away_stops_reaching_a_plugin_instrument`
+fails without the fix. Effects were not affected (their plan drops the lane). E2E
+`parameters::a_knob_can_be_dragged_again_once_its_lane_is_{switched_off,removed}` cover the
+effect path with a knob drag, playing. Not run with a real plugin: **the owner's recheck of
+MT-AUTO-4 with a plugin instrument is needed**, and the app must be rebuilt (no host change).
+
+
 ## ADR-0085 — Native VST3 hosting on macOS
 
 **Context.** The owner brought macOS VST3 hosting forward on 2026-10-19 and
