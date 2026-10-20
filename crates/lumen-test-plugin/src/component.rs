@@ -8,9 +8,10 @@ use vst3::Steinberg::Vst::{
     Event,
     Event_::EventTypes_::{kNoteOffEvent, kNoteOnEvent},
     IAttributeListTrait, IAudioProcessor, IAudioProcessorTrait, IComponent, IComponentTrait,
-    IEventListTrait, IHostApplication, IHostApplicationTrait, IMessage, IMessageTrait,
-    IParamValueQueueTrait, IParameterChangesTrait, IoMode, MediaType, MediaTypes, MediaTypes_,
-    ProcessData, ProcessSetup, RoutingInfo, SpeakerArr, SpeakerArrangement, SymbolicSampleSizes_,
+    IConnectionPoint, IConnectionPointTrait, IEventListTrait, IHostApplication,
+    IHostApplicationTrait, IMessage, IMessageTrait, IParamValueQueueTrait, IParameterChangesTrait,
+    IoMode, MediaType, MediaTypes, MediaTypes_, ProcessData, ProcessSetup, RoutingInfo, SpeakerArr,
+    SpeakerArrangement, SymbolicSampleSizes_,
 };
 use vst3::Steinberg::{
     FUnknown, IBStream, IPluginBaseTrait, TBool, TUID, kInternalError, kInvalidArgument,
@@ -47,11 +48,12 @@ pub struct Processor {
 }
 
 impl Class for Processor {
-    type Interfaces = (IComponent, IAudioProcessor);
+    type Interfaces = (IComponent, IAudioProcessor, IConnectionPoint);
 }
 
 impl Processor {
     pub fn new(kind: Kind, controller: TUID, faults: Faults) -> Self {
+        faults::lifecycle_reset(&faults);
         Self {
             kind,
             controller,
@@ -123,7 +125,39 @@ impl IPluginBaseTrait for Processor {
     }
 
     unsafe fn terminate(&self) -> tresult {
+        if !faults::lifecycle_has(
+            &self.faults,
+            faults::LIFECYCLE_COMPONENT_CONNECTED
+                | faults::LIFECYCLE_CONTROLLER_CONNECTED
+                | faults::LIFECYCLE_COMPONENT_DISCONNECTED
+                | faults::LIFECYCLE_CONTROLLER_DISCONNECTED,
+        ) {
+            faults::crash();
+        }
+        faults::lifecycle_record(&self.faults, faults::LIFECYCLE_COMPONENT_TERMINATED);
         kResultOk
+    }
+}
+
+impl IConnectionPointTrait for Processor {
+    unsafe fn connect(&self, other: *mut IConnectionPoint) -> tresult {
+        if other.is_null() {
+            return kInvalidArgument;
+        }
+        faults::lifecycle_record(&self.faults, faults::LIFECYCLE_COMPONENT_CONNECTED);
+        kResultOk
+    }
+
+    unsafe fn disconnect(&self, other: *mut IConnectionPoint) -> tresult {
+        if other.is_null() {
+            return kInvalidArgument;
+        }
+        faults::lifecycle_record(&self.faults, faults::LIFECYCLE_COMPONENT_DISCONNECTED);
+        kResultOk
+    }
+
+    unsafe fn notify(&self, _message: *mut IMessage) -> tresult {
+        kNotImplemented
     }
 }
 

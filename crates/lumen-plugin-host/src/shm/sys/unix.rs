@@ -163,6 +163,22 @@ impl Signal {
         unsafe { libc::sem_post(self.sem) };
     }
 
+    /// Worker-only wait for the next block. The owner must post when stopping
+    /// the worker (Stopper does); callback-side deadline waits use `wait`.
+    #[cfg(target_os = "macos")]
+    pub fn wait_for_post(&self) -> io::Result<()> {
+        loop {
+            // SAFETY: this object owns a live named semaphore for the whole wait.
+            if unsafe { libc::sem_wait(self.sem) } == 0 {
+                return Ok(());
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
+
     /// Waits for a post for up to `timeout`; true if one arrived.
     #[cfg(target_os = "linux")]
     pub fn wait(&self, timeout: Duration) -> bool {
@@ -188,8 +204,8 @@ impl Signal {
         }
     }
 
-    /// Without a timed wait (macOS has none), poll with short sleeps. Good
-    /// enough to run the tests; the measurements are for Windows.
+    /// Bounded client-side waits where POSIX has no timed semaphore wait.
+    /// The macOS worker uses `wait_for_post` instead, with Stopper waking it.
     #[cfg(not(target_os = "linux"))]
     pub fn wait(&self, timeout: Duration) -> bool {
         let end = std::time::Instant::now() + timeout;

@@ -115,6 +115,17 @@ impl Track {
             .is_some_and(|l| l.enabled)
     }
 
+    /// The parameters of `device` that lanes drive now.
+    pub fn driven_params(&self, device: Id) -> impl Iterator<Item = u32> + '_ {
+        self.automation
+            .iter()
+            .filter(|l| l.enabled)
+            .filter_map(move |l| match l.target {
+                Target::Device { device: d, param } if d == device => Some(param),
+                _ => None,
+            })
+    }
+
     /// Drops the lanes of devices the track no longer has. Call it after any
     /// edit that takes a device off the track, in the same undo step.
     pub fn prune_device_lanes(&mut self) {

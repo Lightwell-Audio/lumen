@@ -245,3 +245,60 @@ fn a_lane_for_a_plugin_parameter_survives_a_save_and_moves_with_its_device() {
     let back = lumen_project::load(&path).unwrap();
     assert_eq!(back.tracks[0].lane(target), saved.tracks[0].lane(target));
 }
+
+#[test]
+fn a_parameter_can_be_changed_again_once_its_lane_is_switched_off() {
+    // The owner's report (MT-AUTO-4): with a lane off, the plugin's parameter
+    // could no longer be changed. The lane held the gain at −60 dB; the
+    // project's own value for it (and what Lumen last read from the plugin)
+    // was still unity, so setting unity again looked like no change.
+    let song = project(|d| *d = vec![instrument_device(PLUGIN), effect_device(FX)]);
+    let mut lumen = launch("lane-off-change", &song, &["Plug"]);
+    wait_for_state(&mut lumen, PLUGIN, "ready");
+    wait_for_state(&mut lumen, FX, "ready");
+    let target = Target::Device {
+        device: FX,
+        param: LEVEL,
+    };
+    lumen
+        .app_mut()
+        .give_lane(KEYS, target, lane(&[(0, 0.0)]))
+        .unwrap();
+    lumen.frames(5);
+    play(&mut lumen);
+    lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
+    let quiet = (0..4)
+        .map(|_| peak(&mut lumen, 100))
+        .fold(f32::MAX, f32::min);
+    assert!(quiet < 0.005, "the lane holds the gain at −60 dB: {quiet}");
+    let sent = lumen.app().values_sent_to(FX);
+    lumen.app_mut().switch_lane(KEYS, target, false).unwrap();
+    // The value at rest is sent to the plugin again, though Lumen's own idea
+    // of the plugin's value had not changed.
+    lumen.wait_for("the value at rest to be sent", move |app| {
+        app.values_sent_to(FX) > sent
+    });
+    let back = (0..4).map(|_| peak(&mut lumen, 100)).fold(0.0f32, f32::max);
+    assert!(
+        back > 0.01,
+        "switched off, the value at rest is heard: {back}"
+    );
+    // And a new value is taken: first down, then up again.
+    let sent = lumen.app().values_sent_to(FX);
+    lumen.app_mut().set_device_param(FX, LEVEL, 0.0);
+    lumen.wait_for("the new value to be sent", move |app| {
+        app.values_sent_to(FX) > sent
+    });
+    let down = (0..4)
+        .map(|_| peak(&mut lumen, 100))
+        .fold(f32::MAX, f32::min);
+    assert!(down < 0.005, "a new value is taken: {down}");
+    let sent = lumen.app().values_sent_to(FX);
+    lumen.app_mut().set_device_param(FX, LEVEL, UNITY as f64);
+    lumen.wait_for("the next value to be sent", move |app| {
+        app.values_sent_to(FX) > sent
+    });
+    let up = (0..4).map(|_| peak(&mut lumen, 100)).fold(0.0f32, f32::max);
+    assert!(up > 0.01, "and another: {up}");
+    lumen.key(Modifiers::NONE, Key::Space);
+}

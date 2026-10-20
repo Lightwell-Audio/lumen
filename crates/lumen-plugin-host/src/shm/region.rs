@@ -366,7 +366,7 @@ impl Region {
         self.control().quit.0.load(Ordering::Acquire) != 0
     }
 
-    pub fn set_quit(&self) {
+    pub(super) fn set_quit(&self) {
         self.control().quit.0.store(1, Ordering::Release);
     }
 

@@ -34,7 +34,7 @@ use vst3::{ComPtr, ComWrapper, Interface};
 use crate::com::{self, Changes, EventList, Handler, MOST_PENDING, MemoryStream, OutputChanges};
 use crate::module::{AUDIO_CLASS, Module, to_tuid};
 use crate::protocol::{
-    Aux, ClassId, ClassInfo, Edit, EditKind, Event, EventKind, MAX_CHANNELS, MAX_FRAMES,
+    Aux, ClassId, ClassInfo, Edit, EditKind, Event, EventKind, MAX_BUSES, MAX_CHANNELS, MAX_FRAMES,
     MAX_PARAMETERS, MAX_PROGRAM_LISTS, MAX_PROGRAMS, MAX_PROGRAMS_ALL, MAX_STATE, MAX_UNITS,
     ParamInfo, ParamQueue, ProgramList, Taken, UnitInfo,
 };
@@ -175,9 +175,10 @@ pub struct Instance {
     _host: ComPtr<vst3::Steinberg::Vst::IHostApplication>,
 }
 
-/// The most audio buses a plugin may declare each way. Multi-output
-/// instruments declare a handful to a few dozen.
-const MAX_BUSES: usize = 32;
+/// The most buses the VST3 component may declare. Only the first 32 can be
+/// routed by the protocol's u32 auxiliary-bus masks; any later buses are
+/// reported as off and receive safe empty buffers.
+const MAX_DECLARED_BUSES: usize = 128;
 
 /// A bus entry with no channels: what an off bus is given. Its buffer list is
 /// never null: a plugin that walks the list of a bus it has off, without
@@ -305,6 +306,11 @@ impl Instance {
         let most = (format.max_frames as usize).max(1);
         self.now.clear();
         self.handler.drain_to_processor(&mut self.now);
+        // What Lumen set before this block is newer than what earlier blocks
+        // carried; this block's own points, noted next, are newer still.
+        for (id, _) in &self.now {
+            self.for_controller.retain(|(i, _)| i != id);
+        }
         self.note_for_controller(params);
         let mut done = Done {
             status: 0,
@@ -413,8 +419,8 @@ impl Instance {
         // The silence the off buses point at: as long as a block can be.
         self.spare.resize(format.max_frames as usize, 0.0);
         let mut spare_ptrs = [self.spare.as_mut_ptr(); MAX_CHANNELS];
-        let mut in_buses = [empty_bus(spare_ptrs.as_mut_ptr()); MAX_BUSES];
-        let mut out_buses = [empty_bus(spare_ptrs.as_mut_ptr()); MAX_BUSES];
+        let mut in_buses = [empty_bus(spare_ptrs.as_mut_ptr()); MAX_DECLARED_BUSES];
+        let mut out_buses = [empty_bus(spare_ptrs.as_mut_ptr()); MAX_DECLARED_BUSES];
         // A slot's channels lie inside the pointer arrays: `configure` checked
         // the totals against `MAX_CHANNELS`, and the arrays hold that many.
         for slot in &self.in_slots {
@@ -549,8 +555,12 @@ impl Instance {
     pub fn take_heard(&mut self) -> Heard {
         // Copied and cleared, not taken: the list keeps its room, and the
         // audio thread that fills it never allocates.
-        let values = self.for_controller.to_vec();
+        let mut values = self.for_controller.to_vec();
         self.for_controller.clear();
+        // A value Lumen has set since is newer than one that rode in an
+        // earlier block (a lane's last value, after the lane let go): the
+        // controller already has the newer, and the processor will hear it.
+        values.retain(|(id, _)| !self.handler.is_queued(*id));
         Heard {
             values,
             ignored: std::mem::take(&mut self.ignored),
@@ -620,14 +630,30 @@ impl Instance {
 impl Drop for Instance {
     fn drop(&mut self) {
         self.stop();
-        // SAFETY: the end of the plugin's life, in the order the SDK lists.
+        // Disconnect a separate controller before either side terminates.
+        // SAFETY: the interfaces are queried from live component objects and
+        // remain retained through both disconnect calls.
         unsafe {
             if self.separate_controller
-                && let Some(c) = &self.controller
+                && let Some(controller) = &self.controller
+                && let (Some(component_point), Some(controller_point)) = (
+                    self.component
+                        .cast::<vst3::Steinberg::Vst::IConnectionPoint>(),
+                    controller.cast::<vst3::Steinberg::Vst::IConnectionPoint>(),
+                )
             {
-                c.terminate();
+                component_point.disconnect(controller_point.as_ptr());
+                controller_point.disconnect(component_point.as_ptr());
             }
+
+            // Steinberg's PlugProvider disconnects both connection points,
+            // terminates the component, then terminates a separate controller.
             self.component.terminate();
+            if self.separate_controller
+                && let Some(controller) = &self.controller
+            {
+                controller.terminate();
+            }
         }
     }
 }

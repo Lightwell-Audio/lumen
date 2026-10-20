@@ -73,6 +73,79 @@ fn a_bundle_folder_resolves_to_the_binary_inside() {
     std::fs::remove_dir_all(&root).ok();
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_bundle_uses_info_plist_executable_and_requires_bundle_entry() {
+    use lumen_plugin_host::module::binary_path;
+
+    let root = std::env::temp_dir().join(format!("lumen-host-mac-bundle-{}", std::process::id()));
+    let bundle = root.join("Test.vst3");
+    let contents = bundle.join("Contents");
+    let macos = contents.join("MacOS");
+    std::fs::create_dir_all(&macos).unwrap();
+    // A lexically earlier file must not be selected in place of the plist's
+    // executable name.
+    std::fs::write(macos.join("A-decoy"), b"not a module").unwrap();
+    std::fs::copy(
+        plugin().join("Contents/MacOS/lumen_test_plugin"),
+        macos.join("Z-selected"),
+    )
+    .unwrap();
+    std::fs::write(
+        contents.join("Info.plist"),
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict><key>CFBundleExecutable</key><string>Z-selected</string><key>CFBundleIdentifier</key><string>org.lumen.test.bundle</string><key>CFBundlePackageType</key><string>BNDL</string></dict></plist>",
+    )
+    .unwrap();
+
+    assert_eq!(binary_path(&bundle).unwrap(), macos.join("Z-selected"));
+    assert_eq!(
+        Module::load(&bundle).expect("load bundle").classes().len(),
+        4
+    );
+    assert_eq!(
+        Module::load(&macos.join("Z-selected"))
+            .expect("load bare dylib path")
+            .classes()
+            .len(),
+        4
+    );
+
+    let no_executable = root.join("Missing.vst3");
+    std::fs::create_dir_all(no_executable.join("Contents/MacOS")).unwrap();
+    std::fs::write(
+        no_executable.join("Contents/Info.plist"),
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>org.lumen.test.missing</string></dict></plist>",
+    )
+    .unwrap();
+    assert!(matches!(
+        binary_path(&no_executable),
+        Err(ModuleError::NotFound(_))
+    ));
+
+    let invalid = root.join("Invalid.vst3");
+    let invalid_contents = invalid.join("Contents");
+    let invalid_macos = invalid_contents.join("MacOS");
+    std::fs::create_dir_all(&invalid_macos).unwrap();
+    std::fs::write(invalid_macos.join("Invalid"), b"not a Mach-O executable").unwrap();
+    std::fs::write(
+        invalid_contents.join("Info.plist"),
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict><key>CFBundleExecutable</key><string>Invalid</string><key>CFBundleIdentifier</key><string>org.lumen.test.invalid</string><key>CFBundlePackageType</key><string>BNDL</string></dict></plist>",
+    )
+    .unwrap();
+    let Err(ModuleError::Load(message)) = Module::load(&invalid) else {
+        panic!("an invalid executable should report CoreFoundation's load reason");
+    };
+    assert!(
+        message.contains("CoreFoundation could not load"),
+        "{message}"
+    );
+    assert!(
+        !message.contains("CoreFoundation supplied no load error"),
+        "{message}"
+    );
+    std::fs::remove_dir_all(&root).ok();
+}
+
 fn instrument() -> (Module, Instance) {
     let module = Module::load(plugin()).expect("load");
     let instance = Instance::create(&module, None).expect("create");

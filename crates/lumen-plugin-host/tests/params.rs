@@ -187,6 +187,32 @@ fn a_value_that_rode_in_a_block_is_told_to_the_controller_later() {
 }
 
 #[test]
+fn a_value_set_from_lumen_is_not_overwritten_by_an_older_one_that_rode_in_a_block() {
+    // A lane gave the plugin 0.2 in the last block it drove; the user then set
+    // 0.9. The controller has not been told about the lane's value yet, and
+    // when it is, it must not take the older one over the newer: a value set
+    // after a lane lets go would otherwise read back as the lane's, and be
+    // recorded as the user's own edit (owner, MT-AUTO-4).
+    let mut host = instrument("");
+    play(
+        &mut host,
+        vec![ParamQueue {
+            id: LEVEL,
+            points: vec![(0, 0.2)],
+        }],
+    );
+    host.set_param(LEVEL, 0.9, SLOW).unwrap();
+    host.take_edits(SLOW).unwrap();
+    let (_, list) = host.parameters(SLOW).unwrap();
+    assert_eq!(list[0].value, 0.9, "the controller holds the newer value");
+    // The processor heard it too, in its next block.
+    play(&mut host, vec![]);
+    host.take_edits(SLOW).unwrap();
+    let (_, list) = host.parameters(SLOW).unwrap();
+    assert_eq!(list[0].value, 0.9);
+}
+
+#[test]
 fn what_the_processor_reports_comes_as_output_edits() {
     // `reports_params` reports parameter 7 at 0.5 in every block.
     let mut host = instrument("reports_params");

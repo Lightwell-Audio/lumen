@@ -87,6 +87,14 @@ impl Handler {
         }
     }
 
+    /// Whether a value for parameter `id` is waiting for the processor's next
+    /// block: newer than anything the processor heard before it.
+    pub fn is_queued(&self, id: u32) -> bool {
+        self.to_processor
+            .lock()
+            .is_ok_and(|queued| queued.iter().any(|(i, _)| *i == id))
+    }
+
     /// Moves the queued values into `into` (which keeps its room, so a
     /// steady stream of blocks does not allocate).
     pub fn drain_to_processor(&self, into: &mut Vec<(u32, f64)>) {

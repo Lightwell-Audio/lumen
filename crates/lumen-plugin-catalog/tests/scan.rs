@@ -123,6 +123,22 @@ impl Root {
         };
         let binary = self.0.join(format!("{name}.vst3/Contents/{arch}/{file}"));
         std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+        #[cfg(target_os = "macos")]
+        {
+            let info = format!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict><key>CFBundleExecutable</key><string>{name}</string><key>CFBundleIdentifier</key><string>org.lumen.test.{name}</string><key>CFBundlePackageType</key><string>BNDL</string></dict></plist>"
+            );
+            std::fs::write(
+                binary
+                    .parent()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .join("Info.plist"),
+                info,
+            )
+            .unwrap();
+        }
         binary
     }
 

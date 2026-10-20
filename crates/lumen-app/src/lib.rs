@@ -697,6 +697,11 @@ pub fn run() -> eframe::Result {
         crash::install(dir.clone());
     }
     let mut options = eframe::NativeOptions {
+        // Use eframe's terminating desktop loop on macOS. Returning through
+        // another AppKit display cycle after window/accessibility teardown
+        // triggers a Touch Bar KVO exception on affected systems (ADR-0085).
+        // eframe saves, calls on_exit and drops App before ending the process.
+        run_and_return: !cfg!(target_os = "macos"),
         viewport: egui::ViewportBuilder::default()
             .with_title(display_name())
             .with_inner_size([1600.0, 900.0])

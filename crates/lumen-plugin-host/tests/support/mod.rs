@@ -37,9 +37,26 @@ pub fn plugin() -> &'static Path {
         } else {
             "liblumen_test_plugin.so"
         };
-        let path = profile.join(name);
-        assert!(path.is_file(), "{} was not built", path.display());
-        path
+        let library = profile.join(name);
+        assert!(library.is_file(), "{} was not built", library.display());
+        #[cfg(target_os = "macos")]
+        {
+            let bundle = std::env::temp_dir().join(format!(
+                "lumen-host-test-plugin-{}.vst3",
+                std::process::id()
+            ));
+            let contents = bundle.join("Contents");
+            let executable = contents.join("MacOS").join("lumen_test_plugin");
+            std::fs::create_dir_all(executable.parent().unwrap()).unwrap();
+            std::fs::copy(&library, &executable).unwrap();
+            let info = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleExecutable</key><string>lumen_test_plugin</string><key>CFBundleIdentifier</key><string>org.lumen.test-plugin</string><key>CFBundlePackageType</key><string>BNDL</string></dict></plist>";
+            std::fs::write(contents.join("Info.plist"), info).unwrap();
+            bundle
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            library
+        }
     })
 }
 
@@ -104,7 +121,18 @@ pub fn exists(pid: u32) -> bool {
             Err(_) => false,
         }
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    {
+        // `kill(pid, 0)` reports whether the process still exists without
+        // sending it a signal. A process adopted and reaped after its parent
+        // exits stops matching before this returns false.
+        // SAFETY: signal zero only queries whether this PID exists.
+        unsafe {
+            libc::kill(pid as libc::pid_t, 0) == 0
+                || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         let _ = pid;
         false

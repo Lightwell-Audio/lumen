@@ -85,15 +85,20 @@ fn a_window_the_user_closes_is_reported_closed() {
     ));
 }
 
-#[cfg(not(windows))]
 #[test]
-fn a_platform_without_windows_refuses_with_its_reason() {
+fn a_plugin_without_an_editor_is_refused_with_a_reason() {
     let mut manager = manager();
     manager.want(1, instrument("")).unwrap();
     let _linked = linked(&mut manager, 1);
     manager.open_editor(1, None);
     match editor_event(&mut manager) {
-        EditorEvent::Refused(why) => assert!(why.contains("platform"), "{why}"),
+        EditorEvent::Refused(why) => {
+            if cfg!(any(windows, target_os = "macos")) {
+                assert!(why.contains("no editor"), "{why}");
+            } else {
+                assert!(why.contains("platform"), "{why}");
+            }
+        }
         other => panic!("{other:?}"),
     }
 }

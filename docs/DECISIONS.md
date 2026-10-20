@@ -95,7 +95,8 @@ irreversible or external) · *Superseded*.
 | [0081](#adr-0081--automation-lanes-in-the-model-and-the-mixer-m7-slice-a0) | Automation lanes in the model and the mixer (M7 slice A0) | Accepted 2026-10-19 (the owner approved starting A0); MT-AUTO-1 passed (owner, 2026-10-19) | Claude, with the owner's M7 decisions |
 | [0082](#adr-0082--seeing-and-adding-an-automation-lane-m7-slice-a1) | Seeing and adding an automation lane (M7 slice A1) | Accepted 2026-10-19 (merged by the owner; MT-AUTO-2 passed except its release frame numbers) | Claude |
 | [0083](#adr-0083--editing-an-automation-lane-m7-slice-a2) | Editing an automation lane (M7 slice A2) | Accepted 2026-10-20 (MT-AUTO-3 passed, owner); choice 4 (points, not ranges) to be revisited after the core product | Claude |
-| [0084](#adr-0084--plugin-parameter-lanes-m7-slice-a3) | Plugin parameter lanes (M7 slice A3) | Proposed 2026-10-20 (built; MT-AUTO-4 is the owner's) | Claude |
+| [0084](#adr-0084--plugin-parameter-lanes-m7-slice-a3) | Plugin parameter lanes (M7 slice A3) | Accepted 2026-10-20 (MT-AUTO-4 passed, owner; no step detail) | Claude |
+| [0085](#adr-0085--native-vst3-hosting-on-macos) | Native VST3 hosting on macOS | Accepted scope 2026-10-19; verification in progress | Owner approved native workflow |
 
 ---
 
@@ -103,6 +104,7 @@ irreversible or external) · *Superseded*.
 
 | Question | Decision |
 |---|---|
+| Native macOS VST3 hosting (2026-10-19, ADR-0085) | Bring the stretch goal forward now: the full existing workflow, including native editors, for plugins matching the host architecture. Intel bridging remains outside this slice. |
 | Product-neutral documentation (2026-10-14) | Do not use third-party products or vendors as design references, comparisons, endorsements or examples; describe the behavior directly. Preserve technical identifiers, exact protocol requirements, hardware names and required legal attribution. |
 | Lumen's licence (ADR-0039) | GPL-3.0-or-later, open source; the signed packaged binary is sold. Supersedes ADR-0012 (closed source). |
 | ASIO licensing (ADR-0006) | Sign Steinberg's free proprietary ASIO SDK agreement. Owner action; required before any distribution. |
@@ -7650,4 +7652,96 @@ and parameters reached a plugin only over the control channel, with no sample.
   two thousand parameters, a save). Mutation checked: the bridge's skip and the routing's
   plugin lanes each fail their scenarios. A shot, `automation_plugin_chooser` (dark and
   light, 100, 150 and 200%), was looked at.
+
+**Amendment, 2026-10-20 (MT-AUTO-4: after a lane is switched off, the parameter could not be
+changed).** Three causes, each with a test that fails without its fix.
+1. *The plugin's host.* The value of the last block a lane drove stays queued to be told to
+   the plugin's controller. A value set from Lumen after the lane let go reached the
+   controller first and was then overwritten by the older, queued one, so the controller read
+   the lane's value and Lumen recorded that as the user's own edit. A value Lumen has queued
+   or sent since now supersedes older ones noted from blocks (`Instance::take_heard`,
+   `process_into`; `tests/params.rs`).
+2. *The bridge.* While a lane drives a parameter the plugin's value moves and Lumen is not
+   told, so when the lane let go, Lumen's idea of the value was stale: setting the value Lumen
+   believed it had sent nothing, and the plugin stayed at the lane's last value. A parameter
+   a lane lets go of is now treated as unknown and its value at rest is sent
+   (`Parameters::driven`). Refreshed values of a parameter a lane drives are no longer recorded
+   as edits of the project.
+3. *Timing.* The engine's new plan without the lane can reach the audio thread a block after
+   that first send, and until then the lane's value goes with every block over it. The value at
+   rest is sent once more 250 ms later (`RELEASE_AGAIN`), which changes nothing when it was
+   already right.
+E2E `a_parameter_can_be_changed_again_once_its_lane_is_switched_off` (12 runs in a row
+passed).
+
+## ADR-0085 — Native VST3 hosting on macOS
+
+**Context.** The owner brought macOS VST3 hosting forward on 2026-10-19 and
+selected the full native workflow: discovery, isolated instruments/effects,
+state/presets and native editors, using the architecture of the running host.
+The shared host already provides the chain, recovery and parameter plumbing.
+Its macOS path previously skipped bundle initialization and had no editor.
+
+**Options.** Keep macOS at generic parameters only; add native hosting on the
+existing isolated transport; or also bridge Intel-only plugins on Apple
+silicon. The owner chose the second. Reuse the existing application interface.
+
+**Choice.** CoreFoundation resolves `CFBundleExecutable` during discovery
+without loading executable code. In the child process, load the bundle,
+retain its reference for the process lifetime, call the required lowercase
+`bundleEntry(CFBundleRef)`, then request the factory. Bare test libraries keep
+their explicit loader path. Native load errors disclose architecture failures.
+Never unload plugin code; process exit retires the retained module.
+
+An AppKit window and VST3 `NSView` live on each host's main thread. Protocol
+requests wake that thread; visible editors service native events, resize
+callbacks, scale changes and keyboard input. Hidden windows stay attached;
+close detaches the view before clearing its frame. Saved bounds carry DPI and
+are converted to logical points on reopen. Text field editors keep their
+typing; captured MIDI keys release on focus loss, hiding and close.
+
+A synchronously registered `kqueue` process-exit event and a dedicated
+watcher terminate a host after its parent dies, including when plugin code
+hangs. Registration must not block waiting for the first process event.
+
+Installed native instruments exposed a shared host limit: 59 declared audio
+buses were refused even when only the main output was needed. Accommodate up
+to 128 declared buses internally, passing a descriptor for every bus, with
+unused buses disabled and backed by safe silence. Keep the first 32 buses
+routable and the existing 64 active-channel limit; the auxiliary masks and
+wire format stay unchanged. This does not add routing for buses 32 onward.
+
+A plugin window opens in front of Lumen's. The host is an accessory process
+that is not the active application when the window is made, and an inactive
+process's window otherwise opens behind the active application's, so the
+button seemed to do nothing (found by running the app, 2026-10-19). On open
+and show the host activates itself and orders the window front. While the host
+or its parent (Lumen) is the active application the window is at the floating
+level, so clicking Lumen does not bury it; when another application is active
+it returns to the normal level and never floats over other work. This is the
+rule the Windows host follows. The probe could not show it because it checks
+that a window is open, not what is in front of it.
+
+**Consequences.** No project, settings or host protocol format change. Direct
+macOS dependencies are the existing MIT-licensed `objc2` bindings with a
+restricted feature set; existing VST3 legal obligations remain. Intel-only
+plugins require a compatible native binary; bridging, universal application
+packaging and notarization remain outside this slice. The macOS worker blocks
+in `sem_wait` until a request or `Stopper::stop` posts after publishing its
+state. Posts are retained across the check-to-wait race. The quit setter is
+internal so callers cannot request a stop without waking the worker. Bounded
+client-side semaphore waits retain the polling fallback; the application's
+callback deadline behavior is unchanged. Measure timing and idle CPU rather
+than infer them from Windows results. Real-device latency and multi-display
+checks remain manual.
+
+**Evidence.** The first installed-plugin probe reproduced initialization
+crashes. Examining the binaries identified the incorrect uppercase entry
+lookup; calling the standard lowercase export made those instruments load.
+The test plugin now refuses factory creation with `entry_required` unless
+its initializer ran. Metadata selection, initializer failure, editor
+lifecycle/resize/reopen, parent exit and large bus-count regressions accompany
+the implementation. Final commands, measurements and remaining checks are
+recorded in [the slice report](milestones/macOS-VST3.md) and
+[MT-VST-MAC](manual-tests/macOS-VST3.md).
 

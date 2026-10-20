@@ -162,6 +162,15 @@ struct Parameters {
     /// The value a parameter had before the project first held one for it:
     /// what an undone change goes back to.
     base: BTreeMap<u32, f64>,
+    /// The parameters a lane drives now (M7 slice A3): the engine gives the
+    /// plugin their values, so what Lumen knows of them is not the plugin's
+    /// until the lane lets go.
+    driven: std::collections::BTreeSet<u32>,
+    /// Parameters a lane let go of, and when to send each its value at rest
+    /// once more: the engine's plan without the lane can reach the audio
+    /// thread a block after the first send, and until then the lane's value
+    /// goes with every block over it.
+    released: Vec<(u32, std::time::Instant)>,
     /// The values the project held when the host was started.
     started_with: BTreeMap<u32, f64>,
     /// The plugin's own text for a value, last asked for, by parameter.
@@ -390,6 +399,10 @@ fn note_failure(failures: &mut Vec<std::time::Instant>) {
 /// How long what a plugin does inside itself after a state was loaded into it
 /// is taken as the loading.
 const QUIET: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// How long after a lane lets go of a parameter its value at rest is sent
+/// again (M7 slice A3).
+const RELEASE_AGAIN: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// How long after a program was chosen the plugin's answering edits belong to
 /// the choice.

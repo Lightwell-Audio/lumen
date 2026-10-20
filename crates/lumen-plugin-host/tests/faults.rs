@@ -156,15 +156,6 @@ fn state_the_plugin_will_not_read_back_is_found_before_it_is_saved_over_good_sta
 #[test]
 fn a_module_whose_entry_point_says_it_failed_is_a_load_failure_that_says_so() {
     let mut host = spawn("entry_false");
-    if cfg!(target_os = "macos") {
-        // The host does not call a bundle's entry on macOS (it needs
-        // CoreFoundation: KNOWN_ISSUES, "Module entry is incomplete"), so a
-        // module that would refuse there still loads. When the entry is
-        // called, this branch goes and the test is the one below.
-        host.load(plugin(), None, SLOW)
-            .expect("the entry point is not called on macOS yet");
-        return;
-    }
     let err = host.load(plugin(), None, SLOW).unwrap_err();
     match err {
         HostError::Failed {
@@ -174,6 +165,30 @@ fn a_module_whose_entry_point_says_it_failed_is_a_load_failure_that_says_so() {
         other => panic!("{other:?}"),
     }
     assert_eq!(host.ended(), None, "the host reported it and stayed up");
+}
+
+#[test]
+fn separate_controller_is_disconnected_and_terminated_after_the_component() {
+    let mut host = spawn("lifecycle_order");
+    host.load(plugin(), None, SLOW)
+        .expect("load the paired component and controller");
+    assert_eq!(host.quit(SLOW), ExitKind::Clean);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn bundle_entry_runs_before_the_factory() {
+    let mut host = spawn("entry_required");
+    host.load(plugin(), None, SLOW)
+        .expect("bundleEntry must run before GetPluginFactory");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn successful_shutdown_skips_native_module_level_cleanup() {
+    let mut host = spawn("exit_crash");
+    host.load(plugin(), None, SLOW).expect("load");
+    assert_eq!(host.quit(SLOW), ExitKind::Clean);
 }
 
 #[test]

@@ -149,6 +149,21 @@ mod tests {
             let path = self.0.join(relative);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, b"x").unwrap();
+            #[cfg(target_os = "macos")]
+            if path
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == "MacOS")
+                && let Some(bundle) = path
+                    .ancestors()
+                    .find(|ancestor| ancestor.extension().is_some_and(|e| e == "vst3"))
+            {
+                let executable = path.file_name().unwrap().to_string_lossy();
+                let info = format!(
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict><key>CFBundleExecutable</key><string>{executable}</string><key>CFBundleIdentifier</key><string>org.lumen.test-discovery</string></dict></plist>"
+                );
+                std::fs::write(bundle.join("Contents/Info.plist"), info).unwrap();
+            }
             path
         }
 

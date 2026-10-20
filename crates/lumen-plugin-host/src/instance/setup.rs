@@ -171,7 +171,10 @@ impl Instance {
         self.configure_with(format, Aux::default())
     }
 
-    /// The audio buses the plugin declares, inputs then outputs.
+    /// The first routable audio buses the plugin declares, inputs then outputs.
+    /// The VST3 component may internally declare up to `MAX_DECLARED_BUSES`;
+    /// later buses stay inactive because the protocol's auxiliary masks are
+    /// limited to 32 buses.
     pub fn buses(&self) -> (Vec<crate::protocol::BusInfo>, Vec<crate::protocol::BusInfo>) {
         let list = |direction: i32| -> Vec<crate::protocol::BusInfo> {
             // SAFETY: plain calls on a live component with valid out pointers.
@@ -242,9 +245,9 @@ impl Instance {
             self.bus_count(kInput as i32),
             self.bus_count(kOutput as i32),
         );
-        if in_buses > MAX_BUSES || out_buses > MAX_BUSES {
+        if in_buses > MAX_DECLARED_BUSES || out_buses > MAX_DECLARED_BUSES {
             return Err(plugin(format!(
-                "the plugin declares {} audio buses; at most {MAX_BUSES} are supported",
+                "the plugin declares {} audio buses; at most {MAX_DECLARED_BUSES} are supported",
                 in_buses.max(out_buses)
             )));
         }

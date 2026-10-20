@@ -35,9 +35,9 @@ pub fn take_stdout() -> File {
 }
 
 /// A host whose Lumen died must not linger, hung inside a plugin: ask the
-/// kernel to kill this process with its parent. Where the platform has no
-/// such request (Windows uses a job object on the Lumen side), this does
-/// nothing.
+/// kernel to end this process with its parent: a parent-death signal on Linux
+/// and a process-exit event on macOS. Windows uses a job object on the Lumen
+/// side.
 pub fn die_with_parent() {
     #[cfg(target_os = "linux")]
     // SAFETY: a plain prctl call. If the parent is already gone the signal
@@ -46,6 +46,135 @@ pub fn die_with_parent() {
         libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
         if libc::getppid() == 1 {
             libc::_exit(0);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    macos::die_with_parent();
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use std::io;
+    use std::os::fd::FromRawFd;
+    use std::thread;
+
+    /// Darwin has no parent-death signal. A separate thread waits in the
+    /// kernel for the original parent to exit, so a plugin hung on the host's
+    /// main thread cannot keep this process alive.
+    pub(super) fn die_with_parent() {
+        // SAFETY: reads this process's current parent id.
+        let parent = unsafe { libc::getppid() };
+        if parent <= 1 {
+            // SAFETY: a process with no stable parent cannot be monitored.
+            unsafe { libc::_exit(0) };
+        }
+        // Arm the kernel event synchronously before returning to main, which
+        // may load or call plugin code immediately afterward.
+        let queue = match arm_parent(parent) {
+            Ok(queue) => queue,
+            Err(error) => {
+                eprintln!("lumen-host: parent monitor failed: {error}");
+                // SAFETY: do not continue into plugin code without the guard.
+                unsafe { libc::_exit(1) };
+            }
+        };
+        let started = thread::Builder::new()
+            .name("lumen-parent-watch".into())
+            .spawn(move || watch_parent(queue));
+        if let Err(error) = started {
+            eprintln!("lumen-host: could not start parent monitor: {error}");
+            // SAFETY: do not continue into plugin code without the guard.
+            unsafe { libc::_exit(1) };
+        }
+    }
+
+    fn arm_parent(parent: libc::pid_t) -> io::Result<std::fs::File> {
+        // SAFETY: kqueue creates a descriptor that is moved to the watcher.
+        let kq = unsafe { libc::kqueue() };
+        if kq < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: ownership of the new descriptor is transferred to File.
+        let _queue = unsafe { std::fs::File::from_raw_fd(kq) };
+        // SAFETY: reads this process's current parent id.
+        if unsafe { libc::getppid() } != parent {
+            // SAFETY: this host was orphaned before its event was registered.
+            unsafe { libc::_exit(0) };
+        }
+
+        // Register before rechecking getppid: if the parent exited before the
+        // registration, the changed parent id catches that race; if it exits
+        // after the check, EVFILT_PROC reports NOTE_EXIT.
+        let change = libc::kevent {
+            ident: parent as libc::uintptr_t,
+            filter: libc::EVFILT_PROC,
+            flags: libc::EV_ADD | libc::EV_ENABLE,
+            fflags: libc::NOTE_EXIT,
+            data: 0,
+            udata: std::ptr::null_mut(),
+        };
+        // SAFETY: kq is valid and `change` points to one initialized event.
+        let mut registration_event: libc::kevent = unsafe { std::mem::zeroed() };
+        let no_wait = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // A zero timeout collects an immediately-ready exit event or an
+        // EV_ERROR registration result without waiting for the live parent.
+        // SAFETY: live queue, one initialized change and result slot, and a
+        // valid zero timeout so registration cannot wait for the parent's exit.
+        let registered =
+            unsafe { libc::kevent(kq, &change, 1, &mut registration_event, 1, &no_wait) };
+        if registered < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if registered == 1 && registration_event.flags & libc::EV_ERROR != 0 {
+            return Err(io::Error::from_raw_os_error(registration_event.data as i32));
+        }
+        if registered == 1 && registration_event.fflags & libc::NOTE_EXIT != 0 {
+            // SAFETY: the kernel reports that the watched parent has exited.
+            unsafe { libc::_exit(0) };
+        }
+        // SAFETY: reads this process's current parent id.
+        if unsafe { libc::getppid() } != parent {
+            // SAFETY: the parent exited between the first check and the
+            // completed registration; no plugin code has run yet.
+            unsafe { libc::_exit(0) };
+        }
+        Ok(_queue)
+    }
+
+    fn watch_parent(queue: std::fs::File) {
+        use std::os::fd::AsRawFd;
+
+        let kq = queue.as_raw_fd();
+        loop {
+            // SAFETY: zero is a valid initial state for a kevent result slot.
+            let mut event: libc::kevent = unsafe { std::mem::zeroed() };
+            // SAFETY: kq is valid and `event` is a writable result slot.
+            let ready =
+                unsafe { libc::kevent(kq, std::ptr::null(), 0, &mut event, 1, std::ptr::null()) };
+            if ready < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                eprintln!("lumen-host: parent monitor failed: {error}");
+                // SAFETY: stopping the host avoids leaving an orphan.
+                unsafe { libc::_exit(1) };
+            }
+            if ready == 1 && event.fflags & libc::NOTE_EXIT != 0 {
+                // Do not unwind through plugin code or wait for a hung thread.
+                // SAFETY: this is the process-exit notification for the parent.
+                unsafe { libc::_exit(0) };
+            }
+            if ready == 1 && event.flags & libc::EV_ERROR != 0 {
+                let error = io::Error::from_raw_os_error(event.data as i32);
+                eprintln!("lumen-host: parent monitor failed: {error}");
+                // SAFETY: stopping the host avoids leaving an orphan.
+                unsafe { libc::_exit(1) };
+            }
         }
     }
 }

@@ -204,7 +204,10 @@ fn a_panic_leaves_a_crash_report() {
 fn a_failed_allocation_leaves_a_crash_report() {
     let report = crash_report("--crash-test-memory");
     assert!(
-        report.contains("What:     memory allocation of 70368744177664 bytes failed"),
+        report.contains(&format!(
+            "What:     memory allocation of {} bytes failed",
+            isize::MAX
+        )),
         "{report}"
     );
     assert!(report.contains("lumen_app::crash::fail"), "{report}");
@@ -214,7 +217,7 @@ fn a_failed_allocation_leaves_a_crash_report() {
 fn crash_report(flag: &str) -> String {
     let dir = TempDir::new("smoke-crash");
     let crashes = dir.path().join("crashes");
-    let status = Command::new(env!("CARGO_BIN_EXE_lumen"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_lumen"))
         .args(["--audio", "test:fake", flag])
         .arg("--settings")
         .arg(dir.path().join("settings.json"))
@@ -224,8 +227,18 @@ fn crash_report(flag: &str) -> String {
         .arg(&crashes)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
+        .spawn()
         .expect("start lumen");
+    let started = Instant::now();
+    while child.try_wait().expect("poll deliberate crash").is_none() {
+        if started.elapsed() > LIMIT {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("lumen {flag} did not fail within {LIMIT:?}");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let status = child.wait().expect("wait for deliberate crash");
     assert!(!status.success(), "{flag} must end in a crash");
     let reports: Vec<PathBuf> = std::fs::read_dir(&crashes)
         .expect("a crash folder")
