@@ -402,6 +402,29 @@ fn quitting_with_the_audio_path_attached_is_clean() {
     }
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn a_sleeping_worker_wakes_for_a_block_and_for_shutdown() {
+    for wake in [
+        Wake::EVENT,
+        Wake {
+            host: Waiting::Hybrid(Duration::from_micros(150)),
+            lumen: Waiting::Spin,
+        },
+    ] {
+        let mut host = instrument("");
+        let mut link = host.attach(Layout::new(512, 0, 2), wake, SLOW).unwrap();
+        // Past both the hybrid interval and the old 100 ms polling bound:
+        // the worker is waiting in the kernel, rather than still starting.
+        std::thread::sleep(Duration::from_millis(150));
+        link.submit(host.generation(), 64, &[], &[note_on(0, 69)], &[])
+            .unwrap();
+        assert!(matches!(link.wait(soon()), Poll::Done(a) if a.outcome == Outcome::Done));
+        std::thread::sleep(Duration::from_millis(150));
+        assert_eq!(host.quit(SLOW), ExitKind::Clean, "the stop must post too");
+    }
+}
+
 #[test]
 fn a_bad_layout_is_refused_by_the_client_and_the_host_alike() {
     let mut host = instrument("");

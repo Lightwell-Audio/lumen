@@ -9,19 +9,20 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use vst3::Steinberg::Vst::{
     BusDirection, IComponentHandler, IComponentHandler2, IComponentHandler2Trait,
-    IComponentHandlerTrait, IEditController, IEditControllerTrait, IMidiMapping, IMidiMappingTrait,
-    IUnitInfo, IUnitInfoTrait, MediaType, ParameterInfo, ParameterInfo_, ProgramListID,
-    ProgramListInfo, RestartFlags_, String128, TChar, UnitID, UnitInfo,
+    IComponentHandlerTrait, IConnectionPoint, IConnectionPointTrait, IEditController,
+    IEditControllerTrait, IMessage, IMidiMapping, IMidiMappingTrait, IUnitInfo, IUnitInfoTrait,
+    MediaType, ParameterInfo, ParameterInfo_, ProgramListID, ProgramListInfo, RestartFlags_,
+    String128, TChar, UnitID, UnitInfo,
 };
 use vst3::Steinberg::{
-    FUnknown, IBStream, IPlugView, IPluginBaseTrait, int16, int32, kInvalidArgument, kResultFalse,
-    kResultOk, tresult,
+    FUnknown, IBStream, IPlugView, IPluginBaseTrait, int16, int32, kInvalidArgument,
+    kNotImplemented, kResultFalse, kResultOk, tresult,
 };
 use vst3::{Class, ComPtr, ComRef};
 
 use crate::faults::{Faults, Kind as Fault};
 use crate::params::{Kind, LATENCY, LEVEL, WAVE};
-use crate::{state, streams, text};
+use crate::{faults, state, streams, text};
 
 /// How many parameters `bad_params` claims.
 pub const BAD_COUNT: i32 = 4_000_000;
@@ -64,7 +65,7 @@ const VIEW_TAG: [u8; 4] = *b"LTV1";
 pub const EXTRA_GROUPS: u32 = 4;
 
 impl Class for Controller {
-    type Interfaces = (IEditController, IUnitInfo, IMidiMapping);
+    type Interfaces = (IEditController, IUnitInfo, IMidiMapping, IConnectionPoint);
 }
 
 impl Controller {
@@ -131,8 +132,41 @@ impl IPluginBaseTrait for Controller {
     }
 
     unsafe fn terminate(&self) -> tresult {
+        if !faults::lifecycle_has(
+            &self.faults,
+            faults::LIFECYCLE_COMPONENT_CONNECTED
+                | faults::LIFECYCLE_CONTROLLER_CONNECTED
+                | faults::LIFECYCLE_COMPONENT_DISCONNECTED
+                | faults::LIFECYCLE_CONTROLLER_DISCONNECTED
+                | faults::LIFECYCLE_COMPONENT_TERMINATED,
+        ) {
+            faults::crash();
+        }
+        faults::lifecycle_record(&self.faults, faults::LIFECYCLE_CONTROLLER_TERMINATED);
         *self.handler.lock().unwrap_or_else(|e| e.into_inner()) = None;
         kResultOk
+    }
+}
+
+impl IConnectionPointTrait for Controller {
+    unsafe fn connect(&self, other: *mut IConnectionPoint) -> tresult {
+        if other.is_null() {
+            return kInvalidArgument;
+        }
+        faults::lifecycle_record(&self.faults, faults::LIFECYCLE_CONTROLLER_CONNECTED);
+        kResultOk
+    }
+
+    unsafe fn disconnect(&self, other: *mut IConnectionPoint) -> tresult {
+        if other.is_null() {
+            return kInvalidArgument;
+        }
+        faults::lifecycle_record(&self.faults, faults::LIFECYCLE_CONTROLLER_DISCONNECTED);
+        kResultOk
+    }
+
+    unsafe fn notify(&self, _message: *mut IMessage) -> tresult {
+        kNotImplemented
     }
 }
 

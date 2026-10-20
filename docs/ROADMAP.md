@@ -474,6 +474,13 @@ into a numbered milestone only with the owner's approval.
 Added by the owner on 2026-10-06. The M1 scanner and host prototypes are
 Windows-only, so the CI isolation self-test runs on Windows alone.
 
+The owner approved native macOS hosting on 2026-10-19; see the
+[implementation plan](milestones/macOS-VST3.md). Linux hosting, cross-architecture
+bridging, universal application packaging and notarization keep their existing
+scope. The production host's portable isolation tests already run in the
+workspace suite on all three platforms; the legacy prototype self-test is
+separate.
+
 - Module loading: macOS bundles (`CFBundle`, `bundleEntry`/`bundleExit`);
   Linux shared objects (`dlopen`, `ModuleEntry`/`ModuleExit`)
 - Discovery: `Contents/MacOS/` and `Contents/<arch>-linux/`; the standard

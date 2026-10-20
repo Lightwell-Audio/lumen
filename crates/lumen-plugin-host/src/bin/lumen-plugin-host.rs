@@ -4,7 +4,7 @@
 use std::io::{self, BufReader, BufWriter};
 use std::process::ExitCode;
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 use lumen_plugin_host::server::Plain;
 use lumen_plugin_host::server::{Exit, serve_pumped};
 use lumen_plugin_host::{editor, process};
@@ -61,14 +61,21 @@ fn main() -> ExitCode {
     let output = BufWriter::new(protocol);
     #[cfg(windows)]
     let mut pump = editor::win::WindowPump::new();
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    let mut pump = editor::mac::WindowPump::new();
+    #[cfg(not(any(windows, target_os = "macos")))]
     let mut pump = Plain::default();
-    match serve_pumped(input, output, &mut pump, editor::platform()) {
-        Ok(Exit::Quit | Exit::Closed) => ExitCode::SUCCESS,
-        Ok(Exit::Malformed) => ExitCode::from(2),
+    let code = match serve_pumped(input, output, &mut pump, editor::platform()) {
+        Ok(Exit::Quit | Exit::Closed) => 0,
+        Ok(Exit::Malformed) => 2,
         Err(e) => {
             eprintln!("lumen-plugin-host: {e}");
-            ExitCode::from(1)
+            1
         }
-    }
+    };
+    // `serve_pumped` has already detached audio, closed the editor, dropped
+    // the instance, and joined the request reader. End without running native
+    // module-level destructors: VST3 modules stay loaded until process exit,
+    // and their global shutdown code is outside the host's control.
+    process::end_now(code)
 }

@@ -89,7 +89,17 @@ fn add_module(root: &Path, name: &str) {
     };
     let binary = root.join(format!("{name}.vst3/Contents/{arch}/{file}"));
     std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+    #[cfg(target_os = "macos")]
+    std::fs::write(binary.parent().unwrap().join("A-decoy"), b"not a module").unwrap();
     std::fs::copy(&built().0, binary).unwrap();
+    #[cfg(target_os = "macos")]
+    {
+        let contents = root.join(format!("{name}.vst3/Contents"));
+        let info = format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict><key>CFBundleExecutable</key><string>{name}</string><key>CFBundleIdentifier</key><string>org.lumen.test.{name}</string><key>CFBundlePackageType</key><string>BNDL</string></dict></plist>"
+        );
+        std::fs::write(contents.join("Info.plist"), info).unwrap();
+    }
     warm(&root.join(format!("{name}.vst3")));
 }
 

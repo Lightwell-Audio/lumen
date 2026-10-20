@@ -9,7 +9,8 @@
 //! `editor_hang=MS`, stops answering its window's messages `MS` milliseconds
 //! after it is attached, the way a plugin stuck in its own UI code does.
 //!
-//! Windows only. Elsewhere `create` returns no view.
+//! Windows and macOS provide a small native view; elsewhere `create` returns
+//! no view.
 
 use vst3::Steinberg::IPlugView;
 
@@ -26,12 +27,20 @@ pub fn create(faults: &Faults) -> *mut IPlugView {
     {
         windows::create(faults)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        macos::create(faults)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = faults;
         std::ptr::null_mut()
     }
 }
+
+#[cfg(target_os = "macos")]
+#[path = "editor/macos.rs"]
+mod macos;
 
 #[cfg(windows)]
 mod windows {

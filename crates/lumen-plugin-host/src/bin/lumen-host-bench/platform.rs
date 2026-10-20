@@ -130,7 +130,20 @@ mod imp {
         ))
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    pub fn cpu_time(pid: u32) -> Option<Duration> {
+        let pid = libc::pid_t::try_from(pid).ok()?;
+        // SAFETY: a zeroed output record of the requested kernel ABI version.
+        let mut usage: libc::rusage_info_v2 = unsafe { std::mem::zeroed() };
+        // SAFETY: proc_pid_rusage writes one RUSAGE_INFO_V2 record into the
+        // supplied buffer; the API's opaque pointer names the record itself.
+        let result =
+            unsafe { libc::proc_pid_rusage(pid, libc::RUSAGE_INFO_V2, (&raw mut usage).cast()) };
+        (result == 0)
+            .then(|| Duration::from_nanos(usage.ri_user_time.saturating_add(usage.ri_system_time)))
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     pub fn cpu_time(_pid: u32) -> Option<Duration> {
         None
     }
@@ -141,6 +154,18 @@ mod imp {
 }
 
 pub use imp::{Pacer, cpu_time, describe};
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    #[test]
+    fn kernel_cpu_times_are_available_for_a_live_process() {
+        let pid = std::process::id();
+        let before = super::cpu_time(pid).expect("kernel usage of this process");
+        let after = super::cpu_time(pid).expect("kernel usage again");
+        assert!(after >= before);
+        assert_eq!(super::cpu_time(u32::MAX), None);
+    }
+}
 
 /// Threads that keep every core busy, to see how the wake-up behaves when
 /// the machine is not idle. They stop when dropped.

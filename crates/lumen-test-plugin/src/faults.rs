@@ -8,7 +8,10 @@
 //! | `factory_crash` | `GetPluginFactory` writes through a null pointer |
 //! | `factory_hang` | `GetPluginFactory` never returns |
 //! | `prints` | the factory and every process call write a line to the standard output, as a plugin with a stray `printf` does: a host that lets it reach the protocol's pipe is corrupted |
-//! | `entry_false` | the module's entry point (`InitDll`, `ModuleEntry`) returns false: the module says it could not start |
+//! | `entry_false` | the module's entry point (`InitDll`, `ModuleEntry`, `bundleEntry`) returns false: the module says it could not start |
+//! | `entry_required` | `GetPluginFactory` refuses to run until `bundleEntry` has run: verifies macOS module initialization order |
+//! | `lifecycle_order` | a separate controller crashes the host unless both connection points disconnect before component termination, followed by controller termination |
+//! | `exit_crash` | macOS module-level cleanup crashes the process if the dynamic loader runs it on successful host shutdown |
 //! | `process_crash@N` | the Nth process call after activation crashes |
 //! | `process_hang@N` | the Nth process call never returns |
 //! | `process_error@N` | process calls from the Nth on return an error |
@@ -42,9 +45,19 @@
 //!
 //! `@N` counts process calls from 0 and defaults to 0.
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 pub const ENV: &str = "LUMEN_TEST_PLUGIN_FAULT";
+
+pub const LIFECYCLE_COMPONENT_CONNECTED: u32 = 1 << 0;
+pub const LIFECYCLE_CONTROLLER_CONNECTED: u32 = 1 << 1;
+pub const LIFECYCLE_COMPONENT_DISCONNECTED: u32 = 1 << 2;
+pub const LIFECYCLE_CONTROLLER_DISCONNECTED: u32 = 1 << 3;
+pub const LIFECYCLE_COMPONENT_TERMINATED: u32 = 1 << 4;
+pub const LIFECYCLE_CONTROLLER_TERMINATED: u32 = 1 << 5;
+
+static LIFECYCLE: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -55,6 +68,9 @@ pub enum Kind {
     Prints,
     /// The module's entry point reports failure.
     EntryFalse,
+    EntryRequired,
+    LifecycleOrder,
+    ExitCrash,
     ProcessCrash,
     ProcessHang,
     ProcessError,
@@ -118,6 +134,9 @@ impl Faults {
                 "factory_crash" => Kind::FactoryCrash,
                 "factory_hang" => Kind::FactoryHang,
                 "entry_false" => Kind::EntryFalse,
+                "entry_required" => Kind::EntryRequired,
+                "lifecycle_order" => Kind::LifecycleOrder,
+                "exit_crash" => Kind::ExitCrash,
                 "prints" => Kind::Prints,
                 "process_crash" => Kind::ProcessCrash,
                 "process_hang" => Kind::ProcessHang,
@@ -157,8 +176,8 @@ impl Faults {
             if matches!(kind, Kind::StateRefused) && arg.is_none() {
                 return Err(format!("`{entry}`: needs `=count`"));
             }
-            if matches!(kind, Kind::MultiOut) && !arg.is_some_and(|n| (2..=8).contains(&n)) {
-                return Err(format!("`{entry}`: needs `=buses` from 2 to 8"));
+            if matches!(kind, Kind::MultiOut) && !arg.is_some_and(|n| (2..=256).contains(&n)) {
+                return Err(format!("`{entry}`: needs `=buses` from 2 to 256"));
             }
             if matches!(kind, Kind::ManyParams) && arg.is_none() {
                 return Err(format!("`{entry}`: needs `=count`"));
@@ -269,6 +288,22 @@ impl Faults {
             .find(|f| f.kind == Kind::ProcessSlow)
             .map(|f| Duration::from_micros(f.arg))
     }
+}
+
+pub fn lifecycle_reset(faults: &Faults) {
+    if faults.has(Kind::LifecycleOrder) {
+        LIFECYCLE.store(0, Ordering::Relaxed);
+    }
+}
+
+pub fn lifecycle_record(faults: &Faults, event: u32) {
+    if faults.has(Kind::LifecycleOrder) {
+        LIFECYCLE.fetch_or(event, Ordering::Relaxed);
+    }
+}
+
+pub fn lifecycle_has(faults: &Faults, events: u32) -> bool {
+    !faults.has(Kind::LifecycleOrder) || LIFECYCLE.load(Ordering::Relaxed) & events == events
 }
 
 /// Crashes the way a plugin with a wild pointer does.

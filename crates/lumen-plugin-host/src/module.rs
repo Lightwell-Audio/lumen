@@ -3,7 +3,8 @@
 //! A module is a shared library with a `GetPluginFactory` export. On
 //! Windows it is a `.vst3` file (or a folder holding one under
 //! `Contents/x86_64-win`); on Linux a bundle folder holding a `.so` under
-//! `Contents/x86_64-linux`. A path to the shared library itself also works.
+//! `Contents/x86_64-linux`; on macOS a bundle whose `Info.plist` names its
+//! executable. A path to the shared library itself also works.
 //!
 //! Modules are never unloaded: some plugins crash on unload, and the host
 //! process owns the module until it exits.
@@ -21,6 +22,10 @@ use vst3::Steinberg::{
 use crate::protocol::{ClassId, ClassInfo, MAX_CLASSES};
 use crate::scan::{ScanClass, ScanReport};
 
+#[cfg(target_os = "macos")]
+#[path = "module/macos.rs"]
+mod macos;
+
 #[derive(Debug)]
 pub enum ModuleError {
     /// No module binary at the path.
@@ -31,6 +36,8 @@ pub enum ModuleError {
     NoFactory,
     /// `GetPluginFactory` returned nothing.
     EmptyFactory,
+    /// A macOS VST3 bundle did not export the required `bundleEntry`.
+    NoBundleEntry,
     /// The module's entry point (`InitDll`, `ModuleEntry`) returned false:
     /// the module says it could not start.
     EntryFailed,
@@ -55,6 +62,7 @@ impl fmt::Display for ModuleError {
             ModuleError::Load(e) => write!(f, "could not load the module: {e}"),
             ModuleError::NoFactory => write!(f, "the library has no GetPluginFactory export"),
             ModuleError::EmptyFactory => write!(f, "GetPluginFactory returned no factory"),
+            ModuleError::NoBundleEntry => write!(f, "the bundle has no bundleEntry export"),
             ModuleError::EntryFailed => write!(f, "the module's entry point reported failure"),
             ModuleError::Unsupported(what) => write!(f, "{what}"),
         }
@@ -66,7 +74,14 @@ impl std::error::Error for ModuleError {}
 pub struct Module {
     pub(crate) factory: ComPtr<IPluginFactory>,
     // Held so the library is never unloaded (see the module docs).
+    #[cfg(not(target_os = "macos"))]
     _library: &'static libloading::Library,
+    // CoreFoundation owns the executable and its CFBundleRef for the same
+    // process lifetime. VST3 modules are intentionally never unloaded.
+    #[cfg(target_os = "macos")]
+    _library: Option<&'static libloading::Library>,
+    #[cfg(target_os = "macos")]
+    _bundle: Option<&'static macos::Bundle>,
 }
 
 /// Where the binary is: the path itself, or inside a bundle folder.
@@ -80,7 +95,15 @@ pub fn binary_path(path: &Path) -> Result<PathBuf, ModuleError> {
         } else if cfg!(target_os = "linux") {
             ("x86_64-linux", "so")
         } else {
-            ("MacOS", "")
+            #[cfg(target_os = "macos")]
+            {
+                return macos::executable_path(path)
+                    .map_err(|_| ModuleError::NotFound(path.to_path_buf()));
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                ("MacOS", "")
+            }
         };
         let inside = path.join("Contents").join(arch);
         if let Ok(entries) = std::fs::read_dir(&inside) {
@@ -137,56 +160,102 @@ fn text(buf: &[c_char]) -> String {
 impl Module {
     pub fn load(path: &Path) -> Result<Self, ModuleError> {
         let binary = binary_path(path)?;
-        // Leaked on purpose: the module is never unloaded.
-        let (library, handle) = open(&binary)?;
-        let library: &'static libloading::Library = Box::leak(Box::new(library));
-
-        // The module's entry point, where the platform has one.
-        #[cfg(windows)]
-        {
-            // SAFETY: the VST3 entry signature `bool InitDll()`.
-            let init = unsafe { library.get::<unsafe extern "system" fn() -> bool>(b"InitDll\0") };
-            if let Ok(init) = init {
-                // SAFETY: calling the plugin's own initialiser once.
-                if !unsafe { init() } {
-                    return Err(ModuleError::EntryFailed);
-                }
-            }
-        }
-        #[cfg(target_os = "linux")]
-        {
-            // SAFETY: the VST3 entry signature `bool ModuleEntry(void* handle)`.
-            if let Ok(entry) = unsafe {
-                library.get::<unsafe extern "C" fn(*mut c_void) -> bool>(b"ModuleEntry\0")
-            } {
-                // SAFETY: calling the plugin's own initialiser once, with the
-                // handle it was loaded by.
-                if !unsafe { entry(handle) } {
-                    return Err(ModuleError::EntryFailed);
-                }
-            }
-        }
-        #[cfg(not(target_os = "linux"))]
-        let _ = handle;
         #[cfg(target_os = "macos")]
         {
-            // A bundle's entry takes a CFBundleRef, which needs CoreFoundation.
-            // Hosting on macOS is a stretch goal (M6.md); the factory export
-            // is called without it.
+            if path.is_dir() {
+                // Create and load the bundle itself, then pass its live reference
+                // to bundleEntry before asking it for the factory. The bundle is
+                // leaked intentionally to match the host's never-unload policy.
+                let bundle = Box::leak(Box::new(macos::Bundle::load(path)?));
+                bundle.call_entry()?;
+                let get_factory = bundle
+                    .function(b"GetPluginFactory\0")
+                    .ok_or(ModuleError::NoFactory)?;
+                // SAFETY: the VST3 factory export has this signature.
+                let get_factory = unsafe {
+                    std::mem::transmute::<
+                        *mut c_void,
+                        unsafe extern "system" fn() -> *mut IPluginFactory,
+                    >(get_factory)
+                };
+                // SAFETY: the plugin returns an owned reference or null.
+                let factory =
+                    unsafe { ComPtr::from_raw(get_factory()) }.ok_or(ModuleError::EmptyFactory)?;
+                return Ok(Self {
+                    factory,
+                    _library: None,
+                    _bundle: Some(bundle),
+                });
+            }
+            // A bare dylib remains useful for tests and explicit paths. It
+            // has no CFBundleRef, so load it with the OS loader as before.
+            let (library, _) = open(&binary)?;
+            let library: &'static libloading::Library = Box::leak(Box::new(library));
+            // SAFETY: the VST3 factory export has this signature.
+            let get_factory = unsafe {
+                library.get::<unsafe extern "system" fn() -> *mut IPluginFactory>(
+                    b"GetPluginFactory\0",
+                )
+            }
+            .map_err(|_| ModuleError::NoFactory)?;
+            // SAFETY: the plugin returns an owned reference or null.
+            let factory =
+                unsafe { ComPtr::from_raw(get_factory()) }.ok_or(ModuleError::EmptyFactory)?;
+            Ok(Self {
+                factory,
+                _library: Some(library),
+                _bundle: None,
+            })
         }
+        #[cfg(not(target_os = "macos"))]
+        {
+            // Leaked on purpose: the module is never unloaded.
+            let (library, handle) = open(&binary)?;
+            let library: &'static libloading::Library = Box::leak(Box::new(library));
 
-        // SAFETY: the VST3 factory export signature.
-        let get_factory = unsafe {
-            library.get::<unsafe extern "system" fn() -> *mut IPluginFactory>(b"GetPluginFactory\0")
+            // The module's entry point, where the platform has one.
+            #[cfg(windows)]
+            {
+                // SAFETY: the VST3 entry signature `bool InitDll()`.
+                let init =
+                    unsafe { library.get::<unsafe extern "system" fn() -> bool>(b"InitDll\0") };
+                if let Ok(init) = init {
+                    // SAFETY: calling the plugin's own initialiser once.
+                    if !unsafe { init() } {
+                        return Err(ModuleError::EntryFailed);
+                    }
+                }
+            }
+            #[cfg(target_os = "linux")]
+            {
+                // SAFETY: the VST3 entry signature `bool ModuleEntry(void* handle)`.
+                if let Ok(entry) = unsafe {
+                    library.get::<unsafe extern "C" fn(*mut c_void) -> bool>(b"ModuleEntry\0")
+                } {
+                    // SAFETY: calling the plugin's own initialiser once, with the
+                    // handle it was loaded by.
+                    if !unsafe { entry(handle) } {
+                        return Err(ModuleError::EntryFailed);
+                    }
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            let _ = handle;
+            // SAFETY: the VST3 factory export signature.
+            let get_factory = unsafe {
+                library.get::<unsafe extern "system" fn() -> *mut IPluginFactory>(
+                    b"GetPluginFactory\0",
+                )
+            }
+            .map_err(|_| ModuleError::NoFactory)?;
+            // SAFETY: returns an owned reference or null.
+            let factory =
+                unsafe { ComPtr::from_raw(get_factory()) }.ok_or(ModuleError::EmptyFactory)?;
+            Ok(Self {
+                factory,
+                _library: library,
+            })
         }
-        .map_err(|_| ModuleError::NoFactory)?;
-        // SAFETY: returns an owned reference or null.
-        let factory =
-            unsafe { ComPtr::from_raw(get_factory()) }.ok_or(ModuleError::EmptyFactory)?;
-        Ok(Self {
-            factory,
-            _library: library,
-        })
     }
 
     /// Every class the factory offers, capped at [`MAX_CLASSES`].
