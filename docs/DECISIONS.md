@@ -7536,7 +7536,7 @@ here for the check in MT-AUTO-3. Every one is a small, reversible change.
 
 **Consequences.**
 - 22 unit tests for the pure edits (including a property test that a stroke never leaves
-  its tolerance), 10 for the state, the scale's resting places and the bend dot, and 19 E2E
+  its tolerance), unit tests for the state, the scale's resting places and the bend dot, and 19 E2E
   scenarios in `tests/e2e/lane_edit.rs`: box, Shift, moving together, the block held
   against a neighbour, keys on every pick, copy, paste and duplicate, the refused kind,
   resting places, the pencil, the five shapes, the strip, the segment commands, the bend
@@ -7547,6 +7547,10 @@ here for the check in MT-AUTO-3. Every one is a small, reversible change.
 - `lane_overlay` takes a `Scene` (the canvas, the view, the pending lists, the timeline).
 - A point at the very start of the song sits on the lane's left edge, and a press exactly
   on the edge misses it (KNOWN_ISSUES).
-- Not run: the WSL gate and the Linux/macOS runs of the Windows-only parts, the release
-  frame benchmark with lanes (still due from A1), RealtimeSanitizer (no audio-path change
-  in this slice).
+- Gates run (Linux cloud container, 2026-10-19/20): fmt, workspace clippy, the workspace
+  tests (2,375 passed; `lumen-hosting`'s fault soak failed once under the load of the
+  parallel runs and passes alone, as the known timing-sensitive tests do), the 6 smoke
+  tests under `xvfb-run`, macOS cross-clippy. Not run: the Windows cross-clippy, the WSL
+  performance gate (no engine or format change; the new module is pure), the release frame
+  benchmark with lanes (still due from A1), RealtimeSanitizer (no audio-path change in this
+  slice), any run on Windows or macOS.
