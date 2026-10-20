@@ -2,7 +2,9 @@
 
 use std::io;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+#[cfg(not(target_os = "macos"))]
+use std::time::Duration;
+use std::time::Instant;
 
 use super::region::{Answer, Layout, Region};
 use super::sys::{Names, Signal};
@@ -10,6 +12,7 @@ use super::{Waiting, Wake};
 
 /// How long a wait on the signal lasts before the loop looks at the quit flag
 /// again. Only a bound on how long a quit goes unnoticed.
+#[cfg(not(target_os = "macos"))]
 const LOOK: Duration = Duration::from_millis(100);
 
 pub enum Next {
@@ -86,17 +89,31 @@ impl HostLink {
             match self.wake.host {
                 Waiting::Spin => std::hint::spin_loop(),
                 Waiting::Event => {
-                    self.go.wait(LOOK);
+                    self.wait_for_request();
                 }
                 Waiting::Hybrid(spin) => {
                     if entered.elapsed() < spin {
                         std::hint::spin_loop();
                     } else {
-                        self.go.wait(LOOK);
+                        self.wait_for_request();
                     }
                 }
             }
         }
+    }
+
+    fn wait_for_request(&self) {
+        #[cfg(target_os = "macos")]
+        {
+            // Requests and Stopper both post after publishing their state.
+            // Parent death is independently covered by the process watcher.
+            if self.go.wait_for_post().is_err() {
+                crate::process::log("the worker's semaphore wait failed");
+                crate::process::end_now(1);
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        self.go.wait(LOOK);
     }
 
     /// Publishes the answer and wakes Lumen if it is waiting on a signal.
