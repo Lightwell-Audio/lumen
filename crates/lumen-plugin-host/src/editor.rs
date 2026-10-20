@@ -17,6 +17,8 @@ use vst3::Steinberg::IPlugView;
 
 use crate::protocol::{EditorBounds, EditorStatus, Response};
 
+#[cfg(target_os = "macos")]
+pub mod mac;
 #[cfg(windows)]
 pub mod win;
 
@@ -68,8 +70,8 @@ pub trait Editors {
     fn set_notify(&mut self, _notify: Notify) {}
 }
 
-/// The editors of this platform: windows on Windows, the stand-in when asked
-/// for, else none.
+/// The editors of this platform: native windows on Windows and macOS, the
+/// stand-in when asked for, else none.
 pub fn platform() -> Box<dyn Editors> {
     if let Ok(setting) = std::env::var(HEADLESS_VAR)
         && !setting.is_empty()
@@ -80,7 +82,11 @@ pub fn platform() -> Box<dyn Editors> {
     {
         Box::new(win::Windows)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        Box::new(mac::MacEditors::default())
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         Box::new(Unavailable)
     }

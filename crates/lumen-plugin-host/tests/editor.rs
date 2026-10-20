@@ -101,7 +101,7 @@ fn a_window_the_user_closed_reads_as_closed() {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 #[test]
 fn without_windows_the_host_says_there_is_no_editor_here() {
     let mut host = HostProcess::spawn(Path::new(HOST), &[(FAULT, "")]).expect("start the host");
@@ -114,6 +114,45 @@ fn without_windows_the_host_says_there_is_no_editor_here() {
         other => panic!("{other:?}"),
     }
     assert!(!host.editor_status(SLOW).unwrap().open);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_editor_view_attaches_resizes_hides_and_closes() {
+    let mut host =
+        HostProcess::spawn(Path::new(HOST), &[(FAULT, "editor")]).expect("start the host");
+    host.load(plugin(), None, SLOW).expect("load");
+    host.configure(48_000.0, 512, 0, 2, SLOW)
+        .expect("configure");
+    let opened = host.open_editor(None, SLOW).expect("attach native NSView");
+    assert!(opened.open && opened.visible);
+    let bounds = opened.bounds.expect("native window bounds");
+    let scale = f64::from(bounds.dpi) / 72.0;
+    assert_eq!((f64::from(bounds.width) / scale).round() as i32, 360);
+    assert_eq!((f64::from(bounds.height) / scale).round() as i32, 230);
+    let hidden = host.show_editor(false, SLOW).expect("hide native window");
+    assert!(
+        hidden.open && !hidden.visible,
+        "hiding keeps the plugin view attached"
+    );
+    let shown = host.show_editor(true, SLOW).expect("show native window");
+    assert!(shown.open && shown.visible);
+    let closed = host.close_editor(SLOW).expect("detach native NSView");
+    assert!(!closed.open && !closed.visible);
+    let reopened = host
+        .open_editor(closed.bounds, SLOW)
+        .expect("reopen at saved Retina-aware size");
+    let reopened_bounds = reopened.bounds.expect("restored window bounds");
+    let scale = f64::from(reopened_bounds.dpi) / 72.0;
+    assert_eq!(
+        (f64::from(reopened_bounds.width) / scale).round() as i32,
+        360
+    );
+    assert_eq!(
+        (f64::from(reopened_bounds.height) / scale).round() as i32,
+        230
+    );
+    host.close_editor(SLOW).expect("close restored view");
 }
 
 #[test]
