@@ -60,7 +60,12 @@ pub struct Lanes {
     dirty: bool,
     /// The project state the engine's MIDI tracks were built from, and
     /// whether they need sending again (M5 slice 1).
-    midi_built: Option<(u64, crate::midi_play::Inputs, u32)>,
+    midi_built: Option<(
+        u64,
+        crate::midi_play::Inputs,
+        u32,
+        crate::document::Overrides,
+    )>,
     midi_dirty: bool,
     midi_cache: crate::midi_play::Cache,
     /// The MIDI outputs tracks name, by the numbers the engine uses.
@@ -310,12 +315,12 @@ impl Lanes {
         // Sent again when the project, the selection or the inputs change
         // (which tracks listen to what), never every frame.
         // The lanes of plugin instruments are baked for the device's rate.
-        let midi_wanted = (doc.state(), inputs, rate);
+        let midi_wanted = (doc.state(), inputs, rate, &self.devices.overridden);
         if self.midi_dirty
             || self
                 .midi_built
                 .as_ref()
-                .is_none_or(|(s, i, r)| (*s, i, *r) != midi_wanted)
+                .is_none_or(|(s, i, r, o)| (*s, i, *r, o) != midi_wanted)
         {
             let mut tracks = crate::midi_play::engine_midi_with(
                 doc.project(),
@@ -324,7 +329,12 @@ impl Lanes {
                 &mut self.midi_cache,
                 hosting,
             );
-            crate::midi_play::with_lanes(&mut tracks, doc.project(), rate);
+            crate::midi_play::with_lanes(
+                &mut tracks,
+                doc.project(),
+                &self.devices.overridden,
+                rate,
+            );
             self.midi_dirty = match midi.set(tracks) {
                 Ok(()) => false,
                 // Full: a plugin instrument in the list is kept for the
@@ -334,7 +344,12 @@ impl Lanes {
                     true
                 }
             };
-            self.midi_built = Some((doc.state(), inputs.clone(), rate));
+            self.midi_built = Some((
+                doc.state(),
+                inputs.clone(),
+                rate,
+                self.devices.overridden.clone(),
+            ));
         }
         // The routing follows the clips, never ahead of them: a deleted
         // track's clips fade out while its node is still there, and a new

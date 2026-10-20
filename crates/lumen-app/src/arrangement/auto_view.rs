@@ -308,7 +308,8 @@ impl Arrangement {
                 view,
             };
             let entry = track.lane(target);
-            self.draw_lane(&painter, &frame, track, target, entry);
+            let taken = doc.overrides().contains(track.id, target);
+            self.draw_lane(&painter, &frame, (track, target, entry), taken);
             self.draw_marks(&painter, &frame, id, target, entry);
             if let Some(chip) = self.lane_chip(ui, doc, &visible, &frame, track, target) {
                 self.lane_tools(ui, &frame, chip, &track.name);
@@ -325,13 +326,12 @@ impl Arrangement {
         &self,
         painter: &Painter,
         frame: &Frame,
-        track: &Track,
-        target: Target,
-        entry: Option<&AutomationLane>,
+        (track, target, entry): (&Track, Target, Option<&AutomationLane>),
+        taken: bool,
     ) {
         let palette = *theme::p();
         let rect = frame.row;
-        let on = entry.is_none_or(|e| e.enabled);
+        let on = entry.is_none_or(|e| e.enabled) && !taken;
         let ink = if on {
             palette.accent
         } else {
@@ -355,11 +355,32 @@ impl Arrangement {
             return;
         };
         let line = polyline(frame, target, &entry.lane, (canvas_x.min, canvas_x.max));
-        if line.len() >= 2 {
-            painter.add(egui::Shape::line(
-                line,
-                Stroke::new(theme::stroke::LIT, ink),
+        // A lane taken over is not being heard: its curve dashes, and an amber
+        // dotted line across it marks the value the control holds instead
+        // (M7 slice A4a, the owner's look A).
+        if taken {
+            let own = frame.y(target, scale::own_value(track, target));
+            painter.extend(egui::Shape::dashed_line(
+                &[pos2(canvas_x.min, own), pos2(canvas_x.max, own)],
+                Stroke::new(theme::stroke::LIT, palette.warning),
+                2.0,
+                3.0,
             ));
+        }
+        if line.len() >= 2 {
+            if taken {
+                painter.extend(egui::Shape::dashed_line(
+                    &line,
+                    Stroke::new(theme::stroke::LIT, ink),
+                    6.0,
+                    5.0,
+                ));
+            } else {
+                painter.add(egui::Shape::line(
+                    line,
+                    Stroke::new(theme::stroke::LIT, ink),
+                ));
+            }
         }
         let points = entry.lane.points();
         let first = points.partition_point(|p| frame.x(p.at) < canvas_x.min - 8.0);
@@ -397,8 +418,12 @@ impl Arrangement {
         let project = doc.project();
         let entry = track.lane(target);
         let mut text = self.auto.name_of(project, target);
+        let base = text.clone();
+        let taken = doc.overrides().contains(track.id, target);
         if entry.is_some_and(|e| !e.enabled) {
             text.push_str(" \u{00B7} off");
+        } else if taken {
+            text.push_str(" \u{00B7} Overridden");
         }
         let width = (ui
             .painter()
@@ -437,6 +462,20 @@ impl Arrangement {
             ui.set_min_width(theme::size::AUTO_MENU);
             self.lane_menu(ui, doc, track.id, target);
         });
+        if !taken {
+            return Some(chip);
+        }
+        // Taken over (look A): an amber outline, and the way back beside it.
+        super::follow::ring(ui, chip);
+        let button = Rect::from_min_size(
+            pos2(chip.right() + theme::space::S, chip.top()),
+            egui::vec2(theme::size::AUTO_REENABLE, chip.height()),
+        )
+        .round_to_pixels(ui.pixels_per_point());
+        if visible.contains_rect(button) {
+            self.reenable_button(ui, doc, button, (track, target), &base);
+            return Some(chip.union(button));
+        }
         Some(chip)
     }
 

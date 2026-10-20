@@ -97,6 +97,7 @@ irreversible or external) · *Superseded*.
 | [0083](#adr-0083--editing-an-automation-lane-m7-slice-a2) | Editing an automation lane (M7 slice A2) | Accepted 2026-10-20 (MT-AUTO-3 passed, owner); choice 4 (points, not ranges) to be revisited after the core product | Claude |
 | [0084](#adr-0084--plugin-parameter-lanes-m7-slice-a3) | Plugin parameter lanes (M7 slice A3) | Accepted 2026-10-20 (MT-AUTO-4 passed, owner; no step detail) | Claude |
 | [0085](#adr-0085--native-vst3-hosting-on-macos) | Native VST3 hosting on macOS | Accepted scope 2026-10-19; verification in progress | Owner approved native workflow |
+| [0086](#adr-0086--controls-that-follow-a-lane-and-taking-a-lane-over-m7-slice-a4a) | Controls that follow a lane, and taking a lane over (M7 slice A4a) | Proposed 2026-10-20 (MT-AUTO-5 waits for the owner) | Claude |
 
 ---
 
@@ -7760,3 +7761,76 @@ the implementation. Final commands, measurements and remaining checks are
 recorded in [the slice report](milestones/macOS-VST3.md) and
 [MT-VST-MAC](manual-tests/macOS-VST3.md).
 
+
+
+## ADR-0086 — Controls that follow a lane, and taking a lane over (M7 slice A4a)
+
+**Context.** A0 to A3 made lanes play, drew them, edited them and let them drive plugin
+parameters. Two things were left open, both about the controls a lane drives: a fader whose
+lane plays did not move with it (D5), and moving one did nothing audible (a mixer value) or was
+put back at the next block (a plugin parameter). The owner split A4 in two on 2026-10-20: this
+slice is following and overriding; recording (Read, Write, Touch, Latch) is A4b.
+
+**Decisions.**
+1. **A control shows the lane's value at the playhead** (D5) when the lane plays (on, and not
+   taken over), stopped or playing: `AutoView::following` asks `Lane::value_at` with the
+   playhead the app sets each frame (`arrangement.auto.at`), never the engine. Every control
+   a lane can drive reads through `Arrangement::shown`: the header's volume and pan, the strip's
+   fader, value box, pan and trim, the send knobs, the M button (a mute lane's value from one
+   half up), the master's M, the device card's strip and the All parameters window
+   (`App::parameter_value`). A control reports a change only against the value it showed, so
+   touching without moving takes nothing over.
+2. **Moving a control takes its lane over** (D7). `Overrides` (`document/overrides.rs`) is a set
+   of (track, target) kept in the `Document` beside, not in, the history: it is session state, not
+   saved, not an undo step, and a new document starts empty. The setters a person's move reaches
+   (`set_volume`, `set_pan`, `set_trim`, `set_send`, `set_mute`) call `override_lane`; the plugin
+   controls do at their call sites (the card's strip, the panel, a typed value, a gesture in the
+   plugin's own window: `override_param`). A program or a patch the user chose goes through the same
+   edit but does not take a lane over (it is not the user moving that control). A lane that is off
+   or absent is never taken over.
+3. **A taken-over lane plays nothing.** It is not a change to the project: `Overrides::plays` is
+   the one rule, read by `routing::automation` and `mute_lane` (the engine's lanes), by
+   `lane_bake::device_lanes` (a plugin effect's and a plugin instrument's lanes) and by the
+   hosting bridge (`Hosting::set_overridden`: a parameter whose lane is taken over is no longer
+   "driven", so the project's value at rest, the user's, reaches the plugin as it does when a lane
+   is switched off, ADR-0084 amendments). The routing and the MIDI list are rebuilt when the set
+   changes (it is part of `routing::Devices`, the key of the routing, and of the MIDI list's key). No
+   engine change: the lane is simply not in the plan, as when it is off.
+4. **A lane's end is the override's end.** Editing a lane (it was already switched on by an edit),
+   switching it off or on, and removing it all clear its override; so does Re-enable. A mute lane
+   taken over leaves the track's own switch to decide, solo included, which settles the A0 known
+   issue for that case.
+5. **Re-enable.** The chip's button, the command `edit.automation_reenable` (Ctrl+Shift+R, the
+   shown lane) and `edit.automation_reenable_all`. One click, not an undo step.
+6. **The look is the owner's A** (chosen from rendered specimens, 2026-10-20): an amber ring on the
+   control moved (slider, field, knob, M), the track's A button filled amber while any of its lanes
+   is taken over, the chip outlined amber and reading "Name · Overridden" with a filled amber
+   **Re-enable** button beside it, the curve and its points dashed in grey, and a dotted amber line
+   across the lane at the control's own value. The dotted marker on the fader that showed where
+   the lane is (look B) was offered as an addition and not chosen, so it is not built.
+
+**Deviations from the plan, for the owner's information.**
+- The All parameters window's bars follow the lane but carry no ring; the master and the returns
+  have no lane view, so no chip and no Re-enable button (the command gives the lane back):
+  both in KNOWN_ISSUES.
+- Controls follow the playhead the transport reports, not a value read back from the plugin.
+
+**Consequences.**
+- No format change (still v22), no engine change, no host change; ADR-0084's choice 6 now ends
+  with the override ("a knob moved under an enabled lane does nothing audible" is gone, and so is
+  the put-back of a parameter moved in the plugin's window).
+- `Command` and `ALL` end with `AutomationReenable` and `AutomationReenableAll`; new token
+  `size::AUTO_REENABLE`; new test seams `lane_taken_over`, `take_over_lane`, `reenable_lane`,
+  `set_track_volume`, `set_device_param_at_rest` (a value set without moving a control).
+- Tests: 8 unit tests for `Overrides` and `follow`; a routing test (volume, mute and plugin lanes
+  taken over, then back), a MIDI-list test and a plugin-edit test (a gesture takes a lane over, a
+  program does not); 6 E2E scenarios in `tests/e2e/lane_override.rs` that read the fader at the
+  playhead and listen (taking a lane over, then back) and a seventh in `plugin_lanes.rs`; one E2E of
+  A3 was rewritten (its knob move is now a take-over). Mutation checked: ignoring the override in
+  the bridge, in the routing rule, or in the fader's setter each fails a test. A shot,
+  `automation_override` (dark and light, 100, 150 and 200%), was looked at.
+- Gates run on Windows: fmt, workspace clippy, the workspace tests (all pass except one fixture
+  check that fails only because of an unrelated uncommitted edit to the demo project file in the
+  working tree; it passes against the committed file), 6 smoke tests, macOS cross-clippy. **Not
+  run:** the Linux (WSL) mirror and the performance gate (no engine or project crate changed),
+  RealtimeSanitizer, macOS runs, any real plugin; **MT-AUTO-5 is the owner's**.

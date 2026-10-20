@@ -2882,6 +2882,60 @@ fn automation_editing() {
     }
 }
 
+/// A lane taken over (M7 slice A4a, the owner's look A): the first track's
+/// fader was moved under its volume lane, so its fader, chip, A button and lane
+/// are amber and dashed; the second track's pan lane plays and its pan follows.
+/// Dark and light at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn automation_override() {
+    use egui_kittest::kittest::Queryable as _;
+    use lumen_core::automation::{Lane, Point, Shape};
+    use lumen_core::time::Ticks;
+    use lumen_project::automation::Target;
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new(&format!("shots-override-{appearance}-{scale}"));
+            let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1280.0, 760.0));
+            let tracks: Vec<_> = h.state().project().tracks.iter().map(|t| t.id).collect();
+            let names: Vec<_> = h
+                .state()
+                .project()
+                .tracks
+                .iter()
+                .map(|t| t.name.clone())
+                .collect();
+            let q = Ticks::quarters;
+            let volume = Lane::new(vec![
+                Point::new(q(0), -24.0),
+                Point::new(q(3), -6.0).with_shape(Shape::Curve(Default::default())),
+                Point::new(q(6), -18.0),
+                Point::new(q(9), -3.0),
+            ])
+            .unwrap();
+            let pan = Lane::new(vec![Point::new(q(1), -0.6), Point::new(q(8), 0.5)]).unwrap();
+            h.state_mut()
+                .give_lane(tracks[0], Target::Volume, volume)
+                .unwrap();
+            h.state_mut()
+                .give_lane(tracks[1], Target::Pan, pan)
+                .unwrap();
+            h.state_mut().select_tracks(&tracks[..2]);
+            h.run_steps(4);
+            for name in &names[..2] {
+                h.get_by_label(&format!("Fold {name}")).click();
+                h.run_steps(30);
+            }
+            h.key_press(Key::A);
+            h.run_steps(60);
+            // The playhead partway along, the first fader moved by hand.
+            h.state_mut().set_track_volume(tracks[0], -2.0);
+            h.run_steps(20);
+            save(&mut h, &format!("override-{appearance}-{scale}"));
+        }
+    }
+}
+
 /// Choosing a plugin's parameter for a lane (M7 slice A3): the chooser open
 /// on a plugin with a dozen parameters, a search narrowing it, and the lane
 /// it chose drawn under its name. Dark and light at 100, 150 and 200%.

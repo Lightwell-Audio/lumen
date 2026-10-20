@@ -14,6 +14,7 @@ use lumen_engine::{
 };
 use lumen_project::automation::Target;
 
+use crate::document::Overrides;
 use crate::lane_bake::{self, bake};
 use lumen_project::model::{Id, Output, Project, SidechainTap, Track, TrackKind};
 use lumen_project::routing::{self as rules, destination};
@@ -80,7 +81,8 @@ const CUE_CHANNEL: u16 = crate::settings::CUE_CHANNEL;
 /// What the session knows of devices on tracks that the project does not
 /// say: the engine's synthetic latent device, which end-to-end tests put on
 /// tracks to see delay compensation at work (`testing`, M4 slice 6), and the
-/// latency of each plugin effect (M6 slice 2c).
+/// latency of each plugin effect (M6 slice 2c), and which lanes the user
+/// has taken over (M7 slice A4a).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Devices {
     /// Frames of latency on each track that has some.
@@ -88,6 +90,9 @@ pub struct Devices {
     /// Frames of latency of each plugin, by device: what it last
     /// reported, or what the project saved while it loads or is missing.
     pub hosted: BTreeMap<Id, u32>,
+    /// The lanes the user has taken over (M7 slice A4a): they play nothing
+    /// and the control's own value is heard.
+    pub overridden: Overrides,
 }
 
 /// Whether `track` plays mono material: an audio track whose clips are all
@@ -110,12 +115,17 @@ fn plays_mono(project: &Project, track: &Track) -> bool {
 
 /// A track's lanes on the device's sample clock (M7 slices A0 and A3, D3).
 /// Only lanes that are on and drive something the track has are baked.
-fn automation(track: &Track, tempo: Option<&TempoMap>, rate: u32) -> Option<NodeAutomation> {
+fn automation(
+    track: &Track,
+    over: &Overrides,
+    tempo: Option<&TempoMap>,
+    rate: u32,
+) -> Option<NodeAutomation> {
     let tempo = tempo?;
     let on = |target| {
         track
             .lane(target)
-            .filter(|l| l.enabled && track.has_target(target))
+            .filter(|l| over.plays(track, l) && track.has_target(target))
             .and_then(|l| bake(&l.lane, tempo, rate))
     };
     let lanes = NodeAutomation {
@@ -131,18 +141,22 @@ fn automation(track: &Track, tempo: Option<&TempoMap>, rate: u32) -> Option<Node
         // The parameters of the track's plugin effects (slice A3). Those of a
         // plugin instrument go with the track's MIDI (`midi_play`), and a
         // built-in device's wait for the devices of M8.
-        plugins: lane_bake::device_lanes(track, tempo, rate, |d| d.is_vst3() && !d.is_instrument())
-            .into_iter()
-            .map(|(device, lane)| (device.0, lane))
-            .collect(),
+        plugins: lane_bake::device_lanes(track, over, tempo, rate, |d| {
+            d.is_vst3() && !d.is_instrument()
+        })
+        .into_iter()
+        .map(|(device, lane)| (device.0, lane))
+        .collect(),
     };
     (!lanes.is_empty()).then_some(lanes)
 }
 
-/// Whether `track` has a mute lane that is on: the lane, not the track's
+/// Whether `track` has a mute lane that plays: the lane, not the track's
 /// own switch, then says when it is heard.
-fn mute_lane(track: &Track) -> bool {
-    track.lane(Target::Mute).is_some_and(|l| l.enabled)
+fn mute_lane(track: &Track, over: &Overrides) -> bool {
+    track
+        .lane(Target::Mute)
+        .is_some_and(|l| over.plays(track, l))
 }
 
 /// The routing that plays `project`, with `cue` and `devices`, its lanes
@@ -152,22 +166,23 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices, rate: u32) -> Ro
     // A track with a mute lane is heard when its lane says so: what solo and
     // the other tracks make of it is worked out as if its own switch were off.
     let unmuted;
-    let rules_project = if rules::all_tracks(project).any(|t| t.mute && mute_lane(t)) {
-        let mut copy = project.clone();
-        for track in copy
-            .tracks
-            .iter_mut()
-            .chain(std::iter::once(&mut copy.master))
-        {
-            if track.mute && mute_lane(track) {
-                std::sync::Arc::make_mut(track).mute = false;
+    let rules_project =
+        if rules::all_tracks(project).any(|t| t.mute && mute_lane(t, &devices.overridden)) {
+            let mut copy = project.clone();
+            for track in copy
+                .tracks
+                .iter_mut()
+                .chain(std::iter::once(&mut copy.master))
+            {
+                if track.mute && mute_lane(track, &devices.overridden) {
+                    std::sync::Arc::make_mut(track).mute = false;
+                }
             }
-        }
-        unmuted = copy;
-        &unmuted
-    } else {
-        project
-    };
+            unmuted = copy;
+            &unmuted
+        } else {
+            project
+        };
     let heard = lumen_project::solo::hearing(rules_project);
     let nodes = rules::all_tracks(project)
         .map(|track| {
@@ -239,7 +254,7 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices, rate: u32) -> Ro
                     .max()
                     .unwrap_or(0),
                 sidechains: sidechains(project, track),
-                automation: automation(track, tempo.as_ref(), rate),
+                automation: automation(track, &devices.overridden, tempo.as_ref(), rate),
                 ..NodeSpec::unity(track.id.0, output(project, track, &cue.outputs))
             }
         })
@@ -612,6 +627,54 @@ mod tests {
         let plan = routing(doc.project(), &Cue::default());
         assert!(node(&plan, ids[0]).automation.is_none());
         lumen_engine::compile_routing(&plan).unwrap();
+    }
+
+    #[test]
+    fn a_lane_taken_over_plays_nothing_and_the_controls_own_value_is_heard() {
+        use lumen_project::model::DeviceKind;
+        let (mut doc, ids) = doc_with(&[TrackKind::Audio]);
+        let effect = with_plugin(&mut doc, ids[0], DeviceKind::Effect, "Filter");
+        let param = Target::Device {
+            device: effect,
+            param: 3,
+        };
+        doc.set_lane(ids[0], Target::Volume, lane(&[(0, -6.0)]), false)
+            .unwrap();
+        doc.set_lane(ids[0], Target::Mute, lane(&[(0, 1.0)]), false)
+            .unwrap();
+        doc.set_lane(ids[0], param, lane(&[(0, 0.5)]), false)
+            .unwrap();
+        let play = |doc: &Document| {
+            let devices = Devices {
+                overridden: doc.overrides().clone(),
+                ..Devices::default()
+            };
+            super::routing(doc.project(), &Cue::default(), &devices, RATE)
+        };
+        let lanes = |plan: &Routing| node(plan, ids[0]).automation.clone();
+        let all = lanes(&play(&doc)).expect("all three play");
+        assert!(all.volume.is_some() && all.mute.is_some() && all.plugins.len() == 1);
+
+        // The fader and the plugin's knob are moved: those lanes let go.
+        doc.set_volume(ids[0], -12.0);
+        doc.override_lane(ids[0], param);
+        let some = lanes(&play(&doc)).expect("the mute lane still plays");
+        assert!(some.volume.is_none() && some.plugins.is_empty() && some.mute.is_some());
+        assert_eq!(node(&play(&doc), ids[0]).volume, db_to_gain(-12.0));
+
+        // A mute lane taken over leaves the track's own switch to decide.
+        doc.set_mute(&[ids[0]], false);
+        let plan = play(&doc);
+        assert!(lanes(&plan).is_none(), "nothing is left to play");
+        assert!(node(&plan, ids[0]).audible, "its own switch: not muted");
+        doc.set_mute(&[ids[0]], true);
+        assert!(!node(&play(&doc), ids[0]).audible, "its own switch: muted");
+        lumen_engine::compile_routing(&play(&doc)).unwrap();
+
+        // Re-enabled, they play again.
+        doc.reenable_all();
+        let again = lanes(&play(&doc)).expect("back");
+        assert!(again.volume.is_some() && again.mute.is_some() && again.plugins.len() == 1);
     }
 
     #[test]

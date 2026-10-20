@@ -174,6 +174,8 @@ pub(crate) enum Command {
     AutomationToolTriangle,
     AutomationToolSaw,
     AutomationToolSquare,
+    AutomationReenable,
+    AutomationReenableAll,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -413,6 +415,8 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::AutomationToolTriangle, "edit.automation_tool_triangle", "Automation tool: triangle", Area::Edit, &[], "Drag across the shown lane to draw a triangle wave, one cycle to a grid step."),
     info(Command::AutomationToolSaw, "edit.automation_tool_saw", "Automation tool: saw", Area::Edit, &[], "Drag across the shown lane to draw a saw wave that rises over each grid step and drops at its end."),
     info(Command::AutomationToolSquare, "edit.automation_tool_square", "Automation tool: square", Area::Edit, &[], "Drag across the shown lane to draw a square wave, one cycle to a grid step, as steps."),
+    info(Command::AutomationReenable, "edit.automation_reenable", "Re-enable the automation lane", Area::Edit, &[ctrl_shift(Key::R)], "Lets the shown lane play again after you moved a control it drives. The control follows the lane once more."),
+    info(Command::AutomationReenableAll, "edit.automation_reenable_all", "Re-enable all automation lanes", Area::Edit, &[], "Lets every lane you took over by moving its control play again."),
 ];
 
 const fn info(
@@ -462,7 +466,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::AutomationToolSquare as usize + 1,
+            Command::AutomationReenableAll as usize + 1,
             ALL.len(),
             "a command is missing"
         );

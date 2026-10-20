@@ -10,6 +10,8 @@ use lumen_engine::{AutoLane, AutoPoint, ParamLane};
 use lumen_project::automation::Target;
 use lumen_project::model::{Device, Id, Track};
 
+use crate::document::Overrides;
+
 /// Frames between the points a curved segment is resampled to when the tempo
 /// changes along it (about 21 ms at 48 kHz).
 const RESAMPLE: i64 = 1024;
@@ -71,9 +73,10 @@ pub(crate) fn bake(lane: &Lane, tempo: &TempoMap, rate: u32) -> Option<AutoLane>
 
 /// The lanes of the parameters of `track`'s devices that `wanted` picks,
 /// baked: the device's id and the lane of one of its parameters. Only lanes
-/// that are on, for a device the track has.
+/// that play (are on and not taken over), for a device the track has.
 pub(crate) fn device_lanes(
     track: &Track,
+    over: &Overrides,
     tempo: &TempoMap,
     rate: u32,
     wanted: impl Fn(&Device) -> bool,
@@ -81,7 +84,7 @@ pub(crate) fn device_lanes(
     track
         .automation
         .iter()
-        .filter(|entry| entry.enabled)
+        .filter(|entry| over.plays(track, entry))
         .filter_map(|entry| {
             let Target::Device { device, param } = entry.target else {
                 return None;

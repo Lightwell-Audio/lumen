@@ -39,6 +39,8 @@ pub(super) struct Slot {
     /// The plugin's own word for each step of a stepped parameter, as far as
     /// it has said them (empty for the rest, and for a knob).
     pub choices: Vec<String>,
+    /// The user has taken over the lane that drives it (M7 slice A4a).
+    pub over: bool,
 }
 
 /// What the strip asked for.
@@ -218,6 +220,13 @@ pub(super) fn paint(
                         response
                     }
                 };
+                if slot.over {
+                    if kind == Kind::Knob {
+                        crate::arrangement::follow::ring_round(ui, knob);
+                    } else {
+                        crate::arrangement::follow::ring(ui, knob);
+                    }
+                }
                 let painter = ui.painter();
                 let name = fit(painter, &slot.name, caption.clone(), cell_w - 2.0 * PAD);
                 painter.text(

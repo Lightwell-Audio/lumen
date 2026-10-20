@@ -133,13 +133,51 @@ fn the_value_a_lane_drives_is_not_also_sent_to_the_plugin_over_the_control_chann
         .give_lane(KEYS, target, lane(&[(0, 0.5)]))
         .unwrap();
     lumen.frames(5);
-    lumen.app_mut().set_device_param(FX, LEVEL, 0.9);
+    lumen.app_mut().set_device_param_at_rest(FX, LEVEL, 0.9);
     lumen.frames(30);
     assert_eq!(lumen.app().values_sent_to(FX), sent, "the lane has it");
+    assert!(!lumen.app().lane_taken_over(KEYS, target));
     // The lane off, the project's value is the plugin's again.
     lumen.app_mut().switch_lane(KEYS, target, false).unwrap();
     lumen.frames(30);
     assert!(lumen.app().values_sent_to(FX) > sent);
+}
+
+#[test]
+fn moving_a_control_a_lane_drives_takes_the_lane_over_and_re_enabling_gives_it_back() {
+    let song = project(|d| *d = vec![instrument_device(PLUGIN), effect_device(FX)]);
+    let mut lumen = launch("lane-takeover", &song, &["Plug"]);
+    wait_for_state(&mut lumen, FX, "ready");
+    let target = Target::Device {
+        device: FX,
+        param: LEVEL,
+    };
+    lumen
+        .app_mut()
+        .give_lane(KEYS, target, lane(&[(0, 0.5)]))
+        .unwrap();
+    lumen.frames(5);
+    let sent = lumen.app().values_sent_to(FX);
+    // The user's move is heard: the lane lets go and the plugin has the value.
+    lumen.app_mut().set_device_param(FX, LEVEL, 0.9);
+    lumen.frames(30);
+    assert!(lumen.app().lane_taken_over(KEYS, target));
+    assert!(
+        lumen.app().values_sent_to(FX) > sent,
+        "the move reaches the plugin"
+    );
+    // Re-enabled, the lane has it again and the project's value is not sent.
+    lumen.app_mut().reenable_lane(KEYS, target);
+    lumen.frames(30);
+    assert!(!lumen.app().lane_taken_over(KEYS, target));
+    let sent = lumen.app().values_sent_to(FX);
+    lumen.app_mut().set_device_param_at_rest(FX, LEVEL, 0.2);
+    lumen.frames(30);
+    assert_eq!(
+        lumen.app().values_sent_to(FX),
+        sent,
+        "the lane has it again"
+    );
 }
 
 /// Lumen with the Keys track holding the instrument and the effect, selected,

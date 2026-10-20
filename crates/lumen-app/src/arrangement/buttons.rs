@@ -6,6 +6,7 @@
 
 use eframe::egui::{self, Align2, Id as EguiId, Rect, Sense, Stroke, Ui};
 use eframe::emath::GuiRounding as _;
+use lumen_project::automation::Target;
 use lumen_project::model::Track;
 use lumen_project::solo::Hearing;
 
@@ -52,6 +53,14 @@ impl Arrangement {
         // the headphones instead (the owner's C1).
         let cueing = self.cue.cueing();
         let cued = self.cued.contains(&track.id);
+        // A mute lane that plays decides what M shows (M7 slice A4a).
+        let muted = super::follow::muted(self.shown(
+            doc,
+            track,
+            Target::Mute,
+            f32::from(u8::from(track.mute)),
+        ));
+        let mute_over = self.taken_over(doc, track, Target::Mute);
         let toggle = |ui: &mut Ui, r: Rect, button: Toggle, tone: Tone| {
             // The ring and letter of a hollow button: mute's grey for M, the
             // accent for S and cue; its fill the same colour, faint.
@@ -60,7 +69,7 @@ impl Arrangement {
                 Toggle::Solo | Toggle::Cue => (palette.accent, HOLLOW_SOLO),
             };
             let (what, label, on, implied) = match button {
-                Toggle::Mute => ("mute", "Mute", track.mute, hears.silenced),
+                Toggle::Mute => ("mute", "Mute", muted, hears.silenced),
                 Toggle::Solo => ("solo", "Solo", track.solo, hears.soloed_through),
                 Toggle::Cue => ("cue", "Cue", cued, false),
             };
@@ -109,6 +118,9 @@ impl Arrangement {
             // Radius follows height: 4 on a header's 20 pt, 6 on a strip's 24.
             let radius = theme::radius::for_height(r.height());
             let body = raised::paint(ui.painter(), r, radius, &face);
+            if mute_over && button == Toggle::Mute {
+                super::follow::ring(ui, r);
+            }
             let p = ui.painter();
             let mut text = face.text();
             if implied && !on {
@@ -137,7 +149,7 @@ impl Arrangement {
             response.clicked()
         };
         if toggle(ui, mute_rect, Toggle::Mute, Tone::Mute) {
-            doc.set_mute(&self.targets(track.id), !track.mute);
+            doc.set_mute(&self.targets(track.id), !muted);
         }
         // Exclusive by default: a click solos (or cues) this track
         // alone, Ctrl+click adds it; the additive preference swaps them.
@@ -176,7 +188,9 @@ impl Arrangement {
         let on = self.auto.shown.contains_key(&track.id);
         let response = ui
             .interact(rect, id.with("automation"), Sense::click())
-            .on_hover_text(if on {
+            .on_hover_text(if self.any_taken_over(doc, track) {
+                "A lane is taken over by a control you moved: show the lane to re-enable it (A)"
+            } else if on {
                 "Hide the automation lane (A)"
             } else {
                 "Show the automation lane over the clips (A)"
@@ -196,18 +210,25 @@ impl Arrangement {
             .pressed(response.is_pointer_button_down_on())
             .lit(lit, Tone::On);
         let r = rect.round_to_pixels(ui.pixels_per_point());
-        let body = raised::paint(
-            ui.painter(),
-            r,
-            theme::radius::for_height(r.height()),
-            &face,
-        );
+        let radius = theme::radius::for_height(r.height());
+        let body = raised::paint(ui.painter(), r, radius, &face);
+        // Amber while a lane of the track is taken over (M7 slice A4a, the
+        // owner's look A): the shape of the button is the same, the letter
+        // stays, and the colour says the lane is not being heard.
+        let over = self.any_taken_over(doc, track);
+        let ink = if over {
+            let amber = theme::p().warning;
+            ui.painter().rect_filled(r, f32::from(radius), amber);
+            theme::text_on(amber)
+        } else {
+            face.text()
+        };
         ui.painter().text(
             body.center(),
             Align2::CENTER_CENTER,
             "A",
             fonts::medium(theme::size::CAPTION),
-            face.text(),
+            ink,
         );
         raised::focus_ring(ui.painter(), &response, r);
         if response.clicked() {

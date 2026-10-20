@@ -398,6 +398,15 @@ impl App {
             | Command::AutomationToolSquare => {
                 need(self.auto_chosen().is_some(), "Show a lane first (A)")
             }
+            Command::AutomationReenable => need(
+                self.auto_chosen()
+                    .is_some_and(|(t, target)| self.document.overrides().contains(t, target)),
+                "The shown lane is not taken over",
+            ),
+            Command::AutomationReenableAll => need(
+                !self.document.overrides().is_empty(),
+                "No lane is taken over",
+            ),
             Command::AutomationToggleLane | Command::AutomationRemoveLane => need(
                 self.auto_chosen_has_lane(),
                 "The shown lane has no points yet: click it to add one",
@@ -587,6 +596,14 @@ impl App {
             Command::AutomationShow => self.auto_show(),
             Command::AutomationChoose => self.auto_choose(ctx),
             Command::AutomationAddPoint => self.auto_add_point(),
+            Command::AutomationReenable => {
+                if let Some((track, target)) = self.auto_chosen() {
+                    self.document.reenable_lane(track, target);
+                }
+            }
+            Command::AutomationReenableAll => {
+                self.document.reenable_all();
+            }
             Command::AutomationToggleLane => self.auto_toggle_lane(),
             Command::AutomationRemoveLane => self.auto_remove_lane(),
             Command::AutomationSegmentLinear => self.auto_shape_segments(Shape::Linear),

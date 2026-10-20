@@ -456,6 +456,12 @@ impl eframe::App for App {
             .info
             .as_ref()
             .map_or(0, |info| info.buffer_frames);
+        // The controls whose lanes play follow the playhead (M7 slice A4a).
+        self.arrangement.auto.at = self.transport.position();
+        self.hosting.set_overridden(self.document.overrides());
+        if self.lanes.devices.overridden != *self.document.overrides() {
+            self.lanes.devices.overridden = self.document.overrides().clone();
+        }
         let hosts = self.hosting.update(
             self.document.project(),
             self.plugins.catalog(),

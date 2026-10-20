@@ -232,6 +232,9 @@ pub(crate) struct AutoView {
     pub tip: Option<String>,
     /// What copy last took from a lane.
     pub clip: Option<LaneClip>,
+    /// The playhead, which the controls whose lanes play follow (D5): set by
+    /// the app every frame.
+    pub at: lumen_core::time::Ticks,
 }
 
 impl AutoView {

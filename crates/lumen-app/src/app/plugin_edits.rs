@@ -61,6 +61,7 @@ impl App {
                 .find(|p| p.id == typed.id)
                 .map_or_else(|| "parameter".to_owned(), |p| p.title.clone());
             // A typed value is a step of its own, not part of a drag.
+            self.document.override_param(typed.device, typed.id);
             self.document.seal();
             let _ = self.document.set_device_params(
                 typed.device,
@@ -124,6 +125,11 @@ pub(crate) fn record(
             }
             EditKind::Perform if inside => {
                 flush(doc, &mut loose);
+                // A control a lane drives, moved in the plugin's own window,
+                // takes the lane over (a program the user chose does not).
+                if loading.is_none() {
+                    doc.override_param(device, edit.id);
+                }
                 let (label, key) = match loading {
                     Some(name) => (format!("Load {name}"), super::presets::load_key(device)),
                     None => (
@@ -290,6 +296,64 @@ mod tests {
         assert_eq!(params(&doc, device).len(), 50);
         assert_eq!(doc.undo().as_deref(), Some("Change 50 parameters"));
         assert!(params(&doc, device).is_empty());
+    }
+
+    #[test]
+    fn a_gesture_on_a_parameter_a_lane_drives_takes_the_lane_over_but_a_program_does_not() {
+        use lumen_core::automation::{Lane, Point};
+        use lumen_project::automation::Target;
+        let (mut doc, device) = with_device();
+        let track = doc.project().tracks[0].id;
+        let lane = Lane::new(vec![Point::new(lumen_core::time::Ticks::ZERO, 0.5)]).unwrap();
+        let target = Target::Device { device, param: 3 };
+        doc.set_lane(track, target, lane, false).unwrap();
+        // A program the user chose sets the parameter: the lane plays on.
+        record(
+            &mut doc,
+            device,
+            &[e(3, 0.9, EditKind::Perform, true)],
+            name,
+            Some("Warm"),
+        );
+        assert!(!doc.overrides().contains(track, target));
+        // Another parameter, moved by hand in the plugin's window, is no lane's.
+        record(
+            &mut doc,
+            device,
+            &[
+                e(4, 0.0, EditKind::Begin, true),
+                e(4, 0.4, EditKind::Perform, true),
+                e(4, 0.0, EditKind::End, true),
+            ],
+            name,
+            None,
+        );
+        assert!(!doc.overrides().contains(track, target));
+        // Taking hold of the driven one without moving it does nothing; moving
+        // it takes the lane over.
+        record(
+            &mut doc,
+            device,
+            &[
+                e(3, 0.0, EditKind::Begin, true),
+                e(3, 0.0, EditKind::End, true),
+            ],
+            name,
+            None,
+        );
+        assert!(!doc.overrides().contains(track, target));
+        record(
+            &mut doc,
+            device,
+            &[
+                e(3, 0.0, EditKind::Begin, true),
+                e(3, 0.7, EditKind::Perform, true),
+                e(3, 0.0, EditKind::End, true),
+            ],
+            name,
+            None,
+        );
+        assert!(doc.overrides().contains(track, target));
     }
 
     #[test]

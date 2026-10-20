@@ -264,6 +264,28 @@ impl App {
             .map_err(|refusal| refusal.reason())
     }
 
+    /// Whether the user has taken `track`'s lane for `target` over by moving
+    /// the control it drives.
+    pub fn lane_taken_over(&self, track: Id, target: lumen_project::automation::Target) -> bool {
+        self.document.overrides().contains(track, target)
+    }
+
+    /// Moves a track's fader, as a drag does: a lane that drives it is taken
+    /// over.
+    pub fn set_track_volume(&mut self, track: Id, db: f32) {
+        self.document.set_volume(track, db);
+    }
+
+    /// Takes a lane over, as moving the control it drives does.
+    pub fn take_over_lane(&mut self, track: Id, target: lumen_project::automation::Target) {
+        self.document.override_lane(track, target);
+    }
+
+    /// Lets a lane taken over play again, as the chip's Re-enable does.
+    pub fn reenable_lane(&mut self, track: Id, target: lumen_project::automation::Target) {
+        self.document.reenable_lane(track, target);
+    }
+
     /// Takes a lane away, as the lane chip's menu does.
     pub fn take_lane_away(
         &mut self,
@@ -698,6 +720,14 @@ impl App {
     /// Sets a plugin's parameter (normalized) as the interface's controls will:
     /// the project holds the value, and one drag is one undo step.
     pub fn set_device_param(&mut self, device: Id, id: u32, value: f64) {
+        self.document.override_param(device, id);
+        self.set_device_param_at_rest(device, id, value);
+    }
+
+    /// Sets the value the project holds for a plugin's parameter without
+    /// moving a control: what a loaded program or a patch does. A lane that
+    /// drives the parameter is not taken over.
+    pub fn set_device_param_at_rest(&mut self, device: Id, id: u32, value: f64) {
         let _ = self.document.set_device_params(
             device,
             &[(id, value)],

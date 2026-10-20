@@ -81,6 +81,8 @@ impl Document {
         } else {
             "Add automation lane"
         };
+        // Drawing on a lane is asking to hear it.
+        self.reenable_lane(track, target);
         let merge = gesture.then(|| format!("automation {:x} {target:?}", track.0));
         self.history.apply(label, merge.as_deref(), |project| {
             if let Some(held) = tracks_mut(project).find(|t| t.id == track) {
@@ -117,6 +119,7 @@ impl Document {
         } else {
             "Turn automation off"
         };
+        self.reenable_lane(track, target);
         self.history.apply(label, None, |project| {
             if let Some(held) = tracks_mut(project).find(|t| t.id == track) {
                 let held = Arc::make_mut(held);
@@ -134,6 +137,7 @@ impl Document {
         if held.lane(target).is_none() {
             return Err(LaneRefusal::NoTarget);
         }
+        self.reenable_lane(track, target);
         self.history
             .apply("Remove automation lane", None, |project| {
                 if let Some(held) = tracks_mut(project).find(|t| t.id == track) {

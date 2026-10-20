@@ -15,6 +15,7 @@
 
 use eframe::egui::{self, Align2, Color32, FontId, Id as EguiId, Rect, Sense, Ui, pos2, vec2};
 use eframe::emath::GuiRounding as _;
+use lumen_project::automation::Target;
 use lumen_project::model::{Id, Level, Project, Track, TrackKind};
 use lumen_project::solo::Heard;
 
@@ -203,6 +204,8 @@ impl Arrangement {
         } = knob;
         let send = track.sends.iter().find(|s| s.to == to.id);
         let id = EguiId::new(("send", track.id, to.id, place));
+        let target = Target::Send { to: to.id };
+        let own = send.map_or(f32::NEG_INFINITY, |s| s.level.0);
         let out = send_knob(
             ui,
             rect,
@@ -210,7 +213,7 @@ impl Arrangement {
             SendKnob {
                 letter: &to.letter,
                 color: to.color,
-                db: send.map_or(f32::NEG_INFINITY, |s| s.level.0),
+                db: self.shown(doc, track, target, own),
                 pre_fader: send.is_some_and(|s| s.pre_fader),
                 heard: heard.of(track.id).sends,
                 // In a return's own list every knob feeds it: no ring.
@@ -222,6 +225,9 @@ impl Arrangement {
         );
         if out.hovered {
             self.hot_return_next = Some(to.id);
+        }
+        if self.taken_over(doc, track, target) {
+            super::follow::ring_round(ui, rect);
         }
         if let Some(db) = out.db {
             let level = if db.is_finite() {
