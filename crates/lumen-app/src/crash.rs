@@ -44,6 +44,7 @@ pub fn default_dir() -> Option<PathBuf> {
 
 /// Where reports go, for the allocation-failure hook (a plain function).
 static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+static PANIC_REPORTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Writes a report to `dir` whenever anything panics or an allocation
 /// fails, then lets the usual message print. Installed once, by the real
@@ -53,6 +54,13 @@ pub fn install(dir: PathBuf) {
     lumen_rt::on_allocation_failure(out_of_memory);
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        // A panic crossing a native callback boundary triggers a second
+        // "cannot unwind" panic. Keep the original cause and backtrace,
+        // rather than overwriting its report with that secondary failure.
+        if PANIC_REPORTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            previous(info);
+            return;
+        }
         let message = info
             .payload()
             .downcast_ref::<&str>()
@@ -110,8 +118,10 @@ pub fn fail(test: Test) {
     match test {
         Test::Panic => panic!("--crash-test: a deliberate panic"),
         Test::Memory => {
-            // 64 TiB: no machine has it, so the allocation fails.
-            let huge = vec![0_u8; 1 << 46];
+            // Request a valid Rust layout beyond user virtual address space.
+            // A smaller zeroed reservation can succeed under OS overcommit
+            // without touching any pages and never exercise the failure hook.
+            let huge = Vec::<u8>::with_capacity(isize::MAX as usize);
             std::hint::black_box(&huge);
         }
     }
