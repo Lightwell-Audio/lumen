@@ -398,6 +398,12 @@ impl App {
             | Command::AutomationToolSquare => {
                 need(self.auto_chosen().is_some(), "Show a lane first (A)")
             }
+            Command::AutomationModeRead
+            | Command::AutomationModeTouch
+            | Command::AutomationModeLatch
+            | Command::AutomationModeWrite => {
+                need(!self.auto_tracks().is_empty(), "Select a track first")
+            }
             Command::AutomationReenable => need(
                 self.auto_chosen()
                     .is_some_and(|(t, target)| self.document.overrides().contains(t, target)),
@@ -604,6 +610,10 @@ impl App {
             Command::AutomationReenableAll => {
                 self.document.reenable_all();
             }
+            Command::AutomationModeRead => self.auto_set_mode(crate::auto_record::Mode::Read),
+            Command::AutomationModeTouch => self.auto_set_mode(crate::auto_record::Mode::Touch),
+            Command::AutomationModeLatch => self.auto_set_mode(crate::auto_record::Mode::Latch),
+            Command::AutomationModeWrite => self.auto_set_mode(crate::auto_record::Mode::Write),
             Command::AutomationToggleLane => self.auto_toggle_lane(),
             Command::AutomationRemoveLane => self.auto_remove_lane(),
             Command::AutomationSegmentLinear => self.auto_shape_segments(Shape::Linear),

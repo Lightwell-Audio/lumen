@@ -577,6 +577,8 @@ pub mod size {
     pub const AUTO_CHIP_MAX: f32 = 200.0;
     /// The Re-enable button beside the chip of a lane taken over.
     pub const AUTO_REENABLE: f32 = 84.0;
+    /// The record-red dot in the chip of a mode that can write.
+    pub const AUTO_REC_DOT: f32 = 3.5;
     /// The chooser's least width.
     pub const AUTO_MENU: f32 = 220.0;
 }

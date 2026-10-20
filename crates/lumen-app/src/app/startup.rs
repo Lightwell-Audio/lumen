@@ -153,6 +153,8 @@ impl App {
             synced: None,
             show_history: false,
             arrangement,
+            recorder: Default::default(),
+            gestures_open: Default::default(),
             toast: None,
             dialog: None,
             dialog_answers: launch.scripted_dialogs.then(Default::default),

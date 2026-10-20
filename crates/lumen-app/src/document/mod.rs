@@ -71,6 +71,8 @@ pub struct Document {
     session: u64,
     /// The lanes the user has taken over (M7 slice A4a): session state.
     overrides: Overrides,
+    /// The controls the user moved since the recorder last looked (A4b).
+    touched: Vec<(Id, Target)>,
 }
 
 impl Document {
@@ -89,6 +91,7 @@ impl Document {
             media_files: HashMap::new(),
             session: SESSIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             overrides: Overrides::default(),
+            touched: Vec::new(),
         }
     }
 
@@ -379,7 +382,7 @@ impl Document {
 
     pub fn set_mute(&mut self, ids: &[Id], mute: bool) {
         for &id in ids {
-            self.override_lane(id, Target::Mute);
+            self.moved(id, Target::Mute);
         }
         let label = if mute { "Mute" } else { "Unmute" };
         self.edit_tracks(label, ids, |t| t.mute = mute);
@@ -458,7 +461,7 @@ impl Document {
     /// into one undo step per track.
     pub fn set_volume(&mut self, id: Id, db: f32) {
         let db = db.clamp(-60.0, 6.0);
-        self.override_lane(id, Target::Volume);
+        self.moved(id, Target::Volume);
         self.history
             .apply("Change volume", Some(&format!("volume {:x}", id.0)), |p| {
                 if let Some(t) = mixer::tracks_mut(p).find(|t| t.id == id) {
@@ -471,7 +474,7 @@ impl Document {
     /// into one undo step per track.
     pub fn set_pan(&mut self, id: Id, pan: f32) {
         let pan = pan.clamp(-1.0, 1.0);
-        self.override_lane(id, Target::Pan);
+        self.moved(id, Target::Pan);
         self.history
             .apply("Change pan", Some(&format!("pan {:x}", id.0)), |p| {
                 if let Some(t) = mixer::tracks_mut(p).find(|t| t.id == id) {

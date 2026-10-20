@@ -176,6 +176,10 @@ pub(crate) enum Command {
     AutomationToolSquare,
     AutomationReenable,
     AutomationReenableAll,
+    AutomationModeRead,
+    AutomationModeTouch,
+    AutomationModeLatch,
+    AutomationModeWrite,
 }
 
 /// Where a command belongs: how the palette and the shortcut list group
@@ -417,6 +421,10 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::AutomationToolSquare, "edit.automation_tool_square", "Automation tool: square", Area::Edit, &[], "Drag across the shown lane to draw a square wave, one cycle to a grid step, as steps."),
     info(Command::AutomationReenable, "edit.automation_reenable", "Re-enable the automation lane", Area::Edit, &[ctrl_shift(Key::R)], "Lets the shown lane play again after you moved a control it drives. The control follows the lane once more."),
     info(Command::AutomationReenableAll, "edit.automation_reenable_all", "Re-enable all automation lanes", Area::Edit, &[], "Lets every lane you took over by moving its control play again."),
+    info(Command::AutomationModeRead, "edit.automation_mode_read", "Automation mode: Read", Area::Edit, &[], "The selected tracks play their lanes, and a control you move takes its lane over."),
+    info(Command::AutomationModeTouch, "edit.automation_mode_touch", "Automation mode: Touch", Area::Edit, &[], "The selected tracks write their lanes while you hold a control during playback, and return to the lane when you let go."),
+    info(Command::AutomationModeLatch, "edit.automation_mode_latch", "Automation mode: Latch", Area::Edit, &[], "The selected tracks start writing at your first touch during playback and go on until Stop."),
+    info(Command::AutomationModeWrite, "edit.automation_mode_write", "Automation mode: Write", Area::Edit, &[], "The selected tracks overwrite their lanes with the controls' values from where playing starts until Stop. Show the lane you want to write (A) first, or use one that exists."),
 ];
 
 const fn info(
@@ -466,7 +474,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::AutomationReenableAll as usize + 1,
+            Command::AutomationModeWrite as usize + 1,
             ALL.len(),
             "a command is missing"
         );

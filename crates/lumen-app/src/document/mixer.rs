@@ -80,7 +80,7 @@ impl Document {
             Level(level.0.min(SEND_MAX_DB))
         };
         let merge = format!("send {:x} {:x}", id.0, to.0);
-        self.override_lane(id, Target::Send { to });
+        self.moved(id, Target::Send { to });
         self.routed("Change send", Some(&merge), id, |t| {
             match t.sends.iter_mut().find(|s| s.to == to) {
                 Some(send) => send.level = level,
@@ -135,7 +135,7 @@ impl Document {
             return;
         }
         let db = db.clamp(-TRIM_RANGE_DB, TRIM_RANGE_DB);
-        self.override_lane(id, Target::Trim);
+        self.moved(id, Target::Trim);
         let merge = format!("trim {:x}", id.0);
         let _ = self.routed("Change input trim", Some(&merge), id, |t| t.trim_db = db);
     }

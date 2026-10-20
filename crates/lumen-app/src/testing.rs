@@ -276,6 +276,62 @@ impl App {
         self.document.set_volume(track, db);
     }
 
+    /// Sets what a track does with the controls that move while the song plays:
+    /// "read", "touch", "latch" or "write".
+    pub fn set_automation_mode(&mut self, track: Id, mode: &str) {
+        use crate::auto_record::Mode;
+        let mode = Mode::ALL
+            .into_iter()
+            .find(|m| m.name().eq_ignore_ascii_case(mode))
+            .expect("a mode: read, touch, latch or write");
+        self.arrangement.auto.set_mode(track, mode);
+    }
+
+    /// What a track does with the controls that move while the song plays.
+    pub fn automation_mode(&self, track: Id) -> &'static str {
+        self.arrangement.auto.mode_of(track).name()
+    }
+
+    /// Whether the controls and the chip show a lane as overridden: taken over
+    /// and not being written.
+    pub fn shows_lane_overridden(
+        &self,
+        track: Id,
+        target: lumen_project::automation::Target,
+    ) -> bool {
+        lumen_project::routing::all_tracks(self.document.project())
+            .find(|t| t.id == track)
+            .is_some_and(|t| self.arrangement.taken_over(&self.document, t, target))
+    }
+
+    /// Whether a lane is being written now.
+    pub fn recording_automation(
+        &self,
+        track: Id,
+        target: lumen_project::automation::Target,
+    ) -> bool {
+        self.arrangement.auto.recording.contains(&(track, target))
+    }
+
+    /// Gives a plugin's parameter edits as if its own window made them:
+    /// `(parameter, value, "begin" | "perform" | "end")` each, in order.
+    pub fn pretend_plugin_edits(&mut self, device: Id, edits: &[(u32, f64, &str)]) {
+        use lumen_hosting::{Edit, EditKind};
+        let edits = edits
+            .iter()
+            .map(|&(id, value, kind)| {
+                let kind = match kind {
+                    "begin" => EditKind::Begin,
+                    "perform" => EditKind::Perform,
+                    "end" => EditKind::End,
+                    other => panic!("an edit: begin, perform or end, not {other}"),
+                };
+                (Edit { id, value, kind }, true)
+            })
+            .collect();
+        self.hosting.pretend_edits(device, edits);
+    }
+
     /// Takes a lane over, as moving the control it drives does.
     pub fn take_over_lane(&mut self, track: Id, target: lumen_project::automation::Target) {
         self.document.override_lane(track, target);

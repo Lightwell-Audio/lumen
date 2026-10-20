@@ -308,7 +308,7 @@ impl Arrangement {
                 view,
             };
             let entry = track.lane(target);
-            let taken = doc.overrides().contains(track.id, target);
+            let taken = self.taken_over(doc, track, target);
             self.draw_lane(&painter, &frame, (track, target, entry), taken);
             self.draw_marks(&painter, &frame, id, target, entry);
             if let Some(chip) = self.lane_chip(ui, doc, &visible, &frame, track, target) {
@@ -338,8 +338,19 @@ impl Arrangement {
             palette.text_hint
         };
         let canvas_x = painter.clip_rect().x_range();
-        painter.rect_filled(rect, 0.0, palette.accent.gamma_multiply(0.05));
-        let edge = Stroke::new(theme::stroke::HAIRLINE, palette.accent.gamma_multiply(0.45));
+        // A mode that can write tints the lane record red (the owner's K1 B).
+        let writes = self.auto.mode_of(track.id).records();
+        let tint = if writes {
+            palette.record
+        } else {
+            palette.accent
+        };
+        painter.rect_filled(
+            rect,
+            0.0,
+            tint.gamma_multiply(if writes { 0.09 } else { 0.05 }),
+        );
+        let edge = Stroke::new(theme::stroke::HAIRLINE, tint.gamma_multiply(0.45));
         painter.hline(canvas_x, rect.top() + 0.5, edge);
         painter.hline(canvas_x, rect.bottom() - 1.5, edge);
         // Where the control rests, to read the curve against.
@@ -419,16 +430,28 @@ impl Arrangement {
         let entry = track.lane(target);
         let mut text = self.auto.name_of(project, target);
         let base = text.clone();
-        let taken = doc.overrides().contains(track.id, target);
+        let taken = self.taken_over(doc, track, target);
+        let mode = self.auto.mode_of(track.id);
+        let writing = self.auto.recording.contains(&(track.id, target));
+        if mode.records() {
+            text.push_str(" \u{00B7} ");
+            text.push_str(mode.name());
+        }
         if entry.is_some_and(|e| !e.enabled) {
             text.push_str(" \u{00B7} off");
         } else if taken {
             text.push_str(" \u{00B7} Overridden");
         }
+        // A mode that can write has a record-red dot before the name.
+        let shown = if mode.records() {
+            format!("\u{2007}\u{2007}{text}")
+        } else {
+            text.clone()
+        };
         let width = (ui
             .painter()
             .layout_no_wrap(
-                text.clone(),
+                shown.clone(),
                 egui::FontId::proportional(theme::size::CAPTION),
                 theme::p().text,
             )
@@ -454,10 +477,18 @@ impl Arrangement {
             chip,
             id,
             "lane",
-            &text,
+            &shown,
             &name,
-            "Choose the parameter this lane draws (A shows or hides lanes)",
+            "Choose the parameter this lane draws (A shows or hides lanes), and what it does while the song plays",
         );
+        if mode.records() {
+            let dot = pos2(chip.left() + 10.0, chip.center().y);
+            ui.painter()
+                .circle_filled(dot, theme::size::AUTO_REC_DOT, theme::p().record);
+        }
+        if writing {
+            super::follow::ring_with(ui, chip, theme::p().record);
+        }
         crate::widgets::Menu::below(&response).show(|ui| {
             ui.set_min_width(theme::size::AUTO_MENU);
             self.lane_menu(ui, doc, track.id, target);
@@ -500,6 +531,20 @@ impl Arrangement {
                 ui.close();
             }
         }
+        // What the track does with the controls that move while it plays.
+        ui.separator();
+        crate::widgets::menu_caption(ui, "While the song plays");
+        for mode in crate::auto_record::Mode::ALL {
+            let chosen = self.auto.mode_of(track) == mode;
+            let row = ui
+                .selectable_label(chosen, mode.name())
+                .on_hover_text(mode.about());
+            if row.clicked() {
+                self.auto.set_mode(track, mode);
+                ui.close();
+            }
+        }
+        ui.separator();
         // A plugin's parameters are found by searching its list.
         let plugins: Vec<&lumen_project::model::Device> =
             held.devices.iter().filter(|d| d.is_vst3()).collect();

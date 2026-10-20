@@ -11,6 +11,9 @@ use lumen_project::model::{Id, Track};
 
 use super::Document;
 
+/// The most moves noted between two calls to [`Document::take_touched`].
+const MAX_TOUCHED: usize = 4096;
+
 /// The lanes taken over, by the track that holds them and the target.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Overrides(BTreeSet<(Id, Target)>);
@@ -26,12 +29,12 @@ impl Overrides {
         entry.enabled && !self.contains(track.id, entry.target)
     }
 
-    /// Whether any of `track`'s lanes is taken over.
-    pub fn any_for(&self, track: Id) -> bool {
+    /// The targets of `track`'s lanes that are taken over.
+    pub fn targets_of(&self, track: Id) -> impl Iterator<Item = Target> + '_ {
         self.0
             .range((track, Target::Volume)..)
-            .next()
-            .is_some_and(|(t, _)| *t == track)
+            .take_while(move |(t, _)| *t == track)
+            .map(|&(_, target)| target)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -45,6 +48,20 @@ impl Document {
         &self.overrides
     }
 
+    /// A control was moved by the user (M7 slice A4b): noted for the recorder,
+    /// and its lane, if it plays, taken over.
+    pub(crate) fn moved(&mut self, track: Id, target: Target) {
+        if self.touched.len() < MAX_TOUCHED {
+            self.touched.push((track, target));
+        }
+        self.override_lane(track, target);
+    }
+
+    /// The controls moved since the last call, oldest first.
+    pub fn take_touched(&mut self) -> Vec<(Id, Target)> {
+        std::mem::take(&mut self.touched)
+    }
+
     /// Takes over `track`'s lane for `target`, if the track has one and it is
     /// on: the user moved the control it drives. Returns whether it changed.
     pub fn override_lane(&mut self, track: Id, target: Target) -> bool {
@@ -54,13 +71,12 @@ impl Document {
         on && self.overrides.0.insert((track, target))
     }
 
-    /// [`Document::override_lane`] for parameter `param` of `device`, a
-    /// plugin's own control moved in Lumen's window or the plugin's.
-    pub fn override_param(&mut self, device: Id, param: u32) -> bool {
-        let Some((track, _)) = super::find_device(self.project(), device) else {
-            return false;
-        };
-        self.override_lane(track, Target::Device { device, param })
+    /// A plugin's own control, parameter `param` of `device`, was moved in
+    /// Lumen's window or the plugin's: [`Document::moved`].
+    pub fn override_param(&mut self, device: Id, param: u32) {
+        if let Some((track, _)) = super::find_device(self.project(), device) {
+            self.moved(track, Target::Device { device, param });
+        }
     }
 
     /// Lets `track`'s lane for `target` play again. Returns whether it was
@@ -104,7 +120,7 @@ mod tests {
         assert!(doc.overrides().is_empty());
         doc.set_volume(track, -3.0);
         assert!(doc.overrides().contains(track, Target::Volume));
-        assert!(doc.overrides().any_for(track));
+        assert!(doc.overrides().targets_of(track).next().is_some());
     }
 
     #[test]

@@ -21,6 +21,9 @@ impl App {
             .map(|n| (n.device, crate::chain::editor::touched(&n.edits)))
             .filter(|(_, ids)| !ids.is_empty())
             .collect();
+        for news in &all {
+            self.note_gestures(news.device, &news.edits);
+        }
         for news in all {
             let hosting = &self.hosting;
             let title = |id: u32| {

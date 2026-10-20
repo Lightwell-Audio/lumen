@@ -2936,6 +2936,61 @@ fn automation_override() {
     }
 }
 
+/// A track's recording mode (M7 slice A4b, the owner's K1 B): one chip with a
+/// record-red dot and the mode's name, the lane tinted red while the mode can
+/// write, and the mode menu open on the first track. Dark and light at 100, 150
+/// and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn automation_modes() {
+    use egui_kittest::kittest::Queryable as _;
+    use lumen_core::automation::{Lane, Point};
+    use lumen_core::time::Ticks;
+    use lumen_project::automation::Target;
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new(&format!("shots-modes-{appearance}-{scale}"));
+            let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1280.0, 760.0));
+            let tracks: Vec<_> = h.state().project().tracks.iter().map(|t| t.id).collect();
+            let names: Vec<_> = h
+                .state()
+                .project()
+                .tracks
+                .iter()
+                .map(|t| t.name.clone())
+                .collect();
+            let q = Ticks::quarters;
+            let volume = Lane::new(vec![
+                Point::new(q(0), -18.0),
+                Point::new(q(4), -6.0),
+                Point::new(q(9), -12.0),
+            ])
+            .unwrap();
+            let pan = Lane::new(vec![Point::new(q(1), -0.6), Point::new(q(8), 0.5)]).unwrap();
+            h.state_mut()
+                .give_lane(tracks[0], Target::Volume, volume)
+                .unwrap();
+            h.state_mut()
+                .give_lane(tracks[1], Target::Pan, pan)
+                .unwrap();
+            h.state_mut().set_automation_mode(tracks[0], "touch");
+            h.state_mut().set_automation_mode(tracks[1], "write");
+            h.state_mut().select_tracks(&tracks[..2]);
+            h.run_steps(4);
+            h.key_press(Key::A);
+            h.run_steps(60);
+            save(&mut h, &format!("modes-{appearance}-{scale}"));
+            h.get_by_label(&format!(
+                "Automation lane of {}: Volume \u{00B7} Touch",
+                names[0]
+            ))
+            .click();
+            h.run_steps(20);
+            save(&mut h, &format!("modes-menu-{appearance}-{scale}"));
+        }
+    }
+}
+
 /// A plugin parameter's lane taken over (M7 slice A4a): the card's strip knob
 /// and the All parameters window's bar, both with the amber ring, beside a
 /// parameter whose lane plays and follows. Dark and light at 100, 150 and 200%.

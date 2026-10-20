@@ -4,7 +4,7 @@
 //! and an amber ring, the look the owner chose (A). The interface asks the lane
 //! (`Lane::value_at`); it never reads the value back from the engine.
 
-use eframe::egui::{Rect, Stroke, StrokeKind, Ui};
+use eframe::egui::{Color32, Rect, Stroke, StrokeKind, Ui};
 use lumen_project::automation::Target;
 use lumen_project::model::Track;
 
@@ -32,22 +32,33 @@ impl Arrangement {
     }
 
     /// Whether the user has taken `track`'s lane for `target` over.
+    /// A lane that is being written is taken over to be recorded, not to be
+    /// left: it does not show as overridden.
     pub(crate) fn taken_over(&self, doc: &Document, track: &Track, target: Target) -> bool {
         doc.overrides().contains(track.id, target)
+            && !self.auto.recording.contains(&(track.id, target))
     }
 
     /// Whether `track` has any lane taken over.
     pub(crate) fn any_taken_over(&self, doc: &Document, track: &Track) -> bool {
-        doc.overrides().any_for(track.id)
+        doc.overrides()
+            .targets_of(track.id)
+            .any(|target| !self.auto.recording.contains(&(track.id, target)))
     }
 }
 
 /// The amber ring around a control whose lane the user has taken over.
 pub(crate) fn ring(ui: &Ui, rect: Rect) {
+    ring_with(ui, rect, theme::p().warning);
+}
+
+/// A ring of `color` around a control: amber for a lane taken over, record
+/// red for one being written.
+pub(crate) fn ring_with(ui: &Ui, rect: Rect, color: Color32) {
     ui.painter().rect_stroke(
         rect,
         f32::from(theme::radius::for_height(rect.height())),
-        Stroke::new(theme::stroke::LIT, theme::p().warning),
+        Stroke::new(theme::stroke::LIT, color),
         StrokeKind::Outside,
     );
 }

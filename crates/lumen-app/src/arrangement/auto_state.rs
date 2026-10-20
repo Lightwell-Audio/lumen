@@ -235,9 +235,29 @@ pub(crate) struct AutoView {
     /// The playhead, which the controls whose lanes play follow (D5): set by
     /// the app every frame.
     pub at: lumen_core::time::Ticks,
+    /// What each track does with the controls that move while it plays (M7
+    /// slice A4b). Session state: a track not here is in Read, and a project
+    /// always opens in Read.
+    pub modes: BTreeMap<Id, crate::auto_record::Mode>,
+    /// The lanes being written now, for the look of the controls and the chip.
+    pub recording: std::collections::BTreeSet<(Id, Target)>,
 }
 
 impl AutoView {
+    /// What `track` does with the controls that move while it plays.
+    pub fn mode_of(&self, track: Id) -> crate::auto_record::Mode {
+        self.modes.get(&track).copied().unwrap_or_default()
+    }
+
+    /// Sets what `track` does with the controls that move while it plays.
+    pub fn set_mode(&mut self, track: Id, mode: crate::auto_record::Mode) {
+        if mode == crate::auto_record::Mode::Read {
+            self.modes.remove(&track);
+        } else {
+            self.modes.insert(track, mode);
+        }
+    }
+
     /// What `target` is called: the plugin's word for a parameter when it has
     /// said it, else the lane's own name.
     pub fn name_of(&self, project: &Project, target: Target) -> String {

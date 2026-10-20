@@ -15,6 +15,12 @@ use lumen_project::model::Id;
 use super::Document;
 use super::mixer::tracks_mut;
 
+/// A lane edit that is one move of a drag.
+#[derive(Debug, Clone, Copy)]
+enum Gesture {
+    Drag,
+}
+
 /// Why a lane edit was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LaneRefusal {
@@ -53,6 +59,33 @@ impl Document {
         lane: Lane,
         gesture: bool,
     ) -> Result<(), LaneRefusal> {
+        self.write_lane(track, target, lane, gesture.then_some(Gesture::Drag), None)
+    }
+
+    /// Writes a recorded pass as `lane` (M7 slice A4b): one undo step named
+    /// "Record automation", never merged with the step before it. As any
+    /// edit of a lane, it lets the lane play again if the user had taken it
+    /// over.
+    pub fn record_lane(
+        &mut self,
+        track: Id,
+        target: Target,
+        lane: Lane,
+    ) -> Result<(), LaneRefusal> {
+        self.seal();
+        let done = self.write_lane(track, target, lane, None, Some("Record automation"));
+        self.seal();
+        done
+    }
+
+    fn write_lane(
+        &mut self,
+        track: Id,
+        target: Target,
+        lane: Lane,
+        gesture: Option<Gesture>,
+        named: Option<&str>,
+    ) -> Result<(), LaneRefusal> {
         let held = super::mixer::find(self.project(), track).ok_or(LaneRefusal::NoTrack)?;
         if !held.has_target(target) {
             return Err(LaneRefusal::NoTarget);
@@ -76,14 +109,14 @@ impl Document {
             })
             .collect();
         let lane = Lane::new(points).expect("the same points in the same order");
-        let label = if exists {
+        let label = named.unwrap_or(if exists {
             "Edit automation"
         } else {
             "Add automation lane"
-        };
+        });
         // Drawing on a lane is asking to hear it.
         self.reenable_lane(track, target);
-        let merge = gesture.then(|| format!("automation {:x} {target:?}", track.0));
+        let merge = gesture.map(|_| format!("automation {:x} {target:?}", track.0));
         self.history.apply(label, merge.as_deref(), |project| {
             if let Some(held) = tracks_mut(project).find(|t| t.id == track) {
                 let held = Arc::make_mut(held);
