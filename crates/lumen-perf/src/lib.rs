@@ -56,6 +56,10 @@ pub const SCENARIOS: &[(&str, &str)] = &[
         "1,000 blocks of 128 frames: 64 MIDI tracks, each a hosted instrument and a hosted effect (fake hosts that answer inside submit), through the routed mix",
     ),
     (
+        "engine_plugin_lanes_64",
+        "1,000 blocks of 128 frames: the hosted mix with a curved and a stepped parameter lane on each of its 64 hosted effects",
+    ),
+    (
         "engine_transport",
         "2,000 blocks of 128 frames: loop wraps, locates and the metronome",
     ),
@@ -108,8 +112,12 @@ pub fn run(name: &str) -> bool {
             measured_engine_synth_64(&mut engine);
         }
         "engine_hosted_64" => {
-            let (_routing, mut engine) = playing_hosted(64);
+            let (_routing, mut engine) = playing_hosted(64, false);
             measured_engine_hosted_64(&mut engine);
+        }
+        "engine_plugin_lanes_64" => {
+            let (_routing, mut engine) = playing_hosted(64, true);
+            measured_engine_plugin_lanes_64(&mut engine);
         }
         "engine_transport" => {
             let (handle, mut engine) = transport_only();
@@ -392,7 +400,7 @@ impl lumen_devices::Hosted for Echo {
 
 /// [`playing_synths`], with every instrument and a hosted effect on every
 /// track in plugin hosts (fake ones): the engine's own cost of hosting.
-fn playing_hosted(tracks: u64) -> (MixerHandle, SynthPlayer) {
+fn playing_hosted(tracks: u64, lanes: bool) -> (MixerHandle, SynthPlayer) {
     use lumen_devices::{Guard, HostedInstrument};
     use lumen_engine::{Device, InstrumentSpec, Layered, MidiClip, MidiNote, MidiTrack, Target};
     let (_clips, players) = clip_player();
@@ -438,6 +446,9 @@ fn playing_hosted(tracks: u64) -> (MixerHandle, SynthPlayer) {
             host: 1_000 + node.id,
             latency: 0,
         }];
+        if lanes {
+            node.automation = Some(plugin_lanes(1_000 + node.id));
+        }
     }
     let mut statuses = Vec::new();
     for id in 0..tracks {
@@ -457,6 +468,51 @@ fn playing_hosted(tracks: u64) -> (MixerHandle, SynthPlayer) {
     // The scenario must really use its hosts: none failed or missed a block.
     assert!(statuses.iter().all(|s| !s.failed() && s.late_blocks() == 0));
     (routing, engine)
+}
+
+/// A curved and a stepped lane on the plugin `host`, long enough that
+/// every block of the scenario is inside them.
+fn plugin_lanes(host: u64) -> lumen_engine::NodeAutomation {
+    use lumen_core::automation::Shape;
+    use lumen_engine::{AutoLane, AutoPoint, NodeAutomation, ParamLane};
+    let lane = |param: u32, shape: Shape, step: i64| ParamLane {
+        param,
+        lane: AutoLane::new(
+            (0..40)
+                .map(|k| AutoPoint {
+                    at: k * step,
+                    value: (k % 2) as f32 * 0.6 + 0.2,
+                    shape,
+                })
+                .collect(),
+        )
+        .expect("points"),
+    };
+    NodeAutomation {
+        plugins: vec![
+            (
+                host,
+                lane(1, Shape::Curve(lumen_core::curve::Curve::S_CURVE), 4_000),
+            ),
+            (host, lane(2, Shape::Step, 5_000)),
+        ],
+        ..Default::default()
+    }
+}
+
+#[unsafe(no_mangle)]
+#[inline(never)]
+pub fn measured_engine_plugin_lanes_64(engine: &mut SynthPlayer) {
+    let mut data = vec![0.0; 2 * FRAMES];
+    for _ in 0..1_000 {
+        engine.process(RATE, &mut data, 2, FRAMES);
+    }
+    black_box((
+        &data,
+        engine.transport().marker,
+        engine.transport().ticks,
+        1u8,
+    ));
 }
 
 #[unsafe(no_mangle)]
@@ -567,6 +623,7 @@ mod tests {
             "engine_automated_64",
             "engine_synth_64",
             "engine_hosted_64",
+            "engine_plugin_lanes_64",
             "engine_transport",
             "tempo_conversions",
         ] {

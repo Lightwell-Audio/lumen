@@ -427,11 +427,11 @@ impl Region {
         for i in 0..queues {
             let (_, list) = params.queue(i);
             points += list.len();
-            if list
-                .iter()
-                .any(|&(offset, value)| offset >= frames || !value.is_finite())
-            {
-                return Err(SubmitError::Invalid("point"));
+            if list.iter().any(|&(offset, _)| offset >= frames) {
+                return Err(SubmitError::Invalid("point offset"));
+            }
+            if list.iter().any(|&(_, value)| !value.is_finite()) {
+                return Err(SubmitError::Invalid("point value"));
             }
         }
         if points > layout.max_points as usize {
@@ -796,6 +796,14 @@ mod tests {
         assert_eq!(
             write(8, &[&ch], &[], &[q(1, 8)]),
             Err(SubmitError::Invalid("point offset"))
+        );
+        let not_a_number = ParamQueue {
+            id: 1,
+            points: vec![(0, f64::NAN)],
+        };
+        assert_eq!(
+            write(8, &[&ch], &[], &[not_a_number]),
+            Err(SubmitError::Invalid("point value"))
         );
         // Nothing was published.
         assert_eq!(r.request(), 0);
