@@ -6,10 +6,9 @@
 //!
 //! The pieces that decide things are pure and tested here: where a point
 //! sits ([`Frame`]), what an edit makes of a lane's points ([`inserted`],
-//! [`moved`], [`removed`]) and which point a pointer is over
-//! ([`Frame::nearest`]). The pointer's gestures are `app/auto_editing.rs`.
-
-use std::collections::BTreeMap;
+//! [`without`]) and which point a pointer is over ([`Frame::nearest`]). The
+//! state is `auto_state.rs`, the tools and the marks a gesture leaves are
+//! `auto_tools.rs`, the pointer's gestures are `app/auto_editing.rs`.
 
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, Stroke, Ui, pos2};
 use eframe::emath::GuiRounding as _;
@@ -19,6 +18,7 @@ use lumen_project::automation::{AutomationLane, Target};
 use lumen_project::model::{Id, Project, Track};
 
 use super::auto_scale as scale;
+use super::auto_state::Picked;
 use super::clips::INSET;
 use super::strip_output::row_button;
 use super::{Arrangement, Row, RowKind, STEP, UNFOLDED};
@@ -28,82 +28,6 @@ use crate::{ruler, theme};
 
 /// How far under the lane's top the chip sits.
 const CHIP_TOP: f32 = INSET + 2.0;
-
-/// A point of a lane the user has picked.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Picked {
-    pub track: Id,
-    pub target: Target,
-    /// Its place in the lane's points.
-    pub index: usize,
-}
-
-/// What the arrangement knows of the lanes it shows.
-#[derive(Debug, Default)]
-pub(crate) struct AutoView {
-    /// The lane each track shows, by track.
-    pub shown: BTreeMap<Id, Target>,
-    /// The point picked, for Delete and the arrows.
-    pub picked: Option<Picked>,
-    /// The point being dragged.
-    pub dragging: Option<Picked>,
-    /// The point under the pointer.
-    pub hover: Option<Picked>,
-}
-
-impl AutoView {
-    /// Shows the lanes of `tracks`, or hides them when every one already
-    /// shows one. A track opens on the first lane it has, else volume.
-    pub fn toggle(&mut self, project: &Project, tracks: &[Id]) {
-        let all = !tracks.is_empty() && tracks.iter().all(|t| self.shown.contains_key(t));
-        for &id in tracks {
-            if all {
-                self.shown.remove(&id);
-            } else if !self.shown.contains_key(&id)
-                && let Some(track) = project.tracks.iter().find(|t| t.id == id)
-            {
-                let target = track
-                    .automation
-                    .first()
-                    .map_or(Target::Volume, |l| l.target);
-                self.shown.insert(id, target);
-            }
-        }
-        if all {
-            self.picked = None;
-        }
-    }
-
-    /// Forgets lanes of tracks that are gone, targets a track no longer
-    /// has, and a point that is not there any more.
-    pub fn prune(&mut self, project: &Project) {
-        self.shown.retain(|id, target| {
-            project
-                .tracks
-                .iter()
-                .find(|t| t.id == *id)
-                .is_some_and(|t| t.has_target(*target))
-        });
-        let exists = |p: &Picked| {
-            project
-                .tracks
-                .iter()
-                .find(|t| t.id == p.track)
-                .and_then(|t| t.lane(p.target))
-                .is_some_and(|l| p.index < l.lane.len())
-                && self.shown.get(&p.track) == Some(&p.target)
-        };
-        if self.picked.as_ref().is_some_and(|p| !exists(p)) {
-            self.picked = None;
-        }
-        if self.hover.as_ref().is_some_and(|p| !exists(p)) {
-            self.hover = None;
-        }
-        if self.dragging.as_ref().is_some_and(|p| !exists(p)) {
-            self.dragging = None;
-        }
-    }
-}
 
 /// `lane` with a point of `value` at `at` (replacing the value of one
 /// already there), and where it is. A mute lane's points hold their value
@@ -133,31 +57,25 @@ pub(crate) fn inserted(
     Lane::new(points).ok().map(|lane| (lane, index))
 }
 
-/// `lane` with point `index` taken to `at` and `value`. It stays between
-/// its neighbours, a tick clear of each; points do not pass one another.
-pub(crate) fn moved(lane: &Lane, index: usize, at: Ticks, value: f32) -> Option<Lane> {
-    let mut points = lane.points().to_vec();
-    let point = points.get_mut(index)?;
-    let low = index
-        .checked_sub(1)
-        .map_or(Ticks::ZERO, |i| lane.points()[i].at + Ticks(1));
-    let at = at.max(low);
-    let at = lane
+/// `lane` without the points `picks` names.
+pub(crate) fn without(lane: &Lane, picks: &[usize]) -> Lane {
+    let points = lane
         .points()
-        .get(index + 1)
-        .map_or(at, |next| at.min(next.at - Ticks(1)));
-    point.at = at;
-    point.value = value;
-    Lane::new(points).ok()
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !picks.contains(i))
+        .map(|(_, p)| *p)
+        .collect();
+    Lane::new(points).unwrap_or_else(|_| lane.clone())
 }
 
-/// `lane` without point `index`.
-pub(crate) fn removed(lane: &Lane, index: usize) -> Lane {
-    let mut points = lane.points().to_vec();
-    if index < points.len() {
-        points.remove(index);
-    }
-    Lane::new(points).unwrap_or_else(|_| lane.clone())
+/// What the lanes are drawn against: the canvas, the view of time across
+/// it, how many clip lists are still being built, and the song's timeline.
+pub(crate) struct Scene<'a> {
+    pub canvas: Rect,
+    pub view: TimeView,
+    pub pending: usize,
+    pub timeline: &'a lumen_engine::Timeline,
 }
 
 /// Where a track's lane is on screen: its row, and the view of time across
@@ -193,12 +111,6 @@ impl Frame {
     pub fn y(&self, target: Target, value: f32) -> f32 {
         let area = self.area();
         area.bottom() - scale::fraction(target, value) * area.height()
-    }
-
-    /// The value at height `y`.
-    pub fn value_at(&self, target: Target, y: f32) -> f32 {
-        let area = self.area();
-        scale::value(target, (area.bottom() - y) / area.height().max(1.0))
     }
 
     pub fn pos(&self, target: Target, point: &Point) -> Pos2 {
@@ -354,12 +266,17 @@ impl Arrangement {
         &mut self,
         ui: &mut Ui,
         painter: &Painter,
-        canvas: Rect,
         doc: &mut Document,
-        view: TimeView,
-        pending: usize,
+        scene: Scene<'_>,
     ) {
+        let Scene {
+            canvas,
+            view,
+            pending,
+            timeline,
+        } = scene;
         self.auto.prune(doc.project());
+        self.auto.tip = None;
         if self.auto.shown.is_empty() {
             return;
         }
@@ -392,7 +309,13 @@ impl Arrangement {
             };
             let entry = track.lane(target);
             self.draw_lane(&painter, &frame, track, target, entry);
-            self.lane_chip(ui, doc, &visible, &frame, track, target);
+            self.draw_marks(&painter, &frame, id, target, entry);
+            if let Some(chip) = self.lane_chip(ui, doc, &visible, &frame, track, target) {
+                self.lane_tools(ui, &frame, chip, &track.name);
+            }
+            self.lane_tip(&ctx, &frame, id, target, entry, &|t| {
+                crate::position::format_bbt(timeline, t)
+            });
         }
     }
 
@@ -450,8 +373,12 @@ impl Arrangement {
                 target,
                 index: i,
             };
-            let picked = self.auto.picked == Some(here);
-            let hot = self.auto.hover == Some(here) || self.auto.dragging == Some(here);
+            let picked = self
+                .auto
+                .picked_on(track.id, target)
+                .is_some_and(|p| p.indices.contains(&i));
+            let hot =
+                self.auto.hover == Some(here) || self.auto.moving(track.id, target) == Some(i);
             draw_point(painter, at, ink, picked, hot);
         }
     }
@@ -466,7 +393,7 @@ impl Arrangement {
         frame: &Frame,
         track: &Track,
         target: Target,
-    ) {
+    ) -> Option<Rect> {
         let project = doc.project();
         let entry = track.lane(target);
         let mut text = scale::name(project, target);
@@ -493,7 +420,7 @@ impl Arrangement {
         )
         .round_to_pixels(ui.pixels_per_point());
         if !visible.contains_rect(chip) {
-            return;
+            return None;
         }
         let id = egui::Id::new(("automation chip", track.id));
         let name = format!("Automation lane of {}: {text}", track.name);
@@ -510,6 +437,7 @@ impl Arrangement {
             ui.set_min_width(theme::size::AUTO_MENU);
             self.lane_menu(ui, doc, track.id, target);
         });
+        Some(chip)
     }
 
     /// The chooser: the track's parameters (one per line, with how many
@@ -528,7 +456,7 @@ impl Arrangement {
             };
             if ui.selectable_label(option == target, label).clicked() {
                 self.auto.shown.insert(track, option);
-                self.auto.picked = None;
+                self.auto.picks = None;
                 ui.close();
             }
         }
@@ -545,13 +473,13 @@ impl Arrangement {
             }
             if ui.button("Remove the lane").clicked() {
                 self.note_lane(doc.remove_lane(track, target));
-                self.auto.picked = None;
+                self.auto.picks = None;
                 ui.close();
             }
         }
         if ui.button("Hide automation").clicked() {
             self.auto.shown.remove(&track);
-            self.auto.picked = None;
+            self.auto.picks = None;
             ui.close();
         }
     }
@@ -639,34 +567,20 @@ mod tests {
     }
 
     #[test]
-    fn a_point_stays_between_its_neighbours() {
-        let base = lane(&[(0, 0.0), (4, 0.0), (8, 0.0)]);
-        let far_right = moved(&base, 1, Ticks::quarters(20), 3.0).unwrap();
-        assert_eq!(far_right.points()[1].at, Ticks::quarters(8) - Ticks(1));
-        assert_eq!(far_right.points()[1].value, 3.0);
-        let far_left = moved(&base, 1, Ticks::quarters(-5), 0.0).unwrap();
-        assert_eq!(far_left.points()[1].at, Ticks(1));
-        // The first point cannot go before the song starts.
-        let first = moved(&base, 0, Ticks::quarters(-5), 0.0).unwrap();
-        assert_eq!(first.points()[0].at, Ticks::ZERO);
-        assert!(moved(&base, 9, Ticks::ZERO, 0.0).is_none());
-    }
-
-    #[test]
-    fn a_point_can_be_taken_out() {
+    fn picked_points_can_be_taken_out_and_the_last_takes_the_lane() {
         let base = lane(&[(0, 0.0), (4, 1.0), (8, 2.0)]);
-        let cut = removed(&base, 1);
-        assert_eq!(cut.len(), 2);
-        assert_eq!(cut.points()[1].value, 2.0);
-        assert_eq!(removed(&base, 7).len(), 3, "nothing there to take");
-        assert!(removed(&lane(&[(0, 0.0)]), 0).is_empty());
+        let cut = without(&base, &[0, 2]);
+        assert_eq!(cut.len(), 1);
+        assert_eq!(cut.points()[0].value, 1.0);
+        assert_eq!(without(&base, &[7]).len(), 3, "nothing there to take");
+        assert!(without(&lane(&[(0, 0.0)]), &[0]).is_empty());
     }
 
     #[test]
     fn values_and_heights_agree_through_the_frame() {
         let f = frame();
         let y = f.y(Target::Pan, 0.0);
-        assert!((f.value_at(Target::Pan, y)).abs() < 1e-4);
+        assert!(scale::value(Target::Pan, f.height_at(y)).abs() < 1e-4);
         // Louder is higher on the screen.
         assert!(f.y(Target::Volume, 0.0) < f.y(Target::Volume, -20.0));
         // The extremes stay inside the lane, under the chip.
@@ -737,62 +651,5 @@ mod tests {
         .unwrap();
         let line = polyline(&f, Target::Volume, &curved, (0.0, 600.0));
         assert!(line.len() < 600, "{} samples", line.len());
-    }
-
-    #[test]
-    fn toggling_shows_and_hides_lanes_and_opens_on_the_first_lane() {
-        let mut project = crate::empty_project();
-        let mut track = Track::new(
-            Id(7),
-            "T".to_owned(),
-            lumen_project::model::TrackKind::Audio,
-            lumen_project::model::Color(0),
-        );
-        track
-            .automation
-            .push(AutomationLane::new(Target::Pan, lane(&[(0, 0.0)])));
-        project.tracks.push(std::sync::Arc::new(track));
-        let mut view = AutoView::default();
-        view.toggle(&project, &[Id(7)]);
-        assert_eq!(view.shown.get(&Id(7)), Some(&Target::Pan));
-        view.toggle(&project, &[Id(7)]);
-        assert!(view.shown.is_empty());
-        // A track that is gone is not shown.
-        view.toggle(&project, &[Id(99)]);
-        assert!(view.shown.is_empty());
-    }
-
-    #[test]
-    fn lanes_and_picks_are_forgotten_with_what_they_point_at() {
-        let mut project = crate::empty_project();
-        let mut track = Track::new(
-            Id(7),
-            "T".to_owned(),
-            lumen_project::model::TrackKind::Audio,
-            lumen_project::model::Color(0),
-        );
-        track.automation.push(AutomationLane::new(
-            Target::Volume,
-            lane(&[(0, 0.0), (4, 0.0)]),
-        ));
-        project.tracks.push(std::sync::Arc::new(track));
-        let mut view = AutoView::default();
-        view.shown.insert(Id(7), Target::Volume);
-        view.picked = Some(Picked {
-            track: Id(7),
-            target: Target::Volume,
-            index: 1,
-        });
-        view.prune(&project);
-        assert!(view.picked.is_some());
-        view.picked = Some(Picked {
-            index: 2,
-            ..view.picked.unwrap()
-        });
-        view.prune(&project);
-        assert!(view.picked.is_none(), "no third point");
-        view.shown.insert(Id(7), Target::Send { to: Id(3) });
-        view.prune(&project);
-        assert!(view.shown.is_empty(), "the track makes no such send");
     }
 }

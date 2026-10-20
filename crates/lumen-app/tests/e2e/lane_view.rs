@@ -18,7 +18,7 @@ const TONE: f32 = 3_000.0 / 32_768.0;
 
 /// A project with one track holding a long tone, selected, on a one-beat
 /// grid, with the lane not yet shown.
-fn tone(name: &str) -> (Lumen, Id) {
+pub(super) fn tone(name: &str) -> (Lumen, Id) {
     let mut lumen = Lumen::start(name);
     let file = wav(&lumen.dir().join("tone.wav"), 20.0);
     lumen.drop_files(&[file]);
@@ -33,7 +33,7 @@ fn tone(name: &str) -> (Lumen, Id) {
 }
 
 /// The lane of `track` for `target`, as the project holds it.
-fn points(lumen: &Lumen, track: Id, target: Target) -> Vec<(Ticks, f32)> {
+pub(super) fn points(lumen: &Lumen, track: Id, target: Target) -> Vec<(Ticks, f32)> {
     lumen
         .app()
         .project()
@@ -45,7 +45,7 @@ fn points(lumen: &Lumen, track: Id, target: Target) -> Vec<(Ticks, f32)> {
         .unwrap_or_default()
 }
 
-fn spot(lumen: &Lumen, track: Id, quarters: f64, value: f32) -> Pos2 {
+pub(super) fn spot(lumen: &Lumen, track: Id, quarters: f64, value: f32) -> Pos2 {
     let ctx = lumen.harness.ctx.clone();
     lumen
         .app()
@@ -53,7 +53,7 @@ fn spot(lumen: &Lumen, track: Id, quarters: f64, value: f32) -> Pos2 {
         .expect("the lane is in view")
 }
 
-fn point_pos(lumen: &Lumen, track: Id, index: usize) -> Pos2 {
+pub(super) fn point_pos(lumen: &Lumen, track: Id, index: usize) -> Pos2 {
     let ctx = lumen.harness.ctx.clone();
     lumen
         .app()
@@ -61,7 +61,7 @@ fn point_pos(lumen: &Lumen, track: Id, index: usize) -> Pos2 {
         .expect("the point is in view")
 }
 
-fn click_at(lumen: &mut Lumen, p: Pos2) {
+pub(super) fn click_at(lumen: &mut Lumen, p: Pos2) {
     lumen.harness.hover_at(p);
     lumen.frames(2);
     lumen.harness.drag_at(p);
@@ -71,7 +71,7 @@ fn click_at(lumen: &mut Lumen, p: Pos2) {
 }
 
 /// Types `query` into the palette and presses Enter on its first row.
-fn run_command(lumen: &mut Lumen, query: &str) {
+pub(super) fn run_command(lumen: &mut Lumen, query: &str) {
     if !lumen.app().palette_open() {
         lumen.key(Modifiers::COMMAND, Key::K);
     }
@@ -82,14 +82,14 @@ fn run_command(lumen: &mut Lumen, query: &str) {
     lumen.frames(3);
 }
 
-fn peak(lumen: &mut Lumen) -> f32 {
+pub(super) fn peak(lumen: &mut Lumen) -> f32 {
     lumen
         .listen(Duration::from_millis(150), 1_000)
         .iter()
         .fold(0.0f32, |m, f| m.max(f[0].abs()))
 }
 
-fn near(got: f32, want: f32) -> bool {
+pub(super) fn near(got: f32, want: f32) -> bool {
     (got - want).abs() <= want.max(1e-3) * 0.15
 }
 
@@ -151,7 +151,7 @@ fn a_click_adds_a_point_on_the_grid_and_it_is_heard() {
         "about −20 dB where it was clicked: {}",
         held[0].1
     );
-    assert_eq!(lumen.app().automation_picked(), Some((track, 0)));
+    assert_eq!(lumen.app().automation_picked(), Some((track, vec![0])));
     assert!(lumen.app().is_dirty());
     // The lane plays: a single point holds its value.
     lumen.key(Modifiers::NONE, Key::Space);
@@ -315,7 +315,7 @@ fn delete_takes_the_picked_point_and_the_last_one_takes_the_lane() {
     lumen.frames(40);
     let first = point_pos(&lumen, track, 0);
     click_at(&mut lumen, first);
-    assert_eq!(lumen.app().automation_picked(), Some((track, 0)));
+    assert_eq!(lumen.app().automation_picked(), Some((track, vec![0])));
     lumen.key(Modifiers::NONE, Key::Delete);
     assert_eq!(
         points(&lumen, track, Target::Volume),
@@ -371,7 +371,7 @@ fn the_keys_alone_make_a_lane_and_move_and_delete_its_point() {
     assert_eq!(held.len(), 1, "{held:?}");
     assert_eq!(held[0].0, Ticks::quarters(4));
     assert_eq!(held[0].1, 0.0, "the control's own value, so nothing jumps");
-    assert_eq!(lumen.app().automation_picked(), Some((track, 0)));
+    assert_eq!(lumen.app().automation_picked(), Some((track, vec![0])));
     // Right moves it a grid step later, Up raises it, Delete takes it.
     lumen.key(Modifiers::NONE, Key::ArrowRight);
     assert_eq!(

@@ -9,6 +9,7 @@ use lumen_core::product::PRODUCT_NAME;
 use super::grid::draw_snap_guide;
 use super::rulers;
 use crate::arrangement::FileDrop;
+use crate::arrangement::auto_view::Scene;
 use crate::commands::Command;
 use crate::document::{DropInto, Places};
 use crate::icons::{self, Icon};
@@ -424,8 +425,17 @@ report: {}",
             self.clip_editing(ui, &hover, canvas, &painter);
         }
         let pending = self.lanes.pending().len();
-        self.arrangement
-            .lane_overlay(ui, &painter, canvas, &mut self.document, view, pending);
+        self.arrangement.lane_overlay(
+            ui,
+            &painter,
+            &mut self.document,
+            Scene {
+                canvas,
+                view,
+                pending,
+                timeline: &self.transport.timeline,
+            },
+        );
         widgets::Menu::context(&hover).show(|ui| self.lanes_menu(ui));
         // Where the tracks are scrolled: a bar that shows while scrolling
         // or near the right edge (M4.5, U2).

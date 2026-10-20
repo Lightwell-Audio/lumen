@@ -2797,3 +2797,87 @@ fn automation_lanes() {
         }
     }
 }
+
+/// Editing a lane (M7 slice A2): the tool strip, a picked point's bend dot,
+/// two points picked by a box, a sine being drawn with its live value.
+/// Dark and light at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn automation_editing() {
+    use egui_kittest::kittest::Queryable as _;
+    use lumen_core::automation::{Lane, Point};
+    use lumen_core::time::Ticks;
+    use lumen_project::automation::Target;
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new(&format!("shots-edit-{appearance}-{scale}"));
+            let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1280.0, 760.0));
+            let tracks: Vec<_> = h.state().project().tracks.iter().map(|t| t.id).collect();
+            let name = h.state().project().tracks[0].name.clone();
+            let q = Ticks::quarters;
+            let volume = Lane::new(vec![
+                Point::new(q(1), -24.0),
+                Point::new(q(3), -6.0),
+                Point::new(q(5), -18.0),
+                Point::new(q(7), -3.0),
+                Point::new(q(9), -30.0),
+            ])
+            .unwrap();
+            h.state_mut()
+                .give_lane(tracks[0], Target::Volume, volume)
+                .unwrap();
+            h.state_mut().select_tracks(&tracks[..1]);
+            h.run_steps(4);
+            h.key_press(Key::A);
+            h.run_steps(60);
+            // One point picked: its segment shows the bend dot.
+            let p = h
+                .state()
+                .automation_point_pos(&h.ctx, tracks[0], 1)
+                .expect("in view");
+            click(&mut h, p);
+            h.run_steps(10);
+            save(&mut h, &format!("lane-edit-bend-{appearance}-{scale}"));
+            // A box around two points, still held.
+            let from = h
+                .state()
+                .automation_spot(&h.ctx, tracks[0], 4.0, 6.0)
+                .expect("in view");
+            let to = h
+                .state()
+                .automation_spot(&h.ctx, tracks[0], 8.0, -40.0)
+                .expect("in view");
+            h.event(Event::ModifiersChanged(Modifiers::SHIFT));
+            h.hover_at(from);
+            h.drag_at(from);
+            h.run_steps(2);
+            h.hover_at(to);
+            h.run_steps(3);
+            save(&mut h, &format!("lane-edit-box-{appearance}-{scale}"));
+            h.drop_at(to);
+            h.run_steps(3);
+            h.event(Event::ModifiersChanged(Modifiers::NONE));
+            h.run_steps(2);
+            // The shape tool, a sine part drawn.
+            h.get_by_label(&format!("Automation shape tool of {name}"))
+                .click();
+            h.run_steps(5);
+            let from = h
+                .state()
+                .automation_spot(&h.ctx, tracks[0], 10.0, -30.0)
+                .expect("in view");
+            let to = h
+                .state()
+                .automation_spot(&h.ctx, tracks[0], 14.0, -6.0)
+                .expect("in view");
+            h.hover_at(from);
+            h.drag_at(from);
+            h.run_steps(2);
+            h.hover_at(to);
+            h.run_steps(4);
+            save(&mut h, &format!("lane-edit-shape-{appearance}-{scale}"));
+            h.drop_at(to);
+            h.run_steps(3);
+        }
+    }
+}

@@ -1188,9 +1188,46 @@ impl App {
         Some(frame.pos(target, &point))
     }
 
-    /// The point picked on a lane: its track and place in the lane.
-    pub fn automation_picked(&self) -> Option<(Id, usize)> {
-        self.arrangement.auto.picked.map(|p| (p.track, p.index))
+    /// The points picked on a lane: its track and their places in the lane.
+    pub fn automation_picked(&self) -> Option<(Id, Vec<usize>)> {
+        self.arrangement
+            .auto
+            .picks
+            .as_ref()
+            .map(|p| (p.track, p.list()))
+    }
+
+    /// The live value drawn beside the lane gesture under way, if any.
+    pub fn automation_tip(&self) -> Option<String> {
+        self.arrangement.auto.tip.clone()
+    }
+
+    /// The tool the lanes have in hand: "Pointer", "Pencil" or a shape's name.
+    pub fn automation_tool(&self) -> String {
+        use crate::arrangement::auto_state::{Tool, wave_name};
+        match self.arrangement.auto.tool {
+            Tool::Pointer => "Pointer".to_owned(),
+            Tool::Pencil => "Pencil".to_owned(),
+            Tool::Shape(wave) => wave_name(wave).to_owned(),
+        }
+    }
+
+    /// Where the dot that bends the segment leaving point `index` of
+    /// `track`'s shown lane is drawn, if it has one.
+    pub fn automation_bend_pos(
+        &self,
+        ctx: &egui::Context,
+        track: Id,
+        index: usize,
+    ) -> Option<egui::Pos2> {
+        let (target, frame) = self.lane_frame_of(ctx, track)?;
+        let held = self
+            .document
+            .project()
+            .tracks
+            .iter()
+            .find(|t| t.id == track)?;
+        frame.bend_dot(target, &held.lane(target)?.lane, index)
     }
 
     fn lane_frame_of(

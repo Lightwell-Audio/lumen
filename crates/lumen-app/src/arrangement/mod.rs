@@ -26,6 +26,8 @@
 //! drawn in, and each zone clips its own.
 
 pub(crate) mod auto_scale;
+pub(crate) mod auto_state;
+mod auto_tools;
 pub(crate) mod auto_view;
 mod buttons;
 mod clips;
@@ -254,7 +256,7 @@ pub struct Arrangement {
     /// lane): the browser's id of the device, and the track.
     pub(crate) browser_drop: Option<(String, Id)>,
     /// The automation lanes shown over the clip lanes (M7 slice A1).
-    pub(crate) auto: auto_view::AutoView,
+    pub(crate) auto: auto_state::AutoView,
     /// Selected clips (slice 6a). Selecting clips clears the track
     /// selection, and the other way round.
     pub clips: BTreeSet<Id>,

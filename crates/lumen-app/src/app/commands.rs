@@ -3,16 +3,19 @@
 //! is bound to. The palette and menus run commands the same way.
 
 use eframe::egui;
+use lumen_core::automation::Shape;
 use lumen_core::pan::PanLaw;
 use lumen_core::time::Ticks;
 use lumen_devices::Preset;
 use lumen_plugin_catalog::scan::Mode;
+use lumen_project::edit::automation::Wave;
 use lumen_project::model::{FromSource, MidiFrom, Monitor, TrackKind};
 
 use super::editing::Edit;
 use super::navigate::ViewStep;
 use super::panes;
 use super::projects::Next;
+use crate::arrangement::auto_state::Tool as AutoTool;
 use crate::arrangement::select::ClipStep;
 use crate::commands::{Chord, Command};
 use crate::note_editor::lane::geometry::LaneKind;
@@ -156,13 +159,15 @@ impl App {
                     "Nothing to paste: copy a device first"
                 },
             ),
+            Command::Copy if self.auto_keys_picked() => Ok(()),
+            Command::Paste if self.auto_can_paste() => Ok(()),
             Command::Cut | Command::Copy => need(clips, "Select clips or a time range first"),
             Command::Paste => need(
                 self.clipboard.is_some(),
                 "Nothing to paste: copy or cut first",
             ),
             Command::Duplicate => need(
-                clips || tracks || notes,
+                clips || tracks || notes || self.auto_keys_picked(),
                 "Select clips, a time range or tracks",
             ),
             Command::Delete => need(
@@ -185,6 +190,7 @@ impl App {
             ),
             Command::SelectAll => need(
                 self.note_keys()
+                    || (self.auto_keys_lane() && self.auto_chosen_has_lane())
                     || self
                         .document
                         .project()
@@ -256,7 +262,11 @@ impl App {
             // slice 8 accessibility test: Esc deselected a clip instead of
             // closing the shortcuts window).
             Command::Deselect => need(
-                (clips || locator || notes || self.note_editor.gesture.is_some())
+                (clips
+                    || locator
+                    || notes
+                    || self.arrangement.auto.picks.is_some()
+                    || self.note_editor.gesture.is_some())
                     && !egui::Popup::is_any_open(ctx)
                     && !self.window_open(),
                 "Nothing is selected",
@@ -277,6 +287,7 @@ impl App {
                 self.selected_midi_clip().is_some(),
                 "Select a MIDI clip first",
             ),
+            Command::DrawTool if self.auto_chosen().is_some() && !self.note_keys() => Ok(()),
             Command::PopOutEditor
             | Command::DrawTool
             | Command::Quantize
@@ -375,6 +386,18 @@ impl App {
             Command::AutomationChoose | Command::AutomationAddPoint => {
                 need(self.auto_chosen().is_some(), "Show a lane first (A)")
             }
+            Command::AutomationSegmentLinear
+            | Command::AutomationSegmentStep
+            | Command::AutomationSegmentCurve => {
+                need(self.auto_keys_picked(), "Pick automation points first")
+            }
+            Command::AutomationToolRamp
+            | Command::AutomationToolSine
+            | Command::AutomationToolTriangle
+            | Command::AutomationToolSaw
+            | Command::AutomationToolSquare => {
+                need(self.auto_chosen().is_some(), "Show a lane first (A)")
+            }
             Command::AutomationToggleLane | Command::AutomationRemoveLane => need(
                 self.auto_chosen_has_lane(),
                 "The shown lane has no points yet: click it to add one",
@@ -441,6 +464,9 @@ impl App {
         let notes = self.note_keys_picked();
         let lane_points = self.lane_keys_picked();
         let auto_point = self.auto_keys_picked();
+        let auto_lane = self.auto_keys_lane();
+        let auto_paste = self.auto_can_paste();
+        let auto_draw = self.auto_chosen().is_some();
         let note_keys = self.note_keys();
         if command == Command::Deselect && self.note_editor.cancel_gesture() {
             self.end_audition();
@@ -512,6 +538,13 @@ impl App {
             Command::NudgeLaterFine if self.chain.live && !notes => self.move_chain_device(1),
             Command::FoldTracks if self.chain.live && !notes => self.step_chain_choice(-1),
             Command::UnfoldTracks if self.chain.live && !notes => self.step_chain_choice(1),
+            Command::Copy if auto_point => self.auto_copy(),
+            Command::Paste if auto_paste => self.auto_paste(),
+            Command::Duplicate if auto_point && !notes => self.auto_duplicate(),
+            Command::SelectAll if auto_lane => self.auto_select_all(),
+            Command::DrawTool if auto_draw && !note_keys => {
+                self.auto_toggle_draw();
+            }
             Command::Cut => self.edit(Edit::Cut),
             Command::Copy => self.edit(Edit::Copy),
             Command::Paste => self.edit(Edit::Paste),
@@ -556,6 +589,14 @@ impl App {
             Command::AutomationAddPoint => self.auto_add_point(),
             Command::AutomationToggleLane => self.auto_toggle_lane(),
             Command::AutomationRemoveLane => self.auto_remove_lane(),
+            Command::AutomationSegmentLinear => self.auto_shape_segments(Shape::Linear),
+            Command::AutomationSegmentStep => self.auto_shape_segments(Shape::Step),
+            Command::AutomationSegmentCurve => self.auto_shape_segments(Self::auto_curve()),
+            Command::AutomationToolRamp => self.auto_use_tool(AutoTool::Shape(Wave::Ramp)),
+            Command::AutomationToolSine => self.auto_use_tool(AutoTool::Shape(Wave::Sine)),
+            Command::AutomationToolTriangle => self.auto_use_tool(AutoTool::Shape(Wave::Triangle)),
+            Command::AutomationToolSaw => self.auto_use_tool(AutoTool::Shape(Wave::Saw)),
+            Command::AutomationToolSquare => self.auto_use_tool(AutoTool::Shape(Wave::Square)),
             Command::TransposeUp => self.note_op(NoteOp::Transpose(1)),
             Command::TransposeDown => self.note_op(NoteOp::Transpose(-1)),
             Command::OctaveUp => self.note_op(NoteOp::Transpose(12)),
@@ -624,7 +665,7 @@ impl App {
             Command::DeleteTime => self.edit(Edit::DeleteTime),
             Command::InsertTime => self.edit(Edit::InsertTime),
             Command::Deselect => {
-                self.arrangement.auto.picked = None;
+                self.arrangement.auto.picks = None;
                 self.arrangement.clips.clear();
                 self.arrangement.range = None;
                 self.locators.selected = None;

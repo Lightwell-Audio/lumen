@@ -93,7 +93,8 @@ irreversible or external) · *Superseded*.
 | [0079](#adr-0079--settings-sections-added-with-defaults-keep-the-version-and-the-file-is-flushed) | Settings: sections added with defaults keep the version, and the file is flushed | Accepted 2026-10-18 (review M11) | No |
 | [0080](#adr-0080--compatibility-tools-the-probe-the-fault-soak-and-the-callback-benchmark-m6-slice-7) | Compatibility tools: the probe, the fault soak and the callback benchmark (M6 slice 7) | Accepted 2026-10-19 (owner's P1, K1, W1, R1, V1 of 2026-10-18); MT-VST-7 is the owner's | Decided by the owner |
 | [0081](#adr-0081--automation-lanes-in-the-model-and-the-mixer-m7-slice-a0) | Automation lanes in the model and the mixer (M7 slice A0) | Accepted 2026-10-19 (the owner approved starting A0); MT-AUTO-1 passed (owner, 2026-10-19) | Claude, with the owner's M7 decisions |
-| [0082](#adr-0082--seeing-and-adding-an-automation-lane-m7-slice-a1) | Seeing and adding an automation lane (M7 slice A1) | Proposed 2026-10-19 (built on the owner's go-ahead; the look is the owner's L1 B) | Claude |
+| [0082](#adr-0082--seeing-and-adding-an-automation-lane-m7-slice-a1) | Seeing and adding an automation lane (M7 slice A1) | Accepted 2026-10-19 (merged by the owner; MT-AUTO-2 passed except its release frame numbers) | Claude |
+| [0083](#adr-0083--editing-an-automation-lane-m7-slice-a2) | Editing an automation lane (M7 slice A2) | Accepted 2026-10-20 (MT-AUTO-3 passed, owner); choice 4 (points, not ranges) to be revisited after the core product | Claude |
 
 ---
 
@@ -7460,3 +7461,96 @@ stepping back, a chip at the lane's top-left, the track header's A button).
   release binary); the debug build read p50 +1.0 to +2.5 ms against the same debug run
   without lanes, idle 3 repaints in 3 s both ways. MT-AUTO-2 asks the owner for the
   release numbers.
+
+## ADR-0083 — Editing an automation lane (M7 slice A2)
+
+**Context.** A1 let a lane be shown and a point added, moved and deleted. A2 is the rest
+of lane editing: several points at once, segment shapes, shapes and freehand drawing,
+resting places for values, a live value, and copy, paste and duplicate. The owner chose
+the lane's look in A1 (L1 B) and asked for variants before any behaviour or look is built;
+this slice was started on "start the next slice" with no variants shown, so each call
+below is the plainest one that fits the interface the owner already accepted, recorded
+here for the check in MT-AUTO-3. Every one is a small, reversible change.
+
+**Choices.**
+1. **The edits are pure and live in `lumen_project::edit::automation`.** `shifted` (move a
+   set of points, held back by the unpicked points beside it and by the start of the
+   song, values mapped by the caller), `with_shape`, `replace_span`, `copy`, `paste`,
+   `duplicate`, `wave` (ramp, sine, triangle, saw, square) and `stroke` (a freehand
+   path into points, thinned by `Lane::simplify`). The caller passes a map from a height
+   (0 to 1) to a value, so shapes and vertical moves are done in the space the user
+   sees and written in the target's units.
+2. **State is a set of picks and one gesture value.** `arrangement/auto_state.rs`:
+   `Picks` (track, target, indices), `Tool`, and `Gesture` (`Move`, `Box`, `Draw`,
+   `Wave`, `Bend`), each holding the lane as it was at the press. Every frame of a drag
+   rebuilds the lane from that lane plus the drag, so a drag is one undo step and never a
+   drag of a drag. Nothing here is saved with the project (as in A1).
+3. **Several points.** Shift+click adds a point to the picks or takes it away. Shift+drag
+   on empty lane drags out a box and picks what it holds. **Deviation from the usual:**
+   a plain drag on empty lane still adds a point and moves it (A1's behaviour, which the
+   owner passed), so the box needs Shift. Dragging a picked point moves every pick by
+   the same time and the same share of the lane's height; the arrows and Delete act on
+   all of them. Ctrl+A picks the whole lane while a lane has the keyboard (the last
+   press was in a lane); Esc lets go.
+4. **Copy, paste and duplicate act on the picked points, not on a time range** (the owner passed it, and asked on 2026-10-20 to revisit it after the core product is finished: ranges make more sense, since a range may have no points at its edges). The plan
+   said "ranges"; a lane's points are the range, so the span from the first pick to the
+   last is what is copied. Paste puts the first copied point at the playhead and
+   **replaces the points in the span it covers**, as drawing a shape does. Duplicate repeats
+   the run right after itself: on the last point's beat when the run starts and ends at
+   one value (a repeating shape joins up), one tick later otherwise (a rising run repeated
+   is a saw, not a lost point). Copied points paste only into a lane of the same range of
+   values (volume into a send, not into pan); otherwise a note says so. The copy is not
+   saved and is not the clip clipboard (Ctrl+C acts on picked points when they are
+   picked, else on clips).
+5. **Segment shapes.** Commands make the segments leaving the picked points straight,
+   steps or curved (the S curve, which reads as bent at once). With exactly one point
+   picked, its segment shows a bend dot in the middle (solid, where points are hollow)
+   which is dragged as a fade's curve is (`handles::bend`: the dot follows the pointer,
+   Alt adds S shape). A step or a flat segment, and one narrower than 27 points on screen,
+   has no dot. There is no right-click menu on a point: the commands, the palette and the
+   dot cover it (A3 can add one with the device chooser).
+6. **Resting places.** A point dragged near the control's ends or its neutral value (0 dB
+   and the top of a level, the centre of pan, 0 and 1 of a parameter) lands on it within
+   `size::AUTO_SNAP` (4 points), with a horizontal guide; Alt places freely, as it does
+   for the grid. Few places, on purpose: every one makes the lane stickier.
+7. **Tools.** A strip to the right of the lane's chip (the pointer, the pencil, a shape),
+   and, with a shape tool in hand, a chip that chooses the shape. The pencil draws
+   freehand to the pixel (not to the grid) and thins the stroke to 1.5 points of the lane's
+   height; going back over what was drawn takes it back. A shape tool drags a span (start
+   and end snap to the grid, Alt frees them): the press height is where the shape starts,
+   the release height the other end; one cycle is one grid step at the press; a ramp is
+   one straight run, a sine has 16 points to a cycle, a triangle and a saw their turning
+   points (a saw drops in one tick), a square is steps. Shapes on a mute lane are steps.
+   **B** is the existing Draw tool key: it toggles the pencil when a lane is shown and the
+   clip editor does not hold the keyboard. Five tool commands and three segment commands
+   are new (`edit.automation_tool_*`, `edit.automation_segment_*`).
+8. **Live value.** While a point moves or a stroke or shape is drawn, a chip beside it says
+   the value and the bar, beat and sixteenth (`widgets::draw_hint`, on the tooltip layer,
+   below the point when it would cover the strip). The info line says what each tool does.
+
+**Deviations from the plan, for the owner's information.**
+- No time-range selection on a lane (choice 4); no right-click menu on a point (choice 5).
+- The tool strip, the bend dot and the box are new looks built from the design system's
+  existing pieces (a segmented control with the MIDI lane's glyphs, a raised combo, the
+  fade's bend dot, the accent wash), not shown as specimens first.
+
+**Consequences.**
+- 22 unit tests for the pure edits (including a property test that a stroke never leaves
+  its tolerance), unit tests for the state, the scale's resting places and the bend dot, and 19 E2E
+  scenarios in `tests/e2e/lane_edit.rs`: box, Shift, moving together, the block held
+  against a neighbour, keys on every pick, copy, paste and duplicate, the refused kind,
+  resting places, the pencil, the five shapes, the strip, the segment commands, the bend
+  and the tooltip. Mutation checked: merging a drag's steps, the resting places and the
+  stroke's thinning each fail the scenario meant to catch them. A shot, `automation_editing`
+  (dark and light, 100, 150 and 200%), was looked at.
+- New commands, at the end of `Command` and `ALL`.
+- `lane_overlay` takes a `Scene` (the canvas, the view, the pending lists, the timeline).
+- A point at the very start of the song sits on the lane's left edge, and a press exactly
+  on the edge misses it (KNOWN_ISSUES).
+- Gates run (Linux cloud container, 2026-10-19/20): fmt, workspace clippy, the workspace
+  tests (2,375 passed; `lumen-hosting`'s fault soak failed once under the load of the
+  parallel runs and passes alone, as the known timing-sensitive tests do), the 6 smoke
+  tests under `xvfb-run`, macOS cross-clippy. Not run: the Windows cross-clippy, the WSL
+  performance gate (no engine or format change; the new module is pure), the release frame
+  benchmark with lanes (still due from A1), RealtimeSanitizer (no audio-path change in this
+  slice), any run on Windows or macOS.

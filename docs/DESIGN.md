@@ -1167,6 +1167,17 @@ sits at the top-left, a raised combo naming the parameter ("Volume", "Send to Re
 button ends the unfolded header's second row (`size::CONTROL_SMALL`, lit with `Tone::On`
 while a lane is shown). Sizes are `size::AUTO_*`.
 
+Lane editing (M7 slice A2, ADR-0083). To the right of the chip, a **tool strip** (a
+`widgets::segmented` with the MIDI lane's pointer, pencil and curve glyphs: Pointer, Pencil,
+Shape), and with a shape tool in hand a raised combo naming the shape (Ramp, Sine, Triangle,
+Saw, Square). It is `size::CONTROL_SMALL` tall like the chip, so it never covers a point, and
+it is left out when the lane is narrower than 150 points. Picked points are solid with a ring;
+a box is a rounded accent wash at 12% with a hairline at 70%; the **bend dot** of a picked
+point's segment is a solid accent dot (`size::AUTO_BEND`) in a 22% halo, solid where points
+are hollow, larger when held. A point resting on a control's rest value draws a hairline across
+the lane in the accent at 50%. The live value is `widgets::draw_hint` beside the point, on the
+tooltip layer, below the point when above it would cover the strip.
+
 ## 8. Key flows
 
 Each flow lists its steps, its keyboard path and its feedback. Flows marked
