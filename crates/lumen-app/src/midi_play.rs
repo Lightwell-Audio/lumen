@@ -280,6 +280,24 @@ pub fn engine_midi(
     engine_midi_with(project, inputs, ports, cache, &mut NoHosts)
 }
 
+/// Gives each of `tracks` the lanes that drive the parameters of its plugin
+/// instrument, baked for a device at `rate` (M7 slice A3). Built-in
+/// instruments have no parameters to automate yet (M8).
+pub fn with_lanes(tracks: &mut [MidiTrack], project: &Project, rate: u32) {
+    let Ok(tempo) = lumen_core::time::TempoMap::new(project.tempo.clone()) else {
+        return;
+    };
+    for track in tracks {
+        let Some(held) = project.tracks.iter().find(|t| t.id.0 == track.id) else {
+            continue;
+        };
+        let lanes = crate::lane_bake::device_lanes(held, &tempo, rate, |d| {
+            d.is_vst3() && d.is_instrument()
+        });
+        track.set_automation(lanes.into_iter().map(|(_, lane)| lane).collect());
+    }
+}
+
 /// The instrument's other outputs that are on and the track that plays each:
 /// `(output pair, track)`. The pair counts the buses that are on in bus order
 /// from 1, as the host's link numbers them. Every output the plugin has is on,
@@ -460,6 +478,57 @@ mod tests {
                 (q(1), Kind::Program { program: 4 }),
             ]
         );
+    }
+
+    #[test]
+    fn a_plugin_instruments_parameter_lanes_reach_its_midi_track_baked_for_the_rate() {
+        use lumen_project::automation::Target;
+        use lumen_project::model::{DeviceKind, PluginRef};
+        let mut doc = Document::new(crate::empty_project());
+        doc.add_track(TrackKind::Midi, None);
+        let track = doc.project().tracks[0].id;
+        let synth = doc
+            .add_device(
+                track,
+                PluginRef::Vst3 {
+                    class_id: "00112233445566778899AABBCCDDEEFF".into(),
+                    name: "Synth".into(),
+                    vendor: "Vendor A".into(),
+                    kind: DeviceKind::Instrument,
+                },
+                crate::document::Slot::End,
+            )
+            .unwrap();
+        let lane = lumen_core::automation::Lane::new(vec![
+            lumen_core::automation::Point::new(Ticks::ZERO, 0.25),
+            lumen_core::automation::Point::new(Ticks::quarters(4), 0.75),
+        ])
+        .unwrap();
+        doc.set_lane(
+            track,
+            Target::Device {
+                device: synth,
+                param: 6,
+            },
+            lane,
+            false,
+        )
+        .unwrap();
+        let mut tracks = engine_midi(
+            doc.project(),
+            &Inputs::default(),
+            &mut PortTable::default(),
+            &mut Cache::default(),
+        );
+        assert!(tracks[0].automation.is_empty(), "not until they are baked");
+        with_lanes(&mut tracks, doc.project(), 48_000);
+        assert_eq!(tracks[0].automation.len(), 1);
+        assert_eq!(tracks[0].automation[0].param, 6);
+        // 120 BPM: four quarters are two seconds.
+        assert_eq!(tracks[0].automation[0].lane.points()[1].at, 96_000);
+        // At another rate, other samples.
+        with_lanes(&mut tracks, doc.project(), 44_100);
+        assert_eq!(tracks[0].automation[0].lane.points()[1].at, 88_200);
     }
 
     #[test]

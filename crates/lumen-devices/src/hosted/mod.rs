@@ -27,8 +27,10 @@ use lumen_core::midi::{Event, Kind, Msg, cc};
 
 use crate::Instrument;
 
+mod params;
 mod timing;
 
+pub use params::{MOST_POINTS, MOST_QUEUES, Mark, ParamBlock};
 pub use timing::Cost;
 use timing::Costs;
 
@@ -92,9 +94,16 @@ pub enum Reply {
 /// A plugin running in a host process.
 pub trait Hosted: Send {
     /// Hands the host a block of `frames`. `input` holds the channels to
-    /// process (none for an instrument) and `events` the MIDI of the block,
-    /// offsets within it. Never blocks.
-    fn submit(&mut self, frames: usize, input: &[&[f32]], events: &[Event]) -> Result<(), Refused>;
+    /// process (none for an instrument), `events` the MIDI of the block,
+    /// offsets within it, and `params` the parameters that change in it
+    /// (automation lanes), at their sample. Never blocks.
+    fn submit(
+        &mut self,
+        frames: usize,
+        input: &[&[f32]],
+        events: &[Event],
+        params: &ParamBlock,
+    ) -> Result<(), Refused>;
 
     /// Waits until `deadline` for the answer to the last submitted block and,
     /// when it is [`Reply::Ready`], overwrites `left` and `right` with the

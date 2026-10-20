@@ -9,7 +9,7 @@ use lumen_core::midi::Event;
 use super::hold::{self, Clock};
 use super::player::Out;
 use super::{MidiTrack, Target};
-use crate::mixer::{Buses, CHUNK};
+use crate::mixer::{Buses, CHUNK, fill_param_lane};
 use crate::source::{Mode, RenderContext};
 
 use super::InstrumentSpec;
@@ -33,6 +33,19 @@ pub(super) fn gather_track(
         );
     }
     hold::sort_events(&mut track.state.events);
+    // The parameters the track's lanes change in this block go to a plugin
+    // instrument with it.
+    if cx.mode == Mode::Play
+        && let Some(block) = track.params.as_deref_mut()
+        && let Some(spec) = track.instrument.as_mut()
+        && spec.instrument.hosted()
+    {
+        block.start(frames);
+        for lane in &track.automation {
+            fill_param_lane(block, lane, cx.start, frames);
+        }
+        spec.instrument.automate(block);
+    }
 }
 
 /// Hands a hosted instrument its block now, so its host works while the

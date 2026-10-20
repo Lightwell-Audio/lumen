@@ -58,6 +58,7 @@ mod files;
 mod fonts;
 mod hosting;
 mod icons;
+mod lane_bake;
 mod lanes;
 mod launch;
 mod light;

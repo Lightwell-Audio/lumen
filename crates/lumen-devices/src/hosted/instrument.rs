@@ -106,6 +106,8 @@ pub struct HostedInstrument {
     rate: u32,
     holding: Holding,
     dropped: u32,
+    /// The parameters that change in the next block ([`Instrument::automate`]).
+    params: ParamBlock,
 }
 
 impl HostedInstrument {
@@ -120,6 +122,7 @@ impl HostedInstrument {
             rate: 0,
             holding: Holding::NONE,
             dropped: 0,
+            params: ParamBlock::new(),
         }
     }
 
@@ -135,6 +138,7 @@ impl HostedInstrument {
             rate: 0,
             holding: Holding::NONE,
             dropped: 0,
+            params: ParamBlock::none(),
         }
     }
 
@@ -170,9 +174,9 @@ impl HostedInstrument {
         self.block.extend(events.iter().take(room));
         self.dropped += events.len().saturating_sub(room) as u32;
         let sent = if retry {
-            guard.begin_again(frames, &[], &self.block)
+            guard.begin_again(frames, &[], &self.block, &self.params)
         } else {
-            guard.begin(frames, &[], &self.block)
+            guard.begin(frames, &[], &self.block, &self.params)
         };
         self.refused = !sent && !guard.failed();
         if self.refused {
@@ -212,6 +216,10 @@ impl Instrument for HostedInstrument {
 
     fn begin(&mut self, rate: u32, frames: usize, events: &[Event]) -> bool {
         self.offer(rate, frames, events, false)
+    }
+
+    fn automate(&mut self, params: &ParamBlock) {
+        self.params.copy_from(params);
     }
 
     fn output(&mut self, pair: usize, left: &mut [f32], right: &mut [f32]) -> bool {

@@ -50,7 +50,9 @@ use std::sync::Arc;
 
 use lumen_core::midi::Msg;
 use lumen_core::time::Ticks;
-use lumen_devices::Instrument;
+use lumen_devices::{Instrument, ParamBlock};
+
+use crate::mixer::ParamLane;
 
 use hold::TrackState;
 
@@ -163,6 +165,12 @@ pub struct MidiTrack {
     pub record_window: (Ticks, Ticks),
     /// The take's latency and original recording bounds, when recording.
     pub record_timing: Option<RecordTiming>,
+    /// The lanes that drive parameters of the track's plugin instrument (M7
+    /// slice A3), on the device's sample clock.
+    pub automation: Vec<ParamLane>,
+    /// The parameters those lanes change in the block being played; made with
+    /// the lanes, so none for a track without any.
+    params: Option<Box<ParamBlock>>,
     state: Box<TrackState>,
     /// What the chase searches instead of reading every note, one per clip
     /// ([`index::ClipIndex`]); made with the track.
@@ -196,6 +204,8 @@ impl MidiTrack {
             record: Listen::OFF,
             record_window: hold::ALWAYS,
             record_timing: None,
+            automation: Vec::new(),
+            params: None,
             state: Box::new(TrackState::new()),
             dirty: true,
             begun: false,
@@ -235,6 +245,21 @@ impl MidiTrack {
     pub fn recording_timing(mut self, timing: Option<RecordTiming>) -> Self {
         self.record_timing = timing;
         self
+    }
+
+    /// The same track, whose plugin instrument's parameters follow `lanes`.
+    /// Allocates the block they fill; call off the audio thread.
+    pub fn with_automation(mut self, lanes: Vec<ParamLane>) -> Self {
+        self.set_automation(lanes);
+        self
+    }
+
+    /// Gives the track's plugin instrument `lanes` to follow, as
+    /// [`MidiTrack::with_automation`] does. Allocates the block they fill;
+    /// call off the audio thread.
+    pub fn set_automation(&mut self, lanes: Vec<ParamLane>) {
+        self.params = (!lanes.is_empty()).then(|| Box::new(ParamBlock::new()));
+        self.automation = lanes;
     }
 
     /// The channel its events carry.

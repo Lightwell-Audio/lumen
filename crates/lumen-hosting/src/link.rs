@@ -8,9 +8,9 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Instant;
 
 use lumen_core::midi::{Event, Kind};
-use lumen_devices::{Hosted, Refused, Reply};
+use lumen_devices::{Hosted, ParamBlock, Refused, Reply};
 use lumen_plugin_host::protocol::{
-    Event as HostEvent, EventKind, MAX_CHANNELS, RESTART_RECONFIGURE,
+    Event as HostEvent, EventKind, MAX_CHANNELS, ParamQueues, RESTART_RECONFIGURE,
 };
 use lumen_plugin_host::shm::{BlockLink, Outcome, Poll, SubmitError};
 
@@ -29,6 +29,9 @@ pub struct Counts {
     dropped_events: AtomicU32,
     /// Blocks the link refused because they did not fit its region.
     unfit_blocks: AtomicU32,
+    /// Parameters whose automation for a block was left out because the
+    /// region had no room for it (M7 slice A3).
+    dropped_params: AtomicU32,
 }
 
 impl Counts {
@@ -38,6 +41,44 @@ impl Counts {
 
     pub fn unfit_blocks(&self) -> u32 {
         self.unfit_blocks.load(Ordering::Relaxed)
+    }
+
+    pub fn dropped_params(&self) -> u32 {
+        self.dropped_params.load(Ordering::Relaxed)
+    }
+}
+
+/// The first `queues` parameters of a block, as the region takes them.
+struct Fit<'a> {
+    block: &'a ParamBlock,
+    queues: usize,
+}
+
+impl<'a> Fit<'a> {
+    /// The whole queues of `block` that the region has room for: a parameter
+    /// is sent whole or not at all, and how many were left out.
+    fn of(block: &'a ParamBlock, max_queues: usize, max_points: usize) -> (Self, usize) {
+        let mut points = 0;
+        let mut queues = 0;
+        while queues < block.len().min(max_queues) {
+            let here = block.queue(queues).1.len();
+            if points + here > max_points {
+                break;
+            }
+            points += here;
+            queues += 1;
+        }
+        (Self { block, queues }, block.len() - queues)
+    }
+}
+
+impl ParamQueues for Fit<'_> {
+    fn queue_count(&self) -> usize {
+        self.queues
+    }
+
+    fn queue(&self, i: usize) -> (u32, &[(u32, f64)]) {
+        self.block.queue(i)
     }
 }
 
@@ -149,10 +190,22 @@ fn host_event(event: &Event, frames: usize) -> Option<HostEvent> {
 }
 
 impl Hosted for Link {
-    fn submit(&mut self, frames: usize, input: &[&[f32]], events: &[Event]) -> Result<(), Refused> {
+    fn submit(
+        &mut self,
+        frames: usize,
+        input: &[&[f32]],
+        events: &[Event],
+        params: &ParamBlock,
+    ) -> Result<(), Refused> {
         if self.ended.load(Ordering::Relaxed) {
             return Err(Refused::Gone);
         }
+        let layout = self.link.layout();
+        let (fit, left_out) = Fit::of(
+            params,
+            layout.max_queues as usize,
+            layout.max_points as usize,
+        );
         self.events.clear();
         let room = self.room;
         for event in events {
@@ -175,9 +228,16 @@ impl Hosted for Link {
             frames as u32,
             &channels[..self.inputs],
             &self.events,
-            &[],
+            &fit,
         ) {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                if left_out > 0 {
+                    self.counts
+                        .dropped_params
+                        .fetch_add(left_out as u32, Ordering::Relaxed);
+                }
+                Ok(())
+            }
             Err(SubmitError::Busy) => Err(Refused::Busy),
             Err(SubmitError::Invalid(_)) => {
                 self.counts.unfit_blocks.fetch_add(1, Ordering::Relaxed);

@@ -56,6 +56,13 @@ pub trait Instrument: Send {
         false
     }
 
+    /// The parameters that change in the next block (automation lanes of a
+    /// plugin instrument), at their sample, to ride with it. Called before
+    /// [`Instrument::begin`] or `render` for the block; a block whose host is
+    /// left alone drops them. Only a hosted instrument takes them: the
+    /// default does nothing.
+    fn automate(&mut self, _params: &crate::ParamBlock) {}
+
     /// Starts the next block early, before the engine's own work for it:
     /// a hosted instrument hands its host the block and the host works while
     /// the engine does. Returns whether the block was started, in which case

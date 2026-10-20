@@ -1,0 +1,97 @@
+//! Lanes on the device's sample clock (M7 slices A0 and A3, D3): a lane is
+//! kept in ticks, in the units of its target, and the engine plays it in
+//! samples, so the interface bakes it with the tempo map and the device's
+//! rate whenever it builds a routing or a MIDI list. Pure, so it is tested
+//! like the rest of the translation.
+
+use lumen_core::automation::{Lane, Shape};
+use lumen_core::time::{TempoMap, Ticks};
+use lumen_engine::{AutoLane, AutoPoint, ParamLane};
+use lumen_project::automation::Target;
+use lumen_project::model::{Device, Id, Track};
+
+/// Frames between the points a curved segment is resampled to when the tempo
+/// changes along it (about 21 ms at 48 kHz).
+const RESAMPLE: i64 = 1024;
+
+/// `lane` on the sample clock of a device at `rate`, tempo as `tempo`: each
+/// point at the sample the tempo puts it at. A segment is straight in music
+/// time, so one that a change of tempo falls inside is not straight in samples:
+/// a straight segment is split at the change (each part is straight again) and
+/// a curved one is resampled to short straight parts.
+pub(crate) fn bake(lane: &Lane, tempo: &TempoMap, rate: u32) -> Option<AutoLane> {
+    let model = lane.points();
+    let at = |t: Ticks| tempo.sample_at(t, rate);
+    let mut baked = Vec::with_capacity(model.len());
+    for (i, point) in model.iter().enumerate() {
+        let next = model.get(i + 1);
+        let changes: Vec<Ticks> = match next {
+            Some(next) if point.shape != Shape::Step => tempo
+                .points()
+                .iter()
+                .map(|t| t.at)
+                .filter(|&t| t > point.at && t < next.at)
+                .collect(),
+            _ => Vec::new(),
+        };
+        let shape = match point.shape {
+            Shape::Curve(_) if !changes.is_empty() => Shape::Linear,
+            shape => shape,
+        };
+        baked.push(AutoPoint {
+            at: at(point.at),
+            value: point.value,
+            shape,
+        });
+        if let (Some(next), false) = (next, changes.is_empty()) {
+            let (from, to) = (at(point.at), at(next.at));
+            // The parts are cut at each change of tempo, where the shape of the
+            // segment in samples has a corner; a curve is cut every so often as
+            // well.
+            let mut inside: Vec<i64> = changes.iter().map(|&t| at(t)).collect();
+            if matches!(point.shape, Shape::Curve(_)) {
+                inside.extend((1..).map(|k| from + k * RESAMPLE).take_while(|&s| s < to));
+                inside.sort_unstable();
+                inside.dedup();
+            }
+            for sample in inside {
+                let value = lane
+                    .value_at(tempo.ticks_at_sample(sample, rate))
+                    .unwrap_or(point.value);
+                baked.push(AutoPoint {
+                    at: sample,
+                    value,
+                    shape: Shape::Linear,
+                });
+            }
+        }
+    }
+    AutoLane::new(baked)
+}
+
+/// The lanes of the parameters of `track`'s devices that `wanted` picks,
+/// baked: the device's id and the lane of one of its parameters. Only lanes
+/// that are on, for a device the track has.
+pub(crate) fn device_lanes(
+    track: &Track,
+    tempo: &TempoMap,
+    rate: u32,
+    wanted: impl Fn(&Device) -> bool,
+) -> Vec<(Id, ParamLane)> {
+    track
+        .automation
+        .iter()
+        .filter(|entry| entry.enabled)
+        .filter_map(|entry| {
+            let Target::Device { device, param } = entry.target else {
+                return None;
+            };
+            let held = track.devices.iter().find(|d| d.id == device)?;
+            if !wanted(held) {
+                return None;
+            }
+            let lane = bake(&entry.lane, tempo, rate)?;
+            Some((device, ParamLane { param, lane }))
+        })
+        .collect()
+}

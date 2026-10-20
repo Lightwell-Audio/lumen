@@ -10,13 +10,14 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use lumen_core::automation::Shape;
 use lumen_core::midi::Event;
 use lumen_core::time::Ticks;
-use lumen_devices::{Guard, Hosted, Refused, Reply, Status};
+use lumen_devices::{Guard, Hosted, ParamBlock, Refused, Reply, Status};
 use lumen_engine::{
-    Clip, ClipAudio, ClipPlayer, ClipsHandle, Command, Destination, Device, Engine, EngineHandle,
-    Mixer, MixerHandle, NodeSpec, Routing, ScrubStyle, SidechainSpec, Tap, Timeline, clip_player,
-    engine, mixer,
+    AutoLane, AutoPoint, Clip, ClipAudio, ClipPlayer, ClipsHandle, Command, Destination, Device,
+    Engine, EngineHandle, Mixer, MixerHandle, NodeAutomation, NodeSpec, ParamLane, Routing,
+    ScrubStyle, SidechainSpec, Tap, Timeline, clip_player, engine, mixer,
 };
 use lumen_rt::count_rt_violations;
 
@@ -39,6 +40,9 @@ enum Mode {
     /// Halves and adds a level of its own (the bits of an `f32`), as an amp
     /// with a long reverb sounds on after its input has stopped.
     Hum(Arc<AtomicU32>),
+    /// Multiplies its input by the value of parameter `id`, held from the
+    /// sample the block says it changed on, as a plugin applies automation.
+    Follow(u32),
     /// Plays the left channel of its sidechain input (the third channel it
     /// is given) and nothing of its audio; silence when it is given none.
     Key,
@@ -63,6 +67,8 @@ struct FakeEffect {
     submits: Arc<AtomicU32>,
     /// Times the engine asked it to forget what it holds.
     flushes: Arc<AtomicU32>,
+    /// The value of the followed parameter now.
+    level: f32,
 }
 
 impl FakeEffect {
@@ -77,16 +83,50 @@ impl FakeEffect {
             done: None,
             submits: Arc::clone(&submits),
             flushes: Arc::new(AtomicU32::new(0)),
+            level: 1.0,
         });
         (effect, submits)
     }
 }
 
 impl Hosted for FakeEffect {
-    fn submit(&mut self, frames: usize, input: &[&[f32]], _: &[Event]) -> Result<(), Refused> {
+    fn submit(
+        &mut self,
+        frames: usize,
+        input: &[&[f32]],
+        _: &[Event],
+        params: &ParamBlock,
+    ) -> Result<(), Refused> {
         self.submits.fetch_add(1, Ordering::Relaxed);
         if matches!(self.mode, Mode::Busy) {
             return Err(Refused::Busy);
+        }
+        if let Mode::Follow(id) = self.mode {
+            let mut queue = None;
+            for i in 0..params.len() {
+                if params.queue(i).0 == id {
+                    queue = Some(params.queue(i).1);
+                }
+            }
+            let points = queue.unwrap_or(&[]);
+            let mut next = 0;
+            for (channel, out) in self.out.iter_mut().enumerate() {
+                out.clear();
+                let (mut level, mut next_point) = (self.level, 0);
+                for (k, &sample) in input[channel][..frames].iter().enumerate() {
+                    while next_point < points.len() && points[next_point].0 as usize <= k {
+                        level = points[next_point].1 as f32;
+                        next_point += 1;
+                    }
+                    out.push(sample * level);
+                }
+                next = next_point;
+                if channel == 1 {
+                    self.level = level;
+                }
+            }
+            let _ = next;
+            return Ok(());
         }
         let depth = self.latency as usize;
         for (channel, out) in self.out.iter_mut().enumerate() {
@@ -785,3 +825,170 @@ fn keyed_hosted_effects_at_every_tap_and_a_refusing_host_never_touch_the_heap() 
 // Keeps the shared log type in step with the instrument tests.
 #[allow(dead_code)]
 type Log = Arc<Mutex<Vec<u8>>>;
+
+/// A lane that holds `before` and steps to `after` on sample `at`.
+fn step_lane(param: u32, at: i64, before: f32, after: f32) -> ParamLane {
+    ParamLane {
+        param,
+        lane: AutoLane::new(vec![
+            AutoPoint {
+                at: 0,
+                value: before,
+                shape: Shape::Step,
+            },
+            AutoPoint {
+                at,
+                value: after,
+                shape: Shape::Step,
+            },
+        ])
+        .unwrap(),
+    }
+}
+
+#[test]
+fn a_parameter_lane_changes_the_plugin_on_its_exact_sample_at_any_block_size() {
+    let r = ramp();
+    for block in [64, 100, 128, 256, 333] {
+        let mut node = track(1, hosted(7, 0));
+        node.automation = Some(NodeAutomation {
+            plugins: vec![(7, step_lane(3, 10_001, 0.25, 1.0))],
+            ..Default::default()
+        });
+        let mut rig = rig(1, RATE, &routing_of(vec![node]));
+        let (effect, _) = FakeEffect::new(Mode::Follow(3), 0);
+        let status = rig.attach(7, effect, 0);
+        rig.play();
+        let out = rig.run(20_000, block);
+        // Past the 20 ms glide in from the fallback: the lane's level, with
+        // the change on sample 10,001 and not the one before.
+        assert_matches(&out, 0, 3_000, &format!("blocks of {block}"), |n| {
+            r[n] * if n < 10_001 { 0.25 } else { 1.0 }
+        });
+        assert!(!status.failed());
+    }
+}
+
+#[test]
+fn a_parameter_lane_is_read_where_the_audio_is_after_an_earlier_devices_latency() {
+    // A 64-frame effect ahead of the one with the lane: the audio the second
+    // is given trails the timeline by 64 frames, and the lane is read there.
+    let r = ramp();
+    let mut node = track(
+        1,
+        vec![
+            Device::Hosted {
+                host: 6,
+                latency: 64,
+            },
+            Device::Hosted {
+                host: 7,
+                latency: 0,
+            },
+        ],
+    );
+    node.automation = Some(NodeAutomation {
+        plugins: vec![(7, step_lane(3, 10_000, 0.25, 1.0))],
+        ..Default::default()
+    });
+    let mut rig = rig(1, RATE, &routing_of(vec![node]));
+    let (first, _) = FakeEffect::new(Mode::Halve, 64);
+    rig.attach(6, first, 64);
+    let (second, _) = FakeEffect::new(Mode::Follow(3), 0);
+    rig.attach(7, second, 0);
+    rig.play();
+    let out = rig.run(20_000, 128);
+    // The audio reaches the second plugin 64 frames late, so the level
+    // changes with it, at 10,064 in what is heard (the first halves it).
+    assert_matches(&out, 0, 3_000, "the second plugin", |n| {
+        r[n - 64] * 0.5 * if n < 10_064 { 0.25 } else { 1.0 }
+    });
+}
+
+#[test]
+fn parameter_lanes_on_plugins_never_touch_the_heap_through_every_transport_move() {
+    // Curved, stepped and straight lanes on two plugins of a node, the first
+    // handed its block early, played through plays, stops, locates, a loop
+    // wrap's worth of blocks and a new routing swapping in.
+    let curved = ParamLane {
+        param: 3,
+        lane: AutoLane::new(vec![
+            AutoPoint {
+                at: 0,
+                value: 0.0,
+                shape: Shape::Curve(lumen_core::curve::Curve::S_CURVE),
+            },
+            AutoPoint {
+                at: 40_000,
+                value: 1.0,
+                shape: Shape::Step,
+            },
+            AutoPoint {
+                at: 41_000,
+                value: 0.2,
+                shape: Shape::Linear,
+            },
+            AutoPoint {
+                at: 90_000,
+                value: 0.9,
+                shape: Shape::Linear,
+            },
+        ])
+        .unwrap(),
+    };
+    let node = |extra: u64| {
+        let mut node = track(
+            1,
+            vec![
+                Device::Hosted {
+                    host: 21,
+                    latency: 0,
+                },
+                Device::Hosted {
+                    host: 22 + extra,
+                    latency: 0,
+                },
+            ],
+        );
+        node.automation = Some(NodeAutomation {
+            plugins: vec![
+                (21, curved.clone()),
+                (22 + extra, step_lane(3, 20_000, 0.1, 0.8)),
+            ],
+            ..Default::default()
+        });
+        node
+    };
+    let mut rig = rig(1, RATE, &routing_of(vec![node(0)]));
+    rig.attach(21, FakeEffect::new(Mode::Follow(3), 0).0, 0);
+    rig.attach(22, FakeEffect::new(Mode::Follow(3), 0).0, 0);
+    let mut data = vec![0.0; 2 * 128];
+    for block in 0..2_000_u32 {
+        match block {
+            0 => rig.play(),
+            300 => rig.transport.send(Command::Stop).unwrap(),
+            400 => rig.play(),
+            700 => rig
+                .transport
+                .send(Command::Locate(Ticks::quarters(2)))
+                .unwrap(),
+            1_000 => assert!(rig.routing.set(&routing_of(vec![node(0)])).unwrap()),
+            _ => {}
+        }
+        let ((), heap) = count_rt_violations(|| rig.engine.process(RATE, &mut data, 2, 128));
+        assert_eq!(heap, 0, "heap operation in process() at block {block}");
+        rig.transport.collect_garbage();
+        rig.routing.collect_garbage();
+    }
+}
+
+#[test]
+fn a_node_without_a_lane_for_a_plugin_gives_it_no_parameters() {
+    let r = ramp();
+    let mut rig = rig(1, RATE, &routing_of(vec![track(1, hosted(7, 0))]));
+    let (effect, _) = FakeEffect::new(Mode::Follow(3), 0);
+    rig.attach(7, effect, 0);
+    rig.play();
+    let out = rig.run(8_000, 128);
+    assert_matches(&out, 0, 3_000, "untouched", |n| r[n]);
+}

@@ -155,6 +155,7 @@ pub fn automated(tracks: u64, variant: u32) -> Routing {
             sends: (0..node.sends.len() as u64)
                 .map(|k| lane(id + 3 + k, 17, -30.0, 0.0, &|_| Shape::Linear))
                 .collect(),
+            plugins: Vec::new(),
         });
     }
     routing

@@ -348,6 +348,7 @@ impl lumen_devices::Hosted for Echo {
         frames: usize,
         input: &[&[f32]],
         events: &[lumen_core::midi::Event],
+        _: &lumen_devices::ParamBlock,
     ) -> Result<(), lumen_devices::Refused> {
         self.frames = frames;
         if self.effect {

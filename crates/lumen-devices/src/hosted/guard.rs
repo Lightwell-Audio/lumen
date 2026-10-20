@@ -133,18 +133,37 @@ impl Guard {
 
     /// Hands the host a block. Returns whether it took it; when it did not,
     /// [`Guard::finish`] answers [`Outcome::Silent`] at once.
-    pub fn begin(&mut self, frames: usize, input: &[&[f32]], events: &[Event]) -> bool {
-        self.start(frames, input, events, true)
+    pub fn begin(
+        &mut self,
+        frames: usize,
+        input: &[&[f32]],
+        events: &[Event],
+        params: &ParamBlock,
+    ) -> bool {
+        self.start(frames, input, events, params, true)
     }
 
     /// As [`Guard::begin`], for a block the host already refused once in
     /// this callback (it was tried early, and is tried again before it is
     /// given up on): a second refusal is the same missed block, not another.
-    pub fn begin_again(&mut self, frames: usize, input: &[&[f32]], events: &[Event]) -> bool {
-        self.start(frames, input, events, false)
+    pub fn begin_again(
+        &mut self,
+        frames: usize,
+        input: &[&[f32]],
+        events: &[Event],
+        params: &ParamBlock,
+    ) -> bool {
+        self.start(frames, input, events, params, false)
     }
 
-    fn start(&mut self, frames: usize, input: &[&[f32]], events: &[Event], count: bool) -> bool {
+    fn start(
+        &mut self,
+        frames: usize,
+        input: &[&[f32]],
+        events: &[Event],
+        params: &ParamBlock,
+        count: bool,
+    ) -> bool {
         self.sent = false;
         self.frames = frames;
         self.asked = true;
@@ -155,7 +174,7 @@ impl Guard {
             self.fail();
             return false;
         }
-        match self.host.submit(frames, input, events) {
+        match self.host.submit(frames, input, events, params) {
             Ok(()) => {
                 self.sent = true;
                 true
