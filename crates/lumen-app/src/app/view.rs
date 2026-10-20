@@ -425,6 +425,7 @@ report: {}",
             self.clip_editing(ui, &hover, canvas, &painter);
         }
         let pending = self.lanes.pending().len();
+        self.lane_names();
         self.arrangement.lane_overlay(
             ui,
             &painter,

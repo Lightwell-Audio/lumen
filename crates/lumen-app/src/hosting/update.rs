@@ -295,6 +295,11 @@ impl Hosting {
                     let Some(&old) = p.values.get(&id) else {
                         return;
                     };
+                    // A parameter a lane drives moves by itself: that is not
+                    // an edit of the project.
+                    if p.driven.contains(&id) {
+                        continue;
+                    }
                     if moves && (old - value).abs() > 1e-6 {
                         p.base.entry(id).or_insert(old);
                         p.values.insert(id, value);
@@ -594,7 +599,45 @@ impl Hosting {
             && t.params.edits.is_empty()
             && let Some(manager) = self.manager.as_ref()
         {
+            // A parameter a lane drives is the lane's: the engine gives the
+            // plugin its value with every block, so the value the project
+            // holds at rest is not also sent over the control channel
+            // (M7 slice A3, ADR-0084). The plugin's value moves with the lane
+            // and Lumen is not told, so when the lane lets go (it is switched
+            // off or removed) what Lumen knew is stale: the value at rest is
+            // sent again, even when it is the one Lumen last knew.
+            let driven: std::collections::BTreeSet<u32> =
+                w.track.driven_params(w.device.id).collect();
+            let now = std::time::Instant::now();
+            for id in t.params.driven.difference(&driven) {
+                t.params.values.insert(*id, f64::NAN);
+                t.params.released.push((*id, now + RELEASE_AGAIN));
+            }
+            // Once more, a moment later, for what the plan in the engine
+            // still had a block or two to say.
+            let mut waiting = None;
+            let mut again = Vec::new();
+            t.params.released.retain(|&(id, at)| {
+                if driven.contains(&id) {
+                    return false;
+                }
+                if at <= now {
+                    again.push(id);
+                    return false;
+                }
+                let left = (at - now).as_millis() as u64 + 1;
+                waiting = Some(waiting.map_or(left, |w: u64| w.min(left)));
+                true
+            });
+            for id in again {
+                t.params.values.insert(id, f64::NAN);
+            }
+            if let Some(left) = waiting {
+                changed.again_in_ms = Some(changed.again_in_ms.map_or(left, |m| m.min(left)));
+            }
+            t.params.driven = driven;
             let mut send = t.params.differences(&w.device.params);
+            send.retain(|&(id, _)| !t.params.driven.contains(&id));
             // A program parameter first: choosing a program sets other
             // parameters as it goes, and the values the project holds
             // for those must be set after, not overwritten by it.

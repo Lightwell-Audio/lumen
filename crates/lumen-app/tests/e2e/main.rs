@@ -60,6 +60,7 @@ mod overdub_seams;
 mod palette;
 mod parameters;
 mod playback;
+mod plugin_lanes;
 mod plugins;
 mod pops;
 mod preset_menu;

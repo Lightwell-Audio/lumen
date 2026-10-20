@@ -27,8 +27,10 @@ use lumen_core::midi::{Event, Kind, Msg, cc};
 
 use crate::Instrument;
 
+mod params;
 mod timing;
 
+pub use params::{MOST_POINTS, MOST_QUEUES, Mark, ParamBlock};
 pub use timing::Cost;
 use timing::Costs;
 
@@ -92,9 +94,16 @@ pub enum Reply {
 /// A plugin running in a host process.
 pub trait Hosted: Send {
     /// Hands the host a block of `frames`. `input` holds the channels to
-    /// process (none for an instrument) and `events` the MIDI of the block,
-    /// offsets within it. Never blocks.
-    fn submit(&mut self, frames: usize, input: &[&[f32]], events: &[Event]) -> Result<(), Refused>;
+    /// process (none for an instrument), `events` the MIDI of the block,
+    /// offsets within it, and `params` the parameters that change in it
+    /// (automation lanes), at their sample. Never blocks.
+    fn submit(
+        &mut self,
+        frames: usize,
+        input: &[&[f32]],
+        events: &[Event],
+        params: &ParamBlock,
+    ) -> Result<(), Refused>;
 
     /// Waits until `deadline` for the answer to the last submitted block and,
     /// when it is [`Reply::Ready`], overwrites `left` and `right` with the
@@ -137,6 +146,9 @@ pub struct Status {
     tail: AtomicU32,
     news: AtomicBool,
     restart: AtomicBool,
+    /// Parameters whose lanes were cut down or left out of a block for want
+    /// of room (M7 slice A3).
+    params_cut: AtomicU32,
     /// The one thing the interface writes: the device is bypassed.
     bypass: AtomicBool,
     costs: Costs,
@@ -151,6 +163,7 @@ impl Status {
             tail: AtomicU32::new(0),
             news: AtomicBool::new(false),
             restart: AtomicBool::new(false),
+            params_cut: AtomicU32::new(0),
             bypass: AtomicBool::new(false),
             costs: Costs::default(),
         })
@@ -181,6 +194,13 @@ impl Status {
     /// Blocks that went without the host's answer, since it was attached.
     pub fn late_blocks(&self) -> u32 {
         self.late.load(Ordering::Relaxed)
+    }
+
+    /// How many parameters' lanes were cut down to their ends or left out
+    /// of a block, since the host was attached: a plugin with more lanes than
+    /// a block can carry.
+    pub fn params_cut(&self) -> u32 {
+        self.params_cut.load(Ordering::Relaxed)
     }
 
     /// The plugin's latency in frames, as last reported.

@@ -9,7 +9,7 @@ use std::time::Instant;
 use super::region::{Answer, FLAG_FLUSH, Layout, Outcome, Region, SubmitError};
 use super::sys::{Names, Signal};
 use super::{Waiting, Wake};
-use crate::protocol::{Event, ParamQueue};
+use crate::protocol::{Event, ParamQueues};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Poll {
@@ -104,13 +104,13 @@ impl BlockLink {
     /// Hands the host a block and returns its sequence number. Fails with
     /// `Busy` while the host is still on an earlier one; the caller then uses
     /// silence for this block.
-    pub fn submit(
+    pub fn submit<Q: ParamQueues + ?Sized>(
         &mut self,
         generation: u32,
         frames: u32,
         input: &[&[f32]],
         events: &[Event],
-        params: &[ParamQueue],
+        params: &Q,
     ) -> Result<u64, SubmitError> {
         if let Some(flight) = &self.in_flight {
             if self.region.done() == flight.seq {

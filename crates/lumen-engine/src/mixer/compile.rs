@@ -306,7 +306,14 @@ pub(super) fn compile_metered(
             } else {
                 NO_METER
             },
-            auto: lanes.map(|a| Box::new(NodeStages::new(a, spec.law, arrival.at[i], after))),
+            auto: lanes.map(|a| {
+                Box::new(NodeStages::new(
+                    a,
+                    spec.law,
+                    (arrival.at[i], after),
+                    &spec.devices,
+                ))
+            }),
         });
     }
     lines.finish();

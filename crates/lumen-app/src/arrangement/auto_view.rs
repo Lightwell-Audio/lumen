@@ -18,7 +18,7 @@ use lumen_project::automation::{AutomationLane, Target};
 use lumen_project::model::{Id, Project, Track};
 
 use super::auto_scale as scale;
-use super::auto_state::Picked;
+use super::auto_state::{ParamChooser, Picked};
 use super::clips::INSET;
 use super::strip_output::row_button;
 use super::{Arrangement, Row, RowKind, STEP, UNFOLDED};
@@ -396,7 +396,7 @@ impl Arrangement {
     ) -> Option<Rect> {
         let project = doc.project();
         let entry = track.lane(target);
-        let mut text = scale::name(project, target);
+        let mut text = self.auto.name_of(project, target);
         if entry.is_some_and(|e| !e.enabled) {
             text.push_str(" \u{00B7} off");
         }
@@ -449,14 +449,31 @@ impl Arrangement {
         };
         for option in scale::offered(held) {
             let count = held.lane(option).map_or(0, |l| l.lane.len());
+            let name = self.auto.name_of(&project, option);
             let label = match count {
-                0 => scale::name(&project, option),
-                1 => format!("{}  \u{00B7}  1 point", scale::name(&project, option)),
-                n => format!("{}  \u{00B7}  {n} points", scale::name(&project, option)),
+                0 => name,
+                1 => format!("{name}  \u{00B7}  1 point"),
+                n => format!("{name}  \u{00B7}  {n} points"),
             };
             if ui.selectable_label(option == target, label).clicked() {
                 self.auto.shown.insert(track, option);
                 self.auto.picks = None;
+                ui.close();
+            }
+        }
+        // A plugin's parameters are found by searching its list.
+        let plugins: Vec<&lumen_project::model::Device> =
+            held.devices.iter().filter(|d| d.is_vst3()).collect();
+        if !plugins.is_empty() {
+            ui.separator();
+        }
+        for device in plugins {
+            let label = format!(
+                "Parameters of {}\u{2026}",
+                crate::document::device_name(device)
+            );
+            if ui.button(label).clicked() {
+                self.auto.chooser = Some(ParamChooser::new(track, device.id));
                 ui.close();
             }
         }

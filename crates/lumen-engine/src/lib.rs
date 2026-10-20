@@ -39,8 +39,8 @@ pub use midi::{
 };
 pub use mixer::{
     AutoLane, AutoPoint, Bus, Buses, Compensation, CueOut, Destination, Device, KNOT, Layered,
-    Level, MAX_DEVICE_LATENCY, MAX_HOSTS, Mixer, MixerHandle, NodeAutomation, NodeSpec, Plan,
-    RMS_SECONDS, Routing, RoutingError, SendSpec, SidechainSpec, Tap, TrackSource,
+    Level, MAX_DEVICE_LATENCY, MAX_HOSTS, Mixer, MixerHandle, NodeAutomation, NodeSpec, ParamLane,
+    Plan, RMS_SECONDS, Routing, RoutingError, SendSpec, SidechainSpec, Tap, TrackSource,
     compile as compile_routing, db_gain, mixer,
 };
 pub use scrub::{MAX_SPEED as MAX_SCRUB_SPEED, ScrubStyle};

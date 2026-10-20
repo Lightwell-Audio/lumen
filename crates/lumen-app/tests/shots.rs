@@ -2881,3 +2881,111 @@ fn automation_editing() {
         }
     }
 }
+
+/// Choosing a plugin's parameter for a lane (M7 slice A3): the chooser open
+/// on a plugin with a dozen parameters, a search narrowing it, and the lane
+/// it chose drawn under its name. Dark and light at 100, 150 and 200%.
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn automation_plugin_chooser() {
+    use egui_kittest::kittest::Queryable as _;
+    use lumen_core::automation::{Lane, Point};
+    use lumen_core::time::Ticks;
+    use lumen_project::model::{Device, DeviceKind, Id, Note};
+    use lumen_project::testing::{midi_track, project_of};
+
+    let class = |n: u8| lumen_plugin_catalog::catalog::class_id(&[n; 16]);
+    let words = [
+        "Cutoff",
+        "Resonance",
+        "Drive",
+        "Mix",
+        "Attack",
+        "Release",
+        "Envelope amount",
+        "LFO rate",
+        "LFO depth",
+        "Stereo width",
+        "Output level",
+        "Filter type",
+    ];
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let dir = TempDir::new(&format!("shots-chooser-{appearance}-{scale}"));
+            let mut track = midi_track(
+                1,
+                "Pad",
+                "poly",
+                (0, 64),
+                None,
+                vec![Note::new(Ticks::ZERO, Ticks::quarters(60), 69, 100)],
+                vec![],
+            );
+            track.devices = vec![
+                Device::vst3(
+                    Id(10),
+                    &class(1),
+                    "Bass Synth",
+                    "Vendor C",
+                    DeviceKind::Instrument,
+                ),
+                Device::vst3(
+                    Id(11),
+                    &class(2),
+                    "Bus Comp",
+                    "Vendor C",
+                    DeviceKind::Effect,
+                ),
+            ];
+            let project = project_of("Chooser", vec![track]);
+            let path = dir.path().join("song.lumen");
+            lumen_project::save(&project, &path, &Default::default()).expect("save");
+            let launch = Launch::for_test(dir.path())
+                .appearing(appearance)
+                .opening(path);
+            let mut h = Harness::builder()
+                .with_size(vec2(1280.0, 760.0))
+                .with_pixels_per_point(scale)
+                .with_theme(if appearance == "light" {
+                    eframe::egui::Theme::Light
+                } else {
+                    eframe::egui::Theme::Dark
+                })
+                .with_step_dt(1.0 / 60.0)
+                .wgpu()
+                .build_eframe(|cc| {
+                    lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                    App::new(cc, launch)
+                });
+            h.run_steps(30);
+            h.state_mut().pretend_device_state(Id(11), "ready");
+            let list: Vec<(&str, f64, &str)> = words.iter().map(|w| (*w, 0.5, "50%")).collect();
+            h.state_mut().give_device_parameters(Id(11), &list);
+            h.state_mut().select_tracks(&[Id(1)]);
+            h.run_steps(4);
+            h.key_press(Key::A);
+            h.run_steps(60);
+            h.get_by_label("Automation lane of Pad: Volume").click();
+            h.run_steps(5);
+            h.get_by_label("Parameters of Bus Comp\u{2026}").click();
+            h.run_steps(20);
+            save(&mut h, &format!("chooser-open-{appearance}-{scale}"));
+            h.event(Event::Text("lfo".into()));
+            h.run_steps(10);
+            save(&mut h, &format!("chooser-search-{appearance}-{scale}"));
+            h.key_press(Key::Enter);
+            h.run_steps(10);
+            let q = Ticks::quarters;
+            let lane = Lane::new(vec![
+                Point::new(q(1), 0.2),
+                Point::new(q(4), 0.8),
+                Point::new(q(8), 0.35),
+            ])
+            .unwrap();
+            let shown = h.state().automation_shown(Id(1)).expect("a lane is shown");
+            h.state_mut().give_lane(Id(1), shown, lane).unwrap();
+            h.run_steps(20);
+            save(&mut h, &format!("chooser-lane-{appearance}-{scale}"));
+        }
+    }
+}

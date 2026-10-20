@@ -5,6 +5,9 @@ use std::sync::Mutex;
 use super::instrument::EVENTS;
 use super::*;
 
+/// One parameter's points in a block: its id and `(offset, value)` each.
+type Queue = (u32, Vec<(u32, f64)>);
+
 /// What a fake host was asked, and the level it answers with (the test
 /// may change it while the host is in use).
 #[derive(Default)]
@@ -13,6 +16,8 @@ struct Seen {
     /// Submits still to refuse as busy, as a host on an earlier block.
     busy: u32,
     events: Vec<Vec<Event>>,
+    /// Each block's parameter queues: id and points.
+    params: Vec<Vec<Queue>>,
     value: f32,
     /// The deadline of the last collect.
     deadline: Option<Instant>,
@@ -45,7 +50,13 @@ impl Fake {
 }
 
 impl Hosted for Fake {
-    fn submit(&mut self, _: usize, _: &[&[f32]], events: &[Event]) -> Result<(), Refused> {
+    fn submit(
+        &mut self,
+        _: usize,
+        _: &[&[f32]],
+        events: &[Event],
+        params: &ParamBlock,
+    ) -> Result<(), Refused> {
         if let Some(why) = self.refuse {
             return Err(why);
         }
@@ -56,6 +67,14 @@ impl Hosted for Fake {
         }
         seen.submits += 1;
         seen.events.push(events.to_vec());
+        seen.params.push(
+            (0..params.len())
+                .map(|i| {
+                    let (id, points) = params.queue(i);
+                    (id, points.to_vec())
+                })
+                .collect(),
+        );
         Ok(())
     }
 
@@ -99,7 +118,7 @@ fn submits(seen: &Arc<Mutex<Seen>>) -> u32 {
 
 fn run(guard: &mut Guard) -> (Outcome, [f32; 2]) {
     let (mut l, mut r) = ([0.0f32; 4], [0.0f32; 4]);
-    guard.begin(4, &[], &[]);
+    guard.begin(4, &[], &[], &ParamBlock::none());
     let outcome = guard.finish(Instant::now() + Duration::from_millis(1), &mut l, &mut r);
     (outcome, [l[0], r[0]])
 }
@@ -623,4 +642,58 @@ fn a_storm_past_the_limit_is_dropped_and_counted() {
     assert!(synth.begin(48_000, 64, &storm));
     assert_eq!(synth.dropped_events(), 5);
     assert_eq!(seen.lock().unwrap().events[0].len(), EVENTS);
+}
+
+#[test]
+fn a_hosted_instrument_gives_its_host_the_blocks_parameters_with_the_block() {
+    let (host, seen) = Fake::new(vec![READY]);
+    let mut synth = HostedInstrument::new(Guard::new(host, 0));
+    let mut block = ParamBlock::new();
+    block.start(64);
+    block.open(5);
+    block.point(0, 0.25);
+    block.point(63, 0.75);
+    synth.automate(&block);
+    let on = Event {
+        offset: 0,
+        msg: Msg::note_on(0, 60, 100),
+    };
+    assert!(synth.begin(48_000, 64, &[on]));
+    let (mut l, mut r) = ([0.0f32; 64], [0.0f32; 64]);
+    synth.finish(Instant::now() + Duration::from_millis(5), &mut l, &mut r);
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.params.len(), 1);
+    assert_eq!(seen.params[0], vec![(5, vec![(0, 0.25), (63, 0.75)])]);
+}
+
+#[test]
+fn a_block_with_no_automation_carries_none() {
+    let (host, seen) = Fake::new(vec![READY]);
+    let mut synth = HostedInstrument::new(Guard::new(host, 0));
+    let on = Event {
+        offset: 0,
+        msg: Msg::note_on(0, 60, 100),
+    };
+    assert!(synth.begin(48_000, 64, &[on]));
+    assert_eq!(seen.lock().unwrap().params, vec![vec![]]);
+}
+
+#[test]
+fn parameters_cut_from_a_block_are_counted_once_however_often_it_is_tried() {
+    let (host, seen) = Fake::new(vec![READY]);
+    seen.lock().unwrap().busy = 1;
+    let mut guard = Guard::new(host, 0);
+    let status = guard.status();
+    let mut block = ParamBlock::new();
+    block.start(8);
+    block.note_cut();
+    block.note_cut();
+    assert!(!guard.begin(8, &[], &[], &block), "busy: refused");
+    assert_eq!(status.params_cut(), 2);
+    assert!(guard.begin_again(8, &[], &[], &block), "tried again");
+    assert_eq!(
+        status.params_cut(),
+        2,
+        "the same block is not counted twice"
+    );
 }

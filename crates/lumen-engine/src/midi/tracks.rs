@@ -5,14 +5,19 @@
 use std::time::{Duration, Instant};
 
 use lumen_core::midi::Event;
+use lumen_devices::ParamBlock;
 
 use super::hold::{self, Clock};
 use super::player::Out;
 use super::{MidiTrack, Target};
-use crate::mixer::{Buses, CHUNK};
+use crate::mixer::{Buses, CHUNK, fill_param_lane};
 use crate::source::{Mode, RenderContext};
 
 use super::InstrumentSpec;
+
+/// What a block with no lane to play says to a hosted instrument.
+static NO_PARAMS: ParamBlock = ParamBlock::none();
+
 /// A part's first half for one track: reads its clips into the track's event
 /// queue, in order.
 pub(super) fn gather_track(
@@ -33,6 +38,24 @@ pub(super) fn gather_track(
         );
     }
     hold::sort_events(&mut track.state.events);
+    // The parameters the track's lanes change in this block go to a plugin
+    // instrument with it. An instrument keeps the block it was last given, so
+    // a block with no lanes (they are gone, or the song is not playing) says
+    // so: a lane taken away must not go on setting its last value.
+    if let Some(spec) = track.instrument.as_mut()
+        && spec.instrument.hosted()
+    {
+        match track.params.as_deref_mut() {
+            Some(block) if cx.mode == Mode::Play => {
+                block.start(frames);
+                for lane in &track.automation {
+                    fill_param_lane(block, lane, cx.start, frames);
+                }
+                spec.instrument.automate(block);
+            }
+            _ => spec.instrument.automate(&NO_PARAMS),
+        }
+    }
 }
 
 /// Hands a hosted instrument its block now, so its host works while the

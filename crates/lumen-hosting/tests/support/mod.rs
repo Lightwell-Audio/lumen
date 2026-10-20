@@ -8,7 +8,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use lumen_core::midi::{Event, Msg};
-use lumen_devices::Hosted;
+use lumen_devices::{Hosted, ParamBlock};
 use lumen_hosting::{Happened, Linked, Manager, Start};
 
 pub const FAULT: &str = lumen_test_plugin::faults::ENV;
@@ -183,8 +183,19 @@ pub fn play(
     input: &[&[f32]],
     events: &[Event],
 ) -> (Vec<f32>, Vec<f32>, Option<lumen_devices::Reply>) {
+    play_with(host, frames, input, events, &ParamBlock::none())
+}
+
+/// As [`play`], with the parameters that change in the block.
+pub fn play_with(
+    host: &mut dyn Hosted,
+    frames: usize,
+    input: &[&[f32]],
+    events: &[Event],
+    params: &ParamBlock,
+) -> (Vec<f32>, Vec<f32>, Option<lumen_devices::Reply>) {
     let (mut left, mut right) = (vec![0.0; frames], vec![0.0; frames]);
-    if host.submit(frames, input, events).is_err() {
+    if host.submit(frames, input, events, params).is_err() {
         return (left, right, None);
     }
     let reply = host.collect(

@@ -258,9 +258,9 @@ impl World {
                 for seat in seats.iter_mut() {
                     if let Some(guard) = seat.guard.as_mut() {
                         if seat.instrument {
-                            guard.begin(FRAMES, &[], events);
+                            guard.begin(FRAMES, &[], events, &lumen_devices::ParamBlock::none());
                         } else {
-                            guard.begin(FRAMES, &stereo, &[]);
+                            guard.begin(FRAMES, &stereo, &[], &lumen_devices::ParamBlock::none());
                         }
                     }
                 }

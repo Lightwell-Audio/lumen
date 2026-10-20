@@ -34,6 +34,7 @@ mod compile;
 mod delay;
 mod hosts;
 mod meter;
+mod params;
 mod plan;
 mod smooth;
 mod spec;
@@ -43,6 +44,7 @@ pub use compile::compile;
 pub use delay::MAX_DEVICE_LATENCY;
 pub use hosts::MAX_HOSTS;
 pub use meter::{Level, RMS_SECONDS};
+pub use params::{ParamLane, fill as fill_param_lane};
 pub use plan::{BUS_CHANNELS, Bus, Buses, CHUNK, Plan};
 
 pub use spec::{

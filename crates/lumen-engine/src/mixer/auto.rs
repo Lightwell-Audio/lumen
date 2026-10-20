@@ -23,8 +23,11 @@ use std::sync::Arc;
 
 use lumen_core::automation::{FLOOR_DB, Shape};
 use lumen_core::pan::PanLaw;
+use lumen_devices::ParamBlock;
 
+use super::params::{self, ParamLane};
 use super::plan::CHUNK;
+use super::spec::Device;
 
 /// Frames between two evaluations inside a straight or curved segment
 /// (D4). A gain straight between two knots is within 0.001 of the curve for
@@ -362,6 +365,10 @@ pub struct NodeAutomation {
     pub pan: Option<AutoLane>,
     /// Each send's level in dB, by the send's place in the node's `sends`.
     pub sends: Vec<Option<AutoLane>>,
+    /// The parameters of the node's plugin effects that lanes drive (M7
+    /// slice A3): the effect's host id and the lane of one of its
+    /// parameters.
+    pub plugins: Vec<(u64, ParamLane)>,
 }
 
 impl NodeAutomation {
@@ -371,17 +378,24 @@ impl NodeAutomation {
             && self.volume.is_none()
             && self.pan.is_none()
             && self.sends.iter().all(Option::is_none)
+            && self.plugins.is_empty()
     }
 
     /// Which lanes there are, for the plan's shape: a plan with another set
     /// crossfades in.
-    pub(super) fn shape(&self) -> [bool; 4] {
-        [
-            self.trim.is_some(),
-            self.mute.is_some(),
-            self.volume.is_some(),
-            self.pan.is_some(),
-        ]
+    pub(super) fn shape(&self) -> ([bool; 4], Vec<(u64, u32)>) {
+        (
+            [
+                self.trim.is_some(),
+                self.mute.is_some(),
+                self.volume.is_some(),
+                self.pan.is_some(),
+            ],
+            self.plugins
+                .iter()
+                .map(|(host, lane)| (*host, lane.param))
+                .collect(),
+        )
     }
 }
 
@@ -397,11 +411,33 @@ pub(super) struct NodeStages {
     volume: Option<Stage>,
     pan: Option<Stage>,
     sends: Vec<Option<Stage>>,
+    /// The plugin parameters lanes drive: the host, the lane, and how far
+    /// the audio the plugin is given trails the timeline.
+    plugins: Vec<(u64, ParamLane, i64)>,
 }
 
 impl NodeStages {
-    pub(super) fn new(lanes: &NodeAutomation, law: PanLaw, lag_pre: u32, lag_post: u32) -> Self {
+    /// The stages of `lanes` for a node whose `devices` are in this order.
+    /// A plugin is given the audio that reaches it: `lag_pre` behind the
+    /// timeline, and later still by the devices before it.
+    pub(super) fn new(
+        lanes: &NodeAutomation,
+        law: PanLaw,
+        (lag_pre, lag_post): (u32, u32),
+        devices: &[Device],
+    ) -> Self {
         let stage = |lane: &Option<AutoLane>, kind| lane.clone().map(|l| Stage::new(l, kind));
+        let plugins = lanes
+            .plugins
+            .iter()
+            .filter_map(|(host, lane)| {
+                let index = devices
+                    .iter()
+                    .position(|d| matches!(*d, Device::Hosted { host: h, .. } if h == *host))?;
+                let before: u32 = devices[..index].iter().map(Device::latency).sum();
+                Some((*host, lane.clone(), i64::from(lag_pre) + i64::from(before)))
+            })
+            .collect();
         Self {
             lag_pre: i64::from(lag_pre),
             lag_post: i64::from(lag_post),
@@ -410,6 +446,22 @@ impl NodeStages {
             volume: stage(&lanes.volume, Kind::Db),
             pan: stage(&lanes.pan, Kind::Pan(law)),
             sends: lanes.sends.iter().map(|l| stage(l, Kind::Db)).collect(),
+            plugins,
+        }
+    }
+
+    /// Starts `block` for the `frames` frames the plugin `host` is given
+    /// from timeline sample `start`, with the lanes that drive its parameters.
+    pub(super) fn plugin_block(
+        &self,
+        host: u64,
+        start: i64,
+        frames: usize,
+        block: &mut ParamBlock,
+    ) {
+        block.start(frames);
+        for (_, lane, lag) in self.plugins.iter().filter(|(h, ..)| *h == host) {
+            params::fill(block, lane, start - lag, frames);
         }
     }
 

@@ -306,6 +306,11 @@ impl Instance {
         let most = (format.max_frames as usize).max(1);
         self.now.clear();
         self.handler.drain_to_processor(&mut self.now);
+        // What Lumen set before this block is newer than what earlier blocks
+        // carried; this block's own points, noted next, are newer still.
+        for (id, _) in &self.now {
+            self.for_controller.retain(|(i, _)| i != id);
+        }
         self.note_for_controller(params);
         let mut done = Done {
             status: 0,
@@ -550,8 +555,12 @@ impl Instance {
     pub fn take_heard(&mut self) -> Heard {
         // Copied and cleared, not taken: the list keeps its room, and the
         // audio thread that fills it never allocates.
-        let values = self.for_controller.to_vec();
+        let mut values = self.for_controller.to_vec();
         self.for_controller.clear();
+        // A value Lumen has set since is newer than one that rode in an
+        // earlier block (a lane's last value, after the lane let go): the
+        // controller already has the newer, and the processor will hear it.
+        values.retain(|(id, _)| !self.handler.is_queued(*id));
         Heard {
             values,
             ignored: std::mem::take(&mut self.ignored),

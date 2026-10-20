@@ -183,6 +183,58 @@ pub struct ParamQueue {
     pub points: Vec<(u32, f64)>,
 }
 
+/// Parameter changes of one block, as the shared region takes them. A
+/// `Vec<ParamQueue>` is one, and so is the engine's flat block, which
+/// writes a block without allocating.
+pub trait ParamQueues {
+    /// How many parameters change in the block.
+    fn queue_count(&self) -> usize;
+    /// The `i`th: the parameter's id and its `(sample offset, normalized
+    /// value)` points, in time order.
+    fn queue(&self, i: usize) -> (u32, &[(u32, f64)]);
+}
+
+impl ParamQueues for [ParamQueue] {
+    fn queue_count(&self) -> usize {
+        self.len()
+    }
+
+    fn queue(&self, i: usize) -> (u32, &[(u32, f64)]) {
+        (self[i].id, &self[i].points)
+    }
+}
+
+impl<const N: usize> ParamQueues for [ParamQueue; N] {
+    fn queue_count(&self) -> usize {
+        N
+    }
+
+    fn queue(&self, i: usize) -> (u32, &[(u32, f64)]) {
+        (self[i].id, &self[i].points)
+    }
+}
+
+impl ParamQueues for Vec<ParamQueue> {
+    fn queue_count(&self) -> usize {
+        self.len()
+    }
+
+    fn queue(&self, i: usize) -> (u32, &[(u32, f64)]) {
+        (self[i].id, &self[i].points)
+    }
+}
+
+/// A block with no parameter changes.
+impl ParamQueues for () {
+    fn queue_count(&self) -> usize {
+        0
+    }
+
+    fn queue(&self, _: usize) -> (u32, &[(u32, f64)]) {
+        (0, &[])
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassInfo {
     pub id: ClassId,

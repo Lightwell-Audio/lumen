@@ -25,6 +25,7 @@
 //! bottom, under a divider (`pinned`): rows carry the [`Zone`] they are
 //! drawn in, and each zone clips its own.
 
+pub(crate) mod auto_params;
 pub(crate) mod auto_scale;
 pub(crate) mod auto_state;
 mod auto_tools;

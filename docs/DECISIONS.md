@@ -95,6 +95,7 @@ irreversible or external) · *Superseded*.
 | [0081](#adr-0081--automation-lanes-in-the-model-and-the-mixer-m7-slice-a0) | Automation lanes in the model and the mixer (M7 slice A0) | Accepted 2026-10-19 (the owner approved starting A0); MT-AUTO-1 passed (owner, 2026-10-19) | Claude, with the owner's M7 decisions |
 | [0082](#adr-0082--seeing-and-adding-an-automation-lane-m7-slice-a1) | Seeing and adding an automation lane (M7 slice A1) | Accepted 2026-10-19 (merged by the owner; MT-AUTO-2 passed except its release frame numbers) | Claude |
 | [0083](#adr-0083--editing-an-automation-lane-m7-slice-a2) | Editing an automation lane (M7 slice A2) | Accepted 2026-10-20 (MT-AUTO-3 passed, owner); choice 4 (points, not ranges) to be revisited after the core product | Claude |
+| [0084](#adr-0084--plugin-parameter-lanes-m7-slice-a3) | Plugin parameter lanes (M7 slice A3) | Accepted 2026-10-20 (MT-AUTO-4 passed, owner; no step detail) | Claude |
 | [0085](#adr-0085--native-vst3-hosting-on-macos) | Native VST3 hosting on macOS | Accepted scope 2026-10-19; verification in progress | Owner approved native workflow |
 
 ---
@@ -7556,6 +7557,137 @@ here for the check in MT-AUTO-3. Every one is a small, reversible change.
   performance gate (no engine or format change; the new module is pure), the release frame
   benchmark with lanes (still due from A1), RealtimeSanitizer (no audio-path change in this
   slice), any run on Windows or macOS.
+
+## ADR-0084 — Plugin parameter lanes (M7 slice A3)
+
+**Context.** A0 made lanes for a track's own values and left `Target::Device` in the
+model; A1 and A2 drew and edited lanes. A3 makes a lane drive a parameter of a hosted
+plugin, effect or instrument, on its exact sample, and lets a person find the parameter
+among the thousands a plugin may list. The wire already carries sample-positioned
+parameter queues (`ParamQueue` in the shared region); the engine had never filled them,
+and parameters reached a plugin only over the control channel, with no sample.
+
+**Decisions.**
+1. **Points ride with the block, not the control channel.** `Hosted::submit` takes a
+   `ParamBlock` (`lumen_devices::hosted::params`): flat storage with room for 64
+   parameters and 1,024 points, made once, filled and read on the audio thread with no
+   allocation. `Guard::begin` passes it on; `Link` writes it into the shared region through
+   a new `ParamQueues` input (`BlockLink::submit` is generic over it, so a `Vec<ParamQueue>`
+   still works and the host's protocol, the region's layout and `VERSION` are unchanged:
+   **no host rebuild is needed**). A point whose offset is past the block or whose value is
+   not finite would make the host refuse the whole block, so `ParamBlock::point` puts the
+   offset inside the block and the value inside 0 to 1.
+2. **What a block holds** (`mixer/params.rs`, a pure function of a baked lane and the
+   block's place on the timeline, so any block size gives the same curve and a locate or
+   loop wrap reads the same values): the value at the block's first frame; every point of
+   the lane inside the block on its own sample; for a step, a hold on the frame before the
+   point and the new value on it (a plugin ramps between points, so a step needs both); for
+   a curve, a value every `KNOT` (32) frames from the segment's start, so the plugin ramps
+   along the curve to within a thousandth (a tested property); for a straight segment its
+   ends, and where it has got to on the block's last frame. **Nothing is remembered between
+   blocks**: a parameter touched by the control channel or the plugin's own window is put
+   back to the lane's value at the next block rather than trusted to be where the lane left
+   it. The cost is one parameter change for each lane in each block (about 2,200
+   instructions a lane a block, scenario `engine_plugin_lanes_64`).
+3. **A lane is read where the audio it acts on is.** For an effect, at the node's input
+   time less the latency of the devices ahead of it in the chain (`NodeStages`); for an
+   instrument, at the block's own start (the engine already renders a plugin instrument
+   ahead by its latency). A plugin's own latency is the plugin's.
+4. **Effects and instruments take different roads to the same function.** An effect's lanes
+   are `NodeAutomation::plugins` (the host's id and a `ParamLane`), part of the plan's shape,
+   filled before the device's block is handed over (early or in place). An instrument's are
+   `MidiTrack::automation`; the player fills a block in `gather_track` and gives it to the
+   instrument with `Instrument::automate` (a default that does nothing), which
+   `HostedInstrument` keeps for the block it is about to offer. A built-in device has no
+   parameters to automate until M8: its lanes are kept and play nothing.
+5. **Room.** 64 parameters and 1,024 points are the default layout's. The busiest real
+   case, 64 curved lanes in a 256-frame block (the longest a plugin is given), is 640
+   points: the region is not raised. What does not fit is cut, not truncated: a lane that
+   would overflow becomes its two end values and one past the queues is left out; each is
+   counted (`ParamBlock::cut`, `Status::params_cut`; `Link` guards a smaller layout with
+   `Counts::dropped_params`). **Not shown in the interface** (KNOWN_ISSUES).
+6. **The lane and the value at rest.** A parameter a lane drives (enabled) is the lane's
+   while a project plays: the bridge no longer sends the project's value for it over the
+   control channel (`Track::drives`, `hosting/update.rs`). The project still holds a value
+   (the card's knob and the plugin's own window record one as before); it is the value the
+   plugin has when the lane is switched off. **A knob moved under an enabled lane does
+   nothing audible until the lane is off**, and a parameter moved in the plugin's window
+   while the song plays is put back at the next block: both are the override of A4.
+7. **Finding the parameter.** The lane chip's menu lists the track's plugins ("Parameters of
+   Bus Comp…") and the plugin parameters that already have lanes. A plugin opens a dialog
+   built from the parameter panel's pieces (a pill for each plugin of the track, a search,
+   chips for the plugin's groups, only the rows in view drawn, arrow keys and Enter): the
+   rows are the parameters a lane can drive (not hidden, read only or a program change;
+   those marked automatable, or all of them when a plugin marks none), each with its group
+   and how many points its lane holds. The search runs once for each change of its words.
+   Choosing one shows its lane, named in the plugin's own words ("Bus Comp · Cutoff", read
+   from the plugin's list each frame for the lanes shown; "Bus Comp · parameter 9" while
+   the plugin is not running).
+
+**Deviations from the plan, for the owner's information.**
+- No right-click menu on a parameter ("Automate", "Learn"): that is A5's with MIDI learn.
+- A point's value reads as a percentage. The plugin's own text for a value needs a round
+  trip to the plugin for every position of the pointer; deferred (KNOWN_ISSUES).
+- The chooser was not shown as a specimen: it reuses the parameter panel's look, which the
+  owner chose (M6, L1), and the lane chip and menu of A1.
+
+**Consequences.**
+- No format change (still v22) and no host protocol change.
+- `Hosted::submit` and `Guard::begin` take a `&ParamBlock`; every fake host in the tests
+  and the performance harness passes or ignores it.
+- New scenario `engine_plugin_lanes_64` (973,407,739 instructions here, added by hand;
+  regenerate it from WSL or CI). `engine_hosted_64` reads +1.62% (a `ParamBlock::start` for
+  each hosted device in each block), under the gate's 2%.
+- Tests: `ParamBlock` and `params::fill` units (steps, straight segments, curves against
+  `Lane::value_at` within 1e-3, block-size invariance, cut and dropped lanes, the busiest
+  real block); engine tests that a step lands on its exact sample at five block sizes for
+  an effect (also behind an earlier device's latency) and for an instrument, and that lane-driven
+  plugins never touch the heap through plays, stops, locates and a routing swap (mutation
+  checked); real-host tests through the link (an effect's and an instrument's parameter
+  change on the exact sample, compared with whole-block references; the busiest block fits
+  the region; the link test under the allocation guard and RealtimeSanitizer now carries
+  parameters); routing and MIDI-list tests that lanes are baked for the rate and tempo; 7 E2E
+  scenarios in `tests/e2e/plugin_lanes.rs` (an effect and an instrument heard through the
+  whole app, the control-channel rule, the chooser by mouse and by keys alone, a plugin with
+  two thousand parameters, a save). Mutation checked: the bridge's skip and the routing's
+  plugin lanes each fail their scenarios. A shot, `automation_plugin_chooser` (dark and
+  light, 100, 150 and 200%), was looked at.
+
+**Amendment, 2026-10-20 (MT-AUTO-4: after a lane is switched off, the parameter could not be
+changed).** Three causes, each with a test that fails without its fix.
+1. *The plugin's host.* The value of the last block a lane drove stays queued to be told to
+   the plugin's controller. A value set from Lumen after the lane let go reached the
+   controller first and was then overwritten by the older, queued one, so the controller read
+   the lane's value and Lumen recorded that as the user's own edit. A value Lumen has queued
+   or sent since now supersedes older ones noted from blocks (`Instance::take_heard`,
+   `process_into`; `tests/params.rs`).
+2. *The bridge.* While a lane drives a parameter the plugin's value moves and Lumen is not
+   told, so when the lane let go, Lumen's idea of the value was stale: setting the value Lumen
+   believed it had sent nothing, and the plugin stayed at the lane's last value. A parameter
+   a lane lets go of is now treated as unknown and its value at rest is sent
+   (`Parameters::driven`). Refreshed values of a parameter a lane drives are no longer recorded
+   as edits of the project.
+3. *Timing.* The engine's new plan without the lane can reach the audio thread a block after
+   that first send, and until then the lane's value goes with every block over it. The value at
+   rest is sent once more 250 ms later (`RELEASE_AGAIN`), which changes nothing when it was
+   already right.
+E2E `a_parameter_can_be_changed_again_once_its_lane_is_switched_off` (12 runs in a row
+passed).
+
+**Second amendment, 2026-10-20 (the owner still could not change a parameter after the lane
+was off or removed, with a plugin instrument).** A fourth cause. A plugin instrument keeps the
+parameter block it was last given (`Instrument::automate`), and the engine called `automate`
+only for a track that still had lanes. With the lane switched off or removed the track had
+none, so the instrument was offered the lane's last block with every block after it and the
+lane's value overrode any change, in Lumen's controls and in the plugin's window. The
+engine now says "no parameters" to a hosted instrument every block it has no lane to play
+(lanes gone, or the song not playing; `midi/tracks.rs` `gather_track`, `ParamBlock::none()`,
+which allocates nothing). Engine test `a_lane_that_is_taken_away_stops_reaching_a_plugin_instrument`
+fails without the fix. Effects were not affected (their plan drops the lane). E2E
+`parameters::a_knob_can_be_dragged_again_once_its_lane_is_{switched_off,removed}` cover the
+effect path with a knob drag, playing. Not run with a real plugin: **the owner's recheck of
+MT-AUTO-4 with a plugin instrument is needed**, and the app must be rebuilt (no host change).
+
 
 ## ADR-0085 — Native VST3 hosting on macOS
 

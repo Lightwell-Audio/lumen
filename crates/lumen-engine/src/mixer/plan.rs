@@ -460,6 +460,13 @@ impl Plan {
                     input_left[k] = bus[k] * gain[k];
                     input_right[k] = bus[CHUNK + k] * gain[k];
                 }
+                let host = self.devices[early as usize].host;
+                match self.nodes[index].auto.as_deref() {
+                    Some(auto) => {
+                        auto.plugin_block(host, start, frames, &mut self.host_scratch.params);
+                    }
+                    None => self.host_scratch.params.start(frames),
+                }
                 hosts::begin_early(
                     &mut self.devices[early as usize],
                     hosting,
@@ -556,6 +563,17 @@ impl Plan {
                             let side = &self.sides[node.side as usize * BUS..][..BUS];
                             (&side[..frames], &side[CHUNK..CHUNK + frames])
                         });
+                        // The parameters lanes change in this block, for
+                        // a device not already handed it.
+                        match node.auto.as_deref() {
+                            Some(auto) if !device.began => auto.plugin_block(
+                                device.host,
+                                start,
+                                frames,
+                                &mut self.host_scratch.params,
+                            ),
+                            _ => self.host_scratch.params.start(frames),
+                        }
                         hosts::run(
                             device,
                             &mut self.lines,

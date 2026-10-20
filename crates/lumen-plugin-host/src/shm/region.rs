@@ -19,6 +19,7 @@ use super::sys::Mapping;
 use crate::instance::Buffers;
 use crate::protocol::{
     Event, EventKind, MAX_CHANNELS, MAX_EVENTS, MAX_FRAMES, MAX_POINTS, MAX_QUEUES, ParamQueue,
+    ParamQueues,
 };
 
 const MAGIC: u32 = 0x4c42_4b31; // "LBK1"
@@ -380,28 +381,28 @@ impl Region {
     // --- Lumen's side ---
 
     /// Writes a block and publishes it as `seq`. Allocation-free.
-    pub fn write_request(
+    pub fn write_request<Q: ParamQueues + ?Sized>(
         &self,
         seq: u64,
         generation: u32,
         frames: u32,
         input: &[&[f32]],
         events: &[Event],
-        params: &[ParamQueue],
+        params: &Q,
     ) -> Result<(), SubmitError> {
         self.write_flagged(seq, generation, frames, input, events, params, 0)
     }
 
     /// As [`Self::write_request`], with block flags ([`FLAG_FLUSH`]).
     #[allow(clippy::too_many_arguments)]
-    pub fn write_flagged(
+    pub fn write_flagged<Q: ParamQueues + ?Sized>(
         &self,
         seq: u64,
         generation: u32,
         frames: u32,
         input: &[&[f32]],
         events: &[Event],
-        params: &[ParamQueue],
+        params: &Q,
         flags: u32,
     ) -> Result<(), SubmitError> {
         let layout = &self.layout;
@@ -418,14 +419,19 @@ impl Region {
         if events.iter().any(|e| e.offset >= frames) {
             return Err(SubmitError::Invalid("event offset"));
         }
-        if params.len() > layout.max_queues as usize {
+        let queues = params.queue_count();
+        if queues > layout.max_queues as usize {
             return Err(SubmitError::Invalid("too many parameter queues"));
         }
         let mut points = 0_usize;
-        for queue in params {
-            points += queue.points.len();
-            if queue.points.iter().any(|&(offset, _)| offset >= frames) {
+        for i in 0..queues {
+            let (_, list) = params.queue(i);
+            points += list.len();
+            if list.iter().any(|&(offset, _)| offset >= frames) {
                 return Err(SubmitError::Invalid("point offset"));
+            }
+            if list.iter().any(|&(_, value)| !value.is_finite()) {
+                return Err(SubmitError::Invalid("point value"));
             }
         }
         if points > layout.max_points as usize {
@@ -458,14 +464,15 @@ impl Region {
         let raw_queues: *mut RawQueue = self.array(self.at.queues);
         let raw_points: *mut RawPoint = self.array(self.at.points);
         let mut next = 0;
-        for (i, queue) in params.iter().enumerate() {
+        for i in 0..queues {
+            let (id, list) = params.queue(i);
             // SAFETY: `i < max_queues` and `next + len <= max_points`, checked above.
             unsafe {
                 raw_queues.add(i).write(RawQueue {
-                    id: queue.id,
-                    points: queue.points.len() as u32,
+                    id,
+                    points: list.len() as u32,
                 });
-                for &(offset, value) in &queue.points {
+                for &(offset, value) in list {
                     raw_points.add(next).write(RawPoint {
                         offset,
                         _pad: 0,
@@ -479,7 +486,7 @@ impl Region {
         meta.generation.store(generation, Ordering::Relaxed);
         meta.frames.store(frames, Ordering::Relaxed);
         meta.events.store(events.len() as u32, Ordering::Relaxed);
-        meta.queues.store(params.len() as u32, Ordering::Relaxed);
+        meta.queues.store(queues as u32, Ordering::Relaxed);
         meta.points.store(points as u32, Ordering::Relaxed);
         meta.flags.store(flags, Ordering::Relaxed);
         self.control().request.0.store(seq, Ordering::Release);
@@ -789,6 +796,14 @@ mod tests {
         assert_eq!(
             write(8, &[&ch], &[], &[q(1, 8)]),
             Err(SubmitError::Invalid("point offset"))
+        );
+        let not_a_number = ParamQueue {
+            id: 1,
+            points: vec![(0, f64::NAN)],
+        };
+        assert_eq!(
+            write(8, &[&ch], &[], &[not_a_number]),
+            Err(SubmitError::Invalid("point value"))
         );
         // Nothing was published.
         assert_eq!(r.request(), 0);

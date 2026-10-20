@@ -22,7 +22,7 @@
 
 use std::time::{Duration, Instant};
 
-use lumen_devices::{Guard, Outcome};
+use lumen_devices::{Guard, Outcome, ParamBlock};
 
 use super::delay::Lines;
 use super::plan::{CHUNK, Dev};
@@ -160,6 +160,9 @@ pub(super) struct HostScratch {
     /// The host's output.
     wet: [f32; 2 * CHUNK],
     gain: [f32; CHUNK],
+    /// The parameters the lanes change in the block, for the device being
+    /// handed one (M7 slice A3).
+    pub params: ParamBlock,
 }
 
 impl HostScratch {
@@ -169,6 +172,7 @@ impl HostScratch {
             dry: [0.0; 2 * CHUNK],
             wet: [0.0; 2 * CHUNK],
             gain: [0.0; CHUNK],
+            params: ParamBlock::new(),
         })
     }
 }
@@ -194,7 +198,12 @@ pub(super) fn begin_early(
         && wanted(guard, dev)
     {
         let (left, right) = scratch.input.split_at(CHUNK);
-        dev.began = guard.begin(frames, &[&left[..frames], &right[..frames]], &[]);
+        dev.began = guard.begin(
+            frames,
+            &[&left[..frames], &right[..frames]],
+            &[],
+            &scratch.params,
+        );
         dev.refused = !dev.began && !guard.failed();
     }
 }
@@ -214,7 +223,13 @@ pub(super) fn run(
     (rate, advance): (u32, bool),
 ) {
     let n = left.len();
-    let HostScratch { dry, wet, gain, .. } = scratch;
+    let HostScratch {
+        dry,
+        wet,
+        gain,
+        params,
+        ..
+    } = scratch;
     let (dry_left, dry_right) = dry.split_at_mut(CHUNK);
     let (dry_left, dry_right) = (&mut dry_left[..n], &mut dry_right[..n]);
     // The delay line runs every block, so it holds the input it should when
@@ -242,9 +257,9 @@ pub(super) fn run(
             let again = std::mem::take(&mut dev.refused);
             let begin = |guard: &mut Guard, input: &[&[f32]]| {
                 if again {
-                    guard.begin_again(n, input, &[])
+                    guard.begin_again(n, input, &[], params)
                 } else {
-                    guard.begin(n, input, &[])
+                    guard.begin(n, input, &[], params)
                 }
             };
             dev.began = match key {

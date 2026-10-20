@@ -138,7 +138,15 @@ pub(crate) fn name(project: &Project, target: Target) -> String {
         Target::Trim => "Trim".to_owned(),
         Target::Mute => "Mute".to_owned(),
         Target::Send { to } => format!("Send to {}", track_name(project, to)),
-        Target::Device { param, .. } => format!("Parameter {}", param + 1),
+        // The plugin's own word for it is the arrangement's to supply
+        // (`AutoView::name_of`); this is what is known without it.
+        Target::Device { device, param } => {
+            let plugin = crate::document::find_device(project, device).map_or_else(
+                || "A plugin".to_owned(),
+                |(_, d)| crate::document::device_name(d),
+            );
+            format!("{plugin} \u{00B7} parameter {param}")
+        }
     }
 }
 
@@ -150,11 +158,19 @@ fn track_name(project: &Project, id: Id) -> String {
         .map_or_else(|| "a return".to_owned(), |t| t.name.clone())
 }
 
-/// The targets a track offers in the chooser, in order: its own values,
-/// then one send for each return it sends to.
+/// The targets a track offers in the chooser, in order: its own values, one
+/// send for each return it sends to, then the plugin parameters that already
+/// have a lane (the rest are found by searching a plugin's list).
 pub(crate) fn offered(track: &Track) -> Vec<Target> {
     let mut targets = vec![Target::Volume, Target::Pan, Target::Trim, Target::Mute];
     targets.extend(track.sends.iter().map(|s| Target::Send { to: s.to }));
+    targets.extend(
+        track
+            .automation
+            .iter()
+            .map(|l| l.target)
+            .filter(|t| t.device().is_some()),
+    );
     targets
 }
 
