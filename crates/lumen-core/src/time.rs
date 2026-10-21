@@ -130,6 +130,8 @@ pub struct TempoMap {
     points: Vec<TempoPoint>,
     /// Seconds at each point, precomputed for O(log n) lookups.
     seconds: Vec<f64>,
+    /// How each segment runs, so a lookup reads one entry.
+    runs: Vec<Run>,
 }
 
 impl TempoMap {
@@ -143,6 +145,7 @@ impl TempoMap {
             return Err(TempoError::FirstPointNotAtZero);
         }
         let mut seconds = Vec::with_capacity(points.len());
+        let mut runs: Vec<Run> = Vec::with_capacity(points.len());
         let mut elapsed = 0.0;
         for (index, point) in points.iter().enumerate() {
             if !(MIN_BPM..=MAX_BPM).contains(&point.bpm) {
@@ -153,12 +156,16 @@ impl TempoMap {
                 if point.at <= previous.at {
                     return Err(TempoError::NotIncreasing { index });
                 }
-                let run = Run::of(&points, index - 1);
-                elapsed += run.seconds(point.at - previous.at);
+                elapsed += runs[index - 1].seconds(point.at - previous.at);
             }
             seconds.push(elapsed);
+            runs.push(Run::of(&points, index));
         }
-        Ok(Self { points, seconds })
+        Ok(Self {
+            points,
+            seconds,
+            runs,
+        })
     }
 
     pub fn points(&self) -> &[TempoPoint] {
@@ -169,7 +176,7 @@ impl TempoMap {
     /// is extrapolated.
     pub fn seconds_at(&self, t: Ticks) -> f64 {
         let i = self.points.partition_point(|p| p.at <= t).saturating_sub(1);
-        self.seconds[i] + Run::of(&self.points, i).seconds(t - self.points[i].at)
+        self.seconds[i] + self.runs[i].seconds(t - self.points[i].at)
     }
 
     /// The sample at `t`: nearest sample, ties away from zero.
@@ -183,7 +190,7 @@ impl TempoMap {
             .seconds
             .partition_point(|&s| s <= seconds)
             .saturating_sub(1);
-        let ticks = Run::of(&self.points, i).ticks(seconds - self.seconds[i]);
+        let ticks = self.runs[i].ticks(seconds - self.seconds[i]);
         self.points[i].at + Ticks(ticks.round() as i64)
     }
 
@@ -207,7 +214,7 @@ impl TempoMap {
             .saturating_sub(1);
         (first..self.points.len())
             .take_while(|&i| self.points[i].at < to)
-            .any(|i| Run::of(&self.points, i).ramp.is_some())
+            .any(|i| self.runs[i].ramp.is_some())
     }
 
     /// The map as steps only, for where only steps exist (a MIDI file): each
@@ -255,7 +262,7 @@ pub fn bpm_at(points: &[TempoPoint], t: Ticks) -> f64 {
 const MOST_RAMP_STEPS: i64 = 256;
 
 /// Where a ramp goes: the tempo it ends on and how long it takes in ticks.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct Ramp {
     to: f64,
     length: Ticks,
@@ -270,7 +277,7 @@ struct Ramp {
 /// closed form: `60 L / (b1 - b0) ln(b / b0)` for a ramp `L` quarters long.
 /// Going back is the same turned round: `b = b0 e^(k s)`, with
 /// `k = (b1 - b0) / (60 L)`.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct Run {
     from: f64,
     ramp: Option<Ramp>,

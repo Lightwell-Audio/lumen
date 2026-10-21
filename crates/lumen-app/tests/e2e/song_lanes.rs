@@ -238,7 +238,8 @@ fn the_bar_field_shows_the_tempo_at_the_playhead() {
         .rect();
     let x = lumen.app().song_tempo_spot(12.0, 100.0).unwrap().x;
     click_at(&mut lumen, pos2(x, ruler.center().y));
-    lumen.frames(5);
+    // The engine answers a locate a moment later: wait for it, not a count of frames.
+    lumen.wait_for("the playhead to move", |app| app.playhead() > Ticks::ZERO);
     assert_eq!(shown(&lumen), Some(100.0));
 }
 
@@ -321,7 +322,7 @@ fn a_tempo_change_ramps_to_the_next_from_its_menu_and_the_bar_follows_the_glide(
         .rect();
     let x = lumen.app().song_tempo_spot(4.0, 110.0).unwrap().x;
     click_at(&mut lumen, pos2(x, ruler.center().y));
-    lumen.frames(5);
+    lumen.wait_for("the playhead to move", |app| app.playhead() > Ticks::ZERO);
     let shown = lumen
         .harness
         .get_by_label("Tempo")
